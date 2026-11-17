@@ -23,6 +23,7 @@ import {
   heldPairOf,
   liveBooking,
   openItemOf,
+  resentOfId,
 } from "./bookings";
 import { importFeeds } from "./feed";
 import { PACK_ID } from "./ids";
@@ -90,6 +91,8 @@ export async function txnView(tx: Tx, tenantId: string, id: string) {
     removedAfterPosting: (t.ext as { removedAfterPosting?: boolean }).removedAfterPosting === true,
     /** An open bill or invoice this may be the payment of: why it waits for a person. */
     openItem: openItemOf(t),
+    /** The bank sent this again after removing an earlier copy: why it waits for a person. */
+    resent: resentOfId(t) !== null,
     /** The transfer's other side, when this waits for a person because that transfer didn't stand. */
     pairedWith: await pairedView(tx, tenantId, t),
     booking: live

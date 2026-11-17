@@ -18,7 +18,7 @@ import { createTestDatabase, databaseAvailable, type TestDatabase } from "@count
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BOOKINGS_REVIEW, BOOKKEEPING_ACTIONS, BOOKKEEPING_REVIEWS } from "./api";
-import { addRule, bookByPerson, exclude, propose, settle } from "./bookings";
+import { addRule, approve, bookByPerson, exclude, propose, settle } from "./bookings";
 import { importFeeds } from "./feed";
 import { BOOKKEEPING_HANDLERS } from "./manifest";
 import type { PackToolContext } from "./pack";
@@ -894,7 +894,7 @@ describe.skipIf(!online)("settling (database, as cs_worker)", () => {
     expect(await b.liveOf("x-in")).toBeNull();
   });
 
-  it("replaces the card side's own transfer when a person corrects which account paid it", async () => {
+  it("approves the card side's own transfer when a person corrects which account paid it", async () => {
     const b = await books(
       [
         { account: CHECKING, ledger: "Checking" },
@@ -934,19 +934,24 @@ describe.skipIf(!online)("settling (database, as cs_worker)", () => {
         }),
       );
     }
-    // A person corrects the checking side: it paid the card, not savings.
+    const cardSide = await b.liveOf("bb");
+    expect(cardSide?.kind).toBe("transfer");
+    // A person corrects the checking side: it paid the card, not savings. The card side's own
+    // proposal is that transfer (it may already wait for a signature): approved, not replaced.
     const idA = await b.inA(async (tx) =>
       bookByPerson(tx, b.person, {
         bankTxnId: (await b.txn("a")).id,
         lines: [{ ledgerAccountId: b.A.accounts.Amex ?? "" }],
       }),
     );
+    expect(idA).toBe(cardSide?.id);
     expect((await b.txn("d")).status).toBe("new");
-    expect(await b.txn("bb")).toMatchObject({
+    expect(await b.txn("a")).toMatchObject({
       status: "matched",
-      ext: { transferBookingId: idA },
+      ext: { transferBookingId: idA, matchedBy: { userId: b.A.userId } },
     });
-    expect(await b.liveOf("bb")).toBeNull();
+    expect(await b.liveOf("a")).toBeNull();
+    expect(await b.liveOf("bb")).toMatchObject({ id: idA, status: "approved", userId: b.A.userId });
     const ready = (await tool("bookkeeping.bookings.ready").run({ limit: 25 }, b.ctx())) as {
       bookings: { bookingId: string; kind: string }[];
     };
@@ -1180,5 +1185,407 @@ describe.skipIf(!online)("settling (database, as cs_worker)", () => {
     const r = await b.inA((tx) => settle(tx, b.who));
     expect(r.ruled).toBe(0);
     expect(r.open).toEqual([(await b.txn("k-3")).id]);
+  });
+
+  // ── Transactions the bank removes and sends again (a person decides, unless already written) ──
+
+  it("matches the re-sent side of a posted transfer to that transfer, and books nothing again", async () => {
+    const b = await books(
+      [
+        { account: CHECKING, ledger: "Checking" },
+        { account: AMEX, ledger: "Amex" },
+      ],
+      [
+        { id: "c", amount: "2000.00", date: "2026-11-06", description: "AMEX EPAYMENT" },
+        {
+          id: "a",
+          account: AMEX,
+          amount: "2000.00",
+          direction: "in",
+          date: "2026-11-07",
+          description: "PAYMENT THANK YOU",
+        },
+      ],
+    );
+    await b.inA((tx) => settle(tx, b.who));
+    const transfer = await b.liveOf("c");
+    expect(transfer?.kind).toBe("transfer");
+    expect((await b.txn("a")).status).toBe("matched");
+    await b.posted(transfer?.id ?? "", "transfer", "901");
+    await b.A.feedRemoved("a", AMEX.id);
+    await b.more({
+      id: "a2",
+      account: AMEX,
+      amount: "2000.00",
+      direction: "in",
+      date: "2026-11-07",
+      description: "PAYMENT THANK YOU",
+    });
+    expect((await b.txn("a")).ext).toMatchObject({ removedAfterPosting: true });
+    const r = await b.inA((tx) => settle(tx, b.who));
+    expect(r.open).toEqual([]);
+    const a2 = await b.txn("a2");
+    expect(a2).toMatchObject({
+      status: "matched",
+      ext: {
+        transferBookingId: transfer?.id,
+        pairedTxnId: (await b.txn("c")).id,
+        resentOf: (await b.txn("a")).id,
+        matchedBy: { agentVersionId: b.A.agentVersionId },
+      },
+    });
+    expect((await b.txn("a")).ext).toMatchObject({ resentAs: a2.id });
+    // The model can't book it as a transfer of its own.
+    await expect(
+      b.inA((tx) =>
+        propose(tx, b.who, {
+          bankTxnId: a2.id,
+          lines: [{ ledgerAccountId: b.A.accounts.Checking ?? "" }],
+          confidence: 0.95,
+          reason: "card payment",
+        }),
+      ),
+    ).rejects.toThrow("only an undecided one");
+    const ready = (await tool("bookkeeping.bookings.ready").run({ limit: 25 }, b.ctx())) as {
+      bookings: unknown[];
+    };
+    expect(ready.bookings).toEqual([]);
+  });
+
+  it("matches a later copy of a removed side to the posted transfer it was the other side of", async () => {
+    const b = await books(
+      [
+        { account: CHECKING, ledger: "Checking" },
+        { account: AMEX, ledger: "Amex" },
+      ],
+      [
+        { id: "c", amount: "2000.00", date: "2026-11-06", description: "AMEX EPAYMENT" },
+        {
+          id: "a",
+          account: AMEX,
+          amount: "2000.00",
+          direction: "in",
+          date: "2026-11-07",
+          description: "PAYMENT THANK YOU",
+        },
+      ],
+    );
+    await b.inA((tx) => settle(tx, b.who));
+    const transfer = await b.liveOf("c");
+    await b.posted(transfer?.id ?? "", "transfer", "901");
+    // The bank drops the card side and sends it again dated the next day.
+    await b.A.feedRemoved("a", AMEX.id);
+    await b.more({
+      id: "a2",
+      account: AMEX,
+      amount: "2000.00",
+      direction: "in",
+      date: "2026-11-08",
+      description: "PAYMENT THANK YOU",
+    });
+    const r = await b.inA((tx) => settle(tx, b.who));
+    expect(r.open).toEqual([]);
+    expect(await b.txn("a2")).toMatchObject({
+      status: "matched",
+      ext: { transferBookingId: transfer?.id },
+    });
+  });
+
+  it("joins a person's booking of a re-sent side to the transfer proposed from the other side", async () => {
+    const b = await books(
+      [
+        { account: CHECKING, ledger: "Checking" },
+        { account: AMEX, ledger: "Amex" },
+      ],
+      [
+        { id: "c", amount: "800.00", date: "2026-11-06", description: "AMEX EPAYMENT" },
+        {
+          id: "a",
+          account: AMEX,
+          amount: "800.00",
+          direction: "in",
+          date: "2026-11-07",
+          description: "PAYMENT THANK YOU",
+        },
+      ],
+    );
+    await b.inA((tx) => settle(tx, b.who));
+    const transfer = await b.liveOf("c");
+    expect(transfer).toMatchObject({ kind: "transfer", status: "proposed" });
+    expect((await b.txn("a")).status).toBe("matched");
+    // The card side is removed and sent again before the transfer is written: a person decides.
+    await b.A.feedRemoved("a", AMEX.id);
+    await b.more({
+      id: "a2",
+      account: AMEX,
+      amount: "800.00",
+      direction: "in",
+      date: "2026-11-07",
+      description: "PAYMENT THANK YOU",
+    });
+    await b.inA((tx) => settle(tx, b.who));
+    expect((await b.txn("a2")).status).toBe("needs_review");
+    const decided = await b.inA(async (tx) =>
+      bookByPerson(tx, b.person, {
+        bankTxnId: (await b.txn("a2")).id,
+        lines: [{ ledgerAccountId: b.A.accounts.Checking ?? "" }],
+      }),
+    );
+    expect(decided).toBe(transfer?.id);
+    expect(await b.txn("a2")).toMatchObject({
+      status: "matched",
+      ext: { transferBookingId: transfer?.id },
+    });
+    const ready = (await tool("bookkeeping.bookings.ready").run({ limit: 25 }, b.ctx())) as {
+      bookings: { bookingId: string }[];
+    };
+    expect(ready.bookings.map((x) => x.bookingId)).toEqual([transfer?.id]);
+  });
+
+  it("sends a re-sent copy of an approved, proposed or left-out transaction to a person, and writes neither", async () => {
+    const b = await books(
+      [{ account: CHECKING, ledger: "Checking" }],
+      [
+        { id: "s", amount: "39.99", date: "2026-11-03", merchantName: "Figma" },
+        { id: "p", amount: "59.99", date: "2026-11-03", merchantName: "Canva" },
+        { id: "x", amount: "75.00", date: "2026-11-03", merchantName: "Acme Hardware" },
+      ],
+    );
+    await b.inA((tx) => settle(tx, b.who));
+    for (const ext of ["s", "p"]) {
+      await b.inA(async (tx) =>
+        propose(tx, b.who, {
+          bankTxnId: (await b.txn(ext)).id,
+          lines: [{ ledgerAccountId: b.A.accounts.Software ?? "" }],
+          confidence: 0.95,
+          reason: "software",
+        }),
+      );
+    }
+    const approved = await b.inA(async (tx) => approve(tx, b.person, (await b.txn("s")).id));
+    await b.inA(async (tx) => exclude(tx, b.person, { bankTxnId: (await b.txn("x")).id }));
+    // Each is removed by the bank and sent again under a new id, the same day and amount.
+    for (const ext of ["s", "p", "x"]) await b.A.feedRemoved(ext);
+    await b.more(
+      { id: "s2", amount: "39.99", date: "2026-11-03", merchantName: "Figma" },
+      { id: "p2", amount: "59.99", date: "2026-11-03", merchantName: "Canva" },
+      { id: "x2", amount: "75.00", date: "2026-11-03", merchantName: "Acme Hardware" },
+    );
+    const r = await b.inA((tx) => settle(tx, b.who));
+    expect(r.open).toEqual([]);
+    expect(r.review).toBe(3);
+    for (const ext of ["s", "p", "x"]) {
+      const copy = await b.txn(`${ext}2`);
+      expect(copy, ext).toMatchObject({
+        status: "needs_review",
+        ext: {
+          resentOf: (await b.txn(ext)).id,
+          note: "The bank sent this again after removing an earlier copy",
+        },
+      });
+      expect((await b.txn(ext)).ext, ext).toMatchObject({ resentAs: copy.id });
+    }
+    // The card says why it waits.
+    const card = BOOKKEEPING_REVIEWS[BOOKINGS_REVIEW];
+    const view = await b.inA(
+      async (tx) =>
+        (await card?.load(tx, b.A.tenantId, { bankTxnIds: [(await b.txn("s2")).id] })) as {
+          transactions: { resent: boolean }[];
+        },
+    );
+    expect(view.transactions[0]?.resent).toBe(true);
+    // The approval of the earlier copy is not written; nothing is ready.
+    expect(await b.liveOf("s")).toBeNull();
+    expect((await t.db.select().from(booking).where(eq(booking.id, approved)))[0]?.status).toBe(
+      "superseded",
+    );
+    const ready = () =>
+      tool("bookkeeping.bookings.ready").run({ limit: 25 }, b.ctx()) as Promise<{
+        bookings: unknown[];
+      }>;
+    expect((await ready()).bookings).toEqual([]);
+    await expect(b.inA((tx) => qboInput(tx, b.A.tenantId, approved))).rejects.toThrow(
+      "nothing to write",
+    );
+    // The model's suggestion for one still waits for a person.
+    await b.inA(async (tx) =>
+      propose(tx, b.who, {
+        bankTxnId: (await b.txn("s2")).id,
+        lines: [{ ledgerAccountId: b.A.accounts.Software ?? "" }],
+        confidence: 0.95,
+        reason: "software",
+      }),
+    );
+    expect((await b.txn("s2")).status).toBe("needs_review");
+    expect((await ready()).bookings).toEqual([]);
+    // Settling again changes none of them.
+    expect((await b.inA((tx) => settle(tx, b.who))).open).toEqual([]);
+    for (const ext of ["s2", "p2", "x2"]) expect((await b.txn(ext)).status).toBe("needs_review");
+    // A person approves the copy; a write made for the earlier copy after all, synced back, is
+    // this money's too, and the copy isn't written again.
+    const decided = await b.inA(async (tx) => approve(tx, b.person, (await b.txn("s2")).id));
+    await b.A.qboPurchase({
+      id: "641",
+      total: "39.9900",
+      date: "2026-11-03",
+      accountQboId: "35",
+      memo: `Figma [Mezonas bt-${(await b.txn("s")).id}]`,
+    });
+    await expect(b.inA((tx) => qboInput(tx, b.A.tenantId, decided))).rejects.toThrow(
+      "already in QuickBooks (Purchase 641)",
+    );
+  });
+
+  it("records the earlier copy's write when it goes out after all, and the re-sent copy as written", async () => {
+    const b = await books(
+      [{ account: CHECKING, ledger: "Checking" }],
+      [{ id: "s", amount: "39.99", date: "2026-11-03", merchantName: "Figma" }],
+    );
+    await b.inA((tx) => settle(tx, b.who));
+    await b.inA(async (tx) =>
+      propose(tx, b.who, {
+        bankTxnId: (await b.txn("s")).id,
+        lines: [{ ledgerAccountId: b.A.accounts.Software ?? "" }],
+        confidence: 0.95,
+        reason: "software",
+      }),
+    );
+    const approved = await b.inA(async (tx) => approve(tx, b.person, (await b.txn("s")).id));
+    // Laid out for a signature before the bank sent it again.
+    await b.inA((tx) => qboInput(tx, b.A.tenantId, approved));
+    await b.A.feedRemoved("s");
+    await b.more({ id: "s2", amount: "39.99", date: "2026-11-03", merchantName: "Figma" });
+    await b.inA((tx) => settle(tx, b.who));
+    expect((await b.txn("s2")).status).toBe("needs_review");
+    // The signature comes and the write is made: it is recorded, and the copy is that write.
+    await b.posted(approved, "purchase", "631");
+    expect(await b.liveOf("s")).toMatchObject({ id: approved, status: "posted", qboId: "631" });
+    expect((await b.txn("s2")).status).toBe("matched");
+    expect(await b.liveOf("s2")).toMatchObject({
+      status: "posted",
+      qboEntity: "Purchase",
+      qboId: "631",
+    });
+    const ready = (await tool("bookkeeping.bookings.ready").run({ limit: 25 }, b.ctx())) as {
+      bookings: unknown[];
+    };
+    expect(ready.bookings).toEqual([]);
+  });
+
+  it("keeps the other side's proposed transfer when a person books this side as that transfer", async () => {
+    const b = await books(
+      [
+        { account: CHECKING, ledger: "Checking" },
+        { account: AMEX, ledger: "Amex" },
+      ],
+      [
+        { id: "seen", amount: "1.00", date: "2026-11-01", merchantName: "Shell" },
+        {
+          id: "a",
+          account: AMEX,
+          amount: "500.00",
+          direction: "in",
+          date: "2026-11-02",
+          description: "PAYMENT THANK YOU",
+        },
+      ],
+    );
+    await b.inA((tx) => settle(tx, b.who));
+    // The model took the card side for a refund, unsure: it waits for a person.
+    await b.inA(async (tx) =>
+      propose(tx, b.who, {
+        bankTxnId: (await b.txn("a")).id,
+        lines: [{ ledgerAccountId: b.A.accounts.Sales ?? "" }],
+        confidence: 0.4,
+        reason: "a refund",
+      }),
+    );
+    // The checking side arrives and is proposed as a transfer to the card, ready to write.
+    await b.more({ id: "c", amount: "500.00", date: "2026-11-03", description: "AMEX EPAYMENT" });
+    await b.inA((tx) => settle(tx, b.who));
+    const proposed = await b.inA(async (tx) =>
+      propose(tx, b.who, {
+        bankTxnId: (await b.txn("c")).id,
+        lines: [{ ledgerAccountId: b.A.accounts.Amex ?? "" }],
+        confidence: 0.95,
+        reason: "a card payment",
+      }),
+    );
+    expect(proposed.status).toBe("proposed");
+    // A run lays it out for a signature.
+    await b.inA((tx) => qboInput(tx, b.A.tenantId, proposed.bookingId));
+    // A person books the card side as that same transfer.
+    const decided = await b.inA(async (tx) =>
+      bookByPerson(tx, b.person, {
+        bankTxnId: (await b.txn("a")).id,
+        lines: [{ ledgerAccountId: b.A.accounts.Checking ?? "" }],
+      }),
+    );
+    expect(decided).toBe(proposed.bookingId);
+    expect(await b.liveOf("c")).toMatchObject({
+      id: proposed.bookingId,
+      status: "approved",
+      userId: b.A.userId,
+    });
+    expect(await b.txn("a")).toMatchObject({
+      status: "matched",
+      ext: { transferBookingId: proposed.bookingId, matchedBy: { userId: b.A.userId } },
+    });
+    expect(await b.liveOf("a")).toBeNull();
+    const ready = (await tool("bookkeeping.bookings.ready").run({ limit: 25 }, b.ctx())) as {
+      bookings: { bookingId: string }[];
+    };
+    expect(ready.bookings.map((x) => x.bookingId)).toEqual([proposed.bookingId]);
+  });
+
+  it("asks again about a bill paid in QuickBooks once the payment there is undone or the bill goes", async () => {
+    const b = await books(
+      [{ account: CHECKING, ledger: "Checking" }],
+      [{ id: "seen", amount: "1.00", date: "2026-11-01", merchantName: "Shell" }],
+    );
+    const hardwood = await b.A.vendor("Hardwood Supply", "56");
+    const bill = await b.A.qboBill({
+      id: "301",
+      total: "4200.0000",
+      balance: "4200.0000",
+      date: "2026-10-20",
+      vendorId: hardwood,
+    });
+    await b.more({
+      id: "bp",
+      amount: "4200.00",
+      date: "2026-11-03",
+      description: "ACH HARDWOOD SUPPLY",
+    });
+    await b.inA((tx) => settle(tx, b.who));
+    expect((await b.txn("bp")).status).toBe("needs_review");
+    const balance = (value: string, version: string) =>
+      t.db.execute(sql`with r as (insert into raw_record (tenant_id, connection_id, connector,
+      entity_type, external_id, external_version, payload) select tenant_id, connection_id,
+      connector, entity_type, external_id, ${version}, jsonb_set(payload::jsonb, '{Balance}',
+      ${value}::jsonb) from raw_record where id = (select source_raw_record_id from transaction
+      where id = ${bill}) returning id) update transaction set source_raw_record_id =
+      (select id from r) where id = ${bill}`);
+    await balance("0", "v2");
+    await b.inA((tx) => settle(tx, b.who));
+    expect((await b.txn("bp")).ext).toMatchObject({ openItem: { paid: true } });
+    // The payment is undone in QuickBooks: the bill is open again, and the card asks as before.
+    await balance("4200", "v3");
+    await b.inA((tx) => settle(tx, b.who));
+    const open = await b.txn("bp");
+    expect(open.status).toBe("needs_review");
+    expect(open.ext).toMatchObject({
+      openItem: { transactionId: bill, balance: "4200.0000", confirmed: true },
+    });
+    expect((open.ext as { openItem?: { paid?: boolean } }).openItem?.paid).not.toBe(true);
+    // Paid again, then the bill deleted: nothing holds it any more.
+    await balance("0", "v4");
+    await b.inA((tx) => settle(tx, b.who));
+    expect((await b.txn("bp")).ext).toMatchObject({ openItem: { paid: true } });
+    await t.db.execute(
+      sql`update transaction set ext = jsonb_set(ext, '{qbo,deleted}', 'true') where id = ${bill}`,
+    );
+    await b.inA((tx) => settle(tx, b.who));
+    expect((await b.txn("bp")).ext).not.toHaveProperty("openItem");
   });
 });

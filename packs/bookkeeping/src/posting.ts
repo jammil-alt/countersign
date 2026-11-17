@@ -8,7 +8,7 @@ import { dec } from "@countersign/core";
 import { ledgerAccount, type Tx, transaction, vendor, withTenant } from "@countersign/db";
 import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { holdPaired, MONEY_KINDS } from "./bookings";
+import { holdPaired, MONEY_KINDS, resentWritten } from "./bookings";
 import { defineTool, PackRefusal, type PackTool } from "./pack";
 import { bankAccountLink, bankTxn, booking, bookingLine } from "./schema";
 
@@ -68,6 +68,8 @@ export const readyTool = defineTool({
             inArray(booking.kind, ["expense", "deposit", "transfer"]),
             inArray(bankTxn.status, ["proposed", "approved"]),
             eq(bankAccountLink.mode, "book"),
+            // An earlier copy the bank removed and sent again: a person decides on the copy.
+            sql`${bankTxn.ext} ->> 'resentAs' is null`,
           ),
         )
         .orderBy(asc(bankTxn.txnDate), asc(booking.id))
@@ -133,6 +135,14 @@ export async function qboInput(tx: Tx, tenantId: string, bookingId: string) {
   if (t.status !== "approved" && t.status !== "proposed") {
     throw new PackRefusal(`transaction ${t.id} is ${t.status}: a person decides it first`);
   }
+  if (typeof (t.ext as { resentAs?: unknown }).resentAs === "string") {
+    throw new PackRefusal(
+      `transaction ${t.id} was removed and sent again by the bank: a person decides the new copy`,
+    );
+  }
+  // A copy the bank sent again: a record written for the earlier copy is this money's too.
+  const resentOf = (t.ext as { resentOf?: unknown }).resentOf;
+  const ids = typeof resentOf === "string" ? [t.id, resentOf] : [t.id];
   if (l.mode !== "book" || !l.ledgerAccountId) {
     throw new PackRefusal(
       `${l.name ?? "this account"} isn't set to book: approve and add it yourself`,
@@ -170,8 +180,14 @@ export async function qboInput(tx: Tx, tenantId: string, bookingId: string) {
         eq(transaction.tenantId, tenantId),
         sql`coalesce((${transaction.ext} -> 'qbo' ->> 'deleted')::boolean, false) = false`,
         or(
-          sql`substring(coalesce(${transaction.memo}, '') from ${TXN_MARK}::text) = ${t.id}::text`,
-          sql`substring(coalesce(${transaction.memo}, '') from ${BOOKING_MARK}::text) in (select e.id::text from ${booking} e where e.tenant_id = ${tenantId} and e.bank_txn_id = ${t.id})`,
+          sql`substring(coalesce(${transaction.memo}, '') from ${TXN_MARK}::text) in (${sql.join(
+            ids.map((id) => sql`${id}::text`),
+            sql`, `,
+          )})`,
+          sql`substring(coalesce(${transaction.memo}, '') from ${BOOKING_MARK}::text) in (select e.id::text from ${booking} e where e.tenant_id = ${tenantId} and e.bank_txn_id::text in (${sql.join(
+            ids.map((id) => sql`${id}::text`),
+            sql`, `,
+          )}))`,
         ),
       ),
     )
@@ -322,6 +338,18 @@ export const postedTool = defineTool({
       if (!b) throw new PackRefusal(`booking ${input.bookingId} isn't one of this client's`);
       if (b.status === "posted" && b.qboId === (input.qboId ?? null)) {
         return { recorded: false, status: "posted" as const, sources: [b.id] };
+      }
+      // Laid out for a signature before the bank sent the transaction again, and written after
+      // all: what was written is recorded, and the copy with it.
+      if (
+        b.status === "superseded" &&
+        input.qboId &&
+        (await resentWritten(tx, ctx, b.bankTxnId, b, {
+          entity: QBO_ENTITY[input.entity],
+          id: input.qboId,
+        }))
+      ) {
+        return { recorded: true, status, sources: [b.id, input.qboId] };
       }
       if (b.status !== "approved" && b.status !== "proposed") {
         throw new PackRefusal(`booking ${b.id} is ${b.status}: nothing to record`);

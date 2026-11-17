@@ -337,7 +337,14 @@ async function repairPaired(
   tx: Tx,
   tenantId: string,
   t: TxnRow,
-  made: { bookingId: string; kind: BookingKind; lineAccountId: string | null; byPerson?: boolean },
+  made: {
+    bookingId: string;
+    kind: BookingKind;
+    lineAccountId: string | null;
+    byPerson?: boolean;
+    /** Who decided it, kept on a side matched to it (invariant 10). */
+    decidedBy?: Record<string, unknown>;
+  },
 ): Promise<void> {
   const sides = await pairedSides(tx, tenantId, t);
   const heldFor = (t.ext as { pairedTxnId?: unknown }).pairedTxnId;
@@ -365,7 +372,7 @@ async function repairPaired(
   }
   for (const { txn: side, ledgerAccountId } of sides) {
     if (made.kind === "transfer" && ledgerAccountId === made.lineAccountId) {
-      await matchSide(tx, tenantId, side, made.bookingId, t.id);
+      await matchSide(tx, tenantId, side, made.bookingId, t.id, made.decidedBy ?? null);
     } else if (side.status === "matched" || (side.ext as { heldWhy?: unknown }).heldWhy) {
       await freeSide(tx, tenantId, side);
     }
@@ -395,12 +402,12 @@ async function otherSideBooked(
   tenantId: string,
   t: TxnRow,
   lineAccountId: string,
-): Promise<{ bookingId: string; status: string; side: TxnRow } | null> {
+): Promise<{ bookingId: string; status: string; side: TxnRow; mode: string } | null> {
   const link = await linkOf(tx, tenantId, t.accountLinkId);
   if (!link.ledgerAccountId) return null;
   const day = (n: number) => sql`(${t.txnDate}::date + ${n}::int)`;
   const [found] = await tx
-    .select({ b: booking, side: bankTxn })
+    .select({ b: booking, side: bankTxn, mode: bankAccountLink.mode })
     .from(booking)
     .innerJoin(
       bankTxn,
@@ -426,12 +433,15 @@ async function otherSideBooked(
         gte(bankTxn.txnDate, day(-TRANSFER_BOOKED_DAYS)),
         lte(bankTxn.txnDate, day(TRANSFER_BOOKED_DAYS)),
         sql`exists (select 1 from ${bookingLine} l where l.tenant_id = ${booking.tenantId} and l.booking_id = ${booking.id} and l.ledger_account_id = ${link.ledgerAccountId})`,
-        sql`not exists (select 1 from ${bankTxn} o where o.tenant_id = ${booking.tenantId} and o.id <> ${t.id} and o.status = 'matched' and o.ext ->> 'transferBookingId' = ${booking.id}::text)`,
+        // A side the bank removed doesn't hold the transfer: its copy, or the side itself, may join.
+        sql`not exists (select 1 from ${bankTxn} o where o.tenant_id = ${booking.tenantId} and o.id <> ${t.id} and o.status = 'matched' and o.ext ->> 'transferBookingId' = ${booking.id}::text and coalesce((o.ext ->> 'removedAfterPosting')::boolean, false) = false)`,
       ),
     )
     .orderBy(sql`abs(${bankTxn.txnDate} - ${t.txnDate}::date)`, asc(booking.id))
     .limit(1);
-  return found ? { bookingId: found.b.id, status: found.b.status, side: found.side } : null;
+  return found
+    ? { bookingId: found.b.id, status: found.b.status, side: found.side, mode: found.mode }
+    : null;
 }
 
 /** This side matched to the transfer booked on the other: its own pairings freed first. */
@@ -454,20 +464,52 @@ async function joinBooked(
   await matchSide(tx, tenantId, now ?? t, other.bookingId, other.side.id, decidedBy);
 }
 
-/** The other side's own proposed transfer gives way to this one's: it is matched to it. */
+/**
+ * The other side's own proposed transfer gives way to this one's: it is matched to it. Only for a
+ * proposal on an account set to suggest, which is never written (`joinProposed` otherwise).
+ */
 async function takeOver(
   tx: Tx,
   tenantId: string,
   other: { side: TxnRow },
   bookingId: string,
   t: TxnRow,
+  decidedBy: Record<string, unknown>,
 ): Promise<void> {
   await repairPaired(tx, tenantId, other.side, { bookingId, kind: "match", lineAccountId: null });
   const [now] = await tx
     .select()
     .from(bankTxn)
     .where(and(eq(bankTxn.tenantId, tenantId), eq(bankTxn.id, other.side.id)));
-  await matchSide(tx, tenantId, now ?? other.side, bookingId, t.id);
+  await matchSide(tx, tenantId, now ?? other.side, bookingId, t.id, decidedBy);
+}
+
+/**
+ * A person books this side as the transfer the other side's proposal already is, on an account set
+ * to book: that proposal is approved as the person's, and this side is matched to it.
+ */
+// DECISION: the other side's proposal may already be laid out for a signature in a run; replacing
+// it with this side's own booking would let both be written (under two references). Approving the
+// same proposal keeps one booking, so at most one write, whichever run makes it.
+async function joinProposed(
+  tx: Tx,
+  who: PersonDecision,
+  t: TxnRow,
+  other: { bookingId: string; side: TxnRow },
+): Promise<string> {
+  await tx
+    .update(booking)
+    .set({ status: "approved", userId: who.userId, decidedAt: sql`now()` })
+    .where(
+      and(
+        eq(booking.tenantId, who.tenantId),
+        eq(booking.id, other.bookingId),
+        eq(booking.status, "proposed"),
+      ),
+    );
+  await setStatus(tx, who.tenantId, other.side.id, "approved");
+  await joinBooked(tx, who.tenantId, t, other, { userId: who.userId });
+  return other.bookingId;
 }
 
 /** Held for a person because it may be the other side of a transfer that didn't stand. */
@@ -602,9 +644,15 @@ export async function settle(
     }
     if (await matchExisting(tx, who, t, link, opts.testRun)) {
       result.matched += 1;
+      if (!opts.testRun) await linkResent(tx, tenantId, t);
       continue;
     }
-    if (await resentMatch(tx, who, t, opts.testRun)) {
+    const resent = await resentMatch(tx, who, t, opts.testRun);
+    if (resent === "review") {
+      result.review += 1;
+      continue;
+    }
+    if (resent) {
       result.matched += 1;
       continue;
     }
@@ -758,50 +806,203 @@ export async function markOffered(tx: Tx, tenantId: string, ids: readonly string
     .where(and(eq(bankTxn.tenantId, tenantId), inArray(bankTxn.id, [...ids])));
 }
 
+/** The plain note on a copy the bank sent again, waiting for a person. */
+export const RESENT_NOTE = "The bank sent this again after removing an earlier copy";
+
+/** The earlier copy the bank removed that this transaction was sent again in place of, if any. */
+export function resentOfId(t: Pick<TxnRow, "ext">): string | null {
+  const id = (t.ext as { resentOf?: unknown }).resentOf;
+  return typeof id === "string" ? id : null;
+}
+
 /**
- * The bank sent a transaction again under a new id after the first was decided and posted
- * (`removedAfterPosting`): the same account, day, amount and direction. It is what was already
- * written, recorded as posted from that booking, and nothing is written again.
+ * Earlier copies of this transaction the bank removed: the same account, day, amount and
+ * direction, removed after it was decided (`removedAfterPosting`: approved, posted, matched or
+ * left out) or while proposed or waiting for a person, and not taken by another copy yet. A
+ * posted one first, then one matched to a transfer, then the oldest.
  */
-// DECISION: deposits and transfers aren't synced back from QuickBooks, so matching the record
-// itself can't find them; the earlier transaction's booking says what was written. The same day
-// only (a re-send keeps it; a daily charge of the same amount is another), one re-sent
-// transaction per earlier one (`ext.resentAs`), and never a write another transaction already
-// stands for.
-async function resentMatch(tx: Tx, who: Decider, t: TxnRow, testRun = false): Promise<boolean> {
-  const [found] = await tx
-    .select({ earlier: bankTxn, b: booking })
+async function resentEarlier(
+  tx: Tx,
+  tenantId: string,
+  t: TxnRow,
+): Promise<{ earlier: TxnRow; posted: typeof booking.$inferSelect | null } | null> {
+  const rows = await tx
+    .select()
     .from(bankTxn)
-    .innerJoin(
-      booking,
-      and(eq(booking.bankTxnId, bankTxn.id), eq(booking.tenantId, bankTxn.tenantId)),
-    )
     .where(
       and(
-        eq(bankTxn.tenantId, who.tenantId),
+        eq(bankTxn.tenantId, tenantId),
         ne(bankTxn.id, t.id),
         eq(bankTxn.accountLinkId, t.accountLinkId),
         eq(bankTxn.direction, t.direction),
         eq(bankTxn.amount, t.amount),
         eq(bankTxn.currency, t.currency),
         eq(bankTxn.txnDate, t.txnDate),
-        sql`coalesce((${bankTxn.ext} ->> 'removedAfterPosting')::boolean, false)`,
         sql`${bankTxn.ext} ->> 'resentAs' is null`,
-        eq(booking.status, "posted"),
-        // Not what another transaction already stands for (matched to the record itself).
-        sql`(${booking.qboId} is null or not exists (select 1 from ${booking} x where x.tenant_id = ${booking.tenantId} and x.bank_txn_id <> ${bankTxn.id} and x.status in ('proposed', 'approved', 'posted') and x.qbo_id = ${booking.qboId} and x.qbo_entity is not distinct from ${booking.qboEntity}))`,
+        or(
+          sql`coalesce((${bankTxn.ext} ->> 'removedAfterPosting')::boolean, false)`,
+          and(
+            eq(bankTxn.status, "removed"),
+            // Not a pending transaction that posted under a new id.
+            sql`${bankTxn.ext} ->> 'postedAs' is null`,
+            or(
+              sql`${bankTxn.ext} ->> 'removedFrom' in ('proposed', 'needs_review')`,
+              sql`exists (select 1 from ${booking} x where x.tenant_id = ${bankTxn.tenantId} and x.bank_txn_id = ${bankTxn.id})`,
+            ),
+          ),
+        ),
       ),
     )
     .orderBy(asc(bankTxn.id))
-    .limit(1);
-  if (!found) return false;
-  if (testRun) return true;
-  const { earlier, b } = found;
+    .limit(10);
+  if (rows.length === 0) return null;
+  const posted = await tx
+    .select()
+    .from(booking)
+    .where(
+      and(
+        eq(booking.tenantId, tenantId),
+        inArray(
+          booking.bankTxnId,
+          rows.map((r) => r.id),
+        ),
+        eq(booking.status, "posted"),
+      ),
+    );
+  const postedOf = (id: string) => posted.find((b) => b.bankTxnId === id) ?? null;
+  const rank = (r: TxnRow) => (postedOf(r.id) ? 0 : r.status === "matched" ? 1 : 2);
+  const [earlier] = [...rows].sort((a, b) => rank(a) - rank(b));
+  return earlier ? { earlier, posted: postedOf(earlier.id) } : null;
+}
+
+/**
+ * The bank sent a transaction again under a new id after removing an earlier copy (see
+ * `resentEarlier`). Posted with its own booking: the copy is what was already written, recorded as
+ * posted from that booking. Matched to a transfer posted or approved from the other side: the copy
+ * is matched to that transfer. Anything else (approved and not written yet, proposed, left out):
+ * the copy waits for a person and is never offered to the model, and the earlier copy's approval is
+ * not written.
+ */
+// DECISION: re-sends are conservative: a person decides, and code matches only what is proven
+// safe: a write already made (its booking says what was written, since deposits and transfers
+// aren't synced back from QuickBooks) or the transfer the earlier copy was the other side of. The
+// same day only (a re-send keeps it; a daily charge of the same amount is another), one copy per
+// earlier one (`ext.resentAs`), and never a write another transaction already stands for.
+async function resentMatch(
+  tx: Tx,
+  who: Decider,
+  t: TxnRow,
+  testRun = false,
+): Promise<"posted" | "matched" | "review" | null> {
+  const found = await resentEarlier(tx, who.tenantId, t);
+  if (!found) return null;
+  const { earlier, posted } = found;
+  let outcome: "posted" | "matched" | "review" = "review";
+  let transfer: { id: string; bankTxnId: string } | null = null;
+  if (posted) {
+    // Not what another transaction already stands for (matched to the record itself).
+    const [taken] = posted.qboId
+      ? await tx
+          .select({ id: booking.id })
+          .from(booking)
+          .where(
+            and(
+              eq(booking.tenantId, who.tenantId),
+              ne(booking.bankTxnId, earlier.id),
+              ne(booking.bankTxnId, t.id),
+              inArray(booking.status, [...LIVE_BOOKING_STATUSES]),
+              eq(booking.qboId, posted.qboId),
+              sql`${booking.qboEntity} is not distinct from ${posted.qboEntity}`,
+            ),
+          )
+          .limit(1)
+      : [];
+    if (!taken) outcome = "posted";
+  } else if (earlier.status === "matched") {
+    const id = (earlier.ext as { transferBookingId?: unknown }).transferBookingId;
+    const [b] =
+      typeof id === "string"
+        ? await tx
+            .select({ id: booking.id, bankTxnId: booking.bankTxnId })
+            .from(booking)
+            .where(
+              and(
+                eq(booking.tenantId, who.tenantId),
+                sql`${booking.id}::text = ${id}`,
+                eq(booking.kind, "transfer"),
+                inArray(booking.status, ["approved", "posted"]),
+                // No other side, still on the feed, is matched to it.
+                sql`not exists (select 1 from ${bankTxn} o where o.tenant_id = ${booking.tenantId} and o.id <> ${earlier.id} and o.id <> ${t.id} and o.status = 'matched' and o.ext ->> 'transferBookingId' = ${booking.id}::text and coalesce((o.ext ->> 'removedAfterPosting')::boolean, false) = false)`,
+              ),
+            )
+        : [];
+    if (b) {
+      transfer = b;
+      outcome = "matched";
+    }
+  }
+  if (testRun) return outcome;
+  if (outcome === "posted" && posted) {
+    await recordResentPosted(tx, who, t, earlier, posted);
+  } else if (outcome === "matched" && transfer) {
+    await matchSide(tx, who.tenantId, t, transfer.id, transfer.bankTxnId, deciderOf(who));
+    const [now] = await tx
+      .select({ ext: bankTxn.ext })
+      .from(bankTxn)
+      .where(and(eq(bankTxn.tenantId, who.tenantId), eq(bankTxn.id, t.id)));
+    await tx
+      .update(bankTxn)
+      .set({ ext: { ...(now?.ext ?? t.ext), resentOf: earlier.id } })
+      .where(and(eq(bankTxn.tenantId, who.tenantId), eq(bankTxn.id, t.id)));
+  } else {
+    await retireEarlier(tx, who.tenantId, earlier);
+    await setStatus(tx, who.tenantId, t.id, "needs_review", {
+      ...t.ext,
+      resentOf: earlier.id,
+      note: RESENT_NOTE,
+    });
+  }
+  await markResent(tx, who.tenantId, earlier.id, t.id);
+  return outcome;
+}
+
+/** The earlier copy names the copy that took its place. */
+async function markResent(tx: Tx, tenantId: string, earlierId: string, copyId: string) {
+  await tx
+    .update(bankTxn)
+    .set({
+      ext: sql`${bankTxn.ext} || jsonb_build_object('resentAs', ${copyId}::text)`,
+      updatedAt: sql`now()`,
+    })
+    .where(and(eq(bankTxn.tenantId, tenantId), eq(bankTxn.id, earlierId)));
+}
+
+/**
+ * An earlier copy approved and not written yet: its approval gives way (the person decides on the
+ * copy) and it is `removed`, so nobody decides it again; a side matched to it waits for a person.
+ */
+async function retireEarlier(tx: Tx, tenantId: string, earlier: TxnRow): Promise<void> {
+  const standing = await liveBooking(tx, tenantId, earlier.id);
+  if (!standing || standing.status === "posted") return;
+  await supersede(tx, tenantId, earlier.id);
+  await holdPaired(tx, tenantId, earlier, "changed");
+  await setStatus(tx, tenantId, earlier.id, "removed");
+}
+
+/** The copy recorded as posted from the earlier copy's booking: nothing is written again. */
+async function recordResentPosted(
+  tx: Tx,
+  who: Decider,
+  t: TxnRow,
+  earlier: TxnRow,
+  b: typeof booking.$inferSelect,
+): Promise<void> {
   const lines = await tx
     .select()
     .from(bookingLine)
     .where(and(eq(bookingLine.tenantId, who.tenantId), eq(bookingLine.bookingId, b.id)))
     .orderBy(asc(bookingLine.lineNo));
+  await supersede(tx, who.tenantId, t.id);
   await insertBooking(
     tx,
     who.tenantId,
@@ -830,11 +1031,64 @@ async function resentMatch(tx: Tx, who: Decider, t: TxnRow, testRun = false): Pr
       description: l.description,
     })),
   );
-  await setStatus(tx, who.tenantId, t.id, "matched", { ...t.ext, resentOf: earlier.id });
+  const { note: _, ...ext } = t.ext as { note?: unknown };
+  await setStatus(tx, who.tenantId, t.id, "matched", { ...ext, resentOf: earlier.id });
+}
+
+/**
+ * After a code match of a new transaction to a record already in the accounting tool: an earlier
+ * copy the bank removed is linked to it, and an approval of that copy not written yet gives way.
+ */
+async function linkResent(tx: Tx, tenantId: string, t: TxnRow): Promise<void> {
+  const found = await resentEarlier(tx, tenantId, t);
+  if (!found) return;
+  await retireEarlier(tx, tenantId, found.earlier);
+  const [now] = await tx
+    .select({ ext: bankTxn.ext })
+    .from(bankTxn)
+    .where(and(eq(bankTxn.tenantId, tenantId), eq(bankTxn.id, t.id)));
   await tx
     .update(bankTxn)
-    .set({ ext: { ...earlier.ext, resentAs: t.id }, updatedAt: sql`now()` })
-    .where(and(eq(bankTxn.tenantId, who.tenantId), eq(bankTxn.id, earlier.id)));
+    .set({ ext: { ...(now?.ext ?? t.ext), resentOf: found.earlier.id } })
+    .where(and(eq(bankTxn.tenantId, tenantId), eq(bankTxn.id, t.id)));
+  await markResent(tx, tenantId, found.earlier.id, t.id);
+}
+
+/**
+ * An earlier copy's approval, laid out for a signature before its copy arrived, was written after
+ * all: it is recorded as posted, and the copy, unless a person already wrote or left it out, is
+ * recorded as that write (its own standing booking gives way).
+ */
+export async function resentWritten(
+  tx: Tx,
+  who: Decider,
+  earlierId: string,
+  b: { id: string },
+  qbo: { entity: string; id: string },
+): Promise<boolean> {
+  const [earlier] = await tx
+    .select()
+    .from(bankTxn)
+    .where(and(eq(bankTxn.tenantId, who.tenantId), eq(bankTxn.id, earlierId)));
+  const copyId = (earlier?.ext as { resentAs?: unknown } | undefined)?.resentAs;
+  if (!earlier || typeof copyId !== "string") return false;
+  if (await liveBooking(tx, who.tenantId, earlier.id)) return false;
+  await tx
+    .update(booking)
+    .set({ status: "posted", qboEntity: qbo.entity, qboId: qbo.id, postedAt: sql`now()` })
+    .where(and(eq(booking.tenantId, who.tenantId), eq(booking.id, b.id)));
+  await setStatus(tx, who.tenantId, earlier.id, "posted");
+  const [copy] = await tx
+    .select()
+    .from(bankTxn)
+    .where(and(eq(bankTxn.tenantId, who.tenantId), eq(bankTxn.id, copyId)));
+  const standing = copy ? await liveBooking(tx, who.tenantId, copy.id) : null;
+  if (!copy || !DECIDABLE.includes(copy.status) || standing?.status === "posted") return true;
+  const [posted] = await tx
+    .select()
+    .from(booking)
+    .where(and(eq(booking.tenantId, who.tenantId), eq(booking.id, b.id)));
+  if (posted) await recordResentPosted(tx, who, copy, earlier, posted);
   return true;
 }
 
@@ -1013,7 +1267,7 @@ async function transferPair(
     near ? "proposed" : "needs_review",
     withoutPair(from.ext),
   );
-  await matchSide(tx, who.tenantId, to, id, from.id);
+  await matchSide(tx, who.tenantId, to, id, from.id, deciderOf(who));
   return pair.txn.id;
 }
 
@@ -1052,7 +1306,8 @@ async function transferBooked(
         gte(bankTxn.txnDate, day(-TRANSFER_BOOKED_DAYS)),
         lte(bankTxn.txnDate, day(TRANSFER_BOOKED_DAYS)),
         sql`exists (select 1 from ${bookingLine} l where l.tenant_id = ${booking.tenantId} and l.booking_id = ${booking.id} and l.ledger_account_id = ${link.ledgerAccountId})`,
-        sql`not exists (select 1 from ${bankTxn} o where o.tenant_id = ${booking.tenantId} and o.id <> ${t.id} and o.status = 'matched' and o.ext ->> 'transferBookingId' = ${booking.id}::text)`,
+        // A side the bank removed doesn't hold the transfer: its copy, or the side itself, may join.
+        sql`not exists (select 1 from ${bankTxn} o where o.tenant_id = ${booking.tenantId} and o.id <> ${t.id} and o.status = 'matched' and o.ext ->> 'transferBookingId' = ${booking.id}::text and coalesce((o.ext ->> 'removedAfterPosting')::boolean, false) = false)`,
       ),
     )
     .orderBy(sql`abs(${bankTxn.txnDate} - ${t.txnDate}::date)`, asc(booking.id))
@@ -1079,7 +1334,7 @@ export interface OpenItem {
   currency: string;
   /** The vendor or customer is the transaction's payee: a person decides it. Else a hint only. */
   confirmed: boolean;
-  /** Paid in QuickBooks since: the person leaves this transaction out. */
+  /** Paid in QuickBooks since: the card asks whether this is that payment, to leave it out. */
   paid?: boolean;
 }
 
@@ -1249,12 +1504,14 @@ async function itemNow(
 /**
  * Transactions waiting for a person because of an open bill or invoice, checked again. Paid in
  * QuickBooks (what is owed fell by exactly this amount, or the invoice is paid): it stays with a
- * person, to be left out, since the payment is in the books there. Deleted, voided or changed to
- * another amount: it goes back to `new`, to be decided again.
+ * person, the card asking whether this is that payment. Open again for what it was (the payment
+ * there undone): back to the open bill or invoice. Deleted, voided or changed to another amount:
+ * it goes back to `new`, to be decided again.
  */
 // DECISION: a bill or invoice paid in QuickBooks never frees its payment to be booked again (bill
-// payments aren't synced, so the bank transaction would become a second expense); a person leaves
-// it out with the card saying it is paid there.
+// payments aren't synced, so the bank transaction would become a second expense); the card asks
+// the person whether this is that payment, to leave it out. It is checked again while it waits, so
+// "paid" doesn't stick once the payment is undone or the bill is gone.
 async function recheckOpenItems(tx: Tx, who: Decider): Promise<void> {
   const held = await tx
     .select({ t: bankTxn })
@@ -1264,7 +1521,6 @@ async function recheckOpenItems(tx: Tx, who: Decider): Promise<void> {
         eq(bankTxn.tenantId, who.tenantId),
         eq(bankTxn.status, "needs_review"),
         sql`${bankTxn.ext} -> 'openItem' ->> 'confirmed' = 'true'`,
-        sql`coalesce((${bankTxn.ext} -> 'openItem' ->> 'paid')::boolean, false) = false`,
       ),
     )
     .limit(RECHECK_LIMIT);
@@ -1272,17 +1528,24 @@ async function recheckOpenItems(tx: Tx, who: Decider): Promise<void> {
     const was = openItemOf(t);
     if (!was) continue;
     const now = await itemNow(tx, who.tenantId, was);
-    if (!now.gone && now.balance !== null && dec(now.balance).eq(dec(was.balance))) continue;
+    const balance = !now.gone && now.balance !== null ? dec(now.balance) : null;
+    const open = balance !== null && !now.paid && balance.eq(dec(was.balance));
     const paid =
-      !now.gone &&
-      now.balance !== null &&
-      (now.paid || dec(was.balance).minus(dec(now.balance)).eq(dec(t.amount)));
-    if (paid) {
-      await setStatus(tx, who.tenantId, t.id, "needs_review", {
-        ...t.ext,
-        // What was owed stays, for the card to name; the bill or invoice is paid now.
-        openItem: { ...was, paid: true },
-      });
+      balance !== null && (now.paid || dec(was.balance).minus(balance).eq(dec(t.amount)));
+    if (open) {
+      // Still open for what it was: unchanged, or the payment there undone.
+      if (was.paid) {
+        const { paid: _, ...item } = was;
+        await setStatus(tx, who.tenantId, t.id, "needs_review", { ...t.ext, openItem: item });
+      }
+    } else if (paid) {
+      if (!was.paid) {
+        await setStatus(tx, who.tenantId, t.id, "needs_review", {
+          ...t.ext,
+          // What was owed stays, for the card to name; the bill or invoice is paid now.
+          openItem: { ...was, paid: true },
+        });
+      }
     } else if (await liveBooking(tx, who.tenantId, t.id)) {
       // A suggestion stands: it stays with a person, without the stale candidate.
       await setStatus(tx, who.tenantId, t.id, "needs_review", withoutOpenItem(t.ext));
@@ -1435,15 +1698,17 @@ export async function propose(
     },
     lines,
   );
-  // A payment of an open bill or invoice, or a side held as a transfer's pair, waits for a person
-  // however sure the model is.
-  const hold = openItemOf(t)?.confirmed === true || heldPairOf(t) !== null;
+  // A payment of an open bill or invoice, a side held as a transfer's pair, or a copy the bank sent
+  // again of one already decided, waits for a person however sure the model is.
+  const hold =
+    openItemOf(t)?.confirmed === true || heldPairOf(t) !== null || resentOfId(t) !== null;
   const status = input.confidence >= threshold && !hold ? "proposed" : "needs_review";
   await setStatus(tx, who.tenantId, t.id, status);
   await repairPaired(tx, who.tenantId, t, {
     bookingId,
     kind,
     lineAccountId: lines[0]?.ledgerAccountId ?? null,
+    decidedBy: deciderOf(who),
   });
   return { bookingId, status };
 }
@@ -1475,12 +1740,14 @@ export async function approve(tx: Tx, who: PersonDecision, bankTxnId: string): P
     await joinBooked(tx, who.tenantId, t, other, { userId: who.userId });
     return other.bookingId;
   }
+  // Proposed there, on an account set to book: that proposal is the one approved.
+  if (other && other.mode === "book") return joinProposed(tx, who, t, other);
   await tx
     .update(booking)
     .set({ status: "approved", userId: who.userId, decidedAt: sql`now()` })
     .where(and(eq(booking.tenantId, who.tenantId), eq(booking.id, live.id)));
   await setStatus(tx, who.tenantId, t.id, "approved");
-  if (other) await takeOver(tx, who.tenantId, other, live.id, t);
+  if (other) await takeOver(tx, who.tenantId, other, live.id, t, { userId: who.userId });
   await learn(tx, who, t);
   return live.id;
 }
@@ -1531,7 +1798,8 @@ export async function bookByPerson(tx: Tx, who: PersonDecision, input: BookInput
     }
   }
   // The same transfer booked from the other side: a person's or approved one stands and this side
-  // is matched to it; a proposal there gives way to this person's booking.
+  // is matched to it; so does a proposal there on an account set to book (approved now). A
+  // proposal on an account set to suggest gives way to this person's booking.
   const other =
     kind === "transfer" && lines[0]
       ? await otherSideBooked(tx, who.tenantId, t, lines[0].ledgerAccountId)
@@ -1540,6 +1808,7 @@ export async function bookByPerson(tx: Tx, who: PersonDecision, input: BookInput
     await joinBooked(tx, who.tenantId, t, other, { userId: who.userId });
     return other.bookingId;
   }
+  if (other && other.mode === "book") return joinProposed(tx, who, t, other);
   await supersede(tx, who.tenantId, t.id);
   const why = input.why?.replace(/\s+/g, " ").trim() || null;
   const id = await insertBooking(
@@ -1565,8 +1834,9 @@ export async function bookByPerson(tx: Tx, who: PersonDecision, input: BookInput
     kind,
     lineAccountId: first?.ledgerAccountId ?? null,
     byPerson: true,
+    decidedBy: { userId: who.userId },
   });
-  if (other) await takeOver(tx, who.tenantId, other, id, t);
+  if (other) await takeOver(tx, who.tenantId, other, id, t, { userId: who.userId });
   if (why && first) {
     await addNote(
       tx,

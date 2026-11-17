@@ -108,7 +108,9 @@ export function BookingsReview({
                     <p className="text-sm text-ink" data-testid="bookings-review-open-item">
                       {t(
                         txn.openItem.paid
-                          ? "bookkeeping.review.openItemPaid"
+                          ? txn.openItem.kind === "bill"
+                            ? "bookkeeping.review.openBillPaid"
+                            : "bookkeeping.review.openInvoicePaid"
                           : txn.openItem.kind === "bill"
                             ? "bookkeeping.review.openBill"
                             : "bookkeeping.review.openInvoice",
@@ -123,6 +125,11 @@ export function BookingsReview({
                             .join(" · "),
                         },
                       )}
+                    </p>
+                  ) : null}
+                  {txn.resent ? (
+                    <p className="text-sm text-ink" data-testid="bookings-review-resent">
+                      {t("bookkeeping.review.resent")}
                     </p>
                   ) : null}
                   {txn.pairedWith ? (

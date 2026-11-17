@@ -301,7 +301,8 @@ async function removeTxn(
     .set({
       status: "removed",
       rawRecordId,
-      ext: { ...existing.ext, ...(postedAs ? { postedAs } : {}) },
+      // What it was when removed: a copy the bank sends again of one decided goes to a person.
+      ext: { ...existing.ext, removedFrom: existing.status, ...(postedAs ? { postedAs } : {}) },
       updatedAt: sql`now()`,
     })
     .where(and(eq(bankTxn.tenantId, tenantId), eq(bankTxn.id, existing.id)));

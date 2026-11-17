@@ -2801,9 +2801,14 @@ export const fr: Messages = {
     "Est-ce le paiement d'une facture fournisseur ouverte : {what} ? Si oui, imputez-le à cette facture dans QuickBooks, puis écartez-le ici.",
   "bookkeeping.review.openInvoice":
     "Est-ce l'encaissement d'une facture ouverte : {what} ? Si oui, imputez-le à cette facture dans QuickBooks, puis écartez-le ici.",
-  "bookkeeping.review.openItemPaid": "Réglé dans QuickBooks sur {what} : écartez-le ici.",
+  "bookkeeping.review.openBillPaid":
+    "QuickBooks indique cette facture fournisseur comme réglée : {what}. Si c'est ce paiement, écartez-le ici.",
+  "bookkeeping.review.openInvoicePaid":
+    "QuickBooks indique cette facture comme encaissée : {what}. Si c'est cet encaissement, écartez-le ici.",
   "bookkeeping.review.pairHeld":
     "Opération {what} : peut être l'autre côté d'un virement qui n'a pas été enregistré ou a été écarté. Décidez des deux ensemble.",
+  "bookkeeping.review.resent":
+    "La banque a renvoyé cette opération après en avoir retiré une copie antérieure. Décidez ici : rien n'est enregistré avant votre décision.",
   "bookkeeping.review.approve": "Approuver",
   "bookkeeping.review.account": "Compte pour {payee}",
   "bookkeeping.review.why": "Pourquoi, en quelques mots (facultatif)",

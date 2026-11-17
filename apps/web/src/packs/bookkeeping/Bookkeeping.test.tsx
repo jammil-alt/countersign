@@ -246,7 +246,7 @@ describe("the booking review card", () => {
     expect(line).toHaveTextContent("4,200.00");
   });
 
-  it("says when the bill was paid in QuickBooks since", async () => {
+  it("asks whether this is the payment QuickBooks shows the bill paid with", async () => {
     const open = view(false);
     const [txn] = open.data.transactions;
     if (!txn) throw new Error("no transaction");
@@ -270,8 +270,26 @@ describe("the booking review card", () => {
       { [`GET /api/inbox/${INBOX}/pack-review`]: () => open },
     );
     const card = await screen.findByTestId("bookings-review");
-    expect(within(card).getByTestId("bookings-review-open-item")).toHaveTextContent(
-      "Paid in QuickBooks against Hardwood Supply",
+    const line = within(card).getByTestId("bookings-review-open-item");
+    expect(line).toHaveTextContent("QuickBooks shows this bill paid: Hardwood Supply");
+    expect(line).toHaveTextContent("If this is that payment, leave it out.");
+  });
+
+  it("says when the bank sent a transaction again after removing an earlier copy", async () => {
+    const open = view(false);
+    const [txn] = open.data.transactions;
+    if (!txn) throw new Error("no transaction");
+    Object.assign(txn, { booking: null, resent: true });
+    renderAt(
+      <InboxCard
+        item={item("bookkeeping.bookings", { bankTxnIds: [TXN] })}
+        onResolve={async () => {}}
+      />,
+      { [`GET /api/inbox/${INBOX}/pack-review`]: () => open },
+    );
+    const card = await screen.findByTestId("bookings-review");
+    expect(within(card).getByTestId("bookings-review-resent")).toHaveTextContent(
+      "The bank sent this again after removing an earlier copy. Decide it here: nothing is booked for it until you do.",
     );
   });
 
