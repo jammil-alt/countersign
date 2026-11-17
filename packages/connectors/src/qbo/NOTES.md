@@ -44,7 +44,8 @@ Against the docs:
 2. CDC: the 30-day limit, the 1,000-object cap (per answer, as the docs say, or per entity: we
    handle both), whether deleted objects come after all the others in an answer, whether
    `Attachable` and `VendorCredit` are accepted in `entities`, the `changedSince` formats accepted
-   (we send UTC with `Z`), and the exact shape of a deleted record. Deletions of an entity that
+   (we send UTC with `Z`, floored to whole seconds like a query's times: flooring only reads a
+   little more), and the exact shape of a deleted record. Deletions of an entity that
    alone has 1,000 changes since the last read may be missed: queries can't see them (audit 2.5);
    the sync reports it ("qbo CDC cap: deletions may be missed", with the entity and connection).
    Name lists read by query after a capped answer send `and Active in (true, false)` (made inactive
@@ -66,7 +67,9 @@ Against the docs:
    them): check that form is accepted. Paging reads the last second it reached again, whole; only a
    second that fills a whole page is paged into by position, so ties within it must come in the
    same order each time, and a row changed between two such pages may be missed (QuickBooks has no
-   second sort key we know of);
+   second sort key we know of). A file that fails to download is tried by later syncs (one failure
+   counted in ten minutes, never a 429); after three its attachment is stored without the file,
+   reported ("qbo attachment stored without its file") and tried again once a day;
    `VendorRef = '…'` on Bill, `EntityRef = '…'` on Purchase, `Id in (…)`,
    `DocNumber`, `TxnDate` ranges, `DisplayName like '%…%'`, `Name like '%…%'`, and
    `AttachableRef.EntityRef.Type` / `.value` on Attachable. Also that `select * from Vendor` returns

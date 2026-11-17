@@ -34,8 +34,21 @@ const AttachmentsCursor = TimeCursor.extend({
   historyUntil: z.string().optional(),
   /** More attachments are waiting (a backfill, or a page cut short). */
   more: z.boolean().optional(),
-  /** Failed tries to download a file, by attachment id (a file is skipped after a few). */
-  failures: z.record(z.string(), z.number().int().min(1)).optional(),
+  /**
+   * Failed tries to download a file, by attachment id: how many, and when the last was counted
+   * (at most one counts in ten minutes, so a step's quick retries count once).
+   */
+  failures: z
+    .record(z.string(), z.object({ n: z.number().int().min(1), at: z.string() }))
+    .optional(),
+  /**
+   * Attachments stored without their file after failed tries, and when each was last tried: each
+   * is tried again once a day (`history`: it came as the initial sync's history).
+   */
+  skipped: z
+    .array(z.object({ id: z.string(), at: z.string(), history: z.boolean().optional() }))
+    .max(50)
+    .optional(),
 });
 
 export const QboSyncCursor = z.discriminatedUnion("phase", [
@@ -346,7 +359,8 @@ async function readCdc(
   changedSince: string,
 ): Promise<{ blocks: Map<QboEntity, unknown[]>; total: number }> {
   const body = CdcAnswer.parse(
-    await client.get("/cdc", { entities: entities.join(","), changedSince }),
+    // Floored to whole seconds like a query's times: it only reads a little more.
+    await client.get("/cdc", { entities: entities.join(","), changedSince: qboTime(changedSince) }),
   );
   const blocks = new Map<QboEntity, unknown[]>();
   let total = 0;
@@ -398,7 +412,12 @@ function attachmentsOf(c: CdcCursor): AttachmentsPlace {
  */
 function caughtUp(c: CdcCursor, startedAt: Date, attachments: boolean): CdcCursor {
   const { catchUp: _c, turn: _t, ...rest } = c;
-  const due = attachments || c.attachments?.more === true || c.turn === "attachments";
+  const due =
+    attachments ||
+    c.attachments?.more === true ||
+    c.turn === "attachments" ||
+    // A file given up on is due its daily try.
+    qboAttachmentRetryDue(c, startedAt) !== null;
   return {
     ...rest,
     ar: true,
@@ -474,7 +493,7 @@ async function catchUpPage(
     if (rows.length < QBO_QUERY_MAX) return onward(records);
     return {
       records,
-      next: { ...c, catchUp: { ...cu, query: advance(cu.query, rows) } },
+      next: { ...c, catchUp: { ...cu, query: advance(cu.query, rows, true) } },
       done: false,
       initial: false,
     };
@@ -534,12 +553,26 @@ async function attachmentPage(client: QboClient, c: CdcCursor): Promise<QboSyncP
   /** The cursor once the first `kept` records are stored (all of them: the whole page). */
   const after = (kept: number, left: boolean): QboSyncCursor => {
     const { turn: _t, attachments: _a, ...rest } = c;
+    const read = taken.slice(0, at[kept] ?? taken.length);
+    // Failure counts and skipped files stay (the caller settles them with what it downloaded).
+    const { failures, skipped } = a;
+    // The page stopped where the history ends, and all of it is stored: the news start at that
+    // time (rows of its second read again are known, so they raise nothing).
+    const historyDone =
+      initial &&
+      a.historyUntil !== undefined &&
+      taken.length < rows.length &&
+      read.length === taken.length;
     return {
       ...rest,
       attachments: {
-        ...advance(a, taken.slice(0, at[kept] ?? taken.length)),
-        ...(historyUntil ? { historyUntil } : {}),
+        ...(historyDone
+          ? { since: qboTime(a.historyUntil as string), skip: 0 }
+          : advance(a, read, left && read.length === QBO_ATTACHMENT_PAGE_SIZE)),
+        ...(historyUntil && !historyDone ? { historyUntil } : {}),
         ...(left ? { more: true } : {}),
+        ...(failures && Object.keys(failures).length > 0 ? { failures } : {}),
+        ...(skipped && skipped.length > 0 ? { skipped } : {}),
       },
     };
   };
@@ -581,19 +614,20 @@ export function qboTime(t: string | number): string {
 }
 
 /**
- * The place after reading `rows`, in order of last change, from `at`. A page that reaches a later
- * second starts the next read at that second, whole: rows read again are known by their version
- * and stored once, and a row of that second that changed meanwhile has moved on, never skipped.
- * Only a page wholly inside one second counts rows into it (`skip`): QuickBooks has no later key to
- * order by, so a row changed between two such pages may be missed (NOTES.md "To verify").
+ * The place after reading `rows`, in order of last change, from `at`. The next read starts at the
+ * second the rows reached, whole (`skip: 0`): rows read again are known by their version and
+ * stored once, and a row of that second that changed or went meanwhile can't shift the read past
+ * another. Only a full page (`pageFull`) wholly inside one second counts its rows into that second
+ * (`skip`), since reading the second again would only bring the same page back: QuickBooks has no
+ * later key to order by, so a row changed between two such pages may be missed (NOTES.md).
  */
-function advance(at: TimePlace, rows: unknown[]): TimePlace {
+function advance(at: TimePlace, rows: unknown[], pageFull: boolean): TimePlace {
   const since = qboTime(at.since);
   const last = rows.length > 0 ? timeOf(rows[rows.length - 1]) : null;
   if (last !== null && Date.parse(qboTime(last)) > Date.parse(since)) {
     return { since: qboTime(last), skip: 0 };
   }
-  return { since, skip: at.skip + rows.length };
+  return { since, skip: pageFull ? at.skip + rows.length : 0 };
 }
 
 /** Name lists: QuickBooks deletes their records by making them inactive. */
@@ -606,21 +640,102 @@ const QBO_NAME_LISTS = new Set<string>([
   "Customer",
 ]);
 
-/** A cursor with one more failed try to download an attachment's file (audit 2.3 review). */
+/** Failed tries a file may have before its attachment is stored without it. */
+export const QBO_ATTACHMENT_TRIES = 3;
+/** Failures closer together than this count once (a step's own retries). */
+const FAILURE_SPACING_MS = 10 * 60_000;
+/** A skipped file is tried again this long after its last try. */
+const SKIPPED_RETRY_MS = DAY_MS;
+
+type AttachmentFailures = NonNullable<AttachmentsPlace["failures"]>;
+
+/** Each attachment's failed tries (a cursor's own count). */
+export function qboAttachmentFailures(cursor: QboSyncCursor | null): AttachmentFailures {
+  return cursor?.phase === "cdc" ? (cursor.attachments?.failures ?? {}) : {};
+}
+
+/**
+ * Whether one more failure of this file now is its last try: it counts (none counted in the last
+ * ten minutes) and reaches `QBO_ATTACHMENT_TRIES`.
+ */
+export function qboAttachmentGivesUp(
+  failures: AttachmentFailures,
+  attachableId: string,
+  now: Date,
+): boolean {
+  const f = failures[attachableId];
+  if (!f) return QBO_ATTACHMENT_TRIES <= 1;
+  return now.getTime() - Date.parse(f.at) >= FAILURE_SPACING_MS && f.n + 1 >= QBO_ATTACHMENT_TRIES;
+}
+
+/** A cursor with this file's failure counted (once in ten minutes at most). */
 export function qboNoteAttachmentFailure(
   cursor: QboSyncCursor | null,
   attachableId: string,
+  now: Date,
 ): QboSyncCursor | null {
   if (cursor?.phase !== "cdc") return cursor;
   const a = attachmentsOf(cursor);
   const failures = { ...(a.failures ?? {}) };
-  failures[attachableId] = (failures[attachableId] ?? 0) + 1;
+  const f = failures[attachableId];
+  if (f && now.getTime() - Date.parse(f.at) < FAILURE_SPACING_MS) return cursor;
+  failures[attachableId] = { n: (f?.n ?? 0) + 1, at: now.toISOString() };
   // A handful at most: the oldest go first.
   const kept = Object.fromEntries(Object.entries(failures).slice(-20));
   return { ...cursor, attachments: { ...a, failures: kept } };
 }
 
-/** How many times each attachment's file failed to download (a cursor's own count). */
-export function qboAttachmentFailures(cursor: QboSyncCursor | null): Record<string, number> {
-  return cursor?.phase === "cdc" ? (cursor.attachments?.failures ?? {}) : {};
+/** The skipped file due for its daily try, if any. */
+export function qboAttachmentRetryDue(
+  cursor: QboSyncCursor | null,
+  now: Date,
+): { id: string; history: boolean } | null {
+  if (cursor?.phase !== "cdc") return null;
+  const due = cursor.attachments?.skipped?.find(
+    (s) => now.getTime() - Date.parse(s.at) >= SKIPPED_RETRY_MS,
+  );
+  return due ? { id: due.id, history: due.history === true } : null;
+}
+
+/**
+ * The cursor to store after a page's downloads: counts go for files downloaded or given up on;
+ * files given up on join `skipped`; the daily try of a skipped file leaves it there with a new
+ * time if it failed again, and takes it out if it came.
+ */
+export function qboSettleAttachments(
+  cursor: QboSyncCursor,
+  outcome: {
+    downloaded: string[];
+    skipped: { id: string; history: boolean }[];
+    retried?: { id: string; ok: boolean };
+    now: Date;
+  },
+): QboSyncCursor {
+  if (cursor.phase !== "cdc" || !cursor.attachments) return cursor;
+  const a = cursor.attachments;
+  const done = new Set([...outcome.downloaded, ...outcome.skipped.map((s) => s.id)]);
+  const failures = Object.fromEntries(
+    Object.entries(a.failures ?? {}).filter(([id]) => !done.has(id)),
+  );
+  const at = outcome.now.toISOString();
+  let skipped = (a.skipped ?? []).filter((s) => !done.has(s.id));
+  if (outcome.retried) {
+    const { id, ok } = outcome.retried;
+    skipped = ok
+      ? skipped.filter((s) => s.id !== id)
+      : skipped.map((s) => (s.id === id ? { ...s, at } : s));
+  }
+  skipped = [
+    ...skipped,
+    ...outcome.skipped.map((s) => ({ id: s.id, at, ...(s.history ? { history: true } : {}) })),
+  ].slice(-50);
+  const { failures: _f, skipped: _s, ...rest } = a;
+  return {
+    ...cursor,
+    attachments: {
+      ...rest,
+      ...(Object.keys(failures).length > 0 ? { failures } : {}),
+      ...(skipped.length > 0 ? { skipped } : {}),
+    },
+  };
 }

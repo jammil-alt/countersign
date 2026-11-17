@@ -5,7 +5,7 @@
 
 import { ContentStore, createQboConnector, generateEncryptionKey } from "@countersign/connectors";
 import { FAKE_QBO_CLIENT, FAKE_QBO_REALM, fakeQbo } from "@countersign/connectors/testing";
-import { document, rawRecord, transaction } from "@countersign/db";
+import { connection, document, rawRecord, transaction } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type ApiHarness, admin, createApiHarness, OPERATOR } from "./api.test-helper";
@@ -190,11 +190,19 @@ describe.skipIf(!h)("a first QuickBooks sync with many large attachments", () =>
         { tenantId: H.A.tenantId, connectionId, reason: "operator" },
         once,
       );
-    // The file fails: the sync fails at its attachment page.
+    const cursorOf = async () => {
+      const [c] = await H.t.db.select().from(connection).where(eq(connection.id, connectionId));
+      return c?.syncCursor as { attachments?: { failures?: object; skipped?: unknown[] } };
+    };
+    // The file fails: the sync fails at its attachment page, and the failure is counted.
     await expect(sync(20)).rejects.toThrow();
     expect(tries()).toBe(1);
+    // The step's own retry, half a minute later, fails too but counts nothing more.
+    await expect(sync(50)).rejects.toThrow();
+    expect(tries()).toBe(2);
+    expect((await cursorOf()).attachments?.failures).toMatchObject({ [broken]: { n: 1 } });
     // Meanwhile a bill is entered: the next sync reads it first, then fails on the file again.
-    clock.now = later(25);
+    clock.now = later(60);
     qbo.put("Bill", {
       Id: "148",
       SyncToken: "0",
@@ -211,28 +219,37 @@ describe.skipIf(!h)("a first QuickBooks sync with many large attachments", () =>
       TotalAmt: 12,
     });
     clock.now = NOW;
-    await expect(sync(30)).rejects.toThrow();
+    await expect(sync(20 * 60)).rejects.toThrow();
     const bill148 = await H.t.db
       .select()
       .from(transaction)
       .where(and(eq(transaction.tenantId, H.A.tenantId), eq(transaction.externalId, "Bill:148")));
     expect(bill148).toHaveLength(1);
-    expect(tries()).toBe(2);
-    // The third try fails too: the attachment is stored without its file, and the sync goes on.
-    const third = await sync(40);
+    expect(tries()).toBe(3);
+    // Its third counted failure: the attachment is stored without its file, and the sync goes on.
+    const third = await sync(40 * 60);
     expect(third.skipped).toBeUndefined();
     expect(third.skippedFiles).toBe(1);
-    expect(tries()).toBe(3);
-    const ids = (await docs()).map((d) => (d.meta as { attachableId?: string }).attachableId);
-    expect(ids).toContain(fine);
-    expect(ids).not.toContain(broken);
+    expect(tries()).toBe(4);
+    const ids = async () =>
+      (await docs()).map((d) => (d.meta as { attachableId?: string }).attachableId);
+    expect(await ids()).toContain(fine);
+    expect(await ids()).not.toContain(broken);
     const [raw] = await H.t.db
       .select()
       .from(rawRecord)
       .where(and(eq(rawRecord.connectionId, connectionId), eq(rawRecord.externalId, broken)));
     expect(raw).toBeDefined();
-    // And it is not tried again.
-    await sync(50);
-    expect(tries()).toBe(3);
+    expect((await cursorOf()).attachments?.skipped).toMatchObject([{ id: broken }]);
+    expect((await cursorOf()).attachments?.failures ?? {}).not.toHaveProperty(broken);
+    // Not tried again that day.
+    await sync(41 * 60);
+    expect(tries()).toBe(4);
+    // A day later its file is tried again, and now it comes.
+    qbo.failFile(broken, 0);
+    await sync(41 * 60 + 86_400 + 30);
+    expect(tries()).toBe(5);
+    expect(await ids()).toContain(broken);
+    expect((await cursorOf()).attachments?.skipped ?? []).toEqual([]);
   });
 });

@@ -67,7 +67,8 @@ async function syncAll(
   let cursor = from;
   for (let i = 0; i < 200; i++) {
     between(i, pages);
-    const page = await qboSyncPage(client, cursor, { now });
+    // As the platform runs it: each sync's first page reads CDC.
+    const page = await qboSyncPage(client, cursor, { now, cdcFirst: i === 0 });
     pages.push(page);
     cursor = page.next;
     if (page.done) return { pages, cursor };
@@ -182,6 +183,63 @@ describe("qbo sync: attachments (audit 2.3)", () => {
 });
 
 describe("qbo sync: time and ties (audit review)", () => {
+  /** A caught-up connection whose last attachment, A, was read twice (CDC's overlap). */
+  async function readTwice() {
+    const s = await setup({ wholeSeconds: true });
+    let { cursor } = await syncAll(s.client, null, NOW);
+    s.clock.now = new Date("2026-11-05T18:10:00Z");
+    const a = s.qbo.attachFile("Bill", "146", {
+      fileName: "a.pdf",
+      bytes: utf8("%PDF-1.4\n% a\n%%EOF\n"),
+      contentType: "application/pdf",
+    });
+    ({ cursor } = await syncAll(s.client, cursor, new Date("2026-11-05T18:10:30Z")));
+    ({ cursor } = await syncAll(s.client, cursor, new Date("2026-11-05T18:10:50Z")));
+    // Read again, the second it ended on counts nothing into it.
+    expect(cursor).toMatchObject({ attachments: { since: "2026-11-05T18:10:00Z", skip: 0 } });
+    return { ...s, cursor, a };
+  }
+  const attachmentKeys = (pages: QboSyncPage[]) =>
+    pages.flatMap((p) => p.records.filter((r) => r.entityType === "Attachable").map(key));
+
+  it("reads a new attachment after the last one read is deleted", async () => {
+    const { qbo, client, clock, cursor, a } = await readTwice();
+    clock.now = new Date("2026-11-05T18:20:00Z");
+    qbo.remove("Attachable", a);
+    clock.now = new Date("2026-11-05T18:20:05Z");
+    const b = qbo.attachFile("Bill", "146", {
+      fileName: "b.pdf",
+      bytes: utf8("%PDF-1.4\n% b\n%%EOF\n"),
+      contentType: "application/pdf",
+    });
+    const { pages } = await syncAll(client, cursor, new Date("2026-11-05T18:20:30Z"));
+    expect(attachmentKeys(pages)).toContain(`Attachable:${b}:0`);
+    expect(pages.flatMap((p) => p.records.map(key))).toContain(`Attachable:${a}:deleted`);
+  });
+
+  it("reads an edit of the last attachment read, and a new one after it", async () => {
+    const { qbo, client, clock, cursor, a } = await readTwice();
+    clock.now = new Date("2026-11-05T18:20:00Z");
+    const row = qbo.get("Attachable", a);
+    qbo.put("Attachable", {
+      ...row,
+      Id: a,
+      SyncToken: "1",
+      AttachableRef: [{ EntityRef: { type: "Bill", value: "145" }, IncludeOnSend: false }],
+    });
+    const first = await syncAll(client, cursor, new Date("2026-11-05T18:20:30Z"));
+    clock.now = new Date("2026-11-05T18:30:00Z");
+    const b = qbo.attachFile("Bill", "146", {
+      fileName: "b.pdf",
+      bytes: utf8("%PDF-1.4\n% b\n%%EOF\n"),
+      contentType: "application/pdf",
+    });
+    const second = await syncAll(client, first.cursor, new Date("2026-11-05T18:30:30Z"));
+    const seen = attachmentKeys([...first.pages, ...second.pages]);
+    expect(seen).toContain(`Attachable:${a}:1`);
+    expect(seen).toContain(`Attachable:${b}:0`);
+  });
+
   it("reads every row of a second shared across pages, though one changed in between", async () => {
     // QuickBooks keeps times in whole seconds: thirty receipts scanned in one second.
     const { qbo, client, clock } = await setup({ wholeSeconds: true });

@@ -253,6 +253,42 @@ export async function storeQboPage(
   return out;
 }
 
+/**
+ * The file of an attachment stored earlier without it (the daily try of a file that failed to
+ * download): stored as a document and linked, as a page would have.
+ */
+export async function storeQboAttachmentFile(
+  tx: Tx,
+  content: ContentStore,
+  input: {
+    tenantId: string;
+    connectionId: string;
+    record: RawRecordInput;
+    file: DownloadedFile;
+    initial: boolean;
+    now: Date;
+  },
+): Promise<{ documents: number; events: EventRow[] }> {
+  const out: StorePageResult = {
+    stored: 0,
+    transactions: { created: 0, updated: 0 },
+    receivables: { created: 0, updated: 0 },
+    documents: 0,
+    events: [],
+  };
+  const page: StorePageInput = {
+    tenantId: input.tenantId,
+    connectionId: input.connectionId,
+    records: [input.record],
+    files: new Map([[input.record.externalId, input.file]]),
+    cursor: {},
+    initial: input.initial,
+    now: input.now,
+  };
+  if (await storeAttachment(tx, content, page, input.record, input.file, out)) out.documents += 1;
+  return { documents: out.documents, events: out.events };
+}
+
 /** A record QuickBooks deleted: its raw versions are flagged, a transaction is marked deleted. */
 // DECISION: a transaction deleted in QuickBooks is kept (documents and runs point at it) and marked
 // `ext.qbo.deleted`, with `transaction.updated` (changed: deleted); its raw versions are flagged.

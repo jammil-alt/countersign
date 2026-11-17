@@ -16,21 +16,30 @@ import {
   QboApiError,
   type QboConnector,
   qboAttachmentFailures,
+  qboAttachmentGivesUp,
+  qboAttachmentRetryDue,
   qboNoteAttachmentFailure,
+  qboSettleAttachments,
   qboSyncPage,
   type RawRecordInput,
   ReconnectRequiredError,
   readQboSyncCursor,
 } from "@countersign/connectors";
 import { mapQboAttachable } from "@countersign/core";
-import { connection, type Db, withTenant } from "@countersign/db";
+import { connection, type Db, rawRecord, withTenant } from "@countersign/db";
 import type { EventRow } from "@countersign/senses";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { reportProblem } from "../observability/report";
 import type { Platform } from "../platform";
 import { senseEmitter } from "../runs/dispatch";
 import type { QboSyncParams } from "./instances";
-import { type DownloadedFile, knownRecords, recordKey, storeQboPage } from "./store";
+import {
+  type DownloadedFile,
+  knownRecords,
+  recordKey,
+  storeQboAttachmentFile,
+  storeQboPage,
+} from "./store";
 import { cursorKeepingClaim } from "./sync-cursor";
 
 export interface QboSyncDeps {
@@ -62,10 +71,11 @@ const MAX_ATTACHMENT_BYTES = 32 * 1024 * 1024;
 // crosses it, at most 32 MB), well inside a Worker's 128 MB and a step's 5 minutes; what is left
 // of the page is stored by the next steps, so a retry never downloads what a step stored.
 export const ATTACHMENT_BYTES_PER_STEP = 16 * 1024 * 1024;
-// DECISION (audit 2.3 review): a file that fails to download three times (a timeout, QuickBooks'
-// storage answering 5xx), each try a step of its own, is skipped: its attachment is stored without
-// a document, so one file can never stop the sync.
-export const ATTACHMENT_TRIES = 3;
+// DECISION (audit 2.3 review): a file that fails to download (a timeout, QuickBooks' storage
+// answering 5xx; never a 429, which only says to wait) is tried again by later syncs, at most one
+// failure counted in ten minutes, so a step's own quick retries count once. After
+// QBO_ATTACHMENT_TRIES counted failures its attachment is stored without the file, reported, and
+// kept in the cursor's `skipped`, which tries it again once a day; one file never stops the sync.
 
 /** A file failed to download, before anything else of its step was downloaded. */
 class AttachmentFailed extends Error {
@@ -136,18 +146,18 @@ export async function qboSyncStep(
   let cursor: object;
   let done: boolean;
   let skippedFiles: string[] = [];
+  /** The daily try of a file given up on: its raw record and file, or that it failed again. */
+  let retried: {
+    id: string;
+    ok: boolean;
+    history: boolean;
+    record?: RawRecordInput;
+    file?: DownloadedFile;
+  } | null = null;
   const stored = readQboSyncCursor(row.syncCursor);
   try {
     const client = await connector.client(ctx);
     page = await qboSyncPage(client, stored, { now: now(), cdcFirst: opts.first === true });
-    if (page.deletionsMayBeMissed) {
-      // Audit 2.5: one entity alone reached CDC's cap; its deletions past the cut can't be read.
-      reportProblem("qbo CDC cap: deletions may be missed", {
-        connector: QBO_CONNECTOR_ID,
-        entity: page.deletionsMayBeMissed,
-        connectionId,
-      });
-    }
     const known = await withTenant(deps.db, tenantId, (tx) =>
       knownRecords(tx, tenantId, connectionId, page.records),
     );
@@ -157,18 +167,35 @@ export async function qboSyncStep(
       (ref) => connector.downloadAttachment?.(ctx, ref) ?? Promise.resolve(null),
       page.resumeAfter ? (deps.attachmentBytesPerStep ?? ATTACHMENT_BYTES_PER_STEP) : Infinity,
       qboAttachmentFailures(stored),
+      now(),
     );
     files = got.files;
     skippedFiles = got.skipped;
     // The budget ran out part way: the records before it are stored now, the rest next step.
     const resume = got.kept < page.records.length ? page.resumeAfter : undefined;
     records = resume ? page.records.slice(0, got.kept) : page.records;
-    cursor = resume ? resume(got.kept) : page.next;
+    let next = resume ? resume(got.kept) : page.next;
     done = resume ? false : page.done;
+    if (page.resumeAfter) {
+      const due = qboAttachmentRetryDue(stored, now());
+      if (due) {
+        retried = {
+          ...(await retrySkipped(deps, ctx, connector, params, due.id)),
+          history: due.history,
+        };
+      }
+      next = qboSettleAttachments(next, {
+        downloaded: [...got.files.keys()],
+        skipped: got.skipped.map((id) => ({ id, history: page.initial })),
+        ...(retried ? { retried: { id: retried.id, ok: retried.ok } } : {}),
+        now: now(),
+      });
+    }
+    cursor = next;
   } catch (error) {
     if (error instanceof AttachmentFailed) {
       // Counted where the next try finds it; the step fails, so its retry waits.
-      const noted = qboNoteAttachmentFailure(stored, error.attachableId);
+      const noted = qboNoteAttachmentFailure(stored, error.attachableId, now());
       if (noted) {
         await withTenant(deps.db, tenantId, (tx) =>
           tx
@@ -204,8 +231,8 @@ export async function qboSyncStep(
     }
     throw error;
   }
-  const result = await withTenant(deps.db, tenantId, (tx) =>
-    storeQboPage(tx, deps.content, {
+  const result = await withTenant(deps.db, tenantId, async (tx) => {
+    const out = await storeQboPage(tx, deps.content, {
       tenantId,
       connectionId,
       records,
@@ -214,16 +241,33 @@ export async function qboSyncStep(
       initial: page.initial,
       now: now(),
       externalAccountId: row.externalAccountId,
-    }),
-  );
-  if (result.dropped) return skip("the connection was signed in to another company");
-  for (const id of skippedFiles) {
-    // No content: the attachment's id and the connection only.
-    console.warn("qbo attachment stored without its file", {
-      connectionId,
-      attachableId: id,
-      tries: ATTACHMENT_TRIES,
     });
+    if (!out.dropped && retried?.record && retried.file) {
+      const doc = await storeQboAttachmentFile(tx, deps.content, {
+        tenantId,
+        connectionId,
+        record: retried.record,
+        file: retried.file,
+        initial: retried.history,
+        now: now(),
+      });
+      out.documents += doc.documents;
+      out.events.push(...doc.events);
+    }
+    return out;
+  });
+  if (result.dropped) return skip("the connection was signed in to another company");
+  // Reported once the page is stored, so a retried step doesn't report twice. No content: ids.
+  if (page.deletionsMayBeMissed) {
+    // Audit 2.5: one entity alone reached CDC's cap; its deletions past the cut can't be read.
+    reportProblem("qbo CDC cap: deletions may be missed", {
+      connector: QBO_CONNECTOR_ID,
+      entity: page.deletionsMayBeMissed,
+      connectionId,
+    });
+  }
+  for (const id of skippedFiles) {
+    reportProblem("qbo attachment stored without its file", { connectionId, attachableId: id });
   }
   return {
     done,
@@ -240,18 +284,70 @@ type Download = (
 ) => Promise<{ bytes: Uint8Array; mime: string; filename: string } | null>;
 
 /**
+ * The daily try of a file stored without it: its newest raw record and the file, when it comes;
+ * `ok: false` when it fails again (any failure: it is tried again tomorrow).
+ */
+async function retrySkipped(
+  deps: QboSyncDeps,
+  ctx: Parameters<NonNullable<QboConnector["downloadAttachment"]>>[0],
+  connector: QboConnector,
+  params: Pick<QboSyncParams, "tenantId" | "connectionId">,
+  id: string,
+): Promise<{ id: string; ok: boolean; record?: RawRecordInput; file?: DownloadedFile }> {
+  const [raw] = await withTenant(deps.db, params.tenantId, (tx) =>
+    tx
+      .select()
+      .from(rawRecord)
+      .where(
+        and(
+          eq(rawRecord.tenantId, params.tenantId),
+          eq(rawRecord.connectionId, params.connectionId),
+          eq(rawRecord.entityType, "Attachable"),
+          eq(rawRecord.externalId, id),
+        ),
+      )
+      .orderBy(desc(rawRecord.syncedAt))
+      .limit(1),
+  );
+  // Gone, or deleted in QuickBooks: nothing to try.
+  if (!raw || raw.isDeleted) return { id, ok: true };
+  const a = mapQboAttachable(raw.payload);
+  if (!a.fileName) return { id, ok: true };
+  try {
+    const file = await connector.downloadAttachment?.(ctx, {
+      externalId: a.externalId,
+      filename: a.fileName,
+      mime: a.contentType ?? "application/octet-stream",
+      ...(a.size !== null ? { size: a.size } : {}),
+    });
+    if (!file) return { id, ok: true };
+    const record: RawRecordInput = {
+      entityType: "Attachable",
+      externalId: id,
+      externalVersion: raw.externalVersion,
+      payload: raw.payload as RawRecordInput["payload"],
+    };
+    return { id, ok: true, record, file };
+  } catch (error) {
+    if (error instanceof ReconnectRequiredError) throw error;
+    return { id, ok: false };
+  }
+}
+
+/**
  * Downloads the files of new attachments (notes have none), in order, until `budget` bytes are
  * downloaded; `kept` is how many records lead up to where it stopped (all of them when it didn't).
  * A file that fails stops the step there when others were downloaded (they are kept, and it is
  * tried first next step); as the step's first file it fails the step (`AttachmentFailed`), and
- * after `ATTACHMENT_TRIES` tries it is skipped (`skipped`).
+ * on its last counted try (`QBO_ATTACHMENT_TRIES`) it is skipped (`skipped`). A 429 only waits.
  */
 async function downloads(
   records: RawRecordInput[],
   known: Set<string>,
   download: Download,
   budget: number,
-  failures: Record<string, number> = {},
+  failures: ReturnType<typeof qboAttachmentFailures>,
+  now: Date,
 ): Promise<{ files: Map<string, DownloadedFile>; kept: number; skipped: string[] }> {
   const files = new Map<string, DownloadedFile>();
   const skipped: string[] = [];
@@ -283,7 +379,9 @@ async function downloads(
       }
       if (error instanceof ReconnectRequiredError) throw error;
       if (files.size > 0 && Number.isFinite(budget)) return { files, kept: i, skipped };
-      if ((failures[a.externalId] ?? 0) + 1 >= ATTACHMENT_TRIES) {
+      // QuickBooks asks us to slow down: the step's retry waits, and nothing is counted.
+      if (error instanceof QboApiError && error.status === 429) throw error;
+      if (qboAttachmentGivesUp(failures, a.externalId, now)) {
         skipped.push(a.externalId);
         continue;
       }
