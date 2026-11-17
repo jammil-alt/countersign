@@ -256,7 +256,6 @@ PRs #384–#414 closed the launch audit's findings for the first clients. What t
 | H8 | **`refresh_failing` connections** show as connected with an open finding; the ops MCP's `needsAttention` and the daily troubled list count only `status = 'error'`, so they don't list them. LinkedIn's and HubSpot's dead-grant codes come from their docs, not a live call. | Code; check live | §1.133. |
 | H9 | **The web app's first load**: load each language's wording on demand, to bring it back under the old 470 kB. | Code | §1.145. 480 kB now. |
 | H10 | **Texting edge cases**: a brand-new number submitted twice at once can hit the contact phone index and get a 500 (as before #411); after an invitation is used up by a skipped submit, the link still shows the form, and submitting it gives 409 `used`. | Code, small | §1.141. |
-| H11 | **Phone decisions without a signature**: the resolve route should require a device signature from phone sessions. | Code (branch `fix/phone-sign`, not merged) | §1.139. Phone sign-in is off (`MOBILE_SIGNIN`) until then. |
 
 ### The phone app (owner, 2026-11-13; `docs/plan.md` §1.116, `apps/mobile/README.md`)
 
