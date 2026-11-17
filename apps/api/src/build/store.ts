@@ -16,18 +16,22 @@ import {
   type BuildDetail,
   type BuildDraftView,
   type BuildEventView,
+  BuildItemState,
   type BuildItemView,
   type BuildMessageView,
   type BuildPhase,
   type BuildPocView,
+  BuildProposal,
   type BuildSummary,
   gateReasons,
   itemOpen,
   nextPhase,
   PHASE_WORDS,
+  ProposalState,
   phaseIndex,
   phasesOf,
   processes,
+  proposalUndo,
   QA_MAX_REJECTED,
   QA_WORDS,
   type QaCheck,
@@ -56,6 +60,7 @@ import {
   testSuiteRun,
 } from "@countersign/db";
 import { and, asc, desc, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
+import { z } from "zod";
 import { iso, notFound, type Services } from "../http";
 import { goLiveView } from "../lifecycle/stages";
 
@@ -175,8 +180,76 @@ export function itemView(r: BuildItemRow): BuildItemView {
   };
 }
 
-function messageView(r: MessageRow): BuildMessageView {
-  const meta = (r.meta ?? {}) as { chips?: unknown; changes?: unknown };
+/** A proposal as its message keeps it (ops-builds.ts writes it). */
+const SavedProposal = BuildProposal.extend({
+  state: ProposalState,
+  result: z.string().optional(),
+  before: BuildItemState.nullable().optional(),
+});
+
+/**
+ * What the operator decided about a proposal. Messages are never changed (insert only), so a
+ * decision is its own message ("Agreed.", "Not this.", "Undo that."), naming the proposal's.
+ */
+export const ProposalDecision = z.object({
+  decides: z.string(),
+  decision: z.enum(["agreed", "unchanged", "declined", "undone"]),
+  /** Agreed: an item's state before the change, for its undo. */
+  before: BuildItemState.nullable().optional(),
+  /** What was done, in words ("Changed: …"), shown under the proposal. */
+  result: z.string().optional(),
+  /** A draft edit: the Builder session and turn that made it, its changes and the saved version. */
+  edit: z
+    .object({
+      sessionId: z.string(),
+      turnId: z.string(),
+      changeIds: z.array(z.string()),
+      versionId: z.string().nullable(),
+    })
+    .optional(),
+});
+export type ProposalDecision = z.infer<typeof ProposalDecision>;
+
+export function decisionOf(meta: unknown): ProposalDecision | null {
+  const d = ProposalDecision.safeParse(meta);
+  return d.success ? d.data : null;
+}
+
+/** Each message with the latest decision on its proposal, if it has one. */
+export function withDecisions<M extends { id: string; meta: unknown }>(
+  rows: readonly M[],
+): [M, ProposalDecision | null][] {
+  const latest = new Map<string, ProposalDecision>();
+  for (const r of rows) {
+    const d = decisionOf(r.meta);
+    if (d) latest.set(d.decides, d);
+  }
+  return rows.map((r) => [r, latest.get(r.id) ?? null]);
+}
+
+function messageView(r: MessageRow, decided: ProposalDecision | null = null): BuildMessageView {
+  const meta = (r.meta ?? {}) as {
+    chips?: unknown;
+    changes?: unknown;
+    failed?: unknown;
+    about?: unknown;
+    proposal?: unknown;
+  };
+  const proposal = SavedProposal.safeParse(
+    meta.proposal && decided
+      ? {
+          ...(meta.proposal as object),
+          state: decided.decision,
+          before: decided.before ?? null,
+          ...(decided.result
+            ? { result: decided.result }
+            : decided.decision === "agreed"
+              ? { result: (meta.proposal as { summary?: unknown }).summary }
+              : {}),
+        }
+      : meta.proposal,
+  );
+  const editUndo = (decided?.edit?.changeIds.length ?? 0) > 0;
   const strings = (v: unknown) =>
     Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
   return {
@@ -186,6 +259,22 @@ function messageView(r: MessageRow): BuildMessageView {
     text: r.text,
     chips: strings(meta.chips),
     changes: strings(meta.changes),
+    ...(meta.failed ? { failed: true } : {}),
+    ...(typeof meta.about === "string" ? { about: meta.about } : {}),
+    ...(proposal.success
+      ? {
+          proposal: {
+            summary: proposal.data.summary,
+            action: proposal.data.action,
+            state: proposal.data.state,
+            ...(proposal.data.result ? { result: proposal.data.result } : {}),
+            ...(proposal.data.state === "agreed" &&
+            (proposalUndo(proposal.data.action, proposal.data.before ?? null) || editUndo)
+              ? { undo: true }
+              : {}),
+          },
+        }
+      : {}),
     createdAt: iso(r.createdAt) as string,
   };
 }
@@ -325,6 +414,29 @@ export function problemPlace(
     }
   }
   return { stepName: null, workflowName: null };
+}
+
+/** The longest outline of the draft's steps sent with a Builder turn. */
+const OUTLINE_STEPS = 80;
+
+/**
+ * The draft's steps, one line each with its id, for the Builder in a build: so a proposed edit
+ * names a real step. Agents only (a skill's draft lives in its own conversation).
+ */
+export async function draftOutline(ctx: StoreCtx, row: BuildRow): Promise<string[]> {
+  if (row.kind !== "agent") return [];
+  const { bundle, view } = await draftFacts(ctx, row);
+  if (!bundle) return [];
+  const lines: string[] = [];
+  for (const w of bundle.workflows) {
+    for (const { step } of processes.allSteps(w.workflow)) {
+      if (lines.length >= OUTLINE_STEPS) return [...lines, "Draft: more steps not listed"];
+      lines.push(
+        `Draft v${view?.version ?? "?"} step [${step.id}] ${step.name || "(no name)"} (${step.kind}), in "${w.name}"`,
+      );
+    }
+  }
+  return lines;
 }
 
 async function draftFacts(ctx: StoreCtx, row: BuildRow): Promise<DraftFacts> {
@@ -780,7 +892,7 @@ export async function buildDetail(ctx: StoreCtx, row: BuildRow): Promise<BuildDe
       state: row.status === "live" || i < at ? "done" : i === at ? "current" : "todo",
     })),
     gate: { next: row.status === "open" ? nextPhase(row.kind, row.phase) : null, reasons },
-    messages: messages.map(messageView),
+    messages: withDecisions(messages).map(([m, d]) => messageView(m, d)),
     items: items.map(itemView),
     draft: draft.view,
     poc,

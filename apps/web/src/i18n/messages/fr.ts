@@ -19,6 +19,11 @@ export const fr: Messages = {
   "voice.writing": "Transcription…",
   "voice.blocked": "Votre navigateur ne nous a pas laissé utiliser le micro.",
   "voice.failed": "Nous n'avons pas pu le transcrire. Réessayez.",
+  "attach.add": "Joindre",
+  "attach.uploading": "Envoi en cours…",
+  "attach.remove": "Retirer",
+  "attach.failed": "Nous n'avons pas pu l'envoyer. Réessayez.",
+  "attach.refused": "{name} : joignez des PDF ou des images.",
   "common.filter": "Filtre",
   "common.sections": "Sections",
   "common.waiting": "En attente",
@@ -409,6 +414,11 @@ export const fr: Messages = {
   "desk.edit": "Modifier",
   "desk.edited": "Vous avez modifié ce changement. Nous utilisons votre version.",
   "desk.afterYouSign": "Après votre approbation",
+  // §1.121: a form request's card
+  "desk.form.heading": "Le formulaire qu’ils recevront : {title}", // fluent review
+  "desk.form.fixed": "Votre question", // fluent review
+  "desk.form.added": "Ajoutée par l’agent", // fluent review
+  "desk.form.required": "obligatoire", // fluent review
   "desk.editHint":
     "Modifiez ce qu'il faut, puis enregistrez. Nous vérifions à nouveau avant que vous approuviez.",
   "desk.editSave": "Enregistrer",

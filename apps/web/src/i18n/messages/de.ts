@@ -19,6 +19,11 @@ export const de: Messages = {
   "voice.writing": "Wird aufgeschrieben…",
   "voice.blocked": "Ihr Browser hat das Mikrofon nicht freigegeben.",
   "voice.failed": "Das konnten wir nicht aufschreiben. Bitte versuchen Sie es noch einmal.",
+  "attach.add": "Anhängen",
+  "attach.uploading": "Wird hochgeladen…",
+  "attach.remove": "Entfernen",
+  "attach.failed": "Das konnten wir nicht hochladen. Bitte versuchen Sie es noch einmal.",
+  "attach.refused": "{name}: Bitte hängen Sie PDFs oder Bilder an.",
   "common.filter": "Filter",
   "common.sections": "Bereiche",
   "common.waiting": "Wartet",
@@ -418,6 +423,11 @@ export const de: Messages = {
   "desk.edit": "Bearbeiten",
   "desk.edited": "Sie haben diese Änderung bearbeitet. Wir verwenden Ihre Fassung.",
   "desk.afterYouSign": "Nach Ihrer Freigabe", // fluent review
+  // §1.121: a form request's card
+  "desk.form.heading": "Das Formular, das sie bekommen: {title}", // fluent review
+  "desk.form.fixed": "Ihre Frage", // fluent review
+  "desk.form.added": "Vom Agenten ergänzt", // fluent review
+  "desk.form.required": "Pflicht", // fluent review
   "desk.editHint":
     "Ändern Sie, was nötig ist, und speichern Sie. Wir prüfen es erneut, bevor Sie freigeben.", // fluent review
   "desk.editSave": "Änderungen speichern",

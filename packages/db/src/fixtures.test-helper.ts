@@ -40,6 +40,7 @@ import {
   document,
   externalAction,
   feedback,
+  formRequest,
   inboxItem,
   knowledgeChunk,
   knowledgeEntry,
@@ -175,7 +176,7 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     .returning();
   if (!u) throw new Error("no user");
   // Named columns only: migration tests run this on a database from before later membership
-  // columns (0058's `agent_ids`), and Drizzle's insert names every column in the schema.
+  // columns (0059's `agent_ids`), and Drizzle's insert names every column in the schema.
   await db.execute(
     sql`insert into ${membership} (tenant_id, user_id, role) values (${tenantId}, ${u.id}, 'client_admin')`,
   );
@@ -347,6 +348,24 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     plan: {},
     status: "open",
   });
+  // §1.121 (0058): a form one contact was asked to fill in. Only where the table exists: the
+  // migration tests seed this fixture on a database stopped at an earlier migration.
+  const [forms] = await db.$client<{ ok: boolean }[]>`
+    select to_regclass('public.form_request') is not null as ok`;
+  if (forms?.ok)
+    await db.insert(formRequest).values({
+      tenantId,
+      agentId: a.id,
+      agentVersionId: av.id,
+      runId: r.id,
+      nodeId: "s2",
+      contactId: ct.id,
+      purpose: "Invoice 1042 has no PO number",
+      definition: { schemaVersion: 1, title: "Invoice 1042", questions: [] },
+      ask: { required: [] },
+      status: "open",
+      dueAt: new Date(Date.now() + 86_400_000),
+    });
   await db.insert(accessRelease).values({
     tenantId,
     connectionId: c.id,

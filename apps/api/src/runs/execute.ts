@@ -101,6 +101,9 @@ import { conversationEngine } from "../converse/engine";
 // P-4
 import { conversePort } from "../converse/service";
 import type { Bindings } from "../env";
+// §1.121: forms, "Request info"
+import type { FormLinks } from "../forms/link";
+import { formsPort } from "../forms/service";
 // R4: stored business hours and away dates, for deadlines.
 import { hoursFor } from "../hours/hours";
 import { connectorServicesFor } from "../messaging/services";
@@ -160,6 +163,9 @@ export interface RunDeps {
   // Wave 2c
   /** Email and texts, so an urgent notice's person is told at once; absent: the outbox's pass. */
   notify?: NotifyDeps;
+  // §1.121
+  /** Where form links point and what signs them; absent: `forms.request` sends nothing. */
+  forms?: FormLinks;
 }
 
 /**
@@ -256,6 +262,8 @@ export function runDepsFromEnv(
       pusher: pusherFromEnv(env, globalFetch()),
       origin: originOf(env),
     },
+    // §1.121: form links on the app's own origin, signed with the Worker's key.
+    forms: { origin: originOf(env), env },
   };
 }
 
@@ -608,6 +616,16 @@ export async function executeRun(
       { db },
       // P-4: conversations (docs/plan.md §1.66)
       conversePort({ db, runtime, ...(deps.instances ? { instances: deps.instances } : {}) }),
+      // §1.121: forms, "Request info": its link goes out as a reach-out.
+      formsPort(
+        {
+          db,
+          runtime,
+          ...(deps.instances ? { instances: deps.instances } : {}),
+          ...(deps.forms ? { links: deps.forms } : {}),
+        },
+        reachPort({ db, runtime, ...(deps.instances ? { instances: deps.instances } : {}) }),
+      ),
     ),
     inbox: dbInboxPort(db, info),
     // R3: v4 notices and deadlines' `tell` read who is who in the database.

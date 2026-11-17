@@ -69,3 +69,25 @@ export async function uploadFiles(
   }
   return parsed.data;
 }
+
+/**
+ * §1.110: files for a message in the portal, kept quiet until the message is passed on
+ * (`?for=chat`). What was kept as chips, and each refused file with the words to show.
+ */
+export async function attachToMessage(
+  files: readonly File[],
+  refusedWords?: (filename: string) => string,
+  doFetch?: typeof fetch,
+): Promise<{ files: { id: string; name: string; contentType: string }[]; refused: string[] }> {
+  const out = await uploadFiles(files, doFetch, `${routes.portalUploads.path}?for=chat`);
+  const kept = [];
+  const refused = [];
+  for (const r of out.results) {
+    if (r.kind === "document" && r.document) {
+      kept.push({ id: r.document.id, name: r.document.filename, contentType: r.document.mimeType });
+    } else {
+      refused.push(refusedWords ? refusedWords(r.filename) : `${r.filename}: ${r.error ?? ""}`);
+    }
+  }
+  return { files: kept, refused };
+}

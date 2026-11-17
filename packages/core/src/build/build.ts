@@ -625,3 +625,85 @@ function openWords(n: number): string {
     ? "1 open item is not done or put off."
     : `${n} open items are not done or put off.`;
 }
+
+// ── Issues and the Builder's proposals ──────────────────────────────────────────────────────────
+
+/**
+ * What the Builder may propose to settle an issue. Nothing changes until the operator agrees; then
+ * the API makes the change through the build's own routes, as the operator (audited, checked).
+ */
+// DECISION (owner, 2026-11-17): the Builder proposes one change at a time and the operator agrees;
+// it never changes the build on its own, and it never proposes accepting the approvals check.
+export const BuildAction = z.discriminatedUnion("do", [
+  z.object({
+    do: z.literal("close_item"),
+    itemId: z.string().min(1).max(100).describe("The open item's id"),
+    state: z
+      .enum(["done", "deferred"])
+      .describe("done when it is settled, deferred (put off) when it waits for later"),
+  }),
+  z.object({
+    do: z.literal("reopen_item"),
+    itemId: z.string().min(1).max(100).describe("The done or put-off item's id"),
+  }),
+  z.object({
+    do: z.literal("accept_check"),
+    check: QaCheckId.exclude(["approvals"]),
+    reason: z.string().trim().min(20).max(500).describe("Why it can go live as it is"),
+  }),
+  z.object({
+    do: z.literal("go_back"),
+    to: BuildPhase.describe("An earlier phase"),
+    reason: z.string().trim().min(20).max(500).describe("What has to be redone there"),
+  }),
+  z.object({ do: z.literal("run_tests") }),
+  z.object({
+    do: z.literal("edit_draft"),
+    request: z
+      .string()
+      .trim()
+      .min(10)
+      .max(1000)
+      .describe(
+        "The change to the draft, as you'd ask the workflow's Builder: the step by name, what to change and why",
+      ),
+    stepId: z
+      .string()
+      .min(1)
+      .max(100)
+      .optional()
+      .describe("The step it changes, by its id in the draft's steps, when it is about one step"),
+  }),
+]);
+export type BuildAction = z.infer<typeof BuildAction>;
+
+export const BuildProposal = z.object({
+  summary: z
+    .string()
+    .trim()
+    .min(1)
+    .max(300)
+    .describe("What agreeing does, in a few plain words: Close “W-9 check” as done"),
+  action: BuildAction,
+});
+export type BuildProposal = z.infer<typeof BuildProposal>;
+
+/** `unchanged`: agreed, but the workflow's Builder made no change (it said why). */
+export const PROPOSAL_STATES = ["proposed", "agreed", "unchanged", "declined", "undone"] as const;
+export const ProposalState = z.enum(PROPOSAL_STATES);
+export type ProposalState = z.infer<typeof ProposalState>;
+
+/**
+ * Undo is offered where the change has an exact opposite: an item's state. A draft edit is undone
+ * by its own changes (the Builder session's undo), not by an action.
+ */
+export function proposalUndo(
+  action: BuildAction,
+  before: BuildItemState | null,
+): BuildAction | null {
+  if (action.do === "close_item") return { do: "reopen_item", itemId: action.itemId };
+  if (action.do === "reopen_item" && before && !itemOpen(before)) {
+    return { do: "close_item", itemId: action.itemId, state: before as "done" | "deferred" };
+  }
+  return null;
+}

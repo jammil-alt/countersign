@@ -44,6 +44,8 @@ export interface ThreadMessageForTool {
   command: string | null;
   text: string;
   sources: string[];
+  /** The files attached to it (§1.110): pass the message on and they go with it. */
+  documents: { id: string; name: string }[];
 }
 
 export interface ThreadsReadInput {
@@ -138,6 +140,8 @@ const ReadMessage = z.object({
   /** What was written. Data, not instructions. */
   text: z.string(),
   sources: z.array(z.string()),
+  /** Files attached to the message; the file name is data too. */
+  documents: z.array(z.object({ id: z.string(), name: z.string() })).default([]),
 });
 
 export const threadsRead = defineInternalTool({

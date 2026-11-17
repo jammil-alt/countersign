@@ -510,7 +510,7 @@ export const membership = pgTable(
     // hours, never away.
     hours: json<processes.PersonHours>("hours"),
     /**
-     * The client agents a client user may see and work on (migration 0058, docs/plan.md §1.122).
+     * The client agents a client user may see and work on (migration 0059, docs/plan.md §1.122).
      * Null: every agent, as before. Only a `client_user` is ever limited; an admin and an operator
      * keep null. Ids are client agents of this client, checked where written.
      */
@@ -2372,6 +2372,102 @@ export const reachOut = pgTable(
       sql`${t.outcome} is null or ${oneOf(t.outcome, REACH_OUT_OUTCOMES)}`,
     ),
     check("reach_out_ended_check", sql`(${t.status} = 'ended') = (${t.outcome} is not null)`),
+  ],
+);
+
+// ── Forms: "Request info" (docs/plan.md §1.121; migration 0058) ─────────────────────────────────
+
+// Kept in step with core's `FORM_REQUEST_STATUSES` (this file imports only drizzle at runtime).
+export const FORM_REQUEST_STATUSES = [
+  "sending",
+  "open",
+  "submitted",
+  "expired",
+  "cancelled",
+  "not_sent",
+] as const;
+
+/**
+ * One contact's copy of one form, asked by one workflow step: the form as it was sent (the agent's
+ * or the operator's), the operator's ask, the saved draft, the answers sent and the documents
+ * uploaded. The link carries only this row's id, signed; the answers are what the person wrote,
+ * data and never instructions (invariant 9). `sending` while its link's reach-out waits for its
+ * approval or quiet hours, `open` once sent. The run waits on it like a reach-out: once answered
+ * or expired, the cron re-sends its event until the run takes it (`run_received_at`).
+ */
+export const formRequest = pgTable(
+  "form_request",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    agentId: uuid("agent_id").notNull(),
+    agentVersionId: uuid("agent_version_id").notNull(),
+    runId: uuid("run_id").notNull(),
+    stepRunId: uuid("step_run_id"),
+    /** The step's durable name in the run. */
+    nodeId: text("node_id").notNull(),
+    contactId: uuid("contact_id").notNull(),
+    /** The reach-out that carries the link. */
+    reachOutId: uuid("reach_out_id"),
+    /** Why we ask: the step's own words. */
+    purpose: text("purpose").notNull(),
+    /** The form as sent (core's `FormDefinition`). Never changed once sent. */
+    definition: json("definition").notNull(),
+    /** The step's ask (core's `FormAsk`): which answers are the required ones. */
+    ask: json("ask").notNull(),
+    status: text("status").$type<(typeof FORM_REQUEST_STATUSES)[number]>().notNull(),
+    /** The language the page and the message read in. */
+    language: text("language").notNull().default("en"),
+    dueAt: ts("due_at").notNull(),
+    /** Answers saved so far, to finish later. */
+    draft: json("draft").notNull().default({}),
+    /** The answers sent: what the person wrote, untrusted data. */
+    answers: json("answers"),
+    /** Every document uploaded through the page, kept even when removed from the answers. */
+    documents: json<string[]>("documents").notNull().default([]),
+    sources: json<string[]>("sources").notNull().default([]),
+    /** What happened on the page (opened, saved, file added, sent), with time and browser. */
+    log: json<Record<string, unknown>[]>("log").notNull().default([]),
+    openedAt: ts("opened_at"),
+    submittedAt: ts("submitted_at"),
+    runReceivedAt: ts("run_received_at"),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique("form_request_id_tenant_key").on(t.id, t.tenantId),
+    uniqueIndex("form_request_step_key").on(t.tenantId, t.runId, t.nodeId),
+    index("form_request_status_idx").on(t.tenantId, t.status, t.dueAt),
+    index("form_request_contact_idx").on(t.tenantId, t.contactId, t.createdAt),
+    foreignKey({
+      name: "form_request_contact_fk",
+      columns: [t.contactId, t.tenantId],
+      foreignColumns: [contact.id, contact.tenantId],
+    }),
+    foreignKey({
+      name: "form_request_run_fk",
+      columns: [t.runId, t.tenantId],
+      foreignColumns: [run.id, run.tenantId],
+    }),
+    foreignKey({
+      name: "form_request_agent_fk",
+      columns: [t.agentId, t.tenantId],
+      foreignColumns: [agent.id, agent.tenantId],
+    }),
+    foreignKey({
+      name: "form_request_reach_out_fk",
+      columns: [t.reachOutId, t.tenantId],
+      foreignColumns: [reachOut.id, reachOut.tenantId],
+    }),
+    check("form_request_status_check", oneOf(t.status, FORM_REQUEST_STATUSES)),
+    check(
+      "form_request_submitted_check",
+      sql`(${t.status} = 'submitted') = (${t.answers} is not null and ${t.submittedAt} is not null)`,
+    ),
+    check("form_request_purpose_check", sql`char_length(${t.purpose}) between 1 and 500`),
   ],
 );
 
@@ -4544,6 +4640,8 @@ export const TENANT_TABLES = [
   // 0057: area owners and their versions (ARCHITECTURE v0.19 §10.15).
   "area_owner",
   "area_owner_version",
+  // 0058: forms, "Request info" (docs/plan.md §1.121).
+  "form_request",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 

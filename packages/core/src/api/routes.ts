@@ -53,6 +53,8 @@ import { excelRoutes } from "./excel";
 import { exportRoutes } from "./exports";
 import { feedbackRoutes } from "./feedback";
 // v0.14 W4-E: Google Chat
+// docs/plan.md §1.121: forms, "Request info"
+import { formRoutes } from "./forms";
 import { gchatRoutes } from "./gchat";
 // v0.14 W4-D: Google Sheets' picking
 import { gsheetsRoutes } from "./gsheets";
@@ -2199,7 +2201,8 @@ export const portalRoutes = {
     auth: "session",
     roles: CLIENT,
     summary:
-      "Upload files (multipart, field `files`): PDFs and images become documents, a CSV of purchases becomes transactions",
+      "Upload files (multipart, field `files`): PDFs and images become documents, a CSV of purchases becomes transactions; `for=chat` keeps PDFs and images quiet for a message (§1.110)",
+    query: z.object({ for: z.enum(["chat"]).optional() }),
     response: z.object({ results: z.array(UploadResult) }),
   }),
   portalDocuments: defineRoute({
@@ -2329,6 +2332,8 @@ export const routes = {
   ...buildRoutes,
   // docs/plan.md §1.109: voice typing
   ...voiceRoutes,
+  // docs/plan.md §1.121: forms, "Request info"
+  ...formRoutes,
   ...knowledgeRoutes,
   ...callRoutes,
   ...billingRoutes,

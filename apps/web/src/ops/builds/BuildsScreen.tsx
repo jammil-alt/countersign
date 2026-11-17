@@ -25,8 +25,19 @@ export function BuildsScreen() {
   const list = useApi(apiRoutes.opsBuilds, { query: { status: "open" } });
   const [starting, setStarting] = useState(false);
   const builds = list.data?.builds ?? [];
-  const waitingOnYou = list.data?.items.filter((i) => i.owner === "operator").length ?? 0;
-  const waitingOnClients = list.data?.items.filter((i) => i.owner === "client").length ?? 0;
+  // QA (2026-11-16): the header named only the items with you and with clients, so its numbers
+  // didn't add up to the open items the card and the table count. It says the total, then who has them.
+  const items = list.data?.items ?? [];
+  const byOwner = (owners: string[]) => items.filter((i) => owners.includes(i.owner)).length;
+  const holders = [
+    [byOwner(["operator"]), "with you"],
+    [byOwner(["client"]), "with clients"],
+    [byOwner(["builder", "engineering"]), "with the Builder or engineering"],
+  ] as const;
+  const whoHas = holders
+    .filter(([n]) => n > 0)
+    .map(([n, w]) => `${n} ${w}`)
+    .join(", ");
   return (
     <Page testId="builds">
       <PageHeader
@@ -34,7 +45,7 @@ export function BuildsScreen() {
         title="Builds"
         subtitle={
           list.data
-            ? `${plural(builds.length, "build")}. ${plural(waitingOnYou, "open item")} with you, ${waitingOnClients} with clients.`
+            ? `${plural(builds.length, "build")}. ${plural(items.length, "open item")}${whoHas ? `: ${whoHas}` : ""}.`
             : "Every new agent and skill, from intake to go-live."
         }
         actions={

@@ -19,6 +19,11 @@ export const it: Messages = {
   "voice.writing": "Trascrizione…",
   "voice.blocked": "Il browser non ci ha permesso di usare il microfono.",
   "voice.failed": "Non siamo riusciti a trascriverlo. Riprovi.",
+  "attach.add": "Allega",
+  "attach.uploading": "Caricamento…",
+  "attach.remove": "Rimuovi",
+  "attach.failed": "Non siamo riusciti a caricarlo. Riprovi.",
+  "attach.refused": "{name}: alleghi PDF o immagini.",
   "common.filter": "Filtro",
   "common.sections": "Sezioni",
   "common.waiting": "In attesa",
@@ -400,6 +405,11 @@ export const it: Messages = {
   "desk.edit": "Modifica",
   "desk.edited": "Hai cambiato questa modifica. Usiamo la tua versione.",
   "desk.afterYouSign": "Dopo la tua approvazione",
+  // §1.121: a form request's card
+  "desk.form.heading": "Il modulo che riceveranno: {title}", // fluent review
+  "desk.form.fixed": "Domanda vostra", // fluent review
+  "desk.form.added": "Aggiunta dall’agente", // fluent review
+  "desk.form.required": "obbligatoria", // fluent review
   "desk.editHint": "Cambia quello che serve, poi salva. Lo ricontrolliamo prima che tu approvi.",
   "desk.editSave": "Salva le modifiche",
   "desk.snooze.until": "Fallo tornare",
