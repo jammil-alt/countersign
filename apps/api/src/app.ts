@@ -142,6 +142,8 @@ import { testbenchRoutes } from "./routes/testbench";
 import { textSignupRoutes } from "./routes/text-signup";
 // v0.12 W1-C
 import { threadRouteHandlers } from "./routes/threads";
+// §1.123.3 back office work: Your call
+import { todoRoutes } from "./routes/todos";
 // P-7: message translation
 import { translationRoutes } from "./routes/translation";
 // v0.12 W2-E
@@ -327,6 +329,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // §1.123 back office work
   workRouteHandlers(app);
   portalIssueRouteHandlers(app);
+  todoRoutes(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));

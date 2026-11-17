@@ -108,6 +108,8 @@ export * from "./api/teams";
 export * from "./api/testbench";
 export * from "./api/text-signup";
 export * from "./api/threads";
+// docs/plan.md §1.123.3: Your call
+export * from "./api/todos";
 // P-7: message translation
 export * from "./api/translation";
 // v0.12 W2-E

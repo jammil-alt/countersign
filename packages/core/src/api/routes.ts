@@ -125,6 +125,7 @@ import { testbenchRoutes } from "./testbench";
 import { textSignupRoutes } from "./text-signup";
 // v0.12 W1-C: threads, the lead and `/commands`
 import { PortalLead, threadRoutes } from "./threads";
+import { todoRoutes } from "./todos";
 // v0.12 W2-E: the triggers list
 // P-7: message translation
 import { translationRoutes } from "./translation";
@@ -2424,5 +2425,7 @@ export const routes = {
   ...reshapeRoutes,
   // docs/plan.md §1.123: back office work
   ...workRoutes,
+  // docs/plan.md §1.123.3: Your call
+  ...todoRoutes,
 } as const;
 export type Routes = typeof routes;
