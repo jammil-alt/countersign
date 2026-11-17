@@ -14,8 +14,15 @@ import {
   type ClaudeConnection,
   SESSION_MAX_AGE_SEC,
 } from "@countersign/core";
-import { type Db, mcpSessionApproval, withUser } from "@countersign/db";
-import { and, eq, inArray } from "drizzle-orm";
+import {
+  auditEvent,
+  type Db,
+  mcpSessionApproval,
+  type Tx,
+  withOperator,
+  withUser,
+} from "@countersign/db";
+import { and, count, eq, inArray, sql } from "drizzle-orm";
 import type { Bindings } from "../env";
 import type { AppDeps } from "../http";
 import { secondFactorSetupOf } from "../second-factor";
@@ -62,6 +69,69 @@ export async function connectionConfirmCode(key: string, code: string): Promise<
 }
 
 type ApprovalRow = typeof mcpSessionApproval.$inferSelect;
+
+/** Wrong codes a link takes before it stops working (a new one comes with Claude's next call). */
+export const CLAUDE_CONFIRM_MAX_TRIES = 5;
+
+/**
+ * Checks the code typed for a link (audit 5.3) under a per-link advisory lock, so codes sent at
+ * once are taken one at a time: `ok`; `wrong` (its refused row written by `wrongRow` in the same
+ * step); `spent`, the wrong code that used the link's last try; or `ended`, a link already past
+ * its tries. The caller ends the link on `spent` (`endLink`). Refused `mcp.approve` rows are the
+ * count, read in an operator scope over no clients as they have none (as `claimAttempt`).
+ */
+export async function checkConfirm(input: {
+  db: Db;
+  row: ApprovalRow;
+  keys: readonly string[];
+  code: string;
+  typed: string;
+  wrongRow: (tx: Tx) => Promise<void>;
+}): Promise<"ok" | "wrong" | "spent" | "ended"> {
+  const { row } = input;
+  return withOperator(input.db, [], async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`claude-confirm:${row.id}`}, 0))`,
+    );
+    const [tried] = await tx
+      .select({ n: count() })
+      .from(auditEvent)
+      .where(
+        and(
+          eq(auditEvent.actorUserId, row.userId),
+          eq(auditEvent.action, "mcp.approve"),
+          eq(auditEvent.outcome, "refused"),
+          sql`${auditEvent.target} ->> 'connection' = ${row.id}`,
+          sql`${auditEvent.createdAt} >= ${row.expiresAt}::timestamptz - ${`${CLAUDE_LINK_MIN} minutes`}::interval`,
+        ),
+      );
+    const n = tried?.n ?? 0;
+    if (n >= CLAUDE_CONFIRM_MAX_TRIES) return "ended";
+    const expected = await Promise.all(input.keys.map((k) => connectionConfirmCode(k, input.code)));
+    if (expected.some((e) => sameText(e, input.typed))) return "ok";
+    await input.wrongRow(tx);
+    return n + 1 >= CLAUDE_CONFIRM_MAX_TRIES ? "spent" : "wrong";
+  });
+}
+
+/** A link past its tries matches nothing from now on: Claude's next call gives a new one. */
+export async function endLink(db: Db, row: ApprovalRow): Promise<void> {
+  await withUser(db, row.userId, (tx) =>
+    tx
+      .update(mcpSessionApproval)
+      .set({ codeHash: `ended:${crypto.randomUUID()}` })
+      .where(and(eq(mcpSessionApproval.id, row.id), eq(mcpSessionApproval.userId, row.userId))),
+  );
+}
+
+/** Equal strings, compared in time that doesn't depend on where they differ. */
+function sameText(a: string, b: string): boolean {
+  const x = new TextEncoder().encode(a);
+  const y = new TextEncoder().encode(b);
+  let d = x.length ^ y.length;
+  for (let i = 0; i < Math.max(x.length, y.length); i++) d |= (x[i] ?? 0) ^ (y[i] ?? 0);
+  return d === 0;
+}
 
 /** What the approval page shows for a row. */
 export function connectionView(row: ApprovalRow, now: Date): ClaudeConnection {

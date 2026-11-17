@@ -382,6 +382,25 @@ describe.skipIf(!h)("the second step of signing in (§1.100)", () => {
     ).rejects.toThrow("audit row not written");
   });
 
+  it("counts code sends at once one at a time", async () => {
+    const b = new Browser();
+    await signIn(b, H.C.admin);
+    const setup = await request(b, "POST", "/api/auth/second-factor/setup", {
+      kind: "sms",
+      phone: "+15550001111",
+    });
+    expect(setup.status, JSON.stringify(setup.json)).toBe(200);
+    const before = verifier.sent.length;
+    // Setting up sent one; of eight more at once, four fit in the limit of five.
+    const sends = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        request(b, "POST", "/api/auth/second-factor/send", { kind: "sms" }),
+      ),
+    );
+    expect(sends.map((r) => r.status).sort()).toEqual([200, 200, 200, 200, 429, 429, 429, 429]);
+    expect(verifier.sent.length - before).toBe(4);
+  });
+
   const operator = new Browser();
 
   it("holds operators to an authenticator app, shown once as a link", async () => {

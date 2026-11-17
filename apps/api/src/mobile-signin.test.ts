@@ -7,7 +7,7 @@
 import { sealSession, type WorkOSAuthentication, type WorkOSClient } from "@countersign/auth";
 import { memoryCodeVerifier } from "@countersign/connectors";
 import { MOBILE_SESSION_HEADER } from "@countersign/core";
-import { appUser, auditEvent } from "@countersign/db";
+import { appUser, auditEvent, membership } from "@countersign/db";
 import { and, asc, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { type ApiHarness, createApiHarness } from "./api.test-helper";
@@ -344,6 +344,68 @@ describe.skipIf(!h)("signing in from the phone app with the second step on", () 
       headers: { [MOBILE_SESSION_HEADER]: again.json.session },
     });
     expect(fresh.status, JSON.stringify(fresh.json)).toBe(200);
+  });
+
+  it("ends a removed phone's session in every client of the person, and on the sign-in routes", async () => {
+    // A person in two clients; their phone session signed in two minutes ago.
+    const uid = H.A.user;
+    await H.t.db
+      .insert(membership)
+      .values({ tenantId: H.B.tenantId, userId: uid, role: "client_user" });
+    const [u] = await H.t.db.select().from(appUser).where(eq(appUser.id, uid));
+    const now = Math.floor(Date.now() / 1000);
+    const phone = await sealSession(
+      {
+        v: 1,
+        uid,
+        wuid: `wu_${uid}`,
+        email: u?.email ?? "",
+        worg: null,
+        sid: `sess_${uid}`,
+        rt: `rt_${uid}`,
+        iat: now - 120,
+        rat: now + 240,
+        exp: now + 3600,
+        lat: now,
+        mf: "done",
+        ph: true,
+      },
+      PASSWORD,
+    );
+    const asPhone = (client: string) => ({
+      [MOBILE_SESSION_HEADER]: phone,
+      "x-countersign-client": client,
+    });
+    expect(
+      (await request(null, "GET", "/api/me/devices", { headers: asPhone(H.B.tenantId) })).status,
+    ).toBe(200);
+    // They remove a phone in client A.
+    await H.t.db.insert(auditEvent).values({
+      tenantId: H.A.tenantId,
+      actorKind: "user",
+      actorUserId: uid,
+      action: "mobile.phone_removed",
+      outcome: "ok",
+      target: {},
+    });
+    for (const client of [H.A.tenantId, H.B.tenantId]) {
+      for (const path of ["/api/me/devices", "/api/runs"]) {
+        const r = await request(null, "GET", path, { headers: asPhone(client) });
+        expect([r.status, r.json?.error?.code], `${path} in ${client}`).toEqual([
+          401,
+          "session_invalid",
+        ]);
+      }
+    }
+    const headers = { [MOBILE_SESSION_HEADER]: phone };
+    for (const path of [
+      "/api/session",
+      "/api/auth/second-factor",
+      `/api/auth/claude-connections/${"a".repeat(32)}`,
+    ]) {
+      const r = await request(null, "GET", path, { headers });
+      expect([r.status, r.json?.error?.code], path).toEqual([401, "session_invalid"]);
+    }
   });
 
   it("lets an SSO sign-in through without the code, as in a browser", async () => {

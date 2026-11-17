@@ -453,6 +453,40 @@ describe.skipIf(!h)("the Claude connector's approval link (§1.120)", () => {
     expect(none.link).toBeUndefined();
   });
 
+  it("stops a link after 5 wrong codes, even sent at once; Claude then gives a new one", async () => {
+    const bearer = await token(WORKOS_IDS.operator, "authkit_guesses");
+    const link = await whoami(bearer);
+    const wrongCode = link.confirm === "000000" ? "111111" : "000000";
+    const tries = await Promise.all(
+      Array.from({ length: 7 }, () =>
+        request(operator, "POST", `/api/auth/claude-connections/${link.code}/approve`, {
+          confirm: wrongCode,
+        }),
+      ),
+    );
+    // Four wrong codes are told so; the fifth ends the link, and any try after it finds nothing.
+    expect(tries.map((t) => t.status).sort()).toEqual([404, 404, 422, 422, 422, 422, 429]);
+    expect(tries.find((t) => t.status === 429)?.json.error.code).toBe("too_many_attempts");
+    const right = await request(
+      operator,
+      "POST",
+      `/api/auth/claude-connections/${link.code}/approve`,
+      { confirm: link.confirm },
+    );
+    expect(right.status).toBe(404);
+    expect((await whoami(bearer)).isError).toBe(true);
+    const next = await whoami(bearer);
+    const ok = await request(
+      operator,
+      "POST",
+      `/api/auth/claude-connections/${next.code}/approve`,
+      {
+        confirm: next.confirm,
+      },
+    );
+    expect(ok.json.status, JSON.stringify(ok.json)).toBe("approved");
+  });
+
   it("says a link past its 30 minutes has expired, and won't approve it", async () => {
     clockShift = -31 * 60_000;
     const late = await whoami(await token(WORKOS_IDS.operator, "authkit_late"));

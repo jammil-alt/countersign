@@ -3,7 +3,7 @@
 
 import { getSession, toSessionResponse } from "@countersign/auth";
 import { isOperatorRole, routes } from "@countersign/core";
-import { appUser, userMemberships, withTenant, withTenants } from "@countersign/db";
+import { appUser, userMemberships, withTenant } from "@countersign/db";
 import { asc } from "drizzle-orm";
 import type { Hono } from "hono";
 import { assignedAgents } from "../assigned";
@@ -17,7 +17,7 @@ import {
   notFound,
   requestedClient,
 } from "../http";
-import { phoneSessionEnded } from "../mobile/phone-session";
+import { PHONE_ENDED_MESSAGE, phoneEndedForPerson } from "../mobile/phone-session";
 import { sessionLanguage } from "./language";
 // v0.12 W1-C
 import { sessionLead } from "./threads";
@@ -48,19 +48,8 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
         return c.json({ error: { code: result.code, message: result.message } }, result.status);
       }
       // Audit 5.2: a phone session ended by a removed phone is signed out here too.
-      if (result.session.phone) {
-        const ids = result.session.memberships.map((m) => m.tenantId);
-        const ended = await withTenants(services.db, ids, (tx) =>
-          phoneSessionEnded(tx, ids, result.session),
-        );
-        if (ended) {
-          return c.json(
-            {
-              error: { code: "session_invalid", message: "this phone was removed: sign in again" },
-            },
-            401,
-          );
-        }
+      if (await phoneEndedForPerson(services.db, result.session)) {
+        return c.json({ error: { code: "session_invalid", message: PHONE_ENDED_MESSAGE } }, 401);
       }
       sendCookies(c, result.setCookies);
       const language = await sessionLanguage(

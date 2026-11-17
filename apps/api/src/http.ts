@@ -10,6 +10,7 @@ import {
   accountFresh,
   type CarriedAccount,
   epochSec,
+  refuse,
   requireRole,
   type Session,
   secondFactorGate,
@@ -50,7 +51,7 @@ import type { BrowserDeps } from "./browser/services";
 import type { Bindings } from "./env";
 import type { ExportJobs } from "./exports/instances";
 import type { McpDeps } from "./mcp/routes";
-import { phoneSessionEnded } from "./mobile/phone-session";
+import { PHONE_ENDED_MESSAGE, phoneEndedForPerson } from "./mobile/phone-session";
 import { reportHandled } from "./observability/report";
 import { type Platform, platformFor } from "./platform";
 import type { QboSyncInstances } from "./qbo/instances";
@@ -676,30 +677,11 @@ function withAgentScope<R extends RouteSpec>(
     return async (ctx) =>
       run({
         ...ctx,
-        agents: await ctx.inTx(async (scoped) => {
-          await refuseEndedPhone(scoped.tx, ctx);
-          return agentScope(spec, scoped.tx, ctx);
-        }),
+        agents: await ctx.inTx((scoped) => agentScope(spec, scoped.tx, ctx)),
       });
   }
   const run = handler as (ctx: HandlerCtx<R>) => Promise<unknown>;
-  return async (ctx) => {
-    await refuseEndedPhone(ctx.tx, ctx);
-    return run({ ...ctx, agents: await agentScope(spec, ctx.tx, ctx) });
-  };
-}
-
-/**
- * Audit 5.2: a phone app's session signed in before the person removed one of their phones in
- * this client is over (./mobile/phone-session.ts). Every session route checks it first.
- */
-async function refuseEndedPhone(
-  tx: Tx,
-  ctx: { session: Session; tenantIds: readonly string[] },
-): Promise<void> {
-  if (await phoneSessionEnded(tx, ctx.tenantIds, ctx.session)) {
-    throw new HttpError(401, "session_invalid", "this phone was removed: sign in again");
-  }
+  return async (ctx) => run({ ...ctx, agents: await agentScope(spec, ctx.tx, ctx) });
 }
 
 function mountWith<R extends RouteSpec>(
@@ -754,6 +736,18 @@ function mountWith<R extends RouteSpec>(
       // which run outside mount. Checked before any account is read or carried.
       const pending = secondFactorGate(identified);
       if (pending) return refused(pending);
+      // Audit 5.2: a phone app's session signed in before the person removed one of their phones,
+      // in any of their clients, is over (./mobile/phone-session.ts). Its own short reads, before
+      // the request's transaction; a browser's session reads nothing here.
+      if (
+        identified.phone &&
+        (await phoneEndedForPerson(services.db, {
+          phone: identified.phone,
+          user: { id: identified.userId },
+        }))
+      ) {
+        return refused(refuse("session_invalid", PHONE_ENDED_MESSAGE, identified.setCookies));
+      }
       const { userId } = identified;
       const requested = requestedClient(c);
       const nowSec = epochSec(now);

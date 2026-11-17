@@ -54,6 +54,11 @@ branches.
   answers no tool call until the person approves that Claude sign-in from a browser that did pass
   it (§1.120). The approval link's code is kept only as an HMAC, works for 30 minutes and only for
   its own person; the approval ends with that Claude sign-in, 12 hours at most.
+  Approving also takes the 6-digit code Claude shows beside the link, and the page says when
+  Claude gave the link. The code is friction against phishing (someone sending a person a link to
+  approve for a Claude that isn't theirs), not a cryptographic binding: whoever controls that
+  Claude sees the code. A link stops working after 5 wrong codes; Claude's next call gives a new
+  one.
 - **A person's clients and roles are read again at most every 5 minutes** (`docs/plan.md` §1.93,
   the owner's D2). The sealed session cookie carries them with the time they were read; a request
   inside those 5 minutes uses them instead of reading them.
@@ -81,7 +86,7 @@ branches.
     operators, and a client they led has no lead until one is set. The rest of the day's steps are
     in `docs/operations.md`, "People: joining and leaving".
   - A phone (the phone app, `docs/plan.md` §1.116): removing it in Settings ends that person's
-    phone-app sessions in that client which signed in before then, on their next request
+    phone-app sessions which signed in before then, in all their clients, on their next request
     (`mobile.phone_removed` in the audit log). While the second step is on, a phone's signing key
     can be added only within 10 minutes of signing in or passing the step.
 - Roles are `operator`, `client_admin` and `client_user`. Only operators reach `/api/ops` and the

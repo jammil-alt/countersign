@@ -10,7 +10,6 @@ import {
   getSession,
   mobileSessionFromSetCookies,
   type Session,
-  timingSafeEqual,
   type WorkOSAdapter,
 } from "@countersign/auth";
 import { routes, type SecondFactorKind } from "@countersign/core";
@@ -22,19 +21,20 @@ import { authDirectory } from "../auth";
 import { type AppContext, type AppEnv, HttpError, mount, mountPublic, notFound } from "../http";
 import {
   approveConnection,
-  connectionConfirmCode,
+  checkConfirm,
   connectionView,
+  endLink,
   findConnection,
 } from "../mcp/approval";
+import { PHONE_ENDED_MESSAGE, phoneEndedForPerson } from "../mobile/phone-session";
 import {
   ATTEMPT_ACTION,
   allowedKinds,
   claimAttempt,
+  claimSend,
   factorsOf,
   newRecoveryCodes,
-  overLimit,
   phoneHint,
-  recentCount,
   recoveryCodesLeft,
   type SecondFactorConfig,
   secondFactorSetupOf,
@@ -70,6 +70,11 @@ async function stepContext(c: AppContext, passed = false): Promise<StepCtx> {
   if (!result.ok) {
     sendCookies(c, result.setCookies);
     throw new HttpError(result.status, result.code, result.message);
+  }
+  // Audit 5.2: these routes run outside mount(), so they ask for themselves whether a phone
+  // session was ended by a removed phone (approving a Claude connection included).
+  if (await phoneEndedForPerson(services.db, result.session)) {
+    throw new HttpError(401, "session_invalid", PHONE_ENDED_MESSAGE);
   }
   sendCookies(c, result.setCookies);
   const setup = secondFactorSetupOf(services.env, {
@@ -154,7 +159,6 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
     if (factors.some((f) => f.verifiedAt && allowed.includes(f.kind))) {
       throw new HttpError(409, "already_set_up", "you already have a method; use it to sign in");
     }
-    const now = new Date();
     try {
       if (body.kind === "totp") {
         const old = factors.find((f) => f.kind === "totp");
@@ -168,7 +172,7 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
         );
         return { kind: "totp" as const, otpauthUri: made.uri, phoneHint: null };
       }
-      if (overLimit(await recentCount(db, userId, "send", now))) throw tooMany();
+      await sendOnce(c, session, body.kind);
       await saveFactor(c, userId, { kind: body.kind, phone: body.phone, twilioFactorSid: null });
       await config.verifier.sendCode(body.phone, body.kind);
     } catch (error) {
@@ -180,11 +184,6 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
       c,
       entry(session, "session.second_factor_setup", "ok", 200, { kind: body.kind }),
     );
-    await auditAlone(
-      db,
-      c,
-      entry(session, "session.second_factor_send", "ok", 200, { kind: body.kind }),
-    );
     return { kind: body.kind, otpauthUri: null, phoneHint: phoneHint(body.phone) };
   });
 
@@ -195,17 +194,12 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
     const allowed = await allowedKinds(db, userId);
     const factor = (await factorsOf(db, userId)).find((f) => f.kind === body.kind);
     if (!factor?.phone || !allowed.includes(body.kind)) throw notFound("that method");
-    if (overLimit(await recentCount(db, userId, "send", new Date()))) throw tooMany();
+    await sendOnce(c, session, body.kind);
     try {
       await config.verifier.sendCode(factor.phone, body.kind);
     } catch {
       throw providerFailed();
     }
-    await auditAlone(
-      db,
-      c,
-      entry(session, "session.second_factor_send", "ok", 200, { kind: body.kind }),
-    );
     return { ok: true as const, phoneHint: phoneHint(factor.phone) ?? "" };
   });
 
@@ -357,14 +351,34 @@ export function claudeConnectionRoutes(app: Hono<AppEnv>): void {
     if (view.status === "expired") {
       throw new HttpError(409, "expired", "this link has expired; ask Claude again for a new one");
     }
-    // Audit 5.3: the code Claude showed beside the link, typed here (any key's, as the link's).
-    const expected = await Promise.all(keys.map((k) => connectionConfirmCode(k, code)));
-    if (!expected.some((e) => timingSafeEqual(e, body.confirm))) {
-      await auditAlone(
-        services.db,
-        c,
-        entry(session, "mcp.approve", "refused", 422, { connection: row.id, reason: "wrong_code" }),
+    // Audit 5.3: the code Claude showed beside the link, typed here (any key's, as the link's),
+    // at most CLAUDE_CONFIRM_MAX_TRIES wrong ones per link.
+    const checked = await checkConfirm({
+      db: services.db,
+      row,
+      keys,
+      code,
+      typed: body.confirm,
+      wrongRow: (tx) =>
+        auditInTx(
+          tx,
+          c,
+          entry(session, "mcp.approve", "refused", 422, {
+            connection: row.id,
+            reason: "wrong_code",
+          }),
+        ),
+    });
+    if (checked === "ended") throw notFound("Claude connection");
+    if (checked === "spent") {
+      await endLink(services.db, row);
+      throw new HttpError(
+        429,
+        "too_many_attempts",
+        "too many wrong codes for this link; ask Claude again for a new one",
       );
+    }
+    if (checked === "wrong") {
       throw new HttpError(
         422,
         "wrong_code",
@@ -394,6 +408,18 @@ const tooMany = () =>
  * Audit 5.4: one try of a code, claimed (and its row written) before the code is checked; past
  * the limit, 429 and the code is never checked. A failure to claim fails the request.
  */
+/**
+ * Audit 5.4: one code send, claimed (its `session.second_factor_send` row written) before the
+ * message goes out; past the limit, 429 and nothing is sent.
+ */
+async function sendOnce(c: AppContext, session: Session, kind: string): Promise<void> {
+  const { db } = c.get("req").services();
+  const claimed = await claimSend(db, session.user.id, (tx) =>
+    auditInTx(tx, c, entry(session, "session.second_factor_send", "ok", 200, { kind })),
+  );
+  if (!claimed) throw tooMany();
+}
+
 async function tryOnce(c: AppContext, session: Session, method: string): Promise<void> {
   const { db } = c.get("req").services();
   const claimed = await claimAttempt(db, session.user.id, (tx) =>

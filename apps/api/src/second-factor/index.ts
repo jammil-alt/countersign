@@ -211,41 +211,41 @@ export async function useRecoveryCode(
 
 // ── Limits ───────────────────────────────────────────────────────────────────────────────────────
 
+export const overLimit = (n: number) => n >= SECOND_FACTOR_MAX_ATTEMPTS;
+
 /**
- * Wrong codes (`session.second_factor` refused) or sends (`session.second_factor_send`) by this
- * person in the last 15 minutes, from the audit log.
+ * Claims one code send (a text or WhatsApp message) for this person before it goes out: false
+ * once SECOND_FACTOR_MAX_ATTEMPTS were sent in the last 15 minutes. As `claimAttempt`, under a
+ * per-person advisory lock of its own, and the send's row (`row`) commits before the message is
+ * sent; a failure to write it throws.
  */
-// DECISION: counted from audit rows as §1.100 says. Those rows have no client, which only an
-// operator scope reads, so this one count runs in an operator scope over no clients: it sees
-// client-less rows only, filtered to this person's own actions.
-export async function recentCount(
+export async function claimSend(
   db: Db,
   userId: string,
-  what: "wrong_code" | "send",
-  now: Date,
-): Promise<number> {
-  const since = new Date(now.getTime() - SECOND_FACTOR_WINDOW_SEC * 1000);
-  const [row] = await withOperator(db, [], (tx) =>
-    tx
+  row: (tx: Tx) => Promise<void>,
+): Promise<boolean> {
+  return withOperator(db, [], async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`second-factor-send:${userId}`}, 0))`,
+    );
+    const [sent] = await tx
       .select({ n: count() })
       .from(auditEvent)
       .where(
         and(
           eq(auditEvent.actorUserId, userId),
-          gte(auditEvent.createdAt, since),
-          what === "send"
-            ? eq(auditEvent.action, "session.second_factor_send")
-            : and(
-                eq(auditEvent.action, "session.second_factor"),
-                eq(auditEvent.outcome, "refused"),
-              ),
+          eq(auditEvent.action, "session.second_factor_send"),
+          gte(
+            auditEvent.createdAt,
+            sql`now() - ${`${SECOND_FACTOR_WINDOW_SEC} seconds`}::interval`,
+          ),
         ),
-      ),
-  );
-  return row?.n ?? 0;
+      );
+    if (overLimit(sent?.n ?? 0)) return false;
+    await row(tx);
+    return true;
+  });
 }
-
-export const overLimit = (n: number) => n >= SECOND_FACTOR_MAX_ATTEMPTS;
 
 /** The audit row each code tried leaves, written before the code is checked. */
 export const ATTEMPT_ACTION = "session.second_factor_attempt";
