@@ -34,16 +34,32 @@ export interface MailMessage {
   replyTo?: string;
   /** §1.124.4: extra headers (e.g. In-Reply-To), as Resend's `headers`. */
   headers?: Record<string, string>;
+  /**
+   * §1.125: sent by a person of ours from Mezonas' `hello@` address, `"<name> at Mezonas"
+   * <hello@domain>` (the onboarding emails, from the lead). Replies go to `replyTo`.
+   */
+  from?: { name: string; localPart: typeof HELLO_LOCAL_PART };
 }
 
-/** The display name of the sender: Mezonas, or `<client> via Mezonas`, without header syntax. */
-export function senderName(onBehalfOf: string | undefined): string {
-  const name = (onBehalfOf ?? "")
+/** A name for a From header: no header syntax, one line, at most 80 characters. */
+function headerName(name: string | undefined): string {
+  return (name ?? "")
     .replace(/[\r\n"<>,;:\\]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 80);
+}
+
+/** The display name of the sender: Mezonas, or `<client> via Mezonas`, without header syntax. */
+export function senderName(onBehalfOf: string | undefined): string {
+  const name = headerName(onBehalfOf);
   return name ? `${name} via Mezonas` : "Mezonas";
+}
+
+/** §1.125: a person of ours, `<name> at Mezonas`, without header syntax. */
+export function personSenderName(name: string): string {
+  const clean = headerName(name);
+  return clean ? `${clean} at Mezonas` : "Mezonas";
 }
 
 export interface Mailer {
@@ -54,6 +70,9 @@ export interface Mailer {
 }
 
 export const NOTIFY_LOCAL_PART = "notify";
+// DECISION (§1.125, owner q9): the onboarding emails go from `hello@` on the same Resend domain as
+// `notify@` (RESEND_FALLBACK_DOMAIN: `mezonas.com` in production once the owner verifies it).
+export const HELLO_LOCAL_PART = "hello";
 
 /** Mezonas' mail over Resend; unconfigured without RESEND_API_KEY and RESEND_FALLBACK_DOMAIN. */
 export function resendMailer(input: {
@@ -74,9 +93,11 @@ export function resendMailer(input: {
         "POST",
         "/emails",
         {
-          from: m.onBehalfOf
-            ? `"${senderName(m.onBehalfOf)}" <${NOTIFY_LOCAL_PART}@${domain}>`
-            : `Mezonas <${NOTIFY_LOCAL_PART}@${domain}>`,
+          from: m.from
+            ? `"${personSenderName(m.from.name)}" <${m.from.localPart}@${domain}>`
+            : m.onBehalfOf
+              ? `"${senderName(m.onBehalfOf)}" <${NOTIFY_LOCAL_PART}@${domain}>`
+              : `Mezonas <${NOTIFY_LOCAL_PART}@${domain}>`,
           to: [m.to],
           subject: m.subject,
           text: m.text,

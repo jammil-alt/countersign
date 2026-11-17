@@ -9,6 +9,7 @@ import {
   complianceOf,
   holdsInQuietHours,
   inQuietHours,
+  isOnboardingNotificationKind,
   NOTIFICATION_REASONS,
   NOTIFY_MAX_TRIES,
   type NotificationChannel,
@@ -27,6 +28,12 @@ import { type Db, notification, personDevice, type Tx, withTenant } from "@count
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Bindings } from "../env";
 import { reportHandled, reportProblem } from "../observability/report";
+import {
+  logOnboardingSend,
+  type PreparedOnboardingEmail,
+  prepareOnboardingEmail,
+} from "../onboarding/emails";
+import type { WelcomeLinkEnv } from "../onboarding/link";
 import type { Mailer, Texter } from "./mailer";
 import {
   memberPerson,
@@ -42,6 +49,8 @@ export type NotificationRow = typeof notification.$inferSelect;
 
 export interface NotifyDeps {
   mailer: Mailer;
+  /** §1.125: what signs the onboarding emails' welcome links (the Worker's key). */
+  links?: WelcomeLinkEnv;
   texter: Texter;
   /** §1.116: phone notifications (Expo's push service); none means off (rows skipped). */
   pusher?: Pusher;
@@ -178,6 +187,11 @@ interface Claimed {
   person: NotifyPerson;
   rendered: ReturnType<typeof renderNotification>;
   claim: string;
+  /**
+   * §1.125: an onboarding email, rendered from its intake and sent to the intake person (who may
+   * have no account yet) from the lead; `person` and `rendered` are unused for it.
+   */
+  onboarding?: Extract<PreparedOnboardingEmail, { kind: "send" }>;
 }
 
 /**
@@ -251,6 +265,52 @@ export async function sendQueued(
         await settle(tx, row, { status: "skipped", reason });
         out.skipped++;
       };
+      // §1.125: the onboarding emails go to the intake's person, account or not, whatever their
+      // notification settings (they asked for none yet), at once rather than in quiet hours.
+      if (isOnboardingNotificationKind(row.kind)) {
+        const prepared = await prepareOnboardingEmail(
+          tx,
+          t,
+          row,
+          {
+            mailerConfigured: deps.mailer.isConfigured,
+            origin: deps.origin,
+            links: deps.links ?? {},
+          },
+          now,
+        );
+        if (prepared.kind === "hold") {
+          if (row.reason !== prepared.reason) await settle(tx, row, { reason: prepared.reason });
+          out.held++;
+          continue;
+        }
+        if (prepared.kind === "skip") {
+          await skip(prepared.reason);
+          if (prepared.intakeId && prepared.personId) {
+            await logOnboardingSend(tx, {
+              tenantId: t.id,
+              intakeId: prepared.intakeId,
+              personId: prepared.personId,
+              kind: row.kind,
+              notificationId: row.id,
+              status: "skipped",
+              reason: prepared.reason,
+            });
+          }
+          continue;
+        }
+        const claim = claimReason(now, row.reason);
+        await settle(tx, row, { reason: claim });
+        sends.push({
+          row,
+          // Unused for an onboarding email; the claim's shape is shared.
+          person: null as unknown as NotifyPerson,
+          rendered: { subject: prepared.message.subject, text: prepared.message.text },
+          claim,
+          onboarding: prepared,
+        });
+        continue;
+      }
       const person = row.userId ? await personFor(row.userId) : null;
       // DECISION: someone who left the client (no membership) is told nothing more.
       if (!person) {
@@ -325,12 +385,15 @@ export async function sendQueued(
   if (!claimed) return null;
   const { t } = claimed;
 
-  for (const { row, person, rendered, claim } of claimed.sends) {
+  for (const { row, person, rendered, claim, onboarding } of claimed.sends) {
     let providerId: string | null = null;
     let failure: unknown = null;
     let gone: string[] = [];
     try {
-      if (row.channel === "push") {
+      if (onboarding) {
+        // §1.125: from the lead at hello@, Reply-To the lead; the row's id is the idempotency key.
+        providerId = await deps.mailer.send({ ...onboarding.message, idempotencyKey: row.id });
+      } else if (row.channel === "push") {
         const pushed = await sendPush(pusher, t, person, row);
         gone = pushed.gone;
         if (!pushed.id) throw new Error("no phone took the notification");
@@ -369,8 +432,20 @@ export async function sendQueued(
               ),
             );
         }
+        const logged = (status: "sent" | "failed") =>
+          onboarding
+            ? logOnboardingSend(tx, {
+                tenantId: t.id,
+                intakeId: onboarding.intakeId,
+                personId: onboarding.personId,
+                kind: row.kind,
+                notificationId: row.id,
+                status,
+              })
+            : Promise.resolve();
         if (failure === null) {
           await settle(tx, row, { status: "sent", reason: null, providerId, sentAt: now }, claim);
+          await logged("sent");
           return;
         }
         const tries = triesOf(row.reason) + 1;
@@ -381,6 +456,7 @@ export async function sendQueued(
             { status: "failed", reason: NOTIFICATION_REASONS.sendFailed },
             claim,
           );
+          await logged("failed");
         } else {
           await settle(tx, row, { reason: retryReason(tries) }, claim);
         }
@@ -411,6 +487,8 @@ async function sendPush(
   row: NotificationRow,
 ): Promise<{ id: string | null; gone: string[] }> {
   const weekStart = weekOfKey(row.dedupeKey);
+  // §1.125: the onboarding emails are email only; nothing else reaches a phone.
+  if (isOnboardingNotificationKind(row.kind)) return { id: null, gone: [] };
   const words = renderPush({
     kind: row.kind,
     counts: row.counts,
