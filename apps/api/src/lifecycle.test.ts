@@ -30,6 +30,7 @@ import {
   user,
 } from "./api.test-helper";
 import { lifecycleTick } from "./lifecycle/cron";
+import { MISSED_SCAN_MAX } from "./lifecycle/runs";
 import { dispatchByIds, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
 
 const h = await createApiHarness();
@@ -580,6 +581,16 @@ describe.skipIf(!h)("go-live stages and client controls", () => {
     expect(await runsOn(before)).toHaveLength(1);
 
     await ok(admin("a"), "POST", `/api/services/${id}/pause`, { reason: "Away for the weekend" });
+    // A busy weekend: more events than one read takes, none the agent listens to, before the one
+    // it does.
+    await H.t.db.insert(event).values(
+      Array.from({ length: MISSED_SCAN_MAX + 100 }, (_, i) => ({
+        tenantId: A().tenantId,
+        type: "usage.recorded",
+        payload: { n: i },
+        dispatchedAt: new Date(),
+      })),
+    );
     const during = await doc();
     // A test run's event never starts a live run, paused or not.
     const [testRun] = await H.t.db
@@ -602,7 +613,13 @@ describe.skipIf(!h)("go-live stages and client controls", () => {
 
     const missed = await ok(OPERATOR, "GET", `/api/ops/agents/${id}/missed-events`);
     expect(missed.missed).toMatchObject({ count: 1, more: false });
-    const ran = await ok(OPERATOR, "POST", `/api/ops/agents/${id}/missed-events/run`);
+    // Two clicks at once: one starts it, the other answers cleanly with nothing to start.
+    const both = await Promise.all([
+      ok(OPERATOR, "POST", `/api/ops/agents/${id}/missed-events/run`),
+      ok(OPERATOR, "POST", `/api/ops/agents/${id}/missed-events/run`),
+    ]);
+    const ran = both.find((b) => b.runs.length > 0);
+    expect(new Set(both.flatMap((b) => b.runs).map((r: Json) => r.runId)).size).toBe(1);
     expect(ran.runs.map((r: Json) => r.workflow)).toEqual(["on-doc"]);
     expect(ran.left).toBe(0);
     const [started] = await runsOn(during);

@@ -244,7 +244,7 @@ function MissedWhilePaused({ agent }: { agent: AgentSummary }) {
   const action = useAction();
   const [started, setStarted] = useState<number | null>(null);
   const missed = state.data?.missed;
-  if (!missed || (missed.count === 0 && started === null)) return null;
+  if (!missed || (missed.count === 0 && !missed.more && started === null)) return null;
 
   async function runThem() {
     const res = await action.call(apiRoutes.opsRunMissedEvents, { params: { id: agent.id } });
@@ -270,6 +270,10 @@ function MissedWhilePaused({ agent }: { agent: AgentSummary }) {
             {action.busy ? "Starting…" : "Run them now"}
           </Button>
         </div>
+      ) : missed.more ? (
+        <p className="text-ink" data-testid="agent-missed-events-more">
+          {`More events of the kinds it starts on came in while it was paused (${day(missed.from)} to ${day(missed.to)}) than one look reads, and none of those read would start it. Run any that matter below, one at a time.`}
+        </p>
       ) : null}
       {started !== null ? (
         <p className="mt-2 text-sm text-ink" data-testid="agent-missed-events-started">

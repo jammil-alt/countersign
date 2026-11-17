@@ -102,4 +102,30 @@ describe("the go-live panel", () => {
     );
     expect(screen.queryByTestId("agent-missed-events-count")).toBeNull();
   });
+
+  it("says there may be more even when none of those read would start it", async () => {
+    const api = fakeApi({
+      [`GET /api/ops/agents/${AGENT.id}/go-live`]: () => ({ goLive: { ...TRIAL, stage: "live" } }),
+      [`GET /api/ops/clients/${AGENT.tenantId}/events`]: () => ({ events: [] }),
+      [`GET /api/ops/agents/${AGENT.id}/missed-events`]: () => ({
+        missed: {
+          count: 0,
+          from: "2026-11-06T17:00:00.000Z",
+          to: "2026-11-09T08:00:00.000Z",
+          more: true,
+        },
+      }),
+    });
+    render(
+      <ApiProvider client={api.client}>
+        <MemoryRouter>
+          <GoLivePanel agent={AGENT} liveBundle={FORK_BUNDLE} onChanged={() => {}} />
+        </MemoryRouter>
+      </ApiProvider>,
+    );
+    expect(await screen.findByTestId("agent-missed-events-more")).toHaveTextContent(
+      "than one look reads",
+    );
+    expect(screen.queryByTestId("agent-missed-events-run")).toBeNull();
+  });
 });

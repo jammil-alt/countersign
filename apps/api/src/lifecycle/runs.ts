@@ -11,13 +11,17 @@ import { checkAgainst } from "@countersign/agents";
 import {
   type AnyAgentBundle,
   allTriggers,
-  isUuid,
   type Role,
   type RunForm,
   uuidv7,
 } from "@countersign/core";
 import { agent, agentChange, agentVersion, event, run, type Tx } from "@countersign/db";
-import { type RoutableAgent, type RunRequest, routeEvent } from "@countersign/workflows";
+import {
+  eventTypesRouted,
+  type RoutableAgent,
+  type RunRequest,
+  routeEvent,
+} from "@countersign/workflows";
 import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { HttpError, notFound } from "../http";
 import { withCanSign } from "../inbox";
@@ -152,7 +156,10 @@ export async function runOnEvent(
 
 /** How far back a pause's events are looked for. */
 export const MISSED_LOOK_BACK_MS = 30 * 24 * 60 * 60_000;
-/** The most events of a pause read at once (oldest first); `more` says when there were others. */
+/**
+ * The most events of a pause read at once: of the types the agent's triggers listen to, not yet
+ * run, oldest first; `more` says when there were others (running these brings the rest up).
+ */
 export const MISSED_SCAN_MAX = 2000;
 /** The most of them one "run them now" starts. */
 export const MISSED_RUN_MAX = 50;
@@ -228,40 +235,37 @@ export async function missedWhilePaused(
   const tenantId = row.tenantId as string;
   const pause = await lastPause(tx, row, now);
   if (!pause) return null;
+  const agentAsRouted = routable(row, await liveBundleOf(tx, row));
+  // Only the types the router could start it on, and only events that started no run of it and
+  // aren't a test run's: read in SQL, so the ones already run never use up the read limit.
+  const types = eventTypesRouted(agentAsRouted);
+  if (types.length === 0) return { from: pause.from, to: pause.to, events: [], more: false };
   const rows = await tx
     .select()
     .from(event)
     .where(
       and(
         eq(event.tenantId, tenantId),
+        inArray(event.type, types),
         gte(event.createdAt, pause.from),
         lte(event.createdAt, pause.to),
+        sql`not exists (select 1 from ${run} r where r.tenant_id = ${event.tenantId} and r.agent_id = ${row.id} and r.trigger->>'eventId' = ${event.id}::text)`,
+        sql`not exists (select 1 from ${run} t where t.tenant_id = ${event.tenantId} and t.mode = 'test' and t.id::text = ${event.payload}->>'runId')`,
       ),
     )
     .orderBy(asc(event.createdAt), asc(event.id))
     .limit(MISSED_SCAN_MAX + 1);
   const more = rows.length > MISSED_SCAN_MAX;
   const scanned = rows.slice(0, MISSED_SCAN_MAX);
-  const testRuns = new Set(
-    (
-      await testRunsNamed(
-        tx,
-        tenantId,
-        scanned.map((e) => (e.payload as { runId?: unknown } | null)?.runId),
-      )
-    ).map((r) => r.id),
-  );
-  const agentAsRouted = routable(row, await liveBundleOf(tx, row));
   const candidates: { e: (typeof scanned)[number]; runIds: string[] }[] = [];
   for (const e of scanned) {
-    const runId = (e.payload as { runId?: unknown } | null)?.runId;
-    if (typeof runId === "string" && testRuns.has(runId)) continue;
     const { runs } = await routeEvent(
       { id: e.id, tenantId: e.tenantId, type: e.type, payload: e.payload },
       [agentAsRouted],
     );
     if (runs.length > 0) candidates.push({ e, runIds: runs.map((r) => r.runId) });
   }
+  // A run whose trigger names no event id (a webhook's deduplicated run): checked by its id.
   const allIds = candidates.flatMap((c) => c.runIds);
   const ran = new Set<string>();
   for (let i = 0; i < allIds.length; i += 500) {
@@ -279,14 +283,9 @@ export async function missedWhilePaused(
   };
 }
 
-/** The test runs among `ids` (payloads' `runId`s): their events never start a live run. */
-async function testRunsNamed(tx: Tx, tenantId: string, ids: unknown[]) {
-  const named = [...new Set(ids.filter((v): v is string => typeof v === "string" && isUuid(v)))];
-  if (named.length === 0) return [];
-  return tx
-    .select({ id: run.id })
-    .from(run)
-    .where(and(eq(run.tenantId, tenantId), inArray(run.id, named), eq(run.mode, "test")));
+function isUniqueViolation(error: unknown): boolean {
+  const e = error as { code?: unknown; cause?: { code?: unknown } } | null;
+  return (e?.code ?? e?.cause?.code) === "23505";
 }
 
 /**
@@ -317,7 +316,9 @@ export async function runMissedEvents(
         )),
       );
     } catch (error) {
-      if (!(error instanceof HttpError)) throw error;
+      // Already run, or no longer matching: passed over. A unique violation is another request
+      // starting the same run at the same moment (two clicks): it is that request's to start.
+      if (!(error instanceof HttpError) && !isUniqueViolation(error)) throw error;
     }
   }
   return { requests, left: Math.max(0, events.length - MISSED_RUN_MAX) };
