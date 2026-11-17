@@ -10,6 +10,7 @@
 import {
   type DealStage,
   dealStageIndex,
+  dec,
   SIGNED_UP_DIRECTLY,
   shortDay,
   stagesBefore,
@@ -141,7 +142,7 @@ export async function logAccountInSales(
         agreedMrr: agreed,
         agreedFrom: from,
         currency,
-        ...(Number(row.mrr) === 0 ? { mrr: agreed } : {}),
+        ...(dec(row.mrr).isZero() ? { mrr: agreed } : {}),
       })
       .where(eq(deal.id, row.id));
     await addActivity(tx, row.id, {
