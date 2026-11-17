@@ -6,19 +6,23 @@ import { routes } from "@countersign/core";
 import type { EventRow } from "@countersign/senses";
 import type { Hono } from "hono";
 import { resolveAccountChange } from "../account/changes";
-import { installPlatformTemplate } from "../account/templates";
-import { type AppEnv, mount } from "../http";
+import { installPlatformTemplate, latestSeededVersion } from "../account/templates";
+import { type AppEnv, mount, notFound } from "../http";
 import { dispatchEvents } from "../runs/dispatch";
 
 export function accountRoutes(app: Hono<AppEnv>): void {
-  mount(app, routes.opsInstallPlatformTemplate, async ({ tx, params, body, session, services }) =>
-    installPlatformTemplate(tx, {
+  mount(app, routes.opsInstallPlatformTemplate, async ({ tx, params, body, session, services }) => {
+    // DECISION: no version named means the newest seeded one, so the install is one call per
+    // template and never picks an older version by mistake.
+    const version = body.version ?? latestSeededVersion(params.slug);
+    if (version === null) throw notFound(`a seeded version of ${params.slug}`);
+    return installPlatformTemplate(tx, {
       slug: params.slug,
-      version: body.version,
+      version,
       actorId: session.user.id,
       platform: services.platform,
-    }),
-  );
+    });
+  });
 
   mount(app, routes.portalResolveAccountChange, async (ctx) => {
     const collect: EventRow[] = [];
