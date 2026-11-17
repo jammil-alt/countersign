@@ -1444,6 +1444,10 @@ step's date:
   code that needs it. Migrations must therefore keep the previous Worker working (add, then use;
   stop using, then drop).
 - Never edit a migration that has reached `staging` or `main`. Add a new one.
+- Deploy note (audit 4.3, accepted): the notification outbox claims a row before it sends it
+  (`reason` = `sending:…`). In the minute or two of a deploy, a Worker from before the claim may run
+  its notification pass beside a new one; it ignores claims, so a text or phone notification can
+  go twice, rarely, once. Email can't: Resend's idempotency key makes the second send the same one.
 
 ## 4. Backups and restore
 
@@ -1463,7 +1467,11 @@ Set Neon's history retention to at least 7 days on the production project.
 An event that fails to dispatch five times (its own routing throws: bad data or a bug in a trigger,
 not an engine outage) is set aside so it can't hold up its client's other events (`docs/plan.md` §1.112). Each one is
 reported to Sentry as "an event was set aside after failing to dispatch", tagged with the client
-and the event. To see them, as `cs_owner`:
+and the event. They are also a daily health finding (`events_set_aside`, by event type, with the
+count and the oldest; the ops MCP server's `ops_health` reads it too), and the client's page in
+the back office lists them under Health with **Give them back**
+(`POST /api/ops/clients/:id/events/set-aside/retry`, operator only, audited, at most 100 a call,
+the ones named in `eventIds` or the oldest set aside first). To see them in SQL, as `cs_owner`:
 
 ```sql
 select id, tenant_id, type, created_at, dispatch_attempts, dispatch_error, set_aside_at
@@ -1471,8 +1479,8 @@ from event where set_aside_at is not null order by set_aside_at desc;
 ```
 
 Fix the cause first (`dispatch_error` and the Sentry events for that event id say what failed),
-then give it back to the sweep, which dispatches it within a minute. Starting its runs again is safe:
-run ids come from the event id.
+then give it back with the back office's button, or by hand to the sweep, which dispatches it
+within a minute. Starting its runs again is safe: run ids come from the event id.
 
 ```sql
 update event set set_aside_at = null, dispatch_attempts = 0, dispatch_error = null

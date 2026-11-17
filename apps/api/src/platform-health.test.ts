@@ -1,10 +1,18 @@
 // The platform's health pass (observability/health.ts): failures grouped by error key, what is
 // stuck, per client and only for the clients asked.
 
-import { connection, externalAction, inboxItem, run, stepRun } from "@countersign/db";
-import { eq } from "drizzle-orm";
+import {
+  auditEvent,
+  connection,
+  event,
+  externalAction,
+  inboxItem,
+  run,
+  stepRun,
+} from "@countersign/db";
+import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { type ApiHarness, createApiHarness, OPERATOR, testBundle } from "./api.test-helper";
+import { type ApiHarness, admin, createApiHarness, OPERATOR, testBundle } from "./api.test-helper";
 import {
   HEALTH_DAILY_HOUR_UTC,
   HEALTH_MINUTE,
@@ -236,5 +244,82 @@ describe.skipIf(!h)("platform health: what is not stuck", () => {
     );
     const stuckRuns = found.filter((f) => f.kind === "run_stuck" && f.key === "running:waits");
     expect(stuckRuns.flatMap((f) => f.ids)).toEqual([stuck?.id]);
+  });
+});
+
+describe.skipIf(!h)("events set aside after failing to dispatch", () => {
+  const H = h as ApiHarness;
+  const C = () => H.B.tenantId;
+  const path = () => `/api/ops/clients/${C()}/events/set-aside`;
+
+  it("shows them in the health findings and gives them back to the dispatcher on request", async () => {
+    const old = new Date(Date.now() - 3 * 86_400_000);
+    const rows = await H.t.db
+      .insert(event)
+      .values(
+        [0, 1, 2].map((i) => ({
+          tenantId: C(),
+          type: "schedule.tick",
+          payload: { scheduledAt: old.toISOString() },
+          createdAt: new Date(old.getTime() + i * 60_000),
+          dispatchAttempts: 5,
+          dispatchError: "TypeError: bad payload",
+          setAsideAt: new Date(old.getTime() + i * 60_000 + 300_000),
+        })),
+      )
+      .returning();
+    const ids = rows.map((r) => r.id);
+
+    const found = await H.t.db.transaction((tx) => healthFindings(tx, [C()], healthWindow(DAILY)));
+    expect(found.filter((f) => f.kind === "events_set_aside")).toEqual([
+      {
+        kind: "events_set_aside",
+        tenantId: C(),
+        key: "schedule.tick",
+        count: 3,
+        ids: [...ids].reverse(),
+        oldest: old.toISOString(),
+      },
+    ]);
+    // States only: the hourly pass outside the daily one leaves them out.
+    const hourly = await H.t.db.transaction((tx) =>
+      healthFindings(tx, [C()], { ...healthWindow(DAILY), states: false }),
+    );
+    expect(hourly.some((f) => f.kind === "events_set_aside")).toBe(false);
+
+    const listed = await H.call(OPERATOR, "GET", path());
+    expect(listed.status, JSON.stringify(listed.json)).toBe(200);
+    expect(j(listed.json)).toMatchObject({ count: 3, oldest: old.toISOString() });
+    expect(j(listed.json).events[0]).toMatchObject({
+      id: ids[2],
+      attempts: 5,
+      error: "TypeError: bad payload",
+    });
+    // The operator's only: the client admin is refused.
+    expect((await H.call(admin("b"), "GET", path())).status).toBe(403);
+    expect((await H.call(admin("b"), "POST", `${path()}/retry`, {})).status).toBe(403);
+
+    // One named event first, then the rest.
+    const one = await H.call(OPERATOR, "POST", `${path()}/retry`, { eventIds: [ids[0]] });
+    expect(one.status, JSON.stringify(one.json)).toBe(200);
+    expect(j(one.json)).toEqual({ retried: 1 });
+    const rest = await H.call(OPERATOR, "POST", `${path()}/retry`, {});
+    expect(j(rest.json)).toEqual({ retried: 2 });
+    const after = await H.t.db.select().from(event).where(inArray(event.id, ids));
+    // Given back and dispatched after the commit (no agent starts on them here).
+    expect(after.every((e) => e.setAsideAt === null && e.dispatchAttempts === 0)).toBe(true);
+    expect(after.every((e) => e.dispatchedAt !== null)).toBe(true);
+    expect(j((await H.call(OPERATOR, "GET", path())).json).count).toBe(0);
+    // Audited, as every session route is.
+    const audited = await H.t.db
+      .select()
+      .from(auditEvent)
+      .where(
+        and(
+          eq(auditEvent.tenantId, C()),
+          eq(auditEvent.action, "POST /api/ops/clients/:id/events/set-aside/retry"),
+        ),
+      );
+    expect(audited.filter((a) => a.outcome === "ok")).toHaveLength(2);
   });
 });

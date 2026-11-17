@@ -398,6 +398,37 @@ export const DEFAULT_APPROVAL_TIMEOUT: Duration = "7 days";
 /** Follow-up 6: how many undo windows a run waits out after its approval's time ran out. */
 const HOLD_ROUNDS = 3;
 
+/**
+ * The most items one for each takes (audit 4.4). Each item's steps are durable steps of the run's
+ * one instance, which the engine caps; a longer list fails at the step's start, before any item.
+ */
+// DECISION: 200, the audit's figure: a for each of a few steps stays well inside the engine's
+// steps per instance, and a client's batch larger than that is a sign to split the work.
+export const FOR_EACH_MAX_ITEMS = 200;
+
+/**
+ * The most a step's output may hold, serialized (audit 4.4). It is part of the step's durable
+ * result, which the engine keeps up to 1 MiB: a larger one fails the step on its own row, with its
+ * size, rather than the run's instance on the engine's limit.
+ */
+export const STEP_OUTPUT_MAX_BYTES = 900 * 1024;
+
+/** A value's size as JSON in UTF-8, without TextEncoder (this package has no DOM or Node types). */
+export function jsonBytes(value: unknown): number {
+  const json = JSON.stringify(value ?? null) ?? "null";
+  let n = 0;
+  for (let i = 0; i < json.length; i++) {
+    const c = json.charCodeAt(i);
+    if (c < 0x80) n += 1;
+    else if (c < 0x800) n += 2;
+    else if (c >= 0xd800 && c <= 0xdbff) {
+      n += 4;
+      i++;
+    } else n += 3;
+  }
+  return n;
+}
+
 // DECISION (R3): a skill that needs help asks the lead, who has one business day to answer; no
 // answer stops the run (owner, 2026-11-10: "ask the lead").
 const HELP_DEADLINE: processes.Deadline = {
@@ -1056,6 +1087,14 @@ class Executor {
       outcome.kind === "approval" && this.testRun
         ? { kind: "done", output: outcome.output ?? null, notWritten: true }
         : outcome;
+    // Audit 4.4: an output too large to hand on fails the step on its one row, saying why.
+    if (done.kind === "done") {
+      const bytes = jsonBytes(done.output);
+      if (bytes > STEP_OUTPUT_MAX_BYTES) {
+        const error = `its output is ${Math.ceil(bytes / 1024)} KiB, over the ${STEP_OUTPUT_MAX_BYTES / 1024} KiB a step may hand on`;
+        return this.settle(step, stepRunId, { kind: "failed", error }, rejected, extra);
+      }
+    }
     // P-6: a person who ended the step (a live conversation) turned it down (§1.68).
     const turnedDown = rejected || (done.kind === "done" && done.declined === true);
     let update: StepRunUpdate;
@@ -3151,16 +3190,38 @@ class Executor {
     if (!Array.isArray(items)) {
       throw new Error(`for_each ${step.id}: "${step.over}" is not a list`);
     }
-    const { stepRunId } = await this.runner.do(name, async () => {
+    // Audit 4.4: a list over the cap fails the step at its start, before any item runs. The check
+    // is inside the step's first durable call, so a run already past it (in flight) goes on.
+    const tooMany =
+      items.length > FOR_EACH_MAX_ITEMS
+        ? `${clientLabel(asLabelled(step))}: ${items.length} items, over the ${FOR_EACH_MAX_ITEMS} one for each may take`
+        : null;
+    const { stepRunId, refused } = await this.runner.do(name, async () => {
       const id = await log.start({
         runId: run.id,
         nodeId: name,
         nodeType: "for_each",
         input: { count: items.length },
       });
+      if (tooMany) {
+        await log.update(id, {
+          status: "failed",
+          error: tooMany,
+          summary: `${stepStateLabel(asLabelled(step), false)}: ${this.words.failed}`,
+        });
+        return { stepRunId: id, refused: tooMany };
+      }
       await log.update(id, { status: "running" });
-      return { stepRunId: id };
+      return { stepRunId: id, refused: null as string | null };
     });
+    if (refused) {
+      throw new RunEnd({
+        status: "failed",
+        reason: refused,
+        nodeId: name,
+        errorKey: this.errorKeyOf(step, refused),
+      });
+    }
 
     let ended: RunEnd | undefined;
     // Wave 5: with `onError: continue`, an item whose steps failed (a failure they reported) doesn't

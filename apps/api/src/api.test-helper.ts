@@ -443,6 +443,9 @@ export function testBundle(name = "Records clerk"): AgentBundle {
  * its stored result, and so does a completed wait; a new wait asks `onWait` (which may throw the
  * engine's timeout error).
  */
+/** Cloudflare Workflows' limit on one step's stored result. */
+export const ENGINE_STEP_RESULT_MAX_BYTES = 1024 * 1024;
+
 export class FakeWorkflowStep implements WorkflowStepLike {
   readonly results = new Map<string, unknown>();
   readonly configs = new Map<string, CloudflareStepConfig | undefined>();
@@ -466,8 +469,12 @@ export class FakeWorkflowStep implements WorkflowStepLike {
     const fn = typeof a === "function" ? a : b;
     this.configs.set(name, typeof a === "function" ? undefined : a);
     if (!fn) throw new Error("no callback");
-    // Results go through JSON, as the engine stores them.
-    const value = JSON.parse(JSON.stringify((await fn()) ?? null));
+    // Results go through JSON, as the engine stores them, and over 1 MiB fail as the engine's do.
+    const json = JSON.stringify((await fn()) ?? null);
+    if (new TextEncoder().encode(json).length > ENGINE_STEP_RESULT_MAX_BYTES) {
+      throw new Error(`step ${name}: its result is over the engine's 1 MiB`);
+    }
+    const value = JSON.parse(json);
     this.results.set(name, value);
     return value;
   }

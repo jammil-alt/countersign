@@ -193,6 +193,26 @@ function* triggersOf<T extends TriggerOn["type"]>(
   }
 }
 
+/**
+ * Audit 4.2: every event type `routeEvent` could start this agent on, from its live version's
+ * enabled triggers: an event trigger's own type, and the types the webhook, message and hand-off
+ * triggers read (`routeW2E`). Empty for an agent that can't run. Kept beside the router so the two
+ * change together.
+ */
+export function eventTypesRouted(agent: RoutableAgent): string[] {
+  if (!isRunnable(agent)) return [];
+  const types = new Set<string>();
+  for (const { on } of triggersOf(agent, "event")) types.add(on.event);
+  if (!triggersOf(agent, "webhook").next().done) types.add(WEBHOOK_RECEIVED);
+  if (!triggersOf(agent, "message").next().done) {
+    for (const t of ["inbound.message", "thread.message_posted", "account.request_passed"]) {
+      types.add(t);
+    }
+  }
+  if (!triggersOf(agent, "handoff").next().done) types.add("run.succeeded");
+  return [...types];
+}
+
 /** Events that report on one agent's own run, with the agent's id in `payload.agentId`. */
 // v0.12 W2-E: `run.succeeded` too, so an agent watching successes never starts on its own.
 export const OWN_RUN_EVENTS: ReadonlySet<string> = new Set(["run.failed", "run.succeeded"]);

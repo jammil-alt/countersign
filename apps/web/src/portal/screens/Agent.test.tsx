@@ -642,7 +642,7 @@ describe("the agent page", () => {
       [`POST /api/services/${SVC}/resume`]: () => {
         sent.push({ path: "resume", body: null });
         pause = null;
-        return { service: control().services[0] };
+        return { service: control().services[0], missedEvents: 0 };
       },
     });
     renderAt(`/agents/${SVC}`, api);

@@ -180,16 +180,18 @@ export interface RunDeps {
 // missing key, so a run without a model still runs its tool-mode skills and actions.
 export function workerTransport(
   env: Pick<Bindings, "ANTHROPIC_API_KEY" | "OPENAI_API_KEY" | "XAI_API_KEY" | "GEMINI_API_KEY">,
+  /** Audit 4.1: the cron's own calls pass a short time limit and no retries. */
+  http: { timeoutMs?: number; maxRetries?: number } = {},
 ): LlmTransport {
   const anthropicKey = env.ANTHROPIC_API_KEY?.trim();
   const openaiKey = env.OPENAI_API_KEY?.trim();
   const xaiKey = env.XAI_API_KEY?.trim();
   const geminiKey = env.GEMINI_API_KEY?.trim();
   return routingTransport({
-    ...(anthropicKey ? { anthropic: anthropicTransport({ apiKey: anthropicKey }) } : {}),
-    ...(openaiKey ? { openai: openaiTransport({ apiKey: openaiKey }) } : {}),
-    ...(xaiKey ? { xai: xaiTransport({ apiKey: xaiKey }) } : {}),
-    ...(geminiKey ? { google: geminiTransport({ apiKey: geminiKey }) } : {}),
+    ...(anthropicKey ? { anthropic: anthropicTransport({ apiKey: anthropicKey, ...http }) } : {}),
+    ...(openaiKey ? { openai: openaiTransport({ apiKey: openaiKey, ...http }) } : {}),
+    ...(xaiKey ? { xai: xaiTransport({ apiKey: xaiKey, ...http }) } : {}),
+    ...(geminiKey ? { google: geminiTransport({ apiKey: geminiKey, ...http }) } : {}),
   });
 }
 
