@@ -259,6 +259,38 @@ describe.skipIf(!online)("prices and alerts (database)", () => {
       { date: "2026-09-15" },
     );
     await recordPrices(db, ctx(C), { documentId: misread.documentId });
+    // A newer reading that is never priced (a test run's) replaces nothing.
+    const [dryRead] = await t.db
+      .insert(docExtraction)
+      .values({
+        tenantId: C.tenantId,
+        documentId: misread.documentId,
+        model: "test-model",
+        header: { vendorName: "Vendor", invoiceDate: "2026-09-15" },
+        subtotal: "72.5",
+        total: "72.5",
+        linesSum: "72.5",
+        totalsMatch: true,
+        createdAt: new Date(Date.now() + 30_000),
+      })
+      .returning();
+    await t.db.insert(docLine).values({
+      tenantId: C.tenantId,
+      extractionId: dryRead?.id as string,
+      lineNo: 1,
+      rawDescription: BB,
+      qty: "10",
+      uomRaw: "SHT",
+      unitPrice: "7.25",
+      extPrice: "72.50",
+    });
+    const kept = await withTenant(db, C.tenantId, async (tx) =>
+      priceHistory(tx, C.tenantId, {
+        catalogItemId: (await observations(C.tenantId))[0]?.catalogItemId as string,
+        today: "2026-09-30",
+      }),
+    );
+    expect(kept.map((o) => o.unitPriceStd)).toEqual(["1.2500", "7.2500"]);
     const [reread] = await t.db
       .insert(docExtraction)
       .values({

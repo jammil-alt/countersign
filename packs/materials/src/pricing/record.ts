@@ -33,13 +33,15 @@ import type { Observation } from "./rules";
 import { convertLine, readUom } from "./uom";
 
 /**
- * A price observation from a document line is history only while that line is in its document's
- * latest reading (the newest `doc_extraction`, as `loadPricedDocument` picks it). A document read
- * again keeps its earlier reading's lines and their observations (invariant 3: never updated or
- * deleted), so every reader of price history leaves those out with this condition. A price from a
- * QuickBooks bill line (no document line) always counts.
+ * A price observation from a document line is history until a newer reading of its document has
+ * been priced in its place. A document read again keeps its earlier reading's lines and their
+ * observations (invariant 3: never updated or deleted), so every reader of price history leaves
+ * the superseded ones out with this condition. A newer reading that recorded no prices (a test
+ * run's, or another agent's that doesn't price) replaces nothing. A price from a QuickBooks bill
+ * line (no document line) always counts.
  */
-// DECISION (audit 7.9): superseded readings are left out in the queries, not deleted.
+// DECISION (audit 7.9): superseded readings are left out in the queries, not deleted; a reading
+// supersedes an older one only once it has price observations of its own.
 export function fromLatestReading(): SQL {
   return sql`(${priceObservation.docLineId} is null or not exists (
     select 1
@@ -50,7 +52,15 @@ export function fromLatestReading(): SQL {
      and po_newer.document_id = po_read.document_id
      and (po_newer.created_at, po_newer.id) > (po_read.created_at, po_read.id)
     where po_line.id = ${priceObservation.docLineId}
-      and po_line.tenant_id = ${priceObservation.tenantId}))`;
+      and po_line.tenant_id = ${priceObservation.tenantId}
+      and exists (
+        select 1
+        from ${docLine} as po_newer_line
+        join ${priceObservation} as po_newer_price
+          on po_newer_price.doc_line_id = po_newer_line.id
+         and po_newer_price.tenant_id = po_newer_line.tenant_id
+        where po_newer_line.extraction_id = po_newer.id
+          and po_newer_line.tenant_id = po_newer.tenant_id)))`;
 }
 
 export class PricingError extends Error {
