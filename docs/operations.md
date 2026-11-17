@@ -1412,7 +1412,9 @@ step's date:
   a query Hyperdrive never caches; the page and its script load; `/api/session` refuses with a JSON 401), retrying for 2 minutes; a
   failure marks the deploy failed. Given a commit (a second argument, or `EXPECTED_SHA`), it also
   checks that `/api/ready`'s `sha` (the Worker's `DEPLOYED_SHA`) is that commit; without one it
-  skips that comparison. Run it by hand against either environment:
+  skips that comparison. `deploy.yml` always gives it the commit it deployed. A production deploy
+  (a tag or a manual run) first checks that its commit is on `main` and stops before migrating if
+  it isn't. Run it by hand against either environment:
   `scripts/smoke.sh https://staging.mezonas.com [commit]`.
 - **The screen sweep** (`checks.yml`'s `sweep` job, `apps/web/e2e/route-sweep.mjs`): beside the
   tests, on the seeded database, the built app runs on `wrangler dev` with the dev sign-in and real
