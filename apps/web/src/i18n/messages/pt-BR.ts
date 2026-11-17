@@ -3018,6 +3018,11 @@ export const ptBR: Messages = {
     "O Claude pede para usar a Mezonas em seu nome. O primeiro pedido foi às {time}. Aprove só se você acabou de conectar o Claude.",
   "connectClaude.lasts":
     "Este link funciona até {time}. Depois de aprovada, dura até essa sessão do Claude terminar, no máximo 12 horas.",
+  "connectClaude.requested":
+    "O Claude deu este link às {time}. Se você não pediu ao Claude agora há pouco, não aprove.",
+  "connectClaude.confirm": "O código que o Claude mostrou",
+  "connectClaude.confirmHint":
+    "O Claude mostra um código de 6 dígitos com este link. Digite o que o seu próprio Claude mostra, nunca um que outra pessoa enviar.",
   "connectClaude.approve": "Aprovar",
   "connectClaude.approving": "Aprovando…",
   "connectClaude.approved":

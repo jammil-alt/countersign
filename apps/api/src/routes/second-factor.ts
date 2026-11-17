@@ -5,7 +5,13 @@
 // them (getSession's `allowPendingSecondFactor`); every other route refuses it. The Claude
 // connection routes run outside mount() for the same reason, but refuse a pending session.
 
-import { deviceCookie, getSession, type Session, type WorkOSAdapter } from "@countersign/auth";
+import {
+  deviceCookie,
+  getSession,
+  type Session,
+  timingSafeEqual,
+  type WorkOSAdapter,
+} from "@countersign/auth";
 import { routes, type SecondFactorKind } from "@countersign/core";
 import { membership, userFactor, userRecoveryCode, withUser } from "@countersign/db";
 import { and, eq, inArray, isNull } from "drizzle-orm";
@@ -13,7 +19,12 @@ import type { Hono } from "hono";
 import { type AuditEntry, auditAlone, auditInTx } from "../audit";
 import { authDirectory } from "../auth";
 import { type AppContext, type AppEnv, HttpError, mount, mountPublic, notFound } from "../http";
-import { approveConnection, connectionView, findConnection } from "../mcp/approval";
+import {
+  approveConnection,
+  connectionConfirmCode,
+  connectionView,
+  findConnection,
+} from "../mcp/approval";
 import {
   allowedKinds,
   factorsOf,
@@ -321,7 +332,7 @@ async function connectionFor(c: AppContext, code: string) {
   const row = await findConnection(db, config.recoveryKeys, session.user.id, code);
   // Another person's link answers as one that matches nothing: it says nothing about theirs.
   if (!row) throw notFound("Claude connection");
-  return { session, row };
+  return { session, row, keys: config.recoveryKeys };
 }
 
 export function claudeConnectionRoutes(app: Hono<AppEnv>): void {
@@ -330,13 +341,28 @@ export function claudeConnectionRoutes(app: Hono<AppEnv>): void {
     return connectionView(row, new Date());
   });
 
-  mountPublic(app, routes.claudeConnectionApprove, async ({ c, services }) => {
-    const { session, row } = await connectionFor(c, c.req.param("code") ?? "");
+  mountPublic(app, routes.claudeConnectionApprove, async ({ c, body, services }) => {
+    const code = c.req.param("code") ?? "";
+    const { session, row, keys } = await connectionFor(c, code);
     const now = new Date();
     const view = connectionView(row, now);
     if (view.status === "approved") return view;
     if (view.status === "expired") {
       throw new HttpError(409, "expired", "this link has expired; ask Claude again for a new one");
+    }
+    // Audit 5.3: the code Claude showed beside the link, typed here (any key's, as the link's).
+    const expected = await Promise.all(keys.map((k) => connectionConfirmCode(k, code)));
+    if (!expected.some((e) => timingSafeEqual(e, body.confirm))) {
+      await auditAlone(
+        services.db,
+        c,
+        entry(session, "mcp.approve", "refused", 422, { connection: row.id, reason: "wrong_code" }),
+      );
+      throw new HttpError(
+        422,
+        "wrong_code",
+        "that isn't the code Claude showed with this link; check it and try again",
+      );
     }
     const approved = await approveConnection(services.db, row, now);
     if (approved.approvedNow) {

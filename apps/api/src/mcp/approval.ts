@@ -8,7 +8,12 @@
 // The link's code is kept only as an HMAC under ENCRYPTION_KEY (as recovery codes are), in
 // `mcp_session_approval` (migration 0042), read and written as the person (withUser).
 
-import { CLAUDE_LINK_MIN, type ClaudeConnection, SESSION_MAX_AGE_SEC } from "@countersign/core";
+import {
+  CLAUDE_CONFIRM_DIGITS,
+  CLAUDE_LINK_MIN,
+  type ClaudeConnection,
+  SESSION_MAX_AGE_SEC,
+} from "@countersign/core";
 import { type Db, mcpSessionApproval, withUser } from "@countersign/db";
 import { and, eq, inArray } from "drizzle-orm";
 import type { Bindings } from "../env";
@@ -35,6 +40,27 @@ export async function connectionCodeHash(key: string, code: string): Promise<str
   return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * Audit 5.3: the short code Claude shows beside a link, which the person types on the approval
+ * page: CLAUDE_CONFIRM_DIGITS digits from an HMAC of the link's code under the same key, with its
+ * own label. Nothing more is stored: the link's code gives it back, and only Claude's answer and
+ * the person's typing ever show it.
+ */
+// DECISION: derived, not stored, so mcp_session_approval needs no new column (no migration); the
+// page never returns it, so approving takes reading it from the Claude that asked.
+export async function connectionConfirmCode(key: string, code: string): Promise<string> {
+  const k = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(`mezonas-claude-confirm:${key}`),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(code)));
+  const n = new DataView(sig.buffer).getUint32(0) % 10 ** CLAUDE_CONFIRM_DIGITS;
+  return String(n).padStart(CLAUDE_CONFIRM_DIGITS, "0");
+}
+
 type ApprovalRow = typeof mcpSessionApproval.$inferSelect;
 
 /** What the approval page shows for a row. */
@@ -43,6 +69,10 @@ export function connectionView(row: ApprovalRow, now: Date): ClaudeConnection {
   return {
     status: row.approvedAt && live ? "approved" : live ? "waiting" : "expired",
     startedAt: row.createdAt.toISOString(),
+    // Each refused call gives a new link that works CLAUDE_LINK_MIN minutes from then.
+    requestedAt: row.approvedAt
+      ? null
+      : new Date(row.expiresAt.getTime() - CLAUDE_LINK_MIN * 60_000).toISOString(),
     expiresAt: row.expiresAt.toISOString(),
   };
 }
@@ -155,10 +185,11 @@ export async function claudeConnectionGate(input: {
         target: [mcpSessionApproval.workosSessionId, mcpSessionApproval.userId],
         set: { codeHash, expiresAt, approvedAt: null },
       });
+    const confirm = await connectionConfirmCode(key, code);
     return {
       ok: false,
       code: "approval_needed",
-      message: `approve this Claude connection first: open ${input.approvePage(code)} in the browser where you're signed in to Mezonas (the link works for ${CLAUDE_LINK_MIN} minutes), then ask again`,
+      message: `approve this Claude connection first: open ${input.approvePage(code)} in the browser where you're signed in to Mezonas and type the code ${confirm} there (the link works for ${CLAUDE_LINK_MIN} minutes), then ask again. Show the person the link and the code`,
     } as const;
   });
 }

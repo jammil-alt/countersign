@@ -24,6 +24,7 @@ const ORIGIN = "https://staging.mezonas.test";
 const RESOURCE = `${ORIGIN}/mcp`;
 const PASSWORD = "c".repeat(64);
 const LINK = /open (https:\/\/\S+\/connect-claude\/([a-z2-7]{32})) in the browser/;
+const CONFIRM = /type the code ([0-9]{6}) there/;
 
 const signing = await generateKeyPair("RS256");
 const keys = createLocalJWKSet({
@@ -220,7 +221,13 @@ describe.skipIf(!h)("the Claude connector's approval link (§1.120)", () => {
       .map((c) => c.text)
       .join("\n");
     const m = LINK.exec(text);
-    return { text, isError: res.json.result.isError === true, link: m?.[1], code: m?.[2] ?? "" };
+    return {
+      text,
+      isError: res.json.result.isError === true,
+      link: m?.[1],
+      code: m?.[2] ?? "",
+      confirm: CONFIRM.exec(text)?.[1] ?? "",
+    };
   }
 
   const operator = new Browser();
@@ -241,6 +248,7 @@ describe.skipIf(!h)("the Claude connector's approval link (§1.120)", () => {
   });
 
   let firstCode = "";
+  let firstConfirm = "";
 
   it("lets Claude connect, then answers its first tool call with the operator's link", async () => {
     const bearer = await token(WORKOS_IDS.operator);
@@ -261,6 +269,8 @@ describe.skipIf(!h)("the Claude connector's approval link (§1.120)", () => {
     expect(refused.text).not.toContain("operator@example.com");
     expect(refused.link).toBe(`${ORIGIN}/ops/connect-claude/${refused.code}`);
     firstCode = refused.code;
+    firstConfirm = refused.confirm;
+    expect(refused.text).toContain(`type the code ${firstConfirm} there`);
     // The log line says it was refused, without the link.
     const line = audit.at(-1);
     expect(line).toMatchObject({ tool: "whoami", outcome: "error", code: "approval_needed" });
@@ -282,6 +292,7 @@ describe.skipIf(!h)("the Claude connector's approval link (§1.120)", () => {
     const old = await request(operator, "GET", `/api/auth/claude-connections/${firstCode}`);
     expect(old.status).toBe(404);
     firstCode = again.code;
+    firstConfirm = again.confirm;
     // Still one row for the session.
     const rows = await H.t.db
       .select()
@@ -297,7 +308,12 @@ describe.skipIf(!h)("the Claude connector's approval link (§1.120)", () => {
       ["GET", `/api/auth/claude-connections/${firstCode}`],
       ["POST", `/api/auth/claude-connections/${firstCode}/approve`],
     ] as const) {
-      const res = await request(pending, method, path);
+      const res = await request(
+        pending,
+        method,
+        path,
+        method === "POST" ? { confirm: firstConfirm } : undefined,
+      );
       expect(res.status, path).toBe(401);
       expect(res.json.error.code, path).toBe("second_factor_required");
     }
@@ -314,7 +330,12 @@ describe.skipIf(!h)("the Claude connector's approval link (§1.120)", () => {
       ["GET", `/api/auth/claude-connections/${firstCode}`],
       ["POST", `/api/auth/claude-connections/${firstCode}/approve`],
     ] as const) {
-      const res = await request(other, method, path);
+      const res = await request(
+        other,
+        method,
+        path,
+        method === "POST" ? { confirm: firstConfirm } : undefined,
+      );
       expect(res.status, path).toBe(404);
     }
   });
@@ -327,29 +348,88 @@ describe.skipIf(!h)("the Claude connector's approval link (§1.120)", () => {
     expect(linkEnds).toBeGreaterThan(29 * 60_000);
     expect(linkEnds).toBeLessThanOrEqual(30 * 60_000);
 
-    const ok = await request(operator, "POST", `/api/auth/claude-connections/${firstCode}/approve`);
+    // When Claude asked with this link, for the person to compare.
+    expect(Math.abs(new Date(seen.json.requestedAt).getTime() - Date.now())).toBeLessThan(60_000);
+
+    // One click is not enough: the code Claude showed must be typed, and a wrong one approves nothing.
+    const bare = await request(
+      operator,
+      "POST",
+      `/api/auth/claude-connections/${firstCode}/approve`,
+      {},
+    );
+    expect(bare.status).toBe(400);
+    const wrongCode = firstConfirm === "000000" ? "111111" : "000000";
+    const wrong = await request(
+      operator,
+      "POST",
+      `/api/auth/claude-connections/${firstCode}/approve`,
+      { confirm: wrongCode },
+    );
+    expect([wrong.status, wrong.json.error.code]).toEqual([422, "wrong_code"]);
+    const still = await request(operator, "GET", `/api/auth/claude-connections/${firstCode}`);
+    expect(still.json.status).toBe("waiting");
+    const [refusedRow] = await H.t.db
+      .select()
+      .from(auditEvent)
+      .where(
+        and(
+          eq(auditEvent.action, "mcp.approve"),
+          eq(auditEvent.actorUserId, H.operator),
+          eq(auditEvent.outcome, "refused"),
+        ),
+      );
+    expect(refusedRow?.target).toMatchObject({ reason: "wrong_code" });
+    expect(JSON.stringify(refusedRow)).not.toContain(firstConfirm);
+    expect((await whoami(await token(WORKOS_IDS.operator))).isError).toBe(true);
+    // That call gave a new link and code; the person types the newest.
+    const latest = await whoami(await token(WORKOS_IDS.operator));
+    firstCode = latest.code;
+    firstConfirm = latest.confirm;
+
+    const ok = await request(
+      operator,
+      "POST",
+      `/api/auth/claude-connections/${firstCode}/approve`,
+      {
+        confirm: firstConfirm,
+      },
+    );
     expect(ok.status, JSON.stringify(ok.json)).toBe(200);
     expect(ok.json.status).toBe("approved");
     const lasts = new Date(ok.json.expiresAt).getTime() - new Date(ok.json.startedAt).getTime();
     expect(lasts).toBe(12 * 60 * 60 * 1000);
-    const [row] = await H.t.db
+    const [okRow] = await H.t.db
       .select()
       .from(auditEvent)
-      .where(and(eq(auditEvent.action, "mcp.approve"), eq(auditEvent.actorUserId, H.operator)));
-    expect(row).toMatchObject({ outcome: "ok", tenantId: null });
-    expect(JSON.stringify(row?.target)).not.toContain(firstCode);
+      .where(
+        and(
+          eq(auditEvent.action, "mcp.approve"),
+          eq(auditEvent.actorUserId, H.operator),
+          eq(auditEvent.outcome, "ok"),
+        ),
+      );
+    expect(okRow).toMatchObject({ outcome: "ok", tenantId: null });
+    expect(JSON.stringify(okRow?.target)).not.toContain(firstCode);
 
     // Approving again changes nothing and writes no second row.
     const twice = await request(
       operator,
       "POST",
       `/api/auth/claude-connections/${firstCode}/approve`,
+      { confirm: firstConfirm },
     );
     expect(twice.json.status).toBe("approved");
     const rows = await H.t.db
       .select()
       .from(auditEvent)
-      .where(and(eq(auditEvent.action, "mcp.approve"), eq(auditEvent.actorUserId, H.operator)));
+      .where(
+        and(
+          eq(auditEvent.action, "mcp.approve"),
+          eq(auditEvent.actorUserId, H.operator),
+          eq(auditEvent.outcome, "ok"),
+        ),
+      );
     expect(rows).toHaveLength(1);
 
     const works = await whoami(await token(WORKOS_IDS.operator));
@@ -383,6 +463,7 @@ describe.skipIf(!h)("the Claude connector's approval link (§1.120)", () => {
       operator,
       "POST",
       `/api/auth/claude-connections/${late.code}/approve`,
+      { confirm: late.confirm },
     );
     expect(refused.status).toBe(409);
     expect(refused.json.error.code).toBe("expired");
@@ -400,7 +481,14 @@ describe.skipIf(!h)("the Claude connector's approval link (§1.120)", () => {
     expect(
       (await request(operator, "GET", `/api/auth/claude-connections/${refused.code}`)).status,
     ).toBe(404);
-    const ok = await request(admin, "POST", `/api/auth/claude-connections/${refused.code}/approve`);
+    const ok = await request(
+      admin,
+      "POST",
+      `/api/auth/claude-connections/${refused.code}/approve`,
+      {
+        confirm: refused.confirm,
+      },
+    );
     expect(ok.json.status, JSON.stringify(ok.json)).toBe("approved");
     const works = await whoami(await token(WORKOS_IDS.adminA, "authkit_client"));
     expect(works.isError, works.text).toBe(false);

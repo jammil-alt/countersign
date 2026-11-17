@@ -3033,6 +3033,11 @@ export const it: Messages = {
     "Claude chiede di usare Mezonas a Suo nome. La prima richiesta è delle {time}. La approvi solo se ha appena collegato Claude Lei stesso.",
   "connectClaude.lasts":
     "Questo link funziona fino alle {time}. Una volta approvata, dura finché non termina quell'accesso a Claude, al massimo 12 ore.",
+  "connectClaude.requested":
+    "Claude Le ha dato questo link alle {time}. Se non l'ha chiesto a Claude poco fa, non lo approvi.",
+  "connectClaude.confirm": "Il codice che Claude Le ha mostrato",
+  "connectClaude.confirmHint":
+    "Claude mostra un codice di 6 cifre con questo link. Scriva quello che mostra il Suo Claude, mai uno che Le manda qualcun altro.",
   "connectClaude.approve": "Approva",
   "connectClaude.approving": "Approvazione…",
   "connectClaude.approved":

@@ -2935,6 +2935,11 @@ export const en = {
     "Claude is asking to use Mezonas as you. It first asked at {time}. Approve it only if you just connected Claude yourself.",
   "connectClaude.lasts":
     "This link works until {time}. Once approved, it lasts until that Claude sign-in ends, 12 hours at most.",
+  "connectClaude.requested":
+    "Claude gave you this link at {time}. If you didn't ask Claude for it just now, don't approve it.",
+  "connectClaude.confirm": "The code Claude showed you",
+  "connectClaude.confirmHint":
+    "Claude shows a 6-digit code with this link. Type the one your own Claude shows you, never one someone else sends you.",
   "connectClaude.approve": "Approve",
   "connectClaude.approving": "Approving…",
   "connectClaude.approved":
