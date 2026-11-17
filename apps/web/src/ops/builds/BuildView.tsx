@@ -15,9 +15,11 @@ import {
   type BriefFieldKey,
   type BriefFieldState,
   type BuildDetail,
+  type BuildIssue,
   type BuildItemOwner,
   type BuildItemState,
   type BuildPhase,
+  buildIssues,
   DATA_SOURCES,
   type Dataset,
   FIT_REASON_MIN,
@@ -27,6 +29,7 @@ import {
   type FitRow,
   type FitVerdict,
   fitChangeKind,
+  ISSUE_SOURCE_WORDS,
   ITEM_STATE_WORDS,
   itemOpen,
   OWNER_WORDS,
@@ -56,6 +59,7 @@ import { AgentSaid, ChatLog, Composer, Pending, Thinking, YouSaid } from "../../
 import { ErrorNotice } from "../../ui/ErrorState";
 import { Select, TextArea, TextInput } from "../../ui/forms";
 import { Badge, Button, Card, cx, Loading, Tag } from "../../ui/primitives";
+import { AboutLink, FocusBar, ProposalCard } from "./issues";
 import { problemAdvice, problemWhere } from "./problems";
 import {
   BRIEF_STATE_TONE,
@@ -83,6 +87,10 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
   // The conversation's box, so an open question's "Answer" can start the reply there.
   const [draftText, setDraftText] = useState("");
   const box = useRef<HTMLTextAreaElement>(null);
+  // Owner (2026-11-17): the issue the conversation is on (its key), and whether only its thread
+  // shows. It follows the Builder: when its answer is about an issue, the next words are too.
+  const [focus, setFocus] = useState<string | null>(null);
+  const [threadOnly, setThreadOnly] = useState(false);
 
   useEffect(() => {
     if (loaded.data) setDetail(loaded.data);
@@ -101,6 +109,20 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
   const at = detail.phases.findIndex((p) => p.phase === b.phase);
   const shownAt = detail.phases.findIndex((p) => p.phase === shown);
 
+  const issues = buildIssues(detail);
+  const focused = focus ? (issues.find((i) => i.key === focus) ?? null) : null;
+  const issueOf = (key: string | undefined) =>
+    key ? (issues.find((i) => i.key === key) ?? null) : null;
+  const onIssue = (key: string, only = false) => {
+    setFocus(key);
+    setThreadOnly(only);
+    box.current?.focus();
+  };
+  const offIssue = () => {
+    setFocus(null);
+    setThreadOnly(false);
+  };
+
   /** One change: the answer is the build as it is now. */
   const act: Act = async (route, opts) => {
     setBusy(route.path);
@@ -109,6 +131,12 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
       const out = (await api.call(route, opts)) as BuildDetail;
       setDetail(out);
       setViewing(null);
+      // The conversation stays on the issue the Builder answered about (or moved on to).
+      const last = out.messages.at(-1);
+      const talked =
+        route.path === apiRoutes.opsBuildTurn.path ||
+        route.path === apiRoutes.opsBuildProposal.path;
+      if (talked && last?.role === "builder" && last.about) setFocus(last.about);
       return true;
     } catch (e) {
       setError(e);
@@ -118,13 +146,13 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
     }
   };
 
-  /** The operator's words, or none to try the Builder's last turn again. */
-  async function say(text?: string): Promise<boolean> {
+  /** The operator's words (about the issue in focus), or none to try the Builder's last turn again. */
+  async function say(text?: string, about: string | null = focused?.key ?? null): Promise<boolean> {
     if (text) setPending({ text, since: Date.now() });
     try {
       const done = await act(apiRoutes.opsBuildTurn, {
         params: { id },
-        body: text ? { text } : {},
+        body: text ? { text, ...(about ? { about } : {}) } : {},
       });
       // QA (2026-11-16): the words are saved before the Builder answers, so after a failure the
       // conversation is shown as it is now, with them in it, not as it was before they were sent.
@@ -143,6 +171,18 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
   const moving = busy === apiRoutes.opsMoveBuild.path || busy === apiRoutes.opsBuildClientTest.path;
   const retrying = busy === apiRoutes.opsBuildTurn.path && !pending;
   const lastId = detail.messages.at(-1)?.id;
+  const decide = (messageId: string, d: "agree" | "decline" | "undo") =>
+    void act(apiRoutes.opsBuildProposal, {
+      params: { id, messageId },
+      body: { decide: d },
+    }).then((ok) => {
+      // Not this: the box is where the operator says what they'd do instead.
+      if (ok && d === "decline") box.current?.focus();
+    });
+  const shownMessages =
+    threadOnly && focused
+      ? detail.messages.filter((m) => m.about === focused.key)
+      : detail.messages;
   return (
     <div className="flex flex-col gap-5" data-testid="build-view">
       {embedded ? null : <BuildHeader detail={detail} />}
@@ -249,7 +289,7 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
                     : "Tell the Builder what the agent should do. It asks what it needs to know and fills the brief: where the data comes from, where it goes and who is involved."}
                 </p>
               ) : null}
-              {detail.messages.map((m) =>
+              {shownMessages.map((m) =>
                 m.role === "operator" ? (
                   <YouSaid key={m.id} text={m.text} />
                 ) : (
@@ -271,6 +311,21 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
                           </li>
                         ))}
                       </ul>
+                    ) : null}
+                    {issueOf(m.about) ? (
+                      <AboutLink
+                        issue={issueOf(m.about) as BuildIssue}
+                        focused={m.about === focused?.key}
+                        onFocus={() => onIssue(m.about as string)}
+                      />
+                    ) : null}
+                    {m.proposal ? (
+                      <ProposalCard
+                        proposal={m.proposal}
+                        live={open}
+                        busy={isBusy(busy)}
+                        onDecide={(d) => decide(m.id, d)}
+                      />
                     ) : null}
                     {m.failed && m.id === lastId && open ? (
                       <div>
@@ -323,9 +378,19 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
           </div>
           {open ? (
             <div className="border-t border-line px-5 py-4">
+              {focused ? (
+                <FocusBar
+                  issue={focused}
+                  threadOnly={threadOnly}
+                  onThread={setThreadOnly}
+                  onClear={offIssue}
+                />
+              ) : null}
               <Composer
                 label="Message to the Builder"
-                placeholder={PLACEHOLDER[b.phase]}
+                placeholder={
+                  focused ? `Ask about “${focused.title}”, or say what to do` : PLACEHOLDER[b.phase]
+                }
                 busy={!!pending}
                 value={draftText}
                 onValueChange={setDraftText}
@@ -350,6 +415,17 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
           />
           <ItemsPanel
             detail={detail}
+            issues={issues}
+            focus={focused?.key ?? null}
+            onTalk={open ? onIssue : undefined}
+            onWalk={
+              open
+                ? () => {
+                    offIssue();
+                    void say("Walk me through the open issues, one at a time.", null);
+                  }
+                : undefined
+            }
             busy={busy}
             act={act}
             onAnswer={
@@ -2032,13 +2108,29 @@ function QaPanel({ detail, current, busy, act }: PanelProps) {
 const OWNERS: BuildItemOwner[] = ["operator", "builder", "client", "engineering"];
 const STATES: BuildItemState[] = ["open", "in_progress", "waiting", "done", "deferred"];
 
+/**
+ * The build's issues (core's `buildIssues`): its open items, the draft's problems, failing tests,
+ * the client's rejected writes and QA's failing checks, open ones first. Owner (2026-11-17): each
+ * can be talked about in the conversation, its thread shown again, or all walked through in turn.
+ */
 function ItemsPanel({
   detail,
+  issues,
+  focus,
+  onTalk,
+  onWalk,
   busy,
   act,
   onAnswer,
 }: {
   detail: BuildDetail;
+  issues: readonly BuildIssue[];
+  /** The issue the conversation is on. */
+  focus: string | null;
+  /** Puts the conversation on an issue; `only` shows just its thread. */
+  onTalk?: ((key: string, only?: boolean) => void) | undefined;
+  /** Asks the Builder to take the open issues one at a time. */
+  onWalk?: (() => void) | undefined;
   busy: string | null;
   act: Act;
   /** Starts an answer to an open question in the conversation's box. */
@@ -2047,17 +2139,53 @@ function ItemsPanel({
   const id = detail.build.id;
   const [title, setTitle] = useState("");
   const [owner, setOwner] = useState<BuildItemOwner>("operator");
-  const open = detail.items.filter((i) => itemOpen(i.state));
-  const closed = detail.items.length - open.length;
+  const openCount = issues.filter((i) => i.open).length;
+  const closed = issues.length - openCount;
   const editable = detail.build.status === "open";
+  const items = new Map(detail.items.map((i) => [i.id, i]));
+  const talk = (issue: BuildIssue) =>
+    onTalk ? (
+      <span className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+        <button
+          type="button"
+          className="ds-btn ds-btn--link text-xs"
+          aria-pressed={focus === issue.key}
+          onClick={() => onTalk(issue.key)}
+          data-testid={`build-issue-${issue.key}-talk`}
+        >
+          {focus === issue.key ? "Talking about it" : "Talk about it"}
+        </button>
+        {issue.talk > 0 ? (
+          <button
+            type="button"
+            className="ds-btn ds-btn--link text-xs"
+            onClick={() => onTalk(issue.key, true)}
+            data-testid={`build-issue-${issue.key}-thread`}
+          >
+            {plural(issue.talk, "message")} about it
+          </button>
+        ) : null}
+      </span>
+    ) : null;
   return (
     <Card
       testId="build-items"
-      title="Open items"
+      title="Issues"
       meta={
-        <span className="flex gap-1.5">
-          <Badge tone={open.length > 0 ? "warning" : "positive"}>{open.length} open</Badge>
+        <span className="flex flex-wrap items-center gap-1.5">
+          <Badge tone={openCount > 0 ? "warning" : "positive"}>{openCount} open</Badge>
           {closed > 0 ? <Badge tone="neutral">{closed} done or put off</Badge> : null}
+          {onWalk && openCount > 0 ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={isBusy(busy)}
+              onClick={onWalk}
+              data-testid="build-issues-walk"
+            >
+              Walk me through them
+            </Button>
+          ) : null}
         </span>
       }
       footer={
@@ -2108,116 +2236,165 @@ function ItemsPanel({
         ) : null
       }
     >
-      {detail.items.length === 0 ? (
+      {issues.length === 0 ? (
         <p className="px-6 py-5 text-sm text-ink-muted">
-          Nothing left to do yet. The Builder and the phases add items as they go.
+          Nothing left to settle yet. The Builder and the phases add issues as they go.
         </p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line bg-surface-subtle text-left text-xs text-ink-muted">
-                <th className="px-4 py-2.5 font-medium">Item</th>
+                <th className="px-4 py-2.5 font-medium">Issue</th>
                 <th className="px-4 py-2.5 font-medium">From</th>
                 <th className="px-4 py-2.5 font-medium">Who has it</th>
                 <th className="px-4 py-2.5 font-medium">Status</th>
               </tr>
             </thead>
             <tbody>
-              {[...open, ...detail.items.filter((i) => !itemOpen(i.state))].map((i) => (
-                <tr
-                  key={i.id}
-                  id={`build-item-${i.id}`}
-                  className="border-b border-line align-top last:border-b-0"
-                  data-testid={`build-item-${i.id}`}
-                >
-                  <td className="px-4 py-3">
-                    <div className="flex flex-col gap-1">
-                      <span className="flex flex-wrap items-center gap-2">
-                        <Tag testId={`build-item-${i.id}-kind`}>
-                          {ITEM_KIND_WORDS[i.kind]?.label ?? i.kind}
-                        </Tag>
-                        <span
-                          className={cx(
-                            "font-medium text-ink",
-                            !itemOpen(i.state) && "text-ink-muted line-through",
-                          )}
-                        >
-                          {i.title}
-                        </span>
-                      </span>
-                      {i.detail ? <p className="text-xs text-ink-muted">{i.detail}</p> : null}
-                      {itemOpen(i.state) ? (
-                        <p className="text-xs text-ink" data-testid={`build-item-${i.id}-how`}>
-                          <span className="text-ink-muted">To settle it: </span>
-                          {ITEM_KIND_WORDS[i.kind]?.how}
-                          {i.kind === "question" && onAnswer ? (
-                            <>
-                              {" "}
-                              <button
-                                type="button"
-                                className="ds-btn ds-btn--link text-xs"
-                                data-testid={`build-item-${i.id}-answer`}
-                                onClick={() => onAnswer(i.title)}
-                              >
-                                Answer it
-                              </button>
-                            </>
+              {issues.map((issue) => {
+                const i = issue.itemId ? items.get(issue.itemId) : undefined;
+                if (!i) {
+                  return (
+                    <tr
+                      key={issue.key}
+                      className={cx(
+                        "border-b border-line align-top last:border-b-0",
+                        focus === issue.key && "bg-slate-tint",
+                      )}
+                      data-testid={`build-issue-${issue.key}`}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col gap-1">
+                          <span className="flex flex-wrap items-center gap-2">
+                            <Tag>{ISSUE_SOURCE_WORDS[issue.source]}</Tag>
+                            <span className="font-medium text-ink">{issue.title}</span>
+                          </span>
+                          {issue.detail ? (
+                            <p className="text-xs text-ink-muted">{issue.detail}</p>
                           ) : null}
-                        </p>
-                      ) : null}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-ink-muted">{PHASE_WORDS[i.phase].label}</td>
-                  <td className="px-4 py-3">
-                    {editable ? (
-                      <Select
-                        aria-label={`Who has it: ${i.title}`}
-                        value={i.owner}
-                        onChange={(e) =>
-                          void act(apiRoutes.opsUpdateBuildItem, {
-                            params: { id, itemId: i.id },
-                            body: { owner: e.target.value as BuildItemOwner },
-                          })
-                        }
-                      >
-                        {OWNERS.map((o) => (
-                          <option key={o} value={o}>
-                            {OWNER_WORDS[o]}
-                          </option>
-                        ))}
-                      </Select>
-                    ) : (
-                      <Badge tone={i.owner === "client" ? "person" : "neutral"}>
-                        {OWNER_WORDS[i.owner]}
-                      </Badge>
+                          {talk(issue)}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-ink-muted">{PHASE_WORDS[issue.phase].label}</td>
+                      <td className="px-4 py-3 text-ink-muted">
+                        {issue.source === "problem" || issue.source === "case" ? "Builder" : "You"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge
+                          tone={
+                            !issue.open
+                              ? "positive"
+                              : issue.source === "rejection"
+                                ? "person"
+                                : "risk"
+                          }
+                        >
+                          {issue.state}
+                        </Badge>
+                      </td>
+                    </tr>
+                  );
+                }
+                return (
+                  <tr
+                    key={i.id}
+                    id={`build-item-${i.id}`}
+                    className={cx(
+                      "border-b border-line align-top last:border-b-0",
+                      focus === issue.key && "bg-slate-tint",
                     )}
-                  </td>
-                  <td className="px-4 py-3">
-                    {editable ? (
-                      <Select
-                        aria-label={`Status: ${i.title}`}
-                        value={i.state}
-                        data-testid={`build-item-${i.id}-state`}
-                        onChange={(e) =>
-                          void act(apiRoutes.opsUpdateBuildItem, {
-                            params: { id, itemId: i.id },
-                            body: { state: e.target.value as BuildItemState },
-                          })
-                        }
-                      >
-                        {STATES.map((s) => (
-                          <option key={s} value={s}>
-                            {ITEM_STATE_WORDS[s]}
-                          </option>
-                        ))}
-                      </Select>
-                    ) : (
-                      <Badge tone={ITEM_TONE[i.state]}>{ITEM_STATE_WORDS[i.state]}</Badge>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                    data-testid={`build-item-${i.id}`}
+                  >
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col gap-1">
+                        <span className="flex flex-wrap items-center gap-2">
+                          <Tag testId={`build-item-${i.id}-kind`}>
+                            {ITEM_KIND_WORDS[i.kind]?.label ?? i.kind}
+                          </Tag>
+                          <span
+                            className={cx(
+                              "font-medium text-ink",
+                              !itemOpen(i.state) && "text-ink-muted line-through",
+                            )}
+                          >
+                            {i.title}
+                          </span>
+                        </span>
+                        {i.detail ? <p className="text-xs text-ink-muted">{i.detail}</p> : null}
+                        {itemOpen(i.state) ? (
+                          <p className="text-xs text-ink" data-testid={`build-item-${i.id}-how`}>
+                            <span className="text-ink-muted">To settle it: </span>
+                            {ITEM_KIND_WORDS[i.kind]?.how}
+                            {i.kind === "question" && onAnswer ? (
+                              <>
+                                {" "}
+                                <button
+                                  type="button"
+                                  className="ds-btn ds-btn--link text-xs"
+                                  data-testid={`build-item-${i.id}-answer`}
+                                  onClick={() => onAnswer(i.title)}
+                                >
+                                  Answer it
+                                </button>
+                              </>
+                            ) : null}
+                          </p>
+                        ) : null}
+                        {talk(issue)}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-ink-muted">{PHASE_WORDS[i.phase].label}</td>
+                    <td className="px-4 py-3">
+                      {editable ? (
+                        <Select
+                          aria-label={`Who has it: ${i.title}`}
+                          value={i.owner}
+                          onChange={(e) =>
+                            void act(apiRoutes.opsUpdateBuildItem, {
+                              params: { id, itemId: i.id },
+                              body: { owner: e.target.value as BuildItemOwner },
+                            })
+                          }
+                        >
+                          {OWNERS.map((o) => (
+                            <option key={o} value={o}>
+                              {OWNER_WORDS[o]}
+                            </option>
+                          ))}
+                        </Select>
+                      ) : (
+                        <Badge tone={i.owner === "client" ? "person" : "neutral"}>
+                          {OWNER_WORDS[i.owner]}
+                        </Badge>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {editable ? (
+                        <Select
+                          aria-label={`Status: ${i.title}`}
+                          value={i.state}
+                          data-testid={`build-item-${i.id}-state`}
+                          onChange={(e) =>
+                            void act(apiRoutes.opsUpdateBuildItem, {
+                              params: { id, itemId: i.id },
+                              body: { state: e.target.value as BuildItemState },
+                            })
+                          }
+                        >
+                          {STATES.map((s) => (
+                            <option key={s} value={s}>
+                              {ITEM_STATE_WORDS[s]}
+                            </option>
+                          ))}
+                        </Select>
+                      ) : (
+                        <Badge tone={ITEM_TONE[i.state]}>{ITEM_STATE_WORDS[i.state]}</Badge>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

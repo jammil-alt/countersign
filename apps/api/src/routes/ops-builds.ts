@@ -9,18 +9,27 @@ import {
   BRIEF_FIELDS,
   BRIEF_LABELS,
   type Brief,
+  type BuildAction,
   type BuildDetail,
+  type BuildIssue,
+  BuildItemState,
   type BuildPhase,
+  type BuildProposal,
+  BuildProposal as BuildProposalSchema,
   buildHasSetupForm,
+  buildIssues,
   FIT_WORDS,
   type FitGap,
   type FitRow,
   fitChangeKind,
+  issueLine,
   itemOpen,
   mergeFitGap,
   nextPhase,
   operatorFitGap,
+  ProposalState,
   phaseIndex,
+  proposalUndo,
   readBrief,
   readFitGap,
   readQa,
@@ -46,6 +55,7 @@ import {
   readBuild,
   refKey,
   summaries,
+  withDecisions,
 } from "../build/store";
 import {
   type AppContext,
@@ -61,7 +71,7 @@ import {
   type Services,
   toHttpError,
 } from "../http";
-import { reportHandled } from "../observability/report";
+import { reportHandled, reportProblem } from "../observability/report";
 import { workerTransport } from "../runs/execute";
 import { builderContext, builderHttpError } from "./ops-builder";
 
@@ -262,7 +272,13 @@ function failedTurnText(phase: BuildPhase, error: unknown): { code: string; text
 // DECISION (QA on staging, 2026-11-16): a failed turn is a Builder message, not an HTTP error.
 // The error used to reach the screen as the raw validation text, vanish on reload and leave the
 // operator's words with no answer; the failure was never reported.
-async function turn(ctx: LongCtx, id: string, words: string | null, retry = false): Promise<void> {
+async function turn(
+  ctx: LongCtx,
+  id: string,
+  words: string | null,
+  opts: { retry?: boolean; about?: string | null } = {},
+): Promise<void> {
+  const { retry = false } = opts;
   const prep = await ctx.inTx(async (scoped) => {
     const row = await readBuild(scoped.tx, id, true);
     refuseClosed(row);
@@ -281,16 +297,33 @@ async function turn(ctx: LongCtx, id: string, words: string | null, retry = fals
     // Failed answers say nothing about the work: the model never sees them.
     const history = all.filter((m) => !failed(m)).map(({ role, text }) => ({ role, text }));
     let said = words;
+    let about = opts.about ?? null;
     if (retry && !words) {
       const last = all.filter((m) => !failed(m)).at(-1);
       if (last?.role === "operator" && last.phase === row.phase) {
         history.pop();
         said = last.text;
+        about = metaAbout(last.meta) ?? about;
       }
-    } else if (words) {
-      await addMessage(scoped.tx, row, { role: "operator", text: words });
     }
     const detail = await detailIn(scoped, ctx.services, row);
+    const issues = buildIssues(detail);
+    // An issue that isn't the build's (gone, or never was) is no focus.
+    const focused = about ? (issues.find((i) => i.key === about) ?? null) : null;
+    if (words && !retry) {
+      await addMessage(scoped.tx, row, {
+        role: "operator",
+        text: words,
+        meta: focused ? { about: focused.key } : {},
+      });
+    }
+    // Its thread: what was said about it, however long ago (the history keeps only the latest).
+    const thread = focused
+      ? all
+          .filter((m) => !failed(m) && metaAbout(m.meta) === focused.key)
+          .slice(-THREAD_MAX)
+          .map((m) => ({ role: m.role, text: m.text.slice(0, 600) }))
+      : [];
     const facts = [
       ...(detail.draft?.problems.map((p) => `Draft problem: ${p.title}`) ?? []),
       ...(detail.poc ? [`Tests: ${detail.poc.detail}`] : []),
@@ -312,7 +345,7 @@ async function turn(ctx: LongCtx, id: string, words: string | null, retry = fals
         ? await builderContext({ ...scoped, services: ctx.services }, row.clientId)
         : null;
     const client = detail.build.client?.name ?? null;
-    return { row, history, facts, bctx, client, items: detail.items, said };
+    return { row, history, facts, bctx, client, said, detail, issues, focused, thread };
   });
   const { row } = prep;
   let result: Awaited<ReturnType<typeof buildTurn>>;
@@ -326,9 +359,8 @@ async function turn(ctx: LongCtx, id: string, words: string | null, retry = fals
         brief: readBrief(row.brief),
         fitgap: readFitGap(row.fitgap),
         testPlan: readTestPlan(row.testPlan),
-        items: prep.items
-          .filter((i) => itemOpen(i.state))
-          .map((i) => `${i.title} (${i.owner}, ${i.state})`),
+        issues: prep.issues.map(issueLine),
+        focus: prep.focused ? { line: issueLine(prep.focused), thread: prep.thread } : null,
         facts: prep.facts,
         history: prep.history,
         words: prep.said,
@@ -383,6 +415,21 @@ async function turn(ctx: LongCtx, id: string, words: string | null, retry = fals
       answer.items.map((i) => ({ ...i, phase: fresh.phase })),
       ctx.session.user.id,
     );
+    // The issue it answered about, and its proposal, only as they fit the build as it was asked.
+    const about =
+      (answer.about && prep.issues.some((i) => i.key === answer.about) ? answer.about : null) ??
+      prep.focused?.key ??
+      null;
+    const proposal = answer.proposal
+      ? fitProposal(answer.proposal, prep.detail, fresh.phase)
+      : null;
+    if (answer.proposal && !proposal) {
+      reportProblem("the Builder proposed a change that doesn't fit the build", {
+        kind: "build",
+        action: answer.proposal.action.do,
+        build: id,
+      });
+    }
     await addMessage(scoped.tx, fresh, {
       role: "builder",
       text: answer.text,
@@ -391,9 +438,89 @@ async function turn(ctx: LongCtx, id: string, words: string | null, retry = fals
         changes: changeLines(answer),
         costUsd: result.costUsd,
         model: result.calls[0]?.model ?? null,
+        ...(about ? { about } : {}),
+        ...(proposal ? { proposal: { ...proposal, state: "proposed" } } : {}),
       },
     });
   });
+}
+
+/** A proposal as saved on its message: what was decided, and an item's state before it. */
+const StoredProposal = BuildProposalSchema.extend({
+  state: ProposalState,
+  before: BuildItemState.nullable().optional(),
+});
+
+/** Messages of an issue's thread sent with a turn about it. */
+const THREAD_MAX = 12;
+
+function metaAbout(meta: unknown): string | null {
+  const v = (meta as { about?: unknown } | null)?.about;
+  return typeof v === "string" ? v : null;
+}
+
+/**
+ * The Builder's proposal if it fits the build: an item it names is this build's and in the state
+ * the change needs, a check is failing in QA, going back is to an earlier phase, tests run in the
+ * POC. The route that makes the change checks again when the operator agrees.
+ */
+function fitProposal(p: BuildProposal, d: BuildDetail, phase: BuildPhase): BuildProposal | null {
+  const a = p.action;
+  const itemOf = (raw: string) => d.items.find((i) => i.id === raw.replace(/^item:/, ""));
+  switch (a.do) {
+    case "close_item": {
+      const item = itemOf(a.itemId);
+      return item && itemOpen(item.state) ? { ...p, action: { ...a, itemId: item.id } } : null;
+    }
+    case "reopen_item": {
+      const item = itemOf(a.itemId);
+      return item && !itemOpen(item.state) ? { ...p, action: { ...a, itemId: item.id } } : null;
+    }
+    case "accept_check":
+      return phase === "qa" && d.qaChecks.some((c) => c.id === a.check && c.state === "fail")
+        ? p
+        : null;
+    case "go_back":
+      return phaseIndex(d.build.kind, a.to) >= 0 &&
+        phaseIndex(d.build.kind, a.to) < phaseIndex(d.build.kind, phase)
+        ? p
+        : null;
+    case "run_tests":
+      return phase === "poc" && d.draft ? p : null;
+  }
+}
+
+/** Makes an agreed change through the build's own route, as the operator. */
+async function runAction(ctx: LongCtx, id: string, a: BuildAction): Promise<void> {
+  switch (a.do) {
+    case "close_item":
+    case "reopen_item":
+      await call(ctx, routes.opsUpdateBuildItem, {
+        params: { id, itemId: a.itemId },
+        body: { state: a.do === "close_item" ? a.state : "open" },
+      });
+      return;
+    case "accept_check":
+      await call(ctx, routes.opsBuildQa, {
+        params: { id },
+        body: { accept: a.check, reason: a.reason },
+      });
+      return;
+    case "go_back":
+      await move(ctx, id, a.to, a.reason);
+      return;
+    case "run_tests":
+      await call(ctx, routes.opsBuildRunTests, { params: { id } });
+      return;
+  }
+}
+
+/** What the conversation says after an agreed change, and the next open issue to take. */
+function doneText(summary: string, next: BuildIssue | undefined): string {
+  const done = `Done: ${summary.replace(/[.\s]+$/, "")}.`;
+  return next
+    ? `${done} Next open issue: “${next.title}”. Shall we take it?`
+    : `${done} That was the last open issue.`;
 }
 
 /** Makes the draft (once): the Builder's own route, as the operator. */
@@ -592,8 +719,97 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
 
   mountLong(app, routes.opsBuildTurn, async (ctx) => {
     const text = ctx.body.text ?? null;
-    await turn(long(ctx.c, ctx.session, ctx.services, ctx.inTx), ctx.params.id, text, !text);
+    await turn(long(ctx.c, ctx.session, ctx.services, ctx.inTx), ctx.params.id, text, {
+      retry: !text,
+      about: ctx.body.about ?? null,
+    });
     return detailOf(ctx, ctx.params.id);
+  });
+
+  // Owner (2026-11-17): the Builder proposes, the operator agrees, the change is made through the
+  // build's own route as the operator (its checks and audit row), then the Builder offers the next.
+  mountLong(app, routes.opsBuildProposal, async (ctx) => {
+    const lc = long(ctx.c, ctx.session, ctx.services, ctx.inTx);
+    const { id, messageId } = ctx.params;
+    const { decide } = ctx.body;
+    const found = await ctx.inTx(async (scoped) => {
+      const row = await readBuild(scoped.tx, id, true);
+      refuseClosed(row);
+      const [m] = await scoped.tx
+        .select()
+        .from(buildMessage)
+        .where(and(eq(buildMessage.id, messageId), eq(buildMessage.buildId, row.id)));
+      if (!m) throw notFound("message");
+      const meta = (m.meta ?? {}) as Record<string, unknown>;
+      const stored = StoredProposal.safeParse(meta.proposal);
+      if (!stored.success) throw new HttpError(409, "no_proposal", "this message proposes nothing");
+      // Its state is the latest decision about it (messages are insert only).
+      const decisions = await scoped.tx
+        .select({ id: buildMessage.id, meta: buildMessage.meta })
+        .from(buildMessage)
+        .where(eq(buildMessage.buildId, row.id))
+        .orderBy(asc(buildMessage.createdAt), asc(buildMessage.id));
+      const decided = withDecisions(decisions).find(([r]) => r.id === m.id)?.[1] ?? null;
+      const p = {
+        ...stored.data,
+        state: decided?.decision ?? stored.data.state,
+        before: decided?.before ?? null,
+      };
+      const wanted = decide === "undo" ? "agreed" : "proposed";
+      if (p.state !== wanted) {
+        throw new HttpError(409, "decided", `this proposal is ${p.state} already`);
+      }
+      const itemId = "itemId" in p.action ? p.action.itemId : null;
+      const [item] = itemId
+        ? await scoped.tx
+            .select({ state: buildItem.state })
+            .from(buildItem)
+            .where(and(eq(buildItem.id, itemId), eq(buildItem.buildId, row.id)))
+        : [];
+      return { p, before: item?.state ?? null, about: metaAbout(meta) };
+    });
+    const { p, about } = found;
+    const decision = { agree: "agreed", decline: "declined", undo: "undone" } as const;
+    // The operator's decision, as their message in the conversation.
+    const record = (before: string | null = null) =>
+      ctx.inTx(async (scoped) => {
+        const fresh = await readBuild(scoped.tx, id, true);
+        await addMessage(scoped.tx, fresh, {
+          role: "operator",
+          text: { agree: "Agreed.", decline: "Not this.", undo: "Undo that." }[decide],
+          meta: {
+            decides: messageId,
+            decision: decision[decide],
+            ...(before ? { before } : {}),
+            ...(about ? { about } : {}),
+          },
+        });
+      });
+    if (decide === "decline") {
+      await record();
+      return detailOf(ctx, id);
+    }
+    const action = decide === "agree" ? p.action : proposalUndo(p.action, p.before);
+    if (!action) throw new HttpError(409, "no_undo", "this change has no undo here");
+    await runAction(lc, id, action);
+    await record(decide === "agree" ? found.before : null);
+    await ctx.inTx(async (scoped) => {
+      const fresh = await readBuild(scoped.tx, id, true);
+      const issues = buildIssues(await detailIn(scoped, ctx.services, fresh));
+      const next = issues.find((i) => i.open && i.key !== about);
+      const text =
+        decide === "agree" ? doneText(p.summary, next) : `Undone: ${p.summary}. It's as it was.`;
+      await addMessage(scoped.tx, fresh, {
+        role: "builder",
+        text,
+        meta: {
+          // The thread moves to the next issue, so "yes" there carries on with it.
+          ...(decide === "agree" && next ? { about: next.key } : about ? { about } : {}),
+          chips: decide === "agree" && next ? ["Yes, take it", "What's left?"] : [],
+        },
+      });
+    });
+    return detailOf(ctx, id);
   });
 
   mountLong(app, routes.opsBuildVerdict, async (ctx) => {

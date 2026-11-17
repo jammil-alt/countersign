@@ -76,6 +76,10 @@ describe.skipIf(!h)("builds", () => {
     const res = await H.call(who, method, path, body);
     return { status: res.status, json: res.json as BuildDetail & { created?: number } };
   };
+  const lastUserText = () => {
+    const m = model.requests.at(-1)?.messages.at(-1);
+    return typeof m?.content === "string" ? m.content : JSON.stringify(m?.content);
+  };
   const ok = async (method: string, path: string, body?: unknown) => {
     const res = await call(method, path, body);
     expect(res.status, JSON.stringify(res.json)).toBe(200);
@@ -467,6 +471,116 @@ describe.skipIf(!h)("builds", () => {
     b = await ok("POST", `/api/ops/builds/${id}/stop`, { reason: "Not needed" });
     expect(b.build.status).toBe("stopped");
     expect((await call("POST", `/api/ops/builds/${id}/turns`, { text: "hi" })).status).toBe(409);
+  });
+
+  // Owner (2026-11-17): talk through the issues one at a time, agree each fix, and go back to one.
+  it("talks about one issue, agrees its fix, undoes it, and goes back to it later", async () => {
+    let b = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Issue threads" });
+    const id = b.build.id;
+    await ok("POST", `/api/ops/builds/${id}/items`, { title: "Check the W-9" });
+    b = await ok("POST", `/api/ops/builds/${id}/items`, { title: "Who approves new vendors" });
+    const w9 = b.items.find((i) => i.title === "Check the W-9")?.id as string;
+    const approver = b.items.find((i) => i.title === "Who approves new vendors")?.id as string;
+
+    // On one issue: the words carry it, the Builder sees it and its proposal is kept as proposed.
+    model.push(
+      turnAnswer({
+        text: "The vendor form step checks it. I'd close it as done.",
+        about: `item:${w9}`,
+        proposal: {
+          summary: "Close “Check the W-9” as done",
+          action: { do: "close_item", itemId: `item:${w9}`, state: "done" },
+        },
+      }),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/turns`, {
+      text: "Where does the tax id get checked?",
+      about: `item:${w9}`,
+    });
+    expect(lastUserText()).toContain(`Talking about: [item:${w9}]`);
+    expect(lastUserText()).toContain(`[item:${approver}] Open item`);
+    const [asked, proposed] = b.messages.slice(-2);
+    expect(asked).toMatchObject({ role: "operator", about: `item:${w9}` });
+    expect(proposed).toMatchObject({
+      role: "builder",
+      about: `item:${w9}`,
+      proposal: { state: "proposed", action: { do: "close_item", itemId: w9, state: "done" } },
+    });
+
+    // Agreed: the item is done through its own route, Undo is offered, and the next one is offered.
+    b = await ok("POST", `/api/ops/builds/${id}/messages/${proposed?.id}/proposal`, {
+      decide: "agree",
+    });
+    expect(b.items.find((i) => i.id === w9)?.state).toBe("done");
+    expect(b.messages.find((m) => m.id === proposed?.id)?.proposal).toMatchObject({
+      state: "agreed",
+      undo: true,
+    });
+    expect(b.messages.at(-1)).toMatchObject({
+      role: "builder",
+      about: `item:${approver}`,
+      chips: ["Yes, take it", "What's left?"],
+    });
+    expect(b.messages.at(-1)?.text).toContain("Next open issue: “Who approves new vendors”");
+    expect(
+      (
+        await call("POST", `/api/ops/builds/${id}/messages/${proposed?.id}/proposal`, {
+          decide: "agree",
+        })
+      ).status,
+    ).toBe(409);
+
+    // Undo puts the item back.
+    b = await ok("POST", `/api/ops/builds/${id}/messages/${proposed?.id}/proposal`, {
+      decide: "undo",
+    });
+    expect(b.items.find((i) => i.id === w9)?.state).toBe("open");
+    expect(b.messages.find((m) => m.id === proposed?.id)?.proposal?.state).toBe("undone");
+
+    // Later, on another issue: a proposal for an item that isn't the build's is dropped.
+    model.push(
+      turnAnswer({
+        text: "Ann approves them.",
+        about: `item:${approver}`,
+        proposal: {
+          summary: "Close it",
+          action: {
+            do: "close_item",
+            itemId: "00000000-0000-4000-8000-00000000dead",
+            state: "done",
+          },
+        },
+      }),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/turns`, {
+      text: "Ann approves them.",
+      about: `item:${approver}`,
+    });
+    expect(b.messages.at(-1)?.proposal).toBeUndefined();
+
+    // Going back to the W-9: its thread comes with it, and a declined proposal stays declined.
+    model.push(
+      turnAnswer({
+        text: "I'd put it off until the client test.",
+        about: `item:${w9}`,
+        proposal: {
+          summary: "Put off “Check the W-9”",
+          action: { do: "close_item", itemId: w9, state: "deferred" },
+        },
+      }),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/turns`, {
+      text: "Back to the W-9 one.",
+      about: `item:${w9}`,
+    });
+    expect(lastUserText()).toContain("Operator: Where does the tax id get checked?");
+    expect(lastUserText()).toContain("You: The vendor form step checks it.");
+    const again = b.messages.at(-1);
+    b = await ok("POST", `/api/ops/builds/${id}/messages/${again?.id}/proposal`, {
+      decide: "decline",
+    });
+    expect(b.messages.find((m) => m.id === again?.id)?.proposal?.state).toBe("declined");
+    expect(b.items.find((i) => i.id === w9)?.state).toBe("open");
   });
 
   // QA on staging (2026-11-16): the fit-gap failed three times out of three. The raw validation
