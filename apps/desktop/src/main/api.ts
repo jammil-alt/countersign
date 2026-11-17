@@ -11,6 +11,7 @@ import {
   MOBILE_SESSION_HEADER,
   type RouteSpec,
   SESSION_ACTIVITY_HEADER,
+  trimTrailingSlashes,
 } from "@countersign/core";
 import type { z } from "zod";
 import { signedHeaders } from "./keys";
@@ -91,7 +92,7 @@ export class Api {
 
   constructor(private readonly options: ApiOptions) {
     this.doFetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
-    this.origin = options.origin.replace(/\/+$/, "");
+    this.origin = trimTrailingSlashes(options.origin);
   }
 
   private async send(url: string, init: RequestInit): Promise<Response> {
