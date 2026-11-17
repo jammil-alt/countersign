@@ -406,6 +406,29 @@ const HOLD_ROUNDS = 3;
 // steps per instance, and a client's batch larger than that is a sign to split the work.
 export const FOR_EACH_MAX_ITEMS = 200;
 
+/**
+ * The most a step's output may hold, serialized (audit 4.4). It is part of the step's durable
+ * result, which the engine keeps up to 1 MiB: a larger one fails the step on its own row, with its
+ * size, rather than the run's instance on the engine's limit.
+ */
+export const STEP_OUTPUT_MAX_BYTES = 900 * 1024;
+
+/** A value's size as JSON in UTF-8, without TextEncoder (this package has no DOM or Node types). */
+export function jsonBytes(value: unknown): number {
+  const json = JSON.stringify(value ?? null) ?? "null";
+  let n = 0;
+  for (let i = 0; i < json.length; i++) {
+    const c = json.charCodeAt(i);
+    if (c < 0x80) n += 1;
+    else if (c < 0x800) n += 2;
+    else if (c >= 0xd800 && c <= 0xdbff) {
+      n += 4;
+      i++;
+    } else n += 3;
+  }
+  return n;
+}
+
 // DECISION (R3): a skill that needs help asks the lead, who has one business day to answer; no
 // answer stops the run (owner, 2026-11-10: "ask the lead").
 const HELP_DEADLINE: processes.Deadline = {
@@ -1064,6 +1087,14 @@ class Executor {
       outcome.kind === "approval" && this.testRun
         ? { kind: "done", output: outcome.output ?? null, notWritten: true }
         : outcome;
+    // Audit 4.4: an output too large to hand on fails the step on its one row, saying why.
+    if (done.kind === "done") {
+      const bytes = jsonBytes(done.output);
+      if (bytes > STEP_OUTPUT_MAX_BYTES) {
+        const error = `its output is ${Math.ceil(bytes / 1024)} KiB, over the ${STEP_OUTPUT_MAX_BYTES / 1024} KiB a step may hand on`;
+        return this.settle(step, stepRunId, { kind: "failed", error }, rejected, extra);
+      }
+    }
     // P-6: a person who ended the step (a live conversation) turned it down (§1.68).
     const turnedDown = rejected || (done.kind === "done" && done.declined === true);
     let update: StepRunUpdate;

@@ -9,12 +9,14 @@ export {
   type ExecutorOversight,
   executeWorkflow,
   FOR_EACH_MAX_ITEMS,
+  jsonBytes,
   pool,
   type RunEndStatus,
   type RunResult,
   // v0.12 W1-E
   type RunResume,
   resumePoint,
+  STEP_OUTPUT_MAX_BYTES,
 } from "./executor";
 // v0.12 W2-B
 export * from "./expand";

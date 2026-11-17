@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { executeWorkflow, FOR_EACH_MAX_ITEMS, pool } from "./executor";
+import {
+  executeWorkflow,
+  FOR_EACH_MAX_ITEMS,
+  jsonBytes,
+  pool,
+  STEP_OUTPUT_MAX_BYTES,
+} from "./executor";
 import { FakeStepRunner } from "./fake-runner";
 import { Harness, RUN, SKILL, WRITE_TOOL, wf } from "./fakes.test-helper";
 import { inboxEventType } from "./runner";
@@ -712,6 +718,29 @@ describe("forks", () => {
     await executeWorkflow(new FakeStepRunner(), h.context(), wf([fork]), { total: 5 });
     expect(h.agentCalls.map((c) => c.nodeId)).toEqual(["c"]);
     expect(h.row("f")?.output).toEqual({ pathId: "rest", pathName: "Otherwise" });
+  });
+});
+
+describe("a step's output size (audit 4.4)", () => {
+  it("measures JSON in UTF-8 bytes", () => {
+    // `{"a":"` 6, é 2, € 3, 😀 4, `"}` 2.
+    expect(jsonBytes({ a: "é€😀" })).toBe(17);
+  });
+
+  it("fails a step whose output is too large to hand on, on its one row, saying why", async () => {
+    const h = new Harness();
+    h.handlers.read = () => ({ kind: "done", output: { text: "x".repeat(STEP_OUTPUT_MAX_BYTES) } });
+    const runner = new FakeStepRunner();
+    const result = await executeWorkflow(
+      runner,
+      h.context({ catalog: { skills: { [SKILL.id]: SKILL }, tools: {} } }),
+      wf([{ id: "read", kind: "skill", name: "Read", skill: SKILL.id, input: {} }]),
+      {},
+    );
+    expect(result).toMatchObject({ status: "failed", nodeId: "read" });
+    expect(result.reason).toMatch(/^its output is 901 KiB, over the 900 KiB a step may hand on/);
+    const rows = [...h.rows.values()].filter((r) => r.nodeId.startsWith("read"));
+    expect(rows.map((r) => r.status)).toEqual(["failed"]);
   });
 });
 

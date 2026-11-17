@@ -61,12 +61,15 @@ export function isEngineTimeout(error: unknown): boolean {
 
 /**
  * The most a durable step's result may hold, serialized. The engine keeps a step's result up to
- * 1 MiB and fails the instance past it; ours stop well before, with an error that says why.
+ * 1 MiB and fails the instance past it; ours stop before, with an error that says why. A skill or
+ * action step's own output is checked first, at 900 KiB, on its own row (the executor's
+ * `STEP_OUTPUT_MAX_BYTES`); this is the backstop for every durable step (the run's load, a sync).
  */
 // DECISION (audit 4.4): a result over the limit fails its step with a clear error rather than
 // being stored elsewhere and fetched back by reference: a reference would change what every
-// later step and every replay reads. Half the engine's limit leaves room for its own encoding.
-export const STEP_RESULT_MAX_BYTES = 512 * 1024;
+// later step and every replay reads. 960 KiB leaves the engine's encoding room under 1 MiB and
+// fails nothing that fits today but for the last few KiB.
+export const STEP_RESULT_MAX_BYTES = 960 * 1024;
 
 /** What the engine stores in place of a result over the limit: small, and the same on a replay. */
 const TOO_LARGE = "__stepResultTooLarge";
