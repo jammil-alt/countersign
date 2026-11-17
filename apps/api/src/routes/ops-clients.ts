@@ -57,6 +57,8 @@ import {
 import { resolveInboxItem, sendResolution } from "../inbox";
 import { isInternal } from "../internal-client";
 import { bundleWritesWith, stageOf, writesContext } from "../lifecycle/stages";
+// §1.125: every account is in Sales
+import { logAccountInSales } from "../onboarding/account-deal";
 // v0.13 W2-I
 import { runOversight } from "../oversight/views";
 import { runAuditState, runOwnerChecks } from "../run-audit/store";
@@ -695,6 +697,15 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       .values({ tenantId: row.id, userId: session.user.id, role: "operator" });
     // The creator's cookie drops the clients it carries, so the next request serves this one (§1.93).
     ctx.accountChanged();
+    // §1.125 "Every account is in Sales": every client is made here, so this is the one place it is
+    // logged there: its deal at Set up the account and its client file, in this transaction.
+    const sales = await logAccountInSales(tx, {
+      tenantIds: [...tenantIds, row.id],
+      clientId: row.id,
+      name: row.name,
+      userId: session.user.id,
+      sales: body.sales,
+    });
     // The client admin, invited in the same transaction (the email follows the commit).
     const invited = body.admin
       ? await inviteToClient(
@@ -720,7 +731,7 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     }
     const [summary] = await clientSummaries(tx, [row.id], services);
     if (!summary) throw new Error("the new client is not visible");
-    return { client: summary, admin: invited };
+    return { client: summary, admin: invited, sales };
   });
 
   mount(app, routes.opsClient, async (ctx) => {

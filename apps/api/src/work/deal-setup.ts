@@ -4,6 +4,8 @@
 // through `invokeRoute` (its roles, scope, checks and audit row, marked as the deal's), the client
 // through `opsCreateClient`, the exact path Reggie's `client_create` takes, then `opsStartBuild`
 // per agent. Slow routes (mountLong): no transaction is held across the routes they call.
+// §1.125: the create names this deal, so the client's one Sales hook (../onboarding/account-deal.ts)
+// moves it to Set up the account and links its file, and nothing here logs that twice.
 
 import { type DealKind, routes } from "@countersign/core";
 import { deal, withOperator } from "@countersign/db";
@@ -21,7 +23,7 @@ import { addActivity, readDeal } from "./deals";
 
 type Session = Parameters<typeof invokeRoute>[2];
 
-interface AgentToBuild {
+export interface AgentToBuild {
   name: string;
   templateId: string | null;
   promisedOn?: string | undefined;
@@ -35,7 +37,7 @@ const SETUP_FROM = ["proposal", "setup"] as const;
  * membership was written by the create), so the scope adds it; the id is the one the create
  * returned, never taken from the request.
  */
-function servingToo(session: Session, clientId: string): Session {
+export function servingToo(session: Session, clientId: string): Session {
   return {
     ...session,
     servedTenantIds: [...new Set([...session.servedTenantIds, clientId])],
@@ -48,11 +50,11 @@ function servingToo(session: Session, clientId: string): Session {
  * template and its promised date. A build from a template forks the template's live version into
  * the client there (§1.124.1).
  */
-async function openBuilds(
+export async function openBuilds(
   app: Hono<AppEnv>,
   c: AppContext,
   session: Session,
-  dealId: string,
+  dealId: string | null,
   clientId: string,
   agents: readonly AgentToBuild[],
 ): Promise<string[]> {
@@ -70,7 +72,7 @@ async function openBuilds(
           clientId,
           path: a.templateId ? "template" : "new",
           ...(a.templateId ? { templateId: a.templateId } : {}),
-          origin: { kind: "deal", id: dealId },
+          ...(dealId ? { origin: { kind: "deal" as const, id: dealId } } : {}),
           ...(a.promisedOn ? { promisedOn: a.promisedOn } : {}),
         },
       },
@@ -110,6 +112,7 @@ export function dealSetupRoutes(app: Hono<AppEnv>): void {
           ...(b.adminEmail
             ? { admin: { email: b.adminEmail, ...(b.adminName ? { name: b.adminName } : {}) } }
             : {}),
+          sales: { dealId: row.id },
         },
       },
       "deal",
@@ -119,24 +122,19 @@ export function dealSetupRoutes(app: Hono<AppEnv>): void {
     ctx.accountChanged();
     const session = servingToo(ctx.session, clientId);
     const db = ctx.services.db;
-    // The deal names its client at once, so a failure while opening builds leaves it set up and
-    // the rest can be opened from the deal (open-builds).
-    await withOperator(db, session.servedTenantIds, async (tx) => {
-      await tx
-        .update(deal)
-        .set({
-          clientId,
-          stage: "setup",
-          stageAt: new Date(),
-          ...(row.agentsSold.length === 0
-            ? {
-                agentsSold: b.agents.map((a) => ({ name: a.name, templateId: a.templateId })),
-                agentCount: Math.max(row.agentCount, b.agents.length),
-              }
-            : {}),
-        })
-        .where(eq(deal.id, row.id));
-    });
+    // The create named the deal, so it is the client's and at Set up the account already; a
+    // failure while opening builds leaves it set up and the rest can be opened from the deal.
+    if (row.agentsSold.length === 0) {
+      await withOperator(db, session.servedTenantIds, async (tx) => {
+        await tx
+          .update(deal)
+          .set({
+            agentsSold: b.agents.map((a) => ({ name: a.name, templateId: a.templateId })),
+            agentCount: Math.max(row.agentCount, b.agents.length),
+          })
+          .where(eq(deal.id, row.id));
+      });
+    }
     const buildIds = await openBuilds(app, ctx.c, session, row.id, clientId, b.agents);
     await withOperator(db, session.servedTenantIds, (tx) =>
       addActivity(tx, row.id, {
