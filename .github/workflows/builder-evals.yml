@@ -1,0 +1,65 @@
+name: Builder evals
+
+# The Builder's test cases against the real model (docs/plan.md §1.108, "Test cases"): a few
+# synthetic builds, each from a QA run on staging, run through the Builder's own prompts and graded
+# (apps/api/src/evals). By hand only: it calls the model, so it costs money (a few dollars a run),
+# and its answers vary, so it reports scores rather than failing a merge.
+#
+# It runs in the "staging" environment for that environment's ANTHROPIC_API_KEY, the one staging's
+# Builder already uses. The cases are made up: no client data reaches the runner (docs/plan.md
+# §1.35). The report is the job's summary and its log.
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "The Builder's model id (blank: the default, as staging runs it)"
+        required: false
+        default: ""
+      cases:
+        description: "Case ids, comma-separated (blank: every case)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: builder-evals
+  cancel-in-progress: false
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: staging
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (third-party: pinned to a commit)
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run the Builder's test cases
+        working-directory: apps/api
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BUILDER_EVAL_MODEL: ${{ github.event.inputs.model }}
+          BUILDER_EVAL_CASES: ${{ github.event.inputs.cases }}
+          BUILDER_EVAL_REPORT: ${{ runner.temp }}/builder-evals.md
+        run: pnpm exec vitest run --config vitest.eval.config.ts
+
+      - name: Report
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/builder-evals.md" ]; then
+            cat "$RUNNER_TEMP/builder-evals.md" >> "$GITHUB_STEP_SUMMARY"
+            cat "$RUNNER_TEMP/builder-evals.md"
+          else
+            echo "No report was written." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
