@@ -214,9 +214,23 @@ export function statedPack(
   const packs = packsIn(text);
   const own = [...new Set(packs.filter((p) => p.word === word).map((p) => dec(p.size).toString()))];
   if (own.length > 0) {
-    // A case of 10 beside a box of 100 is ten boxes, not ten: no size.
+    // A case of 10 beside a box of 100 is ten boxes, not ten: no size to convert at. The sizes
+    // the line can mean stay, so a vendor item that holds another (`contradictsSize`) is not taken
+    // for it: a count of the inner packs times their size (`50/BX 10/CS` is 500, never a case of
+    // 1000), else what it states.
     const others = packs.filter((p) => p.word !== word);
-    if (own.some((x) => others.some((o) => !nests(word, x, o.word, o.size)))) return none;
+    if (own.some((x) => others.some((o) => !nests(word, x, o.word, o.size)))) {
+      const outer = NESTING[word];
+      const inner = others.filter((o) => {
+        const n = NESTING[o.word];
+        return outer !== undefined && n !== undefined && n < outer;
+      });
+      const read =
+        inner.length > 0
+          ? own.flatMap((x) => inner.map((o) => dec(x).times(o.size).toString()))
+          : own;
+      return { word, sizes: [...new Set(read)], size: null };
+    }
     return { word, sizes: own, size: own.length === 1 ? (own[0] ?? null) : null };
   }
   // The parser's own reading (`100CT`, `100PK`) aside, a pack beside a number anywhere may be

@@ -101,9 +101,14 @@ describe("statedPack", () => {
       sizes: [],
     });
     expect(statedPack("BX", `${text} 100CT 10 BX`, "100")).toMatchObject({ size: null, sizes: [] });
+    // In doubt there is no size to convert at, but what the line can mean stays: ten boxes.
     expect(statedPack("CS", `${text} 100/BX 10/CS`, "100")).toMatchObject({
       size: null,
-      sizes: [],
+      sizes: ["1000"],
+    });
+    expect(statedPack("CS", `${text} 50/BX 10/CS`, "50")).toMatchObject({
+      size: null,
+      sizes: ["500"],
     });
     expect(statedPack("PK", `${text} 100PK`, "100").size).toBe("100");
   });

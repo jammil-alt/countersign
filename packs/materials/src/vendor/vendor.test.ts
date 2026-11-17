@@ -1632,6 +1632,17 @@ describe.skipIf(!online)("the vendor catalog's tools", () => {
       .from(priceObservation)
       .where(eq(priceObservation.id, k2.lines[0]?.observationId ?? ""));
     expect(obs?.unitPriceStd).toBe("0.0820");
+    // K6: ten boxes of 50 is a case of 500, never the recorded case of 1000.
+    const k6 = await registerOne(
+      shop,
+      v2,
+      screws,
+      { description: `${text} 50/BX 10/CS`, qty: "1", uom: "CS", unitPrice: "80.00" },
+      "2026-11-06",
+    );
+    expect(k6.lines[0]?.vendorItemId).toBeNull();
+    expect(k6.lines[0]?.observationId).toBeNull();
+    expect((await vendorItemRow(kase.lines[0]?.vendorItemId ?? ""))?.lastPriceStd).toBe("0.0820");
     // K1: a case line with the SKU of the vendor's box of 100 is not the box.
     const v1 = await shop.vendor("Box SKU Supply");
     const box = await registerOne(
