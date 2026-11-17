@@ -653,6 +653,9 @@ function openWords(n: number): string {
  */
 // DECISION (owner, 2026-11-17): the Builder proposes one change at a time and the operator agrees;
 // it never changes the build on its own, and it never proposes accepting the approvals check.
+const Short = z.string().min(1).max(100);
+const Lines = z.array(z.string().trim().min(1).max(500)).max(20);
+
 export const BuildAction = z.discriminatedUnion("do", [
   z.object({
     do: z.literal("close_item"),
@@ -676,109 +679,71 @@ export const BuildAction = z.discriminatedUnion("do", [
     reason: z.string().trim().min(20).max(500).describe("What has to be redone there"),
   }),
   z.object({ do: z.literal("run_tests") }),
-  // The Dev queue (docs/plan.md §1.125): bucket B, new code, filed with the triage done.
+  // The Dev queue (docs/plan.md §1.125): bucket B, new code, filed with the triage done; a link
+  // to an open request; its approval; bucket A, a skill drafted as a skill build of its own. The
+  // Builder's rules (packages/agents, BUILD_RULES) say how to fill them; this file is in the web
+  // app's first load, so the schemas carry no descriptions of their own.
   z.object({
     do: z.literal("file_code_request"),
-    itemId: z
-      .string()
-      .min(1)
-      .max(100)
-      .optional()
-      .describe("The open gap item (owner engineering) it settles, by its id"),
-    stepId: z.string().min(1).max(100).optional().describe("The missing step, by its id"),
-    workflowId: z.string().min(1).max(100).optional().describe("The step's workflow, by its slug"),
-    request: z
-      .object({
-        title: z
-          .string()
-          .trim()
-          .min(1)
-          .max(200)
-          .describe("Imperative, one part: Add date offsets to Reshape data"),
-        kind: z.enum(["extend_existing", "new_tool", "new_skill_code", "config_only"]),
-        summary: z.string().trim().min(1).max(2000).describe("What it must do, plainly"),
-        inputs: z
-          .array(z.string().trim().min(1).max(500))
-          .min(1)
-          .max(20)
-          .describe("General inputs (invoice rows), never one step's output"),
-        outputs: z.array(z.string().trim().min(1).max(500)).min(1).max(20),
-        rules: z.array(z.string().trim().min(1).max(500)).max(20).default([]),
-        acceptance: z
-          .array(z.string().trim().min(1).max(500))
-          .min(1)
-          .max(20)
-          .describe("How to check it's right"),
-        part: z
-          .string()
-          .trim()
-          .min(1)
-          .max(200)
-          .describe("The one catalog part it adds or changes, by id (data.reshape#dateOffset)"),
-        decision: z.enum(["extend", "new_general", "one_off"]),
-        decisionReason: z
-          .string()
-          .trim()
-          .min(25)
-          .max(2000)
-          .describe("Why the step above on the ladder won't do"),
-        otherUses: z
-          .array(z.string().trim().min(1).max(300))
-          .max(20)
-          .default([])
-          .describe("Other work that would use it, from Other work; none means a one-off"),
-        considered: z
-          .array(
-            z.object({
-              partId: z.string().min(1).max(300),
-              verdict: z.enum(["use", "extend", "reject"]),
-              reason: z.string().trim().max(1000).default(""),
-              missing: z.string().trim().max(1000).default(""),
-            }),
-          )
-          .max(10)
-          .default([])
-          .describe("The catalog parts you considered, each with what it lacks"),
-        questions: z
-          .array(
-            z.object({
-              question: z.string().trim().min(1).max(1000),
-              mode: z.enum(["answer_first", "investigate_during_build"]),
-            }),
-          )
-          .max(10)
-          .default([]),
-      })
-      .describe("The request, triaged"),
+    itemId: Short.optional(),
+    stepId: Short.optional(),
+    workflowId: Short.optional(),
+    request: z.object({
+      title: z.string().trim().min(1).max(200),
+      kind: z.enum(["extend_existing", "new_tool", "new_skill_code", "config_only"]),
+      summary: z.string().trim().min(1).max(2000),
+      inputs: Lines.min(1),
+      outputs: Lines.min(1),
+      rules: Lines.default([]),
+      acceptance: Lines.min(1),
+      part: z.string().trim().min(1).max(200),
+      decision: z.enum(["extend", "new_general", "one_off"]),
+      decisionReason: z.string().trim().min(25).max(2000),
+      otherUses: z.array(z.string().trim().min(1).max(300)).max(20).default([]),
+      considered: z
+        .array(
+          z.object({
+            partId: z.string().min(1).max(300),
+            verdict: z.enum(["use", "extend", "reject"]),
+            reason: z.string().trim().max(1000).default(""),
+            missing: z.string().trim().max(1000).default(""),
+          }),
+        )
+        .max(10)
+        .default([]),
+      questions: z
+        .array(
+          z.object({
+            question: z.string().trim().min(1).max(1000),
+            mode: z.enum(["answer_first", "investigate_during_build"]),
+          }),
+        )
+        .max(10)
+        .default([]),
+    }),
   }),
   z.object({
     do: z.literal("link_code_request"),
-    requestId: z.string().min(1).max(100).describe("The open request's id"),
-    ref: z.string().min(1).max(20).describe("Its number, DQ-012"),
-    itemId: z.string().min(1).max(100).optional(),
-    stepId: z.string().min(1).max(100).optional(),
-    workflowId: z.string().min(1).max(100).optional(),
+    requestId: Short,
+    ref: z.string().min(1).max(20),
+    itemId: Short.optional(),
+    stepId: Short.optional(),
+    workflowId: Short.optional(),
   }),
   z.object({
     do: z.literal("approve_code_request"),
-    requestId: z.string().min(1).max(100),
+    requestId: Short,
     ref: z.string().min(1).max(20),
   }),
-  // Bucket A: a skill made from catalog parts, drafted as a skill build of its own.
   z.object({
     do: z.literal("draft_skill"),
-    itemId: z.string().min(1).max(100).optional().describe("The gap item it settles"),
-    stepId: z.string().min(1).max(100).optional(),
-    title: z.string().trim().min(1).max(200).describe("The skill's name"),
-    goal: z.string().trim().min(10).max(1000).describe("What it does, in one sentence"),
-    dataIn: z.string().trim().min(1).max(1000).describe("What it reads"),
-    dataOut: z.string().trim().min(1).max(1000).describe("What it gives back"),
-    rules: z
-      .string()
-      .trim()
-      .max(1000)
-      .default("")
-      .describe("Its rules, and the catalog parts it is made from"),
+    itemId: Short.optional(),
+    stepId: Short.optional(),
+    title: z.string().trim().min(1).max(200),
+    goal: z.string().trim().min(10).max(1000),
+    dataIn: z.string().trim().min(1).max(1000),
+    dataOut: z.string().trim().min(1).max(1000),
+    rules: z.string().trim().max(1000).default(""),
   }),
   z.object({
     do: z.literal("edit_draft"),

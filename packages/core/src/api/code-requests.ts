@@ -14,7 +14,6 @@ import {
   CodeRequestSpec,
   CodeRequestStatus,
   OpenQuestion,
-  PartType,
   ReuseCheck,
   ReuseVerdict,
 } from "../build/code-requests";
@@ -150,17 +149,6 @@ export const UpdateCodeRequest = z.strictObject({
   owner: z.string().trim().min(1).max(200).nullable().optional(),
 });
 
-export const CatalogHit = z.object({
-  partType: PartType,
-  partId: z.string(),
-  name: z.string(),
-  description: z.string(),
-  inputs: z.array(z.string()),
-  outputs: z.array(z.string()),
-  score: z.number(),
-  ref: z.string().nullable(),
-});
-
 /** A step that requires code (docs/plan.md §1.125), and its request as the Dev queue has it now. */
 export const StepCodeRequest = z.object({
   buildId: z.string(),
@@ -176,18 +164,6 @@ export const StepCodeRequest = z.object({
   }),
 });
 export type StepCodeRequest = z.infer<typeof StepCodeRequest>;
-
-/** "Requires code · DQ-012 · In review": a step's status from its request. */
-export function stepCodeStatus(r: StepCodeRequest["request"]): string {
-  const words: Record<StepCodeRequest["request"]["status"], string> = {
-    triage: "Triage",
-    accepted: "Accepted",
-    in_progress: "In progress",
-    shipped: "Shipped",
-    closed: "Closed",
-  };
-  return `Requires code · ${r.ref} · ${r.inReview ? "In review" : words[r.status]}`;
-}
 
 const ListQuery = z.object({
   /** A status, `open` (not shipped or closed, the default) or `all`. */
@@ -205,7 +181,7 @@ export const codeRequestRoutes = {
     path: "/api/ops/code-requests",
     auth: "session",
     roles: OPS,
-    summary: "The Dev queue: requests for code, newest first, with the open count",
+    summary: "The Dev queue",
     query: ListQuery,
     response: z.object({
       requests: z.array(CodeRequestSummary),
@@ -217,8 +193,7 @@ export const codeRequestRoutes = {
     path: "/api/ops/code-requests",
     auth: "session",
     roles: OPS,
-    summary:
-      "File a request for code: the reuse check runs first; an open request for the same capability is returned instead",
+    summary: "File a request for code",
     body: NewCodeRequest,
     response: FiledCodeRequest,
   }),
@@ -227,7 +202,7 @@ export const codeRequestRoutes = {
     path: "/api/ops/code-requests/:id",
     auth: "session",
     roles: OPS,
-    summary: "A request (by id or DQ number): spec, questions, reuse check, links, events, moves",
+    summary: "A request, by id or DQ number",
     params: RefParams,
     response: CodeRequestDetail,
   }),
@@ -236,8 +211,7 @@ export const codeRequestRoutes = {
     path: "/api/ops/code-requests/:id",
     auth: "session",
     roles: OPS,
-    summary:
-      "Triage a request: its spec, questions, decision and reason, and verdicts on candidates",
+    summary: "Triage a request",
     params: RefParams,
     body: UpdateCodeRequest,
     response: CodeRequestDetail,
@@ -256,7 +230,7 @@ export const codeRequestRoutes = {
     path: "/api/ops/code-requests/:id/accept",
     auth: "session",
     roles: OPS,
-    summary: "Accept a triaged request (guarded); every operator and linked build is told",
+    summary: "Accept a request",
     params: RefParams,
     response: CodeRequestDetail,
   }),
@@ -274,7 +248,7 @@ export const codeRequestRoutes = {
     path: "/api/ops/code-requests/:id/claim",
     auth: "session",
     roles: OPS,
-    summary: "Claim an accepted request (atomic; a claim lapses 2 hours after its last event)",
+    summary: "Claim a request",
     params: RefParams,
     response: CodeRequestDetail,
   }),
@@ -283,7 +257,7 @@ export const codeRequestRoutes = {
     path: "/api/ops/code-requests/:id/pr",
     auth: "session",
     roles: OPS,
-    summary: "Attach the PR and the catalog part it adds",
+    summary: "Attach the PR",
     params: RefParams,
     body: z.strictObject({
       prUrl: z.string().trim().min(1).max(300),
@@ -296,7 +270,7 @@ export const codeRequestRoutes = {
     path: "/api/ops/code-requests/:id/close",
     auth: "session",
     roles: OPS,
-    summary: "Close a request with a reason; merged names the request it merged into",
+    summary: "Close a request",
     params: RefParams,
     body: z.strictObject({
       reason: CloseReason,
@@ -310,7 +284,7 @@ export const codeRequestRoutes = {
     path: "/api/ops/code-requests/:id/notes",
     auth: "session",
     roles: OPS,
-    summary: "Add a note to a request's timeline",
+    summary: "Note on a request",
     params: RefParams,
     body: z.strictObject({ body: z.string().trim().min(1).max(4000) }),
     response: CodeRequestDetail,
@@ -320,34 +294,17 @@ export const codeRequestRoutes = {
     path: "/api/ops/code-requests/:id/links",
     auth: "session",
     roles: OPS,
-    summary: "Link a build (and its step and gap item) to a request; a merge records it as one",
+    summary: "Link a build to a request",
     params: RefParams,
     body: CodeRequestLinkInput.extend({ merge: z.boolean().default(false) }),
     response: CodeRequestDetail,
-  }),
-  opsCatalogSearch: defineRoute({
-    method: "GET",
-    path: "/api/ops/catalog/search",
-    auth: "session",
-    roles: OPS,
-    summary:
-      "The reuse check's search: catalog parts and requests by text and input and output names",
-    query: z.object({
-      query: z.string().trim().min(1).max(500),
-      inputs: z.string().max(1000).optional(),
-      outputs: z.string().max(1000).optional(),
-      kind: CodeRequestKind.optional(),
-      limit: z.coerce.number().int().min(1).max(20).default(8),
-    }),
-    response: z.object({ hits: z.array(CatalogHit) }),
   }),
   opsAgentCodeRequests: defineRoute({
     method: "GET",
     path: "/api/ops/agents/:id/code-requests",
     auth: "session",
     roles: OPS,
-    summary:
-      "The steps of an agent's draft that require code, each with its Dev queue request and live status",
+    summary: "An agent's steps that require code",
     params: z.object({ id: Id }),
     response: z.object({ steps: z.array(StepCodeRequest) }),
   }),

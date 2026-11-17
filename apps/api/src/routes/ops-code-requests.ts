@@ -19,19 +19,12 @@ import {
   listRequests,
   noteRequest,
   rerunReuse,
-  searchParts,
   updateRequest,
 } from "../dev-queue/service";
 import { findRequest, requestDetail, stepRequests } from "../dev-queue/store";
 import { type AppEnv, mount, mountLong } from "../http";
 
 const now = () => new Date();
-
-const lines = (v: string | undefined) =>
-  (v ?? "")
-    .split(/[,\n]/)
-    .map((x) => x.trim())
-    .filter(Boolean);
 
 export function opsCodeRequestRoutes(app: Hono<AppEnv>): void {
   const dq = (ctx: {
@@ -96,19 +89,6 @@ export function opsCodeRequestRoutes(app: Hono<AppEnv>): void {
     const { merge, ...link } = ctx.body;
     return linkToRequest(dq(ctx), ctx.params.id, link, merge);
   });
-
-  mountLong(app, routes.opsCatalogSearch, async (ctx) => ({
-    hits: await searchParts(
-      dq(ctx),
-      {
-        query: ctx.query.query,
-        inputs: lines(ctx.query.inputs),
-        outputs: lines(ctx.query.outputs),
-        ...(ctx.query.kind ? { kind: ctx.query.kind } : {}),
-      },
-      ctx.query.limit,
-    ),
-  }));
 
   // The Steps tab's "Requires code" (docs/plan.md §1.125): the agent's builds' steps waiting on a
   // request, with the request's status now.

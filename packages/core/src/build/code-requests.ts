@@ -6,6 +6,7 @@
 // and the screen disables a move with the same plain reason.
 
 import { z } from "zod";
+import { CODE_REQUEST_STATUS_WORDS, DECISION_WORDS } from "./code-request-words";
 
 export const CODE_REQUEST_KINDS = [
   "extend_existing",
@@ -16,13 +17,6 @@ export const CODE_REQUEST_KINDS = [
 export const CodeRequestKind = z.enum(CODE_REQUEST_KINDS);
 export type CodeRequestKind = z.infer<typeof CodeRequestKind>;
 
-export const CODE_REQUEST_KIND_WORDS: Record<CodeRequestKind, string> = {
-  extend_existing: "Extend a part",
-  new_tool: "New tool",
-  new_skill_code: "New skill code",
-  config_only: "Config only",
-};
-
 export const CODE_REQUEST_STATUSES = [
   "triage",
   "accepted",
@@ -32,14 +26,6 @@ export const CODE_REQUEST_STATUSES = [
 ] as const;
 export const CodeRequestStatus = z.enum(CODE_REQUEST_STATUSES);
 export type CodeRequestStatus = z.infer<typeof CodeRequestStatus>;
-
-export const CODE_REQUEST_STATUS_WORDS: Record<CodeRequestStatus, string> = {
-  triage: "Triage",
-  accepted: "Accepted",
-  in_progress: "In progress",
-  shipped: "Shipped",
-  closed: "Closed",
-};
 
 /** Not shipped and not closed. */
 export function requestOpen(status: CodeRequestStatus): boolean {
@@ -60,14 +46,6 @@ export const CODE_REQUEST_DECISIONS = [
 export const CodeRequestDecision = z.enum(CODE_REQUEST_DECISIONS);
 export type CodeRequestDecision = z.infer<typeof CodeRequestDecision>;
 
-export const DECISION_WORDS: Record<CodeRequestDecision, string> = {
-  exists: "It exists",
-  config: "Configure what exists",
-  extend: "Extend a part",
-  new_general: "New, general part",
-  one_off: "One-off",
-};
-
 export const CODE_REQUEST_CLOSE_REASONS = [
   "exists",
   "config",
@@ -78,15 +56,6 @@ export const CODE_REQUEST_CLOSE_REASONS = [
 ] as const;
 export const CloseReason = z.enum(CODE_REQUEST_CLOSE_REASONS);
 export type CloseReason = z.infer<typeof CloseReason>;
-
-export const CLOSE_REASON_WORDS: Record<CloseReason, string> = {
-  exists: "It exists",
-  config: "Configuration does it",
-  merged: "Merged into another request",
-  not_worth_it: "Not worth it",
-  not_possible: "Not possible: the provider's API doesn't allow it",
-  superseded: "Superseded",
-};
 
 export const CODE_REQUEST_CREATORS = ["builder", "operator", "session"] as const;
 export const CodeRequestCreator = z.enum(CODE_REQUEST_CREATORS);
