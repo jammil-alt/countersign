@@ -46,6 +46,7 @@ import {
   type Services,
   txOnly,
 } from "../http";
+import { refusePhoneSession } from "../mobile/devices";
 import type { PackReportHandler, RegisteredPack } from "../packs";
 import { signedWriteFor } from "../signed-writes";
 import { portalInboxFilter } from "./portal";
@@ -686,6 +687,8 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
 
   mountLong(app, routes.portalPackReviewDecide, async (ctx) => {
     const { tenantIds, params, services, session, role, body } = ctx;
+    // Audit 5.2: a phone's session decides a card only with a signature; this route carries none.
+    refusePhoneSession(session);
     return decide(
       txOnly(ctx.inTx),
       services,

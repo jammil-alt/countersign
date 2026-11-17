@@ -17,6 +17,7 @@ import {
   newPrivateKey,
   publicJwk,
   signDecision,
+  signedDecision,
 } from "./signing";
 
 const item = {
@@ -93,5 +94,63 @@ describe("signing a Desk item on the phone", () => {
 
   it("refuses a short seed", () => {
     expect(() => newPrivateKey(new Uint8Array(16))).toThrow();
+  });
+});
+
+// Audit 5.2: the API refuses a decision from the app's session without the phone's signature, so
+// every decision the app sends (a change signed or rejected, a question answered, a quick answer)
+// is built here, signed, or not sent at all.
+describe("a decision as the app sends it", () => {
+  const privateKey = newPrivateKey(new Uint8Array(randomBytes(48)));
+  const jwk = publicJwk(privateKey);
+  const readKey = async () => encodePrivateKey(privateKey);
+
+  it("signs an answer with the phone's key, as a yes on the item as shown", async () => {
+    const out = await signedDecision({
+      deviceId,
+      item,
+      decision: "approve",
+      answer: "yes",
+      prompt: "Answer with Face ID",
+      readKey,
+    });
+    if (!out.ok) throw new Error(out.problem);
+    expect(out.body).toMatchObject({ decision: "approve", answer: "yes" });
+    expect(out.body.fingerprint).toBe(itemFingerprint(item));
+    const sig = out.body.deviceSignature;
+    expect(sig).toMatchObject({ deviceId, fingerprint: itemFingerprint(item) });
+    const signed = deviceSignedText({
+      deviceId,
+      itemId: item.id,
+      decision: "approve",
+      fingerprint: sig.fingerprint,
+      at: sig.at,
+    });
+    expect(await verify(jwk, sig.signature, signed)).toBe(true);
+  });
+
+  it("sends nothing from a phone not set up to sign, or when Face ID didn't finish", async () => {
+    let asked = 0;
+    const counting = async () => {
+      asked++;
+      return encodePrivateKey(privateKey);
+    };
+    const unset = await signedDecision({
+      deviceId: null,
+      item,
+      decision: "reject",
+      prompt: "Reject with Face ID",
+      readKey: counting,
+    });
+    expect(unset).toMatchObject({ ok: false });
+    expect(asked).toBe(0);
+    const cancelled = await signedDecision({
+      deviceId,
+      item,
+      decision: "approve",
+      prompt: "Sign with Face ID",
+      readKey: async () => null,
+    });
+    expect(cancelled).toMatchObject({ ok: false });
   });
 });

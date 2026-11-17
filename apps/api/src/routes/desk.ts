@@ -36,6 +36,7 @@ import {
   txOnly,
 } from "../http";
 import { type ResolveOutcome, sendResolution } from "../inbox";
+import { refusePhoneSession } from "../mobile/devices";
 import { dispatchEvents } from "../runs/dispatch";
 import { forClient, runDepsFromEnv, runtimeFor } from "../runs/execute";
 // P-7: message translation
@@ -123,6 +124,8 @@ export function deskRoutes(app: Hono<AppEnv>): void {
   // The runtime's check and a translation open their own transactions: none is held across them
   // (`mountLong`; a Worker's database has one pooled connection).
   mountLong(app, routes.portalEditInbox, async (ctx) => {
+    // Audit 5.2: a phone's session decides a card only with a signature; this route carries none.
+    refusePhoneSession(ctx.session);
     const tenantId = ctx.tenantIds[0] as string;
     const inTx = txOnly(ctx.inTx);
     await inTx((tx) => visibleItem({ ...ctx, tx }, ctx.params.id));
@@ -155,6 +158,8 @@ export function deskRoutes(app: Hono<AppEnv>): void {
   });
 
   mount(app, routes.portalBatchResolve, async (ctx) => {
+    // Audit 5.2: a phone's session decides a card only with a signature; this route carries none.
+    refusePhoneSession(ctx.session);
     const collect: EventRow[] = [];
     const outcomes = await resolveBatch(ctx.tx, {
       tenantId: ctx.tenantIds[0] as string,

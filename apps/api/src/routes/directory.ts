@@ -42,6 +42,7 @@ import { listSuggestions, openSuggestionCount, suggestionViews } from "../direct
 import { type AppEnv, ensureClient, type HandlerCtx, mount, notFound } from "../http";
 import { resolveInboxItem, sendResolution } from "../inbox";
 import { contactView } from "../messaging/contacts";
+import { refusePhoneSession } from "../mobile/devices";
 import { dispatchEvents } from "../runs/dispatch";
 import { knowsSignIns, membersOf } from "./onboarding";
 
@@ -240,15 +241,17 @@ export function directoryRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.portalDirectorySuggestions, async (ctx) => ({
     items: await listSuggestions(ctx.tx, client(ctx), ctx.query.status),
   }));
-  mount(app, routes.portalDirectorySuggestionResolve, async (ctx) =>
-    resolveSuggestion(
+  mount(app, routes.portalDirectorySuggestionResolve, async (ctx) => {
+    // Audit 5.2: a phone's session decides a card only with a signature; this route carries none.
+    refusePhoneSession(ctx.session);
+    return resolveSuggestion(
       ctx,
       client(ctx),
       ctx.params.id,
       { userId: ctx.session.user.id, role: ctx.role },
       ctx.body,
-    ),
-  );
+    );
+  });
 }
 
 async function apply(
