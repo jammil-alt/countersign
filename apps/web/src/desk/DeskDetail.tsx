@@ -948,6 +948,9 @@ function Outcome({
             : t("inbox.outcome.resolved");
   const left = inWindow.length > 0 ? Math.max(...inWindow.map((i) => undoLeft(i, now))) : 0;
   const declined = decision === "rejected" || decision === "declined";
+  // Review of audit 3.5: signed, then refused as it was about to be made (the agent's access was
+  // narrowed since): nothing was written, and the card says why.
+  const notDone = isPlainObject(lead.payload.notDone) ? lead.payload.notDone.reason : undefined;
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
@@ -961,6 +964,11 @@ function Outcome({
           <span className="text-sm text-ink-muted">{fmt.time(lead.resolvedAt)}</span>
         ) : null}
       </div>
+      {typeof notDone === "string" && notDone ? (
+        <p className="text-sm text-risk" data-testid="desk-not-done">
+          {t("desk.notDone", { reason: notDone })}
+        </p>
+      ) : null}
       {left > 0 ? (
         <div className="flex items-center gap-2">
           <span className="text-sm text-ink-muted" data-testid="desk-undo-left">

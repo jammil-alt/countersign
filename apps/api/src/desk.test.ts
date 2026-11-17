@@ -12,7 +12,15 @@ import {
   itemFingerprint,
   PortalInboxItem,
 } from "@countersign/core";
-import { agent, connection, externalAction, inboxItem, membership, tenant } from "@countersign/db";
+import {
+  agent,
+  connection,
+  externalAction,
+  inboxItem,
+  membership,
+  run,
+  tenant,
+} from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -484,6 +492,33 @@ describe.skipIf(!h)("the Desk", () => {
       return event?.event.payload;
     });
     await executeRun(deps(), params, cloudflareStepRunner(step));
+    expect(checked).toBe(true);
+  });
+
+  it("never undoes an approval once its run has ended", async () => {
+    const { runId, params } = await start("one");
+    let checked = false;
+    const step = new FakeWorkflowStep(async (_name, type) => {
+      const item = await itemFor(type);
+      const path = `/api/inbox/${item.id}`;
+      const approved = await H.call(admin("a"), "POST", `${path}/resolve`, { decision: "approve" });
+      expect(j(approved.json).item.deliverAfter).not.toBeNull();
+      // The run ends while the approval is still inside its window.
+      await H.t.db
+        .update(run)
+        .set({ status: "cancelled", finishedAt: new Date() })
+        .where(eq(run.id, runId));
+      const undo = await H.call(admin("a"), "POST", `${path}/undo`);
+      expect([undo.status, j(undo.json).error.code]).toEqual([409, "run_ended"]);
+      const [still] = await H.t.db.select().from(inboxItem).where(eq(inboxItem.id, item.id));
+      expect(still?.status).toBe("resolved");
+      expect((await actionOf(item.id)).status).toBe("approved");
+      checked = true;
+      throw Object.assign(new Error("Execution timed out after 1000ms"), {
+        name: "WorkflowTimeoutError",
+      });
+    });
+    await executeRun(deps(), params, cloudflareStepRunner(step)).catch(() => null);
     expect(checked).toBe(true);
   });
 

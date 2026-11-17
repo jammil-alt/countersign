@@ -85,6 +85,7 @@ export const it: Messages = {
   "error.expired": "È scaduto.",
   "error.changed": "Questa voce è cambiata da quando l'hai aperta; guardala di nuovo.",
   "error.run_ended": "Questa esecuzione è terminata; non verrà fatto nulla con questa voce.",
+  "error.fingerprint_required": "Questa pagina non è aggiornata; ricaricala e guarda di nuovo.",
   "error.not_assignee": "Questo aspetta un'altra persona.",
   "error.not_connected": "Questo strumento non è collegato.",
   "error.not_available": "Non è ancora disponibile.",
@@ -433,6 +434,7 @@ export const it: Messages = {
   "desk.outcome.answered": "Risposto da te",
   "desk.outcome.declined": "Declinato da te",
   "desk.outcome.done": "Fatto da te",
+  "desk.notDone": "Non fatto: {reason}",
   "desk.outcome.batch": {
     one: "{count} di {total} fatto da te",
     other: "{count} di {total} fatti da te",

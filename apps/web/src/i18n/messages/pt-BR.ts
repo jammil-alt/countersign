@@ -85,6 +85,7 @@ export const ptBR: Messages = {
   "error.expired": "Isto expirou.",
   "error.changed": "Este item mudou desde que você o abriu; olhe de novo.",
   "error.run_ended": "Esta execução terminou; nada será feito com este item.",
+  "error.fingerprint_required": "Esta página está desatualizada; recarregue-a e olhe de novo.",
   "error.not_assignee": "Isto aguarda outra pessoa.",
   "error.not_connected": "Essa ferramenta não está conectada.",
   "error.not_available": "Isso ainda não está disponível.",
@@ -426,6 +427,7 @@ export const ptBR: Messages = {
   "desk.outcome.answered": "Respondido por você",
   "desk.outcome.declined": "Recusado por você",
   "desk.outcome.done": "Concluído por você",
+  "desk.notDone": "Não feito: {reason}",
   "desk.outcome.batch": {
     one: "{count} de {total} concluída por você",
     other: "{count} de {total} concluídas por você",

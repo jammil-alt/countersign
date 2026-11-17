@@ -83,6 +83,7 @@ export const es: Messages = {
   "error.expired": "Esto ha vencido.",
   "error.changed": "Este elemento cambió desde que lo abrió; vuelva a mirarlo.",
   "error.run_ended": "Esta ejecución terminó; no se hará nada con este elemento.",
+  "error.fingerprint_required": "Esta página está desactualizada; recárguela y vuelva a mirar.",
   "error.not_assignee": "Esto espera a otra persona.",
   "error.not_connected": "Esa herramienta no está conectada.",
   "error.not_available": "Eso aún no está disponible.",
@@ -424,6 +425,7 @@ export const es: Messages = {
   "desk.outcome.answered": "Respondido por usted",
   "desk.outcome.declined": "Declinado por usted",
   "desk.outcome.done": "Hecho por usted",
+  "desk.notDone": "No se hizo: {reason}",
   "desk.outcome.batch": {
     one: "{count} de {total} hecho por usted",
     other: "{count} de {total} hechos por usted",

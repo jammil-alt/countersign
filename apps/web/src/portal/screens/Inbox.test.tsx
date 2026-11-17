@@ -590,6 +590,30 @@ describe("The Inbox: Mezonas stepped in", () => {
     expect(await within(card).findByText("Undone. We put the change back.")).toBeInTheDocument();
   });
 
+  it("says a signed change was not done, and why, when the agent's access was narrowed since", async () => {
+    const refused = {
+      ...ITEM,
+      id: "00000000-0000-4000-8000-0000000b0104",
+      status: "resolved",
+      resolvedAt: "2026-11-10T15:00:00.000Z",
+      resolvedBy: { id: ME, name: "Demo admin" },
+      payload: {
+        ...ITEM.payload,
+        notDone: { reason: "update is off for this change now", at: "2026-11-10T15:01:00.000Z" },
+      },
+    };
+    const api = fakeApi({
+      ...base,
+      "GET /api/overview": () => overview(0),
+      "GET /api/inbox": inbox(() => ({ resolved: [refused] })),
+    });
+    renderAt("/inbox?view=done", api);
+    const card = await screen.findByTestId("desk-detail");
+    expect(await within(card).findByTestId("desk-not-done")).toHaveTextContent(
+      "Not done: update is off for this change now",
+    );
+  });
+
   it("says when we passed an item to you, and why", async () => {
     const passed = {
       ...ITEM,

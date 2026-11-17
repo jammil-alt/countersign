@@ -12,7 +12,14 @@ import {
   TESTKIT_UPDATE_TOOL,
 } from "@countersign/connectors";
 import { REVOKED_GRANT } from "@countersign/core";
-import { agent, agentChange, agentGrant, connection, externalAction } from "@countersign/db";
+import {
+  agent,
+  agentChange,
+  agentGrant,
+  connection,
+  externalAction,
+  inboxItem,
+} from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -23,7 +30,7 @@ import { executeAction } from "../runtime/actions";
 import { callTool } from "../runtime/call-tool";
 import type { StepContext } from "../runtime/context";
 import { PLATFORM_TOOLS } from "../tools/platform";
-import { resolveExternalAction } from "./external-actions";
+import { dbExternalActions, resolveExternalAction } from "./external-actions";
 import { type Client, createHarness, type Harness, makeBundle } from "./harness.test-helper";
 import { createRun } from "./run-log";
 
@@ -170,12 +177,38 @@ describe.skipIf(!harness)("grants at the gate", () => {
     const actionId = await signedCard();
     await grant(REVOKED_GRANT, "client");
     const writes = h.backend.writes.length;
-    const out = await executeAction(h.deps(), { tenantId: h.A.tenantId, actionId });
+    const events: string[] = [];
+    const deps = h.deps();
+    const told = {
+      ...deps,
+      ports: {
+        ...deps.ports,
+        actions: dbExternalActions(h.db, {
+          emit: async (_tx, _tenant, e) => {
+            events.push(e.type);
+          },
+        }),
+      },
+    };
+    const out = await executeAction(told, { tenantId: h.A.tenantId, actionId });
+    // Told as a change that wasn't made, once.
+    expect(events).toEqual(["external_action.failed"]);
     expect(out.status).toBe("failed");
     expect(out.status === "failed" && out.error).toContain("off for this change");
-    expect(await actionRow(actionId)).toMatchObject({
+    const row = await actionRow(actionId);
+    expect(row).toMatchObject({
       status: "rejected",
       error: { code: "gate_refused", notWritten: true },
+    });
+    // The signer's card says it was not done, and why.
+    const [card] = await h.client(h.A, (tx) =>
+      tx
+        .select()
+        .from(inboxItem)
+        .where(eq(inboxItem.id, row?.inboxItemId ?? "")),
+    );
+    expect(card?.payload).toMatchObject({
+      notDone: { reason: out.status === "failed" ? out.error : "" },
     });
     // Asked again (a retried step), it says the same, and still sends nothing.
     const again = await executeAction(h.deps(), { tenantId: h.A.tenantId, actionId });

@@ -90,6 +90,8 @@ export const de: Messages = {
   "error.changed":
     "Dieser Eintrag hat sich geändert, seit Sie ihn geöffnet haben; sehen Sie ihn sich noch einmal an.",
   "error.run_ended": "Dieser Ablauf ist beendet; mit diesem Eintrag geschieht nichts mehr.",
+  "error.fingerprint_required":
+    "Diese Seite ist nicht mehr aktuell; laden Sie sie neu und sehen Sie noch einmal nach.",
   "error.not_assignee": "Das wartet auf jemand anderen.",
   "error.not_connected": "Dieses Tool ist nicht verbunden.",
   "error.not_available": "Das ist noch nicht verfügbar.",
@@ -453,6 +455,7 @@ export const de: Messages = {
   "desk.outcome.answered": "Von Ihnen beantwortet",
   "desk.outcome.declined": "Von Ihnen abgelehnt",
   "desk.outcome.done": "Von Ihnen erledigt",
+  "desk.notDone": "Nicht erledigt: {reason}",
   "desk.outcome.batch": {
     one: "{count} von {total} von Ihnen erledigt",
     other: "{count} von {total} von Ihnen erledigt",

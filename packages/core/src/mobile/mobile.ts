@@ -5,6 +5,7 @@
 
 import { z } from "zod";
 import { canonicalJson, sha256Hex } from "../canonical";
+import { isPlainObject } from "../json";
 
 /**
  * The header that carries the app's sealed session, both ways: the app sends it in place of the
@@ -123,16 +124,25 @@ export function deviceSignedText(input: {
 // display and payload) rather than internal ids or timestamps, so the app and the API compute it
 // from the same object, with nothing the portal hides. `display` alone is the tool's field layout,
 // not the values, which is why the payload is in it.
+// DECISION (review of audit 3.4): the display's `names` (labels for ids the before state leaves
+// bare, looked up from synced records as the response is built) are left out: they are help text
+// derived from the records, not what is written or approved, and a lookup may name an id in one
+// response and not in another. Everything written and approved (the input, the edit, the record
+// before, the title, the tool's display) is covered.
 export function itemFingerprintText(item: {
   id: string;
   title: string;
   display?: unknown;
   payload?: unknown;
 }): string {
+  const display =
+    isPlainObject(item.display) && "names" in item.display
+      ? Object.fromEntries(Object.entries(item.display).filter(([k]) => k !== "names"))
+      : (item.display ?? null);
   return canonicalJson({
     id: item.id,
     title: item.title,
-    display: item.display ?? null,
+    display,
     payload: item.payload ?? null,
   });
 }

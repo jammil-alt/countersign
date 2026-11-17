@@ -410,7 +410,28 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
             ),
           )
           .returning();
-        return row ? toRecord(row) : current(tx, tenantId, actionId);
+        if (!row) return current(tx, tenantId, actionId);
+        // Review of audit 3.5: the signer's card says it was not done, and why; and the refusal
+        // is told as a change that failed (nothing was written), as any write that didn't go.
+        // DECISION: `external_action.failed`, the platform's event for a change not made; no new
+        // event type for a refusal at execution.
+        const reason = String((row.error as { message?: unknown } | null)?.message ?? "");
+        await tx
+          .update(inboxItem)
+          .set({
+            payload: sql`coalesce(${inboxItem.payload}, '{}'::jsonb) || ${JSON.stringify({
+              notDone: { reason, at: new Date().toISOString() },
+            })}::jsonb`,
+          })
+          .where(
+            and(
+              eq(inboxItem.tenantId, tenantId),
+              eq(inboxItem.kind, "external_action"),
+              signsAction(row),
+            ),
+          );
+        await finishedEvent(tx, row, "external_action.failed");
+        return toRecord(row);
       });
     },
   };
@@ -916,7 +937,7 @@ export async function resolveExternalActionTx(
     const [r] = await tx
       .select({ mode: run.mode, status: run.status })
       .from(run)
-      .where(eq(run.id, action.runId));
+      .where(and(eq(run.id, action.runId), eq(run.tenantId, input.tenantId)));
     if (r?.mode === "test") throw new AgentsError("test_run", "test runs never execute changes");
     // Audit 3.3: nothing executes a change signed for a run that has ended (a retry proposes it
     // afresh), so a signature is never recorded for one.
