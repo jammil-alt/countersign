@@ -4,7 +4,7 @@
 // those routes as the operator through `invokeRoute` (its roles, scope, checks and audit row,
 // marked as the build's), and the build is saved in short operator-scoped transactions.
 
-import { buildTurn, latestVersion, makeTestCases } from "@countersign/agents";
+import { BuilderError, buildTurn, latestVersion, makeTestCases } from "@countersign/agents";
 import {
   BRIEF_FIELDS,
   BRIEF_LABELS,
@@ -61,6 +61,7 @@ import {
   type Services,
   toHttpError,
 } from "../http";
+import { reportHandled } from "../observability/report";
 import { workerTransport } from "../runs/execute";
 import { builderContext, builderHttpError } from "./ops-builder";
 
@@ -218,21 +219,77 @@ function call<R extends Parameters<typeof invokeRoute>[3]>(
   return invokeRoute(ctx.app, ctx.c, ctx.session, spec, raw, "build");
 }
 
+/** What the conversation says when the Builder's turn fails, by what went wrong. */
+function failedTurnText(phase: BuildPhase, error: unknown): { code: string; text: string } {
+  const what =
+    phase === "fitgap"
+      ? "The fit-gap isn't written yet"
+      : phase === "poc"
+        ? "The test plan isn't written yet"
+        : "Nothing changed";
+  const code =
+    error instanceof BuilderError
+      ? error.code === "invalid_answer" &&
+        (error.details as { code?: string } | undefined)?.code === "max_tokens"
+        ? "cut_off"
+        : error.code
+      : "error";
+  if (code === "model_unavailable") {
+    return {
+      code,
+      text: `I couldn't reach my model just now. ${what}. Press Retry, or ask again in a minute.`,
+    };
+  }
+  if (code === "cut_off") {
+    return {
+      code,
+      text: `My answer ran too long and was cut off before I could save it. ${what}. Press Retry; we've logged it.`,
+    };
+  }
+  return {
+    code,
+    text: `My answer came back in a form I couldn't save. ${what}. Press Retry; we've logged it.`,
+  };
+}
+
 /**
  * The Builder's turn in the build's phase: `words` are the operator's (saved first), or null when
- * the Builder opens a phase. A model that can't be reached is said in the conversation when it
- * opens a phase, and is the answer's error when the operator asked.
+ * the Builder opens a phase. With `retry`, the phase's last turn is tried again: the failed answers
+ * at the end of the conversation are passed over, and the operator's words before them are
+ * answered again without being saved twice (or, with none, the Builder opens the phase again).
+ * A turn that fails says so in the conversation, with nothing changed, and is reported (Sentry).
  */
-async function turn(ctx: LongCtx, id: string, words: string | null): Promise<void> {
+// DECISION (QA on staging, 2026-11-16): a failed turn is a Builder message, not an HTTP error.
+// The error used to reach the screen as the raw validation text, vanish on reload and leave the
+// operator's words with no answer; the failure was never reported.
+async function turn(ctx: LongCtx, id: string, words: string | null, retry = false): Promise<void> {
   const prep = await ctx.inTx(async (scoped) => {
     const row = await readBuild(scoped.tx, id, true);
     refuseClosed(row);
-    const history = await scoped.tx
-      .select({ role: buildMessage.role, text: buildMessage.text })
+    const all = await scoped.tx
+      .select({
+        role: buildMessage.role,
+        text: buildMessage.text,
+        phase: buildMessage.phase,
+        meta: buildMessage.meta,
+      })
       .from(buildMessage)
       .where(eq(buildMessage.buildId, row.id))
       .orderBy(asc(buildMessage.createdAt), asc(buildMessage.id));
-    if (words) await addMessage(scoped.tx, row, { role: "operator", text: words });
+    const failed = (m: (typeof all)[number]) =>
+      m.role === "builder" && !!(m.meta as { failed?: unknown } | null)?.failed;
+    // Failed answers say nothing about the work: the model never sees them.
+    const history = all.filter((m) => !failed(m)).map(({ role, text }) => ({ role, text }));
+    let said = words;
+    if (retry && !words) {
+      const last = all.filter((m) => !failed(m)).at(-1);
+      if (last?.role === "operator" && last.phase === row.phase) {
+        history.pop();
+        said = last.text;
+      }
+    } else if (words) {
+      await addMessage(scoped.tx, row, { role: "operator", text: words });
+    }
     const detail = await detailIn(scoped, ctx.services, row);
     const facts = [
       ...(detail.draft?.problems.map((p) => `Draft problem: ${p.title}`) ?? []),
@@ -255,7 +312,7 @@ async function turn(ctx: LongCtx, id: string, words: string | null): Promise<voi
         ? await builderContext({ ...scoped, services: ctx.services }, row.clientId)
         : null;
     const client = detail.build.client?.name ?? null;
-    return { row, history, facts, bctx, client, items: detail.items };
+    return { row, history, facts, bctx, client, items: detail.items, said };
   });
   const { row } = prep;
   let result: Awaited<ReturnType<typeof buildTurn>>;
@@ -274,18 +331,25 @@ async function turn(ctx: LongCtx, id: string, words: string | null): Promise<voi
           .map((i) => `${i.title} (${i.owner}, ${i.state})`),
         facts: prep.facts,
         history: prep.history,
-        words,
+        words: prep.said,
         ctx: prep.bctx,
       },
       { llm: createLlmClient({ transport: transport(ctx.services) }) },
     );
   } catch (error) {
-    if (words) builderHttpError(error);
+    const failure = failedTurnText(row.phase, error);
+    reportHandled("a Builder turn in a build failed", error, {
+      kind: "build",
+      phase: row.phase,
+      failure: failure.code,
+      build: id,
+    });
     await ctx.inTx(async (scoped) => {
       const fresh = await readBuild(scoped.tx, id, true);
       await addMessage(scoped.tx, fresh, {
         role: "builder",
-        text: "I couldn't reach my model just now, so this phase has nothing from me yet. Ask me again in a minute.",
+        text: failure.text,
+        meta: { failed: failure.code },
       });
     });
     return;
@@ -527,7 +591,8 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
   });
 
   mountLong(app, routes.opsBuildTurn, async (ctx) => {
-    await turn(long(ctx.c, ctx.session, ctx.services, ctx.inTx), ctx.params.id, ctx.body.text);
+    const text = ctx.body.text ?? null;
+    await turn(long(ctx.c, ctx.session, ctx.services, ctx.inTx), ctx.params.id, text, !text);
     return detailOf(ctx, ctx.params.id);
   });
 

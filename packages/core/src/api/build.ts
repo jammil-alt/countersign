@@ -62,6 +62,8 @@ export const BuildMessageView = z.object({
   chips: z.array(z.string()),
   /** What the turn changed, one line each ("Brief: data in"). */
   changes: z.array(z.string()),
+  /** The Builder's turn failed: this message says so, nothing changed, and it can be retried. */
+  failed: z.boolean().optional(),
   createdAt: z.string(),
 });
 export type BuildMessageView = z.infer<typeof BuildMessageView>;
@@ -298,9 +300,10 @@ export const buildRoutes = {
     path: "/api/ops/builds/:id/turns",
     auth: "session",
     roles: OPS,
-    summary: "Your words in the build's conversation, and the Builder's answer for the phase",
+    summary:
+      "Your words in the build's conversation, and the Builder's answer for the phase. Without words, the Builder's last turn is tried again: its answer to your last words, or its opening of the phase",
     params: IdParams,
-    body: z.strictObject({ text: z.string().trim().min(1).max(BUILD_TEXT_MAX) }),
+    body: z.strictObject({ text: z.string().trim().min(1).max(BUILD_TEXT_MAX).optional() }),
     response: BuildDetail,
   }),
   opsBuildVerdict: defineRoute({

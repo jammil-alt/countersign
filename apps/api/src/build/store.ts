@@ -176,7 +176,7 @@ export function itemView(r: BuildItemRow): BuildItemView {
 }
 
 function messageView(r: MessageRow): BuildMessageView {
-  const meta = (r.meta ?? {}) as { chips?: unknown; changes?: unknown };
+  const meta = (r.meta ?? {}) as { chips?: unknown; changes?: unknown; failed?: unknown };
   const strings = (v: unknown) =>
     Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
   return {
@@ -186,6 +186,7 @@ function messageView(r: MessageRow): BuildMessageView {
     text: r.text,
     chips: strings(meta.chips),
     changes: strings(meta.changes),
+    ...(meta.failed ? { failed: true } : {}),
     createdAt: iso(r.createdAt) as string,
   };
 }

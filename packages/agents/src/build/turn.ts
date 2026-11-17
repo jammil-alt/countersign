@@ -39,6 +39,17 @@ export const BUILD_CASES_TOOL = "submit_test_cases";
 /** Earlier messages sent with a turn (the conversation's latest). */
 export const BUILD_HISTORY = 24;
 
+/**
+ * The longest answer a turn may write. A template's fit-gap is the largest: up to 40 rows and a
+ * 30-field intake form, with the reply, which ran past 8,000 tokens and was cut off mid-call.
+ */
+// DECISION (QA on staging, 2026-11-16): the fit-gap and test plan get the test cases' 16,000.
+export const BUILD_TURN_TOKENS: Partial<Record<BuildPhase, number>> = {
+  fitgap: 16_000,
+  poc: 16_000,
+};
+const BUILD_TURN_TOKENS_DEFAULT = 8000;
+
 const NewItem = z.object({
   title: z.string().trim().min(1).max(300).describe("What is left, in a few plain words"),
   detail: z.string().trim().max(1000).optional().describe("One or two sentences, if needed"),
@@ -93,7 +104,9 @@ const PHASE_RULES: Record<BuildPhase, string> = {
   intake: `Phase: intake. Find out what the work is and fill the brief: ${BRIEF_FIELDS.map((k) => `${k} (${BRIEF_LABELS[k]}: ${BRIEF_HINTS[k]})`).join("; ")}.
 - Ask one or two questions a turn, the most important open field first, and offer likely answers as chips.
 - Put what you learn in "brief", each field's whole text. "state" is confirmed when the operator said it, assumed when you inferred it, open when it's still a question (then "text" may be empty).
-- When goal, trigger, data in and data out are filled, say what you heard in two or three sentences and ask the operator to confirm the brief on the right. Open fields become open items when the brief is confirmed: don't add items for them.`,
+- A field is confirmed only when the operator said all of it. If part of it is still unsaid (how often, who, which tool), it is assumed or open, and its text says what's missing.
+- While a field is open, ask about it before anything else. Ask the operator to confirm only when goal, trigger, data in and data out are filled and you have asked about every open field once: then say what you heard in two or three sentences and ask them to check the brief and press "Confirm the brief" under it. Fields still open then become open items when the brief is confirmed: don't add items for them.
+- You can't confirm the brief or move the build on: only the operator's button does. Never offer a chip that confirms or moves on, and never say the brief is confirmed.`,
   fitgap: `Phase: fit-gap. Check every need in the brief against the catalog and answer with the whole "fitgap".
 - One row per need: native (a skill, tool, connector or pack in the catalog does it as is; name it in "how"), configure (it exists but needs a connection, a setting or a pack switched on), build (a new skill or automation from catalog parts; the Builder can draft it), figure_out (needs something the catalog lacks: a connector, a tool, a data source), not_possible (against Mezonas' rules: moving money, signing in to a bank, payment or email account, deleting records, storing card numbers, or a client's credentials seen by us).
 - Don't add open items for rows, for what needs to be true or for the intake form: the API makes them when the direction is agreed.
@@ -113,7 +126,7 @@ const PHASE_RULES: Record<BuildPhase, string> = {
 
 export const BUILD_RULES = `You are the Builder for Mezonas, a managed-agents service for back-office work, helping an operator build a new agent or skill for a client's back office. The build goes through phases: intake, fit-gap, draft, POC test, client test, QA and go / no-go. You work in the build's current phase only.
 
-How you write: this is a chat with a colleague. Plain words, short sentences, sentence case. No Markdown: no bold, headings or tables. Lead with the answer. No exclamation marks, emoji or hype. "We" is Mezonas, "you" the operator.
+How you write: this is a chat with a colleague. Plain words, short sentences, sentence case. No Markdown: no bold, headings or tables. Lead with the answer. No exclamation marks, emoji or hype. "We" is Mezonas, "you" the operator. A number you give matches what you list: "three cases" lists three. Say "the brief", not where it is on the screen.
 
 Rules:
 - Use only what the catalog has, by name. Never invent a skill, tool, connector or template.
@@ -235,7 +248,7 @@ export async function buildTurn(
         description: "Your answer in the build's conversation, and what it changes",
         schema: BuildTurnAnswer,
       },
-      maxTokens: 8000,
+      maxTokens: BUILD_TURN_TOKENS[input.phase] ?? BUILD_TURN_TOKENS_DEFAULT,
       label: "build",
       ...(options.signal ? { signal: options.signal } : {}),
     });
@@ -246,9 +259,17 @@ export async function buildTurn(
   }
 }
 
+/**
+ * A chip that would read as a move (confirming the brief, agreeing the fit-gap). Picking a chip only
+ * sends its words; the phase moves by the operator's button, so such a chip promises what it can't do.
+ */
+// DECISION (QA on staging, 2026-11-16): dropped in code as well as asked against in the prompt.
+const MOVE_CHIP = /^(confirm|agree|approve|move on|go ahead|next phase)\b/i;
+
 /** Only what the phase may change: a brief outside intake, a fit-gap outside fit-gap, are dropped. */
 function cleanAnswer(phase: BuildPhase, answer: BuildTurnAnswer): BuildTurnAnswer {
-  const out: BuildTurnAnswer = { text: answer.text, chips: answer.chips, items: answer.items };
+  const chips = answer.chips.filter((c) => !MOVE_CHIP.test(c.trim()));
+  const out: BuildTurnAnswer = { text: answer.text, chips, items: answer.items };
   if (phase === "intake" && answer.brief) out.brief = answer.brief;
   if (phase === "fitgap" && answer.fitgap) out.fitgap = clampFitGap(answer.fitgap);
   if (phase === "poc" && answer.testPlan) out.testPlan = answer.testPlan;

@@ -7,7 +7,7 @@
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import type { BuildDetail } from "@countersign/core";
 import { run, testCase, testCaseResult, testSuiteRun } from "@countersign/db";
-import { FakeModel } from "@countersign/llm";
+import { FakeModel, fakeMessage } from "@countersign/llm";
 import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { admin, createApiHarness, OPERATOR, OTHER_OPERATOR } from "./api.test-helper";
@@ -467,6 +467,78 @@ describe.skipIf(!h)("builds", () => {
     b = await ok("POST", `/api/ops/builds/${id}/stop`, { reason: "Not needed" });
     expect(b.build.status).toBe("stopped");
     expect((await call("POST", `/api/ops/builds/${id}/turns`, { text: "hi" })).status).toBe(409);
+  });
+
+  // QA on staging (2026-11-16): the fit-gap failed three times out of three. The raw validation
+  // error reached the screen, the operator's words vanished, and nothing reached Sentry.
+  it("says a failed turn in the conversation, keeps it from the model and retries it", async () => {
+    let b = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Vendor onboarding" });
+    const id = b.build.id;
+    model.push(
+      turnAnswer({
+        text: "That's enough to go on. Check the brief and press Confirm the brief under it.",
+        chips: ["Confirm the brief", "Add the volume"],
+        brief: {
+          goal: { text: "Set up new vendors", state: "confirmed" },
+          trigger: { text: "A new vendor's form arrives", state: "confirmed" },
+          dataIn: { text: "The vendor form", state: "confirmed" },
+          dataOut: { text: "The vendor in QuickBooks", state: "confirmed" },
+        },
+      }),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "Onboard new vendors." });
+    // A chip that reads as a move is dropped: only the button moves the build.
+    expect(b.messages.at(-1)?.chips).toEqual(["Add the volume"]);
+
+    // Opening the fit-gap fails: the conversation says why in plain words; nothing changes.
+    model.push(turnAnswer({ text: "Here it is.", fitgap: "not a fit-gap" }));
+    b = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "fitgap" });
+    expect(b.build.phase).toBe("fitgap");
+    expect(b.build.fitgap.rows).toEqual([]);
+    const opened = b.messages.at(-1);
+    expect(opened).toMatchObject({ role: "builder", failed: true });
+    expect(opened?.text).toContain("couldn't save");
+    expect(opened?.text).toContain("The fit-gap isn't written yet");
+    expect(opened?.text).not.toContain("validation");
+
+    // The operator asks again and the answer is cut off: still a message, not an error.
+    model.push({
+      message: fakeMessage(
+        "claude-sonnet-5-5",
+        [{ type: "tool_use", id: "toolu_cut", name: "submit_build_turn", input: {} }] as never,
+        "max_tokens",
+      ),
+    });
+    b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "Please write the fit-gap." });
+    expect(b.messages.slice(-2).map((m) => [m.role, !!m.failed])).toEqual([
+      ["operator", false],
+      ["builder", true],
+    ]);
+    expect(b.messages.at(-1)?.text).toContain("cut off");
+    const fitgapTurn = model.requests.at(-1);
+    expect(fitgapTurn?.max_tokens).toBe(16_000);
+
+    // Retry (no words): the operator's last words are answered again, not saved twice, and the
+    // failed answers never reach the model. A fit-gap sent as JSON text is read as the object.
+    model.push(
+      turnAnswer({
+        text: "One we do as is.",
+        fitgap: JSON.stringify({
+          rows: [{ id: "vendor", need: "Add the vendor", verdict: "native", how: "QuickBooks" }],
+        }),
+      }),
+    );
+    const before = b.messages.length;
+    b = await ok("POST", `/api/ops/builds/${id}/turns`, {});
+    expect(b.messages).toHaveLength(before + 1);
+    expect(b.messages.at(-1)).toMatchObject({ role: "builder", text: "One we do as is." });
+    expect(b.messages.at(-1)?.failed).toBeUndefined();
+    expect(b.build.fitgap.rows.map((r) => r.id)).toEqual(["vendor"]);
+    const sent = JSON.stringify(model.requests.at(-1)?.messages);
+    expect(sent).toContain("Please write the fit-gap.");
+    expect(sent.match(/Please write the fit-gap\./g)).toHaveLength(1);
+    expect(sent).not.toContain("couldn't save");
+    expect(sent).not.toContain("cut off");
   });
 });
 

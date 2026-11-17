@@ -118,16 +118,31 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
     }
   };
 
-  async function say(text: string): Promise<boolean> {
-    setPending({ text, since: Date.now() });
+  /** The operator's words, or none to try the Builder's last turn again. */
+  async function say(text?: string): Promise<boolean> {
+    if (text) setPending({ text, since: Date.now() });
     try {
-      return await act(apiRoutes.opsBuildTurn, { params: { id }, body: { text } });
+      const done = await act(apiRoutes.opsBuildTurn, {
+        params: { id },
+        body: text ? { text } : {},
+      });
+      // QA (2026-11-16): the words are saved before the Builder answers, so after a failure the
+      // conversation is shown as it is now, with them in it, not as it was before they were sent.
+      if (!done) {
+        await api
+          .call(apiRoutes.opsBuild, { params: { id } })
+          .then((out) => setDetail(out as BuildDetail))
+          .catch(() => undefined);
+      }
+      return done;
     } finally {
       setPending(null);
     }
   }
 
   const moving = busy === apiRoutes.opsMoveBuild.path || busy === apiRoutes.opsBuildClientTest.path;
+  const retrying = busy === apiRoutes.opsBuildTurn.path && !pending;
+  const lastId = detail.messages.at(-1)?.id;
   return (
     <div className="flex flex-col gap-5" data-testid="build-view">
       {embedded ? null : <BuildHeader detail={detail} />}
@@ -257,7 +272,19 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
                         ))}
                       </ul>
                     ) : null}
-                    {m.chips.length > 0 && m.id === detail.messages.at(-1)?.id && open ? (
+                    {m.failed && m.id === lastId && open ? (
+                      <div>
+                        <Button
+                          size="sm"
+                          disabled={isBusy(busy)}
+                          onClick={() => void say()}
+                          data-testid="build-retry"
+                        >
+                          Retry
+                        </Button>
+                      </div>
+                    ) : null}
+                    {m.chips.length > 0 && m.id === lastId && open ? (
                       <div className="flex flex-wrap gap-1.5" data-testid="build-chips">
                         {m.chips.map((c) => (
                           <button
@@ -284,7 +311,7 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
                   state={b.phase === "fitgap" ? "tracing" : "drafting"}
                   testId="build-thinking"
                 />
-              ) : moving ? (
+              ) : moving || retrying ? (
                 <Thinking
                   badge={<AgentBadge name="Builder" size="sm" />}
                   label="The Builder is working on it…"
@@ -548,8 +575,13 @@ function Next({
   // Feedback (2026-11-16): a move can take the Builder a minute (agreeing the brief drafts the
   // fit-gap; agreeing the fit-gap drafts the workflow). While it works, the button says so and the
   // Builder's thinking loop runs beside it with the time it has taken, as it does in the chat.
+  // QA (2026-11-16): only this button's own move: `busy` is also true while a chat turn runs, and
+  // the loop then said it was drafting the workflow when the Builder was answering a message.
   const [since, setSince] = useState<number | null>(null);
-  useEffect(() => setSince(busy ? Date.now() : null), [busy]);
+  useEffect(() => {
+    if (!busy) setSince(null);
+  }, [busy]);
+  const working = busy && since !== null;
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-3">
@@ -557,13 +589,16 @@ function Next({
         <Button
           variant="primary"
           disabled={busy || reasons.length > 0}
-          aria-busy={busy || undefined}
-          onClick={onClick}
+          aria-busy={working || undefined}
+          onClick={() => {
+            setSince(Date.now());
+            onClick();
+          }}
           data-testid={testId}
         >
-          {busy ? "Working…" : label}
+          {working ? "Working…" : label}
         </Button>
-        {busy ? (
+        {working ? (
           <Thinking
             badge={<AgentBadge name="Builder" size="sm" />}
             label={NEXT_WORKING[detail.build.phase]}
@@ -774,9 +809,30 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
         }
       >
         {fitgap.rows.length === 0 ? (
-          <p className="px-6 py-5 text-sm text-ink-muted">
-            The Builder writes the fit-gap when the brief is confirmed.
-          </p>
+          current ? (
+            <div
+              className="flex flex-wrap items-center gap-3 px-6 py-5"
+              data-testid="build-fitgap-empty"
+            >
+              <p className="text-sm text-ink-muted">
+                {detail.messages.at(-1)?.failed
+                  ? "The Builder's fit-gap didn't come through, so there's nothing here yet."
+                  : "No fit-gap yet."}
+              </p>
+              <Button
+                size="sm"
+                disabled={isBusy(busy)}
+                onClick={() => void act(apiRoutes.opsBuildTurn, { params: { id }, body: {} })}
+                data-testid="build-fitgap-write"
+              >
+                Ask the Builder to write it
+              </Button>
+            </div>
+          ) : (
+            <p className="px-6 py-5 text-sm text-ink-muted">
+              The Builder writes the fit-gap when the brief is confirmed.
+            </p>
+          )
         ) : (
           <div className="overflow-x-auto">
             {only ? (

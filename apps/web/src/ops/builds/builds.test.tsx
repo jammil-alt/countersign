@@ -8,7 +8,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
-import { fakeApi, OPERATOR_SESSION } from "../../test/fixtures";
+import { fakeApi, OPERATOR_SESSION, Reply } from "../../test/fixtures";
 
 const ID = "00000000-0000-4000-8000-0000000b0001";
 const ITEM = "00000000-0000-4000-8000-0000000b0101";
@@ -323,6 +323,77 @@ describe("Builds", () => {
     for (let i = 0; i < 10; i++) await userEvent.keyboard("{ArrowLeft}");
     expect(split).toHaveAttribute("aria-valuenow", "320");
     localStorage.removeItem("mezonas.build.chatWidth");
+  });
+
+  // QA on staging (2026-11-16): the fit-gap failed and the screen showed the raw error, lost the
+  // words sent, offered no retry, and ran the move's "drafting the workflow" loop during a chat turn.
+  it("says a failed turn in the conversation, retries it, and keeps a failed send's words", async () => {
+    const failed = detail({
+      build: { ...detail().build, fitgap: { rows: [], needsTrue: [], setup: [] } },
+      messages: [
+        detail().messages[0] as BuildDetail["messages"][number],
+        {
+          id: "m2",
+          phase: "fitgap",
+          role: "builder",
+          text: "My answer came back in a form I couldn't save. The fit-gap isn't written yet. Press Retry; we've logged it.",
+          chips: [],
+          changes: [],
+          failed: true,
+          createdAt: at,
+        },
+      ],
+    });
+    const turns: unknown[] = [];
+    let answer: (v: unknown) => void = () => {};
+    let current = failed;
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: () => current,
+      [`POST /api/ops/builds/${ID}/turns`]: ({ init }) => {
+        turns.push(JSON.parse(String(init.body)));
+        return new Promise((resolve) => {
+          answer = resolve;
+        });
+      },
+    });
+    renderAt(`/ops/builds/${ID}`, api);
+    const view = await screen.findByTestId("build-view");
+    expect(within(view).getByTestId("build-fitgap-empty")).toHaveTextContent(
+      "The Builder's fit-gap didn't come through",
+    );
+
+    // Retry sends no words; the Builder's loop runs in the chat, not beside the move's button.
+    await userEvent.click(within(view).getByTestId("build-retry"));
+    expect(turns).toEqual([{}]);
+    expect(await within(view).findByTestId("build-thinking")).toBeInTheDocument();
+    expect(within(view).getByTestId("build-agree")).not.toHaveTextContent("Working…");
+    expect(within(view).queryByTestId("build-agree-working")).toBeNull();
+    answer(detail());
+    await waitFor(() => expect(within(view).queryByTestId("build-retry")).toBeNull());
+    await waitFor(() => expect(within(view).queryByTestId("build-fitgap-empty")).toBeNull());
+
+    // A send that fails still shows the words, as the API saved them.
+    current = detail({
+      messages: [
+        ...detail().messages,
+        {
+          id: "m3",
+          phase: "fitgap",
+          role: "operator",
+          text: "Add a row for W-9s.",
+          chips: [],
+          changes: [],
+          createdAt: at,
+        },
+      ],
+    });
+    await userEvent.type(within(view).getByTestId("build-input"), "Add a row for W-9s.");
+    await userEvent.click(within(view).getByTestId("build-send"));
+    await waitFor(() => expect(turns).toHaveLength(2));
+    answer(new Reply(500, { error: { code: "internal", message: "something went wrong" } }));
+    await waitFor(() => expect(within(view).queryByTestId("build-thinking")).toBeNull());
+    expect(within(view).getByTestId("build-messages")).toHaveTextContent("Add a row for W-9s.");
   });
 
   it("filters the fit-gap by verdict and changes one only with a reason", async () => {
