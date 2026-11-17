@@ -11,7 +11,7 @@ import {
   generateEncryptionKey,
   tenantKeysInDb,
 } from "@countersign/connectors";
-import { routes } from "@countersign/core";
+import { allRoutes, routes } from "@countersign/core";
 import {
   agent,
   agentChange,
@@ -198,7 +198,7 @@ describe.skipIf(!h)("access: the vault, write-only secrets and grants", () => {
       (await call(OPERATOR, "PUT", path, body, { "x-countersign-client": H.A.tenantId })).status,
     ).toBe(403);
     // And no back-office route takes a connection's credentials at all.
-    for (const [name, r] of Object.entries(routes)) {
+    for (const [name, r] of Object.entries(allRoutes)) {
       if (!r.path.startsWith("/api/ops/")) continue;
       expect(r.path, name).not.toMatch(/credential|secret|password/i);
     }

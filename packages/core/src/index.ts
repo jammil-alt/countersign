@@ -12,6 +12,7 @@ export * from "./account/words";
 export * from "./api/a2p";
 export * from "./api/access";
 export * from "./api/account";
+export * from "./api/all-routes";
 export * from "./api/approver-rules";
 export * from "./api/assigned";
 // v0.12 W2-B: automations
@@ -32,6 +33,7 @@ export * from "./api/calls";
 export * from "./api/client-files";
 // v0.12 W2-G: KPIs and the client view, credits, the client's audit export
 export * from "./api/client-view";
+export * from "./api/code-requests";
 // v0.12 W2-F: the command center, search and plain-words questions
 export * from "./api/command-center";
 export * from "./api/compliance";
@@ -107,6 +109,7 @@ export * from "./api/second-factor";
 export * from "./api/skill-model";
 // v0.14 W4-C: the Slack channel picker
 export * from "./api/slack";
+export * from "./api/step-code-request";
 export * from "./api/step-data";
 // P-6
 export * from "./api/step-in";
@@ -141,6 +144,8 @@ export * from "./billing";
 export * from "./browser/script";
 export * from "./browser/site";
 export * from "./build/build";
+export * from "./build/code-request-words";
+export * from "./build/code-requests";
 export * from "./build/issues";
 export * from "./bundle/client-specific";
 export * from "./bundle/diff";

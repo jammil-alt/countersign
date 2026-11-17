@@ -1037,7 +1037,10 @@ one code, each with its own WorkOS environment, users and data. One URL for ever
 decides what it does:
 
 - **Operators** (`docs/plan.md` §1.34): it reads what the back office shows for the clients you
-  serve, and its one write (resolving feedback) takes two calls, a preview and a confirm.
+  serve, and its writes on a person's decision (resolving feedback, accepting or closing a Dev
+  queue request) take two calls, a preview and a confirm. The Dev queue's tools (§1.125) also
+  claim a request, note on it, run its reuse check again and attach its PR, with no confirm: they
+  change only the request.
 - **A client's admin or user** (§1.89): it reads what their portal shows them (overview, inbox,
   runs, connections, requests, records, documents, reports), for their own business only. It
   changes nothing; approvals and answers stay in the portal.
@@ -1102,6 +1105,42 @@ and at most 120 a minute per IP) is `mcp.sign_in`.
 
 Locally the MCP server is off (`WORKOS_AUTHKIT_DOMAIN` is empty in `wrangler.jsonc`); the tests in
 `apps/api/src/mcp.test.ts` run it against a fake AuthKit.
+
+### The Dev queue's daily task (`docs/plan.md` §1.125)
+
+Mezonas can't start a Claude Code session, so the Dev queue is pulled: by any session on demand
+("find DQ-012 and build it"), and by a daily scheduled task as a backstop. The owner creates the
+task (Claude Code → scheduled tasks), once a day outside working hours, each run a fresh session
+on this repository with the **Mezonas Staging** MCP connector. Its prompt:
+
+```text
+You build the Mezonas Dev queue's accepted requests. Read CLAUDE.md first.
+
+1. With the Mezonas Staging MCP tools, list accepted requests (code_requests_list, status "accepted"),
+   oldest first. Work at most 2 this run.
+2. For each: code_request_claim it (the claim keeps other sessions off it), read code_request_get
+   (spec, open questions, reuse check), then search this repository for anything that already does it.
+3. If something already does it: code_request_note naming the part and where it is, and stop with
+   this request. Closing is the operator's, never yours.
+4. Otherwise:
+   - answer the open questions marked investigate_during_build (a note each);
+   - make the smallest change that does it, extending an existing part before adding one;
+   - add tests next to the code; run pnpm check;
+   - open a draft PR against main (main deploys to staging; there is no staging branch), its
+     description saying what it does and how to try it on staging;
+   - code_request_attach_pr with the PR's URL and the catalog part it adds (a tool id, a skill ref,
+     or <part>#<operation> such as data.reshape#dateOffset). Mezonas marks it shipped by itself when
+     the deploy's catalog has that part.
+5. Mark the PR ready. When CI is green with no conflicts, merge it. Exception: a PR with a migration,
+   or a change to CI, deploys or sign-in, needs its own PR and the owner's merge: leave it ready,
+   note that on the request, and say so in your summary. Never skip, disable or quarantine a test
+   to get green; re-run CI once at most, then fix the root cause.
+6. Never accept, close or ship a request. End with a code_request_note on each request you touched
+   summarizing what you did, and a summary of the run.
+```
+
+A request a session is building shows In progress (In review once its PR is attached). A claim
+with no event for 2 hours and no PR goes back to Accepted for the next run.
 
 ## 1.1 Onboarding a client (managed service)
 

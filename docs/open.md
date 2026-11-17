@@ -209,6 +209,18 @@ Owner steps for onboarding's emails and sign-in (O1, `docs/plan.md` §1.126; how
   real inbox on staging and check what `packages/auth/NOTES.md` lists, first whether a new address
   can sign up without a WorkOS invitation.
 
+### The Dev queue (built 2026-11-17, `docs/plan.md` §1.125)
+
+- **Owner:** create the daily scheduled task from `docs/operations.md` ("The Dev queue's daily
+  task"); until then requests are built only when a session is asked.
+- The seed requests from the AR aging and management report builds are filed on staging through the
+  MCP tools once the Dev queue is deployed: date offsets and division in Reshape data, sort and
+  top-N in "Filter, group and total a list", QuickBooks customer parent and is-job (answer first in
+  the QuickBooks sandbox: `packages/connectors/src/qbo/NOTES.md`), and the P&L, balance sheet and
+  AP aging reports.
+- "In production" is stamped by production's own copy of a request; a request filed on staging
+  shows it only after a cross-environment read, which isn't built.
+
 ### Area owners, owner chat and Home (designed 2026-11-12)
 
 ARCHITECTURE v0.19 §10.15, `docs/plan.md` §1.117 and §10 (O1–O8). Built on

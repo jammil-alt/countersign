@@ -2,8 +2,9 @@
 // number as the canvas gives it (3, 3 A1, 5.1), its kind, and its status from the same checks the
 // canvas shows: missing, invalid, needs a connection or a pack, or ready. A click selects the step,
 // and the builder's side panel opens on it, as a click on the canvas does.
-import { processes } from "@countersign/core";
+import { processes, type StepCodeRequest, stepCodeStatus } from "@countersign/core";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Badge, cx, type Tone } from "../../ui/primitives";
 import { processKindLabel, type StepLabels } from "../workflow/describe";
 import { pathLetter } from "./Canvas";
@@ -22,6 +23,13 @@ export interface StepRow {
   /** What's wrong, in words, when it isn't ready. */
   detail: string | null;
   depth: number;
+  /** docs/plan.md §1.125: the Dev queue request a step that requires code waits on. */
+  request?: { ref: string; href: string } | null;
+}
+
+/** A request on the Feedback page's Dev queue tab. */
+export function devQueuePath(ref: string): string {
+  return `/ops/utilities/feedback?tab=dev-queue&request=${encodeURIComponent(ref)}`;
 }
 
 /**
@@ -54,7 +62,17 @@ export function stepRows(input: {
   errors: readonly BuilderProblem[];
   left: readonly LeftItem[];
   labels: StepLabels;
+  /** The steps that require code, with their request's status in the Dev queue. */
+  requests?: readonly StepCodeRequest[];
+  /** The workflow's slug, to match a request's step. */
+  slug?: string;
 }): StepRow[] {
+  const waiting = new Map<string, StepCodeRequest["request"]>();
+  for (const r of input.requests ?? []) {
+    if (!r.stepId || r.request.status === "closed") continue;
+    if (r.workflowId && input.slug && r.workflowId !== input.slug) continue;
+    waiting.set(r.stepId, r.request);
+  }
   const numbers = stepNumbers(input.workflow);
   const setup = new Map<string, string>();
   for (const item of input.left) {
@@ -71,6 +89,22 @@ export function stepRows(input: {
       kind: processKindLabel(step, input.labels),
       depth,
     };
+    // A step that requires code says so, with its request's status pulled from the Dev queue.
+    const request = waiting.get(step.id);
+    if (request) {
+      const shipped = request.status === "shipped";
+      return {
+        ...base,
+        status: stepCodeStatus(request),
+        // DECISION: an open request is engineering's (neutral); once shipped, putting the part in
+        // the step is yours (signal, with its word).
+        tone: shipped ? ("warning" as const) : ("neutral" as const),
+        detail: shipped
+          ? `${request.title}. It's in the catalog now: put it in this step.`
+          : request.title,
+        request: { ref: request.ref, href: devQueuePath(request.ref) },
+      };
+    }
     if (step.kind === "missing") {
       return { ...base, status: "Missing", tone: "warning" as const, detail: step.need };
     }
@@ -161,6 +195,15 @@ export function StepsList({
                     {r.name}
                   </button>
                   {r.detail ? <p className="mt-0.5 text-xs text-ink-muted">{r.detail}</p> : null}
+                  {r.request ? (
+                    <Link
+                      to={r.request.href}
+                      className="mt-0.5 inline-block text-xs text-slate hover:underline"
+                      data-testid={`builder-steps-request-${r.id}`}
+                    >
+                      Open {r.request.ref} in the Dev queue
+                    </Link>
+                  ) : null}
                 </td>
                 <td className="px-4 py-3 text-ink-muted">{r.kind}</td>
                 <td className="px-4 py-3">

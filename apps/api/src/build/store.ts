@@ -62,6 +62,7 @@ import {
 } from "@countersign/db";
 import { and, asc, desc, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
+import { stepRequests } from "../dev-queue/store";
 import { iso, notFound, type Services } from "../http";
 import { goLiveView } from "../lifecycle/stages";
 import { buildFacts, buildStageOf, buildStanding } from "../work/work-list";
@@ -188,7 +189,14 @@ export function itemView(r: BuildItemRow): BuildItemView {
     owner: r.owner,
     state: r.state,
     stepId: r.stepId,
-    ref: { ...str("testCaseId"), ...str("runId"), ...str("actionId"), ...str("buildId") },
+    ref: {
+      ...str("testCaseId"),
+      ...str("runId"),
+      ...str("actionId"),
+      ...str("buildId"),
+      ...str("codeRequestId"),
+      ...str("codeRequestRef"),
+    },
     key: r.key ?? null,
     createdAt: iso(r.createdAt) as string,
     resolvedAt: iso(r.resolvedAt),
@@ -932,6 +940,7 @@ export async function buildDetail(ctx: StoreCtx, row: BuildRow): Promise<BuildDe
         at: iso(e.createdAt) as string,
       }),
     ),
+    codeRequests: await stepRequests(ctx.tx, [row.id]),
   };
 }
 

@@ -17,6 +17,7 @@ import { clientModels } from "./compliance/models";
 import { purgeRetiredFiles } from "./compliance/retention";
 import { CAPTURE_CRON_MINUTE, captureCronTick } from "./conversations/cron";
 import { captureDepsFor, captureJobsFor } from "./conversations/start";
+import { shipDue, shipPass } from "./dev-queue/ship";
 import { readingSweep } from "./documents/sweep";
 import type { Bindings } from "./env";
 // §1.121: forms, "Request info"
@@ -46,7 +47,7 @@ import type { RegisteredPack } from "./packs";
 // v0.12 W3-B
 import { rampCron } from "./ramp/poll";
 import { reachOutTick } from "./reach/service";
-import { readyRoutes } from "./ready";
+import { deployedSha, readyRoutes } from "./ready";
 import { requestOrigin } from "./request-origin";
 import { a2pRoutes } from "./routes/a2p";
 import { accessRoutes } from "./routes/access";
@@ -112,6 +113,7 @@ import { opsAutomationRoutes } from "./routes/ops-automations";
 import { opsBuilderRoutes } from "./routes/ops-builder";
 import { opsBuildRoutes } from "./routes/ops-builds";
 import { opsClientRoutes } from "./routes/ops-clients";
+import { opsCodeRequestRoutes } from "./routes/ops-code-requests";
 // v0.12 W2-A: the connectors catalog
 import { opsConnectorRoutes } from "./routes/ops-connectors";
 import { opsEventRoutes } from "./routes/ops-events";
@@ -211,6 +213,28 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // §1.116: the phone app's session header, read as the session cookie (before anything reads it).
   app.use("/api/*", mobileSession);
   app.use("/api/*", requestState(deps));
+  // docs/plan.md §1.125: the first request on a newly deployed commit checks the Dev queue's
+  // expected parts against this catalog (after the response, beside its deferred work).
+  app.use("/api/*", async (c, next) => {
+    await next();
+    const sha = deployedSha(c.env?.DEPLOYED_SHA);
+    if (!sha || !shipDue(sha, Date.now())) return;
+    const state = c.get("req");
+    state.deferred.push(async () => {
+      const services = state.services();
+      await shipPass(
+        {
+          db: services.db,
+          platform: services.platform,
+          notify: notifyDepsFromEnv(services.env, deps.fetch?.(services.env)),
+          environment: services.env.ENVIRONMENT,
+        },
+        new Date(),
+      ).catch((error: unknown) =>
+        reportHandled("dev queue ship pass failed", error, { job: "dev_queue" }),
+      );
+    });
+  });
   // Readiness reaches the database through the request's client, so it comes after requestState.
   readyRoutes(app);
   sessionRoutes(app);
@@ -271,6 +295,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   reggieRoutes(app);
   // docs/plan.md §1.108: builds, from intake to go-live
   opsBuildRoutes(app);
+  // docs/plan.md §1.125: the Dev queue
+  opsCodeRequestRoutes(app);
   // §1.124 back office work
   dealRoutes(app);
   // §1.126 onboarding v1: client files and starts, Invite and Sign up now, the intake, the welcome page
@@ -436,6 +462,21 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     await notifyTick(db, notifyDepsFromEnv(env, deps.fetch?.(env)), platform, scheduledTime).catch(
       (error: unknown) => reportHandled("notification tick failed", error, { job: "notify" }),
     );
+    // docs/plan.md §1.125: after a deploy (a commit this isolate hasn't checked) and every 15
+    // minutes, requests whose expected part is in the catalog now are shipped, and claims lapse.
+    if (shipDue(deployedSha(env.DEPLOYED_SHA), scheduledTime.getTime())) {
+      await shipPass(
+        {
+          db,
+          platform,
+          notify: notifyDepsFromEnv(env, deps.fetch?.(env)),
+          environment: env.ENVIRONMENT,
+        },
+        scheduledTime,
+      ).catch((error: unknown) =>
+        reportHandled("dev queue ship pass failed", error, { job: "dev_queue" }),
+      );
+    }
     // QuickBooks: a sync of each connected company every 15 minutes (CDC since the last one).
     await qboCronTick(db, qboSyncFor(deps, env), scheduledTime).catch((error: unknown) =>
       reportHandled("qbo sync tick failed", error, { job: "qbo_sync" }),
