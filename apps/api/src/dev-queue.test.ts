@@ -8,9 +8,9 @@
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import { FAKE_RESEND_MAIN, fakeResend } from "@countersign/connectors/testing";
 import type { BuildDetail, CodeRequestDetail, FiledCodeRequest } from "@countersign/core";
-import { build, buildMessage, codeRequest } from "@countersign/db";
+import { build, buildMessage, codeRequest, todo } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { admin, createApiHarness, OPERATOR, OTHER_OPERATOR } from "./api.test-helper";
 import { resetShipCheck, shipPass } from "./dev-queue/ship";
@@ -172,14 +172,17 @@ describe.skipIf(!h)("the Dev queue", () => {
       ["operator@example.com", "other-operator@example.com"].sort(),
     );
     expect(mails[0]?.subject).toBe(`${request.ref} approved: Add date offsets to Reshape data`);
-    const { notices } = await ok<{ notices: { title: string; href: string }[] }>(
-      "GET",
-      "/api/ops/dev-queue/notices",
-    );
-    expect(notices[0]?.title).toBe(
-      `${request.ref} approved: Add date offsets to Reshape data. Building it next.`,
-    );
-    expect(notices[0]?.href).toContain("tab=dev-queue");
+    // Your call has it, as a to-do about the request.
+    const [notice] = await H.t.db
+      .select()
+      .from(todo)
+      .where(and(eq(todo.aboutKind, "code_request"), eq(todo.aboutId, request.id)));
+    expect(notice).toMatchObject({
+      title: `${request.ref} approved: Add date offsets to Reshape data. Building it next.`,
+      owner: "operator",
+      source: "system",
+      state: "open",
+    });
     for (const id of [first, second]) {
       const b = await ok<BuildDetail>("GET", `/api/ops/builds/${id}`);
       expect(b.messages.some((m) => m.text.startsWith(`${request.ref} approved`))).toBe(true);

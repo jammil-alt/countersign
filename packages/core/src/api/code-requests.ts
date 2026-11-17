@@ -161,15 +161,6 @@ export const CatalogHit = z.object({
   ref: z.string().nullable(),
 });
 
-export const DevQueueNotice = z.object({
-  id: z.string(),
-  title: z.string(),
-  detail: z.string(),
-  href: z.string().nullable(),
-  createdAt: z.string(),
-});
-export type DevQueueNotice = z.infer<typeof DevQueueNotice>;
-
 /** A step that requires code (docs/plan.md §1.125), and its request as the Dev queue has it now. */
 export const StepCodeRequest = z.object({
   buildId: z.string(),
@@ -359,22 +350,5 @@ export const codeRequestRoutes = {
       "The steps of an agent's draft that require code, each with its Dev queue request and live status",
     params: z.object({ id: Id }),
     response: z.object({ steps: z.array(StepCodeRequest) }),
-  }),
-  opsDevQueueNotices: defineRoute({
-    method: "GET",
-    path: "/api/ops/dev-queue/notices",
-    auth: "session",
-    roles: OPS,
-    summary: "The Dev queue's notices for the back-office inbox (accepted, shipped), newest first",
-    response: z.object({ notices: z.array(DevQueueNotice) }),
-  }),
-  opsDevQueueNoticeDone: defineRoute({
-    method: "POST",
-    path: "/api/ops/dev-queue/notices/:id/done",
-    auth: "session",
-    roles: OPS,
-    summary: "Mark a Dev queue notice seen",
-    params: z.object({ id: Id }),
-    response: z.object({ ok: z.literal(true) }),
   }),
 } as const;

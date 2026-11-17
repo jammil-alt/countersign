@@ -21,6 +21,7 @@ import {
   claimRequest,
   closeRequest,
   type DqCtx,
+  fileRequest,
   getRequest,
   listRequests,
   noteRequest,
@@ -180,6 +181,95 @@ const catalogSearch: Tool<OpsToolCtx> = {
       ),
     );
     return dataResult("catalog_search", `${hits.length} matches, best first.`, { hits });
+  },
+};
+
+const codeRequestFile: Tool<OpsToolCtx> = {
+  name: "code_request_file",
+  title: "File a Dev queue request",
+  description:
+    "File a request for code (it opens in triage; a person accepts it). The reuse check runs first: an open request for the same capability comes back instead (link to it from the build), and a part that already does it is flagged with the suggested decision exists. One request is one part. Inputs are general (invoice rows, never one step's output); acceptance says how to check it's right. A decision below extend needs a reason saying why the step above won't do; new_general needs other_uses.",
+  input: z.strictObject({
+    title: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .describe("Imperative: Add date offsets to Reshape data"),
+    kind: CodeRequestKind,
+    summary: z.string().trim().min(1).max(2000),
+    inputs: z.array(z.string().trim().min(1).max(500)).max(20).default([]),
+    outputs: z.array(z.string().trim().min(1).max(500)).max(20).default([]),
+    rules: z.array(z.string().trim().min(1).max(500)).max(20).default([]),
+    acceptance: z.array(z.string().trim().min(1).max(500)).max(20).default([]),
+    part: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe("The one catalog part it adds or changes"),
+    package: z.string().trim().min(1).max(200).optional(),
+    decision: z.enum(["exists", "config", "extend", "new_general", "one_off"]).optional(),
+    decision_reason: z.string().trim().max(2000).optional(),
+    other_uses: z.array(z.string().trim().min(1).max(300)).max(20).default([]),
+    questions: z
+      .array(
+        z.strictObject({
+          question: z.string().trim().min(1).max(1000),
+          mode: z.enum(["answer_first", "investigate_during_build"]),
+        }),
+      )
+      .max(10)
+      .default([]),
+  }),
+  annotations: WRITE,
+  async run(ctx, args) {
+    const a = args as {
+      title: string;
+      kind: (typeof CODE_REQUEST_KINDS)[number];
+      summary: string;
+      inputs: string[];
+      outputs: string[];
+      rules: string[];
+      acceptance: string[];
+      part?: string;
+      package?: string;
+      decision?: "exists" | "config" | "extend" | "new_general" | "one_off";
+      decision_reason?: string;
+      other_uses: string[];
+      questions: { question: string; mode: "answer_first" | "investigate_during_build" }[];
+    };
+    ctx.audit.target = { title: a.title.slice(0, 100) };
+    const filed = await asSession(ctx, "code_request_file", { title: a.title }, (dq) =>
+      fileRequest(dq, {
+        title: a.title,
+        kind: a.kind,
+        spec: {
+          summary: a.summary,
+          inputs: a.inputs,
+          outputs: a.outputs,
+          rules: a.rules,
+          acceptance: a.acceptance,
+          parts: a.part ? [a.part] : [],
+          packages: a.package ? [a.package] : [],
+        },
+        openQuestions: a.questions.map((q) => ({ ...q, answer: null })),
+        ...(a.decision ? { decision: a.decision } : {}),
+        ...(a.decision_reason ? { decisionReason: a.decision_reason } : {}),
+        otherUses: a.other_uses,
+        considered: [],
+        createdBy: "session",
+      }),
+    );
+    ctx.audit.outcome = "done";
+    return dataResult(
+      "code_request_file",
+      filed.duplicate
+        ? `Not filed: ${filed.duplicate.ref} asks for the same capability.`
+        : `Filed ${filed.request?.ref}, in triage.`,
+      filed,
+    );
   },
 };
 
@@ -379,6 +469,7 @@ export const DEV_QUEUE_TOOLS: readonly Tool<OpsToolCtx>[] = [
   codeRequestsList,
   codeRequestGet,
   catalogSearch,
+  codeRequestFile,
   codeRequestClaim,
   codeRequestNote,
   codeRequestRerunReuse,

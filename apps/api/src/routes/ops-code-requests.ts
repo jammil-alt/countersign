@@ -4,8 +4,8 @@
 // notices' emails run outside any transaction.
 
 import { routes } from "@countersign/core";
-import { build, todo } from "@countersign/db";
-import { and, desc, eq, like } from "drizzle-orm";
+import { build } from "@countersign/db";
+import { eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import {
   acceptRequest,
@@ -23,8 +23,7 @@ import {
   updateRequest,
 } from "../dev-queue/service";
 import { findRequest, requestDetail, stepRequests } from "../dev-queue/store";
-import { type AppEnv, mount, mountLong, notFound } from "../http";
-import { devQueueHref } from "../work/todos";
+import { type AppEnv, mount, mountLong } from "../http";
 
 const now = () => new Date();
 
@@ -124,40 +123,5 @@ export function opsCodeRequestRoutes(app: Hono<AppEnv>): void {
         builds.map((b) => b.id),
       ),
     };
-  });
-
-  // The notices are Your call's to-dos about a request; the inbox shows the open ones.
-  mount(app, routes.opsDevQueueNotices, async ({ tx }) => {
-    const rows = await tx
-      .select()
-      .from(todo)
-      .where(
-        and(
-          eq(todo.aboutKind, "code_request"),
-          eq(todo.state, "open"),
-          like(todo.dedupeKey, "dq:%"),
-        ),
-      )
-      .orderBy(desc(todo.createdAt))
-      .limit(50);
-    return {
-      notices: rows.map((r) => ({
-        id: r.id,
-        title: r.title,
-        detail: r.detail,
-        href: r.aboutId ? devQueueHref(r.aboutId) : null,
-        createdAt: r.createdAt.toISOString(),
-      })),
-    };
-  });
-
-  mount(app, routes.opsDevQueueNoticeDone, async ({ tx, params, session }) => {
-    const [row] = await tx
-      .update(todo)
-      .set({ state: "done", doneAt: now(), doneBy: session.user.id })
-      .where(and(eq(todo.id, params.id), eq(todo.aboutKind, "code_request")))
-      .returning({ id: todo.id });
-    if (!row) throw notFound("notice");
-    return { ok: true as const };
   });
 }

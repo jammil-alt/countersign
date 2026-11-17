@@ -4,14 +4,19 @@
 // link) and Reopen. Drafted in the prototype's back-office style (no prototype screen;
 // docs/ui-plan.md): each item a card with who and where in its head, the actions in its foot.
 import type { FeedbackItem, FeedbackSource } from "@countersign/core";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { PinnedPicture } from "../../feedback/Feedback";
 import { TextInput } from "../../ui/forms";
 import { Loaded, Page } from "../../ui/page";
-import { Badge, Button, Card, EmptyState, PageHeader, Tag } from "../../ui/primitives";
+import { Badge, Button, Card, Count, EmptyState, PageHeader, Tag } from "../../ui/primitives";
+import { DevQueue } from "./DevQueue";
 import { UtilitiesTabs } from "./UtilitiesTabs";
+
+/** The page's two tabs (docs/plan.md §1.125): what people told us, and the Dev queue. */
+type Tab = "user-feedback" | "dev-queue";
 
 type Filter = "open" | "resolved" | "all";
 const FILTERS: [Filter, string][] = [
@@ -39,6 +44,56 @@ function when(iso: string): string {
 }
 
 export function OpsFeedbackScreen() {
+  const [params, setParams] = useSearchParams();
+  const tab: Tab = params.get("tab") === "dev-queue" ? "dev-queue" : "user-feedback";
+  const pick = (t: Tab) => {
+    const next = new URLSearchParams();
+    if (t === "dev-queue") next.set("tab", t);
+    setParams(next);
+  };
+  // Each tab's open count, whichever tab shows.
+  const openFeedback = useApi(apiRoutes.opsFeedback, { query: { status: "open" } });
+  const openRequests = useApi(apiRoutes.opsCodeRequests, { query: { status: "open", limit: 1 } });
+  const tabs = (
+    <div className="mb-4 max-w-full overflow-x-auto">
+      <div className="ds-seg" data-testid="ops-feedback-tabs">
+        {(
+          [
+            ["user-feedback", "User feedback", openFeedback.data?.items.length],
+            ["dev-queue", "Dev queue", openRequests.data?.openCount],
+          ] as const
+        ).map(([key, label, n]) => (
+          <button
+            key={key}
+            type="button"
+            aria-pressed={tab === key}
+            data-testid={`ops-feedback-tab-${key}`}
+            onClick={() => pick(key)}
+          >
+            {label} {n !== undefined ? <Count n={n} tone="warning" /> : null}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+  if (tab === "dev-queue") {
+    return (
+      <Page testId="ops-feedback">
+        <PageHeader
+          eyebrow="Utilities"
+          title="Feedback"
+          subtitle="The Dev queue: what the Builder needs built, triaged before it's built and shipped back to the builds waiting on it."
+        />
+        <UtilitiesTabs />
+        {tabs}
+        <DevQueue />
+      </Page>
+    );
+  }
+  return <UserFeedback tabs={tabs} />;
+}
+
+function UserFeedback({ tabs }: { tabs: ReactNode }) {
   const [filter, setFilter] = useState<Filter>("open");
   const [from, setFrom] = useState<From>("any");
   const feedback = useApi(apiRoutes.opsFeedback, {
@@ -95,6 +150,7 @@ export function OpsFeedbackScreen() {
         </div>
       </div>
       <UtilitiesTabs />
+      {tabs}
       <Loaded state={feedback}>
         {(data) =>
           data.items.length === 0 ? (
