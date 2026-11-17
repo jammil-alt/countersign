@@ -7,6 +7,7 @@ import {
   type FitGap,
   FitGapAnswer,
   fitChangeKind,
+  fitScope,
   type GateFacts,
   gateReasons,
   mergeFitGap,
@@ -18,6 +19,7 @@ import {
   readQa,
   readTestPlan,
   SETUP_KINDS,
+  withFitScope,
 } from "./build";
 
 const base: GateFacts = {
@@ -55,15 +57,18 @@ describe("gates", () => {
     expect(gateReasons({ ...base, brief })).toEqual(["The brief has no data out yet."]);
   });
 
-  it("let open items carry over until the client test and go-live", () => {
+  it("let open items carry over until the go-live", () => {
     expect(gateReasons({ ...base, phase: "draft", draft: true, openItems: 3 })).toEqual([]);
     expect(gateReasons({ ...base, phase: "draft", draft: true, draftErrors: 2 })).toEqual([
       "The draft has 2 problems to fix.",
     ]);
     expect(
       gateReasons({ ...base, phase: "poc", poc: { passed: true, detail: "" }, openItems: 1 }),
-    ).toEqual(["1 open item is not done or put off."]);
+    ).toEqual([]);
     expect(gateReasons({ ...base, phase: "qa", qaSigned: true })).toEqual([]);
+    expect(gateReasons({ ...base, phase: "qa", qaSigned: true, openItems: 1 })).toEqual([
+      "1 open item is not done or put off.",
+    ]);
   });
 
   it("need a fit-gap row in scope", () => {
@@ -75,13 +80,23 @@ describe("gates", () => {
           verdict: "not_possible" as const,
           how: "",
           dropped: true,
+          later: false,
+        },
+        {
+          id: "split",
+          need: "Split a photo of several receipts",
+          verdict: "figure_out" as const,
+          how: "",
+          dropped: false,
+          later: true,
         },
       ],
       needsTrue: [],
       setup: [],
     };
+    // Known risks alone leave nothing to draft.
     expect(gateReasons({ ...base, phase: "fitgap", fitgap })).toEqual([
-      "The fit-gap has no rows in scope.",
+      "The fit-gap has nothing in the first version.",
     ]);
   });
 });
@@ -105,6 +120,7 @@ describe("verdicts", () => {
     verdict,
     how: "",
     dropped: false,
+    later: false,
   });
   const stored: FitGap = {
     rows: [
@@ -146,6 +162,31 @@ describe("verdicts", () => {
       ["pay", "not_possible", false, false, false],
       ["tiers", "build", false, false, true],
     ]);
+  });
+
+  it("keep a row's place once set, and let the operator move it", () => {
+    const before: FitGap = {
+      ...stored,
+      rows: stored.rows.map((r) => (r.id === "match" ? { ...r, later: true } : r)),
+    };
+    // The Builder's rewrite puts "match" back in the first version and a new row in later: the
+    // stored row keeps its place, the new row takes the Builder's.
+    const merged = mergeFitGap(before, {
+      rows: [row("match", "native"), { ...row("split", "figure_out"), later: true }],
+      needsTrue: [],
+      setup: [],
+    });
+    expect(merged.rows.map((r) => [r.id, fitScope(r)])).toEqual([
+      ["match", "later"],
+      ["split", "later"],
+      ["read", "main"],
+      ["tiers", "out"],
+    ]);
+    const sent = { ...before, rows: before.rows.map((r) => withFitScope(r, "main")) };
+    const out = operatorFitGap(before, sent);
+    expect(out.ok && out.fitgap.rows.map(fitScope)).toEqual(["main", "main", "main", "main"]);
+    expect(withFitScope(row("x", "build"), "later")).toMatchObject({ dropped: false, later: true });
+    expect(withFitScope(row("x", "build"), "out")).toMatchObject({ dropped: true, later: false });
   });
 
   it("let the operator change scope, never a verdict, when saving the fit-gap", () => {

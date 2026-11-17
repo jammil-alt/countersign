@@ -23,12 +23,16 @@ import {
   DATA_SOURCES,
   type Dataset,
   FIT_REASON_MIN,
+  FIT_SCOPE_WORDS,
+  FIT_SCOPES,
   FIT_VERDICTS,
   FIT_WORDS,
   type FitGap,
   type FitRow,
+  type FitScope,
   type FitVerdict,
   fitChangeKind,
+  fitScope,
   ISSUE_SOURCE_WORDS,
   ITEM_STATE_WORDS,
   itemOpen,
@@ -40,6 +44,7 @@ import {
   type SetupField,
   type SetupKind,
   type TestPlan,
+  withFitScope,
 } from "@countersign/core";
 import {
   type CSSProperties,
@@ -919,6 +924,7 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
   const [changing, setChanging] = useState<string | null>(null);
   const dirty = JSON.stringify(fitgap) !== JSON.stringify(detail.build.fitgap);
   const inScope = fitgap.rows.filter((r) => !r.dropped);
+  const risks = inScope.filter((r) => r.later).length;
   const counts = FIT_VERDICTS.map(
     (v) => [v, inScope.filter((r) => r.verdict === v).length] as const,
   ).filter(([, n]) => n > 0);
@@ -949,6 +955,11 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
                 </Badge>
               </button>
             ))}
+            {risks > 0 ? (
+              <Badge tone="neutral" testId="build-fit-risks">
+                {plural(risks, "known risk")}
+              </Badge>
+            ) : null}
           </span>
         }
       >
@@ -1000,7 +1011,7 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
                   <th className="px-4 py-2.5 font-medium">From the brief</th>
                   <th className="px-4 py-2.5 font-medium">Verdict</th>
                   <th className="px-4 py-2.5 font-medium">How</th>
-                  <th className="px-4 py-2.5 font-medium">In scope</th>
+                  <th className="px-4 py-2.5 font-medium">In</th>
                 </tr>
               </thead>
               <tbody>
@@ -1013,10 +1024,10 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
                     changing={changing === r.id}
                     checking={checking && changing === r.id}
                     locked={dirty || isBusy(busy)}
-                    onScope={(inScope) =>
+                    onScope={(scope) =>
                       setFitgap((f) => ({
                         ...f,
-                        rows: f.rows.map((x) => (x.id === r.id ? { ...x, dropped: !inScope } : x)),
+                        rows: f.rows.map((x) => (x.id === r.id ? withFitScope(x, scope) : x)),
                       }))
                     }
                     onChange={() => setChanging(changing === r.id ? null : r.id)}
@@ -1300,11 +1311,12 @@ function FitRowView({
   changing: boolean;
   checking: boolean;
   locked: boolean;
-  onScope: (inScope: boolean) => void;
+  onScope: (scope: FitScope) => void;
   onChange: () => void;
   onSend: (to: FitVerdict, reason: string) => Promise<void>;
 }) {
   const owner = FIT_ITEM_OWNER[r.verdict];
+  const scope = fitScope(r);
   return (
     <>
       <tr
@@ -1350,6 +1362,12 @@ function FitRowView({
               You asked for {FIT_WORDS[r.challenge.wanted]}: {r.challenge.reason}
             </p>
           ) : null}
+          {r.later ? (
+            <p className="mt-1 text-xs" data-testid={`build-fit-${r.id}-risk`}>
+              Known risk: not built in the first version. Until it shows up in runs, a person
+              handles it.
+            </p>
+          ) : null}
           {r.dropped ? null : item ? (
             <button
               type="button"
@@ -1363,6 +1381,10 @@ function FitRowView({
             >
               Open item · {OWNER_WORDS[item.owner]} · {ITEM_STATE_WORDS[item.state]}
             </button>
+          ) : r.later ? (
+            <p className="mt-1 text-xs" data-testid={`build-fit-${r.id}-item`}>
+              Put off as an issue when you agree the direction, to pick up when it shows up.
+            </p>
           ) : owner ? (
             <p className="mt-1 text-xs" data-testid={`build-fit-${r.id}-item`}>
               Becomes an issue for {OWNER_WORDS[owner]} when you agree the direction.
@@ -1370,15 +1392,23 @@ function FitRowView({
           ) : null}
         </td>
         <td className="px-4 py-3">
-          <input
-            type="checkbox"
-            className="size-4 accent-[var(--slate)]"
-            aria-label={`In scope: ${r.need}`}
-            checked={!r.dropped}
-            disabled={!current}
-            data-testid={`build-fit-${r.id}-scope`}
-            onChange={(e) => onScope(e.target.checked)}
-          />
+          {current ? (
+            <Select
+              aria-label={`In: ${r.need}`}
+              className="w-40"
+              value={scope}
+              data-testid={`build-fit-${r.id}-scope`}
+              onChange={(e) => onScope(e.target.value as FitScope)}
+            >
+              {FIT_SCOPES.map((k) => (
+                <option key={k} value={k}>
+                  {FIT_SCOPE_WORDS[k]}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <Tag>{FIT_SCOPE_WORDS[scope]}</Tag>
+          )}
         </td>
       </tr>
       {changing ? (

@@ -146,15 +146,24 @@ export function draftDescription(
     const f = brief[key];
     if (f?.text.trim()) lines.push(`${BRIEF_LABELS[key]}: ${f.text.trim()}`);
   }
-  const inScope = fitgap.rows.filter((r) => !r.dropped && r.verdict !== "not_possible");
+  const inScope = fitgap.rows.filter((r) => !r.dropped && !r.later && r.verdict !== "not_possible");
   if (inScope.length > 0) {
-    lines.push("", "What it does, and how:");
+    lines.push("", "What it does, and how (the normal case):");
     for (const r of inScope) {
       const changed = r.override
         ? `; the operator changed it from ${FIT_WORDS[r.override.from]}: ${r.override.reason}`
         : "";
       lines.push(`- ${r.need} (${FIT_WORDS[r.verdict]}${changed}): ${r.how}`);
     }
+  }
+  // Happy path first (owner, 2026-11-17): known risks are named so the draft leaves them out.
+  const later = fitgap.rows.filter((r) => !r.dropped && r.later && r.verdict !== "not_possible");
+  if (later.length > 0) {
+    lines.push(
+      "",
+      "Known risks, not built in this version (when one happens, the run hands it to a person; no steps or missing steps for them):",
+    );
+    for (const r of later) lines.push(`- ${r.need}`);
   }
   const out = fitgap.rows.filter((r) => r.dropped || r.verdict === "not_possible");
   if (out.length > 0) {
@@ -177,11 +186,24 @@ export function draftDescription(
 /**
  * Items the agreed fit-gap leaves: what to build or find, and, for one client, what must be true.
  * A template has no client: what it needs from one is its intake form, which makes no items.
+ * A known risk is a gap put off from the start: listed, holding nothing, reopened when it shows up.
  */
-function fitGapItems(fitgap: FitGap, template: boolean): NewItem[] {
+export function fitGapItems(fitgap: FitGap, template: boolean): NewItem[] {
   const out: NewItem[] = [];
   for (const r of fitgap.rows) {
     if (r.dropped) continue;
+    if (r.later) {
+      out.push({
+        phase: "fitgap",
+        kind: "gap",
+        title: r.need,
+        detail: `Known risk, not in the first version: until it shows up in runs, a person handles it.${r.how ? ` Later: ${r.how}` : ""}`,
+        owner: r.verdict === "figure_out" ? "engineering" : "builder",
+        state: "deferred",
+        key: `fit:${r.id}`,
+      });
+      continue;
+    }
     if (r.verdict === "build" || r.verdict === "figure_out") {
       out.push({
         phase: "fitgap",
