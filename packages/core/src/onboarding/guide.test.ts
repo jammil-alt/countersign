@@ -8,8 +8,8 @@ import { PackManifest } from "../schemas/pack";
 import {
   agentSectionKey,
   buildGuide,
-  checkAnswer,
   type Covers,
+  checkAnswer,
   factFieldKey,
   fieldFor,
   GENERAL_SECTION,

@@ -648,9 +648,31 @@ export function askedFields(section: Pick<GuideSection, "fields">): GuideField[]
   return section.fields.filter((f) => f.state === "to_ask" || f.state === "to_confirm");
 }
 
+/** The fields a card needs answered: asked in it, or asked elsewhere and shared into it. */
+export function cardFields(guide: Pick<Guide, "sections">, sectionKey: string): GuideField[] {
+  return guide.sections.flatMap((s) =>
+    askedFields(s).filter((f) => f.sectionKey === sectionKey || f.alsoIn.includes(sectionKey)),
+  );
+}
+
+/** Answered of asked across the whole guide, each question once. */
+export function guideAnswered(
+  guide: Pick<Guide, "sections">,
+  answers: readonly { fieldKey: string; state: string }[],
+): { answered: number; total: number } {
+  const latest = new Map<string, string>();
+  for (const a of answers) latest.set(a.fieldKey, a.state);
+  const fields = guide.sections.flatMap(askedFields);
+  return {
+    answered: fields.filter((f) => ANSWERED_STATES.includes(latest.get(f.key) ?? "")).length,
+    total: fields.length,
+  };
+}
+
 /**
  * Progress per section from the guide and the answers (the latest to each field counts: given
- * oldest first, the last one wins).
+ * oldest first, the last one wins). A shared question counts on each card that needs it (the
+ * Requirements panel's "7 of 12" is everything its agent needs), though it is asked once.
  */
 export function guideProgress(
   guide: Guide,
@@ -662,7 +684,7 @@ export function guideProgress(
   const askedOf = new Map((extras.asked ?? []).map((a) => [a.fieldKey, a.name]));
   const isAnswered = (key: string) => ANSWERED_STATES.includes(latest.get(key) ?? "");
   return guide.sections.map((s) => {
-    const fields = askedFields(s);
+    const fields = cardFields(guide, s.key);
     const someone = extras.people?.find(
       (p) => !p.isAdmin && p.sections !== null && p.sections.includes(s.key),
     );

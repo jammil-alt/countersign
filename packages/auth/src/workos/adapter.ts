@@ -361,7 +361,11 @@ export function createWorkOSAdapter(options: {
       };
     },
 
-    async invite(email) {
+    async invite(email, options) {
+      // DECISION (§1.125; unchecked against WorkOS, docs/cases-plan.md §4.4 "One email, not two"):
+      // with Mezonas' own invite no WorkOS invitation is made, so WorkOS emails nothing; the person
+      // signs in with the invited address and is linked by it, as when §1.14's email fails.
+      if (options?.providerEmail === false) return { status: "not_sent", reason: "ours" } as const;
       try {
         const { id } = await workos.sendInvitation(email.trim().toLowerCase());
         return { status: "sent", invitationId: id } as const;

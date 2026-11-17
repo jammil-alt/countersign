@@ -355,6 +355,16 @@ describe("invitations", () => {
     expect(workos.sendInvitation).toHaveBeenCalledWith("new@millwork.test");
   });
 
+  it("makes no WorkOS invitation when Mezonas sends its own invite (§1.125)", async () => {
+    const workos = fakeWorkOS();
+    const { adapter } = setup(workos);
+    expect(await adapter.invite("new@millwork.test", { providerEmail: false })).toEqual({
+      status: "not_sent",
+      reason: "ours",
+    });
+    expect(workos.sendInvitation).not.toHaveBeenCalled();
+  });
+
   it("reports a refused or unreachable WorkOS as failed, with the code only", async () => {
     const refused = setup(
       fakeWorkOS({
