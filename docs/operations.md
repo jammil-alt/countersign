@@ -318,8 +318,8 @@ Done by the owner (2026-11-05):
   uses the same redirect URIs: the forwarder sends a signed back-office state to
   `/ops/connections/qbo/callback`. No new redirect URI is needed at Intuit, Google, Zoho, Podio, Ramp or HubSpot.
 - Webhook endpoint `https://staging.mezonas.com/api/connections/qbo/webhook`, subscribed to Account,
-  Bill, Item, Purchase and Vendor. Intuit has no webhook for Attachable: attachments arrive by CDC
-  (every 15 minutes, and on any webhook).
+  Bill, Item, Purchase and Vendor. Intuit has no webhook for Attachable: attachments arrive with a sync
+  (every 15 minutes, and on any webhook) whose CDC names them, read a few files a step.
 - Sandbox company: realm `9341458640918607` (QBO Plus, US).
 - GitHub staging secrets `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `QBO_WEBHOOK_VERIFIER`.
 

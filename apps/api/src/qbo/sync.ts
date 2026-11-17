@@ -36,6 +36,8 @@ export interface QboSyncDeps {
   /** One connection's credentials, each read and write in its own transaction (refreshes stick). */
   credentials: (conn: ConnectionRef) => CredentialsAccessor;
   now?: () => Date;
+  /** Attachment bytes one step downloads at most (tests set a small one). */
+  attachmentBytesPerStep?: number;
 }
 
 export interface QboSyncStepResult {
@@ -50,6 +52,10 @@ export interface QboSyncStepResult {
 
 /** Attachments larger than our documents may be are not downloaded. */
 const MAX_ATTACHMENT_BYTES = 32 * 1024 * 1024;
+// DECISION (audit 2.3): one step downloads at most 16 MB of attachments (plus the one file that
+// crosses it, at most 32 MB), well inside a Worker's 128 MB and a step's 5 minutes; what is left
+// of the page is stored by the next steps, so a retry never downloads what a step stored.
+export const ATTACHMENT_BYTES_PER_STEP = 16 * 1024 * 1024;
 
 export function qboConnectorOf(platform: Platform): QboConnector | null {
   const c = platform.connectors.get(QBO_CONNECTOR_ID) as QboConnector | undefined;
@@ -104,16 +110,27 @@ export async function qboSyncStep(
   };
   let page: Awaited<ReturnType<typeof qboSyncPage>>;
   let files: Map<string, DownloadedFile>;
+  let records: RawRecordInput[];
+  let cursor: object;
+  let done: boolean;
   try {
     const client = await connector.client(ctx);
     page = await qboSyncPage(client, readQboSyncCursor(row.syncCursor), { now: now() });
     const known = await withTenant(deps.db, tenantId, (tx) =>
       knownRecords(tx, tenantId, connectionId, page.records),
     );
-    files = await downloads(
-      page.records.filter((r) => !known.has(recordKey(r))),
+    const got = await downloads(
+      page.records,
+      known,
       (ref) => connector.downloadAttachment?.(ctx, ref) ?? Promise.resolve(null),
+      page.resumeAfter ? (deps.attachmentBytesPerStep ?? ATTACHMENT_BYTES_PER_STEP) : Infinity,
     );
+    files = got.files;
+    // The budget ran out part way: the records before it are stored now, the rest next step.
+    const resume = got.kept < page.records.length ? page.resumeAfter : undefined;
+    records = resume ? page.records.slice(0, got.kept) : page.records;
+    cursor = resume ? resume(got.kept) : page.next;
+    done = resume ? false : page.done;
   } catch (error) {
     if (error instanceof ReconnectRequiredError) {
       // The client must sign in again (`signin_expired`), or renewing our access has failed for a
@@ -144,9 +161,9 @@ export async function qboSyncStep(
     storeQboPage(tx, deps.content, {
       tenantId,
       connectionId,
-      records: page.records,
+      records,
       files,
-      cursor: page.next as unknown as Record<string, never>,
+      cursor: cursor as Record<string, never>,
       initial: page.initial,
       now: now(),
       externalAccountId: row.externalAccountId,
@@ -154,7 +171,7 @@ export async function qboSyncStep(
   );
   if (result.dropped) return skip("the connection was signed in to another company");
   return {
-    done: page.done,
+    done,
     stored: result.stored,
     documents: result.documents,
     eventIds: result.events.map((e) => e.id),
@@ -166,16 +183,25 @@ type Download = (
   ref: AttachmentRef,
 ) => Promise<{ bytes: Uint8Array; mime: string; filename: string } | null>;
 
-/** Downloads the files of new attachments (notes have none). */
+/**
+ * Downloads the files of new attachments (notes have none), in order, until `budget` bytes are
+ * downloaded; `kept` is how many records lead up to where it stopped (all of them when it didn't).
+ */
 async function downloads(
   records: RawRecordInput[],
+  known: Set<string>,
   download: Download,
-): Promise<Map<string, DownloadedFile>> {
+  budget: number,
+): Promise<{ files: Map<string, DownloadedFile>; kept: number }> {
   const files = new Map<string, DownloadedFile>();
-  for (const r of records) {
-    if (r.entityType !== "Attachable" || r.isDeleted) continue;
+  let bytes = 0;
+  for (const [i, r] of records.entries()) {
+    if (r.entityType !== "Attachable" || r.isDeleted || known.has(recordKey(r))) continue;
     const a = mapQboAttachable(r.payload);
     if (!a.fileName || (a.size !== null && a.size > MAX_ATTACHMENT_BYTES)) continue;
+    // At least one file a step, however large; then only while the budget holds.
+    if (bytes > 0 && bytes + (a.size ?? 0) > budget) return { files, kept: i };
+    if (bytes >= budget) return { files, kept: i };
     try {
       const file = await download({
         externalId: a.externalId,
@@ -183,8 +209,10 @@ async function downloads(
         mime: a.contentType ?? "application/octet-stream",
         ...(a.size !== null ? { size: a.size } : {}),
       });
-      if (file)
+      if (file) {
         files.set(a.externalId, { bytes: file.bytes, mime: file.mime, filename: file.filename });
+        bytes += file.bytes.length;
+      }
     } catch (error) {
       // A file QuickBooks can't give (gone, refused) is skipped; a busy QuickBooks fails the
       // step, which retries the page.
@@ -195,7 +223,7 @@ async function downloads(
       throw error;
     }
   }
-  return files;
+  return { files, kept: records.length };
 }
 
 /** The durable part of a Workflow step, as the sync uses it (tests pass an inline runner). */

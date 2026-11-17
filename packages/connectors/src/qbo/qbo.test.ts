@@ -1010,18 +1010,21 @@ describe("qbo sync", () => {
     const s = setup({ now: () => now });
     const { ctx } = await signedIn(s);
     const client = await s.connector.client(ctx());
-    let cursor = null;
+    let cursor: Parameters<typeof qboSyncPage>[1] = null;
     const seen: string[] = [];
     let pages = 0;
     for (;;) {
       const page = await qboSyncPage(client, cursor, { now, pageSize: 2 });
       pages += 1;
-      expect(page.initial).toBe(true);
+      // History, not news: attachments too, read after CDC on their own (audit 2.3).
+      if (page.records.length > 0) expect(page.initial).toBe(true);
       seen.push(...page.records.map((r) => `${r.entityType}:${r.externalId}:${r.externalVersion}`));
       cursor = page.next;
-      if (cursor.phase === "cdc") break;
+      if (page.done) break;
     }
     expect(pages).toBeGreaterThan(6);
+    expect(cursor?.phase).toBe("cdc");
+    expect(seen.at(-1)).toBe("Attachable:5000000000000401:0");
     expect(seen).toEqual(
       expect.arrayContaining([
         "Vendor:56:0",
@@ -1090,6 +1093,12 @@ describe("qbo sync", () => {
       ar: true,
       ledger: true,
       changedSince: "2026-11-05T18:14:00.000Z",
+      // The attachments' place: after the last one read.
+      attachments: {
+        since: "2026-10-31T15:02:40Z",
+        skip: 1,
+        historyUntil: "2026-11-05T17:59:00.000Z",
+      },
     });
   });
 

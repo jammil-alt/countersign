@@ -219,6 +219,9 @@ const ENTITY_PATHS: Record<string, string> = {
   department: "Department",
 };
 
+/** Objects in one CDC answer at most. */
+const CDC_CAP = 1000;
+
 export interface FakeQboOptions {
   /** Authorization codes the token endpoint accepts. */
   codes?: string[];
@@ -310,6 +313,8 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
       return hit[1] as string;
     };
     const max = Number(take(/maxresults\s+(\d+)/i) ?? "100");
+    // QBO answers at most 1,000 rows to a query.
+    if (max > 1000) throw new FakeFault(400, "4001", "maxresults is at most 1000");
     const start = Number(take(/startposition\s+(\d+)/i) ?? "1");
     const order = take(/orderby\s+(.+)$/i);
     const where = take(/^where\s+(.+)$/i);
@@ -911,22 +916,44 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
     });
   }
 
+  // Intuit's docs: a CDC answer carries at most 1,000 objects in all, the deleted ones after the
+  // others; past that it is cut off, with nothing to say so (audit 2.5).
   function cdc(query: Record<string, string>): HttpResponseLike {
     const since = query.changedSince ?? "";
     const entities = (query.entities ?? "").split(",").filter(Boolean);
-    const blocks = entities.map((entity) => {
-      const changed = [...table(entity).values()].filter(
-        (r) => compare(values(r, ["MetaData", "LastUpdatedTime"])[0], since) >= 0,
+    const byTime = (a: Entity, b: Entity) =>
+      compare(
+        values(a, ["MetaData", "LastUpdatedTime"])[0],
+        String(values(b, ["MetaData", "LastUpdatedTime"])[0]),
       );
-      const gone = deleted
+    const changed = entities.map((entity) =>
+      [...table(entity).values()]
+        .filter((r) => compare(values(r, ["MetaData", "LastUpdatedTime"])[0], since) >= 0)
+        .sort(byTime)
+        .map(clone),
+    );
+    const gone = entities.map((entity) =>
+      deleted
         .filter((d) => d.entity === entity && compare(d.at, since) >= 0)
-        .map((d) => ({
-          domain: "QBO",
-          status: "Deleted",
-          Id: d.id,
-          MetaData: { LastUpdatedTime: d.at },
-        }));
-      const rows = [...changed.map(clone), ...gone];
+        .map(
+          (d): Entity => ({
+            domain: "QBO",
+            status: "Deleted",
+            Id: d.id,
+            MetaData: { LastUpdatedTime: d.at },
+          }),
+        ),
+    );
+    let room = CDC_CAP;
+    const take = (rows: Entity[]) => {
+      const kept = rows.slice(0, Math.max(0, room));
+      room -= kept.length;
+      return kept;
+    };
+    const active = changed.map(take);
+    const removed = gone.map(take);
+    const blocks = entities.map((entity, i) => {
+      const rows = [...(active[i] ?? []), ...(removed[i] ?? [])];
       return rows.length ? { [entity]: rows, startPosition: 1, maxResults: rows.length } : {};
     });
     return response(200, { CDCResponse: [{ QueryResponse: blocks }], time: now().toISOString() });
