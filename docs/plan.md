@@ -5051,6 +5051,28 @@ v0.18's scope at the owner's request, as §1.101 and §1.108 are. The design and
 | Not yet | Dictation and "talk it through" on the page (F-4, F-5 in `docs/forms-plan.md`); a one-time code before a link opens; passing a form on to a colleague; saved forms in the Library and the form editor; "Request info" by hand from a contact's page; the Desk door for a client's own users; a rate limit per link beyond the file cap. |
 | Checked | `packages/core/src/forms/index.test.ts`, `apps/api/src/forms.test.ts` (draft, approval card, email, page, file, draft, missing answer, send, the run's output; a form outside the limits; no answer; a test run; forged links), `apps/web/src/forms/FormPage.test.tsx`, and the database's RLS and migration tests. |
 
+### 1.123.1 Build: issues, the safety hold, asks and enhancements, builds (owner, 2026-11-17; M65)
+
+Stream A1 of back office work (`docs/cases-plan.md` §3.2, steps B2 to B5; migrations 0061–0064).
+Outside ARCHITECTURE's v1 scope at the owner's request, as §1.101 and §1.108 are. The
+decisions below are this stream's; §1.123 records the owner's.
+
+| Topic | Decision |
+|---|---|
+| Issues | `issue` (tenant, forced RLS), numbered per client from 1 under an advisory lock on the client. // DECISION: no cross-client count. Its conversation is a `thread` (`subject_type='issue'`, "Request #N"); its history `issue_event` (insert only). Created from the portal, Sloan's `pass_to_lead`, portal Feedback and error reports, the back office, and (B2) Reggie and email (`apps/api/src/work/issues.ts`). |
+| Targets | Core `issueTargets` on the client's business hours: critical replies within a clock hour and is fixed by the end of the client's day; high 4 business hours and 2 business days; normal a business day for both; low 1 and 2. // DECISION: a business day is the platform clock's own (same clock time on the next open day), so every deadline counts days one way. |
+| The safety hold | `agent.hold` (core `AgentHold`), placed on a critical issue about an agent (by the operator, or Reggie: it only tightens), or by the operator route. While held: every external write gets an approval ceiling in the gate (`call-tool.ts`, `whyApproval` reason `held`); an approved plan's attempts are refused (`planned.ts`); reach-out and conversation plans are never automatic; approving a held agent's Desk item answers 409 `agent_held` (dropping one is allowed); redelivery of its approvals waits; `executeAction` fails closed, never written. Test runs are unchanged. // DECISION: only critical holds, never high (owner). // DECISION: no phone alert yet (owner). |
+| Release | `POST /api/ops/agents/:id/release`, an operator with a reason, written in the issue's history and the audit log. Never one of Reggie's or the MCP server's tools (a test checks both lists). Rolling back stays the agent page's. |
+| Folding in | `POST /api/requests` makes an issue (a problem) or an ask (an idea) in the same transaction; Sloan's `pass_to_lead` too (source `sloan`); portal Feedback makes an issue (source `feedback`, or `error_report` from an error page). `GET /api/requests` keeps its shape, read from issues and asks. Change requests and open Feedback raised before are adopted hourly (`adoptLegacy`, once each by the unique `legacy_item_id` and `feedback_id`). // DECISION: the old rows are left as they were, so the previous Worker keeps working. `/ops/requests` and the Utilities Requests tab go to Build's Issues. |
+| The portal | Says "Requests" (owner). A client user sees what they raised, the client admin everything (§1.11's rule). It shows a plain state (We're on it, Waiting on you, Fixed, Closed) and the conversation's client side; never notes, Reggie's read, plan or draft, to-dos, urgency, the work order, the cause, the hold or another client's asks; Mezonas is the lead by name, else "Your Mezonas lead". |
+| The notice | `issue_update`: each reply from us on a request's conversation, to the person who raised it (else the client admins), found by the notification pass (`work/notify-issue.ts`), deduped per message and person. |
+| Asks and enhancements | An ask stays the client's, in its words; an enhancement (operator-only) groups asks across clients and holds none of their words (invariant 11). Decide: do it, later, no (with a note), or sell it (a link to Sales with the enhancement as the deal's origin). Told: the note goes on each grouped ask's conversation. // DECISION: in the operator's words; translation is the conversation's own (§1.69). "It isn't a fault" makes an issue an ask and closes it with the plain words. |
+| Builds | `promised_on` (moving it is the operator's, by `PATCH /api/ops/builds/:id`), `path` (a template build forks the template's live version into the client at once and is linked to that agent), `origin`, and `pipelineStage` derived (core `buildPipelineStage`). The Builder board keeps new agents (`path=new` by default). // DECISION: the connections a build still needs are its open client preconditions. |
+| Requirements request | `POST /api/ops/builds/:id/requirements` sends the fields (given, else the template build's fit-gap set-up) to the client admin's Desk as a `request` item (`subject_type='requirements_request'`) with a due date and a client to-do; the portal form saves a draft and sends the answers once; the build's progress is read from the item. Generic Desk resolve refuses it (its own form). |
+| The work order | Core `workOrder`: critical first (oldest first), then high issues, then any dated build that would miss its promised date after the issues (high 2 days, normal 1, low 2 each, plus its own work), then normal and low issues, then builds by promised date (undated last), then enhancements most-asked first (later last, no left out). The operator's moves (`manual_rank`) go where they put them. Each row says why. // DECISION: "today" is the UTC date: the list spans clients in many zones. |
+| Checked | `packages/core/src/work/work.test.ts` (targets, standing, the prototype's order), `packages/agents/src/runtime/hold.unit.test.ts` (the gate and the backstop), `apps/api/src/work-build.test.ts` (isolation, the portal's leaks, the hold, release, fold-in, asks, builds, requirements, the order, the notice), `apps/web/src/requests/Requests.test.tsx`. |
+| Not yet | The client page's to-dos and the sidebar entry (Your call, §1.123.3); Reggie's read and plays (§1.123.4); email (W1). |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
@@ -6179,6 +6201,17 @@ the public page's routes and screen, the form on the approval card, and the cron
 shows it, the link goes by email once approved, the contact adds a file and sends the answers on
 the page with no sign-in, and the run goes on with them; a form outside the step's limits sends
 nothing; an unanswered request ends at its due date; test runs never send. Against fakes.
+
+### M65: Build: issues, the safety hold, requests folded in (§1.123.1)
+
+Issues with their conversation, history and targets; the safety hold in the gate; requests,
+Sloan's pass_to_lead and portal Feedback folded in; asks and enhancements; builds' promised date,
+origin and requirements request; the work order; the ops Build section and issue page; the
+portal's Requests.
+
+**Done when** the owner and a test client go back and forth on an issue on staging; a held
+agent's run writes nothing and its items wait, and only an operator releases it; `/ops/requests`
+redirects; All work lists everything in the agreed order with a reason for each.
 
 ---
 
