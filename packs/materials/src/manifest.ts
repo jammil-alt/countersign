@@ -18,6 +18,7 @@ import { VENDOR_CONTRACTS_TEMPLATE } from "./contracts/template";
 import { CONTRACT_TOOLS } from "./contracts/tools";
 import { MATERIALS_EVENTS } from "./events";
 import { PACK_ID } from "./ids";
+import { PURCHASING_INTAKE_SECTION } from "./intake";
 import { PRICE_DEFAULTS } from "./pricing/rules";
 import { PURCHASING_SKILLS } from "./purchasing/skills";
 import { PURCHASING_TOOLS } from "./purchasing/tools";
@@ -267,6 +268,8 @@ export const materialsManifest: PackManifest = lazyParse(PackManifest, () => ({
   // built before stay registered for stored steps, and new steps take the Library ones.
   librarySkills: VENDOR_LIBRARY_SKILLS,
   superseded: SUPERSEDED_BY_LIBRARY_SKILLS,
+  // §1.125.2: the area's questions for a client's intake (Getting started's card).
+  intakeSection: PURCHASING_INTAKE_SECTION,
   screens: [
     {
       route: "/reports/materials/prices",

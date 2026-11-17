@@ -4,11 +4,11 @@
 // facts: known (not asked), to confirm ("We think: …", Yes or Change), to ask, or later. Both ways
 // through (the cards and Sloan) read and write the same guide; the plain form always works.
 //
-// The schemas and the small helpers here are the contract every onboarding stream shares. The
-// guide's building and merging (`buildGuide`, `mergeFields`, `guideTotals`, `guideProgress`) are
-// stream INTAKE's: stubs until it lands.
+// The schemas and the small helpers here are the contract every onboarding stream shares; the
+// building, merging, counting and progress below are pure (stream INTAKE, docs/plan.md §1.125.2).
 
 import { z } from "zod";
+import { asksForSecret } from "../forms";
 import { isUuid } from "../ids";
 import { MoneySchema } from "../money";
 import { FactSection } from "./facts";
@@ -274,36 +274,11 @@ export interface BuildGuideInput {
   agents: readonly GuideSectionSource[];
   /** The file's current `theirs` facts. */
   facts: readonly GuideFact[];
-  edits?: GuideEdits;
+  /** The operator's edits (Invite's step 3), as sent or parsed. */
+  edits?: GuideEditsInput;
 }
 
-const notBuilt = (what: string): never => {
-  throw new Error(`${what} is not built yet (stream INTAKE, docs/plan.md §1.125)`);
-};
-
-/**
- * The guide for an intake: sections in covers' order, shared fields merged (`mergeFields`), each
- * field's state from the facts, the operator's edits applied, the totals counted.
- */
-// Stream INTAKE builds this (cases-plan O2).
-export function buildGuide(_input: BuildGuideInput): Guide {
-  return notBuilt("buildGuide");
-}
-
-/**
- * Merges fields asked in more than one section (the same `shareKey`, or the same key): kept in the
- * first section that asks it, the rest named in `alsoIn`; required if any asker requires it.
- */
-// Stream INTAKE builds this (cases-plan O2).
-export function mergeFields(_sections: readonly GuideSection[]): GuideSection[] {
-  return notBuilt("mergeFields");
-}
-
-/** The totals the operator sees, minutes included. */
-// Stream INTAKE builds this (cases-plan O2).
-export function guideTotals(_sections: readonly GuideSection[]): GuideTotals {
-  return notBuilt("guideTotals");
-}
+// ── Building the guide (stream INTAKE, docs/plan.md §1.125.2) ───────────────────────────────────
 
 /** A section's progress for the client's cards and the build's Requirements panel. */
 export const SectionProgress = z.object({
@@ -319,11 +294,395 @@ export const SectionProgress = z.object({
 });
 export type SectionProgress = z.infer<typeof SectionProgress>;
 
-/** Progress per section from the guide and the latest answer to each field. */
-// Stream INTAKE builds this (cases-plan O2/O3).
-export function guideProgress(
-  _guide: Guide,
-  _answers: readonly { fieldKey: string; state: string }[],
-): SectionProgress[] {
-  return notBuilt("guideProgress");
+/** The key a source's field is asked under: its share key, so a shared question is one field. */
+const askedKey = (f: GuideFieldSource): string => f.shareKey ?? f.key;
+
+/**
+ * Who wrote a question, from its key: core's are `general.*`, `area.*` (the generic area
+ * questions) and `tool.*`; an agent section's others are its template's; an area's others its
+ * pack's.
+ */
+// DECISION: the origin is read from the key, so a source needs no field for it: core's keys have
+// their own prefixes, which packs and templates don't use.
+function originOf(key: string, kind: GuideSectionKind): GuideFieldOrigin {
+  if (/^(general|area|tool)\./.test(key)) return "core";
+  return kind === "agent" ? "template" : "pack";
 }
+
+function sectionKeyOf(src: GuideSectionSource): GuideSectionKey | null {
+  if (src.kind === "general") return GENERAL_SECTION_KEY;
+  if (src.kind === "area") return src.area ? areaSectionKey(src.area) : null;
+  return src.templateId ? agentSectionKey(src.templateId) : null;
+}
+
+function sectionOf(src: GuideSectionSource): GuideSection | null {
+  const key = sectionKeyOf(src);
+  if (!key) return null;
+  const seen = new Set<string>();
+  const fields: GuideField[] = [];
+  for (const f of src.fields) {
+    const k = askedKey(f);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    // A question that asks for a secret is never put in a guide (cases-plan §4.5).
+    if (asksForSecret(f.label, f.hint)) continue;
+    fields.push({
+      key: k,
+      sectionKey: key,
+      alsoIn: [],
+      label: f.label,
+      kind: f.kind,
+      ...(f.choices ? { choices: [...f.choices] } : {}),
+      hint: f.hint,
+      requiredToStart: f.requiredToStart,
+      state: "to_ask",
+      weThink: null,
+      fileSection: f.fileSection ?? null,
+      connector: f.connector ?? null,
+      origin: originOf(k, src.kind),
+    });
+  }
+  return {
+    key,
+    kind: src.kind,
+    area: src.kind === "area" ? (src.area ?? null) : null,
+    templateId: src.kind === "agent" ? (src.templateId ?? null) : null,
+    title: src.title,
+    intro: src.intro,
+    fields,
+  };
+}
+
+const STATE_RANK: Record<GuideFieldState, number> = {
+  known: 0,
+  to_confirm: 1,
+  to_ask: 2,
+  later: 3,
+};
+const SURENESS_RANK = { confirmed: 0, seen: 1, heard: 2 } as const;
+
+/**
+ * Merges fields asked in more than one section (the same `shareKey`, or the same key): kept in the
+ * first section that asks it, the rest named in `alsoIn`; required if any asker requires it.
+ */
+export function mergeFields(sections: readonly GuideSection[]): GuideSection[] {
+  const first = new Map<string, GuideField>();
+  const out = sections.map((s) => ({ ...s, fields: [] as GuideField[] }));
+  sections.forEach((s, i) => {
+    for (const f of s.fields) {
+      const kept = first.get(f.key);
+      if (!kept) {
+        const copy: GuideField = { ...f, alsoIn: [...f.alsoIn] };
+        first.set(f.key, copy);
+        out[i]?.fields.push(copy);
+        continue;
+      }
+      for (const k of [s.key, ...f.alsoIn]) {
+        if (k !== kept.sectionKey && !kept.alsoIn.includes(k)) kept.alsoIn.push(k);
+      }
+      kept.requiredToStart ||= f.requiredToStart;
+      kept.fileSection ??= f.fileSection;
+      kept.connector ??= f.connector;
+      // What the file knows best wins: known, then to confirm, then the rest.
+      if (STATE_RANK[f.state] < STATE_RANK[kept.state]) {
+        kept.state = f.state;
+        kept.weThink = f.weThink;
+      }
+    }
+  });
+  return out;
+}
+
+/**
+ * A fact's words as a field's value, when they read as one: text as it is, a number, yes or no, a
+ * date, one or more of the choices. Null when they don't (the field is then asked).
+ */
+export function valueFromText(
+  field: Pick<GuideField, "kind" | "choices">,
+  text: string,
+): AnswerValue | null {
+  const t = text.trim();
+  if (!t) return null;
+  switch (field.kind) {
+    case "text":
+      return t.length <= 500 ? t : null;
+    case "long_text":
+      return t.slice(0, 4000);
+    case "number": {
+      if (!/^-?[\d,\s]+(\.\d+)?$/.test(t)) return null;
+      const n = Number(t.replace(/[,\s]/g, ""));
+      return Number.isFinite(n) ? n : null;
+    }
+    case "yes_no":
+      return /^(yes|y|true)$/i.test(t) ? true : /^(no|n|false)$/i.test(t) ? false : null;
+    case "date":
+      return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : null;
+    case "choice":
+      return field.choices?.find((c) => c.toLowerCase() === t.toLowerCase()) ?? null;
+    case "choices": {
+      const picked = t.split(/[,;]/).map((p) => p.trim().toLowerCase());
+      const out = picked.map((p) => field.choices?.find((c) => c.toLowerCase() === p));
+      return out.every((c): c is string => c !== undefined) ? out : null;
+    }
+    default:
+      // Money, files and tools are never read from words: they are asked (or connected).
+      return null;
+  }
+}
+
+/** What the card calls a fact's line when the fact answers no question of its own. */
+const FACT_LINE_LABELS: Record<FactSection, string> = {
+  business: "The business",
+  people: "People",
+  systems: "Tools you use",
+  volumes: "How much",
+  processes: "How it works today",
+  pains: "What could be better",
+  limits: "Limits",
+  notes: "Other",
+};
+
+/** The field key of a fact's own "We think" line. */
+export function factFieldKey(factId: string): string | null {
+  const k = factId.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return k ? `fact.${k.slice(0, 90)}` : null;
+}
+
+/**
+ * Fills fields from the file's `theirs` facts: a fact naming a field (an earlier intake's answer)
+ * fills it, confirmed → known, heard or seen → to confirm; the surest wins. A fact that names no
+ * field is a "We think" line of its own, on the card its section belongs with.
+ */
+// DECISION: a fact typed into the file by hand names no question, and nothing reads its words to
+// guess one (no model in the guide). It is its own line to confirm ("We think: bills come to
+// ap@acme.com", Yes or Change) on the general card, else the first card that files into its
+// section, else the first card; a confirmed one is known and not asked.
+function fillFromFacts(sections: GuideSection[], facts: readonly GuideFact[]): void {
+  const fields = new Map<string, GuideField>();
+  for (const s of sections) for (const f of s.fields) fields.set(f.key, f);
+  const best = new Map<string, GuideFact>();
+  const loose: GuideFact[] = [];
+  for (const fact of facts) {
+    const field = fact.fieldKey ? fields.get(fact.fieldKey) : undefined;
+    if (!field) {
+      loose.push(fact);
+      continue;
+    }
+    const was = best.get(field.key);
+    // Equally sure: the later fact (input order) wins.
+    if (!was || SURENESS_RANK[fact.sureness] <= SURENESS_RANK[was.sureness]) {
+      best.set(field.key, fact);
+    }
+  }
+  for (const [key, fact] of best) {
+    const field = fields.get(key);
+    if (!field) continue;
+    const value = valueFromText(field, fact.text);
+    if (value === null) continue;
+    field.state = fact.sureness === "confirmed" ? "known" : "to_confirm";
+    field.weThink = { value, text: fact.text, factIds: [fact.id] };
+  }
+  for (const fact of loose) {
+    const key = factFieldKey(fact.id);
+    if (!key || fields.has(key)) continue;
+    const home =
+      sections.find((s) => s.key === GENERAL_SECTION_KEY) ??
+      sections.find((s) => s.fields.some((f) => f.fileSection === fact.section)) ??
+      sections[0];
+    if (!home) return;
+    const field: GuideField = {
+      key,
+      sectionKey: home.key,
+      alsoIn: [],
+      label: FACT_LINE_LABELS[fact.section],
+      kind: "long_text",
+      hint: "",
+      requiredToStart: false,
+      state: fact.sureness === "confirmed" ? "known" : "to_confirm",
+      weThink: { value: fact.text.slice(0, 4000), text: fact.text, factIds: [fact.id] },
+      fileSection: fact.section,
+      connector: null,
+      origin: "operator",
+    };
+    home.fields.push(field);
+    fields.set(key, field);
+  }
+}
+
+const slug = (text: string): string =>
+  text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60) || "question";
+
+/** The operator's edits that would ask for a secret (refused: cases-plan §4.5). */
+export function guideEditProblems(edits: GuideEditsInput | undefined): string[] {
+  if (!edits) return [];
+  const out: string[] = [];
+  for (const r of edits.reword ?? []) {
+    if (asksForSecret(r.label, r.hint)) out.push(`${r.key}: a question never asks for a secret`);
+  }
+  for (const a of edits.add ?? []) {
+    if (asksForSecret(a.label, a.hint)) {
+      out.push(`"${a.label}": a question never asks for a secret`);
+    }
+  }
+  return out;
+}
+
+function applyEdits(sections: GuideSection[], edits: GuideEdits): void {
+  const drop = new Set(edits.drop);
+  const later = new Set(edits.later);
+  const reword = new Map(edits.reword.map((r) => [r.key, r]));
+  const keys = new Set<string>();
+  for (const s of sections) {
+    s.fields = s.fields.filter((f) => !drop.has(f.key));
+    for (const f of s.fields) {
+      keys.add(f.key);
+      const r = reword.get(f.key);
+      if (r && !asksForSecret(r.label, r.hint)) {
+        f.label = r.label;
+        if (r.hint !== undefined) f.hint = r.hint;
+      }
+      if (later.has(f.key) && f.state !== "known") f.state = "later";
+    }
+  }
+  for (const a of edits.add) {
+    const s = sections.find((x) => x.key === a.sectionKey);
+    if (!s || asksForSecret(a.label, a.hint)) continue;
+    let key = `ask.${slug(a.label)}`;
+    for (let n = 2; keys.has(key); n++) key = `ask.${slug(a.label).slice(0, 55)}-${n}`;
+    keys.add(key);
+    s.fields.push({
+      key,
+      sectionKey: s.key,
+      alsoIn: [],
+      label: a.label,
+      kind: a.kind,
+      ...(a.choices ? { choices: [...a.choices] } : {}),
+      hint: a.hint,
+      requiredToStart: a.requiredToStart,
+      state: "to_ask",
+      weThink: null,
+      fileSection: null,
+      connector: null,
+      origin: "operator",
+    });
+  }
+}
+
+/**
+ * The guide for an intake: sections in covers' order, shared fields merged (`mergeFields`), each
+ * field's state from the facts, the operator's edits applied, the totals counted. A covered
+ * section without a source is left out; a question asking for a secret is never in it.
+ */
+export function buildGuide(input: BuildGuideInput): Guide {
+  const wanted = sectionKeysOf(input.covers);
+  const sources = [
+    ...(input.covers.general && input.general ? [input.general] : []),
+    ...input.areas,
+    ...input.agents,
+  ];
+  const byKey = new Map<string, GuideSection>();
+  for (const src of sources) {
+    const s = sectionOf(GuideSectionSource.parse(src));
+    if (s && wanted.includes(s.key) && !byKey.has(s.key)) byKey.set(s.key, s);
+  }
+  const ordered = wanted.flatMap((k) => {
+    const s = byKey.get(k);
+    return s ? [s] : [];
+  });
+  const sections = mergeFields(ordered);
+  fillFromFacts(sections, input.facts);
+  applyEdits(sections, GuideEdits.parse(input.edits ?? {}));
+  return { version: GUIDE_VERSION, sections, totals: guideTotals(sections) };
+}
+
+/** Minutes each kind of question takes, for the estimate. */
+// DECISION: half a minute to confirm a line, a minute a question (two for long answers and files),
+// three to connect a tool; the total is rounded up to five minutes ("about 15 minutes"), and
+// nothing to do is zero.
+const MINUTES = { confirm: 0.5, question: 1, long: 2, tool: 3 } as const;
+
+/** The totals the operator sees, minutes included. */
+export function guideTotals(sections: readonly GuideSection[]): GuideTotals {
+  const totals = { known: 0, toConfirm: 0, toAsk: 0, later: 0, tools: 0, minutes: 0 };
+  let minutes = 0;
+  for (const s of sections) {
+    for (const f of s.fields) {
+      if (f.state === "known") totals.known++;
+      else if (f.state === "later") totals.later++;
+      else if (f.kind === "tool") {
+        totals.tools++;
+        minutes += MINUTES.tool;
+      } else if (f.state === "to_confirm") {
+        totals.toConfirm++;
+        minutes += MINUTES.confirm;
+      } else {
+        totals.toAsk++;
+        minutes += f.kind === "long_text" || f.kind === "files" ? MINUTES.long : MINUTES.question;
+      }
+    }
+  }
+  totals.minutes = minutes > 0 ? Math.ceil(minutes / 5) * 5 : 0;
+  return totals;
+}
+
+/** Answer states that answer a field (a "We think" line confirmed or changed counts). */
+export const ANSWERED_STATES: readonly string[] = ["answered", "confirmed", "corrected"];
+/** Answer states that leave a field open without blocking: not sure, and later. */
+export const OPEN_ITEM_STATES: readonly string[] = ["not_sure", "later"];
+
+export interface ProgressExtras {
+  /** The people on the intake: who has a card they were asked for (an admin has them all). */
+  people?: readonly { name: string; sections: readonly string[] | null; isAdmin: boolean }[];
+  /** One question asked of someone ("Ask someone else"): the field and who has it. */
+  asked?: readonly { fieldKey: string; name: string }[];
+  /** A card's Start with this or Not now, by section key. */
+  decisions?: Readonly<Record<string, "start" | "not_now">>;
+}
+
+/** The fields a section asks now: its own, neither known nor saved for later. */
+export function askedFields(section: Pick<GuideSection, "fields">): GuideField[] {
+  return section.fields.filter((f) => f.state === "to_ask" || f.state === "to_confirm");
+}
+
+/**
+ * Progress per section from the guide and the answers (the latest to each field counts: given
+ * oldest first, the last one wins).
+ */
+export function guideProgress(
+  guide: Guide,
+  answers: readonly { fieldKey: string; state: string }[],
+  extras: ProgressExtras = {},
+): SectionProgress[] {
+  const latest = new Map<string, string>();
+  for (const a of answers) latest.set(a.fieldKey, a.state);
+  const askedOf = new Map((extras.asked ?? []).map((a) => [a.fieldKey, a.name]));
+  const isAnswered = (key: string) => ANSWERED_STATES.includes(latest.get(key) ?? "");
+  return guide.sections.map((s) => {
+    const fields = askedFields(s);
+    const someone = extras.people?.find(
+      (p) => !p.isAdmin && p.sections !== null && p.sections.includes(s.key),
+    );
+    return {
+      sectionKey: s.key,
+      answered: fields.filter((f) => isAnswered(f.key)).length,
+      total: fields.length,
+      notSure: fields.filter((f) => OPEN_ITEM_STATES.includes(latest.get(f.key) ?? "")).length,
+      missing: fields
+        .filter((f) => f.requiredToStart && !isAnswered(f.key))
+        .map((f) => ({
+          fieldKey: f.key,
+          label: f.label,
+          who: askedOf.get(f.key) ?? someone?.name ?? null,
+        })),
+      decision: extras.decisions?.[s.key] ?? null,
+    };
+  });
+}
+
+/** A card is done once each question is answered or marked not sure (an open item, not a blocker). */
+export const sectionDone = (p: Pick<SectionProgress, "answered" | "notSure" | "total">): boolean =>
+  p.answered + p.notSure >= p.total;

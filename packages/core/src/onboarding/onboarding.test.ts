@@ -17,16 +17,12 @@ import { routes } from "../api/routes";
 import { renderBrandedEmail } from "../email/layout";
 import { renderInviteEmail } from "../email/onboarding";
 import {
-  buildGuide,
   Covers,
   coversAnything,
   currentFacts,
   fieldValueSchema,
   GUIDE_FIELD_KINDS,
-  guideProgress,
-  guideTotals,
   INTAKE_AREAS,
-  mergeFields,
   NewClientFact,
   sectionKeysOf,
   theirFacts,
@@ -179,22 +175,6 @@ describe("the onboarding routes", () => {
 
 describe("the other streams' seams", () => {
   it("throw until built", () => {
-    const covers = { general: true, areas: [], templateIds: [] };
-    expect(() => buildGuide({ covers, general: null, areas: [], agents: [], facts: [] })).toThrow(
-      /stream INTAKE/,
-    );
-    expect(() => mergeFields([])).toThrow(/stream INTAKE/);
-    expect(() => guideTotals([])).toThrow(/stream INTAKE/);
-    expect(() =>
-      guideProgress(
-        {
-          version: 1,
-          sections: [],
-          totals: { known: 0, toConfirm: 0, toAsk: 0, later: 0, tools: 0, minutes: 0 },
-        },
-        [],
-      ),
-    ).toThrow(/stream INTAKE/);
     expect(() =>
       renderBrandedEmail({
         locale: "en",
