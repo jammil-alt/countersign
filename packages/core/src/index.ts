@@ -117,6 +117,8 @@ export * from "./api/usage";
 export * from "./api/voice";
 // v0.14 W4-A: WhatsApp through Meta
 export * from "./api/whatsapp-meta";
+// docs/plan.md §1.123: back office work (Build).
+export * from "./api/work";
 // v0.14 W4-B
 export * from "./api/zoho";
 export * from "./approvals/rules";
@@ -268,6 +270,7 @@ export * from "./triggers";
 export * from "./units";
 export * from "./weekly/schemas";
 export * from "./weekly/week";
+export * from "./work";
 // v0.12 W2-B
 export * from "./workflow/automation";
 export * from "./workflow/validate";

@@ -14,6 +14,7 @@ import {
   agent,
   appUser,
   inboxItem,
+  issue,
   membership,
   run,
   stepRun,
@@ -461,12 +462,12 @@ describe.skipIf(!h)("Sloan, the account agent", () => {
     expect(j(calls[0]?.output)).toMatchObject({ status: "refused", loosens: true });
     const passed = j(calls[1]?.output);
     expect(passed.status).toBe("passed");
+    // docs/plan.md §1.123: a request Sloan passes is an issue in Build, marked as Sloan's.
     const [request] = await H.t.db
       .select()
-      .from(inboxItem)
-      .where(eq(inboxItem.id, passed.requestId as string));
-    expect(request).toMatchObject({ kind: "change_request", assigneeRole: "operator" });
-    expect(j(request?.payload)).toMatchObject({ text, raisedBy: H.A.admin, threadId: adminThread });
+      .from(issue)
+      .where(eq(issue.id, passed.requestId as string));
+    expect(request).toMatchObject({ source: "sloan", raisedBy: H.A.admin, description: text });
     const after = await H.t.db
       .select({ id: inboxItem.id })
       .from(inboxItem)

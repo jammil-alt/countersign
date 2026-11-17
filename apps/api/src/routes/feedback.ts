@@ -28,6 +28,7 @@ import {
   type Services,
 } from "../http";
 import { signerFor } from "../storage";
+import { issueFromFeedback } from "../work/legacy";
 
 type FeedbackRow = typeof feedback.$inferSelect;
 
@@ -282,7 +283,19 @@ export function feedbackRouteHandlers(app: Hono<AppEnv>): void {
   mount(app, routes.portalSendFeedback, async ({ tx, tenantIds, session, body }) => {
     const tenantId = tenantIds[0] as string;
     if (!(await portalEnabled(tx, tenantId))) throw feedbackOff();
-    return insertFeedback(tx, { ...body, tenantId, userId: session.user.id });
+    const made = await insertFeedback(tx, { ...body, tenantId, userId: session.user.id });
+    // docs/plan.md §1.123: the client hears back now: what they sent is an issue in Build, in the
+    // same transaction. Back-office feedback is unchanged.
+    await issueFromFeedback(tx, {
+      id: made.id,
+      tenantId,
+      userId: session.user.id,
+      comment: body.comment,
+      source: body.source ?? "button",
+      path: body.path,
+      createdAt: new Date(),
+    });
+    return made;
   });
 
   mount(app, routes.portalFeedbackScreenshot, async (ctx) => {

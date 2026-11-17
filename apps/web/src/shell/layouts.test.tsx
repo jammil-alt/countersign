@@ -379,7 +379,7 @@ describe("portal layout", () => {
     expect(screen.getByTestId("shell-avatar")).toHaveClass("ds-avatar--self");
 
     // Review 1: the sidebar lists places (Home, Inbox, Runs, Accounts, Contacts), Settings at its
-    // foot; no agents, no "Your business", no "More", no Sloan card.
+    // foot; no agents, no "Your business", no "More", no Sloan card. §1.123: and Requests.
     const nav = screen.getByRole("complementary", { name: "Navigation" });
     const links = within(nav)
       .getAllByRole("link")
@@ -387,6 +387,7 @@ describe("portal layout", () => {
     expect(links).toEqual([
       ["portal-nav-home", "/"],
       ["portal-nav-inbox", "/inbox"],
+      ["portal-nav-requests", "/requests"],
       ["portal-nav-runs", "/runs"],
       ["portal-nav-accounts", "/accounts"],
       ["portal-nav-contacts", "/contacts"],

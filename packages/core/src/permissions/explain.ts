@@ -23,9 +23,19 @@ import { type GrantLimits, grantLevel } from "./grants";
  * - `mode`: the agent only suggests;
  * - `stage`: the agent is in its trial or sign-off stage, where every write is signed;
  * - `person`: the person the change reaches asked to see it first (their autonomy);
- * - `always`: §1.73, the change is one a person always signs (publishing, posting).
+ * - `always`: §1.73, the change is one a person always signs (publishing, posting);
+ * - `held`: §1.123, the agent is on a safety hold while Mezonas fixes a problem.
  */
-export const WHY_CODES = ["step", "matrix", "grant", "mode", "stage", "person", "always"] as const;
+export const WHY_CODES = [
+  "step",
+  "matrix",
+  "grant",
+  "mode",
+  "stage",
+  "person",
+  "always",
+  "held",
+] as const;
 export const WhyCode = z.enum(WHY_CODES);
 export type WhyCode = z.infer<typeof WhyCode>;
 
@@ -80,6 +90,8 @@ export interface ExplainWriteInput {
   entity?: string | null | undefined;
   /** §1.73: the tool always needs a person (core `isAlwaysSigned`). */
   alwaysSigned?: boolean | undefined;
+  /** §1.123: the agent is on a safety hold. */
+  held?: boolean | undefined;
 }
 
 /**
@@ -108,6 +120,7 @@ export function explainWrite(input: ExplainWriteInput): WhyApproval {
   if (stage) reasons.push("stage");
   if (input.person === "approval") reasons.push("person");
   if (input.alwaysSigned) reasons.push("always");
+  if (input.held) reasons.push("held");
   return {
     reasons,
     ...(stage ? { stage } : {}),

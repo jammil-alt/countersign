@@ -4,7 +4,14 @@
 // those routes as the operator through `invokeRoute` (its roles, scope, checks and audit row,
 // marked as the build's), and the build is saved in short operator-scoped transactions.
 
-import { BuilderError, buildTurn, latestVersion, makeTestCases } from "@countersign/agents";
+import {
+  BuilderError,
+  buildTurn,
+  fork,
+  getAgent,
+  latestVersion,
+  makeTestCases,
+} from "@countersign/agents";
 import {
   BRIEF_FIELDS,
   BRIEF_LABELS,
@@ -38,9 +45,9 @@ import {
   SETUP_WORDS,
   testCaseProblems,
 } from "@countersign/core";
-import { build, buildItem, buildMessage, skillVersion, type Tx } from "@countersign/db";
+import { agent, build, buildItem, buildMessage, skillVersion, type Tx } from "@countersign/db";
 import { createLlmClient, type LlmTransport } from "@countersign/llm";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, like } from "drizzle-orm";
 import type { Hono } from "hono";
 import {
   addEvent,
@@ -81,6 +88,21 @@ function transport(services: Pick<Services, "deps" | "env">): LlmTransport {
 }
 
 const now = () => new Date();
+
+/** The template's slug in the client, or the first free `<slug>-2`, `-3`, … */
+async function freeSlug(tx: Tx, clientId: string, slug: string): Promise<string> {
+  const taken = new Set(
+    (
+      await tx
+        .select({ slug: agent.slug })
+        .from(agent)
+        .where(and(eq(agent.tenantId, clientId), like(agent.slug, `${slug}%`)))
+    ).map((r) => r.slug),
+  );
+  if (!taken.has(slug)) return slug;
+  for (let n = 2; n < 100; n++) if (!taken.has(`${slug}-${n}`)) return `${slug}-${n}`;
+  throw new HttpError(409, "slug_taken", "the client has too many agents from this template");
+}
 
 function refuseClosed(row: BuildRow): void {
   if (row.status !== "open") {
@@ -782,6 +804,27 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsStartBuild, async (ctx) => {
     const clientId = ctx.body.clientId ?? null;
     if (clientId) ensureClient(ctx, clientId);
+    // docs/plan.md §1.123: a build from a template forks it into the client at once, as Reggie's
+    // agent_add does (the fork is the client's agent from here on); a new agent goes through the
+    // Builder's phases.
+    const path = ctx.body.path ?? "new";
+    let agentId: string | null = null;
+    if (path === "template" && clientId && ctx.body.templateId) {
+      const template = await getAgent(ctx.tx, ctx.body.templateId);
+      if (template.kind !== "template")
+        throw new HttpError(422, "not_a_template", "not a template");
+      if (!template.liveVersionId) {
+        throw new HttpError(409, "no_live_version", "publish the template first");
+      }
+      const slug = await freeSlug(ctx.tx, clientId, template.slug);
+      const created = await fork(ctx.tx, {
+        tenantId: clientId,
+        slug,
+        templateVersionId: template.liveVersionId,
+        actorId: ctx.session.user.id,
+      });
+      agentId = created.agent.id;
+    }
     const [row] = await ctx.tx
       .insert(build)
       .values({
@@ -789,6 +832,12 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
         title: ctx.body.title,
         clientId,
         createdBy: ctx.session.user.id,
+        path,
+        templateId: path === "template" ? (ctx.body.templateId ?? null) : null,
+        agentId,
+        originKind: ctx.body.origin?.kind ?? null,
+        originId: ctx.body.origin?.id ?? null,
+        promisedOn: ctx.body.promisedOn ?? null,
       })
       .returning();
     if (!row) throw new Error("build insert returned nothing");
@@ -806,7 +855,7 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsUpdateBuild, async (ctx) => {
     const row = await readBuild(ctx.tx, ctx.params.id, true);
     refuseClosed(row);
-    const { title, brief, testPlan } = ctx.body;
+    const { title, brief, testPlan, promisedOn, waitingOn, statusLine, stuck } = ctx.body;
     let fitgap: FitGap | undefined;
     if (ctx.body.fitgap) {
       // What's in scope and what needs to be true; a verdict changes only with a reason.
@@ -821,6 +870,11 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
         ...(brief ? { brief } : {}),
         ...(fitgap ? { fitgap } : {}),
         ...(testPlan ? { testPlan } : {}),
+        // docs/plan.md §1.123: moving a promised date is the operator's (this route's only).
+        ...(promisedOn !== undefined ? { promisedOn } : {}),
+        ...(waitingOn ? { waitingOn } : {}),
+        ...(statusLine !== undefined ? { statusLine } : {}),
+        ...(stuck !== undefined ? { stuck } : {}),
         updatedAt: now(),
       })
       .where(eq(build.id, row.id));

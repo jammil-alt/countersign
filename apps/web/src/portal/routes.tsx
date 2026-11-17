@@ -6,6 +6,9 @@
 // The route sweep (#141, apps/web/e2e/route-sweep.mjs) reads the `path="…"` lines of this file.
 import { Route } from "react-router-dom";
 import { PortalRecordScreen } from "../records/RecordScreens";
+import { RequestDetailScreen } from "../requests/RequestDetail";
+import { RequestsScreen } from "../requests/RequestsScreen";
+import { RequirementsScreen } from "../requests/RequirementsForm";
 import { ConnectClaudeScreen } from "../session/ConnectClaude";
 import { Redirect } from "../shell/Redirect";
 import { AccountsScreen, VaultRedirect } from "./screens/Accounts";
@@ -99,7 +102,9 @@ export const portalRoutes = (
     <Route path="access/*" element={<VaultRedirect />} />
     <Route path="directory" element={<Redirect to="/contacts" />} />
     <Route path="billing" element={<Redirect to="/settings/billing" />} />
-    {/* Asking us for a change is a mode of Sloan ("Ask us"). */}
-    <Route path="requests" element={<Redirect to="/sloan?mode=change" />} />
+    {/* §1.123: Requests, the client's issues and asks; Sloan's change mode stays. */}
+    <Route path="requests" element={<RequestsScreen />} />
+    <Route path="requests/:id" element={<RequestDetailScreen />} />
+    <Route path="requirements/:itemId" element={<RequirementsScreen />} />
   </>
 );

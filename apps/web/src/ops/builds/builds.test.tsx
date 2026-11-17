@@ -2,7 +2,7 @@
 // its stepper, the conversation (chips answer, the words leave the box at once), the brief with the
 // gate's reasons on Confirm, a done phase looked at again and gone back to with a reason, and open
 // items whose state changes.
-import type { BuildDetail } from "@countersign/core";
+import type { BuildDetail, BuildSummary } from "@countersign/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -14,7 +14,7 @@ const ID = "00000000-0000-4000-8000-0000000b0001";
 const ITEM = "00000000-0000-4000-8000-0000000b0101";
 const at = "2026-11-15T10:00:00.000Z";
 
-const summary = {
+const summary: BuildSummary = {
   id: ID,
   kind: "agent" as const,
   title: "Invoice intake reviewer",
@@ -31,6 +31,16 @@ const summary = {
   createdAt: at,
   updatedAt: at,
   phaseAt: at,
+  path: "new",
+  templateId: null,
+  promisedOn: null,
+  origin: null,
+  requirements: null,
+  pipelineStage: "building",
+  standing: "you",
+  waitingOn: "operator",
+  statusLine: "",
+  stuck: false,
 };
 
 function detail(over: Partial<BuildDetail> = {}): BuildDetail {

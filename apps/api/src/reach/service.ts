@@ -57,6 +57,7 @@ import {
   type ReachPlan,
   type ReachReply,
   reachSubject,
+  readHold,
   routeApproval,
   type Urgency,
   type WhyApproval,
@@ -904,7 +905,9 @@ export function reachPort(deps: ReachDeps): ReachPort {
           effectiveMode(definition, loaded.agentRow.stage) === "act" &&
           plan.channels.every((ch) => loaded.channels.get(ch)?.create === "auto") &&
           // v0.12 W1-G: the person's `approval` on a planned channel asks for a sign (§1.42).
-          !plan.needsSignature;
+          !plan.needsSignature &&
+          // docs/plan.md §1.123: a held agent's messages wait for a person.
+          readHold(loaded.agentRow.hold) === null;
         // The person's language, else their organization's, else the client's (§1.27).
         const language = (await contactLanguage(tx, who)).language;
         const stored: StoredPlan = {

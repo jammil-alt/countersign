@@ -133,6 +133,7 @@ import { AgentRunsNow, DayRuns, usageRoutes } from "./usage";
 import { voiceRoutes } from "./voice";
 // v0.14 W4-A: WhatsApp through Meta
 import { whatsappMetaRoutes } from "./whatsapp-meta";
+import { workRoutes } from "./work";
 // v0.14 W4-B
 import { zohoRoutes } from "./zoho";
 
@@ -2417,5 +2418,7 @@ export const routes = {
   ...skillModelRoutes,
   // Reshape data (owner, 2026-11-11): propose a Reshape step's mapping, and its sample values.
   ...reshapeRoutes,
+  // docs/plan.md §1.123: back office work
+  ...workRoutes,
 } as const;
 export type Routes = typeof routes;

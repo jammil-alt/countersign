@@ -83,6 +83,26 @@ export async function executeAction(
   // live release for its agent, connection and run. An approval is not a release, and nothing here
   // asks for one: without it the write fails.
   // DECISION: the check is made before the action is claimed, so a refused write never starts.
+  // docs/plan.md §1.123: the safety hold, as a backstop. Approving a held agent's items is refused
+  // and their redelivery waits (apps/api), so a write reaches here held only when the hold came
+  // between its approval and its execution: it fails closed, never written.
+  if ((found.status === "approved" || found.status === "executing") && found.runId) {
+    const owner = await store.run(input.tenantId, found.runId);
+    if (
+      owner &&
+      owner.mode !== "test" &&
+      store.agentHold &&
+      (await store.agentHold(input.tenantId, owner.agentId))
+    ) {
+      const message = "the agent is on a safety hold";
+      const failed = await actions.fail(input.tenantId, found.id, {
+        message,
+        held: true,
+        notWritten: true,
+      });
+      return { status: "failed", action: failed, error: message };
+    }
+  }
   if (found.status === "approved" || found.status === "executing") {
     const refused = await releaseRefusal(deps, input.tenantId, found, input.runId);
     if (refused) {

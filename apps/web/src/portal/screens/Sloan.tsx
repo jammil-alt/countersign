@@ -143,7 +143,7 @@ export function PortalSloanScreen() {
               label: t("table.askSloan"),
               active: !changeMode,
             },
-            { to: PORTAL_PATHS.requests, label: t("sloan.mode.change"), active: changeMode },
+            { to: PORTAL_PATHS.sloanChange, label: t("sloan.mode.change"), active: changeMode },
           ]}
         />
       </div>
@@ -430,7 +430,7 @@ function SloanRail() {
         action={
           // What Sloan passes to us lands under "Ask for a change", with our answers.
           <Link
-            to={PORTAL_PATHS.requests}
+            to={PORTAL_PATHS.sloanChange}
             className="text-sm text-link hover:underline"
             data-testid="portal-sloan-requests"
           >

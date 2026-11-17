@@ -1,7 +1,7 @@
-// Requests on both surfaces: the client asks from Sloan's "Ask for a change" (`/sloan?mode=change`;
-// `/requests` redirects there, QA round 1) and follows the reply; the operator
-// works the queue at /ops/requests, hands a request to the Builder, and resolves it as done with
-// the versions made for it, or declines it with a note.
+// Requests on both surfaces. The client asks from Sloan's "Ask for a change" (`/sloan?mode=change`)
+// and follows the reply; §1.123: `/requests` is the client's Requests page (its issues and asks, a
+// conversation each), and the back office works them in Build (`/ops/requests` redirects to its
+// Issues): the work order with a reason per row, and the issue with its notes kept internal.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -48,7 +48,7 @@ describe("portal requests", () => {
       "GET /api/requests": () => ({ items: [portalItem()] }),
       "GET /api/threads": () => ({ threads: [] }),
     });
-    renderAt("/requests?x=1", api);
+    renderAt("/sloan?mode=change&x=1", api);
     expect(await screen.findByRole("heading", { name: "Sloan", level: 1 })).toBeInTheDocument();
     const modes = screen.getByTestId("portal-sloan-modes");
     expect(within(modes).getByRole("link", { name: "Ask for a change" })).toHaveClass(
@@ -129,7 +129,7 @@ describe("portal requests", () => {
         ],
       }),
     });
-    renderAt("/requests", api);
+    renderAt("/sloan?mode=change", api);
     const card = await screen.findByTestId(`portal-request-${REQ}`);
     expect(within(card).getByTestId("portal-request-status")).toHaveClass("ds-pill--positive");
     const reply = within(card).getByTestId("portal-request-reply");
@@ -140,160 +140,213 @@ describe("portal requests", () => {
   });
 });
 
-const opsItem = (over: Record<string, unknown> = {}) => ({
-  id: REQ,
-  client: { id: DEMO, name: "Demo client" },
-  subject: "Add Acme as a vendor",
-  text: "We started buying from Acme Lumber.",
-  agent: { id: SERVICE, slug: "intake", name: "Intake", serviceName: "Invoice intake" },
-  status: "open",
-  raisedBy: { id: "u", email: "admin@demo.example.com", name: "Demo admin" },
-  createdAt: "2026-11-04T10:00:00.000Z",
-  resolvedAt: null,
-  resolvedBy: null,
-  note: null,
-  links: [],
+const CLIENT_A = { id: DEMO, name: "Demo client" };
+const ISSUE = "00000000-0000-4000-8000-0000000ae101";
+
+const workItem = (over: Record<string, unknown> = {}) => ({
+  kind: "issue",
+  id: ISSUE,
+  number: 7,
+  title: "Bookkeeper posted 14 card charges twice",
+  description: "The bank re-sent yesterday's file.",
+  client: CLIENT_A,
+  asks: 0,
+  agent: null,
+  stage: "cause",
+  stageName: "Finding the cause",
+  standing: "you",
+  statusLine: "Hold on · review",
+  urgency: "critical",
+  due: "2026-11-17T23:00:00.000Z",
+  rank: 1,
+  why: "Critical: ahead of everything.",
+  moved: false,
+  manual: false,
+  held: true,
+  fromTemplate: false,
+  createdAt: "2026-11-17T06:12:00.000Z",
+  updatedAt: "2026-11-17T06:12:00.000Z",
   ...over,
 });
 
-const AGENT = {
-  id: SERVICE,
-  tenantId: DEMO,
-  kind: "client",
-  slug: "intake",
-  name: "Intake",
-  role: null,
-  templateId: null,
-  linked: true,
-  liveVersionId: VERSION,
-  status: "active",
-  runStatus: "active",
-  serviceName: "Invoice intake",
-  serviceDescription: null,
-  bindings: {},
-  approver: null,
-  testCopy: false,
-  createdAt: "2026-11-04T09:00:00.000Z",
-};
-const VERSION_ROW = {
-  id: VERSION,
-  agentId: SERVICE,
-  version: 4,
-  status: "draft",
-  bundleHash: "h",
-  changeNote: null,
-  releaseNote: null,
-  authorType: "operator",
-  authorId: null,
-  parentVersionId: null,
-  basedOnTemplateVersionId: null,
-  mergedFromVersionIds: null,
-  createdAt: "2026-11-04T11:00:00.000Z",
+const hold = {
+  agent: { id: SERVICE, name: "Bookkeeper" },
+  client: CLIENT_A,
+  since: "2026-11-17T06:12:00.000Z",
+  by: "reggie",
+  reason: "Critical issue #7",
+  issueId: ISSUE,
+  issueNumber: 7,
+  held: { writes: 3, messages: 1 },
 };
 
-function opsApi() {
-  let current = opsItem();
-  const bodies: unknown[] = [];
+function buildApi() {
+  const sent: unknown[] = [];
   const api = fakeApi({
     "GET /api/session": () => OPERATOR_SESSION,
-    "GET /api/ops/requests": ({ url }) => {
-      const status = url.searchParams.get("status") ?? "open";
-      const open = current.status === "open";
-      return {
-        items: status === "all" || (status === "open") === open ? [current] : [],
-      };
-    },
-    [`GET /api/ops/clients/${DEMO}/agents`]: () => ({ agents: [AGENT] }),
-    "GET /api/ops/templates": () => ({ templates: [] }),
-    [`GET /api/ops/agents/${SERVICE}`]: () => ({
-      agent: AGENT,
-      versions: [VERSION_ROW],
-      live: null,
-      latest: null,
-      update: null,
+    "GET /api/ops/work": () => ({
+      items: [
+        workItem(),
+        workItem({
+          kind: "build",
+          id: "00000000-0000-4000-8000-0000000ae201",
+          number: null,
+          title: "Bookkeeper, fuel by truck",
+          urgency: null,
+          stage: "trial",
+          stageName: "Trial",
+          standing: "stalled",
+          statusLine: "Held · date at risk",
+          rank: 2,
+          moved: true,
+          why: "Moved up: after the normal issues it would land Nov 27, past the promised Nov 24.",
+          due: "2026-11-24",
+        }),
+      ],
+      kpis: [
+        { label: "Critical, held", value: "1", note: "Demo client", tone: "risk", href: null },
+      ],
+      holds: [hold],
+      counts: { all: 2, issues: 1, builds: 1, enh: 0 },
     }),
-    [`POST /api/ops/requests/${REQ}/resolve`]: ({ init }) => {
-      const body = JSON.parse(String(init.body)) as { outcome: string; note?: string };
-      if (body.outcome === "declined" && !body.note) {
-        return new Reply(400, { error: { code: "invalid_request" } });
-      }
-      bodies.push(body);
-      current = opsItem({
-        status: body.outcome,
-        resolvedAt: "2026-11-05T10:00:00.000Z",
-        resolvedBy: { id: "o", email: "operator@example.com", name: "Operator" },
-        note: body.note ?? null,
-        links:
-          body.outcome === "done"
-            ? [
-                {
-                  agentVersionId: VERSION,
-                  agentId: SERVICE,
-                  kind: "client",
-                  tenantId: DEMO,
-                  slug: "intake",
-                  name: "Intake",
-                  version: 4,
-                },
-              ]
-            : [],
-      });
-      return { item: current };
+    [`GET /api/ops/issues/${ISSUE}`]: () => ({
+      issue: {
+        id: ISSUE,
+        number: 7,
+        client: CLIENT_A,
+        title: "Bookkeeper posted 14 card charges twice",
+        description: "",
+        urgency: "critical",
+        stage: "cause",
+        causeKind: null,
+        agent: { id: SERVICE, name: "Bookkeeper" },
+        source: "portal",
+        raisedBy: { id: "u", name: "Mike Ochoa" },
+        waitingOn: "operator",
+        statusLine: "",
+        stuck: false,
+        standing: "stalled",
+        replyBy: null,
+        fixBy: "2026-11-17T23:00:00.000Z",
+        firstReplyAt: null,
+        reggieRead: null,
+        askId: null,
+        createdAt: "2026-11-17T06:12:00.000Z",
+        stageAt: "2026-11-17T06:12:00.000Z",
+        closedAt: null,
+      },
+      messages: [
+        {
+          id: "m1",
+          at: "2026-11-17T06:20:00.000Z",
+          audience: "operator",
+          who: { kind: "operator", name: "Operator" },
+          text: "v7 matches on id only.",
+          sources: [],
+        },
+      ],
+      events: [],
+      todos: [
+        {
+          id: "t1",
+          owner: "operator",
+          title: "Tell Demo client about the safety hold",
+          dueAt: null,
+          state: "open",
+        },
+      ],
+      hold,
+    }),
+    [`POST /api/ops/issues/${ISSUE}/messages`]: ({ init }) => {
+      sent.push(JSON.parse(String(init.body)));
+      return new Reply(500, { error: { code: "stop", message: "stop" } });
     },
   });
-  return { api, bodies };
+  return { api, sent };
 }
 
-describe("ops requests queue", () => {
-  it("hands a request to the Builder and resolves it as done with a version", {
-    timeout: SLOW,
-  }, async () => {
-    const { api, bodies } = opsApi();
+describe("Build in the back office", () => {
+  it("sends the old requests queue to Build's Issues", async () => {
+    const { api } = buildApi();
     renderAt("/ops/requests", api);
-    const card = await screen.findByTestId(`ops-request-${REQ}`);
-    expect(within(card).getByTestId("ops-request-status")).toHaveTextContent("Open");
-    expect(within(card).getByTestId("ops-request-status")).toHaveClass("ds-pill--warning");
-    expect(within(card).getByTestId("ops-request-revise")).toHaveAttribute(
-      "href",
-      `/ops/clients/${DEMO}/agents/intake/revise?request=${REQ}`,
-    );
-
-    await userEvent.click(within(card).getByTestId("ops-request-resolve"));
-    const confirm = screen.getByTestId("ops-request-resolve-confirm");
-    expect(confirm).toBeDisabled();
-    // The request's own service is chosen; its newest version is offered.
-    await waitFor(() =>
-      expect(screen.getByTestId("ops-request-link-version")).toHaveValue(VERSION),
-    );
-    await userEvent.click(screen.getByTestId("ops-request-link-add"));
-    expect(screen.getByTestId("ops-request-picked")).toHaveTextContent("Invoice intake v4");
-    await userEvent.type(screen.getByTestId("ops-request-note-input"), "Acme is on the list.");
-    await userEvent.click(confirm);
-    expect(bodies).toEqual([{ outcome: "done", note: "Acme is on the list.", links: [VERSION] }]);
-    await waitFor(() => expect(screen.queryByTestId(`ops-request-${REQ}`)).toBeNull());
-
-    await userEvent.click(screen.getByTestId("ops-requests-filter-resolved"));
-    const done = await screen.findByTestId(`ops-request-${REQ}`);
-    expect(within(done).getByTestId("ops-request-status")).toHaveClass("ds-pill--positive");
-    expect(within(done).getByTestId("ops-request-links")).toHaveTextContent("Intake v4");
-    expect(within(done).getByRole("link", { name: "Intake v4" })).toHaveAttribute(
-      "href",
-      `/ops/clients/${DEMO}/agents/intake?version=4`,
-    );
+    expect(await screen.findByTestId("ops-build")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Issues/ })).toHaveAttribute("aria-current", "page");
   });
 
-  it("needs a note to decline", async () => {
-    const { api, bodies } = opsApi();
-    renderAt("/ops/requests", api);
-    const card = await screen.findByTestId(`ops-request-${REQ}`);
-    await userEvent.click(within(card).getByTestId("ops-request-resolve"));
-    await userEvent.click(screen.getByTestId("ops-request-outcome-filter-declined"));
-    expect(screen.queryByTestId("ops-request-link-agent")).toBeNull();
-    const confirm = screen.getByTestId("ops-request-resolve-confirm");
-    expect(confirm).toHaveTextContent("Decline");
-    expect(confirm).toBeDisabled();
-    await userEvent.type(screen.getByTestId("ops-request-note-input"), "Not in your plan yet.");
-    await userEvent.click(confirm);
-    expect(bodies).toEqual([{ outcome: "declined", note: "Not in your plan yet.", links: [] }]);
+  it("lists the work in order with the reason for each, and the hold over it", async () => {
+    const { api } = buildApi();
+    renderAt("/ops/build", api);
+    const row = await screen.findByTestId(`work-row-${ISSUE}`);
+    expect(within(row).getByTestId("work-why")).toHaveTextContent("Critical: ahead of everything.");
+    expect(within(row).getByText("Critical")).toHaveClass("mz-urgency--critical");
+    expect(screen.getByTestId("work-holds")).toHaveTextContent("Demo client's Bookkeeper");
+    expect(screen.getByText(/Moved by Reggie/)).toBeInTheDocument();
+    expect(screen.getByTestId("work-status")).toHaveTextContent("2 shown");
+    await userEvent.click(screen.getByTestId("work-filter-stuck"));
+    expect(screen.queryByTestId(`work-row-${ISSUE}`)).toBeNull();
+  });
+
+  it("shows an issue with its note marked internal, its to-dos and the hold", async () => {
+    const { api, sent } = buildApi();
+    renderAt(`/ops/issues/${ISSUE}`, api);
+    expect(await screen.findByTestId("issue-hold")).toHaveTextContent(
+      "3 writes and 1 message held",
+    );
+    expect(screen.getByTestId("issue-note")).toHaveTextContent("Internal note");
+    expect(screen.getByTestId("issue-todos")).toHaveTextContent(
+      "Tell Demo client about the safety hold",
+    );
+    expect(screen.getByTestId("issue-read")).toHaveTextContent("Reggie hasn't read this yet");
+    await userEvent.click(screen.getByRole("tab", { name: "Internal note" }));
+    await userEvent.type(screen.getByTestId("issue-compose"), "Checked the bank file.");
+    await userEvent.click(screen.getByTestId("issue-send"));
+    expect(sent).toEqual([{ text: "Checked the bank file.", audience: "operator" }]);
+  });
+});
+
+describe("the portal's Requests", () => {
+  it("lists the client's requests and sends a new one with its kind", {
+    timeout: SLOW,
+  }, async () => {
+    const sent: unknown[] = [];
+    const api = fakeApi({
+      "GET /api/session": () => CLIENT_SESSION,
+      "GET /api/feedback/status": () => ({ enabled: false }),
+      "GET /api/overview": () => ({
+        client: { id: DEMO, name: "Demo client" },
+        services: [],
+        needsYou: { inbox: 0 },
+        recentRuns: [],
+      }),
+      "GET /api/issues": () => ({
+        items: [
+          {
+            id: ISSUE,
+            kind: "problem",
+            number: 7,
+            title: "Charges posted twice",
+            text: "14 card charges",
+            state: "waiting_on_you",
+            service: null,
+            raisedBy: "Mike Ochoa",
+            createdAt: "2026-11-17T06:12:00.000Z",
+            updatedAt: "2026-11-17T06:12:00.000Z",
+            canConfirm: true,
+            canReopen: true,
+          },
+        ],
+      }),
+      "POST /api/requests": ({ init }) => {
+        sent.push(JSON.parse(String(init.body)));
+        return { item: portalItem() };
+      },
+    });
+    renderAt("/requests", api);
+    const row = await screen.findByTestId(`portal-work-request-${ISSUE}`);
+    expect(within(row).getByTestId("request-state")).toHaveTextContent("Waiting on you");
+    await userEvent.selectOptions(screen.getByTestId("new-request-kind"), "idea");
+    await userEvent.type(screen.getByTestId("new-request-text"), "POs as CSV too");
+    await userEvent.click(screen.getByTestId("new-request-send"));
+    await waitFor(() => expect(sent).toEqual([{ kind: "idea", text: "POs as CSV too" }]));
   });
 });

@@ -34,8 +34,12 @@ export const PORTAL_PATHS = {
   // Off the nav: reached from an agent, a run, Home or Sloan.
   reports: "/reports",
   records: "/records",
-  // QA round 1: asking for a change is a mode of Sloan; `/requests` redirects here.
-  requests: "/sloan?mode=change",
+  // §1.123: the client's Requests (its issues and asks), each a conversation with the lead.
+  requests: "/requests",
+  request: (id: string) => `/requests/${id}`,
+  requirements: (itemId: string) => `/requirements/${itemId}`,
+  // QA round 1: asking for a change is a mode of Sloan, which stays.
+  sloanChange: "/sloan?mode=change",
   knowledge: "/knowledge",
   weekly: "/weekly",
   sloan: "/sloan",

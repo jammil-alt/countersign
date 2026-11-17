@@ -32,7 +32,8 @@ export const OPS_PATHS = {
   // (/ops/feedback, /ops/audit, /ops/requests, /ops/run-audit) redirect here.
   utilities: "/ops/utilities",
   feedback: "/ops/utilities/feedback",
-  requests: "/ops/utilities/requests",
+  // §1.123: requests are issues and asks in Build now; the old addresses redirect to its Issues.
+  requests: "/ops/build/issues",
   // §1.102: the audit log is a tab of Security and compliance (./security/paths.ts).
   audit: "/ops/security/audit",
   security: "/ops/security",
@@ -43,4 +44,11 @@ export const OPS_PATHS = {
   browserSites: "/ops/library/browser-sites",
   // §1.73: the Marketing area's entry; a client's marketing pages are in packs/marketing/ops/paths.ts.
   marketing: "/ops/marketing",
+  // §1.123 back office work: Build (issues, agent builds, enhancements) and its records.
+  buildWork: "/ops/build",
+  buildTab: (tab: "all" | "issues" | "builds" | "enh") =>
+    tab === "all" ? "/ops/build" : `/ops/build/${tab}`,
+  issue: (id: string) => `/ops/issues/${id}`,
+  newIssue: "/ops/issues/new",
+  enhancement: (id: string) => `/ops/enhancements/${id}`,
 } as const;
