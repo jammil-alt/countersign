@@ -15,6 +15,7 @@ import { z } from "zod";
 import type { WriteAttemptServices } from "./attempts";
 import type { BrowserServices } from "./browser/services";
 import type { CredentialsAccessor } from "./credentials-accessor";
+import type { DesktopServices } from "./desktop/index";
 import type { Logger } from "./logger";
 import type { MessagingServices } from "./messaging/services";
 import type { TokenRefresher } from "./oauth/tokens";
@@ -58,6 +59,8 @@ export interface ConnectorServices {
   browser?: BrowserServices;
   /** The client's stored documents, for tools that send one to the tool (QBO attachments). */
   documents?: DocumentServices;
+  /** Jobs for a paired computer, through the desktop app (desktop/index.ts, plan §1.124). */
+  desktop?: DesktopServices;
   // v0.12 W1-F
   /** What sync already stored for this connection (QBO: duplicate bills, receivable ids). */
   records?: SyncedRecordServices;

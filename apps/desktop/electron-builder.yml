@@ -1,0 +1,58 @@
+# Packaging the Mezonas desktop app (docs/plan.md §1.124): a signed, notarised .dmg for Mac (Apple
+# silicon and Intel) and a signed installer for Windows, with updates from our own feed.
+# Built by hand for now with `pnpm --filter @countersign/desktop dist` on a Mac (notarisation) and
+# on Windows (signing); a release workflow comes in its own PR (docs/open.md).
+appId: com.mezonas.desktop
+productName: Mezonas
+copyright: Copyright © Twelve Thirty-Four
+electronVersion: 45.3.3
+directories:
+  output: release
+  buildResources: build
+# Everything is bundled into dist/ (scripts/build.mjs): no node_modules in the app.
+files:
+  - dist/**
+  - "!dist/**/*.map"
+  - package.json
+asar: true
+protocols:
+  - name: Mezonas sign-in
+    schemes: [mezonas]
+mac:
+  category: public.app-category.business
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # The Apple Developer ID and notarisation come from the environment (CSC_LINK, APPLE_ID,
+  # APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID), never from this file.
+  notarize: true
+  extendInfo:
+    NSDocumentsFolderUsageDescription: Mezonas works only in the folders you give it.
+    NSDesktopFolderUsageDescription: Mezonas works only in the folders you give it.
+    NSDownloadsFolderUsageDescription: Mezonas works only in the folders you give it.
+    NSNetworkVolumesUsageDescription: Mezonas works only in the folders you give it.
+    NSRemovableVolumesUsageDescription: Mezonas works only in the folders you give it.
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+  # Signing comes from the environment (Azure Trusted Signing or a certificate), never this file.
+  signAndEditExecutable: true
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  shortcutName: Mezonas
+# DECISION: updates from a plain feed we host (an R2 bucket of our own, behind
+# downloads.mezonas.com), not GitHub releases: the repository stays private. electron-updater
+# checks each update's signature against the installed app's before installing it.
+publish:
+  - provider: generic
+    url: https://downloads.mezonas.com/desktop/${channel}
+    channel: latest

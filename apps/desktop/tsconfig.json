@@ -1,0 +1,10 @@
+{
+  // One project for the main process (Node and Electron), the preload and the renderer (DOM).
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node", "vite/client"],
+    "jsx": "react-jsx"
+  },
+  "include": ["src", "vite.config.ts", "vitest.config.ts"]
+}
