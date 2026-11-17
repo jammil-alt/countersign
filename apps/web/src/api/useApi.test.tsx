@@ -481,6 +481,42 @@ describe("the store and the session", () => {
     localStorage.clear();
   });
 
+  it("keeps only the signed-in person's builder drafts, and none once the session has ended", async () => {
+    let session: unknown = OPERATOR_SESSION;
+    const api = fakeApi({
+      "GET /api/session": () => session,
+    });
+    const mine = builderDraftKey(OPERATOR_SESSION.user.id, "agent-1");
+    const theirs = builderDraftKey("someone-else", "agent-1");
+    const legacy = `${BUILDER_DRAFT_PREFIX}agent-2`;
+    for (const key of [mine, theirs, legacy]) localStorage.setItem(key, "{}");
+    function Status() {
+      const { state } = useSessionState();
+      return <p data-testid="status">{state.status}</p>;
+    }
+    render(
+      <ApiProvider client={api.client}>
+        <SessionProvider>
+          <Status />
+          <Controls />
+        </SessionProvider>
+      </ApiProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("signed_in"));
+    // Signed in: another person's drafts and the unowned ones go; this person's stay.
+    expect(localStorage.getItem(mine)).toBe("{}");
+    expect(localStorage.getItem(theirs)).toBeNull();
+    expect(localStorage.getItem(legacy)).toBeNull();
+
+    // The session ends without a sign-out here (it expired, or was revoked): the next check finds
+    // no one signed in, and the person's drafts go too.
+    session = new Reply(401, { error: { code: "unauthenticated", message: "no session" } });
+    act(() => screen.getByTestId("refresh").click());
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("signed_out"));
+    expect(localStorage.getItem(mine)).toBeNull();
+    localStorage.clear();
+  });
+
   it("forgets everything when another tab finds someone else signed in", async () => {
     let session: unknown = OPERATOR_SESSION;
     let name = "First user's view";

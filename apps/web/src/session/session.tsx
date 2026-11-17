@@ -141,6 +141,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       else store.open();
       store.setScope("");
     }
+    // The builder's drafts in this browser: only the signed-in person's are kept, none once the
+    // session has ended however it ended (an error to reach the API changes nothing).
+    if (next.status === "signed_in") forgetLocalDrafts(next.session.user.id);
+    else if (next.status === "signed_out") forgetLocalDrafts();
     shareScope(store.currentScope);
     setState(next);
     if (next.status === "signed_in") {
