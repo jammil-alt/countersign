@@ -90,6 +90,40 @@ export function unitWord(raw: string | null | undefined): string | null {
   return PACKAGING_WORDS[key] ?? readUom(raw) ?? raw.trim().toLowerCase();
 }
 
+const PACKAGING_TOKENS = "BOXES|BOX|BX|CASE|CS|CARTON|CTN|PACK|PKG|PK|PAIL|CAN|DRUM|KIT";
+const PACK_PATTERNS: readonly { re: RegExp; size: number; word: number }[] = [
+  // 100/BX, 100 PER BOX
+  {
+    re: new RegExp(`(?:^|[^\\d.])(\\d+)\\s*(?:\\/|PER)\\s*(${PACKAGING_TOKENS})(?![A-Z])`, "g"),
+    size: 1,
+    word: 2,
+  },
+  // BX/100, BOX OF 100, CS 1000
+  {
+    re: new RegExp(`(?<![A-Z])(${PACKAGING_TOKENS})\\s*(?:\\/|OF|\\s)\\s*(\\d+)(?![\\d.\\/])`, "g"),
+    size: 2,
+    word: 1,
+  },
+];
+
+/**
+ * The packs a text states with their size (`100/BX`, `CS/1000`, `BOX OF 100`, `CS 100`): each
+ * word (`box`, `case`...) with how many it holds. A word with no number states nothing (a "BOX
+ * NAIL" is a kind of nail).
+ */
+export function packsIn(text: string | null | undefined): { word: string; size: string }[] {
+  const upper = (text ?? "").toUpperCase().slice(0, 500);
+  const out: { word: string; size: string }[] = [];
+  for (const p of PACK_PATTERNS) {
+    for (const m of upper.matchAll(p.re)) {
+      const word = unitWord(m[p.word]);
+      const size = m[p.size];
+      if (word && size && Number(size) > 0) out.push({ word, size: String(Number(size)) });
+    }
+  }
+  return out;
+}
+
 /**
  * A unit as two lines' units are told apart: its one spelling (`sheet`, `each`), a box, case or
  * pail by its word (`pack:box` is not `pack:case`), else its own words; null when none is given.

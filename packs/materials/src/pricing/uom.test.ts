@@ -2,7 +2,7 @@
 // without a rule (invariant 7).
 
 import { describe, expect, it } from "vitest";
-import { convert, readUom } from "./uom";
+import { convert, packsIn, readUom } from "./uom";
 
 describe("units", () => {
   it("reads invoice spellings", () => {
@@ -45,5 +45,17 @@ describe("units", () => {
   it("marks a missing unit as assumed", () => {
     const c = convert("", "sheet", {});
     expect(c.ok && c.assumed).toBe(true);
+  });
+});
+
+describe("packsIn", () => {
+  it("reads a pack only with its size, in the vendor's word", () => {
+    expect(packsIn("#8 SCREW 100/BX")).toEqual([{ word: "box", size: "100" }]);
+    expect(packsIn("SCREW CS/1000")).toEqual([{ word: "case", size: "1000" }]);
+    expect(packsIn("box of 100 screws")).toEqual([{ word: "box", size: "100" }]);
+    expect(packsIn("#10 SCREW CS 100")).toEqual([{ word: "case", size: "100" }]);
+    expect(packsIn("16D BOX NAIL")).toEqual([]);
+    expect(packsIn("#8 X 1-1/4 WOOD SCREW")).toEqual([]);
+    expect(packsIn("BOX 3/4 PLY")).toEqual([]);
   });
 });

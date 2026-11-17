@@ -1044,6 +1044,7 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
       sku,
       vendorUom,
       unitRaw: line.uomRaw,
+      lineText: line.rawDescription,
       hintId: hints.get(line.lineNo) ?? null,
     });
     if (vi && vi.catalogItemId !== item.id) {

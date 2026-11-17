@@ -7,7 +7,7 @@ import { dec, toNumeric } from "@countersign/core";
 import { docLine, type Tx, vendor } from "@countersign/db";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, type SQL, sql } from "drizzle-orm";
 import { identifyingSku, liveItem } from "../catalog/store";
-import { PACKAGING_UOMS, readUom, unitWord } from "../pricing/uom";
+import { PACKAGING_UOMS, packsIn, readUom, unitWord } from "../pricing/uom";
 import {
   type Category,
   catalogItem,
@@ -162,7 +162,13 @@ export async function vendorAlias(
 export async function vendorItemForUnit(
   tx: Tx,
   tenantId: string,
-  key: { vendorId: string; catalogItemId: string; unitRaw: string | null },
+  key: {
+    vendorId: string;
+    catalogItemId: string;
+    unitRaw: string | null;
+    /** The line's own words (a pack size it states, `packsIn`). */
+    lineText?: string | null | undefined;
+  },
 ): Promise<VendorItemRow | null> {
   const unit = key.unitRaw?.trim()
     ? (readUom(key.unitRaw) ?? key.unitRaw.trim().toLowerCase())
@@ -172,8 +178,21 @@ export async function vendorItemForUnit(
   );
   if (unit === null || !PACKAGING_UOMS.has(unit))
     return inUnit.length === 1 ? (inUnit[0] ?? null) : null;
-  return inWord(tx, tenantId, inUnit, unitWord(key.unitRaw));
+  return inWord(tx, tenantId, inUnit, lineOf(key.unitRaw, key.lineText));
 }
+
+/** A line as an older vendor item's word is told from it: its unit's word and the packs it states. */
+interface LineWords {
+  word: string | null;
+  packs: { word: string; size: string }[];
+}
+const lineOf = (
+  unitRaw: string | null | undefined,
+  text: string | null | undefined,
+): LineWords => ({
+  word: unitWord(unitRaw),
+  packs: packsIn(text),
+});
 
 const recordedWord = (v: VendorItemRow): string | null => {
   const w = (v.ext as { unitWord?: unknown } | null)?.unitWord;
@@ -181,24 +200,31 @@ const recordedWord = (v: VendorItemRow): string | null => {
 };
 
 /**
- * The word a box, case or pail vendor item is in: the one recorded (`ext.unitWord`); for the
- * vendor's item without a SKU recorded before words were kept, the one word the document lines
- * filed under it were written in, or, with none filed yet, `lineWord` (it is the vendor's only
- * item without a SKU in that unit). Null when nothing tells.
+ * The word a box, case or pail vendor item is in: the one recorded (`ext.unitWord`). For the
+ * vendor's item without a SKU recorded before words were kept: the one packaging word its own
+ * name, description or pack size states with a number (`100/BX`); else the one word the document
+ * lines filed under it were written in; else, with none filed, the line's word only when the
+ * line states the item's own pack size in it (`CS 100` for an item of 100 a pack). Null when
+ * nothing tells: the line is then not that item, and its price isn't converted by it.
  */
-// DECISION (third review of fix/materials, finding 6): an item made before `unitWord` existed
-// would otherwise never match a line without a SKU again, and Register item can't make another
-// in that unit (one vendor item without a SKU per unit). Its word is read, never guessed, from
-// the lines already filed under it when they agree; with none it takes the first line's word.
-// Register item records the word (`adoptWord`) when it files a line under it.
+// DECISION (third review of fix/materials, finding 6, as corrected): an item made before
+// `unitWord` existed would otherwise never match a line without a SKU again (and Register item
+// can't make another in that unit), but its word is read, never guessed: from what the item holds,
+// then from the lines filed under it, then from a line that states the item's very pack size.
+// Never in any word: a case read at a box's size is the 10x error this guards against. Register
+// item records the word (`adoptWord`) when it files a line under it.
 export async function effectiveWord(
   tx: Tx,
   tenantId: string,
   v: VendorItemRow,
-  lineWord: string | null,
+  line: LineWords,
 ): Promise<string | null> {
   const recorded = recordedWord(v);
   if (recorded !== null || v.sku) return recorded;
+  const own = [
+    ...new Set([v.name, v.description, v.packSize].flatMap((t) => packsIn(t).map((p) => p.word))),
+  ];
+  if (own.length > 0) return own.length === 1 ? (own[0] ?? null) : null;
   const rows = await tx
     .selectDistinct({ uomRaw: docLine.uomRaw })
     .from(priceObservation)
@@ -211,8 +237,12 @@ export async function effectiveWord(
     )
     .where(and(eq(priceObservation.tenantId, tenantId), eq(priceObservation.vendorItemId, v.id)));
   const words = [...new Set(rows.map((r) => unitWord(r.uomRaw)).filter((w) => w !== null))];
-  if (words.length === 1) return words[0] ?? null;
-  return words.length === 0 ? lineWord : null;
+  if (words.length > 0) return words.length === 1 ? (words[0] ?? null) : null;
+  const size = v.stdPerVendorUom ? dec(v.stdPerVendorUom) : null;
+  const states = line.packs.some(
+    (p) => p.word === line.word && size !== null && dec(p.size).equals(size),
+  );
+  return states ? line.word : null;
 }
 
 /** The one vendor item among `items` (all in one packaging unit) in `word`; null for none or two. */
@@ -220,11 +250,12 @@ async function inWord(
   tx: Tx,
   tenantId: string,
   items: readonly VendorItemRow[],
-  word: string | null,
+  line: LineWords,
 ): Promise<VendorItemRow | null> {
+  const word = line.word;
   if (word === null) return null;
   const fits: VendorItemRow[] = [];
-  for (const v of items) if ((await effectiveWord(tx, tenantId, v, word)) === word) fits.push(v);
+  for (const v of items) if ((await effectiveWord(tx, tenantId, v, line)) === word) fits.push(v);
   return fits.length === 1 ? (fits[0] ?? null) : null;
 }
 
@@ -255,6 +286,8 @@ export async function resolveVendorItem(
     vendorUom: string | null;
     /** The unit as the line wrote it: tells a box from a case (`unitWord`). */
     unitRaw?: string | null | undefined;
+    /** The line's own words (a pack size it states, `packsIn`). */
+    lineText?: string | null | undefined;
     hintId?: string | null | undefined;
   },
 ): Promise<VendorItemRow | null> {
@@ -263,7 +296,8 @@ export async function resolveVendorItem(
     if (bySku) return bySku;
   }
   const packaging = key.vendorUom !== null && PACKAGING_UOMS.has(key.vendorUom);
-  const word = unitWord(key.unitRaw);
+  const line = lineOf(key.unitRaw, key.lineText);
+  const word = line.word;
   if (key.hintId) {
     const hinted = await vendorItemById(tx, tenantId, key.hintId);
     // DECISION (third review of fix/materials, finding 1): the semantic match's hint names the
@@ -275,7 +309,7 @@ export async function resolveVendorItem(
       hinted.catalogItemId === key.catalogItemId &&
       (!key.sku || !hinted.sku) &&
       (hinted.vendorUom ?? "") === (key.vendorUom ?? "") &&
-      (!packaging || (await effectiveWord(tx, tenantId, hinted, word)) === word)
+      (!packaging || (await effectiveWord(tx, tenantId, hinted, line)) === word)
     ) {
       return hinted;
     }
@@ -288,7 +322,7 @@ export async function resolveVendorItem(
   // DECISION (second review of fix/materials, H1): a box, case or pail is the vendor item
   // recorded in that very word, and only when exactly one is (as `vendorItemForUnit`): a case
   // line is never filed under, priced by, or sized from the vendor's box. None: a new one.
-  if (packaging) return inWord(tx, tenantId, sameUnit, word);
+  if (packaging) return inWord(tx, tenantId, sameUnit, line);
   if (sameUnit.length > 0) return sameUnit[0] ?? null;
   if (pair.length === 1 && !key.vendorUom) return pair[0] ?? null;
   return null;

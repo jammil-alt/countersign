@@ -276,6 +276,7 @@ export async function priceLines(
       sku,
       vendorUom,
       unitRaw: l.uomRaw,
+      lineText: l.rawDescription,
     });
     const vi = found && found.catalogItemId === item.id ? found : null;
     // The conversion is the vendor item's that the line's SKU names; without one, the vendor's one
@@ -287,6 +288,7 @@ export async function priceLines(
             vendorId: doc.vendorId,
             catalogItemId: item.id,
             unitRaw: l.uomRaw,
+            lineText: l.rawDescription,
           });
     const conv = convertLine(
       l.uomRaw,

@@ -881,6 +881,7 @@ export async function recordQuote(
             vendorId: q.vendorId,
             catalogItemId: asked.item.id,
             unitRaw: unit,
+            lineText: l.description ?? null,
           })
         : null;
       const std = standardPrice(

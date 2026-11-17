@@ -697,6 +697,7 @@ export async function compareQuotesTx(
         vendorId,
         catalogItemId: asked.item.id,
         unitRaw: o.unit,
+        lineText: o.description,
       });
       const conv = quotedConversion(asked.item, o, asked.row, vi);
       offerQtyStd.set(o.id, conv.ok ? toNumeric(dec(o.qty).times(conv.factor)) : null);
