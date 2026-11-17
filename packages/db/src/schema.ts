@@ -3501,7 +3501,8 @@ export const notification = pgTable(
     userId: uuid("user_id").references(() => appUser.id),
     contactId: uuid("contact_id"),
     channel: text("channel").$type<(typeof NOTIFICATION_CHANNELS)[number]>().notNull(),
-    kind: text("kind").$type<(typeof NOTIFICATION_KINDS)[number]>().notNull(),
+    // §1.125: the onboarding emails' kinds too (core ONBOARDING_NOTIFICATION_KINDS); a type only.
+    kind: text("kind").$type<(typeof NOTIFICATION_KINDS_ALLOWED)[number]>().notNull(),
     /** e.g. `items_waiting:<user>:<hour>`: the same key on the same channel is sent once. */
     dedupeKey: text("dedupe_key").notNull(),
     /** Where the person goes: a page of the portal or the back office. */

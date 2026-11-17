@@ -263,6 +263,23 @@ export const WelcomePageView = z.object({
 });
 export type WelcomePageView = z.infer<typeof WelcomePageView>;
 
+/**
+ * After sign-in, the welcome page checks the session against the invite: the same address goes on
+ * to Getting started (`next`); any other sees only the invited address, masked ("This invite is
+ * for d•••@acme.com"). An expired or closed link goes nowhere.
+ */
+export const WelcomeSignedInView = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("ok"), next: z.string() }),
+  z.object({ state: z.literal("wrong_account"), invitedEmail: z.string() }),
+  z.object({ state: z.literal("expired") }),
+  z.object({ state: z.literal("closed") }),
+]);
+export type WelcomeSignedInView = z.infer<typeof WelcomeSignedInView>;
+
+// The roles a person signed in with the invited address may hold, and the ones who may not but
+// must still be told so (an operator testing the link, someone of another client).
+const ANY_ROLE = ["client_admin", "client_user", "operator"] as const;
+
 export const welcomeRoutes = {
   welcomePage: defineRoute({
     method: "GET",
@@ -272,5 +289,24 @@ export const welcomeRoutes = {
     summary: "The welcome page an invite's link opens: who it's from, what's in it, then sign-in",
     params: TokenParams,
     response: WelcomePageView,
+  }),
+  welcomeSignedIn: defineRoute({
+    method: "POST",
+    path: "/api/start/:token/signed-in",
+    auth: "session",
+    roles: ANY_ROLE,
+    summary:
+      "After sign-in: the invited address goes on to Getting started, any other is told whose invite it is",
+    params: TokenParams,
+    response: WelcomeSignedInView,
+  }),
+  welcomeAskNew: defineRoute({
+    method: "POST",
+    path: "/api/start/:token/ask-new",
+    auth: "public",
+    roles: [],
+    summary: "An expired or closed link: ask the lead for a new one (a to-do on Your call)",
+    params: TokenParams,
+    response: z.object({ ok: z.literal(true) }),
   }),
 } as const;

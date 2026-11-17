@@ -195,6 +195,8 @@ export * from "./i18n/gmail-test";
 export * from "./i18n/lifecycle";
 export * from "./i18n/locale";
 export * from "./i18n/notify";
+// docs/plan.md §1.125: the onboarding emails' and the welcome page's words.
+export * from "./i18n/onboarding";
 // v0.13 W2-I
 export * from "./i18n/oversight";
 // v0.19: area owners (ARCHITECTURE §10.15)

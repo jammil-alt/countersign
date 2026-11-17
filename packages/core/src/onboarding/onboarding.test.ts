@@ -14,8 +14,6 @@ import {
 } from "../api/intake";
 import { InviteDraft, inviteRoutes, SignUpNowDraft } from "../api/invite";
 import { routes } from "../api/routes";
-import { renderBrandedEmail } from "../email/layout";
-import { renderInviteEmail } from "../email/onboarding";
 import {
   buildGuide,
   Covers,
@@ -195,27 +193,5 @@ describe("the other streams' seams", () => {
         [],
       ),
     ).toThrow(/stream INTAKE/);
-    expect(() =>
-      renderBrandedEmail({
-        locale: "en",
-        subject: "x",
-        from: { name: "Jammil", photoUrl: null },
-        blocks: [],
-        origin: "https://app.mezonas.com",
-      }),
-    ).toThrow(/stream EMAIL/);
-    expect(() =>
-      renderInviteEmail({
-        locale: "en",
-        client: "Acme",
-        to: { name: "Dana", email: "d@acme.com" },
-        lead: { name: "Jammil", photoUrl: null },
-        link: "https://app.mezonas.com/start/x",
-        expiresAt: new Date(),
-        origin: "https://app.mezonas.com",
-        note: "",
-        summary: { general: true, areas: [], agents: 0, minutes: 10 },
-      }),
-    ).toThrow(/stream EMAIL/);
   });
 });
