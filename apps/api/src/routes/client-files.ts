@@ -4,7 +4,7 @@
 // only, one per area with a pack, one per published template, Just the account) and archived,
 // never deleted. No portal or public route returns a file, a fact or a start (invariant 11).
 
-import { routes } from "@countersign/core";
+import { clientFileRoutes as clientFileSpecs, startRoutes } from "@countersign/core";
 import { clientFile } from "@countersign/db";
 import { and, desc, eq, ilike, type SQL } from "drizzle-orm";
 import type { Hono } from "hono";
@@ -29,7 +29,7 @@ const FILES_LISTED = 500;
 const likeEscaped = (q: string) => `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 
 export function clientFileRoutes(app: Hono<AppEnv>): void {
-  mount(app, routes.opsClientFiles, async ({ tx, tenantIds, query }) => {
+  mount(app, clientFileSpecs.opsClientFiles, async ({ tx, tenantIds, query }) => {
     const where: SQL[] = [filesInScope(tenantIds) as SQL];
     if (query.status) where.push(eq(clientFile.status, query.status));
     if (query.q) where.push(ilike(clientFile.name, likeEscaped(query.q)));
@@ -46,7 +46,7 @@ export function clientFileRoutes(app: Hono<AppEnv>): void {
     return { files: await fileSummaries(tx, tenantIds, rows) };
   });
 
-  mount(app, routes.opsCreateClientFile, async ({ tx, tenantIds, body, session }) => {
+  mount(app, clientFileSpecs.opsCreateClientFile, async ({ tx, tenantIds, body, session }) => {
     const dealRow = body.dealId ? await readDeal(tx, tenantIds, body.dealId, true) : null;
     const clientId = body.clientId ?? dealRow?.clientId ?? null;
     if (clientId) {
@@ -68,11 +68,11 @@ export function clientFileRoutes(app: Hono<AppEnv>): void {
     return fileDetail(tx, tenantIds, row);
   });
 
-  mount(app, routes.opsClientFile, async ({ tx, tenantIds, params, query }) =>
+  mount(app, clientFileSpecs.opsClientFile, async ({ tx, tenantIds, params, query }) =>
     fileDetail(tx, tenantIds, await readFile(tx, tenantIds, params.id), query.history === "true"),
   );
 
-  mount(app, routes.opsUpdateClientFile, async ({ tx, tenantIds, params, body }) => {
+  mount(app, clientFileSpecs.opsUpdateClientFile, async ({ tx, tenantIds, params, body }) => {
     let row = await readFile(tx, tenantIds, params.id, true);
     if (body.clientId) {
       ensureClient({ tenantIds }, body.clientId);
@@ -103,13 +103,17 @@ export function clientFileRoutes(app: Hono<AppEnv>): void {
     return fileDetail(tx, tenantIds, await readFile(tx, tenantIds, row.id));
   });
 
-  mount(app, routes.opsAddClientFacts, async ({ tx, tenantIds, params, body, session }) => {
-    const row = await readFile(tx, tenantIds, params.id, true);
-    await addFacts(tx, row, body.facts, { actor: "operator", userId: session.user.id });
-    return fileDetail(tx, tenantIds, row);
-  });
+  mount(
+    app,
+    clientFileSpecs.opsAddClientFacts,
+    async ({ tx, tenantIds, params, body, session }) => {
+      const row = await readFile(tx, tenantIds, params.id, true);
+      await addFacts(tx, row, body.facts, { actor: "operator", userId: session.user.id });
+      return fileDetail(tx, tenantIds, row);
+    },
+  );
 
-  mount(app, routes.opsStarts, async ({ tx, query, services }) => {
+  mount(app, startRoutes.opsStarts, async ({ tx, query, services }) => {
     // Seeded on first read, once each by key: the areas and templates are the running platform's.
     await seedStarts(
       tx,
@@ -118,11 +122,11 @@ export function clientFileRoutes(app: Hono<AppEnv>): void {
     return { starts: (await listStarts(tx, query.archived === "true")).map(startView) };
   });
 
-  mount(app, routes.opsCreateStart, async ({ tx, body, session }) => ({
+  mount(app, startRoutes.opsCreateStart, async ({ tx, body, session }) => ({
     start: startView(await createStart(tx, body, session.user.id)),
   }));
 
-  mount(app, routes.opsUpdateStart, async ({ tx, params, body }) => ({
+  mount(app, startRoutes.opsUpdateStart, async ({ tx, params, body }) => ({
     start: startView(await updateStart(tx, params.id, body)),
   }));
 }

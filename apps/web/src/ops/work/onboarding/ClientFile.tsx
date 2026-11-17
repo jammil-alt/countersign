@@ -6,6 +6,7 @@
 import {
   type ClientFactView,
   type ClientFileDetail,
+  clientFileRoutes,
   FACT_AUDIENCES,
   FACT_SECTION_WORDS,
   FACT_SECTIONS,
@@ -20,7 +21,6 @@ import {
 } from "@countersign/core";
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { apiRoutes } from "../../../api/routes";
 import { useApi, useApiClient } from "../../../api/useApi";
 import { cx } from "../../../ui/cx";
 import { ErrorNotice } from "../../../ui/ErrorState";
@@ -91,7 +91,7 @@ export function earlierVersions(
 /** A file by id: its facts by section, add, correct, history. */
 export function ClientFileView({ fileId, compact }: { fileId: string; compact?: boolean }) {
   const [history, setHistory] = useState(false);
-  const res = useApi(apiRoutes.opsClientFile, {
+  const res = useApi(clientFileRoutes.opsClientFile, {
     params: { id: fileId },
     query: { history: history ? "true" : "false" },
     keep: true,
@@ -358,7 +358,7 @@ function FactForm({
         audience,
         ...(replaces ? { replacesId: replaces.id } : {}),
       };
-      await api.call(apiRoutes.opsAddClientFacts, {
+      await api.call(clientFileRoutes.opsAddClientFacts, {
         params: { id: fileId },
         body: { facts: [fact] },
       });
@@ -490,7 +490,7 @@ export function StartFile({
     setBusy(true);
     setError(null);
     try {
-      const out = await api.call(apiRoutes.opsCreateClientFile, {
+      const out = await api.call(clientFileRoutes.opsCreateClientFile, {
         body: { name, ...(dealId ? { dealId } : {}), ...(clientId ? { clientId } : {}) },
       });
       onMade(out.file.id);

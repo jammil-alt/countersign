@@ -17,7 +17,7 @@ import type {
   InviteSent,
   SalesStartView,
 } from "@countersign/core";
-import { forbiddenPortalFields, routeFamily, routes } from "@countersign/core";
+import { allRoutes, forbiddenPortalFields, routeFamily } from "@countersign/core";
 import {
   appUser,
   build,
@@ -54,7 +54,7 @@ afterAll(() => h?.close());
 
 describe("the client file's contract", () => {
   it("is returned by no portal or public route", () => {
-    for (const [name, r] of Object.entries(routes)) {
+    for (const [name, r] of Object.entries(allRoutes)) {
       if (routeFamily(r) === "ops") continue;
       const json = JSON.stringify(
         z.toJSONSchema(r.response, { io: "output", unrepresentable: "any" }),
@@ -81,8 +81,8 @@ describe("the client file's contract", () => {
       "opsSignUpPreview",
       "opsSignUp",
     ] as const) {
-      expect(routes[name].roles, name).toEqual(["operator"]);
-      expect(routeFamily(routes[name]), name).toBe("ops");
+      expect(allRoutes[name].roles, name).toEqual(["operator"]);
+      expect(routeFamily(allRoutes[name]), name).toBe("ops");
     }
   });
 });

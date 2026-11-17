@@ -2,9 +2,10 @@
 // gate"; §4.4; docs/plan.md §1.126): the stages a deal passed over show as skipped, with who and
 // why, and its intakes' log (sent, delivered, opened, signed in, answered…) goes in among the
 // deal's own lines, by time.
+
 import type { DealDetail, IntakeEventKind, OpsIntakeView } from "@countersign/core";
+import { opsIntakeRoutes } from "@countersign/core";
 import { useEffect, useState } from "react";
-import { apiRoutes } from "../../../api/routes";
 import { useApi, useApiClient } from "../../../api/useApi";
 import { intakeEventWords } from "./words";
 
@@ -71,7 +72,7 @@ const INTAKES_READ = 3;
 export function useOnboardingLines(detail: DealDetail): OnboardingLine[] {
   const d = detail.deal;
   const query = d.client ? { client: d.client.id } : d.fileId ? { file: d.fileId } : null;
-  const list = useApi(apiRoutes.opsIntakes, query ? { query } : null);
+  const list = useApi(opsIntakeRoutes.opsIntakes, query ? { query } : null);
   const api = useApiClient();
   const ids = (list.data?.intakes ?? [])
     .filter(
@@ -89,12 +90,12 @@ export function useOnboardingLines(detail: DealDetail): OnboardingLine[] {
     }
     let live = true;
     const wanted = key.split(",").map((k) => k.split("@")[0] ?? "");
-    Promise.allSettled(wanted.map((id) => api.call(apiRoutes.opsIntake, { params: { id } }))).then(
-      (out) => {
-        if (!live) return;
-        setLines(out.flatMap((r) => (r.status === "fulfilled" ? onboardingLines(r.value) : [])));
-      },
-    );
+    Promise.allSettled(
+      wanted.map((id) => api.call(opsIntakeRoutes.opsIntake, { params: { id } })),
+    ).then((out) => {
+      if (!live) return;
+      setLines(out.flatMap((r) => (r.status === "fulfilled" ? onboardingLines(r.value) : [])));
+    });
     return () => {
       live = false;
     };

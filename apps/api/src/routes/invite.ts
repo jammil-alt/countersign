@@ -4,7 +4,7 @@
 // Sign up now is Invite with a saved start's defaults: the same plan, the same confirmation.
 // Neither is a Reggie play nor an MCP tool: only a person's own request sends.
 
-import { type RouteSpec, routes } from "@countersign/core";
+import { inviteRoutes as inviteSpecs, type RouteSpec } from "@countersign/core";
 import type { Hono } from "hono";
 import { type AppEnv, type HandlerCtx, type LongHandlerCtx, mount, mountLong } from "../http";
 import { previewInvite, runInvite, signUpDraft } from "../onboarding/invite";
@@ -28,10 +28,10 @@ function readOnly(ctx: HandlerCtx<RouteSpec>): LongHandlerCtx<RouteSpec> {
 const long = (ctx: unknown) => ctx as LongHandlerCtx<RouteSpec>;
 
 export function inviteRoutes(app: Hono<AppEnv>): void {
-  mount(app, routes.opsInvitePreview, async (ctx) =>
+  mount(app, inviteSpecs.opsInvitePreview, async (ctx) =>
     previewInvite({ app, ctx: readOnly(ctx as HandlerCtx<RouteSpec>), via: "invite" }, ctx.body),
   );
-  mountLong(app, routes.opsInviteSend, async (ctx) =>
+  mountLong(app, inviteSpecs.opsInviteSend, async (ctx) =>
     runInvite(
       {
         app,
@@ -42,7 +42,7 @@ export function inviteRoutes(app: Hono<AppEnv>): void {
       ctx.body,
     ),
   );
-  mount(app, routes.opsSignUpPreview, async (ctx) => {
+  mount(app, inviteSpecs.opsSignUpPreview, async (ctx) => {
     const run = {
       app,
       ctx: readOnly(ctx as HandlerCtx<RouteSpec>),
@@ -51,7 +51,7 @@ export function inviteRoutes(app: Hono<AppEnv>): void {
     };
     return previewInvite(run, await signUpDraft(run, ctx.body));
   });
-  mountLong(app, routes.opsSignUp, async (ctx) => {
+  mountLong(app, inviteSpecs.opsSignUp, async (ctx) => {
     const run = { app, ctx: long(ctx), via: "sign_up" as const, startId: ctx.body.startId };
     return runInvite(run, await signUpDraft(run, ctx.body));
   });

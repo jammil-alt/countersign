@@ -7,11 +7,12 @@ import {
   DECIMAL_RE,
   type InvitePreview,
   type InviteSent,
+  inviteRoutes,
   type SalesStartView,
   type SignUpNowDraftInput,
+  startRoutes,
 } from "@countersign/core";
 import { useState } from "react";
-import { apiRoutes } from "../../../api/routes";
 import { useApi, useApiClient } from "../../../api/useApi";
 import { ErrorNotice } from "../../../ui/ErrorState";
 import { Field, Select, TextInput } from "../../../ui/forms";
@@ -42,7 +43,7 @@ export function SignUpNowSheet({
   onSent?(sent: InviteSent): void;
 }) {
   const api = useApiClient();
-  const starts = useApi(apiRoutes.opsStarts, { query: { archived: "false" } });
+  const starts = useApi(startRoutes.opsStarts, { query: { archived: "false" } });
   const fixed = Boolean(prefill.fileId || prefill.clientId);
   const [company, setCompany] = useState(prefill.companyName ?? prefill.company ?? "");
   const [name, setName] = useState(prefill.person?.name ?? "");
@@ -114,7 +115,7 @@ export function SignUpNowSheet({
         disabled={busy || confirming.problems.length > 0}
         onClick={() =>
           void run(async () => {
-            const out = await api.call(apiRoutes.opsSignUp, { body: draft() });
+            const out = await api.call(inviteRoutes.opsSignUp, { body: draft() });
             setSent(out);
             onSent?.(out);
           })
@@ -166,7 +167,7 @@ export function SignUpNowSheet({
           disabled={!ready || busy}
           onClick={() =>
             void run(async () => {
-              setConfirming(await api.call(apiRoutes.opsSignUpPreview, { body: draft() }));
+              setConfirming(await api.call(inviteRoutes.opsSignUpPreview, { body: draft() }));
             })
           }
           data-testid="signup-continue"

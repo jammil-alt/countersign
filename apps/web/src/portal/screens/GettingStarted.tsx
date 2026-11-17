@@ -16,6 +16,7 @@ import {
   type PortalGuideField,
   type PortalGuideSection,
   type PortalIntakeView,
+  portalIntakeRoutes,
   type SectionProgress,
 } from "@countersign/core";
 import { type ReactNode, useEffect, useState } from "react";
@@ -41,7 +42,7 @@ type Member = ResponseOf<typeof apiRoutes.portalTeam>["members"][number];
 export const CARD_QUESTIONS = 5;
 
 export function GettingStartedScreen() {
-  const state = useApi(apiRoutes.portalCurrentIntake);
+  const state = useApi(portalIntakeRoutes.portalCurrentIntake);
   return (
     <Page width="narrow" testId="portal-start">
       <Loaded state={state}>
@@ -230,10 +231,15 @@ function GettingStarted({ initial }: { initial: View }) {
     offered: connections.data?.connections ?? [],
     answer: (items) =>
       act(() =>
-        api.call(apiRoutes.portalIntakeAnswer, { params: { id }, body: { answers: items } }),
+        api.call(portalIntakeRoutes.portalIntakeAnswer, {
+          params: { id },
+          body: { answers: items },
+        }),
       ),
-    confirm: (body) => act(() => api.call(apiRoutes.portalIntakeConfirm, { params: { id }, body })),
-    reload: () => act(async () => (await api.call(apiRoutes.portalCurrentIntake)).intake ?? null),
+    confirm: (body) =>
+      act(() => api.call(portalIntakeRoutes.portalIntakeConfirm, { params: { id }, body })),
+    reload: () =>
+      act(async () => (await api.call(portalIntakeRoutes.portalCurrentIntake)).intake ?? null),
   };
 
   return (
@@ -928,7 +934,7 @@ function AskSomeoneElse({
             setBusy(true);
             setError(null);
             void api
-              .call(apiRoutes.portalIntakeAsk, {
+              .call(portalIntakeRoutes.portalIntakeAsk, {
                 params: { id: ctx.view.intake.id },
                 body: {
                   ...(fieldKey ? { fieldKey } : { sectionKey: section.key }),
@@ -996,7 +1002,7 @@ function DifferentProcess({ view }: { view: View }) {
                   setBusy(true);
                   setError(null);
                   void api
-                    .call(apiRoutes.portalIntakeDifferentProcess, {
+                    .call(portalIntakeRoutes.portalIntakeDifferentProcess, {
                       params: { id: view.intake.id },
                       body: { text: text.trim() },
                     })

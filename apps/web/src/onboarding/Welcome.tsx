@@ -13,6 +13,7 @@ import {
   type OnboardingWords,
   type WelcomePageView,
   type WelcomeSignedInView,
+  welcomeRoutes,
 } from "@countersign/core";
 import { type ReactNode, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -97,7 +98,7 @@ function AskNew({ token, lead, w }: { token: string; lead: string; w: Onboarding
             setBusy(true);
             setError(null);
             try {
-              await api.call(apiRoutes.welcomeAskNew, { params: { token } });
+              await api.call(welcomeRoutes.welcomeAskNew, { params: { token } });
               setDone(true);
             } catch (err) {
               setError(err);
@@ -131,7 +132,7 @@ function SignedIn({
   useEffect(() => {
     let live = true;
     api
-      .call(apiRoutes.welcomeSignedIn, { params: { token } })
+      .call(welcomeRoutes.welcomeSignedIn, { params: { token } })
       .then((r) => {
         if (!live) return;
         if (r.state === "ok") navigate(r.next, { replace: true });
@@ -205,7 +206,7 @@ export function WelcomeScreen({ go = leave }: { go?: (url: string) => void } = {
   const navigate = useNavigate();
   const wellFormed = token.length >= 10 && token.length <= 2000;
   const view = useApi(
-    apiRoutes.welcomePage,
+    welcomeRoutes.welcomePage,
     wellFormed ? { params: { token }, cache: "none" } : null,
   );
   const provider = useApi(apiRoutes.authProvider);

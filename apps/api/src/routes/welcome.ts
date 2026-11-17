@@ -7,7 +7,11 @@
 // closed link offers "Ask <lead> for a new one", a to-do for the lead on Your call.
 
 import { getSession } from "@countersign/auth";
-import { maskEmail, routes, type WelcomeSignedInView } from "@countersign/core";
+import {
+  maskEmail,
+  type WelcomeSignedInView,
+  welcomeRoutes as welcomeSpecs,
+} from "@countersign/core";
 import {
   intake,
   intakeEvent,
@@ -97,7 +101,7 @@ export function welcomeRoutes(app: Hono<AppEnv>): void {
   // acting has no session, as on a form's page (§1.121). What happened is kept on the intake's own
   // log (`opened`, with time, address and browser) and as the lead's to-do. The check after
   // sign-in has a person and writes its audit row.
-  mountPublic(app, routes.welcomePage, async ({ c, services }) => {
+  mountPublic(app, welcomeSpecs.welcomePage, async ({ c, services }) => {
     const link = await verifyWelcomeLink(services.env, tokenOf(c));
     if (!link) throw gone();
     const { t, i, p, e } = link.payload;
@@ -134,7 +138,7 @@ export function welcomeRoutes(app: Hono<AppEnv>): void {
 
   // After sign-in. Outside mount(): any signed-in person may ask, whichever client or role they
   // have, and is told only whose invite it is when it isn't theirs.
-  app.post(routes.welcomeSignedIn.path, async (c) => {
+  app.post(welcomeSpecs.welcomeSignedIn.path, async (c) => {
     try {
       const services = c.get("req").services();
       const choice = services.auth();
@@ -199,13 +203,13 @@ export function welcomeRoutes(app: Hono<AppEnv>): void {
         httpStatus: 200,
         target: { intake: i, person: p, state: result.view.state },
       });
-      return c.json(routes.welcomeSignedIn.response.parse(result.view));
+      return c.json(welcomeSpecs.welcomeSignedIn.response.parse(result.view));
     } catch (error) {
       return errorResponse(c, error);
     }
   });
 
-  mountPublic(app, routes.welcomeAskNew, async ({ c, services }) => {
+  mountPublic(app, welcomeSpecs.welcomeAskNew, async ({ c, services }) => {
     const link = await verifyWelcomeLink(services.env, tokenOf(c));
     if (!link) throw gone();
     const { t, i, p } = link.payload;

@@ -3,8 +3,25 @@
 // load (scripts/web-size.mjs). The API mounts them from their own group, and the contract and
 // access tests walk this whole list, so none of them skips a check.
 
+import { clientFileRoutes, startRoutes } from "./client-files";
 import { codeRequestRoutes } from "./code-requests";
+import { opsIntakeRoutes, portalIntakeRoutes, welcomeRoutes } from "./intake";
+import { inviteRoutes } from "./invite";
 import { routes } from "./routes";
 
-/** docs/plan.md §1.125: the Dev queue's routes are served beside the registry. */
-export const allRoutes = { ...routes, ...codeRequestRoutes } as const;
+/**
+ * docs/plan.md §1.125: the Dev queue's routes, and §1.126: onboarding v1's (the client file,
+ * starts, Invite and Sign up now, the intake, the welcome page), are served beside the registry.
+ * Their screens load lazily (the back office, Getting started, the welcome page), so their schemas,
+ * the guide's included, stay out of the first load.
+ */
+export const allRoutes = {
+  ...routes,
+  ...codeRequestRoutes,
+  ...clientFileRoutes,
+  ...startRoutes,
+  ...inviteRoutes,
+  ...opsIntakeRoutes,
+  ...portalIntakeRoutes,
+  ...welcomeRoutes,
+} as const;

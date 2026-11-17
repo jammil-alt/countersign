@@ -1,8 +1,8 @@
 // The client page's File tab (`/ops/clients/:clientId/file`; docs/plan.md §1.126): the client's
 // file, what we know about them by section. Invite is beside the client's name on every tab (the
 // frame). A client made before files existed starts its file here.
+import { clientFileRoutes } from "@countersign/core";
 import { useParams } from "react-router-dom";
-import { apiRoutes } from "../../../api/routes";
 import { useApi } from "../../../api/useApi";
 import { ErrorNotice } from "../../../ui/ErrorState";
 import { Loading } from "../../../ui/primitives";
@@ -22,7 +22,7 @@ export function ClientFileScreen() {
 }
 
 function ClientFileBody({ clientId }: { clientId: string }) {
-  const files = useApi(apiRoutes.opsClientFiles, { query: { client: clientId } });
+  const files = useApi(clientFileRoutes.opsClientFiles, { query: { client: clientId } });
   const client = useClientPage();
   if (files.loading && !files.data) return <Loading />;
   if (!files.data) {

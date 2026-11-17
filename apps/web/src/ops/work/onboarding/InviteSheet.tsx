@@ -18,6 +18,7 @@ import {
   type InviteDraftInput,
   type InvitePreview,
   type InviteSent,
+  inviteRoutes,
   LEAD_NOTE_MAX,
   LOCALE_NAMES,
   LOCALES,
@@ -25,6 +26,7 @@ import {
   type SalesStartView,
   type StartMode,
   sectionKeysOf,
+  startRoutes,
 } from "@countersign/core";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
@@ -191,7 +193,7 @@ function usePreview(draft: InviteDraftInput | null) {
     setLoading(true);
     const timer = setTimeout(() => {
       api
-        .call(apiRoutes.opsInvitePreview, { body: JSON.parse(key) as InviteDraftInput })
+        .call(inviteRoutes.opsInvitePreview, { body: JSON.parse(key) as InviteDraftInput })
         .then((p) => {
           if (n !== seq.current) return;
           setData(p);
@@ -253,7 +255,7 @@ export function InviteSheet({
     setBusy(true);
     setSendError(null);
     try {
-      const out = await api.call(apiRoutes.opsInviteSend, { body: draft });
+      const out = await api.call(inviteRoutes.opsInviteSend, { body: draft });
       setSent(out);
       onSent?.(out);
     } catch (e) {
@@ -508,7 +510,7 @@ function CoversStep({
   state: InviteState;
   patch: Patch;
 }) {
-  const starts = useApi(apiRoutes.opsStarts, { query: { archived: "false" } });
+  const starts = useApi(startRoutes.opsStarts, { query: { archived: "false" } });
   function pickStart(s: SalesStartView) {
     patch({
       startId: s.id,

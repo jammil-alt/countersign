@@ -2,9 +2,9 @@
 // on the client's intake is the request. The build shows that card's progress ("7 of 12
 // answered"), what's still needed to start and who has it, and the client's Start with this or Not
 // now. Read from the back office's intake routes; nothing here writes.
+
 import type { OpsIntakeSummary, SectionProgress } from "@countersign/core";
-import { agentSectionKey, OPEN_INTAKE_STATUSES } from "@countersign/core";
-import { apiRoutes } from "../../api/routes";
+import { agentSectionKey, OPEN_INTAKE_STATUSES, opsIntakeRoutes } from "@countersign/core";
 import { useApi } from "../../api/useApi";
 import { Badge, Card } from "../../ui/primitives";
 
@@ -27,9 +27,9 @@ export function RequirementsCard({
   clientId: string;
   templateId: string;
 }) {
-  const list = useApi(apiRoutes.opsIntakes, { query: { client: clientId } });
+  const list = useApi(opsIntakeRoutes.opsIntakes, { query: { client: clientId } });
   const found = list.data ? intakeForTemplate(list.data.intakes, templateId) : null;
-  const one = useApi(apiRoutes.opsIntake, found ? { params: { id: found.id } } : null);
+  const one = useApi(opsIntakeRoutes.opsIntake, found ? { params: { id: found.id } } : null);
   if (!list.data || (found && !one.data)) return null;
   if (!found) {
     return (

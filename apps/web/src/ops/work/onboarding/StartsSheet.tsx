@@ -5,9 +5,14 @@
 // DECISION (§1.126, stream screens): the starts list is a side sheet opened from Sales' header
 // ("Starts", beside Sign up now), not a page in Autopilot: starts are Sales' presets, and a sheet
 // needs no new route.
-import { type Covers, EMPTY_COVERS, type SalesStartView, type StartMode } from "@countersign/core";
+import {
+  type Covers,
+  EMPTY_COVERS,
+  type SalesStartView,
+  type StartMode,
+  startRoutes,
+} from "@countersign/core";
 import { useState } from "react";
-import { apiRoutes } from "../../../api/routes";
 import { useApi, useApiClient } from "../../../api/useApi";
 import { cx } from "../../../ui/cx";
 import { ErrorNotice } from "../../../ui/ErrorState";
@@ -19,7 +24,7 @@ import { coversLine, START_MODE_WORDS } from "./words";
 
 export function StartsSheet({ onClose }: { onClose(): void }) {
   const [archived, setArchived] = useState(false);
-  const list = useApi(apiRoutes.opsStarts, {
+  const list = useApi(startRoutes.opsStarts, {
     query: { archived: archived ? "true" : "false" },
     keep: true,
   });
@@ -107,7 +112,7 @@ function StartRow({
   async function archive(on: boolean) {
     setError(null);
     try {
-      await api.call(apiRoutes.opsUpdateStart, { params: { id: s.id }, body: { archived: on } });
+      await api.call(startRoutes.opsUpdateStart, { params: { id: s.id }, body: { archived: on } });
       onChanged();
     } catch (e) {
       setError(e);
@@ -176,9 +181,9 @@ function StartForm({
     try {
       const body = { name: name.trim(), covers, note: note.trim(), startMode };
       if (start) {
-        await api.call(apiRoutes.opsUpdateStart, { params: { id: start.id }, body });
+        await api.call(startRoutes.opsUpdateStart, { params: { id: start.id }, body });
       } else {
-        await api.call(apiRoutes.opsCreateStart, { body });
+        await api.call(startRoutes.opsCreateStart, { body });
       }
       onDone();
     } catch (e) {

@@ -11,9 +11,10 @@ import {
   fieldFor,
   type GuideField,
   type IntakeAnswerInput,
+  opsIntakeRoutes,
   parseCoveredProcessors,
+  portalIntakeRoutes,
   redactAnswer,
-  routes,
   visibleSectionKeys,
 } from "@countersign/core";
 import {
@@ -137,7 +138,7 @@ async function logEvent(
 
 export function intakeRoutes(app: Hono<AppEnv>): void {
   // ── The back office ────────────────────────────────────────────────────────────────────────────
-  mount(app, routes.opsIntakes, async ({ tx, tenantIds, query }) => {
+  mount(app, opsIntakeRoutes.opsIntakes, async ({ tx, tenantIds, query }) => {
     if (query.client && !tenantIds.includes(query.client)) return { intakes: [] };
     const rows = await tx
       .select()
@@ -154,12 +155,12 @@ export function intakeRoutes(app: Hono<AppEnv>): void {
     return { intakes: await opsSummary(tx, rows) };
   });
 
-  mount(app, routes.opsIntake, async ({ tx, tenantIds, params }) =>
+  mount(app, opsIntakeRoutes.opsIntake, async ({ tx, tenantIds, params }) =>
     opsView(tx, await readIntake(tx, tenantIds, params.id)),
   );
 
   // ── The portal: Getting started ────────────────────────────────────────────────────────────────
-  mount(app, routes.portalCurrentIntake, async (ctx) => {
+  mount(app, portalIntakeRoutes.portalCurrentIntake, async (ctx) => {
     const tenantId = tenantOf(ctx.tenantIds);
     const viewer = viewerOf(ctx);
     for (const row of await currentIntake(ctx.tx, tenantId, new Date())) {
@@ -169,11 +170,11 @@ export function intakeRoutes(app: Hono<AppEnv>): void {
     return { intake: null };
   });
 
-  mount(app, routes.portalIntake, async (ctx) =>
+  mount(app, portalIntakeRoutes.portalIntake, async (ctx) =>
     portalView(ctx.tx, await readIntake(ctx.tx, ctx.tenantIds, ctx.params.id), viewerOf(ctx)),
   );
 
-  mount(app, routes.portalIntakeAnswer, async (ctx) => {
+  mount(app, portalIntakeRoutes.portalIntakeAnswer, async (ctx) => {
     const { tx, tenantIds, params, body, session } = ctx;
     const viewer = viewerOf(ctx);
     const { row, d, who, visible } = await acting(tx, tenantIds, params.id, viewer);
@@ -209,7 +210,7 @@ export function intakeRoutes(app: Hono<AppEnv>): void {
     return portalView(tx, await readIntake(tx, tenantIds, row.id), viewer);
   });
 
-  mount(app, routes.portalIntakeConfirm, async (ctx) => {
+  mount(app, portalIntakeRoutes.portalIntakeConfirm, async (ctx) => {
     const { tx, tenantIds, params, body, session } = ctx;
     const viewer = viewerOf(ctx);
     const { row, d, who, visible } = await acting(tx, tenantIds, params.id, viewer);
@@ -266,7 +267,7 @@ export function intakeRoutes(app: Hono<AppEnv>): void {
     return portalView(tx, await readIntake(tx, tenantIds, row.id), viewer);
   });
 
-  mount(app, routes.portalIntakeAsk, async (ctx) => {
+  mount(app, portalIntakeRoutes.portalIntakeAsk, async (ctx) => {
     const { tx, tenantIds, params, body, session, services } = ctx;
     const viewer = viewerOf(ctx);
     const { row, d, who, visible } = await acting(tx, tenantIds, params.id, viewer);
@@ -417,7 +418,7 @@ export function intakeRoutes(app: Hono<AppEnv>): void {
     };
   });
 
-  mount(app, routes.portalIntakeDifferentProcess, async (ctx) => {
+  mount(app, portalIntakeRoutes.portalIntakeDifferentProcess, async (ctx) => {
     const { tx, tenantIds, params, body, session } = ctx;
     const viewer = viewerOf(ctx);
     const { row, d, who, visible } = await acting(tx, tenantIds, params.id, viewer);
