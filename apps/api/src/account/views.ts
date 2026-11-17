@@ -191,20 +191,14 @@ export function accountViews(platform: Platform): AccountViews {
     },
 
     async passToLead(s, input) {
+      // docs/plan.md §1.123: a request becomes an issue and an idea an ask, marked as Sloan's.
       const row = await raiseRequest(s.tx, s.tenantId, {
         text: input.text,
         subject: input.subject,
         serviceId: input.serviceId,
         raisedBy: s.asker.userId as string,
-        // Linked to the conversation (ARCHITECTURE §9.8), and marked as Sloan's.
-        extra: {
-          via: "account_agent",
-          kind: input.kind,
-          threadId: s.asker.threadId,
-          runId: s.call.runId,
-          agentVersionId: s.call.agentVersionId,
-          sources: input.sources,
-        },
+        kind: input.kind === "idea" ? "idea" : "problem",
+        source: "sloan",
       }).catch(refusalOf);
       return { status: "passed", requestId: row.id };
     },

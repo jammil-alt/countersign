@@ -115,6 +115,7 @@ import { packPreviewRoutes } from "./routes/pack-preview";
 // P-1: packs (docs/plan.md §1.63).
 import { packRouteHandlers } from "./routes/packs";
 import { portalRouteHandlers } from "./routes/portal";
+import { portalIssueRouteHandlers } from "./routes/portal-issues";
 import { qboCronTick, qboRoutes, qboSyncFor } from "./routes/qbo";
 import { reachRoutes } from "./routes/reach";
 import { recordRouteHandlers } from "./routes/records";
@@ -150,6 +151,8 @@ import { voiceRoutes } from "./routes/voice";
 import { voiceHookRoutes } from "./routes/voice-hooks";
 import { webhookSetupRoutes } from "./routes/webhook-setup";
 import { whatsappMetaRoutes } from "./routes/whatsapp-meta";
+// §1.123 back office work
+import { workRouteHandlers } from "./routes/work";
 // v0.14 W4-B
 import { zohoRoutes } from "./routes/zoho";
 import { cronTick, dispatchByIds, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
@@ -171,6 +174,7 @@ import {
 // R5: the undo a late no is offered (docs/plan.md §9)
 import { undoRouteHandlers } from "./undo/routes";
 import { vaultTick } from "./vault/upkeep";
+import { adoptLegacy } from "./work/legacy";
 import { zohoCronTick } from "./zoho/sync";
 
 export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
@@ -316,6 +320,9 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   channelRoutes(app);
   // R8: the Library's banks (docs/plan.md §1.86)
   libraryRoutes(app);
+  // §1.123 back office work
+  workRouteHandlers(app);
+  portalIssueRouteHandlers(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
@@ -364,6 +371,10 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     );
     // v0.12 W1-A: pauses whose end passed resume (every minute); trials that met their minimums
     // move to signoff (hourly, at the usage sweep's minute).
+    // §1.123 back office work: change requests and Feedback raised before Build, adopted hourly.
+    await adoptLegacy(db, scheduledTime).catch((error: unknown) =>
+      reportHandled("adopting requests failed", error, { job: "work_adopt" }),
+    );
     await lifecycleTick(db, scheduledTime).catch((error: unknown) =>
       reportHandled("lifecycle tick failed", error, { job: "lifecycle" }),
     );

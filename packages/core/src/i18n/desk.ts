@@ -42,6 +42,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       mode: "This agent only suggests changes.",
       person: "The person it reaches asked to see changes first.",
       always: "A change like this one is always signed by a person.",
+      held: "It is on a safety hold while we fix a problem we found.",
     },
     stage: {
       trial: "The agent is in its trial: every change needs approval.",
@@ -76,6 +77,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       mode: "Este agente solo sugiere cambios.",
       person: "La persona a la que llega pidió ver los cambios antes.",
       always: "Un cambio como este siempre lo firma una persona.",
+      held: "Está en una pausa de seguridad mientras arreglamos un problema que encontramos.",
     },
     stage: {
       trial: "El agente está en su prueba: cada cambio necesita aprobación.",
@@ -110,6 +112,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       mode: "Cet agent ne fait que suggérer des changements.",
       person: "La personne concernée a demandé à voir les changements avant.",
       always: "Un changement comme celui-ci est toujours signé par une personne.",
+      held: "Il est en pause de sécurité le temps que nous corrigions un problème trouvé.",
     },
     stage: {
       trial: "L'agent est en période d'essai : chaque changement demande une approbation.",
@@ -145,6 +148,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       mode: "Este agente só sugere mudanças.",
       person: "A pessoa que recebe pediu para ver as mudanças antes.",
       always: "Uma mudança como esta é sempre assinada por uma pessoa.",
+      held: "Está em uma pausa de segurança enquanto corrigimos um problema que encontramos.",
     },
     stage: {
       trial: "O agente está em teste: cada mudança precisa de aprovação.",
@@ -179,6 +183,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       mode: "Questo agente suggerisce soltanto modifiche.",
       person: "La persona interessata ha chiesto di vedere prima le modifiche.",
       always: "Una modifica come questa la firma sempre una persona.",
+      held: "È in pausa di sicurezza mentre risolviamo un problema che abbiamo trovato.",
     },
     stage: {
       trial: "L'agente è in prova: ogni modifica richiede un'approvazione.",
@@ -214,6 +219,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       mode: "Dieser Agent schlägt Änderungen nur vor.",
       person: "Die betroffene Person möchte Änderungen vorher sehen.",
       always: "Eine Änderung wie diese unterschreibt immer ein Mensch.",
+      held: "Er ist angehalten, während wir ein gefundenes Problem beheben.",
     },
     stage: {
       trial: "Der Agent ist in der Probephase: Jede Änderung braucht eine Freigabe.",

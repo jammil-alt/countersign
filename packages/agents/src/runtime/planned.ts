@@ -120,6 +120,17 @@ async function plannedDispatch(
       reason: `${call.toolId} is not in this agent's access to the ${conn.connector} connection`,
     };
   }
+  // docs/plan.md §1.123: a safety hold stops every attempt, even inside an approved plan: the
+  // plan's sign was given before the hold, and a held agent sends nothing (invariant 8).
+  // DECISION: an attempt can't wait for a person, so while held it is refused like an `off` verb;
+  // the plan's next attempt after the release goes as signed.
+  if (
+    step.mode !== "test" &&
+    deps.ports.store.agentHold &&
+    (await deps.ports.store.agentHold(step.tenantId, step.agent.agentId))
+  ) {
+    return { status: "refused", reason: "the agent is on a safety hold" };
+  }
   const decision = decideToolCall({
     sideEffect: "external",
     verb: tool.spec.verb,

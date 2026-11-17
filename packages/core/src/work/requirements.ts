@@ -25,6 +25,12 @@ export const RequirementsRequest = z.object({
 });
 export type RequirementsRequest = z.infer<typeof RequirementsRequest>;
 
+/** The request stored on a build, or null when none (or unreadable). */
+export function readRequirements(value: unknown): RequirementsRequest | null {
+  const parsed = RequirementsRequest.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
 /** Answers: a field's key to its text, its choice or a document id. */
 export const RequirementAnswers = z.record(z.string(), z.string().max(4000));
 export type RequirementAnswers = z.infer<typeof RequirementAnswers>;

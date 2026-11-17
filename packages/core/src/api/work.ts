@@ -6,9 +6,6 @@
 
 import { z } from "zod";
 import { isUuid } from "../ids";
-import { RequirementAnswers, RequirementField } from "../work/requirements";
-import { ReggieRead } from "../work/reggie-read";
-import { Standing } from "../work/standing";
 import {
   BuildTab,
   WorkCauseKind,
@@ -19,6 +16,9 @@ import {
   WorkUrgency,
   WorkWaitingOn,
 } from "../work/pipelines";
+import { ReggieRead } from "../work/reggie-read";
+import { RequirementAnswers, RequirementField } from "../work/requirements";
+import { Standing } from "../work/standing";
 import { defineRoute } from "./contract";
 
 const Id = z.string().refine((v) => isUuid(v), "not an id");

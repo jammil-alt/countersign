@@ -85,7 +85,6 @@ import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
 import { reggieRoutes } from "./reggie";
 import { requestRoutes } from "./requests";
-import { workRoutes } from "./work";
 // Reshape data (2026-11-11): the builder's proposal and samples for a Reshape step.
 import { reshapeRoutes } from "./reshape";
 import { RunAuditState, runAuditRoutes } from "./run-audit";
@@ -134,6 +133,7 @@ import { AgentRunsNow, DayRuns, usageRoutes } from "./usage";
 import { voiceRoutes } from "./voice";
 // v0.14 W4-A: WhatsApp through Meta
 import { whatsappMetaRoutes } from "./whatsapp-meta";
+import { workRoutes } from "./work";
 // v0.14 W4-B
 import { zohoRoutes } from "./zoho";
 

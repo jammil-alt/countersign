@@ -3420,12 +3420,11 @@ export const NOTIFICATION_KINDS = [
   "credits",
   "lead_message",
   "signoff",
+  // §1.123 (0061): the operator answered a client's request; sent by Build (§1.123.1).
+  "issue_update",
 ] as const;
-/**
- * The kinds the check allows: §1.123 (0061) adds `issue_update` (the operator answered a client's
- * request) ahead of the code that sends it, which moves it into NOTIFICATION_KINDS with core's.
- */
-export const NOTIFICATION_KINDS_ALLOWED = [...NOTIFICATION_KINDS, "issue_update"] as const;
+/** The kinds the check allows (the same list; kept as its own name for the check). */
+export const NOTIFICATION_KINDS_ALLOWED = NOTIFICATION_KINDS;
 export const NOTIFICATION_STATUSES = ["queued", "sent", "failed", "skipped"] as const;
 export const WEEKLY_TABLE_STATUSES = ["draft", "sent"] as const;
 
