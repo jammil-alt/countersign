@@ -168,6 +168,19 @@ then one pass of its "To verify" list against the real service.
 
 ## 4. Everything else
 
+### Back office work: Sales, onboarding and Build (designed 2026-11-17, parked)
+
+One to-do list (Your call), Sales (new accounts and expansion), onboarding and Build (issues, agent
+builds and enhancements in one work order), with Reggie doing most of the work. Onboarding: a
+client file of what we know about each prospect and client; **Invite** from the lead record (a
+general, area or agents intake, filled from the file) and **Sign up now** for someone ready to
+start, both logged as a deal at the right stage; branded emails and a welcome page; Getting started
+in the portal (get to the point, or talk it through with Sloan; tools connected as it goes); a
+signed scope that moves each agent's build past its requirements. Agreed as a design and a plan to
+come back to; nothing is built. The plan, its steps (B1–O6) and the owner's open questions:
+`docs/cases-plan.md`. The screens: `docs/design/pipelines.html` and `docs/design/workflows.html`
+(onboarding not drawn yet).
+
 ### Area owners, owner chat and Home (designed 2026-11-12)
 
 ARCHITECTURE v0.19 §10.15, `docs/plan.md` §1.117 and §10 (O1–O8). Built on
