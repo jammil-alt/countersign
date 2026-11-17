@@ -139,6 +139,20 @@ import { zohoRoutes } from "./zoho";
 
 export const HealthResponse = z.object({ ok: z.literal(true) });
 
+/**
+ * Readiness (`/api/ready`): the Worker reaches its database, and which commit is deployed. A 503
+ * when the database check fails. Nothing else: no error text, host or version beyond the commit.
+ */
+export const ReadyResponse = z.object({
+  ok: z.boolean(),
+  db: z.enum(["ok", "unavailable"]),
+  /** The deployed commit (deploy.yml's `DEPLOYED_SHA`); null where it is not set (local, tests). */
+  sha: z
+    .string()
+    .regex(/^[0-9a-f]{7,40}$/)
+    .nullable(),
+});
+
 /** The session without its language (what packages/auth knows on its own). */
 export const SessionBase = z.object({
   user: z.object({ id: z.string(), email: z.string(), name: z.string().nullable() }),
@@ -2272,6 +2286,15 @@ export const routes = {
     roles: [],
     summary: "Liveness",
     response: HealthResponse,
+  }),
+  ready: defineRoute({
+    method: "GET",
+    path: "/api/ready",
+    auth: "public",
+    roles: [],
+    summary:
+      "Readiness: the database answers through the Worker's own connection, and the deployed commit",
+    response: ReadyResponse,
   }),
   session: defineRoute({
     method: "GET",

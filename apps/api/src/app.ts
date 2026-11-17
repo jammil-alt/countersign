@@ -42,6 +42,7 @@ import type { RegisteredPack } from "./packs";
 // v0.12 W3-B
 import { rampCron } from "./ramp/poll";
 import { reachOutTick } from "./reach/service";
+import { readyRoutes } from "./ready";
 import { requestOrigin } from "./request-origin";
 import { a2pRoutes } from "./routes/a2p";
 import { accessRoutes } from "./routes/access";
@@ -191,6 +192,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // §1.116: the phone app's session header, read as the session cookie (before anything reads it).
   app.use("/api/*", mobileSession);
   app.use("/api/*", requestState(deps));
+  // Readiness reaches the database through the request's client, so it comes after requestState.
+  readyRoutes(app);
   sessionRoutes(app);
   // §1.100
   secondFactorRoutes(app);
