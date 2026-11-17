@@ -37,9 +37,9 @@ import {
   routeApproval,
 } from "@countersign/core";
 import type { RegisteredTool } from "../registry/tools";
-import { ACTION_BUSY, executeAction } from "./actions";
+import { executeAction } from "./actions";
 import { noteReconnect } from "./attention";
-import { carryApproval, MAY_HAVE_HAPPENED } from "./carry";
+import { carryApproval } from "./carry";
 import {
   asJsonObject,
   connectionContext,
@@ -60,8 +60,18 @@ export type ToolOutcome =
       /** v0.12 W1-E: a retry's write carried from the run retried (`approved_via: retry_of`). */
       carried?: { retryOf: string };
     }
-  /** A write waiting for a person: the action and its inbox item. */
-  | { status: "awaiting_approval"; actionId: string; inboxItemId: string | null; before: unknown }
+  /**
+   * A write waiting for a person: the action and its inbox item. `recorded`: the step's change
+   * found under this call's key had another input (follow-up 3); the step waits on that change,
+   * and the model is told what it is.
+   */
+  | {
+      status: "awaiting_approval";
+      actionId: string;
+      inboxItemId: string | null;
+      before: unknown;
+      recorded?: RecordedChange;
+    }
   /**
    * Test runs: the write was recorded as proposed and will never run. `standIn`: what the tool
    * says it would have returned (docs/plan.md §1.94), for later steps; absent when it says nothing.
@@ -75,10 +85,60 @@ export type ToolOutcome =
   | { status: "refused"; reason: string }
   /**
    * `actionId`: a carried write that failed (its tool call names the action, `stepWrites`).
-   * `stopsStep`: the step can't go on (a retry's write that doesn't match the one its first try
-   * made under the same key): an agent loop fails the step rather than tell the model.
+   * `stopsStep`: the step can't go on (a retry calling another tool where its first try made a
+   * change under the same key): an agent loop fails the step rather than tell the model.
    */
-  | { status: "failed"; error: string; actionId?: string; stopsStep?: true };
+  | { status: "failed"; error: string; actionId?: string; stopsStep?: true }
+  /**
+   * Follow-up 1: the change was claimed by an earlier try that may have stopped mid-write. The
+   * step stops and waits until that claim's lease runs out (`leaseEndsAt`, ISO, by the database),
+   * then runs again and takes the change over under its key. Nothing was sent by this call.
+   */
+  | { status: "busy"; actionId: string; leaseEndsAt: string | null }
+  /**
+   * Follow-up 3: the step already has a change under this call's key, made with another input
+   * (a retry whose model asked differently). Nothing was done for this call; the model is told
+   * what the step's change is, as data.
+   */
+  | { status: "recorded"; actionId: string; change: RecordedChange };
+
+/** A change a step already has, as its model is told it (follow-up 3): data, never instructions. */
+export interface RecordedChange {
+  tool: string;
+  input: unknown;
+  status: "done" | "waiting for approval" | "being made" | "failed" | "turned down";
+  result?: unknown;
+  error?: string;
+  note: string;
+}
+
+const RECORDED_NOTE =
+  "This step already has this change; it was not made again. If you meant a different change, finish and say so instead of repeating it.";
+
+/** The step's change as its model is told it. */
+export function recordedChange(
+  action: Pick<ExternalActionRecord, "tool" | "status" | "result" | "error"> & { input: unknown },
+): RecordedChange {
+  const status: RecordedChange["status"] =
+    action.status === "done"
+      ? "done"
+      : action.status === "proposed" || action.status === "approved"
+        ? "waiting for approval"
+        : action.status === "executing"
+          ? "being made"
+          : action.status === "rejected"
+            ? "turned down"
+            : "failed";
+  const error = (action.error as { message?: unknown } | null)?.message;
+  return {
+    tool: action.tool,
+    input: action.input,
+    status,
+    ...(status === "done" ? { result: action.result } : {}),
+    ...(status === "failed" && typeof error === "string" ? { error } : {}),
+    note: RECORDED_NOTE,
+  };
+}
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -93,6 +153,10 @@ const LOG_STATUS: Record<ToolOutcome["status"], ToolCallStatus> = {
   awaiting_release: "awaiting_approval",
   refused: "refused",
   failed: "failed",
+  // The step waits for an earlier try's claim to run out: logged as waiting, as a release is.
+  busy: "awaiting_approval",
+  // Follow-up 3: nothing was done for this call; the step's change stands as it is.
+  recorded: "refused",
 };
 
 export interface CallToolInput {
@@ -222,9 +286,15 @@ export async function callTool(
             ? { error: outcome.error }
             : outcome.status === "awaiting_release"
               ? { status: outcome.status, releaseId: outcome.releaseId }
-              : outcome.status === "would_have_done" && outcome.standIn !== undefined
-                ? { status: outcome.status, standIn: true, output: outcome.standIn }
-                : { status: outcome.status },
+              : outcome.status === "busy"
+                ? { status: outcome.status, leaseEndsAt: outcome.leaseEndsAt }
+                : outcome.status === "recorded"
+                  ? { alreadyRecorded: outcome.change }
+                  : outcome.status === "awaiting_approval" && outcome.recorded
+                    ? { status: outcome.status, alreadyRecorded: outcome.recorded }
+                    : outcome.status === "would_have_done" && outcome.standIn !== undefined
+                      ? { status: outcome.status, standIn: true, output: outcome.standIn }
+                      : { status: outcome.status },
     durationMs: Date.now() - started,
     externalActionId: actionId ?? null,
   });
@@ -437,7 +507,9 @@ async function dispatch(
   if (carried) return carried;
   const key = idempotencyKey(step);
   const test = step.mode === "test";
-  const automatic = decision === "run" && !test;
+  // Follow-up 3: after a call that didn't match the step's change under its key, every write of
+  // this try waits for a person, whatever the step, matrix and mode say (only tightens).
+  const automatic = decision === "run" && !test && step.signAllWrites !== true;
   // Who approves (never whether: that was decided above, invariant 8). Read fresh for each
   // proposal, so a client's tightening applies to the next approval at once.
   let approver: ReturnType<typeof routeApproval> | null = null;
@@ -491,6 +563,11 @@ async function dispatch(
             // What chose the approver: a rule (with the rules' revision), the step, the agent,
             // the client's default, or the default (the client admin).
             approverRoute: { source: approver.source, ruleId: approver.ruleId, revision },
+            // Follow-up 3: signed because this try's model asked for a change the step already
+            // had with another input.
+            ...(step.signAllWrites === true && decision === "run"
+              ? { signedAfterRetry: true }
+              : {}),
             // v0.12 W1-D: why it waits, over the gate's own inputs (core explainWrite); the
             // gate's decision above is unchanged.
             whyApproval: explainWrite({
@@ -579,9 +656,14 @@ export async function releaseGate(
 // DECISION (audit 3.1): keys are positional (`<run>:<step>:<index>`), and a model asked again may
 // call its tools in another order or with other inputs. The action found by key is resumed only
 // when this call is the same write: the same tool and the same input, compared as the tool reads
-// it (its Zod input, defaults filled in, as `captureBefore` stored it), in canonical JSON. Anything
-// else fails the step (`stopsStep`) with the reason: a new action under a shifted key could repeat
-// a write the first try made, and the recorded result would answer for a different write.
+// it (its Zod input, defaults filled in, as `captureBefore` stored it), in canonical JSON.
+// Another tool there fails the step (`stopsStep`).
+// DECISION (follow-up 3, the lead's): another input is neither failed nor silently reused. The
+// key is taken and nothing is done for this call: the model is told the step's change as data
+// (tool, input, where it stands) and asked to finish rather than repeat it. A change still waiting
+// (proposed, or approved and not made) is settled on as before, so the person approves what they
+// saw. From then on in this try, every write the model proposes waits for a person
+// (`signAllWrites`): it only tightens (invariant 8).
 async function resumeProposed(
   deps: RuntimeDeps,
   step: StepContext,
@@ -598,14 +680,32 @@ async function resumeProposed(
       stopsStep: true,
     };
   }
-  if (!(await sameWrite(tool, input, existing.input))) {
-    return {
-      status: "failed",
-      error: `this step's change ${existing.idempotencyKey} was proposed with another input than this try's ${tool.spec.id} call: check the step's changes before trying again`,
-      stopsStep: true,
-    };
+  if (await sameWrite(tool, input, existing.input)) return settle(deps, step, tool, existing);
+  step.signAllWrites = true;
+  return recordedOutcome(deps, step, tool, existing);
+}
+
+/**
+ * What a call that isn't the step's change under its key gets (follow-up 3): a change still
+ * waiting is settled on as before, the model told what it is; any other is described, untouched.
+ */
+async function recordedOutcome(
+  deps: RuntimeDeps,
+  step: StepContext,
+  tool: RegisteredTool,
+  existing: ExternalActionRecord,
+): Promise<ToolOutcome> {
+  if (existing.status === "proposed" || existing.status === "approved") {
+    const settled = await settle(deps, step, tool, existing);
+    if (settled.status === "awaiting_approval") {
+      return { ...settled, recorded: recordedChange(existing) };
+    }
+    if (settled.status === "busy" || settled.status === "would_have_done") return settled;
+    // Executed (or turned down) just now: told as it stands.
+    const now = (await deps.ports.actions.get(step.tenantId, existing.id)) ?? existing;
+    return { status: "recorded", actionId: existing.id, change: recordedChange(now) };
   }
-  return settle(deps, step, tool, existing);
+  return { status: "recorded", actionId: existing.id, change: recordedChange(existing) };
 }
 
 /** Whether a call's input is the write an action recorded (`input`, the agent's, never an edit). */
@@ -661,15 +761,10 @@ async function settle(
       }
       if (r.status === "failed") return { status: "failed", error: r.error };
       if (r.status === "rejected") return { status: "refused", reason: "rejected" };
-      // Audit 3.2: another try is making it (a step retried while its write is under way). This
-      // try never sends it too, and the step can't go on as if it were done or never made.
+      // Audit 3.2: an earlier try claimed it and may have stopped mid-write. This try never sends
+      // it too; the step waits for that claim's lease and runs again (follow-up 1).
       if (r.status === "busy") {
-        return {
-          status: "failed",
-          error: `${ACTION_BUSY}${MAY_HAVE_HAPPENED}`,
-          actionId: action.id,
-          stopsStep: true,
-        };
+        return { status: "busy", actionId: action.id, leaseEndsAt: r.leaseEndsAt };
       }
       return {
         status: "awaiting_approval",

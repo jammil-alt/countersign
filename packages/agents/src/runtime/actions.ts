@@ -41,17 +41,22 @@ export type ActionOutcome =
   | { status: "awaiting_approval"; action: ExternalActionRecord }
   | { status: "rejected"; action: ExternalActionRecord }
   /**
-   * Audit 3.2: another caller is executing it now (a second press, a double click, a step retried
-   * while its write is under way). Nothing was sent by this call; the write may still happen.
+   * Audit 3.2: another caller claimed it (a second press, a double click, a step retried after a
+   * try that stopped mid-write). Nothing was sent by this call; the write may have happened or may
+   * still happen. `leaseEndsAt` (ISO, by the database's clock): when that claim runs out and it may
+   * be taken over; null when unknown.
    */
-  | { status: "busy"; action: ExternalActionRecord };
+  | { status: "busy"; action: ExternalActionRecord; leaseEndsAt: string | null };
 
 function message(error: unknown): string {
   return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 }
 
-/** Said of a change another caller is executing (`busy`), for callers that show it. */
-export const ACTION_BUSY = "this change is being made right now";
+/**
+ * Said of a change another caller claimed (`busy`), for callers that show it. Follow-up 1c: the
+ * first try may have stopped, so it never says the change is being made now.
+ */
+export const ACTION_BUSY = "this change was started and may have been made";
 
 /**
  * Runs an approved action through its connector and records the result and the before state.
@@ -91,7 +96,15 @@ export async function executeAction(
       throw new AgentsError("test_run", "test runs never execute external actions");
     }
   }
-  const { action, claimed, retaken } = await actions.claim(input.tenantId, input.actionId);
+  const {
+    action,
+    claimed,
+    retaken,
+    claim,
+    leaseEndsAt = null,
+  } = await actions.claim(input.tenantId, input.actionId);
+  // Follow-up 4: `complete` and `fail` change the row only under this caller's claim.
+  const fence = claim === undefined ? {} : { claim };
   if (!claimed) {
     switch (action.status) {
       case "done":
@@ -112,7 +125,7 @@ export async function executeAction(
         return { status: "awaiting_approval", action };
       case "executing":
         // Audit 3.2: another caller holds it; this one never sends it too.
-        return { status: "busy", action };
+        return { status: "busy", action, leaseEndsAt };
     }
   }
   // A failure is recorded only on the execution under way (`fail` leaves a write another caller
@@ -130,6 +143,7 @@ export async function executeAction(
       action.id,
       { message: error.message, unconfirmed: true, ...error.details },
       {
+        ...fence,
         inbox: {
           title: error.title,
           agentId: owner?.agentId ?? null,
@@ -158,11 +172,12 @@ export async function executeAction(
         ),
       );
     }
-    const failed = await actions.fail(input.tenantId, action.id, {
-      message: reason,
-      ...extra,
-      notWritten: true,
-    });
+    const failed = await actions.fail(
+      input.tenantId,
+      action.id,
+      { message: reason, ...extra, notWritten: true },
+      fence,
+    );
     return failedAs(failed, reason);
   };
   // Human release holds at execution too (docs/plan.md §1.26): an approved write runs only under a
@@ -225,7 +240,12 @@ export async function executeAction(
     // it (`onError: continue`, the executor asks `stepWrites`). A taken-over execution goes to
     // the operator whatever this try did (`notSent`): the earlier try may have written.
     if (retaken || !sending || writeNotMade(error)) return notSent(message(error));
-    const failed = await actions.fail(input.tenantId, action.id, { message: message(error) });
+    const failed = await actions.fail(
+      input.tenantId,
+      action.id,
+      { message: message(error) },
+      fence,
+    );
     return failedAs(failed, message(error));
   }
   try {
@@ -233,11 +253,25 @@ export async function executeAction(
     const after = actions.keepsAfter
       ? await readAfter(deps, input.tenantId, own, conn, action)
       : undefined;
-    const done = await actions.complete(input.tenantId, action.id, {
-      output: written.output,
-      before: written.before,
-      ...(after === undefined ? {} : { after }),
-    });
+    const done = await actions.complete(
+      input.tenantId,
+      action.id,
+      {
+        output: written.output,
+        before: written.before,
+        ...(after === undefined ? {} : { after }),
+      },
+      fence,
+    );
+    // Follow-up 4: done only when the row says so. Another caller took it over meanwhile (this
+    // caller's lease ran out): the write was made here, and the row is that caller's to record.
+    if (done.status !== "done") {
+      return {
+        status: "failed",
+        action: done,
+        error: `The change through ${action.tool} was made, but another try took it over before it was recorded; check before trying again`,
+      };
+    }
     return { status: "done", action: done, output: written.output, summary: written.summary };
   } catch (error) {
     // DECISION (wave 5 review): the write was made but couldn't be recorded: never `failed` as if
@@ -711,13 +745,14 @@ async function finishUndo(
     case "failed":
       return { status: "failed", original, undo: out.action, error: out.error };
     case "busy":
-      // Audit 3.2: a second press while the first is putting it back: nothing sent twice, and
-      // the offer stays open (a press once it is done reads the first undo's outcome).
+      // Audit 3.2: a second press while the first's undo is claimed: nothing sent twice, and the
+      // offer stays open (a press once it is done reads the first undo's outcome; one that never
+      // finishes goes to the operator, follow-up 1b).
       return {
         status: "refused",
         original,
         code: "not_done",
-        reason: "we're putting this change back right now; check again in a minute",
+        reason: "we already started putting this change back; check again in a few minutes",
       };
     default:
       // An undo is recorded approved; anything else is not ours to run.

@@ -163,4 +163,49 @@ describe("carried approvals and the gate", () => {
     );
     expect(r2).toEqual({ status: "failed", error: "Error: HTTP 500", actionId: "action-1" });
   });
+
+  it("tells the model a done write at the same place with another input, never proposing it again blindly", async () => {
+    const { deps, step, reopened } = setup({ status: "done", result: { id: "r1" } });
+    const r = await carryApproval(
+      deps,
+      step,
+      "testkit.record.update",
+      { id: "r1", amount: "13.00" },
+      "run",
+    );
+    expect(r).toMatchObject({
+      status: "recorded",
+      actionId: "action-1",
+      change: { status: "done", input: { id: "r1", amount: "12.00" }, result: { id: "r1" } },
+    });
+    expect(reopened).toEqual([]);
+    // The key moves on, and every later write of this try waits for a person.
+    expect(step.externalIndex.next).toBe(1);
+    expect(step.signAllWrites).toBe(true);
+    // At another place (the next call's), it is no business of this one.
+    const later = setup({ status: "done", idempotencyKey: `${RETRY_OF}:update:1` });
+    expect(
+      await carryApproval(
+        later.deps,
+        later.step,
+        "testkit.record.update",
+        { id: "r1", amount: "13.00" },
+        "run",
+      ),
+    ).toBeNull();
+  });
+
+  it("never carries a system approval after a call of this try that didn't match", async () => {
+    const { deps, step, reopened } = setup({ approvedBy: null });
+    step.signAllWrites = true;
+    const r = await carryApproval(
+      deps,
+      step,
+      "testkit.record.update",
+      { id: "r1", amount: "12.00" },
+      "run",
+    );
+    expect(r).toBeNull();
+    expect(reopened).toEqual([]);
+  });
 });

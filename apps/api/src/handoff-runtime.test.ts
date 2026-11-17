@@ -348,4 +348,19 @@ describe.skipIf(!h)("hand-off steps in apps/api", () => {
     expect(await twice(failing)).toMatchObject({ status: "failed" });
     expect(await endsOf(failing.runId)).toEqual([{ type: "run.failed" }]);
   });
+
+  it("a finish landing after the run was cancelled leaves it cancelled, with no event", async () => {
+    const p = params({ agentId: ids.checker, agentVersionId: ids.checkerVersion });
+    const step = new FakeWorkflowStep();
+    expect(await executeRun(deps(), p, cloudflareStepRunner(step))).toEqual({
+      status: "succeeded",
+    });
+    await H.t.db.delete(event).where(eq(event.subjectId, p.runId));
+    await H.t.db.update(run).set({ status: "cancelled" }).where(eq(run.id, p.runId));
+    step.results.delete("run:finish");
+    await executeRun(deps(), p, cloudflareStepRunner(step));
+    const [row] = await H.t.db.select().from(run).where(eq(run.id, p.runId));
+    expect(row?.status).toBe("cancelled");
+    expect(await H.t.db.select().from(event).where(eq(event.subjectId, p.runId))).toEqual([]);
+  });
 });

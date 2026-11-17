@@ -114,8 +114,11 @@ export interface StepWait {
   timeout: Duration;
   /** Whatever the port needs to look it up again (e.g. the reach-out's id). */
   state?: unknown;
-  /** What it waits for, for the timeline: a reply (default) or a person's release code. */
-  reason?: "reply" | "release";
+  /**
+   * What it waits for, for the timeline: a reply (default), a person's release code, or (follow-up
+   * 1) a change an earlier try started, until it may be taken over.
+   */
+  reason?: "reply" | "release" | "change";
 }
 
 export interface WaitRequest {
@@ -155,6 +158,11 @@ export interface SkillStepRequest {
    * corrected input (run oversight) uses `${nodeId}:o${seq}`, so the gate decides it afresh.
    */
   keyNode?: string;
+  /**
+   * Follow-up 2: the platform's retry of this durable work (an earlier try stopped), so the
+   * agent's budgets go on from what those tries spent. Absent: the work's first try.
+   */
+  retried?: boolean;
   // R3 (docs/plan.md §1.86): a v4 skill step's customization of its Library skill.
   /**
    * What the step changes about its skill (`processes.customizeSkill`): the runtime applies the

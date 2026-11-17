@@ -254,6 +254,56 @@ describe("skill and action steps", () => {
     expect(h.resumeCalls[0]?.resolution).toMatchObject({ approved: true, by: "user-1" });
   });
 
+  it("waits out a second window when a yes is taken back and given again inside the first", async () => {
+    const h = new Harness();
+    const item = h.approvalItem();
+    h.handlers.write = () => ({ kind: "approval", pending: { inboxItemId: item } });
+    // Undone and signed again during the first hold: a new window, then the yes stands.
+    let sleeps = 0;
+    const runner = new FakeStepRunner({ onWait: "timeout" });
+    const sleep = runner.sleep.bind(runner);
+    runner.sleep = async (name, duration) => {
+      await sleep(name, duration);
+      sleeps += 1;
+    };
+    const result = await executeWorkflow(
+      runner,
+      h.context({
+        inbox: {
+          ...h.inbox,
+          resolution: async () => (sleeps >= 2 ? { approved: true, by: "user-1" } : null),
+          heldFor: async () => (sleeps >= 2 ? 0 : 30),
+        },
+      }),
+      wf([action({ approval: { timeout: "1 hour" } })]),
+      { what: "x" },
+    );
+    expect(result).toMatchObject({ status: "succeeded" });
+    expect(sleeps).toBe(2);
+    expect(h.resumeCalls[0]?.resolution).toMatchObject({ approved: true, by: "user-1" });
+  });
+
+  it("tells a skill step's work when it is the platform's retry of it", async () => {
+    const h = new Harness();
+    let tries = 0;
+    h.handlers.s = () => {
+      tries += 1;
+      if (tries === 1) throw new Error("the Worker stopped");
+      return { kind: "done", output: { ok: true } };
+    };
+    const result = await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({ stepConfig: { retries: { limit: 2, delay: "1 second" } } }),
+      wf([{ id: "s", kind: "skill", name: "Check", skill: SKILL.id, input: {} }]),
+      {},
+    );
+    expect(result).toMatchObject({ status: "succeeded" });
+    expect(h.agentCalls.map((c) => (c as { retried?: boolean }).retried)).toEqual([
+      undefined,
+      true,
+    ]);
+  });
+
   it("ends as not approved when a yes inside its undo window is taken back", async () => {
     const h = new Harness();
     const item = h.approvalItem();

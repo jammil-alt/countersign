@@ -2,7 +2,7 @@
 // one transaction, unique per client by idempotency key, claimed once for execution, and resolved
 // by a person through the inbox. Never deleted.
 
-import type { JsonObject } from "@countersign/core";
+import { isPlainObject, type JsonObject } from "@countersign/core";
 import {
   type Db,
   externalAction,
@@ -12,7 +12,7 @@ import {
   type Tx,
   withTenant,
 } from "@countersign/db";
-import { and, asc, eq, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { AgentsError, notFound } from "../errors";
 import type { ExternalActionRecord, ExternalActionStore } from "../runtime/ports";
 
@@ -55,6 +55,49 @@ async function byId(tx: Tx, tenantId: string, id: string): Promise<Row | undefin
     .from(externalAction)
     .where(and(eq(externalAction.id, id), eq(externalAction.tenantId, tenantId)));
   return row;
+}
+
+/**
+ * The rows `complete` and `fail` may change: this action while it is executing and, given a claim
+ * (`executed_at` as text, from `claim`), only while that claim still holds it. Null: claimed by a
+ * Worker from before the claim time was kept.
+ */
+// DECISION (follow-up 4): the claim's `executed_at` is the fencing token, compared as the
+// database stored it (text, to the microsecond), so a caller whose lease ran out and was taken
+// over can neither finish nor fail the new caller's execution. No new column.
+function underClaim(actionId: string, tenantId: string, claim: string | null | undefined) {
+  return and(
+    eq(externalAction.id, actionId),
+    eq(externalAction.tenantId, tenantId),
+    eq(externalAction.status, "executing"),
+    claim === undefined
+      ? undefined
+      : claim === null
+        ? isNull(externalAction.executedAt)
+        : sql`${externalAction.executedAt} = ${claim}::timestamptz`,
+  );
+}
+
+/** A claimed row's `executed_at` as the database holds it, for `underClaim`. */
+async function claimTime(tx: Tx, tenantId: string, id: string): Promise<string | null> {
+  const [row] = await tx
+    .select({ at: sql<string | null>`${externalAction.executedAt}::text` })
+    .from(externalAction)
+    .where(and(eq(externalAction.id, id), eq(externalAction.tenantId, tenantId)));
+  return row?.at ?? null;
+}
+
+/** When an executing row's lease runs out (ISO), by the database's clock; null without a claim time. */
+async function leaseEnd(tx: Tx, tenantId: string, id: string): Promise<string | null> {
+  const [row] = await tx
+    .select({
+      at: sql<
+        string | null
+      >`to_char((${externalAction.executedAt} + make_interval(mins => ${EXECUTING_LEASE_MINUTES})) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
+    })
+    .from(externalAction)
+    .where(and(eq(externalAction.id, id), eq(externalAction.tenantId, tenantId)));
+  return row?.at ?? null;
 }
 
 /** The row as it is, for a `complete` or `fail` that found it no longer executing. */
@@ -186,12 +229,12 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
       return withTenant(db, tenantId, async (tx) => {
         // Audit 3.2: one caller executes. The row is locked, so of two callers the second reads
         // what the first left (`executing`) and does not claim it.
-        const [current] = await tx
+        const [before] = await tx
           .select({ status: externalAction.status })
           .from(externalAction)
           .where(and(eq(externalAction.id, actionId), eq(externalAction.tenantId, tenantId)))
           .for("update");
-        if (!current) throw notFound(`external action ${actionId}`);
+        if (!before) throw notFound(`external action ${actionId}`);
         const [claimed] = await tx
           .update(externalAction)
           // `executed_at` is when this execution started (EXECUTING_LEASE); `complete` sets it
@@ -225,12 +268,20 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
           return {
             action: toRecord(claimed),
             claimed: true,
-            ...(current.status === "executing" ? { retaken: true } : {}),
+            // Follow-up 4: the claim's own time, exactly as stored, fences `complete` and `fail`.
+            claim: await claimTime(tx, tenantId, actionId),
+            ...(before.status === "executing" ? { retaken: true } : {}),
           };
         }
         const row = await byId(tx, tenantId, actionId);
         if (!row) throw notFound(`external action ${actionId}`);
-        return { action: toRecord(row), claimed: false };
+        return {
+          action: toRecord(row),
+          claimed: false,
+          ...(row.status === "executing"
+            ? { leaseEndsAt: await leaseEnd(tx, tenantId, actionId) }
+            : {}),
+        };
       });
     },
 
@@ -281,7 +332,7 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
       });
     },
 
-    complete(tenantId, actionId, result) {
+    complete(tenantId, actionId, result, options = {}) {
       return withTenant(db, tenantId, async (tx) => {
         const [row] = await tx
           .update(externalAction)
@@ -296,13 +347,8 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
             executedAt: new Date(),
           })
           // Audit 3.2: only the execution under way is finished; anything else stands as it is.
-          .where(
-            and(
-              eq(externalAction.id, actionId),
-              eq(externalAction.tenantId, tenantId),
-              eq(externalAction.status, "executing"),
-            ),
-          )
+          // Follow-up 4: and only by the caller whose claim holds it (a takeover since moved it).
+          .where(underClaim(actionId, tenantId, options.claim))
           .returning();
         if (!row) return current(tx, tenantId, actionId);
         await finishedEvent(tx, row, "external_action.done");
@@ -314,16 +360,16 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
       return withTenant(db, tenantId, async (tx) => {
         const [row] = await tx
           .update(externalAction)
-          .set({ status: "failed", error: error as Record<string, unknown> })
+          .set({
+            status: "failed",
+            error: error as Record<string, unknown>,
+            // Follow-up 9: a change known not to have been made shows no time it was made.
+            ...(isPlainObject(error) && error.notWritten === true ? { executedAt: null } : {}),
+          })
           // Audit 3.2: only the execution under way fails; a write already done (or failed) is
-          // left as it is, with no second event or review item.
-          .where(
-            and(
-              eq(externalAction.id, actionId),
-              eq(externalAction.tenantId, tenantId),
-              eq(externalAction.status, "executing"),
-            ),
-          )
+          // left as it is, with no second event or review item. Follow-up 4: and only by the
+          // caller whose claim holds it.
+          .where(underClaim(actionId, tenantId, failOptions.claim))
           .returning();
         if (!row) return current(tx, tenantId, actionId);
         const item = failOptions.inbox;
@@ -347,6 +393,84 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
       });
     },
   };
+}
+
+// ── Follow-up 1b: writes left executing that nothing will take over ──────────────────────────────
+
+/** Beyond the lease, how long a run still open has to take its write over before the sweep may. */
+const SWEEP_GRACE_MINUTES = 15;
+
+/**
+ * Writes left `executing` past their lease that no run will take over: an undo (no step), a signed
+ * write (no run), or a write of a run that has ended. Each becomes an unconfirmed write, once: the
+ * action fails `unconfirmed` and the operator gets the review item to check the client's tool and
+ * settle it, as when a connector can't tell whether a write happened. Fenced on the claim it read,
+ * so a caller taking it over meanwhile is never failed. Returns how many it turned over.
+ */
+// DECISION (follow-up 1b): a person checks; nothing is ever sent again from here. Bounded per
+// client and call (`limit`); the cron calls it again for the rest. A grace beyond the lease keeps
+// clear of a run (a retry carrying it) about to take it over.
+export async function sweepStaleExecutions(
+  db: Db,
+  tenantId: string,
+  options: { limit?: number; emit?: Emit } = {},
+): Promise<number> {
+  const stale = await withTenant(db, tenantId, (tx) =>
+    tx
+      .select({
+        id: externalAction.id,
+        tool: externalAction.tool,
+        connectionId: externalAction.connectionId,
+        idempotencyKey: externalAction.idempotencyKey,
+        claim: sql<string | null>`${externalAction.executedAt}::text`,
+        agentId: run.agentId,
+      })
+      .from(externalAction)
+      .leftJoin(
+        run,
+        and(eq(run.id, externalAction.runId), eq(run.tenantId, externalAction.tenantId)),
+      )
+      .where(
+        and(
+          eq(externalAction.tenantId, tenantId),
+          eq(externalAction.status, "executing"),
+          sql`(${externalAction.executedAt} is null or ${externalAction.executedAt} < now() - make_interval(mins => ${EXECUTING_LEASE_MINUTES + SWEEP_GRACE_MINUTES}))`,
+          or(
+            isNull(externalAction.runId),
+            isNull(externalAction.stepRunId),
+            sql`${run.status} in ('succeeded', 'failed', 'cancelled')`,
+          ),
+        ),
+      )
+      .orderBy(asc(externalAction.createdAt))
+      .limit(options.limit ?? 20),
+  );
+  const store = dbExternalActions(db, options.emit ? { emit: options.emit } : {});
+  let turned = 0;
+  for (const a of stale) {
+    const title = `The change through ${a.tool} may have been made`;
+    const reason = `${title}; check before trying again: it was started and never finished`;
+    const row = await store.fail(
+      tenantId,
+      a.id,
+      { message: reason, unconfirmed: true, stale: true },
+      {
+        claim: a.claim,
+        inbox: {
+          title,
+          agentId: a.agentId ?? null,
+          payload: {
+            reason,
+            tool: a.tool,
+            connectionId: a.connectionId,
+            idempotencyKey: a.idempotencyKey,
+          },
+        },
+      },
+    );
+    if (row.status === "failed") turned += 1;
+  }
+  return turned;
 }
 
 // ── Resolving an approval (the inbox) ────────────────────────────────────────────────────────────

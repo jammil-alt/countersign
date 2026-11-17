@@ -87,7 +87,7 @@ export async function createRun(tx: Tx, input: CreateRunInput): Promise<typeof r
 /**
  * Records the run's status. Returns whether this call ended it: the run was not yet succeeded,
  * failed or cancelled and now is (audit 4.5: a finish step retried after it committed ends
- * nothing, so its events are emitted once).
+ * nothing, so its events are emitted once). An ended run is never ended again.
  */
 export async function finishRun(
   tx: Tx,
@@ -102,6 +102,10 @@ export async function finishRun(
     .where(and(eq(run.id, input.runId), eq(run.tenantId, input.tenantId)))
     .for("update");
   if (!before) return false;
+  // Follow-up 8: a run already ended (cancelled, or failed by the reconciler) keeps its end; a
+  // finish landing after it changes nothing, as the reconciler's `failOpenRun` changes only an
+  // open run.
+  if (terminal && isTerminal(before.status)) return false;
   await tx
     .update(run)
     .set({

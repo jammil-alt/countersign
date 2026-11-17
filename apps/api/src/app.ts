@@ -156,7 +156,7 @@ import { webhookSetupRoutes } from "./routes/webhook-setup";
 import { whatsappMetaRoutes } from "./routes/whatsapp-meta";
 // v0.14 W4-B
 import { zohoRoutes } from "./routes/zoho";
-import { cronTick, dispatchByIds, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
+import { cronTick, dispatchByIds, senseEmitter, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
 import {
   credentialsFor,
   forClient,
@@ -165,6 +165,7 @@ import {
   runtimeFor,
 } from "./runs/execute";
 import { reconcileRuns } from "./runs/reconcile";
+import { staleWritesTick } from "./runs/stale-writes";
 // M45: Search Console and Bing, nightly (docs/plan.md §1.75).
 import { searchSyncTick } from "./search-sync";
 import { securityHeaders } from "./security-headers";
@@ -466,6 +467,10 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     // and the pass goes on with the next.
     await packNightly(db, platform.packs, scheduledTime).catch((error: unknown) =>
       reportHandled("pack nightly tick failed", error, { job: "pack_nightly" }),
+    );
+    // Audit 3.2: writes left executing that no run will take over go to the operator's review.
+    await staleWritesTick(db, scheduledTime, senseEmitter(platform.events)).catch(
+      (error: unknown) => reportHandled("stale writes tick failed", error, { job: "stale_writes" }),
     );
     // Last, after every other pass, so their slower work never holds the others up:
     // every 10 minutes, runs that never started are started or failed, runs whose instance ended

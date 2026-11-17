@@ -4,14 +4,12 @@
 // withTenant() transaction for the run's own client (invariant 1).
 
 import {
-  ACTION_BUSY,
   // R3
   addSignerItemTx,
   approveForRunTx,
   callTool,
   executeAction,
   keepBrowseHelp,
-  MAY_HAVE_HAPPENED,
   type RuntimeDeps,
   resolveApprover,
   runAgent,
@@ -76,6 +74,7 @@ import { toRunResolution } from "../inbox";
 import type { NotifyDeps } from "../notify/outbox";
 import { tellUrgentNow } from "../notify/urgent";
 import { type ReachPort, reachOutState } from "../reach/service";
+import { leaseWaitDone, leaseWaitOf, leaseWaitOutcome, MAX_LEASE_WAITS } from "./lease-wait";
 
 const TERMINAL = new Set(["succeeded", "failed", "skipped", "cancelled"]);
 
@@ -262,6 +261,46 @@ export function agentPort(
     // v0.12 W1-E: a retry carries the run retried's approved, not-done writes (§10.10).
     ...(run.retryOf ? { retryOf: run.retryOf } : {}),
   });
+  /**
+   * What an approved change's execution means for the step (its resume, or the run again once a
+   * claim on it ran out): the step's next card, its end, or why it can't go on.
+   */
+  const afterExecuted = (
+    step: { kind: string },
+    state: PendingState,
+    index: number,
+    r: Awaited<ReturnType<typeof executeAction>> | null,
+    waited: number,
+  ): StepOutcome => {
+    if (r) {
+      if (r.status === "failed") return { kind: "failed", error: r.error };
+      if (r.status === "awaiting_approval") {
+        return { kind: "failed", error: "the approval was not recorded on the change" };
+      }
+      // Audit 3.2, follow-up 1: an earlier try claimed it and may have stopped mid-write. This
+      // one never sends it too: it waits for the claim's lease, then executes it again.
+      if (r.status === "busy") {
+        return leaseWaitOutcome(
+          { actionId: r.action.id, leaseEndsAt: r.leaseEndsAt },
+          now(),
+          waited,
+          { state, index },
+        );
+      }
+      // Audit 3.7: the change was turned down after all (one signer's no rejects it at once,
+      // whatever another's yes said): nothing was written, and the step takes it as a person's
+      // no (`declined`, its onReject), never as done.
+      if (r.status === "rejected") state.declined = true;
+      if (r.status === "done" && step.kind === "action") state.output = r.output;
+    }
+    return (
+      firstWaiting(state, index) ?? {
+        kind: "done",
+        output: state.output ?? null,
+        ...(state.declined ? { declined: true } : {}),
+      }
+    );
+  };
   const port: AgentPort = {
     async runSkill(request) {
       const { run, step, nodeId, stepRunId, input, approval } = request;
@@ -302,6 +341,8 @@ export function agentPort(
         ...(request.automation ? { automation: request.automation } : {}),
         // R3: a v4 step's customization of its skill (its added instructions).
         ...(request.customize ? { customize: request.customize } : {}),
+        // Follow-up 2: the platform's retry of this work: its budgets go on from the earlier try.
+        ...(request.retried ? { retried: true } : {}),
         // Reshape data (2026-11-11): the step's mapping, run by the skill's pure handler.
         ...(request.reshape ? { reshape: request.reshape } : {}),
       });
@@ -331,6 +372,9 @@ export function agentPort(
         }
         case "awaiting_release":
           return releaseWaitOutcome(r, null, now());
+        // Follow-up 1: a change an earlier try claimed: wait for its lease, then run again.
+        case "awaiting_lease":
+          return leaseWaitOutcome(r, now(), 0);
         case "escalated":
           return { kind: "escalated", reason: r.reason, inboxItemId: r.inboxItemId };
         case "failed":
@@ -383,6 +427,16 @@ export function agentPort(
           );
         case "awaiting_release":
           return releaseWaitOutcome(o, null, now());
+        // Follow-up 1: a change an earlier try claimed: wait for its lease, then run again.
+        case "busy":
+          return leaseWaitOutcome(o, now(), 0);
+        // Follow-up 3: an action's input is the step's own, so another input under its key is no
+        // model's rewording: the step fails, naming the change it has.
+        case "recorded":
+          return {
+            kind: "failed",
+            error: `this step's change ${o.actionId} was made with another input than this try's: check the step's changes before trying again`,
+          };
         case "refused":
           return { kind: "failed", error: `refused: ${o.reason}` };
         case "failed":
@@ -419,6 +473,11 @@ export function agentPort(
     },
 
     async waitDone(request) {
+      // Follow-up 1: a claim an earlier try holds: done once it is released or has run out.
+      const lease = leaseWaitOf(request.wait.state);
+      if (lease) {
+        return release ? leaseWaitDone(release.db, request.run.tenantId, lease.actionId) : true;
+      }
       const waiting = releaseWaitOf(request.wait.state);
       if (waiting) {
         if (!release) return true;
@@ -433,6 +492,41 @@ export function agentPort(
     },
 
     async afterWait(request) {
+      // Follow-up 1: the claim has run out (or is gone): take the change over.
+      const lease = leaseWaitOf(request.wait.state);
+      if (lease) {
+        const { tenantId } = request.run;
+        if (lease.resume) {
+          // An approved change: executed again here (claimed again once its lease ran out).
+          const state = PendingState.parse(lease.resume.state);
+          const r = await executeAction(deps, { tenantId, actionId: lease.actionId });
+          return afterExecuted(request.step, state, lease.resume.index, r, lease.tries);
+        }
+        // The step runs again from the start with the input it first ran with, as after a
+        // release: its changes are found by their keys, and the claimed one is taken over.
+        if (!release) return { kind: "failed", error: "a claimed change: nothing to wait with" };
+        const input = await stepInputOf(release.db, tenantId, request.stepRunId);
+        const { step } = request;
+        const again = { ...request, input };
+        const next =
+          step.kind === "skill"
+            ? await port.runSkill({ ...again, step, approval: step.approval ?? DEFAULT_APPROVAL })
+            : await port.runAction({ ...again, step, approval: step.approval });
+        // Claimed still (or another of its changes is): the waits so far count.
+        const still = next.kind === "waiting" ? leaseWaitOf(next.wait.state) : null;
+        if (!still || next.kind !== "waiting") return next;
+        if (lease.tries >= MAX_LEASE_WAITS) {
+          return leaseWaitOutcome(
+            { actionId: still.actionId, leaseEndsAt: null },
+            now(),
+            lease.tries,
+          );
+        }
+        return {
+          ...next,
+          wait: { ...next.wait, state: { lease: { ...still, tries: lease.tries + 1 } } },
+        };
+      }
       const waiting = releaseWaitOf(request.wait.state);
       if (waiting) {
         // DECISION: once released, the step runs again from the start with the input it first ran
@@ -493,27 +587,9 @@ export function agentPort(
       if (current && resolution.approved === true) {
         // Executed once by its idempotency key, in this durable step (docs/plan.md §1.2).
         const r = await executeAction(deps, { tenantId: run.tenantId, actionId: current.actionId });
-        if (r.status === "failed") return { kind: "failed", error: r.error };
-        if (r.status === "awaiting_approval") {
-          return { kind: "failed", error: "the approval was not recorded on the change" };
-        }
-        // Audit 3.2: another try is making it; this one never sends it too.
-        if (r.status === "busy") {
-          return { kind: "failed", error: `${ACTION_BUSY}${MAY_HAVE_HAPPENED}` };
-        }
-        // Audit 3.7: the change was turned down after all (one signer's no rejects it at once,
-        // whatever another's yes said): nothing was written, and the step takes it as a person's
-        // no (`declined`, its onReject), never as done.
-        if (r.status === "rejected") state.declined = true;
-        if (r.status === "done" && step.kind === "action") state.output = r.output;
+        return afterExecuted(step, state, index, r, 0);
       }
-      return (
-        firstWaiting(state, index) ?? {
-          kind: "done",
-          output: state.output ?? null,
-          ...(state.declined ? { declined: true } : {}),
-        }
-      );
+      return afterExecuted(step, state, index, null, 0);
     },
 
     // Wave 5 review (docs/plan.md §1.86 "Forks (wave 5)"): whether the step made a write, or may

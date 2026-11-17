@@ -19,9 +19,8 @@ import {
 } from "@countersign/core";
 import { createLlmClient } from "@countersign/llm";
 import { z } from "zod";
-import { ACTION_BUSY, executeAction } from "./actions";
+import { executeAction } from "./actions";
 import type { ToolOutcome } from "./call-tool";
-import { MAY_HAVE_HAPPENED } from "./carry";
 import { asJsonObject, connectionContext, type RuntimeDeps, type StepContext } from "./context";
 import { resolveModel } from "./model";
 import { recordModelCall } from "./model-call";
@@ -199,8 +198,9 @@ async function finish(
     case "awaiting_approval":
       return { status: "failed", error: "an attempt inside an approved plan waits for approval" };
     case "busy":
-      // Audit 3.2: another try is making it; this one never sends it too.
-      return { status: "failed", error: `${ACTION_BUSY}${MAY_HAVE_HAPPENED}`, stopsStep: true };
+      // Audit 3.2: an earlier try claimed it; this one never sends it too. The caller leaves the
+      // attempt for a later tick (follow-up 7), when the claim is done or has run out.
+      return { status: "busy", actionId, leaseEndsAt: r.leaseEndsAt };
   }
 }
 

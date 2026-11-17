@@ -99,7 +99,7 @@ export function signedWriteFor(
     // Audit 3.2: the same change asked again while the first is being made (a double click):
     // nothing is sent twice; the first's outcome stands on the action.
     if (outcome.status === "busy") {
-      return { status: "failed", actionId, error: `${ACTION_BUSY}; check again in a minute` };
+      return { status: "failed", actionId, error: `${ACTION_BUSY}; check again in a few minutes` };
     }
     return { status: "failed", actionId, error: `the change is ${outcome.action.status}` };
   };

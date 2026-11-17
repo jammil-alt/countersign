@@ -1352,6 +1352,20 @@ export async function attemptFrom(
       input,
       idempotencyKey: `${row.runId}:${row.nodeId}:reach:${index}`,
     });
+    // Follow-up 7: an earlier try claimed this send and may still be making it. Nothing is
+    // recorded and no other channel is tried: a later tick sends it once the claim is done (it
+    // reads as done) or has run out (it is taken over under the same key).
+    if (r.status === "busy") {
+      const end = r.leaseEndsAt ? new Date(r.leaseEndsAt) : null;
+      const later = new Date(Math.max(t.getTime() + 60_000, end ? end.getTime() + 5_000 : 0));
+      await withTenant(db, tenantId, (tx) =>
+        tx
+          .update(reachOut)
+          .set({ nextAttemptAt: later })
+          .where(and(eq(reachOut.id, row.id), eq(reachOut.tenantId, tenantId))),
+      );
+      return sentNow;
+    }
     if (r.status !== "done") {
       await failed(r.status === "refused" ? r.reason : r.status === "failed" ? r.error : r.status);
       continue;

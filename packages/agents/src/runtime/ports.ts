@@ -286,16 +286,15 @@ export interface ExternalActionStore {
    * Audit 3.2: only one caller claims it; an `executing` action is claimed again only once its
    * caller's lease has run out (a crash), and then `retaken` says an earlier try may have written.
    */
-  claim(
-    tenantId: string,
-    actionId: string,
-  ): Promise<{ action: ExternalActionRecord; claimed: boolean; retaken?: boolean }>;
+  claim(tenantId: string, actionId: string): Promise<ActionClaim>;
   /** Audit 3.2: records the write of an `executing` action; any other is returned as it is. */
   complete(
     tenantId: string,
     actionId: string,
     // R5: `after`, the record as the write left it, where the store keeps it (`keepsAfter`).
     result: { output: unknown; before: unknown; after?: unknown },
+    /** Follow-up 4: the claim it was executed under (`ActionClaim.claim`): only then is it done. */
+    options?: { claim?: string | null },
   ): Promise<ExternalActionRecord>;
   /**
    * R5: whether `complete` keeps the after state. Only then does a write read its record again
@@ -321,8 +320,24 @@ export interface ExternalActionStore {
     tenantId: string,
     actionId: string,
     error: unknown,
-    options?: { inbox?: FailureInboxItem },
+    /** Follow-up 4: `claim`, the claim it was executed under: only then does it fail. */
+    options?: { inbox?: FailureInboxItem; claim?: string | null },
   ): Promise<ExternalActionRecord>;
+}
+
+/** What `claim` found (ExternalActionStore.claim). */
+export interface ActionClaim {
+  action: ExternalActionRecord;
+  claimed: boolean;
+  /** Audit 3.2: it was `executing` and its lease had run out: an earlier try may have written. */
+  retaken?: boolean;
+  /**
+   * Follow-up 4: the claim's own token (its `executed_at`, as stored), for `complete` and `fail`.
+   * Absent: a store that keeps no claim time (the row is then fenced on its status only).
+   */
+  claim?: string | null;
+  /** Follow-up 1: not claimed, another caller's: when its lease runs out (ISO), by the database. */
+  leaseEndsAt?: string | null;
 }
 
 /** An inbox item opened with a failed action, for the operator to check what happened. */

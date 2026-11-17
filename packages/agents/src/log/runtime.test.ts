@@ -28,7 +28,7 @@ import {
   toolCall,
 } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { AgentsError } from "../errors";
@@ -40,7 +40,11 @@ import type { RuntimeDeps, StepContext } from "../runtime/context";
 import type { PinnedAgent } from "../runtime/ports";
 import { runAgent } from "../runtime/run-agent";
 import { PLATFORM_TOOLS } from "../tools/platform";
-import { EXECUTING_LEASE_MINUTES, resolveExternalAction } from "./external-actions";
+import {
+  EXECUTING_LEASE_MINUTES,
+  resolveExternalAction,
+  sweepStaleExecutions,
+} from "./external-actions";
 import {
   type Client,
   createHarness,
@@ -558,11 +562,12 @@ describe.skipIf(!harness)("runtime", () => {
     // Audit 3.2: inside the first try's lease the change is its own: a retry never sends it too,
     // and the step stops there.
     const early = await step(h.A, { runId: s.runId, mode: "act", approval: "not_required" });
-    expect(await callTool(deps, early, update("5.55"))).toMatchObject({
-      status: "failed",
-      actionId: action.id,
-      stopsStep: true,
-    });
+    // Follow-up 1: the step waits for the lease (its end read from the database), then runs again.
+    const busy = await callTool(deps, early, update("5.55"));
+    expect(busy).toMatchObject({ status: "busy", actionId: action.id });
+    expect(busy.status === "busy" && Date.parse(busy.leaseEndsAt ?? "")).toBeGreaterThan(
+      Date.now(),
+    );
     expect(h.backend.writes.length).toBe(writes);
     // The lease runs out: the first try is taken to have stopped.
     await expireLease(action.id);
@@ -741,7 +746,101 @@ describe.skipIf(!harness)("runtime", () => {
     expect(items[0]).toMatchObject({ assigneeRole: "operator", status: "open" });
   });
 
-  it("a retried agent step whose model calls its write with another input fails, never taking the first write's result", async () => {
+  it("only the claim that holds a change records it: a caller whose lease was taken over changes nothing", async () => {
+    const deps = h.deps();
+    const { actions } = deps.ports;
+    const action = await approvedChange(deps, "2.22");
+    const a = await actions.claim(h.A.tenantId, action.id);
+    expect(a.claimed).toBe(true);
+    await expireLease(action.id);
+    const b = await actions.claim(h.A.tenantId, action.id);
+    expect(b).toMatchObject({ claimed: true, retaken: true });
+    expect(b.claim).not.toEqual(a.claim);
+    // The first caller, back late, can neither fail nor finish the second's execution.
+    const lateFail = await actions.fail(
+      h.A.tenantId,
+      action.id,
+      { message: "stale", notWritten: true },
+      { claim: a.claim ?? null },
+    );
+    expect(lateFail.status).toBe("executing");
+    const lateDone = await actions.complete(
+      h.A.tenantId,
+      action.id,
+      { output: { first: true }, before: null },
+      { claim: a.claim ?? null },
+    );
+    expect(lateDone.status).toBe("executing");
+    // The second records it.
+    const done = await actions.complete(
+      h.A.tenantId,
+      action.id,
+      { output: { second: true }, before: null },
+      { claim: b.claim ?? null },
+    );
+    expect(done).toMatchObject({ status: "done", result: { second: true } });
+  });
+
+  it("a change failed as not written shows no time it was made", async () => {
+    const deps = h.deps();
+    const action = await approvedChange(deps, "1.11");
+    const c = await deps.ports.actions.claim(h.A.tenantId, action.id);
+    await deps.ports.actions.fail(
+      h.A.tenantId,
+      action.id,
+      { message: "refused", notWritten: true },
+      { claim: c.claim ?? null },
+    );
+    const [row] = await h.client(h.A, (tx) =>
+      tx.select().from(externalAction).where(eq(externalAction.id, action.id)),
+    );
+    expect(row).toMatchObject({ status: "failed", executedAt: null });
+  });
+
+  it("a change left executing that no run will take over goes to the operator once", async () => {
+    const deps = h.deps();
+    const reviews = (id: string) =>
+      h.client(h.A, (tx) =>
+        tx
+          .select()
+          .from(inboxItem)
+          .where(and(eq(inboxItem.subjectId, id), eq(inboxItem.kind, "review"))),
+      );
+    // An undo (no step) whose caller stopped mid-write, long ago.
+    const undo = await approvedChange(deps, "9.01");
+    await h.t.db
+      .update(externalAction)
+      .set({ stepRunId: null })
+      .where(eq(externalAction.id, undo.id));
+    await deps.ports.actions.claim(h.A.tenantId, undo.id);
+    // A change of a run still open, as old: its run takes it over, so the sweep leaves it.
+    const open = await approvedChange(deps, "9.02");
+    await deps.ports.actions.claim(h.A.tenantId, open.id);
+    const old = new Date(Date.now() - 2 * (EXECUTING_LEASE_MINUTES + 15) * 60_000);
+    await h.t.db
+      .update(externalAction)
+      .set({ executedAt: old })
+      .where(inArray(externalAction.id, [undo.id, open.id]));
+
+    expect(await sweepStaleExecutions(h.db, h.A.tenantId)).toBe(1);
+    const [row] = await h.client(h.A, (tx) =>
+      tx.select().from(externalAction).where(eq(externalAction.id, undo.id)),
+    );
+    expect(row?.status).toBe("failed");
+    expect(row?.error).toMatchObject({ unconfirmed: true });
+    expect(await reviews(undo.id)).toHaveLength(1);
+    expect((await reviews(undo.id))[0]).toMatchObject({ assigneeRole: "operator", status: "open" });
+    // Once: a second pass finds nothing more to do.
+    expect(await sweepStaleExecutions(h.db, h.A.tenantId)).toBe(0);
+    expect(await reviews(undo.id)).toHaveLength(1);
+    const [left] = await h.client(h.A, (tx) =>
+      tx.select().from(externalAction).where(eq(externalAction.id, open.id)),
+    );
+    expect(left?.status).toBe("executing");
+    expect(await reviews(open.id)).toHaveLength(0);
+  });
+
+  it("a retry whose model asks for the step's change with another input is told the change, and the step waits on its card", async () => {
     const r = await newRun(h.A);
     const at = {
       tenantId: h.A.tenantId,
@@ -762,17 +861,20 @@ describe.skipIf(!harness)("runtime", () => {
     );
     expect(proposed).toHaveLength(1);
 
-    // The step runs again; this time the model's first write is another one.
+    // The step runs again; this time the model asks for 32.00. Nothing new is proposed: the
+    // model is told the step's change, and the step waits on the card the person saw.
     const second = new FakeModel([
       { toolUse: { name: "testkit__record__update", input: { id: "r1", amount: "32.00" } } },
-      { toolUse: { name: "finish", input: { answer: "Proposed 32.00", sources: ["r1"] } } },
+      { toolUse: { name: "finish", input: { answer: "Proposed 31.00", sources: ["r1"] } } },
     ]);
     const retried = await runAgent(h.deps(second), at);
-    expect(retried.status).toBe("failed");
-    if (retried.status !== "failed") return;
-    expect(retried.error).toContain("another input");
-    // The model is not asked to go on past it.
-    expect(second.requests).toHaveLength(1);
+    expect(retried.status).toBe("awaiting_approval");
+    if (retried.status !== "awaiting_approval") return;
+    expect(retried.pendingActions.map((p) => p.actionId)).toEqual([proposed[0]?.id]);
+    const told = JSON.stringify(second.requests[1]?.messages.at(-1));
+    expect(told).toContain("alreadyRecorded");
+    expect(told).toContain("31.00");
+    expect(told).toContain("it was not made again");
     const after = await h.client(h.A, (tx) =>
       tx.select().from(externalAction).where(eq(externalAction.runId, r.id)),
     );
@@ -788,16 +890,55 @@ describe.skipIf(!harness)("runtime", () => {
     expect(resumed.status).toBe("awaiting_approval");
     if (resumed.status !== "awaiting_approval") return;
     expect(resumed.pendingActions.map((p) => p.actionId)).toEqual([proposed[0]?.id]);
+    expect(JSON.stringify(third.requests[1]?.messages.at(-1))).not.toContain("alreadyRecorded");
   });
 
-  it("a retried step's budget counts what its earlier tries spent", async () => {
-    const withCalls = (model: FakeModel): RuntimeDeps => {
-      const deps = h.deps(model);
-      return { ...deps, ports: { ...deps.ports, modelCalls: dbModelCalls(h.db) } };
+  it("after a call that doesn't match the step's change, every write of that try waits for a person", async () => {
+    await h.setPermissions(h.A, { update: "auto" });
+    const deps = h.deps();
+    const s = await step(h.A, { mode: "act", approval: "not_required" });
+    // The first try wrote 5.00 on its own (the automatic path).
+    expect(await callTool(deps, s, update("5.00"))).toMatchObject({ status: "done" });
+    const writes = h.backend.writes.length;
+
+    const retried = await step(h.A, { runId: s.runId, mode: "act", approval: "not_required" });
+    const told = await callTool(deps, retried, update("6.00"));
+    expect(told).toMatchObject({
+      status: "recorded",
+      change: { status: "done", input: { id: "r1", amount: "5.00" } },
+    });
+    expect(retried.signAllWrites).toBe(true);
+    // The model's next write would run on its own; after that call it waits for a person.
+    const next = await callTool(deps, retried, update("7.00"));
+    expect(next.status).toBe("awaiting_approval");
+    expect(h.backend.writes.length).toBe(writes);
+    // A fresh try (no mismatch) runs on its own as before.
+    const fresh = await step(h.A, { mode: "act", approval: "not_required" });
+    expect((await callTool(deps, fresh, update("8.00"))).status).toBe("done");
+    await h.setPermissions(h.A, {});
+  });
+
+  /** Deps that record model calls, and stop like a crashed Worker at the `crashAt`-th tool call. */
+  const budgetDeps = (model: FakeModel, crashAt?: number): RuntimeDeps => {
+    const deps = h.deps(model);
+    const base = deps.ports.log;
+    let calls = 0;
+    const log = {
+      ...base,
+      startToolCall: async (...args: Parameters<typeof base.startToolCall>) => {
+        calls += 1;
+        if (crashAt !== undefined && calls >= crashAt) throw new Error("the Worker stopped");
+        return base.startToolCall(...args);
+      },
     };
-    const loop = { toolUse: { name: "testkit__record__query", input: {} } };
+    return { ...deps, ports: { ...deps.ports, log, modelCalls: dbModelCalls(h.db) } };
+  };
+  const loop = { toolUse: { name: "testkit__record__query", input: {} } };
+  const loops = (n: number) => new FakeModel(Array.from({ length: n }, () => loop));
+  const done = { toolUse: { name: "finish", input: { answer: "Found it" } } };
+  const budgetStep = async () => {
     const r = await newRun(h.A);
-    const at = {
+    return {
       tenantId: h.A.tenantId,
       agentVersionId: agentOf(h.A).versionId,
       skill: "test.lookup",
@@ -805,29 +946,36 @@ describe.skipIf(!harness)("runtime", () => {
       runId: r.id,
       stepId: LOOKUP_STEP,
     };
-    // The first try spends four of the step's six model calls, then fails.
-    const first = new FakeModel([loop, loop, loop, loop, { error: new Error("connection reset") }]);
-    expect((await runAgent(withCalls(first), at)).status).toBe("failed");
-    const spent = await withCalls(first).ports.modelCalls?.agentTurns?.(
-      h.A.tenantId,
-      (await withCalls(first).ports.log.startStepRun(h.A.tenantId, {
-        runId: r.id,
-        nodeId: LOOKUP_STEP,
-        nodeType: "skill",
-        skillRef: "test.lookup",
-        agentVersionId: agentOf(h.A).versionId,
-        input: {},
-      })) as string,
-    );
-    expect(spent?.calls).toBeGreaterThanOrEqual(4);
+  };
 
-    // The retry gets what is left, not six more.
-    const second = new FakeModel([loop, loop, loop, loop, loop, loop, loop]);
-    const retried = await runAgent(withCalls(second), at);
+  it("the platform's retry of a step that stopped goes on from what its earlier try spent", async () => {
+    const at = await budgetStep();
+    // The first try makes four of the step's six model calls, then the Worker stops.
+    await expect(runAgent(budgetDeps(loops(4), 4), at)).rejects.toThrow("the Worker stopped");
+    // The platform's retry gets what is left, not six more.
+    const second = loops(7);
+    const retried = await runAgent(budgetDeps(second), { ...at, retried: true });
     expect(retried.status).toBe("escalated");
     if (retried.status !== "escalated") return;
     expect(retried.reason).toBe("max_steps");
-    expect(second.requests).toHaveLength(6 - (spent?.calls ?? 0));
+    expect(second.requests).toHaveLength(2);
+  });
+
+  it("a run again of the step (after the lead's help, or a release's restart) has its own budget", async () => {
+    const at = await budgetStep();
+    // The step's first run spends its budget and stops.
+    expect((await runAgent(budgetDeps(loops(7)), at)).status).toBe("escalated");
+    // Run again after the lead's answer: the full budget, not one already spent.
+    const help = new FakeModel([loop, loop, loop, loop, loop, done]);
+    expect((await runAgent(budgetDeps(help), at)).status).toBe("succeeded");
+    expect(help.requests).toHaveLength(6);
+
+    // A step stopped mid-way and run again from the start (a release's restart, not the
+    // platform's retry) counts from zero too.
+    const other = await budgetStep();
+    await expect(runAgent(budgetDeps(loops(5), 5), other)).rejects.toThrow("the Worker stopped");
+    const restart = new FakeModel([loop, loop, loop, loop, loop, done]);
+    expect((await runAgent(budgetDeps(restart), other)).status).toBe("succeeded");
   });
 
   it("runs an agent-mode skill: tools, finish, summary, cost on the step and run; untrusted text only in tool results", async () => {

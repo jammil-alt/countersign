@@ -92,6 +92,11 @@ export interface StepContext {
    * not done, with the same input, is carried under its original key (ARCHITECTURE §10.10).
    */
   retryOf?: string | undefined;
+  /**
+   * Follow-up 3: set once this try's model asked for a change the step already had under that key
+   * with another input. Every write it proposes from then on waits for a person (only tightens).
+   */
+  signAllWrites?: boolean;
 }
 
 export function connectionContext(deps: RuntimeDeps, tenantId: string, connection: ConnectionRef) {
