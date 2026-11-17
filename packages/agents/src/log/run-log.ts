@@ -84,11 +84,24 @@ export async function createRun(tx: Tx, input: CreateRunInput): Promise<typeof r
   return row;
 }
 
+/**
+ * Records the run's status. Returns whether this call ended it: the run was not yet succeeded,
+ * failed or cancelled and now is (audit 4.5: a finish step retried after it committed ends
+ * nothing, so its events are emitted once).
+ */
 export async function finishRun(
   tx: Tx,
   input: { tenantId: string; runId: string; status: RunStatus; error?: unknown },
-): Promise<void> {
-  const terminal = ["succeeded", "failed", "cancelled"].includes(input.status);
+): Promise<boolean> {
+  const isTerminal = (status: string) => ["succeeded", "failed", "cancelled"].includes(status);
+  const terminal = isTerminal(input.status);
+  // Locked, so of two finishes at once only one reads the run as still open.
+  const [before] = await tx
+    .select({ status: run.status })
+    .from(run)
+    .where(and(eq(run.id, input.runId), eq(run.tenantId, input.tenantId)))
+    .for("update");
+  if (!before) return false;
   await tx
     .update(run)
     .set({
@@ -97,6 +110,7 @@ export async function finishRun(
       ...(input.error === undefined ? {} : { error: input.error as Record<string, unknown> }),
     })
     .where(and(eq(run.id, input.runId), eq(run.tenantId, input.tenantId)));
+  return terminal && !isTerminal(before.status);
 }
 
 /** `run.workflow_slug` of an ask's test run (`agents.ask`): it runs no workflow. */

@@ -57,6 +57,23 @@ async function byId(tx: Tx, tenantId: string, id: string): Promise<Row | undefin
   return row;
 }
 
+/** The row as it is, for a `complete` or `fail` that found it no longer executing. */
+async function current(tx: Tx, tenantId: string, id: string): Promise<ExternalActionRecord> {
+  const row = await byId(tx, tenantId, id);
+  if (!row) throw notFound(`external action ${id}`);
+  return toRecord(row);
+}
+
+/**
+ * Audit 3.2: how long a claimed execution belongs to its caller. After that its caller is taken to
+ * have stopped (a crash) and another may take it over, with the same idempotency key.
+ */
+// DECISION: 15 minutes, a skill or action step's own timeout (apps/api's STEP_CONFIG): no live
+// caller holds a write longer, and a step retried sooner finds the change still under way (busy)
+// rather than run it a second time. The claim time is `executed_at`, set at claim and again when
+// done: no new column, and a failed write then shows when it was tried.
+export const EXECUTING_LEASE_MINUTES = 15;
+
 export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): ExternalActionStore {
   const finishedEvent = async (tx: Tx, row: Row, type: string) => {
     await options.emit?.(tx, row.tenantId, {
@@ -167,23 +184,50 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
 
     claim(tenantId, actionId) {
       return withTenant(db, tenantId, async (tx) => {
+        // Audit 3.2: one caller executes. The row is locked, so of two callers the second reads
+        // what the first left (`executing`) and does not claim it.
+        const [current] = await tx
+          .select({ status: externalAction.status })
+          .from(externalAction)
+          .where(and(eq(externalAction.id, actionId), eq(externalAction.tenantId, tenantId)))
+          .for("update");
+        if (!current) throw notFound(`external action ${actionId}`);
         const [claimed] = await tx
           .update(externalAction)
-          .set({ status: "executing" })
+          // `executed_at` is when this execution started (EXECUTING_LEASE); `complete` sets it
+          // again when the write is done.
+          .set({ status: "executing", executedAt: sql`now()` })
           .where(
             and(
               eq(externalAction.id, actionId),
               eq(externalAction.tenantId, tenantId),
-              eq(externalAction.status, "approved"),
-              // v0.12 W1-D: never inside the undo window. The database's clock decides, as it
-              // does for undo and for delivery, so the three agree (ARCHITECTURE §11.1).
-              // Wave 2c: the window of whichever item approved it, the gate's own or one more
-              // signer's (R3, `addSignerItemTx`): any of them still held keeps the change.
-              sql`not exists (select 1 from ${inboxItem} where ${inboxItem.tenantId} = ${externalAction.tenantId} and (${inboxItem.id} = ${externalAction.inboxItemId} or (${inboxItem.subjectType} = 'external_action' and ${inboxItem.subjectId} = ${externalAction.id})) and ${inboxItem.deliverAfter} > now())`,
+              or(
+                and(
+                  eq(externalAction.status, "approved"),
+                  // v0.12 W1-D: never inside the undo window. The database's clock decides, as it
+                  // does for undo and for delivery, so the three agree (ARCHITECTURE §11.1).
+                  // Wave 2c: the window of whichever item approved it, the gate's own or one more
+                  // signer's (R3, `addSignerItemTx`): any of them still held keeps the change.
+                  sql`not exists (select 1 from ${inboxItem} where ${inboxItem.tenantId} = ${externalAction.tenantId} and (${inboxItem.id} = ${externalAction.inboxItemId} or (${inboxItem.subjectType} = 'external_action' and ${inboxItem.subjectId} = ${externalAction.id})) and ${inboxItem.deliverAfter} > now())`,
+                ),
+                // Audit 3.2: an execution whose caller stopped (a crash) is taken over once its
+                // lease has run out; one still inside it belongs to the caller that claimed it.
+                // A row claimed before `executed_at` was set at claim (an older Worker) has none.
+                and(
+                  eq(externalAction.status, "executing"),
+                  sql`(${externalAction.executedAt} is null or ${externalAction.executedAt} < now() - make_interval(mins => ${EXECUTING_LEASE_MINUTES}))`,
+                ),
+              ),
             ),
           )
           .returning();
-        if (claimed) return { action: toRecord(claimed), claimed: true };
+        if (claimed) {
+          return {
+            action: toRecord(claimed),
+            claimed: true,
+            ...(current.status === "executing" ? { retaken: true } : {}),
+          };
+        }
         const row = await byId(tx, tenantId, actionId);
         if (!row) throw notFound(`external action ${actionId}`);
         return { action: toRecord(row), claimed: false };
@@ -251,9 +295,16 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
             error: null,
             executedAt: new Date(),
           })
-          .where(and(eq(externalAction.id, actionId), eq(externalAction.tenantId, tenantId)))
+          // Audit 3.2: only the execution under way is finished; anything else stands as it is.
+          .where(
+            and(
+              eq(externalAction.id, actionId),
+              eq(externalAction.tenantId, tenantId),
+              eq(externalAction.status, "executing"),
+            ),
+          )
           .returning();
-        if (!row) throw notFound(`external action ${actionId}`);
+        if (!row) return current(tx, tenantId, actionId);
         await finishedEvent(tx, row, "external_action.done");
         return toRecord(row);
       });
@@ -264,9 +315,17 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
         const [row] = await tx
           .update(externalAction)
           .set({ status: "failed", error: error as Record<string, unknown> })
-          .where(and(eq(externalAction.id, actionId), eq(externalAction.tenantId, tenantId)))
+          // Audit 3.2: only the execution under way fails; a write already done (or failed) is
+          // left as it is, with no second event or review item.
+          .where(
+            and(
+              eq(externalAction.id, actionId),
+              eq(externalAction.tenantId, tenantId),
+              eq(externalAction.status, "executing"),
+            ),
+          )
           .returning();
-        if (!row) throw notFound(`external action ${actionId}`);
+        if (!row) return current(tx, tenantId, actionId);
         const item = failOptions.inbox;
         if (item) {
           // The operator checks what happened; the action stays failed and is never re-run.

@@ -356,15 +356,17 @@ describe("human release outside the gate: approved writes and reach-out attempts
     const blocked = deps(false);
     const out = await executeAction(blocked.d, { tenantId: "t1", actionId: "act1" });
     expect(out.status).toBe("failed");
-    expect(blocked.seen.claimed).toBe(0);
-    expect(blocked.seen.failed).toMatchObject([{ release: true }]);
+    // Audit 3.2: refused once this caller holds it (so a write another caller is making is never
+    // failed from here), before anything is sent: nothing was written.
+    expect(blocked.seen.claimed).toBe(1);
+    expect(blocked.seen.failed).toMatchObject([{ release: true, notWritten: true }]);
     expect(blocked.seen.covers).toMatchObject([{ agentId: "a1", runId: "r1" }]);
     // No port: refused too, never asked.
     const none = deps(null);
     expect((await executeAction(none.d, { tenantId: "t1", actionId: "act1" })).status).toBe(
       "failed",
     );
-    expect(none.seen.claimed).toBe(0);
+    expect(none.seen.failed).toMatchObject([{ release: true, notWritten: true }]);
     // Released: it goes on to claim and write.
     const ok = deps(true);
     await executeAction(ok.d, { tenantId: "t1", actionId: "act1" }).catch(() => null);

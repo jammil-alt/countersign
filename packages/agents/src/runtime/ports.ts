@@ -283,11 +283,14 @@ export interface ExternalActionStore {
    * Moves `approved` → `executing` and returns the action, or returns it as it is (done, failed,
    * executing, proposed, rejected) for the caller to decide. An approved action whose inbox item is
    * still inside its undo window (`deliver_after` in the future) is not claimed (v0.12 W1-D).
+   * Audit 3.2: only one caller claims it; an `executing` action is claimed again only once its
+   * caller's lease has run out (a crash), and then `retaken` says an earlier try may have written.
    */
   claim(
     tenantId: string,
     actionId: string,
-  ): Promise<{ action: ExternalActionRecord; claimed: boolean }>;
+  ): Promise<{ action: ExternalActionRecord; claimed: boolean; retaken?: boolean }>;
+  /** Audit 3.2: records the write of an `executing` action; any other is returned as it is. */
   complete(
     tenantId: string,
     actionId: string,
@@ -310,8 +313,9 @@ export interface ExternalActionStore {
     input: ProposeUndoInput,
   ): Promise<{ action: ExternalActionRecord; created: boolean }>;
   /**
-   * Marks the action failed. With `inbox`, an item for a person to look at is opened in the same
-   * transaction (a write that may have happened: UnconfirmedWriteError).
+   * Marks an `executing` action failed (audit 3.2: any other is returned as it is, nothing
+   * opened). With `inbox`, an item for a person to look at is opened in the same transaction (a
+   * write that may have happened: UnconfirmedWriteError).
    */
   fail(
     tenantId: string,

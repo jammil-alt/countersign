@@ -4,12 +4,14 @@
 // withTenant() transaction for the run's own client (invariant 1).
 
 import {
+  ACTION_BUSY,
   // R3
   addSignerItemTx,
   approveForRunTx,
   callTool,
   executeAction,
   keepBrowseHelp,
+  MAY_HAVE_HAPPENED,
   type RuntimeDeps,
   resolveApprover,
   runAgent,
@@ -204,6 +206,9 @@ export async function personAssignee(
 const PendingState = z.object({
   actions: z.array(z.object({ actionId: z.string(), inboxItemId: z.string().nullable() })),
   output: z.unknown().optional(),
+  // Audit 3.7: one of the step's changes was rejected though the run read a yes: the step ends
+  // as declined once its other changes are settled.
+  declined: z.boolean().optional(),
 });
 type PendingState = z.infer<typeof PendingState>;
 
@@ -492,9 +497,23 @@ export function agentPort(
         if (r.status === "awaiting_approval") {
           return { kind: "failed", error: "the approval was not recorded on the change" };
         }
+        // Audit 3.2: another try is making it; this one never sends it too.
+        if (r.status === "busy") {
+          return { kind: "failed", error: `${ACTION_BUSY}${MAY_HAVE_HAPPENED}` };
+        }
+        // Audit 3.7: the change was turned down after all (one signer's no rejects it at once,
+        // whatever another's yes said): nothing was written, and the step takes it as a person's
+        // no (`declined`, its onReject), never as done.
+        if (r.status === "rejected") state.declined = true;
         if (r.status === "done" && step.kind === "action") state.output = r.output;
       }
-      return firstWaiting(state, index) ?? { kind: "done", output: state.output ?? null };
+      return (
+        firstWaiting(state, index) ?? {
+          kind: "done",
+          output: state.output ?? null,
+          ...(state.declined ? { declined: true } : {}),
+        }
+      );
     },
 
     // Wave 5 review (docs/plan.md §1.86 "Forks (wave 5)"): whether the step made a write, or may
@@ -658,6 +677,20 @@ export function dbInboxPort(db: Db, run: RunInfo): InboxPort {
           .from(inboxItem)
           .where(and(eq(inboxItem.id, inboxItemId), eq(inboxItem.tenantId, run.tenantId)));
         return row?.item.status === "resolved" && !row.held ? toRunResolution(row.item) : null;
+      });
+    },
+    // Audit 3.7: what is left of a resolved item's undo window, by the database's clock (as the
+    // window itself and `resolution` read it).
+    heldFor(inboxItemId) {
+      return withTenant(db, run.tenantId, async (tx) => {
+        const [row] = await tx
+          .select({
+            status: inboxItem.status,
+            seconds: sql<number>`greatest(0, coalesce(extract(epoch from (${inboxItem.deliverAfter} - now())), 0))::float8`,
+          })
+          .from(inboxItem)
+          .where(and(eq(inboxItem.id, inboxItemId), eq(inboxItem.tenantId, run.tenantId)));
+        return row?.status === "resolved" ? Number(row.seconds) : null;
       });
     },
     async expire(inboxItemId) {

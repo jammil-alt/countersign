@@ -8,7 +8,7 @@
 // Otherwise the write is proposed again, for a new approval.
 
 import { carryDecision, hashJson, isPlainObject, type WriteDecision } from "@countersign/core";
-import { executeAction } from "./actions";
+import { ACTION_BUSY, executeAction } from "./actions";
 import type { ToolOutcome } from "./call-tool";
 import { asJsonObject, idempotencyKey, type RuntimeDeps, type StepContext } from "./context";
 
@@ -73,6 +73,14 @@ export async function carryApproval(
           status: "failed",
           error: notWritten(r.action.error) ? r.error : `${r.error}${MAY_HAVE_HAPPENED}`,
           actionId: c.id,
+        };
+      case "busy":
+        // Audit 3.2: another try is making it: never sent twice, and the step stops there.
+        return {
+          status: "failed",
+          error: `${ACTION_BUSY}${MAY_HAVE_HAPPENED}`,
+          actionId: c.id,
+          stopsStep: true,
         };
       default:
         return { status: "refused", reason: `the carried change is ${r.action.status}` };

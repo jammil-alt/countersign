@@ -37,6 +37,7 @@ import {
   Decimal,
   evaluateSkillRules,
   isoToday,
+  isUuid,
   type JsonSchema,
   LOCALE_ENGLISH_NAMES,
   type Locale,
@@ -668,6 +669,20 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     : new Decimal(definition.budgets.maxCostUsd);
   // v0.16: so is a browsing run's: the smaller of its cost limit and the agent's.
   const maxCost = scope ? Decimal.min(agentMaxCost, scope.limits.costUsd) : agentMaxCost;
+  // Audit 3.1: the budgets span the step's attempts. A Workflow retry, a run again after a
+  // release or an oversight retry starts from what the step's earlier attempts already spent
+  // (their agent turns, recorded on the step's row), not from zero.
+  // DECISION: read from the step's recorded `model_call` rows (no new column); a store that
+  // records none (tests, the skill bench) counts from zero as before. `totals()` stays this
+  // attempt's own, since the caller adds it to the run's usage.
+  const earlier =
+    deps.ports.modelCalls?.agentTurns && isUuid(stepRunId)
+      ? await deps.ports.modelCalls.agentTurns(input.tenantId, stepRunId)
+      : null;
+  const earlierCalls = earlier?.calls ?? 0;
+  const earlierCost = new Decimal(earlier?.costUsd ?? "0");
+  const stepCalls = () => earlierCalls + modelCalls;
+  const stepCost = () => earlierCost.plus(cost);
   const onCall = async (record: LlmCallRecord, exchange: LlmExchange) => {
     modelCalls += 1;
     const callCost = new Decimal(record.costUsd ?? "0");
@@ -816,8 +831,9 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
         escalated: true,
         skill: skillRef,
         stepId: input.stepId,
-        modelCalls,
-        costUsd: cost.toFixed(6),
+        // Across the step's attempts (audit 3.1).
+        modelCalls: stepCalls(),
+        costUsd: stepCost().toFixed(6),
         maxSteps,
         maxCostUsd: definition.budgets.maxCostUsd,
         ...(definition.budgets.maxMonthlyCostUsd
@@ -874,8 +890,8 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     for (;;) {
       const limit = scope?.overLimit();
       if (scope && limit) return helpNeeded(scope.needsHelp());
-      if (modelCalls >= maxSteps) return overBudget("max_steps");
-      if (cost.gt(maxCost)) return overBudget("max_cost");
+      if (stepCalls() >= maxSteps) return overBudget("max_steps");
+      if (stepCost().gt(maxCost)) return overBudget("max_cost");
       if (overMonthly()) return escalate("max_monthly_cost");
       let response: LlmMessage;
       try {
@@ -909,7 +925,7 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
       }
       messages.push({ role: "assistant", content: response.content as TurnContent });
       // Over budget: a valid finish in this answer still counts; nothing else runs.
-      if (cost.gt(maxCost)) {
+      if (stepCost().gt(maxCost)) {
         const done = uses.find((u) => u.name === FINISH_TOOL && checkOutput(def, u.input).ok);
         if (!done) {
           const plea = scope ? uses.find((u) => u.name === NEED_HELP_TOOL) : undefined;
@@ -973,6 +989,9 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
         track(o);
         // The model never learns of the wait: the step stops here and starts over once released.
         if (o.status === "awaiting_release") return awaitRelease(o);
+        // Audit 3.1: a retry's write that isn't the one its first try made under the same key
+        // ends the step; the model is never asked to go on past it.
+        if (o.status === "failed" && o.stopsStep) return fail(o.error);
         results.push({
           type: "tool_result",
           tool_use_id: use.id,

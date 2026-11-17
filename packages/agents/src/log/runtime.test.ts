@@ -40,7 +40,7 @@ import type { RuntimeDeps, StepContext } from "../runtime/context";
 import type { PinnedAgent } from "../runtime/ports";
 import { runAgent } from "../runtime/run-agent";
 import { PLATFORM_TOOLS } from "../tools/platform";
-import { resolveExternalAction } from "./external-actions";
+import { EXECUTING_LEASE_MINUTES, resolveExternalAction } from "./external-actions";
 import {
   type Client,
   createHarness,
@@ -48,6 +48,7 @@ import {
   LOOKUP_STEP,
   makeBundle,
 } from "./harness.test-helper";
+import { dbModelCalls } from "./model-calls";
 import { createRun } from "./run-log";
 import { rollupUsageDaily } from "./usage";
 
@@ -515,6 +516,13 @@ describe.skipIf(!harness)("runtime", () => {
     };
   }
 
+  /** A claim made more than the lease ago, as a caller that stopped would have left it. */
+  const expireLease = (actionId: string) =>
+    h.t.db
+      .update(externalAction)
+      .set({ executedAt: new Date(Date.now() - (EXECUTING_LEASE_MINUTES + 1) * 60_000) })
+      .where(eq(externalAction.id, actionId));
+
   it("a retried automatic step resumes the action its first try left executing, before any check", async () => {
     await h.setPermissions(h.A, { update: "auto" });
     // Like a consent check: proposing a new change is refused once `blocked` is set. Executing a
@@ -546,6 +554,18 @@ describe.skipIf(!harness)("runtime", () => {
     );
     blocked.value = true;
     const writes = h.backend.writes.length;
+
+    // Audit 3.2: inside the first try's lease the change is its own: a retry never sends it too,
+    // and the step stops there.
+    const early = await step(h.A, { runId: s.runId, mode: "act", approval: "not_required" });
+    expect(await callTool(deps, early, update("5.55"))).toMatchObject({
+      status: "failed",
+      actionId: action.id,
+      stopsStep: true,
+    });
+    expect(h.backend.writes.length).toBe(writes);
+    // The lease runs out: the first try is taken to have stopped.
+    await expireLease(action.id);
 
     const retried = await step(h.A, { runId: s.runId, mode: "act", approval: "not_required" });
     const out = await callTool(deps, retried, update("5.55"));
@@ -625,6 +645,189 @@ describe.skipIf(!harness)("runtime", () => {
     expect(await items()).toHaveLength(1);
     expect(h.backend.writes.length).toBe(writes);
     await h.setPermissions(h.A, {});
+  });
+
+  /** An approved change of a step, as the automatic path proposes it. */
+  async function approvedChange(deps: RuntimeDeps, amount: string) {
+    const s = await step(h.A, { mode: "act", approval: "not_required" });
+    const { action } = await deps.ports.actions.propose(h.A.tenantId, {
+      connectionId: h.A.connectionId,
+      tool: TESTKIT_UPDATE_TOOL,
+      runId: s.runId,
+      stepRunId: s.stepRunId,
+      agentVersionId: s.agent.agentVersionId,
+      input: { id: "r1", amount },
+      idempotencyKey: `${s.runId}:${s.stepId}:0`,
+      before: null,
+      status: "approved",
+      inbox: null,
+    });
+    return action;
+  }
+
+  it("two callers executing one approved change at once make one provider call; a late failure leaves it done", async () => {
+    let calls = 0;
+    let entered = () => {};
+    const sending = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const deps = depsWithUpdate({
+      async before(input) {
+        return h.backend.get(h.A.connectionId, input.id) ?? null;
+      },
+      async run() {
+        calls++;
+        entered();
+        await gate;
+      },
+    });
+    const action = await approvedChange(deps, "4.44");
+    const execute = () => executeAction(deps, { tenantId: h.A.tenantId, actionId: action.id });
+    const both = [execute(), execute()];
+    await sending;
+    // The caller that didn't claim it answers at once, while the other is still sending.
+    expect((await Promise.race(both)).status).toBe("busy");
+    release();
+    expect((await Promise.all(both)).map((r) => r.status).sort()).toEqual(["busy", "done"]);
+    expect(calls).toBe(1);
+    // Once done, a caller reads what was recorded.
+    expect((await execute()).status).toBe("done");
+    expect(calls).toBe(1);
+
+    // A failure recorded late (another caller's) never overwrites the done write.
+    const late = await deps.ports.actions.fail(h.A.tenantId, action.id, { message: "stale" });
+    expect(late.status).toBe("done");
+    const [row] = await h.client(h.A, (tx) =>
+      tx.select().from(externalAction).where(eq(externalAction.id, action.id)),
+    );
+    expect(row).toMatchObject({ status: "done", error: null });
+    // Nor does a second `complete`.
+    const again = await deps.ports.actions.complete(h.A.tenantId, action.id, {
+      output: { other: true },
+      before: null,
+    });
+    expect(again.result).toEqual(row?.result);
+  });
+
+  it("a change taken over after its lease that can't go on goes to the operator, never as not written", async () => {
+    const deps = depsWithUpdate({
+      async before() {
+        throw new Error("the record couldn't be read");
+      },
+    });
+    const action = await approvedChange(deps, "3.33");
+    // The first try claimed it and stopped; its lease has run out.
+    expect((await deps.ports.actions.claim(h.A.tenantId, action.id)).claimed).toBe(true);
+    await expireLease(action.id);
+    const out = await executeAction(deps, { tenantId: h.A.tenantId, actionId: action.id });
+    expect(out.status).toBe("failed");
+    const [row] = await h.client(h.A, (tx) =>
+      tx.select().from(externalAction).where(eq(externalAction.id, action.id)),
+    );
+    expect(row?.status).toBe("failed");
+    expect(row?.error).toMatchObject({ unconfirmed: true });
+    expect(row?.error).not.toHaveProperty("notWritten");
+    const items = await h.client(h.A, (tx) =>
+      tx
+        .select()
+        .from(inboxItem)
+        .where(and(eq(inboxItem.subjectId, action.id), eq(inboxItem.kind, "review"))),
+    );
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ assigneeRole: "operator", status: "open" });
+  });
+
+  it("a retried agent step whose model calls its write with another input fails, never taking the first write's result", async () => {
+    const r = await newRun(h.A);
+    const at = {
+      tenantId: h.A.tenantId,
+      agentVersionId: agentOf(h.A).versionId,
+      skill: "test.lookup",
+      input: { name: "Oak" },
+      runId: r.id,
+      stepId: LOOKUP_STEP,
+    };
+    // The first try proposes 31.00 for r1; then its model call fails.
+    const first = new FakeModel([
+      { toolUse: { name: "testkit__record__update", input: { id: "r1", amount: "31.00" } } },
+      { error: new Error("connection reset") },
+    ]);
+    expect((await runAgent(h.deps(first), at)).status).toBe("failed");
+    const proposed = await h.client(h.A, (tx) =>
+      tx.select().from(externalAction).where(eq(externalAction.runId, r.id)),
+    );
+    expect(proposed).toHaveLength(1);
+
+    // The step runs again; this time the model's first write is another one.
+    const second = new FakeModel([
+      { toolUse: { name: "testkit__record__update", input: { id: "r1", amount: "32.00" } } },
+      { toolUse: { name: "finish", input: { answer: "Proposed 32.00", sources: ["r1"] } } },
+    ]);
+    const retried = await runAgent(h.deps(second), at);
+    expect(retried.status).toBe("failed");
+    if (retried.status !== "failed") return;
+    expect(retried.error).toContain("another input");
+    // The model is not asked to go on past it.
+    expect(second.requests).toHaveLength(1);
+    const after = await h.client(h.A, (tx) =>
+      tx.select().from(externalAction).where(eq(externalAction.runId, r.id)),
+    );
+    expect(after).toHaveLength(1);
+    expect(after[0]).toMatchObject({ status: "proposed", input: { id: "r1", amount: "31.00" } });
+
+    // The same write asked again resumes it (no new action, the same card).
+    const third = new FakeModel([
+      { toolUse: { name: "testkit__record__update", input: { id: "r1", amount: "31.00" } } },
+      { toolUse: { name: "finish", input: { answer: "Proposed 31.00", sources: ["r1"] } } },
+    ]);
+    const resumed = await runAgent(h.deps(third), at);
+    expect(resumed.status).toBe("awaiting_approval");
+    if (resumed.status !== "awaiting_approval") return;
+    expect(resumed.pendingActions.map((p) => p.actionId)).toEqual([proposed[0]?.id]);
+  });
+
+  it("a retried step's budget counts what its earlier tries spent", async () => {
+    const withCalls = (model: FakeModel): RuntimeDeps => {
+      const deps = h.deps(model);
+      return { ...deps, ports: { ...deps.ports, modelCalls: dbModelCalls(h.db) } };
+    };
+    const loop = { toolUse: { name: "testkit__record__query", input: {} } };
+    const r = await newRun(h.A);
+    const at = {
+      tenantId: h.A.tenantId,
+      agentVersionId: agentOf(h.A).versionId,
+      skill: "test.lookup",
+      input: { name: "Oak" },
+      runId: r.id,
+      stepId: LOOKUP_STEP,
+    };
+    // The first try spends four of the step's six model calls, then fails.
+    const first = new FakeModel([loop, loop, loop, loop, { error: new Error("connection reset") }]);
+    expect((await runAgent(withCalls(first), at)).status).toBe("failed");
+    const spent = await withCalls(first).ports.modelCalls?.agentTurns?.(
+      h.A.tenantId,
+      (await withCalls(first).ports.log.startStepRun(h.A.tenantId, {
+        runId: r.id,
+        nodeId: LOOKUP_STEP,
+        nodeType: "skill",
+        skillRef: "test.lookup",
+        agentVersionId: agentOf(h.A).versionId,
+        input: {},
+      })) as string,
+    );
+    expect(spent?.calls).toBeGreaterThanOrEqual(4);
+
+    // The retry gets what is left, not six more.
+    const second = new FakeModel([loop, loop, loop, loop, loop, loop, loop]);
+    const retried = await runAgent(withCalls(second), at);
+    expect(retried.status).toBe("escalated");
+    if (retried.status !== "escalated") return;
+    expect(retried.reason).toBe("max_steps");
+    expect(second.requests).toHaveLength(6 - (spent?.calls ?? 0));
   });
 
   it("runs an agent-mode skill: tools, finish, summary, cost on the step and run; untrusted text only in tool results", async () => {

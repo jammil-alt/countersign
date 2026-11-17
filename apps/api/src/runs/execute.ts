@@ -504,7 +504,9 @@ export async function executeRun(
       await withTenant(db, info.tenantId, async (tx) => {
         const [exists] = await tx.select({ id: run.id }).from(run).where(eq(run.id, info.id));
         if (!exists) return;
-        await finishRun(tx, {
+        // Audit 4.5: the events below are emitted only by the finish that ended the run, so a
+        // finish step the engine runs again after it committed emits nothing twice.
+        const ended = await finishRun(tx, {
           tenantId: info.tenantId,
           runId: info.id,
           status: result.status,
@@ -527,7 +529,7 @@ export async function executeRun(
         await queueFinishedRun(tx, info);
         // `run.failed` (docs/plan.md §1.28), in the transaction that records the failure, so it
         // exists exactly when the run is failed. A test run emits nothing (ARCHITECTURE §10.4).
-        if (result.status === "failed") {
+        if (ended && result.status === "failed") {
           const row = await emit(
             tx,
             {
@@ -552,7 +554,7 @@ export async function executeRun(
         }
         // v0.12 W2-E: `run.succeeded`, with what the workflow hands off, in the same transaction
         // (docs/plan.md §1.48). Live runs only: a test run starts nothing (ARCHITECTURE §10.4).
-        if (result.status === "succeeded" && info.mode === "live" && loaded.ok) {
+        if (ended && result.status === "succeeded" && info.mode === "live" && loaded.ok) {
           const row = await emit(
             tx,
             {

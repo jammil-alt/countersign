@@ -2060,6 +2060,26 @@ class Executor {
         await this.ctx.inbox.expire(inboxItemId);
         return null;
       });
+      // Audit 3.7: an item answered before the deadline is not expired (only open items are), and
+      // its answer may still be inside its undo window, where `resolution` doesn't give it yet.
+      // DECISION: the answer stands: the run waits out the rest of the window and takes it, as
+      // the card shows it. An undo inside the window opens the item again, and it expires then.
+      const heldFor = this.ctx.inbox.heldFor;
+      if (!heldFor) return null;
+      const held = await this.runner.do(`${base}:held`, () =>
+        heldFor.call(this.ctx.inbox, inboxItemId),
+      );
+      if (held === null) return null;
+      // A second more than the database said, so the window has surely passed when it is read.
+      if (held > 0) await this.runner.sleep(`${base}:hold`, `${Math.ceil(held) + 1} seconds`);
+      const late = await this.runner.do(`${base}:late`, () =>
+        this.ctx.inbox.resolution(inboxItemId),
+      );
+      if (late) return received(InboxResolution.parse(late));
+      await this.runner.do(`${base}:expire-late`, async () => {
+        await this.ctx.inbox.expire(inboxItemId);
+        return null;
+      });
       return null;
     }
   }

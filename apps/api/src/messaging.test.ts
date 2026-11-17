@@ -5,6 +5,7 @@
 // and quiet hours stopping a send in code; usage counted; nothing crosses clients. An automatic text
 // retried after a crash resumes; one Twilio took but we never recorded is found, not sent again.
 
+import { EXECUTING_LEASE_MINUTES } from "@countersign/agents";
 import {
   createTwilioConnector,
   type FetchLike,
@@ -606,7 +607,13 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
     const leftExecuting = (id: string) =>
       H.t.db
         .update(externalAction)
-        .set({ status: "executing", error: null, result: null })
+        // Audit 3.2: claimed longer ago than the lease, so a retry takes it over.
+        .set({
+          status: "executing",
+          error: null,
+          result: null,
+          executedAt: new Date(Date.now() - (EXECUTING_LEASE_MINUTES + 1) * 60_000),
+        })
         .where(eq(externalAction.id, id));
     const optOut = async (out: boolean) => {
       const res = out

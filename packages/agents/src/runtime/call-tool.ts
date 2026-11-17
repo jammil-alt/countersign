@@ -9,6 +9,7 @@ import {
   type ConnectionRef,
   captureBefore,
   isBrowseHelpTag,
+  parseWriteInput,
   type RunSessions,
   runReadTool,
   standInOutput,
@@ -25,6 +26,7 @@ import {
   explainWrite,
   fixedInputProblem,
   grantAllowsTool,
+  hashJson,
   isAlwaysSigned,
   type JsonObject,
   levelFor,
@@ -35,9 +37,9 @@ import {
   routeApproval,
 } from "@countersign/core";
 import type { RegisteredTool } from "../registry/tools";
-import { executeAction } from "./actions";
+import { ACTION_BUSY, executeAction } from "./actions";
 import { noteReconnect } from "./attention";
-import { carryApproval } from "./carry";
+import { carryApproval, MAY_HAVE_HAPPENED } from "./carry";
 import {
   asJsonObject,
   connectionContext,
@@ -71,8 +73,12 @@ export type ToolOutcome =
    */
   | { status: "awaiting_release"; releaseId: string; inboxItemId: string; connectionId: string }
   | { status: "refused"; reason: string }
-  /** `actionId`: a carried write that failed (its tool call names the action, `stepWrites`). */
-  | { status: "failed"; error: string; actionId?: string };
+  /**
+   * `actionId`: a carried write that failed (its tool call names the action, `stepWrites`).
+   * `stopsStep`: the step can't go on (a retry's write that doesn't match the one its first try
+   * made under the same key): an agent loop fails the step rather than tell the model.
+   */
+  | { status: "failed"; error: string; actionId?: string; stopsStep?: true };
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -234,7 +240,7 @@ async function dispatch(
 ): Promise<ToolOutcome> {
   // A retry finds its first try's action before any check, the fixed-input check included.
   if (tool.kind === "connector" && tool.spec.sideEffect === "external") {
-    const resumed = await resumeProposed(deps, step, tool);
+    const resumed = await resumeProposed(deps, step, tool, input);
     if (resumed) return resumed;
   }
   // Inputs that become instructions are the step's own fixed text, before any approval card or
@@ -570,10 +576,17 @@ export async function releaseGate(
  */
 // DECISION: on a retry the action found by key stands as it is (docs/plan.md §1.22); a person's
 // approval path runs it directly (executeAction) and is unchanged.
+// DECISION (audit 3.1): keys are positional (`<run>:<step>:<index>`), and a model asked again may
+// call its tools in another order or with other inputs. The action found by key is resumed only
+// when this call is the same write: the same tool and the same input, compared as the tool reads
+// it (its Zod input, defaults filled in, as `captureBefore` stored it), in canonical JSON. Anything
+// else fails the step (`stopsStep`) with the reason: a new action under a shifted key could repeat
+// a write the first try made, and the recorded result would answer for a different write.
 async function resumeProposed(
   deps: RuntimeDeps,
   step: StepContext,
   tool: RegisteredTool,
+  input: unknown,
 ): Promise<ToolOutcome | null> {
   const existing = await deps.ports.actions.byKey(step.tenantId, nextIdempotencyKey(step));
   if (!existing) return null;
@@ -581,10 +594,32 @@ async function resumeProposed(
   if (existing.tool !== tool.spec.id) {
     return {
       status: "failed",
-      error: `this step's change ${existing.idempotencyKey} was proposed for ${existing.tool}`,
+      error: `this step's change ${existing.idempotencyKey} was proposed for ${existing.tool}, and this try called ${tool.spec.id} in its place: check the step's changes before trying again`,
+      stopsStep: true,
+    };
+  }
+  if (!(await sameWrite(tool, input, existing.input))) {
+    return {
+      status: "failed",
+      error: `this step's change ${existing.idempotencyKey} was proposed with another input than this try's ${tool.spec.id} call: check the step's changes before trying again`,
+      stopsStep: true,
     };
   }
   return settle(deps, step, tool, existing);
+}
+
+/** Whether a call's input is the write an action recorded (`input`, the agent's, never an edit). */
+async function sameWrite(tool: RegisteredTool, input: unknown, recorded: unknown) {
+  if (tool.kind !== "connector") return false;
+  let parsed: unknown;
+  try {
+    parsed = parseWriteInput(tool.connector, tool.spec.id, input);
+  } catch {
+    return false;
+  }
+  // Through JSON, as the stored input went: a parsed Date (say) compares as the string stored.
+  const asStored = (value: unknown) => JSON.parse(JSON.stringify(value ?? null)) as unknown;
+  return (await hashJson(asStored(asJsonObject(parsed)))) === (await hashJson(asStored(recorded)));
 }
 
 /** What a proposed action means for the step now: waiting, refused, or executed once. */
@@ -626,6 +661,16 @@ async function settle(
       }
       if (r.status === "failed") return { status: "failed", error: r.error };
       if (r.status === "rejected") return { status: "refused", reason: "rejected" };
+      // Audit 3.2: another try is making it (a step retried while its write is under way). This
+      // try never sends it too, and the step can't go on as if it were done or never made.
+      if (r.status === "busy") {
+        return {
+          status: "failed",
+          error: `${ACTION_BUSY}${MAY_HAVE_HAPPENED}`,
+          actionId: action.id,
+          stopsStep: true,
+        };
+      }
       return {
         status: "awaiting_approval",
         actionId: action.id,

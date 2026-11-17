@@ -362,6 +362,12 @@ export interface InboxPort {
   /** The step gave up waiting: mark the item expired. */
   expire(inboxItemId: string): Promise<void>;
   /**
+   * Audit 3.7: for an item that is resolved, the seconds left in its undo window (0 once it has
+   * passed, or when it has none); null for an item that isn't resolved. Asked when the wait ran
+   * out, so a yes given inside the window is waited out rather than lost. Absent: not asked.
+   */
+  heldFor?(inboxItemId: string): Promise<number | null>;
+  /**
    * The run has taken the item's resolution (from its event or the check before waiting), so
    * nothing needs to re-send it (docs/plan.md §1.5 "Approval resume"). Idempotent.
    */

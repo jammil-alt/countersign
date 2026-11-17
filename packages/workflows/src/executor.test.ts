@@ -223,6 +223,71 @@ describe("skill and action steps", () => {
     expect(h.resumeCalls[0]?.resolution.approved).toBe(false);
   });
 
+  it("waits out a yes given inside its undo window when the approval's time runs out", async () => {
+    const h = new Harness();
+    const item = h.approvalItem();
+    h.handlers.write = () => ({ kind: "approval", pending: { inboxItemId: item } });
+    // Signed before the deadline, still inside its undo window when the wait ran out.
+    let held = true;
+    const runner = new FakeStepRunner({ onWait: "timeout" });
+    const sleep = runner.sleep.bind(runner);
+    runner.sleep = async (name, duration) => {
+      await sleep(name, duration);
+      held = false;
+    };
+    const result = await executeWorkflow(
+      runner,
+      h.context({
+        inbox: {
+          ...h.inbox,
+          resolution: async () => (held ? null : { approved: true, by: "user-1" }),
+          heldFor: async () => (held ? 30 : 0),
+        },
+      }),
+      wf([action({ approval: { timeout: "1 hour" } })]),
+      { what: "x" },
+    );
+    expect(result).toMatchObject({ status: "succeeded" });
+    expect(runner.calls.find((c) => c.kind === "sleep")).toMatchObject({
+      duration: "31 seconds",
+    });
+    expect(h.resumeCalls[0]?.resolution).toMatchObject({ approved: true, by: "user-1" });
+  });
+
+  it("ends as not approved when a yes inside its undo window is taken back", async () => {
+    const h = new Harness();
+    const item = h.approvalItem();
+    h.handlers.write = () => ({ kind: "approval", pending: { inboxItemId: item } });
+    // Undone inside the window: the item is open again once it has passed.
+    let resolved = true;
+    const runner = new FakeStepRunner({ onWait: "timeout" });
+    const sleep = runner.sleep.bind(runner);
+    runner.sleep = async (name, duration) => {
+      await sleep(name, duration);
+      resolved = false;
+    };
+    let expired = 0;
+    const result = await executeWorkflow(
+      runner,
+      h.context({
+        inbox: {
+          ...h.inbox,
+          resolution: async () => null,
+          heldFor: async () => (resolved ? 30 : null),
+          expire: async () => {
+            expired += 1;
+          },
+        },
+      }),
+      wf([action({ approval: { timeout: "1 hour" } })]),
+      { what: "x" },
+    );
+    expect(result).toMatchObject({ status: "cancelled", reason: "rejected" });
+    // Once at the deadline (it was answered then) and again once it was open again.
+    expect(expired).toBe(2);
+    expect(h.resumeCalls[0]?.resolution.approved).toBe(false);
+  });
+
   it("keeps asking while an agent-mode skill proposes more writes", async () => {
     const h = new Harness();
     const first = h.approvalItem({ approved: true, by: null });

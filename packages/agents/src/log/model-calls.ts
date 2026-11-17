@@ -9,6 +9,7 @@
 import type { ObjectStore } from "@countersign/connectors";
 import { Decimal, type ModelCallAction, redactCardNumbersDeep, uuidv7 } from "@countersign/core";
 import { type Db, modelCall, withTenant } from "@countersign/db";
+import { and, eq, sql } from "drizzle-orm";
 
 /** One model call of a run's step, as the runtime saw it. */
 export interface ModelCallInput {
@@ -36,6 +37,12 @@ export interface ModelCallInput {
 
 export interface ModelCallPort {
   record(tenantId: string, call: ModelCallInput): Promise<void>;
+  /**
+   * Audit 3.1: the agent's own turns (`agent_turn`) already recorded on a step's row, by every
+   * attempt of the step so far (a Workflow retry, a run again after a release, an oversight
+   * retry), so the step's budgets span its attempts. Absent: each attempt counts from zero.
+   */
+  agentTurns?(tenantId: string, stepRunId: string): Promise<{ calls: number; costUsd: string }>;
 }
 
 /** `tenants/<client id>/model-calls/<id>.json`: under the client's prefix (invariant 1). */
@@ -112,6 +119,24 @@ export function dbModelCalls(
       } catch (error) {
         console.error(`model call ${id}: the body was not stored`, error);
       }
+    },
+    agentTurns(tenantId, stepRunId) {
+      return withTenant(db, tenantId, async (tx) => {
+        const [row] = await tx
+          .select({
+            calls: sql<number>`count(*)::int`,
+            costUsd: sql<string>`coalesce(sum(${modelCall.costUsd}), 0)::text`,
+          })
+          .from(modelCall)
+          .where(
+            and(
+              eq(modelCall.tenantId, tenantId),
+              eq(modelCall.stepRunId, stepRunId),
+              eq(modelCall.action, "agent_turn"),
+            ),
+          );
+        return { calls: row?.calls ?? 0, costUsd: row?.costUsd ?? "0" };
+      });
     },
   };
 }
