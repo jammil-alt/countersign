@@ -366,16 +366,6 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
       },
       scheduledTime,
     );
-    // Every 5 minutes: runs whose instance never started are started, runs whose instance ended
-    // without finishing them are failed (runs/reconcile.ts).
-    await reconcileRuns({ db, instances }, scheduledTime).catch((error: unknown) =>
-      reportHandled("run reconciler failed", error, { job: "reconcile" }),
-    );
-    // Every 5 minutes: documents whose reading on arrival was cut off are read again
-    // (documents/sweep.ts).
-    await readingSweep({ db, env, deps }, scheduledTime).catch((error: unknown) =>
-      reportHandled("reading sweep failed", error, { job: "reading_sweep" }),
-    );
     // v0.12 W1-A: pauses whose end passed resume (every minute); trials that met their minimums
     // move to signoff (hourly, at the usage sweep's minute).
     await lifecycleTick(db, scheduledTime).catch((error: unknown) =>
@@ -469,6 +459,17 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     // and the pass goes on with the next.
     await packNightly(db, platform.packs, scheduledTime).catch((error: unknown) =>
       reportHandled("pack nightly tick failed", error, { job: "pack_nightly" }),
+    );
+    // Last, after every other pass, so their slower work never holds the others up:
+    // every 10 minutes, runs that never started are started or failed, runs whose instance ended
+    // without finishing them are failed (runs/reconcile.ts);
+    await reconcileRuns({ db, instances }, scheduledTime).catch((error: unknown) =>
+      reportHandled("run reconciler failed", error, { job: "reconcile" }),
+    );
+    // every 5 minutes, documents whose reading on arrival was cut off are read again, within a
+    // time budget (documents/sweep.ts).
+    await readingSweep({ db, env, deps }, scheduledTime).catch((error: unknown) =>
+      reportHandled("reading sweep failed", error, { job: "reading_sweep" }),
     );
   } finally {
     await close();

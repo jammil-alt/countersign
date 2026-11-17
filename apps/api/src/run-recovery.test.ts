@@ -4,17 +4,38 @@
 // without finishing it.
 
 import { AgentBundle, type AgentBundleInput } from "@countersign/core";
-import { agent, agentChange, event, inboxItem, run } from "@countersign/db";
-import { and, eq } from "drizzle-orm";
+import {
+  agent,
+  agentChange,
+  contact,
+  event,
+  inboxItem,
+  reachOut,
+  run,
+  stepRun,
+} from "@countersign/db";
+import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
+import { SLOAN_SWEEP_MINUTE } from "./account/sloan";
 import { type ApiHarness, createApiHarness, OPERATOR } from "./api.test-helper";
-import { cronTick } from "./runs/dispatch";
+import { BANKFEED_CRON_MINUTE } from "./bankfeed/sync";
+import { CAPTURE_CRON_MINUTE } from "./conversations/cron";
+import { A2P_CRON_MINUTE } from "./messaging/a2p";
+import { HEALTH_MINUTE } from "./observability/health";
+import { RAMP_POLL_MINUTE } from "./ramp/poll";
+import { QBO_CRON_MINUTE } from "./routes/qbo";
+import { cronTick, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
 import {
   RECONCILE_AFTER_MS,
+  RECONCILE_EVERY_MINUTES,
   RECONCILE_MINUTE,
+  RECONCILE_PER_CLIENT,
   reconcileClientRuns,
   reconcileRuns,
 } from "./runs/reconcile";
+import { SEARCH_SYNC_MINUTE } from "./search-sync";
+import { TRANSLATION_SWEEP_MINUTE } from "./translate/service";
+import { ZOHO_CRON_MINUTE } from "./zoho/sync";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
@@ -165,6 +186,11 @@ describe.skipIf(!h)("the run reconciler", () => {
   const reconcile = (when = later()) =>
     reconcileClientRuns({ db: H.db, instances: H.instances }, H.B.tenantId, when);
   const rowOf = async (id: string) => (await H.t.db.select().from(run).where(eq(run.id, id)))[0];
+  const failedEventsOf = (runId: string) =>
+    H.t.db
+      .select()
+      .from(event)
+      .where(and(eq(event.type, "run.failed"), eq(event.subjectId, runId)));
 
   it("starts a run the API accepted but could not start", async () => {
     const created = await H.call(OPERATOR, "POST", `/api/ops/clients/${H.B.tenantId}/agents`, {
@@ -201,7 +227,7 @@ describe.skipIf(!h)("the run reconciler", () => {
       trigger: { type: "manual" },
     });
     // Started once: the next pass finds it running.
-    expect(await reconcile()).toEqual({ started: 0, failed: 0 });
+    expect(await reconcile()).toEqual({ started: 0, failed: 0, quiet: 0 });
   });
 
   it("starts a retry whose start failed, so the run retried is not a dead end", async () => {
@@ -247,6 +273,27 @@ describe.skipIf(!h)("the run reconciler", () => {
         status: "open",
       })
       .returning();
+    const [who] = await H.t.db
+      .insert(contact)
+      .values({ tenantId: H.B.tenantId, name: "Vendor Val", email: "val@vendor.example.com" })
+      .returning();
+    const [ro] = await H.t.db
+      .insert(reachOut)
+      .values({
+        tenantId: H.B.tenantId,
+        agentId,
+        agentVersionId: (await rowOf(runId))?.agentVersionId as string,
+        runId,
+        nodeId: "ask",
+        contactId: who?.id as string,
+        subject: "price check",
+        purpose: "ask for a price",
+        urgency: "normal",
+        plan: {},
+        status: "open",
+      })
+      .returning();
+    const reachOutId = ro?.id as string;
     // Still running in the engine: left alone.
     expect((await reconcile()).failed).toBe(0);
     H.instances.states.set(runId, {
@@ -264,13 +311,126 @@ describe.skipIf(!h)("the run reconciler", () => {
       .from(inboxItem)
       .where(eq(inboxItem.id, item?.id as string));
     expect(after?.status).toBe("expired");
-    const failedEvents = await H.t.db
-      .select()
-      .from(event)
-      .where(and(eq(event.type, "run.failed"), eq(event.subjectId, runId)));
-    expect(failedEvents).toHaveLength(1);
+    expect(await failedEventsOf(runId)).toHaveLength(1);
+    // Its reach-out ends too: nobody is reminded for a run that is over.
+    const [ended] = await H.t.db.select().from(reachOut).where(eq(reachOut.id, reachOutId));
+    expect(ended).toMatchObject({ status: "ended", outcome: "no_reply", reason: "the run ended" });
+    expect(ended?.runReceivedAt).not.toBeNull();
     // Reported once: the run is over, so the next pass doesn't see it.
     expect((await reconcile()).failed).toBe(0);
+  });
+
+  /** A live run row of the agent, as an API start that failed leaves it, created `ago` ms back. */
+  async function orphan(ago: number) {
+    const [a] = await H.t.db.select().from(agent).where(eq(agent.id, agentId));
+    const [r] = await H.t.db
+      .insert(run)
+      .values({
+        tenantId: H.B.tenantId,
+        agentId,
+        agentVersionId: a?.liveVersionId as string,
+        workflowSlug: "main",
+        mode: "live",
+        trigger: { type: "manual", payload: {} },
+        status: "running",
+        startedAt: new Date(Date.now() - ago),
+        createdAt: new Date(Date.now() - ago),
+      })
+      .returning();
+    return r?.id as string;
+  }
+
+  it("never starts a run created more than an hour ago: it fails it, not_started", async () => {
+    const runId = await orphan(2 * 60 * 60_000);
+    const done = await reconcile(new Date());
+    expect(done).toMatchObject({ started: 0, failed: 1, quiet: 0 });
+    expect(H.instances.started.has(runId)).toBe(false);
+    const r = await rowOf(runId);
+    expect(r?.status).toBe("failed");
+    expect(r?.error).toMatchObject({ code: "not_started", key: "run:not_started" });
+    expect(await failedEventsOf(runId)).toHaveLength(1);
+  });
+
+  it("fails a run over a day old quietly: no run.failed, counted", async () => {
+    const runId = await orphan(2 * 24 * 60 * 60_000);
+    expect(await reconcile(new Date())).toMatchObject({ started: 0, failed: 1, quiet: 1 });
+    expect((await rowOf(runId))?.status).toBe("failed");
+    expect(await failedEventsOf(runId)).toEqual([]);
+  });
+
+  it("never starts a run whose agent is no longer running", async () => {
+    const runId = await orphan(RECONCILE_AFTER_MS + 60_000);
+    await H.t.db.update(agent).set({ runStatus: "paused" }).where(eq(agent.id, agentId));
+    try {
+      expect(await reconcile(new Date())).toMatchObject({ started: 0, failed: 1 });
+      expect(H.instances.started.has(runId)).toBe(false);
+      expect((await rowOf(runId))?.error).toMatchObject({ code: "not_started" });
+    } finally {
+      await H.t.db.update(agent).set({ runStatus: "active" }).where(eq(agent.id, agentId));
+    }
+  });
+
+  it("starts nothing and fails nothing when the engine can't say", async () => {
+    const runId = await orphan(RECONCILE_AFTER_MS + 60_000);
+    H.instances.failInspects = 10;
+    try {
+      expect(await reconcile(new Date())).toEqual({ started: 0, failed: 0, quiet: 0 });
+    } finally {
+      H.instances.failInspects = 0;
+    }
+    expect(H.instances.started.has(runId)).toBe(false);
+    expect((await rowOf(runId))?.status).toBe("running");
+    // Once the engine answers, it is started.
+    expect((await reconcile(new Date())).started).toBe(1);
+    expect(H.instances.started.has(runId)).toBe(true);
+  });
+
+  it("takes runs that never started first", async () => {
+    // More open runs with a step than one pass checks, and one without.
+    const busy = [];
+    for (let i = 0; i < RECONCILE_PER_CLIENT * 4; i++)
+      busy.push(await orphan(RECONCILE_AFTER_MS + 60_000));
+    for (const id of busy) {
+      H.instances.started.set(id, {} as never);
+      await H.t.db.insert(stepRun).values({
+        tenantId: H.B.tenantId,
+        runId: id,
+        nodeId: "first",
+        nodeType: "skill",
+        status: "waiting",
+      });
+    }
+    const fresh = await orphan(RECONCILE_AFTER_MS + 60_000);
+    expect((await reconcile(new Date())).started).toBe(1);
+    expect(H.instances.started.has(fresh)).toBe(true);
+    // Tidy: these runs are over.
+    await H.t.db.update(run).set({ status: "cancelled" }).where(inArray(run.id, busy));
+  });
+
+  it("a cancel and a reconciler pass at once leave the run cancelled, with no run.failed", async () => {
+    const res = await H.call(OPERATOR, "POST", `/api/ops/agents/${agentId}/run`, {
+      workflow: "main",
+    });
+    const runId = j(res.json).runId as string;
+    // A pass runs while the cancel's instance is terminated, before its transaction commits.
+    const terminate = H.instances.terminate.bind(H.instances);
+    let pass: Promise<unknown> = Promise.resolve();
+    H.instances.terminate = async (id: string) => {
+      const out = await terminate(id);
+      pass = reconcile();
+      // Give the pass time to read the run and ask the engine.
+      await new Promise((r) => setTimeout(r, 200));
+      return out;
+    };
+    try {
+      const cancel = await H.call(OPERATOR, "POST", `/api/ops/runs/${runId}/cancel`);
+      expect(cancel.status, JSON.stringify(cancel.json)).toBe(200);
+      await pass;
+    } finally {
+      H.instances.terminate = terminate;
+    }
+    expect((await rowOf(runId))?.status).toBe("cancelled");
+    expect(await failedEventsOf(runId)).toEqual([]);
   });
 
   it("leaves test runs alone; a test run that won't start is failed at once", async () => {
@@ -291,9 +451,26 @@ describe.skipIf(!h)("the run reconciler", () => {
     expect(H.instances.started.has(runId)).toBe(false);
   });
 
-  it("runs every 5 minutes, at its minute", async () => {
+  it("runs every 10 minutes, at a minute no other periodic pass uses", async () => {
     const deps = { db: H.db, instances: H.instances };
-    const off = new Date(Date.UTC(2026, 10, 20, 10, (RECONCILE_MINUTE + 1) % 5));
-    expect(await reconcileRuns(deps, off)).toEqual({ started: 0, failed: 0 });
+    const off = new Date(Date.UTC(2026, 10, 20, 10, (RECONCILE_MINUTE + 1) % 10));
+    expect(await reconcileRuns(deps, off)).toEqual({ started: 0, failed: 0, quiet: 0 });
+    const taken = new Set<number>();
+    for (let m = 0; m < 60; m++) {
+      if (m % 15 === QBO_CRON_MINUTE || m % 15 === RAMP_POLL_MINUTE || m % 15 === ZOHO_CRON_MINUTE)
+        taken.add(m);
+      if (m % 5 === 0 || m % 10 === CAPTURE_CRON_MINUTE) taken.add(m);
+    }
+    for (const m of [
+      USAGE_SWEEP_MINUTE,
+      HEALTH_MINUTE,
+      SEARCH_SYNC_MINUTE,
+      TRANSLATION_SWEEP_MINUTE,
+    ])
+      taken.add(m);
+    taken.add(SLOAN_SWEEP_MINUTE).add(A2P_CRON_MINUTE).add(BANKFEED_CRON_MINUTE);
+    for (let m = RECONCILE_MINUTE; m < 60; m += RECONCILE_EVERY_MINUTES) {
+      expect(taken.has(m), `minute ${m}`).toBe(false);
+    }
   });
 });

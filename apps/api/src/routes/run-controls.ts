@@ -40,7 +40,7 @@ import { type AppEnv, ensureClient, HttpError, iso, mount, mountFile, notFound }
 import { queueFinishedRun } from "../run-audit/store";
 import { createRunRow } from "../runs/dispatch";
 import type { RunParams } from "../runs/instances";
-import { startAfterCommit } from "../runs/reconcile";
+import { closeRunReachOuts, startAfterCommit } from "../runs/reconcile";
 import { opsStatusWhere } from "../runs/run-wait";
 
 // ── RunFilter as SQL ────────────────────────────────────────────────────────────────────────────
@@ -424,16 +424,25 @@ export function runControlRoutes(app: Hono<AppEnv>): void {
         "a change is being made right now; try again in a moment",
       );
     }
-    await services.instances.terminate(r.id);
+    // The row first (it holds the run's row lock until this commits), then the instance: a
+    // reconciler pass that sees the instance terminated in between waits on the lock and then
+    // finds the run cancelled, not open.
     const now = new Date();
-    await tx
+    const [cancelled] = await tx
       .update(run)
       .set({
         status: "cancelled",
         finishedAt: now,
         error: { reason: "cancelled", code: "run_cancelled", by: session.user.id },
       })
-      .where(and(eq(run.id, r.id), eq(run.tenantId, r.tenantId)));
+      .where(
+        and(eq(run.id, r.id), eq(run.tenantId, r.tenantId), inArray(run.status, [...OPEN_RUN])),
+      )
+      .returning({ id: run.id });
+    if (!cancelled) throw new HttpError(409, "not_open", "this run has just ended");
+    await services.instances.terminate(r.id);
+    // Nobody is chased any more for a run that is over.
+    await closeRunReachOuts(tx, r, "the run was cancelled");
     // Wave 6 review: a run cancelled here never reaches `run:finish`, so it is queued for audit
     // here, as it finishes (a run that wrote before the cancel is in the queue as "wrote").
     await queueFinishedRun(tx, {

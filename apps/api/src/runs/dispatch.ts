@@ -463,9 +463,12 @@ export async function cronTick(deps: DispatchDeps, scheduledTime: Date): Promise
         holidays: { [client.id]: clientHolidays(client.settings) },
       });
       for (const p of problems) console.warn("schedule could not be evaluated", p);
-      const due = await withTenant(deps.db, client.id, (tx) =>
-        withoutStaleCatchUps(tx, client.id, runs, onTimeAfter),
-      );
+      const late = runs.some((r) => scheduledAtOf(r) <= onTimeAfter.getTime());
+      const due = late
+        ? await withTenant(deps.db, client.id, (tx) =>
+            withoutStaleCatchUps(tx, client.id, runs, onTimeAfter),
+          )
+        : runs;
       for (const request of due) await startRun(deps, request);
       await redeliverResolutions(deps, client.id, scheduledTime);
       if (to.getUTCMinutes() === USAGE_SWEEP_MINUTE) {
