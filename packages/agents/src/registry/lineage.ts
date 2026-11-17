@@ -244,7 +244,10 @@ export function holdsRecordId(value: unknown): boolean {
 }
 
 const EMAIL_IN_TEXT = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
-const PHONE_IN_TEXT = /\+[1-9]\d{7,14}(?!\d)/g;
+// E.164 (+15551230000), and a number as people write it: 555-123-4567, (555) 123-4567,
+// 555.123.4567, +1 555 123 4567.
+const PHONE_IN_TEXT =
+  /\+[1-9]\d{7,14}(?!\d)|(?<![\w.-])(?:\+?\d{1,3}[\s.-]?)?(?:\(\d{3}\)\s?|\d{3}[\s.-])\d{3}[\s.-]\d{4}(?![\w-])/g;
 const REF = /\{\{[^{}]*\}\}/g;
 
 /**
@@ -283,8 +286,40 @@ function scrub(bag: Bag | undefined, base: Bag | undefined, clientSpecific: Set<
 const DEFAULT_WHO = "client_admin";
 /** An unset webhook: it names no client's hook, so it starts nothing until the operator picks one. */
 export const UNSET_HOOK_ID = "00000000-0000-0000-0000-000000000000";
-/** What an email address or phone number in free text becomes. */
+/**
+ * Review of 5.10: a conversation's contact when the client's was written out: a People role the
+ * agent declares none of, so the conversation is refused (nothing is sent) until the operator
+ * binds a role or names someone.
+ */
+export const UNSET_CONTACT_ROLE = "contact-to-choose";
+/** What an email address, phone number or record id in free text becomes. */
 const REDACTED = "[removed]";
+/** Free text a person or the operator wrote, where a record id is client data (not an id field). */
+const FREE_TEXT_KEYS = new Set([
+  "instructions",
+  "addInstructions",
+  "mission",
+  "name",
+  "title",
+  "description",
+  "message",
+  "goal",
+  "need",
+  "describe",
+  "label",
+]);
+
+type RulesLike = { match?: unknown; rules: { field?: unknown; op?: unknown; value?: unknown }[] };
+
+/** A `Rules` value (`{ match, rules: [{ field, op, value }] }`). */
+function isRules(v: unknown): v is RulesLike {
+  return isPlainObject(v) && Array.isArray(v.rules) && v.rules.every(isPlainObject);
+}
+
+const rulesHoldLiteral = (r: RulesLike) => r.rules.some((x) => holdsClientLiteral(x.value));
+
+/** A rule that never holds: its field in an empty list. */
+const neverRule = (field: unknown) => ({ field, op: "in", value: [] });
 
 /**
  * A person named by user or contact id, email address or phone number (one client's), rather than
@@ -298,6 +333,8 @@ function namesPerson(value: unknown): boolean {
 
 /** Keys whose values are tool inputs, settings or skill customizations: scrubbed as bags. */
 const BAG_KEYS = new Set(["input", "payload", "settings", "customize", "show", "reshape"]);
+/** Keys under which a `when` gates a check: the approval, a confer, a notice (and its urgency). */
+const CHECK_KEYS = new Set(["checks", "approvals", "notify"]);
 
 /**
  * Resets the person and contact fields of one step, trigger or definition part (`node`) to the
@@ -308,9 +345,20 @@ const BAG_KEYS = new Set(["input", "payload", "settings", "customize", "show", "
  */
 // DECISION: unset rather than dropped, so step and path ids, and every check, stay as they were
 // (invariant 3), approval stays on (invariant 8), and the operator sets the people in the client.
-function scrubPeople(node: unknown, base: unknown): void {
+// Review of 5.10 (invariant 8): rules that name the client's records never loosen anything.
+// - A check's condition (`checks.*.when`, an approval override's, a notice's, a reviewer's) is
+//   dropped, so the check applies on every run; a condition only ever narrows a check.
+// - Any other rule set (an if path's `when`, a trigger's `filter`, a repeat's `until`) takes the
+//   base's where the base has its own, else each rule naming a record becomes one that never
+//   holds (its field in an empty list).
+// DECISION: never-holding rather than dropped: a trigger then starts fewer runs, never more, and
+// a path is taken less; dropping a rule from an `all` set would widen it. The draft still
+// validates, and the operator sees the change in the promotion's diff.
+function scrubPeople(node: unknown, base: unknown, inCheck = false): void {
   if (Array.isArray(node)) {
-    for (const [i, v] of node.entries()) scrubPeople(v, Array.isArray(base) ? base[i] : undefined);
+    for (const [i, v] of node.entries()) {
+      scrubPeople(v, Array.isArray(base) ? base[i] : undefined, inCheck);
+    }
     return;
   }
   if (!isPlainObject(node)) return;
@@ -318,7 +366,28 @@ function scrubPeople(node: unknown, base: unknown): void {
   const from = (key: string) => (b && Object.hasOwn(b, key) ? cloneJson(b[key]) : undefined);
   for (const key of Object.keys(node)) {
     const value = node[key];
-    if (key === "steps" || BAG_KEYS.has(key)) continue;
+    if (key === "steps") continue;
+    if (key === "show" && isPlainObject(value)) {
+      // What a reviewer or the agent is shown: a template object, scrubbed as an input is.
+      scrub(value, isPlainObject(b?.show) ? b.show : undefined, new Set());
+      continue;
+    }
+    if (BAG_KEYS.has(key)) continue;
+    if (isRules(value) && rulesHoldLiteral(value)) {
+      if (inCheck && key === "when") {
+        delete node[key];
+        continue;
+      }
+      const kept = from(key);
+      node[key] =
+        isRules(kept) && !rulesHoldLiteral(kept)
+          ? kept
+          : {
+              ...value,
+              rules: value.rules.map((r) => (holdsClientLiteral(r.value) ? neverRule(r.field) : r)),
+            };
+      continue;
+    }
     switch (key) {
       case "who":
       case "approver":
@@ -362,6 +431,12 @@ function scrubPeople(node: unknown, base: unknown): void {
           const kept = from(key);
           if (Array.isArray(kept)) node[key] = kept;
           else delete node[key];
+          // Review of 5.10: a filter that lists nobody can't be saved (`people_empty`): the
+          // client admin may start it, until the operator lists the client's people again.
+          const lists = ["relationships", "tags", "contactIds", "clientRoles"];
+          if (!lists.some((k) => Array.isArray(node[k]) && (node[k] as unknown[]).length > 0)) {
+            node.clientRoles = [DEFAULT_WHO];
+          }
         }
         continue;
       case "hookId":
@@ -371,35 +446,68 @@ function scrubPeople(node: unknown, base: unknown): void {
         }
         continue;
       case "with":
-      case "value":
-        // A conversation's contact, or a rule's value, written out rather than referenced (a
-        // confer's `with` is its list of reviewers, walked as any other part).
-        if ((typeof value === "string" || key === "value") && holdsClientLiteral(value)) {
+        // A conversation's contact written out rather than referenced (a confer's `with` is its
+        // list of reviewers, walked as any other part).
+        if (typeof value === "string" && holdsClientLiteral(value)) {
           const kept = from(key);
-          node[key] = kept !== undefined ? kept : Array.isArray(value) ? [] : "";
-        } else scrubPeople(value, b?.[key]);
+          node[key] =
+            typeof kept === "string" && !holdsClientLiteral(kept) ? kept : UNSET_CONTACT_ROLE;
+        } else scrubPeople(value, b?.[key], inCheck);
         continue;
       default:
-        scrubPeople(value, b?.[key]);
+        scrubPeople(value, b?.[key], inCheck || CHECK_KEYS.has(key));
     }
   }
 }
 
-/** Every email address and phone number left in free text (outside `{{refs}}`), removed. */
-function redactAddresses(node: unknown): unknown {
+/**
+ * Every email address and phone number left in a string (outside `{{refs}}`), removed, and in
+ * free text (`FREE_TEXT_KEYS`) every record id too: ids elsewhere may be step ids (invariant 3).
+ */
+function redactAddresses(node: unknown, freeText = false): unknown {
   if (typeof node === "string") {
+    const uuids = new RegExp(UUID_IN_TEXT.source, "gi");
     return node
       .split(/(\{\{[^{}]*\}\})/)
-      .map((part, i) =>
-        i % 2 === 1 ? part : part.replace(EMAIL_IN_TEXT, REDACTED).replace(PHONE_IN_TEXT, REDACTED),
-      )
+      .map((part, i) => {
+        if (i % 2 === 1) return part;
+        const out = part.replace(EMAIL_IN_TEXT, REDACTED).replace(PHONE_IN_TEXT, REDACTED);
+        return freeText ? out.replace(uuids, REDACTED) : out;
+      })
       .join("");
   }
-  if (Array.isArray(node)) return node.map(redactAddresses);
+  if (Array.isArray(node)) return node.map((v) => redactAddresses(v, freeText));
   if (isPlainObject(node)) {
-    for (const key of Object.keys(node)) node[key] = redactAddresses(node[key]);
+    for (const key of Object.keys(node)) {
+      node[key] = redactAddresses(node[key], freeText || FREE_TEXT_KEYS.has(key));
+    }
   }
   return node;
+}
+
+/**
+ * Review of 5.10: a skill step's rule rows (`customize.rules`) that name the client's records
+ * (in their condition or what they set): the base's row of the same id where it has one, else
+ * left out. Edits of the skill's own rows are dropped the same way.
+ */
+function scrubRuleRows(customize: Bag | undefined, base: Bag | undefined): void {
+  const rows = isPlainObject(customize?.rules) ? (customize.rules as Bag) : undefined;
+  if (!customize || !rows) return;
+  const baseRows = isPlainObject(base?.rules) ? (base.rules as Bag) : {};
+  for (const list of ["add", "edit"] as const) {
+    const items = rows[list];
+    if (!Array.isArray(items)) continue;
+    const theirs = Array.isArray(baseRows[list]) ? (baseRows[list] as unknown[]) : [];
+    const kept = items.flatMap((row) => {
+      if (!holdsClientLiteral(row)) return [row];
+      const id = isPlainObject(row) ? row.id : undefined;
+      const same = theirs.find((t) => isPlainObject(t) && id !== undefined && t.id === id);
+      return same !== undefined && !holdsClientLiteral(same) ? [cloneJson(same)] : [];
+    });
+    if (kept.length > 0) rows[list] = kept;
+    else delete rows[list];
+  }
+  if (Object.keys(rows).length === 0) delete customize.rules;
 }
 
 function triggersOf(w: AnyAgentBundle["workflows"][number]["workflow"]): Bag[] {
@@ -461,6 +569,10 @@ export function stripForPromotion<B extends AnyAgentBundle>(
       scrub(step.settings as Bag | undefined, settingsOf(b), keys);
       const customize = (step as { customize?: { settings?: Bag } }).customize;
       scrub(customize?.settings, settingsOf(b), keys);
+      scrubRuleRows(
+        customize as Bag | undefined,
+        (b as { customize?: Bag } | undefined)?.customize,
+      );
     }
     const s = step as AnyStep & Bag;
     for (const field of ["input", "payload"] as const) {

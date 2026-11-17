@@ -6,6 +6,7 @@
 import { TESTKIT_QUERY_TOOL, TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import {
   type AnyAgentBundle,
+  classifyChange,
   cloneJson,
   holdsProcess,
   type ProcessAgentBundle,
@@ -35,7 +36,14 @@ import {
   validateForPublish,
 } from "./agents";
 import { createAutomation, publishAutomation } from "./automations";
-import { createUpdateDraft, previewPromotion, stripForPromotion, updateInfo } from "./lineage";
+import {
+  createUpdateDraft,
+  previewPromotion,
+  stripForPromotion,
+  UNSET_CONTACT_ROLE,
+  UNSET_HOOK_ID,
+  updateInfo,
+} from "./lineage";
 import { convertLookup, skillContext } from "./skills";
 
 const harness = await createHarness();
@@ -345,5 +353,208 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
     const ctx = { skills, tools: h.tools.specs(), models: knownModelIds() };
     expect(processes.validateAnyBundle(client, ctx).errors).toEqual([]);
     expect(processes.validateAnyBundle(out, ctx).errors).toEqual([]);
+  });
+
+  // Review of 5.10: the scrub never loosens (invariant 8), never leaves a version that can't be
+  // published, and leaves no record id, address or number of the client behind.
+  const validate = async (b: AnyAgentBundle) => {
+    const { skills } = await h.ops((tx) =>
+      skillContext(tx, { tenantId: null, bundle: b, catalog: h.catalog }),
+    );
+    return processes.validateAnyBundle(b, {
+      skills,
+      tools: h.tools.specs(),
+      models: knownModelIds(),
+    }).errors;
+  };
+  const rules = (field: string, op: string, value: unknown) => ({
+    match: "all" as const,
+    rules: [{ field, op: op as "=", value }],
+  });
+
+  it("drops a check's condition that names the client's records, so the check always applies", async () => {
+    const [a, b] = [uuidv7(), uuidv7()];
+    const client = v4Bundle(h, (x) => {
+      const w = stepOf(x, UPDATE_STEP);
+      if (w.kind !== "write") throw new Error("fixture");
+      w.checks = {
+        approval: {
+          required: "required",
+          mode: "in_turn",
+          ifNoAnswer: "stop",
+          onReject: "stop",
+          when: rules("{{trigger.id}}", "in", [a, b]),
+        },
+        confer: {
+          when: rules("{{trigger.id}}", "=", a),
+          with: [{ ai: { focus: "the amount" } }],
+        },
+        notify: [
+          {
+            to: ["lead"],
+            channel: "inbox",
+            message: "Updated.",
+            when: rules("{{trigger.id}}", "=", b),
+          },
+        ],
+      };
+    });
+    expect(await validate(client)).toEqual([]);
+    const out = stripForPromotion(client, makeBundle(), {});
+    const w = stepOf(out, UPDATE_STEP);
+    if (w.kind !== "write") throw new Error("fixture");
+    expect(w.checks?.approval).toEqual({
+      required: "required",
+      mode: "in_turn",
+      ifNoAnswer: "stop",
+      onReject: "stop",
+    });
+    expect(w.checks?.confer?.when).toBeUndefined();
+    expect(w.checks?.notify?.[0]?.when).toBeUndefined();
+    expect(JSON.stringify(out)).not.toContain(a);
+    expect(JSON.stringify(out)).not.toContain(b);
+    expect(await validate(out)).toEqual([]);
+    // No scrub loosens: the change from the client's version is not one an owner may not draft.
+    expect(classifyChange(client, out).class).not.toBe("never");
+  });
+
+  it("narrows a trigger's filter and a path's rule that name the client's records", async () => {
+    const id = uuidv7();
+    const email = "pat@client-a.example";
+    const route = (value: unknown): processes.Step =>
+      ({
+        id: "route",
+        name: "Route",
+        kind: "if",
+        paths: [
+          { id: "big", name: "Big vendor", when: rules("{{trigger.name}}", "=", value), steps: [] },
+        ],
+        otherwise: { id: "rest", steps: [] },
+      }) as processes.Step;
+    const hook = (value: unknown) => ({
+      id: "trg-hook",
+      on: {
+        type: "webhook" as const,
+        hookId: UNSET_HOOK_ID,
+        filter: rules("{{trigger.data.from}}", "=", value),
+      },
+    });
+    const client = v4Bundle(h, (x) => {
+      processOf(x).steps.push(route(id));
+      processOf(x).triggers.push(hook(email));
+    });
+    expect(await validate(client)).toEqual([]);
+    // No base value: the rule can never match (fewer runs start, the path is never taken).
+    const out = stripForPromotion(client, makeBundle(), {});
+    const never = { field: "{{trigger.name}}", op: "in", value: [] };
+    const path = stepOf(out, "route");
+    if (path.kind !== "if") throw new Error("fixture");
+    expect(path.paths[0]?.when.rules).toEqual([never]);
+    const filter = processOf(out).triggers.find((t) => t.id === "trg-hook")?.on;
+    expect(filter?.type === "webhook" && filter.filter?.rules).toEqual([
+      { field: "{{trigger.data.from}}", op: "in", value: [] },
+    ]);
+    expect(JSON.stringify(out)).not.toContain(id);
+    expect(JSON.stringify(out)).not.toContain(email);
+    expect(await validate(out)).toEqual([]);
+    // A filter that can match fewer deliveries is not a widening.
+    const onlyFilter = v4Bundle(h, (x) => {
+      processOf(x).triggers.push(hook(email));
+    });
+    expect(
+      classifyChange(onlyFilter, stripForPromotion(onlyFilter, makeBundle(), {})).class,
+    ).not.toBe("never");
+    // The base's own rule, where it has one.
+    const base = v4Bundle(h, (x) => {
+      processOf(x).steps.push(route("Acme"));
+      processOf(x).triggers.push(hook("orders"));
+    });
+    const kept = stripForPromotion(client, base, {});
+    const keptPath = stepOf(kept, "route");
+    if (keptPath.kind !== "if") throw new Error("fixture");
+    expect(keptPath.paths[0]?.when).toEqual(rules("{{trigger.name}}", "=", "Acme"));
+  });
+
+  it("keeps a message trigger that names only contacts valid: the client admin may start it", async () => {
+    const contact = uuidv7();
+    const client = v4Bundle(h, (x) => {
+      processOf(x).triggers.push({
+        id: "trg-m",
+        on: { type: "message", channels: ["email"], from: { contactIds: [contact] } },
+      });
+    });
+    expect(await validate(client)).toEqual([]);
+    const out = stripForPromotion(client, makeBundle(), {});
+    const m = processOf(out).triggers.find((t) => t.id === "trg-m")?.on;
+    expect(m?.type === "message" && m.from).toEqual({ clientRoles: ["client_admin"] });
+    expect(await validate(out)).toEqual([]);
+  });
+
+  it("leaves out ids in rule rows, a reviewer's view and free text, and phone numbers as written", () => {
+    const vendor = uuidv7();
+    const account = uuidv7();
+    const client = v4Bundle(h, (x) => {
+      x.definition.instructions = `Vendor ${vendor} is Acme; call Pat at 555-123-4567 or (555) 123-4568.`;
+      const s = stepOf(x, LOOKUP_STEP) as processes.Step & Record<string, unknown>;
+      s.customize = {
+        addInstructions: `Pat (pat@acme.example) approves vendor ${vendor}.`,
+        rules: {
+          add: [
+            {
+              id: "r1",
+              when: rules("{{input.vendorId}}", "=", vendor),
+              set: { account },
+            },
+          ],
+        },
+      } as never;
+      const w = stepOf(x, UPDATE_STEP);
+      if (w.kind !== "write") throw new Error("fixture");
+      w.checks = {
+        confer: {
+          with: [
+            {
+              person: "client_admin",
+              show: { vendor, amount: "{{trigger.id}}" },
+              deadline: { after: "1 day", hours: "clock", ifNoAnswer: "stop" },
+            },
+          ],
+        },
+      };
+    });
+    const out = stripForPromotion(client, makeBundle(), {});
+    const text = JSON.stringify(out);
+    for (const literal of [vendor, account, "555-123-4567", "(555) 123-4568", "pat@acme.example"]) {
+      expect(text).not.toContain(literal);
+    }
+    // Step ids and {{refs}} stay.
+    expect(text).toContain("{{trigger.id}}");
+    expect(processes.nodeIds(processOf(out))).toEqual(processes.nodeIds(processOf(client)));
+  });
+
+  it("points a conversation with a written-out contact at a People role the operator binds", async () => {
+    const client = v4Bundle(h, (x) => {
+      processOf(x).steps.push({
+        id: "talk",
+        name: "Ask about the invoice",
+        kind: "conversation",
+        with: "pat@client-a.example",
+        channel: "email",
+        goal: "Ask when the invoice will be paid.",
+        mayShare: [],
+        find: {},
+        maxTurns: 4,
+        messages: { first: "required", later: "required" },
+        deadline: { after: "2 days", hours: "clock", ifNoAnswer: "stop" },
+      });
+    });
+    expect(await validate(client)).toEqual([]);
+    const out = stripForPromotion(client, makeBundle(), {});
+    const talk = stepOf(out, "talk");
+    if (talk.kind !== "conversation") throw new Error("fixture");
+    // A role nobody is bound to: the conversation is refused, never sent, until the operator
+    // binds it or names someone.
+    expect(talk.with).toBe(UNSET_CONTACT_ROLE);
+    expect(await validate(out)).toEqual([]);
   });
 });

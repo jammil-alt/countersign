@@ -183,4 +183,46 @@ describe("classifyChange", () => {
         .class,
     ).toBe("never");
   });
+
+  // Review of 5.10: what the promotion scrub does to conditions never reads as loosening.
+  it("is process for a check's condition left out and a trigger filter that holds less often", () => {
+    const when = { match: "all", rules: [{ field: "{{input.id}}", op: "=", value: "x" }] };
+    const confer = (c: Record<string, unknown>) => ({
+      ...write,
+      checks: { ...write.checks, confer: { with: [{ ai: { focus: "amount" } }], ...c } },
+    });
+    expect(was([read, confer({})]).class).toBe("process");
+    expect(classifyChange(bundle([read, confer({ when })]), bundle([read, confer({})])).class).toBe(
+      "process",
+    );
+    const notify = (n: Record<string, unknown>) => ({
+      ...write,
+      checks: { ...write.checks, notify: [{ to: ["lead"], message: "Done.", ...n }] },
+    });
+    expect(classifyChange(bundle([read, notify({ when })]), bundle([read, notify({})])).class).toBe(
+      "process",
+    );
+    // Adding a condition to a check is still loosening.
+    expect(classifyChange(bundle([read, notify({})]), bundle([read, notify({ when })])).class).toBe(
+      "never",
+    );
+    const hook = (rule: unknown) => ({
+      id: "trg-hook",
+      on: {
+        type: "webhook",
+        hookId: "00000000-0000-0000-0000-000000000000",
+        filter: { match: "all", rules: [rule] },
+      },
+    });
+    const rule = { field: "{{trigger.data.from}}", op: "=", value: "a" };
+    const before = bundle([read, write], {}, [manual, hook(rule)]);
+    const never = { field: "{{trigger.data.from}}", op: "in", value: [] };
+    expect(classifyChange(before, bundle([read, write], {}, [manual, hook(never)])).class).toBe(
+      "process",
+    );
+    const other = { field: "{{trigger.data.from}}", op: "!=", value: "a" };
+    expect(classifyChange(before, bundle([read, write], {}, [manual, hook(other)])).class).toBe(
+      "never",
+    );
+  });
 });

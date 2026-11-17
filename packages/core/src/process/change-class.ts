@@ -110,6 +110,45 @@ function addedChecksTighten(checks: unknown): boolean {
   });
 }
 
+/**
+ * The same, but for conditions (`when`) left out: a check without its condition applies on every
+ * run, so it only ever asks more (review of 5.10: the promotion scrub drops a check's condition
+ * that names a client's records).
+ */
+function fewerConditions(before: unknown, after: unknown, key?: string): boolean {
+  if (key === "when" && after === undefined) return true;
+  if (Array.isArray(before) && Array.isArray(after)) {
+    return before.length === after.length && before.every((b, i) => fewerConditions(b, after[i]));
+  }
+  if (isPlainObject(before) && isPlainObject(after)) {
+    return [...new Set([...Object.keys(before), ...Object.keys(after)])].every((k) =>
+      fewerConditions(before[k], after[k], k),
+    );
+  }
+  return deepEqual(before, after);
+}
+
+/** A rule that never holds: its field in an empty list. */
+const neverHolds = (rule: unknown) =>
+  isPlainObject(rule) && rule.op === "in" && Array.isArray(rule.value) && rule.value.length === 0;
+
+/**
+ * A rule list where each rule is as it was or now never holds: whether the list is matched
+ * `all` or `any`, it holds on fewer runs, never more.
+ */
+function narrowerRules(before: unknown, after: unknown): boolean {
+  return (
+    Array.isArray(before) &&
+    Array.isArray(after) &&
+    before.length === after.length &&
+    before.every(
+      (b, i) =>
+        deepEqual(b, after[i]) ||
+        (neverHolds(after[i]) && isPlainObject(b) && deepEqual(b.field, obj(after[i]).field)),
+    )
+  );
+}
+
 /** Whether one field change of a step (old and new contents, pointer into it) is safe. */
 function safeStepField(old: Json, now: Json, change: BundleChange, at: string[]): boolean {
   const { before, after } = change;
@@ -122,6 +161,15 @@ function safeStepField(old: Json, now: Json, change: BundleChange, at: string[])
     return (
       approvalOf(now) !== "not_required" && old.kind !== "process" && old.kind !== "use_automation"
     );
+  }
+  // A check's (or a notice's, or an inner approval's) condition left out.
+  if (
+    ((head === "checks" && (second === "confer" || second === "notify")) ||
+      head === "approvals" ||
+      head === "notify") &&
+    fewerConditions(before, after, at.at(-1))
+  ) {
+    return true;
   }
   if (head === "review") return after === "always";
   if (head === "onError") return after === undefined || after === "fail";
@@ -225,7 +273,12 @@ function changedReason(
     if (head === "name" && at.length === 1) return null;
     if (head === "enabled") return after === false ? null : `turns on the process ${id}`;
     if (head === "workflow" && second === "triggers" && third !== undefined) {
-      return at.length === 3 && after === undefined ? null : `changes or adds the trigger ${third}`;
+      if (at.length === 3 && after === undefined) return null;
+      // A filter whose rules now hold on fewer deliveries starts fewer runs.
+      if (at.at(-2) === "filter" && at.at(-1) === "rules" && narrowerRules(before, after)) {
+        return null;
+      }
+      return `changes or adds the trigger ${third}`;
     }
     if (head === "workflow" && second === TRIGGER_ORDER && subset(after, before)) return null;
     return `changes the process ${id} (${at.join(".")})`;
