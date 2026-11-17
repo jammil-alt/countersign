@@ -7,6 +7,7 @@ import { type Db, vendor, withTenant } from "@countersign/db";
 import { EMBED_BATCH_MAX, EMBEDDING_DIMENSIONS } from "@countersign/llm";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
+import { identifyingSku } from "../catalog/store";
 import { unitWord } from "../pricing/uom";
 import { catalogItem, VENDOR_ITEM_STATUSES, vendorItem } from "../schema";
 import { Answer, Checked, LookedUp, Open } from "../split";
@@ -615,7 +616,7 @@ function saveVendorItem(
       if (m.merged)
         throw new VendorItemError("conflict", "that catalog item was merged into another");
     }
-    const sku = input.sku === undefined ? undefined : cleanSku(input.sku);
+    const sku = input.sku === undefined ? undefined : identifyingSku(cleanSku(input.sku));
     const existing = input.id
       ? await vendorItemById(tx, ctx.tenantId, input.id)
       : sku

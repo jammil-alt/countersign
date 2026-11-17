@@ -19,6 +19,8 @@ export type CatalogItemRow = typeof catalogItem.$inferSelect;
 
 export interface LineRow {
   id: string;
+  /** 1-based, printed order. */
+  lineNo: number;
   vendorSku: string | null;
   rawDescription: string;
   uomRaw: string | null;
@@ -41,6 +43,7 @@ export async function loadLine(
   const [row] = await tx
     .select({
       id: docLine.id,
+      lineNo: docLine.lineNo,
       vendorSku: docLine.vendorSku,
       rawDescription: docLine.rawDescription,
       uomRaw: docLine.uomRaw,
@@ -109,18 +112,23 @@ const GENERIC_SKUS: ReadonlySet<string> = new Set([
 
 /**
  * A vendor's code for a line, when it can name one item: trimmed and uppercased, else null.
- * Shorter than four characters (three when it mixes letters and digits, as `W44`), a number
- * shorter than five digits (often a line number read as the SKU), or a generic code (`SPO`,
- * `MISC`, `N/A`, `SPECIAL ORDER`, `SPO2`...) names nothing.
+ * Shorter than four characters (three when it mixes letters and digits, as `W44`; so a number
+ * of one to three digits, often a line number read as the SKU), the line's own number, or a
+ * generic code (`SPO`, `MISC`, `N/A`, `SPECIAL ORDER`, `SPO2`...) names nothing.
  */
-// DECISION (audit 7.10): such a code is never looked up or learned as a SKU alias, and never kept
-// as a vendor item's SKU; the line is matched by its words.
-export function identifyingSku(raw: string | null | undefined): string | null {
+// DECISION (audit 7.10; review of fix/materials, finding 5): such a code is never looked up or
+// learned as an automatic SKU alias, and never kept as a vendor item's SKU (a price list, Register
+// item, the vendor item tool); the line is matched by its words. Four-digit item numbers, common
+// at small yards, are SKUs; an alias a person taught is kept whatever its code (`findAlias`).
+export function identifyingSku(
+  raw: string | null | undefined,
+  lineNo?: number | null | undefined,
+): string | null {
   const sku = raw?.trim().toUpperCase() ?? "";
   const bare = sku.replace(/[^A-Z0-9]/g, "");
   const mixed = /[A-Z]/.test(bare) && /\d/.test(bare);
   if (bare.length < (mixed ? 3 : 4) || sku.length > 100) return null;
-  if (/^\d+$/.test(bare) && bare.length < 5) return null;
+  if (lineNo != null && /^\d+$/.test(bare) && Number(bare) === lineNo) return null;
   if (GENERIC_SKUS.has(bare)) return null;
   if (/^(?:SPO|SPECIAL|SPECIALORDER|MISC|NONSTOCK|NS)\d{1,3}$/.test(bare)) return null;
   return sku;
@@ -167,11 +175,18 @@ export async function skuContradicts(
 export async function findAlias(
   tx: Tx,
   tenantId: string,
-  key: { vendorId: string; vendorSku: string | null; descriptionHash: string },
+  key: {
+    vendorId: string;
+    vendorSku: string | null;
+    descriptionHash: string;
+    /** The line's code when it is no SKU (`identifyingSku`): only a person's alias for it counts. */
+    taughtSku?: string | null | undefined;
+  },
 ): Promise<{ item: CatalogItemRow; via: "sku" | "description" } | null> {
-  const lookups: { via: "sku" | "description"; sku: string; hash: string }[] = [];
-  if (key.vendorSku) lookups.push({ via: "sku", sku: key.vendorSku, hash: "" });
-  lookups.push({ via: "description", sku: "", hash: key.descriptionHash });
+  const lookups: { via: "sku" | "description"; sku: string; hash: string; human: boolean }[] = [];
+  if (key.vendorSku) lookups.push({ via: "sku", sku: key.vendorSku, hash: "", human: false });
+  else if (key.taughtSku) lookups.push({ via: "sku", sku: key.taughtSku, hash: "", human: true });
+  lookups.push({ via: "description", sku: "", hash: key.descriptionHash, human: false });
   for (const l of lookups) {
     // The same expressions as the unique index (migration 0006), so the lookup uses it.
     const [hit] = await tx
@@ -183,6 +198,7 @@ export async function findAlias(
           eq(itemAlias.vendorId, key.vendorId),
           sql`coalesce(${itemAlias.vendorSku}, '') = ${l.sku}`,
           sql`coalesce(${itemAlias.descriptionHash}, '') = ${l.hash}`,
+          ...(l.human ? [eq(itemAlias.source, "human")] : []),
         ),
       )
       .limit(1);
@@ -347,9 +363,15 @@ export async function learnAlias(
     skuFits?: boolean | undefined;
   },
 ): Promise<void> {
-  // DECISION (audit 7.10): a SKU is learned only when it can name one item (`identifyingSku`) and
-  // the line it was seen on agrees with the item on every key attribute both state.
-  const sku = alias.skuFits === false ? null : identifyingSku(alias.vendorSku);
+  // DECISION (audit 7.10): a SKU is learned only when the line it was seen on agrees with the item
+  // on every key attribute both state, and, learned automatically, only when it can name one item
+  // (`identifyingSku`); a person's decision keeps its code whatever it is (review, finding 5).
+  const sku =
+    alias.skuFits === false
+      ? null
+      : alias.source === "human"
+        ? alias.vendorSku?.trim().toUpperCase() || null
+        : identifyingSku(alias.vendorSku);
   const rows: { sku: string | null; hash: string | null }[] = [
     ...(sku ? [{ sku, hash: null }] : []),
     { sku: null, hash: alias.descriptionHash },

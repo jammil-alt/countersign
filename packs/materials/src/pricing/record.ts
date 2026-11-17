@@ -262,7 +262,7 @@ export async function priceLines(
       continue;
     }
     const withItem = { ...base, catalogItemId: item.id, catalogItemName: item.canonicalName };
-    const sku = identifyingSku(cleanSku(l.vendorSku));
+    const sku = identifyingSku(cleanSku(l.vendorSku), l.lineNo);
     const vendorUom = l.uomRaw?.trim()
       ? (readUom(l.uomRaw) ?? l.uomRaw.trim().toLowerCase())
       : item.standardUom;

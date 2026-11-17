@@ -100,7 +100,14 @@ export class MatchError extends Error {
 }
 
 export interface Prepared {
-  line: { raw: string; normalized: string; sku: string | null; hash: string };
+  line: {
+    raw: string;
+    normalized: string;
+    sku: string | null;
+    /** The line's code as printed, uppercased, when it is no SKU (`identifyingSku`). */
+    taughtSku: string | null;
+    hash: string;
+  };
   vendorId: string;
 }
 
@@ -119,8 +126,12 @@ export async function prepare(
     line: {
       raw: row.rawDescription,
       normalized,
-      // A special-order or short code is no SKU (`identifyingSku`): the words decide the line.
-      sku: identifyingSku(row.vendorSku),
+      // A special-order or short code is no SKU (`identifyingSku`): the words decide the line,
+      // unless a person taught an alias for that code.
+      sku: identifyingSku(row.vendorSku, row.lineNo),
+      taughtSku: identifyingSku(row.vendorSku, row.lineNo)
+        ? null
+        : row.vendorSku?.trim().toUpperCase() || null,
       hash: await descriptionHash(normalized),
     },
     vendorId,
@@ -161,6 +172,7 @@ export async function matchLine(deps: MatchDeps, input: MatchLineInput): Promise
     const hit = await findAlias(tx, input.tenantId, {
       vendorId: prepared.vendorId,
       vendorSku: prepared.line.sku,
+      taughtSku: prepared.line.taughtSku,
       descriptionHash: prepared.line.hash,
     });
     if (!hit) return { prepared, result: null };
@@ -483,7 +495,7 @@ export async function decideLine(db: Db, input: HumanDecisionInput): Promise<Mat
     });
     await learnAlias(tx, input.tenantId, {
       vendorId: prepared.vendorId,
-      vendorSku: prepared.line.sku,
+      vendorSku: prepared.line.sku ?? prepared.line.taughtSku,
       descriptionHash: prepared.line.hash,
       normalizedDescription: prepared.line.normalized,
       catalogItemId: item.id,

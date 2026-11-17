@@ -11,7 +11,7 @@ import { toNumeric } from "@countersign/core";
 import { type Db, type Tx, vendor, withTenant } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import { descriptionHash, normalize } from "../catalog/normalize";
-import { liveItem } from "../catalog/store";
+import { identifyingSku, liveItem } from "../catalog/store";
 import { readUom, unitWord } from "../pricing/uom";
 import {
   cleanSku,
@@ -183,7 +183,8 @@ export async function importPriceListRows(
   const seen = new Set<string>();
   for (const [i, r] of input.rows.entries()) {
     const rowNo = i + 1;
-    const sku = cleanSku(r.sku);
+    // A code that names no item (`identifyingSku`): the row goes by its name.
+    const sku = identifyingSku(cleanSku(r.sku));
     const name = (r.name ?? r.description)?.trim().slice(0, 500) || null;
     const base = { rowNo, sku, name };
     const skip = (reason: string) => {

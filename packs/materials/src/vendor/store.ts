@@ -6,7 +6,7 @@
 import { dec, toNumeric } from "@countersign/core";
 import { type Tx, vendor } from "@countersign/db";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, type SQL, sql } from "drizzle-orm";
-import { liveItem } from "../catalog/store";
+import { identifyingSku, liveItem } from "../catalog/store";
 import { PACKAGING_UOMS, readUom, unitWord } from "../pricing/uom";
 import {
   type Category,
@@ -105,11 +105,18 @@ export interface AliasHit {
 export async function vendorAlias(
   tx: Tx,
   tenantId: string,
-  key: { vendorId: string; sku: string | null; descriptionHash: string },
+  key: {
+    vendorId: string;
+    sku: string | null;
+    descriptionHash: string;
+    /** The line's code when it is no SKU (`identifyingSku`): only a person's alias for it counts. */
+    taughtSku?: string | null | undefined;
+  },
 ): Promise<AliasHit | null> {
-  const lookups: { via: "sku" | "description"; sku: string; hash: string }[] = [];
-  if (key.sku) lookups.push({ via: "sku", sku: key.sku, hash: "" });
-  lookups.push({ via: "description", sku: "", hash: key.descriptionHash });
+  const lookups: { via: "sku" | "description"; sku: string; hash: string; human: boolean }[] = [];
+  if (key.sku) lookups.push({ via: "sku", sku: key.sku, hash: "", human: false });
+  else if (key.taughtSku) lookups.push({ via: "sku", sku: key.taughtSku, hash: "", human: true });
+  lookups.push({ via: "description", sku: "", hash: key.descriptionHash, human: false });
   for (const l of lookups) {
     // The same expressions as the unique index (0032), so the lookup uses it.
     const [hit] = await tx
@@ -125,6 +132,7 @@ export async function vendorAlias(
           eq(itemAlias.vendorId, key.vendorId),
           sql`coalesce(${itemAlias.vendorSku}, '') = ${l.sku}`,
           sql`coalesce(${itemAlias.descriptionHash}, '') = ${l.hash}`,
+          ...(l.human ? [eq(itemAlias.source, "human")] : []),
         ),
       )
       .limit(1);
@@ -247,7 +255,8 @@ export async function createVendorItem(
   f: VendorItemFields,
   by: VendorItemCreator,
 ): Promise<{ item: VendorItemRow; created: boolean }> {
-  const sku = cleanSku(f.sku);
+  // A code that names no item (`identifyingSku`) is no vendor item's SKU (review, finding 5).
+  const sku = identifyingSku(f.sku);
   const [row] = await tx
     .insert(vendorItem)
     .values({
@@ -308,7 +317,7 @@ export async function updateVendorItem(
     updatedAt: new Date(),
   };
   if (f.catalogItemId !== undefined) set.catalogItemId = f.catalogItemId;
-  if (f.sku !== undefined) set.sku = cleanSku(f.sku);
+  if (f.sku !== undefined) set.sku = identifyingSku(f.sku);
   if (f.name !== undefined) set.name = f.name.slice(0, 500);
   if (f.description !== undefined) set.description = f.description;
   if (f.packSize !== undefined) set.packSize = f.packSize;

@@ -88,6 +88,7 @@ export async function lookupDocument(
       const alias = await findAlias(tx, tenantId, {
         vendorId: prepared.vendorId,
         vendorSku: prepared.line.sku,
+        taughtSku: prepared.line.taughtSku,
         descriptionHash: prepared.line.hash,
       });
       // DECISION (audit 7.10): a SKU alias whose item the line's own words differ from on a key

@@ -408,7 +408,8 @@ export async function lookupBySku(
     const normalized = normalize(l.rawDescription, { abbreviations });
     const parsed = parseNormalized(normalized);
     // A special-order or short code is no SKU (`identifyingSku`): the line's words decide it.
-    const sku = identifyingSku(cleanSku(l.sku));
+    const sku = identifyingSku(cleanSku(l.sku), l.lineNo);
+    const taughtSku = sku ? null : cleanSku(l.sku);
     const base = {
       docLineId: l.id,
       lineNo: l.lineNo,
@@ -452,6 +453,7 @@ export async function lookupBySku(
       : await vendorAlias(tx, tenantId, {
           vendorId: input.vendorId,
           sku,
+          taughtSku,
           descriptionHash: await descriptionHash(normalized),
         });
     if (
@@ -926,7 +928,7 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
     if (!d) continue;
     const normalized = lineText(line.rawDescription, abbreviations);
     // A special-order or short code is no SKU: not a vendor item's, not an alias (audit 7.10).
-    const sku = identifyingSku(cleanSku(line.sku));
+    const sku = identifyingSku(cleanSku(line.sku), line.lineNo);
     const hash = await descriptionHash(normalized);
     const prior = await latestMatch(tx, tenantId, line.id);
     const base: RegisteredLine = {
@@ -1105,7 +1107,8 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
     });
     await learnAlias(tx, tenantId, {
       vendorId: input.vendorId,
-      vendorSku: sku,
+      // A person's decision keeps the line's code whatever it is (`learnAlias`).
+      vendorSku: human ? cleanSku(line.sku) : sku,
       descriptionHash: hash,
       normalizedDescription: normalized,
       catalogItemId: item.id,

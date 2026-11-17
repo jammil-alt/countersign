@@ -368,6 +368,49 @@ describe.skipIf(!online)("matching lines (database)", () => {
     expect(learned).toEqual([]);
   });
 
+  it("takes a four-digit item number as a SKU, and keeps an alias a person taught for any code", async () => {
+    const vendorId = await A.vendor("Ridgeline Yard");
+    const base = { tenantId: A.tenantId, agentVersionId: A.agentVersionId };
+    const threeQuarter = (await items(A.tenantId)).find(
+      (i) => i.canonicalName === "Baltic birch plywood 3/4in 60x60in BB/BB",
+    );
+    // A small yard's item number: learned, and the next line with it is an alias hit.
+    const [first] = await A.invoice(vendorId, [
+      { description: "3/4 BB/BB BALTIC BIRCH 5X5", sku: "4417" },
+    ]);
+    await matchLine({ db }, { ...base, docLineId: first as string });
+    const [next] = await A.invoice(vendorId, [{ description: "BALTIC BIRCH SHEET", sku: "4417" }]);
+    expect(await matchLine({ db }, { ...base, docLineId: next as string })).toMatchObject({
+      method: "alias",
+      catalogItemId: threeQuarter?.id,
+    });
+    // A person decided a "SPO" line: their alias for the code still counts.
+    const [spo] = await A.invoice(vendorId, [{ description: "SPECIAL ORDER PANEL", sku: "SPO" }]);
+    await decideLine(db, {
+      tenantId: A.tenantId,
+      docLineId: spo as string,
+      userId: A.userId,
+      decision: "matched",
+      catalogItemId: threeQuarter?.id,
+    });
+    const [again] = await A.invoice(vendorId, [{ description: "PANEL AS QUOTED", sku: "SPO" }]);
+    expect(await matchLine({ db }, { ...base, docLineId: again as string })).toMatchObject({
+      method: "alias",
+      catalogItemId: threeQuarter?.id,
+    });
+    // The line's own number read as its SKU is no SKU.
+    const lines = await A.invoice(vendorId, [
+      { description: "1/2 BB/BB BALTIC BIRCH 5X5" },
+      { description: "1/2 BB/BB BALTIC BIRCH 5X5", sku: "0002" },
+    ]);
+    await matchLine({ db }, { ...base, docLineId: lines[1] as string });
+    const learned = await t.db
+      .select({ sku: itemAlias.vendorSku })
+      .from(itemAlias)
+      .where(and(eq(itemAlias.tenantId, A.tenantId), eq(itemAlias.vendorSku, "0002")));
+    expect(learned).toEqual([]);
+  });
+
   it("never lets an automatic alias replace a person's", async () => {
     const vendorId = await A.vendor("Keystone Lumber");
     const normalized = normalize("BB PLY 3/4 5X5 SHT");
