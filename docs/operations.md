@@ -1384,8 +1384,8 @@ step's date:
   for apps/api (whose `CODES` and `BROWSER` bindings need both deployed first). Its `site` job builds `apps/site` and deploys `mezonas-site`, from
   `main` only. After the Worker deploys, **`scripts/smoke.sh`** checks the app from the outside
   (`/api/health` answers; `/api/ready` answers 200 with `"db":"ok"`, which it does only when the
-  Worker's own database connection, Hyperdrive as `cs_worker`, answers `select 1` within 3 s; the
-  page and its script load; `/api/session` refuses with a JSON 401), retrying for 2 minutes; a
+  Worker's own database connection, Hyperdrive as `cs_worker`, answers `select now()` within 3 s,
+  a query Hyperdrive never caches; the page and its script load; `/api/session` refuses with a JSON 401), retrying for 2 minutes; a
   failure marks the deploy failed. Given a commit (a second argument, or `EXPECTED_SHA`), it also
   checks that `/api/ready`'s `sha` (the Worker's `DEPLOYED_SHA`) is that commit; without one it
   skips that comparison. Run it by hand against either environment:

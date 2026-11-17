@@ -1,10 +1,31 @@
 import type { Db } from "@countersign/db";
-import { afterAll, describe, expect, it } from "vitest";
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createApiHarness } from "./api.test-helper";
 import { createApp } from "./app";
 import type { Bindings } from "./env";
 import { defaultDeps } from "./http";
-import { databaseAnswers, deployedSha } from "./ready";
+import { reportHandled, reportProblem } from "./observability/report";
+import {
+  databaseAnswers,
+  deployedSha,
+  mayReport,
+  READY_REPORT_EVERY_MS,
+  resetReadyReports,
+} from "./ready";
+
+vi.mock("./observability/report", async (load) => ({
+  ...(await load<typeof import("./observability/report")>()),
+  reportHandled: vi.fn(),
+  reportProblem: vi.fn(),
+}));
+
+beforeEach(() => {
+  resetReadyReports();
+  vi.mocked(reportHandled).mockClear();
+  vi.mocked(reportProblem).mockClear();
+});
 
 const SHA = "0123456789abcdef0123456789abcdef01234567";
 
@@ -45,6 +66,18 @@ describe("/api/ready without a database", () => {
     expect(res.headers.get("cache-control")).toBe("no-store");
   });
 
+  it("reports a failing check to error tracking at most once a minute", async () => {
+    const app = appWith({
+      execute: (async () => {
+        throw new Error("connection refused");
+      }) as unknown as Db["execute"],
+    });
+    for (let i = 0; i < 3; i++) {
+      expect((await app.request("/api/ready", {}, env)).status).toBe(503);
+    }
+    expect(reportHandled).toHaveBeenCalledTimes(1);
+  });
+
   it("answers 503 when there is no database binding at all", async () => {
     const app = createApp(defaultDeps);
     const res = await app.request("/api/ready", {}, {} as Bindings);
@@ -54,9 +87,32 @@ describe("/api/ready without a database", () => {
 });
 
 describe("databaseAnswers", () => {
-  it("gives up after the timeout", async () => {
-    const hangs = { execute: () => new Promise(() => {}) } as unknown as Db;
+  it("asks a query Hyperdrive never caches", async () => {
+    let text = "";
+    const db = {
+      execute: async (q: SQL) => {
+        text = new PgDialect().sqlToQuery(q).sql;
+        return [];
+      },
+    } as unknown as Db;
+    expect(await databaseAnswers(db, 1_000)).toBe(true);
+    expect(text).toBe("select now()");
+  });
+
+  it("gives up after the timeout and ends the client at once", async () => {
+    const end = vi.fn(async () => {});
+    const hangs = { execute: () => new Promise(() => {}), $client: { end } } as unknown as Db;
     expect(await databaseAnswers(hangs, 20)).toBe(false);
+    expect(end).toHaveBeenCalledWith({ timeout: 0 });
+    expect(reportProblem).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("mayReport", () => {
+  it("allows one report a minute", () => {
+    expect(mayReport(1_000)).toBe(true);
+    expect(mayReport(1_000 + READY_REPORT_EVERY_MS - 1)).toBe(false);
+    expect(mayReport(1_000 + READY_REPORT_EVERY_MS)).toBe(true);
   });
 });
 
