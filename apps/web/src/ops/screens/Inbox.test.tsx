@@ -282,7 +282,7 @@ describe("escalations", () => {
     );
     await screen.findByTestId(`ops-inbox-needs-${DEMO_RUN}`);
     await waitFor(() =>
-      expect(screen.getByTestId("shell-inbox")).toHaveTextContent("Escalations1"),
+      expect(screen.getByTestId("ops-nav-inbox")).toHaveTextContent("Escalations1"),
     );
     expect(api.calls).not.toContain("GET /api/ops/counts");
     expect(api.calls.filter((c) => c === "GET /api/ops/needs-us")).toHaveLength(1);

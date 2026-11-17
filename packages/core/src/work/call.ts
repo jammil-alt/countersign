@@ -5,6 +5,8 @@
 
 import { z } from "zod";
 
+// DECISION (owner, 2026-11-17): a to-do is the operator's, Reggie's or the client's, with an
+// optional named operator (`owner_user_id`).
 export const TODO_OWNER_VALUES = ["operator", "reggie", "client"] as const;
 export const TodoOwner = z.enum(TODO_OWNER_VALUES);
 export type TodoOwner = z.infer<typeof TodoOwner>;

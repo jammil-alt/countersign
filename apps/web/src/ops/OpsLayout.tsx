@@ -1,9 +1,9 @@
-// The back-office frame (docs/design/prototype.html, `#O1-Command`): "Back office" and the client
-// picker in the top bar (the one way to choose a client; it keeps the picked client from page to
-// page, ./pickedClient.tsx), ⌘K search across the clients served, Escalations with its count; a
-// sidebar that lists places only: Home (the command center), Escalations, Runs, Clients, Build and
-// Business, with the business pages the prototype leaves out folded under More. A client's own
-// pages are tabs on its page; an agent's are tabs on the agent's page.
+// The back-office frame (docs/design/prototype.html, `#O1-Command`; docs/design/pipelines.html for
+// §1.123): "Back office" and the client picker in the top bar (the one way to choose a client; it
+// keeps the picked client from page to page, ./pickedClient.tsx), ⌘K search across the clients
+// served, Your call with its count; a sidebar that lists places only: Home, Your call and Clients;
+// Work (Sales, Build); Run (Runs, Escalations, Reggie, Autopilot); Make (Agent lab, Library, Packs)
+// and Business. A client's own pages are tabs on its page; an agent's are tabs on the agent's page.
 import {
   createContext,
   type ReactNode,
@@ -134,6 +134,19 @@ function OpsFrame({ children }: { children: ReactNode }) {
   usePoll(reloadCounts, own, INBOX_COUNT_POLL_MS, countsState.loading);
   const counts = own ? countsState.data : (shared ?? undefined);
   const needsUs = counts?.needsUs;
+  // §1.123.3: Your call's count (what needs a person), asked with the badges: when the place
+  // changes and on the same poll. DECISION: read from GET /api/ops/todos, the list itself, so the
+  // count is the list's and no second count can drift from it.
+  const call = useApi(apiRoutes.opsTodos, settled ? { query: {} } : null);
+  const { reload: reloadCall } = call;
+  const lastCallPlace = useRef(place);
+  useEffect(() => {
+    if (place === lastCallPlace.current) return;
+    lastCallPlace.current = place;
+    reloadCall();
+  }, [place, reloadCall]);
+  usePoll(reloadCall, settled, INBOX_COUNT_POLL_MS, call.loading);
+  const yours = call.data?.counts.yours;
   const clients = useMemo(() => {
     const rows = clientsState.data?.clients ?? [
       ...new Map(session.tenants.map((t) => [t.id, t])).values(),
@@ -189,7 +202,7 @@ function OpsFrame({ children }: { children: ReactNode }) {
           </>
         }
         search={{ placeholder: "Find a client, agent, run or record", run: search }}
-        desk={{ to: OPS_PATHS.escalations, label: "Escalations", count: needsUs }}
+        desk={{ to: OPS_PATHS.call, label: "Your call", count: yours }}
         switcher={
           agentSlug && canSwitch(agentSlug, switchAgents) ? (
             <AgentSwitcher current={agentSlug} agents={switchAgents} />
@@ -206,13 +219,32 @@ function OpsFrame({ children }: { children: ReactNode }) {
                 end
                 testId="ops-nav-home"
               />
+              {/* §1.123.3: Your call, the one list of what needs a person. */}
               <SidebarLink
-                to={OPS_PATHS.escalations}
+                to={OPS_PATHS.call}
                 icon="desk"
-                label="Escalations"
-                count={needsUs}
-                testId="ops-nav-inbox"
+                label="Your call"
+                count={yours}
+                testId="ops-nav-call"
               />
+              <SidebarLink
+                to={OPS_PATHS.clients}
+                icon="customer"
+                label="Clients"
+                testId="ops-nav-clients"
+              />
+            </div>
+            {/* §1.123: the back office's work, Sales and Build. */}
+            <SidebarSection label="Work">
+              <SidebarLink to={OPS_PATHS.sales} icon="lead" label="Sales" testId="ops-nav-sales" />
+              <SidebarLink
+                to={OPS_PATHS.buildWork}
+                icon="worksheet"
+                label="Build"
+                testId="ops-nav-build"
+              />
+            </SidebarSection>
+            <SidebarSection label="Run">
               <SidebarLink
                 to={OPS_PATHS.runs}
                 icon="report"
@@ -221,10 +253,11 @@ function OpsFrame({ children }: { children: ReactNode }) {
                 testId="ops-nav-runs"
               />
               <SidebarLink
-                to={OPS_PATHS.clients}
-                icon="customer"
-                label="Clients"
-                testId="ops-nav-clients"
+                to={OPS_PATHS.escalations}
+                icon="alert"
+                label="Escalations"
+                count={needsUs}
+                testId="ops-nav-inbox"
               />
               {/* docs/plan.md §1.101: Reggie, the operator's account agent */}
               <SidebarLink
@@ -233,22 +266,23 @@ function OpsFrame({ children }: { children: ReactNode }) {
                 label="Reggie"
                 testId="ops-nav-reggie"
               />
-            </div>
-            <SidebarSection label="Build">
-              {/* docs/plan.md §1.108: every new agent and skill, from intake to go-live. */}
+              {/* §1.123.4: how far Reggie goes on its own, play by play. */}
               <SidebarLink
-                to={OPS_PATHS.builds}
-                icon="table"
-                label="Builds"
-                testId="ops-nav-builds"
+                to={OPS_PATHS.autopilot}
+                icon="settings"
+                label="Autopilot"
+                testId="ops-nav-autopilot"
               />
+            </SidebarSection>
+            <SidebarSection label="Make">
               <SidebarLink
                 to={OPS_PATHS.lab}
                 icon="worksheet"
                 label="Agent lab"
                 testId="ops-nav-lab"
               />
-              {/* R8: the Library holds skills, tools, connectors and the other banks. */}
+              {/* R8: the Library holds skills, tools, connectors and the other banks. The Builder
+                  board (§1.108) is reached from Build's Agent builds tab. */}
               <SidebarLink
                 to={OPS_PATHS.library}
                 icon="document"

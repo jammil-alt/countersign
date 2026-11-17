@@ -10,6 +10,7 @@ import { ErrorNotice } from "../../../ui/ErrorState";
 import { Page } from "../../../ui/page";
 import { Button, Loading } from "../../../ui/primitives";
 import { OPS_PATHS } from "../../paths";
+import { TodosPanel } from "../call/TodosPanel";
 import { Due, StandingPill, shortDate } from "../parts";
 
 const DECISIONS: [WorkEnhancementDecision, string][] = [
@@ -97,6 +98,7 @@ function EnhancementView({ detail, reload }: { detail: EnhancementDetail; reload
           </ul>
         </section>
         <aside className="flex flex-col gap-4">
+          <TodosPanel about={{ kind: "enhancement", id: e.id }} />
           <section className="ds-card p-4" data-testid="enhancement-decide">
             <div className="eyebrow mb-2 text-ink-muted">Decide</div>
             <textarea

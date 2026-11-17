@@ -55,4 +55,8 @@ export const OPS_PATHS = {
   sales: "/ops/sales",
   salesTab: (tab: "all" | "new" | "grow") => `/ops/sales/${tab}`,
   deal: (id: string) => `/ops/deals/${id}`,
+  // §1.123.3: Your call, the one list of what needs a person.
+  call: "/ops/call",
+  // §1.123.4: Autopilot, how far Reggie goes on its own (its screen is that stream's).
+  autopilot: "/ops/autopilot",
 } as const;

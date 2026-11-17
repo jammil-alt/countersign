@@ -32,7 +32,25 @@ describe("the frame's counts", () => {
       "GET /api/ops/clients": () => ({ clients: [] }),
       "GET /api/ops/counts": () => ({ needsUs: 2, clients: [] }),
       "GET /api/ops/runs": () => ({ runs: [], agents: [] }),
+      // §1.123.3: Your call's count, from its list.
+      "GET /api/ops/todos": () => ({
+        items: [],
+        counts: {
+          yours: 3,
+          reggie: 0,
+          client: 0,
+          doneToday: 0,
+          dueToday: 0,
+          criticalHeld: 0,
+          lateClient: 0,
+          questionsWeek: 0,
+          medianAnswerMinutes: null,
+        },
+        holds: [],
+        today: "2026-11-17",
+      }),
     });
+    const calls = () => api.calls.filter((c) => c === "GET /api/ops/todos").length;
     const counts = () => api.calls.filter((c) => c === "GET /api/ops/counts").length;
     render(
       <MemoryRouter initialEntries={["/ops/runs"]}>
@@ -42,8 +60,11 @@ describe("the frame's counts", () => {
         </AppProviders>
       </MemoryRouter>,
     );
-    await waitFor(() => expect(screen.getByTestId("shell-inbox")).toHaveTextContent("2"));
+    await waitFor(() => expect(screen.getByTestId("ops-nav-inbox")).toHaveTextContent("2"));
+    // The top bar's desk is Your call, with its count (§1.123.3).
+    await waitFor(() => expect(screen.getByTestId("shell-inbox")).toHaveTextContent("Your call3"));
     expect(counts()).toBe(1);
+    const firstCalls = calls();
 
     // Runs → a run → another run: one place, no new ask.
     act(() => go(`/ops/runs/${RUN}`));
@@ -65,5 +86,7 @@ describe("the frame's counts", () => {
     // Runs → Agent lab: another place, asked again.
     act(() => go("/ops/lab"));
     await waitFor(() => expect(counts()).toBe(3));
+    // Your call's count is asked again on the move to another place too.
+    await waitFor(() => expect(calls()).toBeGreaterThan(firstCalls));
   });
 });
