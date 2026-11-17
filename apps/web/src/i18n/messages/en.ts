@@ -82,6 +82,8 @@ export const en = {
   "error.changed": "This card changed since you opened it; look again.",
   "error.run_ended": "This run has ended; nothing will be done with this card.",
   "error.fingerprint_required": "This page is out of date; reload it and look again.",
+  "error.signature_required":
+    "This needs your phone's signature. Sign it with Face ID or a fingerprint in the app, or decide it in a browser.",
   "error.not_assignee": "This waits on someone else.",
   "error.not_connected": "That tool isn't connected.",
   "error.not_available": "That isn't available yet.",

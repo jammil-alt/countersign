@@ -86,6 +86,8 @@ export const ptBR: Messages = {
   "error.changed": "Este item mudou desde que você o abriu; olhe de novo.",
   "error.run_ended": "Esta execução terminou; nada será feito com este item.",
   "error.fingerprint_required": "Esta página está desatualizada; recarregue-a e olhe de novo.",
+  "error.signature_required":
+    "Isto precisa da assinatura do seu celular. Assine com Face ID ou a digital no app, ou decida em um navegador.",
   "error.not_assignee": "Isto aguarda outra pessoa.",
   "error.not_connected": "Essa ferramenta não está conectada.",
   "error.not_available": "Isso ainda não está disponível.",

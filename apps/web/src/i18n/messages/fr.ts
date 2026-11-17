@@ -88,6 +88,8 @@ export const fr: Messages = {
   "error.run_ended": "Cette exécution est terminée ; rien ne sera fait avec cet élément.",
   "error.fingerprint_required":
     "Cette page n'est plus à jour ; rechargez-la et regardez à nouveau.",
+  "error.signature_required":
+    "Ceci demande la signature de votre téléphone. Signez avec Face ID ou l'empreinte dans l'app, ou décidez dans un navigateur.",
   "error.not_assignee": "Ceci attend quelqu'un d'autre.",
   "error.not_connected": "Cet outil n'est pas connecté.",
   "error.not_available": "Ce n'est pas encore disponible.",

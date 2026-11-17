@@ -84,6 +84,8 @@ export const es: Messages = {
   "error.changed": "Este elemento cambió desde que lo abrió; vuelva a mirarlo.",
   "error.run_ended": "Esta ejecución terminó; no se hará nada con este elemento.",
   "error.fingerprint_required": "Esta página está desactualizada; recárguela y vuelva a mirar.",
+  "error.signature_required":
+    "Esto necesita la firma de su teléfono. Fírmelo con Face ID o la huella en la app, o decídalo en un navegador.",
   "error.not_assignee": "Esto espera a otra persona.",
   "error.not_connected": "Esa herramienta no está conectada.",
   "error.not_available": "Eso aún no está disponible.",

@@ -92,6 +92,8 @@ export const de: Messages = {
   "error.run_ended": "Dieser Ablauf ist beendet; mit diesem Eintrag geschieht nichts mehr.",
   "error.fingerprint_required":
     "Diese Seite ist nicht mehr aktuell; laden Sie sie neu und sehen Sie noch einmal nach.",
+  "error.signature_required":
+    "Dafür braucht es die Signatur Ihres Telefons. Signieren Sie mit Face ID oder Fingerabdruck in der App oder entscheiden Sie im Browser.",
   "error.not_assignee": "Das wartet auf jemand anderen.",
   "error.not_connected": "Dieses Tool ist nicht verbunden.",
   "error.not_available": "Das ist noch nicht verfügbar.",
