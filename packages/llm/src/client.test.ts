@@ -6,8 +6,10 @@ import {
   LlmToolError,
   toolInputSchema,
   UnpricedModelError,
+  unstringified,
 } from "./client";
-import { FakeModel, type FakeTurn } from "./fake";
+import { FakeModel, type FakeTurn, fakeMessage } from "./fake";
+import type * as Anthropic from "./messages";
 
 const Verdict = z.object({
   same: z.boolean(),
@@ -70,6 +72,86 @@ describe("callTool", () => {
     // The call was still paid for and recorded.
     expect(records).toHaveLength(1);
     expect(e.result.record.costUsd).not.toBeNull();
+  });
+
+  it("parses a nested object or list the model sent as JSON text", async () => {
+    const Turn = z.object({
+      text: z.string(),
+      plan: z.object({ rows: z.array(z.object({ id: z.string() })) }).optional(),
+      tags: z.array(z.string()).default([]),
+      note: z.string().optional(),
+    });
+    const input = {
+      text: "Here it is.",
+      plan: JSON.stringify({ rows: [{ id: "r1" }] }),
+      tags: '["a","b"]',
+      note: '{"stays":"a string"}',
+    };
+    const { llm } = setup({ toolUse: { name: "turn", input } });
+    const { value } = await llm.callTool({
+      messages: [{ role: "user", content: "go" }],
+      tool: { name: "turn", description: "A turn", schema: Turn },
+    });
+    expect(value).toEqual({
+      text: "Here it is.",
+      plan: { rows: [{ id: "r1" }] },
+      tags: ["a", "b"],
+      note: '{"stays":"a string"}',
+    });
+    // The model's own input is left as it sent it.
+    expect(typeof input.plan).toBe("string");
+  });
+
+  it("never repairs through or onto a prototype", () => {
+    const Rec = z.object({ notes: z.record(z.string(), z.object({ a: z.string() })) });
+    const input = JSON.parse('{"notes": {"__proto__": "{\\"polluted\\": \\"yes\\"}"}}');
+    const parsed = Rec.safeParse(input);
+    const issues = parsed.success ? [] : parsed.error.issues;
+    const out = unstringified(input, [
+      ...issues,
+      { code: "invalid_type", expected: "object", path: ["notes", "__proto__"], message: "x" },
+      { code: "invalid_type", expected: "object", path: ["__proto__", "polluted"], message: "x" },
+    ] as never);
+    const notes = (out as { notes: Record<string, unknown> }).notes;
+    expect(Object.getPrototypeOf(notes)).toBe(Object.prototype);
+    expect(notes.polluted).toBeUndefined();
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect(Object.prototype).not.toHaveProperty("polluted");
+  });
+
+  it("still refuses JSON text that isn't the object the schema wants", async () => {
+    const Turn = z.object({ plan: z.object({ rows: z.array(z.string()) }) });
+    const { llm } = setup({ toolUse: { name: "turn", input: { plan: '["not", "an object"]' } } });
+    await expect(
+      llm.callTool({
+        messages: [{ role: "user", content: "go" }],
+        tool: { name: "turn", description: "A turn", schema: Turn },
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+  });
+
+  it("says max_tokens when a call cut off mid-input fails the schema", async () => {
+    const { llm } = setup({
+      message: fakeMessage(
+        "claude-sonnet-5-5",
+        [
+          {
+            type: "tool_use",
+            id: "toolu_cut",
+            name: "record_verdict",
+            input: {},
+            caller: { type: "direct" },
+          } as Anthropic.ToolUseBlock,
+        ],
+        "max_tokens",
+      ),
+    });
+    const error = await llm
+      .callTool({ messages: [{ role: "user", content: "A vs B" }], tool })
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(LlmToolError);
+    expect(error).toMatchObject({ code: "max_tokens" });
+    expect((error as Error).message).toContain("cut off at max_tokens");
   });
 
   it("throws no_tool_call when the model answers in text", async () => {

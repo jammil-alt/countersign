@@ -105,6 +105,10 @@ export function dbInboundPort(db: Db): InboundPort {
             );
           if (!m) return null;
           const body = (m.body ?? {}) as Record<string, unknown>;
+          // §1.110: the files are the message's own, whatever the trigger says.
+          const attached = Array.isArray(body.documents)
+            ? body.documents.filter((d): d is string => typeof d === "string" && isUuid(d))
+            : documents;
           return {
             channel: channel as InboundMessageForTool["channel"],
             from,
@@ -112,8 +116,8 @@ export function dbInboundPort(db: Db): InboundPort {
             // A command's words after `/name`; any other message's text.
             text: str(body.args) ?? str(body.text) ?? "",
             receivedAt: new Date(m.createdAt).toISOString(),
-            documents,
-            sources: [m.id],
+            documents: attached,
+            sources: [m.id, ...attached],
           };
         }
         return null;

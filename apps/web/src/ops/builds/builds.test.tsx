@@ -8,7 +8,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
-import { fakeApi, OPERATOR_SESSION } from "../../test/fixtures";
+import { fakeApi, OPERATOR_SESSION, Reply } from "../../test/fixtures";
 
 const ID = "00000000-0000-4000-8000-0000000b0001";
 const ITEM = "00000000-0000-4000-8000-0000000b0101";
@@ -323,6 +323,253 @@ describe("Builds", () => {
     for (let i = 0; i < 10; i++) await userEvent.keyboard("{ArrowLeft}");
     expect(split).toHaveAttribute("aria-valuenow", "320");
     localStorage.removeItem("mezonas.build.chatWidth");
+  });
+
+  // QA on staging (2026-11-16): the fit-gap failed and the screen showed the raw error, lost the
+  // words sent, offered no retry, and ran the move's "drafting the workflow" loop during a chat turn.
+  it("says a failed turn in the conversation, retries it, and keeps a failed send's words", async () => {
+    const failed = detail({
+      build: { ...detail().build, fitgap: { rows: [], needsTrue: [], setup: [] } },
+      messages: [
+        detail().messages[0] as BuildDetail["messages"][number],
+        {
+          id: "m2",
+          phase: "fitgap",
+          role: "builder",
+          text: "My answer came back in a form I couldn't save. The fit-gap isn't written yet. Press Retry; we've logged it.",
+          chips: [],
+          changes: [],
+          failed: true,
+          createdAt: at,
+        },
+      ],
+    });
+    const turns: unknown[] = [];
+    let answer: (v: unknown) => void = () => {};
+    let current = failed;
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: () => current,
+      [`POST /api/ops/builds/${ID}/turns`]: ({ init }) => {
+        turns.push(JSON.parse(String(init.body)));
+        return new Promise((resolve) => {
+          answer = resolve;
+        });
+      },
+    });
+    renderAt(`/ops/builds/${ID}`, api);
+    const view = await screen.findByTestId("build-view");
+    expect(within(view).getByTestId("build-fitgap-empty")).toHaveTextContent(
+      "The Builder's fit-gap didn't come through",
+    );
+
+    // Retry sends no words; the Builder's loop runs in the chat, not beside the move's button.
+    await userEvent.click(within(view).getByTestId("build-retry"));
+    expect(turns).toEqual([{}]);
+    expect(await within(view).findByTestId("build-thinking")).toBeInTheDocument();
+    expect(within(view).getByTestId("build-agree")).not.toHaveTextContent("Working…");
+    expect(within(view).queryByTestId("build-agree-working")).toBeNull();
+    answer(detail());
+    await waitFor(() => expect(within(view).queryByTestId("build-retry")).toBeNull());
+    await waitFor(() => expect(within(view).queryByTestId("build-fitgap-empty")).toBeNull());
+
+    // A send that fails still shows the words, as the API saved them.
+    current = detail({
+      messages: [
+        ...detail().messages,
+        {
+          id: "m3",
+          phase: "fitgap",
+          role: "operator",
+          text: "Add a row for W-9s.",
+          chips: [],
+          changes: [],
+          createdAt: at,
+        },
+      ],
+    });
+    await userEvent.type(within(view).getByTestId("build-input"), "Add a row for W-9s.");
+    await userEvent.click(within(view).getByTestId("build-send"));
+    await waitFor(() => expect(turns).toHaveLength(2));
+    answer(new Reply(500, { error: { code: "internal", message: "something went wrong" } }));
+    await waitFor(() => expect(within(view).queryByTestId("build-thinking")).toBeNull());
+    expect(within(view).getByTestId("build-messages")).toHaveTextContent("Add a row for W-9s.");
+  });
+
+  // Owner (2026-11-17): talk through the issues one at a time, agree each fix, and go back to one.
+  it("talks about one issue at a time, agrees a fix and goes back to an earlier issue", async () => {
+    const OTHER = "00000000-0000-4000-8000-0000000b0102";
+    const PROPOSAL = "00000000-0000-4000-8000-0000000b0201";
+    const item = detail().items[0] as BuildDetail["items"][number];
+    const second = { ...item, id: OTHER, title: "Who approves new vendors", key: null };
+    const proposal = {
+      summary: "Close “How many: still open” as done",
+      action: { do: "close_item" as const, itemId: ITEM, state: "done" as const },
+      state: "proposed" as const,
+    };
+    const asked = (over: Partial<BuildDetail["messages"][number]> = {}) => ({
+      id: PROPOSAL,
+      phase: "fitgap" as const,
+      role: "builder" as const,
+      text: "About 40 a week, you said. I'd close the question as done.",
+      chips: [],
+      changes: [],
+      about: `item:${ITEM}`,
+      proposal: proposal as NonNullable<BuildDetail["messages"][number]["proposal"]>,
+      createdAt: at,
+      ...over,
+    });
+    const base = detail({ items: [item, second] });
+    const withProposal = { ...base, messages: [...base.messages, asked()] };
+    const turns: unknown[] = [];
+    const decided: unknown[] = [];
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: () => withProposal,
+      [`POST /api/ops/builds/${ID}/turns`]: ({ init }) => {
+        turns.push(JSON.parse(String(init.body)));
+        return withProposal;
+      },
+      [`POST /api/ops/builds/${ID}/messages/${PROPOSAL}/proposal`]: ({ init }) => {
+        decided.push(JSON.parse(String(init.body)));
+        return {
+          ...base,
+          items: [{ ...item, state: "done", resolvedAt: at }, second],
+          messages: [
+            ...base.messages,
+            asked({ proposal: { ...proposal, state: "agreed", undo: true } }),
+            {
+              id: "m9",
+              phase: "fitgap",
+              role: "operator",
+              text: "Agreed.",
+              chips: [],
+              changes: [],
+              about: `item:${ITEM}`,
+              createdAt: at,
+            },
+            {
+              id: "m10",
+              phase: "fitgap",
+              role: "builder",
+              text: "Done: close the question. Next open issue: “Who approves new vendors”. Shall we take it?",
+              chips: ["Yes, take it", "What's left?"],
+              changes: [],
+              about: `item:${OTHER}`,
+              createdAt: at,
+            },
+          ],
+        };
+      },
+    });
+    renderAt(`/ops/builds/${ID}`, api);
+    const view = await screen.findByTestId("build-view");
+
+    // The Builder's message says which issue it's about, and proposes a fix to agree.
+    expect(within(view).getByTestId("build-items")).toHaveTextContent("Issues");
+    expect(within(view).getByTestId("build-about")).toHaveTextContent(
+      "About: How many: still open",
+    );
+    expect(within(view).getByTestId("build-proposal")).toHaveTextContent(
+      "Proposed: Close “How many: still open” as done",
+    );
+
+    // Talking about the other issue: the words carry it.
+    await userEvent.click(within(view).getByTestId(`build-issue-item:${OTHER}-talk`));
+    expect(within(view).getByTestId("build-focus")).toHaveTextContent(
+      "About: Who approves new vendors",
+    );
+    await userEvent.type(within(view).getByTestId("build-input"), "Ann does.");
+    await userEvent.click(within(view).getByTestId("build-send"));
+    await waitFor(() => expect(turns).toEqual([{ text: "Ann does.", about: `item:${OTHER}` }]));
+
+    // Agreeing makes the change; the conversation moves on with the Builder to the next issue.
+    await userEvent.click(within(view).getByTestId("build-proposal-agree"));
+    await waitFor(() => expect(decided).toEqual([{ decide: "agree" }]));
+    expect(await within(view).findByTestId("build-proposal-undo")).toBeInTheDocument();
+    expect(within(view).getByTestId("build-proposal-state")).toHaveTextContent("Agreed and done");
+    expect(within(view).getByTestId("build-focus")).toHaveTextContent(
+      "About: Who approves new vendors",
+    );
+
+    // Going back: a message's "About" puts the conversation on that issue again, and its thread
+    // can be shown on its own.
+    await userEvent.click(within(view).getAllByTestId("build-about")[0] as HTMLElement);
+    expect(within(view).getByTestId("build-focus")).toHaveTextContent(
+      "About: How many: still open",
+    );
+    await userEvent.click(within(view).getByTestId("build-focus-thread"));
+    const chat = within(view).getByTestId("build-messages");
+    expect(chat).toHaveTextContent("About 40 a week");
+    expect(chat).not.toHaveTextContent("Review invoices against contracts.");
+    await userEvent.click(within(view).getByTestId("build-focus-thread"));
+    expect(chat).toHaveTextContent("Review invoices against contracts.");
+
+    // Walking through starts from the top, on no one issue.
+    await userEvent.click(within(view).getByTestId("build-focus-clear"));
+    expect(within(view).queryByTestId("build-focus")).toBeNull();
+    await userEvent.click(within(view).getByTestId("build-issues-walk"));
+    await waitFor(() =>
+      expect(turns.at(-1)).toEqual({ text: "Walk me through the open issues, one at a time." }),
+    );
+  });
+
+  // Owner (2026-11-17): the draft changes from the build's conversation.
+  it("says what a draft edit asks for, then what it changed, with Undo", async () => {
+    const PROPOSAL = "00000000-0000-4000-8000-0000000b0301";
+    const editing = {
+      summary: "Set the amount on “Pay” to the invoice total",
+      action: {
+        do: "edit_draft" as const,
+        request: "On “Pay”, take the amount from the invoice total.",
+      },
+    };
+    const message = (p: Record<string, unknown>) =>
+      ({
+        id: PROPOSAL,
+        phase: "draft",
+        role: "builder",
+        text: "The amount is fixed at 12.00; it should come from the invoice.",
+        chips: [],
+        changes: [],
+        proposal: { ...editing, ...p },
+        createdAt: at,
+      }) as unknown as BuildDetail["messages"][number];
+    const base = detail();
+    const decided: unknown[] = [];
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: () => ({
+        ...base,
+        messages: [...base.messages, message({ state: "proposed" })],
+      }),
+      [`POST /api/ops/builds/${ID}/messages/${PROPOSAL}/proposal`]: ({ init }) => {
+        decided.push(JSON.parse(String(init.body)));
+        return {
+          ...base,
+          messages: [
+            ...base.messages,
+            message({
+              state: "agreed",
+              undo: true,
+              result: "Changed: Pay: amount from the invoice total",
+            }),
+          ],
+        };
+      },
+    });
+    renderAt(`/ops/builds/${ID}`, api);
+    const view = await screen.findByTestId("build-view");
+    expect(within(view).getByTestId("build-proposal-request")).toHaveTextContent(
+      "The workflow's Builder makes it: On “Pay”, take the amount from the invoice total.",
+    );
+    await userEvent.click(within(view).getByTestId("build-proposal-agree"));
+    await waitFor(() => expect(decided).toEqual([{ decide: "agree" }]));
+    expect(await within(view).findByTestId("build-proposal-result")).toHaveTextContent(
+      "Changed: Pay: amount from the invoice total",
+    );
+    expect(within(view).queryByTestId("build-proposal-request")).toBeNull();
+    expect(within(view).getByTestId("build-proposal-undo")).toBeInTheDocument();
   });
 
   it("filters the fit-gap by verdict and changes one only with a reason", async () => {

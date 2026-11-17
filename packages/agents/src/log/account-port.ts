@@ -28,6 +28,7 @@ import {
   AREA_IDEAS,
   acceptingTriggers,
   acceptsSloan,
+  documentEventsOf,
   isPlainObject,
   mayAskFor,
   OWNER_AREAS,
@@ -40,6 +41,7 @@ import {
   appUser,
   areaOwner,
   type Db,
+  document,
   event,
   membership,
   memoryNote,
@@ -49,7 +51,10 @@ import {
   thread,
   withTenant,
 } from "@countersign/db";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { extractDocument } from "@countersign/documents";
+import { createLlmClient } from "@countersign/llm";
+import { messageDocuments } from "@countersign/threads";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { AgentsError } from "../errors";
 import type {
   AccountCall,
@@ -61,6 +66,7 @@ import type {
   AccountPort,
   AccountWaiting,
 } from "../tools/account";
+import type { DbDocumentsOptions } from "./documents-port";
 import type { Emit } from "./external-actions";
 
 /** The person Sloan acts for in this call. */
@@ -198,6 +204,8 @@ async function askerOf(tx: Tx, tenantId: string, call: AccountCall): Promise<Acc
 
 const NOT_ACCEPTED = {
   self: "Sloan can't pass a request to itself",
+  noFiles: "that service doesn't take files or requests from Sloan: offer to pass it to the lead",
+  cantRead: "we can't read files for that service here: offer to pass it to the lead",
   notLive: "that service isn't running now, so it can't take a request",
   noSloan: "that service doesn't take requests from Sloan: offer to pass it to the lead",
   notForAsker: "that service doesn't take requests from you: ask your admin or the lead",
@@ -207,20 +215,28 @@ const notAccepted = (reason: string): AccountPassToAgentOutcome => ({
   status: "not_accepted",
   reason,
   messageId: null,
+  files: [],
 });
 
 /**
- * Passes the asker's own message to one agent of this client (ARCHITECTURE §9.8, §10.8): checks
- * that the agent's live version has a message trigger on channel `sloan` whose People filter
- * takes the asker, then emits `account.request_passed` in the port's transaction. The router
- * checks the same filter again when it starts the run.
+ * Passes the asker's own message to one agent of this client (ARCHITECTURE §9.8, §10.8), then
+ * emits `account.request_passed` in the port's transaction. An agent takes it when its live
+ * version has a message trigger on channel `sloan` whose People filter takes the asker (the
+ * router checks the filter again when it starts the run), or, for a message with files, when it
+ * starts on documents (§1.110): the files are then handed to it as if they had just arrived,
+ * addressed to it alone. Returns the files still to read for it, after commit.
  */
 async function passToAgent(
   s: AccountScope,
   serviceId: string,
   emit: Emit | undefined,
-): Promise<AccountPassToAgentOutcome> {
-  if (serviceId === s.call.agentId) return notAccepted(NOT_ACCEPTED.self);
+  canRead: boolean,
+): Promise<{
+  outcome: AccountPassToAgentOutcome;
+  read: { agentId: string; ids: string[] } | null;
+}> {
+  const no = (reason: string) => ({ outcome: notAccepted(reason), read: null });
+  if (serviceId === s.call.agentId) return no(NOT_ACCEPTED.self);
   // Only an agent of this client (RLS and the filter both): another client's is not found.
   const [target] = await s.tx
     .select({
@@ -237,21 +253,43 @@ async function passToAgent(
     )
     .where(and(eq(agent.id, serviceId), eq(agent.tenantId, s.tenantId), eq(agent.kind, "client")));
   if (!target) throw new AccountRefusal("there is no such service for this client");
-  if (target.slug === ACCOUNT_AGENT_SLUG) return notAccepted(NOT_ACCEPTED.self);
-  if (!target.bundle) return notAccepted(NOT_ACCEPTED.notLive);
-  if (!acceptsSloan(target.bundle)) return notAccepted(NOT_ACCEPTED.noSloan);
+  if (target.slug === ACCOUNT_AGENT_SLUG) return no(NOT_ACCEPTED.self);
+  if (!target.bundle) return no(NOT_ACCEPTED.notLive);
+
+  // §1.110: the files attached to the person's message go with it.
+  const { messageId } = s.asker;
+  const [asked] = messageId
+    ? await s.tx
+        .select({ body: message.body })
+        .from(message)
+        .where(and(eq(message.id, messageId), eq(message.tenantId, s.tenantId)))
+    : [];
+  const documents = asked ? messageDocuments(asked) : [];
+  // DECISION (§1.110): an agent that starts on documents takes files from Sloan without a
+  // `sloan` trigger, from any of the client's people, as an upload in the portal would reach it.
+  // `document.extracted` needs the files read first, which this port can do only with a reader.
+  const onDocs = documents.length > 0 ? documentEventsOf(target.bundle) : [];
+  const handover = onDocs.filter((e) => e === "document.received" || canRead);
+  const takesRequests = acceptsSloan(target.bundle);
+  if (!takesRequests && handover.length === 0) {
+    if (onDocs.length > 0) return no(NOT_ACCEPTED.cantRead);
+    return no(documents.length > 0 ? NOT_ACCEPTED.noFiles : NOT_ACCEPTED.noSloan);
+  }
   // A test run asks as the client admin would (the asker's role); a live one as the person.
   const sender = { kind: "user" as const, userId: s.asker.userId ?? "", role: s.asker.role };
-  if (acceptingTriggers(target.bundle, "sloan", sender).length === 0) {
-    return notAccepted(NOT_ACCEPTED.notForAsker);
+  if (handover.length === 0 && acceptingTriggers(target.bundle, "sloan", sender).length === 0) {
+    return no(NOT_ACCEPTED.notForAsker);
   }
   // Paused, draft or retired agents start nothing (the router's `isRunnable`).
-  if (target.status !== "active" || target.runStatus !== "active") {
-    return notAccepted(NOT_ACCEPTED.notLive);
+  if (target.status !== "active" || target.runStatus !== "active") return no(NOT_ACCEPTED.notLive);
+  if (s.asker.test) {
+    return {
+      outcome: { status: "test_run", reason: null, messageId: null, files: [] },
+      read: null,
+    };
   }
-  if (s.asker.test) return { status: "test_run", reason: null, messageId: null };
 
-  const { userId, threadId, messageId } = s.asker;
+  const { userId, threadId } = s.asker;
   if (!userId || !threadId || !messageId) {
     throw new AccountRefusal("Sloan passes only a person's message in an account conversation");
   }
@@ -271,19 +309,69 @@ async function passToAgent(
       ),
     )
     .limit(1);
-  if (before) return { status: "already_passed", reason: null, messageId };
+  if (before) {
+    return {
+      outcome: { status: "already_passed", reason: null, messageId, files: [] },
+      read: null,
+    };
+  }
   await emit(
     s.tx,
     s.tenantId,
-    passToAgentEvent({ agentId: target.id, threadId, messageId, userId }),
+    passToAgentEvent({ agentId: target.id, threadId, messageId, userId, documents }),
   );
-  return { status: "passed", reason: null, messageId };
+  const files = documents.length
+    ? await s.tx
+        .select({
+          id: document.id,
+          name: document.filename,
+          source: document.source,
+          mimeType: document.mimeType,
+          sha256: document.sha256,
+          status: document.status,
+          meta: document.meta,
+        })
+        .from(document)
+        .where(and(eq(document.tenantId, s.tenantId), inArray(document.id, documents)))
+    : [];
+  // Only a file attached here and not yet announced is handed over: one that came in another way
+  // (an upload, an email) already reached the agents that start on documents.
+  const quiet = files.filter(
+    (f) => f.status === "stored" && (f.meta as { via?: unknown } | null)?.via === "chat",
+  );
+  if (handover.includes("document.received")) {
+    for (const f of quiet) {
+      await emit(s.tx, s.tenantId, {
+        type: "document.received",
+        subjectType: "document",
+        subjectId: f.id,
+        payload: {
+          documentId: f.id,
+          source: f.source,
+          filename: f.name,
+          mimeType: f.mimeType,
+          sha256: f.sha256,
+          forAgentId: target.id,
+        },
+      });
+    }
+  }
+  const toRead = handover.includes("document.extracted") ? quiet.map((f) => f.id) : [];
+  return {
+    outcome: {
+      status: "passed",
+      reason: null,
+      messageId,
+      files: files.map((f) => ({ id: f.id, name: f.name })),
+    },
+    read: toRead.length > 0 ? { agentId: target.id, ids: toRead } : null,
+  };
 }
 
 export function dbAccountPort(
   db: Db,
   views: AccountViews,
-  options: { emit?: Emit } = {},
+  options: { emit?: Emit; documents?: DbDocumentsOptions } = {},
 ): AccountPort {
   /** Runs `body` for the asker in the client's transaction, once their role allows `action`. */
   const scoped = <T>(
@@ -415,8 +503,25 @@ export function dbAccountPort(
           ? Promise.resolve({ status: "test_run" as const, requestId: null })
           : views.passToLead(s, input),
       ),
-    passToAgent: (tenantId, call, input) =>
-      scoped(tenantId, call, "pass", (s) => passToAgent(s, input.serviceId, options.emit)),
+    passToAgent: async (tenantId, call, input) => {
+      const reader = options.documents;
+      const { outcome, read } = await scoped(tenantId, call, "pass", (s) =>
+        passToAgent(s, input.serviceId, options.emit, !!reader),
+      );
+      // §1.110: after commit, each handed-over file is read for that agent alone; its
+      // `document.extracted` (addressed to it) starts it. A file already here as another copy of
+      // the same invoice starts nothing, as on upload.
+      if (read && reader) {
+        const llm = createLlmClient({ transport: reader.transport });
+        for (const documentId of read.ids) {
+          await extractDocument(
+            { db, content: reader.content, llm },
+            { tenantId, documentId, agentVersionId: null, forAgentId: read.agentId },
+          );
+        }
+      }
+      return outcome;
+    },
     owner: (tenantId, call, input) =>
       scoped(tenantId, call, "read", async (s) =>
         views.owner ? views.owner(s, input.name) : null,

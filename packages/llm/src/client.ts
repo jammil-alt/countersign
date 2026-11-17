@@ -91,6 +91,68 @@ export interface CallToolResult<T> extends LlmCallResult {
 
 export type LlmToolErrorCode = "no_tool_call" | "invalid_input" | "refusal" | "max_tokens";
 
+/**
+ * Models sometimes send a nested object or list as its JSON text (`"fitgap": "{\"rows\": …}"`).
+ * Where the schema wanted an object or a list and got a string that parses to one, the parsed
+ * value is put in its place; the caller validates again. The input itself is left as it was: a
+ * copy comes back, or the same input when there was nothing to repair.
+ */
+// DECISION (QA on staging, 2026-11-16): repair, don't refuse. A whole fit-gap was lost three
+// times because the model sent it as text; the content was right, only its encoding wasn't.
+export function unstringified(input: unknown, issues: readonly z.core.$ZodIssue[]): unknown {
+  let out = input;
+  for (const issue of issues) {
+    if (issue.code !== "invalid_type") continue;
+    if (issue.expected !== "object" && issue.expected !== "array") continue;
+    if (issue.path.length === 0) continue;
+    const value = valueAt(out, issue.path);
+    if (typeof value !== "string") continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      continue;
+    }
+    const fits =
+      issue.expected === "array"
+        ? Array.isArray(parsed)
+        : typeof parsed === "object" && parsed !== null && !Array.isArray(parsed);
+    if (!fits) continue;
+    if (out === input) out = structuredClone(input);
+    setAt(out, issue.path, parsed);
+  }
+  return out;
+}
+
+/** Keys a repair never walks through or writes: they reach an object's prototype. */
+const UNSAFE_KEYS: ReadonlySet<PropertyKey> = new Set(["__proto__", "constructor", "prototype"]);
+
+/** The value at `path`, through own properties only (never a prototype's). */
+function valueAt(root: unknown, path: readonly PropertyKey[]): unknown {
+  let at: unknown = root;
+  for (const key of path) {
+    if (typeof at !== "object" || at === null) return undefined;
+    if (UNSAFE_KEYS.has(key) || !Object.hasOwn(at, key)) return undefined;
+    at = (at as Record<PropertyKey, unknown>)[key];
+  }
+  return at;
+}
+
+/** Replaces the own property at `path`; nothing is written where there is none, or to a prototype. */
+function setAt(root: unknown, path: readonly PropertyKey[], value: unknown): void {
+  const key = path[path.length - 1];
+  if (key === undefined || path.some((k) => UNSAFE_KEYS.has(k))) return;
+  const parent = valueAt(root, path.slice(0, -1));
+  if (typeof parent === "object" && parent !== null && Object.hasOwn(parent, key)) {
+    Object.defineProperty(parent, key, {
+      value,
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
+  }
+}
+
 /** The model's answer could not be used: no call to the tool, input that fails the schema, etc. */
 export class LlmToolError extends Error {
   override name = "LlmToolError";
@@ -293,11 +355,23 @@ export function createLlmClient(options: LlmClientOptions): LlmClient {
         { toolName: tool.name, result },
       );
     }
-    const parsed = tool.schema.safeParse(call.input);
+    let parsed = tool.schema.safeParse(call.input);
     if (!parsed.success) {
+      const repaired = unstringified(call.input, parsed.error.issues);
+      if (repaired !== call.input) {
+        const again = tool.schema.safeParse(repaired);
+        if (again.success) parsed = again;
+      }
+    }
+    if (!parsed.success) {
+      // A call cut off at max_tokens reaches us as partial or empty input (anthropic.ts reads
+      // unparseable input as `{}`): say it was cut off, not which field happened to be missing.
+      const cut = response.stop_reason === "max_tokens";
       throw new LlmToolError(
-        "invalid_input",
-        `${tool.name} input failed validation: ${z.prettifyError(parsed.error)}`,
+        cut ? "max_tokens" : "invalid_input",
+        cut
+          ? `the answer was cut off at max_tokens partway through ${tool.name}`
+          : `${tool.name} input failed validation: ${z.prettifyError(parsed.error)}`,
         { toolName: tool.name, result, input: call.input, issues: parsed.error.issues },
       );
     }

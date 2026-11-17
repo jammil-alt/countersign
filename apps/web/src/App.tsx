@@ -33,6 +33,10 @@ const SecondStepScreen = lazy(() =>
 const TextSignupScreen = lazy(() =>
   import("./signup/TextSignup").then((m) => ({ default: m.TextSignupScreen })),
 );
+// §1.121: a "Request info" form, opened from a link a contact was sent: its own chunk.
+const FormPageScreen = lazy(() =>
+  import("./forms/FormPage").then((m) => ({ default: m.FormPageScreen })),
+);
 
 export function AppRoutes() {
   return (
@@ -53,6 +57,15 @@ export function AppRoutes() {
         element={
           <Suspense fallback={<StillFrame />}>
             <TextSignupScreen />
+          </Suspense>
+        }
+      />
+      {/* docs/plan.md §1.121: answering a form we sent; no sign-in. */}
+      <Route
+        path="/f/:token"
+        element={
+          <Suspense fallback={<StillFrame />}>
+            <FormPageScreen />
           </Suspense>
         }
       />

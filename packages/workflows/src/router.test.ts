@@ -65,6 +65,16 @@ describe("routeEvent", () => {
     expect((await routeEvent(failed(watcher.id), [watcher, worker])).runs).toHaveLength(0);
   });
 
+  it("starts only the agent a file was handed to (§1.110)", async () => {
+    const pia = agent({ liveBundle: bundle([{ slug: "intake", on: onDoc }]) });
+    const other = agent({ liveBundle: bundle([{ slug: "intake", on: onDoc }]) });
+    const handed = doc(CLIENT_A, { filename: "a.pdf", source: "upload", forAgentId: pia.id });
+    const { runs } = await routeEvent(handed, [pia, other]);
+    expect(runs.map((r) => r.agentId)).toEqual([pia.id]);
+    // Unaddressed, the same event starts both.
+    expect((await routeEvent(doc(), [pia, other])).runs).toHaveLength(2);
+  });
+
   it("starts only the event's own client's active agents", async () => {
     const mine = agent({ liveBundle: bundle([{ slug: "intake", on: onDoc }]) });
     const other = agent({

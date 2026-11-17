@@ -19,6 +19,11 @@ export const es: Messages = {
   "voice.writing": "Transcribiendo…",
   "voice.blocked": "Su navegador no nos dejó usar el micrófono.",
   "voice.failed": "No pudimos transcribirlo. Inténtelo de nuevo.",
+  "attach.add": "Adjuntar",
+  "attach.uploading": "Subiendo…",
+  "attach.remove": "Quitar",
+  "attach.failed": "No pudimos subirlo. Inténtelo de nuevo.",
+  "attach.refused": "{name}: adjunte PDF o imágenes.",
   "common.filter": "Filtro",
   "common.sections": "Secciones",
   "common.waiting": "En espera",
@@ -392,6 +397,11 @@ export const es: Messages = {
   "desk.edit": "Editar",
   "desk.edited": "Usted editó este cambio. Usamos su versión.",
   "desk.afterYouSign": "Después de aprobar",
+  // §1.121: a form request's card
+  "desk.form.heading": "El formulario que recibirán: {title}", // fluent review
+  "desk.form.fixed": "Pregunta suya", // fluent review
+  "desk.form.added": "Añadida por el agente", // fluent review
+  "desk.form.required": "obligatoria", // fluent review
   "desk.editHint":
     "Cambie lo que necesite y guarde. Lo comprobamos de nuevo antes de que lo apruebe.",
   "desk.editSave": "Guardar cambios",

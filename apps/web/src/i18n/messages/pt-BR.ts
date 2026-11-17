@@ -19,6 +19,11 @@ export const ptBR: Messages = {
   "voice.writing": "Transcrevendo…",
   "voice.blocked": "Seu navegador não liberou o microfone.",
   "voice.failed": "Não conseguimos transcrever. Tente de novo.",
+  "attach.add": "Anexar",
+  "attach.uploading": "Enviando…",
+  "attach.remove": "Remover",
+  "attach.failed": "Não conseguimos enviar. Tente de novo.",
+  "attach.refused": "{name}: anexe PDFs ou imagens.",
   "common.filter": "Filtro",
   "common.sections": "Seções",
   "common.waiting": "Aguardando",
@@ -393,6 +398,11 @@ export const ptBR: Messages = {
   "desk.edit": "Editar",
   "desk.edited": "Você editou esta alteração. Usamos a sua versão.",
   "desk.afterYouSign": "Depois que você aprovar",
+  // §1.121: a form request's card
+  "desk.form.heading": "O formulário que vão receber: {title}", // fluent review
+  "desk.form.fixed": "Sua pergunta", // fluent review
+  "desk.form.added": "Adicionada pelo agente", // fluent review
+  "desk.form.required": "obrigatória", // fluent review
   "desk.editHint": "Mude o que precisar e salve. Verificamos de novo antes de você aprovar.",
   "desk.editSave": "Salvar alterações",
   "desk.snooze.until": "Trazer de volta",

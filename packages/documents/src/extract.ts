@@ -135,6 +135,8 @@ export interface ExtractInput {
    * totals that don't add up raise no review and it is never checked as a duplicate invoice.
    */
   reading?: "invoice" | "quote";
+  /** §1.110: read for one agent (a file Sloan handed over): its `document.extracted` starts only it. */
+  forAgentId?: string;
 }
 
 export interface ExtractResult {
@@ -323,6 +325,7 @@ export async function extractDocument(
       asQuote: input.reading === "quote",
       review: true,
       ...(input.collect ? { collect: input.collect } : {}),
+      ...(input.forAgentId ? { forAgentId: input.forAgentId } : {}),
     }),
   );
   return { ...written, model: answer.record.model, extraction: x, record: answer.record };
@@ -351,6 +354,8 @@ export interface WriteReadingInput {
   asQuote: boolean;
   /** Raise the totals review in the inbox when the totals don't add up (the one-call path). */
   review: boolean;
+  /** §1.110: read for one agent; its `document.extracted` starts only that agent. */
+  forAgentId?: string;
   collect?: EmittedEvents;
 }
 
@@ -465,6 +470,7 @@ export async function writeReading(tx: Tx, input: WriteReadingInput): Promise<Wr
           extractionId: row.id,
           lineCount: x.lines.length,
           totalsValid: check.ok,
+          ...(input.forAgentId ? { forAgentId: input.forAgentId } : {}),
         },
       },
       {

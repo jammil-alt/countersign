@@ -43,6 +43,8 @@ export const DocumentReceivedPayload = z.strictObject({
   filename: z.string(),
   mimeType: z.string(),
   sha256: z.string().regex(/^[0-9a-f]{64}$/),
+  /** §1.110: handed to one agent (a file Sloan passed); only that agent starts on it. */
+  forAgentId: Id.optional(),
 });
 
 export const DocumentExtractedPayload = z.strictObject({
@@ -50,6 +52,8 @@ export const DocumentExtractedPayload = z.strictObject({
   extractionId: Id,
   lineCount: z.number().int().nonnegative(),
   totalsValid: z.boolean(),
+  /** §1.110: read for one agent (a file Sloan passed); only that agent starts on it. */
+  forAgentId: Id.optional(),
 });
 
 export const DocumentExtractionFailedPayload = z.strictObject({

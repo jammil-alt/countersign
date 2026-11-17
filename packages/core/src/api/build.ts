@@ -9,10 +9,12 @@ import {
   BuildItemState,
   BuildKind,
   BuildPhase,
+  BuildProposal,
   BuildStatus,
   FitGap,
   FitReason,
   FitVerdict,
+  ProposalState,
   QaCheck,
   QaCheckId,
   QaRecord,
@@ -62,6 +64,18 @@ export const BuildMessageView = z.object({
   chips: z.array(z.string()),
   /** What the turn changed, one line each ("Brief: data in"). */
   changes: z.array(z.string()),
+  /** The Builder's turn failed: this message says so, nothing changed, and it can be retried. */
+  failed: z.boolean().optional(),
+  /** The issue it is about (`buildIssues`' key): the thread it belongs to. */
+  about: z.string().optional(),
+  /** The Builder's proposed change, and what the operator decided. */
+  proposal: BuildProposal.extend({
+    state: ProposalState,
+    /** Agreed: what was done. Undone: what was put back. */
+    result: z.string().optional(),
+    /** Offered while agreed and its opposite is exact (an item's state). */
+    undo: z.boolean().optional(),
+  }).optional(),
   createdAt: z.string(),
 });
 export type BuildMessageView = z.infer<typeof BuildMessageView>;
@@ -298,9 +312,25 @@ export const buildRoutes = {
     path: "/api/ops/builds/:id/turns",
     auth: "session",
     roles: OPS,
-    summary: "Your words in the build's conversation, and the Builder's answer for the phase",
+    summary:
+      "Your words in the build's conversation, and the Builder's answer for the phase. Without words, the Builder's last turn is tried again: its answer to your last words, or its opening of the phase",
     params: IdParams,
-    body: z.strictObject({ text: z.string().trim().min(1).max(BUILD_TEXT_MAX) }),
+    body: z.strictObject({
+      text: z.string().trim().min(1).max(BUILD_TEXT_MAX).optional(),
+      /** The issue the words are about (the conversation's focus). */
+      about: z.string().min(1).max(160).optional(),
+    }),
+    response: BuildDetail,
+  }),
+  opsBuildProposal: defineRoute({
+    method: "POST",
+    path: "/api/ops/builds/:id/messages/:messageId/proposal",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Agree the Builder's proposed change (it is made, as you, through the build's own routes), decline it, or undo an agreed one",
+    params: z.object({ id: Id, messageId: Id }),
+    body: z.strictObject({ decide: z.enum(["agree", "decline", "undo"]) }),
     response: BuildDetail,
   }),
   opsBuildVerdict: defineRoute({
