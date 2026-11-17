@@ -12,6 +12,7 @@ import { type FetchLike, formEncode, globalFetch, parseUrl, timeoutSignal } from
 import {
   OAuthTokens,
   ReconnectRequiredError,
+  refreshRefused,
   type TokenRefresher,
   tokenManager,
 } from "../oauth/tokens";
@@ -305,8 +306,9 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
         client_secret: c.secret,
       });
       if ("error" in answer) {
-        // invalid_code (revoked or expired grant), invalid_client: the client must sign in again.
-        throw new ReconnectRequiredError(`Zoho refused the refresh: ${answer.error}`);
+        // invalid_code: Zoho's word for a refresh token that is invalid (revoked). invalid_client
+        // (our keys) and "Access Denied" (too many refreshes) leave the connection as it is.
+        throw refreshRefused("Zoho", answer.error, ["invalid_code", "invalid_grant"]);
       }
       const apiDomain =
         answer.api_domain && isZohoApiDomain(answer.api_domain)
@@ -353,6 +355,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
         });
       },
       (r) => r.status === 401,
+      { write: method !== "GET" },
     );
     // v0.14 W4-B: 304, nothing modified since (the sync's list calls).
     if (res.status === 204 || res.status === 304) return null;
@@ -363,7 +366,16 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
     } catch {
       json = null;
     }
-    if (res.status === 401) throw new ReconnectRequiredError("Zoho refused the access token");
+    // DECISION: a 401 right after a refresh that worked is not a dead grant: the connection stays
+    // connected and a later try may get through (tokenManager raises a lasting one after a day).
+    if (res.status === 401) {
+      throw new ZohoApiError(
+        401,
+        "unauthorized",
+        "Zoho refused our access just after we renewed it; we'll keep trying",
+        true,
+      );
+    }
     if (!res.ok) {
       const e = (json ?? {}) as { code?: unknown; message?: unknown };
       const code = typeof e.code === "string" ? e.code : `HTTP_${res.status}`;

@@ -28,12 +28,17 @@ interface FakeDomain {
   records: Record<string, unknown>[];
 }
 
-function respond(status: number, body: unknown): HttpResponseLike {
+function respond(
+  status: number,
+  body: unknown,
+  headers: Record<string, string> = {},
+): HttpResponseLike {
   const text = body === undefined ? "" : JSON.stringify(body);
+  const h: Record<string, string> = { "content-type": "application/json", ...headers };
   return {
     status,
     ok: status >= 200 && status < 300,
-    headers: { get: (n) => (n.toLowerCase() === "content-type" ? "application/json" : null) },
+    headers: { get: (n) => h[n.toLowerCase()] ?? null },
     text: async () => text,
   };
 }
@@ -48,6 +53,13 @@ export interface FakeResend {
   dnsAdded(domainId: string): void;
   /** The next this-many sends fail with a 500. */
   failSends: number;
+  /**
+   * The next this-many requests are over the team's rate limit: 429 with Retry-After, and
+   * nothing done (Resend's default limit is about 2 requests a second for the whole team).
+   */
+  rateLimited: number;
+  /** Every request's options, to check the timeout and redirect handling. */
+  requests: { url: string; redirect: string | undefined; signal: boolean }[];
 }
 
 export function fakeResend(): FakeResend {
@@ -62,11 +74,22 @@ export function fakeResend(): FakeResend {
     domains,
     keys,
     failSends: 0,
+    rateLimited: 0,
+    requests: [],
     dnsAdded(id) {
       dnsReady.add(id);
     },
     async fetch(url: string, init: HttpRequestInit = {}) {
+      fake.requests.push({ url, redirect: init.redirect, signal: init.signal !== undefined });
       if (!url.startsWith(RESEND_API)) return respond(404, { message: "not resend" });
+      if (fake.rateLimited > 0) {
+        fake.rateLimited--;
+        return respond(
+          429,
+          { name: "rate_limit_exceeded", message: "Too many requests." },
+          { "retry-after": "1" },
+        );
+      }
       const path = url.slice(RESEND_API.length);
       const method = init.method ?? "GET";
       const auth = init.headers?.authorization ?? init.headers?.Authorization ?? "";

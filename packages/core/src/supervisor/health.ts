@@ -29,6 +29,11 @@ export const CONNECTION_ATTENTION_REASONS = [
   "signin_expired",
   /** Reading from or writing to the tool keeps failing. */
   "sync_failed",
+  /**
+   * Renewing our access to the tool has failed for a day without a break, though the sign-in
+   * was not ended (our keys, a provider's trouble, the app removed on the client's side).
+   */
+  "refresh_failing",
   /** A website login stopped after failed sign-ins (§1.26). */
   "login_stopped",
   /** The code service saw a code or reset message nobody asked for (§1.26). */
@@ -56,6 +61,8 @@ export const FINDING_KINDS = [
   "run_failed",
   "connection_signin",
   "connection_sync",
+  // Renewing access keeps failing (`refresh_failing`).
+  "connection_access",
   "login_stopped",
   "code_alert",
   "waiting_long",
@@ -66,6 +73,7 @@ export type FindingKind = z.infer<typeof FindingKind>;
 export const FINDING_KIND_FOR_REASON: Record<ConnectionAttentionReason, FindingKind> = {
   signin_expired: "connection_signin",
   sync_failed: "connection_sync",
+  refresh_failing: "connection_access",
   login_stopped: "login_stopped",
   code_alert: "code_alert",
 };
@@ -86,7 +94,10 @@ export const FINGERPRINT_KEY = "fingerprint";
 export function findingFingerprint(
   finding:
     | { kind: "run_failed"; agentId: string; workflowSlug: string; stepId: string | null }
-    | { kind: "connection_signin" | "connection_sync" | "login_stopped"; connectionId: string }
+    | {
+        kind: "connection_signin" | "connection_sync" | "connection_access" | "login_stopped";
+        connectionId: string;
+      }
     | { kind: "code_alert"; sourceId: string }
     | { kind: "waiting_long" },
 ): string {

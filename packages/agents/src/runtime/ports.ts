@@ -389,7 +389,11 @@ export interface ReleasePort {
 export interface ConnectionAttentionPort {
   needsAttention(
     tenantId: string,
-    input: { connectionId: string; reason: "signin_expired" | "sync_failed"; detail: string },
+    input: {
+      connectionId: string;
+      reason: "signin_expired" | "sync_failed" | "refresh_failing";
+      detail: string;
+    },
   ): Promise<void>;
 }
 

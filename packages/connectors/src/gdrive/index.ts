@@ -22,6 +22,7 @@ import { formEncode, globalFetch, type HttpResponseLike, parseUrl, timeoutSignal
 import {
   OAuthTokens,
   ReconnectRequiredError,
+  refreshRefused,
   SignInRefusedError,
   type TokenRefresher,
   tokenManager,
@@ -358,7 +359,8 @@ export function createGdriveConnector(options: GdriveOptions = {}): Connector {
         client_secret: c.secret,
       });
       if ("error" in answer) {
-        throw new ReconnectRequiredError(`Google refused the refresh: ${answer.error}`);
+        // invalid_grant: revoked, or expired (after 7 days while the app is in Testing).
+        throw refreshRefused("Google", answer.error);
       }
       return {
         ...tokens,
@@ -377,41 +379,60 @@ export function createGdriveConnector(options: GdriveOptions = {}): Connector {
     body?: { type: string; data: string | Uint8Array; headers?: Record<string, string> },
   ) => Promise<{ status: number; json: unknown; location: string | null }>;
 
+  function send(
+    token: string,
+    method: string,
+    url: string,
+    body?: { type: string; data: string | Uint8Array; headers?: Record<string, string> },
+  ): Promise<HttpResponseLike> {
+    return doFetch()(url, {
+      method,
+      headers: {
+        authorization: `Bearer ${token}`,
+        accept: "application/json",
+        ...(body ? { "content-type": body.type, ...(body.headers ?? {}) } : {}),
+      },
+      ...(body ? { body: body.data } : {}),
+      redirect: "manual",
+      signal: timeoutSignal(60_000),
+    });
+  }
+
+  async function answer(res: HttpResponseLike) {
+    const json = readJson(await res.text());
+    if (res.status === 401) throw new ReconnectRequiredError("Google refused the access token");
+    if (!res.ok) {
+      throw new DriveApiError(
+        res.status,
+        `Google Drive refused the request (${res.status}): ${googleMessage(json)}`,
+      );
+    }
+    return { status: res.status, json, location: res.headers.get("location") };
+  }
+
   function callWith(token: string): Call {
-    return async (method, url, body) => {
-      const res = await doFetch()(url, {
-        method,
-        headers: {
-          authorization: `Bearer ${token}`,
-          accept: "application/json",
-          ...(body ? { "content-type": body.type, ...(body.headers ?? {}) } : {}),
-        },
-        ...(body ? { body: body.data } : {}),
-        redirect: "manual",
-        signal: timeoutSignal(60_000),
-      });
-      const json = readJson(await res.text());
-      if (res.status === 401) throw new ReconnectRequiredError("Google refused the access token");
-      if (!res.ok) {
-        throw new DriveApiError(
-          res.status,
-          `Google Drive refused the request (${res.status}): ${googleMessage(json)}`,
-        );
-      }
-      return { status: res.status, json, location: res.headers.get("location") };
-    };
+    return async (method, url, body) => answer(await send(token, method, url, body));
   }
 
   /** A Drive call for a connection: refreshes before expiry, and once more after a 401. */
   function callFor(ctx: ConnectionContext): Call {
     const tokens = tokenManager({ credentials: ctx.credentials, refresher, now: ctx.now });
     return async (method, url, body) => {
-      try {
-        return await callWith(await tokens.accessToken())(method, url, body);
-      } catch (error) {
-        if (!(error instanceof ReconnectRequiredError)) throw error;
-        return callWith((await tokens.refresh()).accessToken)(method, url, body);
+      const res = await tokens.withAccessToken(
+        (token) => send(token, method, url, body),
+        (r) => r.status === 401,
+        { write: method.toUpperCase() !== "GET" },
+      );
+      // DECISION: a 401 right after a refresh that worked is not a dead grant: the connection
+      // stays connected and a later try may get through (a lasting one is raised after a day).
+      if (res.status === 401) {
+        throw new DriveApiError(
+          401,
+          "Google refused our access just after we renewed it; we'll keep trying",
+          true,
+        );
       }
+      return answer(res);
     };
   }
 

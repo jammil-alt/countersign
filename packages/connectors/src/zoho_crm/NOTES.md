@@ -15,7 +15,7 @@ against the live docs and a Zoho sandbox org before a client connects.
 | API calls go to `api_domain` with `Authorization: Zoho-oauthtoken <token>` | Checked |
 | Refresh at the same DC's accounts server with `grant_type=refresh_token`; the answer has no new refresh token (they don't rotate); recent docs say it also returns `api_domain` | Checked; we keep the old refresh token and update the API domain if one comes back |
 | Each DC may have its own client secret | Checked; `clientSecrets` (by accounts server) supported in code, not wired to env yet |
-| Errors come back as HTTP 200 with `{"error": "invalid_code"}` (reused or wrong-DC code, revoked refresh token) | Checked for `invalid_code`; treated as "reconnect" on refresh |
+| Errors come back as HTTP 200 with `{"error": "invalid_code"}` (reused or wrong-DC code, revoked refresh token) | Checked for `invalid_code`; treated as "reconnect" on refresh (any other error, e.g. `invalid_client` or too many refreshes, is retried) |
 | Revoke: `POST <accounts-server>/oauth/v2/token/revoke?token=<refresh token>` | **UNCHECKED** |
 | DC list: accounts.zoho.com / .eu / .in / .com.au / .jp / .ca / .com.cn / .sa / .uk, API domains `www.zohoapis.<same>` | **UNCHECKED** (third-party note says the published list is shorter than the live one; `accounts.zoho.com/oauth/serverinfo` lists them). Unknown servers are refused, never contacted |
 

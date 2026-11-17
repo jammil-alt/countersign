@@ -117,7 +117,11 @@ function connectionFinding(
     input.kind === "code_alert"
       ? findingFingerprint({ kind: "code_alert", sourceId: input.sourceId ?? input.detail })
       : findingFingerprint({
-          kind: input.kind as "connection_signin" | "connection_sync" | "login_stopped",
+          kind: input.kind as
+            | "connection_signin"
+            | "connection_sync"
+            | "connection_access"
+            | "login_stopped",
           connectionId: input.connectionId ?? "-",
         });
   return {
@@ -273,6 +277,7 @@ function kindForConnection(c: HealthConnection): FindingKind {
   const reason = c.attention?.reason;
   if (c.stopped || reason === "login_stopped") return "login_stopped";
   if (reason === "sync_failed") return "connection_sync";
+  if (reason === "refresh_failing") return "connection_access";
   return "connection_signin";
 }
 

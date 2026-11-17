@@ -239,6 +239,7 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
   let refreshToken: string | null = null;
   const revoked: string[] = [];
   let tokenSerial = 1;
+  let refreshOutage: { status: number; body: unknown } | null = null;
   let throttle = 0;
   let nextId = 1000;
   let nextBillId = 900;
@@ -972,6 +973,7 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
           return response(200, issue(tokenCode));
         }
         if (form.grant_type === "refresh_token") {
+          if (refreshOutage) return response(refreshOutage.status, refreshOutage.body);
           if (
             !refreshToken ||
             form.refresh_token !== refreshToken ||
@@ -1173,6 +1175,13 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
     /** The access tokens stop working (they expired); a refresh brings a new one. */
     expireAccessTokens() {
       validAccess = new Set();
+    },
+    /**
+     * Until cleared (null), every refresh is answered with this error and changes nothing: an
+     * outage at Intuit's token endpoint, or our app's keys refused.
+     */
+    failRefreshes(answer: { status: number; body: unknown } | null) {
+      refreshOutage = answer;
     },
     /** The next `n` company API calls answer 429. */
     throttleNext(n: number) {

@@ -7,6 +7,7 @@
 
 import { dbConnectionAttention } from "@countersign/agents";
 import {
+  attentionReasonOf,
   type ConnectionRef,
   type CredentialsAccessor,
   noopLogger,
@@ -87,7 +88,7 @@ async function needsSignIn(deps: ZohoSyncDeps, tenantId: string, connectionId: s
   const emitter = senseEmitter(deps.platform.events, { collect });
   await dbConnectionAttention(deps.db, { emit: emitter }).needsAttention(tenantId, {
     connectionId,
-    reason: "signin_expired",
+    reason: attentionReasonOf(e),
     detail: e.message,
   });
   return collect;
@@ -116,7 +117,9 @@ export async function zohoSyncStep(
   } catch (error) {
     if (error instanceof ReconnectRequiredError) {
       return skip(
-        "the client needs to sign in to Zoho again",
+        attentionReasonOf(error) === "refresh_failing"
+          ? "we can't reach Zoho right now and are looking into it"
+          : "the client needs to sign in to Zoho again",
         await needsSignIn(deps, tenantId, connectionId, error),
       );
     }

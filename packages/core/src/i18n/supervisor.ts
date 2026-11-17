@@ -43,6 +43,13 @@ export const SUPERVISOR_WORDS: Record<Locale, Words> = {
         "Choose Reconnect and follow the steps.",
       ],
     },
+    connection_access: {
+      title: (p) => `We can't reach ${s(p, "connector", "a tool")}`,
+      steps: (p) => [
+        "We are looking at it; your sign-in is still in place.",
+        `If someone at your company removed Mezonas from ${s(p, "connector", "the tool")}, go to Accounts and choose Reconnect.`,
+      ],
+    },
     connection_sync: {
       title: (p) => `${s(p, "connector", "A tool")} stopped updating`,
       steps: (p) => [
@@ -87,6 +94,13 @@ export const SUPERVISOR_WORDS: Record<Locale, Words> = {
         "Vaya a Cuentas.",
         `Busque ${s(p, "connector", "la herramienta")}.`,
         "Elija Volver a conectar y siga los pasos.",
+      ],
+    },
+    connection_access: {
+      title: (p) => `No podemos acceder a ${s(p, "connector", "una herramienta")}`,
+      steps: (p) => [
+        "Lo estamos revisando; su inicio de sesión sigue vigente.",
+        `Si alguien de su empresa quitó Mezonas de ${s(p, "connector", "la herramienta")}, vaya a Cuentas y elija Volver a conectar.`,
       ],
     },
     connection_sync: {
@@ -135,6 +149,13 @@ export const SUPERVISOR_WORDS: Record<Locale, Words> = {
         "Choisissez Reconnecter et suivez les étapes.",
       ],
     },
+    connection_access: {
+      title: (p) => `Nous n'arrivons pas à accéder à ${s(p, "connector", "un outil")}`,
+      steps: (p) => [
+        "Nous regardons de notre côté ; votre connexion est toujours en place.",
+        `Si quelqu'un de votre entreprise a retiré Mezonas de ${s(p, "connector", "l'outil")}, allez dans Comptes et choisissez Reconnecter.`,
+      ],
+    },
     connection_sync: {
       title: (p) => `${s(p, "connector", "Un outil")} ne se met plus à jour`,
       steps: (p) => [
@@ -179,6 +200,13 @@ export const SUPERVISOR_WORDS: Record<Locale, Words> = {
         "Vá para Contas.",
         `Encontre ${s(p, "connector", "a ferramenta")}.`,
         "Escolha Reconectar e siga os passos.",
+      ],
+    },
+    connection_access: {
+      title: (p) => `Não conseguimos acessar ${s(p, "connector", "uma ferramenta")}`,
+      steps: (p) => [
+        "Estamos verificando; seu acesso continua ativo.",
+        `Se alguém da sua empresa removeu o acesso da Mezonas, vá para Contas, encontre ${s(p, "connector", "a ferramenta")} e escolha Reconectar.`,
       ],
     },
     connection_sync: {
@@ -227,6 +255,13 @@ export const SUPERVISOR_WORDS: Record<Locale, Words> = {
         "Scegli Ricollega e segui i passaggi.",
       ],
     },
+    connection_access: {
+      title: (p) => `Non riusciamo ad accedere a ${s(p, "connector", "uno strumento")}`,
+      steps: (p) => [
+        "Lo stiamo controllando; il tuo collegamento è ancora attivo.",
+        `Se qualcuno della tua azienda ha tolto l'accesso a Mezonas, vai in Account, trova ${s(p, "connector", "lo strumento")} e scegli Ricollega.`,
+      ],
+    },
     connection_sync: {
       title: (p) => `${s(p, "connector", "Uno strumento")} non si aggiorna più`,
       steps: (p) => [
@@ -271,6 +306,13 @@ export const SUPERVISOR_WORDS: Record<Locale, Words> = {
         "Gehen Sie zu Konten.",
         `Suchen Sie ${s(p, "connector", "das Tool")}.`,
         "Wählen Sie Neu verbinden und folgen Sie den Schritten.",
+      ],
+    },
+    connection_access: {
+      title: (p) => `Wir erreichen ${s(p, "connector", "ein Tool")} nicht`,
+      steps: (p) => [
+        "Wir sehen es uns an; Ihre Anmeldung besteht weiterhin.",
+        `Falls jemand in Ihrem Unternehmen Mezonas aus ${s(p, "connector", "dem Tool")} entfernt hat, gehen Sie zu Konten und wählen Sie Neu verbinden.`,
       ],
     },
     connection_sync: {

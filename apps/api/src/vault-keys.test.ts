@@ -115,6 +115,33 @@ describe.skipIf(!t)("tenant keys in the database", () => {
     expect(again.reencrypted).toBe(0);
   });
 
+  it("leaves a row alone when a refresh saved newer credentials while it re-encrypted", async () => {
+    const master = await CredentialCipher.create({ current: oldKey });
+    const vault = master.forClients(tenantKeysInDb(db));
+    await store(A, await master.encryptV1(secret, A));
+    const newer = { apiKey: "sk-live-456" };
+    const done = await withTenant(db, A.tenantId, async (tx) => {
+      const inTx = master.forClients(tenantKeysIn(tx));
+      return reencryptClientCredentials(tx, {
+        tenantId: A.tenantId,
+        vault: {
+          ...inTx,
+          reencrypt: async (envelope: unknown, binding: typeof A) => {
+            const out = await inTx.reencrypt(envelope, binding);
+            // Another isolate's refresh lands between the read and the write.
+            await store(A, await vault.encrypt(newer, A));
+            return out;
+          },
+        } as unknown as typeof inTx,
+        limit: 10,
+      });
+    });
+    expect(done).toEqual({ reencrypted: 0, failed: 0 });
+    expect(await vault.decrypt(await stored(A), A)).toEqual(newer);
+    // Back to what the tests after this one expect.
+    await store(A, await vault.encrypt(secret, A));
+  });
+
   it("a ciphertext copied to another client's connection does not open there", async () => {
     const master = await CredentialCipher.create({ current: oldKey });
     const vault = master.forClients(tenantKeysInDb(db));

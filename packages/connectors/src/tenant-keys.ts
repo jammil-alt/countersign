@@ -4,7 +4,7 @@
 // key. Every function runs inside the caller's withTenant() for that one client (invariant 1).
 
 import { connection, type Db, type Tx, tenantKey, withTenant } from "@countersign/db";
-import { and, asc, eq, isNotNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import {
   type CredentialCipher,
   CredentialError,
@@ -74,6 +74,31 @@ export function tenantKeysInDb(db: Db): TenantKeyStore {
 }
 
 /**
+ * Writes a connection's credentials envelope only if the stored one is still `expected` (null:
+ * none stored), in `tx` (scoped to the client): the compare-and-swap behind
+ * `encryptedCredentials`'s `saveIf`. True when it was written.
+ */
+export async function saveCredentialsIf(
+  tx: Tx,
+  where: { tenantId: string; connectionId: string },
+  envelope: unknown,
+  expected: unknown,
+): Promise<boolean> {
+  const stored =
+    expected == null
+      ? isNull(connection.credentialsEncrypted)
+      : sql`${connection.credentialsEncrypted}::jsonb = ${JSON.stringify(expected)}::jsonb`;
+  const rows = await tx
+    .update(connection)
+    .set({ credentialsEncrypted: envelope as Record<string, unknown> })
+    .where(
+      and(eq(connection.id, where.connectionId), eq(connection.tenantId, where.tenantId), stored),
+    )
+    .returning({ id: connection.id });
+  return rows.length > 0;
+}
+
+/**
  * Re-encrypts up to `limit` of the client's v1 envelopes as v2 under its own key. Returns how
  * many were re-encrypted; rows that fail to decrypt are left as they are and counted in `failed`.
  */
@@ -99,11 +124,14 @@ export async function reencryptClientCredentials(
     const binding = { tenantId: input.tenantId, connectionId: row.id };
     try {
       const next = await input.vault.reencrypt(row.c, binding);
-      await tx
-        .update(connection)
-        .set({ credentialsEncrypted: next as Record<string, unknown> })
-        .where(and(eq(connection.id, row.id), eq(connection.tenantId, input.tenantId)));
-      reencrypted += 1;
+      // Only over the envelope just read: a refresh saved meanwhile is newer, and is already v2.
+      const saved = await saveCredentialsIf(
+        tx,
+        { tenantId: input.tenantId, connectionId: row.id },
+        next,
+        row.c,
+      );
+      if (saved) reencrypted += 1;
     } catch (error) {
       if (!(error instanceof CredentialError)) throw error;
       failed += 1;

@@ -17,12 +17,16 @@ import {
   defineWriteTool,
   type ToolContext,
   UnconfirmedWriteError,
+  writeNotMade,
 } from "../connector";
 import { type FetchLike, formEncode, globalFetch, timeoutSignal } from "../http";
 import {
   OAuthTokens,
   ReconnectRequiredError,
+  refreshRefused,
   SignInRefusedError,
+  type TokenManager,
+  TokenRefreshError,
   type TokenRefresher,
   tokenManager,
 } from "../oauth/tokens";
@@ -31,6 +35,8 @@ import {
   EmailSendInput,
   EmailSendOutput,
   type EmailServices,
+  refusalReason,
+  sendRefusedStatus,
 } from "../resend/index";
 import { fromBase64Url, fromUtf8 } from "../runtime";
 import { reachReplyTo } from "../upload/forwarding";
@@ -271,7 +277,7 @@ export function createGmailConnector(options: GmailOptions = {}): GmailConnector
       });
       if ("error" in answer) {
         // invalid_grant: revoked, or expired (after 7 days while the app is in Testing).
-        throw new ReconnectRequiredError(`Google refused the refresh: ${answer.error}`);
+        throw refreshRefused("Google", answer.error);
       }
       // Google keeps the refresh token; tokenManager keeps the old one when none comes back.
       return {
@@ -284,41 +290,53 @@ export function createGmailConnector(options: GmailOptions = {}): GmailConnector
     },
   };
 
-  /** `users.messages.send`, with one refresh and retry if the access token is refused. */
+  /**
+   * `users.messages.send`, with one refresh and retry if the access token is refused. An error
+   * with `notWritten` means Google answered and sent nothing (`sendRefusedStatus`, or a refresh
+   * after a 401 that failed); any other may have come after the email went out.
+   */
   async function send(
     ctx: ConnectionContext,
     raw: string,
     // P-3: with attachments, the message itself (ASCII: every part is base64) to the upload URI.
     media?: string,
+    tokens: TokenManager = tokenManager({ credentials: ctx.credentials, refresher, now: ctx.now }),
   ): Promise<{ id: string; threadId: string | null }> {
-    const tokens = tokenManager({ credentials: ctx.credentials, refresher, now: ctx.now });
-    const res = await tokens.withAccessToken(
-      (token) =>
-        media === undefined
-          ? doFetch()(`${GMAIL_API}/users/me/messages/send`, {
-              method: "POST",
-              headers: {
-                authorization: `Bearer ${token}`,
-                "content-type": "application/json",
-                accept: "application/json",
-              },
-              body: JSON.stringify({ raw }),
-              redirect: "manual",
-              signal: timeoutSignal(30_000),
-            })
-          : doFetch()(GMAIL_UPLOAD_SEND_URL, {
-              method: "POST",
-              headers: {
-                authorization: `Bearer ${token}`,
-                "content-type": "message/rfc822",
-                accept: "application/json",
-              },
-              body: media,
-              redirect: "manual",
-              signal: timeoutSignal(60_000),
-            }),
-      (r) => r.status === 401,
-    );
+    const res = await tokens
+      .withAccessToken(
+        (token) =>
+          media === undefined
+            ? doFetch()(`${GMAIL_API}/users/me/messages/send`, {
+                method: "POST",
+                headers: {
+                  authorization: `Bearer ${token}`,
+                  "content-type": "application/json",
+                  accept: "application/json",
+                },
+                body: JSON.stringify({ raw }),
+                redirect: "manual",
+                signal: timeoutSignal(30_000),
+              })
+            : doFetch()(GMAIL_UPLOAD_SEND_URL, {
+                method: "POST",
+                headers: {
+                  authorization: `Bearer ${token}`,
+                  "content-type": "message/rfc822",
+                  accept: "application/json",
+                },
+                body: media,
+                redirect: "manual",
+                signal: timeoutSignal(60_000),
+              }),
+        (r) => r.status === 401,
+      )
+      .catch((error: unknown) => {
+        // The refresh after a 401 failed: Gmail refused the send, so nothing went out.
+        if (error instanceof ReconnectRequiredError || error instanceof TokenRefreshError) {
+          throw Object.assign(error, { notWritten: true as const });
+        }
+        throw error;
+      });
     const text = await res.text();
     let json: unknown = null;
     try {
@@ -326,13 +344,17 @@ export function createGmailConnector(options: GmailOptions = {}): GmailConnector
     } catch {
       json = null;
     }
-    if (res.status === 401) throw new ReconnectRequiredError("Google refused the access token");
     if (!res.ok) {
       const msg = (json as { error?: { message?: unknown } } | null)?.error?.message;
-      throw new GmailApiError(
+      // DECISION: a 401 right after a refresh that worked is not a dead grant, so the connection
+      // stays connected; the send fails as refused, and a later try may get through.
+      const error = new GmailApiError(
         res.status,
-        `Gmail refused the email (${res.status}): ${typeof msg === "string" ? msg : "no reason given"}`,
+        res.status === 401
+          ? "Google refused our access just after we renewed it; we'll keep trying"
+          : `Gmail refused the email (${res.status}): ${typeof msg === "string" ? msg : "no reason given"}`,
       );
+      throw sendRefusedStatus(res.status) ? Object.assign(error, { notWritten: true }) : error;
     }
     const ok = z.object({ id: z.string().min(1), threadId: z.string().optional() }).safeParse(json);
     if (!ok.success) throw new GmailApiError(res.status, "Gmail's answer has no message id");
@@ -500,7 +522,7 @@ export function createGmailConnector(options: GmailOptions = {}): GmailConnector
           // send that was started and never recorded may have gone out: it is never sent again
           // (executed once); the operator checks the mailbox (UnconfirmedWriteError).
           const started = await services.attemptFor?.(ctx.idempotencyKey);
-          if (started) {
+          if (started && !started.refused) {
             throw new UnconfirmedWriteError(
               `The email to ${started.contactName} may have been sent from Gmail`,
               `we started it at ${started.startedAt.toISOString()} and have no record of it, and we can't read the mailbox to check`,
@@ -533,6 +555,11 @@ export function createGmailConnector(options: GmailOptions = {}): GmailConnector
             ...(files.length ? { attachments: files } : {}),
           });
           const raw = files.length ? "" : gmailRaw(mime);
+          // The sign-in is refreshed before the attempt is recorded: a refresh that fails leaves
+          // no started send behind.
+          const tokens = tokenManager({ credentials: ctx.credentials, refresher, now: ctx.now });
+          await tokens.accessToken();
+          const attempt = started ? (started.attempt ?? 1) + 1 : 1;
           await services.startAttempt?.({
             idempotencyKey: ctx.idempotencyKey,
             connectionId: ctx.connection.id,
@@ -542,8 +569,23 @@ export function createGmailConnector(options: GmailOptions = {}): GmailConnector
             from,
             subject: input.subject,
             startedAt: ctx.now(),
+            attempt,
           });
-          const res = await send(ctx, raw, files.length ? mime : undefined);
+          let res: { id: string; threadId: string | null };
+          try {
+            res = await send(ctx, raw, files.length ? mime : undefined, tokens);
+          } catch (error) {
+            // Google answered and sent nothing: the try is refused, so a re-run may send it.
+            if (writeNotMade(error)) {
+              await services.refuseAttempt?.({
+                idempotencyKey: ctx.idempotencyKey,
+                attempt,
+                reason: refusalReason(error),
+                at: ctx.now(),
+              });
+            }
+            throw error;
+          }
           const output: GmailSendOutput = {
             id: res.id,
             threadId: res.threadId,

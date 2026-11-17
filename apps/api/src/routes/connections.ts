@@ -6,6 +6,7 @@
 // the same redirect URIs. Portal responses are the portal's connection shape: never credentials.
 
 import {
+  attentionReasonOf,
   beginAuthorization,
   // v0.12 bankfeed
   beginLinkAuthorization,
@@ -950,6 +951,13 @@ async function sendGmailTest(
       throw new HttpError(409, "no_address", "we don't know this mailbox's address; connect again");
     }
     if (error instanceof ReconnectRequiredError) {
+      if (attentionReasonOf(error) === "refresh_failing") {
+        throw new HttpError(
+          503,
+          "not_reachable",
+          "we can't reach Gmail right now and are looking into it",
+        );
+      }
       throw new HttpError(
         409,
         "not_connected",

@@ -18,8 +18,10 @@ import {
 import { formEncode, type HttpResponseLike, parseUrl, timeoutSignal } from "../http";
 import { runReadTool } from "../invoke";
 import {
+  DEAD_GRANT_CODES,
   OAuthTokens,
   ReconnectRequiredError,
+  refreshRefused,
   type TokenRefresher,
   tokenManager,
 } from "../oauth/tokens";
@@ -332,11 +334,17 @@ export function createRampConnector(options: RampOptions = {}): Connector {
     });
     const body = await readJson(res);
     if (!res.ok) {
-      const e = (body ?? {}) as { error?: unknown };
+      // UNCHECKED (NOTES.md): OAuth's `{error}`, or Ramp's API shape `{error_v2: {error_code}}`.
+      const e = (body ?? {}) as { error?: unknown; error_v2?: { error_code?: unknown } };
       return {
         ok: false,
         status: res.status,
-        error: typeof e.error === "string" ? e.error : `HTTP_${res.status}`,
+        error:
+          typeof e.error === "string"
+            ? e.error
+            : typeof e.error_v2?.error_code === "string"
+              ? e.error_v2.error_code
+              : `HTTP_${res.status}`,
       };
     }
     const parsed = TokenAnswer.safeParse(body);
@@ -362,8 +370,10 @@ export function createRampConnector(options: RampOptions = {}): Connector {
         refresh_token: tokens.refreshToken,
       });
       if (!r.ok) {
+        // invalid_grant: revoked or expired. Ramp's token errors are unchecked, so a 400 or 401
+        // we can't read still asks for a reconnect, as before; our keys (invalid_client) don't.
         if (r.status === 400 || r.status === 401) {
-          throw new ReconnectRequiredError(`Ramp refused the refresh: ${r.error}`);
+          throw refreshRefused("Ramp", r.error, DEAD_GRANT_CODES, "reconnect");
         }
         throw new RampApiError(
           r.status,
@@ -406,9 +416,19 @@ export function createRampConnector(options: RampOptions = {}): Connector {
           signal: timeoutSignal(30_000),
         }),
       (r) => r.status === 401,
+      { write: method !== "GET" },
     );
     const json = await readJson(res);
-    if (res.status === 401) throw new ReconnectRequiredError("Ramp refused the access token");
+    // DECISION: a 401 right after a refresh that worked is not a dead grant: the connection stays
+    // connected and a later try may get through (tokenManager raises a lasting one after a day).
+    if (res.status === 401) {
+      throw new RampApiError(
+        401,
+        "unauthorized",
+        "Ramp refused our access just after we renewed it; we'll keep trying",
+        true,
+      );
+    }
     if (!res.ok) throw errorOf(res.status, json, `for ${path.split("?")[0]}`);
     return json;
   }

@@ -1,6 +1,7 @@
 // Pieces of the runtime that need no database: registries, approver resolution, schema checks.
 
 import {
+  AccessFailingError,
   type ConnectionRef,
   ConnectorRegistry,
   createTestkitConnector,
@@ -412,6 +413,16 @@ describe("noteReconnect", () => {
     expect(marked).toEqual([
       ["t1", { connectionId: "c1", reason: "signin_expired", detail: "Zoho refused the refresh" }],
     ]);
+    // Renewing access failing for a day: raised with its own reason, in plain words.
+    marked.length = 0;
+    await noteReconnect(
+      deps,
+      "t1",
+      conn,
+      new AccessFailingError("2026-11-04T10:00:00.000Z", "invalid_client"),
+    );
+    expect(marked).toMatchObject([["t1", { connectionId: "c1", reason: "refresh_failing" }]]);
+    expect(JSON.stringify(marked)).not.toContain("invalid_client");
     // Without the port (a call's tools) nothing happens, and nothing throws.
     await noteReconnect({ ports: {} } as RuntimeDeps, "t1", conn, new ReconnectRequiredError());
   });
