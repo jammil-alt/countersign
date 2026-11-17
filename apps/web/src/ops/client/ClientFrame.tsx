@@ -47,7 +47,7 @@ export const CLIENT_TABS: {
 }[] = [
   { id: "overview", label: "Overview", pages: [["", "Overview"]] },
   { id: "agents", label: "Agents", pages: [["agents", "Agents"]] },
-  // §1.125: what we know about the client, from the first call on (operator only).
+  // §1.126: what we know about the client, from the first call on (operator only).
   { id: "file", label: "File", pages: [["file", "Client file"]] },
   {
     id: "data",
@@ -251,7 +251,7 @@ function FrameView({
   const name = data?.client.name ?? summary?.name;
   const at = clientPageOf(pathname, clientId);
   const tab = CLIENT_TABS.find((t) => t.id === at.tab);
-  // §1.125: Invite from the client page: more people, or an intake for an expansion or a new area.
+  // §1.126: Invite from the client page: more people, or an intake for an expansion or a new area.
   const [inviting, setInviting] = useState(false);
 
   return (

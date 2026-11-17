@@ -181,7 +181,7 @@ export const bookkeepingManifest: PackManifest = lazyParse(PackManifest, () => (
   tools: ALL_TOOLS.map((t) => t.spec),
   skills: BOOKKEEPING_SKILLS,
   templates: [BOOKKEEPER_TEMPLATE],
-  // §1.125.2: the area's questions for a client's intake (Getting started's card).
+  // §1.126.2: the area's questions for a client's intake (Getting started's card).
   intakeSection: BOOKKEEPING_INTAKE_SECTION,
   screens: [
     {

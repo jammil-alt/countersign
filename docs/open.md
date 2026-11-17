@@ -176,7 +176,7 @@ call and Reggie with Autopilot are merged (the migrations 0060–0063, PR #380, 
 #383) and on staging for the owner to try. Decisions: `docs/plan.md` §1.124 (M64–M68); what each
 stream left open is in its "Not yet" row in §1.124.1–§1.124.4.
 
-Onboarding's first part (steps O1–O3, `docs/plan.md` §1.125, M69, migration 0066) is built on
+Onboarding's first part (steps O1–O3, `docs/plan.md` §1.126, M69, migration 0066) is built on
 top of it, on two branches, not merged (the migration's PR first, then the code's): a client file of what we know about each prospect and
 client; **Invite** from the lead record (a general, area or agents intake, filled from the file's
 `theirs` facts) and **Sign up now** from a saved start, both logged as a deal at the right stage
@@ -192,14 +192,14 @@ Requirements request reading its card. All against fakes. What it still needs:
   WorkOS's own invitation rather than a branded welcome-only email; a client file's documents (no
   storage yet); pack and template questions shown in English; the retention job for lost
   prospects; a "send it again" for an invite that didn't go (today it leaves the lead a to-do).
-  The full list: `docs/plan.md` §1.125.5 and §1.125.6.
+  The full list: `docs/plan.md` §1.126.5 and §1.126.6.
 - The owner's call: whether the deal page's old "Set up the account" card stays now that Invite
   does the set-up.
 
 The plan, its steps (B1–O6) and the owner's open questions: `docs/cases-plan.md`. The screens:
 `docs/design/pipelines.html` and `docs/design/workflows.html` (onboarding not drawn yet).
 
-Owner steps for onboarding's emails and sign-in (O1, `docs/plan.md` §1.125; how-to in
+Owner steps for onboarding's emails and sign-in (O1, `docs/plan.md` §1.126; how-to in
 `docs/operations.md`, Resend under "Worker secrets" and WorkOS under "By hand"):
 
 - **Resend**: verify `mezonas.com` (SPF, DKIM, DMARC) and send from `hello@mezonas.com` in

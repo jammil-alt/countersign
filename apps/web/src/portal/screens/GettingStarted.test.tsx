@@ -1,4 +1,4 @@
-// Getting started (docs/plan.md §1.125.2; docs/cases-plan.md §4.5): the lead's note, a card per
+// Getting started (docs/plan.md §1.126.2; docs/cases-plan.md §4.5): the lead's note, a card per
 // part with "We think" lines (Yes or Change), at most five questions then "Show more", a Connect
 // card through the Accounts page's own flow, Not sure, Start with this or Not now, Ask someone
 // else, Different process in mind?, Rather talk it through? (coming soon), the plain form, core's

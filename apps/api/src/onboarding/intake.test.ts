@@ -1,5 +1,5 @@
 // A tool field's answer as Getting started and the build's Requirements panel read it
-// (docs/plan.md §1.125.2, §1.125.6): a live connection answers it, and overtakes an earlier
+// (docs/plan.md §1.126.2, §1.126.6): a live connection answers it, and overtakes an earlier
 // "Can't connect it now" or "Later"; an answer someone gave stands.
 
 import { GUIDE_VERSION, type Guide, guideTotals } from "@countersign/core";

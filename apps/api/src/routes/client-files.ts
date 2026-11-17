@@ -1,4 +1,4 @@
-// The client file and saved starts (docs/plan.md §1.125; docs/cases-plan.md §4.1, §4.3): operator
+// The client file and saved starts (docs/plan.md §1.126; docs/cases-plan.md §4.1, §4.3): operator
 // only, in a transaction scoped to the clients the operator serves (a prospect's file names none).
 // Facts are only added; a correction names the fact it replaces. Starts are seeded in code (General
 // only, one per area with a pack, one per published template, Just the account) and archived,

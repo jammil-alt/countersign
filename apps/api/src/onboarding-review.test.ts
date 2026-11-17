@@ -1,4 +1,4 @@
-// Onboarding v1's review fixes (docs/plan.md §1.125.6), each on the real code with a fake Resend:
+// Onboarding v1's review fixes (docs/plan.md §1.126.6), each on the real code with a fake Resend:
 // one intake per client (a later Invite adds its cards and tells the people already on it), the
 // HIPAA refusal of onboarding's emails (invariant 14) and the to-do an email that didn't go
 // leaves, a colleague asked twice is emailed twice, a typed company that is already a client is

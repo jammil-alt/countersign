@@ -35,7 +35,7 @@ export interface MailMessage {
   /** §1.124.4: extra headers (e.g. In-Reply-To), as Resend's `headers`. */
   headers?: Record<string, string>;
   /**
-   * §1.125: sent by a person of ours from Mezonas' `hello@` address, `"<name> at Mezonas"
+   * §1.126: sent by a person of ours from Mezonas' `hello@` address, `"<name> at Mezonas"
    * <hello@domain>` (the onboarding emails, from the lead). Replies go to `replyTo`.
    */
   from?: { name: string; localPart: typeof HELLO_LOCAL_PART };
@@ -56,7 +56,7 @@ export function senderName(onBehalfOf: string | undefined): string {
   return name ? `${name} via Mezonas` : "Mezonas";
 }
 
-/** §1.125: a person of ours, `<name> at Mezonas`, without header syntax. */
+/** §1.126: a person of ours, `<name> at Mezonas`, without header syntax. */
 export function personSenderName(name: string): string {
   const clean = headerName(name);
   return clean ? `${clean} at Mezonas` : "Mezonas";
@@ -70,7 +70,7 @@ export interface Mailer {
 }
 
 export const NOTIFY_LOCAL_PART = "notify";
-// DECISION (§1.125, owner q9): the onboarding emails go from `hello@` on the same Resend domain as
+// DECISION (§1.126, owner q9): the onboarding emails go from `hello@` on the same Resend domain as
 // `notify@` (RESEND_FALLBACK_DOMAIN: `mezonas.com` in production once the owner verifies it).
 export const HELLO_LOCAL_PART = "hello";
 

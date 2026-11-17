@@ -4,7 +4,7 @@ Written from WorkOS's documentation and our own tests with a fake WorkOS client;
 been tried against a real WorkOS environment yet. Check each item on staging and mark it checked
 (with the date) or fix the code.
 
-## Onboarding's invites (`docs/plan.md` §1.125, `docs/cases-plan.md` §4.4)
+## Onboarding's invites (`docs/plan.md` §1.126, `docs/cases-plan.md` §4.4)
 
 The invite a client's person gets is **one email, ours**: the branded invite from their lead with a
 link to our welcome page (`/start/<token>`). WorkOS should send nothing of its own for it.

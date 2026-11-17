@@ -1,4 +1,4 @@
-// Invite and Sign up now (docs/plan.md §1.125; docs/cases-plan.md §4.2, §4.3): from a lead record,
+// Invite and Sign up now (docs/plan.md §1.126; docs/cases-plan.md §4.2, §4.3): from a lead record,
 // make the client (or use the one there is), invite its people, add the agents chosen on the bench
 // with a build each at Requirements request, open the intake and move the deal, in one
 // transaction, then email the people. Both are always a person's confirm (cases-plan §6): the

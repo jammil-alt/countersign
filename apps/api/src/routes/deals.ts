@@ -1,7 +1,7 @@
 // Sales (docs/plan.md §1.124.2; docs/cases-plan.md S1–S2): the operator's deals for new accounts
 // and expansion. Every route is the operator's (`/api/ops`), in a transaction scoped to the clients
 // the operator serves; a deal for a lead names no client. Set-up, which creates the client and
-// its builds, is in ../work/deal-setup.ts. §1.125: a deal points at its client file, and stages are
+// its builds, is in ../work/deal-setup.ts. §1.126: a deal points at its client file, and stages are
 // a record, not a gate (../work/deal-stages.ts).
 
 import { SIGNED_URL_TTL_SECONDS } from "@countersign/connectors";
@@ -148,7 +148,7 @@ export function dealRoutes(app: Hono<AppEnv>): void {
       throw new HttpError(422, "wrong_stage", "a new deal starts before its last stage");
     }
     const agentsSold = body.agentsSold ?? [];
-    // §1.125: a deal points at its company's client file: the one named, the client's, the
+    // §1.126: a deal points at its company's client file: the one named, the client's, the
     // company's prospect file, else one made from the company.
     let file = body.fileId ? await readFile(tx, tenantIds, body.fileId) : null;
     if (file?.clientId && body.clientId && file.clientId !== body.clientId) {
@@ -408,7 +408,7 @@ export function dealRoutes(app: Hono<AppEnv>): void {
     });
     const closed = await readDeal(tx, tenantIds, row.id);
     if (checkBackOn) await addCheckBack(tx, closed, checkBackOn, session.user.id);
-    // DECISION (cases-plan §8 q14, docs/plan.md §1.125): a lost lead we had already made an
+    // DECISION (cases-plan §8 q14, docs/plan.md §1.126): a lost lead we had already made an
     // account for (Invite or Sign up now, before the deal was won) has its account retired at
     // Lost. Retiring stays a person's typed confirm (§1.35's Retire), so Lost leaves the operator
     // a to-do for it, due today, once per deal.

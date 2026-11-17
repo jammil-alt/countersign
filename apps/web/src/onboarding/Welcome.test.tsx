@@ -1,4 +1,4 @@
-// `/start/:token` (docs/plan.md §1.125): the welcome page an invite opens, before sign-in. It shows
+// `/start/:token` (docs/plan.md §1.126): the welcome page an invite opens, before sign-in. It shows
 // who it's from, the lead's note and what's in it in the person's language, and starts WorkOS's
 // sign-in by Google, Microsoft or email with the invited address; signed in, the invited address
 // goes on to Getting started and any other is told whose invite it is, and nothing more; an

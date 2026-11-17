@@ -1,8 +1,8 @@
-// Saved starts (docs/cases-plan.md §4.3; docs/plan.md §1.125): Sign up now's and Invite's presets,
+// Saved starts (docs/cases-plan.md §4.3; docs/plan.md §1.126): Sign up now's and Invite's presets,
 // each a name, what it covers, the lead's note and how the client starts. A few come seeded
 // (General only, one per area, one per template, Just the account). Add, change, archive and
 // restore; nothing is deleted.
-// DECISION (§1.125, stream screens): the starts list is a side sheet opened from Sales' header
+// DECISION (§1.126, stream screens): the starts list is a side sheet opened from Sales' header
 // ("Starts", beside Sign up now), not a page in Autopilot: starts are Sales' presets, and a sheet
 // needs no new route.
 import { type Covers, EMPTY_COVERS, type SalesStartView, type StartMode } from "@countersign/core";

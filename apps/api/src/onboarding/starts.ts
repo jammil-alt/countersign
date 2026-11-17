@@ -1,4 +1,4 @@
-// Saved starts (docs/cases-plan.md §4.3; docs/plan.md §1.125): Sign up now's and Invite's presets.
+// Saved starts (docs/cases-plan.md §4.3; docs/plan.md §1.126): Sign up now's and Invite's presets.
 // Operator only and global (`sales_start`). A few are seeded in code, once each by their
 // `seed_key`, from the running platform: General only, one per area that has a pack, one per
 // published template, and Just the account. Archived, never deleted.

@@ -1,4 +1,4 @@
-// The client file (docs/cases-plan.md §4.1; docs/plan.md §1.125): what we know about a prospect or
+// The client file (docs/cases-plan.md §4.1; docs/plan.md §1.126): what we know about a prospect or
 // a client, by section, each fact with where it came from, how sure we are and who may see it.
 // Our notes are marked "Only us" in copper, as the deal's internal notes are: they never leave the
 // back office (invariant 11). Facts are only added to: a correction is a new fact that replaces the

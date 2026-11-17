@@ -296,7 +296,7 @@ export async function inviteToClient(
   },
   options: {
     surface: "ops" | "portal";
-    /** §1.125: false when Mezonas sends its own branded invite (the sign-in provider sends none). */
+    /** §1.126: false when Mezonas sends its own branded invite (the sign-in provider sends none). */
     providerEmail?: boolean;
   },
 ): Promise<InviteResult> {

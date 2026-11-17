@@ -25,7 +25,7 @@ export function notifyDepsFromEnv(env: Bindings, fetch?: FetchLike): NotifyDeps 
     pusher: pusherFromEnv(env, f),
     covered: parseCoveredProcessors(env.BAA_PROCESSORS),
     origin: originOf(env),
-    // §1.125: the onboarding emails' welcome links.
+    // §1.126: the onboarding emails' welcome links.
     links: env,
   };
 }

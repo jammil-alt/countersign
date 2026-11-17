@@ -147,7 +147,7 @@ function SalesSection({ tab }: { tab: SalesTab }) {
   const [view, setView] = useState<"board" | "list">(tab === "all" ? "list" : "board");
   const [sort, setSort] = useState<Sort<Col>>({ col: "due", dir: 1 });
   const [moveError, setMoveError] = useState<unknown>(null);
-  // §1.125: Sign up now and the saved starts open as side panels from the header.
+  // §1.126: Sign up now and the saved starts open as side panels from the header.
   const [panel, setPanel] = useState<"signup" | "starts" | null>(null);
 
   const today = all.data?.today ?? new Date().toISOString().slice(0, 10);

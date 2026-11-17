@@ -2997,7 +2997,7 @@ export const en = {
   "access.problem.lastAdmin": "Your business needs at least one admin.",
   "access.limitedHelp":
     "Users see only the agents you give them, with their runs and the items for them.",
-  // ── Getting started (docs/plan.md §1.125.2) ──
+  // ── Getting started (docs/plan.md §1.126.2) ──
   "start.title": "Getting started",
   "start.subtitle": "{answered} of {total} answered",
   "start.none": "Nothing to answer right now",

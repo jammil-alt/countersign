@@ -1,4 +1,4 @@
-// The client file and saved starts (docs/plan.md §1.125; docs/cases-plan.md §4.1, §4.3): the lead
+// The client file and saved starts (docs/plan.md §1.126; docs/cases-plan.md §4.1, §4.3): the lead
 // record's knowledge about a company, from the first conversation on, and Sign up now's presets.
 // Operator only: both are operator-only tables, and no portal route returns a file, a fact or a
 // start (invariant 11). Request and response schemas; stream SALES mounts the handlers.

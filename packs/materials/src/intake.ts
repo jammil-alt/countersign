@@ -1,5 +1,5 @@
 // The Purchasing area's questions for a client's intake (docs/cases-plan.md §4.2 step 2; docs/plan.md
-// §1.125.2): data in the manifest, asked on the Purchasing card of Getting started. Plain words;
+// §1.126.2): data in the manifest, asked on the Purchasing card of Getting started. Plain words;
 // never a secret. "Who approves" is the general card's question too, so it is asked once.
 
 import type { GuideSectionSourceInput } from "@countersign/core";

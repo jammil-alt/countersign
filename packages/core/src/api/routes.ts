@@ -38,7 +38,7 @@ import { buildRoutes } from "./build";
 // v0.12 W3-A: the Builder as a conversation
 import { builderRoutes } from "./builder";
 import { callRoutes } from "./calls";
-// docs/plan.md §1.125: onboarding v1
+// docs/plan.md §1.126: onboarding v1
 import { clientFileRoutes, startRoutes } from "./client-files";
 // v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export
 import { clientViewRoutes } from "./client-view";
@@ -1222,7 +1222,7 @@ export const opsRoutes = {
        */
       supervisor: z.boolean().optional(),
       /**
-       * §1.125 "Every account is in Sales": the deal and client file this client is set up from.
+       * §1.126 "Every account is in Sales": the deal and client file this client is set up from.
        * Omitted: the company's open New account deal (by name), else a new one at Set up the
        * account with the stages before it skipped.
        */
@@ -2540,7 +2540,7 @@ export const routes = {
   ...todoRoutes,
   // docs/plan.md §1.124.4: Reggie and Autopilot
   ...autopilotRoutes,
-  // docs/plan.md §1.125: onboarding v1
+  // docs/plan.md §1.126: onboarding v1
   ...clientFileRoutes,
   ...startRoutes,
   ...inviteRoutes,

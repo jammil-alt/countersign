@@ -149,7 +149,7 @@ export const BACKOFFICE_EMAIL_FEATURE = {
 } as const;
 
 /**
- * §1.125: onboarding's emails (the invite, a colleague asked, a few more questions) send the
+ * §1.126: onboarding's emails (the invite, a colleague asked, a few more questions) send the
  * client's name, the person's name and address, the lead's note and the cards' titles to Resend
  * (Mezonas' own mail). A client in HIPAA mode is refused them until `resend` is covered: Invite
  * and Ask someone else say so before anything is made, and a queued one is skipped `hipaa`.

@@ -1,4 +1,4 @@
-// Onboarding v1 end to end (docs/plan.md §1.125; docs/cases-plan.md §7 O1–O3), every stream's
+// Onboarding v1 end to end (docs/plan.md §1.126; docs/cases-plan.md §7 O1–O3), every stream's
 // real code with nothing stood in: an operator invites a new company from its client file (the
 // guide built from core's general section and the Purchasing pack's own, filled from the file's
 // `theirs` facts only), the branded invite goes through Resend from the lead at hello@ after the

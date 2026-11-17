@@ -1,4 +1,4 @@
-// A build's Requirements request (docs/cases-plan.md §3.2; docs/plan.md §1.125.2): the agent's card
+// A build's Requirements request (docs/cases-plan.md §3.2; docs/plan.md §1.126.2): the agent's card
 // on the client's intake is the request. The build shows that card's progress ("7 of 12
 // answered"), what's still needed to start and who has it, and the client's Start with this or Not
 // now. Read from the back office's intake routes; nothing here writes.

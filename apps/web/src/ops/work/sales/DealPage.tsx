@@ -2,7 +2,7 @@
 // deal's stage stepper, the composer and its timeline, and beside them its terms, people, Reggie's
 // read, the builds it opened and its details. "Set up the account" on a new deal at its proposal
 // or set-up creates the client and a build per agent; an agreed expansion opens its builds.
-// §1.125 (onboarding): Invite and, on a lead record, Sign up now open as side panels; the main
+// §1.126 (onboarding): Invite and, on a lead record, Sign up now open as side panels; the main
 // column has the timeline (with skipped stages and the intake's log) and the client file.
 import {
   type DealActivityView,
@@ -684,7 +684,7 @@ function inviteSetupOf(detail: DealDetail): InviteSetup {
     name: d.client?.name ?? d.company ?? d.title,
     people: invitees(detail),
     existingClient: Boolean(d.client),
-    // DECISION (§1.125, stream screens): until Reggie suggests what to cover, a new account starts
+    // DECISION (§1.126, stream screens): until Reggie suggests what to cover, a new account starts
     // with the general questions and the agents sold on the deal; an existing client with its agents.
     state: { covers: { general: !d.client, areas: [], templateIds: sold } },
   };

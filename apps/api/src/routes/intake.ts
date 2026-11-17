@@ -1,4 +1,4 @@
-// The intake (docs/plan.md §1.125, §1.125.2; docs/cases-plan.md §4.5): the back office reads a
+// The intake (docs/plan.md §1.126, §1.126.2; docs/cases-plan.md §4.5): the back office reads a
 // client's intakes (the build's Requirements panel reads its card from them); the client's people
 // read and answer theirs on Getting started, each only the sections they were asked (all of them for
 // the admin). Answers are data (invariant 9), checked against their field's kind (core

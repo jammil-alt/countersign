@@ -1,4 +1,4 @@
-// The onboarding emails (docs/cases-plan.md §4.4; docs/plan.md §1.125), each in the branded layout
+// The onboarding emails (docs/cases-plan.md §4.4; docs/plan.md §1.126), each in the branded layout
 // (`./layout`) in the person's language: the invite, a colleague asked, a few more questions. The
 // reminder, "Your scope is ready" and "What happens next" are next wave's. Nothing from the client
 // file beyond names, and no answers: the inputs below are all an email may carry.

@@ -1,4 +1,4 @@
-// `/start/:token` (docs/plan.md §1.125; docs/cases-plan.md §4.4): the welcome page an invite's link
+// `/start/:token` (docs/plan.md §1.126; docs/cases-plan.md §4.4): the welcome page an invite's link
 // opens, seen without sign-in. The client's name, the lead's name and note, what's in it and how
 // long, a security line, then Continue with Google, Microsoft or email (WorkOS, with the invited
 // address filled in). Back here signed in, the API checks the address against the invite: the

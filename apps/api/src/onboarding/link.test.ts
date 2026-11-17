@@ -1,4 +1,4 @@
-// The welcome link (docs/plan.md §1.125): signed over the client, the intake, the person and the
+// The welcome link (docs/plan.md §1.126): signed over the client, the intake, the person and the
 // expiry under its own label; a forged, altered or foreign token reads as nothing, an expired one
 // reads as expired.
 

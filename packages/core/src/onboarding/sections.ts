@@ -1,4 +1,4 @@
-// Where the guide's questions come from (docs/cases-plan.md §4.2 step 2; docs/plan.md §1.125.2):
+// Where the guide's questions come from (docs/cases-plan.md §4.2 step 2; docs/plan.md §1.126.2):
 // core's general section (ours, fixed), core's generic section for an area without a pack, a
 // pack's own area section (declared as data in its manifest: `PackManifest.intakeSection`) and a
 // template's client intake form (§1.108's fit-gap `setup`), read into a section here. Pure.

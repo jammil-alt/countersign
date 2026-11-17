@@ -80,7 +80,7 @@ export const marketingManifest: PackManifest = lazyParse(PackManifest, () => ({
   tools: Object.values(MARKETING_HANDLERS).map((t) => t.spec),
   skills: MARKETING_SKILLS,
   templates: all((a) => a.TEMPLATES),
-  // §1.125.2: the area's questions for a client's intake (Getting started's card).
+  // §1.126.2: the area's questions for a client's intake (Getting started's card).
   intakeSection: MARKETING_INTAKE_SECTION,
   screens: all((a) => a.SCREENS),
 }));

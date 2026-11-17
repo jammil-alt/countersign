@@ -1,4 +1,4 @@
-// Sales' part of onboarding v1 through the API (docs/plan.md §1.125; docs/cases-plan.md §3.1,
+// Sales' part of onboarding v1 through the API (docs/plan.md §1.126; docs/cases-plan.md §3.1,
 // §4.1–§4.3): the client file and its facts by hand (corrections replace, nothing is edited, an
 // `ours` fact never leaves the back office), a deal pointing at its file, stages as a record (skip
 // forward with who and why, to-dos for what a later stage wants), every account in Sales (a client

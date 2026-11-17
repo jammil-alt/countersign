@@ -1,4 +1,4 @@
-// Getting started through the API (docs/plan.md §1.125.2; docs/cases-plan.md §4.5): a client's
+// Getting started through the API (docs/plan.md §1.126.2; docs/cases-plan.md §4.5): a client's
 // people read only the cards they were asked (all of them for the admin), answer them, confirm or
 // change "We think" lines, mark not sure, say Start with this or Not now, ask a colleague (the
 // admin invites a new address, with our own email, never WorkOS's) and raise a different process

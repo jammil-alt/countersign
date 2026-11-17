@@ -62,7 +62,7 @@ describe.skipIf(!online)("purgeClient", () => {
       .values({ kind: "expansion", clientId: A.tenantId, title: "More", stage: "spotted" })
       .returning({ id: deal.id });
     await t.db.insert(dealPerson).values({ dealId: d?.id ?? "", name: "Pat Lee" });
-    // §1.125: A's client file and its facts go with A, and the deal that points at it.
+    // §1.126: A's client file and its facts go with A, and the deal that points at it.
     const [f] = await t.db
       .insert(clientFile)
       .values({ name: "A", clientId: A.tenantId, status: "client" })

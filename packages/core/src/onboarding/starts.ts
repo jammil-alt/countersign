@@ -1,5 +1,5 @@
 // What an intake covers, and the saved starts Sign up now and Invite offer (docs/cases-plan.md
-// §4.2 step 2, §4.3; docs/plan.md §1.125). A start is operator-only (`sales_start`): its name, what
+// §4.2 step 2, §4.3; docs/plan.md §1.126). A start is operator-only (`sales_start`): its name, what
 // it covers, the lead's note and how the client starts.
 
 import { z } from "zod";

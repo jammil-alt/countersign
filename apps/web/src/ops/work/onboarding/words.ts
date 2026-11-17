@@ -1,4 +1,4 @@
-// The onboarding screens' words (docs/plan.md §1.125; docs/cases-plan.md §4). The back office stays
+// The onboarding screens' words (docs/plan.md §1.126; docs/cases-plan.md §4). The back office stays
 // in English (§1.18); what the client sees (the emails, the welcome page) is rendered by the API in
 // their language and only shown here as a preview.
 import {

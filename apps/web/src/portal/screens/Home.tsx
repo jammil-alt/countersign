@@ -95,7 +95,7 @@ export function HomeScreen() {
   const first = session.user.name?.trim().split(/\s+/)[0];
   const part = partOfDay(now, tz);
   const greeting = first ? t(`table.greeting.${part}`, { name: first }) : t(`table.hello.${part}`);
-  // §1.125.2: while an intake is open and no agent is live, Getting started is the client's home.
+  // §1.126.2: while an intake is open and no agent is live, Getting started is the client's home.
   // DECISION: asked only once the table shows no live agent, so Home's calls don't go up for
   // anyone with an agent at work (gate 2); a failed ask leaves Home as it is.
   const noneLive = data !== undefined && !data.services.some((s) => s.stage === "live");

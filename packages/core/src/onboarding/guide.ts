@@ -1,11 +1,11 @@
-// The intake's guide (docs/cases-plan.md §4.2 step 3, §4.5; docs/plan.md §1.125): one section for
+// The intake's guide (docs/cases-plan.md §4.2 step 3, §4.5; docs/plan.md §1.126): one section for
 // the general questions, one per area, one per agent template, each a list of fields. Shared
 // questions are asked once (merged), and each field is filled from the client file's `theirs`
 // facts: known (not asked), to confirm ("We think: …", Yes or Change), to ask, or later. Both ways
 // through (the cards and Sloan) read and write the same guide; the plain form always works.
 //
 // The schemas and the small helpers here are the contract every onboarding stream shares; the
-// building, merging, counting and progress below are pure (stream INTAKE, docs/plan.md §1.125.2).
+// building, merging, counting and progress below are pure (stream INTAKE, docs/plan.md §1.126.2).
 
 import { z } from "zod";
 import { asksForSecret } from "../forms";
@@ -278,7 +278,7 @@ export interface BuildGuideInput {
   edits?: GuideEditsInput;
 }
 
-// ── Building the guide (stream INTAKE, docs/plan.md §1.125.2) ───────────────────────────────────
+// ── Building the guide (stream INTAKE, docs/plan.md §1.126.2) ───────────────────────────────────
 
 /** A section's progress for the client's cards and the build's Requirements panel. */
 export const SectionProgress = z.object({

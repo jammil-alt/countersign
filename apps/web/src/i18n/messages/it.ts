@@ -3096,7 +3096,7 @@ export const it: Messages = {
   "access.problem.lastAdmin": "La tua azienda ha bisogno di almeno un admin.",
   "access.limitedHelp":
     "Gli utenti vedono solo gli agenti che assegni loro, con le loro esecuzioni e attività.",
-  // ── Getting started (docs/plan.md §1.125.2) ──
+  // ── Getting started (docs/plan.md §1.126.2) ──
   "start.title": "Per iniziare",
   "start.subtitle": "{answered} di {total} con risposta",
   "start.none": "Niente a cui rispondere per ora",

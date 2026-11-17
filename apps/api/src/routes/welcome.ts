@@ -1,4 +1,4 @@
-// The welcome page (docs/plan.md §1.125; docs/cases-plan.md §4.4): `/start/<token>`, seen without
+// The welcome page (docs/plan.md §1.126; docs/cases-plan.md §4.4): `/start/<token>`, seen without
 // sign-in, opened by the signed welcome link (../onboarding/link.ts). Reading it logs `opened` on
 // the intake once (no tracking pixels). It shows names, the lead's note and what's in it; never the
 // file, an answer or anything of ours. The token is never a way in on its own: the page leads to

@@ -80,7 +80,7 @@ export const portalRoutes = (
     <Route path="settings/texting" element={<PortalSettingsScreen section="texting" />} />
 
     {/* Off the nav, reached from an agent, a run, Home or Sloan */}
-    {/* §1.125.2: Getting started, the client's home while an intake is open and no agent is live */}
+    {/* §1.126.2: Getting started, the client's home while an intake is open and no agent is live */}
     <Route path="start" element={<GettingStartedScreen />} />
     <Route path="weekly" element={<PortalWeeklyScreen />} />
     <Route path="sloan" element={<PortalSloanScreen />} />

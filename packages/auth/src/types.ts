@@ -144,7 +144,7 @@ export type InviteDelivery =
   | { readonly status: "sent"; readonly invitationId: string }
   /** Nothing to send: the dev sign-in lists every user, so they can sign in at once. */
   | { readonly status: "not_sent"; readonly reason: "dev_sign_in" }
-  /** Not the provider's to send: Mezonas sends its own branded invite (docs/plan.md §1.125). */
+  /** Not the provider's to send: Mezonas sends its own branded invite (docs/plan.md §1.126). */
   | { readonly status: "not_sent"; readonly reason: "ours" }
   /** The provider refused or could not be reached; `reason` is its error code, never its text. */
   | { readonly status: "failed"; readonly reason: string };

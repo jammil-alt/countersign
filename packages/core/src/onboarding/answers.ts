@@ -1,4 +1,4 @@
-// The client's answers on Getting started (docs/cases-plan.md §4.5; docs/plan.md §1.125.2): which
+// The client's answers on Getting started (docs/cases-plan.md §4.5; docs/plan.md §1.126.2): which
 // cards a person sees, each answer checked against its field's kind, pasted card numbers and social
 // security numbers redacted before storage, and the guide as the portal shows it (no fact ids, no
 // question's origin: invariant 11). Answers are data (invariant 9): "let it pay bills without

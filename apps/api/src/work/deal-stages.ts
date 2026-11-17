@@ -1,4 +1,4 @@
-// Stages are a record, not a gate (docs/cases-plan.md §3.1; docs/plan.md §1.125): a deal moves
+// Stages are a record, not a gate (docs/cases-plan.md §3.1; docs/plan.md §1.126): a deal moves
 // forward past any stage, and each stage it passes over is a `stage` line on its timeline marked
 // skipped, with who and why. What a later stage wants and wasn't given (the agreed price, the
 // signed copy, what we're starting with) becomes a to-do on Your call, due in a week, made once per

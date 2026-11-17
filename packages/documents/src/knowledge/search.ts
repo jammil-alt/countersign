@@ -10,7 +10,7 @@ export const SEARCH_LIMIT_DEFAULT = 5;
 export const SEARCH_LIMIT_MAX = 20;
 export const SEARCH_QUERY_MAX = 500;
 
-// §1.125 (0066): `about`, confirmed facts about the client's business (filed at the scope's signing).
+// §1.126 (0066): `about`, confirmed facts about the client's business (filed at the scope's signing).
 export type KnowledgeHitKind = "faq" | "policy" | "about" | "document" | "memory";
 
 export interface KnowledgeHit {

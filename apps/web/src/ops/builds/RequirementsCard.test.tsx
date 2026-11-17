@@ -1,5 +1,5 @@
 // A build's Requirements request reads its agent's card from the client's intake (docs/plan.md
-// §1.125.2; cases-plan §3.2): answered of total, what's still needed to start and who has it.
+// §1.126.2; cases-plan §3.2): answered of total, what's still needed to start and who has it.
 import type { OpsIntakeSummary, OpsIntakeView } from "@countersign/core";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";

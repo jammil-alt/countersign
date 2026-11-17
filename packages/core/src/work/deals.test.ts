@@ -167,7 +167,7 @@ describe("the Sales figures", () => {
   });
 });
 
-describe("stages as a record, not a gate (§1.125)", () => {
+describe("stages as a record, not a gate (§1.126)", () => {
   it("names the stages a forward move skips, none going back or one step on", () => {
     expect(skippedStages("new", "lead", "setup")).toEqual(["qualified", "diagnostic", "proposal"]);
     expect(skippedStages("new", "lead", "qualified")).toEqual([]);

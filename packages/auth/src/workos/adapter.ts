@@ -72,7 +72,7 @@ export interface SecondFactorPolicy {
   remembered?(input: { request: Request; userId: string; now: Date }): Promise<boolean>;
 }
 
-/** §1.125: how the welcome page starts a sign-in: Google, Microsoft or AuthKit's email. */
+/** §1.126: how the welcome page starts a sign-in: Google, Microsoft or AuthKit's email. */
 export const SIGN_IN_METHODS = ["google", "microsoft", "email"] as const;
 export type SignInMethod = (typeof SIGN_IN_METHODS)[number];
 
@@ -136,7 +136,7 @@ export interface WorkOSAdapter extends AuthAdapter {
       returnTo?: string | null;
       restart?: boolean;
       /**
-       * §1.125: the welcome page's buttons: Google's or Microsoft's own sign-in, or AuthKit's
+       * §1.126: the welcome page's buttons: Google's or Microsoft's own sign-in, or AuthKit's
        * email sign-in (the default), with the invited address filled in.
        */
       method?: SignInMethod | null;
@@ -148,7 +148,7 @@ export interface WorkOSAdapter extends AuthAdapter {
   callback(request: Request, now: Date): Promise<Redirect | CallbackRefusal>;
   signOut(request: Request): Promise<Redirect>;
   /**
-   * §1.125's fallback, unused until WorkOS is checked (packages/auth/NOTES.md): a WorkOS
+   * §1.126's fallback, unused until WorkOS is checked (packages/auth/NOTES.md): a WorkOS
    * invitation whose accept link sits behind our welcome page, for when AuthKit won't let an
    * address sign up without one. With WorkOS's invitation email turned off it sends nothing.
    * Never throws: a failure is `failed` with WorkOS's code.
@@ -427,7 +427,7 @@ export function createWorkOSAdapter(options: {
     },
 
     async invite(email, options) {
-      // DECISION (§1.125; unchecked against WorkOS, docs/cases-plan.md §4.4 "One email, not two"):
+      // DECISION (§1.126; unchecked against WorkOS, docs/cases-plan.md §4.4 "One email, not two"):
       // with Mezonas' own invite no WorkOS invitation is made, so WorkOS emails nothing; the person
       // signs in with the invited address and is linked by it, as when §1.14's email fails.
       if (options?.providerEmail === false) return { status: "not_sent", reason: "ours" } as const;
