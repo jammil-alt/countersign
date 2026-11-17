@@ -3,20 +3,32 @@
 // (`qbo.purchase.create`, `qbo.deposit.create`, `qbo.transfer.create`, each behind approval) and
 // `bookkeeping.booking.posted` records what it became.
 
-import { BANKING_TOOLS } from "@countersign/connectors";
+import { BANKING_TOOLS, referenceMark } from "@countersign/connectors";
 import { dec } from "@countersign/core";
-import { ledgerAccount, type Tx, vendor, withTenant } from "@countersign/db";
+import { ledgerAccount, type Tx, transaction, vendor, withTenant } from "@countersign/db";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
-import { MONEY_KINDS, releasePaired } from "./bookings";
+import { holdPaired, MONEY_KINDS } from "./bookings";
 import { defineTool, PackRefusal, type PackTool } from "./pack";
 import { bankAccountLink, bankTxn, booking, bookingLine } from "./schema";
 
 const Id = z.string().uuid();
 const cents = (v: string) => dec(v).toFixed(2);
 
-/** The reference a booking's record carries in the accounting tool (`[Mezonas bk-<id>]`). */
+/** The reference records written before 2026-11-17 carry (`[Mezonas bk-<booking id>]`). */
 export const bookingReference = (bookingId: string) => `bk-${bookingId}`;
+/**
+ * The reference a booking's record carries in the accounting tool (`[Mezonas bt-<bank transaction
+ * id>]`): every booking of one bank transaction carries the same, so a write made for an earlier
+ * booking of it and never recorded (a run stopped after the write) is found as already written,
+ * not made again, when the transaction is booked again.
+ */
+// DECISION: per bank transaction rather than per booking, so the connector's own check ("a record
+// with this reference is this action's earlier write") covers re-bookings with no new field on
+// the write steps (whose versions are fixed).
+export const txnReference = (bankTxnId: string) => `bt-${bankTxnId}`;
+/** A per-booking mark in a record's memo, as a POSIX pattern. */
+const LEGACY_MARK = "\\[Mezonas bk-[0-9a-f-]{36}\\]";
 
 export const readyTool = defineTool({
   id: "bookkeeping.bookings.ready",
@@ -143,8 +155,44 @@ export async function qboInput(tx: Tx, tenantId: string, bookingId: string) {
   const lineAccounts: Awaited<ReturnType<typeof ledger>>[] = [];
   for (const line of lines) lineAccounts.push(await ledger(line.ledgerAccountId));
   const memo = (b.memo ?? t.payee ?? "").trim().slice(0, 200) || undefined;
-  const reference = bookingReference(b.id);
+  const reference = txnReference(t.id);
   const sources = [b.id, t.rawRecordId];
+  // A record an earlier booking of this transaction wrote under the old per-booking reference,
+  // synced back: it is already in the accounting tool, and isn't written again.
+  const earlier = await tx
+    .select({ id: booking.id })
+    .from(booking)
+    .where(
+      and(
+        eq(booking.tenantId, tenantId),
+        eq(booking.bankTxnId, t.id),
+        sql`${booking.id} <> ${b.id}`,
+        sql`${booking.kind} <> 'match'`,
+      ),
+    );
+  if (earlier.length > 0) {
+    const marks = earlier.map((e) => referenceMark(bookingReference(e.id)));
+    const [written] = await tx
+      .select({ ext: transaction.ext })
+      .from(transaction)
+      .where(
+        and(
+          eq(transaction.tenantId, tenantId),
+          sql`coalesce((${transaction.ext} -> 'qbo' ->> 'deleted')::boolean, false) = false`,
+          inArray(
+            sql`substring(coalesce(${transaction.memo}, '') from ${LEGACY_MARK}::text)`,
+            marks,
+          ),
+        ),
+      )
+      .limit(1);
+    if (written) {
+      const q = (written.ext as { qbo?: { entity?: string; id?: string } }).qbo ?? {};
+      throw new PackRefusal(
+        `an earlier booking of this transaction is already in QuickBooks (${q.entity ?? "record"} ${q.id ?? ""}): leave this one out, or change that record there`,
+      );
+    }
+  }
   if (b.kind === "transfer") {
     const other = lineAccounts[0];
     if (!other || lines.length !== 1) throw new PackRefusal("a transfer has one line");
@@ -312,8 +360,8 @@ export const postedTool = defineTool({
         .update(bankTxn)
         .set({ status: input.qboId ? "posted" : "needs_review", updatedAt: sql`now()` })
         .where(and(eq(bankTxn.tenantId, ctx.tenantId), eq(bankTxn.id, b.bankTxnId)));
-      // A transfer not written: its other side is decided on its own again.
-      if (!input.qboId) await releasePaired(tx, ctx.tenantId, [b.id]);
+      // A transfer not written: its other side waits for a person with it.
+      if (!input.qboId) await holdPaired(tx, ctx.tenantId, { id: b.bankTxnId }, "not_written");
       return { recorded: true, status, sources: [b.id, ...(input.qboId ? [input.qboId] : [])] };
     });
   },

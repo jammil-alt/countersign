@@ -19,7 +19,7 @@ export { PACK_ID } from "./ids";
 export { BOOKKEEPING_HANDLERS, BOOKKEEPING_SKILLS, bookkeepingManifest } from "./manifest";
 export * from "./pack";
 export { payeeKey } from "./payee";
-export { bookingReference, POSTING_TOOLS, qboInput } from "./posting";
+export { bookingReference, POSTING_TOOLS, qboInput, txnReference } from "./posting";
 export { RECONCILE_REPORTS, RECONCILE_REVIEWS, RECONCILIATION_REVIEW } from "./reconcile/api";
 export * from "./reconcile/engine";
 export { RECONCILE_SKILLS } from "./reconcile/skills";

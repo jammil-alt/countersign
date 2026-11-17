@@ -295,7 +295,7 @@ export function summaryOf(r: {
   const more = r.leftovers.length > 5 ? `; ${r.leftovers.length - 5} more` : "";
   const gap =
     r.outcome === "unexplained" && r.startGap && !dec(r.startGap).isZero()
-      ? ` The opening balances differ by ${fmt(r.startGap, r.currency)} and nothing carried from the last sign-off explains it.`
+      ? ` The opening balances differ by ${fmt(r.startGap, r.currency)} and nothing carried from the last sign-off explains it: add what was outstanding at the start of the period, such as a check written before it that cleared during it.`
       : "";
   const unexplained =
     r.outcome === "unexplained"

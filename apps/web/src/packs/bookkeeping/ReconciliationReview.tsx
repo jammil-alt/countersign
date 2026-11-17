@@ -59,6 +59,7 @@ export function ReconciliationReview({
   const accepted = r.matches.filter((m) => m.status === "accepted");
   // A decimal string, compared as text: "0.0000" is zero (money is never a float).
   const unexplained = !/^-?0+(\.0+)?$/.test(r.residual);
+  const startGap = r.startGap && !/^-?0+(\.0+)?$/.test(r.startGap) ? r.startGap : null;
 
   async function decide(action: string, input: Record<string, unknown>) {
     setBusy(true);
@@ -135,6 +136,11 @@ export function ReconciliationReview({
           </Badge>
         ) : null}
       </div>
+      {unexplained && startGap ? (
+        <p className="text-sm text-ink" data-testid="reconciliation-start-gap">
+          {t("bookkeeping.recon.startGap", { amount: money(startGap) })}
+        </p>
+      ) : null}
 
       {proposals.length > 0 ? (
         <section className="flex flex-col gap-2">

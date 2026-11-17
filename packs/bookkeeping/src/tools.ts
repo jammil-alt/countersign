@@ -14,6 +14,8 @@ import { defineTool, type PackTool } from "./pack";
 import { bankAccountLink, bankTxn } from "./schema";
 
 const Id = z.string().uuid();
+/** The most transaction ids one step hands the next (settle's open list, the open read's ids). */
+export const OPEN_BATCH = 100;
 
 /** `book_confidence_auto` from the step's skill settings, else the default. */
 export function thresholdFrom(settings: Readonly<Record<string, unknown>>): number {
@@ -90,7 +92,10 @@ export const settleTool = defineTool({
         { ...(input.limit ? { limit: input.limit } : {}), testRun: ctx.mode === "test" },
       ),
     );
-    return { ...r, openCount: r.open.length, sources: r.open };
+    // DECISION: at most OPEN_BATCH ids go on, what the next step (the open transactions' read)
+    // takes; the rest stay `new` and are answered by the next pass.
+    const open = r.open.slice(0, OPEN_BATCH);
+    return { ...r, open, openCount: r.open.length, sources: open };
   },
 });
 
@@ -118,6 +123,8 @@ const TxnOut = z.object({
       name: z.string().nullable(),
       date: z.string().nullable(),
       balance: z.string(),
+      /** Its vendor or customer is the payee: a person decides it. Else only a possibility. */
+      confirmed: z.boolean(),
     })
     .nullable(),
 });
@@ -130,7 +137,7 @@ export const openTool = defineTool({
   entity: "transaction",
   area: "shared",
   input: z.object({
-    ids: z.array(Id).max(100).optional(),
+    ids: z.array(Id).max(OPEN_BATCH).optional(),
     limit: z.number().int().min(1).max(100).default(25),
   }),
   output: z.object({ transactions: z.array(TxnOut) }),
@@ -185,7 +192,7 @@ function openItemView(t: Parameters<typeof openItemOf>[0]) {
   const item = openItemOf(t);
   if (!item) return null;
   const { kind, docNumber, name, date, balance } = item;
-  return { kind, docNumber, name, date, balance };
+  return { kind, docNumber, name, date, balance, confirmed: item.confirmed === true };
 }
 
 const AccountOut = z.object({

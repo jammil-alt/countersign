@@ -142,6 +142,16 @@ export interface ReviewTransaction {
     balance: string;
     currency: string;
   } | null;
+  /** The transfer's other side, when this waits because that transfer didn't stand. */
+  pairedWith?: {
+    id: string;
+    date: string;
+    amount: string;
+    currency: string;
+    direction: "in" | "out";
+    account: string | null;
+    why: string;
+  } | null;
   booking: {
     id: string;
     kind: string;
@@ -261,6 +271,8 @@ export interface ReconciliationView {
   bClosing: string;
   difference: string;
   residual: string;
+  /** What the openings differ by that nothing carried explains (part of the residual). */
+  startGap?: string;
   outcome: ReconOutcome;
   status: ReconStatus;
   signedOffAt: string | null;

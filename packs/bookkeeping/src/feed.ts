@@ -12,6 +12,7 @@ import { dec, toNumeric } from "@countersign/core";
 import { connection, rawRecord, type Tx } from "@countersign/db";
 import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
+import { holdPaired } from "./bookings";
 import { payeeKey } from "./payee";
 import {
   type BankTxnStatus,
@@ -309,6 +310,8 @@ async function removeTxn(
 
 /** A proposal that no longer stands (the transaction changed or went): `superseded`. */
 export async function supersedeLive(tx: Tx, tenantId: string, bankTxnId: string): Promise<void> {
+  // A side paired with it waits for a person (or pairs again when it is settled).
+  await holdPaired(tx, tenantId, { id: bankTxnId }, "changed");
   await tx
     .update(booking)
     .set({ status: "superseded", decidedAt: sql`now()` })

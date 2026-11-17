@@ -123,6 +123,19 @@ export function BookingsReview({
                       )}
                     </p>
                   ) : null}
+                  {txn.pairedWith ? (
+                    <p className="text-sm text-ink" data-testid="bookings-review-paired">
+                      {t("bookkeeping.review.pairHeld", {
+                        what: [
+                          dayLabel(txn.pairedWith.date, intl),
+                          `${txn.pairedWith.direction === "in" ? "+" : "−"}${fmt.money(txn.pairedWith.amount, txn.pairedWith.currency)}`,
+                          txn.pairedWith.account,
+                        ]
+                          .filter(Boolean)
+                          .join(" · "),
+                      })}
+                    </p>
+                  ) : null}
                 </div>
                 <Badge
                   tone={decidable ? "warning" : STATUS_TONE[txn.status]}

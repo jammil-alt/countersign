@@ -2798,9 +2798,11 @@ export const fr: Messages = {
   "bookkeeping.review.suggested": "Nous suggérons {account}",
   "bookkeeping.review.noSuggestion": "Pas encore de suggestion",
   "bookkeeping.review.openBill":
-    "Cela ressemble au paiement d'une facture fournisseur ouverte : {what}. Imputez-le à cette facture dans QuickBooks, puis écartez-le ici.",
+    "Est-ce le paiement d'une facture fournisseur ouverte : {what} ? Si oui, imputez-le à cette facture dans QuickBooks, puis écartez-le ici.",
   "bookkeeping.review.openInvoice":
-    "Cela ressemble à l'encaissement d'une facture ouverte : {what}. Imputez-le à cette facture dans QuickBooks, puis écartez-le ici.",
+    "Est-ce l'encaissement d'une facture ouverte : {what} ? Si oui, imputez-le à cette facture dans QuickBooks, puis écartez-le ici.",
+  "bookkeeping.review.pairHeld":
+    "Opération {what} : peut être l'autre côté d'un virement qui n'a pas été enregistré ou a été écarté. Décidez des deux ensemble.",
   "bookkeeping.review.approve": "Approuver",
   "bookkeeping.review.account": "Compte pour {payee}",
   "bookkeeping.review.why": "Pourquoi, en quelques mots (facultatif)",
@@ -2821,6 +2823,8 @@ export const fr: Messages = {
   "bookkeeping.recon.loading": "Chargement du rapprochement…",
   "bookkeeping.recon.difference": "Écart",
   "bookkeeping.recon.unexplainedBy": "{amount} non expliqué",
+  "bookkeeping.recon.startGap":
+    "Les soldes d'ouverture diffèrent de {amount}, et rien de reporté depuis la dernière validation ne l'explique. Ajoutez ce qui était en suspens au début de la période, comme un chèque émis avant et encaissé pendant celle-ci.",
   "bookkeeping.recon.asOf": "Au {day}",
   "bookkeeping.recon.outcome.balanced": "Équilibré",
   "bookkeeping.recon.outcome.explained": "Expliqué",

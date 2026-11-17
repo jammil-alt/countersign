@@ -2766,9 +2766,11 @@ export const it: Messages = {
   "bookkeeping.review.suggested": "Suggeriamo {account}",
   "bookkeeping.review.noSuggestion": "Ancora nessun suggerimento",
   "bookkeeping.review.openBill":
-    "Sembra il pagamento di una fattura fornitore aperta: {what}. Registralo su quella fattura in QuickBooks, poi escludilo qui.",
+    "È il pagamento di una fattura fornitore aperta: {what}? Se sì, registralo su quella fattura in QuickBooks, poi escludilo qui.",
   "bookkeeping.review.openInvoice":
-    "Sembra l'incasso di una fattura aperta: {what}. Registralo su quella fattura in QuickBooks, poi escludilo qui.",
+    "È l'incasso di una fattura aperta: {what}? Se sì, registralo su quella fattura in QuickBooks, poi escludilo qui.",
+  "bookkeeping.review.pairHeld":
+    "Movimento {what}: può essere l'altro lato di un giroconto non registrato o escluso. Decidi i due insieme.",
   "bookkeeping.review.approve": "Approva",
   "bookkeeping.review.account": "Conto per {payee}",
   "bookkeeping.review.why": "Perché, in poche parole (facoltativo)",
@@ -2789,6 +2791,8 @@ export const it: Messages = {
   "bookkeeping.recon.loading": "Caricamento della riconciliazione…",
   "bookkeeping.recon.difference": "Differenza",
   "bookkeeping.recon.unexplainedBy": "{amount} non spiegato",
+  "bookkeeping.recon.startGap":
+    "I saldi iniziali differiscono di {amount} e nulla di quanto riportato dall'ultima approvazione lo spiega. Aggiungi ciò che era in sospeso all'inizio del periodo, come un assegno emesso prima e incassato durante il periodo.",
   "bookkeeping.recon.asOf": "Al {day}",
   "bookkeeping.recon.outcome.balanced": "In pari",
   "bookkeeping.recon.outcome.explained": "Spiegata",

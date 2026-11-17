@@ -365,6 +365,7 @@ describe.skipIf(!online)("reconciliation (database, as cs_worker)", () => {
       needsPerson: true,
     });
     expect(out.summary).toContain("The opening balances differ by −$500.00");
+    expect(out.summary).toContain("add what was outstanding at the start of the period");
     const id = String(out.reconciliationId);
     const view = await load(A, id);
     expect(view).toMatchObject({

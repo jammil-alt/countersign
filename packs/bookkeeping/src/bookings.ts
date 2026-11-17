@@ -3,7 +3,6 @@
 // the feed (transfer), the client's rule for the payee, then the model's proposal, and a person
 // last. Every decision is a `booking` with its lines; nothing here writes to the accounting tool.
 
-import { referenceMark } from "@countersign/connectors";
 import { dec, toNumeric } from "@countersign/core";
 import {
   type LedgerKind,
@@ -41,8 +40,6 @@ export const LEARN_AFTER = 2;
 export const MONEY_KINDS: readonly LedgerKind[] = ["bank", "card"];
 /** How far back an open bill or invoice is looked for, for a payment of it. */
 export const OPEN_ITEM_DAYS = 180;
-/** What starts the mark each booking's record carries in the accounting tool (`[Mezonas bk-<id>]`). */
-const MARK_PREFIX = referenceMark("bk-").slice(0, -1);
 
 export interface Decider {
   tenantId: string;
@@ -229,7 +226,7 @@ async function insertBooking(
 
 /** The standing proposal (or approval, not yet posted) gives way to a new decision. */
 async function supersede(tx: Tx, tenantId: string, bankTxnId: string): Promise<void> {
-  const gone = await tx
+  await tx
     .update(booking)
     .set({ status: "superseded", decidedAt: sql`now()` })
     .where(
@@ -238,37 +235,162 @@ async function supersede(tx: Tx, tenantId: string, bankTxnId: string): Promise<v
         eq(booking.bankTxnId, bankTxnId),
         inArray(booking.status, ["proposed", "approved"]),
       ),
-    )
-    .returning({ id: booking.id });
-  await releasePaired(
-    tx,
-    tenantId,
-    gone.map((b) => b.id),
-  );
+    );
 }
 
-/**
- * A transfer booking that no longer stands (superseded, rejected, not written): the other side it
- * had marked matched goes back to `new`, to be decided on its own.
- */
-export async function releasePaired(
-  tx: Tx,
-  tenantId: string,
-  bookingIds: readonly string[],
-): Promise<number> {
-  if (bookingIds.length === 0) return 0;
-  const freed = await tx
-    .update(bankTxn)
-    .set({ status: "new", ext: sql`${bankTxn.ext} - 'transferBookingId'`, updatedAt: sql`now()` })
+// ── The two sides of a transfer ──────────────────────────────────────────────────────────────────
+//
+// A transfer is booked once, on one side; the other side is `matched` with `ext.transferBookingId`
+// (the booking) and `ext.pairedTxnId` (the side it is booked on). When that booking stops standing:
+// - a person (or the model) decides the booked side as something other than a transfer: the
+//   pairing was wrong, and the other side is freed (`new`) to be decided on its own;
+// - the write isn't made, the booked side is left out, or the bank changes it: the money may still
+//   have moved between the two accounts, so the other side waits for a person (`needs_review`,
+//   `ext.pairedTxnId` kept, `ext.heldWhy` saying why) and is never proposed on its own;
+// - the booked side is booked as a transfer again: the other side is matched to the new booking.
+// A side the bank dropped after it was decided (`removedAfterPosting`) is never changed here.
+
+const PAIR_KEYS = ["transferBookingId", "pairedTxnId", "heldWhy"] as const;
+
+function withoutPair(ext: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...ext };
+  for (const k of PAIR_KEYS) delete out[k];
+  return out;
+}
+
+/** The other sides paired with this transaction (matched to its transfer, or held for a person). */
+async function pairedSides(tx: Tx, tenantId: string, t: Pick<TxnRow, "id">) {
+  return tx
+    .select({ txn: bankTxn, ledgerAccountId: bankAccountLink.ledgerAccountId })
+    .from(bankTxn)
+    .innerJoin(
+      bankAccountLink,
+      and(
+        eq(bankAccountLink.id, bankTxn.accountLinkId),
+        eq(bankAccountLink.tenantId, bankTxn.tenantId),
+      ),
+    )
     .where(
       and(
         eq(bankTxn.tenantId, tenantId),
-        eq(bankTxn.status, "matched"),
-        inArray(sql`${bankTxn.ext} ->> 'transferBookingId'`, [...bookingIds]),
+        ne(bankTxn.id, t.id),
+        inArray(bankTxn.status, ["matched", "needs_review"]),
+        sql`coalesce((${bankTxn.ext} ->> 'removedAfterPosting')::boolean, false) = false`,
+        or(
+          sql`${bankTxn.ext} ->> 'pairedTxnId' = ${t.id}::text`,
+          // Pairings made before `pairedTxnId` was kept name only the booking.
+          sql`${bankTxn.ext} ->> 'transferBookingId' in (select b.id::text from ${booking} b where b.tenant_id = ${tenantId} and b.bank_txn_id = ${t.id})`,
+        ),
       ),
-    )
-    .returning({ id: bankTxn.id });
-  return freed.length;
+    );
+}
+
+/** One side matched to the transfer booked on the other: its own proposals give way. */
+async function matchSide(
+  tx: Tx,
+  tenantId: string,
+  side: TxnRow,
+  transferBookingId: string,
+  pairedTxnId: string,
+  decidedBy: Record<string, unknown> | null = null,
+): Promise<void> {
+  await supersede(tx, tenantId, side.id);
+  await setStatus(tx, tenantId, side.id, "matched", {
+    ...withoutPair(side.ext),
+    transferBookingId,
+    pairedTxnId,
+    ...(decidedBy ? { matchedBy: decidedBy } : {}),
+  });
+}
+
+/** One side no longer paired: `new`, its proposals made while it was held given way. */
+async function freeSide(tx: Tx, tenantId: string, side: TxnRow): Promise<void> {
+  await supersede(tx, tenantId, side.id);
+  await setStatus(tx, tenantId, side.id, "new", withoutPair(side.ext));
+}
+
+/**
+ * The booked side's transfer stopped standing without anyone deciding it isn't a transfer (the
+ * write wasn't made, it was left out, the bank changed it): its other side waits for a person.
+ */
+export async function holdPaired(
+  tx: Tx,
+  tenantId: string,
+  t: Pick<TxnRow, "id">,
+  why: "not_written" | "left_out" | "changed",
+): Promise<number> {
+  const sides = await pairedSides(tx, tenantId, t);
+  for (const { txn: side } of sides) {
+    if (side.status !== "matched") continue;
+    const ext = { ...withoutPair(side.ext), pairedTxnId: t.id, heldWhy: why };
+    await setStatus(tx, tenantId, side.id, "needs_review", ext);
+  }
+  return sides.length;
+}
+
+/**
+ * After a person's or the model's new booking of `t`: as a transfer, the other side (either one
+ * paired with it, or the one it was itself held for) is matched to it when it is that account's,
+ * else freed; as anything else, the sides paired with it are freed.
+ */
+async function repairPaired(
+  tx: Tx,
+  tenantId: string,
+  t: TxnRow,
+  made: { bookingId: string; kind: BookingKind; lineAccountId: string | null; byPerson?: boolean },
+): Promise<void> {
+  const sides = await pairedSides(tx, tenantId, t);
+  const heldFor = (t.ext as { pairedTxnId?: unknown }).pairedTxnId;
+  if (made.kind === "transfer" && typeof heldFor === "string") {
+    // This side was the one held: the side the transfer was first booked on is matched to it.
+    const [first] = await tx
+      .select({ txn: bankTxn, ledgerAccountId: bankAccountLink.ledgerAccountId })
+      .from(bankTxn)
+      .innerJoin(
+        bankAccountLink,
+        and(
+          eq(bankAccountLink.id, bankTxn.accountLinkId),
+          eq(bankAccountLink.tenantId, bankTxn.tenantId),
+        ),
+      )
+      .where(
+        and(
+          eq(bankTxn.tenantId, tenantId),
+          sql`${bankTxn.id}::text = ${heldFor}`,
+          inArray(bankTxn.status, ["new", "needs_review", "skipped"]),
+          sql`coalesce((${bankTxn.ext} ->> 'removedAfterPosting')::boolean, false) = false`,
+        ),
+      );
+    if (first) sides.push(first);
+  }
+  for (const { txn: side, ledgerAccountId } of sides) {
+    if (made.kind === "transfer" && ledgerAccountId === made.lineAccountId) {
+      await matchSide(tx, tenantId, side, made.bookingId, t.id);
+    } else if (side.status === "matched" || (side.ext as { heldWhy?: unknown }).heldWhy) {
+      await freeSide(tx, tenantId, side);
+    }
+  }
+  // A held side keeps saying what it was held for until a person decides it.
+  if (typeof heldFor === "string" && made.byPerson) {
+    const [now] = await tx
+      .select({ ext: bankTxn.ext })
+      .from(bankTxn)
+      .where(and(eq(bankTxn.tenantId, tenantId), eq(bankTxn.id, t.id)));
+    if (now) {
+      await tx
+        .update(bankTxn)
+        .set({ ext: withoutPair(now.ext) })
+        .where(and(eq(bankTxn.tenantId, tenantId), eq(bankTxn.id, t.id)));
+    }
+  }
+}
+
+/** Held for a person because it may be the other side of a transfer that didn't stand. */
+export function heldPairOf(t: Pick<TxnRow, "ext" | "status">): string | null {
+  const ext = t.ext as { pairedTxnId?: unknown; heldWhy?: unknown };
+  return t.status === "needs_review" && typeof ext.pairedTxnId === "string" && ext.heldWhy
+    ? ext.pairedTxnId
+    : null;
 }
 
 // ── Settling: what code decides ──────────────────────────────────────────────────────────────────
@@ -285,10 +407,18 @@ export interface SettleResult {
   open: string[];
 }
 
+/** How many undecided transactions one settling pass reads. */
+export const SETTLE_LIMIT = 500;
+/** How many standing proposals on `suggest` accounts one pass checks for a match again. */
+export const RECHECK_LIMIT = 200;
+/** How far back (from the account's latest transaction) those proposals are checked again. */
+export const RECHECK_DAYS = 60;
+
 /**
  * The client's undecided transactions, through the steps code decides: off or too early
  * (`skipped`), already in the accounting tool (`matched`), a transfer between two of its accounts
- * on the feed, a rule. What is left stays `new` for the model.
+ * on the feed, a payment of an open bill or invoice (for a person), a rule. What is left stays
+ * `new` for the model.
  */
 export async function settle(
   tx: Tx,
@@ -305,44 +435,57 @@ export async function settle(
     review: 0,
     open: [],
   };
-  // DECISION: a proposal on an account set to `suggest` waits for the client to enter it in the
-  // accounting tool; once it is there, the match step finds it and the proposal gives way.
-  const txns = await tx
-    .select()
-    .from(bankTxn)
-    .innerJoin(
-      bankAccountLink,
-      and(
-        eq(bankAccountLink.id, bankTxn.accountLinkId),
-        eq(bankAccountLink.tenantId, bankTxn.tenantId),
-      ),
-    )
+  const fromLinks = () =>
+    tx
+      .select()
+      .from(bankTxn)
+      .innerJoin(
+        bankAccountLink,
+        and(
+          eq(bankAccountLink.id, bankTxn.accountLinkId),
+          eq(bankAccountLink.tenantId, bankTxn.tenantId),
+        ),
+      );
+  // DECISION: what is undecided is read on its own, first, with its own limit, so nothing read
+  // again every pass (a skipped history, standing proposals) can fill the batch. A skipped one is
+  // read again only once it has become bookable (its account switched on, or booking starting
+  // earlier).
+  const undecided = await fromLinks()
     .where(
       and(
         eq(bankTxn.tenantId, tenantId),
         or(
           eq(bankTxn.status, "new"),
-          // DECISION: a skipped one is read again only once it has become bookable (its account
-          // switched on, or booking starting earlier), so a feed's history before `book_from`,
-          // skipped once, never fills the batch and holds new transactions back.
           and(
             eq(bankTxn.status, "skipped"),
             ne(bankAccountLink.mode, "off"),
             sql`${bankAccountLink.ledgerAccountId} is not null`,
             or(isNull(bankAccountLink.bookFrom), gte(bankTxn.txnDate, bankAccountLink.bookFrom)),
           ),
-          and(
-            inArray(bankTxn.status, ["proposed", "needs_review"]),
-            eq(bankAccountLink.mode, "suggest"),
-          ),
         ),
       ),
     )
     .orderBy(asc(bankTxn.txnDate), asc(bankTxn.id))
-    .limit(opts.limit ?? 500);
+    .limit(opts.limit ?? SETTLE_LIMIT);
+  // DECISION: a proposal on an account set to `suggest` waits for the client to enter it in the
+  // accounting tool; once it is there, the match step finds it and the proposal gives way. Checked
+  // again only within RECHECK_DAYS of the account's latest transaction, and only when a record of
+  // the same amount the match step could take is there at all (bounded, RECHECK_LIMIT a pass).
+  const standing = await fromLinks()
+    .where(
+      and(
+        eq(bankTxn.tenantId, tenantId),
+        inArray(bankTxn.status, ["proposed", "needs_review"]),
+        eq(bankAccountLink.mode, "suggest"),
+        sql`${bankTxn.txnDate} >= (select max(x.txn_date) from ${bankTxn} x where x.tenant_id = ${bankTxn.tenantId} and x.account_link_id = ${bankTxn.accountLinkId}) - ${RECHECK_DAYS}::int`,
+        sql`exists (select 1 from ${transaction} r where r.tenant_id = ${bankTxn.tenantId} and r.kind = (case when ${bankTxn.direction} = 'out' then 'purchase' else 'vendor_credit' end) and r.total = ${bankTxn.amount} and r.currency = ${bankTxn.currency} and r.txn_date between ${bankTxn.txnDate} - ${MATCH_DAYS}::int and ${bankTxn.txnDate} + ${MATCH_DAYS}::int)`,
+      ),
+    )
+    .orderBy(desc(bankTxn.txnDate), asc(bankTxn.id))
+    .limit(RECHECK_LIMIT);
   const links = new Map<string, LinkRow>();
   const used = new Set<string>();
-  for (const { bank_txn: t } of txns) {
+  for (const { bank_txn: t } of [...undecided, ...standing]) {
     if (used.has(t.id)) continue;
     result.checked += 1;
     const link = links.get(t.accountLinkId) ?? (await linkOf(tx, tenantId, t.accountLinkId));
@@ -377,7 +520,14 @@ export async function settle(
       result.transfers += 1;
       continue;
     }
-    if (await openItemFor(tx, who, t, link, opts.testRun)) {
+    const item = await openItemFor(tx, t, link);
+    if (item?.confirmed) {
+      if (!opts.testRun) {
+        await setStatus(tx, tenantId, t.id, "needs_review", {
+          ...withoutOpenItem(t.ext),
+          openItem: { ...item, decidedBy: deciderOf(who) },
+        });
+      }
       result.review += 1;
       continue;
     }
@@ -386,14 +536,27 @@ export async function settle(
       continue;
     }
     result.open.push(t.id);
-    if (t.status === "skipped" && !opts.testRun) await setStatus(tx, tenantId, t.id, "new");
+    if (opts.testRun) continue;
+    // An unconfirmed candidate is only a hint, for the model and the card; a stale one goes.
+    const ext = item
+      ? { ...withoutOpenItem(t.ext), openItem: { ...item, decidedBy: deciderOf(who) } }
+      : withoutOpenItem(t.ext);
+    if (t.status === "skipped" || item || openItemOf(t)) {
+      await setStatus(tx, tenantId, t.id, "new", ext);
+    }
   }
+  if (!opts.testRun) await recheckOpenItems(tx, who);
   return result;
+}
+
+function deciderOf(who: Decider): Record<string, unknown> {
+  return { agentVersionId: who.agentVersionId, runId: who.runId };
 }
 
 /**
  * A record already in the accounting tool for this money: the same amount to the cent, dated
- * within MATCH_DAYS, paid from the linked account, and not matched to another transaction.
+ * within MATCH_DAYS, paid from the linked account, not matched to another transaction, and not
+ * written by the Bookkeeper for another transaction.
  */
 async function matchExisting(
   tx: Tx,
@@ -416,6 +579,10 @@ async function matchExisting(
   // card or bank credit; the rest goes on to rules and the model (docs/plan.md §1.79).
   const kind = t.direction === "out" ? "purchase" : "vendor_credit";
   const day = (n: number) => sql`(${t.txnDate}::date + ${n}::int)`;
+  // The booking or bank transaction a record's mark names (`[Mezonas bk-<booking id>]` from
+  // before marks named the transaction, `[Mezonas bt-<bank transaction id>]` since).
+  const markOf = (prefix: string) =>
+    sql`substring(coalesce(${transaction.memo}, '') from ${`\\[Mezonas ${prefix}-([0-9a-f-]{36})\\]`}::text)`;
   const candidates = await tx
     .select()
     .from(transaction)
@@ -437,14 +604,16 @@ async function matchExisting(
           ),
         ),
         sql`not exists (select 1 from ${booking} b where b.tenant_id = ${transaction.tenantId} and b.matched_transaction_id = ${transaction.id} and b.status in ('proposed', 'approved', 'posted'))`,
-        // Never a record the Bookkeeper wrote itself for another transaction of the same amount:
-        // one a booking was posted as, or one carrying a booking's mark in its memo.
-        // DECISION: unless that booking's transaction was dropped by the bank after posting
+        // Never a record the Bookkeeper wrote for ANOTHER bank transaction of the same amount: one
+        // a booking of it was posted as, or one whose mark names it or one of its bookings.
+        // DECISION: unless that transaction was dropped by the bank after it was decided
         // (`removedAfterPosting`): the same money sent again under a new id is then that record,
-        // matched rather than written twice. A mark naming no booking of the client's is taken
-        // as written for one all the same.
-        sql`not exists (select 1 from ${booking} b join ${bankTxn} bt on bt.id = b.bank_txn_id and bt.tenant_id = b.tenant_id where b.tenant_id = ${transaction.tenantId} and b.kind <> 'match' and ((b.status = 'posted' and b.qbo_id = ${transaction.ext} -> 'qbo' ->> 'id' and b.qbo_entity = ${transaction.ext} -> 'qbo' ->> 'entity') or position(${MARK_PREFIX} || b.id::text || ']' in coalesce(${transaction.memo}, '')) > 0) and coalesce((bt.ext ->> 'removedAfterPosting')::boolean, false) = false)`,
-        sql`(position(${MARK_PREFIX} in coalesce(${transaction.memo}, '')) = 0 or exists (select 1 from ${booking} b where b.tenant_id = ${transaction.tenantId} and position(${MARK_PREFIX} || b.id::text || ']' in ${transaction.memo}) > 0))`,
+        // matched rather than written twice. A record written for this same transaction (a write
+        // nobody recorded) may be matched to it. A mark naming nothing of the client's is taken
+        // as written for another all the same.
+        sql`not exists (select 1 from ${booking} b join ${bankTxn} o on o.id = b.bank_txn_id and o.tenant_id = b.tenant_id where b.tenant_id = ${transaction.tenantId} and o.id <> ${t.id} and b.kind <> 'match' and coalesce((o.ext ->> 'removedAfterPosting')::boolean, false) = false and ((b.status = 'posted' and b.qbo_id = ${transaction.ext} -> 'qbo' ->> 'id' and b.qbo_entity = ${transaction.ext} -> 'qbo' ->> 'entity') or b.id::text = ${markOf("bk")}))`,
+        sql`(${markOf("bk")} is null or exists (select 1 from ${booking} b where b.tenant_id = ${transaction.tenantId} and b.id::text = ${markOf("bk")}))`,
+        sql`(${markOf("bt")} is null or ${markOf("bt")} = ${t.id}::text or exists (select 1 from ${bankTxn} o where o.tenant_id = ${transaction.tenantId} and o.id::text = ${markOf("bt")} and coalesce((o.ext ->> 'removedAfterPosting')::boolean, false)))`,
       ),
     )
     .orderBy(sql`abs(${transaction.txnDate} - ${t.txnDate}::date)`, asc(transaction.id))
@@ -455,7 +624,7 @@ async function matchExisting(
   // A proposal the client has since entered themselves gives way to the match.
   if (replacing) await supersede(tx, who.tenantId, t.id);
   const qbo = (found.ext as { qbo?: { entity?: string; id?: string } }).qbo ?? {};
-  await insertBooking(
+  const id = await insertBooking(
     tx,
     who.tenantId,
     t,
@@ -475,13 +644,20 @@ async function matchExisting(
     [],
   );
   await setStatus(tx, who.tenantId, t.id, "matched");
+  // Not a transfer after all: a side paired with its proposal is freed.
+  if (replacing) {
+    await repairPaired(tx, who.tenantId, t, { bookingId: id, kind: "match", lineAccountId: null });
+  }
   return true;
 }
+
+/** Sides of a transfer this far apart, the first already booked as one, are still the same. */
+export const TRANSFER_BOOKED_DAYS = 10;
 
 /**
  * Money out of one account on the feed and the same amount into another within MATCH_DAYS (a
  * card payment, a move to savings): one transfer, booked on the side the money left. Answers the
- * other side's id.
+ * other side's id. The other side is undecided, or held for a person as this one's pair.
  */
 async function transferPair(
   tx: Tx,
@@ -511,7 +687,13 @@ async function transferPair(
         eq(bankTxn.direction, t.direction === "out" ? "in" : "out"),
         eq(bankTxn.amount, t.amount),
         eq(bankTxn.currency, t.currency),
-        inArray(bankTxn.status, ["new", "skipped"]),
+        or(
+          inArray(bankTxn.status, ["new", "skipped"]),
+          and(
+            eq(bankTxn.status, "needs_review"),
+            sql`${bankTxn.ext} ->> 'pairedTxnId' = ${t.id}::text`,
+          ),
+        ),
         gte(bankTxn.txnDate, day(-MATCH_DAYS)),
         lte(bankTxn.txnDate, day(MATCH_DAYS)),
       ),
@@ -522,6 +704,8 @@ async function transferPair(
   if (testRun) return pair.txn.id;
   const [from, fromLink, to, toLink] =
     t.direction === "out" ? [t, link, pair.txn, pair.link] : [pair.txn, pair.link, t, link];
+  // A held side the transfer is now booked on: what was proposed for it while held gives way.
+  await supersede(tx, who.tenantId, from.id);
   const id = await insertBooking(
     tx,
     who.tenantId,
@@ -539,16 +723,18 @@ async function transferPair(
     },
     [{ ledgerAccountId: toLink.ledgerAccountId ?? "", amount: from.amount }],
   );
-  await setStatus(tx, who.tenantId, from.id, "proposed");
-  await setStatus(tx, who.tenantId, to.id, "matched", { ...to.ext, transferBookingId: id });
+  await setStatus(tx, who.tenantId, from.id, "proposed", withoutPair(from.ext));
+  await matchSide(tx, who.tenantId, to, id, from.id);
   return pair.txn.id;
 }
 
 /**
  * The other side of a transfer already booked: a live transfer on another linked account whose
- * line is this account, the same amount the other way, dated within MATCH_DAYS, that no other
- * transaction is the other side of. This side is then matched to it, not booked again.
+ * line is this account, the same amount the other way, dated within TRANSFER_BOOKED_DAYS, that no
+ * other transaction is the other side of. This side is then matched to it, not booked again.
  */
+// DECISION: a wider window than pairing two undecided sides (MATCH_DAYS): the booked transfer
+// names this very account, and a card payment can post days later across a weekend.
 async function transferBooked(
   tx: Tx,
   who: Decider,
@@ -559,7 +745,7 @@ async function transferBooked(
   if (!link.ledgerAccountId) return false;
   const day = (n: number) => sql`(${t.txnDate}::date + ${n}::int)`;
   const [found] = await tx
-    .select({ id: booking.id })
+    .select({ id: booking.id, bankTxnId: booking.bankTxnId })
     .from(booking)
     .innerJoin(
       bankTxn,
@@ -574,8 +760,8 @@ async function transferBooked(
         eq(bankTxn.direction, t.direction === "out" ? "in" : "out"),
         eq(bankTxn.amount, t.amount),
         eq(bankTxn.currency, t.currency),
-        gte(bankTxn.txnDate, day(-MATCH_DAYS)),
-        lte(bankTxn.txnDate, day(MATCH_DAYS)),
+        gte(bankTxn.txnDate, day(-TRANSFER_BOOKED_DAYS)),
+        lte(bankTxn.txnDate, day(TRANSFER_BOOKED_DAYS)),
         sql`exists (select 1 from ${bookingLine} l where l.tenant_id = ${booking.tenantId} and l.booking_id = ${booking.id} and l.ledger_account_id = ${link.ledgerAccountId})`,
         sql`not exists (select 1 from ${bankTxn} o where o.tenant_id = ${booking.tenantId} and o.id <> ${t.id} and o.status = 'matched' and o.ext ->> 'transferBookingId' = ${booking.id}::text)`,
       ),
@@ -584,7 +770,8 @@ async function transferBooked(
     .limit(1);
   if (!found) return false;
   if (testRun) return true;
-  await setStatus(tx, who.tenantId, t.id, "matched", { ...t.ext, transferBookingId: found.id });
+  // Invariant 10: who matched it.
+  await matchSide(tx, who.tenantId, t, found.id, found.bankTxnId, deciderOf(who));
   return true;
 }
 
@@ -601,39 +788,49 @@ export interface OpenItem {
   date: string | null;
   balance: string;
   currency: string;
+  /** The vendor or customer is the transaction's payee: a person decides it. Else a hint only. */
+  confirmed: boolean;
+}
+
+/** The payee and a vendor's or customer's name are one: every word of the shorter in the other. */
+function samePayee(payee: string | null, names: readonly (string | null | undefined)[]): boolean {
+  if (!payee || isGenericPayeeKey(payee)) return false;
+  const mine = payee.split(" ");
+  return names.some((n) => {
+    const key = payeeKey(n);
+    if (!key || isGenericPayeeKey(key)) return false;
+    const theirs = key.split(" ");
+    const [short, long] = theirs.length <= mine.length ? [theirs, mine] : [mine, theirs];
+    return short.every((w) => long.includes(w));
+  });
 }
 
 /**
  * A payment of an open bill or invoice is not an expense or income of its own: booking it so would
- * count it twice and leave the bill or invoice open. When one is open for exactly this amount
- * (dated up to OPEN_ITEM_DAYS before, or MATCH_DAYS after), a person decides, with it named.
+ * count it twice and leave the bill or invoice open. One open for exactly this amount (dated up to
+ * OPEN_ITEM_DAYS before, or MATCH_DAYS after) is the candidate; `confirmed` when its vendor or
+ * customer is this transaction's payee.
  */
-// DECISION: only the same amount to the cent as what is still owed, so a coincidence of vendor
-// alone sends nothing to a person; the bill's balance is its latest synced version's (QuickBooks
-// lowers it as payments are entered), its total when the version gives none. Bills on any linked
-// account (a card can pay one too); invoices only for money into a bank account.
-async function openItemFor(
-  tx: Tx,
-  who: Decider,
-  t: TxnRow,
-  link: LinkRow,
-  testRun = false,
-): Promise<boolean> {
-  if (!link.ledgerAccountId) return false;
+// DECISION: only the same amount to the cent as what is still owed. Only a confirmed candidate
+// sends the transaction to a person ahead of the client's rules; an unconfirmed one (a stale bill
+// of another vendor's, a deposit the bank names no one on) is a hint for the model and the card.
+// The bill's balance is its latest synced version's (QuickBooks lowers it as payments are
+// entered), its total when the version gives none. Bills on any linked account (a card can pay one
+// too); invoices only for money into a bank account.
+async function openItemFor(tx: Tx, t: TxnRow, link: LinkRow): Promise<OpenItem | null> {
+  if (!link.ledgerAccountId) return null;
+  const tenantId = t.tenantId;
   const [account] = await tx
     .select()
     .from(ledgerAccount)
-    .where(
-      and(eq(ledgerAccount.tenantId, who.tenantId), eq(ledgerAccount.id, link.ledgerAccountId)),
-    );
-  if (!account) return false;
+    .where(and(eq(ledgerAccount.tenantId, tenantId), eq(ledgerAccount.id, link.ledgerAccountId)));
+  if (!account) return null;
   const day = (n: number) => sql`(${t.txnDate}::date + ${n}::int)`;
-  let item: OpenItem | null = null;
-  const sources: string[] = [];
+  const items: OpenItem[] = [];
   if (t.direction === "out") {
     const balance = sql<string>`coalesce((${rawRecord.payload} ->> 'Balance')::numeric, ${transaction.total})`;
-    const [bill] = await tx
-      .select({ bill: transaction, balance, vendor: vendor.name })
+    const bills = await tx
+      .select({ bill: transaction, balance, vendor })
       .from(transaction)
       .leftJoin(
         rawRecord,
@@ -648,7 +845,7 @@ async function openItemFor(
       )
       .where(
         and(
-          eq(transaction.tenantId, who.tenantId),
+          eq(transaction.tenantId, tenantId),
           eq(transaction.connector, account.connector),
           eq(transaction.kind, "bill"),
           eq(transaction.currency, t.currency),
@@ -659,28 +856,30 @@ async function openItemFor(
         ),
       )
       .orderBy(desc(transaction.txnDate), asc(transaction.id))
-      .limit(1);
-    if (bill) {
-      const qbo = (bill.bill.ext as { qbo?: { docNumber?: string | null } }).qbo ?? {};
-      item = {
+      .limit(20);
+    for (const b of bills) {
+      const qbo = (b.bill.ext as { qbo?: { docNumber?: string | null } }).qbo ?? {};
+      items.push({
         kind: "bill",
-        transactionId: bill.bill.id,
+        transactionId: b.bill.id,
         receivableId: null,
         docNumber: qbo.docNumber ?? null,
-        name: bill.vendor ?? null,
-        date: bill.bill.txnDate,
-        balance: toNumeric(dec(String(bill.balance))),
-        currency: bill.bill.currency,
-      };
-      sources.push(bill.bill.id);
+        name: b.vendor?.name ?? null,
+        date: b.bill.txnDate,
+        balance: toNumeric(dec(String(b.balance))),
+        currency: b.bill.currency,
+        confirmed: b.vendor
+          ? samePayee(t.payeeKey, [b.vendor.name, b.vendor.normalizedName, ...b.vendor.aliases])
+          : false,
+      });
     }
   } else if (account.kind === "bank" && account.connectionId) {
-    const [invoice] = await tx
+    const invoices = await tx
       .select()
       .from(receivable)
       .where(
         and(
-          eq(receivable.tenantId, who.tenantId),
+          eq(receivable.tenantId, tenantId),
           eq(receivable.connectionId, account.connectionId),
           eq(receivable.status, "open"),
           eq(receivable.balance, t.amount),
@@ -690,35 +889,73 @@ async function openItemFor(
         ),
       )
       .orderBy(desc(receivable.txnDate), asc(receivable.id))
-      .limit(1);
-    if (invoice) {
-      item = {
+      .limit(20);
+    for (const i of invoices) {
+      items.push({
         kind: "invoice",
         transactionId: null,
-        receivableId: invoice.id,
-        docNumber: invoice.docNumber,
-        name: invoice.customerName,
-        date: invoice.txnDate,
-        balance: invoice.balance,
-        currency: invoice.currency,
-      };
-      sources.push(invoice.id);
+        receivableId: i.id,
+        docNumber: i.docNumber,
+        name: i.customerName,
+        date: i.txnDate,
+        balance: i.balance,
+        currency: i.currency,
+        confirmed: samePayee(t.payeeKey, [i.customerName]),
+      });
     }
   }
-  if (!item) return false;
-  if (testRun) return true;
-  await setStatus(tx, who.tenantId, t.id, "needs_review", {
-    ...t.ext,
-    openItem: item,
-    openItemSources: sources,
-  });
-  return true;
+  return items.find((i) => i.confirmed) ?? items[0] ?? null;
 }
 
-/** The open bill or invoice a transaction was sent to a person for, if any. */
+function withoutOpenItem(ext: Record<string, unknown>): Record<string, unknown> {
+  const { openItem: _, ...rest } = ext;
+  return rest;
+}
+
+/** The open bill or invoice a transaction was sent to a person for, or hinted at, if any. */
 export function openItemOf(t: Pick<TxnRow, "ext">): OpenItem | null {
   const item = (t.ext as { openItem?: OpenItem }).openItem;
   return item && typeof item === "object" ? item : null;
+}
+
+/**
+ * Transactions waiting for a person because of an open bill or invoice, checked again: once that
+ * bill or invoice is paid, gone or no longer this amount, the transaction goes back to `new`.
+ */
+async function recheckOpenItems(tx: Tx, who: Decider): Promise<void> {
+  const held = await tx
+    .select({ t: bankTxn, l: bankAccountLink })
+    .from(bankTxn)
+    .innerJoin(
+      bankAccountLink,
+      and(
+        eq(bankAccountLink.id, bankTxn.accountLinkId),
+        eq(bankAccountLink.tenantId, bankTxn.tenantId),
+      ),
+    )
+    .where(
+      and(
+        eq(bankTxn.tenantId, who.tenantId),
+        eq(bankTxn.status, "needs_review"),
+        sql`${bankTxn.ext} -> 'openItem' ->> 'confirmed' = 'true'`,
+      ),
+    )
+    .limit(RECHECK_LIMIT);
+  for (const { t, l } of held) {
+    const was = openItemOf(t);
+    const now = await openItemFor(tx, t, l);
+    const same =
+      now?.confirmed &&
+      now.kind === was?.kind &&
+      (now.transactionId ?? now.receivableId) === (was?.transactionId ?? was?.receivableId);
+    if (same) continue;
+    if (await liveBooking(tx, who.tenantId, t.id)) {
+      // A suggestion stands: it stays with a person, without the stale candidate.
+      await setStatus(tx, who.tenantId, t.id, "needs_review", withoutOpenItem(t.ext));
+    } else {
+      await setStatus(tx, who.tenantId, t.id, "new", withoutOpenItem(t.ext));
+    }
+  }
 }
 
 /** The client's rule for this payee: a person's before a learned one, an account's before any. */
@@ -855,9 +1092,16 @@ export async function propose(
     },
     lines,
   );
-  // A payment of an open bill or invoice waits for a person however sure the model is.
-  const status = input.confidence >= threshold && !openItemOf(t) ? "proposed" : "needs_review";
+  // A payment of an open bill or invoice, or a side held as a transfer's pair, waits for a person
+  // however sure the model is.
+  const hold = openItemOf(t)?.confirmed === true || heldPairOf(t) !== null;
+  const status = input.confidence >= threshold && !hold ? "proposed" : "needs_review";
   await setStatus(tx, who.tenantId, t.id, status);
+  await repairPaired(tx, who.tenantId, t, {
+    bookingId,
+    kind,
+    lineAccountId: lines[0]?.ledgerAccountId ?? null,
+  });
   return { bookingId, status };
 }
 
@@ -949,6 +1193,12 @@ export async function bookByPerson(tx: Tx, who: PersonDecision, input: BookInput
   );
   await setStatus(tx, who.tenantId, t.id, "approved");
   const first = lines[0];
+  await repairPaired(tx, who.tenantId, t, {
+    bookingId: id,
+    kind,
+    lineAccountId: first?.ledgerAccountId ?? null,
+    byPerson: true,
+  });
   if (why && first) {
     await addNote(
       tx,
@@ -957,10 +1207,19 @@ export async function bookByPerson(tx: Tx, who: PersonDecision, input: BookInput
       { source: "client", userId: who.userId },
     );
   }
-  if (input.makeRule && first && lines.length === 1) {
-    if (!t.payeeKey || isGenericPayeeKey(t.payeeKey)) {
-      throw new PackRefusal("this transaction names no payee a rule could match");
-    }
+  // DECISION: a rule asked for on a transaction that names no payee (no words, or only generic
+  // bank words) isn't made, and the booking stands; the transaction notes why.
+  const ruleable = !!t.payeeKey && !isGenericPayeeKey(t.payeeKey);
+  if (input.makeRule && !ruleable) {
+    const [now] = await tx
+      .select({ ext: bankTxn.ext })
+      .from(bankTxn)
+      .where(and(eq(bankTxn.tenantId, who.tenantId), eq(bankTxn.id, t.id)));
+    await tx
+      .update(bankTxn)
+      .set({ ext: { ...(now?.ext ?? {}), ruleNotMade: "names no payee" } })
+      .where(and(eq(bankTxn.tenantId, who.tenantId), eq(bankTxn.id, t.id)));
+  } else if (input.makeRule && first && lines.length === 1 && t.payeeKey) {
     await addRule(tx, who, {
       payeeKey: t.payeeKey,
       direction: t.direction,
@@ -985,7 +1244,7 @@ export async function exclude(
   if (!DECIDABLE.includes(t.status)) {
     throw new PackRefusal(`transaction ${t.id} is ${t.status} and can't be left out now`);
   }
-  const rejected = await tx
+  await tx
     .update(booking)
     .set({ status: "rejected", userId: who.userId, decidedAt: sql`now()` })
     .where(
@@ -994,13 +1253,9 @@ export async function exclude(
         eq(booking.bankTxnId, t.id),
         inArray(booking.status, ["proposed", "approved"]),
       ),
-    )
-    .returning({ id: booking.id });
-  await releasePaired(
-    tx,
-    who.tenantId,
-    rejected.map((b) => b.id),
-  );
+    );
+  // Left out isn't "not a transfer": a side paired with it waits for a person too.
+  await holdPaired(tx, who.tenantId, t, "left_out");
   const why = input.why?.replace(/\s+/g, " ").trim();
   await setStatus(tx, who.tenantId, t.id, "excluded", {
     ...t.ext,

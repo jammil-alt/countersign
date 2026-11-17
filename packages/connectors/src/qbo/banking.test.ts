@@ -124,6 +124,27 @@ describe("qbo.purchase.create", () => {
     ).toContain("already in QuickBooks");
   });
 
+  it("finds a write made for an earlier booking of the same bank transaction (one reference for all)", async () => {
+    const s = await setup();
+    const first = await executeWrite(s.connector, BANKING_TOOLS.purchaseCreate, charge, s.ctx());
+    const id = (first.output as { id: string }).id;
+    // Booked again with other lines after a write nobody recorded: the same reference.
+    const again = {
+      ...charge,
+      lines: [{ accountId: "84", amount: "48.10", description: "Glue" }],
+    };
+    expect(
+      await refusal(captureBefore(s.connector, BANKING_TOOLS.purchaseCreate, again, s.propose())),
+    ).toContain("already in QuickBooks");
+    const out = await executeWrite(
+      s.connector,
+      BANKING_TOOLS.purchaseCreate,
+      again,
+      s.ctx("run-2:step-1:0"),
+    );
+    expect(out.output).toMatchObject({ id, alreadyDone: true });
+  });
+
   it("refuses a purchase someone already entered for the same card, day and amount", async () => {
     const s = await setup();
     s.qbo.put("Purchase", {

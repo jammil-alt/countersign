@@ -2749,9 +2749,11 @@ export const es: Messages = {
   "bookkeeping.review.suggested": "Sugerimos {account}",
   "bookkeeping.review.noSuggestion": "Aún sin sugerencia",
   "bookkeeping.review.openBill":
-    "Parece el pago de una factura de proveedor pendiente: {what}. Aplícalo a esa factura en QuickBooks y luego exclúyelo aquí.",
+    "¿Es el pago de una factura de proveedor pendiente: {what}? Si es así, aplícalo a esa factura en QuickBooks y luego exclúyelo aquí.",
   "bookkeeping.review.openInvoice":
-    "Parece el cobro de una factura pendiente: {what}. Aplícalo a esa factura en QuickBooks y luego exclúyelo aquí.",
+    "¿Es el cobro de una factura pendiente: {what}? Si es así, aplícalo a esa factura en QuickBooks y luego exclúyelo aquí.",
+  "bookkeeping.review.pairHeld":
+    "Movimiento {what}: puede ser la otra parte de una transferencia que no se registró o se excluyó. Decide ambos a la vez.",
   "bookkeeping.review.approve": "Aprobar",
   "bookkeeping.review.account": "Cuenta para {payee}",
   "bookkeeping.review.why": "Por qué, en pocas palabras (opcional)",
@@ -2772,6 +2774,8 @@ export const es: Messages = {
   "bookkeeping.recon.loading": "Cargando la conciliación…",
   "bookkeeping.recon.difference": "Diferencia",
   "bookkeeping.recon.unexplainedBy": "{amount} sin explicar",
+  "bookkeeping.recon.startGap":
+    "Los saldos iniciales difieren en {amount} y nada arrastrado de la última aprobación lo explica. Añade lo que estaba pendiente al inicio del periodo, como un cheque emitido antes que se cobró durante el periodo.",
   "bookkeeping.recon.asOf": "Al {day}",
   "bookkeeping.recon.outcome.balanced": "Cuadra",
   "bookkeeping.recon.outcome.explained": "Explicada",
