@@ -26,6 +26,7 @@ import {
   loadLine,
   recordMatch,
   skuContradicts,
+  taughtCode,
   wordsDiffer,
 } from "./store";
 
@@ -129,9 +130,7 @@ export async function prepare(
       // A special-order or short code is no SKU (`identifyingSku`): the words decide the line,
       // unless a person taught an alias for that code.
       sku: identifyingSku(row.vendorSku, row.lineNo),
-      taughtSku: identifyingSku(row.vendorSku, row.lineNo)
-        ? null
-        : row.vendorSku?.trim().toUpperCase() || null,
+      taughtSku: identifyingSku(row.vendorSku, row.lineNo) ? null : taughtCode(row.vendorSku),
       hash: await descriptionHash(normalized),
     },
     vendorId,

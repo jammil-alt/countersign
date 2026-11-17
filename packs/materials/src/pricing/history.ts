@@ -2,11 +2,12 @@
 // for it (`materials.prices.compare_vendors`), and the week's digest (`materials.weekly-digest`):
 // changes, creep, vendor spread, new fees and their dollar impact. Reads only.
 
-import { dec, formatAmount, toNumeric } from "@countersign/core";
+import { dec, toNumeric } from "@countersign/core";
 import { alert, type Tx, vendor } from "@countersign/db";
 import { and, asc, desc, eq, gte, inArray, lte } from "drizzle-orm";
 import { PACK_ID } from "../ids";
 import { catalogItem, priceObservation } from "../schema";
+import { alertCurrency, atStakeOf } from "./money";
 import { fromLatestReading } from "./record";
 import { daysBefore, moneyIn } from "./rules";
 
@@ -185,16 +186,14 @@ export async function weeklyDigest(
       ),
     )
     .orderBy(desc(alert.createdAt));
-  // §1.104: a saving (a negative impact, paid below the agreed price) doesn't net out what is at stake.
-  const impact = alerts.reduce(
-    (s, a) => (dec(a.dollarImpact ?? "0").greaterThan(0) ? s.plus(a.dollarImpact ?? "0") : s),
-    dec("0"),
-  );
+  // §1.104: a saving (a negative impact, paid below the agreed price) doesn't net out what is at
+  // stake; and (second review, M5) amounts in two currencies are never added together.
+  const stake = atStakeOf(alerts);
   const ups = changes.filter((c) => dec(c.changePct).greaterThan(0)).length;
   const lines = [
     `${recent.length} prices recorded from ${start} to ${input.today}; ${ups} went up and ${changes.length - ups} went down.`,
     alerts.length > 0
-      ? `${alerts.length} alerts, about $${formatAmount(impact)} at stake.`
+      ? `${alerts.length} alerts, about ${stake.atStake.map((s) => moneyIn(s.amount, s.currency)).join(" and ")} at stake.`
       : "No new alerts.",
     ...changes
       .slice(0, 5)
@@ -214,9 +213,13 @@ export async function weeklyDigest(
       kind: a.kind,
       title: a.title,
       dollarImpact: a.dollarImpact,
+      currency: alertCurrency(a),
       status: a.status,
     })),
-    dollarImpact: toNumeric(impact),
+    /** In `currency`; `atStake` has each currency's. */
+    dollarImpact: stake.dollarImpact,
+    currency: stake.currency,
+    atStake: stake.atStake,
     message: lines.join("\n"),
     sources: [...recent.map((o) => o.id), ...alerts.map((a) => a.id)],
   };

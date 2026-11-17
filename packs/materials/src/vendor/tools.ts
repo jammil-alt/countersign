@@ -617,6 +617,14 @@ function saveVendorItem(
         throw new VendorItemError("conflict", "that catalog item was merged into another");
     }
     const sku = input.sku === undefined ? undefined : identifyingSku(cleanSku(input.sku));
+    // A code that names no item is refused, not dropped: dropped, every save would make
+    // another vendor item without a SKU (second review, L1).
+    if (input.sku?.trim() && !sku) {
+      throw new VendorItemError(
+        "bad_input",
+        `"${input.sku.trim().slice(0, 40)}" can't be a SKU (too short, or a code like SPO or MISC): leave it out`,
+      );
+    }
     const existing = input.id
       ? await vendorItemById(tx, ctx.tenantId, input.id)
       : sku
@@ -629,7 +637,11 @@ function saveVendorItem(
     }
     const { id: _id, vendorId: _vendorId, ...fields } = input;
     if (existing) {
-      const item = await updateVendorItem(tx, ctx.tenantId, existing.id, { ...fields, sku });
+      const item = await updateVendorItem(tx, ctx.tenantId, existing.id, {
+        ...fields,
+        sku,
+        ...(input.vendorUom !== undefined ? { unitWord: unitWord(input.vendorUom) } : {}),
+      });
       return { item: vendorItemView(item), created: false, sources: [item.id] };
     }
     if (!input.catalogItemId || !input.name) {

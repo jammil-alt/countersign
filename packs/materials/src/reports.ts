@@ -9,6 +9,7 @@ import { alert, docExtraction, docLine, document, type Tx, vendor } from "@count
 import { and, asc, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { latestMatch } from "./catalog/store";
 import { PACK_ID } from "./ids";
+import { alertCurrency, atStakeOf } from "./pricing/money";
 import { fromLatestReading } from "./pricing/record";
 import { daysBefore } from "./pricing/rules";
 import { catalogItem, itemAlias, priceObservation } from "./schema";
@@ -148,12 +149,6 @@ export interface PriceWatch {
   };
 }
 
-/** The currency an alert's money is in: its facts', else US dollars (alerts before it was kept). */
-const alertCurrency = (a: { facts: unknown }) => {
-  const c = (a.facts as Record<string, unknown> | null)?.currency;
-  return typeof c === "string" ? c : "USD";
-};
-
 // DECISION: Price watch reads the last 400 days of prices (enough for a 90-day series and the
 // price before it), lists every open alert and the 50 newest closed ones.
 const WATCH_DAYS = 400;
@@ -277,32 +272,6 @@ export async function priceWatch(
       openAlerts: open.length,
       ...atStakeOf(open),
     },
-  };
-}
-
-/**
- * What open alerts put at stake, per currency (never added across currencies): money to claim
- * back, so a saving (a negative impact, §1.104) doesn't net it out.
- */
-function atStakeOf(open: readonly { dollarImpact: string | null; facts: unknown }[]) {
-  const sums = new Map<string, { amount: ReturnType<typeof dec>; alerts: number }>();
-  for (const a of open) {
-    const cur = alertCurrency(a);
-    const s = sums.get(cur) ?? { amount: dec("0"), alerts: 0 };
-    const d = dec(a.dollarImpact ?? "0");
-    sums.set(cur, { amount: d.greaterThan(0) ? s.amount.plus(d) : s.amount, alerts: s.alerts + 1 });
-  }
-  const ranked = [...sums.entries()].sort(
-    (a, b) =>
-      b[1].alerts - a[1].alerts ||
-      Number(b[0] === "USD") - Number(a[0] === "USD") ||
-      a[0].localeCompare(b[0]),
-  );
-  const currency = ranked[0]?.[0] ?? "USD";
-  return {
-    dollarImpact: toNumeric(sums.get(currency)?.amount ?? dec("0")),
-    currency,
-    atStake: ranked.map(([c, s]) => ({ currency: c, amount: toNumeric(s.amount) })),
   };
 }
 

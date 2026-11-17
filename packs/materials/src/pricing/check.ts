@@ -207,6 +207,8 @@ async function raise(tx: Tx, ctx: PricingContext, draft: AlertDraft): Promise<Ra
       evidence: draft.evidence,
       facts: { ...draft.facts, vendorId: draft.vendorId, catalogItemId: draft.catalogItemId },
       dollarImpact: draft.dollarImpact,
+      // The currency its dollar impact is in (the invoice's), as its facts say.
+      currency: typeof draft.facts.currency === "string" ? draft.facts.currency : "USD",
       dedupeKey: key,
       raisedByRunId: ctx.runId ?? null,
       agentVersionId: ctx.agentVersionId,

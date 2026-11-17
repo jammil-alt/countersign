@@ -3,9 +3,12 @@
 // the model. Each alert carries its evidence (invariant 10) and its dollar impact: the change times
 // the trailing 90-day quantity. Prices in different standard units are never compared (invariant 7).
 
-import { type Decimal, dec, formatAmount, toNumeric } from "@countersign/core";
+import { type Decimal, dec, toNumeric } from "@countersign/core";
 import type { StandardUom } from "../schema";
 import { CONTRACT_ALERT_KINDS, contractDedupeKey } from "./contract";
+import { moneyIn } from "./money";
+
+export { moneyIn };
 
 export const ALERT_KINDS = [
   "price_jump",
@@ -103,9 +106,6 @@ const UNIT_WORD: Record<StandardUom, string> = {
 /** An observation's currency (USD when not stated). */
 export const currencyOf = (o: Pick<Observation, "currency">): string => o.currency ?? "USD";
 
-/** An amount in its currency: `$12.50` in US dollars, `CAD 12.50` in any other. */
-export const moneyIn = (v: Decimal | string, currency: string): string =>
-  currency === "USD" ? `$${formatAmount(v)}` : `${currency} ${formatAmount(v)}`;
 const pct = (v: Decimal) => `${v.abs().toDecimalPlaces(1).toString()}%`;
 const per = (o: Observation) =>
   o.standardUom === "each" ? "each" : `a ${UNIT_WORD[o.standardUom]}`;

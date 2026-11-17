@@ -19,7 +19,13 @@ import { insertShop, type ShopFixture } from "../testing.test-helper";
 import { type PackToolContext, packToolContext } from "../tools";
 import { EMBEDDING_TEMPLATE } from "./embedding-text";
 import { registerLines } from "./pipeline";
-import { priceForVendorItem, recordLastPrice, recordLeadTime, vendorItemForUnit } from "./store";
+import {
+  priceForVendorItem,
+  recordLastPrice,
+  recordLeadTime,
+  updateVendorItem,
+  vendorItemForUnit,
+} from "./store";
 import {
   embeddingsWrite,
   vendorItemDiscontinue,
@@ -362,6 +368,52 @@ describe.skipIf(!online)("the vendor catalog's tools", () => {
       stdPerVendorUom: "500",
     });
     expect(await forUnit("CS", nails)).toBeNull();
+  });
+
+  it("keeps the unit's word with the unit when a vendor item's unit is corrected", async () => {
+    const nails = await item(A, "8D COMMON NAIL");
+    const [vi] = await t.db
+      .insert(vendorItem)
+      .values({
+        tenantId: A.tenantId,
+        vendorId: cedar,
+        catalogItemId: nails,
+        sku: "CRL-N8",
+        name: "8D NAIL 100/BX",
+        vendorUom: "pack",
+        stdPerVendorUom: "100",
+        ext: { unitWord: "box" },
+      })
+      .returning();
+    const forUnit = (unitRaw: string) =>
+      withTenant(t.db, A.tenantId, (tx) =>
+        vendorItemForUnit(tx, A.tenantId, { vendorId: cedar, catalogItemId: nails, unitRaw }),
+      );
+    // Corrected to a case of 1000: a box line no longer converts by it; a case line does.
+    await withTenant(t.db, A.tenantId, (tx) =>
+      updateVendorItem(tx, A.tenantId, vi?.id ?? "", {
+        vendorUom: "pack",
+        unitWord: "case",
+        stdPerVendorUom: "1000",
+      }),
+    );
+    expect(await forUnit("BX")).toBeNull();
+    expect((await forUnit("CS"))?.id).toBe(vi?.id);
+    // A unit set without a word clears the old one.
+    const cleared = await withTenant(t.db, A.tenantId, (tx) =>
+      updateVendorItem(tx, A.tenantId, vi?.id ?? "", { vendorUom: "pack" }),
+    );
+    expect(cleared.ext).not.toHaveProperty("unitWord");
+  });
+
+  it("refuses a code that can't be a SKU when a vendor item is saved, rather than dropping it", async () => {
+    const save = () =>
+      vendorItemUpsert.run(
+        { vendorId: northline, catalogItemId: baltic, name: "BALTIC BIRCH SPECIAL", sku: "SPO" },
+        ctxA,
+      );
+    expect(await errorOf(save())).toMatch(/can't be a SKU/);
+    expect(await errorOf(save())).toMatch(/can't be a SKU/);
   });
 
   it("writes nothing in a test run's Register item, and answers what it would have", async () => {

@@ -129,9 +129,27 @@ export function identifyingSku(
   const mixed = /[A-Z]/.test(bare) && /\d/.test(bare);
   if (bare.length < (mixed ? 3 : 4) || sku.length > 100) return null;
   if (lineNo != null && /^\d+$/.test(bare) && Number(bare) === lineNo) return null;
-  if (GENERIC_SKUS.has(bare)) return null;
-  if (/^(?:SPO|SPECIAL|SPECIALORDER|MISC|NONSTOCK|NS)\d{1,3}$/.test(bare)) return null;
+  if (genericSku(sku)) return null;
   return sku;
+}
+
+/** A code yards print where an item has none (`SPO`, `MISC`, `N/A`, `SPO2`...): names nothing. */
+export function genericSku(raw: string | null | undefined): boolean {
+  const bare = (raw ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return (
+    GENERIC_SKUS.has(bare) || /^(?:SPO|SPECIAL|SPECIALORDER|MISC|NONSTOCK|NS)\d{1,3}$/.test(bare)
+  );
+}
+
+/**
+ * The code a person's alias may be kept and looked up under when it is no SKU: a short code
+ * (`77`), never a generic one (`SPO`, `MISC`), which a person's one decision doesn't make an item.
+ */
+// DECISION (second review of fix/materials, M4): a person's alias on a generic code would match
+// every later special order at once; only a short code keeps the person's word.
+export function taughtCode(raw: string | null | undefined): string | null {
+  const sku = raw?.trim().toUpperCase() || null;
+  return sku && !genericSku(sku) ? sku : null;
 }
 
 /**
@@ -370,7 +388,7 @@ export async function learnAlias(
     alias.skuFits === false
       ? null
       : alias.source === "human"
-        ? alias.vendorSku?.trim().toUpperCase() || null
+        ? taughtCode(alias.vendorSku)
         : identifyingSku(alias.vendorSku);
   const rows: { sku: string | null; hash: string | null }[] = [
     ...(sku ? [{ sku, hash: null }] : []),

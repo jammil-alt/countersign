@@ -231,7 +231,7 @@ export async function importPriceListRows(
     const fields = {
       ...(r.description && r.name ? { description: r.description.trim() } : {}),
       ...(r.packSize?.trim() ? { packSize: r.packSize.trim() } : {}),
-      ...(vendorUom ? { vendorUom } : {}),
+      ...(vendorUom ? { vendorUom, unitWord: unitWord(r.vendorUom) } : {}),
       ...(stdPer && stdPer !== "0.0000" ? { stdPerVendorUom: stdPer } : {}),
       ...(money(r.minOrderQty) ? { minOrderQty: money(r.minOrderQty) } : {}),
       ...(days(r.leadTimeDays) !== null ? { leadTimeDays: days(r.leadTimeDays) } : {}),
@@ -293,7 +293,7 @@ export async function importPriceListRows(
     const made = await createVendorItem(
       tx,
       tenantId,
-      { ...fields, vendorId, catalogItemId, sku, name, unitWord: unitWord(r.vendorUom) },
+      { ...fields, vendorId, catalogItemId, sku, name },
       input.by,
     );
     if (made.created) {

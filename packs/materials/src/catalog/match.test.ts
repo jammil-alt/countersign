@@ -14,7 +14,7 @@ import { parseLine } from "./keys";
 import { decideLine, MatchError, matchLine } from "./match";
 import { mergeItems } from "./merge";
 import { descriptionHash, normalize } from "./normalize";
-import { createItem, learnAlias } from "./store";
+import { createItem, identifyingSku, learnAlias } from "./store";
 
 const online = await databaseAvailable();
 
@@ -25,6 +25,25 @@ function scripted(turns: FakeTurn[]) {
 
 const answer = (input: Record<string, unknown>): FakeTurn => ({
   toolUse: { name: "record_match", input },
+});
+
+describe("identifyingSku", () => {
+  it("takes item numbers of four digits and more, and mixed codes of three; refuses the rest", () => {
+    const read = (sku: string, lineNo?: number) => identifyingSku(sku, lineNo);
+    expect(["4417", "10001", "W44"].map((s) => read(s))).toEqual(["4417", "10001", "W44"]);
+    expect(["123", "12", "1", "SPO", "N/A", "MISC", "SPO2"].map((s) => read(s))).toEqual([
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+    ]);
+    // The line's own number read as its SKU.
+    expect(read("0002", 2)).toBeNull();
+    expect(read("0002", 3)).toBe("0002");
+  });
 });
 
 describe.skipIf(!online)("matching lines (database)", () => {
@@ -368,7 +387,7 @@ describe.skipIf(!online)("matching lines (database)", () => {
     expect(learned).toEqual([]);
   });
 
-  it("takes a four-digit item number as a SKU, and keeps an alias a person taught for any code", async () => {
+  it("takes a four-digit item number as a SKU, and keeps a person's alias for a short code, never a generic one", async () => {
     const vendorId = await A.vendor("Ridgeline Yard");
     const base = { tenantId: A.tenantId, agentVersionId: A.agentVersionId };
     const threeQuarter = (await items(A.tenantId)).find(
@@ -384,7 +403,21 @@ describe.skipIf(!online)("matching lines (database)", () => {
       method: "alias",
       catalogItemId: threeQuarter?.id,
     });
-    // A person decided a "SPO" line: their alias for the code still counts.
+    // A person decided a line with a short code: their alias for the code still counts.
+    const [short] = await A.invoice(vendorId, [{ description: "PANEL AS QUOTED", sku: "77" }]);
+    await decideLine(db, {
+      tenantId: A.tenantId,
+      docLineId: short as string,
+      userId: A.userId,
+      decision: "matched",
+      catalogItemId: threeQuarter?.id,
+    });
+    const [again] = await A.invoice(vendorId, [{ description: "PANEL, YOUR ITEM", sku: "77" }]);
+    expect(await matchLine({ db }, { ...base, docLineId: again as string })).toMatchObject({
+      method: "alias",
+      catalogItemId: threeQuarter?.id,
+    });
+    // A person's decision on a special order never makes "SPO" an item: the next one is new.
     const [spo] = await A.invoice(vendorId, [{ description: "SPECIAL ORDER PANEL", sku: "SPO" }]);
     await decideLine(db, {
       tenantId: A.tenantId,
@@ -393,11 +426,17 @@ describe.skipIf(!online)("matching lines (database)", () => {
       decision: "matched",
       catalogItemId: threeQuarter?.id,
     });
-    const [again] = await A.invoice(vendorId, [{ description: "PANEL AS QUOTED", sku: "SPO" }]);
-    expect(await matchLine({ db }, { ...base, docLineId: again as string })).toMatchObject({
-      method: "alias",
-      catalogItemId: threeQuarter?.id,
-    });
+    const [nextSpo] = await A.invoice(vendorId, [
+      { description: "WALNUT EDGE BANDING 7/8", sku: "SPO" },
+    ]);
+    const r2 = await matchLine({ db }, { ...base, docLineId: nextSpo as string });
+    expect(r2.method).not.toBe("alias");
+    expect(r2.catalogItemId).not.toBe(threeQuarter?.id);
+    const spoAliases = await t.db
+      .select({ sku: itemAlias.vendorSku })
+      .from(itemAlias)
+      .where(and(eq(itemAlias.tenantId, A.tenantId), eq(itemAlias.vendorSku, "SPO")));
+    expect(spoAliases).toEqual([]);
     // The line's own number read as its SKU is no SKU.
     const lines = await A.invoice(vendorId, [
       { description: "1/2 BB/BB BALTIC BIRCH 5X5" },

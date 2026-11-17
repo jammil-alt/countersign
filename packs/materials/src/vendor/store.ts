@@ -362,6 +362,14 @@ export async function updateVendorItem(
   if (changes.length > 0) {
     set.ext = sql`case when ${sql.join(changes, sql` or `)} then ${vendorItem.ext} - 'embedding' else ${vendorItem.ext} end`;
   }
+  // DECISION (second review, M3): the word a unit was written in follows the unit: set with it,
+  // and cleared when a unit is set without one, so a box corrected to a case never converts a box.
+  if (f.vendorUom !== undefined) {
+    const ext = set.ext ?? sql`${vendorItem.ext}`;
+    set.ext = f.unitWord
+      ? sql`(${ext}) || ${JSON.stringify({ unitWord: f.unitWord })}::jsonb`
+      : sql`(${ext}) - 'unitWord'`;
+  }
   const [row] = await tx
     .update(vendorItem)
     .set(set)

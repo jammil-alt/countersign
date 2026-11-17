@@ -6,8 +6,9 @@
 // contract's. Every alert carries its evidence (invariant 10) and, where money is at stake, its
 // dollar impact; the same alert table, dedupe and test-run behaviour as the price rules.
 
-import { Decimal, dec, formatAmount, toNumeric } from "@countersign/core";
+import { Decimal, dec, toNumeric } from "@countersign/core";
 import type { FreightTerm, StandardUom } from "../schema";
+import { moneyIn } from "./money";
 import type { AlertDraft, Names, Observation } from "./rules";
 
 export const CONTRACT_ALERT_KINDS = [
@@ -121,10 +122,8 @@ export function daysBetween(from: string, to: string): number {
   return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
 }
 
-// An amount in its currency: `$12.50` in US dollars, `CAD 12.50` in any other (as ./rules.ts
-// words it; kept here so this module needs nothing of the rules' at load).
-const money = (v: Decimal | string, currency: string) =>
-  currency === "USD" ? `$${formatAmount(v)}` : `${currency} ${formatAmount(v)}`;
+// One money format with the rules' (./money.ts).
+const money = moneyIn;
 const contractEvidence = (c: ContractTerms) => [
   c.id,
   ...(c.documentId ? [c.documentId] : []),

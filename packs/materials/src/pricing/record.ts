@@ -42,7 +42,8 @@ import { convertLine, readUom } from "./uom";
  * line (no document line) always counts.
  */
 // DECISION (audit 7.9): superseded readings are left out in the queries, not deleted; a reading
-// supersedes an older one only once it has price observations of its own.
+// supersedes an older one only once it has price observations of its own, and then hides all of
+// the older reading's lines, those it priced again and those it didn't.
 export function fromLatestReading(): SQL {
   return sql`(${priceObservation.docLineId} is null or not exists (
     select 1
@@ -402,6 +403,12 @@ export async function recordPrices(
               eq(priceObservation.vendorId, d.vendorId),
               eq(priceObservation.currency, doc.currency),
               fromLatestReading(),
+              // Not another reading of this document: a re-read is no change of price.
+              sql`not exists (
+                select 1 from ${docLine} as prev_line
+                join ${docExtraction} as prev_read on prev_read.id = prev_line.extraction_id
+                where prev_line.id = ${priceObservation.docLineId}
+                  and prev_read.document_id = ${doc.documentId})`,
             ),
           )
           .orderBy(desc(priceObservation.observedOn), desc(priceObservation.createdAt))

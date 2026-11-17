@@ -27,7 +27,7 @@ import {
   type ShopFixture,
 } from "../testing.test-helper";
 import { checkPrices } from "./check";
-import { compareVendors, priceHistory } from "./history";
+import { compareVendors, priceHistory, weeklyDigest } from "./history";
 import { recordPrices } from "./record";
 import { priceSettingsFrom } from "./rules";
 
@@ -323,8 +323,18 @@ describe.skipIf(!online)("prices and alerts (database)", () => {
       { db },
       { tenantId: C.tenantId, agentVersionId: C.agentVersionId, docLineId: line?.id as string },
     );
+    const changedBefore = await t.db
+      .select()
+      .from(event)
+      .where(and(eq(event.tenantId, C.tenantId), eq(event.type, "materials.price.changed")));
     await recordPrices(db, ctx(C), { documentId: misread.documentId });
     expect(await observations(C.tenantId)).toHaveLength(3);
+    // The corrected reading is no change of price against the misread one.
+    const changedAfter = await t.db
+      .select()
+      .from(event)
+      .where(and(eq(event.tenantId, C.tenantId), eq(event.type, "materials.price.changed")));
+    expect(changedAfter).toHaveLength(changedBefore.length);
 
     // Another vendor's line with no unit: its price is taken per sheet, so it is never compared.
     const assumed = await matchedInvoice(
@@ -436,6 +446,41 @@ describe.skipIf(!online)("prices and alerts (database)", () => {
       ["Keystone Lumber", "50.0000", "CAD", 1],
       ["Cedar Ridge Supply", null, null, 1],
     ]);
+  });
+
+  it("never adds what is at stake across currencies in the week's digest", async () => {
+    const F = await insertShop(t.db, "Millwork F");
+    const vendorId = await F.vendor("Northline Plywood");
+    const at = (amount: string, currency: string, n: number) => ({
+      tenantId: F.tenantId,
+      pack: "materials",
+      kind: "price_jump",
+      subjectType: "vendor",
+      subjectId: vendorId,
+      severity: "warning" as const,
+      title: `Up ${n}`,
+      body: "Up.",
+      evidence: [vendorId],
+      facts: { currency },
+      dollarImpact: amount,
+      currency,
+      dedupeKey: `test:${n}`,
+    });
+    await t.db
+      .insert(alert)
+      .values([at("10.0000", "USD", 1), at("5.0000", "USD", 2), at("20.0000", "CAD", 3)]);
+    const d = await withTenant(db, F.tenantId, (tx) =>
+      weeklyDigest(tx, F.tenantId, { today: new Date().toISOString().slice(0, 10) }),
+    );
+    expect(d).toMatchObject({
+      dollarImpact: "15.0000",
+      currency: "USD",
+      atStake: [
+        { currency: "USD", amount: "15.0000" },
+        { currency: "CAD", amount: "20.0000" },
+      ],
+    });
+    expect(d.message).toContain("3 alerts, about $15.00 and CAD 20.00 at stake.");
   });
 
   it("keeps each client's prices and alerts its own", async () => {

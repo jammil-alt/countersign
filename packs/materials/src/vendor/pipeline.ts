@@ -57,6 +57,7 @@ import {
   liveItem,
   recordMatch,
   skuContradicts,
+  taughtCode,
   wordsDiffer,
 } from "../catalog/store";
 import { materialsEventRegistry } from "../events";
@@ -409,7 +410,7 @@ export async function lookupBySku(
     const parsed = parseNormalized(normalized);
     // A special-order or short code is no SKU (`identifyingSku`): the line's words decide it.
     const sku = identifyingSku(cleanSku(l.sku), l.lineNo);
-    const taughtSku = sku ? null : cleanSku(l.sku);
+    const taughtSku = sku ? null : taughtCode(l.sku);
     const base = {
       docLineId: l.id,
       lineNo: l.lineNo,
