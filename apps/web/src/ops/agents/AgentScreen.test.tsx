@@ -377,6 +377,16 @@ describe("AgentScreen", () => {
       createdAt: at,
       updatedAt: at,
       phaseAt: at,
+      path: "new",
+      templateId: null,
+      promisedOn: null,
+      origin: null,
+      requirements: null,
+      pipelineStage: "building",
+      standing: "you",
+      waitingOn: "operator",
+      statusLine: "",
+      stuck: false,
     };
     setup(`${BASE}/build`, {
       "GET /api/ops/builds": () => ({ builds: [build], items: [] }),

@@ -42,6 +42,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       mode: "This agent only suggests changes.",
       person: "The person it reaches asked to see changes first.",
       always: "A change like this one is always signed by a person.",
+      held: "It is on a safety hold while we fix a problem we found.",
       retry_reworded:
         "We already made a similar change in this step; check it isn't the same before signing.",
       retry_unconfirmed:
@@ -80,6 +81,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       mode: "Este agente solo sugiere cambios.",
       person: "La persona a la que llega pidió ver los cambios antes.",
       always: "Un cambio como este siempre lo firma una persona.",
+      held: "Está en una pausa de seguridad mientras arreglamos un problema que encontramos.",
       retry_reworded:
         "Ya hicimos un cambio parecido en este paso; compruebe que no es el mismo antes de aprobar.",
       retry_unconfirmed:
@@ -118,6 +120,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       mode: "Cet agent ne fait que suggérer des changements.",
       person: "La personne concernée a demandé à voir les changements avant.",
       always: "Un changement comme celui-ci est toujours signé par une personne.",
+      held: "Il est en pause de sécurité le temps que nous corrigions un problème trouvé.",
       retry_reworded:
         "Nous avons déjà fait un changement semblable à cette étape ; vérifiez que ce n'est pas le même avant d'approuver.",
       retry_unconfirmed:
@@ -157,6 +160,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       mode: "Este agente só sugere mudanças.",
       person: "A pessoa que recebe pediu para ver as mudanças antes.",
       always: "Uma mudança como esta é sempre assinada por uma pessoa.",
+      held: "Está em uma pausa de segurança enquanto corrigimos um problema que encontramos.",
       retry_reworded:
         "Já fizemos uma mudança parecida nesta etapa; confira se não é a mesma antes de aprovar.",
       retry_unconfirmed:
@@ -195,6 +199,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       mode: "Questo agente suggerisce soltanto modifiche.",
       person: "La persona interessata ha chiesto di vedere prima le modifiche.",
       always: "Una modifica come questa la firma sempre una persona.",
+      held: "È in pausa di sicurezza mentre risolviamo un problema che abbiamo trovato.",
       retry_reworded:
         "Abbiamo già fatto una modifica simile in questo passaggio; controlli che non sia la stessa prima di approvare.",
       retry_unconfirmed:
@@ -234,6 +239,7 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       mode: "Dieser Agent schlägt Änderungen nur vor.",
       person: "Die betroffene Person möchte Änderungen vorher sehen.",
       always: "Eine Änderung wie diese unterschreibt immer ein Mensch.",
+      held: "Er ist angehalten, während wir ein gefundenes Problem beheben.",
       retry_reworded:
         "Wir haben in diesem Schritt schon eine ähnliche Änderung gemacht; prüfen Sie vor der Freigabe, dass es nicht dieselbe ist.",
       retry_unconfirmed:

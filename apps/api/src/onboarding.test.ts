@@ -269,7 +269,7 @@ describe.skipIf(!h)("onboarding", () => {
       expect(emails).toContain(admin("a"));
       expect(emails).toContain(user("a"));
       expect(emails).not.toContain(OPERATOR);
-      expect(emails.some((e: string) => e.endsWith("b.example.com"))).toBe(false);
+      expect(emails.some((e: string) => e.endsWith("@b.example.com"))).toBe(false);
       expect((await H.call(user("a"), "GET", "/api/users")).status).toBe(403);
     });
 

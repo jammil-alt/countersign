@@ -25,6 +25,8 @@ import { accountRoutes } from "./account";
 import { approverRuleRoutes } from "./approver-rules";
 // v0.12 W2-B: automations
 import { automationRoutes, BuilderAutomation } from "./automations";
+// docs/plan.md §1.124.4: back office work (Reggie and Autopilot)
+import { autopilotRoutes } from "./autopilot";
 // v0.12 bankfeed
 import { bankfeedRoutes, LinkStartView } from "./bankfeed";
 import { billingRoutes } from "./billing";
@@ -45,6 +47,8 @@ import { connectorRoutes } from "./connectors";
 import { defineRoute } from "./contract";
 // v0.14 capture: WhatsApp conversations and their capture
 import { conversationRoutes } from "./conversations";
+// docs/plan.md §1.124: back office work (Sales)
+import { dealRoutes } from "./deals";
 import { deskRoutes } from "./desk";
 import { directoryRoutes } from "./directory";
 import { DocumentDetail, DocumentSummary } from "./documents";
@@ -124,6 +128,7 @@ import { testbenchRoutes } from "./testbench";
 import { textSignupRoutes } from "./text-signup";
 // v0.12 W1-C: threads, the lead and `/commands`
 import { PortalLead, threadRoutes } from "./threads";
+import { todoRoutes } from "./todos";
 // v0.12 W2-E: the triggers list
 // P-7: message translation
 import { translationRoutes } from "./translation";
@@ -134,6 +139,7 @@ import { AgentRunsNow, DayRuns, usageRoutes } from "./usage";
 import { voiceRoutes } from "./voice";
 // v0.14 W4-A: WhatsApp through Meta
 import { whatsappMetaRoutes } from "./whatsapp-meta";
+import { workRoutes } from "./work";
 // v0.14 W4-B
 import { zohoRoutes } from "./zoho";
 
@@ -2398,6 +2404,8 @@ export const routes = {
   ...voiceRoutes,
   // docs/plan.md §1.121: forms, "Request info"
   ...formRoutes,
+  // docs/plan.md §1.124: back office work
+  ...dealRoutes,
   ...knowledgeRoutes,
   ...callRoutes,
   ...billingRoutes,
@@ -2489,5 +2497,11 @@ export const routes = {
   ...skillModelRoutes,
   // Reshape data (owner, 2026-11-11): propose a Reshape step's mapping, and its sample values.
   ...reshapeRoutes,
+  // docs/plan.md §1.124: back office work
+  ...workRoutes,
+  // docs/plan.md §1.124.3: Your call
+  ...todoRoutes,
+  // docs/plan.md §1.124.4: Reggie and Autopilot
+  ...autopilotRoutes,
 } as const;
 export type Routes = typeof routes;

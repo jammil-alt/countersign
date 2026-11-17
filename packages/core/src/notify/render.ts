@@ -101,6 +101,8 @@ function sentences(input: RenderInput): { headline: string; line: string | null;
     }
     case "signoff":
       return { headline: w.signoff.subject, line: w.signoff.line, action: w.signoff.action };
+    case "issue_update":
+      return { headline: w.issueUpdate.subject, line: null, action: w.issueUpdate.action };
   }
 }
 

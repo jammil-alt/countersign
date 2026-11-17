@@ -163,10 +163,10 @@ export const HELP_WORDS = ["HELP", "INFO"] as const;
 export type Keyword = "stop" | "start" | "help";
 
 export function keywordOf(text: string): Keyword | null {
-  const w = text
-    .trim()
-    .replace(/[.!?\s]+$/, "")
-    .toUpperCase();
+  // Trailing punctuation and spaces off by hand: `/[.!?\s]+$/` is quadratic on a long run of them.
+  let end = text.length;
+  while (end > 0 && /[.!?\s]/.test(text.charAt(end - 1))) end -= 1;
+  const w = text.slice(0, end).trim().toUpperCase();
   if ((OPT_OUT_WORDS as readonly string[]).includes(w)) return "stop";
   if ((OPT_IN_WORDS as readonly string[]).includes(w)) return "start";
   if ((HELP_WORDS as readonly string[]).includes(w)) return "help";

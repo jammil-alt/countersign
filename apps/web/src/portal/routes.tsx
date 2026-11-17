@@ -4,10 +4,12 @@
 // keep their own address: they are reached from an agent, a run, Home, Settings or Sloan.
 //
 // The route sweep (#141, apps/web/e2e/route-sweep.mjs) reads the `path="…"` lines of this file.
+import { lazy, type ReactNode, Suspense } from "react";
 import { Route } from "react-router-dom";
 import { PortalRecordScreen } from "../records/RecordScreens";
 import { ConnectClaudeScreen } from "../session/ConnectClaude";
 import { Redirect } from "../shell/Redirect";
+import { Loading } from "../ui/primitives";
 import { AccountsScreen, VaultRedirect } from "./screens/Accounts";
 import { AgentScreen } from "./screens/Agent";
 import { ContactsScreen } from "./screens/Contacts";
@@ -26,6 +28,21 @@ import { PortalSloanScreen } from "./screens/Sloan";
 import { PortalUploadScreen } from "./screens/UploadPage";
 import { PortalWeeklyScreen } from "./screens/Weekly";
 import { WhatsappMetaSignupScreen } from "./screens/WhatsappMetaSignup";
+
+// §1.124: Requests and the requirements form load when opened, so the first load (its budget is in
+// scripts/web-size.mjs) doesn't carry them.
+const RequestsScreen = lazy(() =>
+  import("../requests/RequestsScreen").then((m) => ({ default: m.RequestsScreen })),
+);
+const RequestDetailScreen = lazy(() =>
+  import("../requests/RequestDetail").then((m) => ({ default: m.RequestDetailScreen })),
+);
+const RequirementsScreen = lazy(() =>
+  import("../requests/RequirementsForm").then((m) => ({ default: m.RequirementsScreen })),
+);
+const OnDemand = ({ children }: { children: ReactNode }) => (
+  <Suspense fallback={<Loading />}>{children}</Suspense>
+);
 
 export const portalRoutes = (
   <>
@@ -99,7 +116,30 @@ export const portalRoutes = (
     <Route path="access/*" element={<VaultRedirect />} />
     <Route path="directory" element={<Redirect to="/contacts" />} />
     <Route path="billing" element={<Redirect to="/settings/billing" />} />
-    {/* Asking us for a change is a mode of Sloan ("Ask us"). */}
-    <Route path="requests" element={<Redirect to="/sloan?mode=change" />} />
+    {/* §1.124: Requests, the client's issues and asks; Sloan's change mode stays. */}
+    <Route
+      path="requests"
+      element={
+        <OnDemand>
+          <RequestsScreen />
+        </OnDemand>
+      }
+    />
+    <Route
+      path="requests/:id"
+      element={
+        <OnDemand>
+          <RequestDetailScreen />
+        </OnDemand>
+      }
+    />
+    <Route
+      path="requirements/:itemId"
+      element={
+        <OnDemand>
+          <RequirementsScreen />
+        </OnDemand>
+      }
+    />
   </>
 );
