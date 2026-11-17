@@ -18,6 +18,7 @@ import {
   type PinnedBrowserSite,
   signInAllowed,
   signInDecision,
+  siteTier,
 } from "@countersign/core";
 import { z } from "zod";
 import type { HeldSession, ToolContext } from "../connector";
@@ -181,8 +182,10 @@ async function siteOf(ctx: ToolContext, call: BrowserCall) {
   if (call.site !== config.site) {
     throw new BrowserRefused(`this browser login is for ${config.site}, not ${call.site}`);
   }
-  const site = await services.site({ slug: config.site, versionId: config.siteVersionId });
-  if (!site) throw new BrowserRefused("this site is no longer in our catalogue");
+  const pinned = await services.site({ slug: config.site, versionId: config.siteVersionId });
+  if (!pinned) throw new BrowserRefused("this site is no longer in our catalogue");
+  // A site with a host on the blocked list is the blocked tier, whatever the services say.
+  const site = { ...pinned, tier: siteTier(pinned.tier, pinned.profile) };
   const rules = { allow: site.profile.allow, block: site.profile.block };
   const allowed = (url: string): PageCheck => {
     const onSite = checkBrowserUrl(url, rules);

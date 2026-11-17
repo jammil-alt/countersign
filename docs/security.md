@@ -129,6 +129,16 @@ branches.
 - **Browser logins** are typed by the separate browser service (`apps/browser`), which holds no
   secrets: `apps/api` hands it a password or a code for one `fill`, held to the site's login
   origins, and it never stores, logs or returns one.
+- **The blocked tier is enforced in code** (invariant 13). A list of well-known banks, payment
+  services, email accounts and identity providers (`BROWSER_BLOCKED_HOSTS` in
+  `packages/core/src/browser/site.ts`) is matched by domain and every subdomain. A site with any
+  host on it is the blocked tier whatever tier the operator picked: it is never offered to a
+  client, never set up, and a run never signs in to it, by the site's newest version and by the
+  version a connection pinned. No page on a listed host is ever opened. The browser service
+  checks the same list again (`apps/browser/src/blocked.ts`, held equal to core's by a test): it
+  refuses to open a browser for a listed host, refuses to go to or download from one, and leaves
+  any page that ends on one. The list changes only with the code; the operator's tier covers
+  every other site.
 
 ## 5. Where client data may go
 

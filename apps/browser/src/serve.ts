@@ -5,7 +5,8 @@
 //
 // A value typed by `fill` (a password, a code) or set by `setCookies` (a held session) is used for
 // that one call: it is never logged, kept or returned, and a failure answers a fixed message
-// instead of Playwright's, so the value can't come back inside an error.
+// instead of Playwright's, so the value can't come back inside an error. A site on the blocked
+// list (./blocked.ts) is never opened, and a page that ends on one is left at once.
 
 import type {
   BrowserCookie,
@@ -14,6 +15,7 @@ import type {
   BrowserTabService,
 } from "@countersign/connectors";
 import { z } from "zod";
+import { onBlockedSite } from "./blocked";
 
 const Url = z.string().max(8_192);
 const Selector = z.string().min(1).max(2_048);
@@ -66,9 +68,19 @@ export function serveTab(tab: BrowserTab): BrowserTabService {
     if (typeof fn !== "function") throw new BrowserServiceError(`this browser has no ${name}`);
     return (fn as (...args: never[]) => unknown).bind(tab) as NonNullable<BrowserTab[K]>;
   };
+  const neverOpened = () => new BrowserServiceError("agents never open this site");
+  // A page that ended on a site on the blocked list (a redirect, a click) is left at once.
+  const leaveIfBlocked = async () => {
+    if (!onBlockedSite(await live())) return;
+    await tab.goto("about:blank").catch(() => undefined);
+    throw neverOpened();
+  };
   return {
     async goto(url) {
-      await tab.goto(parse(Url, url, "address"));
+      const address = parse(Url, url, "address");
+      if (onBlockedSite(address)) throw neverOpened();
+      await tab.goto(address);
+      await leaveIfBlocked();
       return answer(null);
     },
     async where() {
@@ -80,6 +92,7 @@ export function serveTab(tab: BrowserTab): BrowserTabService {
       // Checked without naming the value; the value is typed and forgotten.
       if (!Value.safeParse(value).success) throw new BrowserServiceError("invalid value");
       const origins = onlyOn === undefined ? undefined : parse(Origins, onlyOn, "origins");
+      if (onBlockedSite(await live())) throw neverOpened();
       // DECISION: apps/api decides the origins; the service only holds the typing to them, on the
       // browser's own address at this moment (apps/api's copy of the address can be old).
       if (origins && !origins.includes(originOf(await live()))) {
@@ -96,6 +109,7 @@ export function serveTab(tab: BrowserTab): BrowserTabService {
     },
     async click(selector) {
       await tab.click(parse(Selector, selector, "selector"));
+      await leaveIfBlocked();
       return answer(null);
     },
     async has(selector) {
@@ -121,7 +135,11 @@ export function serveTab(tab: BrowserTab): BrowserTabService {
       return answer(null);
     },
     async download(url) {
-      return answer(await tab.download(parse(Url, url, "address")));
+      const address = parse(Url, url, "address");
+      if (onBlockedSite(address)) throw neverOpened();
+      const file = await tab.download(address);
+      if (onBlockedSite(file.finalUrl)) throw neverOpened();
+      return answer(file);
     },
     async cookies() {
       return answer(await tab.cookies());

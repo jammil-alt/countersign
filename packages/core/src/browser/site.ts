@@ -184,6 +184,103 @@ export const BROWSER_DEFAULT_BLOCKED = [
   "*delete*",
 ] as const;
 
+/**
+ * The blocked tier in code (invariant 13): well-known banks, payment services, email accounts and
+ * identity providers. A site with any host on this list, or under one of these domains, is the
+ * blocked tier whatever tier the operator picked (`siteTier`), and no page on one is ever opened
+ * (`checkBrowserUrl`). The browser service holds the same list (apps/browser/src/blocked.ts, kept
+ * equal by its test) and checks it again as it opens and navigates. docs/security.md §6.
+ */
+// DECISION: a short list of well-known hosts, matched as a domain and every subdomain of it, not a
+// catalogue of every bank: the operator's tier still covers the rest. An entry is the narrowest
+// domain that is only the account (mail.google.com, not google.com), so a provider's other
+// services stay usable.
+export const BROWSER_BLOCKED_HOSTS = [
+  // Banks
+  "chase.com",
+  "bankofamerica.com",
+  "wellsfargo.com",
+  "citi.com",
+  "citibank.com",
+  "usbank.com",
+  "pnc.com",
+  "truist.com",
+  "capitalone.com",
+  "tdbank.com",
+  "schwab.com",
+  "fidelity.com",
+  "americanexpress.com",
+  "discover.com",
+  "ally.com",
+  "usaa.com",
+  "navyfederal.org",
+  "regions.com",
+  "key.com",
+  "citizensbank.com",
+  "53.com",
+  "huntington.com",
+  "svb.com",
+  "mercury.com",
+  "brex.com",
+  "hsbc.com",
+  "barclays.co.uk",
+  "rbcroyalbank.com",
+  "td.com",
+  "scotiabank.com",
+  "bmo.com",
+  // Payment services
+  "paypal.com",
+  "venmo.com",
+  "stripe.com",
+  "squareup.com",
+  "cash.app",
+  "zellepay.com",
+  "wise.com",
+  "payoneer.com",
+  "adyen.com",
+  "braintreegateway.com",
+  "authorize.net",
+  "coinbase.com",
+  // Email accounts
+  "mail.google.com",
+  "gmail.com",
+  "outlook.com",
+  "outlook.live.com",
+  "outlook.office.com",
+  "outlook.office365.com",
+  "hotmail.com",
+  "mail.yahoo.com",
+  "mail.aol.com",
+  "icloud.com",
+  "proton.me",
+  "protonmail.com",
+  "mail.zoho.com",
+  // Identity providers
+  "accounts.google.com",
+  "myaccount.google.com",
+  "login.microsoftonline.com",
+  "login.microsoft.com",
+  "login.live.com",
+  "account.microsoft.com",
+  "appleid.apple.com",
+  "idmsa.apple.com",
+  "login.yahoo.com",
+  "okta.com",
+  "oktapreview.com",
+  "onelogin.com",
+  "duosecurity.com",
+  "jumpcloud.com",
+  "pingidentity.com",
+  "login.gov",
+  "id.me",
+] as const;
+
+/** The listed domain `host` is, or is under; null when it is on none. Ports and `*.` are ignored. */
+export function blockedHost(host: string): string | null {
+  const h = host.trim().toLowerCase().replace(/^\*\./, "").replace(/:\d+$/, "").replace(/\.$/, "");
+  return BROWSER_BLOCKED_HOSTS.find((d) => h === d || h.endsWith(`.${d}`)) ?? null;
+}
+
 function globRegExp(pattern: string): RegExp {
   const body = pattern
     .split("*")
@@ -235,6 +332,10 @@ export function checkBrowserUrl(
   if (!u) return { ok: false, code: "invalid", reason: "not a web address" };
   if (!schemeOk(u) || u.username || u.password) {
     return { ok: false, code: "scheme", reason: "only https pages without a login in the address" };
+  }
+  const listed = blockedHost(u.hostname);
+  if (listed) {
+    return { ok: false, code: "blocked", reason: `agents never open this site (${listed})` };
   }
   const href = `${u.origin}${u.pathname}${u.search}`;
   const blocked = [...BROWSER_DEFAULT_BLOCKED, ...rules.block].find((p) => urlMatches(p, href));
@@ -384,6 +485,23 @@ export function browserSiteHosts(profile: BrowserSiteProfile): string[] {
   for (const p of profile.allow) add(p.includes("*") ? p.slice(0, p.indexOf("*")) : p);
   for (const h of profile.hosts) hosts.add(h);
   return [...hosts];
+}
+
+/** The first of a profile's hosts on the blocked list (`BROWSER_BLOCKED_HOSTS`); null for none. */
+export function profileBlockedHost(profile: BrowserSiteProfile): string | null {
+  for (const host of browserSiteHosts(profile)) {
+    const listed = blockedHost(host);
+    if (listed) return listed;
+  }
+  return null;
+}
+
+/**
+ * A site's tier: the one the operator picked, unless any of its hosts is on the blocked list,
+ * which makes it the blocked tier whatever was picked. Applied wherever a site's tier is read.
+ */
+export function siteTier(picked: BrowserTier, profile: BrowserSiteProfile | null): BrowserTier {
+  return profile && profileBlockedHost(profile) ? "blocked" : picked;
 }
 
 /** A site as a run needs it: the live tier and the pinned version's profile. */

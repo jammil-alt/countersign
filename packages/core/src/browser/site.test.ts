@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  BROWSER_BLOCKED_HOSTS,
   BROWSER_DEFAULT_BLOCKED,
   BrowserConnectionConfig,
   BrowserSiteProfile,
   type BrowserSiteProfileInput,
+  blockedHost,
   browserSiteHosts,
   browserWriteCeiling,
   checkBrowserUrl,
@@ -13,6 +15,7 @@ import {
   onLoginOrigin,
   signInAllowed,
   signInDecision,
+  siteTier,
   stricterLoosening,
   urlMatches,
 } from "./site";
@@ -194,6 +197,61 @@ describe("tier rules", () => {
       "noWrites",
       "personSignIn",
     ]);
+  });
+});
+
+describe("the blocked tier's hosts", () => {
+  /** The profile moved onto `origin`, with every page there. */
+  const on = (origin: string, extra: Partial<BrowserSiteProfileInput> = {}) =>
+    BrowserSiteProfile.parse({
+      ...PROFILE,
+      login: { ...PROFILE.login, url: `${origin}/login`, origins: [origin] },
+      signOut: { selector: "#logout" },
+      allow: [`${origin}/*`],
+      ...extra,
+    });
+
+  it("match a listed domain and its subdomains, never a look-alike", () => {
+    expect(blockedHost("paypal.com")).toBe("paypal.com");
+    expect(blockedHost("www.PayPal.com")).toBe("paypal.com");
+    expect(blockedHost("secure.chase.com.")).toBe("chase.com");
+    expect(blockedHost("accounts.google.com")).toBe("accounts.google.com");
+    expect(blockedHost("login.microsoftonline.com:443")).toBe("login.microsoftonline.com");
+    expect(blockedHost("*.okta.com")).toBe("okta.com");
+    expect(blockedHost("notpaypal.com")).toBeNull();
+    expect(blockedHost("paypal.com.example.test")).toBeNull();
+    expect(blockedHost("portal.acme.test")).toBeNull();
+    expect(blockedHost("docs.google.com")).toBeNull();
+  });
+
+  it("cover each category, as lower-case domains with no scheme, path or wildcard", () => {
+    for (const host of ["chase.com", "stripe.com", "mail.google.com", "okta.com"]) {
+      expect(BROWSER_BLOCKED_HOSTS).toContain(host);
+    }
+    for (const host of BROWSER_BLOCKED_HOSTS) {
+      expect(host).toMatch(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/);
+    }
+    expect(new Set(BROWSER_BLOCKED_HOSTS).size).toBe(BROWSER_BLOCKED_HOSTS.length);
+  });
+
+  it("make a site the blocked tier whatever tier was picked", () => {
+    expect(siteTier("low", on("https://www.paypal.com"))).toBe("blocked");
+    expect(siteTier("medium", on("https://portal.acme.test"))).toBe("medium");
+    // An extra host the browser may reach counts too.
+    expect(
+      siteTier("low", on("https://portal.acme.test", { hosts: ["login.microsoftonline.com"] })),
+    ).toBe("blocked");
+    expect(siteTier("low", null)).toBe("low");
+  });
+
+  it("are never opened, even when the site's rules allow them", () => {
+    const rules = on("https://secure.chase.com");
+    expect(checkBrowserUrl("https://secure.chase.com/accounts", rules)).toMatchObject({
+      ok: false,
+      code: "blocked",
+    });
+    const acme = BrowserSiteProfile.parse(PROFILE);
+    expect(checkBrowserUrl("https://portal.acme.test/invoices", acme).ok).toBe(true);
   });
 });
 

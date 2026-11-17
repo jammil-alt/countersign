@@ -380,6 +380,13 @@ describe("browser connector: caps and tiers", () => {
     expect(await failure(s.read(`${ORIGIN}/invoices`))).toMatch(/never sign in/);
   });
 
+  it("treats a site with a host on the blocked list as the blocked tier, whatever was picked", async () => {
+    const s = setUp({ tier: "low", profile: { hosts: ["login.microsoftonline.com"] } });
+    await s.identify();
+    expect(await failure(s.read(`${ORIGIN}/invoices`))).toMatch(/never sign in to this site/);
+    expect(s.driver.opened).toBe(0);
+  });
+
   it("medium tier signs in on its own and never keeps a session", async () => {
     const s = setUp({ tier: "medium", keep: true });
     await s.identify();
