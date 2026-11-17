@@ -4,7 +4,9 @@
 // the portal's own routes.
 
 import {
+  clearCookie,
   MOBILE_HANDOFF_PATH,
+  MOBILE_START_COOKIE,
   mobileHandoff,
   mobileRedeem,
   mobileSessionFromSetCookies,
@@ -15,6 +17,7 @@ import {
   workosStateOf,
 } from "@countersign/auth";
 import {
+  isOperatorRole,
   MOBILE_SESSION_HEADER,
   MOBILE_SIGNED_IN_URL,
   type MyPush,
@@ -27,6 +30,7 @@ import type { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { auditAlone } from "../audit";
 import { authDirectory } from "../auth";
+import type { Bindings } from "../env";
 import { type AppEnv, HttpError, mount, mountPublic } from "../http";
 import {
   myDevice,
@@ -61,6 +65,22 @@ function workosPassword(c: { env: AppEnv["Bindings"] }): string | null {
   return state.state === "on" ? state.config.cookiePassword : null;
 }
 
+/** Off unless MOBILE_SIGNIN is `on`. */
+// DECISION (audit, 2026-11-17): no app is in the stores yet, so the phone's sign-in routes answer
+// 404 until the owner turns them on (`MOBILE_SIGNIN=on`, docs/operations.md), as push waits for
+// `MOBILE_PUSH`. The phone's other routes are session routes and stay as they are.
+export function mobileSignInOn(env: Pick<Bindings, "MOBILE_SIGNIN"> | undefined): boolean {
+  return env?.MOBILE_SIGNIN?.trim().toLowerCase() === "on";
+}
+
+const signInOff = createMiddleware<AppEnv>(async (c, next) => {
+  if (mobileSignInOn(c.env)) return next();
+  return c.json(
+    { error: { code: "not_found", message: "signing in from the phone app is off here" } },
+    404,
+  );
+});
+
 const toApp = (reason: string) => `${MOBILE_SIGNED_IN_URL}?error=${encodeURIComponent(reason)}`;
 
 async function myPush(tx: Tx, tenantId: string, userId: string): Promise<MyPush> {
@@ -71,6 +91,14 @@ async function myPush(tx: Tx, tenantId: string, userId: string): Promise<MyPush>
 }
 
 export function mobileRoutes(app: Hono<AppEnv>): void {
+  for (const path of [
+    routes.mobileSignIn.path,
+    routes.mobileHandoff.path,
+    routes.mobileSession.path,
+  ]) {
+    app.use(path, signInOff);
+  }
+
   // 1. From the app, in the system browser: remember the app's challenge, then the usual sign-in.
   app.get(routes.mobileSignIn.path, async (c) => {
     const choice = c.get("req").services().auth();
@@ -101,6 +129,17 @@ export function mobileRoutes(app: Hono<AppEnv>): void {
     // cookie stays for that.
     const identified = await choice.workos.identify(c.req.raw, now);
     if (!identified.ok) return c.redirect(toApp("no_session"), 302);
+    // DECISION (audit, 2026-11-17): the phone app is for a client's people (docs/plan.md §1.116);
+    // an operator's session never leaves the browser for it. The browser keeps its session; the
+    // app is told why, with no code.
+    const memberships = await authDirectory(c.get("req").services().db).memberships(
+      identified.userId,
+    );
+    if (memberships.some((m) => isOperatorRole(m.role))) {
+      c.header("Set-Cookie", clearCookie(MOBILE_START_COOKIE), { append: true });
+      for (const cookie of identified.setCookies) c.header("Set-Cookie", cookie, { append: true });
+      return c.redirect(toApp("operator"), 302);
+    }
     if (secondFactorGate(identified)) {
       const query = new URLSearchParams({ return_to: MOBILE_HANDOFF_PATH });
       for (const cookie of identified.setCookies) c.header("Set-Cookie", cookie, { append: true });

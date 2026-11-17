@@ -973,9 +973,12 @@ It talks to the API of the environment it was built for (`EXPO_PUBLIC_API_ORIGIN
   the second step on, a phone sign-in always asks for the code (a remembered browser doesn't
   count), and the sign-in's audit row says `app: phone`.
 - Not usable until the store accounts exist and a build is made (`docs/open.md`, "The phone app"):
-  until then nothing calls these routes and no push is sent.
-- Phone notifications go through Expo's push service, off unless `MOBILE_PUSH=on` (a Worker
-  variable); `EXPO_ACCESS_TOKEN` (a Worker secret) once Expo's enhanced push security is on.
+  the three sign-in routes (`/api/mobile/sign-in`, `/api/mobile/handoff`, `/api/mobile/session`)
+  answer 404 unless `MOBILE_SIGNIN=on` (set by hand with `wrangler secret put`: a dashboard variable is
+  erased by the next `wrangler deploy`), and no
+  push is sent. Operators are refused at the handoff: the app is for a client's people.
+- Phone notifications go through Expo's push service, off unless `MOBILE_PUSH=on` (set with
+  `wrangler secret put`, as above); `EXPO_ACCESS_TOKEN` (a Worker secret) once Expo's enhanced push security is on.
   `deploy.yml` copies neither yet: set them by hand (`wrangler secret put`) until it does. Expo is a
   processor: HIPAA clients get no phone notifications until `expo_push` is in `BAA_PROCESSORS`.
 - Builds: `cd apps/mobile && npx eas-cli build --profile preview --platform all`; store releases

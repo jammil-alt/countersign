@@ -154,6 +154,12 @@ branches.
   Their Permissions-Policy turns off the camera, location, payment and USB, and allows the
   microphone to our own origin only, for voice typing (`microphone=(self)`, plan §1.109); the
   browser still asks the person first, and no frame or other site may use it.
+- **Where a change comes from**: a request that changes something (any method but GET, HEAD and
+  OPTIONS) is refused unless the browser says it came from the app's own origin (`Origin` equals
+  `APP_ORIGIN`, and `Sec-Fetch-Site` is `same-origin` when sent), so a page on another host,
+  including a sibling `*.mezonas.com` host, can't act as a signed-in person
+  (`apps/api/src/request-origin.ts`). Signed webhooks, the public forms and beacon, and the phone
+  app's own session header are exempt; a body sent to a session route must be JSON.
 - **Rate limiting** (Cloudflare): 50 requests per 10 seconds per IP on `/api/*`, webhooks
   excluded. The MCP connector has its own limit of 120 calls a minute per operator.
 - **Writes to clients' tools** need approval by default, run once each, and record their before

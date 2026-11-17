@@ -190,7 +190,10 @@ describe.skipIf(!h)("Send a test email from the connected Gmail", () => {
       const res = await H.call(user("a"), "POST", PATH, body);
       expect(res.status, JSON.stringify(body)).toBe(400);
     }
-    expect((await H.call(user("a"), "POST", PATH, "not json")).status).toBe(400);
+    const json = { "content-type": "application/json" };
+    expect((await H.call(user("a"), "POST", PATH, "not json", json)).status).toBe(400);
+    // A body that doesn't say it is JSON is refused before it is read.
+    expect((await H.call(user("a"), "POST", PATH, "not json")).status).toBe(415);
     expect(google.sent).toHaveLength(before);
     expect(google.sent.every((m) => m.message.includes("someone@else.test") === false)).toBe(true);
   });
