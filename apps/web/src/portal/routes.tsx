@@ -14,7 +14,6 @@ import { AccountsScreen, VaultRedirect } from "./screens/Accounts";
 import { AgentScreen } from "./screens/Agent";
 import { ContactsScreen } from "./screens/Contacts";
 import { PortalDocumentScreen } from "./screens/Document";
-import { GettingStartedScreen } from "./screens/GettingStarted";
 import { GsheetsPickScreen } from "./screens/GsheetsPick";
 import { HomeScreen } from "./screens/Home";
 import { PortalInboxScreen } from "./screens/Inbox";
@@ -40,6 +39,10 @@ const RequestDetailScreen = lazy(() =>
 );
 const RequirementsScreen = lazy(() =>
   import("../requests/RequirementsForm").then((m) => ({ default: m.RequirementsScreen })),
+);
+// §1.126: Getting started is the client's home only while an intake is open, so it loads when opened.
+const GettingStartedScreen = lazy(() =>
+  import("./screens/GettingStarted").then((m) => ({ default: m.GettingStartedScreen })),
 );
 const OnDemand = ({ children }: { children: ReactNode }) => (
   <Suspense fallback={<Loading />}>{children}</Suspense>
@@ -81,7 +84,14 @@ export const portalRoutes = (
 
     {/* Off the nav, reached from an agent, a run, Home or Sloan */}
     {/* §1.126.2: Getting started, the client's home while an intake is open and no agent is live */}
-    <Route path="start" element={<GettingStartedScreen />} />
+    <Route
+      path="start"
+      element={
+        <OnDemand>
+          <GettingStartedScreen />
+        </OnDemand>
+      }
+    />
     <Route path="weekly" element={<PortalWeeklyScreen />} />
     <Route path="sloan" element={<PortalSloanScreen />} />
     <Route path="sloan/:id" element={<PortalSloanScreen />} />
