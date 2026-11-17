@@ -59,12 +59,6 @@ export interface DispatchDeps {
    * (findings for failed runs and connections, the 08:00 daily check in its time zone).
    */
   healthTick?: (tenantId: string, at: Date, timeZone: string | null) => Promise<unknown>;
-  /**
-   * Audit 4.1: work that calls a model (conversations' summaries), once every client's minute
-   * (sweep, schedules, deliveries, reach-outs, health) is done, so a slow model never holds up
-   * another client's schedules or approvals. Given the clients, in the tick's order.
-   */
-  afterClients?: (clientIds: readonly string[], at: Date) => Promise<unknown>;
 }
 
 /** A client's agents with their live bundles: what the router chooses from. */
@@ -439,7 +433,7 @@ async function allClients(db: Db): Promise<{ id: string; timezone: string; setti
  * The cron (every minute): re-dispatch events left undispatched for 30 s, start the schedule
  * triggers due in the last 15 minutes (SCHEDULE_LOOKBACK_MS) not started yet, and re-send
  * resolutions waiting runs have not taken. Once an hour it also rolls usage up for today and
- * yesterday (USAGE_SWEEP_MINUTE). Work that calls a model (`afterClients`) goes after every client.
+ * yesterday (USAGE_SWEEP_MINUTE).
  */
 export async function cronTick(deps: DispatchDeps, scheduledTime: Date): Promise<void> {
   const clients = await allClients(deps.db);
@@ -497,14 +491,6 @@ export async function cronTick(deps: DispatchDeps, scheduledTime: Date): Promise
         client: client.id,
       });
     }
-  }
-  if (deps.afterClients) {
-    await deps
-      .afterClients(
-        clients.map((c) => c.id),
-        to,
-      )
-      .catch((error) => reportHandled("the cron's model work failed", error, { job: "summaries" }));
   }
 }
 

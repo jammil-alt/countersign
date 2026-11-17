@@ -26,6 +26,25 @@ vi.mock("./compliance/retention", async (importOriginal) => ({
   purgeRetiredFiles,
 }));
 
+const order: string[] = [];
+const summaryPass = vi.hoisted(() => vi.fn(async (..._args: unknown[]) => 0));
+vi.mock("./account/summaries", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./account/summaries")>()),
+  summaryPass,
+}));
+vi.mock("./runs/reconcile", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./runs/reconcile")>()),
+  reconcileRuns: vi.fn(async () => void order.push("reconcile")),
+}));
+vi.mock("./documents/sweep", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./documents/sweep")>()),
+  readingSweep: vi.fn(async () => void order.push("reading")),
+}));
+summaryPass.mockImplementation(async () => {
+  order.push("summaries");
+  return 0;
+});
+
 const { runCron } = await import("./app");
 
 describe("runCron", () => {
@@ -61,16 +80,21 @@ describe("runCron", () => {
     expect(cronTick.mock.calls[0]?.[0]).toHaveProperty("codesTick");
   });
 
-  it("hands the summaries to the pass after every client, not to each client's health step", async () => {
-    cronTick.mockClear();
+  it("calls a model only in its last pass, after every other pass of the tick", async () => {
+    order.length = 0;
+    cronTick.mockImplementationOnce(async () => void order.push("clients"));
     const deps = {
       ...defaultDeps,
       openDb: () => ({ db: {}, close: async () => {} }),
       instances: () => ({}),
       platform: () => ({}),
     } as unknown as typeof defaultDeps;
-    await runCron({} as Bindings, new Date("2026-11-05T10:03:00Z"), deps);
-    expect(cronTick.mock.calls[0]?.[0]).toHaveProperty("afterClients");
+    await runCron({} as Bindings, new Date("2026-11-05T10:05:00Z"), deps);
+    // Each client's schedules and deliveries (cronTick), the reconciler and the reading sweep, then
+    // the summaries.
+    expect(order).toEqual(["clients", "reconcile", "reading", "summaries"]);
+    // The client pass carries no model step.
+    expect(Object.keys(cronTick.mock.calls.at(-1)?.[0] ?? {})).not.toContain("afterClients");
   });
 
   it("still runs the vault, retention and pack passes when the billing pass throws", async () => {

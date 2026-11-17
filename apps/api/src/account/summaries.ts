@@ -4,35 +4,29 @@
 // conversation picks up where this one left off. One model call on Sloan's model, as Sloan's cost
 // (free to the client); the messages go in as data (invariant 9). Only the person's own.
 //
-// The cron runs the summaries after every client's schedules and deliveries (runs/dispatch.ts
-// `cronTick`), within a time budget per tick, each call with a short time limit and no retries.
-// Every call is recorded as one of Sloan's test runs with its model call (as a portal question's
-// is, runs-ask/usage.ts), so its tokens count with every other call; a call that failed or wrote
-// no note leaves its run `failed`, and that thread waits an hour before it is tried again.
+// The cron runs the summaries last of all its passes (app.ts `runCron`), within a time budget per
+// tick, each call with its own time limit and no retries. A call is never cut short by the budget:
+// one starts only while the budget still holds a whole call. Its cost is ours, logged as an
+// operator cost (as the back office's questions are, runs-ask/usage.ts), never the client's usage.
+// Each attempt is an audit row (`account.summary`, the thread's id, ok or error): the platform read
+// the person's conversation and sent it to a model. A failed one is also the marker that keeps
+// that thread from being tried again for an hour.
 
-import { modelCallBodyKey, rollupUsageForRun } from "@countersign/agents";
-import { Decimal, SUPERVISOR_SLUG, uuidv7 } from "@countersign/core";
+import { SUPERVISOR_SLUG } from "@countersign/core";
 import {
   agent,
   agentVersion,
+  auditEvent,
   type Db,
   memoryNote,
   message,
-  modelCall,
-  run,
-  stepRun,
   type Tx,
+  tenant,
   thread,
   withTenant,
 } from "@countersign/db";
-import {
-  createLlmClient,
-  type LlmCallRecord,
-  type LlmTransport,
-  providerOf,
-  ZERO_USAGE,
-} from "@countersign/llm";
-import { and, asc, desc, eq, gte, isNotNull, lte, sql } from "drizzle-orm";
+import { createLlmClient, type LlmCallRecord, type LlmTransport } from "@countersign/llm";
+import { and, asc, desc, eq, gte, isNotNull, isNull, lte, sql } from "drizzle-orm";
 
 /** How long a conversation is quiet before it is summarized. */
 export const SUMMARY_AFTER_MS = 30 * 60_000;
@@ -43,15 +37,19 @@ const LOOK_BACK_MS = 24 * 60 * 60_000;
 export const SUMMARIES_PER_TICK = 5;
 const NOTE_MAX = 600;
 const MESSAGES_MAX = 40;
-/** `run.workflow_slug` of a summary's run: it runs no workflow. */
-export const SUMMARY_RUN_WORKFLOW = "account.summary";
-// DECISION (audit 4.1): a summary that failed, or answered with no text, is tried again after an
-// hour, not every minute; its failed run is the marker (no new column).
+/** The audit action of a summary attempt (ids only in its target: the thread). */
+export const SUMMARY_AUDIT_ACTION = "account.summary";
+// DECISION (audit 4.1, review): a summary that failed, or answered with no text, is tried again
+// after an hour, not every minute. Its marker is the attempt's audit row (outcome `error`): no new
+// column, and summaries create no runs, so they never crowd Sloan's runs or count as usage.
 export const SUMMARY_RETRY_AFTER_MS = 60 * 60_000;
 /** The most the cron spends on summaries in one tick, across every client. */
-export const SUMMARY_BUDGET_MS = 20_000;
-/** One summary call's time limit in the cron (the transport's own is 10 minutes). */
-export const SUMMARY_CALL_TIMEOUT_MS = 20_000;
+export const SUMMARY_BUDGET_MS = 30_000;
+/**
+ * One summary call's time limit in the cron (the transport's own is 10 minutes). A call starts
+ * only while the budget has this much left, so the budget never cuts one short.
+ */
+export const SUMMARY_CALL_TIMEOUT_MS = 15_000;
 
 const SYSTEM = [
   "You summarize one conversation between a person at a client business and its account assistant (Sloan) or one of its agents, so the next conversation can pick up from it.",
@@ -63,6 +61,22 @@ interface Quiet {
   threadId: string;
   personId: string;
   lastMessageId: string;
+}
+
+/** The threads whose summary failed in the last hour: one query per client and tick. */
+async function failedLately(tx: Tx, tenantId: string, at: Date): Promise<Set<string>> {
+  const rows = await tx
+    .select({ threadId: sql<string | null>`${auditEvent.target}->>'threadId'` })
+    .from(auditEvent)
+    .where(
+      and(
+        eq(auditEvent.tenantId, tenantId),
+        gte(auditEvent.createdAt, new Date(at.getTime() - SUMMARY_RETRY_AFTER_MS)),
+        eq(auditEvent.action, SUMMARY_AUDIT_ACTION),
+        eq(auditEvent.outcome, "error"),
+      ),
+    );
+  return new Set(rows.flatMap((r) => (r.threadId ? [r.threadId] : [])));
 }
 
 /** Account threads quiet for 30 minutes whose last message has no summary yet. */
@@ -92,6 +106,8 @@ async function quietThreads(db: Db, tenantId: string, at: Date): Promise<Quiet[]
       )
       .orderBy(desc(last.lastAt))
       .limit(SUMMARIES_PER_TICK * 4);
+    if (rows.length === 0) return [];
+    const failed = await failedLately(tx, tenantId, at);
     const out: Quiet[] = [];
     for (const r of rows) {
       const [m] = await tx
@@ -102,20 +118,7 @@ async function quietThreads(db: Db, tenantId: string, at: Date): Promise<Quiet[]
         .limit(1);
       if (!m || !r.personId) continue;
       // A summary of this thread that failed in the last hour: not again yet.
-      const [failed] = await tx
-        .select({ id: run.id })
-        .from(run)
-        .where(
-          and(
-            eq(run.tenantId, tenantId),
-            eq(run.workflowSlug, SUMMARY_RUN_WORKFLOW),
-            eq(run.status, "failed"),
-            sql`${run.trigger}->>'threadId' = ${r.threadId}`,
-            gte(run.createdAt, new Date(at.getTime() - SUMMARY_RETRY_AFTER_MS)),
-          ),
-        )
-        .limit(1);
-      if (failed) continue;
+      if (failed.has(r.threadId)) continue;
       const [done] = await tx
         .select({ id: memoryNote.id })
         .from(memoryNote)
@@ -132,7 +135,7 @@ async function quietThreads(db: Db, tenantId: string, at: Date): Promise<Quiet[]
 async function sloan(db: Db, tenantId: string) {
   return withTenant(db, tenantId, async (tx) => {
     const [row] = await tx
-      .select({ id: agent.id, versionId: agentVersion.id, bundle: agentVersion.bundle })
+      .select({ id: agent.id, bundle: agentVersion.bundle })
       .from(agent)
       .innerJoin(
         agentVersion,
@@ -148,107 +151,58 @@ async function sloan(db: Db, tenantId: string) {
       .limit(1);
     if (!row) return null;
     const model = (row.bundle as { definition?: { model?: { id: string } } }).definition?.model;
-    return {
-      agentId: row.id,
-      versionId: row.versionId,
-      model: model?.id ?? "claude-sonnet-5-5",
-    };
+    return { agentId: row.id, model: model?.id ?? "claude-sonnet-5-5" };
   });
 }
 
 /**
- * One summary call, recorded as one of Sloan's test runs with a step and its model call, then
- * rolled up into usage like any run. `failed` (an error, or no text) makes the run the thread's
- * marker for SUMMARY_RETRY_AFTER_MS.
+ * One summary attempt: its cost logged as ours (no run, no usage row: the client is never charged
+ * for it), and its audit row, whose `error` outcome keeps the thread back for an hour.
  */
-// DECISION (audit 4.1): the call's `model_call` action is `conversation` (a conversation's model
-// use); a new action would need a migration of its check. Recorded without its body, as a
-// question's is: the request is the fixed prompt around the person's own messages.
-async function recordSummaryCall(
+// DECISION (review of audit 4.1, following ARCHITECTURE §10.15): a summary is Sloan's cost, free
+// to the client, so it is logged as an operator cost as the back office's questions are
+// (runs-ask/usage.ts). A `model_call` row needs a run and a step, which a summary no longer has.
+async function recordSummary(
   tx: Tx,
   input: {
     tenantId: string;
-    owner: { agentId: string; versionId: string };
     threadId: string;
-    record: LlmCallRecord;
+    record: LlmCallRecord | null;
     failed: string | null;
     at: Date;
   },
 ): Promise<void> {
-  const { tenantId, owner, record, at } = input;
-  const cost = record.costUsd ?? "0";
-  const [r] = await tx
-    .insert(run)
-    .values({
-      tenantId,
-      agentId: owner.agentId,
-      agentVersionId: owner.versionId,
-      workflowSlug: SUMMARY_RUN_WORKFLOW,
-      mode: "test",
-      trigger: { type: "summary", threadId: input.threadId },
-      status: input.failed ? "failed" : "succeeded",
-      ...(input.failed
-        ? {
-            error: {
-              code: "summary_failed",
-              reason: input.failed,
-              key: "run:summary_failed",
-              nodeId: "summary",
-            },
-          }
-        : {}),
-      startedAt: at,
-      finishedAt: at,
-      createdAt: at,
-      costUsd: cost,
-    })
-    .returning({ id: run.id });
-  if (!r) throw new Error("run insert returned nothing");
-  const [step] = await tx
-    .insert(stepRun)
-    .values({
-      tenantId,
-      runId: r.id,
-      nodeId: "summary",
-      nodeType: "summary",
-      agentVersionId: owner.versionId,
-      input: { threadId: input.threadId },
-      output: input.failed ? null : { written: true },
-      ...(input.failed ? { error: input.failed } : {}),
-      status: input.failed ? "failed" : "succeeded",
-      attempts: 1,
-      costUsd: cost,
-      tokensIn: record.usage.inputTokens,
-      tokensOut: record.usage.outputTokens,
-      startedAt: at,
-      finishedAt: at,
-    })
-    .returning({ id: stepRun.id });
-  if (!step) throw new Error("step run insert returned nothing");
-  const callId = uuidv7(at.getTime());
-  await tx.insert(modelCall).values({
-    id: callId,
-    tenantId,
-    runId: r.id,
-    stepRunId: step.id,
-    agentVersionId: owner.versionId,
-    provider: providerOf(record.model),
-    model: record.model,
-    action: "conversation",
-    tokensIn:
-      record.usage.inputTokens + record.usage.cacheWriteTokens + record.usage.cacheReadTokens,
-    tokensOut: record.usage.outputTokens,
-    // numeric(14,4): rounded up, as every model call's, so a call never shows as free.
-    costUsd: new Decimal(cost).toDecimalPlaces(4, Decimal.ROUND_UP).toFixed(4),
-    durationMs: Math.max(0, Math.round(record.durationMs)),
-    stopReason: record.stopReason ?? "error",
-    bodyKey: modelCallBodyKey(tenantId, callId),
+  const { record } = input;
+  if (record) {
+    console.info(
+      JSON.stringify({
+        event: "account.summary.cost",
+        who: "operator",
+        tenantId: input.tenantId,
+        model: record.model,
+        tokensIn:
+          record.usage.inputTokens + record.usage.cacheWriteTokens + record.usage.cacheReadTokens,
+        tokensOut: record.usage.outputTokens,
+        costUsd: record.costUsd,
+        ok: input.failed === null,
+      }),
+    );
+  }
+  await tx.insert(auditEvent).values({
+    tenantId: input.tenantId,
+    actorKind: "system",
+    action: SUMMARY_AUDIT_ACTION,
+    outcome: input.failed ? "error" : "ok",
+    target: { threadId: input.threadId },
+    createdAt: input.at,
   });
-  await rollupUsageForRun(tx, { tenantId, runId: r.id, now: at });
 }
 
 export interface SummaryOptions {
-  /** `Date.now()`-style milliseconds after which no further call starts (the tick's budget). */
+  /**
+   * `Date.now()`-style milliseconds the tick's budget ends at: a call starts only while a whole
+   * call's time limit still fits before it.
+   */
   deadline?: number;
   /** One call's time limit; default SUMMARY_CALL_TIMEOUT_MS. */
   callTimeoutMs?: number;
@@ -273,7 +227,7 @@ export async function summarizeQuietConversations(
   if (quiet.length === 0) return 0;
   const owner = await sloan(deps.db, tenantId);
   if (!owner) return 0;
-  // The call's record, successes and failures alike (`onCall`), for its usage row.
+  // The call's record, successes and failures alike (`onCall`), for its cost.
   const last: { record: LlmCallRecord | null } = { record: null };
   const llm = createLlmClient({
     transport: deps.transport,
@@ -283,8 +237,8 @@ export async function summarizeQuietConversations(
   });
   let made = 0;
   for (const q of quiet) {
-    const left = options.deadline === undefined ? callTimeoutMs : options.deadline - clock();
-    if (left <= 0) break;
+    // Not enough budget left for a whole call: stop, and leave the rest for the next tick.
+    if (options.deadline !== undefined && options.deadline - clock() < callTimeoutMs) break;
     const lines = await withTenant(deps.db, tenantId, (tx) =>
       tx
         .select({ senderType: message.senderType, body: message.body })
@@ -337,7 +291,8 @@ export async function summarizeQuietConversations(
         },
         {
           label: `summary:${q.threadId}`,
-          signal: AbortSignal.timeout(Math.max(1, Math.min(callTimeoutMs, left))),
+          // The call's own limit, never shortened by the budget.
+          signal: AbortSignal.timeout(callTimeoutMs),
         },
       );
       note = answer.content
@@ -350,20 +305,11 @@ export async function summarizeQuietConversations(
       console.warn(`summary failed: ${failed}`);
     }
     if (!failed && !note) failed = "the model answered with no summary";
-    const call: LlmCallRecord = last.record ?? {
-      model: owner.model,
-      ok: false,
-      usage: ZERO_USAGE,
-      costUsd: null,
-      durationMs: 0,
-      stopReason: null,
-    };
     await withTenant(deps.db, tenantId, async (tx) => {
-      await recordSummaryCall(tx, {
+      await recordSummary(tx, {
         tenantId,
-        owner,
         threadId: q.threadId,
-        record: call,
+        record: last.record,
         failed,
         at,
       });
@@ -390,7 +336,8 @@ export async function summarizeQuietConversations(
 export async function summaryPass(
   deps: {
     db: Db;
-    clients: readonly string[];
+    /** Default: every client that isn't retired. */
+    clients?: readonly string[];
     transportFor: (tenantId: string) => LlmTransport;
     report: (tenantId: string, error: unknown) => void;
   },
@@ -399,15 +346,20 @@ export async function summaryPass(
 ): Promise<number> {
   const clock = options.clock ?? Date.now;
   const deadline = clock() + (options.budgetMs ?? SUMMARY_BUDGET_MS);
-  const n = deps.clients.length;
+  const clients =
+    deps.clients ??
+    (await deps.db.select({ id: tenant.id }).from(tenant).where(isNull(tenant.retiredAt))).map(
+      (c) => c.id,
+    );
+  const n = clients.length;
   if (n === 0) return 0;
   // DECISION: the starting client turns with the minute, so a budget spent early never leaves
   // the same clients without summaries.
   const start = Math.floor(at.getTime() / 60_000) % n;
   let made = 0;
   for (let i = 0; i < n; i++) {
-    if (clock() >= deadline) break;
-    const tenantId = deps.clients[(start + i) % n] as string;
+    if (deadline - clock() < (options.callTimeoutMs ?? SUMMARY_CALL_TIMEOUT_MS)) break;
+    const tenantId = clients[(start + i) % n] as string;
     try {
       made += await summarizeQuietConversations(
         { db: deps.db, transport: deps.transportFor(tenantId) },

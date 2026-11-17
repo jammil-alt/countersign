@@ -370,28 +370,6 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
           const run = forClient(runDepsFromEnv(env, { db, platform, instances }), tenantId);
           await platformHealthTick({ db, runtime: runtimeFor(run) }, tenantId, at, timeZone);
         },
-        // v0.19: each person's quiet conversations summarized for next time (§10.15). Audit 4.1:
-        // after every client's minute, within a budget, each call short and never retried.
-        afterClients: (clients, at) => {
-          const base = runDepsFromEnv(env, { db, platform, instances });
-          const transport = workerTransport(env, {
-            timeoutMs: SUMMARY_CALL_TIMEOUT_MS,
-            maxRetries: 0,
-          });
-          return summaryPass(
-            {
-              db,
-              clients,
-              transportFor: (tenantId) => forClient({ ...base, transport }, tenantId).transport,
-              report: (tenantId, error) =>
-                reportHandled(`summaries for client ${tenantId} failed`, error, {
-                  job: "summaries",
-                  client: tenantId,
-                }),
-            },
-            at,
-          );
-        },
       },
       scheduledTime,
     );
@@ -508,6 +486,27 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     await readingSweep({ db, env, deps }, scheduledTime).catch((error: unknown) =>
       reportHandled("reading sweep failed", error, { job: "reading_sweep" }),
     );
+    // and last of all, the only pass that calls a model every minute: each person's quiet
+    // conversations summarized for next time (v0.19, §10.15). Audit 4.1: within a budget, each
+    // call with its own time limit and never retried, so a slow model holds up no other pass.
+    const runBase = runDepsFromEnv(env, { db, platform, instances });
+    const summaryTransport = workerTransport(env, {
+      timeoutMs: SUMMARY_CALL_TIMEOUT_MS,
+      maxRetries: 0,
+    });
+    await summaryPass(
+      {
+        db,
+        transportFor: (tenantId) =>
+          forClient({ ...runBase, transport: summaryTransport }, tenantId).transport,
+        report: (tenantId, error) =>
+          reportHandled(`summaries for client ${tenantId} failed`, error, {
+            job: "summaries",
+            client: tenantId,
+          }),
+      },
+      new Date(Math.floor(scheduledTime.getTime() / 60_000) * 60_000),
+    ).catch((error: unknown) => reportHandled("summaries failed", error, { job: "summaries" }));
   } finally {
     await close();
   }

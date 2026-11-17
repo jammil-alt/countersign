@@ -15,7 +15,7 @@ import {
   stepRun,
 } from "@countersign/db";
 import { and, eq, inArray } from "drizzle-orm";
-import { afterAll, describe, expect, it, vi } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import { SLOAN_SWEEP_MINUTE } from "./account/sloan";
 import { type ApiHarness, createApiHarness, OPERATOR } from "./api.test-helper";
 import { BANKFEED_CRON_MINUTE } from "./bankfeed/sync";
@@ -176,59 +176,6 @@ describe.skipIf(!h)("schedules: a missed tick is caught up", () => {
       type: "schedule",
       scheduledAt: at("09:30:00").toISOString(),
     });
-  });
-});
-
-describe.skipIf(!h)("the cron's model work waits for every client's minute", () => {
-  const H = h as ApiHarness;
-
-  it("starts every client's schedules before a hanging model call (summaries) begins", async () => {
-    const ids: string[] = [];
-    for (const [tenantId, slug] of [
-      [H.A.tenantId, "slow-first-sam"],
-      [H.B.tenantId, "slow-second-sam"],
-    ] as const) {
-      const created = await H.call(OPERATOR, "POST", `/api/ops/clients/${tenantId}/agents`, {
-        slug,
-        bundle: bundle(slug, { type: "schedule", cron: "45 9 * * *", tz: "UTC" }),
-      });
-      expect(created.status, JSON.stringify(created.json)).toBe(200);
-      const id = j(created.json).agent.id as string;
-      await H.call(
-        OPERATOR,
-        "POST",
-        `/api/ops/agents/${id}/versions/${j(created.json).version.id}/publish`,
-      );
-      await H.t.db.update(agent).set({ runStatus: "active" }).where(eq(agent.id, id));
-      ids.push(id);
-    }
-    let release: () => void = () => {};
-    const hanging = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const startedBefore: number[] = [];
-    let called: readonly string[] = [];
-    const done = cronTick(
-      {
-        db: H.db,
-        instances: H.instances,
-        afterClients: async (clients) => {
-          called = clients;
-          for (const id of ids) {
-            const rows = await H.t.db.select().from(run).where(eq(run.agentId, id));
-            startedBefore.push(rows.filter((r) => H.instances.started.has(r.id)).length);
-          }
-          await hanging;
-        },
-      },
-      at("09:45:20"),
-    );
-    await vi.waitFor(() => expect(called.length).toBeGreaterThan(0));
-    // Both clients' 09:45 runs started before the model work, whichever client it was for.
-    expect(startedBefore).toEqual([1, 1]);
-    expect(called).toEqual(expect.arrayContaining([H.A.tenantId, H.B.tenantId]));
-    release();
-    await done;
   });
 });
 
