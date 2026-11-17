@@ -43,4 +43,8 @@ export const OPS_PATHS = {
   browserSites: "/ops/library/browser-sites",
   // §1.73: the Marketing area's entry; a client's marketing pages are in packs/marketing/ops/paths.ts.
   marketing: "/ops/marketing",
+  // §1.123 back office work: Sales (All deals, New accounts, Expansion) and a deal.
+  sales: "/ops/sales",
+  salesTab: (tab: "all" | "new" | "grow") => `/ops/sales/${tab}`,
+  deal: (id: string) => `/ops/deals/${id}`,
 } as const;

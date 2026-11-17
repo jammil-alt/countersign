@@ -97,6 +97,9 @@ import {
 import { AutomationPage } from "./skills/AutomationPage";
 import { NewSkillScreen } from "./skills/NewSkill";
 import { SkillPage } from "./skills/SkillPage";
+// §1.123 back office work: Sales
+import { DealScreen } from "./work/sales/DealPage";
+import { SalesScreen } from "./work/sales/SalesSection";
 
 export const opsRoutes = (
   <>
@@ -143,6 +146,10 @@ export const opsRoutes = (
     {/* docs/plan.md §1.108: builds, from intake to go-live */}
     <Route path="builds" element={<BuildsScreen />} />
     <Route path="builds/:id" element={<BuildScreen />} />
+    {/* §1.123 back office work */}
+    <Route path="sales" element={<SalesScreen />} />
+    <Route path="sales/:tab" element={<SalesScreen />} />
+    <Route path="deals/:id" element={<DealScreen />} />
     <Route path="clients" element={<ClientsScreen />} />
     <Route path="clients/new" element={<NewClientScreen />} />
     {/* 1.4 (docs/audit-plan.md): the client page's tabs under one frame (client/ClientFrame.tsx),

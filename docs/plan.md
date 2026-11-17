@@ -5051,6 +5051,28 @@ v0.18's scope at the owner's request, as §1.101 and §1.108 are. The design and
 | Not yet | Dictation and "talk it through" on the page (F-4, F-5 in `docs/forms-plan.md`); a one-time code before a link opens; passing a form on to a colleague; saved forms in the Library and the form editor; "Request info" by hand from a contact's page; the Desk door for a client's own users; a rate limit per link beyond the file cap. |
 | Checked | `packages/core/src/forms/index.test.ts`, `apps/api/src/forms.test.ts` (draft, approval card, email, page, file, draft, missing answer, send, the run's output; a form outside the limits; no answer; a test run; forged links), `apps/web/src/forms/FormPage.test.tsx`, and the database's RLS and migration tests. |
 
+#### 1.123.2 Sales (stream A2, M67; `docs/cases-plan.md` S1–S2)
+
+The deals for new accounts and expansion (migration 0063), the Sales section at `/ops/sales`
+(All deals, New accounts, Expansion) and a deal's page at `/ops/deals/:id`, as the agreed
+prototype has them (`docs/design/pipelines.html`). §1.123's head and the owner's decisions are
+written by stage 0; this table is the Sales stream's only.
+
+| Topic | Decision |
+|---|---|
+| Where | Core `work/deals.ts` (stages word for word from the prototype, likelihood, standing, late, filters, the Sales figures) and `api/deals.ts` (the routes); `apps/api/src/work/deals.ts`, `work/deal-setup.ts`, `routes/deals.ts`; `apps/web/src/ops/work/sales/`. Operator only: deals are operator-only tables, not a pack (owner, 2026-11-17). |
+| Lists | Open deals and those closed in the last 90 days, by tab and client; due date first. A deal for a lead names no client and is every operator's; one for a client only the operators serving it (RLS and the query). |
+| Standing | Done once closed; stalled when stuck or held; else whoever has it (`waiting_on`). An expansion deal is held, derived and never stored, while its client has an open critical or high issue ("Held: critical issue") or the account is at risk ("Held: account at risk"). // DECISION: at risk is the command center's bad-health line for escalations (3 open back-office items); the clean share and response time need a week of runs per client. |
+| Stages | A move writes a `stage` line on the timeline. // DECISION: the last stage (first agent live, live and billed) is the win: the deal is won there. A closed deal is not changed. |
+| Outcomes | Won, lost (Reggie checks back in 90 days), not now (60 days), no (a reason required). The check-back is a Reggie to-do about the deal, made once (`deal:<id>:checkback:<date>`). // DECISION: written to `todo` directly until stage 0's `addTodo` lands. |
+| Money | Decimal strings in and out (invariant 6); the figures add with decimal.js. A won deal counts at its agreed value when terms were recorded. Renewals (an expansion titled "Renewal…") show without "+". // DECISION: every deal is USD today; the figures add amounts as they are. |
+| Terms | By hand (owner, 2026-11-17): the agreed price a month and from when, on the timeline; the signed copy, a PDF (magic bytes, at most 10 MB) at `operator/deals/<id>/signed-<ms>.pdf` in R2, a 5-minute link as feedback screenshots. // DECISION: a new upload is a new object; the deal points at the latest. |
+| Set-up | The route is the operator's approval ("creating a client is always yours"). It runs `opsCreateClient` (the path Reggie's `client_create` takes) and then `opsStartBuild` per agent, each through `invokeRoute` as the operator, audited `deal …`; the builds open with the client added to the session's served clients (the id the create returned). The deal names its client before the builds open, so a stop part way leaves the rest to `open-builds`. // DECISION: until `StartBuild` takes `path`, `templateId`, `origin` and `promisedOn` (§1.123.1), set-up writes them on the rows it made; the template fork is A1's. |
+| Expansion builds | `open-builds` at Agreed (or a new account at Set up the account), the same way. |
+| Dates | // DECISION: Sales reads "today" and "this month" in UTC: deals span clients and a lead has no time zone. |
+| Not here | The deal's email (`POST /api/ops/deals/:id/email`, §1.123.4): the composer's Email tab says it comes with Reggie's inbox; to-dos on a deal (§1.123.3); the sidebar entry (B1); Reggie's read beyond the deal's evidence. |
+| Checked | `packages/core/src/work/deals.test.ts`, `apps/api/src/deals.test.ts` (lead to set-up, the client served and a build per agent with its origin and promised date, set-up refused early and twice, outcomes and the check-back, terms and the signed copy, the hold, open-builds, the scope rules, set-up on one connection), `apps/web/src/ops/work/sales/sales.test.tsx`, and the route contract's operator-only checks. |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
