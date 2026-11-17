@@ -8,6 +8,7 @@
 import {
   deviceCookie,
   getSession,
+  mobileSessionFromSetCookies,
   type Session,
   timingSafeEqual,
   type WorkOSAdapter,
@@ -46,6 +47,8 @@ interface StepCtx {
   session: Session;
   workos: WorkOSAdapter | null;
   config: SecondFactorConfig | null;
+  /** The session cookie's value as this request's identify left it (refreshed), or null. */
+  current: string | null;
 }
 
 /**
@@ -74,6 +77,8 @@ async function stepContext(c: AppContext, passed = false): Promise<StepCtx> {
     session: result.session,
     workos: choice.workos,
     config: setup.state === "on" ? setup.config : null,
+    // A WorkOS refresh during this request rotated the session: passing the step reseals that one.
+    current: mobileSessionFromSetCookies(result.setCookies) || null,
   };
 }
 
@@ -203,7 +208,7 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
   });
 
   mountPublic(app, routes.secondFactorVerify, async ({ c, body, services }) => {
-    const { session, config, workos } = await pending(c);
+    const { session, config, workos, current } = await pending(c);
     const userId = session.user.id;
     const db = services.db;
     const now = new Date();
@@ -240,7 +245,7 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
     if (recoveryCodes) {
       await auditAlone(db, c, entry(session, "session.recovery_codes", "ok", 200));
     }
-    await pass(c, workos, session, config, factor.id, body.remember, now, body.kind);
+    await pass(c, workos, current, session, config, factor.id, body.remember, now, body.kind);
     return {
       ok: true as const,
       recoveryCodes,
@@ -249,7 +254,7 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
   });
 
   mountPublic(app, routes.secondFactorRecovery, async ({ c, body, services }) => {
-    const { session, config, workos } = await pending(c);
+    const { session, config, workos, current } = await pending(c);
     const userId = session.user.id;
     const db = services.db;
     const now = new Date();
@@ -266,7 +271,7 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
       );
       throw new HttpError(422, "wrong_code", "that recovery code is not right, or was used");
     }
-    await pass(c, workos, session, config, usable.id, body.remember, now, "recovery");
+    await pass(c, workos, current, session, config, usable.id, body.remember, now, "recovery");
     return {
       ok: true as const,
       recoveryCodes: null,
@@ -421,6 +426,8 @@ async function markUsed(
 async function pass(
   c: AppContext,
   workos: WorkOSAdapter,
+  /** The session as this request's identify left it (`StepCtx.current`). */
+  current: string | null,
   session: Session,
   config: SecondFactorConfig,
   factorId: string,
@@ -428,7 +435,7 @@ async function pass(
   now: Date,
   method: string,
 ) {
-  const passed = await workos.passSecondFactor(c.req.raw, session.user.id, now);
+  const passed = await workos.passSecondFactor(c.req.raw, session.user.id, now, current);
   if (!passed.ok) throw new HttpError(passed.status, passed.code, passed.message);
   sendCookies(c, passed.setCookies);
   if (remember) {

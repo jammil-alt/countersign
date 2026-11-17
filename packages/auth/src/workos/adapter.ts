@@ -112,12 +112,15 @@ export interface WorkOSAdapter extends AuthAdapter {
   signOut(request: Request): Promise<Redirect>;
   /**
    * §1.100: the second step was passed. Reseals a pending session as `done`; refuses one that is
-   * not pending (done, exempt, expired or another person's).
+   * not pending (done, exempt, expired or another person's). `current` is the session as this
+   * request's `identify` left it (rotated by a WorkOS refresh, if it was: the sealed value of the
+   * session cookie it set); without it, the request's own cookie.
    */
   passSecondFactor(
     request: Request,
     userId: string,
     now: Date,
+    current?: string | null,
   ): Promise<{ readonly ok: true; readonly setCookies: readonly string[] } | AuthRefusal>;
 }
 
@@ -231,8 +234,11 @@ export function createWorkOSAdapter(options: {
       };
     },
 
-    async passSecondFactor(request, userId, nowDate) {
-      const raw = requestCookie(request, SESSION_COOKIE);
+    async passSecondFactor(request, userId, nowDate, current) {
+      // DECISION (audit 5.4): the session this request's identify just refreshed, when it did:
+      // resealing the request's own cookie would put back the refresh token WorkOS has already
+      // replaced, and the next refresh would sign the person out.
+      const raw = current || requestCookie(request, SESSION_COOKIE);
       const opened = raw ? await openSession(raw, password) : null;
       const now = epochSec(nowDate);
       if (

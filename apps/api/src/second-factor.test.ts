@@ -4,7 +4,13 @@
 // browser" for 30 days, operators held to an authenticator app, the limit on wrong codes, and an
 // operator's reset forgetting every browser.
 
-import type { WorkOSAuthentication, WorkOSClient } from "@countersign/auth";
+import {
+  openSession,
+  SESSION_COOKIE,
+  sealSession,
+  type WorkOSAuthentication,
+  type WorkOSClient,
+} from "@countersign/auth";
 import { memoryCodeVerifier } from "@countersign/connectors";
 import { appUser, auditEvent } from "@countersign/db";
 import { and, asc, eq } from "drizzle-orm";
@@ -265,6 +271,49 @@ describe.skipIf(!h)("the second step of signing in (§1.100)", () => {
       code: recovery[0],
     });
     expect(reused.status).toBe(422);
+  });
+
+  it("keeps the person signed in when passing the step also refreshes the session", async () => {
+    // A pending sign-in whose refresh is due: the code took a while to arrive.
+    const [u] = await H.t.db.select().from(appUser).where(eq(appUser.id, H.A.admin));
+    const id = workosIds.get(H.A.admin) ?? "wu_admin";
+    const now = Math.floor(Date.now() / 1000);
+    const slow = await sealSession(
+      {
+        v: 1,
+        uid: H.A.admin,
+        wuid: id,
+        email: u?.email ?? "",
+        worg: null,
+        sid: `sess_${id}`,
+        rt: "rt_spent_by_the_refresh",
+        iat: now - 400,
+        rat: now - 100,
+        exp: now + 3600,
+        lat: now - 10,
+        mf: "pending",
+        mfx: now + 200,
+      },
+      PASSWORD,
+    );
+    signingIn = {
+      user: { id, email: u?.email ?? "", firstName: null, lastName: null, emailVerified: true },
+      organizationId: null,
+      refreshToken: "rt_after_the_refresh",
+      sessionId: `sess_${id}`,
+      authenticationMethod: "Password",
+    };
+    const b = new Browser();
+    b.jar.set(SESSION_COOKIE, slow);
+    const passed = await request(b, "POST", "/api/auth/second-factor/verify", {
+      kind: "sms",
+      code: "246810",
+    });
+    expect(passed.status, JSON.stringify(passed.json)).toBe(200);
+    // The cookie the browser keeps is the refreshed session, now past the step.
+    const kept = await openSession(b.jar.get(SESSION_COOKIE) ?? "", PASSWORD);
+    expect(kept).toMatchObject({ mf: "done", rt: "rt_after_the_refresh" });
+    expect((await request(b, "GET", "/api/session")).status).toBe(200);
   });
 
   it("refuses after 5 wrong codes in 15 minutes", async () => {
