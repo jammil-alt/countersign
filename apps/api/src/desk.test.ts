@@ -353,6 +353,10 @@ describe.skipIf(!h)("the Desk", () => {
       expect(eventFor(type)).toEqual([]);
       const inbox = dbInboxPort(H.db, { ...params, id: runId } as never);
       expect(await inbox.resolution(item.id)).toBeNull();
+      // Audit 3.7: what is left of the window, for a run whose wait ran out meanwhile.
+      const left = await inbox.heldFor?.(item.id);
+      expect(left).toBeGreaterThan(0);
+      expect(left).toBeLessThanOrEqual(60);
       const early = await executeAction(runtimeFor(deps()), {
         tenantId: H.A.tenantId,
         actionId: action.id,
@@ -368,6 +372,7 @@ describe.skipIf(!h)("the Desk", () => {
       const undone = await H.call(admin("a"), "POST", `${path}/undo`);
       expect(undone.status, JSON.stringify(undone.json)).toBe(200);
       expect(j(undone.json).item).toMatchObject({ status: "open", deliverAfter: null });
+      expect(await inbox.heldFor?.(item.id)).toBeNull();
       expect((await actionOf(item.id)).status).toBe("proposed");
       const [reopened] = await H.t.db.select().from(inboxItem).where(eq(inboxItem.id, item.id));
       expect((reopened?.payload as { undos?: unknown[] } | undefined)?.undos).toHaveLength(1);
@@ -380,6 +385,7 @@ describe.skipIf(!h)("the Desk", () => {
       expect(late.status).toBe(409);
       expect(j(late.json).error.code).toBe("too_late");
       expect(await inbox.resolution(item.id)).toMatchObject({ approved: true });
+      expect(await inbox.heldFor?.(item.id)).toBe(0);
       expect(await redeliverResolutions(deps(), H.A.tenantId, new Date())).toEqual({
         sent: 1,
         failed: 0,

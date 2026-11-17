@@ -395,6 +395,9 @@ function checkpointKey(name: string, stepId: string): string {
 // approved (its onReject applies). An unanswered approval must never turn into a write.
 export const DEFAULT_APPROVAL_TIMEOUT: Duration = "7 days";
 
+/** Follow-up 6: how many undo windows a run waits out after its approval's time ran out. */
+const HOLD_ROUNDS = 3;
+
 // DECISION (R3): a skill that needs help asks the lead, who has one business day to answer; no
 // answer stops the run (owner, 2026-11-10: "ask the lead").
 const HELP_DEADLINE: processes.Deadline = {
@@ -1089,7 +1092,13 @@ class Executor {
       case "waiting":
         update = {
           status: "waiting",
-          summary: `${stepStateLabel(step, false)}: ${done.wait.reason === "release" ? this.words.waitingForRelease : "waiting for a reply"}`,
+          summary: `${stepStateLabel(step, false)}: ${
+            done.wait.reason === "release"
+              ? this.words.waitingForRelease
+              : done.wait.reason === "change"
+                ? "checking a change it started"
+                : "waiting for a reply"
+          }`,
         };
         break;
       case "escalated":
@@ -1641,6 +1650,8 @@ class Executor {
           ...(frame.automation ? { automation: frame.automation } : {}),
           // v0.13 W2-I
           ...(keyNode ? { keyNode } : {}),
+          // Follow-up 2: a platform retry of this attempt (its budgets go on from the earlier try).
+          ...((tried?.attempt ?? 1) > 1 ? { retried: true } : {}),
         };
         const outcome: StepOutcome =
           refused !== undefined
@@ -2060,6 +2071,37 @@ class Executor {
         await this.ctx.inbox.expire(inboxItemId);
         return null;
       });
+      // Audit 3.7: an item answered before the deadline is not expired (only open items are), and
+      // its answer may still be inside its undo window, where `resolution` doesn't give it yet.
+      // DECISION: the answer stands: the run waits out the rest of the window and takes it, as
+      // the card shows it. An undo inside the window opens the item again, and it expires then.
+      // DECISION (follow-up 6): a person may undo and sign again inside the hold, so the window
+      // is waited out again, up to HOLD_ROUNDS times; after that the item expires as before.
+      // DECISION (follow-up 5, the lead's): a run that passed `:expire` before these steps were
+      // deployed runs them on its replay, so one whose item was signed inside its window may now
+      // take that yes where its stored `:resume` said no. Accepted: the window is narrow (runs
+      // whose approval timed out across the deploy) and the old outcome was the bug.
+      const heldFor = this.ctx.inbox.heldFor;
+      if (!heldFor) return null;
+      for (let round = 1; round <= HOLD_ROUNDS; round++) {
+        // The first round keeps the names the first release of this used, for runs in flight.
+        const at = round === 1 ? base : `${base}:hold${round}`;
+        const held = await this.runner.do(`${at}:held`, () =>
+          heldFor.call(this.ctx.inbox, inboxItemId),
+        );
+        if (held === null) return null;
+        // A second more than the database said, so the window has surely passed when it is read.
+        if (held > 0) await this.runner.sleep(`${at}:hold`, `${Math.ceil(held) + 1} seconds`);
+        const late = await this.runner.do(`${at}:late`, () =>
+          this.ctx.inbox.resolution(inboxItemId),
+        );
+        if (late) return received(InboxResolution.parse(late));
+        // Undone inside the window: open again. Expired, unless it was signed again meanwhile.
+        await this.runner.do(`${at}:expire-late`, async () => {
+          await this.ctx.inbox.expire(inboxItemId);
+          return null;
+        });
+      }
       return null;
     }
   }

@@ -455,6 +455,7 @@ export const de: Messages = {
   "desk.worksheet.title": "Arbeitsblatt",
   "desk.worksheet.how": "Wie {agent} hierher kam",
   "desk.worksheet.yourSign": "Ihre Freigabe", // fluent review
+  "desk.worksheet.earlierChange": "Frühere Änderung öffnen",
   "desk.team.title": "Wer was freigibt", // fluent review
   "desk.team.undo": "Zeit zum Rückgängigmachen",
   "desk.team.undoOff": "Aus",

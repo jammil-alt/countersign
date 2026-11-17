@@ -8,6 +8,7 @@
 // voicemail or a forward; nothing crosses clients. An automatic call retried after a crash resumes;
 // one Twilio placed but we never recorded is found, never placed again.
 
+import { EXECUTING_LEASE_MINUTES } from "@countersign/agents";
 import {
   CALL_ANSWER_TOOL,
   CALL_PLACE_TOOL,
@@ -1068,7 +1069,13 @@ describe.skipIf(!h)("calls through the API", () => {
     const leftExecuting = (id: string) =>
       H.t.db
         .update(externalAction)
-        .set({ status: "executing", error: null, result: null })
+        // Audit 3.2: claimed longer ago than the lease, so a retry takes it over.
+        .set({
+          status: "executing",
+          error: null,
+          result: null,
+          executedAt: new Date(Date.now() - (EXECUTING_LEASE_MINUTES + 1) * 60_000),
+        })
         .where(eq(externalAction.id, id));
     const optOut = async (out: boolean) => {
       const res = out

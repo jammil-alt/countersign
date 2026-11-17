@@ -168,7 +168,9 @@ export async function accountantExport(
 ): Promise<ExportFile & { changes: number }> {
   const { tx, tenantId, period: p, platform, objects } = input;
   const period = await periodOf(tx, tenantId, p);
-  const at = sql`coalesce(${externalAction.executedAt}, ${externalAction.createdAt})`;
+  // Follow-up 9: a change counts in the period it was made; one not done, when it was proposed
+  // (`executed_at` of a claimed or failed change is when it was tried, not made).
+  const at = sql`coalesce(case when ${externalAction.status} = 'done' then ${externalAction.executedAt} end, ${externalAction.createdAt})`;
   const actions = await tx
     .select({
       a: externalAction,
@@ -270,7 +272,7 @@ export async function accountantExport(
     const versionId = a.agentVersionId ?? r.runVersionId;
     const money = moneyOf(a.input);
     return [
-      a.executedAt ?? a.createdAt,
+      (a.status === "done" ? a.executedAt : null) ?? a.createdAt,
       a.status,
       changeDisplay(platform, a.tool)?.connectorName ?? r.connector,
       r.account,
@@ -280,7 +282,7 @@ export async function accountantExport(
       money?.currency ?? null,
       a.approvedBy ? (signers.get(a.approvedBy) ?? a.approvedBy) : null,
       a.approvedAt,
-      a.executedAt,
+      a.status === "done" ? a.executedAt : null,
       a.runId,
       r.runStartedAt,
       r.serviceName ?? r.agentName,

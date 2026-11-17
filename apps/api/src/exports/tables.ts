@@ -738,7 +738,8 @@ export const EXPORT_TABLES: readonly ExportTable[] = [
           a.status,
           by(people, a.approvedBy),
           a.approvedAt,
-          a.executedAt,
+          // Follow-up 9: when it was made; a change not done has no such time.
+          a.status === "done" ? a.executedAt : null,
           a.createdAt,
           jsonCell(a.before),
           jsonCell(a.input),

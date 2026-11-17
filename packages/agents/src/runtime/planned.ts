@@ -197,6 +197,10 @@ async function finish(
       return { status: "refused", reason: "rejected" };
     case "awaiting_approval":
       return { status: "failed", error: "an attempt inside an approved plan waits for approval" };
+    case "busy":
+      // Audit 3.2: an earlier try claimed it; this one never sends it too. The caller leaves the
+      // attempt for a later tick (follow-up 7), when the claim is done or has run out.
+      return { status: "busy", actionId, leaseEndsAt: r.leaseEndsAt };
   }
 }
 

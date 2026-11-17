@@ -546,4 +546,33 @@ describe("The Inbox: Mezonas stepped in", () => {
       "We passed this to you: Sam runs it",
     );
   });
+
+  it("says why a retry's change waits, and opens the earlier change", async () => {
+    const earlierRun = "00000000-0000-4000-8000-0000000f0199";
+    const retried = {
+      ...ITEM,
+      id: "00000000-0000-4000-8000-0000000b0103",
+      payload: {
+        ...ITEM.payload,
+        whyApproval: {
+          reasons: ["retry_reworded"],
+          related: { actionId: "00000000-0000-4000-8000-0000000ac009", runId: earlierRun },
+        },
+      },
+    };
+    const api = fakeApi({
+      ...base,
+      "GET /api/overview": () => overview(1),
+      "GET /api/inbox": inbox(() => ({ open: [retried] })),
+    });
+    renderAt("/inbox", api);
+    const sheet = await screen.findByTestId("desk-worksheet");
+    expect(sheet).toHaveTextContent(
+      "We already made a similar change in this step; check it isn't the same before signing.",
+    );
+    expect(within(sheet).getByTestId("desk-earlier-change")).toHaveAttribute(
+      "href",
+      `/runs/${earlierRun}`,
+    );
+  });
 });

@@ -23,9 +23,22 @@ import { type GrantLimits, grantLevel } from "./grants";
  * - `mode`: the agent only suggests;
  * - `stage`: the agent is in its trial or sign-off stage, where every write is signed;
  * - `person`: the person the change reaches asked to see it first (their autonomy);
- * - `always`: §1.73, the change is one a person always signs (publishing, posting).
+ * - `always`: §1.73, the change is one a person always signs (publishing, posting);
+ * - `retry_reworded`: a retry asked for a change its step already had, with another input, so
+ *   every write of that try is signed (`related` names the change it already had);
+ * - `retry_unconfirmed`: an earlier try of this change may have gone through (`related`).
  */
-export const WHY_CODES = ["step", "matrix", "grant", "mode", "stage", "person", "always"] as const;
+export const WHY_CODES = [
+  "step",
+  "matrix",
+  "grant",
+  "mode",
+  "stage",
+  "person",
+  "always",
+  "retry_reworded",
+  "retry_unconfirmed",
+] as const;
 export const WhyCode = z.enum(WHY_CODES);
 export type WhyCode = z.infer<typeof WhyCode>;
 
@@ -39,6 +52,11 @@ export const WhyApproval = z
     // DECISION: no new reason code: ARCHITECTURE §11.1 keeps `matrix` for "the connection or the
     // entity allows only approval" (and `grant` likewise); this names the entity beside it.
     entity: z.string().optional(),
+    /**
+     * With `retry_reworded` or `retry_unconfirmed`: the change the person should check first, and
+     * the run it belongs to (to open it).
+     */
+    related: z.object({ actionId: z.string(), runId: z.string().nullable() }).optional(),
     /** What chose the approver, and the rule when one did. */
     route: z
       .object({
@@ -80,6 +98,18 @@ export interface ExplainWriteInput {
   entity?: string | null | undefined;
   /** §1.73: the tool always needs a person (core `isAlwaysSigned`). */
   alwaysSigned?: boolean | undefined;
+  /**
+   * A retry's write that waits for a person because of an earlier change (the runtime's
+   * `signedBecause`): why, and the change to check.
+   */
+  retry?:
+    | {
+        code: "retry_reworded" | "retry_unconfirmed";
+        actionId: string;
+        runId: string | null;
+      }
+    | null
+    | undefined;
 }
 
 /**
@@ -108,8 +138,12 @@ export function explainWrite(input: ExplainWriteInput): WhyApproval {
   if (stage) reasons.push("stage");
   if (input.person === "approval") reasons.push("person");
   if (input.alwaysSigned) reasons.push("always");
+  if (input.retry) reasons.push(input.retry.code);
   return {
     reasons,
+    ...(input.retry
+      ? { related: { actionId: input.retry.actionId, runId: input.retry.runId } }
+      : {}),
     ...(stage ? { stage } : {}),
     ...((connEntity || grantEntity) && input.entity ? { entity: input.entity } : {}),
     ...(input.route ? { route: { source: input.route.source, ruleId: input.route.ruleId } } : {}),

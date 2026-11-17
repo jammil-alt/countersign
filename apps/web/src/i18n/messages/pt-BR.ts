@@ -429,6 +429,7 @@ export const ptBR: Messages = {
   "desk.worksheet.title": "Folha de trabalho",
   "desk.worksheet.how": "Como {agent} chegou aqui",
   "desk.worksheet.yourSign": "Sua aprovação",
+  "desk.worksheet.earlierChange": "Abrir a mudança anterior",
   "desk.team.title": "Quem aprova o quê",
   "desk.team.undo": "Prazo para desfazer",
   "desk.team.undoOff": "Desligado",

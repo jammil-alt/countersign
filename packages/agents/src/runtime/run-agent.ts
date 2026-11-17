@@ -37,6 +37,7 @@ import {
   Decimal,
   evaluateSkillRules,
   isoToday,
+  isUuid,
   type JsonSchema,
   LOCALE_ENGLISH_NAMES,
   type Locale,
@@ -106,6 +107,13 @@ export interface RunAgentInput {
   // v0.12 W1-E
   /** A retry's step: the failed run whose approved, not-done writes it may carry (§10.10). */
   retryOf?: string | undefined;
+  /**
+   * Follow-up 2: the platform's retry of this step's durable work (its earlier try stopped): the
+   * budgets go on from what the earlier tries of the same work spent. Absent or false: a new run
+   * of the step (its first try, a run again after a release or the lead's help, an oversight
+   * retry) counts from zero.
+   */
+  retried?: boolean | undefined;
   // v0.12 W2-B
   /**
    * A step of a use step: the automation (`slug@version`) it comes from. Using an automation brings
@@ -173,6 +181,12 @@ export type AgentResult =
       inboxItemId: string;
       connectionId: string;
     })
+  /**
+   * Follow-up 1: one of the step's changes was claimed by an earlier try that may have stopped
+   * mid-write. The step stopped there; it runs again from the start once that claim's lease has
+   * run out (`leaseEndsAt`, ISO), and the change is then taken over under its key.
+   */
+  | (ResultBase & { status: "awaiting_lease"; actionId: string; leaseEndsAt: string | null })
   | (ResultBase & {
       status: "escalated";
       // §1.77: `max_monthly_cost`, the client agent's monthly cap.
@@ -578,6 +592,22 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     };
   };
 
+  // Follow-up 1: a change an earlier try claimed. The model never learns of the wait either: the
+  // step stops and runs again once the claim's lease has run out.
+  const awaitLease = async (o: Extract<ToolOutcome, { status: "busy" }>): Promise<AgentResult> => {
+    await log.finishStepRun(input.tenantId, stepRunId, {
+      status: "waiting",
+      output: { awaitingChange: { actionId: o.actionId } },
+      summary: null,
+    });
+    return {
+      ...totals(),
+      status: "awaiting_lease",
+      actionId: o.actionId,
+      leaseEndsAt: o.leaseEndsAt,
+    };
+  };
+
   // 2a. Skill model (2026-11-10): a deterministic rule skill runs its rule rows: the same input,
   // parameters and day give the same output, with no tool and no model.
   // DECISION (owner, 2026-11-11): today is the client's date, in the client's time zone (the run
@@ -629,11 +659,21 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
       toolId: def.handler,
       input: checkedInput.value,
       allowed,
+      // Review 2, item 5: the step's own input: another one under its key fails the step below.
+      ownInput: true,
     });
     track(o);
     if (o.status === "awaiting_release") return awaitRelease(o);
+    if (o.status === "busy") return awaitLease(o);
     if (o.status === "refused") return fail(`refused: ${o.reason}`);
     if (o.status === "failed") return fail(o.error);
+    // Follow-up 3: a handler's input is the step's own, so another input under its key is not a
+    // model's rewording: the step fails, naming the change it has.
+    if (o.status === "recorded") {
+      return fail(
+        `this step's change ${o.actionId} was made with another input than this try's: check the step's changes before trying again`,
+      );
+    }
     if (o.status !== "done") return finish(null);
     const out = checkOutput(def, o.output);
     if (!out.ok) return fail(`invalid output: ${out.message}`);
@@ -668,6 +708,22 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     : new Decimal(definition.budgets.maxCostUsd);
   // v0.16: so is a browsing run's: the smaller of its cost limit and the agent's.
   const maxCost = scope ? Decimal.min(agentMaxCost, scope.limits.costUsd) : agentMaxCost;
+  // Audit 3.1: the budgets span the platform's retries of the step's durable work: a try after
+  // one that stopped starts from what the earlier tries of that work spent, not from zero.
+  // DECISION (follow-up 2, the lead's): only those. A run again after a release, after the lead's
+  // help or as an oversight retry is a new run of the step with its own budget (else a help
+  // re-run would start over budget and could never finish). Read from the step's recorded
+  // `model_call` rows since the step's row last finished (no new column); a store that records
+  // none (tests, the skill bench) counts from zero. `totals()` stays this try's own, since the
+  // caller adds it to the run's usage.
+  const earlier =
+    input.retried === true && deps.ports.modelCalls?.agentTurns && isUuid(stepRunId)
+      ? await deps.ports.modelCalls.agentTurns(input.tenantId, stepRunId)
+      : null;
+  const earlierCalls = earlier?.calls ?? 0;
+  const earlierCost = new Decimal(earlier?.costUsd ?? "0");
+  const stepCalls = () => earlierCalls + modelCalls;
+  const stepCost = () => earlierCost.plus(cost);
   const onCall = async (record: LlmCallRecord, exchange: LlmExchange) => {
     modelCalls += 1;
     const callCost = new Decimal(record.costUsd ?? "0");
@@ -816,8 +872,9 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
         escalated: true,
         skill: skillRef,
         stepId: input.stepId,
-        modelCalls,
-        costUsd: cost.toFixed(6),
+        // Across the step's attempts (audit 3.1).
+        modelCalls: stepCalls(),
+        costUsd: stepCost().toFixed(6),
         maxSteps,
         maxCostUsd: definition.budgets.maxCostUsd,
         ...(definition.budgets.maxMonthlyCostUsd
@@ -874,8 +931,8 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
     for (;;) {
       const limit = scope?.overLimit();
       if (scope && limit) return helpNeeded(scope.needsHelp());
-      if (modelCalls >= maxSteps) return overBudget("max_steps");
-      if (cost.gt(maxCost)) return overBudget("max_cost");
+      if (stepCalls() >= maxSteps) return overBudget("max_steps");
+      if (stepCost().gt(maxCost)) return overBudget("max_cost");
       if (overMonthly()) return escalate("max_monthly_cost");
       let response: LlmMessage;
       try {
@@ -909,7 +966,7 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
       }
       messages.push({ role: "assistant", content: response.content as TurnContent });
       // Over budget: a valid finish in this answer still counts; nothing else runs.
-      if (cost.gt(maxCost)) {
+      if (stepCost().gt(maxCost)) {
         const done = uses.find((u) => u.name === FINISH_TOOL && checkOutput(def, u.input).ok);
         if (!done) {
           const plea = scope ? uses.find((u) => u.name === NEED_HELP_TOOL) : undefined;
@@ -973,28 +1030,37 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
         track(o);
         // The model never learns of the wait: the step stops here and starts over once released.
         if (o.status === "awaiting_release") return awaitRelease(o);
+        if (o.status === "busy") return awaitLease(o);
+        // Audit 3.1: a retry calling another tool where its first try made a change under the
+        // same key ends the step; the model is never asked to go on past it.
+        if (o.status === "failed" && o.stopsStep) return fail(o.error);
         results.push({
           type: "tool_result",
           tool_use_id: use.id,
           is_error: o.status === "refused" || o.status === "failed",
           content: JSON.stringify(
-            o.status === "done"
-              ? o.output
-              : o.status === "awaiting_approval"
-                ? {
-                    status: "proposed",
-                    note: "A person must approve this change; it has not happened yet.",
-                    actionId: o.actionId,
-                  }
-                : o.status === "would_have_done"
-                  ? {
-                      status: "proposed",
-                      note: "Test run: this change is recorded and will not happen.",
-                      actionId: o.actionId,
-                    }
-                  : o.status === "refused"
-                    ? { refused: o.reason }
-                    : { error: o.error },
+            // Follow-up 3: the step's change, as data, in place of what this call asked for.
+            o.status === "recorded"
+              ? { alreadyRecorded: o.change }
+              : o.status === "awaiting_approval" && o.recorded
+                ? { alreadyRecorded: o.recorded }
+                : o.status === "done"
+                  ? o.output
+                  : o.status === "awaiting_approval"
+                    ? {
+                        status: "proposed",
+                        note: "A person must approve this change; it has not happened yet.",
+                        actionId: o.actionId,
+                      }
+                    : o.status === "would_have_done"
+                      ? {
+                          status: "proposed",
+                          note: "Test run: this change is recorded and will not happen.",
+                          actionId: o.actionId,
+                        }
+                      : o.status === "refused"
+                        ? { refused: o.reason }
+                        : { error: o.error },
           ),
         });
       }

@@ -92,6 +92,24 @@ export interface StepContext {
    * not done, with the same input, is carried under its original key (ARCHITECTURE §10.10).
    */
   retryOf?: string | undefined;
+  /**
+   * Follow-up 3: set once this try's model asked for a change the step already had under that key
+   * with another input. Every write it proposes from then on waits for a person (only tightens).
+   */
+  signAllWrites?: boolean;
+  /** Why `signAllWrites` was set, and the change to check first (shown on the card). */
+  signedBecause?: {
+    code: "retry_reworded" | "retry_unconfirmed";
+    actionId: string;
+    runId: string | null;
+  };
+}
+
+/** Every later write of this try waits for a person, for `why` (only tightens, invariant 8). */
+export function signAllWrites(step: StepContext, why: NonNullable<StepContext["signedBecause"]>) {
+  step.signAllWrites = true;
+  // The first reason stands: it names the change that started it.
+  step.signedBecause ??= why;
 }
 
 export function connectionContext(deps: RuntimeDeps, tenantId: string, connection: ConnectionRef) {
