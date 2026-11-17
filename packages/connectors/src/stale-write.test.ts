@@ -116,4 +116,79 @@ describe("the platform's stale-write check", () => {
     expect(recordChangedSince(undefined, { updatedAt: "b" })).toBeNull();
     expect(recordChangedSince(null, { updatedAt: "b" })).toBeNull();
   });
+
+  // Review of audit 3.8: one step may propose two changes to the same record; the first moves the
+  // record's marker, and the second, made under the same run, is not stale for it.
+  it("lets a run's second change to a record follow its first", async () => {
+    const { backend, connector, ctx } = setup();
+    const second = { id: "r1", name: "Plywood 3/4" };
+    const a = await captureBefore(connector, TESTKIT_UPDATE_TOOL, input, ctx("p1"));
+    const b = await captureBefore(connector, TESTKIT_UPDATE_TOOL, second, ctx("p2"));
+    const first = await executeWrite(connector, TESTKIT_UPDATE_TOOL, input, ctx("k1", a.before));
+    await executeWrite(connector, TESTKIT_UPDATE_TOOL, second, ctx("k2", b.before), {
+      earlier: [first.output],
+    });
+    expect(backend.writes.map((w) => w.idempotencyKey)).toEqual(["k1", "k2"]);
+    expect(backend.get("conn-a", "r1")).toMatchObject({ name: "Plywood 3/4", amount: "130.0000" });
+  });
+
+  it("still refuses the second change when someone else changed the record in between", async () => {
+    const { backend, connector, ctx } = setup();
+    const second = { id: "r1", name: "Plywood 3/4" };
+    const a = await captureBefore(connector, TESTKIT_UPDATE_TOOL, input, ctx("p1"));
+    const b = await captureBefore(connector, TESTKIT_UPDATE_TOOL, second, ctx("p2"));
+    const first = await executeWrite(connector, TESTKIT_UPDATE_TOOL, input, ctx("k1", a.before));
+    backend.update("conn-a", "someone-else", { id: "r1", amount: "99.0000" });
+    const err = await executeWrite(connector, TESTKIT_UPDATE_TOOL, second, ctx("k2", b.before), {
+      earlier: [first.output],
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(NotWrittenError);
+  });
+
+  it("accepts a marker an earlier write of the run left, on the same record only", () => {
+    const left = { record: { id: "1", syncToken: "2" } };
+    expect(recordChangedSince({ id: "1", syncToken: "1" }, { id: "1", syncToken: "2" })).toBe(
+      "syncToken",
+    );
+    expect(
+      recordChangedSince({ id: "1", syncToken: "1" }, { id: "1", syncToken: "2" }, undefined, {
+        earlier: [left],
+      }),
+    ).toBeNull();
+    expect(
+      recordChangedSince({ id: "1", updatedAt: "a" }, { id: "1", updatedAt: "b" }, undefined, {
+        earlier: [{ id: "1", updatedAt: "b" }],
+      }),
+    ).toBeNull();
+    // Another record's marker never stands in for this one's.
+    expect(
+      recordChangedSince({ id: "1", syncToken: "1" }, { id: "1", syncToken: "2" }, undefined, {
+        earlier: [{ record: { id: "9", syncToken: "2" } }],
+      }),
+    ).toBe("syncToken");
+  });
+
+  it("does not compare the before states of two records when the signer pointed the write at another", () => {
+    // No top-level id in the before state: the input's ids tell the records apart.
+    expect(
+      recordChangedSince(
+        { updatedAt: "a" },
+        { updatedAt: "b" },
+        { id: "r2" },
+        {
+          proposedInput: { id: "r1" },
+        },
+      ),
+    ).toBeNull();
+    expect(
+      recordChangedSince(
+        { updatedAt: "a" },
+        { updatedAt: "b" },
+        { id: "r1", amount: "2" },
+        {
+          proposedInput: { id: "r1", amount: "1" },
+        },
+      ),
+    ).toBe("updatedAt");
+  });
 });

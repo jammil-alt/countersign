@@ -174,30 +174,85 @@ const RECORD_ID_FIELDS = ["id", "itemId", "recordId"] as const;
 const marker = (v: unknown): v is string | number =>
   (typeof v === "string" && v.length > 0) || (typeof v === "number" && Number.isFinite(v));
 
+/** Whether a key of a write's input names the record it writes (`id`, `itemId`, `module`, …). */
+const namesRecord = (key: string) =>
+  key === "id" || key === "module" || key === "objectType" || /(Id|_id)$/.test(key);
+
+/** The input's fields that name its record differ from the proposal's: two records. */
+function otherRecord(input: unknown, proposedInput: unknown): boolean {
+  if (!isPlainObject(input) || !isPlainObject(proposedInput)) return false;
+  for (const k of new Set([...Object.keys(input), ...Object.keys(proposedInput)])) {
+    if (namesRecord(k) && JSON.stringify(input[k]) !== JSON.stringify(proposedInput[k])) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** A record state's id fields, where it has them (top level). */
+const idsOf = (state: Record<string, unknown>) =>
+  RECORD_ID_FIELDS.filter((k) => marker(state[k])).map((k) => [k, state[k]] as const);
+
+/**
+ * The record states an earlier write left (its result, its after state), at the top level and
+ * one level down (`{ record: { … } }`).
+ */
+function statesIn(values: readonly unknown[]): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  for (const v of values) {
+    if (!isPlainObject(v)) continue;
+    out.push(v);
+    for (const inner of Object.values(v)) if (isPlainObject(inner)) out.push(inner);
+  }
+  return out;
+}
+
 /**
  * The version field that moved between the before state proposed and the one read now, or null
  * when they can't be compared (no marker on both, or not the same record) or nothing moved.
  * A marker the write's input carries itself (`syncToken`, or `expectedUpdatedAt` for
- * `updatedAt`) is left to the tool, which checks it against the record.
+ * `updatedAt`) is left to the tool, which checks it against the record. Review of 3.8:
+ * - `earlier`: what writes already made in the same run on the same connection left (results,
+ *   after states). A marker one of them left on the same record is the run's own change, not a
+ *   stale one (one step proposing two changes to one record).
+ * - `proposedInput`: the input the proposed before state was read for. When a signer's edit
+ *   points the write at another record (an id field of the input differs), the two states are
+ *   of different records and are not compared.
  */
 export function recordChangedSince(
   proposed: unknown,
   current: unknown,
   input?: unknown,
+  options: { earlier?: readonly unknown[]; proposedInput?: unknown } = {},
 ): string | null {
   if (!isPlainObject(proposed) || !isPlainObject(current)) return null;
   for (const k of RECORD_ID_FIELDS) {
     if (marker(proposed[k]) && marker(current[k]) && proposed[k] !== current[k]) return null;
   }
+  if (options.proposedInput !== undefined && otherRecord(input, options.proposedInput)) return null;
   const given = isPlainObject(input) ? input : {};
+  const ids = idsOf(current);
+  const left = statesIn(options.earlier ?? []).filter(
+    (st) => ids.length > 0 && ids.every(([k, v]) => st[k] === v),
+  );
   for (const k of RECORD_VERSION_FIELDS) {
     const expected = `expected${k.charAt(0).toUpperCase()}${k.slice(1)}`;
     if (given[k] !== undefined || given[expected] !== undefined) continue;
     const was = proposed[k];
     const now = current[k];
-    if (marker(was) && marker(now) && String(was) !== String(now)) return k;
+    if (!marker(was) || !marker(now) || String(was) === String(now)) continue;
+    // DECISION (review of 3.8): accepted only for a state that names the same record (an id
+    // field on both): a marker without a record to tie it to never stands in for this one's.
+    if (left.some((st) => marker(st[k]) && String(st[k]) === String(now))) continue;
+    return k;
   }
   return null;
+}
+
+/** The proposed input as the tool reads it (defaults filled in), or as given when it doesn't parse. */
+function parseWriteInputQuiet(schema: z.ZodType, value: unknown): unknown {
+  const r = schema.safeParse(value);
+  return r.success ? r.data : value;
 }
 
 /**
@@ -217,8 +272,15 @@ export async function executeWrite(
    * Audit 3.8: `recheck: false` skips the stale-write check, for a try that takes over one that
    * may have written (the record then moved because of it; the connector's own retry check
    * decides).
+   * Review of 3.8: `earlier`, what writes already made in this run on this connection left, and
+   * `proposedInput`, the input the proposed before state was read for (`recordChangedSince`).
    */
-  hooks: { sending?: () => void; recheck?: boolean } = {},
+  hooks: {
+    sending?: () => void;
+    recheck?: boolean;
+    earlier?: readonly unknown[];
+    proposedInput?: unknown;
+  } = {},
 ): Promise<WriteResult> {
   const { spec, handler } = lookup(connector, toolId);
   if (handler.kind !== "write") throw new ToolCallError("not_a_write", toolId, "tool only reads");
@@ -234,7 +296,14 @@ export async function executeWrite(
   );
   // Audit 3.8: the record the approver saw must be the one written over. Nothing is sent.
   const moved =
-    hooks.recheck === false ? null : recordChangedSince(ctx.proposedBefore, before, parsed);
+    hooks.recheck === false
+      ? null
+      : recordChangedSince(ctx.proposedBefore, before, parsed, {
+          ...(hooks.earlier ? { earlier: hooks.earlier } : {}),
+          ...(hooks.proposedInput !== undefined
+            ? { proposedInput: parseWriteInputQuiet(handler.input, hooks.proposedInput) }
+            : {}),
+        });
   if (moved) {
     throw new NotWrittenError(
       `${toolId}: the record changed since this change was proposed (its ${moved} moved); nothing was written. Propose it again from what is there now.`,

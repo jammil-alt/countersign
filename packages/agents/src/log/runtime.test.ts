@@ -450,6 +450,35 @@ describe.skipIf(!harness)("runtime", () => {
     ).toBe("rejected");
   });
 
+  // Review of audit 3.8: two changes one step proposed to the same record are both made once
+  // approved; the second's marker moved only because of the first.
+  it("makes a run's two approved changes to one record, the second after the first", async () => {
+    const s = await step(h.A);
+    const one = await callTool(h.deps(), s, update("21.00"));
+    const two = await callTool(h.deps(), s, {
+      toolId: TESTKIT_UPDATE_TOOL,
+      input: { id: "r1", name: "Renamed by the second change" },
+    });
+    if (one.status !== "awaiting_approval" || two.status !== "awaiting_approval") {
+      throw new Error(`${one.status} ${two.status}`);
+    }
+    for (const p of [one, two]) {
+      await resolveExternalAction(h.db, {
+        tenantId: h.A.tenantId,
+        inboxItemId: p.inboxItemId ?? "",
+        decision: "approve",
+        by: { userId: h.A.adminId, role: "client_admin" },
+      });
+    }
+    const first = await executeAction(h.deps(), { tenantId: h.A.tenantId, actionId: one.actionId });
+    expect(first.status).toBe("done");
+    const second = await executeAction(h.deps(), {
+      tenantId: h.A.tenantId,
+      actionId: two.actionId,
+    });
+    expect(second.status, JSON.stringify(second)).toBe("done");
+  });
+
   it("a card left open on a run that has ended is never signed", async () => {
     const s = await step(h.A);
     const proposed = await callTool(h.deps(), s, update("13.00"));

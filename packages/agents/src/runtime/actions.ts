@@ -229,6 +229,14 @@ export async function executeAction(
   if (own?.kind !== "connector") {
     return notSent(`${action.tool} isn't supplied by the ${conn.connector} connection`);
   }
+  // Review of audit 3.8: what this run already wrote on this connection, so a second change it
+  // proposed to the same record is not refused for the first one's mark.
+  const earlier =
+    action.runId && actions.doneInRun
+      ? (await actions.doneInRun(input.tenantId, action.runId, action.connectionId))
+          .filter((a) => a.id !== action.id)
+          .flatMap((a) => [a.result, a.after].filter((v) => v !== undefined && v !== null))
+      : [];
   // Wave 5 review: whether the handler was reached. An error before it (the connector's checks,
   // the input, the before read) wrote nothing; one after it may come after the provider took it.
   let sending = false;
@@ -253,6 +261,9 @@ export async function executeAction(
         // Audit 3.8: refused if the record moved since it was proposed, except on a takeover,
         // whose earlier try may have moved it (the connector's retry check decides then).
         recheck: !retaken,
+        earlier,
+        // The input the proposal's before state was read for: an edit may name another record.
+        proposedInput: action.input,
       },
     );
   } catch (error) {
