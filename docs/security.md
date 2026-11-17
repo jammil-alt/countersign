@@ -177,6 +177,8 @@ branches.
   per IP (`MCP_RATE_LIMIT`, key `ip:<address>`).
   Plain-words questions and voice typing in the portal, which each call a paid model, are
   limited per person and client to 10 a minute and 200 a day (`apps/api/src/metered.ts`).
+  The public beacon route (`/api/in/`) has its own too: 120 a minute per sending address and 120 a minute
+  per measured site, checked before any database work (`apps/api/src/routes/pack-inbound.ts`).
 - **Writes to clients' tools** need approval by default, run once each, and record their before
   state (invariant 8). Delete is off.
 - **Webhooks** from Twilio, Stripe, QuickBooks and ElevenLabs are signature-checked.

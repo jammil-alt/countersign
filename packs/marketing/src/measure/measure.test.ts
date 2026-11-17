@@ -10,7 +10,7 @@ import {
   databaseAvailable,
   type TestDatabase,
 } from "@countersign/db/testing";
-import { sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { overview } from "../reports";
 import { site, siteDailyTotal, siteEvent, siteSalt, siteVisit } from "../schema";
@@ -252,5 +252,23 @@ describe.skipIf(!online)("measuring a site (migration 0037)", () => {
     expect(later.visits).toBe(0);
     const much = await withTenant(t.db, A.tenantId, (tx) => sweep(tx, A.tenantId, "2027-12-06"));
     expect(much.visits).toBe(2);
+  });
+
+  it("deletes past retention for a client whose pack is off, without building its days", async () => {
+    const stored = await collect(
+      t.db,
+      request({ tenantId: B.tenantId, siteId: B.siteId, origin: "https://other.example.com" }),
+    );
+    expect(stored).toEqual({ outcome: "stored", events: 1 });
+    await t.db
+      .delete(tenantPack)
+      .where(and(eq(tenantPack.tenantId, B.tenantId), eq(tenantPack.pack, "marketing")));
+
+    const result = await nightly(t.db, new Date("2027-12-06T03:41:00Z"));
+    expect(result.built.filter((b) => b.tenantId === B.tenantId)).toEqual([]);
+    const left = async (table: typeof siteEvent | typeof siteSalt) =>
+      t.db.select().from(table).where(eq(table.tenantId, B.tenantId));
+    expect(await left(siteEvent)).toEqual([]);
+    expect(await left(siteSalt)).toEqual([]);
   });
 });

@@ -129,4 +129,46 @@ describe.skipIf(!h)("the Marketing pack on the platform", () => {
     const other = await H.call(admin("b"), "GET", "/api/reports/marketing/overview");
     expect(other.status).toBe(404);
   });
+
+  describe("limits beacons per address and per site, whatever the user agent", () => {
+    const LIMIT = 120;
+    const addSite = async (domain: string) => {
+      const added = await H.call(
+        OPERATOR,
+        "POST",
+        `/api/ops/clients/${H.A.tenantId}/packs/marketing/actions/add-site`,
+        { domain: `https://${domain}`, name: domain, goals: [] },
+      );
+      expect(added.status).toBe(200);
+      return j(added.json).result.site.id as string;
+    };
+    const stored = async (id: string) =>
+      (await H.t.db.select().from(siteEvent).where(eq(siteEvent.siteId, id))).length;
+
+    it("stops storing one address's beacons past the limit", async () => {
+      const id = await addSite("one-address.example.com");
+      for (let i = 0; i < LIMIT + 10; i++) {
+        const res = await inbound(H.A.tenantId, id, {
+          origin: "https://one-address.example.com",
+          "user-agent": `${UA} Build/${i}`,
+          "cf-connecting-ip": "198.51.100.20",
+        });
+        expect(res.status).toBe(204);
+      }
+      expect(await stored(id)).toBe(LIMIT);
+    });
+
+    it("stops storing one site's beacons past the limit, from any address", async () => {
+      const id = await addSite("many-addresses.example.com");
+      for (let i = 0; i < LIMIT + 10; i++) {
+        const res = await inbound(H.A.tenantId, id, {
+          origin: "https://many-addresses.example.com",
+          "user-agent": `${UA} Build/${i}`,
+          "cf-connecting-ip": `192.0.2.${i}`,
+        });
+        expect(res.status).toBe(204);
+      }
+      expect(await stored(id)).toBe(LIMIT);
+    });
+  });
 });

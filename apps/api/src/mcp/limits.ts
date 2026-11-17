@@ -1,6 +1,7 @@
 // Calls per operator (docs/plan.md §1.34). Cloudflare's Rate Limiting binding (`MCP_RATE_LIMIT`,
 // wrangler.jsonc: 120 calls a minute per key) where it is bound; otherwise a fixed window in this
-// isolate's memory, which is all a test or a local Worker needs.
+// isolate's memory, which is all a test or a local Worker needs. The public inbound route keys its
+// own limits on the same binding (routes/pack-inbound.ts), with keys of its own.
 
 import type { Bindings } from "../env";
 import { reportHandled } from "../observability/report";
@@ -38,7 +39,7 @@ export function memoryRateLimiter(
 
 const fallback = memoryRateLimiter();
 
-export function rateLimiterFor(env: Bindings): RateLimiter {
+export function rateLimiterFor(env: Bindings, kind = "mcp"): RateLimiter {
   const binding = env.MCP_RATE_LIMIT;
   if (!binding) return fallback;
   return {
@@ -47,7 +48,7 @@ export function rateLimiterFor(env: Bindings): RateLimiter {
         return (await binding.limit({ key })).success;
       } catch (error) {
         // The limiter failing is not a reason to refuse an operator; the isolate's window still holds.
-        reportHandled("mcp rate limiter failed", error, { kind: "mcp" });
+        reportHandled(`${kind} rate limiter failed`, error, { kind });
         return fallback.allow(key);
       }
     },

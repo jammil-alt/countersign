@@ -1,7 +1,8 @@
 // M43 (docs/plan.md §1.72): `POST /api/in/:pack/:tenantId/:target`, what a pack takes from
 // outside with no session: for the Marketing pack, a measured website's beacon. Nothing here
 // names a pack (invariant 2): the platform checks that the pack is registered with an inbound
-// handler and that the client has it on, caps the body, and hands the pack the request's facts.
+// handler, that the request is within the limits per address and per target, and that the client
+// has it on, caps the body, and hands the pack the request's facts.
 //
 // Always 204 with no body, whatever happened, so a sender learns nothing about which clients,
 // packs or targets exist; a failure is reported (never with the request's address or body) and
@@ -17,6 +18,7 @@ import { and, eq } from "drizzle-orm";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../http";
+import { type RateLimiter, rateLimiterFor } from "../mcp/limits";
 import { reportHandled } from "../observability/report";
 
 const spec = routes.packInbound;
@@ -60,6 +62,31 @@ async function readText(req: Request, limit: number): Promise<string | null> {
 
 const noContent = (c: Context<AppEnv>) => c.body(null, 204);
 
+/** The address as a limiter key: a hash, so the address itself goes nowhere. */
+async function addressKey(ip: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`in:${ip}`));
+  return Array.from(new Uint8Array(digest).subarray(0, 16), (b) =>
+    b.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+/**
+ * Whether a request is within the inbound limits: per sending address, then per target (for the
+ * Marketing pack, per measured site), so neither a new user agent nor a new address gets past them.
+ */
+// DECISION: the limits use the Rate Limiting binding the Worker already has (`MCP_RATE_LIMIT`,
+// 120 a minute per key, per Cloudflare location), with keys of their own, rather than a new
+// binding or a database counter: they are checked before any database work, and a refused request
+// costs nothing. A request over a limit is not counted as dropped (that would be a write per
+// request); it gets the same 204. A site that outgrows 120 beacons a minute needs its own binding.
+export async function withinInboundLimits(
+  limiter: RateLimiter,
+  req: { pack: string; tenantId: string; target: string; ip: string },
+): Promise<boolean> {
+  if (!(await limiter.allow(`in:ip:${await addressKey(req.ip)}`))) return false;
+  return limiter.allow(`in:target:${req.pack}:${req.tenantId}:${req.target}`);
+}
+
 export function packInboundRoutes(app: Hono<AppEnv>): void {
   app.post(spec.path, async (c) => {
     const params = Params.safeParse(c.req.param());
@@ -69,6 +96,14 @@ export function packInboundRoutes(app: Hono<AppEnv>): void {
       const services = c.get("req").services();
       const pack = services.platform.packs.find((p) => p.manifest.id === packId);
       if (!pack?.inbound) return noContent(c);
+      const ip = c.req.header("cf-connecting-ip") ?? "";
+      const allowed = await withinInboundLimits(rateLimiterFor(c.env, "inbound"), {
+        pack: packId,
+        tenantId,
+        target,
+        ip,
+      });
+      if (!allowed) return noContent(c);
       const on = await withTenant(services.db, tenantId, (tx) =>
         tx
           .select({ pack: tenantPack.pack })
@@ -97,7 +132,7 @@ export function packInboundRoutes(app: Hono<AppEnv>): void {
         tenantId,
         target,
         body,
-        ip: c.req.header("cf-connecting-ip") ?? "",
+        ip,
         headers,
         cf,
         now: new Date(),
