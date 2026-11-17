@@ -1,0 +1,1227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pipelines prototype</title>
+<!-- A clickable design for the back office on the three buckets (docs/design/workflows.html):
+     one to-do list, New accounts, Expansion, Issues, Agent builds, Enhancements, the work order,
+     the client page and Autopilot. Not wired to anything: every name and number is made up.
+     Serve the repo root over http and open /docs/design/pipelines.html. -->
+<link rel="stylesheet" href="../../packages/design-system/tokens.css">
+<link rel="stylesheet" href="../../packages/design-system/components/bundle.css">
+<link rel="icon" href="../../packages/design-system/assets/Logos/favicon.svg">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--paper); color: var(--ink); font: 400 14px/1.45 var(--font-sans); }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  button { font-family: inherit; }
+  .ic { width: 16px; height: 16px; flex: none; color: currentColor; stroke: currentColor; fill: none; }
+  .ic--20 { width: 20px; height: 20px; }
+
+  /* Shell */
+  .shell { display: grid; grid-template-rows: var(--header-h) 1fr; height: 100vh; }
+  .ds-header { position: sticky; top: 0; z-index: 5; }
+  .brand { display: flex; align-items: center; gap: var(--space-3); }
+  .brand img { height: 18px; display: block; }
+  .brand .place { font: 500 13px/1 var(--font-sans); color: var(--ink-muted); padding-left: var(--space-3); border-left: 1px solid var(--line); }
+  .brand .logo-dark { display: none; }
+  :root[data-theme="dark"] .brand .logo-dark { display: block; }
+  :root[data-theme="dark"] .brand .logo-light { display: none; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .brand .logo-dark { display: block; }
+    :root:not([data-theme="light"]) .brand .logo-light { display: none; }
+  }
+  .search { flex: 1; max-width: 520px; display: flex; align-items: center; gap: var(--space-2); height: 34px; padding: 0 var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--paper); color: var(--ink-faint); font-size: 13px; }
+  .search kbd { margin-left: auto; font: 500 11px/1 var(--font-mono); color: var(--ink-muted); border: 1px solid var(--line); border-radius: 4px; padding: 3px 5px; }
+  .head-right { margin-left: auto; display: flex; align-items: center; gap: var(--space-2); }
+  .body { display: grid; grid-template-columns: var(--sidebar-w) minmax(0, 1fr); min-height: 0; }
+  .ds-sidebar { overflow-y: auto; }
+  .nav-section { margin: var(--space-4) 0 var(--space-1); padding: 0 10px; }
+  .ds-navitem { gap: var(--space-2); text-decoration: none; }
+  .ds-navitem:hover { text-decoration: none; }
+  .ds-navitem .lbl { display: flex; align-items: center; gap: var(--space-2-5); }
+  .ds-navitem .ic { opacity: var(--icon-opacity); }
+  .ds-navitem[aria-current="page"] { background: var(--slate-tint); color: var(--slate); font-weight: 500; }
+  .ds-navitem[aria-current="page"] .ic { opacity: 1; }
+  .ds-navitem.inert { color: var(--ink-muted); }
+  .count { font: 500 11px/1 var(--font-sans); padding: 3px 7px; border-radius: var(--radius-pill); background: var(--surface-subtle); color: var(--ink-muted); }
+  .count--you { background: var(--signal); color: var(--ink); }
+  .main { overflow-y: auto; min-width: 0; }
+  .page { padding: var(--space-8) var(--space-10) var(--space-16); max-width: 1440px; }
+  .page--wide { max-width: none; padding-right: 0; }
+  @media (max-width: 900px) {
+    .body { grid-template-columns: 1fr; }
+    .ds-sidebar { display: none; }
+    .page { padding: var(--space-6) var(--space-4) var(--space-12); }
+    .search { display: none; }
+  }
+
+  /* Page heads */
+  .crumbs { display: flex; gap: var(--space-2); align-items: center; font-size: 13px; color: var(--ink-muted); margin-bottom: var(--space-2); }
+  .page-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-6); }
+  .page-head h1 { margin: 0; font: 500 28px/34px var(--font-sans); letter-spacing: -0.02em; }
+  .page-head p { margin: var(--space-1) 0 0; color: var(--ink-muted); font-size: 15px; }
+  .row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+  .grow { flex: 1; }
+  .muted { color: var(--ink-muted); }
+  .small { font-size: 13px; }
+  .tiny { font-size: 12px; }
+  .mono { font-family: var(--font-mono); }
+  .num { font-variant-numeric: tabular-nums; }
+  hr.sep { border: 0; border-top: 1px solid var(--line); margin: var(--space-4) 0; }
+
+  /* Stats */
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-3); margin-bottom: var(--space-6); }
+  .stat { padding: var(--space-4) var(--space-4-5); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); }
+  .stat .v { font: 500 26px/30px var(--font-sans); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .stat .k { font-size: 13px; color: var(--ink-muted); margin-top: 2px; }
+  .stat--you { border-color: var(--signal); background: var(--signal-tint); }
+  .stat--you .k { color: var(--signal-ink); }
+  @media (max-width: 900px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+  /* Pills that the bundle doesn't have: risk */
+  .pill-risk { display: inline-flex; align-items: center; padding: 4px 10px; font: 500 12px/1 var(--font-sans); border-radius: var(--radius-pill); color: var(--risk-ink); background: var(--risk-tint); border: 1px solid var(--risk-line); white-space: nowrap; }
+  .pill-person { display: inline-flex; align-items: center; padding: 4px 10px; font: 500 12px/1 var(--font-sans); border-radius: var(--radius-pill); color: var(--copper-ink); background: var(--copper-tint); border: 1px solid var(--copper-tint); white-space: nowrap; }
+  .agent-line { display: inline-flex; align-items: center; gap: 6px; font: 500 12px/1 var(--font-sans); color: var(--ink-muted); white-space: nowrap; }
+  .agent-line i { width: 6px; height: 6px; border-radius: 99px; background: var(--slate); display: inline-block; }
+  .agent-line.working i { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: .25 } }
+  @media (prefers-reduced-motion: reduce) { .agent-line.working i { animation: none; } }
+  .pipe-tag { display: inline-flex; align-items: center; gap: 6px; font: 500 11px/1 var(--font-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-muted); }
+
+  /* Your call */
+  .call-list { display: flex; flex-direction: column; gap: var(--space-3); }
+  .call { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); display: grid; grid-template-columns: minmax(0, 1fr) 360px; }
+  .call.is-focus { border-color: var(--slate); box-shadow: 0 0 0 1px var(--slate); }
+  .call.is-done { opacity: .5; }
+  .call__main { padding: var(--space-4) var(--space-5); min-width: 0; }
+  .call__side { padding: var(--space-4) var(--space-5); border-left: 1px solid var(--line); background: var(--surface-subtle); display: flex; flex-direction: column; gap: var(--space-3); border-radius: 0 var(--radius-md) var(--radius-md) 0; }
+  .call h3 { margin: var(--space-1-5) 0 var(--space-1); font: 600 16px/22px var(--font-sans); }
+  .call h3 a { color: var(--ink); }
+  .read { margin: var(--space-2) 0 0; font-size: 14px; line-height: 1.55; }
+  .why { display: flex; gap: var(--space-2); align-items: flex-start; margin-top: var(--space-3); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--signal-tint); color: var(--signal-ink); font-size: 13px; }
+  .why b { font-weight: 600; }
+  .draft { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--space-3); font-size: 13px; line-height: 1.55; white-space: pre-line; max-height: 168px; overflow: hidden; position: relative; }
+  .draft::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 32px; background: linear-gradient(transparent, var(--surface)); }
+  .draft.open { max-height: none; }
+  .draft.open::after { display: none; }
+  .draft-to { font-size: 12px; color: var(--ink-muted); }
+  .sure { font-size: 12px; color: var(--ink-muted); }
+  .plan-steps { margin: var(--space-2) 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+  .plan-steps li { display: flex; gap: var(--space-2); align-items: flex-start; }
+  .plan-steps .n { font: 500 11px/18px var(--font-mono); color: var(--ink-muted); width: 16px; flex: none; }
+  .kbd-hint { font-size: 12px; color: var(--ink-muted); }
+  .kbd-hint kbd { font: 500 11px/1 var(--font-mono); border: 1px solid var(--line); border-radius: 4px; padding: 2px 5px; background: var(--surface); }
+  @media (max-width: 1100px) { .call { grid-template-columns: 1fr; } .call__side { border-left: 0; border-top: 1px solid var(--line); border-radius: 0 0 var(--radius-md) var(--radius-md); } }
+
+  .handled { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); }
+  .handled__row { display: grid; grid-template-columns: 130px minmax(0, 1fr) 90px 110px; gap: var(--space-3); align-items: center; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line); font-size: 13px; }
+  .handled__row:last-child { border-bottom: 0; }
+  .handled__group { padding: var(--space-2) var(--space-4); background: var(--surface-subtle); border-bottom: 1px solid var(--line); }
+  @media (max-width: 900px) { .handled__row { grid-template-columns: 1fr; gap: 4px; } }
+
+  /* Board */
+  .pipes { display: flex; gap: var(--space-1); flex-wrap: wrap; }
+  .pipe-btn { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: var(--space-2); padding: 8px 12px; border-radius: var(--radius-sm); font: 500 13px/1 var(--font-sans); color: var(--ink-muted); border: 1px solid transparent; }
+  .pipe-btn:hover { background: var(--surface-subtle); color: var(--ink); }
+  .pipe-btn[aria-selected="true"] { background: var(--surface); color: var(--ink); border-color: var(--line); }
+  .pipe-btn:focus-visible { box-shadow: 0 0 0 2px var(--focus-ring); }
+  .summary { display: flex; flex-wrap: wrap; gap: var(--space-6); padding: var(--space-3) 0 var(--space-4); font-size: 13px; color: var(--ink-muted); }
+  .summary b { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; font-size: 15px; margin-right: 4px; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; justify-content: space-between; padding: var(--space-3) 0; border-top: 1px solid var(--line); }
+  .chip { all: unset; cursor: pointer; padding: 6px 10px; border-radius: var(--radius-pill); border: 1px solid var(--line); font: 500 12px/1 var(--font-sans); color: var(--ink-muted); background: var(--surface); }
+  .chip[aria-pressed="true"] { background: var(--slate-tint); color: var(--slate); border-color: var(--slate-tint); }
+  .board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(236px, 1fr); gap: var(--space-3); overflow-x: auto; padding-bottom: var(--space-4); padding-right: var(--space-10); }
+  .col { background: var(--surface-subtle); border: 1px solid var(--line); border-radius: var(--radius-md); display: flex; flex-direction: column; min-height: 420px; }
+  .col.drop { border-color: var(--slate); }
+  .col__head { padding: var(--space-3) var(--space-3-5) var(--space-2); }
+  .col__title { display: flex; justify-content: space-between; align-items: center; font: 600 13px/1.2 var(--font-sans); }
+  .col__title .muted { font-weight: 500; }
+  .col__auto { margin-top: 6px; font-size: 12px; color: var(--ink-muted); line-height: 1.4; display: flex; gap: 6px; }
+  .col__auto i { width: 6px; height: 6px; border-radius: 99px; background: var(--slate); display: inline-block; margin-top: 5px; flex: none; }
+  .col__auto.off i { background: var(--line-strong); }
+  .col__cards { padding: var(--space-1) var(--space-2) var(--space-3); display: flex; flex-direction: column; gap: var(--space-2); flex: 1; }
+  .kcard { display: block; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: var(--space-3); color: var(--ink); cursor: grab; }
+  .kcard:hover { border-color: var(--line-strong); text-decoration: none; }
+  .kcard.you { border-left: 3px solid var(--signal); }
+  .kcard__title { font: 600 13px/1.35 var(--font-sans); }
+  .kcard__who { font-size: 12px; color: var(--ink-muted); margin-top: 2px; }
+  .kcard__foot { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); margin-top: var(--space-2-5); }
+  .kcard__foot { flex-wrap: wrap; row-gap: 6px; }
+  .kcard__foot > .row { flex-wrap: nowrap; margin-left: auto; }
+  .kcard__val { font: 500 12px/1 var(--font-sans); font-variant-numeric: tabular-nums; color: var(--ink); }
+  .mini-av { width: 22px; height: 22px; border-radius: 99px; display: inline-flex; align-items: center; justify-content: center; font: 600 10px/1 var(--font-sans); flex: none; }
+  .mini-av.person { background: var(--copper-tint); color: var(--copper-ink); }
+  .mini-av.agent { background: var(--surface-subtle); color: var(--ink); border: 1px solid var(--line); }
+
+  .list { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; margin-right: var(--space-10); }
+  .list table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .list th { text-align: left; font: 500 12px/1 var(--font-sans); color: var(--ink-muted); padding: 10px var(--space-4); border-bottom: 1px solid var(--line); background: var(--surface-subtle); }
+  .list td { padding: 10px var(--space-4); border-bottom: 1px solid var(--line); vertical-align: middle; }
+  .list tr:last-child td { border-bottom: 0; }
+  .list tr:hover td { background: var(--surface-subtle); cursor: pointer; }
+  .list .r { text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* Record */
+  .rec { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: var(--space-6); align-items: start; }
+  @media (max-width: 1100px) { .rec { grid-template-columns: 1fr; } }
+  .stages { display: flex; gap: 2px; margin: var(--space-3) 0 var(--space-5); }
+  .stages button { all: unset; cursor: pointer; flex: 1; padding: 8px 10px; font: 500 12px/1.2 var(--font-sans); color: var(--ink-muted); background: var(--surface-subtle); border: 1px solid var(--line); text-align: center; }
+  .stages button:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+  .stages button:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+  .stages button.past { color: var(--slate); background: var(--slate-tint); border-color: var(--slate-tint); }
+  .stages button.now { color: var(--on-slate); background: var(--slate); border-color: var(--slate); }
+  .tl { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); }
+  .tl__item { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: var(--space-3); padding: var(--space-4); border-bottom: 1px solid var(--line); }
+  .tl__item.note { background: var(--copper-tint); }
+  .tl__item.sys { padding-top: var(--space-2-5); padding-bottom: var(--space-2-5); }
+  .tl__item.sys .tl__body { font-size: 13px; color: var(--ink-muted); }
+  .tl__head { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: baseline; }
+  .tl__who { font: 600 13px/1.3 var(--font-sans); }
+  .tl__when { font-size: 12px; color: var(--ink-muted); }
+  .tl__body { margin-top: 4px; font-size: 14px; line-height: 1.55; white-space: pre-line; }
+  .chan { font: 500 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); border: 1px solid var(--line); padding: 3px 5px; border-radius: 4px; }
+  .dot-ico { width: 32px; height: 32px; border-radius: 99px; display: inline-flex; align-items: center; justify-content: center; background: var(--surface-subtle); color: var(--ink-muted); border: 1px solid var(--line); }
+  .receipts { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
+  .composer { padding: var(--space-4); }
+  .composer .ds-tabs { margin-bottom: var(--space-3); }
+  .composer textarea { min-height: 170px; line-height: 1.55; font-size: 14px; }
+  .composer.is-note textarea { background: var(--copper-tint); border-color: var(--copper); }
+  .composer__foot { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; justify-content: space-between; margin-top: var(--space-3); }
+  .side { display: flex; flex-direction: column; gap: var(--space-4); position: sticky; top: var(--space-4); }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); }
+  .panel__head { display: flex; justify-content: space-between; align-items: center; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line); }
+  .panel__body { padding: var(--space-4); }
+  .facts { display: grid; grid-template-columns: 116px minmax(0, 1fr); gap: 10px var(--space-3); font-size: 13px; }
+  .facts dt { color: var(--ink-muted); }
+  .facts dd { margin: 0; }
+  .found { margin: var(--space-3) 0 0; padding-left: 18px; font-size: 13px; line-height: 1.55; }
+  .found li { margin-bottom: 4px; }
+  .next { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-2); }
+  .next__row { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: var(--space-2); align-items: start; padding: var(--space-2-5); border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 13px; }
+  .next__row .n { font: 500 11px/18px var(--font-mono); color: var(--ink-muted); }
+  .next__row small { display: block; color: var(--ink-muted); font-size: 12px; margin-top: 2px; }
+
+  /* Autopilot */
+  .stage-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); margin-bottom: var(--space-3); }
+  .stage-card__head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line); }
+  .stage-card__head h3 { margin: 0; font: 600 14px/1.3 var(--font-sans); }
+  .play { display: grid; grid-template-columns: minmax(200px, 1.4fr) auto minmax(160px, 1fr); gap: var(--space-4); align-items: center; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line); font-size: 13px; }
+  .play:last-child { border-bottom: 0; }
+  .play__name { font-weight: 600; }
+  .play__when { color: var(--ink-muted); font-size: 12px; margin-top: 2px; }
+  .play .ds-seg button { padding: 6px 10px; font-size: 12px; }
+  .track { font-size: 12px; color: var(--ink-muted); }
+  .track b { color: var(--ink); font-weight: 500; }
+  .suggest { margin-top: 6px; display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; }
+  .lock { font-size: 12px; color: var(--ink-muted); display: inline-flex; gap: 6px; align-items: center; }
+  @media (max-width: 1100px) { .play { grid-template-columns: 1fr; gap: var(--space-2); } }
+  .guard { list-style: none; margin: 0; padding: 0; }
+  .guard li { display: flex; gap: var(--space-2-5); align-items: flex-start; padding: var(--space-2-5) 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .guard li:last-child { border-bottom: 0; }
+  .two { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: var(--space-6); align-items: start; }
+  @media (max-width: 1100px) { .two { grid-template-columns: 1fr; } }
+
+  .toast-wrap { position: fixed; left: 50%; bottom: var(--space-6); transform: translateX(-50%); z-index: 50; }
+  .toast { background: var(--ink); color: var(--paper); padding: 10px 14px; border-radius: var(--radius-md); box-shadow: var(--shadow-pop); font-size: 13px; display: flex; gap: var(--space-3); align-items: center; }
+  .toast button { all: unset; cursor: pointer; font-weight: 600; color: var(--paper); text-decoration: underline; }
+  .note-banner { margin-bottom: var(--space-5); padding: var(--space-2-5) var(--space-3-5); border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); font-size: 12px; color: var(--ink-muted); }
+  /* v2: one to-do, the three buckets */
+  .hold { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; justify-content: space-between; padding: var(--space-3) var(--space-4); margin-bottom: var(--space-5); background: var(--risk-tint); border: 1px solid var(--risk-line); border-radius: var(--radius-md); color: var(--risk-ink); font-size: 14px; }
+  .hold b { font-weight: 600; }
+  .hold .row { gap: var(--space-2); }
+  .hold .ds-btn--secondary { border-color: var(--risk-line); }
+  .src-tag { display: inline-flex; align-items: center; gap: 6px; font: 500 11px/1 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-muted); }
+  .urg { display: inline-flex; align-items: center; padding: 3px 8px; font: 500 11px/1 var(--font-sans); border-radius: var(--radius-pill); white-space: nowrap; border: 1px solid; }
+  .urg--critical { color: var(--risk-ink); background: var(--risk-tint); border-color: var(--risk-line); }
+  .urg--high { color: var(--ink); background: var(--surface); border-color: var(--line-strong); }
+  .urg--normal, .urg--low { color: var(--ink-muted); background: var(--surface-subtle); border-color: var(--line); }
+  .call.critical { border-color: var(--risk-line); }
+  .call.critical .call__side { background: var(--risk-tint); }
+  .call.critical .why { background: var(--risk-tint); color: var(--risk-ink); }
+  .group-head { display: flex; align-items: baseline; gap: var(--space-2); margin: var(--space-6) 0 var(--space-2); }
+  .group-head:first-child { margin-top: 0; }
+  .group-head h2 { margin: 0; font: 600 13px/1.3 var(--font-sans); }
+  .rows { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); }
+  .trow { display: grid; grid-template-columns: 150px minmax(0, 1fr) 170px 120px; gap: var(--space-3); align-items: center; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line); font-size: 13px; }
+  .trow:last-child { border-bottom: 0; }
+  .trow .t { font-weight: 600; }
+  .trow .m { color: var(--ink-muted); font-size: 12px; }
+  @media (max-width: 900px) { .trow { grid-template-columns: 1fr; gap: 4px; } }
+  .bucket-nav { margin: var(--space-4) 0 var(--space-1); padding: 0 10px; display: flex; flex-direction: column; gap: 2px; }
+  .bucket-nav small { font: 400 11px/1.3 var(--font-sans); color: var(--ink-faint); letter-spacing: 0; text-transform: none; }
+  .formbox { padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-subtle); font-size: 13px; }
+  .bar { height: 6px; background: var(--data-track); border-radius: 99px; overflow: hidden; margin: 6px 0; }
+  .bar i { display: block; height: 100%; background: var(--data-bar); }
+  .todo-list { display: flex; flex-direction: column; }
+  .todo { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: var(--space-2); align-items: start; padding: var(--space-2-5) 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .todo:last-child { border-bottom: 0; }
+  .todo input { margin-top: 3px; }
+  .todo small { display: block; font-size: 12px; color: var(--ink-muted); }
+  .wo { display: grid; grid-template-columns: 34px 110px minmax(0, 1fr) 150px minmax(0, 1.1fr); gap: var(--space-3); align-items: center; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line); font-size: 13px; }
+  .wo:last-child { border-bottom: 0; }
+  .wo .n { font: 500 12px/1 var(--font-mono); color: var(--ink-muted); }
+  .wo .t a { color: var(--ink); font-weight: 600; }
+  .wo .why2 { color: var(--ink-muted); font-size: 12px; }
+  .wo.moved { background: var(--slate-tint); }
+  .wo-head { font: 500 12px/1 var(--font-sans); color: var(--ink-muted); background: var(--surface-subtle); padding: 10px var(--space-4); }
+  @media (max-width: 1000px) { .wo { grid-template-columns: 30px 1fr; } .wo > :nth-child(n+3) { grid-column: 2; } }
+  .client-buckets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); margin-bottom: var(--space-6); }
+  @media (max-width: 900px) { .client-buckets { grid-template-columns: 1fr; } }
+  .cb { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); padding: var(--space-3-5) var(--space-4); }
+  .cb .type-eyebrow { color: var(--ink-muted); }
+  .cb a { display: flex; justify-content: space-between; gap: var(--space-2); align-items: center; padding: 7px 0; border-bottom: 1px solid var(--line); color: var(--ink); font-size: 13px; }
+  .cb a:last-child { border-bottom: 0; }
+  .cb .none { font-size: 13px; color: var(--ink-muted); padding-top: 6px; }
+  .answered { display: inline-flex; align-items: center; gap: 4px; font: 500 11px/1 var(--font-sans); color: var(--positive); }
+  .filters { display: flex; gap: var(--space-1-5); flex-wrap: wrap; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="ds-header">
+    <div class="brand">
+      <img class="logo-light" src="../../packages/design-system/assets/Logos/mezonas-logo.svg" alt="Mezonas">
+      <img class="logo-dark" src="../../packages/design-system/assets/Logos/mezonas-logo-paper.svg" alt="Mezonas">
+      <span class="place">Back office</span>
+    </div>
+    <div class="search"><svg class="ic"><use href="#i-search"/></svg>Find a client, lead, issue, build, run or record<kbd>/</kbd></div>
+    <div class="head-right">
+      <button class="ds-btn ds-btn--ghost ds-btn--sm" id="theme" type="button" aria-label="Switch theme">Dark</button>
+      <button class="ds-btn ds-btn--secondary ds-btn--sm" type="button" data-toast="Ask Reggie opens here, as it does today."><svg class="ic"><use href="#i-message"/></svg>Ask Reggie</button>
+    </div>
+  </header>
+  <div class="body">
+    <nav class="ds-sidebar" id="nav"></nav>
+    <main class="main" id="main"></main>
+  </div>
+</div>
+<div class="toast-wrap" id="toast" hidden></div>
+
+<script>
+const SPRITE = "../../packages/design-system/assets/Icons/mezonas-icons-sprite.svg";
+fetch(SPRITE).then((r) => r.text()).then((svg) => {
+  const box = document.createElement("div");
+  box.hidden = true;
+  box.innerHTML = svg.replace(/id="mz-/g, 'id="i-');
+  document.body.prepend(box);
+}).catch(() => {});
+const ic = (n, cls = "") => `<svg class="ic ${cls}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+// ── Made-up data ───────────────────────────────────────────────────────────────────────────────
+
+const CLIENTS = {
+  hartley: { name: "Hartley Millwork", since: "Sep 2", monthly: "$3,400", health: "Healthy", contract: "Signed Sep 2 · renews Dec 12", lead: "You" },
+  coast: { name: "Coastline HVAC", since: "Jun 18", monthly: "$2,800", health: "Watch", contract: "Signed Jun 18 · renews Dec 20", lead: "You" },
+  alder: { name: "Alder Dental", since: "Nov 10", monthly: "$1,900", health: "New", contract: "Signed Nov 10", lead: "You" },
+  north: { name: "Northfield Builders", since: "Oct 1", monthly: "$2,200", health: "Healthy", contract: "Signed Oct 1", lead: "You" },
+  ruiz: { name: "Ruiz Plumbing Supply", since: "Aug 5", monthly: "$2,100", health: "At risk", contract: "Signed Aug 5", lead: "You" },
+  pine: { name: "Pine & Co. Bakery", since: "Nov 14", monthly: "$1,400", health: "New", contract: "Signed Nov 14", lead: "You" },
+};
+
+const PIPES = {
+  new: {
+    bucket: "Bring them in", name: "New accounts", icon: "lead", noun: "lead",
+    stages: [
+      { id: "lead", name: "Lead", auto: "Reggie reads their site and drafts the first reply." },
+      { id: "qualified", name: "Qualified", auto: "Reggie scores the fit and books the diagnostic." },
+      { id: "diagnostic", name: "Diagnostic", auto: "Reggie prepares the call and writes up the plan." },
+      { id: "proposal", name: "Proposal and contract", auto: "Reggie drafts the proposal; you send the contract and add the signed copy." },
+      { id: "setup", name: "Set up the account", auto: "Reggie sets up the client and opens a build per agent sold." },
+      { id: "live", name: "First agent live", auto: "Reggie sends the first Weekly Table." },
+    ],
+    summary: [["$18,400", "a month in play"], ["$7,950", "weighted"], ["7", "open"], ["2", "setting up"]],
+  },
+  grow: {
+    bucket: "Sell them more", name: "Expansion", icon: "price-change", noun: "opportunity",
+    stages: [
+      { id: "spotted", name: "Spotted", auto: "Reggie watches every live client nightly and opens these with evidence." },
+      { id: "pitch", name: "Pitch", auto: "Reggie drafts the pitch in their numbers." },
+      { id: "terms", name: "Terms", auto: "You agree the terms and record them. Reggie nudges after 5 days." },
+      { id: "agreed", name: "Agreed", auto: "Reggie opens the agent builds." },
+      { id: "billed", name: "Live and billed", auto: "Reggie puts the new price on the bill from go-live." },
+    ],
+    summary: [["+$4,500", "a month in play"], ["5", "open"], ["1", "held: open issue"]],
+  },
+  issues: {
+    bucket: "Build", name: "Issues", icon: "alert", noun: "issue",
+    stages: [
+      { id: "reported", name: "Reported", auto: "Reggie tells them we have it, sets the urgency, holds the agent if critical." },
+      { id: "cause", name: "Finding the cause", auto: "Reggie finds the cause and its kind." },
+      { id: "fix", name: "Fix", auto: "Reggie drafts the fix; changes to an agent are yours." },
+      { id: "verify", name: "Verify", auto: "Reggie re-runs and asks the client to confirm." },
+      { id: "closed", name: "Closed", auto: "Reggie tells them what fixed it and checks other clients." },
+    ],
+    summary: [["1", "critical, held"], ["5", "open"], ["18 min", "median first reply"], ["9 of 11", "fixed within target this month"]],
+  },
+  builds: {
+    bucket: "Build", name: "Agent builds", icon: "worksheet", noun: "build",
+    stages: [
+      { id: "requirements", name: "Requirements request", auto: "Reggie sends the intake questionnaire and chases it." },
+      { id: "building", name: "Building", auto: "New agents only: the Builder's phases, intake to QA." },
+      { id: "connect", name: "Connect", auto: "Reggie says which tools are missing and chases." },
+      { id: "bench", name: "Bench test", auto: "Reggie runs tests on their data; you start the trial." },
+      { id: "trial", name: "Trial", auto: "The client signs every write; Reggie reports weekly." },
+      { id: "signoff", name: "Sign-off", auto: "The client admin signs going live." },
+      { id: "live", name: "Live", auto: "Reggie tells the client and starts billing." },
+    ],
+    summary: [["6", "in progress"], ["1", "promised date at risk"], ["3", "waiting on clients"]],
+  },
+  enh: {
+    bucket: "Build", name: "Enhancements", icon: "add", noun: "enhancement",
+    stages: [
+      { id: "captured", name: "Captured", auto: "Reggie thanks them and asks one question if needed." },
+      { id: "grouped", name: "Grouped", auto: "Reggie merges the same ask across clients." },
+      { id: "decided", name: "Decided", auto: "Do it, later, no or sell it: yours." },
+      { id: "built", name: "Built", auto: "A template or client version; you approve it." },
+      { id: "shipped", name: "Shipped and told", auto: "Reggie tells everyone who asked." },
+    ],
+    summary: [["9", "open asks"], ["4 clients", "on the top one"], ["3", "shipped this month"]],
+  },
+};
+const BUCKETS = [["Bring them in", ["new"]], ["Sell them more", ["grow"]], ["Build what they need", ["issues", "builds", "enh"]]];
+
+// st: you | agent | client | stalled | done
+const CARDS = [
+  // New accounts
+  { id: "d-ridgeline", pipe: "new", stage: "lead", title: "Ridgeline Dental Group", who: "Hire page form · 4 locations", val: "$2,400/mo", st: "you", stText: "First reply" },
+  { id: "d-bayside", pipe: "new", stage: "lead", title: "Bayside Electric", who: "Email to hello@", val: "$1,200/mo", st: "agent", stText: "Reggie researching" },
+  { id: "d-orchard", pipe: "new", stage: "qualified", title: "Orchard Landscaping", who: "Referral from Hartley Millwork", val: "$1,800/mo", st: "client", stText: "Picking a time · 2d" },
+  { id: "d-meridian", pipe: "new", stage: "diagnostic", title: "Meridian Vet Clinics", who: "Call Thu 10:00", val: "$3,000/mo", st: "agent", stText: "Reggie preparing" },
+  { id: "d-keystone", pipe: "new", stage: "diagnostic", title: "Keystone Roofing", who: "Plan sent Nov 6", val: "$2,000/mo", st: "stalled", stText: "Quiet 9 days" },
+  { id: "d-lumen", pipe: "new", stage: "proposal", title: "Lumen Optical", who: "Contract sent Nov 13", val: "$2,600/mo", st: "client", stText: "Waiting on signature · 3d" },
+  { id: "d-harbor", pipe: "new", stage: "proposal", title: "Harbor Freight Lines", who: "Asked for a lower setup fee", val: "$3,800/mo", st: "you", stText: "Pricing" },
+  { id: "d-alder", pipe: "new", stage: "setup", cl: "alder", title: "Alder Dental", who: "Admin in · 2 builds opened", val: "$1,900/mo", st: "client", stText: "Requirements out" },
+  { id: "d-pine", pipe: "new", stage: "setup", cl: "pine", title: "Pine & Co. Bakery", who: "Welcome sent", val: "$1,400/mo", st: "agent", stText: "Reggie setting up" },
+  { id: "d-north", pipe: "new", stage: "live", cl: "north", title: "Northfield Builders", who: "First agent live Nov 3", val: "$2,200/mo", st: "done", stText: "Won and set up" },
+  // Expansion
+  { id: "g-hart-bank", pipe: "grow", stage: "spotted", cl: "hartley", title: "Bookkeeping for Hartley", who: "140 bank questions forwarded in Oct", val: "+$1,200/mo", st: "you", stText: "Pursue?" },
+  { id: "g-ruiz", pipe: "grow", stage: "spotted", cl: "ruiz", title: "Collections for Ruiz", who: "38 invoices over 60 days", val: "+$800/mo", st: "stalled", stText: "Held: account at risk" },
+  { id: "g-north", pipe: "grow", stage: "pitch", cl: "north", title: "WhatsApp receipts for 6 more crews", who: "Northfield · volume up 3 months", val: "+$600/mo", st: "agent", stText: "Reggie drafting" },
+  { id: "g-coast", pipe: "grow", stage: "terms", cl: "coast", title: "Coastline renewal, 12 months", who: "Renews Dec 20", val: "$2,800/mo", st: "client", stText: "Terms sent · 4d" },
+  { id: "g-alder", pipe: "grow", stage: "agreed", cl: "alder", title: "Bookkeeper for Alder", who: "Agreed Nov 14, recorded", val: "+$900/mo", st: "agent", stText: "Build opened" },
+  { id: "g-hart-loc", pipe: "grow", stage: "billed", cl: "hartley", title: "Purchasing, 2nd location", who: "Live Nov 10", val: "+$1,100/mo", st: "done", stText: "Billed from Nov 10" },
+  // Issues
+  { id: "i-1051", pipe: "issues", stage: "cause", cl: "coast", urg: "critical", title: "Bookkeeper posted 14 card charges twice", who: "Coastline HVAC · found by Reggie", val: "", st: "you", stText: "Hold on · review" },
+  { id: "i-1042", pipe: "issues", stage: "fix", cl: "hartley", urg: "high", title: "Ferguson bills don't match the PO prices", who: "Hartley Millwork · email", val: "", st: "you", stText: "Approve the fix" },
+  { id: "i-1044", pipe: "issues", stage: "cause", cl: "north", urg: "normal", title: "Receipt photos come in sideways", who: "Northfield Builders · WhatsApp", val: "", st: "agent", stText: "Reggie checking 31 runs" },
+  { id: "i-1047", pipe: "issues", stage: "reported", cl: "pine", urg: "low", title: "Desk error page says \"undefined\"", who: "Pine & Co. Bakery · error report", val: "", st: "agent", stText: "Reggie triaging" },
+  { id: "i-1039", pipe: "issues", stage: "verify", cl: "ruiz", urg: "normal", title: "Wrong vendor on 2 POs", who: "Ruiz Plumbing Supply · portal", val: "", st: "client", stText: "Confirming the fix · 1d" },
+  { id: "i-1036", pipe: "issues", stage: "closed", cl: "north", urg: "normal", title: "Home Depot invoice read twice", who: "Northfield Builders", val: "", st: "done", stText: "Fixed in v5" },
+  // Builds
+  { id: "b-alder-purch", pipe: "builds", stage: "requirements", cl: "alder", title: "Purchasing agent", who: "Alder Dental · from template", val: "Due Dec 5", st: "client", stText: "7 of 12 answered" },
+  { id: "b-alder-book", pipe: "builds", stage: "requirements", cl: "alder", title: "Bookkeeper", who: "Alder Dental · from template", val: "No date yet", st: "you", stText: "Approve request" },
+  { id: "b-pine", custom: true, pipe: "builds", stage: "building", cl: "pine", title: "Catering invoices (new agent)", who: "Pine & Co. Bakery · Fit-gap", val: "Due Dec 12", st: "agent", stText: "Builder drafting" },
+  { id: "b-north", pipe: "builds", stage: "connect", cl: "north", title: "Card receipts, crew 2", who: "Northfield · needs Home Depot Pro", val: "Due Nov 28", st: "client", stText: "Connecting · overdue 1d" },
+  { id: "b-hart", pipe: "builds", stage: "bench", cl: "hartley", title: "Price alerts", who: "Hartley Millwork · tests passing", val: "Due Dec 1", st: "you", stText: "Start the trial" },
+  { id: "b-coast", pipe: "builds", stage: "trial", cl: "coast", title: "Bookkeeper, fuel by truck", who: "Coastline HVAC · trial day 6", val: "Due Nov 24", st: "stalled", stText: "Held · date at risk" },
+  { id: "b-ruiz", pipe: "builds", stage: "live", cl: "ruiz", title: "Purchasing agent", who: "Ruiz Plumbing Supply", val: "", st: "done", stText: "Live Oct 20" },
+  // Enhancements
+  { id: "e-pdf", pipe: "enh", stage: "grouped", title: "POs as PDF and CSV", who: "4 clients · Purchasing template", val: "Small", st: "you", stText: "Decide" },
+  { id: "e-two", pipe: "enh", stage: "captured", cl: "alder", title: "Weekly Table to two people", who: "Alder Dental · Feedback button", val: "", st: "agent", stText: "Reggie asking one question" },
+  { id: "e-dark", pipe: "enh", stage: "decided", title: "Portal in dark mode", who: "3 clients", val: "", st: "client", stText: "Later · told 3 clients" },
+  { id: "e-fuel", pipe: "enh", stage: "built", cl: "coast", title: "Split fuel by truck", who: "Coastline HVAC · their agent", val: "v4 drafted", st: "you", stText: "Approve version" },
+  { id: "e-spanish", pipe: "enh", stage: "shipped", title: "Spanish replies to vendors", who: "2 clients · template v9", val: "", st: "done", stText: "Told Nov 14" },
+];
+
+// The one to-do list. owner: you | reggie | client
+const TODOS = [
+  {
+    id: "t-hold", owner: "you", src: "Issue · critical", card: "i-1051", cl: "coast", critical: true,
+    title: "Review the safety hold on Coastline's Bookkeeper",
+    read: "At 6:10 the Bookkeeper posted 14 card charges to QuickBooks a second time. The bank feed sent yesterday's file again with new ids, and the duplicate check matched on id only. Reggie held the agent at 6:12: 3 writes and 1 email are waiting.",
+    why: ["Critical, held", "Only you release a hold or roll back."],
+    sure: "Sure: all 14 have the same date, amount and card as a posting from yesterday.",
+    plan: ["Roll back to v6 (before the duplicate check changed).", "Ask Coastline to void the 14 duplicates: one Desk item, each void signed.", "Release the hold once v6 is live; review the 4 held items."],
+    to: "Already told: Mike Ochoa, client admin, at 6:20",
+    primary: "Approve plan", alt: "Keep holding",
+  },
+  {
+    id: "t-1042", owner: "you", src: "Issue · high", card: "i-1042", cl: "hartley",
+    title: "Approve the fix for Hartley's Ferguson bills",
+    read: "Ferguson raised copper fittings 4% on Nov 1. Pia held 11 bills because the contract prices on file are from August. The bills are right; the contract is out of date.",
+    why: ["Changes how an agent works", "Updating Pia's contract prices is a new version."],
+    sure: "Sure: the 11 bills all differ by 3.8% to 4.2%, the size of Ferguson's notice.",
+    plan: ["Reply to Dana with what happened (draft).", "Update Ferguson's contract prices from their Nov 1 notice.", "Re-check the 11 held bills."],
+    to: "To Dana Hart · email and her portal",
+    draft: "Hi Dana,\n\nThe bills are right. Ferguson raised copper fittings about 4% on November 1, and the prices Pia checks against are from August, so she held 11 bills to be safe.\n\nWe're updating Ferguson's prices today. Pia will check the 11 bills again, and the ones that match will come to your Desk to sign as usual.\n\nYour Mezonas lead",
+    primary: "Approve and send",
+  },
+  {
+    id: "t-date", owner: "you", src: "Work order", card: "b-coast", cl: "coast",
+    title: "Coastline's Bookkeeper will miss Nov 24",
+    read: "The trial is held by the critical issue. With 5 trial days left and 2 normal issues ahead of it in the work order, it lands Nov 27.",
+    why: ["A promised date", "Moving work around a promised date is yours."],
+    sure: "Sure about the dates; the fix itself is about half a day.",
+    plan: ["Move the build ahead of the 2 normal issues (Northfield, Ruiz).", "Tell Mike the trial restarts Thursday, still live by Nov 24."],
+    primary: "Move it up",
+  },
+  {
+    id: "t-q", owner: "you", src: "Question · 5 hours", card: null, cl: "ruiz",
+    title: "Ruiz asked why last week's total differs from QuickBooks",
+    read: "Luis asked in the portal at 9:02. Reggie found the cause: two bills dated Sunday fall in different weeks in the Weekly Table and in QuickBooks' report. Not a fault. Reggie isn't sure Luis wants the explanation or a change.",
+    why: ["Not answered in 4 business hours", "Reggie's unsure, so it's yours."],
+    sure: "Fairly sure about the cause; unsure what Luis wants.",
+    to: "To Luis Ruiz · portal",
+    draft: "Hi Luis, the $1,840 difference is two bills dated Sunday Nov 9. The Weekly Table counts weeks Monday to Sunday; your QuickBooks report counts Sunday to Saturday. Both are right. Want us to switch your Weekly Table to Sunday to Saturday?",
+    primary: "Send",
+  },
+  {
+    id: "t-ridgeline", owner: "you", src: "New account · lead", card: "d-ridgeline",
+    title: "First reply to Ridgeline Dental Group",
+    read: "Four dental offices, QuickBooks Online, around 300 supplier invoices a month. Came from the Hire page. A good fit for Purchasing and Bookkeeping.",
+    why: ["First reply to a new lead", "You chose to send these yourself."],
+    sure: "Fairly sure about fit: the size comes from their form.",
+    to: "To Karen Lowe · karen@ridgelinedental.com",
+    draft: "Hi Karen,\n\nThanks for writing. Four offices and 300 supplier invoices a month is exactly the work we take off people's plates.\n\nThe first step is a free back-office diagnostic: a 30-minute call where we look at how invoices and orders move today, then a short written plan. Would Thursday at 10:00 or Friday at 2:00 work?\n\nMezonas",
+    primary: "Send",
+  },
+  {
+    id: "t-req", owner: "you", src: "Agent build · requirements", card: "b-alder-book", cl: "alder",
+    title: "Send Alder's requirements request for the Bookkeeper",
+    read: "The Bookkeeper template's intake questionnaire, filled in from what we already know: 14 questions, 9 answered from the diagnostic. 5 left for Dr. Shah, plus last month's bank statement.",
+    why: ["Requirements request", "You approve these before they go, until you let Reggie send them."],
+    sure: "Sure: every pre-filled answer cites the diagnostic notes.",
+    form: { title: "Bookkeeper: what we need from you", to: "Dr. Priya Shah · email link", due: "Due Nov 23", qs: ["Which bank and card accounts should we watch?", "Who approves new categories?", "Any expenses you split by office?", "Your fiscal year start", "Last month's bank statement (file)"] },
+    primary: "Send request",
+  },
+  {
+    id: "t-opp", owner: "you", src: "Expansion · spotted", card: "g-hart-bank", cl: "hartley",
+    title: "Pursue Bookkeeping for Hartley?",
+    read: "Hartley forwarded 140 emails about bank charges in October that no agent handles: about 9 hours of Dana's time. No open critical or high issue blocks it once #1042 is fixed. Similar clients pay $1,200 a month for the Bookkeeper.",
+    why: ["Whether to sell", "Pursuing an opportunity is yours."],
+    sure: "Sure about the volume; the value is an estimate.",
+    options: ["Pursue: Reggie drafts the pitch after #1042 closes", "Not now: look again in 60 days", "No"],
+    primary: "Pursue",
+  },
+  {
+    id: "t-pdf", owner: "you", src: "Enhancement · 4 clients", card: "e-pdf",
+    title: "POs as PDF and CSV: 4 clients asked",
+    read: "Hartley, Ruiz, Alder and Northfield asked for purchase orders as a CSV next to the PDF, for their own systems. All four are on the Purchasing template. A template change: about half a day, merged into each client by the update review.",
+    why: ["What we build", "Deciding enhancements is yours."],
+    sure: "Sure: the four asks say the same thing.",
+    options: ["Do it: a template change for all four", "Later: tell them it's on the list", "No: Reggie drafts a kind no"],
+    primary: "Do it",
+  },
+  {
+    id: "t-run", owner: "you", src: "Run held for review", card: null, cl: "ruiz",
+    title: "Run R-9120 at Ruiz held for review",
+    read: "Pia was unsure about 3 lines on a Winsupply bill: the description changed and the price is 18% over. It's the run audit queue you have today, now on this list.",
+    why: ["Held for review", "Reggie doesn't sign off on held runs."],
+    sure: "",
+    primary: "Open the run",
+  },
+];
+
+const THEIRS = {
+  reggie: [
+    ["Agent build", "Chasing Alder's Purchasing requirements: 7 of 12 answered, reminder at 9:00 tomorrow", "Alder Dental", "Due Nov 21", "b-alder-purch"],
+    ["Issue · normal", "Checking 31 of Northfield's runs for sideways photos", "Northfield Builders", "Today", "i-1044"],
+    ["Expansion", "Drafting the pitch for 6 more WhatsApp crews", "Northfield Builders", "Tomorrow", "g-north"],
+    ["New account", "Researching Bayside Electric", "Lead", "Today", "d-bayside"],
+    ["Issue · low", "Triaging Pine's error page report", "Pine & Co. Bakery", "Today", "i-1047"],
+    ["Questions", "Answering 2 portal questions (Alder, Northfield)", "2 clients", "Within the hour", null],
+    ["Weekly Tables", "Writing 12 clients' Weekly Tables", "12 clients", "Mon 7:00", null],
+  ],
+  client: [
+    ["Agent build", "Answer the Purchasing requirements request (7 of 12)", "Alder Dental", "Due Nov 21", "b-alder-purch", false],
+    ["Agent build", "Connect Home Depot Pro", "Northfield Builders", "Overdue 1 day", "b-north", true],
+    ["New account", "Sign the contract", "Lumen Optical", "Sent 3 days ago", "d-lumen", false],
+    ["Expansion", "Agree the renewal terms", "Coastline HVAC", "Sent 4 days ago", "g-coast", false],
+    ["Issue", "Confirm the vendor fix on 2 POs", "Ruiz Plumbing Supply", "Asked yesterday", "i-1039", false],
+    ["Desk", "Sign 3 purchase orders", "Ruiz Plumbing Supply", "Waiting 6 days", null, true],
+  ],
+};
+
+const HANDLED = [
+  ["Issues", [["6:12", "Held Coastline's Bookkeeper: 14 duplicate postings. Told Mike Ochoa at 6:20.", "Sent", "i-1051"], ["8:14", "Told Hartley we have issue #1042.", "Sent", "i-1042"]]],
+  ["Questions", [["9:42", "Answered Alder: yes, the Weekly Table can go to two people, and how.", "Sent", null], ["10:15", "Answered Northfield: where to see last week's receipts.", "Sent", null]]],
+  ["Agent builds", [["9:00", "Reminded Alder about the Purchasing requirements request.", "Sent", "b-alder-purch"], ["8:30", "Reminded Northfield to connect Home Depot Pro.", "Sent", "b-north"]]],
+  ["New accounts", [["10:05", "Researched Bayside Electric: 22 staff, QuickBooks Desktop, 2 locations.", "Internal", "d-bayside"], ["8:00", "Marked Keystone Roofing quiet after 9 days and drafted a follow-up.", "Internal", "d-keystone"]]],
+];
+
+// The work order: Build's three kinds, in the order agreed.
+const WORK = [
+  ["i-1051", "Critical", "Ahead of everything. Held since 6:12."],
+  ["i-1042", "High", "High issues go before builds."],
+  ["b-coast", "Due Nov 24", "Moved up: after the 2 normal issues it would land Nov 27.", true],
+  ["i-1044", "Normal", "Before builds: no promised date is at risk after it."],
+  ["i-1039", "Normal", "Waiting on Ruiz to confirm."],
+  ["b-north", "Due Nov 28", "On track if Northfield connects by Friday."],
+  ["i-1047", "Low", "Before builds: no promised date is at risk after it."],
+  ["b-hart", "Due Dec 1", "On track."],
+  ["b-alder-purch", "Due Dec 5", "On track: requirements 7 of 12."],
+  ["b-pine", "Due Dec 12", "On track: fit-gap this week."],
+  ["b-alder-book", "No date", "After dated builds."],
+  ["e-pdf", "4 clients", "Enhancements after builds, most-asked first."],
+  ["e-fuel", "1 client", "Version drafted, waiting on you."],
+];
+
+// ── Autopilot ───────────────────────────────────────────────────────────────────────────────────
+const PLAYS = {
+  issues: {
+    reported: [
+      { name: "Tell the client we have it", when: "Within 5 minutes, any day for critical", does: "\"We've got it: issue #1051.\"", level: "send", track: "Sent 41 this month, 0 edited" },
+      { name: "Set the urgency", when: "As it comes in", does: "Critical, high, normal or low, from what's at stake.", level: "send", internal: true, track: "You changed 2 of 46" },
+      { name: "Safety hold", when: "Critical issues", does: "Stops the agent's writes and messages; runs go on as drafts.", level: "send", internal: true, locked: "Only you release a hold", track: "Used once this month" },
+    ],
+    cause: [{ name: "Find the cause", when: "After the urgency", does: "Set-up, data, the agent, our platform, or not a bug.", level: "send", internal: true, track: "" }],
+    fix: [
+      { name: "Fix set-up and data", when: "When that's the cause", does: "A Desk request or a record update.", level: "draft", track: "8 of 9 approved unchanged" },
+      { name: "Fix the agent", when: "When the agent is the cause", does: "A new version with the Builder.", level: "draft", locked: "Changes to an agent are always yours", track: "" },
+      { name: "Engineering issue", when: "When it's our platform", does: "Links to the evidence, never client data.", level: "send", internal: true, track: "" },
+    ],
+    verify: [{ name: "Ask the client to confirm", when: "Once the fix is in", does: "One message; closes after 3 clean days.", level: "send", track: "Sent 7 this month" }],
+    closed: [{ name: "Check other clients", when: "After closing", does: "Same template, same fault: opens the fix there too.", level: "draft", track: "" }],
+  },
+  builds: {
+    requirements: [
+      { name: "Send the requirements request", when: "When the build opens", does: "The template's intake questionnaire, pre-filled from what we know.", level: "draft", track: "<b>5 of the last 5</b> sent unchanged", suggest: true },
+      { name: "Chase it", when: "2 days before due, and on the due date", does: "A short reminder with what's left.", level: "send", track: "Sent 6 this month" },
+      { name: "Turn gaps into to-dos", when: "When answers come in", does: "Missing or unclear answers become the client's or your to-dos.", level: "send", internal: true, track: "" },
+    ],
+    building: [{ name: "Build with the Builder", when: "New agents", does: "Intake, fit-gap, draft, POC, client test, QA.", level: "draft", track: "" }],
+    connect: [{ name: "Chase missing connections", when: "Every 2 days", does: "Which tool, and a link to connect it.", level: "send", track: "Sent 4 this month" }],
+    bench: [{ name: "Run bench tests", when: "When connected", does: "On their data, never writing.", level: "send", internal: true, locked: "Starting a trial is always yours", track: "" }],
+    trial: [{ name: "Weekly trial report", when: "Mondays", does: "Runs, signed, rejected and why.", level: "send", track: "" }],
+    signoff: [{ name: "Ask for sign-off", when: "Trial minimums met", does: "The go-live summary on the client admin's Desk.", level: "send", track: "" }],
+    live: [{ name: "Tell the client and bill", when: "Live", does: "What's new, and the bill from today.", level: "draft", locked: "Bill changes are yours to check", track: "" }],
+  },
+  new: {
+    lead: [
+      { name: "Research the company", when: "As a lead comes in", does: "Size, tools, locations, fit.", level: "send", internal: true, track: "" },
+      { name: "First reply", when: "Within an hour, business hours", does: "Offers two times for the diagnostic.", level: "draft", track: "9 of the last 11 sent unchanged" },
+    ],
+    qualified: [{ name: "Book the diagnostic", when: "When they pick a time", does: "Calendar invite and a short agenda.", level: "send", track: "" }],
+    diagnostic: [{ name: "Write up the plan", when: "After your call notes", does: "Processes, agents, what each saves.", level: "draft", locked: "Prices and promises are always yours", track: "" }],
+    proposal: [{ name: "Nudge", when: "After 5 days", does: "One reminder.", level: "draft", track: "3 of 3 sent unchanged" }],
+    setup: [
+      { name: "Set up the client", when: "When you record the contract", does: "Creates the client and invites the admin.", level: "draft", locked: "Creating a client is always yours", track: "" },
+      { name: "Open the agent builds", when: "After set-up", does: "One per agent sold, with what each needs.", level: "send", internal: true, track: "" },
+    ],
+    live: [{ name: "First Weekly Table", when: "The Monday after", does: "", level: "send", track: "" }],
+  },
+  questions: {
+    all: [
+      { name: "Answer questions", when: "As they come in, when the knowledge base answers it", does: "Sloan in the portal, Reggie by email.", level: "send", track: "<b>23 this week</b>, median 18 min" },
+      { name: "Hand you the hard ones", when: "Not answered in 4 business hours, or unsure", does: "A to-do with the draft.", level: "send", internal: true, track: "1 this week" },
+      { name: "Draft a knowledge entry", when: "Asked 3 times in 30 days", does: "So Sloan answers it next time.", level: "draft", track: "2 this month" },
+    ],
+  },
+};
+["grow", "enh"].forEach((p) => {
+  PLAYS[p] = {};
+  PIPES[p].stages.forEach((s) => {
+    PLAYS[p][s.id] = [{ name: s.auto.replace(/^Reggie /, "").replace(/^./, (c) => c.toUpperCase()).replace(/\.$/, ""), when: "In this stage", does: "", level: "draft", track: "" }];
+  });
+});
+
+// ── Detailed records ───────────────────────────────────────────────────────────────────────────
+
+const RECORDS = {
+  "i-1051": {
+    hold: true,
+    read: "The bank feed sent yesterday's file again with new transaction ids at 6:04. The duplicate check in v7 matches on id only, so 14 card charges were posted a second time at 6:10.",
+    found: ["All 14 match a posting from Nov 15 on date, amount and card.", "v6 checked date, amount and card as well; v7 (Nov 12) dropped that.", "No other client on the Bookkeeper template got a re-sent file today.", "Held at 6:12: 2 QuickBooks postings, 1 category change, 1 email to Mike."],
+    links: ["14 postings", "Bank file Nov 16", "v6 → v7 diff"],
+    next: [["Roll back to v6", "A new version from v6, approval on", "approve"], ["Ask Coastline to void the 14 duplicates", "One Desk item; each void signed", "draft"], ["Release the hold, review the 4 held items", "Yours", "approve"], ["Check the other 3 Bookkeeper clients", "Reggie, after release", "auto"]],
+    todos: [["you", "Review the hold and approve the plan", "Now"], ["reggie", "Watch the next bank file at 18:00", "Today"], ["client", "Void 14 duplicate postings", "After you approve"]],
+    facts: [["Client", "Coastline HVAC"], ["Agent", "Bookkeeper v7"], ["Urgency", "Critical: business"], ["Hold", "On since 6:12, by Reggie"], ["Found by", "Reggie (duplicate postings)"], ["First reply", "8 min, to Mike Ochoa"]],
+    timeline: [
+      { kind: "sys", body: "Reggie put the safety hold on the Bookkeeper. 4 items held.", when: "6:12" },
+      { kind: "out", who: "Reggie", chan: "Email", when: "6:20", agent: true, auto: true, body: "Mike, we found 14 card charges posted twice in QuickBooks this morning and paused the Bookkeeper while we fix it. Nothing else is affected. We'll write by 9:00 with what happened and what we need from you." },
+      { kind: "note", who: "Reggie", when: "6:31", agent: true, body: "Cause found: v7's duplicate check matches on id only. The bank re-sent yesterday's file with new ids. Plan on the right.", receipts: ["v6 → v7 diff", "Bank file Nov 16"] },
+      { kind: "run", who: "Bookkeeper", when: "6:10", body: "Run R-9201 posted 14 card charges to QuickBooks.", receipts: ["R-9201"] },
+    ],
+    to: "Mike Ochoa · email and his portal",
+    draft: "Hi Mike,\n\nHere's what happened: your bank sent yesterday's card file a second time this morning, and our Bookkeeper didn't spot it, so 14 charges were posted twice.\n\nWe're putting the Bookkeeper back to last week's version, which checks for this. Then we need you to void the 14 duplicates: they'll be on your Desk, one tap each.\n\nYour Mezonas lead",
+  },
+  "i-1042": {
+    read: "Ferguson raised copper fittings about 4% on Nov 1. Pia compares bills with the contract prices on file, which are from August, so she held 11 bills. The bills are right.",
+    found: ["All 11 held bills are Ferguson, dated Nov 2 to Nov 13.", "Each is 3.8% to 4.2% over the contract.", "No other vendor's bills were held this week.", "Dana asks to \"stop flagging Ferguson\"; Reggie doesn't change a rule from a request."],
+    links: ["Run R-8812", "11 held bills", "Ferguson price notice"],
+    next: [["Reply to Dana", "Draft below", "draft"], ["Update Ferguson's contract prices for Pia", "A new version, approval on", "approve"], ["Re-check the 11 held bills", "Reggie, after the update", "auto"]],
+    todos: [["you", "Approve the fix", "Today"], ["reggie", "Re-check 11 bills after the update", "After"], ["client", "Sign the bills that match", "After"]],
+    facts: [["Client", "Hartley Millwork"], ["Agent", "Pia, Purchasing"], ["Urgency", "High"], ["Raised by", "Dana Hart, by email"], ["First reply", "2 min, by Reggie"], ["Fix target", "2 business days"]],
+    timeline: [
+      { kind: "in", who: "Dana Hart", org: "Hartley Millwork", chan: "Email", when: "8:12", body: "Pia keeps flagging the Ferguson bills as not matching the PO. We've checked a few and they look fine. Can you make it stop flagging Ferguson?" },
+      { kind: "sys", body: "Reggie made it issue #1042: high, Pia, Purchasing. Linked run R-8812 and 11 held bills.", when: "8:13" },
+      { kind: "out", who: "Reggie", chan: "Email", when: "8:14", agent: true, auto: true, body: "Thanks, Dana. We've got it: it's issue #1042. We'll write back this morning." },
+      { kind: "note", who: "Reggie", when: "8:20", agent: true, body: "Ferguson's Nov 1 notice is in Dana's forwarded mail from Oct 28. Contract prices on file are from Aug 4.", receipts: ["Notice Oct 28", "Contract Aug 4"] },
+    ],
+    to: "Dana Hart · email and her portal",
+    draft: TODOS[1].draft,
+  },
+  "b-alder-purch": {
+    requirements: { answered: 7, total: 12, due: "Nov 21", to: "Dr. Priya Shah", missing: ["Who approves orders over $2,000?", "Price tolerance before a bill is held", "Vendor contracts (files)", "The AP address", "Locations that order separately"] },
+    promised: ["Dec 5", "On track"],
+    read: "Set up from the Purchasing template. The requirements request went out Nov 14; Dr. Shah answered 7 of 12 and saved a draft yesterday. The 5 left are the ones only she can answer.",
+    found: ["Henry Schein and Patterson are 80% of their spend: both already in the vendor list.", "QuickBooks connected Nov 15.", "No answers yet on approvals, which the trial needs."],
+    links: ["Requirements request", "Diagnostic plan"],
+    next: [["Remind Dr. Shah about the 5 left", "Tomorrow 9:00", "auto"], ["Connect the vendor contracts once uploaded", "Reggie", "auto"], ["Bench test", "When answers are in", "auto"]],
+    todos: [["client", "Answer 5 questions and upload contracts", "Nov 21"], ["reggie", "Reminder", "Tomorrow 9:00"]],
+    facts: [["Client", "Alder Dental"], ["Agent", "Purchasing, from template v9"], ["From", "New account, Nov 10"], ["Promised", "Dec 5"], ["Stage in the agent", "Bench"]],
+    timeline: [
+      { kind: "sys", body: "Dr. Shah saved a draft: 7 of 12 answered.", when: "Yesterday 4:40" },
+      { kind: "out", who: "Reggie", chan: "Email", when: "Nov 14", agent: true, auto: true, body: "The requirements request for your Purchasing agent: 12 questions, about 15 minutes. Due Nov 21." },
+      { kind: "sys", body: "Build opened from the New account card (Alder Dental) with the diagnostic plan.", when: "Nov 14" },
+    ],
+    to: "Dr. Priya Shah · email",
+    draft: "Hi Dr. Shah, thanks for the answers so far. Five left, and they're the ones that decide who signs what: who approves orders over $2,000, how much a price may move before we hold a bill, and your vendor contracts. Here's the link again: it opens where you left off.",
+  },
+  "g-hart-bank": {
+    terms: true,
+    read: "Hartley forwarded 140 emails about bank charges in October that no agent handles: about 9 hours of Dana's time. Similar clients pay $1,200 a month for the Bookkeeper.",
+    found: ["140 forwarded emails about bank charges, Oct 1 to 31.", "Bank feed connected, unused.", "Issue #1042 is open (high): Reggie holds the pitch until it closes."],
+    links: ["140 emails", "Bank feed"],
+    next: [["Decide: pursue, not now or no", "Yours", "approve"], ["Draft the pitch", "After #1042 closes", "auto"]],
+    todos: [["you", "Pursue?", "This week"]],
+    facts: [["Client", "Hartley Millwork"], ["Signal", "Work we see but don't handle"], ["Value", "+$1,200 a month, estimate"], ["Held by", "Open high issue #1042"]],
+    timeline: [{ kind: "sys", body: "Reggie spotted it in the nightly check.", when: "Wed 2:00" }],
+    to: "Dana Hart",
+    draft: "Reggie drafts the pitch once you pursue it and #1042 is closed.",
+  },
+  "d-ridgeline": {
+    read: "Four dental offices with about 300 supplier invoices a month, mostly Henry Schein and Patterson. The office manager does the purchasing by hand. Similar to Alder Dental, set up in 11 days.",
+    found: ["4 locations listed on their site, 38 staff.", "Uses QuickBooks Online (form) and Dentrix (site).", "Nobody at Ridgeline is in any client's directory."],
+    links: ["Form answers", "ridgelinedental.com"],
+    next: [["Send the first reply", "Draft below", "draft"], ["Book the diagnostic", "When Karen picks a time", "auto"]],
+    todos: [["you", "First reply", "Today"]],
+    facts: [["Company", "Ridgeline Dental Group"], ["People", "Karen Lowe, office manager"], ["Value", "About $2,400 a month"], ["Fits", "Purchasing, Bookkeeping"], ["Source", "Hire page form"]],
+    timeline: [
+      { kind: "in", who: "Karen Lowe", org: "Ridgeline Dental Group", chan: "Site form", when: "9:51", body: "We have four offices and I'm drowning in supplier invoices. We use QuickBooks Online. Can you help?" },
+      { kind: "sys", body: "Reggie made the lead and researched the company.", when: "9:52" },
+    ],
+    to: "Karen Lowe · karen@ridgelinedental.com",
+    draft: TODOS[4].draft,
+  },
+};
+
+function genericRecord(card) {
+  const pipe = PIPES[card.pipe];
+  return {
+    read: `${card.title}: ${card.who}. Reggie's summary of where it stands and what would move it on goes here.`,
+    found: ["What Reggie checked, with receipts."],
+    links: [],
+    next: [["The next step Reggie proposes", "Drafted, or done on its own if the play allows", "draft"]],
+    todos: card.st === "you" ? [["you", card.stText, "Today"]] : card.st === "client" ? [["client", card.stText, ""]] : card.st === "agent" ? [["reggie", card.stText, "Today"]] : [],
+    facts: [["Stage", pipe.stages.find((s) => s.id === card.stage).name], ["About", card.who], card.cl ? ["Client", CLIENTS[card.cl].name] : null, card.val ? ["", card.val] : null].filter((f) => f && f[0]),
+    timeline: [{ kind: "sys", body: `${card.stText}.`, when: "Today" }],
+    to: card.cl ? CLIENTS[card.cl].name : card.title,
+    draft: "Reggie's draft for this card.",
+  };
+}
+
+const ACTIVITY = {
+  hartley: [
+    { kind: "in", f: "messages", who: "Dana Hart", chan: "Email", when: "Today 8:12", body: "Pia keeps flagging the Ferguson bills as not matching the PO.", card: "i-1042", cardText: "Issue #1042" },
+    { kind: "out", f: "messages", who: "Reggie", agent: true, chan: "Email", when: "Today 8:14", body: "Thanks, Dana. We've got it: it's issue #1042.", card: "i-1042", cardText: "Issue #1042" },
+    { kind: "run", f: "runs", who: "Pia, Purchasing", when: "Fri 4:02", body: "Run R-8812 held 11 bills: price over contract by more than 2%." },
+    { kind: "q", f: "questions", who: "Mark Chen", chan: "Portal", when: "Thu 2:30", body: "How do I add someone who can sign?", answer: "Answered by Sloan in 3 min" },
+    { kind: "sys", f: "decisions", when: "Wed 2:00", body: "Reggie spotted an opportunity: Bookkeeping (140 bank emails in October).", card: "g-hart-bank", cardText: "Expansion" },
+    { kind: "q", f: "questions", who: "Dana Hart", chan: "Email", when: "Tue 11:05", body: "Can Pia send POs as a CSV too?", answer: "Became an enhancement (4 clients)", card: "e-pdf", cardText: "Enhancement" },
+    { kind: "sys", f: "decisions", when: "Nov 10", body: "Purchasing for the 2nd location went live. Billed +$1,100 a month from Nov 10.", card: "g-hart-loc", cardText: "Expansion" },
+    { kind: "note", f: "decisions", who: "You", when: "Nov 3", body: "Recorded the change for the 2nd location: signed copy attached.", receipts: ["Change Nov 3.pdf"] },
+  ],
+};
+
+// ── State and routing ─────────────────────────────────────────────────────────────────────────
+
+const state = { tab: "you", done: new Set(), focus: 0, view: "board", filter: "all", act: "all" };
+const route = () => (location.hash.replace(/^#\/?/, "") || "call").split("/");
+const card = (id) => CARDS.find((c) => c.id === id);
+const yours = () => TODOS.filter((t) => !state.done.has(t.id));
+
+function nav() {
+  const r = route().join("/");
+  const cur = (p) => (r === p || r.startsWith(`${p}/`) ? 'aria-current="page"' : "");
+  const item = (href, icon, label, count, you) =>
+    `<a class="ds-navitem" href="#/${href}" ${cur(href)}><span class="lbl">${ic(icon)}${label}</span>${count != null ? `<span class="count ${you ? "count--you" : ""}">${count}</span>` : ""}</a>`;
+  const inert = (icon, label) => `<span class="ds-navitem inert"><span class="lbl">${ic(icon)}${label}</span></span>`;
+  const open = (p) => CARDS.filter((c) => c.pipe === p && c.st !== "done").length;
+  document.getElementById("nav").innerHTML = `
+    ${inert("table", "Home")}
+    ${item("call", "desk", "Your call", yours().length, true)}
+    ${item("client/hartley", "customer", "Clients")}
+    <div class="nav-section type-eyebrow muted">Bring them in</div>
+    ${item("board/new", "lead", "New accounts", open("new"))}
+    <div class="nav-section type-eyebrow muted">Sell them more</div>
+    ${item("board/grow", "price-change", "Expansion", open("grow"))}
+    <div class="nav-section type-eyebrow muted">Build</div>
+    ${item("work", "report", "Work order")}
+    ${item("board/issues", "alert", "Issues", open("issues"))}
+    ${item("board/builds", "worksheet", "Agent builds", open("builds"))}
+    ${item("board/enh", "add", "Enhancements", open("enh"))}
+    <div class="nav-section type-eyebrow muted">Run</div>
+    ${inert("report", "Runs")}
+    ${inert("message", "Reggie")}
+    ${item("autopilot/issues", "settings", "Autopilot")}
+    ${inert("document", "Library")}`;
+}
+
+function render() {
+  const [a, b] = route();
+  nav();
+  const main = document.getElementById("main");
+  if (a === "board") main.innerHTML = board(b || "new");
+  else if (a === "record") main.innerHTML = record(b);
+  else if (a === "client") main.innerHTML = clientPage(b || "hartley");
+  else if (a === "work") main.innerHTML = workOrder();
+  else if (a === "autopilot") main.innerHTML = autopilot(b || "issues");
+  else main.innerHTML = yourCall();
+  main.scrollTop = 0;
+  wire();
+}
+
+// ── Pieces ────────────────────────────────────────────────────────────────────────────────────
+
+function status(c) {
+  switch (c.st) {
+    case "you": return `<span class="ds-pill ds-pill--warning">Needs you · ${esc(c.stText)}</span>`;
+    case "agent": return `<span class="agent-line working"><i></i>${esc(c.stText)}</span>`;
+    case "client": return `<span class="ds-pill ds-pill--neutral">${esc(c.stText)}</span>`;
+    case "stalled": return `<span class="pill-risk">${esc(c.stText)}</span>`;
+    default: return `<span class="ds-pill ds-pill--positive">${esc(c.stText)}</span>`;
+  }
+}
+const urg = (u) => (u ? `<span class="urg urg--${u}">${u[0].toUpperCase() + u.slice(1)}</span>` : "");
+const ownerChip = (o) => (o === "you" ? `<span class="who-chip pill-person" style="padding:2px 8px">You</span>` : o === "client" ? `<span class="ds-pill ds-pill--neutral" style="padding:2px 8px">Client</span>` : `<span class="agent-line"><i></i>Reggie</span>`);
+const clientLink = (cl) => (cl ? `<a href="#/client/${cl}">${esc(CLIENTS[cl].name)}</a>` : "");
+const holdBanner = () => `<div class="hold"><span>${ic("alert")} <b>Safety hold on:</b> Coastline HVAC's Bookkeeper, since 6:12. 3 writes and 1 email held. Mike Ochoa was told at 6:20.</span><span class="row"><a class="ds-btn ds-btn--secondary ds-btn--sm" href="#/record/i-1051">Review</a></span></div>`;
+
+// ── Your call: the one to-do list ─────────────────────────────────────────────────────────────
+
+function yourCall() {
+  const tab = state.tab;
+  const n = yours().length;
+  return `<div class="page">
+    <div class="note-banner">Prototype, second pass (docs/design/workflows.html). Not wired to anything; names and numbers are made up.</div>
+    ${state.done.has("t-hold") ? "" : holdBanner()}
+    <div class="page-head">
+      <div><h1>Your call</h1><p>One list for everything in the back office. Reggie does most of it; these need a person.</p></div>
+      <div class="kbd-hint"><kbd>J</kbd> <kbd>K</kbd> move · <kbd>S</kbd> do it · <kbd>E</kbd> edit · <kbd>O</kbd> open</div>
+    </div>
+    <div class="stats">
+      <div class="stat stat--you"><div class="v">${n}</div><div class="k">Need you</div></div>
+      <div class="stat"><div class="v">${THEIRS.reggie.length}</div><div class="k">Reggie is on · 41 done today</div></div>
+      <div class="stat"><div class="v">${THEIRS.client.length}</div><div class="k">Waiting on clients · 2 overdue</div></div>
+      <div class="stat"><div class="v">23</div><div class="k">Questions this week · median 18 min</div></div>
+    </div>
+    <div class="row" style="margin-bottom: var(--space-4)">
+      <div class="ds-seg" role="group">
+        <button data-tab="you" aria-pressed="${tab === "you"}">Yours (${n})</button>
+        <button data-tab="reggie" aria-pressed="${tab === "reggie"}">Reggie's (${THEIRS.reggie.length})</button>
+        <button data-tab="client" aria-pressed="${tab === "client"}">The clients' (${THEIRS.client.length})</button>
+        <button data-tab="done" aria-pressed="${tab === "done"}">Done today (41)</button>
+      </div>
+    </div>
+    ${tab === "you" ? callList() : tab === "done" ? handledList() : theirList(tab)}
+  </div>`;
+}
+
+function callList() {
+  if (!yours().length) return `<div class="panel"><div class="panel__body" style="text-align:center; padding: var(--space-10)"><p class="type-subheading" style="margin:0">Nothing needs you right now.</p><p class="muted">Reggie is on ${THEIRS.reggie.length} things. You'll see one here when it needs a person.</p></div></div>`;
+  return `<div class="call-list">${TODOS.map((t, i) => {
+    const done = state.done.has(t.id);
+    const c = t.card ? card(t.card) : null;
+    return `<article class="call ${t.critical ? "critical" : ""} ${i === state.focus ? "is-focus" : ""} ${done ? "is-done" : ""}" data-call="${i}">
+      <div class="call__main">
+        <div class="row"><span class="src-tag">${esc(t.src)}</span>${t.cl ? `<span class="muted tiny">${clientLink(t.cl)}</span>` : ""}</div>
+        <h3>${c ? `<a href="#/record/${c.id}">${esc(t.title)}</a>` : esc(t.title)}</h3>
+        <div class="ds-ai" style="margin-top: var(--space-2)"><i></i>Reggie's read</div>
+        <p class="read">${esc(t.read)}</p>
+        ${t.plan ? `<ol class="plan-steps">${t.plan.map((p, n) => `<li><span class="n">${n + 1}</span><span>${esc(p)}</span></li>`).join("")}</ol>` : ""}
+        <div class="why">${ic("alert")}<span><b>${esc(t.why[0])}.</b> ${esc(t.why[1])}</span></div>
+      </div>
+      <div class="call__side">
+        ${t.draft ? `<div class="draft-to">${esc(t.to)}</div><div class="draft" data-draft>${esc(t.draft)}</div>` : t.to ? `<div class="draft-to">${esc(t.to)}</div>` : ""}
+        ${t.form ? `<div class="formbox"><div class="type-label">${esc(t.form.title)}</div><div class="muted tiny" style="margin:4px 0 8px">${esc(t.form.to)} · ${esc(t.form.due)}</div>${t.form.qs.map((q) => `<div class="tiny" style="padding:3px 0">${esc(q)}</div>`).join("")}<div class="muted tiny" style="margin-top:6px">+ 9 answered from the diagnostic</div></div>` : ""}
+        ${t.options ? `<div class="small" style="display:flex; flex-direction:column; gap:8px">${t.options.map((o, n) => `<label class="row"><input type="radio" name="opt-${t.id}" ${n === 0 ? "checked" : ""}> ${esc(o)}</label>`).join("")}</div>` : ""}
+        ${t.sure ? `<div class="sure">${esc(t.sure)}</div>` : ""}
+        <div class="row">
+          ${done ? `<span class="ds-pill ds-pill--positive">Done</span>` : `<button class="ds-btn ds-btn--primary ds-btn--sm" data-act="${t.id}">${esc(t.primary)}</button>
+          ${t.draft ? `<button class="ds-btn ds-btn--secondary ds-btn--sm" data-edit>Edit</button>` : ""}
+          ${t.alt ? `<button class="ds-btn ds-btn--secondary ds-btn--sm" data-toast="Still held. Reggie checks back with you at 12:00.">${esc(t.alt)}</button>` : ""}
+          <button class="ds-btn ds-btn--ghost ds-btn--sm" data-toast="Snoozed until tomorrow 9:00.">Later</button>`}
+        </div>
+      </div>
+    </article>`;
+  }).join("")}</div>`;
+}
+
+function theirList(who) {
+  const rows = THEIRS[who];
+  const intro = who === "reggie" ? "What Reggie is working on now. Take one to do it yourself." : "Waiting on clients. Reggie chases these; an overdue one also comes to you.";
+  return `<p class="muted small" style="margin-top:0">${intro}</p><div class="rows">${rows.map((r) => `
+    <div class="trow"><span class="src-tag">${esc(r[0])}</span><span>${r[4] ? `<a class="t" style="color:var(--ink)" href="#/record/${r[4]}">${esc(r[1])}</a>` : `<span class="t">${esc(r[1])}</span>`}<span class="m" style="display:block">${esc(r[2])}</span></span><span>${r[5] ? `<span class="pill-risk">${esc(r[3])}</span>` : `<span class="muted">${esc(r[3])}</span>`}</span><span>${who === "reggie" ? `<button class="ds-btn ds-btn--link small" data-toast="It's yours now. Reggie stops and leaves its notes.">Take it</button>` : `<button class="ds-btn ds-btn--link small" data-toast="Reggie sends a reminder now.">Remind</button>`}</span></div>`).join("")}
+  </div>`;
+}
+
+function handledList() {
+  return `<p class="muted small" style="margin-top:0">Everything Reggie did on its own today. Spot-check a few; each one you flag goes on its play's record.</p>
+  <div class="handled">${HANDLED.map(([g, rows]) => `<div class="handled__group type-eyebrow muted">${g}</div>${rows.map((r) => `
+    <div class="handled__row"><span class="muted num">${r[0]}</span><span>${esc(r[1])}</span><span>${r[2] === "Sent" ? `<span class="ds-pill ds-pill--neutral">Sent</span>` : `<span class="agent-line"><i></i>Internal</span>`}</span><span class="row">${r[3] ? `<a href="#/record/${r[3]}">Open</a>` : ""}<button class="ds-btn ds-btn--link small" data-toast="Flagged: Reggie shouldn't have. It goes on the play's record.">Flag</button></span></div>`).join("")}`).join("")}
+  </div>`;
+}
+
+// ── Boards ────────────────────────────────────────────────────────────────────────────────────
+
+function board(key) {
+  const p = PIPES[key];
+  if (!p) return "";
+  let cards = CARDS.filter((c) => c.pipe === key);
+  if (state.filter === "you") cards = cards.filter((c) => c.st === "you");
+  if (state.filter === "agent") cards = cards.filter((c) => c.st === "agent");
+  if (state.filter === "waiting") cards = cards.filter((c) => c.st === "stalled" || c.st === "client");
+  const chips = [["all", "All"], ["you", "Needs you"], ["agent", "Reggie on it"], ["waiting", "Waiting or stuck"]];
+  const siblings = BUCKETS.find(([, ks]) => ks.includes(key))[1];
+  const body = state.view === "board"
+    ? `<div class="board">${p.stages.map((s) => {
+        const cs = cards.filter((c) => c.stage === s.id);
+        return `<section class="col" data-stage="${s.id}"><div class="col__head"><div class="col__title"><span>${esc(s.name)}</span><span class="muted">${cs.length}</span></div><div class="col__auto"><i></i><span>${esc(s.auto)}</span></div></div><div class="col__cards">${cs.map(kcard).join("")}</div></section>`;
+      }).join("")}</div>`
+    : `<div class="list"><table><thead><tr><th>${esc(p.noun[0].toUpperCase() + p.noun.slice(1))}</th><th>Stage</th><th>Where it stands</th><th class="r">${key === "issues" ? "Urgency" : ""}</th></tr></thead><tbody>
+      ${cards.map((c) => `<tr data-href="#/record/${c.id}"><td><b style="font-weight:600">${esc(c.title)}</b><div class="muted tiny">${esc(c.who)}</div></td><td>${esc(p.stages.find((s) => s.id === c.stage).name)}</td><td>${status(c)}</td><td class="r">${key === "issues" ? urg(c.urg) : esc(c.val)}</td></tr>`).join("")}
+    </tbody></table></div>`;
+  return `<div class="page page--wide">
+    ${key === "issues" ? `<div style="padding-right: var(--space-10)">${holdBanner()}</div>` : ""}
+    <div class="crumbs">${esc(p.bucket)}</div>
+    <div class="page-head" style="padding-right: var(--space-10)">
+      <div><h1>${esc(p.name)}</h1></div>
+      <div class="row">
+        ${key === "issues" || key === "builds" || key === "enh" ? `<a class="ds-btn ds-btn--ghost ds-btn--sm" href="#/work">${ic("report")}Work order</a>` : ""}
+        <a class="ds-btn ds-btn--ghost ds-btn--sm" href="#/autopilot/${PLAYS[key] ? key : "issues"}">${ic("settings")}Autopilot</a>
+        <button class="ds-btn ds-btn--primary ds-btn--sm" data-toast="New ${p.noun}: type a name or paste an email, and Reggie fills in the rest.">${ic("add")}New ${esc(p.noun)}</button>
+      </div>
+    </div>
+    ${siblings.length > 1 ? `<div class="pipes" role="tablist">${siblings.map((k) => `<a class="pipe-btn" role="tab" href="#/board/${k}" aria-selected="${k === key}">${ic(PIPES[k].icon)}${esc(PIPES[k].name)}<span class="count">${CARDS.filter((c) => c.pipe === k && c.st !== "done").length}</span></a>`).join("")}</div>` : ""}
+    <div class="summary">${p.summary.map(([v, k]) => `<span><b>${esc(v)}</b>${esc(k)}</span>`).join("")}</div>
+    <div class="toolbar" style="margin-right: var(--space-10)">
+      <div class="row">${chips.map(([k, l]) => `<button class="chip" data-filter="${k}" aria-pressed="${state.filter === k}">${l}</button>`).join("")}</div>
+      <div class="ds-seg" role="group"><button data-view="board" aria-pressed="${state.view === "board"}">Board</button><button data-view="list" aria-pressed="${state.view === "list"}">List</button></div>
+    </div>
+    ${body}
+  </div>`;
+}
+
+function kcard(c) {
+  return `<a class="kcard ${c.st === "you" ? "you" : ""}" href="#/record/${c.id}" draggable="true" data-card="${c.id}" ${c.urg === "critical" ? 'style="border-left:3px solid var(--risk)"' : ""}>
+    <div class="row" style="justify-content:space-between; flex-wrap:nowrap"><div class="kcard__title">${esc(c.title)}</div>${urg(c.urg)}</div>
+    <div class="kcard__who">${esc(c.who)}</div>
+    <div class="kcard__foot">${status(c)}${c.val ? `<span class="row"><span class="kcard__val">${esc(c.val)}</span></span>` : ""}</div>
+  </a>`;
+}
+
+// ── Work order ────────────────────────────────────────────────────────────────────────────────
+
+function workOrder() {
+  return `<div class="page">
+    ${holdBanner()}
+    <div class="crumbs">Build</div>
+    <div class="page-head"><div><h1>Work order</h1><p>Issues, agent builds and enhancements in one order. Reggie keeps it; you can move anything.</p></div>
+      <div class="row"><button class="ds-btn ds-btn--secondary ds-btn--sm" data-toast="Drag rows to reorder. Reggie warns you if a promised date would slip.">Reorder</button></div></div>
+    <div class="panel" style="margin-bottom: var(--space-5)"><div class="panel__body small">
+      <b>The rule.</b> Critical issues first, always. Then high, normal and low issues go before builds, unless a build would miss its promised date: then the build goes first. Enhancements after, most-asked first.
+    </div></div>
+    <div class="rows">
+      <div class="wo wo-head"><span>#</span><span>Kind</span><span>What</span><span>Urgency or date</span><span>Why it's here</span></div>
+      ${WORK.map(([id, k, why, moved], i) => {
+        const c = card(id);
+        const kind = { issues: "Issue", builds: "Agent build", enh: "Enhancement" }[c.pipe];
+        return `<div class="wo ${moved ? "moved" : ""}"><span class="n">${i + 1}</span><span class="src-tag">${kind}</span><span class="t"><a href="#/record/${c.id}">${esc(c.title)}</a><span class="muted tiny" style="display:block">${esc(c.who)}</span></span><span>${c.urg ? urg(c.urg) : c.st === "stalled" ? `<span class="pill-risk">${esc(k)} · at risk</span>` : `<span class="muted">${esc(k)}</span>`}</span><span class="why2">${moved ? `<span class="ds-ai"><i></i>Moved by Reggie</span> ` : ""}${esc(why)}</span></div>`;
+      }).join("")}
+    </div>
+  </div>`;
+}
+
+// ── Record (any card) ─────────────────────────────────────────────────────────────────────────
+
+function record(id) {
+  const c = card(id);
+  if (!c) return `<div class="page"><p>Not found. <a href="#/call">Back to Your call</a></p></div>`;
+  const r = RECORDS[id] || genericRecord(c);
+  const p = PIPES[c.pipe];
+  // A build from a template skips the Builder's phases; a new agent shows them as one stage.
+  const stages = c.pipe === "builds" && !c.custom ? p.stages.filter((s) => s.id !== "building") : p.stages;
+  const idx = stages.findIndex((s) => s.id === c.stage);
+  const isLead = c.pipe === "new" && !c.cl;
+  const tl = r.timeline.map(tlItem).join("");
+  return `<div class="page">
+    ${r.hold ? `<div class="hold"><span>${ic("alert")} <b>Safety hold on since 6:12.</b> The Bookkeeper's writes and messages are stopped; its runs go on as drafts. 4 items held.</span><span class="row"><button class="ds-btn ds-btn--secondary ds-btn--sm" data-toast="4 held: 2 postings, 1 category change, 1 email. Send, edit or drop each.">Review held items</button><button class="ds-btn ds-btn--secondary ds-btn--sm" data-toast="Rolled back to v6 (a new version, approval on). The hold stays until you release it.">Roll back to v6</button><button class="ds-btn ds-btn--primary ds-btn--sm" data-toast="Release after the fix: the hold comes off once v6 is live.">Release after fix</button></span></div>` : ""}
+    <div class="crumbs"><span>${esc(p.bucket)}</span>${ic("chevron-right")}<a href="#/board/${c.pipe}">${esc(p.name)}</a>${c.cl ? `${ic("chevron-right")}${clientLink(c.cl)}` : ""}</div>
+    <div class="page-head" style="margin-bottom:0">
+      <div><h1>${esc(c.title)}</h1><p>${esc(c.who)}</p></div>
+      <div class="row">${urg(c.urg)}${status(c)}
+        <button class="ds-btn ds-btn--secondary ds-btn--sm" data-toast="${c.pipe === "new" ? "Lost: a reason, and Reggie drafts a check-back in 90 days." : "Closing tells the client and links what did it."}">${c.pipe === "new" ? "Lost" : "Close"}</button>
+      </div>
+    </div>
+    <div class="stages" role="group" aria-label="Stage">${stages.map((s, n) => `<button class="${n < idx ? "past" : n === idx ? "now" : ""}" data-toast="Moved to ${esc(s.name)}. That stage's plays start now.">${esc(s.name)}</button>`).join("")}</div>
+    <div class="rec">
+      <div>
+        <div class="tl">
+          <div class="composer" id="composer">
+            <div class="ds-tabs" role="tablist"><button role="tab" aria-selected="true" data-ctab="reply">${isLead ? "Email" : "Reply to the client"}</button><button role="tab" aria-selected="false" data-ctab="note">Internal note</button>${isLead ? "" : `<button role="tab" aria-selected="false" data-ctab="desk">Ask on their Desk</button>`}<button role="tab" aria-selected="false" data-ctab="todo">To-do</button></div>
+            <div class="row" style="margin-bottom: var(--space-2)"><span class="draft-to">${esc(r.to)}</span></div>
+            <textarea class="ds-textarea" id="compose">${esc(r.draft)}</textarea>
+            <div class="ds-aiblock" style="margin-top: var(--space-2)"><span class="ds-ai"><i></i>Reggie drafted this</span><span class="row"><button data-toast="Shorter version in the box.">Shorter</button><button data-toast="Spanish version in the box.">In Spanish</button><button data-toast="Reggie writes it again.">Again</button></span></div>
+            <div class="composer__foot"><span class="muted tiny">Goes on the timeline as activity.</span><div class="row"><button class="ds-btn ds-btn--ghost ds-btn--sm" data-toast="Scheduled for 8:00 tomorrow, their time.">Send later</button><button class="ds-btn ds-btn--primary ds-btn--sm" data-toast="Sent, and on the timeline.">Send</button></div></div>
+          </div>
+          ${tl}
+        </div>
+      </div>
+      <aside class="side">
+        ${r.requirements ? reqPanel(r) : ""}
+        ${r.terms ? termsPanel() : ""}
+        <section class="panel">
+          <div class="panel__head"><span class="type-label">To-dos on this ${esc(p.noun)}</span><button class="ds-btn ds-btn--link small" data-toast="Add a to-do: yours, Reggie's or the client's, with a due time.">Add</button></div>
+          <div class="panel__body" style="padding-top: var(--space-1); padding-bottom: var(--space-1)"><div class="todo-list">${r.todos.length ? r.todos.map(([o, t, d]) => `<div class="todo"><input type="checkbox" aria-label="Done"><div>${esc(t)}<small>${esc(d)}</small></div>${ownerChip(o)}</div>`).join("") : `<p class="muted small">None open.</p>`}</div></div>
+        </section>
+        <section class="panel">
+          <div class="panel__head"><span class="ds-ai"><i></i>Reggie's read</span><span class="muted tiny">updated just now</span></div>
+          <div class="panel__body">
+            <p style="margin:0; font-size:14px; line-height:1.55">${esc(r.read)}</p>
+            <ul class="found">${r.found.map((f) => `<li>${esc(f)}</li>`).join("")}</ul>
+            ${r.links.length ? `<div class="receipts">${r.links.map((x) => `<button class="mz-receipt">${ic("receipt")}${esc(x)}</button>`).join("")}</div>` : ""}
+            <hr class="sep">
+            <div class="type-label">Plan</div>
+            <div class="next">${r.next.map(([t, s, k], n) => `<div class="next__row"><span class="n">${n + 1}</span><div>${esc(t)}<small>${esc(s)}</small></div>${k === "approve" ? `<span class="ds-pill ds-pill--warning">Yours</span>` : k === "draft" ? `<span class="ds-pill ds-pill--neutral">Drafted</span>` : `<span class="agent-line"><i></i>Reggie</span>`}</div>`).join("")}</div>
+            <div class="row" style="margin-top: var(--space-3)"><button class="ds-btn ds-btn--primary ds-btn--sm" data-toast="Plan approved. Reggie does its steps and brings you the rest as to-dos.">Approve plan</button><button class="ds-btn ds-btn--ghost ds-btn--sm" data-toast="Tell Reggie what to do instead.">Change it</button></div>
+          </div>
+        </section>
+        <section class="panel">
+          <div class="panel__head"><span class="type-label">Details</span></div>
+          <div class="panel__body"><dl class="facts">${r.facts.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl></div>
+        </section>
+      </aside>
+    </div>
+  </div>`;
+}
+
+function reqPanel(r) {
+  const q = r.requirements;
+  return `<section class="panel">
+    <div class="panel__head"><span class="type-label">Requirements request</span><span class="muted tiny">${esc(q.to)} · due ${esc(q.due)}</span></div>
+    <div class="panel__body">
+      <div class="row" style="justify-content:space-between"><span class="small"><b class="num">${q.answered} of ${q.total}</b> answered</span><span class="muted tiny">Draft saved yesterday</span></div>
+      <div class="bar"><i style="width:${Math.round((q.answered / q.total) * 100)}%"></i></div>
+      <div class="type-label" style="margin-top: var(--space-3)">Still to answer</div>
+      <ul class="found" style="margin-top:6px">${q.missing.map((m) => `<li>${esc(m)}</li>`).join("")}</ul>
+      <div class="row" style="margin-top: var(--space-3)"><button class="ds-btn ds-btn--secondary ds-btn--sm" data-toast="Opens the answers so far, as the client sees the form.">See answers</button><button class="ds-btn ds-btn--ghost ds-btn--sm" data-toast="Reggie reminds Dr. Shah now, with the 5 left.">Remind now</button></div>
+    </div>
+    <div class="panel__body" style="border-top:1px solid var(--line)"><dl class="facts"><dt>Promised</dt><dd>${esc(r.promised[0])} · <span style="color:var(--positive)">${esc(r.promised[1])}</span></dd></dl></div>
+  </section>`;
+}
+
+function termsPanel() {
+  return `<section class="panel">
+    <div class="panel__head"><span class="type-label">Terms</span><span class="muted tiny">By hand for now</span></div>
+    <div class="panel__body">
+      <dl class="facts"><dt>Now</dt><dd>$3,400 a month · renews Dec 12</dd><dt>Proposed</dt><dd>+$1,200 a month from go-live</dd><dt>Signed copy</dt><dd class="muted">Not yet</dd></dl>
+      <div class="row" style="margin-top: var(--space-3)"><button class="ds-btn ds-btn--secondary ds-btn--sm" data-toast="Record the agreed change: the new price, from when, and the signed copy. Reggie then opens the builds.">Record agreed terms</button></div>
+      <p class="muted tiny" style="margin: var(--space-2) 0 0">Later: posted to the client's Billing page for them to agree.</p>
+    </div>
+  </section>`;
+}
+
+function tlItem(t) {
+  if (t.kind === "sys") return `<div class="tl__item sys"><span class="dot-ico">${ic("check")}</span><div class="tl__body">${esc(t.body)} <span class="tl__when">${esc(t.when)}</span>${t.card ? ` · <a href="#/record/${t.card}">${esc(t.cardText)}</a>` : ""}</div></div>`;
+  const avatar = t.agent ? `<span class="ds-avatar ds-avatar--sm" style="background:var(--surface-subtle);color:var(--ink);border:1px solid var(--line)">R</span>`
+    : t.kind === "run" ? `<span class="dot-ico">${ic("worksheet")}</span>`
+    : t.kind === "q" ? `<span class="dot-ico">${ic("message")}</span>`
+    : `<span class="ds-avatar ds-avatar--sm" style="background:${t.who === "You" ? "var(--copper-tint)" : "var(--ink)"};color:${t.who === "You" ? "var(--copper-ink)" : "var(--paper)"}">${esc(t.who.split(" ").map((w) => w[0]).join(""))}</span>`;
+  const tag = t.kind === "note" ? `<span class="pill-person" style="padding:2px 8px">Internal note</span>` : t.kind === "q" ? `<span class="chan">Question</span>${t.chan ? `<span class="chan">${esc(t.chan)}</span>` : ""}` : t.chan ? `<span class="chan">${esc(t.chan)}</span>` : "";
+  return `<div class="tl__item ${t.kind === "note" ? "note" : ""}">${avatar}<div>
+    <div class="tl__head"><span class="tl__who">${esc(t.who)}</span>${t.org ? `<span class="muted tiny">${esc(t.org)}</span>` : ""}${tag}${t.auto ? `<span class="agent-line"><i></i>Sent on its own</span>` : ""}<span class="tl__when">${esc(t.when)}</span>${t.card ? `<a class="tiny" href="#/record/${t.card}">${esc(t.cardText)}</a>` : ""}</div>
+    <div class="tl__body">${esc(t.body)}</div>
+    ${t.answer ? `<div class="answered" style="margin-top:6px">${ic("check")}${esc(t.answer)}</div>` : ""}
+    ${t.receipts ? `<div class="receipts">${t.receipts.map((x) => `<button class="mz-receipt">${ic("receipt")}${esc(x)}</button>`).join("")}</div>` : ""}
+  </div></div>`;
+}
+
+// ── Client page ──────────────────────────────────────────────────────────────────────────────
+
+function clientPage(cl) {
+  const c = CLIENTS[cl];
+  if (!c) return "";
+  const cards = CARDS.filter((x) => x.cl === cl);
+  const acts = (ACTIVITY[cl] || [{ kind: "sys", f: "decisions", when: "Today", body: `${c.name}'s activity goes here.` }]).filter((a) => state.act === "all" || a.f === state.act);
+  const todos = [
+    ...TODOS.filter((t) => t.cl === cl && !state.done.has(t.id)).map((t) => ["you", t.title, "Your call", t.card]),
+    ...THEIRS.reggie.filter((r) => r[2] === c.name).map((r) => ["reggie", r[1], r[3], r[4]]),
+    ...THEIRS.client.filter((r) => r[2] === c.name).map((r) => ["client", r[1], r[3], r[4]]),
+  ];
+  const bucketCards = (keys) => cards.filter((x) => keys.includes(x.pipe));
+  const healthPill = c.health === "Healthy" ? "ds-pill--positive" : c.health === "At risk" ? "" : "ds-pill--neutral";
+  return `<div class="page">
+    <div class="crumbs"><span>Clients</span></div>
+    <div class="page-head">
+      <div><h1>${esc(c.name)}</h1><p>Client since ${esc(c.since)} · ${esc(c.monthly)} a month · ${esc(c.contract)}</p></div>
+      <div class="row">${c.health === "At risk" ? `<span class="pill-risk">At risk</span>` : `<span class="ds-pill ${healthPill}">${esc(c.health)}</span>`}
+        <button class="ds-btn ds-btn--secondary ds-btn--sm" data-toast="Record a change to their terms: what, the new price, from when, and the signed copy.">Record a change</button>
+        <button class="ds-btn ds-btn--secondary ds-btn--sm" data-toast="Opens the client's agents, connections and settings, as the client page does today.">Agents and settings</button></div>
+    </div>
+    <div class="client-buckets">
+      ${BUCKETS.map(([name, keys]) => {
+        const cs = bucketCards(keys);
+        return `<div class="cb"><div class="type-eyebrow">${esc(name)}</div>${cs.length ? cs.map((x) => `<a href="#/record/${x.id}"><span>${urg(x.urg)} ${esc(x.title)}</span>${status(x)}</a>`).join("") : `<div class="none">${name === "Bring them in" ? `Won and set up. Client since ${esc(c.since)}.` : "Nothing open."}</div>`}</div>`;
+      }).join("")}
+    </div>
+    <div class="rec">
+      <div class="tl">
+        <div class="filters">${[["all", "All activity"], ["messages", "Messages"], ["questions", "Questions"], ["runs", "Runs"], ["decisions", "Decisions and changes"]].map(([k, l]) => `<button class="chip" data-act-filter="${k}" aria-pressed="${state.act === k}">${l}</button>`).join("")}</div>
+        ${acts.map(tlItem).join("")}
+      </div>
+      <aside class="side">
+        <section class="panel">
+          <div class="panel__head"><span class="type-label">To-dos for ${esc(c.name)}</span><button class="ds-btn ds-btn--link small" data-toast="Add a to-do: yours, Reggie's or the client's.">Add</button></div>
+          <div class="panel__body" style="padding-top: var(--space-1); padding-bottom: var(--space-1)"><div class="todo-list">${todos.length ? todos.map(([o, t, d, cid]) => `<div class="todo"><input type="checkbox" aria-label="Done"><div>${cid ? `<a style="color:var(--ink)" href="#/record/${cid}">${esc(t)}</a>` : esc(t)}<small>${esc(d)}</small></div>${ownerChip(o)}</div>`).join("") : `<p class="muted small">None open.</p>`}</div></div>
+        </section>
+        <section class="panel">
+          <div class="panel__head"><span class="type-label">Questions</span><span class="muted tiny">last 30 days</span></div>
+          <div class="panel__body"><dl class="facts"><dt>Asked</dt><dd class="num">9</dd><dt>Median answer</dt><dd>12 min</dd><dt>Waiting</dt><dd>None</dd><dt>Repeating</dt><dd>"How do I add a signer?" (2)</dd></dl></div>
+        </section>
+        <section class="panel">
+          <div class="panel__head"><span class="type-label">Account</span></div>
+          <div class="panel__body"><dl class="facts"><dt>Lead</dt><dd>${esc(c.lead)}</dd><dt>Agents</dt><dd>Pia, Purchasing (2 locations) · Sloan</dd><dt>Contract</dt><dd>${esc(c.contract)}</dd><dt>Signed copies</dt><dd><button class="mz-receipt">${ic("document")}Contract Sep 2</button></dd></dl></div>
+        </section>
+      </aside>
+    </div>
+  </div>`;
+}
+
+// ── Autopilot ────────────────────────────────────────────────────────────────────────────────
+
+function autopilot(key) {
+  const plays = PLAYS[key];
+  const tabs = [["new", "New accounts"], ["grow", "Expansion"], ["issues", "Issues"], ["builds", "Agent builds"], ["enh", "Enhancements"], ["questions", "Questions"]];
+  const stages = key === "questions" ? [{ id: "all", name: "Questions (activity, not cards)" }] : PIPES[key].stages;
+  const lvl = (pl, i, sid) => {
+    const opts = [["off", "Off"], ["draft", "Draft for me"], ["send", pl.internal ? "On" : "Send, tell me"]];
+    return `<div class="ds-seg" role="group">${opts.filter(([v]) => !(pl.internal && v === "draft")).map(([v, l]) => `<button data-level="${sid}:${i}:${v}" aria-pressed="${pl.level === v}" ${pl.locked && v === "send" && !pl.internal ? "disabled style='opacity:.4;cursor:not-allowed'" : ""}>${l}</button>`).join("")}</div>`;
+  };
+  return `<div class="page">
+    <div class="page-head"><div><h1>Autopilot</h1><p>What Reggie does in each stage, and how far it goes on its own. Everything starts as a draft for you.</p></div></div>
+    <div class="pipes" role="tablist" style="margin-bottom: var(--space-5)">${tabs.map(([k, l]) => `<a class="pipe-btn" role="tab" href="#/autopilot/${k}" aria-selected="${k === key}">${esc(l)}</a>`).join("")}</div>
+    <div class="two">
+      <div>${stages.map((s) => `<section class="stage-card">
+        <div class="stage-card__head"><h3>${esc(s.name)}</h3><button class="ds-btn ds-btn--ghost ds-btn--sm" data-toast="Add a play: what starts it and what Reggie does.">${ic("add")}Add a play</button></div>
+        ${(plays[s.id] || []).map((pl, i) => `<div class="play">
+          <div><div class="play__name">${esc(pl.name)}</div><div class="play__when">${esc(pl.when)}${pl.does ? ` · ${esc(pl.does)}` : ""}</div></div>
+          <div>${lvl(pl, i, s.id)}${pl.locked ? `<div class="lock" style="margin-top:6px">${ic("sign")}${esc(pl.locked)}</div>` : ""}</div>
+          <div class="track">${pl.track || (pl.internal ? "Internal: nothing reaches the client" : "No sends yet")}
+            ${pl.suggest && pl.level === "draft" ? `<div class="suggest"><span class="ds-pill ds-pill--warning">Ready to send on its own?</span><button class="ds-btn ds-btn--link small" data-level="${s.id}:${i}:send">Let Reggie send these</button></div>` : ""}</div>
+        </div>`).join("")}
+      </section>`).join("")}</div>
+      <aside class="side">
+        <section class="panel"><div class="panel__head"><span class="type-label">Always yours</span></div><div class="panel__body"><ul class="guard">
+          <li>${ic("sign")}<span>Releasing a safety hold, or rolling an agent back.</span></li>
+          <li>${ic("sign")}<span>Anything that changes how a client's agent works, or loosens an approval.</span></li>
+          <li>${ic("sign")}<span>Prices, terms, contracts and bill changes.</span></li>
+          <li>${ic("sign")}<span>Creating a client, adding a person to one, starting a trial.</span></li>
+          <li>${ic("sign")}<span>Moving work around a promised date.</span></li>
+          <li>${ic("sign")}<span>Anything Reggie is unsure about, at any setting.</span></li>
+        </ul><p class="muted tiny" style="margin-bottom:0">Reggie never asks for or repeats passwords, keys or card numbers, and treats what clients write as information, not instructions.</p></div></section>
+        <section class="panel"><div class="panel__head"><span class="type-label">Targets</span></div><div class="panel__body"><dl class="facts">
+          <dt>Critical</dt><dd>Reply in 1 hour, any day; fix same day</dd><dt>High</dt><dd>4 business hours; 2 days</dd><dt>Normal, low</dt><dd>1 to 2 business days</dd><dt>Questions</dt><dd>Yours after 4 business hours</dd><dt>Sends as</dt><dd>The client's lead</dd>
+        </dl></div></section>
+      </aside>
+    </div>
+  </div>`;
+}
+
+// ── Wiring ───────────────────────────────────────────────────────────────────────────────────
+
+function toast(text) {
+  const t = document.getElementById("toast");
+  t.innerHTML = `<div class="toast"><span>${esc(text)}</span></div>`;
+  t.hidden = false;
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => (t.hidden = true), 3400);
+}
+
+function wire() {
+  const on = (sel, fn) => document.querySelectorAll(sel).forEach((el) => el.addEventListener("click", (e) => fn(el, e)));
+  on("[data-toast]", (b, e) => { e.preventDefault(); e.stopPropagation(); toast(b.dataset.toast); });
+  on("[data-tab]", (b) => { state.tab = b.dataset.tab; render(); });
+  on("[data-act]", (b) => act(b.dataset.act));
+  on("[data-edit]", (b) => { const d = b.closest(".call").querySelector("[data-draft]"); d.contentEditable = "true"; d.classList.add("open"); d.focus(); });
+  on("[data-draft]", (d) => d.classList.add("open"));
+  on("[data-call]", (el) => { state.focus = Number(el.dataset.call); document.querySelectorAll(".call").forEach((c, i) => c.classList.toggle("is-focus", i === state.focus)); });
+  on("[data-filter]", (b) => { state.filter = b.dataset.filter; render(); });
+  on("[data-act-filter]", (b) => { state.act = b.dataset.actFilter; render(); });
+  on("[data-view]", (b) => { state.view = b.dataset.view; render(); });
+  on("tr[data-href]", (tr) => (location.hash = tr.dataset.href));
+  on("[data-ctab]", (b) => {
+    document.querySelectorAll("[data-ctab]").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
+    document.getElementById("composer").classList.toggle("is-note", b.dataset.ctab === "note");
+    const ta = document.getElementById("compose");
+    if (b.dataset.ctab === "note") ta.value = "";
+    if (b.dataset.ctab === "desk") ta.value = "A question for the client admin, with quick answers they can tap.";
+    if (b.dataset.ctab === "todo") ta.value = "What needs doing, whose it is (you, Reggie or the client) and by when.";
+  });
+  on("[data-level]", (b) => {
+    if (b.disabled) return;
+    const [sid, i, v] = b.dataset.level.split(":");
+    PLAYS[route()[1] || "issues"][sid][Number(i)].level = v;
+    render();
+    toast(v === "send" ? "Reggie does these on its own now and lists them under Done today." : v === "draft" ? "Reggie drafts these for you." : "Reggie won't do this.");
+  });
+  document.querySelectorAll("[data-card]").forEach((c) => c.addEventListener("dragstart", (e) => e.dataTransfer.setData("text/plain", c.dataset.card)));
+  document.querySelectorAll(".col").forEach((col) => {
+    col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("drop"); });
+    col.addEventListener("dragleave", () => col.classList.remove("drop"));
+    col.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const c = card(e.dataTransfer.getData("text/plain"));
+      if (!c) return;
+      c.stage = col.dataset.stage;
+      render();
+      toast(`Moved to ${PIPES[c.pipe].stages.find((s) => s.id === c.stage).name}. That stage's plays start now.`);
+    });
+  });
+}
+
+function act(id) {
+  const t = TODOS.find((x) => x.id === id);
+  if (t.id === "t-run") { toast("Opens the run's review, as the run audit queue does today."); return; }
+  state.done.add(id);
+  render();
+  const box = document.getElementById("toast");
+  box.innerHTML = `<div class="toast"><span>${esc(t.primary)}: done.${t.draft ? " Sends in 60 seconds." : ""}</span><button id="undo">Undo</button></div>`;
+  box.hidden = false;
+  document.getElementById("undo").onclick = () => { state.done.delete(id); box.hidden = true; render(); };
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => (box.hidden = true), 5000);
+  const next = TODOS.findIndex((x) => !state.done.has(x.id));
+  if (next >= 0) state.focus = next;
+}
+
+document.addEventListener("keydown", (e) => {
+  if (route()[0] !== "call" || state.tab !== "you") return;
+  if (e.target.closest("textarea, input, [contenteditable='true']")) return;
+  const max = TODOS.length - 1;
+  if (e.key === "j") state.focus = Math.min(max, state.focus + 1);
+  else if (e.key === "k") state.focus = Math.max(0, state.focus - 1);
+  else if (e.key === "s") return act(TODOS[state.focus].id);
+  else if (e.key === "o" && TODOS[state.focus].card) return void (location.hash = `#/record/${TODOS[state.focus].card}`);
+  else if (e.key === "e") return document.querySelectorAll("[data-call]")[state.focus]?.querySelector("[data-edit]")?.click();
+  else return;
+  document.querySelectorAll(".call").forEach((c, i) => c.classList.toggle("is-focus", i === state.focus));
+  document.querySelectorAll(".call")[state.focus]?.scrollIntoView({ block: "nearest" });
+});
+
+const themeBtn = document.getElementById("theme");
+const isDark = () => { const t = document.documentElement.dataset.theme; return t ? t === "dark" : matchMedia("(prefers-color-scheme: dark)").matches; };
+const themeLabel = () => (themeBtn.textContent = isDark() ? "Light" : "Dark");
+themeBtn.addEventListener("click", () => { document.documentElement.dataset.theme = isDark() ? "light" : "dark"; themeLabel(); });
+themeLabel();
+
+window.addEventListener("hashchange", () => { state.filter = "all"; render(); });
+render();
+</script>
+</body>
+</html>
