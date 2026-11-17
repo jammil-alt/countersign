@@ -3,12 +3,13 @@
 // an invoice's review notes for accounts payable (`none`). None writes to a client's tool; the
 // email to AP is the process's own write step (approval on, invariant 8).
 
-import { dec, formatAmount } from "@countersign/core";
+import { dec } from "@countersign/core";
 import { withTenant } from "@countersign/db";
 import { z } from "zod";
 import { contractCheckFor } from "../pricing/check";
 import { contractOn } from "../pricing/contract";
 import { loadPricedDocument, priceLines } from "../pricing/record";
+import { moneyIn } from "../pricing/rules";
 import { FREIGHT_TERMS } from "../schema";
 import { defineTool, type PackTool } from "../tools";
 import {
@@ -326,8 +327,8 @@ export function handoffOf(settings: Readonly<Record<string, unknown>>): Handoff 
 /** A finding that is only a note: a variance within the item's tolerance. */
 const isNote = (f: { kind: string }) => f.kind === "within_tolerance";
 
-const money = (v: string, currency: string) =>
-  currency === "USD" ? `$${formatAmount(v)}` : `${formatAmount(v)} ${currency}`;
+// One money format with the alerts' (`moneyIn`): `$12.50`, or `CAD 12.50`.
+const money = (v: string, currency: string) => moneyIn(v, currency);
 
 /** The invoice's review notes: what was checked, what was found, what wasn't checked. */
 export const invoiceReview = defineTool({

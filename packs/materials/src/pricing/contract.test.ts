@@ -304,6 +304,10 @@ describe("the contract rules", () => {
       names: () => names,
     });
     expect(cad.alerts.filter((a) => a.catalogItemId)).toEqual([]);
+    expect(cad.alerts.find((a) => a.facts.term === "currency")).toMatchObject({
+      kind: "terms_mismatch",
+      title: "Northline's invoice is in USD, not CAD",
+    });
     expect(cad.unchecked.map((u) => u.reason)).toEqual([
       "the contract's prices are in CAD and the invoice is in USD",
     ]);

@@ -281,6 +281,11 @@ describe.skipIf(!online)("vendor contracts (database)", () => {
       tools(A),
     )) as Record<string, unknown>;
     expect(review.unchecked).toBe(1);
+    // One money format with the alerts': the currency first.
+    expect(String(review.body)).toContain("for CAD 100.00");
+    expect(
+      c.alerts.some((a) => a.kind === "terms_mismatch" && a.title.includes("in CAD, not USD")),
+    ).toBe(true);
     expect(String(review.body)).toContain(
       `- Line 1, "${BB}": not checked against the contract: the contract's prices are in USD and the invoice is in CAD`,
     );

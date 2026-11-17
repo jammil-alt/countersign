@@ -399,6 +399,27 @@ export function termsMismatch(input: {
       });
     }
   }
+  // DECISION (review of fix/materials, finding 8): an invoice in another currency than its contract
+  // is a terms mismatch of its own (its prices aren't checked against the contract's, which
+  // `checkContract` lists as unchecked).
+  if (c.currency !== invoice.currency) {
+    out.push({
+      kind: "terms_mismatch",
+      severity: "warning",
+      catalogItemId: null,
+      vendorId: input.vendorId,
+      title: `${input.vendorName}'s invoice is in ${invoice.currency}, not ${c.currency}`,
+      body: `"${c.name}" agrees prices in ${c.currency}; ${which} bills in ${invoice.currency}, so its prices weren't checked against the contract.`,
+      evidence,
+      dollarImpact: null,
+      facts: {
+        term: "currency",
+        contractId: c.id,
+        contractCurrency: c.currency,
+        invoiceCurrency: invoice.currency,
+      },
+    });
+  }
   if (c.freight === "included" && dec(invoice.freight).greaterThan(0)) {
     out.push({
       kind: "terms_mismatch",
