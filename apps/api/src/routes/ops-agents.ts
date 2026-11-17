@@ -49,6 +49,7 @@ import { type AppEnv, ensureClient, type HandlerCtx, HttpError, mount, notFound 
 import { markOperatorPause } from "../lifecycle/pause";
 import { afterActivate } from "../lifecycle/stages";
 import { createRunRow } from "../runs/dispatch";
+import { startAfterCommit } from "../runs/reconcile";
 import { agentSummary, versionDetail, versionSummary } from "./mappers";
 
 /** The agent, if it is visible to this request (templates, or a client agent of a served client). */
@@ -392,7 +393,7 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
       }),
     );
     await createRunRow(ctx.tx, req);
-    ctx.afterCommit(() => ctx.services.instances.start(req));
+    ctx.afterCommit(() => startAfterCommit(ctx.services, req));
     return { runId: req.runId };
   });
 
@@ -454,7 +455,7 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
       }),
     );
     await createRunRow(ctx.tx, req);
-    ctx.afterCommit(() => ctx.services.instances.start(req));
+    ctx.afterCommit(() => startAfterCommit(ctx.services, req));
     return { runId: req.runId, agentId: target.agent.id, versionId: target.version.id };
   });
 

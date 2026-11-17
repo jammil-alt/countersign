@@ -14,6 +14,7 @@ import { codesFor } from "./codes/client";
 import { purgeRetiredFiles } from "./compliance/retention";
 import { CAPTURE_CRON_MINUTE, captureCronTick } from "./conversations/cron";
 import { captureDepsFor, captureJobsFor } from "./conversations/start";
+import { readingSweep } from "./documents/sweep";
 import type { Bindings } from "./env";
 // §1.121: forms, "Request info"
 import { formsTick } from "./forms/service";
@@ -161,6 +162,7 @@ import {
   runDepsFromEnv,
   runtimeFor,
 } from "./runs/execute";
+import { reconcileRuns } from "./runs/reconcile";
 // M45: Search Console and Bing, nightly (docs/plan.md §1.75).
 import { searchSyncTick } from "./search-sync";
 import { securityHeaders } from "./security-headers";
@@ -457,6 +459,17 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     // and the pass goes on with the next.
     await packNightly(db, platform.packs, scheduledTime).catch((error: unknown) =>
       reportHandled("pack nightly tick failed", error, { job: "pack_nightly" }),
+    );
+    // Last, after every other pass, so their slower work never holds the others up:
+    // every 10 minutes, runs that never started are started or failed, runs whose instance ended
+    // without finishing them are failed (runs/reconcile.ts);
+    await reconcileRuns({ db, instances }, scheduledTime).catch((error: unknown) =>
+      reportHandled("run reconciler failed", error, { job: "reconcile" }),
+    );
+    // every 5 minutes, documents whose reading on arrival was cut off are read again, within a
+    // time budget (documents/sweep.ts).
+    await readingSweep({ db, env, deps }, scheduledTime).catch((error: unknown) =>
+      reportHandled("reading sweep failed", error, { job: "reading_sweep" }),
     );
   } finally {
     await close();

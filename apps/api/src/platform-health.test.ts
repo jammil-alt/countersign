@@ -1,7 +1,7 @@
 // The platform's health pass (observability/health.ts): failures grouped by error key, what is
 // stuck, per client and only for the clients asked.
 
-import { connection, externalAction, inboxItem, run } from "@countersign/db";
+import { connection, externalAction, inboxItem, run, stepRun } from "@countersign/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type ApiHarness, createApiHarness, OPERATOR, testBundle } from "./api.test-helper";
@@ -169,5 +169,72 @@ describe.skipIf(!h)("platform health", () => {
     expect(b.find((f) => f.kind === "run_failed")?.key).toBe("unknown");
     expect(b.find((f) => f.kind === "connection_broken")?.key).toBe("testkit:error");
     expect(sent.filter((f) => f.tenantId === H.A.tenantId)).toHaveLength(5);
+  });
+});
+
+describe.skipIf(!h)("platform health: what is not stuck", () => {
+  const H = h as ApiHarness;
+
+  it("leaves out runs waiting on a person and runs that moved recently", async () => {
+    const created = await H.call(OPERATOR, "POST", `/api/ops/clients/${H.A.tenantId}/agents`, {
+      slug: "waiter",
+      bundle: testBundle(),
+    });
+    const a = { agentId: j(created.json).agent.id, agentVersionId: j(created.json).version.id };
+    const going = {
+      ...a,
+      tenantId: H.A.tenantId,
+      workflowSlug: "waits",
+      status: "running" as const,
+      startedAt: at("09:00"),
+      createdAt: at("09:00"),
+    };
+    const [waiting, moving, waitStep, stuck] = await H.t.db
+      .insert(run)
+      .values([going, going, going, going])
+      .returning({ id: run.id });
+    // Waiting on a client admin's approval since 09:00: it has its own deadline.
+    await H.t.db.insert(inboxItem).values({
+      tenantId: H.A.tenantId,
+      kind: "approval",
+      title: "Approve the change",
+      runId: waiting?.id,
+      status: "open",
+    });
+    // A step that started 20 minutes before the pass: the run is moving.
+    await H.t.db.insert(stepRun).values([
+      {
+        tenantId: H.A.tenantId,
+        runId: moving?.id as string,
+        nodeId: "first",
+        nodeType: "skill",
+        status: "running",
+        startedAt: at("12:52"),
+      },
+      // A step waiting on someone's reply (a reach-out), with no inbox item.
+      {
+        tenantId: H.A.tenantId,
+        runId: waitStep?.id as string,
+        nodeId: "ask",
+        nodeType: "skill",
+        status: "waiting",
+        startedAt: at("09:05"),
+      },
+      // A step that finished at 09:10 and nothing since: stuck.
+      {
+        tenantId: H.A.tenantId,
+        runId: stuck?.id as string,
+        nodeId: "first",
+        nodeType: "skill",
+        status: "succeeded",
+        startedAt: at("09:05"),
+        finishedAt: at("09:10"),
+      },
+    ]);
+    const found = await H.t.db.transaction((tx) =>
+      healthFindings(tx, [H.A.tenantId], healthWindow(DAILY)),
+    );
+    const stuckRuns = found.filter((f) => f.kind === "run_stuck" && f.key === "running:waits");
+    expect(stuckRuns.flatMap((f) => f.ids)).toEqual([stuck?.id]);
   });
 });

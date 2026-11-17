@@ -7,6 +7,7 @@
 import type { ContentStore } from "@countersign/connectors";
 import {
   Decimal,
+  EXTRACTABLE_MIME_TYPES,
   type InvoiceExtraction,
   InvoiceExtraction as InvoiceExtractionSchema,
   isExtractable,
@@ -25,7 +26,7 @@ import {
 } from "@countersign/db";
 import { DEFAULT_MODELS, type LlmCallRecord, type LlmClient } from "@countersign/llm";
 import { type EmittedEvents, emit } from "@countersign/senses";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { type DuplicateOf, findDuplicate, markDuplicate } from "./duplicates";
 // v0.14 W4-B: long PDFs are read in parts.
 import {
@@ -131,6 +132,14 @@ export interface ExtractInput {
   /** Records the ids of the events it emits, for the caller to dispatch after commit (§8). */
   collect?: EmittedEvents;
   /**
+   * A reading on arrival (an upload, forwarded mail, captured media) or the reading sweep's, not an
+   * agent's: it reads only a document never read, still `stored` or `extracting`, that nobody else
+   * started reading in the last READING_STALE_MS (unless `claim` is the sweep's claim on it), and
+   * refuses with `not_due` otherwise, so one document never gets two readings (and two
+   * `document.extracted`). An agent's `docs.extract` reads again whenever it asks.
+   */
+  onArrival?: { claim?: string };
+  /**
    * P-9: what the document is read as. `quote`: a vendor's priced answer, not a bill to pay, so
    * totals that don't add up raise no review and it is never checked as a duplicate invoice.
    */
@@ -165,11 +174,184 @@ async function loadForExtraction(deps: DocumentsDeps, input: ExtractInput): Prom
     if (!isExtractable(row.mimeType)) {
       throw new DocumentError("not_extractable", `a ${row.mimeType} file can't be extracted`);
     }
+    if (input.onArrival) await refuseUnlessDue(tx, row, input.onArrival.claim);
     await tx
       .update(document)
-      .set({ status: "extracting" })
+      .set({ status: "extracting", meta: readingStarted })
       .where(and(eq(document.id, row.id), eq(document.tenantId, input.tenantId)));
     return row;
+  });
+}
+
+// ── A reading that never finished (apps/api's reading sweep, src/documents/sweep.ts) ───────────
+// A reading runs outside any transaction, often after the response that stored the document (in a
+// waitUntil the platform may cancel). One cancelled part-way leaves the document `stored` or
+// `extracting` with no event either way. So a reading in progress is marked on the document:
+// `meta.reading = { at, attempts }`, the time the latest reading started (or was claimed by the
+// sweep) and how many have started since one last finished; a finished reading (read or failed)
+// removes it. The sweep re-reads what was left, and gives up after READING_ATTEMPTS.
+// DECISION: no migration: the mark lives in `document.meta.reading` (jsonb, already there), as
+// `meta.duplicateOf` does.
+
+/** Readings started without one finishing, after which the sweep marks the document failed. */
+export const READING_ATTEMPTS = 3;
+/** A reading (or a sweep's claim) this recent is in progress: nobody else reads the document. */
+export const READING_STALE_MS = 10 * 60_000;
+
+function notDue(why: string): DocumentError {
+  return new DocumentError("not_due", why);
+}
+
+/** Whether the document (locked by the caller) has a reading already. */
+async function hasReading(tx: Tx, doc: Pick<DocumentRow, "id" | "tenantId">): Promise<boolean> {
+  const [x] = await tx
+    .select({ id: docExtraction.id })
+    .from(docExtraction)
+    .where(and(eq(docExtraction.documentId, doc.id), eq(docExtraction.tenantId, doc.tenantId)))
+    .limit(1);
+  return x !== undefined;
+}
+
+/**
+ * A reading on arrival goes ahead only for a document never read, still unread, and not being
+ * read by someone else (a reading or claim within READING_STALE_MS, by the database's clock),
+ * unless this caller holds the sweep's claim. The caller holds the row lock.
+ */
+async function refuseUnlessDue(tx: Tx, row: DocumentRow, claim: string | undefined) {
+  if (row.status !== "stored" && row.status !== "extracting") {
+    throw notDue(`document ${row.id} is ${row.status}`);
+  }
+  if (await hasReading(tx, row)) throw notDue(`document ${row.id} is read already`);
+  const reading = (row.meta as { reading?: { claim?: unknown } } | null)?.reading;
+  if (claim !== undefined && reading?.claim === claim) return;
+  const [r] = await tx
+    .select({
+      fresh: sql<boolean>`coalesce((${document.meta}->'reading'->>'at')::timestamptz > now() - make_interval(secs => ${READING_STALE_MS / 1000}), false)`,
+    })
+    .from(document)
+    .where(and(eq(document.id, row.id), eq(document.tenantId, row.tenantId)));
+  if (r?.fresh) throw notDue(`document ${row.id} is being read`);
+}
+
+/** The sources whose documents are read on arrival (uploads, forwarded mail, captured media). */
+export const READ_ON_ARRIVAL_SOURCES = ["upload", "email", "message"] as const;
+
+/** `meta` with a reading started now: its time, and one more attempt. */
+const readingStarted = sql`jsonb_set(coalesce(${document.meta}, '{}'::jsonb), '{reading}', jsonb_build_object('at', now(), 'attempts', coalesce((${document.meta}->'reading'->>'attempts')::int, 0) + 1))`;
+/** `meta` without the reading mark: the reading finished. */
+const readingDone = sql`coalesce(${document.meta}, '{}'::jsonb) - 'reading'`;
+
+export interface UnreadDocument {
+  id: string;
+  receivedAt: Date;
+  /** Readings started since one last finished. */
+  attempts: number;
+}
+
+/**
+ * Claims up to `limit` of a client's documents read on arrival that were never read and whose
+ * reading was left (stored, or `extracting`, with no reading or claim for READING_STALE_MS by the
+ * database's clock), in the caller's transaction: the rows are locked (others skip them) and
+ * `meta.reading` gets `at = now()` and `claim`. No other sweep takes them until they are stale
+ * again, a reading in progress is never taken, and only the holder of the claim reads them
+ * (`onArrival.claim`): a later pass's claim, once this one is stale, makes this one void.
+ */
+export async function claimUnreadDocuments(
+  tx: Tx,
+  input: {
+    tenantId: string;
+    /** The claim, which the reading then names (`onArrival.claim`). */
+    claim: string;
+    limit: number;
+    /** More conditions on `document` (e.g. the caller's own "not yet": a capture in progress). */
+    where?: SQL;
+  },
+): Promise<UnreadDocument[]> {
+  const rows = await tx
+    .select({
+      id: document.id,
+      receivedAt: document.receivedAt,
+      attempts: sql<number>`coalesce((${document.meta}->'reading'->>'attempts')::int, 0)`,
+    })
+    .from(document)
+    .where(
+      and(
+        eq(document.tenantId, input.tenantId),
+        inArray(document.status, ["stored", "extracting"]),
+        inArray(document.source, [...READ_ON_ARRIVAL_SOURCES]),
+        inArray(document.mimeType, [...EXTRACTABLE_MIME_TYPES]),
+        sql`coalesce((${document.meta}->'reading'->>'at')::timestamptz, ${document.receivedAt}) < now() - make_interval(secs => ${READING_STALE_MS / 1000})`,
+        // Never read: a document read before (an agent's re-reading left it `extracting`) has its
+        // reading, and reading it again here would start its runs twice.
+        sql`not exists (select 1 from doc_extraction x where x.document_id = "document"."id" and x.tenant_id = "document"."tenant_id")`,
+        // DECISION (§1.110): a file attached to a conversation is kept unread on purpose; it is
+        // read only when Sloan or Reggie passes it to one agent. The sweep never reads it.
+        sql`coalesce(${document.meta}->>'via', '') <> 'chat'`,
+        ...(input.where ? [input.where] : []),
+      ),
+    )
+    .orderBy(document.receivedAt)
+    .limit(input.limit)
+    .for("update", { skipLocked: true });
+  if (rows.length === 0) return [];
+  await tx
+    .update(document)
+    .set({
+      meta: sql`jsonb_set(coalesce(${document.meta}, '{}'::jsonb), '{reading}', coalesce(${document.meta}->'reading', '{}'::jsonb) || jsonb_build_object('at', now(), 'claim', ${input.claim}::text))`,
+    })
+    .where(
+      and(
+        eq(document.tenantId, input.tenantId),
+        inArray(
+          document.id,
+          rows.map((r) => r.id),
+        ),
+      ),
+    );
+  return rows.map((r) => ({ id: r.id, receivedAt: r.receivedAt, attempts: Number(r.attempts) }));
+}
+
+/**
+ * Marks a document whose reading never finished as failed, with `document.extraction_failed`, so
+ * a person sees it. Only a document still unread (stored or extracting) changes; returns whether
+ * it did.
+ */
+export async function giveUpReading(
+  db: Db,
+  input: {
+    tenantId: string;
+    documentId: string;
+    message: string;
+    collect?: EmittedEvents;
+    /** Mark it without `document.extraction_failed` (the caller reports in aggregate). */
+    quiet?: boolean;
+  },
+): Promise<boolean> {
+  return withTenant(db, input.tenantId, async (tx) => {
+    const [row] = await tx
+      .update(document)
+      .set({ status: "failed", meta: readingDone })
+      .where(
+        and(
+          eq(document.id, input.documentId),
+          eq(document.tenantId, input.tenantId),
+          inArray(document.status, ["stored", "extracting"]),
+        ),
+      )
+      .returning({ id: document.id });
+    if (!row) return false;
+    if (input.quiet) return true;
+    await emit(
+      tx,
+      {
+        tenantId: input.tenantId,
+        type: "document.extraction_failed",
+        subjectId: input.documentId,
+        payload: { documentId: input.documentId, error: input.message.slice(0, 500) },
+      },
+      input.collect ? { collect: input.collect } : {},
+    );
+    return true;
   });
 }
 
@@ -177,7 +359,7 @@ async function markFailed(deps: DocumentsDeps, input: ExtractInput, message: str
   await withTenant(deps.db, input.tenantId, async (tx) => {
     await tx
       .update(document)
-      .set({ status: "failed" })
+      .set({ status: "failed", meta: readingDone })
       .where(and(eq(document.id, input.documentId), eq(document.tenantId, input.tenantId)));
     await emit(
       tx,
@@ -311,8 +493,17 @@ export async function extractDocument(
   if (answer.parts === undefined) await input.onCall?.(answer.record);
   // A card number printed on a document is never stored (PCI DSS 3.3, docs/plan.md §1.35).
   const x = redactCardNumbersDeep(answer.value);
-  const written = await withTenant(deps.db, input.tenantId, (tx) =>
-    writeReading(tx, {
+  const written = await withTenant(deps.db, input.tenantId, async (tx) => {
+    // On arrival, a reading that finished meanwhile wins (one that ran past READING_STALE_MS).
+    if (input.onArrival) {
+      await tx
+        .select({ id: document.id })
+        .from(document)
+        .where(and(eq(document.id, doc.id), eq(document.tenantId, input.tenantId)))
+        .for("update");
+      if (await hasReading(tx, doc)) throw notDue(`document ${doc.id} was read meanwhile`);
+    }
+    return writeReading(tx, {
       tenantId: input.tenantId,
       doc,
       reading: x,
@@ -326,8 +517,8 @@ export async function extractDocument(
       review: true,
       ...(input.collect ? { collect: input.collect } : {}),
       ...(input.forAgentId ? { forAgentId: input.forAgentId } : {}),
-    }),
-  );
+    });
+  });
   return { ...written, model: answer.record.model, extraction: x, record: answer.record };
 }
 
@@ -428,7 +619,7 @@ export async function writeReading(tx: Tx, input: WriteReadingInput): Promise<Wr
   }
   await tx
     .update(document)
-    .set({ status, pageCount: doc.pageCount ?? x.header.pageCount })
+    .set({ status, pageCount: doc.pageCount ?? x.header.pageCount, meta: readingDone })
     .where(and(eq(document.id, doc.id), eq(document.tenantId, input.tenantId)));
   // The same invoice again (another copy of a document already here): marked, and it starts
   // nothing, no review and no run (a test run's reading marks nothing).

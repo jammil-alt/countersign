@@ -21,6 +21,7 @@ import {
 } from "@countersign/db";
 import { captureMessage } from "@sentry/cloudflare";
 import { and, gte, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
+import { waitsOnPerson } from "../runs/run-wait";
 import { reportHandled } from "./report";
 
 export const HEALTH_KINDS = [
@@ -45,7 +46,10 @@ export interface HealthFinding {
 }
 
 const SAMPLE_IDS = 5;
-/** A run still queued or running this long after it was created has stopped moving. */
+/**
+ * A run still queued or running this long after it last moved (created, or a step started or
+ * ended), and not waiting on a person, has stopped moving.
+ */
 export const STUCK_RUN_MS = 2 * 60 * 60 * 1000;
 /** An approval the run has not taken this long after it was signed (the cron re-sends each minute). */
 export const STUCK_DELIVERY_MS = 30 * 60 * 1000;
@@ -148,6 +152,12 @@ export async function healthFindings(
 
   if (!w.states) return findings;
 
+  // A run waiting on a person (an open inbox item, or a step waiting on an answer such as a
+  // reach-out's reply) has its own deadline: it is not stuck. The rest are stuck once nothing has
+  // moved for STUCK_RUN_MS: not since they were created, nor since their last step started or
+  // ended (a long run that keeps moving is not stuck).
+  // DECISION: "last activity" is the run's newest step_run start or finish (or its creation),
+  // read through step_run's (run_id, node_id) index; no new column.
   const stuckRuns = await tx
     .select({ id: run.id, tenantId: run.tenantId, status: run.status, slug: run.workflowSlug })
     .from(run)
@@ -156,6 +166,9 @@ export async function healthFindings(
         inArray(run.tenantId, ids),
         inArray(run.status, ["queued", "running"]),
         lt(run.createdAt, new Date(w.now.getTime() - STUCK_RUN_MS)),
+        sql`not ${waitsOnPerson}`,
+        sql`not exists (select 1 from step_run ws where ws.run_id = "run"."id" and ws.tenant_id = "run"."tenant_id" and ws.status = 'waiting')`,
+        sql`coalesce((select max(greatest(s.started_at, s.finished_at)) from step_run s where s.run_id = "run"."id" and s.tenant_id = "run"."tenant_id"), "run"."created_at") < ${new Date(w.now.getTime() - STUCK_RUN_MS).toISOString()}::timestamptz`,
       ),
     )
     .orderBy(sql`${run.createdAt} desc`);
