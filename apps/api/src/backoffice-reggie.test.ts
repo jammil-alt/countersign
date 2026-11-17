@@ -387,6 +387,31 @@ describe.skipIf(!h)("Reggie on the back office's work", () => {
       expect(j((await issueRow(id)).reggieRead).read).toBe("Read again.");
       expect((await H.call(admin("a"), "POST", `/api/ops/issues/${id}/read`)).status).toBe(403);
     });
+
+    it("never sends a HIPAA client's words to the model; the operator reads it", async () => {
+      await H.t.db
+        .update(tenant)
+        .set({ settings: { compliance: { hipaa: true } } })
+        .where(eq(tenant.id, H.B.tenantId));
+      const res = await H.call(admin("b"), "POST", "/api/requests", {
+        text: "A patient's invoice is wrong.",
+        kind: "problem",
+      });
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+      const id = j(res.json).item.id as string;
+      await only(id);
+      const calls = model.requests.length;
+      await pass();
+      expect(model.requests.length).toBe(calls);
+      const row = await issueRow(id);
+      expect(row.reggieRead).toBeNull();
+      expect(row.needsReadAt).toBeNull();
+      const [t] = await H.t.db
+        .select()
+        .from(todo)
+        .where(eq(todo.dedupeKey, `reggie:hipaa:${id}`));
+      expect(t?.owner).toBe("operator");
+    });
   });
 });
 

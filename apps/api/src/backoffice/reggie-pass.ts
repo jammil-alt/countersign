@@ -10,7 +10,16 @@
 // answer is checked with Zod (invariant 5) and its sources cut to the ids it was given
 // (invariant 10).
 
-import { issueTargets, ReggieRead, readReggieRead, type WorkUrgency } from "@countersign/core";
+import {
+  complianceOf,
+  issueTargets,
+  type Processor,
+  processingRefusal,
+  REGGIE_READ_FEATURE,
+  ReggieRead,
+  readReggieRead,
+  type WorkUrgency,
+} from "@countersign/core";
 import {
   agent,
   agentVersion,
@@ -47,6 +56,8 @@ const RUNS = 20;
 export interface PassDeps {
   db: Db;
   transport: LlmTransport | null;
+  /** The processors with a BAA (`BAA_PROCESSORS`): a client in HIPAA mode is read only when covered. */
+  covered?: ReadonlySet<Processor>;
   now?: () => Date;
 }
 
@@ -62,6 +73,7 @@ interface Gathered {
   /** Every id the model was shown: the only sources a read may cite. */
   ids: Set<string>;
   sourceMessageId: string | null;
+  compliance: ReturnType<typeof complianceOf>;
 }
 
 const textOf = (body: unknown) => {
@@ -71,7 +83,7 @@ const textOf = (body: unknown) => {
 
 async function gather(tx: Tx, row: IssueRow): Promise<Gathered> {
   const [t] = await tx
-    .select({ name: tenant.name })
+    .select({ name: tenant.name, settings: tenant.settings })
     .from(tenant)
     .where(eq(tenant.id, row.tenantId));
   const agents = await tx
@@ -195,6 +207,7 @@ async function gather(tx: Tx, row: IssueRow): Promise<Gathered> {
     messages,
     ids,
     sourceMessageId: lastClient?.id ?? null,
+    compliance: complianceOf(t?.settings as Record<string, unknown> | null),
   };
 }
 
@@ -559,6 +572,34 @@ export async function readOne(
     return gather(tx, row);
   });
   if (!g) return false;
+  // HIPAA mode (§1.35): no model reads the client's words until Anthropic is covered; the
+  // operator reads it instead.
+  const refusal = processingRefusal(
+    g.compliance,
+    deps.covered ?? new Set(),
+    REGGIE_READ_FEATURE.processors,
+    REGGIE_READ_FEATURE.what,
+  );
+  if (refusal) {
+    await withOperator(deps.db, [tenantId], async (tx) => {
+      await tx
+        .update(issue)
+        .set({ needsReadAt: null })
+        .where(and(eq(issue.id, issueId), eq(issue.tenantId, tenantId)));
+      await addTodo(tx, {
+        title: `Read ${g.clientName} #${g.issue.number}: ${g.issue.title}`,
+        owner: "operator",
+        clientId: tenantId,
+        about: { kind: "issue", id: issueId },
+        source: "system",
+        why: refusal.slice(0, 300),
+        dueAt: g.issue.replyBy,
+        primaryAction: { label: "Open", kind: "open", ref: { issueId } },
+        dedupeKey: `reggie:hipaa:${issueId}`,
+      });
+    });
+    return false;
+  }
   let read: ReggieRead | null = null;
   let meta: Record<string, unknown> = {};
   try {

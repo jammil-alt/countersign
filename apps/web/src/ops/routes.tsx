@@ -96,6 +96,7 @@ import {
 import { AutomationPage } from "./skills/AutomationPage";
 import { NewSkillScreen } from "./skills/NewSkill";
 import { SkillPage } from "./skills/SkillPage";
+import { AutopilotScreen } from "./work/autopilot/AutopilotScreen";
 // §1.123 back office work
 import { BuildSection } from "./work/build/BuildSection";
 import { EnhancementPage } from "./work/build/EnhancementPage";
@@ -253,6 +254,8 @@ export const opsRoutes = (
     <Route path="sales" element={<SalesScreen />} />
     <Route path="sales/:tab" element={<SalesScreen />} />
     <Route path="deals/:id" element={<DealScreen />} />
+    <Route path="autopilot" element={<AutopilotScreen />} />
+    <Route path="autopilot/:flow" element={<AutopilotScreen />} />
     {/* Packs (P-1): switch a business area on per client, and a client's pack reports */}
     <Route path="packs" element={<OpsPacksScreen />} />
     {/* §1.73: the Marketing area (docs/marketing-plan.md §4.7, §11): the entry opens our own

@@ -2,7 +2,7 @@
 // read pass and the email replies on issues that came by email; hourly the chases and the
 // questions; nightly expansion spotting. Each part's failure is reported and the rest go on.
 
-import { readRequirements } from "@countersign/core";
+import { type Processor, readRequirements } from "@countersign/core";
 import { build, type Db, playLog, tenant, todo, withOperator } from "@countersign/db";
 import type { LlmTransport } from "@countersign/llm";
 import { leadOf, leadThread, postMessage } from "@countersign/threads";
@@ -27,6 +27,8 @@ export interface BackOfficeDeps {
   transport: LlmTransport | null;
   mailer: Mailer;
   domain: string | null | undefined;
+  /** The processors with a BAA (`BAA_PROCESSORS`). */
+  covered: ReadonlySet<Processor>;
 }
 
 /**
@@ -146,11 +148,16 @@ export async function chaseRequirements(db: Db, now: Date): Promise<number> {
 }
 
 export async function backOfficeTick(deps: BackOfficeDeps, at: Date): Promise<void> {
-  await readPending({ db: deps.db, transport: deps.transport, now: () => at }).catch(
-    (error: unknown) => reportHandled("Reggie's read pass failed", error, { job: "reggie_read" }),
+  await readPending({
+    db: deps.db,
+    transport: deps.transport,
+    covered: deps.covered,
+    now: () => at,
+  }).catch((error: unknown) =>
+    reportHandled("Reggie's read pass failed", error, { job: "reggie_read" }),
   );
-  await sendIssueEmails(deps.db, deps.mailer, deps.domain, at).catch((error: unknown) =>
-    reportHandled("issue emails failed", error, { job: "backoffice_email" }),
+  await sendIssueEmails(deps.db, deps.mailer, deps.domain, at, deps.covered).catch(
+    (error: unknown) => reportHandled("issue emails failed", error, { job: "backoffice_email" }),
   );
   if (at.getUTCMinutes() === BACKOFFICE_HOURLY_MINUTE) {
     await chaseRequirements(deps.db, at).catch((error: unknown) =>

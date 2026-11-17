@@ -2,7 +2,7 @@
 // Worker and in Node tests (with a test database and in-memory Workflow instances).
 
 import { credentialKeysFromEnv, globalFetch } from "@countersign/connectors";
-import { routes } from "@countersign/core";
+import { parseCoveredProcessors, routes } from "@countersign/core";
 import type { Db } from "@countersign/db";
 import { Hono } from "hono";
 import { sloanTick } from "./account/sloan";
@@ -394,6 +394,7 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
         transport: deps.llm?.(env) ?? workerTransport(env),
         mailer: mailerFromEnv(env, deps.fetch?.(env)),
         domain: env.EMAIL_FORWARDING_DOMAIN,
+        covered: parseCoveredProcessors(env.BAA_PROCESSORS),
       },
       scheduledTime,
     ).catch((error: unknown) =>

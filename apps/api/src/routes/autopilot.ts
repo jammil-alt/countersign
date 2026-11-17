@@ -3,7 +3,7 @@
 // Reggie to read an issue again. Operator only. Sending mail is a slow route (mountLong): no
 // transaction is held while Resend answers.
 
-import { routes } from "@countersign/core";
+import { parseCoveredProcessors, routes } from "@countersign/core";
 import { deal, dealPerson, todo } from "@countersign/db";
 import { leadThread, postMessage } from "@countersign/threads";
 import { eq } from "drizzle-orm";
@@ -128,9 +128,14 @@ export function autopilotRoutes(app: Hono<AppEnv>): void {
   mountLong(app, routes.opsIssueRead, async ({ inTx, tenantIds, params, services }) => {
     const row = await txOnly(inTx)((tx) => readIssue(tx, tenantIds, params.id));
     const transport = services.deps.llm?.(services.env) ?? workerTransport(services.env);
-    const read = await readOne({ db: services.db, transport }, row.tenantId, row.id, {
-      force: true,
-    });
+    const read = await readOne(
+      { db: services.db, transport, covered: parseCoveredProcessors(services.env.BAA_PROCESSORS) },
+      row.tenantId,
+      row.id,
+      {
+        force: true,
+      },
+    );
     return { read };
   });
 }

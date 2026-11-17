@@ -6,6 +6,12 @@
 
 import { base32, bytesUuid, unbase32, uuidBytes } from "@countersign/connectors";
 import {
+  BACKOFFICE_EMAIL_FEATURE,
+  complianceOf,
+  type Processor,
+  processingRefusal,
+} from "@countersign/core";
+import {
   type Db,
   issue,
   issueEvent,
@@ -120,6 +126,7 @@ export async function sendIssueEmails(
   mailer: Mailer,
   domain: string | null | undefined,
   now = new Date(),
+  covered: ReadonlySet<Processor> = new Set(),
 ): Promise<number> {
   if (!mailer.isConfigured || !domain?.trim()) return 0;
   const clients = await db.select({ id: tenant.id }).from(tenant).where(isNull(tenant.retiredAt));
@@ -186,6 +193,30 @@ export async function sendIssueEmails(
   let sent = 0;
   for (const p of pending) {
     try {
+      const [t] = await db
+        .select({ settings: tenant.settings })
+        .from(tenant)
+        .where(eq(tenant.id, p.tenantId));
+      // HIPAA mode (§1.35): answered in the portal only until Resend is covered; marked so it
+      // isn't tried again.
+      const refusal = processingRefusal(
+        complianceOf(t?.settings as Record<string, unknown> | null),
+        covered,
+        BACKOFFICE_EMAIL_FEATURE.processors,
+        BACKOFFICE_EMAIL_FEATURE.what,
+      );
+      if (refusal) {
+        await withOperator(db, [p.tenantId], (tx) =>
+          tx.insert(issueEvent).values({
+            tenantId: p.tenantId,
+            issueId: p.issueId,
+            kind: "reply",
+            actor: "system",
+            payload: { emailedMessageId: p.messageId, refused: "hipaa" },
+          }),
+        );
+        continue;
+      }
       const lead = await withOperator(db, [p.tenantId], (tx) => leadOf(tx, p.tenantId));
       await mailer.send({
         to: p.to as string,
