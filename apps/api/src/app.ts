@@ -63,6 +63,8 @@ import { connectionRoutes } from "./routes/connections";
 import { contactRoutes } from "./routes/contacts";
 // v0.14 capture: WhatsApp conversations and their capture
 import { conversationRouteHandlers } from "./routes/conversations";
+// §1.123 back office work: Sales
+import { dealRoutes } from "./routes/deals";
 import { deskRoutes } from "./routes/desk";
 import { directoryRoutes } from "./routes/directory";
 import { documentRoutes } from "./routes/documents";
@@ -241,6 +243,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   reggieRoutes(app);
   // docs/plan.md §1.108: builds, from intake to go-live
   opsBuildRoutes(app);
+  // §1.123 back office work
+  dealRoutes(app);
   // docs/plan.md §1.109: voice typing
   voiceRoutes(app);
   directoryRoutes(app);

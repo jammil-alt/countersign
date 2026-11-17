@@ -35,6 +35,8 @@ export * from "./api/connectors";
 export * from "./api/contract";
 // v0.14 capture
 export * from "./api/conversations";
+// docs/plan.md §1.123: back office work (Sales)
+export * from "./api/deals";
 // v0.12 W1-D: the Desk
 export * from "./api/desk";
 export * from "./api/directory";
@@ -268,6 +270,8 @@ export * from "./triggers";
 export * from "./units";
 export * from "./weekly/schemas";
 export * from "./weekly/week";
+// docs/plan.md §1.123: back office work (Sales)
+export * from "./work/deals";
 // v0.12 W2-B
 export * from "./workflow/automation";
 export * from "./workflow/validate";
