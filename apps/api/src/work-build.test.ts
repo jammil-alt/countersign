@@ -39,7 +39,7 @@ const h = await createApiHarness();
 afterAll(() => h?.close());
 
 type Json = Record<string, unknown>;
-const j = (v: unknown) => v as Json & Record<string, never>;
+const j = (v: unknown) => v as Json;
 
 describe.skipIf(!h)("Build", () => {
   const H = h as NonNullable<typeof h>;

@@ -80,7 +80,6 @@ import { OpsMessagingScreen } from "./screens/Messaging";
 import { NewClientScreen } from "./screens/NewClient";
 import { OpsOAuthCallbackScreen } from "./screens/OAuthCallback";
 import { OpsRecordsScreen } from "./screens/Records";
-import { OpsRequestsScreen } from "./screens/Requests";
 import { OpsRunAuditScreen } from "./screens/RunAuditQueue";
 import { OpsRunsScreen } from "./screens/Runs";
 import { OpsRunScreen } from "./screens/RunView";
@@ -97,6 +96,11 @@ import {
 import { AutomationPage } from "./skills/AutomationPage";
 import { NewSkillScreen } from "./skills/NewSkill";
 import { SkillPage } from "./skills/SkillPage";
+// §1.123 back office work
+import { BuildSection } from "./work/build/BuildSection";
+import { EnhancementPage } from "./work/build/EnhancementPage";
+import { IssuePage } from "./work/build/IssuePage";
+import { NewIssue } from "./work/build/NewIssue";
 
 export const opsRoutes = (
   <>
@@ -223,7 +227,7 @@ export const opsRoutes = (
     {/* Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)"): runs picked for a person to check */}
     <Route path="utilities/run-audit" element={<OpsRunAuditScreen />} />
     <Route path="utilities/audit" element={<Redirect to="/ops/security/audit" />} />
-    <Route path="utilities/requests" element={<OpsRequestsScreen />} />
+    <Route path="utilities/requests" element={<Redirect to="/ops/build/issues" />} />
     <Route path="utilities/websites" element={<Redirect to="/ops/library/browser-sites" />} />
     <Route path="feedback" element={<Redirect to="/ops/utilities/feedback" />} />
     <Route path="run-audit" element={<Redirect to="/ops/utilities/run-audit" />} />
@@ -237,7 +241,13 @@ export const opsRoutes = (
     <Route path="security/clients" element={<SecurityClientsScreen />} />
     <Route path="security/clients/:clientId" element={<SecurityClientScreen />} />
     <Route path="security/audit" element={<OpsAuditScreen />} />
-    <Route path="requests" element={<Redirect to="/ops/utilities/requests" />} />
+    <Route path="requests" element={<Redirect to="/ops/build/issues" />} />
+    {/* §1.123 back office work */}
+    <Route path="build" element={<BuildSection />} />
+    <Route path="build/:tab" element={<BuildSection />} />
+    <Route path="issues/new" element={<NewIssue />} />
+    <Route path="issues/:id" element={<IssuePage />} />
+    <Route path="enhancements/:id" element={<EnhancementPage />} />
     {/* Packs (P-1): switch a business area on per client, and a client's pack reports */}
     <Route path="packs" element={<OpsPacksScreen />} />
     {/* §1.73: the Marketing area (docs/marketing-plan.md §4.7, §11): the entry opens our own

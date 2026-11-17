@@ -10,7 +10,6 @@ import { OPS_PATHS } from "../paths";
 export const UTILITIES_TABS = [
   { to: OPS_PATHS.feedback, label: "Feedback" },
   { to: OPS_PATHS.runAudit, label: "Audit queue" },
-  { to: OPS_PATHS.requests, label: "Requests" },
 ] as const;
 
 export function UtilitiesTabs() {

@@ -287,7 +287,10 @@ export function AgentScreen({
   const workflowTab = useMatch(`${base}/workflow`);
   const agent = useApi(apiRoutes.opsAgent, { params: { id: agentId } });
   // The agent's open build, if it has one: the Build tab shows it.
-  const builds = useApi(apiRoutes.opsBuilds, { query: { agent: agentId, status: "open" } });
+  // §1.123: every build of this agent, from a template or new.
+  const builds = useApi(apiRoutes.opsBuilds, {
+    query: { agent: agentId, status: "open", path: "all" },
+  });
   const openBuild = builds.data?.builds[0] ?? null;
   const data = agent.data ?? (initial?.agent.id === agentId ? initial : undefined);
   const skills = useApi(apiRoutes.opsAgentSkills, { params: { id: agentId } });
