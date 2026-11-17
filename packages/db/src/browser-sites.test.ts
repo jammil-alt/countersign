@@ -11,6 +11,7 @@ import {
   browserSiteVersion,
   connectorSetting,
   OPERATOR_ONLY_TABLES,
+  salesStart,
   savedView,
 } from "./schema";
 import { asWorker, createTestDatabase, databaseAvailable, type TestDatabase } from "./testing";
@@ -59,6 +60,11 @@ describe.skipIf(!online)("browser_site and browser_site_version", () => {
       await tx.insert(savedView).values({ userId: A.userId, surface: "ops_runs", name: "Failed" });
       // And the connectors catalog (0026).
       await tx.insert(connectorSetting).values({ connector: "qbo", status: "live" });
+      // And the saved starts (0064, docs/plan.md §1.125).
+      await tx.insert(salesStart).values({
+        name: "General only",
+        covers: { general: true, areas: [], templateIds: [] },
+      });
       return { siteId: site?.id as string, versionId: version?.id as string };
     }));
   });
