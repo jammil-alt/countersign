@@ -46,7 +46,12 @@ describe.skipIf(!h)("the reading sweep", () => {
   };
 
   /** Uploads a file with no model key, so nothing reads it on arrival (as if the read was cut). */
-  async function uploadUnread(name: string, type: string, bytes: Uint8Array): Promise<string> {
+  async function uploadUnread(
+    name: string,
+    type: string,
+    bytes: Uint8Array,
+    path = "/api/uploads",
+  ): Promise<string> {
     const transport = H.extraction.transport;
     H.extraction.transport = null;
     try {
@@ -54,7 +59,7 @@ describe.skipIf(!h)("the reading sweep", () => {
       form.append("files", new File([bytes], name, { type }));
       const deferred: Promise<unknown>[] = [];
       const res = await H.app.request(
-        "/api/uploads",
+        path,
         { method: "POST", headers: { [DEV_USER_HEADER]: admin("a") }, body: form },
         H.env,
         {
@@ -126,6 +131,20 @@ describe.skipIf(!h)("the reading sweep", () => {
     await extractInBackground(services, tenantId, [id]);
     expect(await readingsOf(id)).toHaveLength(1);
     expect(await eventsOf(id, "document.extracted")).toHaveLength(1);
+  });
+
+  it("never reads a file attached to a conversation: it waits to be passed on (§1.110)", async () => {
+    const id = await uploadUnread(
+      "chat-northline.pdf",
+      "application/pdf",
+      // Bytes of its own: the same file is stored once per client, and an earlier test reads it.
+      new Uint8Array([...invoice("northline-20418.pdf"), 9]),
+      "/api/uploads?for=chat",
+    );
+    await backdate(id, 11 * MIN);
+    expect(await sweep()).toEqual(none);
+    expect((await docOf(id))?.status).toBe("stored");
+    expect(await eventsOf(id, "document.extracted")).toHaveLength(0);
   });
 
   it("a claim a later pass took over is void: the document is read once, by the holder", async () => {

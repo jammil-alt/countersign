@@ -284,6 +284,9 @@ export async function claimUnreadDocuments(
         // Never read: a document read before (an agent's re-reading left it `extracting`) has its
         // reading, and reading it again here would start its runs twice.
         sql`not exists (select 1 from doc_extraction x where x.document_id = "document"."id" and x.tenant_id = "document"."tenant_id")`,
+        // DECISION (§1.110): a file attached to a conversation is kept unread on purpose; it is
+        // read only when Sloan or Reggie passes it to one agent. The sweep never reads it.
+        sql`coalesce(${document.meta}->>'via', '') <> 'chat'`,
         ...(input.where ? [input.where] : []),
       ),
     )
