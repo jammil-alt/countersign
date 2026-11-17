@@ -14,6 +14,7 @@ import { codesFor } from "./codes/client";
 import { purgeRetiredFiles } from "./compliance/retention";
 import { CAPTURE_CRON_MINUTE, captureCronTick } from "./conversations/cron";
 import { captureDepsFor, captureJobsFor } from "./conversations/start";
+import { readingSweep } from "./documents/sweep";
 import type { Bindings } from "./env";
 // §1.121: forms, "Request info"
 import { formsTick } from "./forms/service";
@@ -369,6 +370,11 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     // without finishing them are failed (runs/reconcile.ts).
     await reconcileRuns({ db, instances }, scheduledTime).catch((error: unknown) =>
       reportHandled("run reconciler failed", error, { job: "reconcile" }),
+    );
+    // Every 5 minutes: documents whose reading on arrival was cut off are read again
+    // (documents/sweep.ts).
+    await readingSweep({ db, env, deps }, scheduledTime).catch((error: unknown) =>
+      reportHandled("reading sweep failed", error, { job: "reading_sweep" }),
     );
     // v0.12 W1-A: pauses whose end passed resume (every minute); trials that met their minimums
     // move to signoff (hourly, at the usage sweep's minute).

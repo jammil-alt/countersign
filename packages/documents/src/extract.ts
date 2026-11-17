@@ -7,6 +7,7 @@
 import type { ContentStore } from "@countersign/connectors";
 import {
   Decimal,
+  EXTRACTABLE_MIME_TYPES,
   type InvoiceExtraction,
   InvoiceExtraction as InvoiceExtractionSchema,
   isExtractable,
@@ -25,7 +26,7 @@ import {
 } from "@countersign/db";
 import { DEFAULT_MODELS, type LlmCallRecord, type LlmClient } from "@countersign/llm";
 import { type EmittedEvents, emit } from "@countersign/senses";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { type DuplicateOf, findDuplicate, markDuplicate } from "./duplicates";
 // v0.14 W4-B: long PDFs are read in parts.
 import {
@@ -167,9 +168,124 @@ async function loadForExtraction(deps: DocumentsDeps, input: ExtractInput): Prom
     }
     await tx
       .update(document)
-      .set({ status: "extracting" })
+      .set({ status: "extracting", meta: readingStarted })
       .where(and(eq(document.id, row.id), eq(document.tenantId, input.tenantId)));
     return row;
+  });
+}
+
+// ── A reading that never finished (apps/api's reading sweep, src/documents/sweep.ts) ───────────
+// A reading runs outside any transaction, often after the response that stored the document (in a
+// waitUntil the platform may cancel). One cancelled part-way leaves the document `stored` or
+// `extracting` with no event either way. So a reading in progress is marked on the document:
+// `meta.reading = { at, attempts }`, the time the latest reading started (or was claimed by the
+// sweep) and how many have started since one last finished; a finished reading (read or failed)
+// removes it. The sweep re-reads what was left, and gives up after READING_ATTEMPTS.
+// DECISION: no migration: the mark lives in `document.meta.reading` (jsonb, already there), as
+// `meta.duplicateOf` does.
+
+/** Readings started without one finishing, after which the sweep marks the document failed. */
+export const READING_ATTEMPTS = 3;
+
+/** The sources whose documents are read on arrival (uploads, forwarded mail, captured media). */
+export const READ_ON_ARRIVAL_SOURCES = ["upload", "email", "message"] as const;
+
+/** `meta` with a reading started now: its time, and one more attempt. */
+const readingStarted = sql`jsonb_set(coalesce(${document.meta}, '{}'::jsonb), '{reading}', jsonb_build_object('at', now(), 'attempts', coalesce((${document.meta}->'reading'->>'attempts')::int, 0) + 1))`;
+/** `meta` without the reading mark: the reading finished. */
+const readingDone = sql`coalesce(${document.meta}, '{}'::jsonb) - 'reading'`;
+
+export interface UnreadDocument {
+  id: string;
+  receivedAt: Date;
+  /** Readings started since one last finished. */
+  attempts: number;
+}
+
+/**
+ * Claims up to `limit` of a client's documents read on arrival that were never read and whose
+ * reading was left (stored, or `extracting`, with nothing since `staleBefore`), in the caller's
+ * transaction: the rows are locked (others skip them) and their `meta.reading.at` set to `now`,
+ * so no other sweep takes them until they are stale again, and a reading in progress (started
+ * after `staleBefore`) is never taken.
+ */
+export async function claimUnreadDocuments(
+  tx: Tx,
+  input: { tenantId: string; staleBefore: Date; now: Date; limit: number },
+): Promise<UnreadDocument[]> {
+  const rows = await tx
+    .select({
+      id: document.id,
+      receivedAt: document.receivedAt,
+      attempts: sql<number>`coalesce((${document.meta}->'reading'->>'attempts')::int, 0)`,
+    })
+    .from(document)
+    .where(
+      and(
+        eq(document.tenantId, input.tenantId),
+        inArray(document.status, ["stored", "extracting"]),
+        inArray(document.source, [...READ_ON_ARRIVAL_SOURCES]),
+        inArray(document.mimeType, [...EXTRACTABLE_MIME_TYPES]),
+        sql`coalesce((${document.meta}->'reading'->>'at')::timestamptz, ${document.receivedAt}) < ${input.staleBefore.toISOString()}::timestamptz`,
+        // Never read: a document read before (an agent's re-reading left it `extracting`) has its
+        // reading, and reading it again here would start its runs twice.
+        sql`not exists (select 1 from doc_extraction x where x.document_id = "document"."id" and x.tenant_id = "document"."tenant_id")`,
+      ),
+    )
+    .orderBy(document.receivedAt)
+    .limit(input.limit)
+    .for("update", { skipLocked: true });
+  if (rows.length === 0) return [];
+  await tx
+    .update(document)
+    .set({
+      meta: sql`jsonb_set(coalesce(${document.meta}, '{}'::jsonb), '{reading}', coalesce(${document.meta}->'reading', '{}'::jsonb) || jsonb_build_object('at', ${input.now.toISOString()}::timestamptz))`,
+    })
+    .where(
+      and(
+        eq(document.tenantId, input.tenantId),
+        inArray(
+          document.id,
+          rows.map((r) => r.id),
+        ),
+      ),
+    );
+  return rows.map((r) => ({ id: r.id, receivedAt: r.receivedAt, attempts: Number(r.attempts) }));
+}
+
+/**
+ * Marks a document whose reading never finished as failed, with `document.extraction_failed`, so
+ * a person sees it. Only a document still unread (stored or extracting) changes; returns whether
+ * it did.
+ */
+export async function giveUpReading(
+  db: Db,
+  input: { tenantId: string; documentId: string; message: string; collect?: EmittedEvents },
+): Promise<boolean> {
+  return withTenant(db, input.tenantId, async (tx) => {
+    const [row] = await tx
+      .update(document)
+      .set({ status: "failed", meta: readingDone })
+      .where(
+        and(
+          eq(document.id, input.documentId),
+          eq(document.tenantId, input.tenantId),
+          inArray(document.status, ["stored", "extracting"]),
+        ),
+      )
+      .returning({ id: document.id });
+    if (!row) return false;
+    await emit(
+      tx,
+      {
+        tenantId: input.tenantId,
+        type: "document.extraction_failed",
+        subjectId: input.documentId,
+        payload: { documentId: input.documentId, error: input.message.slice(0, 500) },
+      },
+      input.collect ? { collect: input.collect } : {},
+    );
+    return true;
   });
 }
 
@@ -177,7 +293,7 @@ async function markFailed(deps: DocumentsDeps, input: ExtractInput, message: str
   await withTenant(deps.db, input.tenantId, async (tx) => {
     await tx
       .update(document)
-      .set({ status: "failed" })
+      .set({ status: "failed", meta: readingDone })
       .where(and(eq(document.id, input.documentId), eq(document.tenantId, input.tenantId)));
     await emit(
       tx,
@@ -428,7 +544,7 @@ export async function writeReading(tx: Tx, input: WriteReadingInput): Promise<Wr
   }
   await tx
     .update(document)
-    .set({ status, pageCount: doc.pageCount ?? x.header.pageCount })
+    .set({ status, pageCount: doc.pageCount ?? x.header.pageCount, meta: readingDone })
     .where(and(eq(document.id, doc.id), eq(document.tenantId, input.tenantId)));
   // The same invoice again (another copy of a document already here): marked, and it starts
   // nothing, no review and no run (a test run's reading marks nothing).
