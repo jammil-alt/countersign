@@ -211,6 +211,16 @@ describe("the blocked tier's hosts", () => {
       ...extra,
     });
 
+  it("read a host of many dots in linear time", () => {
+    // CodeQL: `/\.+$/` backtracked on a long run of dots in untrusted input.
+    const dots = ".".repeat(50_000);
+    const started = Date.now();
+    expect(blockedHost(`a${dots}a`)).toBeNull();
+    expect(blockedHost(`paypal.com${dots}`)).toBe("paypal.com");
+    expect(blockedHost(`a${":1".repeat(20_000)}`)).toBeNull();
+    expect(Date.now() - started).toBeLessThan(200);
+  });
+
   it("match a listed domain and its subdomains, never a look-alike", () => {
     expect(blockedHost("paypal.com")).toBe("paypal.com");
     expect(blockedHost("www.PayPal.com")).toBe("paypal.com");

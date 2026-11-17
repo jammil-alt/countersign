@@ -86,12 +86,35 @@ export const BLOCKED_HOSTS = [
 ] as const;
 
 /**
+ * A host lower-cased, without a port or trailing dots. Plain string code, not a regular
+ * expression: a host is untrusted input, and `/\.+$/` backtracks on a long run of dots.
+ */
+function bareHost(host: string): string {
+  let h = host.trim().toLowerCase();
+  const colon = h.lastIndexOf(":");
+  if (colon >= 0 && colon < h.length - 1) {
+    let digits = true;
+    for (let i = colon + 1; i < h.length; i++) {
+      const c = h.charCodeAt(i);
+      if (c < 48 || c > 57) {
+        digits = false;
+        break;
+      }
+    }
+    if (digits) h = h.slice(0, colon);
+  }
+  let end = h.length;
+  while (end > 0 && h[end - 1] === ".") end--;
+  return h.slice(0, end);
+}
+
+/**
  * The listed domain `host` is, or is under; null when it is on none. A port and trailing dots are
  * ignored. A wildcard host (`*.d`) is blocked when it would reach a listed domain: one that is `d`,
  * under `d`, or above it (`*.google.com` reaches `accounts.google.com`).
  */
 export function blockedHost(host: string): string | null {
-  const h = host.trim().toLowerCase().replace(/:\d+$/, "").replace(/\.+$/, "");
+  const h = bareHost(host);
   if (h.startsWith("*.")) {
     const d = h.slice(2);
     return BLOCKED_HOSTS.find((e) => e === d || e.endsWith(`.${d}`) || d.endsWith(`.${e}`)) ?? null;
