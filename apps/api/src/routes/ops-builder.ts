@@ -183,14 +183,9 @@ export async function builderContext(
     (from ? bundleSkillRefs(from) : []).map((ref) => parseSkillRef(ref).id),
   );
   const usedTools = new Set([...bundleStepTools(from), ...(from?.definition.extraTools ?? [])]);
-  const lookup = toolLookup(platform.tools.specs());
-  const offered = (def: SkillDefinition) =>
-    usedSkills.has(def.id) ||
-    (!isToolWrapper(def) && newStepSkillReason(def, lookup, platform.superseded) === null);
-  const skills: BuilderSkill[] = platform.catalog
-    .list()
-    .filter(offered)
-    .map((definition) => ({ ref: definition.id, definition, source: "builtin" }));
+  const base = platformBuilderContext(platform, { usedSkills, usedTools });
+  const offered = base.offered;
+  const skills: BuilderSkill[] = base.skills;
   for (const s of await operatorSkills(ctx, clientId)) {
     if (!offered(s.def)) continue;
     if (!skills.some((x) => x.ref === s.def.id)) {
@@ -236,6 +231,7 @@ export async function builderContext(
     agentSlugs = templates.map((t) => t.slug);
   }
   return {
+    ...base.context,
     tools: platform.tools
       .list()
       .map((t) => t.spec)
@@ -245,15 +241,59 @@ export async function builderContext(
           !(SPLIT_MODEL_TOOLS.has(t.id) || t.id.startsWith(ACCOUNT_TOOL_PREFIX)),
       ),
     skills,
-    connectors: platform.connectors
-      .list()
-      .map((c) => ({ id: c.manifest.id, name: c.manifest.name })),
-    // P-9: the packs this deployment registers (docs/plan.md §1.71); a client's own are in `client`.
-    packs: platform.packs.map((p) => ({ id: p.manifest.id, name: p.manifest.name })),
-    events: platform.events.list(),
     templates,
     client,
     agentSlugs,
+  };
+}
+
+/**
+ * What the Builder knows from the platform alone (no database): the skills a new step may use,
+ * the tools, connectors, packs and events. The Builder's test cases read the catalog this way
+ * (src/evals); `builderContext` adds the operator's skills, templates and a client.
+ */
+export function platformBuilderContext(
+  platform: Ctx["services"]["platform"],
+  used: { usedSkills?: ReadonlySet<string>; usedTools?: ReadonlySet<string> } = {},
+): {
+  context: BuilderContext;
+  skills: BuilderSkill[];
+  offered: (def: SkillDefinition) => boolean;
+} {
+  const usedSkills = used.usedSkills ?? new Set<string>();
+  const usedTools = used.usedTools ?? new Set<string>();
+  const lookup = toolLookup(platform.tools.specs());
+  const offered = (def: SkillDefinition) =>
+    usedSkills.has(def.id) ||
+    (!isToolWrapper(def) && newStepSkillReason(def, lookup, platform.superseded) === null);
+  const skills: BuilderSkill[] = platform.catalog
+    .list()
+    .filter(offered)
+    .map((definition) => ({ ref: definition.id, definition, source: "builtin" }));
+  return {
+    offered,
+    skills,
+    context: {
+      tools: platform.tools
+        .list()
+        .map((t) => t.spec)
+        .filter(
+          (t) =>
+            usedTools.has(t.id) ||
+            !(SPLIT_MODEL_TOOLS.has(t.id) || t.id.startsWith(ACCOUNT_TOOL_PREFIX)),
+        ),
+      skills,
+      connectors: platform.connectors
+        .list()
+        .map((c) => ({ id: c.manifest.id, name: c.manifest.name })),
+      // P-9: the packs this deployment registers (docs/plan.md §1.71); a client's own are in
+      // `client`.
+      packs: platform.packs.map((p) => ({ id: p.manifest.id, name: p.manifest.name })),
+      events: platform.events.list(),
+      templates: [],
+      client: null,
+      agentSlugs: [],
+    },
   };
 }
 

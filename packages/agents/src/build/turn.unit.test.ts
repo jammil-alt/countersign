@@ -130,9 +130,16 @@ describe("buildTurn", () => {
     expect(out.answer.chips).toEqual(["A shared mailbox", "Uploads"]);
     expect(out.answer.brief?.goal?.text).toBe("Check invoices against contracts");
     expect(out.answer.fitgap).toBeUndefined();
-    // Intake reads no catalog; the build's state rides with the operator's words.
+    // Owner (2026-11-17): intake reads the catalog too, in short and cached, first in the system
+    // prompt; the build's state rides with the operator's words.
     const req = model.requests[0];
     expect(lastUser(req)).not.toContain("<catalog>");
+    const system = req?.system as { text: string; cache_control?: unknown }[];
+    expect(system[0]?.text).toContain("<catalog>");
+    expect(system[0]?.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    // In short: what a part does and its fields by name, never its full schema.
+    expect(system[0]?.text).not.toContain('"properties"');
+    expect(system[1]?.text).toContain("Phase: intake");
     expect(lastUser(req)).toContain("Harbor Millwork");
     expect(lastUser(req)).toContain("I want an agent");
     expect(JSON.stringify(req?.system)).toContain("Phase: intake");
@@ -183,7 +190,7 @@ describe("buildTurn", () => {
       { title: "Connect QuickBooks", kind: "precondition", owner: "client" },
     ]);
     const req = model.requests[0];
-    expect(lastUser(req)).toContain("<catalog>");
+    expect(JSON.stringify(req?.system)).toContain("<catalog>");
     expect(lastUser(req)).toContain("Check it against the catalog");
     expect(req?.messages.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
     // A build for one client asks for what needs to be true.

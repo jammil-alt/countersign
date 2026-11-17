@@ -660,7 +660,7 @@ function GoBack({
 
 /** What the Builder is doing while a phase's move runs. */
 const NEXT_WORKING: Record<BuildPhase, string> = {
-  intake: "The Builder is checking the brief against the catalog for the fit-gap…",
+  intake: "The Builder is giving the brief a second look, then checking it against the catalog…",
   fitgap: "The Builder is drafting the workflow from the brief and the fit-gap…",
   draft: "The Builder is setting up the POC test…",
   poc: "Moving on…",

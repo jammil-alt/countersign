@@ -70,6 +70,8 @@ describe("tool registry", () => {
       "comms.reach_out",
       // P-7
       "comms.translate",
+      // Filter, group and total a list (2026-11-17): its pure handler.
+      "data.list.group",
       // Reshape data (2026-11-11): its pure handler.
       "data.reshape",
       "demo.thing.find",

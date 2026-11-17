@@ -10,6 +10,7 @@
 export { NEEDS_HELP_KEY } from "@countersign/connectors";
 // v0.12 W3-A: the Builder as a conversation
 // docs/plan.md §1.108: the Builder in a build
+export * from "./build/review";
 export * from "./build/turn";
 export * from "./builder/aliases";
 export * from "./builder/builder";
@@ -87,6 +88,8 @@ export * from "./tools/docs";
 export * from "./tools/docs-split";
 // §1.121: forms, "Request info"
 export * from "./tools/forms";
+// Reshape data (2026-11-11)
+export * from "./tools/group-list";
 export * from "./tools/health";
 // v0.12 W2-E
 export * from "./tools/inbound";
@@ -94,7 +97,6 @@ export * from "./tools/knowledge";
 export * from "./tools/ledger";
 export * from "./tools/platform";
 export * from "./tools/reach";
-// Reshape data (2026-11-11)
 export * from "./tools/reshape";
 export * from "./tools/supervisor";
 export * from "./tools/threads";

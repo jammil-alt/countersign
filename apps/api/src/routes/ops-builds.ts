@@ -4,7 +4,13 @@
 // those routes as the operator through `invokeRoute` (its roles, scope, checks and audit row,
 // marked as the build's), and the build is saved in short operator-scoped transactions.
 
-import { BuilderError, buildTurn, latestVersion, makeTestCases } from "@countersign/agents";
+import {
+  BuilderError,
+  buildTurn,
+  latestVersion,
+  makeTestCases,
+  reviewBrief,
+} from "@countersign/agents";
 import {
   BRIEF_FIELDS,
   BRIEF_LABELS,
@@ -27,6 +33,7 @@ import {
   mergeFitGap,
   nextPhase,
   operatorFitGap,
+  PHASE_WORDS,
   ProposalState,
   phaseIndex,
   proposalUndo,
@@ -38,7 +45,7 @@ import {
   SETUP_WORDS,
   testCaseProblems,
 } from "@countersign/core";
-import { build, buildItem, buildMessage, skillVersion, type Tx } from "@countersign/db";
+import { build, buildEvent, buildItem, buildMessage, skillVersion, type Tx } from "@countersign/db";
 import { createLlmClient, type LlmTransport } from "@countersign/llm";
 import { and, asc, eq } from "drizzle-orm";
 import type { Hono } from "hono";
@@ -350,12 +357,23 @@ async function turn(
         ? await draftOutline({ tx: scoped.tx, services: ctx.services, now }, row)
         : []),
     ];
-    const bctx =
-      row.phase === "fitgap" || row.phase === "poc"
-        ? await builderContext({ ...scoped, services: ctx.services }, row.clientId)
-        : null;
+    // Owner (2026-11-17): the catalog in every phase, and the other work the operator can see.
+    const bctx = await builderContext({ ...scoped, services: ctx.services }, row.clientId);
+    const otherWork = await otherWorkLines(scoped.tx, row);
     const client = detail.build.client?.name ?? null;
-    return { row, history, facts, bctx, client, said, detail, issues, focused, thread };
+    return {
+      row,
+      history,
+      facts,
+      bctx,
+      otherWork,
+      client,
+      said,
+      detail,
+      issues,
+      focused,
+      thread,
+    };
   });
   const { row } = prep;
   let result: Awaited<ReturnType<typeof buildTurn>>;
@@ -375,6 +393,7 @@ async function turn(
         history: prep.history,
         words: prep.said,
         ctx: prep.bctx,
+        otherWork: prep.otherWork,
       },
       { llm: createLlmClient({ transport: transport(ctx.services) }) },
     );
@@ -460,6 +479,130 @@ const StoredProposal = BuildProposalSchema.extend({
   state: ProposalState,
   before: BuildItemState.nullable().optional(),
 });
+
+/** A short, stable fingerprint of a brief: which one was reviewed. */
+function briefHash(brief: Brief): string {
+  const text = JSON.stringify(BRIEF_FIELDS.map((k) => [k, brief[k]?.state, brief[k]?.text]));
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+
+/**
+ * The review before a brief is confirmed (`reviewBrief`): once per brief as it reads. Concerns
+ * become open questions and the Builder lists them; the build stays in intake (true). Already
+ * reviewed, nothing found, or a review that couldn't run: the move goes on (false).
+ */
+async function reviewHolds(ctx: LongCtx, row: BuildRow): Promise<boolean> {
+  const brief = readBrief(row.brief);
+  const hash = briefHash(brief);
+  const prep = await ctx.inTx(async (scoped) => {
+    const events = await scoped.tx
+      .select({ payload: buildEvent.payload })
+      .from(buildEvent)
+      .where(and(eq(buildEvent.buildId, row.id), eq(buildEvent.kind, "record")));
+    const reviewed = events.some(
+      (e) => (e.payload as { review?: { brief?: unknown } } | null)?.review?.brief === hash,
+    );
+    if (reviewed) return null;
+    const detail = await detailIn(scoped, ctx.services, row);
+    return {
+      issues: buildIssues(detail)
+        .filter((i) => i.open)
+        .map((i) => i.title),
+      otherWork: await otherWorkLines(scoped.tx, row),
+      bctx: await builderContext({ ...scoped, services: ctx.services }, row.clientId),
+      client: detail.build.client?.name ?? null,
+    };
+  });
+  if (!prep) return false;
+  let concerns: Awaited<ReturnType<typeof reviewBrief>>["concerns"];
+  try {
+    concerns = (
+      await reviewBrief(
+        {
+          title: row.title,
+          kind: row.kind,
+          clientName: prep.client,
+          brief,
+          otherWork: prep.otherWork,
+          issues: prep.issues,
+          ctx: prep.bctx,
+        },
+        { llm: createLlmClient({ transport: transport(ctx.services) }) },
+      )
+    ).concerns;
+  } catch (error) {
+    // A review that couldn't run doesn't hold the build: it says so and goes on.
+    reportHandled("a brief's review failed", error, { kind: "build", build: row.id });
+    await ctx.inTx(async (scoped) => {
+      await addMessage(scoped.tx, await readBuild(scoped.tx, row.id, true), {
+        role: "builder",
+        text: "I couldn't give the brief its second look just now, so it goes on as it is.",
+      });
+    });
+    return false;
+  }
+  await ctx.inTx(async (scoped) => {
+    const fresh = await readBuild(scoped.tx, row.id, true);
+    await addEvent(scoped.tx, fresh, {
+      kind: "record",
+      payload: { review: { brief: hash, concerns: concerns.length } },
+      userId: ctx.session.user.id,
+    });
+    if (concerns.length === 0) return;
+    await addItems(
+      scoped.tx,
+      fresh,
+      concerns.map((c, i) => ({
+        title: c.title,
+        detail: c.detail,
+        kind: "question" as const,
+        owner: "operator" as const,
+        phase: "intake" as const,
+        key: `review:${hash}:${c.checklist ?? i}`,
+      })),
+      ctx.session.user.id,
+    );
+    const n = concerns.length;
+    await addMessage(scoped.tx, fresh, {
+      role: "builder",
+      text: `Before you confirm, I gave the brief a second look. ${n === 1 ? "One thing it doesn't settle yet" : `${n} things it doesn't settle yet`}: ${concerns
+        .map((c, i) => `${i + 1}. ${c.title}`)
+        .join(
+          " ",
+        )} They're in the issues. Answer them here, or press "Confirm the brief" again to go on with them open.`,
+      meta: { chips: ["Take the first one"] },
+    });
+  });
+  return concerns.length > 0;
+}
+
+/** At most this many lines of other work go with a turn. */
+const OTHER_WORK_MAX = 40;
+
+/**
+ * Other builds the operator can see (RLS scopes them to the clients they serve), each with its
+ * phase, and their open issues: so the Builder can name work this one overlaps (QA, 2026-11-16:
+ * AP Invoice Review already had an open item for a vendor management flow).
+ */
+async function otherWorkLines(tx: Tx, row: BuildRow): Promise<string[]> {
+  const others = (await listBuilds(tx, { status: "open" })).filter((b) => b.id !== row.id);
+  if (others.length === 0) return [];
+  const items = await openItemsAcross(tx, others);
+  const lines: string[] = [];
+  for (const b of others) {
+    const open = items.filter((i) => i.buildId === b.id).map((i) => `“${i.title}”`);
+    lines.push(
+      `Build “${b.title}” (${PHASE_WORDS[b.phase].label.toLowerCase()})${open.length ? `: open issues ${open.slice(0, 6).join(", ")}` : ""}`,
+    );
+    if (lines.length >= OTHER_WORK_MAX) break;
+  }
+  return lines;
+}
 
 /** Messages of an issue's thread sent with a turn about it. */
 const THREAD_MAX = 12;
@@ -729,6 +872,10 @@ async function move(
     return r;
   });
   const forward = phaseIndex(row.kind, to) > phaseIndex(row.kind, row.phase);
+  // 1b. Owner (2026-11-17): a brief gets a second look before it is confirmed. What it doesn't
+  //     settle becomes open questions and the build stays in intake; confirming the same brief
+  //     again goes on with them open.
+  if (forward && row.phase === "intake" && (await reviewHolds(ctx, row))) return;
   // 2. What the move makes, outside any transaction.
   const made = forward && to === "draft" ? await makeDraft(ctx, row) : {};
   // 3. The move, its record and the items it leaves.

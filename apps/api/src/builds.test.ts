@@ -31,6 +31,11 @@ const turnAnswer = (input: Record<string, unknown>) => ({
   toolUse: { name: "submit_build_turn", input: { chips: [], items: [], ...input } },
 });
 
+/** The brief's second look before the fit-gap (owner, 2026-11-17): nothing found, by default. */
+const reviewed = (concerns: { title: string; detail: string; checklist?: string }[] = []) => ({
+  toolUse: { name: "submit_review", input: { concerns } },
+});
+
 type Draft = { workflows: { workflow: { steps: Record<string, unknown>[] } }[] };
 
 /** Sets the amount on the draft's first step. */
@@ -173,6 +178,7 @@ describe.skipIf(!h)("builds", () => {
 
     // Into fit-gap: the open field is a question; the Builder writes the fit-gap.
     expect((await call("POST", `/api/ops/builds/${id}/phase`, { to: "draft" })).status).toBe(409);
+    model.push(reviewed());
     model.push(
       turnAnswer({
         text: "Two we do as is, one we'd build, one we can't.",
@@ -626,6 +632,7 @@ describe.skipIf(!h)("builds", () => {
       }),
     );
     await ok("POST", `/api/ops/builds/${id}/turns`, { text: "Weekly past-due reminders." });
+    model.push(reviewed());
     model.push(
       turnAnswer({
         text: "One to figure out.",
@@ -689,6 +696,57 @@ describe.skipIf(!h)("builds", () => {
     expect(said?.chips).toEqual(["What would fix it?"]);
   });
 
+  // Owner (2026-11-17): a brief gets a second look before it's confirmed.
+  it("reviews a brief before it's confirmed, and goes on when it's confirmed again", async () => {
+    let b = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Vendor onboarding" });
+    const id = b.build.id;
+    model.push(
+      turnAnswer({
+        text: "Got it.",
+        brief: {
+          goal: { text: "Set up new vendors", state: "confirmed" },
+          trigger: { text: "A vendor's form arrives", state: "confirmed" },
+          dataIn: { text: "The form and the contract", state: "confirmed" },
+          dataOut: { text: "The vendor in QuickBooks", state: "confirmed" },
+        },
+      }),
+    );
+    await ok("POST", `/api/ops/builds/${id}/turns`, { text: "Onboard new vendors." });
+    model.push(
+      reviewed([
+        {
+          title: "Where does the vendor go for a client with no accounting system?",
+          detail: "Some clients run on spreadsheets.",
+          checklist: "source",
+        },
+      ]),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "fitgap" });
+    expect(b.build.phase).toBe("intake");
+    expect(b.items.map((i) => [i.title, i.kind, i.owner])).toContainEqual([
+      "Where does the vendor go for a client with no accounting system?",
+      "question",
+      "operator",
+    ]);
+    expect(b.messages.at(-1)?.text).toContain("Before you confirm, I gave the brief a second look");
+    // The reviewer read the checklist and the catalog, in short.
+    const review = model.requests.at(-1);
+    expect(JSON.stringify(review?.system)).toContain("no ERP or accounting tool");
+    expect(JSON.stringify(review?.system)).toContain("<catalog>");
+
+    // The same brief, confirmed again: no second review, on to the fit-gap.
+    const asked = model.requests.length;
+    model.push(
+      turnAnswer({
+        text: "One we do as is.",
+        fitgap: { rows: [{ id: "r", need: "x", verdict: "native", how: "y" }] },
+      }),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "fitgap" });
+    expect(b.build.phase).toBe("fitgap");
+    expect(model.requests).toHaveLength(asked + 1);
+  });
+
   // QA on staging (2026-11-17): a 17-step draft was cut off twice; the banner said "max_tokens"
   // and "submit_draft", nothing said whether trying again would help, and Sentry had nothing.
   it("says a draft that can't be finished in plain words, and reports it", async () => {
@@ -708,6 +766,7 @@ describe.skipIf(!h)("builds", () => {
     b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "Monthly bank reconciliation." });
     // A field the turn left open says so in the change tags.
     expect(b.messages.at(-1)?.changes).toContain("Brief: data out (still open)");
+    model.push(reviewed());
     model.push(
       turnAnswer({
         text: "One we do as is.",
@@ -759,6 +818,7 @@ describe.skipIf(!h)("builds", () => {
       }),
     );
     await ok("POST", `/api/ops/builds/${id}/turns`, { text: "An agent that fixes records." });
+    model.push(reviewed());
     model.push(
       turnAnswer({
         text: "One we do as is.",
@@ -912,6 +972,7 @@ describe.skipIf(!h)("builds", () => {
 
     // Opening the fit-gap fails: the conversation says why in plain words; nothing changes.
     // Asked again once with what was wrong (MEZONAS-API-4), then said in the conversation.
+    model.push(reviewed());
     model.push(
       turnAnswer({ text: "Here it is.", fitgap: "not a fit-gap" }),
       turnAnswer({ text: "Here it is.", fitgap: "still not a fit-gap" }),
