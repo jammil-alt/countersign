@@ -243,16 +243,169 @@ export function holdsRecordId(value: unknown): boolean {
   return false;
 }
 
+const EMAIL_IN_TEXT = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
+const PHONE_IN_TEXT = /\+[1-9]\d{7,14}(?!\d)/g;
+const REF = /\{\{[^{}]*\}\}/g;
+
+/**
+ * Whether a value holds one of the client's literals outside `{{refs}}`: a record id (as
+ * `holdsRecordId`), an email address or a phone number (E.164).
+ */
+export function holdsClientLiteral(value: unknown): boolean {
+  if (typeof value === "string") {
+    const text = value.replace(REF, "");
+    return (
+      UUID_IN_TEXT.test(text) ||
+      new RegExp(EMAIL_IN_TEXT.source).test(text) ||
+      new RegExp(PHONE_IN_TEXT.source).test(text)
+    );
+  }
+  if (Array.isArray(value)) return value.some(holdsClientLiteral);
+  if (isPlainObject(value)) return Object.values(value).some(holdsClientLiteral);
+  return false;
+}
+
 type Bag = Record<string, unknown>;
 
 /** Replaces client-specific keys of `bag` with the base's value for the key, or drops them. */
 function scrub(bag: Bag | undefined, base: Bag | undefined, clientSpecific: Set<string>): void {
   if (!bag) return;
   for (const key of Object.keys(bag)) {
-    if (!clientSpecific.has(key) && !holdsRecordId(bag[key])) continue;
+    if (!clientSpecific.has(key) && !holdsClientLiteral(bag[key])) continue;
     if (base && Object.hasOwn(base, key)) bag[key] = cloneJson(base[key]);
     else delete bag[key];
   }
+}
+
+// ── People, contacts and addresses (invariant 11) ───────────────────────────────────────────
+
+/** The role a required person field falls back to: the client admin, as a non-member does. */
+const DEFAULT_WHO = "client_admin";
+/** An unset webhook: it names no client's hook, so it starts nothing until the operator picks one. */
+export const UNSET_HOOK_ID = "00000000-0000-0000-0000-000000000000";
+/** What an email address or phone number in free text becomes. */
+const REDACTED = "[removed]";
+
+/**
+ * A person named by user or contact id, email address or phone number (one client's), rather than
+ * by a role (`client_admin`, `lead`, a People role such as `accountant`) or a reference.
+ */
+// DECISION: by the literal's shape, not "anything but a known role": a People role name is the
+// template's, and a bare name resolves to no one (an unknown approver goes to the client admin).
+function namesPerson(value: unknown): boolean {
+  return typeof value === "string" && holdsClientLiteral(value);
+}
+
+/** Keys whose values are tool inputs, settings or skill customizations: scrubbed as bags. */
+const BAG_KEYS = new Set(["input", "payload", "settings", "customize", "show", "reshape"]);
+
+/**
+ * Resets the person and contact fields of one step, trigger or definition part (`node`) to the
+ * template's (`base`, the same part of the base version, walked in step) or to an unset value
+ * that still validates: an approver with no `who` (the default approver), the client admin for a
+ * required person, no listed contacts (a message trigger then matches the roles it names), an
+ * unset webhook. Nested steps (`steps`) are visited on their own, and bags are scrubbed apart.
+ */
+// DECISION: unset rather than dropped, so step and path ids, and every check, stay as they were
+// (invariant 3), approval stays on (invariant 8), and the operator sets the people in the client.
+function scrubPeople(node: unknown, base: unknown): void {
+  if (Array.isArray(node)) {
+    for (const [i, v] of node.entries()) scrubPeople(v, Array.isArray(base) ? base[i] : undefined);
+    return;
+  }
+  if (!isPlainObject(node)) return;
+  const b = isPlainObject(base) ? base : undefined;
+  const from = (key: string) => (b && Object.hasOwn(b, key) ? cloneJson(b[key]) : undefined);
+  for (const key of Object.keys(node)) {
+    const value = node[key];
+    if (key === "steps" || BAG_KEYS.has(key)) continue;
+    switch (key) {
+      case "who":
+      case "approver":
+        if (namesPerson(value)) {
+          const kept = from(key);
+          if (typeof kept === "string") node[key] = kept;
+          else delete node[key];
+        }
+        continue;
+      case "assignee":
+      case "person":
+        if (namesPerson(value)) {
+          const kept = from(key);
+          node[key] = typeof kept === "string" ? kept : DEFAULT_WHO;
+        }
+        continue;
+      case "to":
+        if (typeof value === "string" && namesPerson(value)) {
+          const kept = from(key);
+          // A v3 notify step's optional address goes; an escalation's required person resets.
+          if (typeof kept === "string") node[key] = kept;
+          else if ("kind" in node) delete node[key];
+          else node[key] = DEFAULT_WHO;
+        } else if (Array.isArray(value) && value.some(namesPerson)) {
+          const kept = from(key);
+          const roles = value.filter((v) => !namesPerson(v));
+          node[key] = Array.isArray(kept) ? kept : roles.length ? roles : [DEFAULT_WHO];
+        } else scrubPeople(value, b?.[key]);
+        continue;
+      case "tell":
+        if (Array.isArray(value) && value.some(namesPerson)) {
+          const kept = from(key);
+          const roles = value.filter((v) => !namesPerson(v));
+          if (Array.isArray(kept)) node[key] = kept;
+          else if (roles.length) node[key] = roles;
+          else delete node[key];
+        }
+        continue;
+      case "contactIds":
+        if (Array.isArray(value) && value.length) {
+          const kept = from(key);
+          if (Array.isArray(kept)) node[key] = kept;
+          else delete node[key];
+        }
+        continue;
+      case "hookId":
+        if (typeof value === "string") {
+          const kept = from(key);
+          node[key] = typeof kept === "string" ? kept : UNSET_HOOK_ID;
+        }
+        continue;
+      case "with":
+      case "value":
+        // A conversation's contact, or a rule's value, written out rather than referenced (a
+        // confer's `with` is its list of reviewers, walked as any other part).
+        if ((typeof value === "string" || key === "value") && holdsClientLiteral(value)) {
+          const kept = from(key);
+          node[key] = kept !== undefined ? kept : Array.isArray(value) ? [] : "";
+        } else scrubPeople(value, b?.[key]);
+        continue;
+      default:
+        scrubPeople(value, b?.[key]);
+    }
+  }
+}
+
+/** Every email address and phone number left in free text (outside `{{refs}}`), removed. */
+function redactAddresses(node: unknown): unknown {
+  if (typeof node === "string") {
+    return node
+      .split(/(\{\{[^{}]*\}\})/)
+      .map((part, i) =>
+        i % 2 === 1 ? part : part.replace(EMAIL_IN_TEXT, REDACTED).replace(PHONE_IN_TEXT, REDACTED),
+      )
+      .join("");
+  }
+  if (Array.isArray(node)) return node.map(redactAddresses);
+  if (isPlainObject(node)) {
+    for (const key of Object.keys(node)) node[key] = redactAddresses(node[key]);
+  }
+  return node;
+}
+
+function triggersOf(w: AnyAgentBundle["workflows"][number]["workflow"]): Bag[] {
+  const t = w as { trigger?: unknown; triggers?: unknown };
+  const list = Array.isArray(t.triggers) ? t.triggers : t.trigger ? [t.trigger] : [];
+  return list.filter(isPlainObject);
 }
 
 function stepsById(bundle: AnyAgentBundle): Map<string, AnyStep> {
@@ -267,6 +420,10 @@ function stepsById(bundle: AnyAgentBundle): Map<string, AnyStep> {
  * delete them from the template), else removed. Bindings never are in a bundle. Wave 3b: a v4
  * process's steps the same way (a skill step's `customize.settings` too); the client and base
  * versions may be v3 and v4 apiece, and their steps line up by id (the converter keeps them).
+ * Invariant 11: people and contacts named by id or address (approvers, assignees, people told,
+ * escalations, reviewers, a message trigger's contacts), webhook hooks and skill parameter values
+ * are reset to the base's or left unset, and email addresses and phone numbers left in free text
+ * are removed. Step and path ids never change (invariant 3).
  */
 export function stripForPromotion<B extends AnyAgentBundle>(
   client: B,
@@ -309,8 +466,38 @@ export function stripForPromotion<B extends AnyAgentBundle>(
     for (const field of ["input", "payload"] as const) {
       scrub(s[field] as Bag | undefined, bag?.[field] as Bag | undefined, new Set());
     }
+    // Invariant 11: approvers, assignees, people told and contacts are the client's own.
+    scrubPeople(step, b);
   });
-  return out;
+  // DECISION: a skill's parameter values are set per agent (core's skill model), so the client's
+  // never travel: the base template's values are kept, or none (a parameter without a default
+  // then asks the operator for one at publish).
+  for (const s of out.definition.skills) {
+    const kept = baseSkills.get(parseSkillRef(s.skill).id)?.parameters;
+    if (kept) s.parameters = cloneJson(kept);
+    else delete s.parameters;
+  }
+  eachBundleStep(out, (step) => {
+    const customize = (step as { customize?: { parameters?: Bag } }).customize;
+    if (!customize?.parameters) return;
+    const kept = (baseSteps.get(step.id) as { customize?: { parameters?: Bag } } | undefined)
+      ?.customize?.parameters;
+    if (kept) customize.parameters = cloneJson(kept);
+    else delete customize.parameters;
+  });
+  scrubPeople(out.definition.permissions, base?.definition.permissions);
+  for (const w of out.workflows) {
+    const bw = base?.workflows.find((x) => x.slug === w.slug);
+    const baseTriggers = bw ? triggersOf(bw.workflow) : [];
+    for (const t of triggersOf(w.workflow)) {
+      scrubPeople(
+        t,
+        baseTriggers.find((x) => x.id === t.id),
+      );
+    }
+  }
+  // What is left in free text (instructions, titles, messages): addresses removed.
+  return redactAddresses(out) as B;
 }
 
 export interface PromotionPreview extends MergePreview {

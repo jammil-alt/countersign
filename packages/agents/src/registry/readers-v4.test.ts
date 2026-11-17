@@ -14,6 +14,7 @@ import {
   uuidv7,
 } from "@countersign/core";
 import type { Tx } from "@countersign/db";
+import { knownModelIds } from "@countersign/llm";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   createHarness,
@@ -234,5 +235,115 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
       }),
     );
     expect(requiredConnectors(forked.version.bundle, skills, h.tools)).toEqual(["testkit"]);
+  });
+
+  // Invariant 11: a promotion or a copy never carries the source client's people, contacts,
+  // connections or literal addresses; each is reset to the template's value or left unset, step
+  // ids stay as they were, and the result still validates.
+  it("leaves out the client's people, contacts, hooks and addresses, and still validates", async () => {
+    const person = uuidv7();
+    const contact = uuidv7();
+    const hook = uuidv7();
+    const email = "pat@client-a.example";
+    const phone = "+15551230000";
+    const client = v4Bundle(h, (x) => {
+      x.definition.instructions = `Check records carefully. Questions go to ${email} or ${phone}.`;
+      x.definition.permissions.approver = person;
+      const lookup = x.definition.skills.find((s) => s.skill === "test.lookup");
+      if (!lookup) throw new Error("fixture");
+      lookup.parameters = { cutoff: "2026-01-31", owner: email };
+      const p = processOf(x);
+      p.triggers.push(
+        { id: "trg-hook", on: { type: "webhook", hookId: hook } },
+        {
+          id: "trg-message",
+          on: {
+            type: "message",
+            channels: ["email"],
+            from: { contactIds: [contact], clientRoles: ["client_admin"] },
+          },
+        },
+      );
+      const w = stepOf(x, UPDATE_STEP);
+      if (w.kind !== "write") throw new Error("fixture");
+      w.checks = {
+        approval: {
+          required: "required",
+          mode: "in_turn",
+          approvers: [{ who: person }, { who: "client_admin" }],
+          ifNoAnswer: "stop",
+          onReject: "stop",
+        },
+        notify: [
+          {
+            to: [person, "lead"],
+            channel: "inbox",
+            message: `Updated. Copy ${email}.`,
+          },
+        ],
+      };
+      p.steps.push({
+        id: "step-ask",
+        name: "Ask",
+        kind: "person",
+        mode: "ask",
+        assignee: contact,
+        title: "Is this right?",
+        payload: {},
+        channel: "inbox",
+        onReject: "stop",
+        deadline: {
+          after: "2 days",
+          hours: "clock",
+          tell: [person, "operator"],
+          ifNoAnswer: {
+            escalate: {
+              to: person,
+              deadline: { after: "1 day", hours: "clock", ifNoAnswer: "stop" },
+            },
+          },
+        },
+      });
+    });
+    const ids = (b: AnyAgentBundle) => processes.nodeIds(processOf(b));
+    const out = stripForPromotion(client, makeBundle(), {});
+    const text = JSON.stringify(out);
+    for (const literal of [person, contact, hook, email, phone]) {
+      expect(text).not.toContain(literal);
+    }
+    expect(ids(out)).toEqual(ids(client));
+    expect(out.definition.permissions.approver).toBeUndefined();
+    const w = stepOf(out, UPDATE_STEP);
+    if (w.kind !== "write") throw new Error("fixture");
+    // Unset approvers fall to the default approver; a role stays.
+    expect(w.checks?.approval?.approvers).toEqual([{}, { who: "client_admin" }]);
+    expect(w.checks?.notify?.[0]?.to).toEqual(["lead"]);
+    const ask = stepOf(out, "step-ask");
+    if (ask.kind !== "person") throw new Error("fixture");
+    expect(ask.assignee).toBe("client_admin");
+    expect(ask.deadline.tell).toEqual(["operator"]);
+    const triggers = processOf(out).triggers;
+    const message = triggers.find((t) => t.id === "trg-message")?.on;
+    expect(message?.type === "message" && message.from).toEqual({ clientRoles: ["client_admin"] });
+    const lookup = out.definition.skills.find((s) => s.skill === "test.lookup");
+    expect(lookup?.parameters).toBeUndefined();
+
+    const { skills } = await h.ops((tx) =>
+      skillContext(tx, { tenantId: null, bundle: out, catalog: h.catalog }),
+    );
+    // The lookup skill as a version that declares the two parameters the client set.
+    for (const [ref, def] of Object.entries(skills)) {
+      if (def.id !== "test.lookup") continue;
+      skills[ref] = {
+        ...def,
+        parameters: [
+          { name: "cutoff", label: "Cut-off", type: "date", default: "2026-01-01" },
+          { name: "owner", label: "Owner", type: "text", default: "" },
+        ],
+      };
+    }
+    const ctx = { skills, tools: h.tools.specs(), models: knownModelIds() };
+    expect(processes.validateAnyBundle(client, ctx).errors).toEqual([]);
+    expect(processes.validateAnyBundle(out, ctx).errors).toEqual([]);
   });
 });
