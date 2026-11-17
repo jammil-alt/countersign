@@ -45,7 +45,7 @@ emailed and the QuickBooks purchase order is created; every write is approved on
 | P2 | **An email channel to send RFQs and POs from.** Either: **Resend** (`RESEND_API_KEY` secret, `RESEND_FALLBACK_DOMAIN` and `RESEND_FALLBACK_DOMAIN_ID` variables in the GitHub staging environment, the sending domain verified in Resend); or **Gmail** (the "Mezonas web" OAuth client exists; add the sending account as a test user on the consent screen. In testing mode its token ends after 7 days, so reconnect weekly until Google's verification). Resend is the quicker one to keep working. | `docs/operations.md` "Worker secrets" (Resend), "Google" | Reach out needs a bound email channel; an unbound one is `not_allowed`. |
 | P3 | **Intuit developer app, sandbox keys**: `QBO_CLIENT_ID` and `QBO_CLIENT_SECRET` in the GitHub staging environment, redirect URI `https://staging.mezonas.com/api/connections/qbo/callback`, webhook pointed at staging. `QBO_ENV` is `sandbox` on staging already. | `docs/operations.md`, "Intuit" | QuickBooks vendor and PO creation, and the bill-price import. |
 | P4 | **Confirm the model key** (`ANTHROPIC_API_KEY`) is in the staging environment. `LLM_MODE` is `live` there. | GitHub → Environments → staging | The reading skills (request, quote PDF) call the model. |
-| P5 | **The real-mail check**, once P1 is done and before production's release: the checklist in `packages/connectors/src/upload/NOTES.md` on `in.staging.mezonas.com` (a genuine message, a forged top header, a spoofed envelope, a Microsoft 365 sender, an out-of-office then the real quote). | `docs/plan.md` §1.128 | Inbound mail trusts only Cloudflare's own `mx.cloudflare.net` verdict. If Cloudflare doesn't write it on top, genuine mail fails closed: forwarded invoices are refused and vendors' replies are kept as unverified. |
+| P5 | **The real-mail check**, once P1 is done and before production's release: the checklist in `packages/connectors/src/upload/NOTES.md` on `in.staging.mezonas.com` (a genuine message, a forged top header, a spoofed envelope, a Microsoft 365 sender, an out-of-office then the real quote). | `docs/plan.md` §1.129 | Inbound mail trusts only Cloudflare's own `mx.cloudflare.net` verdict. If Cloudflare doesn't write it on top, genuine mail fails closed: forwarded invoices are refused and vendors' replies are kept as unverified. |
 
 ### 1.2 Then, in the app (no code)
 
@@ -79,8 +79,8 @@ emailed and the QuickBooks purchase order is created; every write is approved on
 
 - A vendor's reply **from a colleague's address** is dropped. One that comes **after** the reach-out
   ended, or from the vendor's address but not proven, is kept on the thread without answering
-  the reach-out (§1.128). Either way a person enters it (§1.65, §1.71).
-- **More lines are held for a person** since the pack-size fix (`docs/plan.md` §1.143): a line
+  the reach-out (§1.129). Either way a person enters it (§1.65, §1.71).
+- **More lines are held for a person** since the pack-size fix (`docs/plan.md` §1.144): a line
   with no clear pack size and no SKU gets no automatic match. Price observations filed wrongly
   before that fix stay as they are; nothing re-files them.
 - **Before the first purchasing client: a staging run with real invoices.** The fakes and the
@@ -99,7 +99,7 @@ QuickBooks with notes on what each account is for, the Bookkeeping pack, the Qui
 and reconciliation (§1.80, M57: each linked account against QuickBooks monthly, a deposit against
 its payout statement, signed off on a card).
 
-**Bookkeeping stays off for clients** (PR #401, `docs/plan.md` §1.144). Two paths can still write
+**Bookkeeping stays off for clients** (PR #401, `docs/plan.md` §1.145). Two paths can still write
 the same money twice. Neither is new: before #401 every re-send wrote both copies.
 
 1. **Two signatures.** The earlier copy's write was already laid out for a signature when the bank
@@ -240,22 +240,22 @@ Plenary Labs' repository, so its suspect commits are Plenary Labs'; point it at
 behind MEZONAS-API-1 (an invoice read stuck as running since 2026-11-07) needs cancelling from
 the back office.
 
-### Pre-launch hardening: what's left (2026-11-17; `docs/plan.md` §1.125–§1.146)
+### Pre-launch hardening: what's left (2026-11-17; `docs/plan.md` §1.126–§1.147)
 
 PRs #384–#414 closed the launch audit's findings for the first clients. What they left open:
 
 | # | What | Kind | Notes |
 |---|---|---|---|
-| H1 | **Live checks on staging**: one run each of a conversation step, an agent-chosen path, an agent-judged repeat, an oversight review of a failed step and an AI second check, on the default models. | Owner, after merge | §1.125. The fake model now refuses what the API refuses, but nothing has run these on the live models. |
-| H2 | **The real-mail check** (§1 P5). | Owner, gate before production | §1.128. |
+| H1 | **Live checks on staging**: one run each of a conversation step, an agent-chosen path, an agent-judged repeat, an oversight review of a failed step and an AI second check, on the default models. | Owner, after merge | §1.126. The fake model now refuses what the API refuses, but nothing has run these on the live models. |
+| H2 | **The real-mail check** (§1 P5). | Owner, gate before production | §1.129. |
 | H3 | **GitHub and Hyperdrive settings** from PR #384: caching off on the two existing Hyperdrive configs (`wrangler hyperdrive update <id> --caching-disabled`, or run Bootstrap with `rotate_password` unticked); the `production` environment with required reviewers and deployment limited to `main` and `v*` tags. If `staging` allows only `main` to deploy, allow the branches that quick-deploy (`claude/*`). | Owner, by hand | Not checked here whether these are done. `docs/operations.md`. |
-| H4 | **A per-site limit on the beacon** needs a Rate Limiting binding of its own, set well above the per-address limit; on the shared binding one address could empty a site's allowance. | Code and `wrangler.jsonc` | §1.140. Only a per-address limit today. |
-| H5 | **Transcription records no usage**: voice typing's model calls have no cost or usage row. | Code | §1.138. They are limited per person (10 a minute, 200 a day). |
-| H6 | **"Who is asking" on the Claude approval page**: the Claude client's name and where the request came from. | Migration on `mcp_session_approval`, then code | §1.129. Today the page shows when Claude asked and takes Claude's code. |
-| H7 | **The portal's resume screen** doesn't show the events that arrived while an agent was paused (`missedEvents`); the back office's go-live panel does. | Code, copy in six languages | §1.136. |
-| H8 | **`refresh_failing` connections** show as connected with an open finding; the ops MCP's `needsAttention` and the daily troubled list count only `status = 'error'`, so they don't list them. LinkedIn's and HubSpot's dead-grant codes come from their docs, not a live call. | Code; check live | §1.133. |
-| H9 | **The web app's first load**: load each language's wording on demand, to bring it back under the old 470 kB. | Code | §1.145. 480 kB now. |
-| H10 | **Texting edge cases**: a brand-new number submitted twice at once can hit the contact phone index and get a 500 (as before #411); after an invitation is used up by a skipped submit, the link still shows the form, and submitting it gives 409 `used`. | Code, small | §1.141. |
+| H4 | **A per-site limit on the beacon** needs a Rate Limiting binding of its own, set well above the per-address limit; on the shared binding one address could empty a site's allowance. | Code and `wrangler.jsonc` | §1.141. Only a per-address limit today. |
+| H5 | **Transcription records no usage**: voice typing's model calls have no cost or usage row. | Code | §1.139. They are limited per person (10 a minute, 200 a day). |
+| H6 | **"Who is asking" on the Claude approval page**: the Claude client's name and where the request came from. | Migration on `mcp_session_approval`, then code | §1.130. Today the page shows when Claude asked and takes Claude's code. |
+| H7 | **The portal's resume screen** doesn't show the events that arrived while an agent was paused (`missedEvents`); the back office's go-live panel does. | Code, copy in six languages | §1.137. |
+| H8 | **`refresh_failing` connections** show as connected with an open finding; the ops MCP's `needsAttention` and the daily troubled list count only `status = 'error'`, so they don't list them. LinkedIn's and HubSpot's dead-grant codes come from their docs, not a live call. | Code; check live | §1.134. |
+| H9 | **The web app's first load**: load each language's wording on demand, to bring it back under the old 470 kB. | Code | §1.146. 480 kB now. |
+| H10 | **Texting edge cases**: a brand-new number submitted twice at once can hit the contact phone index and get a 500 (as before #411); after an invitation is used up by a skipped submit, the link still shows the form, and submitting it gives 409 `used`. | Code, small | §1.142. |
 
 ### The phone app (owner, 2026-11-13; `docs/plan.md` §1.116, `apps/mobile/README.md`)
 
@@ -324,7 +324,7 @@ sign-in stays off until `MOBILE_SIGNIN=on` and phone notifications until `MOBILE
 - A **fluent speaker's review** of the five translations (Spanish, French, Portuguese, Italian,
   German): the portal's message files, `TIMELINE_WORDS`, the language instruction in `runAgent`, and
   every pass since (§1.18, §1.27 invite strings, the Requests screens), and the pre-launch
-  hardening's new copy (`docs/plan.md` §1.125–§1.144: the two approval reasons of §1.132 first).
+  hardening's new copy (`docs/plan.md` §1.126–§1.145: the two approval reasons of §1.133 first).
 - **Legal**: the site's terms and privacy (S3), measurement wording (S8), processor terms (S13),
   calls and texts (the relationship basis for calls and email, §1.97, and the texting sign-up,
   §1.98, under the TCPA and CTIA), agent accounts on third-party sites.
@@ -334,14 +334,14 @@ sign-in stays off until `MOBILE_SIGNIN=on` and phone notifications until `MOBILE
 - Technical: **T1** (the MCP server doesn't check HIPAA mode) is a small code change worth doing
   before a HIPAA client. **T2** is done: every model call outside a run,
   the Builder's included, goes through one entry point held to the clients' HIPAA mode
-  (`docs/plan.md` §1.142). T3 (clients' own audit log page) next; T4–T10 are notes or later.
+  (`docs/plan.md` §1.143). T3 (clients' own audit log page) next; T4–T10 are notes or later.
 - **Before any BAA is recorded** (PR #414): check that `BAA_PROCESSORS` is empty on production and
   staging, a dashboard value included; run `select id, name from tenant where
   (settings->'compliance'->>'hipaa')::boolean` and expect no rows. Once a served client is in HIPAA
   mode without a BAA covering the model vendor, Reggie and questions across clients are refused for
-  every operator who serves it, as are that client's Builder and builds (§1.142).
+  every operator who serves it, as are that client's Builder and builds (§1.143).
 - **Before the first purge of a retired client:** time `purgePlan` and one test purge on a Neon
-  branch of production (§1.142).
+  branch of production (§1.143).
 - Administrative: a security officer, the risk analysis, policies, training, sanctions, the client
   BAA and DPA, vendor BAAs, whether to use a compliance tool and when to start SOC 2's Type II period.
 
