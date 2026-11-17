@@ -81,6 +81,32 @@ describe("the Bookkeeping manifest", () => {
     for (const loop of loops) expect((loop as { onError?: string }).onError).toBe("continue");
   });
 
+  it("keeps v4 the same as v3 but for the posting loop going on", () => {
+    const [template] = bookkeepingManifest.templates;
+    const [, v3, v4] = template?.versions ?? [];
+    if (!v3 || !v4) throw new Error("no v3 or v4");
+    const diffs: string[] = [];
+    const walk = (a: unknown, b: unknown, path: string) => {
+      if (a && b && typeof a === "object" && typeof b === "object") {
+        const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+        for (const k of keys) {
+          walk(
+            (a as Record<string, unknown>)[k],
+            (b as Record<string, unknown>)[k],
+            `${path}.${k}`,
+          );
+        }
+      } else if (JSON.stringify(a) !== JSON.stringify(b)) {
+        diffs.push(`${path}: ${JSON.stringify(a)} -> ${JSON.stringify(b)}`);
+      }
+    };
+    walk(JSON.parse(JSON.stringify(v3)), JSON.parse(JSON.stringify(v4)), "");
+    const daily = v3.workflows.findIndex((w) => JSON.stringify(w.workflow).includes('"id":"post"'));
+    expect(diffs).toEqual([
+      `.workflows.${daily}.workflow.steps.6.onError: undefined -> "continue"`,
+    ]);
+  });
+
   it("serves its cards, actions and reports by name", () => {
     expect(Object.keys(BOOKKEEPING_REVIEWS).sort()).toEqual([
       "bookkeeping.account-questions",
