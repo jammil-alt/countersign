@@ -139,7 +139,7 @@ then one pass of its "To verify" list against the real service.
 
 | Area | Connector | What the owner needs to do |
 |---|---|---|
-| Accounting | QuickBooks (`qbo`) | Sandbox: §1 P3. Production: Intuit's app review and security questionnaire, production keys. 13 doc checks and 8 sandbox checks in `NOTES.md`. |
+| Accounting | QuickBooks (`qbo`) | Sandbox: §1 P3. Production: Intuit's app review and security questionnaire, production keys. 13 doc checks and 8 sandbox checks in `NOTES.md`. Known risk: after a long gap, deletions of an entity with 1,000 or more changes since the last sync can be missed (CDC cuts them off and queries can't see them); the sync reports "qbo CDC cap: deletions may be missed" when it happens. |
 | Email | Gmail (`gmail`, send only) | Google verification (S4). |
 | Email | Resend (`resend`) | Account, `RESEND_API_KEY`, fallback sending domain (§1 P2). |
 | Email | Outlook (`outlook`, send only) | Entra app, publisher verification, `OUTLOOK_CLIENT_ID`/`SECRET`. |

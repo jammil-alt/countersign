@@ -27,23 +27,29 @@ connected.
 | Every response carries an `intuit_tid` header, Intuit's id for the request, which its support asks for | `api.ts` `intuitTidOf`: kept on `QboApiError.intuitTid` and appended to its message, so it reaches the step's error and the logs |
 | 401 means the access token expired: refresh once and retry | `api.ts` via `tokenManager.withAccessToken` |
 | Throttling: about 500 requests a minute and 10 at once per company; over it, 429 | `api.ts` `RealmThrottle` (450/min, 10 at once, per isolate), 3 retries at 1 s, 2 s, 4 s or `Retry-After` |
-| CDC: `GET /cdc?entities=Bill,Purchase,…&changedSince=<ISO time>` → `CDCResponse[].QueryResponse[]` with one block per entity; deleted records come as `{ "Id", "status": "Deleted", "MetaData.LastUpdatedTime" }`; at most 30 days back and 1000 objects per entity per answer, no paging | `sync.ts` |
+| CDC: `GET /cdc?entities=Bill,Purchase,…&changedSince=<ISO time>` → `CDCResponse[].QueryResponse[]` with one block per entity; deleted records come as `{ "Id", "status": "Deleted", "MetaData.LastUpdatedTime" }`, after the others; at most 30 days back and 1,000 objects per answer, no paging. An answer at 1,000 in all (or one entity at 1,000) is not trusted: each entity is read again on its own by CDC, and one still at 1,000 alone is paged by query (`Metadata.LastUpdatedTime >= …`, 1,000 a page) before the CDC point moves on (audit 2.5) | `sync.ts`; the fake cuts an answer off at 1,000 objects |
 | Attachable: `FileName`, `ContentType`, `Size`, `Note`, `AttachableRef[].EntityRef {type, value}`; notes have no file | `@countersign/core` `mapQboAttachable` |
 | Download: `GET /download/{attachableId}` answers a short-lived link (text); the link needs no token | `api.ts` `download` |
 | Upload: `POST /upload`, `multipart/form-data` with `file_metadata_0` (JSON Attachable with `AttachableRef`, `FileName`, `ContentType`) and `file_content_0` (the file); answer `AttachableResponse[].Attachable` | `api.ts` `upload` |
 | List a record's attachments: `select * from Attachable where AttachableRef.EntityRef.Type = 'Bill' and AttachableRef.EntityRef.value = '145'` | `tools.ts` |
 | Company name: `GET /companyinfo/{realmId}` → `CompanyInfo.CompanyName`, `Country` | `index.ts` `handleCallback` |
 | Webhooks: one endpoint per app; header `intuit-signature` = base64 HMAC-SHA256 of the raw body under the app's verifier token; body `{ eventNotifications: [{ realmId, dataChangeEvent: { entities: [{ name, id, operation, lastUpdated }] } }] }`; Intuit wants a quick 200 | `webhook.ts`; apps/api `routes/qbo.ts` |
-| No webhook for Attachable (owner, 2026-11-05: the app subscribes to Account, Bill, Item, Purchase, Vendor) | Attachments come from CDC, every 15 minutes and on any webhook |
+| No webhook for Attachable (owner, 2026-11-05: the app subscribes to Account, Bill, Item, Purchase, Vendor) | Attachments are read by query in order of last change (`select * from Attachable where Metadata.LastUpdatedTime >= … orderby Metadata.LastUpdatedTime`, 25 a page) after each CDC read that names one, and through the initial sync's 90 days after the rest of it; a step downloads at most 16 MB of files and the next goes on from there (audit 2.3). CDC still brings their deletions |
 
 ## To verify
 
 Against the docs:
 
 1. The minor version: is 75 still the base, and does anything we read or send change with it?
-2. CDC: the 30-day limit, the 1000-object cap per entity, whether `Attachable` and `VendorCredit`
-   are accepted in `entities`, the `changedSince` formats accepted (we send UTC with `Z`), and the
-   exact shape of a deleted record.
+2. CDC: the 30-day limit, the 1,000-object cap (per answer, as the docs say, or per entity: we
+   handle both), whether deleted objects come after all the others in an answer, whether
+   `Attachable` and `VendorCredit` are accepted in `entities`, the `changedSince` formats accepted
+   (we send UTC with `Z`, floored to whole seconds like a query's times: flooring only reads a
+   little more), and the exact shape of a deleted record. Deletions of an entity that
+   alone has 1,000 changes since the last read may be missed: queries can't see them (audit 2.5);
+   the sync reports it ("qbo CDC cap: deletions may be missed", with the entity and connection).
+   Name lists read by query after a capped answer send `and Active in (true, false)` (made inactive
+   is how QuickBooks deletes them): check that the filter combines with `Metadata.LastUpdatedTime`.
 3. Throttling numbers (500 a minute, 10 at once per realm; separate limits for batch and for
    attachments?) and whether 429 answers carry `Retry-After`.
 4. `requestid`: its maximum length (we send 36 hex characters), how long Intuit remembers it, and
@@ -55,7 +61,16 @@ Against the docs:
    where the amount is not qty × unit price rounded half up to cents).
 7. Whether QBO gives new lines the ids of lines they replace (our "already done" check does not
    rely on line ids).
-8. Query filters we use: `VendorRef = '…'` on Bill, `EntityRef = '…'` on Purchase, `Id in (…)`,
+8. Query filters we use: `Metadata.LastUpdatedTime >= '<UTC time, whole seconds, Z>'` with
+   `orderby Metadata.LastUpdatedTime` (attachments and a capped CDC's catch-up). We send no
+   fractions of a second (the docs list error 300, "Time value is incorrect"; the fake refuses
+   them): check that form is accepted. Paging reads the last second it reached again, whole; only a
+   second that fills a whole page is paged into by position, so ties within it must come in the
+   same order each time, and a row changed between two such pages may be missed (QuickBooks has no
+   second sort key we know of). A file that fails to download is tried by later syncs (one failure
+   counted in ten minutes, never a 429); after three its attachment is stored without the file,
+   reported ("qbo attachment stored without its file") and tried again once a day;
+   `VendorRef = '…'` on Bill, `EntityRef = '…'` on Purchase, `Id in (…)`,
    `DocNumber`, `TxnDate` ranges, `DisplayName like '%…%'`, `Name like '%…%'`, and
    `AttachableRef.EntityRef.Type` / `.value` on Attachable. Also that `select * from Vendor` returns
    active vendors only.
@@ -82,7 +97,7 @@ Against the sandbox company (`9341458640918607`, QBO Plus, US):
    documents linked to their transactions, no runs started.
 3. Create a bill in the sandbox with a PDF attached: the webhook starts a sync within a minute, the
    bill becomes a transaction and `transaction.created` starts an intake agent. The attachment
-   arrives by the next 15-minute CDC (no webhook for Attachable).
+   arrives with the next sync whose CDC names it (no webhook for Attachable).
 4. Itemize that bill from a run, approved in the portal: lines replaced, `TotalAmt` unchanged,
    `SyncToken` moved on; edit the bill in QuickBooks while an approval waits and check the action
    fails as stale.
