@@ -114,7 +114,7 @@ describe("the client page", () => {
     renderAt(`/ops/clients/${CLIENT}`, api);
     const title = await screen.findByRole("heading", { level: 1, name: "Harbor Millwork" });
     const tabs = within(screen.getByTestId("ops-client-tabs"));
-    for (const tab of ["Agents", "Data", "Setup", "Packs", "Settings", "Overview"]) {
+    for (const tab of ["Agents", "File", "Data", "Setup", "Packs", "Settings", "Overview"]) {
       await user.click(tabs.getByRole("link", { name: tab }));
       // The same heading element: the frame was not remounted.
       expect(screen.getByRole("heading", { level: 1, name: "Harbor Millwork" })).toBe(title);
@@ -236,6 +236,7 @@ describe("the client page", () => {
     expect(tabs.map((t) => t.textContent)).toEqual([
       "Overview",
       "Agents",
+      "File",
       "Data",
       "Setup",
       "Packs",
@@ -244,6 +245,7 @@ describe("the client page", () => {
     expect(tabs.map((t) => t.getAttribute("href"))).toEqual([
       `/ops/clients/${CLIENT}`,
       `/ops/clients/${CLIENT}/agents`,
+      `/ops/clients/${CLIENT}/file`,
       `/ops/clients/${CLIENT}/documents`,
       `/ops/clients/${CLIENT}/connections`,
       `/ops/clients/${CLIENT}/packs`,
