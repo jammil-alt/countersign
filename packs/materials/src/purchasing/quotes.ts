@@ -790,6 +790,8 @@ async function quoteToVendorItem(
     vendorId: string;
     item: CatalogItemRow;
     unit: string | null;
+    /** The quote line's own words (a pack size it states), as `recordQuote` reads them. */
+    lineText: string | null;
     unitPrice: string | null;
     unitPriceStd: string | null;
     leadTimeDays: number | null;
@@ -805,6 +807,7 @@ async function quoteToVendorItem(
     sku: null,
     vendorUom: unit,
     unitRaw: q.unit,
+    lineText: q.lineText,
   });
   if (vi?.status !== "active") return;
   const last = priceForVendorItem(vi, {
@@ -921,6 +924,7 @@ export async function recordQuote(
           vendorId: q.vendorId,
           item: asked.item,
           unit,
+          lineText: l.description ?? null,
           unitPrice,
           unitPriceStd: std.unitPriceStd,
           leadTimeDays: l.leadTimeDays ?? null,

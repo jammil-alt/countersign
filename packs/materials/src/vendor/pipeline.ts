@@ -68,7 +68,10 @@ import {
   adoptWord,
   cleanSku,
   createVendorItem,
+  isOlderItem,
+  lineOf,
   priceForVendorItem,
+  recordedWord,
   recordLastPrice,
   resolveVendorItem,
   similarMasterItems,
@@ -1107,13 +1110,20 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
       if (made.created) result.vendorItemIds.push(made.item.id);
       const word = unitWord(line.uomRaw);
       filed =
-        made.created ||
-        !PACKAGING_UOMS.has(vendorUom) ||
-        (made.item.ext as { unitWord?: unknown } | null)?.unitWord === word
+        made.created || !PACKAGING_UOMS.has(vendorUom) || recordedWord(made.item) === word
           ? made.item
           : null;
-      if (!filed) {
-        filedNote = `filed under no vendor item: the vendor's item without a SKU in this unit is another ${String((made.item.ext as { unitWord?: unknown } | null)?.unitWord ?? "pack")}, not this ${word ?? "unit"}; give the line its SKU to register it`;
+      if (!filed && isOlderItem(made.item)) {
+        // An older item (`effectiveWord`): the line didn't state its pack size.
+        const stated = lineOf(line.uomRaw, line.rawDescription)
+          .packs.filter((p) => p.word === word)
+          .map((p) => `${p.size} a ${p.word}`);
+        const size = made.item.stdPerVendorUom
+          ? `its pack size of ${dec(made.item.stdPerVendorUom).toString()}`
+          : "its pack size (none is recorded)";
+        filedNote = `filed under no vendor item: the vendor's item without a SKU in this unit was recorded before its unit's word was kept, so it takes only a line that states ${size}, and this line states ${stated.length > 0 ? stated.join(", ") : "none"}; give the line its SKU or its pack size to register it`;
+      } else if (!filed) {
+        filedNote = `filed under no vendor item: the vendor's item without a SKU in this unit is another ${recordedWord(made.item) ?? "pack"}, not this ${word ?? "unit"}; give the line its SKU to register it`;
       }
     } else if (vi.stdPerVendorUom === null && conv.ok && (vi.vendorUom ?? "") === vendorUom) {
       filed = await updateVendorItem(tx, tenantId, vi.id, {

@@ -91,6 +91,13 @@ export function unitWord(raw: string | null | undefined): string | null {
 }
 
 const PACKAGING_TOKENS = "BOXES|BOX|BX|CASE|CS|CARTON|CTN|PACK|PKG|PK|PAIL|CAN|DRUM|KIT";
+// Measures a number is in when one follows it: "PAIL 5 GAL" is a 5-gallon pail, not 5 to a pail.
+const MEASURES =
+  "GALLONS|GALLON|GAL|GL|QUARTS|QUART|QT|PINT|PT|OUNCES|OUNCE|OZ|POUNDS|POUND|LBS|LB|FEET|FOOT|FT|INCHES|INCH|IN|YARDS|YARD|YDS|YD|LITERS|LITER|LTR|ML|MM|CM|M|L|SF|SQFT|LF|BF";
+// DECISION (fourth review of fix/materials, finding 4): a number is a pack's size in `BX 100`
+// only when nothing after it says otherwise: not another pack ("100/BX 10 BX/CS" is ten boxes
+// to a case), a measure ("CAN 12 OZ"), a fraction or dimension ("BOX 2-1/8", "BOX 10 X 3").
+const NOT_A_COUNT = `(?![\\d.\\/-])(?!\\s*(?:["']|X\\s*\\d|\\d|(?:${PACKAGING_TOKENS}|${MEASURES})(?![A-Z])))`;
 const PACK_PATTERNS: readonly { re: RegExp; size: number; word: number }[] = [
   // 100/BX, 100 PER BOX
   {
@@ -100,7 +107,10 @@ const PACK_PATTERNS: readonly { re: RegExp; size: number; word: number }[] = [
   },
   // BX/100, BOX OF 100, CS 1000
   {
-    re: new RegExp(`(?<![A-Z])(${PACKAGING_TOKENS})\\s*(?:\\/|OF|\\s)\\s*(\\d+)(?![\\d.\\/])`, "g"),
+    re: new RegExp(
+      `(?<![A-Z])(${PACKAGING_TOKENS})\\s*(?:\\/|OF|\\s)\\s*(\\d+)${NOT_A_COUNT}`,
+      "g",
+    ),
     size: 2,
     word: 1,
   },

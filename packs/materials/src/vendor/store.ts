@@ -4,7 +4,7 @@
 // (./tools.ts) and only their vectors reach these queries.
 
 import { dec, toNumeric } from "@countersign/core";
-import { docLine, type Tx, vendor } from "@countersign/db";
+import { type Tx, vendor } from "@countersign/db";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, type SQL, sql } from "drizzle-orm";
 import { identifyingSku, liveItem } from "../catalog/store";
 import { PACKAGING_UOMS, packsIn, readUom, unitWord } from "../pricing/uom";
@@ -157,8 +157,8 @@ export async function vendorAlias(
  */
 // DECISION (review of fix/materials, finding 3): a box of 100 and a case of 1000 are both a
 // `pack`, so a packaging unit takes a vendor item's conversion only when exactly one vendor item
-// was recorded in the same word; an item recorded before the word was kept has none and converts
-// nothing for a line without its SKU.
+// was recorded in the same word; an item recorded before the word was kept converts only a line
+// that states its very pack size (`effectiveWord`).
 export async function vendorItemForUnit(
   tx: Tx,
   tenantId: string,
@@ -178,15 +178,15 @@ export async function vendorItemForUnit(
   );
   if (unit === null || !PACKAGING_UOMS.has(unit))
     return inUnit.length === 1 ? (inUnit[0] ?? null) : null;
-  return inWord(tx, tenantId, inUnit, lineOf(key.unitRaw, key.lineText));
+  return inWord(inUnit, lineOf(key.unitRaw, key.lineText));
 }
 
-/** A line as an older vendor item's word is told from it: its unit's word and the packs it states. */
-interface LineWords {
+/** A line as an older vendor item is told from it: its unit's word and the packs it states. */
+export interface LineWords {
   word: string | null;
   packs: { word: string; size: string }[];
 }
-const lineOf = (
+export const lineOf = (
   unitRaw: string | null | undefined,
   text: string | null | undefined,
 ): LineWords => ({
@@ -194,72 +194,54 @@ const lineOf = (
   packs: packsIn(text),
 });
 
-const recordedWord = (v: VendorItemRow): string | null => {
+/** The word a vendor item was recorded in (`ext.unitWord`), if any. */
+export const recordedWord = (v: Pick<VendorItemRow, "ext">): string | null => {
   const w = (v.ext as { unitWord?: unknown } | null)?.unitWord;
   return typeof w === "string" ? w : null;
 };
 
 /**
- * The word a box, case or pail vendor item is in: the one recorded (`ext.unitWord`). For the
- * vendor's item without a SKU recorded before words were kept: the one packaging word its own
- * name, description or pack size states with a number (`100/BX`); else the one word the document
- * lines filed under it were written in; else, with none filed, the line's word only when the
- * line states the item's own pack size in it (`CS 100` for an item of 100 a pack). Null when
- * nothing tells: the line is then not that item, and its price isn't converted by it.
+ * An older vendor item: a box, case or pail without a SKU, recorded before its word was kept
+ * (`ext.unitWord`). Every one made before the word existed is one.
  */
-// DECISION (third review of fix/materials, finding 6, as corrected): an item made before
-// `unitWord` existed would otherwise never match a line without a SKU again (and Register item
-// can't make another in that unit), but its word is read, never guessed: from what the item holds,
-// then from the lines filed under it, then from a line that states the item's very pack size.
-// Never in any word: a case read at a box's size is the 10x error this guards against. Register
-// item records the word (`adoptWord`) when it files a line under it.
-export async function effectiveWord(
-  tx: Tx,
-  tenantId: string,
-  v: VendorItemRow,
-  line: LineWords,
-): Promise<string | null> {
+export const isOlderItem = (v: VendorItemRow): boolean =>
+  !v.sku && recordedWord(v) === null && v.vendorUom !== null && PACKAGING_UOMS.has(v.vendorUom);
+
+/** Whether `size` (a line's or row's stated pack size) is an older item's `stdPerVendorUom`. */
+export const sameSize = (v: VendorItemRow, size: string | null | undefined): boolean =>
+  v.stdPerVendorUom !== null && size != null && dec(size).equals(dec(v.stdPerVendorUom));
+
+/**
+ * The word a box, case or pail vendor item is in, for a line: the one recorded (`ext.unitWord`).
+ * For an older item (`isOlderItem`), the line's own word only when the line states a pack size in
+ * that word and every size it states in it is the item's `stdPerVendorUom`. Null otherwise: the
+ * line is then not that item, and its price isn't converted by it.
+ */
+// DECISION (fourth review of fix/materials): one strict rule, no reading of an older item's word.
+// An older item is a box, case or pail vendor item without a SKU and without `ext.unitWord`
+// (every one made before the word was kept). It takes a line, a quote's line or a price list's
+// row only when that line or row states a pack size equal to the item's `stdPerVendorUom` (an
+// exact decimal compare); the conversion is then right whatever its word, and Register item
+// records the line's word on it (`adoptWord`). Otherwise the line goes under no vendor item, with
+// a note. The item's own name, description or pack size and the lines already filed under it
+// are never read: any of them may be wrong. Price lists follow it in ./import.ts.
+export function effectiveWord(v: VendorItemRow, line: LineWords): string | null {
   const recorded = recordedWord(v);
   if (recorded !== null || v.sku) return recorded;
-  const own = [
-    ...new Set([v.name, v.description, v.packSize].flatMap((t) => packsIn(t).map((p) => p.word))),
-  ];
-  if (own.length > 0) return own.length === 1 ? (own[0] ?? null) : null;
-  const rows = await tx
-    .selectDistinct({ uomRaw: docLine.uomRaw })
-    .from(priceObservation)
-    .innerJoin(
-      docLine,
-      and(
-        eq(docLine.id, priceObservation.docLineId),
-        eq(docLine.tenantId, priceObservation.tenantId),
-      ),
-    )
-    .where(and(eq(priceObservation.tenantId, tenantId), eq(priceObservation.vendorItemId, v.id)));
-  const words = [...new Set(rows.map((r) => unitWord(r.uomRaw)).filter((w) => w !== null))];
-  if (words.length > 0) return words.length === 1 ? (words[0] ?? null) : null;
-  const size = v.stdPerVendorUom ? dec(v.stdPerVendorUom) : null;
-  const states = line.packs.some(
-    (p) => p.word === line.word && size !== null && dec(p.size).equals(size),
-  );
-  return states ? line.word : null;
+  if (line.word === null) return null;
+  const sizes = line.packs.filter((p) => p.word === line.word).map((p) => p.size);
+  return sizes.length > 0 && sizes.every((s) => sameSize(v, s)) ? line.word : null;
 }
 
 /** The one vendor item among `items` (all in one packaging unit) in `word`; null for none or two. */
-async function inWord(
-  tx: Tx,
-  tenantId: string,
-  items: readonly VendorItemRow[],
-  line: LineWords,
-): Promise<VendorItemRow | null> {
+function inWord(items: readonly VendorItemRow[], line: LineWords): VendorItemRow | null {
   const word = line.word;
   if (word === null) return null;
-  const fits: VendorItemRow[] = [];
-  for (const v of items) if ((await effectiveWord(tx, tenantId, v, line)) === word) fits.push(v);
+  const fits = items.filter((v) => effectiveWord(v, line) === word);
   return fits.length === 1 ? (fits[0] ?? null) : null;
 }
 
-/** Records the word a legacy vendor item was found in (`effectiveWord`), once. */
+/** Records the word an older vendor item was found in (`effectiveWord`), once. */
 export async function adoptWord(
   tx: Tx,
   tenantId: string,
@@ -309,7 +291,7 @@ export async function resolveVendorItem(
       hinted.catalogItemId === key.catalogItemId &&
       (!key.sku || !hinted.sku) &&
       (hinted.vendorUom ?? "") === (key.vendorUom ?? "") &&
-      (!packaging || (await effectiveWord(tx, tenantId, hinted, line)) === word)
+      (!packaging || effectiveWord(hinted, line) === word)
     ) {
       return hinted;
     }
@@ -322,7 +304,7 @@ export async function resolveVendorItem(
   // DECISION (second review of fix/materials, H1): a box, case or pail is the vendor item
   // recorded in that very word, and only when exactly one is (as `vendorItemForUnit`): a case
   // line is never filed under, priced by, or sized from the vendor's box. None: a new one.
-  if (packaging) return inWord(tx, tenantId, sameUnit, line);
+  if (packaging) return inWord(sameUnit, line);
   if (sameUnit.length > 0) return sameUnit[0] ?? null;
   if (pair.length === 1 && !key.vendorUom) return pair[0] ?? null;
   return null;

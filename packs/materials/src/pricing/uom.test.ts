@@ -58,4 +58,18 @@ describe("packsIn", () => {
     expect(packsIn("#8 X 1-1/4 WOOD SCREW")).toEqual([]);
     expect(packsIn("BOX 3/4 PLY")).toEqual([]);
   });
+
+  it("never reads a number that another pack or a measure follows as a pack's size", () => {
+    expect(packsIn("#8 SCREW 100/BX 10 BX/CS")).toEqual([{ word: "box", size: "100" }]);
+    expect(packsIn("PAIL 5 GAL")).toEqual([]);
+    expect(packsIn("CAN 12 OZ")).toEqual([]);
+    expect(packsIn("SPRAY PAINT CAN 12OZ")).toEqual([]);
+    expect(packsIn("BOX NAIL 16D 50 LB")).toEqual([]);
+    expect(packsIn("TAPE BOX 2 IN")).toEqual([]);
+    expect(packsIn("TRIM PK 8 FT")).toEqual([]);
+    expect(packsIn("JUNCTION BOX 2-1/8")).toEqual([]);
+    expect(packsIn("BOX 10 X 3")).toEqual([]);
+    expect(packsIn("100 PER BOX")).toEqual([{ word: "box", size: "100" }]);
+    expect(packsIn("#10 SCREW BX 100")).toEqual([{ word: "box", size: "100" }]);
+  });
 });

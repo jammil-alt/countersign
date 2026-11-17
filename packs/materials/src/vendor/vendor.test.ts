@@ -3,6 +3,7 @@
 // wins), an older alias with no vendor item, a test run's Register item writing nothing, the
 // embedding write (idempotent), and one client never reaching another's vendor items (invariant 1).
 
+import { dec } from "@countersign/core";
 import { type Db, vendor, withTenant } from "@countersign/db";
 import { createTestDatabase, databaseAvailable, type TestDatabase } from "@countersign/db/testing";
 import { createLlmClient } from "@countersign/llm";
@@ -13,8 +14,19 @@ import { mergeItems } from "../catalog/merge";
 import { descriptionHash, normalize } from "../catalog/normalize";
 import { openLines } from "../catalog/split";
 import { loadPricedDocument, priceLines } from "../pricing/record";
-import { backfillFromBillsTool } from "../purchasing/tools";
-import { catalogItem, itemAlias, priceObservation, vendorItem } from "../schema";
+import {
+  backfillFromBillsTool,
+  quoteCreate,
+  quoteRecord,
+  requestCreate,
+} from "../purchasing/tools";
+import {
+  catalogItem,
+  itemAlias,
+  priceObservation,
+  purchaseRequestLine,
+  vendorItem,
+} from "../schema";
 import { type InvoiceLine, insertShop, type ShopFixture } from "../testing.test-helper";
 import { type PackToolContext, packToolContext } from "../tools";
 import { EMBEDDING_TEMPLATE } from "./embedding-text";
@@ -358,13 +370,18 @@ describe.skipIf(!online)("the vendor catalog's tools", () => {
     // A pack, a carton: neither is recorded in that word, so no size is known.
     expect(await forUnit("PK")).toBeNull();
     expect(await forUnit("CTN")).toBeNull();
-    // A box without a SKU recorded before words were kept: its word is the one the lines filed
-    // under it were written in.
+    // A box without a SKU recorded before words were kept: the lines filed under it never say
+    // what it is (one may have been filed wrongly); only a line that states its 500 is it.
     const nails = await item(A, "16D COMMON NAIL");
     const older = await A.vendor("Older Nail Supply");
-    const inUnit = (unitRaw: string) =>
+    const inUnit = (unitRaw: string, lineText = "16D COMMON NAIL") =>
       withTenant(t.db, A.tenantId, (tx) =>
-        vendorItemForUnit(tx, A.tenantId, { vendorId: older, catalogItemId: nails, unitRaw }),
+        vendorItemForUnit(tx, A.tenantId, {
+          vendorId: older,
+          catalogItemId: nails,
+          unitRaw,
+          lineText,
+        }),
       );
     const [legacy] = await t.db
       .insert(vendorItem)
@@ -392,7 +409,11 @@ describe.skipIf(!online)("the vendor catalog's tools", () => {
       docLineId: filed.lineIds[0] as string,
     });
     expect(await inUnit("CS")).toBeNull();
-    expect((await inUnit("BX"))?.id).toBe(legacy?.id);
+    expect(await inUnit("BX")).toBeNull();
+    expect(await inUnit("BX", "16D COMMON NAIL 100/BX")).toBeNull();
+    expect(await inUnit("BX", "16D COMMON NAIL 500/BX BOX OF 100")).toBeNull();
+    expect((await inUnit("BX", "16D COMMON NAIL 500/BX"))?.id).toBe(legacy?.id);
+    expect(await inUnit("CS", "16D COMMON NAIL 500/BX")).toBeNull();
   });
 
   it("keeps the unit's word with the unit when a vendor item's unit is corrected", async () => {
@@ -930,8 +951,8 @@ describe.skipIf(!online)("the vendor catalog's tools", () => {
       )[0];
     expect((await byId(box?.id))?.lastPrice).toBe("9.0000");
 
-    // P2: an older box item without a SKU or a word, nothing filed under it yet, whose own name
-    // says it is a box of 100: a box line is filed under it, priced by it, and gives it its word.
+    // P2: an older box item of 100 without a SKU or a word: a box line that states its 100 is
+    // filed under it, priced by it, and gives it its word.
     const legacyVendor = await shop.vendor("Legacy Supply");
     const tens = await item(shop, "#10 X 2 WOOD SCREW");
     const [legacy] = await t.db
@@ -950,7 +971,7 @@ describe.skipIf(!online)("the vendor catalog's tools", () => {
       .returning();
     const p2 = await shop.invoiceDoc(
       legacyVendor,
-      [{ description: "#10 X 2 WOOD SCREW", qty: "2", uom: "BX", unitPrice: "11.00" }],
+      [{ description: "#10 X 2 WOOD SCREW 100/BX", qty: "2", uom: "BX", unitPrice: "11.00" }],
       { date: "2026-11-03" },
     );
     const r2 = await registerLines(t.db, {
@@ -958,7 +979,9 @@ describe.skipIf(!online)("the vendor catalog's tools", () => {
       agentVersionId: shop.agentVersionId,
       documentId: p2.documentId,
       vendorId: legacyVendor,
-      lines: [decided(1, "#10 X 2 WOOD SCREW", { decision: "matched", catalogItemId: tens })],
+      lines: [
+        decided(1, "#10 X 2 WOOD SCREW 100/BX", { decision: "matched", catalogItemId: tens }),
+      ],
       testRun: false,
     });
     expect(r2.lines[0]).toMatchObject({ vendorItemId: legacy?.id, priceSkipped: null, note: null });
@@ -1001,7 +1024,7 @@ describe.skipIf(!online)("the vendor catalog's tools", () => {
     const v = await shop.vendor("Older Box Supply");
     const text = "#8 X 1-1/4 WOOD SCREW";
     const screws = await item(shop, text);
-    // An older item without a SKU or a word, nothing filed under it: its name says 100 a box.
+    // An older item of 100 without a SKU or a word, nothing filed under it.
     const [box] = await t.db
       .insert(vendorItem)
       .values({
@@ -1049,10 +1072,17 @@ describe.skipIf(!online)("the vendor catalog's tools", () => {
       .from(priceObservation)
       .where(eq(priceObservation.vendorId, v));
     expect(prices).toEqual([]);
-    // A box line is the box's, at 0.11 a screw.
-    const r2 = await register(
+    // Nor is a box line that doesn't state its size (its own name is never read); one that
+    // states 100 a box is the box's, at 0.11 a screw.
+    const r1 = await register(
       { description: text, qty: "2", uom: "BX", unitPrice: "11.00" },
       "2026-11-04",
+    );
+    expect(r1.lines[0]?.vendorItemId).toBeNull();
+    expect((await byId(box?.id))?.ext).not.toHaveProperty("unitWord");
+    const r2 = await register(
+      { description: `${text} BOX OF 100`, qty: "2", uom: "BX", unitPrice: "11.00" },
+      "2026-11-05",
     );
     expect(r2.lines[0]?.vendorItemId).toBe(box?.id);
     const [obs] = await t.db
@@ -1062,8 +1092,8 @@ describe.skipIf(!online)("the vendor catalog's tools", () => {
     expect(obs?.unitPriceStd).toBe("0.1100");
     expect(await byId(box?.id)).toMatchObject({ lastPrice: "11.0000", ext: { unitWord: "box" } });
 
-    // An older item whose own words say nothing: a line that states the item's pack size in its
-    // own word gives it that word; one that doesn't is no match.
+    // A line that states the item's pack size in its own word gives it that word; one that
+    // doesn't is no match.
     const w = await shop.vendor("Plain Name Supply");
     const tens = await item(shop, "#10 X 2 WOOD SCREW");
     const [plain] = await t.db
@@ -1125,6 +1155,257 @@ describe.skipIf(!online)("the vendor catalog's tools", () => {
       stdPerVendorUom: "100.0000",
       listPrice: "9.0000",
       ext: { unitWord: "box" },
+    });
+  });
+
+  // An older item: a box, case or pail vendor item without a SKU, recorded before its word was
+  // kept. It takes a line only when the line states its very pack size.
+  const olderItem = async (
+    shop: ShopFixture,
+    vendorId: string,
+    catalogItemId: string,
+    f: { name: string; stdPerVendorUom: string; packSize?: string; lastPrice?: string },
+  ) => {
+    const [row] = await t.db
+      .insert(vendorItem)
+      .values({
+        tenantId: shop.tenantId,
+        vendorId,
+        catalogItemId,
+        name: f.name,
+        packSize: f.packSize ?? null,
+        vendorUom: "pack",
+        stdPerVendorUom: f.stdPerVendorUom,
+        ...(f.lastPrice
+          ? {
+              lastPrice: f.lastPrice,
+              lastPriceStd: dec(f.lastPrice).dividedBy(f.stdPerVendorUom).toFixed(4),
+              lastPriceOn: "2026-10-01",
+            }
+          : {}),
+      })
+      .returning();
+    if (!row) throw new Error("no vendor item");
+    return row;
+  };
+  const vendorItemRow = async (id: string) =>
+    (await t.db.select().from(vendorItem).where(eq(vendorItem.id, id)))[0];
+  const registerOne = async (
+    shop: ShopFixture,
+    vendorId: string,
+    catalogItemId: string,
+    line: InvoiceLine,
+    date: string,
+  ) => {
+    const d = await shop.invoiceDoc(vendorId, [line], { date });
+    return registerLines(t.db, {
+      tenantId: shop.tenantId,
+      agentVersionId: shop.agentVersionId,
+      documentId: d.documentId,
+      vendorId,
+      lines: [decided(1, line.description, { decision: "matched", catalogItemId })],
+      testRun: false,
+    });
+  };
+
+  it("never reads an older case item's word from its own name: a box line stating no size isn't it", async () => {
+    const shop = await insertShop(t.db, "Millwork S");
+    const v = await shop.vendor("Fastener Supply");
+    const text = "#8 X 1-1/4 WOOD SCREW";
+    const screws = await item(shop, text);
+    const kase = await olderItem(shop, v, screws, {
+      name: "#8 SCREW 100/BX 10 BX/CS",
+      stdPerVendorUom: "1000",
+      lastPrice: "80.0000",
+    });
+    const forUnit = (unitRaw: string, lineText: string) =>
+      withTenant(t.db, shop.tenantId, (tx) =>
+        vendorItemForUnit(tx, shop.tenantId, {
+          vendorId: v,
+          catalogItemId: screws,
+          unitRaw,
+          lineText,
+        }),
+      );
+    expect(await forUnit("BX", text)).toBeNull();
+    expect(await forUnit("CS", text)).toBeNull();
+    const r = await registerOne(
+      shop,
+      v,
+      screws,
+      { description: text, qty: "2", uom: "BX", unitPrice: "9.00" },
+      "2026-11-03",
+    );
+    expect(r.lines[0]?.vendorItemId).toBeNull();
+    expect(r.lines[0]?.observationId).toBeNull();
+    expect(r.lines[0]?.note).toMatch(/^filed under no vendor item: .*pack size of 1000/);
+    const after = await vendorItemRow(kase.id);
+    expect(after).toMatchObject({ lastPrice: "80.0000", stdPerVendorUom: "1000.0000" });
+    expect(after?.ext).not.toHaveProperty("unitWord");
+    // A case line that states its 1000 is the case's, at 0.08 a screw, and gives it its word.
+    const r2 = await registerOne(
+      shop,
+      v,
+      screws,
+      { description: `${text} 1000/CS`, qty: "1", uom: "CS", unitPrice: "80.00" },
+      "2026-11-04",
+    );
+    expect(r2.lines[0]?.vendorItemId).toBe(kase.id);
+    const [obs] = await t.db
+      .select()
+      .from(priceObservation)
+      .where(eq(priceObservation.id, r2.lines[0]?.observationId ?? ""));
+    expect(obs?.unitPriceStd).toBe("0.0800");
+    expect((await vendorItemRow(kase.id))?.ext).toMatchObject({ unitWord: "case" });
+  });
+
+  it("takes a line for an older item made with a pack size only when the line states that size", async () => {
+    const shop = await insertShop(t.db, "Millwork T");
+    const v = await shop.vendor("Main Era Supply");
+    const text = "#8 X 1-1/4 WOOD SCREW";
+    const screws = await item(shop, text);
+    // As an earlier Register item made it: the line's text, `<pack> per <unit>`, no word.
+    const old = await olderItem(shop, v, screws, {
+      name: `${text} 100/BX`,
+      packSize: "100 per pack",
+      stdPerVendorUom: "100",
+      lastPrice: "9.0000",
+    });
+    const r = await registerOne(
+      shop,
+      v,
+      screws,
+      { description: text, qty: "2", uom: "BX", unitPrice: "11.00" },
+      "2026-11-03",
+    );
+    expect(r.lines[0]?.vendorItemId).toBeNull();
+    expect(r.lines[0]?.note).toMatch(/pack size of 100\b.*this line states none/);
+    expect((await vendorItemRow(old.id))?.lastPrice).toBe("9.0000");
+    const r2 = await registerOne(
+      shop,
+      v,
+      screws,
+      { description: `${text} 100/BX`, qty: "2", uom: "BX", unitPrice: "11.00" },
+      "2026-11-04",
+    );
+    expect(r2.lines[0]).toMatchObject({ vendorItemId: old.id, note: null, priceSkipped: null });
+    expect(await vendorItemRow(old.id)).toMatchObject({
+      lastPrice: "11.0000",
+      ext: { unitWord: "box" },
+    });
+  });
+
+  it("never lets a price list row move a box item to another pack, by its wording or its unit", async () => {
+    const shop = await insertShop(t.db, "Millwork U");
+    const text = "#8 X 1-1/4 WOOD SCREW";
+    const screws = await item(shop, text);
+    const importRows = (vendorId: string, rows: unknown[]) =>
+      importPriceList(t.db, {
+        tenantId: shop.tenantId,
+        vendorId,
+        listPriceOn: "2026-11-10",
+        by: { agentVersionId: shop.agentVersionId },
+        testRun: false,
+        rows,
+      } as never);
+    // By the vendor's wording: Register item made a box of 100 from an invoice line.
+    const v = await shop.vendor("Alias Supply");
+    const r = await registerOne(
+      shop,
+      v,
+      screws,
+      { description: `${text} 100/BX`, qty: "2", uom: "BX", unitPrice: "9.00" },
+      "2026-11-03",
+    );
+    const boxId = r.lines[0]?.vendorItemId ?? "";
+    const box = await vendorItemRow(boxId);
+    expect(box).toMatchObject({ stdPerVendorUom: "100.0000", ext: { unitWord: "box" } });
+    const kaseRow = { name: `${text} 100/BX`, vendorUom: "CS", stdPerVendorUom: "1000" };
+    const i1 = await importRows(v, [{ ...kaseRow, listPrice: "80.00" }]);
+    expect(i1.rows[0]).toMatchObject({ outcome: "skipped", vendorItemId: null });
+    expect(i1.rows[0]?.reason).toMatch(/box, not this case/);
+    expect(await vendorItemRow(boxId)).toEqual(box);
+    const i2 = await importRows(v, [
+      { name: `${text} 100/BX`, vendorUom: "BX", stdPerVendorUom: "100", listPrice: "9.50" },
+    ]);
+    expect(i2.rows[0]).toMatchObject({ outcome: "updated", vendorItemId: boxId });
+    expect(await vendorItemRow(boxId)).toMatchObject({
+      stdPerVendorUom: "100.0000",
+      listPrice: "9.5000",
+      ext: { unitWord: "box" },
+    });
+    // An older box item without a word: a case row is skipped, a row of its own size is taken.
+    const w = await shop.vendor("Older Supply");
+    const old = await olderItem(shop, w, screws, {
+      name: "#8 SCREW 100/BX",
+      stdPerVendorUom: "100",
+      lastPrice: "9.0000",
+    });
+    const i3 = await importRows(w, [
+      {
+        name: "#8 SCREW 1000/CS",
+        vendorUom: "CS",
+        stdPerVendorUom: "1000",
+        listPrice: "80.00",
+        catalogItemId: screws,
+      },
+    ]);
+    expect(i3.rows[0]).toMatchObject({ outcome: "skipped", vendorItemId: null });
+    expect(i3.rows[0]?.reason).toMatch(/pack size of 100\b/);
+    expect(await vendorItemRow(old.id)).toEqual(old);
+    const i4 = await importRows(w, [
+      {
+        name: "#8 SCREW 100/BX",
+        vendorUom: "BX",
+        stdPerVendorUom: "100",
+        listPrice: "9.50",
+        catalogItemId: screws,
+      },
+    ]);
+    expect(i4.rows[0]).toMatchObject({ outcome: "updated", vendorItemId: old.id });
+    expect(await vendorItemRow(old.id)).toMatchObject({
+      stdPerVendorUom: "100.0000",
+      listPrice: "9.5000",
+      ext: { unitWord: "box" },
+    });
+  });
+
+  it("gives a quote's price to an older box item when the quote's line states its pack size", async () => {
+    const shop = await insertShop(t.db, "Millwork V");
+    const v = await shop.vendor("Quote Supply");
+    const text = "#8 X 1-1/4 WOOD SCREW";
+    const screws = await item(shop, text);
+    const old = await olderItem(shop, v, screws, { name: "#8 WOOD SCREW", stdPerVendorUom: "100" });
+    const c = ctx(shop, t.db);
+    const req = (await requestCreate.run(
+      { channel: "email", lines: [{ description: text, qty: "500", unit: "EA" }] },
+      c,
+    )) as J;
+    const lineId = req.request.lines[0].id as string;
+    await t.db
+      .update(purchaseRequestLine)
+      .set({ catalogItemId: screws })
+      .where(eq(purchaseRequestLine.id, lineId));
+    const quotes = (await quoteCreate.run({ requestId: req.request.id, vendorIds: [v] }, c)) as J;
+    await quoteRecord.run(
+      {
+        quoteRequestId: quotes.quotes[0].id,
+        lines: [
+          {
+            requestLineId: lineId,
+            unit: "BX",
+            unitPrice: "9.50",
+            qty: "5",
+            description: `${text} 100/BX`,
+          },
+        ],
+      },
+      c,
+    );
+    expect(await vendorItemRow(old.id)).toMatchObject({
+      lastPrice: "9.5000",
+      lastPriceStd: "0.0950",
+      lastPriceSource: "quote",
     });
   });
 

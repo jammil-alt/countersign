@@ -7,19 +7,22 @@
 // calls a model; the embeddings step after it embeds what it made or re-worded.
 
 import { parseCsv } from "@countersign/connectors";
-import { toNumeric } from "@countersign/core";
+import { dec, toNumeric } from "@countersign/core";
 import { type Db, type Tx, vendor, withTenant } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import { descriptionHash, normalize } from "../catalog/normalize";
 import { identifyingSku, liveItem } from "../catalog/store";
-import { readUom, unitWord } from "../pricing/uom";
+import { PACKAGING_UOMS, readUom, unitWord } from "../pricing/uom";
 import {
   cleanSku,
   createVendorItem,
   readTolerance,
+  recordedWord,
+  sameSize,
   updateVendorItem,
   type VendorItemCreator,
   VendorItemError,
+  type VendorItemRow,
   vendorAlias,
   vendorItemBySku,
 } from "./store";
@@ -116,6 +119,40 @@ export interface ImportResult {
   /** Vendor items made, or whose name or description changed: the embeddings step's input. */
   vendorItemIds: string[];
   testRun: boolean;
+}
+
+/**
+ * Why a row found by its wording or by its master item is not `item` because it is another pack
+ * (a case row on the box), or null when it is the item. A row reached by its SKU is the item.
+ */
+// DECISION (fourth review of fix/materials, finding 3): a row never moves a box, case or pail
+// item to another pack (its size, word or list price). An item recorded in a word takes only a
+// row in that word; one without a word (`isOlderItem`) only a row whose size per unit is its own,
+// as a line must state it (`effectiveWord`); and no row moves an item from one unit to another when
+// either is a pack. Such a row is skipped with its reason.
+function anotherPack(
+  item: VendorItemRow,
+  row: { vendorUom: string | undefined; word: string | null; stdPer: string | null },
+): string | null {
+  const itemPacked = item.vendorUom !== null && PACKAGING_UOMS.has(item.vendorUom);
+  const rowPacked = row.vendorUom !== undefined && PACKAGING_UOMS.has(row.vendorUom);
+  if (!itemPacked && !rowPacked) return null;
+  if (row.vendorUom !== undefined && item.vendorUom !== null && row.vendorUom !== item.vendorUom) {
+    return `the vendor's item for it is in ${item.vendorUom}, not this ${row.word ?? row.vendorUom}: give the row its SKU`;
+  }
+  if (!itemPacked) return null;
+  const word = recordedWord(item);
+  if (word !== null) {
+    return row.word === word
+      ? null
+      : `the vendor's item for it is its ${word}, not this ${row.word ?? "row without a unit"}: give the row its SKU`;
+  }
+  // An older item (`isOlderItem`), or one reached by its wording with a SKU but no word.
+  if (sameSize(item, row.stdPer)) return null;
+  const size = item.stdPerVendorUom
+    ? `its pack size of ${dec(item.stdPerVendorUom).toString()}`
+    : "its pack size (none is recorded)";
+  return `the vendor's item for it was recorded before its unit's word was kept, so it takes only a row that states ${size} per unit, and this row states ${row.stdPer ? dec(row.stdPer).toString() : "none"}: give the row its SKU or that size`;
 }
 
 class RollBack extends Error {
@@ -259,6 +296,17 @@ export async function importPriceListRows(
       const live = await liveItem(tx, tenantId, r.catalogItemId.trim());
       catalogItemId = live?.id ?? null;
     }
+    const rowPack = {
+      vendorUom,
+      word: vendorUom ? unitWord(r.vendorUom) : null,
+      stdPer: stdPer && stdPer !== "0.0000" ? stdPer : null,
+    };
+    // By its wording, the vendor's item may be another pack than the row's (`anotherPack`).
+    const aliasMismatch = item && !(sku && item.sku === sku) ? anotherPack(item, rowPack) : null;
+    if (aliasMismatch) {
+      skip(aliasMismatch);
+      continue;
+    }
     if (item) {
       const before = { name: item.name, description: item.description };
       const updated = await updateVendorItem(tx, tenantId, item.id, {
@@ -296,15 +344,13 @@ export async function importPriceListRows(
       { ...fields, vendorId, catalogItemId, sku, name },
       input.by,
     );
-    // DECISION (third review of fix/materials, finding 7): a row that lands on the vendor's item
-    // without a SKU in the same unit but another word (a case on the box) is that other item, not
-    // this one: it is skipped with the reason rather than written over the box.
-    const existingWord = (made.item.ext as { unitWord?: unknown } | null)?.unitWord;
-    const rowWord = unitWord(r.vendorUom);
-    if (!made.created && typeof existingWord === "string" && rowWord && existingWord !== rowWord) {
-      skip(
-        `the vendor's item without a SKU in this unit is its ${existingWord}, not this ${rowWord}: give the row its SKU`,
-      );
+    // DECISION (third review of fix/materials, finding 7, with the fourth's finding 3): a row
+    // that lands on the vendor's item without a SKU in the same unit but another pack (a case on
+    // the box, or on an older item of another size) is that other item, not this one: it is
+    // skipped with the reason rather than written over the box (`anotherPack`).
+    const mismatch = made.created ? null : anotherPack(made.item, rowPack);
+    if (mismatch) {
+      skip(mismatch);
       continue;
     }
     if (made.created) {
