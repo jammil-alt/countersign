@@ -2,7 +2,7 @@
 
 **Status (2026-11-17): built, not merged.** The owner asked for it built on 2026-11-17. It is on
 two stacked draft PRs: the migrations (0061–0064, PR #380, `claude/ops-work-migrations-szb740`)
-and the code on top of it (`claude/ops-work-szb740`): Build, Sales, Your call, and Reggie with
+and the code on top of it (PR #383, `claude/ops-work-szb740`): Build, Sales, Your call, and Reggie with
 Autopilot and `support@`/`hello@` email, all against fakes. Neither is to be merged until the
 owner says so. The decisions are `docs/plan.md` §1.123 (the §7 questions are answered there),
 the milestones M64–M68. The text below is the plan as agreed; its "nothing here is built" is

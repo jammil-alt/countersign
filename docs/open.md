@@ -173,7 +173,7 @@ then one pass of its "To verify" list against the real service.
 One to-do list (Your call), Sales (new accounts and expansion) and Build (issues, agent builds and
 enhancements in one work order), with Reggie doing most of the work. Built on two stacked draft
 PRs, neither merged: the migrations (0061–0064, PR #380) and the code on top of it
-(`claude/ops-work-szb740`). Waiting on the owner to try it on staging and say when to merge.
+(PR #383, `claude/ops-work-szb740`). Waiting on the owner to try it on staging and say when to merge.
 Decisions: `docs/plan.md` §1.123 (M64–M68); the plan: `docs/cases-plan.md`; the screens:
 `docs/design/pipelines.html` and `docs/design/workflows.html`. What each stream left open is in
 its "Not yet" row in §1.123.1–§1.123.4.
