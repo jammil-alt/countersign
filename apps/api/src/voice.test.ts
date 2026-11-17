@@ -98,6 +98,17 @@ describe.skipIf(!h)("voice typing", () => {
     expect([failed.status, failed.json.error?.code]).toEqual([502, "voice_failed"]);
   });
 
+  it("counts only recordings it sends: a refused one uses none of the allowance", async () => {
+    for (let i = 0; i < 10; i++) {
+      const bad = await post(admin("c"), "/api/transcribe", AUDIO, "image/jpeg");
+      expect(bad.json.error?.code).toBe("not_audio");
+    }
+    const empty = await post(admin("c"), "/api/transcribe", new Uint8Array(), "audio/ogg");
+    expect(empty.json.error?.code).toBe("empty");
+    const ok = await post(admin("c"), "/api/transcribe", AUDIO);
+    expect(ok.status, JSON.stringify(ok.json)).toBe(200);
+  });
+
   it("limits each person's recordings in the portal: 10 a minute, sent at once or not", async () => {
     const before = heard.length;
     const sent = await Promise.all(

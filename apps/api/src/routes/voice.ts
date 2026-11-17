@@ -110,19 +110,7 @@ export function voiceRoutes(app: Hono<AppEnv>): void {
   mountLong(app, routes.portalTranscribe, async (ctx) => {
     const clientId = ctx.tenantIds[0];
     if (!clientId) throw new HttpError(403, "forbidden", "no client");
-    const settings = await ctx.inTx(async (scoped) => {
-      const out = await refuseUncovered(scoped.tx, ctx.services, clientId);
-      // Audit 5.9: each person's recordings are limited per minute and per day (../metered.ts).
-      // DECISION: claimed once the recording is known to be sendable to OpenAI and before it is
-      // read, so a refused one costs nothing and an over-limit one is never uploaded.
-      await claimMetered(scoped.tx, ctx.c, {
-        kind: "transcribe",
-        tenantId: clientId,
-        session: ctx.session,
-        role: ctx.role,
-      });
-      return out;
-    });
+    const settings = await ctx.inTx((scoped) => refuseUncovered(scoped.tx, ctx.services, clientId));
     // The language the person reads in (theirs, else the client's, else the browser's) helps
     // the model hear it right. DECISION: the back office leaves it to the model to detect.
     const locale = resolveLocale({
@@ -131,6 +119,19 @@ export function voiceRoutes(app: Hono<AppEnv>): void {
       browser: parseAcceptLanguage(ctx.c.req.header("accept-language")),
     });
     const t = transcriberOf(ctx.services);
-    return writeOut(t, await readRecording(ctx.c), locale.slice(0, 2));
+    const recording = await readRecording(ctx.c);
+    // Audit 5.9: each person's recordings are limited per minute and per day (../metered.ts).
+    // DECISION: claimed once the recording is known to be one we would send (the client covered,
+    // voice typing set up, the recording's type and size right) and just before it goes to
+    // OpenAI, so only a recording that is sent uses the allowance.
+    await ctx.inTx((scoped) =>
+      claimMetered(scoped.tx, ctx.c, {
+        kind: "transcribe",
+        tenantId: clientId,
+        session: ctx.session,
+        role: ctx.role,
+      }),
+    );
+    return writeOut(t, recording, locale.slice(0, 2));
   });
 }

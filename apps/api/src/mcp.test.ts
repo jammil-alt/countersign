@@ -1010,11 +1010,12 @@ describe.skipIf(!h)("MCP server", () => {
     });
   });
 
-  it("audits a refused sign-in: no token, a bad token, an unknown user; never the token", async () => {
+  it("audits a refused sign-in: a bad token, an unknown user; never the token, never a tokenless ask", async () => {
     const ping = { jsonrpc: "2.0", id: 1, method: "ping" };
     const signIns = () =>
       H.t.db.select().from(auditEvent).where(eq(auditEvent.action, "mcp.sign_in"));
     const before = new Set((await signIns()).map((r) => r.id));
+    // No token at all is a client finding out where to sign in, as a signed-out browser: no row.
     expect((await post(null, ping)).status).toBe(401);
     const bad = await token(WORKOS.operator, { key: stranger.privateKey });
     expect((await post(bad, ping)).status).toBe(401);
@@ -1024,16 +1025,33 @@ describe.skipIf(!h)("MCP server", () => {
       .sort((a, b) => (a.id < b.id ? -1 : 1));
     expect(
       rows.map((r) => [r.outcome, r.httpStatus, (r.target as { reason: string }).reason]),
-    ).toEqual(
-      expect.arrayContaining([
-        ["refused", 401, "no_token"],
-        ["refused", 401, "invalid_token"],
-        ["refused", 403, "unknown_user"],
-      ]),
-    );
+    ).toEqual([
+      ["refused", 401, "invalid_token"],
+      ["refused", 403, "unknown_user"],
+    ]);
     for (const r of rows) {
       expect(r.actorKind).toBe("anonymous");
       expect(JSON.stringify(r)).not.toContain(bad.slice(0, 40));
+    }
+  });
+
+  it("writes refused sign-in rows for one address only up to its limit", async () => {
+    const saved = limiter;
+    limiter = memoryRateLimiter(2);
+    try {
+      const ping = { jsonrpc: "2.0", id: 1, method: "ping" };
+      const signIns = () =>
+        H.t.db.select().from(auditEvent).where(eq(auditEvent.action, "mcp.sign_in"));
+      const before = new Set((await signIns()).map((r) => r.id));
+      const from = { "cf-connecting-ip": "203.0.113.9" };
+      for (let i = 0; i < 4; i++) expect((await post("junk", ping, from)).status).toBe(401);
+      const rows = (await signIns()).filter((r) => !before.has(r.id));
+      expect(rows).toHaveLength(2);
+      // Another address has its own allowance.
+      expect((await post("junk", ping, { "cf-connecting-ip": "203.0.113.10" })).status).toBe(401);
+      expect((await signIns()).filter((r) => !before.has(r.id))).toHaveLength(3);
+    } finally {
+      limiter = saved;
     }
   });
 

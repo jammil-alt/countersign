@@ -1,8 +1,8 @@
 // The MCP server's audit trail (docs/plan.md §1.34, §1.89, §1.35): one entry per tool call, under
 // the signed-in person's name, with the tool, its arguments (a confirm token only as "[token]"), the
 // outcome and the time it took. Each entry is an `audit_event` row (`mcp.tool_call <tool>`), as
-// every other read and write on a person's behalf is; a sign-in the server refuses is one too
-// (`mcp.sign_in`, refused).
+// every other read and write on a person's behalf is; a sign-in the server refuses with a token is
+// one too (`mcp.sign_in`, refused), up to a per-address limit (./routes.ts).
 //
 // A write also leaves what the back office's own write leaves (feedback's `resolved_by`), so the
 // database says who did it either way; the row says it was through the MCP server.

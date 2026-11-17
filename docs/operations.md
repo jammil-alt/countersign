@@ -1081,7 +1081,8 @@ minutes by default; nothing here refreshes them). Every tool call is a row in th
 (`mcp.tool_call <tool>`), with the person, the client it named, `audience` (`ops` or `client`),
 the arguments that are ids (never a confirm token or free text) and the outcome; each read or
 write it makes is also a row (`mcp GET /api/…`, or `mcp tool <tool>` where no route answers it),
-and a refused sign-in (no token, a bad one, no Mezonas account or client) is `mcp.sign_in`.
+and a refused sign-in (a bad token, no Mezonas account or client; not a request with no token,
+and at most 120 a minute per IP) is `mcp.sign_in`.
 
 Locally the MCP server is off (`WORKOS_AUTHKIT_DOMAIN` is empty in `wrangler.jsonc`); the tests in
 `apps/api/src/mcp.test.ts` run it against a fake AuthKit.

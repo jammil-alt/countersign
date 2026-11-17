@@ -312,7 +312,15 @@ export function mcpRoutes(app: Hono<AppEnv>, deps: AppDeps): void {
     );
     if (!auth.ok) {
       // A refused sign-in is audited too (§1.35), with why and never the token.
-      await auditRefusedSignIn(c.get("req").services().db, c, auth.refusal);
+      // DECISION: not a request with no token at all (every client's first ask, as `mount` leaves
+      // a signed-out browser's unaudited), and the rest only up to a per-address limit, so nobody
+      // can fill the audit log by sending junk: past it the refusal is answered, not written.
+      if (auth.refusal.reason !== "no_token") {
+        const ip = c.req.header("cf-connecting-ip") ?? "unknown";
+        if (await mcp.rateLimiter(c.env).allow(`ip:${ip}`)) {
+          await auditRefusedSignIn(c.get("req").services().db, c, auth.refusal);
+        }
+      }
       return auth.response;
     }
     const { session } = auth;
