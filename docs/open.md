@@ -103,6 +103,15 @@ its payout statement, signed off on a card). To go live:
 | K7 | Fluent review of the Bookkeeping portal words (one block per language, the reconciliation block too). | |
 | K8 | Check QuickBooks' register (`qbo/NOTES.md`, "The register, for reconciliation") and Plaid's balances (`bankfeed/NOTES.md`) in their sandboxes, then reconcile one Sandbox month by hand: the Bookkeeper's "Every month" workflow, run now. | Migration 0040 applied. |
 
+## 1c. Sloan and Reggie by email and text (`docs/plan.md` §1.124)
+
+Sloan is built: each client's people email `sloan.<client>-<id>@in.<env>.mezonas.com` and text the
+account's number, and the answer comes back the same way. To use it on staging: Email Routing for
+the forwarding domain (§1 P1), Resend for the answers (§1 P2), and for texts the client's Twilio
+number with its texting registration approved and the person signed up for texts. Open for the
+owner: whether Sloan may pause a service on a text (Twilio doesn't prove the sender). **Reggie** by
+email and text is planned (§1.124), its own PR: it needs Mezonas' own number and campaign.
+
 ## 2. The marketing site (mezonas.com)
 
 This session's network can't reach `mezonas.com`, so whether it is live is **not checked here**.

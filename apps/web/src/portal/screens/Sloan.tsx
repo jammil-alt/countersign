@@ -392,6 +392,8 @@ function SloanRail() {
   const isAdmin = role === "client_admin";
   const inbox = useApi(apiRoutes.portalInbox, { query: { status: "open" } });
   const overview = useApi(apiRoutes.portalOverview);
+  // §1.124: Sloan's own address and the account's number, where they're set up.
+  const reach = useApi(apiRoutes.portalSloanReach);
   const changes = (inbox.data?.items ?? []).filter(isAccountChangeItem);
 
   return (
@@ -449,6 +451,42 @@ function SloanRail() {
           ))}
         </Card>
       </Section>
+
+      {reach.data && (reach.data.email || reach.data.phone) ? (
+        <Section title={t("sloan.reach.title")}>
+          <Card testId="portal-sloan-reach">
+            {reach.data.email ? (
+              <ActivityRow badge={<Icon name="email" className="text-ink-muted" />}>
+                <span className="text-sm">
+                  {t("sloan.reach.email")}{" "}
+                  <a
+                    href={`mailto:${reach.data.email}`}
+                    className="text-link hover:underline break-all"
+                    data-testid="portal-sloan-reach-email"
+                  >
+                    {reach.data.email}
+                  </a>
+                </span>
+              </ActivityRow>
+            ) : null}
+            {reach.data.phone ? (
+              <ActivityRow badge={<Icon name="message" className="text-ink-muted" />}>
+                <span className="text-sm">
+                  {t("sloan.reach.text")}{" "}
+                  <a
+                    href={`sms:${reach.data.phone}`}
+                    className="text-link hover:underline"
+                    data-testid="portal-sloan-reach-phone"
+                  >
+                    {reach.data.phone}
+                  </a>
+                </span>
+              </ActivityRow>
+            ) : null}
+            <p className="text-sm text-ink-muted">{t("sloan.reach.note")}</p>
+          </Card>
+        </Section>
+      ) : null}
 
       {overview.data && overview.data.services.length > 0 ? (
         <Section title={t("sloan.team")}>

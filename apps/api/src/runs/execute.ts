@@ -91,6 +91,8 @@ import {
 } from "@countersign/workflows";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { dbReleasePort, type ReleaseDeps, releaseDepsFromEnv } from "../access/release";
+// §1.124: Sloan by email and text
+import { deliveringThreads } from "../account/answer";
 // v0.12 W2-D
 import { accountViews } from "../account/views";
 import { browserRunOpener } from "../browser/driver";
@@ -168,6 +170,9 @@ export interface RunDeps {
   // §1.121
   /** Where form links point and what signs them; absent: `forms.request` sends nothing. */
   forms?: FormLinks;
+  // §1.124
+  /** EMAIL_FORWARDING_DOMAIN: Sloan's address, for its answers by email; absent: none by email. */
+  forwardingDomain?: string | null;
 }
 
 /**
@@ -287,6 +292,8 @@ export function runDepsFromEnv(
     },
     // §1.121: form links on the app's own origin, signed with the Worker's key.
     forms: { origin: originOf(env), env },
+    // §1.124: Sloan's answers by email name its address to reply to.
+    forwardingDomain: env.EMAIL_FORWARDING_DOMAIN?.trim() || null,
   };
 }
 
@@ -355,30 +362,42 @@ export function runtimeFor(
   options: { collect?: EventRow[]; testRun?: boolean } = {},
 ): RuntimeDeps {
   const { db } = deps;
-  return {
-    ports: createDbPorts(db, {
-      connectorName: (id) => deps.platform.connectors.get(id)?.manifest.name ?? id,
-      emit: senseEmitter(deps.platform.events, {
-        ...(options.collect ? { collect: options.collect } : {}),
-        testRun: options.testRun === true,
-      }),
-      ...(deps.documents ? { documents: { ...deps.documents, transport: deps.transport } } : {}),
-      ...(deps.release
-        ? { release: dbReleasePort(deps.now ? { ...deps.release, now: deps.now } : deps.release) }
-        : {}),
-      // v0.12 W1-E: every model call of a run, with its body when storage is there.
-      modelCalls: dbModelCalls(deps.db, {
-        bodies: deps.modelCallBodies ?? null,
-        ...(deps.now ? { now: deps.now } : {}),
-      }),
-      // v0.12 W2-D: Sloan reads and writes the account through the portal's own code.
-      account: accountViews(deps.platform),
-      // P-7: `comms.translate` on the run's transport (held to the client's HIPAA mode by
-      // forClient), docs/plan.md §1.69.
-      translation: { transport: deps.transport, ...(deps.now ? { now: deps.now } : {}) },
-      // §1.77: web research on the same transport, when the deployment has it on.
-      ...(deps.webResearch ? { webResearch: { transport: deps.transport } } : {}),
+  const ports = createDbPorts(db, {
+    connectorName: (id) => deps.platform.connectors.get(id)?.manifest.name ?? id,
+    emit: senseEmitter(deps.platform.events, {
+      ...(options.collect ? { collect: options.collect } : {}),
+      testRun: options.testRun === true,
     }),
+    ...(deps.documents ? { documents: { ...deps.documents, transport: deps.transport } } : {}),
+    ...(deps.release
+      ? { release: dbReleasePort(deps.now ? { ...deps.release, now: deps.now } : deps.release) }
+      : {}),
+    // v0.12 W1-E: every model call of a run, with its body when storage is there.
+    modelCalls: dbModelCalls(deps.db, {
+      bodies: deps.modelCallBodies ?? null,
+      ...(deps.now ? { now: deps.now } : {}),
+    }),
+    // v0.12 W2-D: Sloan reads and writes the account through the portal's own code.
+    account: accountViews(deps.platform),
+    // P-7: `comms.translate` on the run's transport (held to the client's HIPAA mode by
+    // forClient), docs/plan.md §1.69.
+    translation: { transport: deps.transport, ...(deps.now ? { now: deps.now } : {}) },
+    // §1.77: web research on the same transport, when the deployment has it on.
+    ...(deps.webResearch ? { webResearch: { transport: deps.transport } } : {}),
+  });
+  // §1.124: Sloan's answer to a person who wrote by email or text goes back that way.
+  if (deps.notify && ports.threads) {
+    ports.threads = deliveringThreads(ports.threads, {
+      db,
+      mailer: deps.notify.mailer,
+      texter: deps.notify.texter,
+      origin: deps.notify.origin,
+      domain: deps.forwardingDomain ?? null,
+      ...(deps.covered ? { covered: deps.covered } : {}),
+    });
+  }
+  return {
+    ports,
     tools: deps.platform.tools,
     catalog: deps.platform.catalog,
     transport: deps.transport,

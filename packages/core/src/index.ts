@@ -7,6 +7,8 @@
 // v0.12 W2-D: Sloan, the account agent
 export * from "./account/changes";
 export * from "./account/guard";
+// §1.124: Sloan by email and text
+export * from "./account/reach";
 export * from "./account/views";
 export * from "./account/words";
 export * from "./api/a2p";
@@ -98,6 +100,8 @@ export * from "./api/second-factor";
 export * from "./api/skill-model";
 // v0.14 W4-C: the Slack channel picker
 export * from "./api/slack";
+// §1.124
+export * from "./api/sloan-reach";
 export * from "./api/step-data";
 // P-6
 export * from "./api/step-in";

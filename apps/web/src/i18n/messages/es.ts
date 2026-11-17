@@ -2083,6 +2083,11 @@ export const es: Messages = {
   "sloan.mezonas": "Mezonas",
   "sloan.changes": "Esperando por usted: cambios en su cuenta",
   "sloan.adminSigns": "Su administrador aprueba los cambios en su cuenta.",
+  "sloan.reach.title": "Escribe a Sloan por correo o mensaje",
+  "sloan.reach.email": "Correo",
+  "sloan.reach.text": "Mensaje",
+  "sloan.reach.note":
+    "Las respuestas llegan por donde escribiste y también aparecen aquí. Los mensajes llegan a Sloan desde el número con el que te registraste para recibir mensajes.",
   "sloan.canTitle": "Sloan puede",
   "sloan.can.see": "Ver el trabajo, las ejecuciones y los comprobantes de cada agente",
   "sloan.can.pause": "Pausar o reanudar un agente al momento",

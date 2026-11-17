@@ -30,6 +30,7 @@ import {
 import {
   type ConversationCapture,
   captureAllows,
+  inboundText,
   redactCardNumbers,
   routes,
   TWIML_EMPTY,
@@ -40,6 +41,14 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
 import { consumeTextReply, type Wake, wakeRelease } from "../access/release";
+// §1.124: Sloan by text
+import {
+  isAccountTextLine,
+  postToSloan,
+  sloanIsOn,
+  sloanTextSender,
+  waitedOnByAnAgent,
+} from "../account/reach";
 // v0.14 capture: WhatsApp conversations and their attachments
 import {
   type ConversationRow,
@@ -353,6 +362,19 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
         // triggers (`inbound.message`), or gets the polite reply (docs/plan.md §1.48). Keywords
         // (STOP, START, HELP) are never requests.
         if (!keyword) {
+          // §1.124: a text to the account's number from one of the client's people, signed up
+          // for texts, that no agent takes and no agent waits on, is theirs to Sloan.
+          const sloanPerson =
+            msg.channel === "sms" &&
+            knownContact &&
+            archive &&
+            msg.text.trim() !== "" &&
+            (await isAccountTextLine(tx, tenantId, row.id)) &&
+            !(await waitedOnByAnAgent(tx, tenantId, contactRow.id)) &&
+            (await sloanIsOn(tx, tenantId))
+              ? await sloanTextSender(tx, tenantId, contactRow)
+              : null;
+          const taken = { value: false };
           replies = await routeInboundText(tx, {
             tenantId,
             connectionId: row.id,
@@ -368,7 +390,22 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
             collect,
             // v0.14 capture: the conversation's agent hears of the message after its downloads.
             skipAgentId: setting && kept ? captureAgentOf(setting, kept.wanted) : null,
+            sloanTakesTheRest: sloanPerson !== null,
+            taken,
           });
+          if (sloanPerson && !taken.value) {
+            await postToSloan(tx, {
+              tenantId,
+              person: sloanPerson,
+              channel: "sms",
+              // Card numbers redacted, as an agent's inbound text is read.
+              text: inboundText(msg.text),
+              // The number written to: Sloan's answer goes back from it.
+              extra: { sms: { connectionId: row.id, to: msg.to } },
+              registry: services.platform.events,
+              collect,
+            });
+          }
         }
       });
       if (collect.length > 0) {

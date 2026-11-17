@@ -128,6 +128,17 @@ export const TEXT_INVITE_FEATURE = {
 } as const;
 
 /**
+ * Sloan by email (docs/plan.md §1.124): Sloan's answer to a person who emailed it goes back by
+ * Mezonas' own mail, so its words reach Resend. A client in HIPAA mode gets the answer only in the
+ * portal until `resend` is covered. Texts go through the client's Twilio, as every text does.
+ */
+export const SLOAN_EMAIL_FEATURE = {
+  id: "sloan.email",
+  what: "Sloan's answers by email",
+  processors: ["resend"] as readonly Processor[],
+} as const;
+
+/**
  * Voice typing in conversations (the owner, 2026-11-15): what a person dictates is sent to OpenAI
  * to be written out, then put in their message box to read before it goes. A client in HIPAA mode
  * is refused it until `openai` is covered, as its OpenAI model calls are.

@@ -16,6 +16,7 @@ import {
   TWILIO_CONNECTOR_ID,
   twilioCredentialsOf,
 } from "@countersign/connectors";
+import { isNanpNumber } from "@countersign/core";
 import { connection, type Tx } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import type { Bindings } from "../env";
@@ -30,6 +31,10 @@ export interface MailMessage {
   idempotencyKey: string;
   /** Sent in a client's name: `<name> via Mezonas` (docs/plan.md §1.98). Default `Mezonas`. */
   onBehalfOf?: string;
+  /** §1.124: where a reply goes (Sloan's address), when not to the sender. */
+  replyTo?: string;
+  /** §1.124: `In-Reply-To` and `References`, so the answer threads under the person's email. */
+  inReplyTo?: string;
 }
 
 /** The display name of the sender: Mezonas, or `<client> via Mezonas`, without header syntax. */
@@ -77,6 +82,10 @@ export function resendMailer(input: {
           subject: m.subject,
           text: m.text,
           ...(m.html ? { html: m.html } : {}),
+          ...(m.replyTo ? { reply_to: m.replyTo } : {}),
+          ...(m.inReplyTo
+            ? { headers: { "In-Reply-To": m.inReplyTo, References: m.inReplyTo } }
+            : {}),
         },
         { "Idempotency-Key": `notify-${m.idempotencyKey}` },
       )) as { id?: unknown } | null;
@@ -107,6 +116,15 @@ export interface Texter {
   from(tx: Tx, tenantId: string): Promise<string | null>;
   /** Sends from the client's number; returns the message SID. Throws when it can't. */
   send(tx: Tx, tenantId: string, input: { to: string; body: string }): Promise<string>;
+  /**
+   * §1.124: sends from one number of one of the client's Twilio connections (the number a person
+   * texted), through its Messaging Service once verified. Throws when it can't.
+   */
+  sendFrom?(
+    tx: Tx,
+    tenantId: string,
+    input: { connectionId: string; from: string; to: string; body: string },
+  ): Promise<string>;
 }
 
 async function twilioConnection(tx: Tx, tenantId: string) {
@@ -151,6 +169,37 @@ export function twilioTexter(input: {
         to: m.to,
         body: m.body,
         messagingServiceSid: service,
+      });
+    },
+    async sendFrom(tx, tenantId, m) {
+      const [row] = await tx
+        .select()
+        .from(connection)
+        .where(
+          and(
+            eq(connection.tenantId, tenantId),
+            eq(connection.id, m.connectionId),
+            eq(connection.connector, TWILIO_CONNECTOR_ID),
+            eq(connection.status, "connected"),
+          ),
+        );
+      const config = row ? readTwilioConfig(row.config) : null;
+      // Only a number this connection has and can text from.
+      const owns = config?.numbers.some((n) => n.phoneNumber === m.from && n.capabilities.sms);
+      if (!row || !config || !owns) throw new Error("that number can't text now");
+      // US texts need A2P 10DLC approved, as for any send.
+      if (isNanpNumber(m.from) && config.a2p.status !== "approved") {
+        throw new Error("that number can't text until its texting registration is approved");
+      }
+      const creds = twilioCredentialsOf(
+        await (await connectionCredentials(tx, input.secrets, row)).get(),
+      );
+      if (!creds) throw new Error("the client's Twilio connection has no credentials");
+      return sendReleaseText(fetch, creds, {
+        from: m.from,
+        to: m.to,
+        body: m.body,
+        messagingServiceSid: a2pServiceFor(config, m.from),
       });
     },
   };

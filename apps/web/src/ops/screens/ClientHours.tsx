@@ -84,6 +84,40 @@ const SOURCE: Record<ChannelLine["source"], string> = {
   default: "The default",
 };
 
+/**
+ * §1.124: where the client's people email and text Sloan, to pass on. Only their own people are
+ * answered; anyone else gets the polite fixed reply.
+ */
+function SloanReachCard({ clientId }: { clientId: string }) {
+  const state = useApi(apiRoutes.opsSloanReach, { params: { id: clientId } });
+  const reach = state.data;
+  return (
+    <Card title="Sloan by email and text" testId="ops-client-sloan-reach">
+      <div className="ui-card__body flex flex-col gap-1 text-sm">
+        {!reach ? null : !reach.email && !reach.phone ? (
+          <p className="text-ink-muted">
+            Sloan is off for this client, or email isn't set up here.
+          </p>
+        ) : (
+          <>
+            <p data-testid="ops-client-sloan-reach-email">
+              Email: {reach.email ?? <span className="text-ink-muted">not set up here</span>}
+            </p>
+            <p data-testid="ops-client-sloan-reach-phone">
+              Text:{" "}
+              {reach.phone ?? <span className="text-ink-muted">no number that can text yet</span>}
+            </p>
+            <p className="text-ink-muted">
+              Their people only: email from their sign-in address, texts from the number they signed
+              up for texts with. Answers go back the same way.
+            </p>
+          </>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 /** The account's number and email (ours to bind), and what each agent sends on. */
 export function ClientChannelsSection({ clientId }: { clientId: string }) {
   const api = useApiClient();
@@ -109,6 +143,7 @@ export function ClientChannelsSection({ clientId }: { clientId: string }) {
                 return next.bindings;
               }}
             />
+            <SloanReachCard clientId={clientId} />
             <Card title="In use" testId="ops-client-channels-account">
               {data.account.length === 0 ? (
                 <p className="ui-card__body text-sm text-ink-muted">
