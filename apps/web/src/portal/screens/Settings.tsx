@@ -13,7 +13,7 @@
 // Exports, Conversations (WhatsApp capture) and Voice samples. Never what the work cost us
 // (invariant 11).
 import type { MyNotifications, NotificationSettings, OnCreditsOut } from "@countersign/core";
-import { type ReactNode, useEffect, useState } from "react";
+import { lazy, type ReactNode, Suspense, useEffect, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { type ApiState, useApi, useApiClient } from "../../api/useApi";
@@ -24,7 +24,15 @@ import { LanguageMenu } from "../../i18n/LanguageMenu";
 import { useAssignedAgents, useSession } from "../../session/session";
 import { AgentBadge } from "../../ui/badges";
 import { Loaded, Page, Section } from "../../ui/page";
-import { Badge, Button, Card, EmptyState, ErrorNotice, PageHeader } from "../../ui/primitives";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  ErrorNotice,
+  Loading,
+  PageHeader,
+} from "../../ui/primitives";
 import { PORTAL_PATHS } from "../paths";
 import { PortalApproverRules } from "./ApproverRules";
 import { PortalBillingScreen } from "./Billing";
@@ -32,10 +40,15 @@ import { PortalBusinessHours } from "./BusinessHours";
 import { PortalChannels } from "./Channels";
 import { PortalConversationsScreen } from "./Conversations";
 import { PortalExportsScreen } from "./Exports";
-import { PortalTeamScreen } from "./Team";
 // P-8
 import { PortalTextingRegistration } from "./TextingRegistration";
 import { VoiceSamples } from "./VoiceSamples";
+
+// The Team section loads when it is opened (docs/plan.md §1.122): it holds the access editor and
+// the invite form, and the web app's first load has a budget (scripts/web-size.mjs).
+const PortalTeamScreen = lazy(() =>
+  import("./Team").then((m) => ({ default: m.PortalTeamScreen })),
+);
 
 export type SettingsSection =
   | "general"
@@ -188,7 +201,9 @@ function Body({
     case "team":
       return (
         <Part title={title}>
-          <PortalTeamScreen embedded />
+          <Suspense fallback={<Loading />}>
+            <PortalTeamScreen embedded />
+          </Suspense>
         </Part>
       );
     case "hours":

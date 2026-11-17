@@ -2,32 +2,13 @@
 // and which of the client's agents they work on (all, or only some). Shared by the portal's Team
 // screen (the client admin) and the invite form. A client admin always approves and works on every
 // agent, so those choices show only for a user. Words come from the portal's message files.
-import type { AssignableAgent, InvitableRole, MemberAgents } from "@countersign/core";
+import type { AssignableAgent, InvitableRole } from "@countersign/core";
 import { useState } from "react";
 import { isApiError } from "../api/client";
 import { useI18n } from "../i18n/i18n";
 import { Field, Select } from "../ui/forms";
 import { Button, Card } from "../ui/primitives";
-
-export interface AccessChoice {
-  role: InvitableRole;
-  canSign: boolean;
-  /** Null: every agent. */
-  agentIds: MemberAgents;
-}
-
-/** "Works on every agent", "Works on Invoices, Collections", or "Works on no agents yet". */
-export function agentsLine(
-  agentIds: readonly string[] | null | undefined,
-  agents: readonly AssignableAgent[],
-  t: ReturnType<typeof useI18n>["t"],
-): string {
-  if (agentIds === null || agentIds === undefined) return t("access.seesAll");
-  const names = agentIds
-    .map((id) => agents.find((a) => a.id === id)?.name)
-    .filter((n): n is string => !!n);
-  return names.length > 0 ? t("access.sees", { agents: names.join(", ") }) : t("access.seesNone");
-}
+import { type AccessChoice, accessReady } from "./access-core";
 
 /** The design system's checkbox: a button with role=checkbox. */
 function Check({
@@ -196,11 +177,6 @@ export function AccessFields({
       )}
     </div>
   );
-}
-
-/** Whether a choice can be saved: "only some agents" needs at least one. */
-export function accessReady(value: AccessChoice): boolean {
-  return value.role === "client_admin" || value.agentIds === null || value.agentIds.length > 0;
 }
 
 /** A person's access, changed in place: the fields, Save and Cancel. */
