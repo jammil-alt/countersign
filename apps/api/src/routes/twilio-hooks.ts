@@ -41,7 +41,6 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
 import { consumeTextReply, type Wake, wakeRelease } from "../access/release";
-import { readTextLimited } from "../body";
 // §1.150: Sloan by text
 import {
   isAccountTextLine,
@@ -50,6 +49,7 @@ import {
   sloanTextSender,
   waitedOnByAnAgent,
 } from "../account/reach";
+import { readTextLimited } from "../body";
 // v0.14 capture: WhatsApp conversations and their attachments
 import {
   type ConversationRow,
