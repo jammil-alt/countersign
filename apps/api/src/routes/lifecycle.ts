@@ -18,6 +18,7 @@ import {
 } from "../lifecycle/pause";
 import { runForms, runNow, runOnEvent } from "../lifecycle/runs";
 import { goLiveView, moveStage, type StageActor, setTrialMinimums } from "../lifecycle/stages";
+import { startAfterCommit } from "../runs/reconcile";
 
 /** A client agent of a client this operator serves. */
 async function clientAgentInScope(ctx: Pick<HandlerCtx<never>, "tx" | "tenantIds">, id: string) {
@@ -78,7 +79,7 @@ export function lifecycleRoutes(app: Hono<AppEnv>): void {
       userId: ctx.session.user.id,
     });
     ctx.afterCommit(async () => {
-      for (const r of requests) await ctx.services.instances.start(r);
+      for (const r of requests) await startAfterCommit(ctx.services, r);
     });
     return { runs: requests.map((r) => ({ runId: r.runId, workflow: r.workflowSlug })) };
   });
@@ -145,7 +146,7 @@ export function lifecycleRoutes(app: Hono<AppEnv>): void {
       userId: ctx.session.user.id,
       role: ctx.role,
     });
-    ctx.afterCommit(() => ctx.services.instances.start(request));
+    ctx.afterCommit(() => startAfterCommit(ctx.services, request));
     return { runId: request.runId };
   });
 }

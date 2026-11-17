@@ -40,6 +40,7 @@ import { type AppEnv, ensureClient, HttpError, iso, mount, mountFile, notFound }
 import { queueFinishedRun } from "../run-audit/store";
 import { createRunRow } from "../runs/dispatch";
 import type { RunParams } from "../runs/instances";
+import { startAfterCommit } from "../runs/reconcile";
 import { opsStatusWhere } from "../runs/run-wait";
 
 // ── RunFilter as SQL ────────────────────────────────────────────────────────────────────────────
@@ -394,7 +395,7 @@ export function runControlRoutes(app: Hono<AppEnv>): void {
       .update(run)
       .set({ retryOf: r.id, resumeFrom })
       .where(and(eq(run.id, req.runId), eq(run.tenantId, r.tenantId)));
-    ctx.afterCommit(() => services.instances.start(req));
+    ctx.afterCommit(() => startAfterCommit(services, req));
     return { runId: req.runId, shortId: shortRunId(req.runId), resumeFrom };
   });
 
@@ -490,7 +491,7 @@ export function runControlRoutes(app: Hono<AppEnv>): void {
       payload,
     };
     await createRunRow(tx, req);
-    ctx.afterCommit(() => services.instances.start(req));
+    ctx.afterCommit(() => startAfterCommit(services, req));
     return { runId: req.runId, shortId: shortRunId(req.runId) };
   });
 

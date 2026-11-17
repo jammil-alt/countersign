@@ -35,6 +35,32 @@ export interface RunInstances {
    * already finished; neither is an error.
    */
   terminate(runId: string): Promise<"terminated" | "ended" | "missing">;
+  /**
+   * The instance's state as the engine reports it (`queued`, `running`, `waiting`, `errored`,
+   * `terminated`, `complete`, ...), or null when the engine has no instance for the run (or could
+   * not say: starting it then is still safe, a second start answers `exists`). The run reconciler
+   * reads it (./reconcile.ts); without it, it does nothing.
+   */
+  inspect?(runId: string): Promise<InstanceState | null>;
+}
+
+/** What the engine says about one instance. */
+export interface InstanceState {
+  status: string;
+  /** Why it errored, when it did (the engine's message). */
+  error?: string | null;
+}
+
+/** The engine's error for an instance, as text: an `{ name, message }` or a string. */
+function errorText(error: unknown): string | null {
+  if (!error) return null;
+  if (typeof error === "string") return error;
+  if (typeof error === "object") {
+    const e = error as { name?: unknown; message?: unknown };
+    const text = [e.name, e.message].filter((x) => typeof x === "string" && x).join(": ");
+    return text || null;
+  }
+  return String(error);
 }
 
 /** Instance states that will never wait for an event again. */
@@ -69,6 +95,13 @@ export function workflowInstances(binding: Workflow): RunInstances {
       await instance.terminate();
       return "terminated";
     },
+    async inspect(runId) {
+      // The engine refuses `get` for an id it has never seen.
+      const instance = await binding.get(runId).catch(() => null);
+      if (!instance) return null;
+      const s = await instance.status();
+      return { status: s.status, error: errorText((s as { error?: unknown }).error) };
+    },
   };
 }
 
@@ -79,11 +112,28 @@ export class MemoryInstances implements RunInstances {
   readonly terminated: string[] = [];
   /** The next this-many sends throw, as an unreachable engine would. */
   failSends = 0;
+  /** The next this-many starts throw, as an unreachable engine would. */
+  failStarts = 0;
+  /** Each start asked for, in order (a repeat included). */
+  readonly startCalls: string[] = [];
+  /** An instance's state other than `running` (e.g. `errored`), as a test sets it. */
+  readonly states = new Map<string, InstanceState>();
 
   async start(params: RunParams): Promise<"started" | "exists"> {
+    this.startCalls.push(params.runId);
+    if (this.failStarts > 0) {
+      this.failStarts--;
+      throw new Error("the Workflows engine is unreachable");
+    }
     if (this.started.has(params.runId)) return "exists";
     this.started.set(params.runId, params);
     return "started";
+  }
+
+  async inspect(runId: string): Promise<InstanceState | null> {
+    if (!this.started.has(runId)) return null;
+    if (this.terminated.includes(runId)) return { status: "terminated" };
+    return this.states.get(runId) ?? { status: "running" };
   }
 
   async sendEvent(runId: string, event: RunEvent): Promise<void> {

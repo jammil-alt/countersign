@@ -161,6 +161,7 @@ import {
   runDepsFromEnv,
   runtimeFor,
 } from "./runs/execute";
+import { reconcileRuns } from "./runs/reconcile";
 // M45: Search Console and Bing, nightly (docs/plan.md §1.75).
 import { searchSyncTick } from "./search-sync";
 import { securityHeaders } from "./security-headers";
@@ -363,6 +364,11 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
         },
       },
       scheduledTime,
+    );
+    // Every 5 minutes: runs whose instance never started are started, runs whose instance ended
+    // without finishing them are failed (runs/reconcile.ts).
+    await reconcileRuns({ db, instances }, scheduledTime).catch((error: unknown) =>
+      reportHandled("run reconciler failed", error, { job: "reconcile" }),
     );
     // v0.12 W1-A: pauses whose end passed resume (every minute); trials that met their minimums
     // move to signoff (hourly, at the usage sweep's minute).

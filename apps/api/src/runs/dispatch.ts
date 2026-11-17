@@ -7,7 +7,16 @@
 
 import { AgentsError, createRun, type Emit, rollupUsageDays, utcDay } from "@countersign/agents";
 import { clientHolidays } from "@countersign/core";
-import { agent, agentVersion, type Db, type Tx, tenant, withTenant } from "@countersign/db";
+import {
+  agent,
+  agentChange,
+  agentVersion,
+  type Db,
+  run,
+  type Tx,
+  tenant,
+  withTenant,
+} from "@countersign/db";
 import {
   claimUndispatched,
   type DispatchFailure,
@@ -26,7 +35,7 @@ import {
   routeEvent,
   type StepRunner,
 } from "@countersign/workflows";
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 import { reportHandled, reportProblem } from "../observability/report";
 import { matchRepliesIn, wakeAll } from "../reach/replies";
 // v0.12 W2-E
@@ -93,16 +102,97 @@ export async function createRunRow(tx: Tx, request: RunRequest): Promise<void> {
   });
 }
 
-/** Creates the run row, then its instance. Safe to call twice for the same request. */
+/**
+ * Creates a schedule's run row, then its instance. Safe to call again for the same request: a row
+ * already there starts nothing (the cron's lookback asks for the same tick for 15 minutes).
+ */
+// DECISION: a row that exists is not started again from here, so a tick asked for 15 times costs
+// one start. Its instance was started when the row was written; if that start failed (it is
+// reported), the run reconciler starts it (./reconcile.ts).
 export async function startRun(deps: DispatchDeps, request: RunRequest): Promise<void> {
+  let created: boolean;
   try {
-    await withTenant(deps.db, request.tenantId, (tx) => createRunRow(tx, request));
+    created = await withTenant(deps.db, request.tenantId, async (tx) => {
+      const [existing] = await tx
+        .select({ id: run.id })
+        .from(run)
+        .where(and(eq(run.id, request.runId), eq(run.tenantId, request.tenantId)));
+      if (existing) return false;
+      await createRunRow(tx, request);
+      return true;
+    });
   } catch (error) {
     // The agent was paused between routing and starting: nothing to start.
     if (error instanceof AgentsError && error.code === "invalid_state") return;
     throw error;
   }
-  await deps.instances.start(request);
+  if (!created) return;
+  try {
+    await deps.instances.start(request);
+  } catch (error) {
+    reportHandled(`starting run ${request.runId} failed; the reconciler starts it`, error, {
+      job: "schedules",
+      client: request.tenantId,
+      run: request.runId,
+    });
+  }
+}
+
+/** How far back the cron asks for schedule ticks: a tick it missed (or failed) runs late. */
+export const SCHEDULE_LOOKBACK_MS = 15 * 60_000;
+
+/**
+ * Drops the late ticks (before the last minute's) of agents that changed since the tick: an agent
+ * activated, resumed or given a new version after a time never runs for that time. A tick of the
+ * last minute is asked for as it always was.
+ */
+// DECISION: any `agent_change` after the tick holds a late tick back (activation, resume, publish,
+// a stage move, or anything else logged), and so does an agent created after it: a late run is a
+// catch-up, and an agent that changed meanwhile is not the one that missed it. Missing a late tick
+// is the safer side.
+export async function withoutStaleCatchUps(
+  tx: Tx,
+  tenantId: string,
+  runs: readonly RunRequest[],
+  onTimeAfter: Date,
+): Promise<RunRequest[]> {
+  const late = runs.filter((r) => scheduledAtOf(r) <= onTimeAfter.getTime());
+  if (late.length === 0) return [...runs];
+  const earliest = new Date(Math.min(...late.map(scheduledAtOf)));
+  const ids = [...new Set(late.map((r) => r.agentId))];
+  const changed = new Map<string, number>();
+  const note = (id: string, at: Date) =>
+    changed.set(id, Math.max(changed.get(id) ?? 0, at.getTime()));
+  const changes = await tx
+    .select({ agentId: agentChange.agentId, at: sql<Date>`max(${agentChange.createdAt})` })
+    .from(agentChange)
+    .where(
+      and(
+        eq(agentChange.tenantId, tenantId),
+        inArray(agentChange.agentId, ids),
+        gte(agentChange.createdAt, earliest),
+      ),
+    )
+    .groupBy(agentChange.agentId);
+  for (const c of changes) note(c.agentId, new Date(c.at));
+  const created = await tx
+    .select({ id: agent.id, at: agent.createdAt })
+    .from(agent)
+    .where(
+      and(eq(agent.tenantId, tenantId), inArray(agent.id, ids), gte(agent.createdAt, earliest)),
+    );
+  for (const a of created) note(a.id, a.at);
+  return runs.filter((r) => {
+    const tick = scheduledAtOf(r);
+    if (tick > onTimeAfter.getTime()) return true;
+    const at = changed.get(r.agentId);
+    return at === undefined || at < tick;
+  });
+}
+
+function scheduledAtOf(r: RunRequest): number {
+  const at = (r.trigger as { scheduledAt?: unknown }).scheduledAt;
+  return typeof at === "string" ? new Date(at).getTime() : Number.NaN;
 }
 
 // v0.12 W1-H: dispatch right after commit (ARCHITECTURE §8, docs/plan.md §1.43). ────────────────
@@ -341,13 +431,17 @@ async function allClients(db: Db): Promise<{ id: string; timezone: string; setti
 
 /**
  * The cron (every minute): re-dispatch events left undispatched for 30 s, start the schedule
- * triggers due in (previous tick, this tick], and re-send resolutions waiting runs have not taken.
- * Once an hour it also rolls usage up for today and yesterday (USAGE_SWEEP_MINUTE).
+ * triggers due in the last 15 minutes (SCHEDULE_LOOKBACK_MS) not started yet, and re-send
+ * resolutions waiting runs have not taken. Once an hour it also rolls usage up for today and
+ * yesterday (USAGE_SWEEP_MINUTE).
  */
 export async function cronTick(deps: DispatchDeps, scheduledTime: Date): Promise<void> {
   const clients = await allClients(deps.db);
   const to = new Date(Math.floor(scheduledTime.getTime() / 60_000) * 60_000);
-  const from = new Date(to.getTime() - 60_000);
+  // A tick the cron missed (or one whose pass failed) is still due for SCHEDULE_LOOKBACK_MS; run
+  // ids are uuid v5 of (agent, workflow, tick), so asking again writes and starts nothing.
+  const from = new Date(to.getTime() - SCHEDULE_LOOKBACK_MS);
+  const onTimeAfter = new Date(to.getTime() - 60_000);
   for (const client of clients) {
     try {
       // The sweep: what the after-commit dispatches left (30 s and older). A failed sweep is
@@ -369,7 +463,10 @@ export async function cronTick(deps: DispatchDeps, scheduledTime: Date): Promise
         holidays: { [client.id]: clientHolidays(client.settings) },
       });
       for (const p of problems) console.warn("schedule could not be evaluated", p);
-      for (const request of runs) await startRun(deps, request);
+      const due = await withTenant(deps.db, client.id, (tx) =>
+        withoutStaleCatchUps(tx, client.id, runs, onTimeAfter),
+      );
+      for (const request of due) await startRun(deps, request);
       await redeliverResolutions(deps, client.id, scheduledTime);
       if (to.getUTCMinutes() === USAGE_SWEEP_MINUTE) {
         await withTenant(deps.db, client.id, (tx) =>
