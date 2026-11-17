@@ -28,10 +28,23 @@ const ORIGIN = "https://app.mezonas.test";
 const twilio = fakeTwilio();
 const resend = fakeResend();
 const emails: { from: string; to: string[]; subject: string; text: string; html?: string }[] = [];
-const fetch: FetchLike = (url, init) => {
+/** Holds or fails outgoing texts, for when the confirmation goes. */
+const sending: { hold: Promise<void> | null; fail: boolean } = { hold: null, fail: false };
+const fetch: FetchLike = async (url, init) => {
   if (url.startsWith(RESEND_API)) {
     if (init?.body && url.endsWith("/emails")) emails.push(JSON.parse(init.body));
     return resend.fetch(url, init);
+  }
+  if (init?.method === "POST" && url.endsWith("/Messages.json")) {
+    if (sending.hold) await sending.hold;
+    if (sending.fail) {
+      return {
+        status: 500,
+        ok: false,
+        headers: { get: () => null },
+        text: async () => JSON.stringify({ code: 20500, message: "failed" }),
+      };
+    }
   }
   return twilio.fetch(url, init);
 };
@@ -58,7 +71,11 @@ const h = await createApiHarness({
 afterAll(() => h?.close());
 
 const tokenIn = (url: string) => url.slice(url.indexOf("/texts/") + "/texts/".length);
-const textsTo = (to: string) => [...twilio.messages.values()].filter((m) => m.to === to);
+/** The texts sent to a number, once the work after each response is done. */
+const textsTo = async (to: string) => {
+  await h?.settle();
+  return [...twilio.messages.values()].filter((m) => m.to === to);
+};
 
 describe.skipIf(!h)("signing up for texts", () => {
   const H = h as ApiHarness;
@@ -176,7 +193,7 @@ describe.skipIf(!h)("signing up for texts", () => {
       });
 
       // The confirmation, from the client's number, in the registered words.
-      const sent = textsTo(PHONE);
+      const sent = await textsTo(PHONE);
       expect(sent.map((m) => m.body)).toEqual([a2pKeywordsOf("Client A").optInMessage]);
       expect(sent[0]?.from).toBe("+15125550101");
 
@@ -232,7 +249,7 @@ describe.skipIf(!h)("signing up for texts", () => {
         expect(res.status).toBe(200);
         expect(j(res.json)).toEqual({ confirmation: "sent" });
       }
-      expect(textsTo(PHONE)).toHaveLength(1);
+      expect(await textsTo(PHONE)).toHaveLength(1);
       const [row] = await H.t.db
         .select()
         .from(contact)
@@ -262,7 +279,7 @@ describe.skipIf(!h)("signing up for texts", () => {
       expect(row?.optedOutAt).not.toBeNull();
       expect(row?.consent ?? {}).not.toHaveProperty("sms");
       expect(row?.name).toBe("Opted Out");
-      expect(textsTo(PHONE)).toHaveLength(0);
+      expect(await textsTo(PHONE)).toHaveLength(0);
       // Counted toward the link's hourly limit, and nothing else.
       const changes = (await logOf(OUT)).map((l) => l.change as Record<string, unknown>);
       expect(changes.at(-1)).toEqual({
@@ -291,7 +308,7 @@ describe.skipIf(!h)("signing up for texts", () => {
       const res = await submit(token, { name: "Someone Else", phone: NUM });
       expect(res.status).toBe(200);
       expect(j(res.json)).toEqual({ confirmation: "sent" });
-      expect(textsTo(NUM)).toHaveLength(0);
+      expect(await textsTo(NUM)).toHaveLength(0);
       const same = await H.t.db
         .select()
         .from(contact)
@@ -299,6 +316,37 @@ describe.skipIf(!h)("signing up for texts", () => {
       expect(same).toEqual([]);
       const changes = (await logOf(wa?.id as string)).map((l) => l.change);
       expect(changes).toEqual([{ kind: "text_signup_skipped", via: "link", reason: "opted_out" }]);
+    });
+
+    it("answers before the confirmation goes, and the same when it fails", async () => {
+      const token = tokenIn(
+        j((await H.call(admin("a"), "GET", "/api/texting/signup-link")).json).url,
+      );
+      let release = () => {};
+      sending.hold = new Promise<void>((r) => {
+        release = r;
+      });
+      const HELD = "+15125550192";
+      const res = await Promise.race([
+        submit(token, { name: "Held Text", phone: HELD }),
+        new Promise<null>((r) => setTimeout(() => r(null), 3000)),
+      ]);
+      release();
+      sending.hold = null;
+      expect(res?.status).toBe(200);
+      expect(j(res?.json)).toEqual({ confirmation: "sent" });
+      await H.settle();
+      expect(await textsTo(HELD)).toHaveLength(1);
+
+      // A confirmation that fails to send answers the same.
+      sending.fail = true;
+      const FAILS = "+15125550193";
+      const failed = await submit(token, { name: "Failed Text", phone: FAILS });
+      await H.settle();
+      sending.fail = false;
+      expect(failed.status).toBe(200);
+      expect(j(failed.json)).toEqual({ confirmation: "sent" });
+      expect(await textsTo(FAILS)).toHaveLength(0);
     });
 
     it("waits after too many sign-ups in an hour", async () => {
@@ -375,7 +423,7 @@ describe.skipIf(!h)("signing up for texts", () => {
       expect(row?.consent).toMatchObject({
         sms: { basis: "express", source: "accepted the texting invitation" },
       });
-      expect(textsTo("+15125550182")).toHaveLength(1);
+      expect(await textsTo("+15125550182")).toHaveLength(1);
       expect(j((await view(token)).json).state).toBe("signed_up");
       expect(j((await invite(admin("a"), [PAT])).json).skipped).toEqual([
         { id: PAT, reason: "signed_up" },
@@ -397,7 +445,7 @@ describe.skipIf(!h)("signing up for texts", () => {
       const abroad = await submit(token, { phone: "+442071838750" });
       expect(abroad.status).toBe(422);
       expect(j(abroad.json).error.code).toBe("invalid_phone");
-      expect(textsTo("+442071838750")).toHaveLength(0);
+      expect(await textsTo("+442071838750")).toHaveLength(0);
 
       // Two presses at once: one sign-up and one text.
       const both = await Promise.all([
@@ -405,13 +453,15 @@ describe.skipIf(!h)("signing up for texts", () => {
         submit(token, { phone: "+15125550185" }),
       ]);
       expect(both.map((r) => r.status).sort()).toEqual([200, 409]);
-      expect(textsTo("+15125550184").length + textsTo("+15125550185").length).toBe(1);
+      expect((await textsTo("+15125550184")).length + (await textsTo("+15125550185")).length).toBe(
+        1,
+      );
 
       // Used: the link signs up no one else and sends nothing more.
       const again = await submit(token, { phone: "+15125550186" });
       expect(again.status).toBe(409);
       expect(j(again.json).error.code).toBe("used");
-      expect(textsTo("+15125550186")).toHaveLength(0);
+      expect(await textsTo("+15125550186")).toHaveLength(0);
       const optIns = (await logOf(SAM)).filter(
         (l) => (l.change as { kind: string }).kind === "opt_in",
       );
@@ -434,7 +484,7 @@ describe.skipIf(!h)("signing up for texts", () => {
         const res = await submit(tokenIn(link as string), { phone });
         expect(res.status, phone).toBe(409);
         expect(j(res.json).error.code).toBe("opted_out");
-        expect(textsTo(phone)).toHaveLength(0);
+        expect(await textsTo(phone)).toHaveLength(0);
       }
       const [row] = await H.t.db.select().from(contact).where(eq(contact.id, ROB));
       expect(row?.optedOutAt).not.toBeNull();
@@ -460,7 +510,7 @@ describe.skipIf(!h)("signing up for texts", () => {
       const res = await submit(token, { phone: NUM });
       expect(res.status).toBe(200);
       expect(j(res.json)).toEqual({ confirmation: "sent" });
-      expect(textsTo(NUM)).toHaveLength(0);
+      expect(await textsTo(NUM)).toHaveLength(0);
       const [row] = await H.t.db.select().from(contact).where(eq(contact.id, KAI));
       expect(row?.phone).toBeNull();
       expect(row?.consent ?? {}).not.toHaveProperty("sms");
@@ -470,7 +520,7 @@ describe.skipIf(!h)("signing up for texts", () => {
         expect(again.status, phone).toBe(409);
         expect(j(again.json).error.code).toBe("used");
       }
-      expect(textsTo("+15125550168")).toHaveLength(0);
+      expect(await textsTo("+15125550168")).toHaveLength(0);
     });
 
     it("sends one reminder after three days, then no more", async () => {

@@ -102,6 +102,11 @@ export function TextSignupScreen() {
           {done === "sent" ? w("doneSent", { client }) : w("donePending", { client })}
         </p>
         <p className="mt-2 text-sm text-ink-muted">{w("stopAnyTime")}</p>
+        {v.number ? (
+          <p className="mt-2 text-sm text-ink-muted" data-testid="text-signup-start-again">
+            {w("startAgain", { number: shown(v.number) })}
+          </p>
+        ) : null}
       </Frame>
     );
   }

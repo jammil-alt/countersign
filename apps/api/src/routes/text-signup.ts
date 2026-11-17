@@ -42,26 +42,35 @@ export function textSignupRoutes(app: Hono<AppEnv>): void {
       body,
       requestOrigin(c),
     );
-    // The confirmation text, after the consent is committed, from the client's own number.
+    // DECISION: the answer is the same on every path (a sign-up, a skipped one, a confirmation
+    // that then fails to send): `sent` when the client's number can text, else `pending`. The
+    // confirmation goes after the response, as the Twilio webhook's replies do, so the answer
+    // takes as long whether or not a text follows.
     const fetch = services.deps.fetch?.(services.env);
     const texter = texterFromEnv(services.env, fetch);
     let confirmation: "sent" | "pending" = "pending";
     try {
-      await withTenant(services.db, done.tenantId, async (tx) => {
-        if (!(await texter.from(tx, done.tenantId))) return;
-        // Nothing was signed up: answered as a sign-up is, with no text.
-        if (!done.send) {
-          confirmation = "sent";
-          return;
-        }
-        await texter.send(tx, done.tenantId, {
-          to: done.phone,
-          body: textSignupConfirmation(done.client),
-        });
-        confirmation = "sent";
-      });
+      const from = await withTenant(services.db, done.tenantId, (tx) =>
+        texter.from(tx, done.tenantId),
+      );
+      if (from) confirmation = "sent";
     } catch (error) {
-      reportHandled("text sign-up confirmation failed", error, { job: "text_signup" });
+      reportHandled("text sign-up number lookup failed", error, { job: "text_signup" });
+    }
+    if (confirmation === "sent" && done.send) {
+      // From the client's own number, after the consent is committed.
+      c.get("req").deferred.push(async () => {
+        try {
+          await withTenant(services.db, done.tenantId, (tx) =>
+            texter.send(tx, done.tenantId, {
+              to: done.phone,
+              body: textSignupConfirmation(done.client),
+            }),
+          );
+        } catch (error) {
+          reportHandled("text sign-up confirmation failed", error, { job: "text_signup" });
+        }
+      });
     }
     return { confirmation };
   });

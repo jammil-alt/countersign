@@ -45,7 +45,10 @@ export const TextSignupSubmit = z.strictObject({
 export type TextSignupSubmitInput = z.input<typeof TextSignupSubmit>;
 
 export const TextSignupDone = z.object({
-  /** `sent`: the confirmation text went; `pending`: the client's number can't text yet. */
+  /**
+   * `sent`: the client's number can text, and a new sign-up's confirmation goes after this answer;
+   * `pending`: the client's number can't text yet. The same for every submit, whatever follows.
+   */
   confirmation: z.enum(["sent", "pending"]),
 });
 
