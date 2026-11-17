@@ -233,6 +233,23 @@ describe("currency and assumed units (audit 7.9)", () => {
     expect(vendorSpread(current, [other], settings, names)).toBeNull();
   });
 
+  it("keeps a price alert in another currency apart from the US dollar one", () => {
+    const usdJump = priceJump(
+      obs("2026-09-20", "80.00"),
+      [obs("2026-09-01", "70.00")],
+      settings,
+      names,
+    );
+    const cadJump = priceJump(
+      obs("2026-09-20", "84.00", { currency: "CAD" }),
+      [obs("2026-09-01", "70.00", { currency: "CAD" })],
+      settings,
+      names,
+    );
+    expect(dedupeKey(usdJump as AlertDraft)).toBe(`materials:price_jump:${ITEM}:${V1}`);
+    expect(dedupeKey(cadJump as AlertDraft)).toBe(`materials:price_jump:${ITEM}:${V1}:CAD`);
+  });
+
   it("leaves prices whose unit was assumed out of the cross-vendor rules", () => {
     const assumed = obs("2026-09-05", "40.00", { vendorId: V2, uomAssumed: true });
     const current = obs("2026-09-20", "60.00");

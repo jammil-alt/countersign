@@ -18,6 +18,7 @@ import { createTestDatabase, databaseAvailable, type TestDatabase } from "@count
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { matchLine } from "../catalog/match";
+import { vendorsForItems } from "../purchasing/history";
 import { priceObservation } from "../schema";
 import {
   type InvoiceLine,
@@ -401,6 +402,40 @@ describe.skipIf(!online)("prices and alerts (database)", () => {
     expect(r.lines[0]?.skipped).toMatch(/^its quantity times its unit price isn't its amount/);
     expect(r.lines[1]).toMatchObject({ unitPriceStd: "1.8500", qtyStd: "1240.0000" });
     expect(await observations(D.tenantId)).toHaveLength(1);
+  });
+
+  it("lists who sold an item per currency, and an assumed unit as a purchase without a price", async () => {
+    const E = await insertShop(t.db, "Millwork E");
+    const priced = async (vendorName: string, line: InvoiceLine, currency?: string) => {
+      const d = await matchedInvoice(E, vendorName, [line], {
+        date: "2026-10-01",
+        ...(currency ? { currency } : {}),
+      });
+      await recordPrices(db, ctx(E), { documentId: d.documentId });
+    };
+    await priced("Northline Plywood", {
+      description: BB,
+      qty: "10",
+      uom: "SHT",
+      unitPrice: "60.00",
+    });
+    await priced(
+      "Keystone Lumber",
+      { description: BB, qty: "10", uom: "SHT", unitPrice: "50.00" },
+      "CAD",
+    );
+    await priced("Cedar Ridge Supply", { description: BB, qty: "10", unitPrice: "40.00" });
+    const itemId = (await observations(E.tenantId))[0]?.catalogItemId as string;
+    const r = await withTenant(db, E.tenantId, (tx) =>
+      vendorsForItems(tx, E.tenantId, { catalogItemIds: [itemId], today: "2026-10-02" }),
+    );
+    expect(
+      r.items[0]?.vendors.map((v) => [v.vendorName, v.lastPrice, v.currency, v.timesBought]),
+    ).toEqual([
+      ["Northline Plywood", "60.0000", "USD", 1],
+      ["Keystone Lumber", "50.0000", "CAD", 1],
+      ["Cedar Ridge Supply", null, null, 1],
+    ]);
   });
 
   it("keeps each client's prices and alerts its own", async () => {

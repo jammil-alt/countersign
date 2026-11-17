@@ -478,9 +478,13 @@ export function newFees(input: {
 }
 
 /** One open alert per (kind, item, vendor); a fee's per (vendor, fee type); a contract's its own. */
+// DECISION (review of fix/materials, finding 6): a price alert in another currency than US dollars
+// is its own open alert (its key ends in the currency), so a CAD price never dedupes into a USD
+// one; US dollar keys stay as they were, so open alerts still match.
 export function dedupeKey(a: AlertDraft): string {
   if ((CONTRACT_ALERT_KINDS as readonly string[]).includes(a.kind)) return contractDedupeKey(a);
+  const cur = typeof a.facts.currency === "string" ? a.facts.currency : "USD";
   return a.kind === "new_fee"
     ? `materials:new_fee:${a.vendorId}:${String(a.facts.feeType)}`
-    : `materials:${a.kind}:${a.catalogItemId}:${a.vendorId}`;
+    : `materials:${a.kind}:${a.catalogItemId}:${a.vendorId}${cur === "USD" ? "" : `:${cur}`}`;
 }

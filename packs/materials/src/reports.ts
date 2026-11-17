@@ -101,6 +101,8 @@ export interface PriceWatchRow {
   standardUom: string;
   vendorId: string;
   vendor: string;
+  /** The currency of the row's prices: a vendor billing in two has a row in each. */
+  currency: string;
   lastPrice: string;
   lastOn: string;
   previousPrice: string | null;
@@ -121,6 +123,8 @@ export interface PriceWatchAlert {
   title: string;
   body: string;
   dollarImpact: string | null;
+  /** The currency of its dollar impact (US dollars for an alert that names none). */
+  currency: string;
   createdAt: string;
   catalogItemId: string | null;
   vendorId: string | null;
@@ -132,8 +136,23 @@ export interface PriceWatch {
   asOf: string;
   rows: PriceWatchRow[];
   alerts: PriceWatchAlert[];
-  totals: { items: number; vendors: number; openAlerts: number; dollarImpact: string };
+  totals: {
+    items: number;
+    vendors: number;
+    openAlerts: number;
+    /** At stake in `currency`: the currency most open alerts are in (US dollars on a tie). */
+    dollarImpact: string;
+    currency: string;
+    /** At stake in each currency, never added across them. */
+    atStake: { currency: string; amount: string }[];
+  };
 }
+
+/** The currency an alert's money is in: its facts', else US dollars (alerts before it was kept). */
+const alertCurrency = (a: { facts: unknown }) => {
+  const c = (a.facts as Record<string, unknown> | null)?.currency;
+  return typeof c === "string" ? c : "USD";
+};
 
 // DECISION: Price watch reads the last 400 days of prices (enough for a 90-day series and the
 // price before it), lists every open alert and the 50 newest closed ones.
@@ -182,7 +201,8 @@ export async function priceWatch(
 
   const groups = new Map<string, typeof rows>();
   for (const r of rows) {
-    const key = `${r.o.catalogItemId}:${r.o.vendorId}`;
+    // Per currency too: a change is never a CAD price against a USD one.
+    const key = `${r.o.catalogItemId}:${r.o.vendorId}:${r.o.currency}`;
     groups.set(key, [...(groups.get(key) ?? []), r]);
   }
   const window = daysBefore(input.today, 90);
@@ -207,6 +227,7 @@ export async function priceWatch(
       standardUom: last.o.standardUom,
       vendorId: last.o.vendorId,
       vendor: last.vendor,
+      currency: last.o.currency,
       lastPrice: last.o.unitPriceStd,
       lastOn: last.o.observedOn,
       previousPrice: prev?.o.unitPriceStd ?? null,
@@ -242,6 +263,7 @@ export async function priceWatch(
         title: a.title,
         body: a.body,
         dollarImpact: a.dollarImpact,
+        currency: alertCurrency(a),
         createdAt: a.createdAt.toISOString(),
         catalogItemId: typeof facts.catalogItemId === "string" ? facts.catalogItemId : null,
         vendorId: typeof facts.vendorId === "string" ? facts.vendorId : null,
@@ -253,14 +275,34 @@ export async function priceWatch(
       items: new Set(out.map((r) => r.catalogItemId)).size,
       vendors: new Set(out.map((r) => r.vendorId)).size,
       openAlerts: open.length,
-      // §1.104: at stake is money to claim back; a saving (a negative impact) doesn't net it out.
-      dollarImpact: toNumeric(
-        open.reduce(
-          (s, a) => (dec(a.dollarImpact ?? "0").greaterThan(0) ? s.plus(a.dollarImpact ?? "0") : s),
-          dec("0"),
-        ),
-      ),
+      ...atStakeOf(open),
     },
+  };
+}
+
+/**
+ * What open alerts put at stake, per currency (never added across currencies): money to claim
+ * back, so a saving (a negative impact, §1.104) doesn't net it out.
+ */
+function atStakeOf(open: readonly { dollarImpact: string | null; facts: unknown }[]) {
+  const sums = new Map<string, { amount: ReturnType<typeof dec>; alerts: number }>();
+  for (const a of open) {
+    const cur = alertCurrency(a);
+    const s = sums.get(cur) ?? { amount: dec("0"), alerts: 0 };
+    const d = dec(a.dollarImpact ?? "0");
+    sums.set(cur, { amount: d.greaterThan(0) ? s.amount.plus(d) : s.amount, alerts: s.alerts + 1 });
+  }
+  const ranked = [...sums.entries()].sort(
+    (a, b) =>
+      b[1].alerts - a[1].alerts ||
+      Number(b[0] === "USD") - Number(a[0] === "USD") ||
+      a[0].localeCompare(b[0]),
+  );
+  const currency = ranked[0]?.[0] ?? "USD";
+  return {
+    dollarImpact: toNumeric(sums.get(currency)?.amount ?? dec("0")),
+    currency,
+    atStake: ranked.map(([c, s]) => ({ currency: c, amount: toNumeric(s.amount) })),
   };
 }
 
@@ -352,6 +394,7 @@ export function priceWatchCsv(report: PriceWatch): string {
       "Category",
       "Unit",
       "Vendor",
+      "Currency",
       "Last price",
       "Last purchased",
       "Price before",
@@ -365,6 +408,7 @@ export function priceWatchCsv(report: PriceWatch): string {
       r.category,
       r.standardUom,
       r.vendor,
+      r.currency,
       r.lastPrice,
       r.lastOn,
       r.previousPrice,

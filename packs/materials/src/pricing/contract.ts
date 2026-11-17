@@ -505,7 +505,10 @@ export function contractDedupeKey(a: AlertDraft): string {
       return a.facts.term === "freight"
         ? `materials:terms_mismatch:${a.vendorId}:freight:${String(a.facts.documentId)}`
         : `materials:terms_mismatch:${a.vendorId}:${String(a.facts.term)}`;
-    default:
-      return `materials:${a.kind}:${a.catalogItemId}:${a.vendorId}`;
+    default: {
+      // As the price rules' (./rules.ts): another currency than US dollars ends the key.
+      const cur = typeof a.facts.currency === "string" ? a.facts.currency : "USD";
+      return `materials:${a.kind}:${a.catalogItemId}:${a.vendorId}${cur === "USD" ? "" : `:${cur}`}`;
+    }
   }
 }

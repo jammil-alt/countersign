@@ -10,6 +10,8 @@ export interface PriceWatchRow {
   standardUom: string;
   vendorId: string;
   vendor: string;
+  /** The currency of the row's prices (US dollars when not given). */
+  currency?: string;
   lastPrice: string;
   lastOn: string;
   previousPrice: string | null;
@@ -28,6 +30,8 @@ export interface PriceWatchAlert {
   title: string;
   body: string;
   dollarImpact: string | null;
+  /** The currency of its dollar impact (US dollars when not given). */
+  currency?: string;
   createdAt: string;
   catalogItemId: string | null;
   vendorId: string | null;
@@ -39,7 +43,15 @@ export interface PriceWatchReport {
   asOf: string;
   rows: PriceWatchRow[];
   alerts: PriceWatchAlert[];
-  totals: { items: number; vendors: number; openAlerts: number; dollarImpact: string };
+  totals: {
+    items: number;
+    vendors: number;
+    openAlerts: number;
+    dollarImpact: string;
+    /** The currency of `dollarImpact`; `atStake` has each currency's, never added together. */
+    currency?: string;
+    atStake?: { currency: string; amount: string }[];
+  };
 }
 
 export interface CatalogRow {
