@@ -514,6 +514,198 @@ export const buildEvent = pgTable(
 /** The build tables (§1.108): only an operator session reads them; a client never does. */
 export const BUILD_TABLES = ["build", "build_item", "build_message", "build_event"] as const;
 
+// ── The Dev queue: Builder code requests (docs/plan.md §1.125, owner 2026-11-17) ───────────────
+// What the Builder can't make from catalog parts (a new tool, an extension of a built-in) goes to
+// engineering as a numbered request (DQ-001), triaged before it is built and shipped back to the
+// builds waiting on it. Operator only and global, like the build tables: a client never sees one.
+
+export const CODE_REQUEST_KINDS = [
+  "extend_existing",
+  "new_tool",
+  "new_skill_code",
+  "config_only",
+] as const;
+export const CODE_REQUEST_STATUSES = [
+  "triage",
+  "accepted",
+  "in_progress",
+  "shipped",
+  "closed",
+] as const;
+export const CODE_REQUEST_DECISIONS = [
+  "exists",
+  "config",
+  "extend",
+  "new_general",
+  "one_off",
+] as const;
+export const CODE_REQUEST_CLOSE_REASONS = [
+  "exists",
+  "config",
+  "merged",
+  "not_worth_it",
+  "not_possible",
+  "superseded",
+] as const;
+export const CODE_REQUEST_CREATORS = ["builder", "operator", "session"] as const;
+export const CODE_REQUEST_EVENT_KINDS = [
+  "status",
+  "note",
+  "reuse_check",
+  "merge",
+  "claim",
+  "pr",
+  "notified",
+  "shipped",
+] as const;
+
+/**
+ * One request for code: what it must do (`spec`, core's `CodeRequestSpec`), the questions it
+ * leaves (`open_questions`), the reuse check that found what already exists (`reuse_check`), and
+ * the decision on the ladder (exists, config, extend, new_general, one_off) with its reason.
+ * `number` is shown as DQ-001. Updated in place (its history is `code_request_event`); never
+ * deleted.
+ */
+// DECISION: the number is an identity column, global, so DQ numbers never repeat or collide; a
+// refused insert still takes one, so they may skip.
+export const codeRequest = pgTable(
+  "code_request",
+  {
+    id: id(),
+    number: integer("number").notNull().generatedByDefaultAsIdentity(),
+    title: text("title").notNull(),
+    kind: text("kind").$type<(typeof CODE_REQUEST_KINDS)[number]>().notNull(),
+    status: text("status")
+      .$type<(typeof CODE_REQUEST_STATUSES)[number]>()
+      .notNull()
+      .default("triage"),
+    spec: json("spec").notNull().default({}),
+    openQuestions: json<unknown[]>("open_questions").notNull().default([]),
+    reuseCheck: json("reuse_check"),
+    decision: text("decision").$type<(typeof CODE_REQUEST_DECISIONS)[number]>(),
+    decisionReason: text("decision_reason"),
+    /** Other work that would use it; empty means a one-off. */
+    otherUses: text("other_uses").array().notNull().default(sql`'{}'::text[]`),
+    oneOffApprovedBy: uuid("one_off_approved_by").references(() => appUser.id),
+    oneOffApprovedAt: ts("one_off_approved_at"),
+    mergedIntoId: uuid("merged_into_id").references((): AnyPgColumn => codeRequest.id),
+    closeReason: text("close_reason").$type<(typeof CODE_REQUEST_CLOSE_REASONS)[number]>(),
+    /** Who has it, in words ("Mezonas engineering", a person). */
+    owner: text("owner"),
+    claimedBy: uuid("claimed_by").references(() => appUser.id),
+    claimedAt: ts("claimed_at"),
+    prUrl: text("pr_url"),
+    /** The catalog part the code adds (a tool id, a skill ref), set with the PR. */
+    expectedPartId: text("expected_part_id"),
+    shippedPartId: text("shipped_part_id"),
+    shippedStagingAt: ts("shipped_staging_at"),
+    shippedProductionAt: ts("shipped_production_at"),
+    createdBy: text("created_by").$type<(typeof CODE_REQUEST_CREATORS)[number]>().notNull(),
+    createdByUser: uuid("created_by_user").references(() => appUser.id),
+    /** The latest event's time: a claim lapses 2 hours after it. */
+    lastEventAt: ts("last_event_at").notNull().defaultNow(),
+    closedAt: ts("closed_at"),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique("code_request_number_key").on(t.number),
+    index("code_request_status_idx").on(t.status, t.createdAt),
+    check("code_request_title_check", sql`char_length(${t.title}) between 1 and 200`),
+    check("code_request_kind_check", oneOf(t.kind, CODE_REQUEST_KINDS)),
+    check("code_request_status_check", oneOf(t.status, CODE_REQUEST_STATUSES)),
+    check(
+      "code_request_decision_check",
+      sql`${t.decision} is null or ${oneOf(t.decision, CODE_REQUEST_DECISIONS)}`,
+    ),
+    check(
+      "code_request_close_reason_check",
+      sql`${t.closeReason} is null or ${oneOf(t.closeReason, CODE_REQUEST_CLOSE_REASONS)}`,
+    ),
+    check("code_request_created_by_check", oneOf(t.createdBy, CODE_REQUEST_CREATORS)),
+    // Closed always says why; merged always says into what.
+    check(
+      "code_request_closed_check",
+      sql`(${t.status} = 'closed') = (${t.closeReason} is not null)`,
+    ),
+    check(
+      "code_request_merged_check",
+      sql`(${t.closeReason} = 'merged') = (${t.mergedIntoId} is not null)`,
+    ),
+    check(
+      "code_request_not_self_check",
+      sql`${t.mergedIntoId} is null or ${t.mergedIntoId} <> ${t.id}`,
+    ),
+  ],
+);
+
+/**
+ * Where a request is needed: a build, and in it a workflow's step and the build's open item of
+ * kind `gap` (`issue_id`, a `build_item`). One request links to many builds and steps.
+ */
+export const codeRequestLink = pgTable(
+  "code_request_link",
+  {
+    id: id(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => codeRequest.id),
+    buildId: uuid("build_id")
+      .notNull()
+      .references(() => build.id),
+    workflowId: text("workflow_id"),
+    stepId: text("step_id"),
+    issueId: uuid("issue_id").references(() => buildItem.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("code_request_link_request_idx").on(t.requestId),
+    index("code_request_link_build_idx").on(t.buildId),
+    // One link per build and step (a build's link with no step counts once too).
+    uniqueIndex("code_request_link_key").on(
+      t.requestId,
+      t.buildId,
+      sql`coalesce(${t.workflowId}, '')`,
+      sql`coalesce(${t.stepId}, '')`,
+    ),
+  ],
+);
+
+/** A request's history: every change writes one. Insert only, like `audit_event`. */
+export const codeRequestEvent = pgTable(
+  "code_request_event",
+  {
+    id: id(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => codeRequest.id),
+    at: ts("at").notNull().defaultNow(),
+    /** `operator`, `builder`, `session` or `system`. */
+    actor: text("actor").notNull(),
+    userId: uuid("user_id").references(() => appUser.id),
+    kind: text("kind").$type<(typeof CODE_REQUEST_EVENT_KINDS)[number]>().notNull(),
+    body: json("body").notNull().default({}),
+  },
+  (t) => [
+    index("code_request_event_request_idx").on(t.requestId, t.at),
+    check("code_request_event_kind_check", oneOf(t.kind, CODE_REQUEST_EVENT_KINDS)),
+    check(
+      "code_request_event_actor_check",
+      sql`${t.actor} in ('operator', 'builder', 'session', 'system')`,
+    ),
+  ],
+);
+
+/** The Dev queue's tables (§1.125): operator sessions only; links only with their build. */
+export const CODE_REQUEST_TABLES = [
+  "code_request",
+  "code_request_link",
+  "code_request_event",
+] as const;
+
 // ── Tenant tables ────────────────────────────────────────────────────────────────────────────────
 
 const tenantId = () =>
