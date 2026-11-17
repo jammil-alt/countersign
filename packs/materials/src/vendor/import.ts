@@ -7,19 +7,22 @@
 // calls a model; the embeddings step after it embeds what it made or re-worded.
 
 import { parseCsv } from "@countersign/connectors";
-import { toNumeric } from "@countersign/core";
+import { dec, toNumeric } from "@countersign/core";
 import { type Db, type Tx, vendor, withTenant } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import { descriptionHash, normalize } from "../catalog/normalize";
-import { liveItem } from "../catalog/store";
-import { readUom } from "../pricing/uom";
+import { identifyingSku, liveItem } from "../catalog/store";
+import { PACKAGING_UOMS, readUom, unitWord } from "../pricing/uom";
 import {
   cleanSku,
   createVendorItem,
   readTolerance,
+  recordedWord,
+  sameSize,
   updateVendorItem,
   type VendorItemCreator,
   VendorItemError,
+  type VendorItemRow,
   vendorAlias,
   vendorItemBySku,
 } from "./store";
@@ -118,6 +121,46 @@ export interface ImportResult {
   testRun: boolean;
 }
 
+/**
+ * Why a row is not `item` because it is another pack (a case row on the box, a box of 50 on the
+ * box of 100), or null when it is the item.
+ */
+// DECISION (fourth review of fix/materials, finding 3, with the fifth's finding 2): a row never
+// moves a box, case or pail item to another pack (its size, word or list price), whether it found
+// the item by its SKU, its wording or its master item. A row stating a size per unit other than
+// the item's is never it; an item recorded in a word takes only a row in that word (a SKU's row
+// may give no unit); one without a word (`isOlderItem`, or a SKU's) only a row whose size per
+// unit is its own, as a line must state it (`effectiveWord`), except a SKU's row giving no unit;
+// and no row moves an item from one unit to another when either is a pack. Such a row is skipped
+// with its reason.
+function anotherPack(
+  item: VendorItemRow,
+  row: { vendorUom: string | undefined; word: string | null; stdPer: string | null },
+  bySku: boolean,
+): string | null {
+  const itemPacked = item.vendorUom !== null && PACKAGING_UOMS.has(item.vendorUom);
+  const rowPacked = row.vendorUom !== undefined && PACKAGING_UOMS.has(row.vendorUom);
+  if (!itemPacked && !rowPacked) return null;
+  if (row.vendorUom !== undefined && item.vendorUom !== null && row.vendorUom !== item.vendorUom) {
+    return `the vendor's item for it is in ${item.vendorUom}, not this ${row.word ?? row.vendorUom}: give the row its own SKU`;
+  }
+  if (!itemPacked) return null;
+  const size = item.stdPerVendorUom
+    ? `its pack size of ${dec(item.stdPerVendorUom).toString()}`
+    : "its pack size (none is recorded)";
+  const word = recordedWord(item);
+  if (word !== null && row.word !== word && (row.word !== null || !bySku)) {
+    return `the vendor's item for it is its ${word}, not this ${row.word ?? "row without a unit"}: give the row its own SKU`;
+  }
+  if (row.stdPer && item.stdPerVendorUom && !sameSize(item, row.stdPer)) {
+    return `the vendor's item for it holds ${size} per unit, and this row states ${dec(row.stdPer).toString()}: give the row its own SKU or correct its size`;
+  }
+  if (word !== null) return null;
+  if (bySku && row.vendorUom === undefined) return null;
+  if (sameSize(item, row.stdPer)) return null;
+  return `the vendor's item for it was recorded before its unit's word was kept, so it takes only a row that states ${size} per unit, and this row states ${row.stdPer ? dec(row.stdPer).toString() : "none"}: give the row its own SKU or that size`;
+}
+
 class RollBack extends Error {
   constructor(readonly result: ImportResult) {
     super("test run: rolled back");
@@ -183,7 +226,8 @@ export async function importPriceListRows(
   const seen = new Set<string>();
   for (const [i, r] of input.rows.entries()) {
     const rowNo = i + 1;
-    const sku = cleanSku(r.sku);
+    // A code that names no item (`identifyingSku`): the row goes by its name.
+    const sku = identifyingSku(cleanSku(r.sku));
     const name = (r.name ?? r.description)?.trim().slice(0, 500) || null;
     const base = { rowNo, sku, name };
     const skip = (reason: string) => {
@@ -230,7 +274,7 @@ export async function importPriceListRows(
     const fields = {
       ...(r.description && r.name ? { description: r.description.trim() } : {}),
       ...(r.packSize?.trim() ? { packSize: r.packSize.trim() } : {}),
-      ...(vendorUom ? { vendorUom } : {}),
+      ...(vendorUom ? { vendorUom, unitWord: unitWord(r.vendorUom) } : {}),
       ...(stdPer && stdPer !== "0.0000" ? { stdPerVendorUom: stdPer } : {}),
       ...(money(r.minOrderQty) ? { minOrderQty: money(r.minOrderQty) } : {}),
       ...(days(r.leadTimeDays) !== null ? { leadTimeDays: days(r.leadTimeDays) } : {}),
@@ -257,6 +301,17 @@ export async function importPriceListRows(
     if (!catalogItemId && r.catalogItemId && UUID.test(r.catalogItemId.trim())) {
       const live = await liveItem(tx, tenantId, r.catalogItemId.trim());
       catalogItemId = live?.id ?? null;
+    }
+    const rowPack = {
+      vendorUom,
+      word: vendorUom ? unitWord(r.vendorUom) : null,
+      stdPer: stdPer && stdPer !== "0.0000" ? stdPer : null,
+    };
+    // By its SKU or its wording, the vendor's item may be another pack than the row's.
+    const found = item ? anotherPack(item, rowPack, sku !== null && item.sku === sku) : null;
+    if (found) {
+      skip(found);
+      continue;
     }
     if (item) {
       const before = { name: item.name, description: item.description };
@@ -295,6 +350,17 @@ export async function importPriceListRows(
       { ...fields, vendorId, catalogItemId, sku, name },
       input.by,
     );
+    // DECISION (third review of fix/materials, finding 7, with the fourth's finding 3): a row
+    // that lands on the vendor's item without a SKU in the same unit but another pack (a case on
+    // the box, or on an older item of another size) is that other item, not this one: it is
+    // skipped with the reason rather than written over the box (`anotherPack`).
+    const mismatch = made.created
+      ? null
+      : anotherPack(made.item, rowPack, sku !== null && made.item.sku === sku);
+    if (mismatch) {
+      skip(mismatch);
+      continue;
+    }
     if (made.created) {
       result.created++;
       result.vendorItemIds.push(made.item.id);

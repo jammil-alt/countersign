@@ -210,3 +210,68 @@ describe("dedupe keys", () => {
     expect(dedupeKey(fee as AlertDraft)).toBe(`materials:new_fee:${V1}:pallet fee`);
   });
 });
+
+describe("currency and assumed units (audit 7.9)", () => {
+  it("compares a price only with prices in its own currency, and prints that currency", () => {
+    const cad = obs("2026-09-01", "70.00", { currency: "CAD" });
+    const current = obs("2026-09-20", "60.00", { currency: "USD" });
+    // The only earlier price is in CAD: no jump, no average, whatever the numbers.
+    expect(priceJump(obs("2026-09-20", "80.00"), [cad], settings, names)).toBeNull();
+    const usdBefore = obs("2026-09-01", "50.00");
+    expect(priceJump(current, [cad, usdBefore], settings, names)?.facts.previous).toBe("50.00");
+    const inCad = priceJump(
+      obs("2026-09-20", "84.00", { currency: "CAD" }),
+      [cad, usdBefore],
+      settings,
+      names,
+    );
+    expect(inCad?.body).toBe(
+      "CAD 84.00 a sheet on 2026-09-20, up from CAD 70.00 on 2026-09-01. About CAD 280.00 more over the last 90 days' quantity.",
+    );
+    // Another vendor's cheaper price in another currency is no spread.
+    const other = obs("2026-09-05", "40.00", { vendorId: V2, currency: "CAD" });
+    expect(vendorSpread(current, [other], settings, names)).toBeNull();
+  });
+
+  it("keeps a price alert in another currency apart from the US dollar one", () => {
+    const usdJump = priceJump(
+      obs("2026-09-20", "80.00"),
+      [obs("2026-09-01", "70.00")],
+      settings,
+      names,
+    );
+    const cadJump = priceJump(
+      obs("2026-09-20", "84.00", { currency: "CAD" }),
+      [obs("2026-09-01", "70.00", { currency: "CAD" })],
+      settings,
+      names,
+    );
+    expect(dedupeKey(usdJump as AlertDraft)).toBe(`materials:price_jump:${ITEM}:${V1}`);
+    expect(dedupeKey(cadJump as AlertDraft)).toBe(`materials:price_jump:${ITEM}:${V1}:CAD`);
+  });
+
+  it("leaves prices whose unit was assumed out of the cross-vendor rules", () => {
+    const assumed = obs("2026-09-05", "40.00", { vendorId: V2, uomAssumed: true });
+    const current = obs("2026-09-20", "60.00");
+    expect(vendorSpread(current, [assumed], settings, names)).toBeNull();
+    expect(
+      vendorSpread(
+        { ...current, uomAssumed: true },
+        [obs("2026-09-05", "40.00", { vendorId: V2 })],
+        settings,
+        names,
+      ),
+    ).toBeNull();
+    // The outlier rule reads every vendor's prices: assumed ones don't count as history.
+    const history = ["60", "61", "60", "59", "60"].map((p, i) =>
+      obs(`2026-08-0${i + 1}`, p, { vendorId: V2, uomAssumed: true }),
+    );
+    expect(outlier(obs("2026-09-20", "200"), history, settings, names)).toBeNull();
+    // ...and an assumed price is not judged against them either.
+    const real = ["60", "61", "60", "59", "60"].map((p, i) => obs(`2026-08-0${i + 1}`, p));
+    expect(outlier(obs("2026-09-20", "200"), real, settings, names)?.kind).toBe("outlier");
+    expect(
+      outlier(obs("2026-09-20", "200", { uomAssumed: true }), real, settings, names),
+    ).toBeNull();
+  });
+});

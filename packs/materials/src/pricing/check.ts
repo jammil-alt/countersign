@@ -22,12 +22,19 @@ import { materialsEventRegistry } from "../events";
 import { PACK_ID } from "../ids";
 import { catalogItem, priceObservation } from "../schema";
 import { agreedPriceStd, checkContract } from "./contract";
-import { loadPricedDocument, type PricingContext, priceLines } from "./record";
+import {
+  fromLatestReading,
+  loadPricedDocument,
+  type PricedDocument,
+  type PricingContext,
+  priceLines,
+} from "./record";
 import {
   type AlertDraft,
   checkObservation,
   daysBefore,
   dedupeKey,
+  type Names,
   newFees,
   type Observation,
   type PriceSettings,
@@ -85,6 +92,8 @@ export function toObservation(r: typeof priceObservation.$inferSelect): Observat
     qtyStd: r.qtyStd,
     standardUom: r.standardUom,
     docLineId: r.docLineId,
+    currency: r.currency,
+    ...(r.ext?.uomAssumed === true ? { uomAssumed: true } : {}),
   };
 }
 
@@ -115,7 +124,69 @@ async function priorFees(tx: Tx, tenantId: string, vendorId: string, documentId:
   };
 }
 
-async function raise(tx: Tx, ctx: PricingContext, draft: AlertDraft): Promise<RaisedAlert> {
+/**
+ * §1.104: the contract check of a document's priced lines, when its vendor has a contract (null
+ * when it has none): the alerts, and the lines it couldn't compare (the review lists them).
+ */
+export async function contractCheckFor(
+  tx: Tx,
+  tenantId: string,
+  doc: PricedDocument,
+  lines: readonly Observation[],
+  vendorItemOf: ReadonlyMap<string | null, string | null>,
+  names: (catalogItemId: string) => Names,
+): Promise<ReturnType<typeof checkContract> | null> {
+  const contracts = await vendorContracts(tx, tenantId, doc.vendorId);
+  if (contracts.length === 0) return null;
+  const agreed = await agreedPrices(
+    tx,
+    tenantId,
+    contracts.map((c) => c.id),
+  );
+  return checkContract({
+    vendorId: doc.vendorId,
+    vendorName: doc.vendorName,
+    contracts,
+    // DECISION: the line's own vendor item when it is on the contract and its price converts to
+    // the line's unit, else one of the item's whose price converts (invariant 7); else one that
+    // doesn't, so the line is listed as unchecked rather than as not on the contract.
+    agreedFor: (o, c) => {
+      const list = agreed.filter(
+        (p) => p.contractId === c.id && p.catalogItemId === o.catalogItemId,
+      );
+      const own = vendorItemOf.get(o.docLineId);
+      const converts = (p: (typeof list)[number]) => agreedPriceStd(p, o.standardUom) !== null;
+      return (
+        list.find((p) => p.vendorItemId === own && converts(p)) ??
+        list.find(converts) ??
+        list.find((p) => p.vendorItemId === own) ??
+        list[0] ??
+        null
+      );
+    },
+    hasPrices: (c) => agreed.some((p) => p.contractId === c.id),
+    invoice: {
+      documentId: doc.documentId,
+      extractionId: doc.extractionId,
+      invoiceNumber: doc.terms.invoiceNumber,
+      invoiceDate: doc.observedOn,
+      dueDate: doc.terms.dueDate,
+      paymentTerms: doc.terms.paymentTerms,
+      freight: doc.freight,
+      currency: doc.currency,
+    },
+    lines,
+    names,
+  });
+}
+
+async function raise(
+  tx: Tx,
+  ctx: PricingContext,
+  draft: AlertDraft,
+  /** The document's currency, for an alert whose facts name none. */
+  currency: string,
+): Promise<RaisedAlert> {
   const key = dedupeKey(draft);
   const view = {
     kind: draft.kind,
@@ -142,6 +213,8 @@ async function raise(tx: Tx, ctx: PricingContext, draft: AlertDraft): Promise<Ra
       evidence: draft.evidence,
       facts: { ...draft.facts, vendorId: draft.vendorId, catalogItemId: draft.catalogItemId },
       dollarImpact: draft.dollarImpact,
+      // The currency its dollar impact is in (the invoice's), as its facts say.
+      currency: typeof draft.facts.currency === "string" ? draft.facts.currency : currency,
       dedupeKey: key,
       raisedByRunId: ctx.runId ?? null,
       agentVersionId: ctx.agentVersionId,
@@ -209,6 +282,8 @@ export async function checkPrices(
                   eq(priceObservation.tenantId, ctx.tenantId),
                   inArray(priceObservation.catalogItemId, itemIds),
                   gte(priceObservation.observedOn, since),
+                  // A document read again counts once: its latest reading's prices only.
+                  fromLatestReading(),
                 ),
               )
           ).map(toObservation);
@@ -245,6 +320,7 @@ export async function checkPrices(
         priorFeeTypes: fees.types,
         priorInvoices: fees.invoices,
         evidence: [doc.documentId, doc.extractionId],
+        currency: doc.currency,
       }),
     );
     // DECISION: the client-specific `ignore_vendors` setting leaves out alerts about those vendors'
@@ -254,51 +330,18 @@ export async function checkPrices(
     // §1.104: the contract check, when the vendor has a contract. DECISION: `ignore_vendors`
     // leaves out the history rules only; a vendor on contract pricing is checked against its
     // contract all the same (that is what the contract is for).
-    const contracts = await vendorContracts(tx, ctx.tenantId, doc.vendorId);
-    if (contracts.length > 0) {
-      const agreed = await agreedPrices(
-        tx,
-        ctx.tenantId,
-        contracts.map((c) => c.id),
-      );
-      const vendorItemOf = new Map(drafts.map((d) => [d.docLineId, d.vendorItem?.id ?? null]));
-      const contract = checkContract({
-        vendorId: doc.vendorId,
-        vendorName: doc.vendorName,
-        contracts,
-        // DECISION: the line's own vendor item when it is on the contract, else one of the
-        // item's whose price converts to the line's unit (invariant 7).
-        agreedFor: (o, c) => {
-          const list = agreed.filter(
-            (p) => p.contractId === c.id && p.catalogItemId === o.catalogItemId,
-          );
-          const own = vendorItemOf.get(o.docLineId);
-          return (
-            list.find((p) => p.vendorItemId === own) ??
-            list.find((p) => agreedPriceStd(p, o.standardUom) !== null) ??
-            list[0] ??
-            null
-          );
-        },
-        hasPrices: (c) => agreed.some((p) => p.contractId === c.id),
-        invoice: {
-          documentId: doc.documentId,
-          extractionId: doc.extractionId,
-          invoiceNumber: doc.terms.invoiceNumber,
-          invoiceDate: doc.observedOn,
-          dueDate: doc.terms.dueDate,
-          paymentTerms: doc.terms.paymentTerms,
-          freight: doc.freight,
-          currency: doc.currency,
-        },
-        lines: current,
-        names: (itemId) => ({
-          item: items.find((i) => i.id === itemId)?.name ?? "An item",
-          vendor: vendorName,
-        }),
-      });
-      kept.push(...contract.alerts);
-    }
+    const contract = await contractCheckFor(
+      tx,
+      ctx.tenantId,
+      doc,
+      current,
+      new Map(drafts.map((d) => [d.docLineId, d.vendorItem?.id ?? null])),
+      (itemId) => ({
+        item: items.find((i) => i.id === itemId)?.name ?? "An item",
+        vendor: vendorName,
+      }),
+    );
+    if (contract) kept.push(...contract.alerts);
     // The same alert key twice in one document (two lines of one item): the first stands.
     const seen = new Set<string>();
     const alerts: RaisedAlert[] = [];
@@ -306,7 +349,7 @@ export async function checkPrices(
       const key = dedupeKey(d);
       if (seen.has(key)) continue;
       seen.add(key);
-      alerts.push(await raise(tx, ctx, d));
+      alerts.push(await raise(tx, ctx, d, doc.currency));
     }
     return {
       documentId: doc.documentId,

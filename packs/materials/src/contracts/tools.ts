@@ -3,11 +3,13 @@
 // an invoice's review notes for accounts payable (`none`). None writes to a client's tool; the
 // email to AP is the process's own write step (approval on, invariant 8).
 
-import { dec, formatAmount } from "@countersign/core";
+import { dec } from "@countersign/core";
 import { withTenant } from "@countersign/db";
 import { z } from "zod";
+import { contractCheckFor } from "../pricing/check";
 import { contractOn } from "../pricing/contract";
 import { loadPricedDocument, priceLines } from "../pricing/record";
+import { moneyIn } from "../pricing/rules";
 import { FREIGHT_TERMS } from "../schema";
 import { defineTool, type PackTool } from "../tools";
 import {
@@ -325,8 +327,8 @@ export function handoffOf(settings: Readonly<Record<string, unknown>>): Handoff 
 /** A finding that is only a note: a variance within the item's tolerance. */
 const isNote = (f: { kind: string }) => f.kind === "within_tolerance";
 
-const money = (v: string, currency: string) =>
-  currency === "USD" ? `$${formatAmount(v)}` : `${formatAmount(v)} ${currency}`;
+// One money format with the alerts' (`moneyIn`): `$12.50`, or `CAD 12.50`.
+const money = (v: string, currency: string) => moneyIn(v, currency);
 
 /** The invoice's review notes: what was checked, what was found, what wasn't checked. */
 export const invoiceReview = defineTool({
@@ -377,7 +379,7 @@ export const invoiceReview = defineTool({
       const doc = await loadPricedDocument(tx, ctx.tenantId, input.documentId, {
         testRun: ctx.mode === "test",
       });
-      const { lines } = await priceLines(tx, ctx.tenantId, doc);
+      const { drafts, lines } = await priceLines(tx, ctx.tenantId, doc);
       const total = doc.total;
       const contracts = await vendorContracts(tx, ctx.tenantId, doc.vendorId);
       const contract = contractOn(contracts, doc.observedOn);
@@ -388,7 +390,31 @@ export const invoiceReview = defineTool({
       const savings = impacts
         .filter((d) => d.lessThan(0))
         .reduce((a, b) => a.plus(b.abs()), dec("0"));
-      const unchecked = lines.filter((l) => l.skipped !== null);
+      // Lines with no price, and (audit 7.11) priced lines the contract check couldn't compare: an
+      // agreed price with no conversion to the line's unit, or a contract in another currency.
+      const contractRun = await contractCheckFor(
+        tx,
+        ctx.tenantId,
+        doc,
+        drafts.map(({ line: _l, ext: _e, ...o }) => o),
+        new Map(drafts.map((d) => [d.docLineId, d.vendorItem?.id ?? null])),
+        () => ({ item: "An item", vendor: () => doc.vendorName }),
+      );
+      const notCompared = new Map(
+        (contractRun?.unchecked ?? []).map((u) => [u.docLineId, u.reason]),
+      );
+      const unchecked = lines.flatMap((l) =>
+        l.skipped !== null
+          ? [l]
+          : notCompared.has(l.docLineId)
+            ? [
+                {
+                  ...l,
+                  skipped: `not checked against the contract: ${notCompared.get(l.docLineId)}`,
+                },
+              ]
+            : [],
+      );
       const number = doc.terms.invoiceNumber;
       const cur = doc.currency;
       const stake = atStake.greaterThan(0) ? `, ${money(atStake.toFixed(2), cur)} at stake` : "";

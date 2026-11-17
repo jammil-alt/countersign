@@ -16,7 +16,7 @@ import {
   thresholdOf,
   withModelReading,
 } from "./split";
-import { findAlias, findCandidates, latestMatch, liveItem } from "./store";
+import { findAlias, findCandidates, latestMatch, liveItem, skuContradicts } from "./store";
 
 export interface LookupResult {
   documentId: string;
@@ -88,9 +88,15 @@ export async function lookupDocument(
       const alias = await findAlias(tx, tenantId, {
         vendorId: prepared.vendorId,
         vendorSku: prepared.line.sku,
+        taughtSku: prepared.line.taughtSku,
         descriptionHash: prepared.line.hash,
       });
-      if (alias) {
+      // DECISION (audit 7.10): a SKU alias whose item the line's own words differ from on a key
+      // attribute settles nothing: the line stays open for the model, the check's hard rules and
+      // a person, as `matchLine` sends it to one.
+      const differ =
+        alias?.via === "sku" ? await skuContradicts(tx, tenantId, parsed, alias.item) : null;
+      if (alias && !differ) {
         lines.push({
           ...line,
           category: parsed.category,
@@ -115,7 +121,19 @@ export async function lookupDocument(
         standardUom: c.item.standardUom,
         similarity: c.similarity,
       }));
-      lines.push(decideByRules(line, parsed, items));
+      const ruled = decideByRules(line, parsed, items);
+      lines.push(
+        differ && ruled.decision !== "open"
+          ? {
+              ...ruled,
+              decision: "open",
+              catalogItemId: null,
+              catalogItemName: null,
+              method: null,
+              hinge: differ,
+            }
+          : ruled,
+      );
     }
     return { documentId: input.documentId, extractionId: extraction.id, lines };
   });

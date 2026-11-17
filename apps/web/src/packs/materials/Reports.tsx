@@ -161,9 +161,14 @@ function AlertCard({ alert, clientId }: { alert: PriceWatchAlert; clientId?: str
             {/* §1.104: a negative impact is a saving (paid below the agreed price). */}
             {Number(alert.dollarImpact) < 0
               ? i18n.t("materials.alert.saved", {
-                  amount: i18n.fmt.money(String(Math.abs(Number(alert.dollarImpact)))),
+                  amount: i18n.fmt.money(
+                    String(Math.abs(Number(alert.dollarImpact))),
+                    alert.currency,
+                  ),
                 })
-              : i18n.t("materials.alert.atStake", { amount: i18n.fmt.money(alert.dollarImpact) })}
+              : i18n.t("materials.alert.atStake", {
+                  amount: i18n.fmt.money(alert.dollarImpact, alert.currency),
+                })}
           </span>
         ) : null}
       </div>
@@ -265,8 +270,12 @@ export function PriceWatchView({
         />
         <Stat
           label={t("materials.stat.atStake")}
-          value={fmt.money(data.totals.dollarImpact)}
-          note={t("materials.stat.atStakeNote")}
+          value={fmt.money(data.totals.dollarImpact, data.totals.currency)}
+          note={
+            (data.totals.atStake ?? []).length > 1
+              ? (data.totals.atStake ?? []).map((s) => fmt.money(s.amount, s.currency)).join(" · ")
+              : t("materials.stat.atStakeNote")
+          }
           testId="materials-stat-impact"
         />
         <Stat
@@ -350,7 +359,7 @@ export function PriceWatchView({
                       </td>
                       <td>{r.vendor}</td>
                       <td className="n">
-                        {fmt.unitPrice(r.lastPrice)}{" "}
+                        {fmt.unitPrice(r.lastPrice, r.currency)}{" "}
                         <span className="text-ink-muted">{perUnit(r.standardUom, i18n)}</span>
                       </td>
                       <td className="n">
