@@ -6,6 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { PackManifest } from "../schemas/pack";
 import {
+  addToGuide,
   agentSectionKey,
   buildGuide,
   type Covers,
@@ -236,9 +237,53 @@ describe("building the guide", () => {
       facts: [{ id: "x1", section: "processes", text: "By email", sureness: "heard" }],
     });
     expect(noGeneral.sections[0]?.fields.at(-1)).toMatchObject({
-      key: "fact.x1",
+      key: factFieldKey("x1"),
       sectionKey: "area:purchasing",
     });
+  });
+
+  it("adds a later Invite's cards to an open intake's guide, keeping what it had", () => {
+    // The open intake: Purchasing only, with the operator's reword on its approver question.
+    const purchasingOnly = { general: false, areas: ["purchasing" as const], templateIds: [] };
+    const open = buildGuide({
+      covers: purchasingOnly,
+      general: null,
+      areas: [purchasing],
+      agents: [],
+      facts: [],
+      edits: { reword: [{ key: "general.approver", label: "Who signs off on a purchase?" }] },
+    });
+    // Later: general and the contracts agent too, built afresh for every card.
+    const built = guideOf();
+    const { guide, added } = addToGuide(open, built);
+    expect(guide.sections.map((s) => s.key)).toEqual([
+      "area:purchasing",
+      "general",
+      agentSectionKey(T1),
+    ]);
+    expect(added.map((s) => s.key)).toEqual(["general", agentSectionKey(T1)]);
+    // The kept card is as it was: its reword, its keys.
+    const approver = guide.sections[0]?.fields.find((f) => f.key === "general.approver");
+    expect(approver?.label).toBe("Who signs off on a purchase?");
+    expect(approver?.sectionKey).toBe("area:purchasing");
+    // The shared question is asked once, where it was, and names the new general card.
+    expect(approver?.alsoIn).toContain("general");
+    expect(guide.sections[1]?.fields.some((f) => f.key === "general.approver")).toBe(false);
+    const keys = guide.sections.flatMap((s) => s.fields.map((f) => f.key));
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(guide.totals).toEqual(guideTotals(guide.sections));
+    // Nothing new: the same guide.
+    expect(addToGuide(open, open).added).toEqual([]);
+  });
+
+  it("keys a fact's line without the fact's id, the same each time", () => {
+    const id = "0192f0aa-aaaa-7000-8000-00000000000f";
+    const key = factFieldKey(id);
+    expect(key).toMatch(/^fact\.[0-9a-f]{16}$/);
+    expect(key).toBe(factFieldKey(id.toUpperCase()));
+    expect(key).not.toContain("0192f0aa");
+    expect(factFieldKey("0192f0aa-aaaa-7000-8000-000000000010")).not.toBe(key);
+    expect(factFieldKey("  ")).toBeNull();
   });
 
   it("applies the operator's drop, ask later, reword and add, and never a question for a secret", () => {

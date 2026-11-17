@@ -25,6 +25,11 @@ function unb64url(text: string): Uint8Array {
   return Uint8Array.from(s, (c) => c.charCodeAt(0));
 }
 
+/** Whether this Worker can sign welcome links (production needs ENCRYPTION_KEY). */
+export function welcomeLinksAvailable(env: WelcomeLinkEnv): boolean {
+  return !!env.ENCRYPTION_KEY?.trim() || !isProductionEnv(env);
+}
+
 // DECISION: a key derived from ENCRYPTION_KEY under the label `mezonas-welcome-link` (the form
 // link's is `mezonas-form-link`, so neither opens the other); in development without the key, a
 // random key per isolate; production without it makes no links (and no invite email is sent).

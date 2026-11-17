@@ -35,13 +35,19 @@ import { guideSources } from "./onboarding/guide-sources";
 const sendOnboardingEmail = vi.hoisted(() =>
   vi.fn(async () => ({ notificationId: null, status: "queued" as const })),
 );
-vi.mock("./onboarding/emails", () => ({ sendOnboardingEmail }));
+vi.mock("./onboarding/emails", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./onboarding/emails")>()),
+  sendOnboardingEmail,
+}));
 
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
   vi.spyOn(console, level).mockImplementation(() => {});
 }
 
-const h = await createApiHarness();
+// Our email can go from here (Resend set up), so the sign-in provider sends nothing of its own.
+const h = await createApiHarness({
+  env: { RESEND_API_KEY: "re_test", RESEND_FALLBACK_DOMAIN: "mezonas.test" },
+});
 afterAll(() => h?.close());
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.

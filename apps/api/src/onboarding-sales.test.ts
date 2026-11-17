@@ -305,7 +305,8 @@ describe.skipIf(!h)("Sales' onboarding", () => {
     expect(file.file).toMatchObject({ status: "client", client: { id: made.client.id } });
     expect(file.deals.map((d) => d.id)).toEqual([made.sales.dealId]);
 
-    // A company with an open deal: that deal moves there; no second deal is opened.
+    // A company with an open deal, its name typed again: nothing is linked by name alone (review);
+    // a deal of its own is opened and the operator gets a to-do to check.
     const lead = await ok<DealDetail>("POST", "/api/ops/deals", {
       kind: "new",
       company: "Juniper Foods",
@@ -319,17 +320,35 @@ describe.skipIf(!h)("Sales' onboarding", () => {
       "/api/ops/clients",
       { name: "juniper foods" },
     );
-    expect(juniper.sales).toEqual({ dealId: lead.deal.id, fileId: lead.deal.fileId });
-    const moved = await ok<DealDetail>("GET", `/api/ops/deals/${lead.deal.id}`);
-    expect(moved.deal).toMatchObject({ stage: "setup", client: { id: juniper.client.id } });
-    expect(moved.activity.slice(0, 4).map((a) => a.body)).toEqual([
-      "juniper foods was made a client directly.",
-      "Moved from Qualified to Set up the account. Signed up directly.",
-      "Skipped Proposal and contract: signed up directly.",
-      "Skipped Diagnostic: signed up directly.",
-    ]);
+    expect(juniper.sales.dealId).not.toBe(lead.deal.id);
+    expect(juniper.sales.fileId).not.toBe(lead.deal.fileId);
+    const stayed = await ok<DealDetail>("GET", `/api/ops/deals/${lead.deal.id}`);
+    expect(stayed.deal).toMatchObject({ stage: "qualified", client: null });
     const deals = await H.t.db.select().from(deal).where(eq(deal.clientId, juniper.client.id));
     expect(deals).toHaveLength(1);
+    const [check] = await H.t.db
+      .select({ title: todo.title, aboutKind: todo.aboutKind, aboutId: todo.aboutId })
+      .from(todo)
+      .where(eq(todo.dedupeKey, `client:${juniper.client.id}:same-name`));
+    expect(check).toEqual({
+      title: "Check whether juniper foods is the juniper foods already in Sales",
+      aboutKind: "client",
+      aboutId: juniper.client.id,
+    });
+    // Named, the deal moves there: Invite and Sign up now name what they found and say so.
+    const lead2 = await ok<DealDetail>("POST", "/api/ops/deals", {
+      kind: "new",
+      company: "Birch Hardware",
+      title: "Invoice review",
+      mrr: "900",
+      stage: "qualified",
+    });
+    const birch = await ok<{ client: { id: string }; sales: { dealId: string; fileId: string } }>(
+      "POST",
+      "/api/ops/clients",
+      { name: "Birch Hardware", sales: { dealId: lead2.deal.id } },
+    );
+    expect(birch.sales).toEqual({ dealId: lead2.deal.id, fileId: lead2.deal.fileId });
   });
 
   it("seeds the starts once, and saves and archives the operator's own", async () => {
@@ -409,20 +428,15 @@ describe.skipIf(!h)("Sales' onboarding", () => {
       "Opens the intake (general, 1 agent).",
       "Opens a New account deal at Set up the account.",
       "Records the agreed price: $1,500 a month.",
-      "Emails Dana.",
+      // No Resend in this harness: our email can't go, so the sign-in provider's does (review).
+      "Emails Dana the sign-in invitation (our own email isn't set up here).",
       "Adds a to-do on Your call.",
     ]);
     expect(preview.todos).toEqual([
       { title: "Attach Acme Supplies's signed contract", dueOn: inDays(7) },
     ]);
-    expect(preview.emails).toMatchObject([
-      {
-        to: "dana@acme-supplies.example.com",
-        kind: "invite",
-        from: expect.stringMatching(/^Operator at Mezonas <hello@/),
-        replyTo: OPERATOR,
-      },
-    ]);
+    // Nothing of ours to preview; onboarding-flow.test.ts previews and sends one through Resend.
+    expect(preview.emails).toEqual([]);
     expect(preview.welcome).toMatchObject({ client: "Acme Supplies", email: body.person.email });
     // Only `theirs` facts reach the guide; our note never does.
     expect(JSON.stringify(preview.intake?.guide)).toContain("Dana runs accounts payable");
@@ -463,17 +477,15 @@ describe.skipIf(!h)("Sales' onboarding", () => {
       .select()
       .from(notification)
       .where(eq(notification.tenantId, sent.clientId));
-    expect(queued.filter((n) => n.kind === "intake_invite")).toMatchObject([
-      { channel: "email", dedupeKey: expect.stringContaining(people[0]?.id as string) },
-    ]);
-    // No Resend in this harness: the row is written skipped and the intake logs it once (the
-    // email's own record, onboarding-flow.test.ts sends one).
-    expect(sent.emails).toEqual([{ to: body.person.email, status: "skipped" }]);
+    // No Resend in this harness: no email of ours is queued (the sign-in provider's invitation
+    // went instead), so nobody is left waiting on one that can't go.
+    expect(queued.filter((n) => n.kind === "intake_invite")).toEqual([]);
+    expect(sent.emails).toEqual([]);
     const events = await H.t.db
       .select()
       .from(intakeEvent)
       .where(eq(intakeEvent.intakeId, row?.id as string));
-    expect(events.map((e) => e.kind)).toEqual(["sent"]);
+    expect(events.map((e) => e.kind)).toEqual([]);
     // The build is the deal's, from the template, at the client.
     const [b] = await H.t.db
       .select()

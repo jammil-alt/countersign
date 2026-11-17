@@ -168,17 +168,16 @@ then one pass of its "To verify" list against the real service.
 
 ## 4. Everything else
 
-### Back office work: Sales, onboarding and Build (built 2026-11-17, not merged; onboarding O1–O3 built)
+### Back office work: Sales, onboarding and Build (built 2026-11-17; onboarding O1–O3 not merged)
 
 One to-do list (Your call), Sales (new accounts and expansion), onboarding and Build (issues, agent
 builds and enhancements in one work order), with Reggie doing most of the work. Build, Sales, Your
-call and Reggie with Autopilot are built on two stacked PRs, neither merged: the migrations
-(0060–0063, PR #380) and the code on top of it (PR #383, `claude/ops-work-szb740`). Waiting on the
-owner to try it on staging and say when to merge. Decisions: `docs/plan.md` §1.124 (M64–M68); what
-each stream left open is in its "Not yet" row in §1.124.1–§1.124.4.
+call and Reggie with Autopilot are merged (the migrations 0060–0063, PR #380, and the code, PR
+#383) and on staging for the owner to try. Decisions: `docs/plan.md` §1.124 (M64–M68); what each
+stream left open is in its "Not yet" row in §1.124.1–§1.124.4.
 
 Onboarding's first part (steps O1–O3, `docs/plan.md` §1.125, M69, migration 0066) is built on
-top of it, on its own branch, not merged: a client file of what we know about each prospect and
+top of it, on two branches, not merged (the migration's PR first, then the code's): a client file of what we know about each prospect and
 client; **Invite** from the lead record (a general, area or agents intake, filled from the file's
 `theirs` facts) and **Sign up now** from a saved start, both logged as a deal at the right stage
 (stages are a record, every account is in Sales); the branded invite from the lead at `hello@`
@@ -192,7 +191,8 @@ Requirements request reading its card. All against fakes. What it still needs:
 - Code, smaller: delivered and bounced from Resend's webhooks; "Just the account" still sends
   WorkOS's own invitation rather than a branded welcome-only email; a client file's documents (no
   storage yet); pack and template questions shown in English; the retention job for lost
-  prospects. The full list: `docs/plan.md` §1.125.5.
+  prospects; a "send it again" for an invite that didn't go (today it leaves the lead a to-do).
+  The full list: `docs/plan.md` §1.125.5 and §1.125.6.
 - The owner's call: whether the deal page's old "Set up the account" card stays now that Invite
   does the set-up.
 

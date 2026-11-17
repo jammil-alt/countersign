@@ -182,9 +182,11 @@ export function SignUpNowSheet({
       {sent ? (
         <div className="flex flex-col gap-2 text-sm" data-testid="signup-sent">
           <p className="m-0 text-ink">
-            {prefill.clientId
-              ? `Done. ${who}'s expansion deal is at Agreed.`
-              : `Done. ${who} is a client, and the deal is at Set up the account.`}
+            {!sent.dealId
+              ? `Done. ${who}'s people are invited.`
+              : prefill.clientId
+                ? `Done. ${who}'s deal is updated in Sales.`
+                : `Done. ${who} is a client, and the deal is at Set up the account.`}
           </p>
           <ul className="m-0 flex list-none flex-col gap-1 p-0 text-ink-muted">
             {sent.emails.map((e) => (

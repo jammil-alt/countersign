@@ -29,6 +29,7 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { Bindings } from "../env";
 import { reportHandled, reportProblem } from "../observability/report";
 import {
+  leaveUnsentTodo,
   logOnboardingSend,
   type PreparedOnboardingEmail,
   prepareOnboardingEmail,
@@ -218,6 +219,8 @@ export async function sendQueued(
 ): Promise<SendSummary | null> {
   const out: SendSummary = { sent: 0, skipped: 0, failed: 0, held: 0 };
   const pusher = deps.pusher ?? unconfiguredPusher;
+  // §1.125: onboarding emails that didn't go, each left as a to-do for the lead after its settle.
+  const unsent: Parameters<typeof leaveUnsentTodo>[1][] = [];
   const claimed = await withTenant(db, tenantId, async (tx) => {
     const t = await tenantRow(tx, tenantId);
     if (!t || t.retiredAt) return null;
@@ -276,6 +279,7 @@ export async function sendQueued(
             mailerConfigured: deps.mailer.isConfigured,
             origin: deps.origin,
             links: deps.links ?? {},
+            covered: deps.covered ?? new Set(),
           },
           now,
         );
@@ -295,6 +299,15 @@ export async function sendQueued(
               notificationId: row.id,
               status: "skipped",
               reason: prepared.reason,
+            });
+            unsent.push({
+              tenantId: t.id,
+              intakeId: prepared.intakeId,
+              personId: prepared.personId,
+              notificationId: row.id,
+              kind: row.kind,
+              reason: prepared.reason,
+              now,
             });
           }
           continue;
@@ -384,6 +397,18 @@ export async function sendQueued(
   });
   if (!claimed) return null;
   const { t } = claimed;
+  const leaveUnsent = async () => {
+    for (const u of unsent.splice(0)) {
+      await leaveUnsentTodo(db, u).catch((error: unknown) =>
+        reportHandled("leaving an unsent onboarding email's to-do failed", error, {
+          job: "notify",
+          client: t.id,
+          notification: u.notificationId,
+        }),
+      );
+    }
+  };
+  await leaveUnsent();
 
   for (const { row, person, rendered, claim, onboarding } of claimed.sends) {
     let providerId: string | null = null;
@@ -457,6 +482,17 @@ export async function sendQueued(
             claim,
           );
           await logged("failed");
+          if (onboarding) {
+            unsent.push({
+              tenantId: t.id,
+              intakeId: onboarding.intakeId,
+              personId: onboarding.personId,
+              notificationId: row.id,
+              kind: row.kind,
+              reason: "failed",
+              now,
+            });
+          }
         } else {
           await settle(tx, row, { reason: retryReason(tries) }, claim);
         }
@@ -473,6 +509,7 @@ export async function sendQueued(
     if (failure === null) out.sent++;
     else if (triesOf(row.reason) + 1 >= NOTIFY_MAX_TRIES) out.failed++;
   }
+  await leaveUnsent();
   return out;
 }
 

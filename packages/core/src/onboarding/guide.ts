@@ -442,10 +442,31 @@ const FACT_LINE_LABELS: Record<FactSection, string> = {
   notes: "Other",
 };
 
-/** The field key of a fact's own "We think" line. */
+/** 64 bits of a string's hash (cyrb53's mixing, two 32-bit halves), as 16 hex digits. */
+function hash64(text: string): string {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 2654435761);
+    h2 = Math.imul(h2 ^ c, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  const hex = (n: number) => (n >>> 0).toString(16).padStart(8, "0");
+  return `${hex(h2)}${hex(h1)}`;
+}
+
+/**
+ * The field key of a fact's own "We think" line: `fact.` and a hash of the fact's id, the same for
+ * the same fact every time the guide is built.
+ */
+// DECISION (review): the key never carries the fact's id. The portal shows field keys and the
+// client's answers store them, and `client_fact` is the operator's (a UUID v7 also says when our
+// note was written); which fact a line came from stays in `weThink.factIds`, which the portal strips.
 export function factFieldKey(factId: string): string | null {
-  const k = factId.toLowerCase().replace(/[^a-z0-9]/g, "");
-  return k ? `fact.${k.slice(0, 90)}` : null;
+  const id = factId.trim().toLowerCase();
+  return id ? `fact.${hash64(id)}` : null;
 }
 
 /**
@@ -597,6 +618,59 @@ export function buildGuide(input: BuildGuideInput): Guide {
   fillFromFacts(sections, input.facts);
   applyEdits(sections, GuideEdits.parse(input.edits ?? {}));
   return { version: GUIDE_VERSION, sections, totals: guideTotals(sections) };
+}
+
+/**
+ * An open intake's guide with a later Invite's cards added (cases-plan §3.2: one intake per
+ * client). `built` is the guide for every card the intake will have, built afresh; the cards the
+ * open guide already has are kept as they are (their keys, wording and the operator's earlier
+ * edits, so its answers still fit), and only the new cards are taken from `built`. A question a
+ * new card shares with a kept one stays asked once, where it was, and names the new card too.
+ */
+export function addToGuide(open: Guide, built: Guide): { guide: Guide; added: GuideSection[] } {
+  const have = new Set(open.sections.map((s) => s.key));
+  const kept = open.sections.map((s) => ({
+    ...s,
+    fields: s.fields.map((f) => ({ ...f, alsoIn: [...f.alsoIn] })),
+  }));
+  const keptFields = new Map<string, GuideField>();
+  for (const s of kept) for (const f of s.fields) keptFields.set(f.key, f);
+  const named = (field: GuideField, keys: readonly string[]) => {
+    for (const k of keys) {
+      if (k !== field.sectionKey && !field.alsoIn.includes(k)) field.alsoIn.push(k);
+    }
+  };
+  const added: GuideSection[] = [];
+  for (const s of built.sections) {
+    if (have.has(s.key)) {
+      // A kept card's question that a new card shares: the new card is named on it.
+      for (const f of s.fields) {
+        const k = keptFields.get(f.key);
+        if (k)
+          named(
+            k,
+            f.alsoIn.filter((x) => !have.has(x)),
+          );
+      }
+      continue;
+    }
+    const fields: GuideField[] = [];
+    for (const f of s.fields) {
+      const k = keptFields.get(f.key);
+      if (k) {
+        named(k, [s.key, ...f.alsoIn]);
+        k.requiredToStart ||= f.requiredToStart;
+        continue;
+      }
+      fields.push({ ...f, alsoIn: f.alsoIn.filter((x) => x !== f.sectionKey) });
+    }
+    added.push({ ...s, fields });
+  }
+  const sections = [...kept, ...added];
+  return {
+    guide: { version: GUIDE_VERSION, sections, totals: guideTotals(sections) },
+    added,
+  };
 }
 
 /** Minutes each kind of question takes, for the estimate. */

@@ -11,6 +11,7 @@ import {
   fieldFor,
   type GuideField,
   type IntakeAnswerInput,
+  parseCoveredProcessors,
   redactAnswer,
   routes,
   visibleSectionKeys,
@@ -25,12 +26,17 @@ import {
   intakePerson,
   membership,
   type Tx,
+  tenant,
 } from "@countersign/db";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, HttpError, mount, notFound } from "../http";
 import { notifyDepsFromEnv, sendNow } from "../notify/tick";
-import { sendOnboardingEmail } from "../onboarding/emails";
+import {
+  brandedEmailCanGo,
+  onboardingEmailRefusal,
+  sendOnboardingEmail,
+} from "../onboarding/emails";
 import {
   claimPerson,
   currentIntake,
@@ -264,6 +270,18 @@ export function intakeRoutes(app: Hono<AppEnv>): void {
     const { tx, tenantIds, params, body, session, services } = ctx;
     const viewer = viewerOf(ctx);
     const { row, d, who, visible } = await acting(tx, tenantIds, params.id, viewer);
+    // HIPAA mode (§1.35, invariant 14): the colleague's email names them and the client to Resend.
+    const [client] = await tx
+      .select({ settings: tenant.settings })
+      .from(tenant)
+      .where(eq(tenant.id, row.tenantId));
+    const settings = (client?.settings ?? null) as Record<string, unknown> | null;
+    const refusal = onboardingEmailRefusal(
+      settings,
+      parseCoveredProcessors(services.env.BAA_PROCESSORS),
+    );
+    if (refusal) throw new HttpError(409, "hipaa", refusal);
+    const branded = brandedEmailCanGo(services.env, settings);
     // A card, or one question (its card goes to them, the question marked as theirs).
     let sectionKey: string;
     let about: string;
@@ -311,12 +329,13 @@ export function intakeRoutes(app: Hono<AppEnv>): void {
         };
       } else {
         // DECISION (cases-plan §4.4, one email, not two): the sign-in provider sends nothing; the
-        // colleague gets our own branded email ("A colleague asked").
+        // colleague gets our own branded email ("A colleague asked"). When ours can't go from
+        // here, the provider's invitation goes instead (review).
         const invited = await inviteToClient(
           ctx,
           row.tenantId,
           { email, name: body.name, role: "client_user" },
-          { surface: "portal", providerEmail: false },
+          { surface: "portal", ...(branded ? { providerEmail: false } : {}) },
         );
         colleague = { userId: invited.member.userId, email, name: invited.member.name ?? email };
       }
@@ -367,18 +386,20 @@ export function intakeRoutes(app: Hono<AppEnv>): void {
       ...(body.fieldKey ? { fieldKey: body.fieldKey } : {}),
       ...(body.note ? { note: redactAnswer(body.note) } : {}),
     });
-    const sent = await sendOnboardingEmail(
-      { tx, env: services.env },
-      {
-        kind: "colleague",
-        tenantId: row.tenantId,
-        intakeId: row.id,
-        personId: person.id,
-        askedByUserId: session.user.id,
-        about: [about],
-      },
-    );
-    if (sent.status === "queued") {
+    const sent = branded
+      ? await sendOnboardingEmail(
+          { tx, env: services.env },
+          {
+            kind: "colleague",
+            tenantId: row.tenantId,
+            intakeId: row.id,
+            personId: person.id,
+            askedByUserId: session.user.id,
+            about: [about],
+          },
+        )
+      : null;
+    if (sent?.status === "queued") {
       ctx.afterCommit(() =>
         sendNow(
           services.db,
@@ -390,7 +411,10 @@ export function intakeRoutes(app: Hono<AppEnv>): void {
     }
     await claimPerson(tx, who.person, session.user.id);
     await markOpen(tx, row);
-    return { person: personView(person), emailed: sent.status !== "skipped" };
+    return {
+      person: personView(person),
+      emailed: sent !== null && sent.status !== "skipped",
+    };
   });
 
   mount(app, routes.portalIntakeDifferentProcess, async (ctx) => {

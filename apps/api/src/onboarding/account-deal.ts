@@ -1,11 +1,18 @@
 // Every account is in Sales (docs/cases-plan.md §3.1; docs/plan.md §1.125): a client made anywhere
 // (the back office's New client, Reggie's `client_create`, a deal's set-up, Invite and Sign up now)
 // is made by one route, `opsCreateClient`, and this runs in its transaction, so each new client is
-// logged in Sales exactly once. The deal it is set up from (named, else the company's open New
+// logged in Sales exactly once. The deal it is set up from (named, or the named file's open New
 // account deal) moves to Set up the account, the stages it passes over marked skipped; with none,
 // a New account deal is opened there with the stages before it skipped ("signed up directly"). The
-// company's client file (named, the deal's, the company's prospect file, else a new one) becomes
-// the client's. What Set up the account wants and wasn't given becomes a to-do on Your call.
+// client file (named, the deal's, else a new one) becomes the client's. What Set up the account
+// wants and wasn't given becomes a to-do on Your call.
+//
+// DECISION (review, a change to cases-plan §3.1's "else the company's open New account deal"):
+// nothing is linked by name alone. A prospect's file holds what we heard about that company, and a
+// file becomes the client's intake's "We think" lines, so a different company that shares the name
+// must never get it. Invite and Sign up now find a same-name file or deal and show it in the
+// confirmation, then name it here; New client and Reggie's `client_create` name none, so a
+// same-name file or deal in Sales is left as a to-do for the operator to check and link.
 
 import {
   type DealStage,
@@ -22,6 +29,7 @@ import { eq } from "drizzle-orm";
 import { HttpError } from "../http";
 import { addSkippedBefore, addWantedTodos, moveDealStage } from "../work/deal-stages";
 import { addActivity, type DealRow, readDeal, salesToday } from "../work/deals";
+import { addTodo, closeTodosAbout } from "../work/todos-store";
 import {
   type FileRow,
   linkFileToClient,
@@ -75,11 +83,16 @@ export async function logAccountInSales(
       throw new HttpError(409, "deal_not_open", "that deal can't take a new client");
     }
   } else {
-    row = await openNewDealFor(tx, tenantIds, { name, fileId: file?.id ?? null });
+    row = file ? await openNewDealFor(tx, tenantIds, { name, fileId: file.id }, false) : null;
   }
 
   if (!file && row?.clientFileId) file = await readFile(tx, tenantIds, row.clientFileId, true);
-  if (!file) file = await prospectFileNamed(tx, name);
+  // A same-name file or deal in Sales, when nothing was named: the operator's to check.
+  const lookalike =
+    !sales.dealId && !sales.fileId
+      ? ((await prospectFileNamed(tx, name)) ??
+        (await openNewDealFor(tx, tenantIds, { name, fileId: null })))
+      : null;
   if (!file) file = await newFile(tx, { name, website: sales.website ?? null, userId });
   file = await linkFileToClient(tx, file, clientId);
   if (sales.website && !file.website) {
@@ -151,6 +164,22 @@ export async function logAccountInSales(
       userId,
       body: `Recorded the agreed terms: ${wholeMoney(agreed, currency)} a month from ${shortDay(from)}.`,
       meta: { agreedMrr: agreed, currency, from },
+    });
+    // A named deal's "Record X's agreed price" is done now (as opsRecordTerms closes it).
+    await closeTodosAbout(tx, "deal", row.id, userId, { titlePrefix: "Record " });
+  }
+
+  if (lookalike) {
+    await addTodo(tx, {
+      clientId,
+      owner: "operator",
+      title: `Check whether ${name} is the ${name} already in Sales`,
+      why: "A client was made with the name of a company in Sales. Nothing was linked; link its file if it's the same company.",
+      dueAt: new Date(`${salesToday()}T23:59:59Z`),
+      about: { kind: "client", id: clientId },
+      source: "system",
+      dedupeKey: `client:${clientId}:same-name`,
+      createdBy: userId,
     });
   }
 

@@ -12,6 +12,7 @@
 
 import {
   clientLanguage,
+  complianceOf,
   dedupeKeys,
   Guide,
   IntakeArea,
@@ -20,8 +21,12 @@ import {
   isOnboardingNotificationKind,
   type Locale,
   notificationLink,
+  ONBOARDING_EMAIL_FEATURE,
   type OnboardingNotificationKind,
+  type Processor,
+  parseCoveredProcessors,
   parseLocale,
+  processingRefusal,
   type RenderedEmail,
   renderColleagueEmail,
   renderInviteEmail,
@@ -30,12 +35,14 @@ import {
 } from "@countersign/core";
 import {
   appUser,
+  type Db,
   intake,
   intakeEvent,
   intakePerson,
   notification,
   type Tx,
-  type tenant,
+  tenant as tenantTable,
+  withOperator,
 } from "@countersign/db";
 import { leadDisplayName } from "@countersign/threads";
 import { and, desc, eq } from "drizzle-orm";
@@ -43,7 +50,13 @@ import type { Bindings } from "../env";
 import { HttpError } from "../http";
 import { HELLO_LOCAL_PART, type MailMessage, mailerFromEnv } from "../notify/mailer";
 import { originOf } from "../notify/outbox";
-import { type WelcomeLinkEnv, welcomeLinkExpiry, welcomeLinkUrl } from "./link";
+import { addTodo } from "../work/todos-store";
+import {
+  type WelcomeLinkEnv,
+  welcomeLinkExpiry,
+  welcomeLinksAvailable,
+  welcomeLinkUrl,
+} from "./link";
 
 export type OnboardingEmailKind = "invite" | "colleague" | "more_questions";
 
@@ -110,6 +123,41 @@ const titles = (items: readonly string[]) =>
     .slice(0, 30);
 
 /**
+ * Why a client's onboarding emails can't go to Resend (HIPAA mode without `resend` covered,
+ * invariant 14), or null.
+ */
+export function onboardingEmailRefusal(
+  settings: Record<string, unknown> | null | undefined,
+  covered: ReadonlySet<Processor>,
+): string | null {
+  return processingRefusal(
+    complianceOf(settings ?? {}),
+    covered,
+    ONBOARDING_EMAIL_FEATURE.processors,
+    ONBOARDING_EMAIL_FEATURE.what,
+  );
+}
+
+/**
+ * Whether the branded email can go from here at all: Resend configured, welcome links signable,
+ * and the client not refused it. When it can't, the sign-in provider's own invitation goes
+ * instead, so nobody invited is left without an email.
+ */
+// DECISION (review): the provider's invitation is turned off only when ours will go; a send that
+// later fails or bounces leaves the lead a to-do (`leaveUnsentTodo`), since resending is the next
+// wave's (reminders).
+export function brandedEmailCanGo(
+  env: Bindings,
+  settings: Record<string, unknown> | null | undefined,
+): boolean {
+  return (
+    mailerFromEnv(env).isConfigured &&
+    welcomeLinksAvailable(env) &&
+    onboardingEmailRefusal(settings, parseCoveredProcessors(env.BAA_PROCESSORS)) === null
+  );
+}
+
+/**
  * Queues one onboarding email in the caller's transaction; the notification pass sends it (call
  * `sendNow` after the commit to send it at once). Writes the intake's own record of it: a
  * colleague asked is `colleague_invited` and cards added are `cards_added` (callers don't write
@@ -161,10 +209,12 @@ export async function sendOnboardingEmail(
   // What the email is about, kept on the intake: the pass renders it from there.
   let ref: string | undefined;
   if (email.kind === "colleague") {
-    await event("colleague_invited", {
-      askedByUserId: email.askedByUserId,
-      about: titles(email.about),
-    });
+    // Keyed per ask, so a second ask of the same colleague emails them again.
+    ref =
+      (await event("colleague_invited", {
+        askedByUserId: email.askedByUserId,
+        about: titles(email.about),
+      })) ?? undefined;
   } else if (email.kind === "more_questions") {
     ref =
       (await event("cards_added", {
@@ -201,7 +251,8 @@ export async function sendOnboardingEmail(
       target: [notification.tenantId, notification.channel, notification.dedupeKey],
     })
     .returning({ id: notification.id });
-  if (!made) return { notificationId: null, status: "queued" };
+  // Already queued for this person (the invite goes once): nothing new goes.
+  if (!made) return { notificationId: null, status: "skipped" };
   if (!configured) {
     await event("sent", {
       email: email.kind,
@@ -278,6 +329,8 @@ export interface OnboardingSendDeps {
   mailerConfigured: boolean;
   origin: string;
   links: WelcomeLinkEnv;
+  /** `BAA_PROCESSORS`: a client in HIPAA mode gets these emails only once Resend is here. */
+  covered: ReadonlySet<Processor>;
 }
 
 /**
@@ -287,7 +340,7 @@ export interface OnboardingSendDeps {
  */
 export async function prepareOnboardingEmail(
   tx: Tx,
-  t: typeof tenant.$inferSelect,
+  t: typeof tenantTable.$inferSelect,
   row: NotificationRow,
   deps: OnboardingSendDeps,
   now: Date,
@@ -320,9 +373,11 @@ export async function prepareOnboardingEmail(
   if (row.kind === "intake_invite" && it.sendAt && it.sendAt.getTime() > now.getTime()) {
     return { kind: "hold", reason: "scheduled" };
   }
+  const settings = (t.settings ?? {}) as Record<string, unknown>;
+  // HIPAA mode (§1.35): the email names the client and its person to Resend.
+  if (onboardingEmailRefusal(settings, deps.covered)) return skip("hipaa", it.id, person.id);
   if (!deps.mailerConfigured) return skip("not_configured", it.id, person.id);
 
-  const settings = (t.settings ?? {}) as Record<string, unknown>;
   const locale = personLocale(person, settings);
   const lead = await intakeLead(tx, it);
   const due =
@@ -444,5 +499,67 @@ export async function logOnboardingSend(
       status: input.status,
       ...(input.reason ? { reason: input.reason } : {}),
     },
+  });
+}
+
+/** Why an onboarding email didn't go, in the lead's to-do. Others (closed, not found) need none. */
+const UNSENT_WHY: Record<string, string> = {
+  hipaa: "The client is in HIPAA mode and our email service isn't covered yet.",
+  not_configured: "Email isn't set up here.",
+  no_link_key: "Welcome links can't be signed here (no ENCRYPTION_KEY).",
+  failed: "Our email service didn't take it after several tries.",
+};
+
+const UNSENT_WORDS: Record<OnboardingEmailKind, string> = {
+  invite: "invite",
+  colleague: "colleague's email",
+  more_questions: "email about more questions",
+};
+
+/**
+ * An onboarding email the pass skipped or gave up on: a to-do on the lead's Your call (every
+ * operator's when the intake names no lead), due now, once per email. The person was told nothing,
+ * and the sign-in provider sent nothing either (§1.125, `brandedEmailCanGo`).
+ */
+export async function leaveUnsentTodo(
+  db: Db,
+  input: {
+    tenantId: string;
+    intakeId: string;
+    personId: string;
+    notificationId: string;
+    kind: string;
+    reason: string;
+    now?: Date;
+  },
+): Promise<void> {
+  const why = UNSENT_WHY[input.reason];
+  const email = onboardingEmailOf(input.kind);
+  if (!why || !email) return;
+  await withOperator(db, [input.tenantId], async (tx) => {
+    const [person] = await tx
+      .select({ name: intakePerson.name })
+      .from(intakePerson)
+      .where(and(eq(intakePerson.id, input.personId), eq(intakePerson.tenantId, input.tenantId)));
+    const [it] = await tx
+      .select({ leadUserId: intake.leadUserId })
+      .from(intake)
+      .where(and(eq(intake.id, input.intakeId), eq(intake.tenantId, input.tenantId)));
+    const [client] = await tx
+      .select({ name: tenantTable.name })
+      .from(tenantTable)
+      .where(eq(tenantTable.id, input.tenantId));
+    if (!person || !it) return;
+    await addTodo(tx, {
+      title: `The ${UNSENT_WORDS[email]} to ${person.name} at ${client?.name ?? "the client"} didn't go out`,
+      owner: "operator",
+      ownerUserId: it.leadUserId,
+      clientId: input.tenantId,
+      about: { kind: "client", id: input.tenantId },
+      source: "system",
+      why,
+      dueAt: input.now ?? new Date(),
+      dedupeKey: `intake-unsent:${input.notificationId}`,
+    });
   });
 }

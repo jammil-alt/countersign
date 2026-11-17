@@ -17,6 +17,7 @@
 // from the deal; nothing else is undone.
 
 import {
+  addToGuide,
   buildGuide,
   type Covers,
   clientLanguage,
@@ -26,7 +27,7 @@ import {
   type DealStage,
   dealStageIndex,
   dealStageOf,
-  type Guide,
+  Guide,
   type GuideFact,
   type InviteDraft,
   type InvitePreview,
@@ -34,8 +35,12 @@ import {
   type InviteSent,
   type Locale,
   type OnboardingEmailPreview,
+  OPEN_INTAKE_STATUSES,
+  parseCoveredProcessors,
+  parseLocale,
   type RouteSpec,
   renderInviteEmail,
+  renderMoreQuestionsEmail,
   routes,
   SIGNED_UP_DIRECTLY,
   type SignUpNowDraft,
@@ -61,7 +66,7 @@ import {
   todo,
   withOperator,
 } from "@countersign/db";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
 import {
   type AppEnv,
@@ -77,8 +82,8 @@ import { inviteToClient } from "../routes/onboarding";
 import { openBuilds, servingToo } from "../work/deal-setup";
 import { addSkippedBefore, addWantedTodos, moveDealStage, wantedTodos } from "../work/deal-stages";
 import { addActivity, type DealRow, readDeal, salesToday } from "../work/deals";
-import { addTodo } from "../work/todos-store";
-import { sendOnboardingEmail } from "./emails";
+import { addTodo, closeTodosAbout } from "../work/todos-store";
+import { brandedEmailCanGo, onboardingEmailRefusal, sendOnboardingEmail } from "./emails";
 import {
   ensureClientFile,
   type FileRow,
@@ -86,9 +91,11 @@ import {
   openNewDealFor,
   prospectFileNamed,
   readFile,
+  servedClientNamed,
   theirFactsOf,
 } from "./files";
 import { guideSources } from "./guide-sources";
+import { coversOf as storedCovers } from "./intake";
 import { AREA_WORDS, readStart, sellableTemplates } from "./starts";
 
 /** Which route ran it: Invite's side panel, or Sign up now (a start's defaults, resolved to a draft). */
@@ -135,10 +142,38 @@ interface DealPlan {
   none: boolean;
 }
 
+/** The client's open intake a later Invite adds to (cases-plan §3.2: one intake per client). */
+interface OpenIntakePlan {
+  id: string;
+  /** What it covered before this Invite. */
+  covers: Covers;
+  people: (typeof intakePerson.$inferSelect)[];
+  /** The cards this Invite adds: their keys and titles. */
+  added: { key: string; title: string }[];
+}
+
+/** Someone already on the open intake who is told "A few more questions" about the new cards. */
+interface ToldPlan {
+  personId: string;
+  email: string;
+  name: string;
+  language: Locale | null;
+  /** The new cards they see. */
+  titles: string[];
+}
+
 interface Plan {
   via: InviteVia;
   draft: InviteDraft;
   account: { clientId: string | null; name: string; language: Locale | null };
+  /** Null: a new intake (or none). */
+  openIntake: OpenIntakePlan | null;
+  /** Those already on the open intake who see a new card. */
+  told: ToldPlan[];
+  /** Whether the branded email goes from here (else the sign-in provider's invitation does). */
+  branded: boolean;
+  /** A new account's file or deal found in Sales by the company's name (shown to confirm). */
+  foundByName: boolean;
   file: FileRow | null;
   deal: DealPlan;
   covers: Covers;
@@ -181,6 +216,14 @@ function sectionWords(key: string, templates: { id: string; name: string }[]): s
 }
 
 // ── Planning: what it will do, read only ────────────────────────────────────────────────────────
+
+/** A person's sections once this Invite asks them more: null (the whole intake) stays null. */
+function mergedSections(had: string[] | null, asked: string[] | null): string[] | null {
+  if (had === null || asked === null) return null;
+  return [...new Set([...had, ...asked])];
+}
+
+const parseLocaleOrNull = (v: string | null): Locale | null => (v ? parseLocale(v) : null);
 
 async function leadOf(tx: Tx, session: Session): Promise<Plan["lead"]> {
   const [u] = await tx
@@ -239,7 +282,7 @@ async function clientDeal(
   tenantIds: readonly string[],
   clientId: string,
   named: DealRow | null,
-  hasIntake: boolean,
+  sells: boolean,
 ): Promise<DealPlan> {
   if (named) {
     if (named.clientId !== clientId) {
@@ -248,8 +291,10 @@ async function clientDeal(
     const kind = named.kind as DealKind;
     return { row: named, kind, to: kind === "new" ? "setup" : "agreed", none: false };
   }
-  // DECISION: only people, no intake: nothing to sell, so no deal moves.
-  if (!hasIntake) return { row: null, kind: "expansion", to: "agreed", none: true };
+  // DECISION: only people, no intake, no price and not a sign-up: nothing to sell, so no deal
+  // moves. A sign-up or an agreed price is an Expansion deal at Agreed (cases-plan §4.3), even
+  // with nothing covered (review).
+  if (!sells) return { row: null, kind: "expansion", to: "agreed", none: true };
   const open = await tx
     .select()
     .from(deal)
@@ -297,32 +342,81 @@ async function planInvite(
   const covers = draft.covers;
   const hasIntake = coversAnything(covers);
 
+  const problems: InviteProblem[] = [];
+  let foundByName = false;
   let account: Plan["account"];
   let dealPlan: DealPlan;
+  let settings: Record<string, unknown> | null = null;
   if (clientId) {
     const [t] = await tx
       .select({ name: tenant.name, settings: tenant.settings })
       .from(tenant)
       .where(eq(tenant.id, clientId));
     if (!t) throw new HttpError(404, "not_found", "client not found");
+    settings = (t.settings ?? null) as Record<string, unknown> | null;
     account = { clientId, name: t.name, language: clientLanguage(t.settings) };
-    dealPlan = await clientDeal(tx, tenantIds, clientId, named, hasIntake);
+    const sells = hasIntake || !!draft.agreedMrr || via === "sign_up";
+    dealPlan = await clientDeal(tx, tenantIds, clientId, named, sells);
   } else {
     const name = draft.clientName ?? file?.name ?? draft.company ?? named?.company ?? null;
     if (!name) throw new HttpError(422, "company_required", "name the company");
+    // DECISION (review): a typed company that is already a client served here is stopped, not
+    // made twice; the operator invites from its page. A retried sign-up whose account was made
+    // but whose people weren't lands here too, rather than on a second account.
+    const same = !file && !named ? await servedClientNamed(tx, tenantIds, name) : null;
+    if (same) {
+      problems.push({
+        email: null,
+        code: "client_exists",
+        message: `${same.name} is already a client. Open it and invite from its page.`,
+      });
+    }
     if (!file && !named) file = await prospectFileNamed(tx, name);
     if (named && named.kind !== "new") {
       throw new HttpError(422, "not_new", "an expansion deal's client already exists");
     }
     named ??= await openNewDealFor(tx, tenantIds, { name, fileId: file?.id ?? null });
     if (!file && named?.clientFileId) file = await readFile(tx, tenantIds, named.clientFileId);
+    foundByName = !draft.fileId && !draft.dealId && !!(file || named);
     account = { clientId: null, name, language: null };
     dealPlan = { row: named, kind: "new", to: "setup", none: false };
   }
 
-  const problems: InviteProblem[] = [];
-  const templates = await sellableTemplates(tx, covers.templateIds);
-  if (templates.length !== covers.templateIds.length) {
+  // HIPAA mode (§1.35, invariant 14): the branded emails name the client and its people to
+  // Resend; refused before anything is made.
+  const covered = parseCoveredProcessors(services.env.BAA_PROCESSORS);
+  const refusal = hasIntake ? onboardingEmailRefusal(settings, covered) : null;
+  if (refusal) problems.push({ email: null, code: "hipaa", message: refusal });
+  const branded = hasIntake && brandedEmailCanGo(services.env, settings);
+
+  // The client's open intake: this Invite's cards are added to it (cases-plan §3.2).
+  const [openRow] =
+    clientId && hasIntake
+      ? await tx
+          .select()
+          .from(intake)
+          .where(
+            and(eq(intake.tenantId, clientId), inArray(intake.status, [...OPEN_INTAKE_STATUSES])),
+          )
+          .orderBy(desc(intake.createdAt))
+          .limit(1)
+      : [];
+  const openCovers = openRow ? storedCovers(openRow.covers) : null;
+  const allCovers: Covers = openCovers
+    ? {
+        general: openCovers.general || covers.general,
+        areas: [...new Set([...openCovers.areas, ...covers.areas])],
+        templateIds: [...new Set([...openCovers.templateIds, ...covers.templateIds])],
+      }
+    : covers;
+
+  const templates = (await sellableTemplates(tx, covers.templateIds)).filter(
+    (t) => !openCovers?.templateIds.includes(t.id),
+  );
+  if (
+    templates.length !==
+    covers.templateIds.filter((id) => !openCovers?.templateIds.includes(id)).length
+  ) {
     problems.push({
       email: null,
       code: "unknown_template",
@@ -332,7 +426,7 @@ async function planInvite(
   // Keep the covers' order.
   templates.sort((a, b) => covers.templateIds.indexOf(a.id) - covers.templateIds.indexOf(b.id));
 
-  const keys = new Set(sectionKeysOf(covers));
+  const keys = new Set(sectionKeysOf(allCovers));
   const people: PersonPlan[] = [];
   for (const p of draft.people) {
     const { plan, problem } = await personPlan(tx, p, clientId);
@@ -359,13 +453,52 @@ async function planInvite(
           fieldKey: null,
         }))
       : [];
-    const sources = await guideSources(tx, services, covers);
+    const sources = await guideSources(tx, services, allCovers);
     guide = buildGuide({
-      covers,
+      covers: allCovers,
       ...sources,
       facts,
       ...(draft.edits ? { edits: draft.edits } : {}),
     });
+  }
+
+  // Adding to the open intake: its cards kept as they are, the new ones from the built guide.
+  let openIntake: OpenIntakePlan | null = null;
+  const told: ToldPlan[] = [];
+  if (openRow && openCovers && guide) {
+    const was = Guide.safeParse(openRow.guide);
+    const merged = was.success ? addToGuide(was.data, guide) : { guide, added: guide.sections };
+    guide = merged.guide;
+    const onIt = await tx
+      .select()
+      .from(intakePerson)
+      .where(
+        and(eq(intakePerson.tenantId, openRow.tenantId), eq(intakePerson.intakeId, openRow.id)),
+      )
+      .orderBy(asc(intakePerson.createdAt));
+    openIntake = {
+      id: openRow.id,
+      covers: openCovers,
+      people: onIt,
+      added: merged.added.map((s) => ({ key: s.key, title: s.title })),
+    };
+    // Those already on it who will see a new card: the admin, anyone asked the whole intake, and
+    // anyone this Invite asks for one.
+    for (const p of onIt) {
+      const asked = people.find((x) => x.email === p.email);
+      const sections = mergedSections(p.sections, asked ? asked.sections : []);
+      const titles = openIntake.added
+        .filter((a) => p.isAdmin || sections === null || sections.includes(a.key))
+        .map((a) => a.title);
+      if (titles.length === 0) continue;
+      told.push({
+        personId: p.id,
+        email: p.email,
+        name: p.name,
+        language: parseLocaleOrNull(p.language),
+        titles,
+      });
+    }
   }
 
   // What the deal will want once moved, and wasn't given.
@@ -386,22 +519,46 @@ async function planInvite(
         },
         who,
         { nothingChosen: !hasIntake && !clientId },
-      ).map(({ title, dueOn }) => ({ title, dueOn }));
+      );
+  // A to-do the deal already has isn't made again (the dedupe key), so it isn't promised.
+  const made =
+    dealPlan.row && todos.length > 0
+      ? new Set(
+          (
+            await tx
+              .select({ key: todo.dedupeKey })
+              .from(todo)
+              .where(
+                inArray(
+                  todo.dedupeKey,
+                  todos.map((t) => `deal:${dealPlan.row?.id}:wants:${t.want}`),
+                ),
+              )
+          ).map((r) => r.key),
+        )
+      : new Set<string | null>();
+  const newTodos = todos
+    .filter((t) => !made.has(`deal:${dealPlan.row?.id}:wants:${t.want}`))
+    .map(({ title, dueOn }) => ({ title, dueOn }));
 
   const startName = draft.startId ? (await readStart(tx, draft.startId)).name : null;
   return {
     via,
     draft,
     account,
+    openIntake,
+    told,
+    branded,
+    foundByName,
     file,
     deal: dealPlan,
-    covers,
+    covers: allCovers,
     hasIntake,
     guide,
     templates,
     people,
     problems,
-    todos,
+    todos: newTodos,
     lead: await leadOf(tx, session),
     title: startName ?? (dealPlan.kind === "new" ? "New account" : "Expansion"),
   };
@@ -413,6 +570,11 @@ function confirmLines(plan: Plan): string[] {
   const out: string[] = [];
   const name = plan.account.name;
   if (!plan.account.clientId) out.push(`Makes ${name} a client in Mezonas, with you serving it.`);
+  if (plan.foundByName) {
+    // DECISION (review): found by the company's name, so the operator confirms it's the same one.
+    const what = plan.file && plan.deal.row ? "file and deal" : plan.file ? "file" : "deal";
+    out.push(`Uses the ${what} already in Sales for ${name}: check it's the same company.`);
+  }
   const invited = plan.people.filter((p) => !p.member);
   const asked = plan.people.filter((p) => p.member);
   if (invited.length > 0) {
@@ -425,8 +587,10 @@ function confirmLines(plan: Plan): string[] {
     });
     out.push(`Invites ${listWords(words)}.`);
   }
-  if (asked.length > 0 && plan.hasIntake) {
-    out.push(`Asks ${listWords(asked.map((p) => p.name))}, already in ${name}.`);
+  const onIntake = new Set(plan.openIntake?.people.map((p) => p.email) ?? []);
+  const newlyAsked = asked.filter((p) => !onIntake.has(p.email));
+  if (newlyAsked.length > 0 && plan.hasIntake) {
+    out.push(`Asks ${listWords(newlyAsked.map((p) => p.name))}, already in ${name}.`);
   }
   if (plan.templates.length > 0) {
     const names = listWords(plan.templates.map((t) => t.name));
@@ -436,7 +600,15 @@ function confirmLines(plan: Plan): string[] {
         : `Adds ${names} (on the bench, approvals on) and opens their builds.`,
     );
   }
-  if (plan.hasIntake) out.push(`Opens the intake (${coversWords(plan.covers)}).`);
+  if (plan.openIntake) {
+    if (plan.openIntake.added.length > 0) {
+      out.push(
+        `Adds ${listWords(plan.openIntake.added.map((a) => a.title))} to ${name}'s open intake.`,
+      );
+    }
+  } else if (plan.hasIntake) {
+    out.push(`Opens the intake (${coversWords(plan.covers)}).`);
+  }
   if (!plan.deal.none) {
     const stage = dealStageOf(plan.deal.kind, plan.deal.to).name;
     const row = plan.deal.row;
@@ -458,16 +630,26 @@ function confirmLines(plan: Plan): string[] {
       `Records the agreed price: ${wholeMoney(toNumeric(plan.draft.agreedMrr), plan.draft.currency ?? "USD")} a month.`,
     );
   }
-  const emailed = plan.people.map((p) => firstName(p.name));
-  if (emailed.length > 0) {
-    if (plan.hasIntake) {
-      const when = plan.draft.sendAt ? ` on ${shortDay(plan.draft.sendAt)}` : "";
-      out.push(`Emails ${listWords(emailed)}${when}.`);
-    } else if (invited.length > 0) {
+  const emailed = plan.people.filter((p) => !onIntake.has(p.email)).map((p) => firstName(p.name));
+  if (plan.hasIntake && !plan.branded) {
+    // The branded email can't go from here: the sign-in provider's invitation goes instead.
+    if (invited.length > 0) {
       out.push(
-        `Emails ${listWords(invited.map((p) => firstName(p.name)))} the sign-in invitation.`,
+        `Emails ${listWords(invited.map((p) => firstName(p.name)))} the sign-in invitation (our own email isn't set up here).`,
       );
     }
+  } else if (plan.hasIntake) {
+    if (emailed.length > 0) {
+      const when = plan.draft.sendAt ? ` on ${shortDay(plan.draft.sendAt)}` : "";
+      out.push(`Emails ${listWords(emailed)}${when}.`);
+    }
+    if (plan.told.length > 0) {
+      out.push(
+        `Emails ${listWords(plan.told.map((p) => firstName(p.name)))} a few more questions.`,
+      );
+    }
+  } else if (invited.length > 0) {
+    out.push(`Emails ${listWords(invited.map((p) => firstName(p.name)))} the sign-in invitation.`);
   }
   if (plan.todos.length > 0) {
     out.push(
@@ -507,10 +689,11 @@ function previewOf(run: InviteRun, plan: Plan): InvitePreview {
   const link = `${origin}${welcomePagePath("preview")}`;
   const summary = summaryOf(plan);
   const localeOf = (p: PersonPlan): Locale => p.language ?? plan.account.language ?? DEFAULT_LOCALE;
-  const emails: OnboardingEmailPreview[] = summary
-    ? plan.people.map((p) => {
-        const rendered = renderInviteEmail({
-          locale: localeOf(p),
+  const onIntake = new Set(plan.openIntake?.people.map((p) => p.email) ?? []);
+  const told: OnboardingEmailPreview[] = summary
+    ? plan.told.map((p) => {
+        const rendered = renderMoreQuestionsEmail({
+          locale: p.language ?? plan.account.language ?? DEFAULT_LOCALE,
           client: plan.account.name,
           to: { name: p.name, email: p.email },
           lead: { name: plan.lead.name, photoUrl: null },
@@ -518,20 +701,49 @@ function previewOf(run: InviteRun, plan: Plan): InvitePreview {
           expiresAt,
           origin,
           note: plan.draft.note,
+          added: p.titles,
           summary,
         });
         return {
           to: p.email,
-          kind: "invite",
+          kind: "more_questions",
           from: senderOf(run.ctx.services, plan.lead),
           replyTo: plan.lead.email,
           subject: rendered.subject,
           text: rendered.text,
           html: rendered.html,
-          sendAt: plan.draft.sendAt ?? null,
+          sendAt: null,
         };
       })
     : [];
+  const invites: OnboardingEmailPreview[] = summary
+    ? plan.people
+        .filter((p) => !onIntake.has(p.email))
+        .map((p) => {
+          const rendered = renderInviteEmail({
+            locale: localeOf(p),
+            client: plan.account.name,
+            to: { name: p.name, email: p.email },
+            lead: { name: plan.lead.name, photoUrl: null },
+            link,
+            expiresAt,
+            origin,
+            note: plan.draft.note,
+            summary,
+          });
+          return {
+            to: p.email,
+            kind: "invite",
+            from: senderOf(run.ctx.services, plan.lead),
+            replyTo: plan.lead.email,
+            subject: rendered.subject,
+            text: rendered.text,
+            html: rendered.html,
+            sendAt: plan.draft.sendAt ?? null,
+          };
+        })
+    : [];
+  const emails = plan.branded ? [...invites, ...told] : [];
   const first = plan.people[0];
   const welcome: WelcomePageView = {
     state: "open",
@@ -727,8 +939,10 @@ export async function runInvite(run: InviteRun, draft: InviteDraft): Promise<Inv
         { email: p.email, name: p.name, role: p.isAdmin ? "client_admin" : "client_user" },
         // DECISION: Just the account has no intake, so no branded invite yet: the sign-in
         // provider's own invitation goes, as New client's does (cases-plan §4.3's welcome-only
-        // email is the EMAIL stream's to add).
-        { surface: "ops", ...(plan.hasIntake ? { providerEmail: false } : {}) },
+        // email is the EMAIL stream's to add). With an intake, the provider sends nothing only
+        // when our branded email can go from here (review): else theirs goes, so nobody is left
+        // without one.
+        { surface: "ops", ...(plan.branded ? { providerEmail: false } : {}) },
       );
       userIds.set(p.email, invited.member.userId);
     }
@@ -736,8 +950,81 @@ export async function runInvite(run: InviteRun, draft: InviteDraft): Promise<Inv
     let intakeId: string | null = null;
     let anyQueued = false;
     const emails: InviteSent["emails"] = [];
-    if (plan.hasIntake && plan.guide) {
-      const sendAt = draft.sendAt ? new Date(draft.sendAt) : null;
+    const sendAt = draft.sendAt ? new Date(draft.sendAt) : null;
+    if (plan.openIntake && plan.guide) {
+      // One intake per client (cases-plan §3.2): the new cards go on the open one; its people are
+      // told "A few more questions", anyone new gets the invite.
+      const open = plan.openIntake;
+      intakeId = open.id;
+      await tx
+        .update(intake)
+        .set({ covers: plan.covers, guide: plan.guide })
+        .where(and(eq(intake.id, open.id), eq(intake.tenantId, client)));
+      for (const p of plan.people) {
+        const had = open.people.find((x) => x.email === p.email);
+        if (had) {
+          const sections = mergedSections(had.sections, p.sections);
+          if (JSON.stringify(sections) !== JSON.stringify(had.sections)) {
+            await tx
+              .update(intakePerson)
+              .set({ sections })
+              .where(and(eq(intakePerson.id, had.id), eq(intakePerson.tenantId, client)));
+          }
+          people.push({
+            personId: had.id,
+            userId: userIds.get(p.email) ?? had.userId ?? "",
+            email: p.email,
+            isAdmin: had.isAdmin,
+          });
+          continue;
+        }
+        const [person] = await tx
+          .insert(intakePerson)
+          .values({
+            tenantId: client,
+            intakeId: open.id,
+            userId: userIds.get(p.email) ?? null,
+            email: p.email,
+            name: p.name,
+            sections: p.sections,
+            isAdmin: p.isAdmin,
+            language: p.language,
+            invitedBy: userId,
+          })
+          .returning({ id: intakePerson.id });
+        if (!person) throw new Error("intake person insert returned nothing");
+        people.push({
+          personId: person.id,
+          userId: userIds.get(p.email) ?? "",
+          email: p.email,
+          isAdmin: p.isAdmin,
+        });
+        if (!plan.branded) continue;
+        const queued = await sendOnboardingEmail(
+          { tx, env: services.env },
+          { kind: "invite", tenantId: client, intakeId: open.id, personId: person.id, sendAt },
+        );
+        emails.push({ to: p.email, status: queued.status });
+        if (queued.status === "queued") anyQueued = true;
+      }
+      if (plan.branded) {
+        for (const p of plan.told) {
+          const queued = await sendOnboardingEmail(
+            { tx, env: services.env },
+            {
+              kind: "more_questions",
+              tenantId: client,
+              intakeId: open.id,
+              personId: p.personId,
+              added: p.titles,
+              note: draft.note,
+            },
+          );
+          emails.push({ to: p.email, status: queued.status });
+          if (queued.status === "queued") anyQueued = true;
+        }
+      }
+    } else if (plan.hasIntake && plan.guide) {
       const [made] = await tx
         .insert(intake)
         .values({
@@ -779,24 +1066,15 @@ export async function runInvite(run: InviteRun, draft: InviteDraft): Promise<Inv
           isAdmin: p.isAdmin,
         });
         // The email's own record on the intake (`scheduled`, or `sent` once it goes or can't) is
-        // written by sendOnboardingEmail and the notification pass, once each.
+        // written by sendOnboardingEmail and the notification pass, once each. When ours can't go
+        // from here, the sign-in provider's invitation went instead (above).
+        if (!plan.branded) continue;
         const queued = await sendOnboardingEmail(
           { tx, env: services.env },
           { kind: "invite", tenantId: client, intakeId: made.id, personId: person.id, sendAt },
         );
         emails.push({ to: p.email, status: queued.status });
         if (queued.status === "queued") anyQueued = true;
-      }
-      // Sent at once after the commit; a later "Send at" waits for the pass.
-      if (anyQueued) {
-        s.afterCommit(() =>
-          sendNow(
-            services.db,
-            notifyDepsFromEnv(services.env, services.deps.fetch?.(services.env)),
-            client,
-            new Date(),
-          ),
-        );
       }
     } else {
       for (const p of plan.people) {
@@ -807,6 +1085,17 @@ export async function runInvite(run: InviteRun, draft: InviteDraft): Promise<Inv
           isAdmin: p.isAdmin,
         });
       }
+    }
+    // Sent at once after the commit; a later "Send at" waits for the pass.
+    if (anyQueued) {
+      s.afterCommit(() =>
+        sendNow(
+          services.db,
+          notifyDepsFromEnv(services.env, services.deps.fetch?.(services.env)),
+          client,
+          new Date(),
+        ),
+      );
     }
 
     if (row) {
@@ -954,6 +1243,8 @@ async function recordTerms(tx: Tx, dealId: string, plan: Plan, userId: string): 
     body: `Recorded the agreed terms: ${wholeMoney(agreed, currency)} a month from ${shortDay(from)}.`,
     meta: { agreedMrr: agreed, currency, from },
   });
+  // The deal's "Record X's agreed price" is done now (as opsRecordTerms closes it).
+  await closeTodosAbout(tx, "deal", dealId, userId, { titlePrefix: "Record " });
 }
 
 /** The templates chosen become the deal's agents when it named none. */
@@ -1004,6 +1295,12 @@ async function dealTodoIds(tx: Tx, dealId: string): Promise<string[]> {
 function activityLine(plan: Plan): string {
   const names = listWords(plan.people.map((p) => p.name));
   const verb = plan.via === "sign_up" ? "Signed up" : "Invited";
+  if (plan.openIntake) {
+    const added = plan.openIntake.added.map((a) => a.title);
+    return added.length > 0
+      ? `${verb} ${names}; added ${listWords(added)} to the open intake.`
+      : `${verb} ${names} to the open intake.`;
+  }
   return plan.hasIntake
     ? `${verb} ${names}; opened the intake (${coversWords(plan.covers)}).`
     : `${verb} ${names}.`;

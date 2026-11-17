@@ -6,6 +6,7 @@
 
 import {
   ANSWER_STATES,
+  ANSWERED_STATES,
   type AnswerState,
   type Covers,
   GUIDE_VERSION,
@@ -147,7 +148,8 @@ export async function loadIntake(tx: Tx, row: IntakeRow): Promise<IntakeData> {
 
 /**
  * The latest answer to each field, as shown: a tool field the client has connected counts as
- * answered by the tool itself when nobody said otherwise.
+ * answered by the tool itself unless someone answered it (a "Can't connect it now" or "Later" is
+ * overtaken once the tool is connected).
  */
 // DECISION: a connection is read live, not written as an answer: connecting on the Connections page
 // (or disconnecting) shows on the card at once, and no answer goes stale.
@@ -164,13 +166,18 @@ export function answerViews(d: IntakeData): IntakeAnswerView[] {
       at: a.createdAt.toISOString(),
     }),
   );
-  const said = new Set(latest.map((a) => a.fieldKey));
+  const said = new Set(
+    latest.filter((a) => ANSWERED_STATES.includes(a.state)).map((a) => a.fieldKey),
+  );
   for (const s of d.guide.sections) {
     for (const f of s.fields) {
       if (f.kind !== "tool" || !f.connector || said.has(f.key)) continue;
       const connectionId = d.connected.get(f.connector);
       if (!connectionId) continue;
       said.add(f.key);
+      // A not sure or later answer before the connection is overtaken by it.
+      const was = latest.findIndex((a) => a.fieldKey === f.key);
+      if (was >= 0) latest.splice(was, 1);
       latest.push({
         fieldKey: f.key,
         value: { connectionId },
@@ -238,7 +245,7 @@ function eventView(e: EventRow): IntakeEventView {
 }
 
 /** The stored covers, read leniently: an unknown area is left out. */
-function coversOf(raw: unknown): Covers {
+export function coversOf(raw: unknown): Covers {
   const c = (raw ?? {}) as { general?: unknown; areas?: unknown; templateIds?: unknown };
   return {
     general: c.general === true,

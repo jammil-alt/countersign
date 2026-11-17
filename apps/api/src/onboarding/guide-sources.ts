@@ -33,14 +33,8 @@ export function packAreaSections(platform: Pick<Platform, "packs">): GuideSectio
   );
 }
 
-/** A bundle's mission, if it says one ("what it would do for them"). */
-function missionOf(bundle: unknown): string {
-  const d = (bundle as { definition?: { identity?: { mission?: unknown } } } | null)?.definition;
-  return typeof d?.identity?.mission === "string" ? d.identity.mission : "";
-}
-
 /**
- * Each template's card: what it does (its live version's mission), the tools it needs (its live
+ * Each template's card: what it does (its client-facing description), the tools it needs (its live
  * version's connectors, by name) and its client intake form (the latest template build's fit-gap
  * `setup`, §1.108). Only templates (no client) are read; another id is left out.
  */
@@ -55,6 +49,8 @@ export async function templateCards(
       id: agent.id,
       slug: agent.slug,
       name: agent.name,
+      serviceDescription: agent.serviceDescription,
+      role: agent.role,
       bundle: agentVersion.bundle,
     })
     .from(agent)
@@ -87,7 +83,10 @@ export async function templateCards(
       id: r.id,
       slug: r.slug,
       name: r.name,
-      description: missionOf(r.bundle),
+      // DECISION (review, invariant 11): the card says what the template does in its client-facing
+      // words (its service description, else its role), never its mission: that is part of the
+      // agent's instructions, and the intake goes to the client's people.
+      description: r.serviceDescription?.trim() || r.role?.trim() || "",
       connectors: connectors.map((id) => ({
         id,
         name: platform.connectors.get(id)?.manifest.name ?? id,

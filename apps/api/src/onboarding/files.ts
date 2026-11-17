@@ -67,12 +67,39 @@ export async function prospectFileNamed(tx: Tx, name: string): Promise<FileRow |
   return row ?? null;
 }
 
-/** The company's open New account deal with no client yet, by name or by its file. */
+/**
+ * A client this session serves with this name (case and spaces aside), not retired: Invite and
+ * Sign up now with a typed company stop there rather than make a second one (a retried sign-up
+ * whose account was made but whose invite failed lands here too).
+ */
+export async function servedClientNamed(
+  tx: Tx,
+  tenantIds: readonly string[],
+  name: string,
+): Promise<{ id: string; name: string } | null> {
+  if (tenantIds.length === 0) return null;
+  const [row] = await tx
+    .select({ id: tenant.id, name: tenant.name })
+    .from(tenant)
+    .where(
+      and(
+        inArray(tenant.id, [...tenantIds]),
+        isNull(tenant.retiredAt),
+        sql`lower(btrim(${tenant.name})) = lower(btrim(${name}))`,
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+/** The company's open New account deal with no client yet, by its file or (unless told not) by name. */
 export async function openNewDealFor(
   tx: Tx,
   tenantIds: readonly string[],
   company: { name: string; fileId?: string | null },
+  matchName = true,
 ): Promise<typeof deal.$inferSelect | null> {
+  if (!matchName && !company.fileId) return null;
   const byName = sameName(deal.company, company.name);
   const [row] = await tx
     .select()
@@ -83,7 +110,11 @@ export async function openNewDealFor(
         eq(deal.kind, "new"),
         eq(deal.outcome, "open"),
         isNull(deal.clientId),
-        company.fileId ? or(eq(deal.clientFileId, company.fileId), byName) : byName,
+        company.fileId
+          ? matchName
+            ? or(eq(deal.clientFileId, company.fileId), byName)
+            : eq(deal.clientFileId, company.fileId)
+          : byName,
       ),
     )
     .orderBy(desc(deal.updatedAt))
