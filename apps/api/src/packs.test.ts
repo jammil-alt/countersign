@@ -18,6 +18,7 @@ import {
   alert,
   docLine,
   inboxItem,
+  membership,
   stepRun,
   tenantPack,
   withTenant,
@@ -437,6 +438,54 @@ describe.skipIf(!h)("packs on the platform", () => {
         })
       ).status,
     ).toBe(403);
+  });
+
+  // 5.14: a viewer signs nothing (ARCHITECTURE §4), a pack's review card included.
+  it("shows a viewer a review card they can't decide, and refuses their decision", async () => {
+    const lines = await H.t.db.select().from(docLine).where(eq(docLine.tenantId, H.A.tenantId));
+    const line = lines[0];
+    const [item] = await H.t.db
+      .insert(inboxItem)
+      .values({
+        tenantId: H.A.tenantId,
+        kind: "request",
+        title: "Which catalog items are these invoice lines?",
+        assigneeRole: "client_admin",
+        payload: { review: "materials.match", docLineIds: [line?.id] },
+      })
+      .returning();
+    const path = `/api/inbox/${item?.id}/pack-review`;
+    const viewer = (canSign: boolean) =>
+      H.t.db
+        .update(membership)
+        .set({ canSign })
+        .where(and(eq(membership.tenantId, H.A.tenantId), eq(membership.userId, H.A.admin)));
+    await viewer(false);
+    try {
+      const view = await H.call(admin("a"), "GET", path);
+      expect(view.status, JSON.stringify(view.json)).toBe(200);
+      expect(view.json).toMatchObject({ status: "open", canDecide: false });
+      const human = () =>
+        H.t.db
+          .select()
+          .from(itemMatch)
+          .where(and(eq(itemMatch.docLineId, line?.id as string), eq(itemMatch.method, "human")));
+      const before = (await human()).length;
+      const decided = await H.call(admin("a"), "POST", path, {
+        docLineId: line?.id,
+        action: "new_item",
+      });
+      expect(decided.status).toBe(403);
+      expect((decided.json as J).error.code).toBe("cannot_sign");
+      expect(await human()).toHaveLength(before);
+    } finally {
+      await viewer(true);
+    }
+    const [after] = await H.t.db
+      .select()
+      .from(inboxItem)
+      .where(eq(inboxItem.id, item?.id as string));
+    expect(after?.status).toBe("open");
   });
 
   it("merges two catalog items from the back office, never across categories", async () => {

@@ -55,7 +55,8 @@ const expectedVerdict = (n: number) => (n === 7 ? "different" : "same");
 /** The model answers each case right, except those in `wrong`. */
 function model(cases: number, wrong: ReadonlySet<number> = new Set()): FakeModel {
   const turn = (req: LlmRequest): FakeTurn => {
-    const first = req.messages[0]?.content;
+    // The case is in the task input, the result of its read (5.14).
+    const first = req.messages[2]?.content;
     const text = typeof first === "string" ? first : JSON.stringify(first);
     const n = Number(/\\?"n\\?": (\d+)/.exec(text)?.[1]);
     const right = expectedVerdict(n);

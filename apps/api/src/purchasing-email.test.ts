@@ -595,10 +595,10 @@ describe.skipIf(!h)("a buyer that works by email, end to end", () => {
     extractionTransport: () => H.extraction.transport,
   };
 
+  /** The task input: the result of its read (5.14). */
   const taskInput = (r: LlmRequest): J => {
-    const first = r.messages[0]?.content as { text: string }[];
-    const text = first[0]?.text ?? "";
-    return JSON.parse(text.slice(text.indexOf("{"))).input;
+    const result = r.messages[2]?.content as unknown as { content: string }[];
+    return JSON.parse(result[0]?.content ?? "{}").input;
   };
 
   /** The model's side, whatever order the loop's calls come in: it reads, never decides. */
@@ -1005,7 +1005,8 @@ describe.skipIf(!h)("a buyer that works by email, end to end", () => {
 
     // Read the request as data: the injected words never reach a system prompt.
     for (const r of model.requests) expect(JSON.stringify(r.system)).not.toContain(INJECTED);
-    expect(JSON.stringify(model.requests[0]?.messages[0])).toContain(INJECTED);
+    expect(JSON.stringify(model.requests[0]?.messages[0])).not.toContain(INJECTED);
+    expect(JSON.stringify(model.requests[0]?.messages[2])).toContain(INJECTED);
     // Opened from the message, with who asked and the raw record; one line unsure, without a quantity.
     const opened = out("open");
     expect(opened.request).toMatchObject({

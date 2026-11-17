@@ -1150,11 +1150,13 @@ describe.skipIf(!harness)("runtime", () => {
     expect(result.modelCalls).toBe(2);
     expect(new Decimal(result.costUsd).gt(0)).toBe(true);
 
-    // Only the skill's tools (plus finish) are offered; the instructions are in the system prompt.
+    // Only the skill's tools (plus finish, and the read of the task input) are offered; the
+    // instructions are in the system prompt.
     const first = model.requests[0];
     expect(first?.tools?.map((t) => (t as { name: string }).name).sort()).toEqual(
       [
         "finish",
+        "read_task_input",
         "inbox__create",
         "memory__write",
         "testkit__record__query",
@@ -1514,7 +1516,9 @@ describe.skipIf(!harness)("runtime", () => {
       new FakeModel([{ toolUse: { name: "finish", input: { answer: "ok" } } }]);
     const aModel = finishOnly();
     await runFor(h.A, aModel);
-    const aPrompt = JSON.stringify(aModel.requests[0]?.messages[0]);
+    // The notes come back as the result of the task input's read (5.14), never in the user turn.
+    expect(JSON.stringify(aModel.requests[0]?.messages[0])).not.toContain("planks");
+    const aPrompt = JSON.stringify(aModel.requests[0]?.messages[2]);
     expect(aPrompt).toContain("Client A calls boards planks");
     expect(aPrompt).not.toContain("Test-only note");
 

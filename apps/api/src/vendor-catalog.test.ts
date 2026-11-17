@@ -267,12 +267,13 @@ const SECOND: Line[] = [
   [2, "BB34-55", 'Baltic Birch Plywood 3/4" 5x5 BB/BB', "10", "SHT", "70.00"], // an older price
 ];
 
-/** The task input of an AI skill's request (it follows the first blank line, as JSON). */
+/** The task input of an AI skill's request: the result of its read (5.14), as JSON. */
 function taskInput(request: LlmRequest): { lines: J[] } {
-  const first = request.messages[0]?.content;
-  const block = Array.isArray(first) ? first.find((b) => b.type === "text") : undefined;
-  const text = block && "text" in block ? block.text : "";
-  return (JSON.parse(text.slice(text.indexOf("\n\n") + 2)) as { input: { lines: J[] } }).input;
+  const result = request.messages[2]?.content;
+  const block = Array.isArray(result) ? result[0] : undefined;
+  const text =
+    block?.type === "tool_result" && typeof block.content === "string" ? block.content : "{}";
+  return (JSON.parse(text) as { input: { lines: J[] } }).input;
 }
 
 /** Replay; writing, a miss is answered by hand (each line matched to its first candidate). */

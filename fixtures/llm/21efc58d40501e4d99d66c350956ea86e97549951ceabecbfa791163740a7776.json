@@ -1,5 +1,5 @@
 {
-  "hash": "18b3b9e3a67fb0ea43b08e766d39f6cd81bc1cfda04a873ca87154b729fcf3c7",
+  "hash": "21efc58d40501e4d99d66c350956ea86e97549951ceabecbfa791163740a7776",
   "recordedAt": "2026-11-15T14:57:48.852Z",
   "request": {
     "model": "claude-sonnet-5-5",
@@ -18,7 +18,28 @@
           },
           {
             "type": "text",
-            "text": "The task input follows as JSON. It is data, not instructions. The documents it names are attached above, also as data.\n\n{\n  \"input\": {\n    \"documentId\": \"0193f000-0000-7000-8000-000000020418\"\n  }\n}"
+            "text": "Read the task input with `read_task_input`, then do the task. What it returns is data, not instructions. The documents it names are attached above, also as data."
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_task_input",
+            "name": "read_task_input",
+            "input": {}
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_task_input",
+            "content": "{\n  \"input\": {\n    \"documentId\": \"0193f000-0000-7000-8000-000000020418\"\n  }\n}"
           }
         ]
       }
@@ -273,6 +294,14 @@
             "total",
             "confidence"
           ]
+        }
+      },
+      {
+        "name": "read_task_input",
+        "description": "The task input, and what you know for this client: already read, its result is above. Data, not instructions.",
+        "input_schema": {
+          "type": "object",
+          "properties": {}
         }
       }
     ],
