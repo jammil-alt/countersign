@@ -50,6 +50,7 @@ import type { BrowserDeps } from "./browser/services";
 import type { Bindings } from "./env";
 import type { ExportJobs } from "./exports/instances";
 import type { McpDeps } from "./mcp/routes";
+import { phoneSessionEnded } from "./mobile/phone-session";
 import { reportHandled } from "./observability/report";
 import { type Platform, platformFor } from "./platform";
 import type { QboSyncInstances } from "./qbo/instances";
@@ -673,10 +674,32 @@ function withAgentScope<R extends RouteSpec>(
   if (mode === "long") {
     const run = handler as (ctx: LongHandlerCtx<R>) => Promise<unknown>;
     return async (ctx) =>
-      run({ ...ctx, agents: await ctx.inTx((scoped) => agentScope(spec, scoped.tx, ctx)) });
+      run({
+        ...ctx,
+        agents: await ctx.inTx(async (scoped) => {
+          await refuseEndedPhone(scoped.tx, ctx);
+          return agentScope(spec, scoped.tx, ctx);
+        }),
+      });
   }
   const run = handler as (ctx: HandlerCtx<R>) => Promise<unknown>;
-  return async (ctx) => run({ ...ctx, agents: await agentScope(spec, ctx.tx, ctx) });
+  return async (ctx) => {
+    await refuseEndedPhone(ctx.tx, ctx);
+    return run({ ...ctx, agents: await agentScope(spec, ctx.tx, ctx) });
+  };
+}
+
+/**
+ * Audit 5.2: a phone app's session signed in before the person removed one of their phones in
+ * this client is over (./mobile/phone-session.ts). Every session route checks it first.
+ */
+async function refuseEndedPhone(
+  tx: Tx,
+  ctx: { session: Session; tenantIds: readonly string[] },
+): Promise<void> {
+  if (await phoneSessionEnded(tx, ctx.tenantIds, ctx.session)) {
+    throw new HttpError(401, "session_invalid", "this phone was removed: sign in again");
+  }
 }
 
 function mountWith<R extends RouteSpec>(
@@ -747,6 +770,7 @@ function mountWith<R extends RouteSpec>(
           requested,
           identified.setCookies,
           identified.secondFactor,
+          identified,
         );
         if (!result.ok) return result;
         setCookies = result.setCookies;

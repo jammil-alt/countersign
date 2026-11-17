@@ -80,6 +80,10 @@ branches.
     `operator.remove` audit row, never the last operator. Their open items go to the other
     operators, and a client they led has no lead until one is set. The rest of the day's steps are
     in `docs/operations.md`, "People: joining and leaving".
+  - A phone (the phone app, `docs/plan.md` §1.116): removing it in Settings ends that person's
+    phone-app sessions in that client which signed in before then, on their next request
+    (`mobile.phone_removed` in the audit log). While the second step is on, a phone's signing key
+    can be added only within 10 minutes of signing in or passing the step.
 - Roles are `operator`, `client_admin` and `client_user`. Only operators reach `/api/ops` and the
   MCP connector's back-office tools; a client's admin or user signing in to the same connector gets
   read-only tools over the portal's routes, for one of their own clients per call (`docs/plan.md`

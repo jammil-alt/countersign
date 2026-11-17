@@ -99,6 +99,7 @@ export async function getSession(
     options.tenantId,
     setCookies,
     identified.secondFactor,
+    identified,
   );
 }
 
@@ -114,11 +115,18 @@ export function sessionFromAccount(
   setCookies: readonly string[],
   /** §1.100: where the sign-in is with its second step, from `identify`. */
   secondFactor?: SecondFactorState,
+  /** §1.116 and the step's freshness, from `identify`. */
+  signIn: Pick<Session, "phone" | "provedAt"> = {},
 ): SessionResult {
   if (!account.user) return refuse("session_invalid", "the signed-in user no longer exists");
   const built = buildSession(account.user, account.memberships, adapter, tenantId);
   if (!built.ok) return { ...built, setCookies: [...built.setCookies, ...setCookies] };
-  const session = secondFactor ? { ...built.session, secondFactor } : built.session;
+  const session: Session = {
+    ...built.session,
+    ...(secondFactor ? { secondFactor } : {}),
+    ...(signIn.phone ? { phone: signIn.phone } : {}),
+    ...(signIn.provedAt !== undefined ? { provedAt: signIn.provedAt } : {}),
+  };
   return { ok: true, session, setCookies };
 }
 

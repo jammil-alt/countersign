@@ -28,7 +28,7 @@ import {
 import type { Tx } from "@countersign/db";
 import type { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
-import { auditAlone } from "../audit";
+import { auditAlone, auditInTx } from "../audit";
 import { authDirectory } from "../auth";
 import type { Bindings } from "../env";
 import { type AppEnv, HttpError, mount, mountPublic } from "../http";
@@ -40,6 +40,7 @@ import {
   toMyDevice,
   updateDevice,
 } from "../mobile/devices";
+import { keyEnrolRefusal, PHONE_REMOVED_ACTION } from "../mobile/phone-session";
 import { tenantRow } from "../notify/people";
 import { mergePersonSettings } from "./notify";
 
@@ -188,11 +189,17 @@ export function mobileRoutes(app: Hono<AppEnv>): void {
     devices: (await myDevices(tx, tenantIds[0] as string, session.user.id)).map(toMyDevice),
   }));
 
-  mount(app, routes.registerDevice, async ({ tx, tenantIds, session, body }) => ({
-    device: toMyDevice(
-      await registerDevice(tx, tenantIds[0] as string, session.user.id, body, new Date()),
-    ),
-  }));
+  mount(app, routes.registerDevice, async ({ tx, tenantIds, session, body }) => {
+    const now = new Date();
+    // Audit 5.2: a signing key only from a session that recently signed in or passed its step.
+    const stale = body.publicKey ? keyEnrolRefusal(session, now) : null;
+    if (stale) throw new HttpError(403, "fresh_sign_in_required", stale);
+    return {
+      device: toMyDevice(
+        await registerDevice(tx, tenantIds[0] as string, session.user.id, body, now),
+      ),
+    };
+  });
 
   mount(app, routes.updateDevice, async ({ tx, tenantIds, session, params, body }) => ({
     device: toMyDevice(
@@ -200,10 +207,22 @@ export function mobileRoutes(app: Hono<AppEnv>): void {
     ),
   }));
 
-  mount(app, routes.removeDevice, async ({ tx, tenantIds, session, params }) => {
+  mount(app, routes.removeDevice, async ({ c, tx, tenantIds, session, params, role }) => {
     const tenantId = tenantIds[0] as string;
     await myDevice(tx, tenantId, session.user.id, params.id);
     await removeDevice(tx, tenantId, session.user.id, params.id, new Date());
+    // Audit 5.2: the person's phone sessions in this client that signed in before now are over
+    // (../mobile/phone-session.ts); written with the removal, so one never stands without the other.
+    await auditInTx(tx, c, {
+      tenantId,
+      actorKind: "user",
+      actorUserId: session.user.id,
+      actorEmail: session.user.email,
+      actorRole: role,
+      action: PHONE_REMOVED_ACTION,
+      outcome: "ok",
+      target: { device: params.id },
+    });
     return { ok: true as const };
   });
 

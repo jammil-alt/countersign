@@ -200,6 +200,8 @@ export function createWorkOSAdapter(options: {
         userId: session.uid,
         setCookies,
         ...(step && session.mf ? { secondFactor: session.mf } : {}),
+        ...(session.ph ? { phone: { signedInAt: session.iat } } : {}),
+        provedAt: Math.max(session.iat, session.mft ?? 0),
         account: expandAccount(session.acct, session.uid),
         // The same session, sealed again with the account just read (or without one).
         async carry(account, at = new Date()) {
@@ -243,7 +245,7 @@ export function createWorkOSAdapter(options: {
         return refuse("session_invalid", "this sign-in is not waiting on a second step");
       }
       const { mfx: _expired, ...rest } = opened;
-      const done: SessionPayload = { ...rest, mf: "done", lat: now };
+      const done: SessionPayload = { ...rest, mf: "done", mft: now, lat: now };
       return {
         ok: true,
         setCookies: [sessionCookie(await sealSession(done, password), done, now)],

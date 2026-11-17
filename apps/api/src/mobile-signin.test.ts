@@ -4,7 +4,7 @@
 // pending session back to the step and hands over only a passed one; the app then uses the
 // session in its header, and the audit log names the phone sign-in.
 
-import type { WorkOSAuthentication, WorkOSClient } from "@countersign/auth";
+import { sealSession, type WorkOSAuthentication, type WorkOSClient } from "@countersign/auth";
 import { memoryCodeVerifier } from "@countersign/connectors";
 import { MOBILE_SESSION_HEADER } from "@countersign/core";
 import { appUser, auditEvent } from "@countersign/db";
@@ -157,6 +157,23 @@ describe.skipIf(!h)("signing in from the phone app with the second step on", () 
 
   const browser = new Browser();
   let code = "";
+  let phone = "";
+  const ORIGIN = { origin: "https://staging.mezonas.test" };
+
+  async function newKey() {
+    const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
+      "sign",
+      "verify",
+    ])) as CryptoKeyPair;
+    const jwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey;
+    return { kty: "EC", crv: "P-256", x: jwk.x as string, y: jwk.y as string };
+  }
+  const registerBody = async () => ({
+    name: "Test phone",
+    platform: "ios",
+    pushToken: null,
+    publicKey: await newKey(),
+  });
 
   it("sets up the person's code in this browser, remembered for 30 days", async () => {
     await asWorkOSUser(H.B.admin);
@@ -224,6 +241,7 @@ describe.skipIf(!h)("signing in from the phone app with the second step on", () 
     expect(me.status, JSON.stringify(me.json)).toBe(200);
     expect(me.json.user.id).toBe(H.B.admin);
     expect(me.headers.get("set-cookie")).toBeNull();
+    phone = me.headers.get(MOBILE_SESSION_HEADER) || r.json.session;
 
     // The header is not a cookie: a change sent with it is not held to the browser's origin check.
     const push = await request(null, "PUT", "/api/settings/my-push", {
@@ -231,6 +249,101 @@ describe.skipIf(!h)("signing in from the phone app with the second step on", () 
       body: { on: true, every: "now", showClient: false },
     });
     expect(push.status, JSON.stringify(push.json)).toBe(200);
+  });
+
+  it("refuses a signing key from a session that signed in more than ten minutes ago", async () => {
+    await asWorkOSUser(H.B.admin);
+    const now = Math.floor(Date.now() / 1000);
+    const [u] = await H.t.db.select().from(appUser).where(eq(appUser.id, H.B.admin));
+    const base = {
+      v: 1 as const,
+      uid: H.B.admin,
+      wuid: `wu_${H.B.admin}`,
+      email: u?.email ?? "",
+      worg: null,
+      sid: `sess_${H.B.admin}`,
+      rt: `rt_${H.B.admin}`,
+      rat: now + 240,
+      exp: now + 3600,
+      lat: now,
+      mf: "done" as const,
+      ph: true as const,
+    };
+    const old = await sealSession({ ...base, iat: now - 11 * 60, mft: now - 11 * 60 }, PASSWORD);
+    const refused = await request(null, "POST", "/api/me/devices", {
+      headers: { [MOBILE_SESSION_HEADER]: old },
+      body: await registerBody(),
+    });
+    expect([refused.status, refused.json.error?.code]).toEqual([403, "fresh_sign_in_required"]);
+    // Without a key (notifications only) the same session may still register the phone.
+    const noKey = await request(null, "POST", "/api/me/devices", {
+      headers: { [MOBILE_SESSION_HEADER]: old },
+      body: { ...(await registerBody()), publicKey: null },
+    });
+    expect(noKey.status, JSON.stringify(noKey.json)).toBe(200);
+    // A second step passed just now counts as fresh.
+    const stepped = await sealSession({ ...base, iat: now - 11 * 60, mft: now - 60 }, PASSWORD);
+    const ok = await request(null, "POST", "/api/me/devices", {
+      headers: { [MOBILE_SESSION_HEADER]: stepped },
+      body: await registerBody(),
+    });
+    expect(ok.status, JSON.stringify(ok.json)).toBe(200);
+  });
+
+  it("lets a phone that just signed in add its signing key; removing a phone ends its session", async () => {
+    const asPhone = { [MOBILE_SESSION_HEADER]: phone };
+    const added = await request(null, "POST", "/api/me/devices", {
+      headers: asPhone,
+      body: await registerBody(),
+    });
+    expect(added.status, JSON.stringify(added.json)).toBe(200);
+    phone = added.headers.get(MOBILE_SESSION_HEADER) || phone;
+    expect((await request(null, "GET", "/api/me/devices", { headers: asPhone })).status).toBe(200);
+
+    // The person removes the phone from a browser (this one is remembered: no code asked).
+    const web = new Browser();
+    web.jar = new Map(browser.jar);
+    await signInFrom(web, "/api/auth/sign-in?return_to=/inbox");
+    const removed = await request(web, "DELETE", `/api/me/devices/${added.json.device.id}`, {
+      headers: ORIGIN,
+    });
+    expect(removed.status, JSON.stringify(removed.json)).toBe(200);
+    expect((await audits("mobile.phone_removed", H.B.admin)).at(-1)).toMatchObject({
+      tenantId: H.B.tenantId,
+      outcome: "ok",
+      target: { device: added.json.device.id },
+    });
+
+    // The phone's session is over on its next request, the session route included.
+    const after = await request(null, "GET", "/api/me/devices", {
+      headers: { [MOBILE_SESSION_HEADER]: phone },
+    });
+    expect([after.status, after.json.error.code]).toEqual([401, "session_invalid"]);
+    const me = await request(null, "GET", "/api/session", {
+      headers: { [MOBILE_SESSION_HEADER]: phone },
+    });
+    expect([me.status, me.json.error.code]).toEqual([401, "session_invalid"]);
+    // The browser's session is not a phone's: it carries on.
+    expect((await request(web, "GET", "/api/me/devices")).status).toBe(200);
+
+    // A phone that signs in again afterwards (a later second than the removal) gets a session
+    // that works.
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    await asWorkOSUser(H.B.admin, "SSO");
+    const b = new Browser();
+    await signInFrom(b, `/api/mobile/sign-in?challenge=${CHALLENGE}`);
+    const handed = await request(b, "GET", "/api/mobile/handoff");
+    const again = await request(null, "POST", "/api/mobile/session", {
+      body: {
+        code: new URL(handed.location ?? "").searchParams.get("code") ?? "",
+        verifier: VERIFIER,
+      },
+    });
+    expect(again.status).toBe(200);
+    const fresh = await request(null, "GET", "/api/me/devices", {
+      headers: { [MOBILE_SESSION_HEADER]: again.json.session },
+    });
+    expect(fresh.status, JSON.stringify(fresh.json)).toBe(200);
   });
 
   it("lets an SSO sign-in through without the code, as in a browser", async () => {
