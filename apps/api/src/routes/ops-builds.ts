@@ -57,7 +57,7 @@ import {
   type Tx,
 } from "@countersign/db";
 import { createLlmClient, type LlmTransport } from "@countersign/llm";
-import { and, asc, eq, like } from "drizzle-orm";
+import { and, asc, eq, inArray, like } from "drizzle-orm";
 import type { Hono } from "hono";
 import {
   addEvent,
@@ -469,6 +469,7 @@ async function turn(
       answer.items.map((i) => ({ ...i, phase: fresh.phase })),
       ctx.session.user.id,
     );
+    const answered = await closeAnswered(scoped.tx, fresh, answer.answered);
     // The issue it answered about, and its proposal, only as they fit the build as it was asked.
     const about =
       (answer.about && prep.issues.some((i) => i.key === answer.about) ? answer.about : null) ??
@@ -489,7 +490,7 @@ async function turn(
       text: answer.text,
       meta: {
         chips: answer.chips,
-        changes: changeLines(answer),
+        changes: [...changeLines(answer), ...answered.map((t) => `Answered: ${t}`)],
         costUsd: result.costUsd,
         model: result.calls[0]?.model ?? null,
         ...(about ? { about } : {}),
@@ -505,6 +506,44 @@ const StoredProposal = BuildProposalSchema.extend({
   before: BuildItemState.nullable().optional(),
 });
 
+/**
+ * The open questions the operator's words answered (the turn's `answered`), closed as done; their
+ * titles. QA (2026-11-17, fourth run): the operator answered eight questions in the chat, the
+ * Builder wrote the answers into the brief, and the questions stayed open. Only open items of
+ * kind question close this way: the operator's answer is the decision. Anything else is closed
+ * by a proposal the operator agrees to.
+ */
+async function closeAnswered(tx: Tx, row: BuildRow, keys: readonly string[]): Promise<string[]> {
+  const ids = [
+    ...new Set(keys.map((k) => /^item:([0-9a-f-]{36})$/i.exec(k)?.[1]).filter((x) => !!x)),
+  ] as string[];
+  if (ids.length === 0) return [];
+  const rows = await tx
+    .select({
+      id: buildItem.id,
+      title: buildItem.title,
+      kind: buildItem.kind,
+      state: buildItem.state,
+    })
+    .from(buildItem)
+    .where(and(eq(buildItem.buildId, row.id), inArray(buildItem.id, ids)));
+  const closing = rows.filter((r) => r.kind === "question" && itemOpen(r.state));
+  if (closing.length === 0) return [];
+  await tx
+    .update(buildItem)
+    .set({ state: "done", resolvedAt: now() })
+    .where(
+      and(
+        eq(buildItem.buildId, row.id),
+        inArray(
+          buildItem.id,
+          closing.map((r) => r.id),
+        ),
+      ),
+    );
+  return closing.map((r) => r.title);
+}
+
 /** A short, stable fingerprint of a brief: which one was reviewed. */
 function briefHash(brief: Brief): string {
   const text = JSON.stringify(BRIEF_FIELDS.map((k) => [k, brief[k]?.state, brief[k]?.text]));
@@ -517,10 +556,13 @@ function briefHash(brief: Brief): string {
 }
 
 /**
- * The review before a brief is confirmed (`reviewBrief`): once per brief as it reads. Concerns
- * become open questions and the Builder lists them; the build stays in intake (true). Already
- * reviewed, nothing found, or a review that couldn't run: the move goes on (false).
+ * The review before a brief is confirmed (`reviewBrief`): once a build. Concerns become open
+ * questions and the Builder lists them; the build stays in intake (true). Already reviewed,
+ * nothing found, or a review that couldn't run: the move goes on (false).
  */
+// QA (2026-11-17, fourth run): once per brief as it read meant every answer changed the brief and
+// the next Confirm reviewed it again, eight more questions a press (7, 14, then 37 open). Once a
+// build: answering the questions is how the brief gets better, and the second Confirm goes on.
 async function reviewHolds(ctx: LongCtx, row: BuildRow): Promise<boolean> {
   const brief = readBrief(row.brief);
   const hash = briefHash(brief);
@@ -530,7 +572,7 @@ async function reviewHolds(ctx: LongCtx, row: BuildRow): Promise<boolean> {
       .from(buildEvent)
       .where(and(eq(buildEvent.buildId, row.id), eq(buildEvent.kind, "record")));
     const reviewed = events.some(
-      (e) => (e.payload as { review?: { brief?: unknown } } | null)?.review?.brief === hash,
+      (e) => (e.payload as { review?: unknown } | null)?.review !== undefined,
     );
     if (reviewed) return null;
     const detail = await detailIn(scoped, ctx.services, row);
@@ -599,7 +641,7 @@ async function reviewHolds(ctx: LongCtx, row: BuildRow): Promise<boolean> {
         .map((c, i) => `${i + 1}. ${c.title}`)
         .join(
           " ",
-        )} They're in the issues. Answer them here, or press "Confirm the brief" again to go on with them open.`,
+        )} They're in the issues. Answer them here, or press "Confirm the brief" again to go on with them open: a first draft can start without them, and I won't add more at this step.`,
       meta: { chips: ["Take the first one"] },
     });
   });
