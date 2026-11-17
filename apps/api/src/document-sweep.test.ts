@@ -5,20 +5,22 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { DEV_USER_HEADER } from "@countersign/auth";
-import { docExtraction, document, event, withTenant } from "@countersign/db";
+import { docExtraction, document, event, rawRecord, withTenant } from "@countersign/db";
 import { claimUnreadDocuments, READING_ATTEMPTS } from "@countersign/documents";
 import { DEFAULT_FIXTURE_DIR } from "@countersign/llm/node";
 import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { admin, createApiHarness } from "./api.test-helper";
+import { MESSAGE_MEDIA_ENTITY } from "./conversations/capture";
 import {
-  READING_STALE_MS,
+  READING_LOOKBACK_MS,
   READING_SWEEP_EVERY_MINUTES,
   READING_SWEEP_MINUTE,
   readingSweep,
   sweepClientReadings,
 } from "./documents/sweep";
 import { defaultDeps } from "./http";
+import { extractInBackground } from "./routes/documents";
 
 // biome-ignore lint/suspicious/noExplicitAny: response JSON in assertions
 type J = any;
@@ -42,7 +44,6 @@ describe.skipIf(!h)("the reading sweep", () => {
       extractionTransport: () => H.extraction.transport,
     },
   };
-  const later = () => new Date(Date.now() + READING_STALE_MS + 60_000);
 
   /** Uploads a file with no model key, so nothing reads it on arrival (as if the read was cut). */
   async function uploadUnread(name: string, type: string, bytes: Uint8Array): Promise<string> {
@@ -79,7 +80,32 @@ describe.skipIf(!h)("the reading sweep", () => {
       .from(event)
       .where(and(eq(event.subjectId, id), eq(event.type, type)));
 
-  it("reads a document left stored once it has waited 10 minutes", async () => {
+  const MIN = 60_000;
+  /** As if it arrived `ago` ms back. */
+  const backdate = (id: string, ago: number) =>
+    H.t.db
+      .update(document)
+      .set({ receivedAt: new Date(Date.now() - ago) })
+      .where(eq(document.id, id));
+  /** As if a reading started `ago` ms back and was cut off (`attempts` started so far). */
+  const cutOff = (id: string, attempts: number, ago = 20 * MIN, more: object = {}) =>
+    H.t.db
+      .update(document)
+      .set({
+        status: "extracting",
+        meta: { ...more, reading: { at: new Date(Date.now() - ago).toISOString(), attempts } },
+      })
+      .where(eq(document.id, id));
+  const sweep = () => sweepClientReadings(services, tenantId, new Date());
+  const readingsOf = (id: string) =>
+    H.t.db.select().from(docExtraction).where(eq(docExtraction.documentId, id));
+  const claim = (token: string) =>
+    withTenant(H.db, tenantId, (tx) =>
+      claimUnreadDocuments(tx, { tenantId, claim: token, limit: 10 }),
+    );
+  const none = { read: 0, failed: 0, quiet: 0 };
+
+  it("reads a document left stored once it has waited 10 minutes, once", async () => {
     const id = await uploadUnread(
       "northline-20418.pdf",
       "application/pdf",
@@ -87,99 +113,146 @@ describe.skipIf(!h)("the reading sweep", () => {
     );
     expect((await docOf(id))?.status).toBe("stored");
     // Not yet: its reading may still be on its way.
-    expect(await sweepClientReadings(services, tenantId, new Date())).toEqual({
-      read: 0,
-      failed: 0,
-    });
-    expect(await sweepClientReadings(services, tenantId, later())).toEqual({ read: 1, failed: 0 });
+    expect(await sweep()).toEqual(none);
+    await backdate(id, 11 * MIN);
+    expect(await sweep()).toEqual({ read: 1, failed: 0, quiet: 0 });
     const doc = await docOf(id);
     expect(doc?.status).toBe("extracted");
     expect(doc?.meta).not.toHaveProperty("reading");
     expect(await eventsOf(id, "document.extracted")).toHaveLength(1);
-    // Read once: the next pass finds nothing.
-    expect(await sweepClientReadings(services, tenantId, later())).toEqual({ read: 0, failed: 0 });
+    // Read once: the next pass finds nothing, and a late reading on arrival (a capture job's own
+    // read step, after the sweep's) reads nothing again.
+    expect(await sweep()).toEqual(none);
+    await extractInBackground(services, tenantId, [id]);
+    expect(await readingsOf(id)).toHaveLength(1);
+    expect(await eventsOf(id, "document.extracted")).toHaveLength(1);
   });
 
-  it("reads one left extracting by a reading that was cut off", async () => {
+  it("a claim a later pass took over is void: the document is read once, by the holder", async () => {
     const id = await uploadUnread(
       "cedar-ridge-7731.png",
       "image/png",
       invoice("cedar-ridge-7731.png"),
     );
+    await backdate(id, 11 * MIN);
+    expect((await claim("first")).map((d) => d.id)).toEqual([id]);
+    // The first pass ran long and never reached it: its claim went stale, a later pass took it.
     await H.t.db
       .update(document)
       .set({
-        status: "extracting",
-        meta: { uploadedBy: "x", reading: { at: new Date().toISOString(), attempts: 1 } },
+        status: "stored",
+        meta: { reading: { at: new Date(Date.now() - 11 * MIN).toISOString(), claim: "first" } },
       })
       .where(eq(document.id, id));
-    expect(await sweepClientReadings(services, tenantId, new Date())).toEqual({
-      read: 0,
-      failed: 0,
-    });
-    expect(await sweepClientReadings(services, tenantId, later())).toEqual({ read: 1, failed: 0 });
-    const doc = await docOf(id);
-    expect(doc?.status).toBe("extracted");
-    expect(doc?.meta).toEqual({ uploadedBy: "x" });
+    expect((await claim("second")).map((d) => d.id)).toEqual([id]);
+    // The first pass reaches it at last: not its claim any more.
+    await extractInBackground(services, tenantId, [id], { claim: "first" });
+    expect(await readingsOf(id)).toEqual([]);
+    // Nor a reading on arrival while the claim is fresh.
+    await extractInBackground(services, tenantId, [id]);
+    expect(await readingsOf(id)).toEqual([]);
+    await extractInBackground(services, tenantId, [id], { claim: "second" });
+    expect(await readingsOf(id)).toHaveLength(1);
+    expect(await eventsOf(id, "document.extracted")).toHaveLength(1);
+    expect((await docOf(id))?.meta).toEqual({});
   });
 
-  it(`marks it failed, with its event, after ${READING_ATTEMPTS} readings that never finished`, async () => {
+  it("leaves a captured message's document to its capture job while the job is going", async () => {
     const id = await uploadUnread(
       "keystone-55102.pdf",
       "application/pdf",
       invoice("keystone-55102.pdf"),
     );
+    const [message] = await H.t.db
+      .insert(rawRecord)
+      .values({
+        tenantId,
+        connectionId: H.A.connectionId,
+        connector: "twilio",
+        entityType: "Message",
+        externalId: "SM-sweep-1",
+        payload: { capture: { conversationId: "c-1", wanted: [0, 1] } },
+      })
+      .returning();
+    const outcome = (index: number) => ({
+      tenantId,
+      connectionId: H.A.connectionId,
+      connector: "twilio",
+      entityType: MESSAGE_MEDIA_ENTITY,
+      externalId: `SM-sweep-1:${index}`,
+      externalVersion: "1",
+      payload: { status: "filed" },
+    });
+    await H.t.db.insert(rawRecord).values(outcome(0));
     await H.t.db
       .update(document)
       .set({
-        status: "extracting",
-        meta: { reading: { at: new Date().toISOString(), attempts: READING_ATTEMPTS } },
+        source: "message",
+        meta: { rawRecordId: message?.id, messageSid: "SM-sweep-1", mediaIndex: 0 },
       })
       .where(eq(document.id, id));
-    expect(await sweepClientReadings(services, tenantId, later())).toEqual({ read: 0, failed: 1 });
-    expect((await docOf(id))?.status).toBe("failed");
-    expect(await eventsOf(id, "document.extraction_failed")).toHaveLength(1);
-    expect(
-      await H.t.db.select().from(docExtraction).where(eq(docExtraction.documentId, id)),
-    ).toEqual([]);
+    await backdate(id, 20 * MIN);
+    // Attachment 1 is still being fetched: the job reads its documents itself when it is done.
+    expect(await sweep()).toEqual(none);
+    // Done; its read step was cut off part-way: the sweep reads it.
+    await H.t.db.insert(rawRecord).values(outcome(1));
+    await cutOff(id, 1, 20 * MIN, { rawRecordId: message?.id });
+    expect(await sweep()).toEqual({ read: 1, failed: 0, quiet: 0 });
+    expect((await docOf(id))?.status).toBe("extracted");
+    expect(await eventsOf(id, "document.extracted")).toHaveLength(1);
   });
 
-  it("counts each reading started, and never claims one in progress", async () => {
-    // Any extractable bytes: this one is claimed, never read.
-    const bytes = new Uint8Array([...invoice("cedar-ridge-7731.png"), 0]);
-    const id = await uploadUnread("again.png", "image/png", bytes);
-    const now = later();
-    const claim = () =>
-      withTenant(H.db, tenantId, (tx) =>
-        claimUnreadDocuments(tx, {
-          tenantId,
-          staleBefore: new Date(now.getTime() - READING_STALE_MS),
-          now,
-          limit: 10,
-        }),
-      );
-    expect((await claim()).map((d) => [d.id, d.attempts])).toEqual([[id, 0]]);
-    // Claimed: a second sweep (another tick, at the same time) does not take it.
-    expect(await claim()).toEqual([]);
-    // A reading that started just now is in progress: not claimed either.
-    await H.t.db
-      .update(document)
-      .set({ status: "extracting", meta: { reading: { at: now.toISOString(), attempts: 2 } } })
-      .where(eq(document.id, id));
-    expect(await claim()).toEqual([]);
+  it(`marks it failed, with its event, after ${READING_ATTEMPTS} readings that never finished`, async () => {
+    const id = await uploadUnread(
+      "third.png",
+      "image/png",
+      new Uint8Array([...invoice("cedar-ridge-7731.png"), 0]),
+    );
+    await cutOff(id, READING_ATTEMPTS);
+    expect(await sweep()).toEqual({ read: 0, failed: 1, quiet: 0 });
+    expect((await docOf(id))?.status).toBe("failed");
+    expect(await eventsOf(id, "document.extraction_failed")).toHaveLength(1);
+    expect(await readingsOf(id)).toEqual([]);
+  });
+
+  it("marks one received over a week ago failed quietly, without an event", async () => {
+    const id = await uploadUnread(
+      "old.png",
+      "image/png",
+      new Uint8Array([...invoice("cedar-ridge-7731.png"), 1]),
+    );
+    await backdate(id, READING_LOOKBACK_MS + 60 * MIN);
+    expect(await sweep()).toEqual({ read: 0, failed: 1, quiet: 1 });
+    expect((await docOf(id))?.status).toBe("failed");
+    expect(await eventsOf(id, "document.extraction_failed")).toEqual([]);
+  });
+
+  it("never claims a document twice at once, nor one being read", async () => {
+    const id = await uploadUnread(
+      "again.png",
+      "image/png",
+      new Uint8Array([...invoice("cedar-ridge-7731.png"), 2]),
+    );
+    await backdate(id, 11 * MIN);
+    expect((await claim("a")).map((d) => [d.id, d.attempts])).toEqual([[id, 0]]);
+    // Claimed: another pass at the same time does not take it.
+    expect(await claim("b")).toEqual([]);
+    // A reading that started a minute ago is in progress: not claimed either.
+    await cutOff(id, 2, MIN);
+    expect(await claim("c")).toEqual([]);
     await H.t.db.update(document).set({ status: "failed" }).where(eq(document.id, id));
   });
 
   it("runs every 5 minutes, at its minute, and only with a model key", async () => {
     const off = new Date(Date.UTC(2026, 10, 20, 10, (READING_SWEEP_MINUTE + 1) % 5));
-    expect(await readingSweep(services, off)).toEqual({ read: 0, failed: 0 });
+    expect(await readingSweep(services, off)).toEqual(none);
     const on = new Date(
       Date.UTC(2026, 10, 20, 10, READING_SWEEP_MINUTE + READING_SWEEP_EVERY_MINUTES),
     );
     const transport = H.extraction.transport;
     H.extraction.transport = null;
     try {
-      expect(await readingSweep(services, on)).toEqual({ read: 0, failed: 0 });
+      expect(await readingSweep(services, on)).toEqual(none);
     } finally {
       H.extraction.transport = transport;
     }

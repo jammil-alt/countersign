@@ -223,10 +223,13 @@ function contentOf(services: Services): ContentStore {
 // documents still extract) when the deployment has a model key, with no agent version
 // (doc_extraction.agent_version_id null), then linked by vendor + total + date. Agents re-extract
 // through `docs.extract` when they need their own reading.
+// A reading on arrival (`onArrival`): a document read already, or being read by another caller
+// (the capture job, the reading sweep), is skipped, so it is never read, and announced, twice.
 export async function extractInBackground(
   services: Pick<Services, "db" | "env" | "deps">,
   tenantId: string,
   documentIds: readonly string[],
+  options: { claim?: string } = {},
 ): Promise<void> {
   const inner = services.deps.extractionTransport(services.env);
   if (!inner || documentIds.length === 0) return;
@@ -251,7 +254,12 @@ export async function extractInBackground(
     try {
       const read = await extractDocument(
         { db: services.db, content, llm },
-        { tenantId, documentId, collect },
+        {
+          tenantId,
+          documentId,
+          collect,
+          onArrival: options.claim === undefined ? {} : { claim: options.claim },
+        },
       );
       // A duplicate (the same invoice again) starts nothing and links to nothing: its original
       // holds the link.
@@ -260,7 +268,9 @@ export async function extractInBackground(
         if (!read.duplicateOf) await linkToTransaction(tx, tenantId, documentId);
       });
     } catch (error) {
-      reportHandled("extracting a document failed", error, { kind: "extraction" });
+      if (!(error instanceof DocumentError && error.code === "not_due")) {
+        reportHandled("extracting a document failed", error, { kind: "extraction" });
+      }
     } finally {
       await dispatchAfterCommit(dispatch, tenantId, collect);
     }
