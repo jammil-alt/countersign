@@ -11,20 +11,13 @@ import {
 } from "@countersign/connectors";
 import { routes } from "@countersign/core";
 import type { Hono } from "hono";
+import { readBodyLimited } from "../body";
 import { type AppEnv, errorResponse, HttpError } from "../http";
 import { dispatchByIds } from "../runs/dispatch";
 import { credentialsFor } from "../runs/execute";
 import { runZohoSync, ZOHO_NOTIFY_PAGES, zohoConnectorOf } from "../zoho/sync";
 
 const spec = routes.zohoNotify;
-
-/** Reads at most `limit` bytes; null when the body is bigger. */
-async function readBody(req: Request, limit: number): Promise<Uint8Array | null> {
-  const declared = Number(req.headers.get("content-length") ?? "0");
-  if (declared > limit) return null;
-  const bytes = new Uint8Array(await req.arrayBuffer());
-  return bytes.length > limit ? null : bytes;
-}
 
 export function zohoRoutes(app: Hono<AppEnv>): void {
   app.post(spec.path, async (c) => {
@@ -37,7 +30,7 @@ export function zohoRoutes(app: Hono<AppEnv>): void {
       const params = spec.params?.safeParse(c.req.param());
       if (!params?.success) throw new HttpError(401, "unauthorized", "unknown notification");
       const { tenantId, connectionId } = params.data;
-      const body = await readBody(c.req.raw, ZOHO_NOTIFY_MAX_BYTES);
+      const body = await readBodyLimited(c.req.raw, ZOHO_NOTIFY_MAX_BYTES);
       if (!body) throw new HttpError(413, "too_large", "Zoho's notifications are smaller");
       let json: unknown;
       try {

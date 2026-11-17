@@ -182,6 +182,9 @@ branches.
 - **Writes to clients' tools** need approval by default, run once each, and record their before
   state (invariant 8). Delete is off.
 - **Webhooks** from Twilio, Stripe, QuickBooks and ElevenLabs are signature-checked.
+- **Bodies with no session** (webhooks, the beacon, the token-link pages and the sign-in steps)
+  are read with a cap: a declared length over the route's limit is refused unread, and a body with
+  no length is read only up to the limit (`apps/api/src/body.ts`; the code service's texts too).
 
 ## 7. Changes, code and dependencies
 

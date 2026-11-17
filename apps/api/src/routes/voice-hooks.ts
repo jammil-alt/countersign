@@ -41,6 +41,7 @@ import { and, eq } from "drizzle-orm";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
 import { coverOnlyReleasePort } from "../access/release";
+import { readTextLimited } from "../body";
 import {
   CALL_ENTITIES,
   type CallPayload,
@@ -69,10 +70,8 @@ const FollowUp = z.object({ what: z.string().trim().min(1).max(1000) });
 const GRACE_MS = 5 * 60 * 1000;
 
 async function readText(req: Request, max: number): Promise<string> {
-  const declared = Number(req.headers.get("content-length") ?? "0");
-  if (declared > max) throw new HttpError(413, "too_large", "the body is too large");
-  const text = await req.text();
-  if (text.length > max) throw new HttpError(413, "too_large", "the body is too large");
+  const text = await readTextLimited(req, max);
+  if (text === null) throw new HttpError(413, "too_large", "the body is too large");
   return text;
 }
 

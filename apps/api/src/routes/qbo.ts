@@ -22,6 +22,7 @@ import { QBO_SYNCED_ENTITIES, routes } from "@countersign/core";
 import { connection, type Db, qboWebhookEvent, tenant, withTenant } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import type { Hono } from "hono";
+import { readBodyLimited } from "../body";
 import type { Bindings } from "../env";
 import { type AppDeps, type AppEnv, errorResponse, HttpError, mount, notFound } from "../http";
 import { reportHandled } from "../observability/report";
@@ -101,13 +102,6 @@ export async function qboCronTick(
   return started;
 }
 
-async function readBody(req: Request, limit: number): Promise<Uint8Array | null> {
-  const declared = Number(req.headers.get("content-length") ?? "0");
-  if (declared > limit) return null;
-  const bytes = new Uint8Array(await req.arrayBuffer());
-  return bytes.length > limit ? null : bytes;
-}
-
 /** Entities our sync reads: a change to one starts a sync; any other is kept, not acted on. */
 const SYNCED: ReadonlySet<string> = new Set(QBO_SYNCED_ENTITIES);
 
@@ -158,7 +152,7 @@ export function qboRoutes(app: Hono<AppEnv>): void {
         throw new HttpError(503, "not_configured", "QuickBooks webhooks are not set up here");
       }
       // The raw body, as Intuit signed it, before anything parses it.
-      const body = await readBody(c.req.raw, QBO_WEBHOOK_MAX_BYTES);
+      const body = await readBodyLimited(c.req.raw, QBO_WEBHOOK_MAX_BYTES);
       if (!body) throw new HttpError(413, "too_large", "QuickBooks notifications are smaller");
       const signature = c.req.header(QBO_SIGNATURE_HEADER) ?? "";
       if (!(await connector.verifyWebhook?.({ [QBO_SIGNATURE_HEADER]: signature }, body))) {

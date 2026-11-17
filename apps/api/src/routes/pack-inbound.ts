@@ -17,6 +17,7 @@ import { tenant, tenantPack, withTenant } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
+import { readTextLimited } from "../body";
 import type { AppEnv } from "../http";
 import { type RateLimiter, rateLimiterFor } from "../mcp/limits";
 import { reportHandled } from "../observability/report";
@@ -33,32 +34,6 @@ export const INBOUND_HEADERS = [
   "sec-gpc",
   "content-type",
 ] as const;
-
-/** Reads at most `limit + 1` bytes as text, so an oversized body is refused without reading it. */
-async function readText(req: Request, limit: number): Promise<string | null> {
-  const declared = Number(req.headers.get("content-length") ?? "0");
-  if (declared > limit || !req.body) return declared > limit ? null : "";
-  const reader = req.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.length;
-    if (size > limit) {
-      await reader.cancel();
-      return null;
-    }
-    chunks.push(value);
-  }
-  const out = new Uint8Array(size);
-  let at = 0;
-  for (const c of chunks) {
-    out.set(c, at);
-    at += c.length;
-  }
-  return new TextDecoder().decode(out);
-}
 
 const noContent = (c: Context<AppEnv>) => c.body(null, 204);
 
@@ -121,7 +96,7 @@ export function packInboundRoutes(app: Hono<AppEnv>): void {
         return noContent(c);
       }
       // An oversized body is the pack's to count, as an empty one.
-      const body = (await readText(c.req.raw, pack.inbound.maxBytes)) ?? "{";
+      const body = (await readTextLimited(c.req.raw, pack.inbound.maxBytes)) ?? "{";
       const headers: Record<string, string> = {};
       for (const name of INBOUND_HEADERS) {
         const value = c.req.header(name);

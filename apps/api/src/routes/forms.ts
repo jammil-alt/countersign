@@ -18,11 +18,12 @@ import {
   routes,
 } from "@countersign/core";
 import { contact, formRequest, type Tx, tenant, withTenant } from "@countersign/db";
-import { DocumentError, storeDocument } from "@countersign/documents";
+import { DocumentError, MAX_DOCUMENT_BYTES, storeDocument } from "@countersign/documents";
 import { and, eq, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
 import { requestOrigin } from "../audit";
+import { readBodyLimited } from "../body";
 import { verifyFormLink } from "../forms/link";
 import { type FormRequestRow, wakeForm } from "../forms/service";
 import { type AppEnv, HttpError, mountPublic, type Services, waitUntil } from "../http";
@@ -185,9 +186,14 @@ export function formRoutes(app: Hono<AppEnv>): void {
 
   mountPublic(app, routes.formFile, async ({ c, query, services }) => {
     const ref = await requestFor(services, tokenOf(c));
+    // The file's own limit, and room for the multipart framing around it.
+    const bytesIn = await readBodyLimited(c.req.raw, MAX_DOCUMENT_BYTES + 64 * 1024);
+    if (!bytesIn) throw new HttpError(413, "too_large", "That file is too large.");
     let form: FormData;
     try {
-      form = await c.req.formData();
+      form = await new Response(bytesIn, {
+        headers: { "content-type": c.req.header("content-type") ?? "" },
+      }).formData();
     } catch {
       throw new HttpError(400, "invalid_request", "send the file as multipart/form-data");
     }

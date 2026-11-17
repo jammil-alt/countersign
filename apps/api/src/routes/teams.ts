@@ -14,6 +14,7 @@ import {
 } from "@countersign/connectors";
 import { routes } from "@countersign/core";
 import type { Hono } from "hono";
+import { readBodyLimited } from "../body";
 import { type AppEnv, errorResponse, HttpError, mount } from "../http";
 import { reportHandled } from "../observability/report";
 import {
@@ -25,10 +26,8 @@ import {
 } from "../teams/channels";
 
 async function readBody(req: Request, limit: number): Promise<Uint8Array> {
-  const declared = Number(req.headers.get("content-length") ?? "0");
-  if (declared > limit) throw new HttpError(413, "too_large", "the activity is too large");
-  const bytes = new Uint8Array(await req.arrayBuffer());
-  if (bytes.length > limit) throw new HttpError(413, "too_large", "the activity is too large");
+  const bytes = await readBodyLimited(req, limit);
+  if (!bytes) throw new HttpError(413, "too_large", "the activity is too large");
   return bytes;
 }
 

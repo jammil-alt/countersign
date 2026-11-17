@@ -292,6 +292,30 @@ describe.skipIf(!h)("forms: request info from a contact", () => {
         // A file to a question that takes files; not to one that doesn't, nor of the wrong type.
         expect((await upload(path, "po_number", "q.pdf", "application/pdf")).status).toBe(422);
         expect((await upload(path, "freight_quote", "q.txt", "text/plain")).status).toBe(415);
+        // A body past the file limit, with no length, is refused once read up to the limit.
+        let pulled = 0;
+        const TOTAL = 40 * 1024 * 1024;
+        const huge = await H.app.request(
+          `${path}/files?question=freight_quote`,
+          {
+            method: "POST",
+            headers: { "content-type": "multipart/form-data; boundary=x" },
+            body: new ReadableStream<Uint8Array>(
+              {
+                pull(controller) {
+                  if (pulled >= TOTAL) return controller.close();
+                  pulled += 1024 * 1024;
+                  controller.enqueue(new Uint8Array(1024 * 1024));
+                },
+              },
+              { highWaterMark: 0 },
+            ),
+            duplex: "half",
+          } as RequestInit,
+          H.env,
+        );
+        expect(huge.status).toBe(413);
+        expect(pulled).toBeLessThan(TOTAL);
         const up = await upload(path, "freight_quote", "quote.pdf", "application/pdf");
         expect(up.status, JSON.stringify(up.json)).toBe(200);
         docId = up.json.file.documentId;

@@ -22,6 +22,7 @@ import { and, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
 import { syncBankfeedItem } from "../bankfeed/sync";
+import { readBodyLimited } from "../body";
 import { type AppEnv, errorResponse, HttpError } from "../http";
 import { reportHandled } from "../observability/report";
 import { dispatchEvents, senseEmitter } from "../runs/dispatch";
@@ -29,33 +30,6 @@ import { credentialsFor } from "../runs/execute";
 
 const spec = routes.bankfeedWebhook;
 const Params = z.object({ tenantId: z.uuid() });
-
-/** Reads at most `limit + 1` bytes, so an oversized body is refused without reading it all. */
-async function readBody(req: Request, limit: number): Promise<Uint8Array | null> {
-  const declared = Number(req.headers.get("content-length") ?? "0");
-  if (declared > limit) return null;
-  if (!req.body) return new Uint8Array();
-  const reader = req.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.length;
-    if (size > limit) {
-      await reader.cancel();
-      return null;
-    }
-    chunks.push(value);
-  }
-  const out = new Uint8Array(size);
-  let at = 0;
-  for (const c of chunks) {
-    out.set(c, at);
-    at += c.length;
-  }
-  return out;
-}
 
 export function bankfeedRoutes(app: Hono<AppEnv>): void {
   app.post(spec.path, async (c) => {
@@ -68,7 +42,7 @@ export function bankfeedRoutes(app: Hono<AppEnv>): void {
       if (!isBankfeedConnector(connector) || !connector.isConfigured?.()) {
         throw new HttpError(503, "not_configured", "bank feeds are not set up here");
       }
-      const body = await readBody(c.req.raw, PLAID_WEBHOOK_MAX_BYTES);
+      const body = await readBodyLimited(c.req.raw, PLAID_WEBHOOK_MAX_BYTES);
       if (!body) throw new HttpError(413, "too_large", "Plaid's webhooks are smaller");
       const jwt = c.req.header(PLAID_VERIFICATION_HEADER) ?? "";
       if (!(await connector.verifyWebhook?.({ [PLAID_VERIFICATION_HEADER]: jwt }, body))) {
