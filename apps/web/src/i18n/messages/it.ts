@@ -54,6 +54,8 @@ export const it: Messages = {
   "errorPage.failure": "Qualcosa è andato storto nel caricare questa pagina. Riprova tra poco.",
   "errorPage.crash":
     "Qualcosa è andato storto nel mostrare questa pagina. Riprova o vai a un'altra pagina.",
+  "errorPage.crashPart":
+    "Non è stato possibile mostrare questa parte. Riprova o vai a un'altra pagina.",
   "errorPage.back.home": "Vai alla home",
   "errorPage.back.runs": "Vai a Esecuzioni",
   "errorPage.back.records": "Vai a Record",

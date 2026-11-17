@@ -457,7 +457,7 @@ function RunBody({
 
       {open ? (
         // A step whose panel can't be shown leaves the run's page working.
-        <ErrorBoundary key={open.id} inline testId="step-panel-crash">
+        <ErrorBoundary key={open.id} part="step-panel">
           <PortalStepPanel
             step={open}
             index={openIndex + 1}

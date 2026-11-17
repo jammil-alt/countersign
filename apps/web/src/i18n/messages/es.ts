@@ -53,6 +53,7 @@ export const es: Messages = {
   "errorPage.forbidden.title": "No tiene acceso a esta página.",
   "errorPage.failure": "Algo falló al cargar esta página. Inténtelo de nuevo en un momento.",
   "errorPage.crash": "Algo falló al mostrar esta página. Inténtelo de nuevo o vaya a otra página.",
+  "errorPage.crashPart": "No pudimos mostrar esta parte. Inténtelo de nuevo o vaya a otra página.",
   "errorPage.back.home": "Ir al inicio",
   "errorPage.back.runs": "Ir a Ejecuciones",
   "errorPage.back.records": "Ir a Registros",

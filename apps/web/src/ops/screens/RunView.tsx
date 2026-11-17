@@ -897,7 +897,7 @@ function Timeline({
       ) : null}
       <StepList steps={items} />
       {/* A step whose panel can't be shown leaves the run's page working. */}
-      <ErrorBoundary resetKey={stepId} inline testId="ops-step-panel-crash">
+      <ErrorBoundary resetKey={stepId} part="step-panel">
         {panel}
       </ErrorBoundary>
     </Card>

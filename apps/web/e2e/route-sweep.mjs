@@ -4,7 +4,8 @@
 // screens show, one page per route pattern, so screens with ids are reached with real ones and new
 // screens are swept without editing this file.
 //
-// A page fails when the screen crashed (React unmounted the root: an empty #root), the page threw,
+// A page fails when the screen crashed (React unmounted the root, an empty #root, or an error
+// boundary shows its fallback: ./crash.mjs), the page threw,
 // the console logged an error, an /api call answered 500 or more, a link led to "Not found", or,
 // at phone width, the page scrolls sideways. It runs in several looks (./harness.mjs): light and
 // dark at desktop width and dark at 390×844 by default. It clicks nothing and submits nothing:

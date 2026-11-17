@@ -16,9 +16,11 @@ interface Props {
   children: ReactNode;
   /** When it changes (a new address, another item), a caught error is cleared. */
   resetKey?: unknown;
-  /** Inside a page (a card, a panel): no page padding of its own. */
-  inline?: boolean;
-  testId?: string;
+  /**
+   * A part of a page (the Desk's card, a step panel), named for the screen sweep: the notice then
+   * says this part could not be shown, without page padding of its own. Left out: the whole page.
+   */
+  part?: string;
 }
 
 interface State {
@@ -42,30 +44,27 @@ export class ErrorBoundary extends Component<Props, State> {
 
   override render(): ReactNode {
     if (!this.state.failed) return this.props.children;
-    return (
-      <CrashNotice
-        onRetry={this.retry}
-        inline={this.props.inline ?? false}
-        testId={this.props.testId ?? "screen-crash"}
-      />
-    );
+    return <CrashNotice onRetry={this.retry} part={this.props.part ?? null} />;
   }
 }
 
-/** The fallback: ErrorNotice in plain words, never the exception's own message. */
-function CrashNotice({
-  onRetry,
-  inline,
-  testId,
-}: {
-  onRetry: () => void;
-  inline: boolean;
-  testId: string;
-}) {
+/**
+ * The fallback: ErrorNotice in plain words, never the exception's own message. Every one carries
+ * `data-testid="screen-crash"` (and the part's name), which the screen sweep looks for
+ * (apps/web/e2e/crash.mjs): a caught crash leaves #root full and logs nothing on its own.
+ */
+function CrashNotice({ onRetry, part }: { onRetry: () => void; part: string | null }) {
   const { t } = useI18n();
   return (
-    <div className={inline ? undefined : "ui-page"} data-testid={testId}>
-      <ErrorNotice error={new Error(t("errorPage.crash"))} onRetry={onRetry} />
+    <div
+      className={part ? undefined : "ui-page"}
+      data-testid="screen-crash"
+      data-crash-part={part ?? "page"}
+    >
+      <ErrorNotice
+        error={new Error(t(part ? "errorPage.crashPart" : "errorPage.crash"))}
+        onRetry={onRetry}
+      />
     </div>
   );
 }

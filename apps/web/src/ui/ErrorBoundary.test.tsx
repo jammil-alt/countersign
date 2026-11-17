@@ -62,6 +62,21 @@ describe("ErrorBoundary", () => {
     expect(screen.getByText("Fine")).toBeInTheDocument();
   });
 
+  it("says a part couldn't be shown when only a part of the page failed", () => {
+    render(
+      <MemoryRouter initialEntries={["/broken"]}>
+        <ErrorBoundary part="desk-card">
+          <Boom when={() => true} />
+        </ErrorBoundary>
+      </MemoryRouter>,
+    );
+    const notice = screen.getByTestId("screen-crash");
+    expect(notice).toHaveAttribute("data-crash-part", "desk-card");
+    expect(notice).toHaveTextContent(
+      "This part couldn't be shown. Try again, or go to another page.",
+    );
+  });
+
   it("renders the page again on Try again", async () => {
     let broken = true;
     render(

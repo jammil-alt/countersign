@@ -127,9 +127,16 @@ export function appRelease(): string | null {
   return (import.meta.env.VITE_SENTRY_RELEASE as string | undefined)?.trim() || null;
 }
 
-/** A screen that crashed (React's root error handlers). */
+/**
+ * A screen that crashed (React's root error handlers, ../main.tsx). Those handlers replace React's
+ * own logging, so with Sentry off (local development, the screen sweep's build) the crash goes to
+ * the console instead, where a developer and the sweep see it.
+ */
 export function reportScreenCrash(error: unknown, componentStack: string | undefined): void {
-  if (!started) return;
+  if (!started) {
+    console.error("A screen crashed:", error, componentStack ?? "");
+    return;
+  }
   Sentry.captureException(error, {
     tags: { kind: "screen_crash" },
     ...(componentStack ? { contexts: { react: { componentStack } } } : {}),

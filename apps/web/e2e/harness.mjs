@@ -10,6 +10,7 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { chromium } from "playwright";
+import { crashesIn } from "./crash.mjs";
 
 export const BASE = (process.env.SWEEP_URL ?? "http://localhost:8787").replace(/\/$/, "");
 export const SHOTS = process.env.SWEEP_SHOTS || null;
@@ -93,15 +94,16 @@ export async function settle(page) {
 }
 
 /**
- * The checks every page gets: it rendered (React did not unmount the root), it is not "Not found"
+ * The checks every page gets: it rendered (React did not unmount the root, and no error boundary
+ * shows its fallback: ./crash.mjs), it is not "Not found"
  * or the sign-in page, and at phone width it does not scroll sideways. Returns the problems found.
  */
 export async function checkPage(page, look) {
   const out = [];
   const landed = new URL(page.url()).pathname;
   if (landed.startsWith("/sign-in")) out.push("sent to sign-in (the dev sign-in did not hold)");
-  const rootEmpty = await page.evaluate(() => !document.getElementById("root")?.children.length);
-  if (rootEmpty) out.push("the screen crashed: #root is empty");
+  // An empty #root, or an error boundary's fallback (a caught crash leaves the root full).
+  out.push(...(await page.evaluate(crashesIn)));
   if (await page.getByText("No page here.").count()) out.push("a link led to Not found");
   if (look.phone) {
     const wide = await page.evaluate(() => {

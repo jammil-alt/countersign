@@ -330,7 +330,7 @@ export function PortalInboxScreen() {
         <div ref={detailRef} className="flex min-w-0 flex-col gap-5">
           {selected ? (
             // One card that can't be shown leaves the list and the other cards working.
-            <ErrorBoundary key={selected.key} inline testId="desk-detail-crash">
+            <ErrorBoundary key={selected.key} part="desk-card">
               <DeskDetail entry={selected} canSign={canSign} onChanged={changed} />
             </ErrorBoundary>
           ) : state.data && shown.length > 0 ? (

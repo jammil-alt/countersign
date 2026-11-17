@@ -54,6 +54,8 @@ export const ptBR: Messages = {
   "errorPage.failure": "Algo deu errado ao carregar esta página. Tente de novo em instantes.",
   "errorPage.crash":
     "Algo deu errado ao mostrar esta página. Tente de novo ou vá para outra página.",
+  "errorPage.crashPart":
+    "Não foi possível mostrar esta parte. Tente de novo ou vá para outra página.",
   "errorPage.back.home": "Ir para o início",
   "errorPage.back.runs": "Ir para Execuções",
   "errorPage.back.records": "Ir para Registros",

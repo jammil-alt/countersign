@@ -53,6 +53,7 @@ export const en = {
   "errorPage.forbidden.title": "You don't have access to this page.",
   "errorPage.failure": "Something went wrong loading this page. Try again in a moment.",
   "errorPage.crash": "Something went wrong showing this page. Try again, or go to another page.",
+  "errorPage.crashPart": "This part couldn't be shown. Try again, or go to another page.",
   "errorPage.back.home": "Go home",
   "errorPage.back.runs": "Go to Runs",
   "errorPage.back.records": "Go to Records",
