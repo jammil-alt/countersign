@@ -185,6 +185,16 @@ tools connected as it goes); a signed scope that moves each agent's build past i
 The plan, its steps (B1–O6) and the owner's open questions: `docs/cases-plan.md`. The screens:
 `docs/design/pipelines.html` and `docs/design/workflows.html` (onboarding not drawn yet).
 
+Owner steps for onboarding's emails and sign-in (O1, `docs/plan.md` §1.125; how-to in
+`docs/operations.md`, Resend under "Worker secrets" and WorkOS under "By hand"):
+
+- **Resend**: verify `mezonas.com` (SPF, DKIM, DMARC) and send from `hello@mezonas.com` in
+  production (`RESEND_FALLBACK_DOMAIN`); a mailbox or routing rule for `hello@`. Next to P2.
+- **WorkOS**: Google and Microsoft sign-in switched on, Mezonas' logo and colours on the hosted
+  sign-in and its code emails, `auth.mezonas.com` if the plan allows; then try a test invite to a
+  real inbox on staging and check what `packages/auth/NOTES.md` lists, first whether a new address
+  can sign up without a WorkOS invitation.
+
 ### Area owners, owner chat and Home (designed 2026-11-12)
 
 ARCHITECTURE v0.19 §10.15, `docs/plan.md` §1.117 and §10 (O1–O8). Built on
