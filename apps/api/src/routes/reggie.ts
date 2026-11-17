@@ -5,6 +5,7 @@
 import { type RouteSpec, routes } from "@countersign/core";
 import type { LlmTransport } from "@countersign/llm";
 import type { Hono } from "hono";
+import { clientModels } from "../compliance/models";
 import { type AppEnv, ensureClient, type HandlerCtx, mount, mountLong, txOnly } from "../http";
 import {
   cancelAction,
@@ -15,11 +16,15 @@ import {
   runTurn,
   startConversation,
 } from "../reggie/reggie";
-import { workerTransport } from "../runs/execute";
 
-function transport(ctx: Pick<HandlerCtx<RouteSpec>, "services">): LlmTransport {
-  const { deps, env } = ctx.services;
-  return deps.llm?.(env) ?? workerTransport(env);
+/**
+ * Reggie's model transport, held to the HIPAA mode (§1.35) of every client the operator serves.
+ * The model runs outside any transaction, so the database reads it.
+ */
+// DECISION: every client served, even in a conversation about one client: Reggie's tools read
+// any client the operator serves, so any of them may reach the model in a turn's tool results.
+function transport(ctx: Pick<HandlerCtx<RouteSpec>, "services" | "tenantIds">): LlmTransport {
+  return clientModels(ctx.services, { clients: ctx.tenantIds, read: ctx.services.db });
 }
 
 export function reggieRoutes(app: Hono<AppEnv>): void {

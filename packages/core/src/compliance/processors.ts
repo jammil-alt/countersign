@@ -248,6 +248,15 @@ export function uncoveredProcessors(
 }
 
 /** Why a client in HIPAA mode can't use something, or null when it can. */
+/**
+ * A call refused because it would send a HIPAA client's data to a processor without a signed BAA
+ * (the message is `processingRefusal`'s). Thrown before anything is sent; apps/api answers it as
+ * 409 `hipaa`, and code that wraps a model's errors passes it on as it is.
+ */
+export class ComplianceRefusal extends Error {
+  override name = "ComplianceRefusal";
+}
+
 export function processingRefusal(
   profile: ComplianceProfile,
   covered: ReadonlySet<Processor>,

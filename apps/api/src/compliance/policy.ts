@@ -6,23 +6,26 @@
 import type { ToolPolicy } from "@countersign/agents";
 import {
   type ComplianceProfile,
+  ComplianceRefusal,
   complianceOf,
   type Processor,
   processingRefusal,
   processorForEmbedding,
   processorForModel,
   processorsForTool,
+  VOICE_FEATURE,
 } from "@countersign/core";
-import { type Db, tenant } from "@countersign/db";
-import type { EmbedRequest, LlmTransport } from "@countersign/llm";
+import { type Db, type Tx, tenant } from "@countersign/db";
+import type { EmbedRequest, LlmTransport, Transcriber } from "@countersign/llm";
 import { eq } from "drizzle-orm";
 
-export class ComplianceRefusal extends Error {
-  override name = "ComplianceRefusal";
-}
+export { ComplianceRefusal };
 
-/** A client's profile, read once per client for the life of the returned function. */
-export function profileReader(db: Db): (tenantId: string) => Promise<ComplianceProfile> {
+/**
+ * A client's profile, read once per client for the life of the returned function: through the
+ * database, or through a request's open transaction (a Worker's request has one connection).
+ */
+export function profileReader(db: Db | Tx): (tenantId: string) => Promise<ComplianceProfile> {
   const cache = new Map<string, Promise<ComplianceProfile>>();
   return (tenantId) => {
     let p = cache.get(tenantId);
@@ -51,20 +54,39 @@ export function hipaaToolPolicy(
   };
 }
 
-/** A transport that refuses, for one client, any model whose provider isn't covered. */
+/** The first refusal among the clients, or null when every one of them allows the processor. */
+async function refusalFor(
+  tenantIds: string | readonly string[],
+  profiles: (tenantId: string) => Promise<ComplianceProfile>,
+  covered: ReadonlySet<Processor>,
+  processor: Processor,
+  what: string,
+): Promise<string | null> {
+  for (const id of typeof tenantIds === "string" ? [tenantIds] : tenantIds) {
+    const refusal = processingRefusal(await profiles(id), covered, [processor], what);
+    if (refusal) return refusal;
+  }
+  return null;
+}
+
+/**
+ * A transport that refuses any model whose provider isn't covered for the client, or for any of
+ * the clients (a call that may carry several clients' data, such as a back-office question).
+ */
 export function guardModels(
   inner: LlmTransport,
-  tenantId: string,
+  tenantIds: string | readonly string[],
   profiles: (tenantId: string) => Promise<ComplianceProfile>,
   covered: ReadonlySet<Processor>,
 ): LlmTransport {
   return {
     async create(request, options) {
       const model = String(request.model);
-      const refusal = processingRefusal(
-        await profiles(tenantId),
+      const refusal = await refusalFor(
+        tenantIds,
+        profiles,
         covered,
-        [processorForModel(model)],
+        processorForModel(model),
         `The model ${model}`,
       );
       if (refusal) throw new ComplianceRefusal(refusal);
@@ -74,10 +96,11 @@ export function guardModels(
     ...(inner.embed
       ? {
           embed: async (request: EmbedRequest, options?: { signal?: AbortSignal }) => {
-            const refusal = processingRefusal(
-              await profiles(tenantId),
+            const refusal = await refusalFor(
+              tenantIds,
+              profiles,
               covered,
-              [processorForEmbedding(request.model)],
+              processorForEmbedding(request.model),
               `Embedding with ${request.model}`,
             );
             if (refusal) throw new ComplianceRefusal(refusal);
@@ -85,5 +108,28 @@ export function guardModels(
           },
         }
       : {}),
+  };
+}
+
+/** Speech-to-text held to the same rule: voice typing's vendor must be covered for the clients. */
+export function guardTranscriber(
+  inner: Transcriber,
+  tenantIds: readonly string[],
+  profiles: (tenantId: string) => Promise<ComplianceProfile>,
+  covered: ReadonlySet<Processor>,
+): Transcriber {
+  return {
+    async transcribe(request, options) {
+      for (const id of tenantIds) {
+        const refusal = processingRefusal(
+          await profiles(id),
+          covered,
+          VOICE_FEATURE.processors,
+          VOICE_FEATURE.what,
+        );
+        if (refusal) throw new ComplianceRefusal(refusal);
+      }
+      return inner.transcribe(request, options);
+    },
   };
 }

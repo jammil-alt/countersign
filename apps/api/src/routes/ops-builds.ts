@@ -26,6 +26,7 @@ import {
   BuildProposal as BuildProposalSchema,
   buildHasSetupForm,
   buildIssues,
+  ComplianceRefusal,
   FIT_WORDS,
   type FitGap,
   type FitRow,
@@ -75,6 +76,7 @@ import {
   summaries,
   withDecisions,
 } from "../build/store";
+import { clientModels } from "../compliance/models";
 import {
   type AppContext,
   type AppEnv,
@@ -90,11 +92,14 @@ import {
   toHttpError,
 } from "../http";
 import { reportHandled, reportProblem } from "../observability/report";
-import { workerTransport } from "../runs/execute";
 import { builderContext, builderHttpError } from "./ops-builder";
 
-function transport(services: Pick<Services, "deps" | "env">): LlmTransport {
-  return services.deps.llm?.(services.env) ?? workerTransport(services.env);
+/**
+ * The model transport for a build, held to its client's HIPAA mode (§1.35); a build for everyone
+ * is no client's data. The model runs outside any transaction here, so the database reads it.
+ */
+function transport(services: Pick<Services, "deps" | "env" | "db">, row: BuildRow): LlmTransport {
+  return clientModels(services, { clients: [row.clientId], read: services.db });
 }
 
 const now = () => new Date();
@@ -275,6 +280,10 @@ function failedTurnText(phase: BuildPhase, error: unknown): { code: string; text
       : phase === "poc"
         ? "The test plan isn't written yet"
         : "Nothing changed";
+  // HIPAA mode (§1.35): nothing was sent; the turn says why rather than "try again".
+  if (error instanceof ComplianceRefusal) {
+    return { code: "hipaa", text: `${error.message}. ${what}.` };
+  }
   const code =
     error instanceof BuilderError
       ? error.code === "invalid_answer" &&
@@ -420,7 +429,7 @@ async function turn(
         ctx: prep.bctx,
         otherWork: prep.otherWork,
       },
-      { llm: createLlmClient({ transport: transport(ctx.services) }) },
+      { llm: createLlmClient({ transport: transport(ctx.services, row) }) },
     );
   } catch (error) {
     const failure = failedTurnText(row.phase, error);
@@ -599,7 +608,7 @@ async function reviewHolds(ctx: LongCtx, row: BuildRow): Promise<boolean> {
           issues: prep.issues,
           ctx: prep.bctx,
         },
-        { llm: createLlmClient({ transport: transport(ctx.services) }) },
+        { llm: createLlmClient({ transport: transport(ctx.services, row) }) },
       )
     ).concerns;
   } catch (error) {
@@ -608,7 +617,10 @@ async function reviewHolds(ctx: LongCtx, row: BuildRow): Promise<boolean> {
     await ctx.inTx(async (scoped) => {
       await addMessage(scoped.tx, await readBuild(scoped.tx, row.id, true), {
         role: "builder",
-        text: "I couldn't give the brief its second look just now, so it goes on as it is.",
+        text:
+          error instanceof ComplianceRefusal
+            ? `I couldn't give the brief its second look: ${error.message}. It goes on as it is.`
+            : "I couldn't give the brief its second look just now, so it goes on as it is.",
       });
     });
     return false;
@@ -1352,7 +1364,7 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
     }
     const made = await makeTestCases(
       { kind: prep.target.kind, testPlan: plan, target: prep.target.text },
-      { llm: createLlmClient({ transport: transport(ctx.services) }) },
+      { llm: createLlmClient({ transport: transport(ctx.services, prep.row) }) },
     ).catch(builderHttpError);
     let created = 0;
     for (const c of made.cases) {
