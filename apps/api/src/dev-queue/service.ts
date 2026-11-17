@@ -32,10 +32,10 @@ import { createLlmClient } from "@countersign/llm";
 import { and, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
 import type { z } from "zod";
 import { addMessage } from "../build/store";
+import { clientModels } from "../compliance/models";
 import { HttpError, type Scoped, type Services } from "../http";
 import { notifyDepsFromEnv } from "../notify/tick";
 import { reportHandled } from "../observability/report";
-import { workerTransport } from "../runs/execute";
 import { reuseIndex } from "./catalog";
 import { notifyRequest } from "./notify";
 import {
@@ -60,21 +60,45 @@ export interface DqCtx {
 
 const refused = (reason: string) => new HttpError(409, "refused", reason);
 
-function llmFor(services: Services) {
-  return createLlmClient({
-    transport: services.deps.llm?.(services.env) ?? workerTransport(services.env),
-  });
+/**
+ * The judge's model, held to the HIPAA mode of every client whose build the request is linked to
+ * (its words may carry that build's work). A refused call sends nothing: the candidates come back
+ * unjudged, for the operator to judge.
+ */
+function llmFor(services: Services, clients: readonly string[]) {
+  return createLlmClient({ transport: clientModels(services, { clients, read: services.db }) });
+}
+
+/** The clients of the builds linked to a request, or of one build about to be. */
+async function clientsOf(tx: Tx, q: { requestId?: string; buildId?: string }): Promise<string[]> {
+  const ids = q.buildId
+    ? [q.buildId]
+    : q.requestId
+      ? (
+          await tx
+            .select({ id: codeRequestLink.buildId })
+            .from(codeRequestLink)
+            .where(eq(codeRequestLink.requestId, q.requestId))
+        ).map((r) => r.id)
+      : [];
+  if (ids.length === 0) return [];
+  const rows = await tx
+    .select({ c: build.clientId, t: build.testClientId })
+    .from(build)
+    .where(inArray(build.id, ids));
+  return [...new Set(rows.flatMap((r) => [r.c, r.t]).filter((x): x is string => !!x))];
 }
 
 /** The reuse check, or an unjudged one when the model can't be reached (said on the request). */
 async function checkReuse(
   ctx: DqCtx,
   input: { title: string; kind: RequestRow["kind"]; spec: ReturnType<typeof factsOf>["spec"] },
-  selfId?: string,
+  about: { requestId?: string; buildId?: string },
 ): Promise<ReuseCheck> {
-  const { index, bctx } = await ctx.inTx(async (scoped) => {
+  const selfId = about.requestId;
+  const { index, bctx, clients } = await ctx.inTx(async (scoped) => {
     const r = await reuseIndex(scoped, ctx.services);
-    return { index: r.index, bctx: r.ctx };
+    return { index: r.index, bctx: r.ctx, clients: await clientsOf(scoped.tx, about) };
   });
   const base = {
     title: input.title,
@@ -85,7 +109,8 @@ async function checkReuse(
     ...(selfId ? { selfId } : {}),
   };
   try {
-    return (await runReuseCheck(base, { llm: llmFor(ctx.services), now: ctx.now() })).check;
+    return (await runReuseCheck(base, { llm: llmFor(ctx.services, clients), now: ctx.now() }))
+      .check;
   } catch (error) {
     if (!(error instanceof BuilderError)) throw error;
     reportHandled("the reuse check's judge failed", error, { kind: "dev_queue" });
@@ -214,7 +239,11 @@ export async function fileRequest(ctx: DqCtx, body: NewCodeRequest): Promise<Fil
       duplicate: { id: same.id, ref: dqNumber(same.number), title: same.title },
     };
   }
-  const judged = await checkReuse(ctx, { title: body.title, kind: body.kind, spec: body.spec });
+  const judged = await checkReuse(
+    ctx,
+    { title: body.title, kind: body.kind, spec: body.spec },
+    body.link ? { buildId: body.link.buildId } : {},
+  );
   const dup = duplicateOf(judged);
   if (dup) {
     return {
@@ -291,7 +320,7 @@ export async function rerunReuse(ctx: DqCtx, ref: string): Promise<CodeRequestDe
   const fresh = await checkReuse(
     ctx,
     { title: row.title, kind: row.kind, spec: facts.spec },
-    row.id,
+    { requestId: row.id },
   );
   // The operator's own verdicts stay on the candidates they judged.
   const kept = (facts.reuseCheck?.candidates ?? [])

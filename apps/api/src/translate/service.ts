@@ -8,8 +8,8 @@
 // - The settings for both surfaces and a contact's switch, each change logged.
 // - The views: the latest row beside each original, never a model or cost for the portal.
 //
-// Every model call goes through `guardModels` (HIPAA mode, docs/plan.md §1.35). The original is
-// never changed (invariant 3); the translation is data (invariant 9).
+// Every model call goes through `clientTranslationModels` (HIPAA mode, docs/plan.md §1.35). The
+// original is never changed (invariant 3); the translation is data (invariant 9).
 
 import {
   clientTranslation,
@@ -27,7 +27,6 @@ import {
   type OpsTranslationBody,
   type OpsTranslationSettingsView,
   type PortalTranslationBody,
-  parseCoveredProcessors,
   redactCardNumbers,
   TRANSLATION_BATCH,
   TRANSLATION_CATCH_UP_HOURS,
@@ -49,7 +48,7 @@ import {
 } from "@countersign/db";
 import { knownModelIds, type LlmTransport } from "@countersign/llm";
 import { and, eq, sql } from "drizzle-orm";
-import { guardModels, profileReader } from "../compliance/policy";
+import { clientTranslationModels } from "../compliance/models";
 import type { TranslatedEdit } from "../converse/views";
 import type { Bindings } from "../env";
 import { type AppDeps, HttpError, notFound } from "../http";
@@ -85,14 +84,10 @@ export function translationDepsFor(services: {
   env: Bindings;
   deps: AppDeps;
 }): TranslationDeps {
-  const inner = services.deps.translationTransport
-    ? services.deps.translationTransport(services.env)
-    : services.deps.extractionTransport(services.env);
-  const covered = parseCoveredProcessors(services.env.BAA_PROCESSORS);
-  const profiles = profileReader(services.db);
   return {
     db: services.db,
-    transport: (tenantId) => (inner ? guardModels(inner, tenantId, profiles, covered) : null),
+    transport: (tenantId) =>
+      clientTranslationModels(services, { clients: [tenantId], read: services.db }),
   };
 }
 
