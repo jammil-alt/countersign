@@ -3,6 +3,7 @@
 // setup (inside the client's transaction, through readOperatorCatalogue: an operator scope with no
 // clients, for these reads only), and a run's pinned site (its own operator transaction with no
 // clients). Profiles are parsed on every read (invariant 5); one that no longer parses is unusable.
+// A site with a host on the platform's blocked list reads as the blocked tier (core `siteTier`).
 
 import {
   type BrowserSiteOffer,
@@ -10,6 +11,7 @@ import {
   type BrowserSiteView,
   type BrowserTier,
   type PinnedBrowserSite,
+  siteTier,
 } from "@countersign/core";
 import {
   browserSite,
@@ -57,7 +59,12 @@ export async function catalogue(tx: Tx, slugs?: readonly string[]): Promise<Cata
   return sites.flatMap((site) => {
     const mine = versions.filter((v) => v.siteId === site.id);
     const newest = mine[0];
-    return newest ? [{ site, current: parsed(newest), versions: mine.length }] : [];
+    if (!newest) return [];
+    const current = parsed(newest);
+    // A site whose newest version names a host on the blocked list is the blocked tier, whatever
+    // the operator picked: every reader of the catalogue (offers, setup, scripts) sees it so.
+    const tier = siteTier(site.tier as BrowserTier, current.parsed);
+    return [{ site: { ...site, tier }, current, versions: mine.length }];
   });
 }
 
@@ -147,7 +154,8 @@ async function pinnedSiteRead(
   return {
     slug: row.site.slug,
     name: row.site.name,
-    tier: row.site.tier as BrowserTier,
+    // The pinned version's hosts decide too: on the blocked list, the blocked tier.
+    tier: siteTier(row.site.tier as BrowserTier, profile.data),
     versionId: row.version.id,
     version: row.version.version,
     profile: profile.data,

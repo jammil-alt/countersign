@@ -236,8 +236,8 @@ export interface NightlyResult {
 }
 
 /**
- * The nightly pass over every client with the pack on: build each site's finished days, then
- * sweep. One transaction per client, so one client's failure never holds up another's (the
+ * The nightly pass: for every client with the pack on, build each site's finished days; then,
+ * for every client, pack on or off, sweep past the retention limits. One transaction per client, so one client's failure never holds up another's (the
  * caller reports it). The build runs before the sweep, so the oldest day's events are read
  * before they can be deleted.
  */
@@ -260,18 +260,21 @@ export async function nightly(
           .select({ pack: tenantPack.pack })
           .from(tenantPack)
           .where(and(eq(tenantPack.tenantId, client.id), eq(tenantPack.pack, PACK_ID)));
-        if (!on) return;
-        result.clients += 1;
-        const sites = await tx
-          .select({ id: site.id })
-          .from(site)
-          .where(eq(site.tenantId, client.id));
-        for (const s of sites) {
-          for (const day of await daysToBuild(tx, { tenantId: client.id, siteId: s.id, today })) {
-            const visits = await buildDay(tx, { tenantId: client.id, siteId: s.id, day });
-            result.built.push({ tenantId: client.id, siteId: s.id, day, visits });
+        if (on) {
+          result.clients += 1;
+          const sites = await tx
+            .select({ id: site.id })
+            .from(site)
+            .where(eq(site.tenantId, client.id));
+          for (const s of sites) {
+            for (const day of await daysToBuild(tx, { tenantId: client.id, siteId: s.id, today })) {
+              const visits = await buildDay(tx, { tenantId: client.id, siteId: s.id, day });
+              result.built.push({ tenantId: client.id, siteId: s.id, day, visits });
+            }
           }
         }
+        // DECISION: retention holds whether or not the client has the pack on: switching it off
+        // stops measuring and building, never the deletion of what was kept.
         const swept = await sweep(tx, client.id, today);
         result.swept.events += swept.events;
         result.swept.visits += swept.visits;

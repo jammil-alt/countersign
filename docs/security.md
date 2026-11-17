@@ -129,6 +129,18 @@ branches.
 - **Browser logins** are typed by the separate browser service (`apps/browser`), which holds no
   secrets: `apps/api` hands it a password or a code for one `fill`, held to the site's login
   origins, and it never stores, logs or returns one.
+- **The blocked tier is enforced in code** (invariant 13). A list of well-known banks, payment
+  services, email accounts and identity providers (`BROWSER_BLOCKED_HOSTS` in
+  `packages/core/src/browser/site.ts`) is matched by domain and every subdomain, and a
+  wildcard host that would reach a listed one counts. A site with any
+  host on it is the blocked tier whatever tier the operator picked: it is never offered to a
+  client, never set up, and a run never signs in to it, by the site's newest version and by the
+  version a connection pinned. No page on a listed host is ever opened. The browser service
+  checks the same list again (`apps/browser/src/blocked.ts`, held equal to core's by a test): it
+  refuses to open a browser for a listed host, refuses to go to or download from one, and checks
+  the browser's address after every navigation and before every read, leaving any page on one
+  without reading it. The list changes only with the code; the operator's tier covers
+  every other site.
 
 ## 5. Where client data may go
 
@@ -171,15 +183,20 @@ branches.
   (`apps/api/src/request-origin.ts`). Signed webhooks, the public forms and beacon, and the phone
   app's own session header are exempt; a body sent to a session route must be JSON.
 - **Rate limiting** (Cloudflare): 50 requests per 10 seconds per IP on `/api/*`, webhooks
-  excluded. The MCP connector has its own limit of 120 calls a minute per operator.
-  `/mcp` is not under `/api/*`, so the Cloudflare rule doesn't cover it: a request there with no
-  token is answered and not recorded, and refused sign-ins are recorded only up to 120 a minute
-  per IP (`MCP_RATE_LIMIT`, key `ip:<address>`).
-  Plain-words questions and voice typing in the portal, which each call a paid model, are
-  limited per person and client to 10 a minute and 200 a day (`apps/api/src/metered.ts`).
+  excluded. The MCP connector has its own limit of 120 calls a minute per operator. `/mcp` is not
+  under `/api/*`, so the Cloudflare rule doesn't cover it: a request there with no token is
+  answered and not recorded, and refused sign-ins are recorded only up to 120 a minute per IP
+  (`MCP_RATE_LIMIT`, key `ip:<address>`). Plain-words questions and voice typing in the portal,
+  which each call a paid model, are limited per person and client to 10 a minute and 200 a day
+  (`apps/api/src/metered.ts`). The public beacon route (`/api/in/`) has its own too: 120 a minute
+  per sending address (an IPv6 address by its /64), checked before any database work
+  (`apps/api/src/routes/pack-inbound.ts`).
 - **Writes to clients' tools** need approval by default, run once each, and record their before
   state (invariant 8). Delete is off.
 - **Webhooks** from Twilio, Stripe, QuickBooks and ElevenLabs are signature-checked.
+- **Bodies with no session** (webhooks, the beacon, the token-link pages and the sign-in steps)
+  are read with a cap: a declared length over the route's limit is refused unread, and a body with
+  no length is read only up to the limit (`apps/api/src/body.ts`; the code service's texts too).
 
 ## 7. Changes, code and dependencies
 
