@@ -404,7 +404,9 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     await backOfficeTick(
       {
         db,
-        transport: deps.llm?.(env) ?? workerTransport(env),
+        // No one client: the tick works across clients, and its model reads (Reggie's, readOne)
+        // refuse a client in HIPAA mode without a BAA themselves (backoffice/reggie-pass.ts).
+        transport: clientModels({ deps, env }, { clients: [], read: db }),
         mailer: mailerFromEnv(env, deps.fetch?.(env)),
         domain: env.EMAIL_FORWARDING_DOMAIN,
         covered: parseCoveredProcessors(env.BAA_PROCESSORS),
