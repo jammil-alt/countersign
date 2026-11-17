@@ -92,6 +92,11 @@ export const AccountRequestPassedPayload = z.strictObject({
   threadId: Id,
   messageId: Id,
   userId: Id,
+  /**
+   * §1.110: the files the person's message carries (this client's documents), so the service
+   * reads them with the message (`inbound.get`'s `documents`). Older events have none.
+   */
+  documents: z.array(Id).max(10).default([]),
 });
 export type AccountRequestPassedPayload = z.infer<typeof AccountRequestPassedPayload>;
 
@@ -231,6 +236,39 @@ export function acceptingTriggers(
   return messageTriggersOn(bundle, channel).filter((t) => matchesPeople(t.on.from, sender));
 }
 
+/** The document events an agent can be handed files on (§1.110). */
+export const DOCUMENT_HANDOVER_EVENTS = ["document.received", "document.extracted"] as const;
+export type DocumentHandoverEvent = (typeof DOCUMENT_HANDOVER_EVENTS)[number];
+
+/**
+ * §1.110: the document events this agent starts on (an enabled event trigger), so files Sloan
+ * passes can be handed to it as if they had just arrived: `document.received` as they are, or
+ * `document.extracted` once read. Empty when it doesn't work on documents.
+ */
+export function documentEventsOf(bundle: BundleLike): DocumentHandoverEvent[] {
+  const out = new Set<DocumentHandoverEvent>();
+  for (const wf of bundle.workflows) {
+    if (!wf.enabled) continue;
+    for (const t of allTriggers(wf.workflow)) {
+      if (t.on.type !== "event") continue;
+      const e = t.on.event;
+      if ((DOCUMENT_HANDOVER_EVENTS as readonly string[]).includes(e)) {
+        out.add(e as DocumentHandoverEvent);
+      }
+    }
+  }
+  return [...out];
+}
+
+/**
+ * §1.110: an event addressed to one agent (`payload.forAgentId`) starts only that agent: a file
+ * Sloan handed to it, read for it.
+ */
+export function addressedTo(payload: unknown): string | null {
+  const v = (payload as { forAgentId?: unknown } | null)?.forAgentId;
+  return typeof v === "string" ? v : null;
+}
+
 /** Whether Sloan may pass requests to this agent (a message trigger with channel `sloan`). */
 export function acceptsSloan(bundle: BundleLike): boolean {
   return messageTriggersOn(bundle, "sloan").length > 0;
@@ -241,7 +279,7 @@ export function acceptsSloan(bundle: BundleLike): boolean {
  * tool's transaction. The router then starts the agent's message triggers on channel `sloan`
  * whose People filter takes the asking user; check `acceptsSloan` first to answer "can't" plainly.
  */
-export function passToAgentEvent(input: AccountRequestPassedPayload): {
+export function passToAgentEvent(input: z.input<typeof AccountRequestPassedPayload>): {
   type: typeof ACCOUNT_REQUEST_PASSED_EVENT;
   subjectType: "thread";
   subjectId: string;

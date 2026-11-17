@@ -156,6 +156,7 @@ describe.skipIf(!h)("account.pass_to_agent", () => {
       status: "passed",
       reason: null,
       messageId: ADMIN_MESSAGE,
+      files: [],
       sources: [desk.id, ADMIN_MESSAGE],
     });
     // The person, thread and message come from the run's trigger, never from the model.
@@ -168,6 +169,7 @@ describe.skipIf(!h)("account.pass_to_agent", () => {
           threadId: THREAD,
           messageId: ADMIN_MESSAGE,
           userId: H.A.adminId,
+          documents: [],
         },
       },
     ]);
@@ -217,6 +219,7 @@ describe.skipIf(!h)("account.pass_to_agent", () => {
       status: "test_run",
       reason: null,
       messageId: null,
+      files: [],
       sources: [desk.id],
     });
     // A test run still says plainly when the agent wouldn't take it.

@@ -10,6 +10,7 @@ import type { PortalMessage, PortalThread } from "@countersign/core";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
+import { attachToMessage } from "../../api/upload";
 import { useApi, useApiClient } from "../../api/useApi";
 import { voiceFor } from "../../api/voice";
 import type { PlainKey } from "../../i18n/catalog";
@@ -18,6 +19,7 @@ import { InboxCard, isAccountChangeItem } from "../../inbox/InboxCard";
 import { SourceLinks } from "../../records/SourceLinks";
 import { useSession } from "../../session/session";
 import { ActivityRow } from "../../ui/activity";
+import { type AttachedFile, MessageFiles } from "../../ui/attach";
 import { AgentBadge, PersonBadge } from "../../ui/badges";
 import { AgentSaid, ChatLog, Composer, Thinking, YouSaid } from "../../ui/chat";
 import { Select } from "../../ui/forms";
@@ -209,13 +211,16 @@ export function Conversation({
     api.call(apiRoutes.portalReadThread, { params: { id: threadId } }).catch(() => {});
   }, [api, threadId, messages.data]);
 
-  async function send(body: string): Promise<boolean> {
+  async function send(body: string, files: AttachedFile[]): Promise<boolean> {
     setBusy(true);
     setError(null);
     try {
       const id = threadId ?? (await start());
       if (!id) return false;
-      await api.call(apiRoutes.portalPostMessage, { params: { id }, body: { text: body } });
+      await api.call(apiRoutes.portalPostMessage, {
+        params: { id },
+        body: { text: body, documents: files.map((f) => f.id) },
+      });
       if (threadId) messages.reload();
       else onStarted(id);
       return true;
@@ -276,8 +281,24 @@ export function Conversation({
             send: t("common.send"),
             sending: t("common.sending"),
           }}
+          testId="portal-sloan-composer"
           inputTestId="portal-sloan-input"
           sendTestId="portal-sloan-send"
+          attach={{
+            upload: async (picked) => {
+              try {
+                return await attachToMessage(picked, (name) => t("attach.refused", { name }));
+              } catch {
+                throw new Error(t("attach.failed"));
+              }
+            },
+            words: {
+              attach: t("attach.add"),
+              uploading: t("attach.uploading"),
+              remove: t("attach.remove"),
+              failed: t("attach.failed"),
+            },
+          }}
           voice={voiceFor("portal", null, {
             dictate: t("voice.dictate"),
             stop: t("voice.stop"),
@@ -329,6 +350,11 @@ function Message({ message: m }: { message: PortalMessage }) {
     return (
       <div className="flex flex-col items-end gap-1" data-testid={`portal-sloan-message-${m.id}`}>
         <YouSaid text={m.text} above={above} mono={m.kind === "command"} />
+        <MessageFiles
+          files={m.documents}
+          href={(id) => `/records/${id}`}
+          testId={`portal-sloan-files-${m.id}`}
+        />
         {sources}
       </div>
     );
@@ -350,6 +376,7 @@ function Message({ message: m }: { message: PortalMessage }) {
       mono={m.kind === "command"}
       testId={`portal-sloan-message-${m.id}`}
     >
+      <MessageFiles files={m.documents} href={(id) => `/records/${id}`} />
       {sources}
     </AgentSaid>
   );

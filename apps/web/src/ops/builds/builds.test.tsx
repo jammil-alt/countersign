@@ -711,4 +711,33 @@ describe("Builds", () => {
       "The brief has no goal yet.",
     );
   });
+
+  it("opens the draft's workflow, not the agent's overview", async () => {
+    const AGENT = "00000000-0000-4000-8000-0000000a0001";
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: () =>
+        detail({
+          build: { ...detail().build, phase: "draft", agentId: AGENT },
+          phases: detail().phases.map((p, i) => ({
+            ...p,
+            state: i < 2 ? "done" : i === 2 ? "current" : "todo",
+          })),
+          gate: { next: "poc", reasons: [] },
+          draft: {
+            agentId: AGENT,
+            skillId: null,
+            sessionId: null,
+            versionId: null,
+            version: 1,
+            live: false,
+            problems: [],
+          },
+        }),
+    });
+    renderAt(`/ops/builds/${ID}`, api);
+    const open = await screen.findByTestId("build-open-draft");
+    expect(open).toHaveTextContent("Open the workflow");
+    expect(open).toHaveAttribute("href", `/ops/agents/${AGENT}/workflow`);
+  });
 });

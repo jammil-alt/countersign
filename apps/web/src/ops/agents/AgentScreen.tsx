@@ -400,6 +400,7 @@ export function AgentScreen({
             live={live}
             draft={draft}
             lineage={lineage}
+            build={openBuild}
           >
             {tabs}
           </AgentBar>
@@ -442,6 +443,7 @@ export function AgentScreen({
           above={
             // The workflow's first step is how it starts: the agent's triggers, then the canvas.
             <div className="flex flex-col gap-4" data-testid="agent-workflow-top">
+              {openBuild ? <BackToBuild build={openBuild} /> : null}
               {lineage}
               <TriggersPanel
                 agent={view}
@@ -472,6 +474,7 @@ export function AgentScreen({
         live={live}
         draft={draft}
         lineage={lineage}
+        build={openBuild}
         actions={
           <AgentActions
             view={view}
@@ -617,6 +620,16 @@ export function AgentScreen({
   );
 }
 
+/** Back to the build an agent is being made in. */
+function BackToBuild({ build }: { build: { id: string; title: string } }) {
+  return (
+    <Link to={OPS_PATHS.build(build.id)} className="ui-back" data-testid="agent-back-build">
+      <Icon name="arrow" size={14} className="rotate-180" />
+      Back to the build: {build.title}
+    </Link>
+  );
+}
+
 /**
  * The agent's bar (prototype `#O6-Builder`): its tile, name, versions and what kind of agent it is,
  * what it is in one line and which agent it is (template or whose copy), its actions on the right
@@ -631,6 +644,7 @@ function AgentBar({
   lineage,
   actions,
   pending = false,
+  build = null,
   children,
 }: {
   view: AgentSummary;
@@ -642,6 +656,8 @@ function AgentBar({
   actions?: ReactNode;
   /** Drawn from the agent's row while the agent loads: its versions aren't known yet. */
   pending?: boolean;
+  /** The agent's open build: while it is being built, back goes to its build. */
+  build?: { id: string; title: string } | null;
   children: ReactNode;
 }) {
   const stats = bundle ? workflowStats(bundle) : null;
@@ -664,15 +680,21 @@ function AgentBar({
   const client = view.kind === "client" && view.tenantId ? view.tenantId : null;
   return (
     <div className="flex flex-col gap-3">
-      {/* Back to the list this agent came from: the lab's view as left, or its client's agents. */}
-      <Link
-        to={client ? `${OPS_PATHS.client(client)}/agents` : labPath()}
-        className="ui-back"
-        data-testid="agent-back"
-      >
-        <Icon name="arrow" size={14} className="rotate-180" />
-        {client ? `All ${clientName ?? "client"} agents` : "All agents"}
-      </Link>
+      {/* Back to where this agent is worked on: its open build while it has one (owner,
+          2026-11-16: the build's draft opened an agent page that led back to the lab), else the
+          list it came from, the lab's view as left or its client's agents. */}
+      {build ? (
+        <BackToBuild build={build} />
+      ) : (
+        <Link
+          to={client ? `${OPS_PATHS.client(client)}/agents` : labPath()}
+          className="ui-back"
+          data-testid="agent-back"
+        >
+          <Icon name="arrow" size={14} className="rotate-180" />
+          {client ? `All ${clientName ?? "client"} agents` : "All agents"}
+        </Link>
+      )}
       <Card testId="agent-bar">
         <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3 px-6 pt-5 pb-1">
           <div className="flex min-w-0 items-start gap-4">

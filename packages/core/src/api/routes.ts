@@ -2193,7 +2193,8 @@ export const portalRoutes = {
     auth: "session",
     roles: CLIENT,
     summary:
-      "Upload files (multipart, field `files`): PDFs and images become documents, a CSV of purchases becomes transactions",
+      "Upload files (multipart, field `files`): PDFs and images become documents, a CSV of purchases becomes transactions; `for=chat` keeps PDFs and images quiet for a message (§1.110)",
+    query: z.object({ for: z.enum(["chat"]).optional() }),
     response: z.object({ results: z.array(UploadResult) }),
   }),
   portalDocuments: defineRoute({

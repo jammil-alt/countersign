@@ -56,6 +56,11 @@ export interface StoreDocumentInput {
   // (core's `attachmentKind`); stored, never read. Default: PDFs and images only.
   /** Which types are kept; default `isDocumentType`. */
   allowType?: (mimeType: string) => boolean;
+  /**
+   * False keeps a new document quiet: no `document.received`, so no agent starts on it. A file
+   * attached to a conversation reaches an agent only when someone passes it on (§1.110).
+   */
+  announce?: boolean;
 }
 
 export interface StoredDocument {
@@ -107,6 +112,7 @@ export async function storeDocument(
     })
     .onConflictDoNothing({ target: [document.tenantId, document.sha256] })
     .returning();
+  if (row && input.announce === false) return { document: row, created: true, event: null };
   if (row) {
     const received = await emit(tx, {
       tenantId: input.tenantId,

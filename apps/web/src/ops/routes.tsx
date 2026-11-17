@@ -110,6 +110,7 @@ export const opsRoutes = (
     <Route path="lab" element={<LabScreen />} />
     <Route path="templates/:slug/*" element={<TemplatePage />} />
     <Route path="agents/:id" element={<OpsAgentRedirect />} />
+    <Route path="agents/:id/workflow" element={<OpsAgentRedirect tab="workflow" />} />
     <Route path="agents/:id/merge" element={<MergeScreen />} />
     {/* O5 New agent, by conversation with the Builder (UI-2c) */}
     <Route path="templates/new" element={<NewTemplateScreen />} />

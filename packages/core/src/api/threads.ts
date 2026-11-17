@@ -24,11 +24,27 @@ const OPS = ["operator"] as const;
 const CLIENT = ["client_admin", "client_user"] as const;
 const Named = z.object({ id: z.string(), name: z.string() });
 
-/** A person's message: text, and the record ids it rests on (checked to be this client's). */
+/** At most this many files on one message (docs/plan.md §1.110). */
+export const MESSAGE_DOCUMENTS_MAX = 5;
+
+/**
+ * A person's message: text, the record ids it rests on, and the files it carries (§1.110: this
+ * client's documents, uploaded first; each checked to be this client's). A file goes with the
+ * message wherever it goes: Sloan passing it to a service passes its documents too.
+ */
 export const ThreadPost = z.strictObject({
   text: z.string().trim().min(1).max(THREAD_TEXT_MAX),
   sources: z.array(Id).max(THREAD_SOURCES_MAX).default([]),
+  documents: z.array(Id).max(MESSAGE_DOCUMENTS_MAX).default([]),
 });
+
+/** A file on a message, as the conversation shows it. */
+export const MessageDocument = z.object({
+  id: z.string(),
+  name: z.string(),
+  contentType: z.string(),
+});
+export type MessageDocument = z.infer<typeof MessageDocument>;
 export type ThreadPostInput = z.input<typeof ThreadPost>;
 
 /** An operator chooses who reads it: the client, or operators only (a note). */
@@ -98,6 +114,8 @@ export const PortalMessage = z.object({
   /** The command's name for a `/command` message. */
   command: z.string().nullable(),
   sources: z.array(z.string()),
+  /** §1.110: the files it carries. */
+  documents: z.array(MessageDocument).default([]),
   createdAt: z.string(),
   // P-7: the message in the reader's working language, beside the original (docs/plan.md §1.69).
   translation: TranslationView.optional(),
@@ -129,6 +147,7 @@ export const OpsMessage = z.object({
   command: z.string().nullable(),
   audience: MessageAudience,
   sources: z.array(z.string()),
+  documents: z.array(MessageDocument).default([]),
   createdAt: z.string(),
   // P-7: a client user's message in English, or the lead's in the working language (§1.69).
   translation: OpsTranslationView.optional(),

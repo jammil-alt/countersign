@@ -23,6 +23,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { type Attach, AttachButton, type AttachedFile, ENGLISH_ATTACH, FileChip } from "./attach";
 import { cx } from "./cx";
 import { Thinking as ThinkingLoop } from "./motion";
 import { Button } from "./primitives";
@@ -386,7 +387,7 @@ export interface ComposerProps {
    * Sends the words. The box empties at once; if this resolves false or throws, the words come
    * back (unless something new was written meanwhile). A throw is the caller's to show.
    */
-  onSend(text: string): Promise<boolean | undefined> | boolean | undefined;
+  onSend(text: string, files: AttachedFile[]): Promise<boolean | undefined> | boolean | undefined;
   /** A send is under way: Send is off and says so. */
   busy?: boolean | undefined;
   disabled?: boolean | undefined;
@@ -405,6 +406,11 @@ export interface ComposerProps {
    * the box, to read and change before sending. Left out: no button.
    */
   voice?: Voice | undefined;
+  /**
+   * §1.110: files with the message. An Attach button beside Send, and files dropped on the box;
+   * they go up at once and wait as chips (each with Remove) until Send. Left out: no button.
+   */
+  attach?: Attach | undefined;
   /** The send hint and the buttons' words, in the reader's language. */
   words?: { hint?: string; send?: string; sending?: string };
   /** Sends with nothing written (an attachment on its own). */
@@ -458,6 +464,7 @@ export function Composer({
   extra,
   tools,
   voice,
+  attach,
   words,
   allowEmpty,
   inputRef,
@@ -478,26 +485,78 @@ export function Composer({
     onValueChange?.(next);
   };
   const w = { ...ENGLISH, ...words };
+  const aw = { ...ENGLISH_ATTACH, ...attach?.words };
+  const [files, setFiles] = useState<AttachedFile[]>([]);
+  const [uploading, setUploading] = useState<string[]>([]);
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
   const empty = !text.trim();
-  const off = disabled || busy || (empty && !allowEmpty);
+  const off = disabled || busy || uploading.length > 0 || (empty && !allowEmpty);
+  const room = (attach?.max ?? 5) - files.length - uploading.length;
+
+  async function add(picked: File[]) {
+    if (!attach || disabled) return;
+    setAttachError(null);
+    const some = picked.slice(0, Math.max(0, room));
+    if (some.length === 0) return;
+    setUploading((u) => [...u, ...some.map((f) => f.name)]);
+    try {
+      const out = await attach.upload(some);
+      setFiles((now) => [...now, ...out.files.filter((f) => !now.some((x) => x.id === f.id))]);
+      if (out.refused.length > 0) setAttachError(out.refused.join(" "));
+    } catch (e) {
+      setAttachError(e instanceof Error && e.message ? e.message : aw.failed);
+    } finally {
+      setUploading((u) => u.slice(some.length));
+    }
+  }
 
   async function send() {
     if (off) return;
     const words = text.trim();
+    const sent = files;
     setText("");
+    setFiles([]);
     let ok: boolean | undefined = true;
     try {
-      ok = await onSend(words);
+      ok = await onSend(words, sent);
     } catch {
       ok = false;
     }
-    if (ok === false && !latest.current) setText(words);
+    if (ok === false) {
+      if (!latest.current) setText(words);
+      setFiles((now) => (now.length === 0 ? sent : now));
+    }
   }
 
   return (
     <div className="ui-chat-composer" data-testid={testId}>
       {above}
-      <div className="ui-chat-composer__box">
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: dropping files is a pointer shortcut; Attach is the keyboard's way */}
+      <div
+        className="ui-chat-composer__box"
+        data-dragging={dragging ? "" : undefined}
+        onDragOver={
+          attach
+            ? (e) => {
+                if (!e.dataTransfer.types.includes("Files")) return;
+                e.preventDefault();
+                setDragging(true);
+              }
+            : undefined
+        }
+        onDragLeave={attach ? () => setDragging(false) : undefined}
+        onDrop={
+          attach
+            ? (e) => {
+                if (e.dataTransfer.files.length === 0) return;
+                e.preventDefault();
+                setDragging(false);
+                void add(Array.from(e.dataTransfer.files));
+              }
+            : undefined
+        }
+      >
         <ChatInput
           ref={box}
           aria-label={label}
@@ -511,8 +570,41 @@ export function Composer({
           onSend={() => void send()}
         />
         {extra}
+        {files.length > 0 || uploading.length > 0 ? (
+          <div className="ui-chat-files" data-testid={testId ? `${testId}-files` : undefined}>
+            {files.map((f) => (
+              <FileChip
+                key={f.id}
+                file={f}
+                removeLabel={aw.remove}
+                onRemove={() => setFiles((now) => now.filter((x) => x.id !== f.id))}
+              />
+            ))}
+            {uploading.map((name, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: names can repeat while uploading
+              <FileChip key={`${name}-${i}`} file={{ name: `${name} · ${aw.uploading}` }} pending />
+            ))}
+          </div>
+        ) : null}
+        {attachError ? (
+          <span
+            className="ui-voice__error"
+            role="alert"
+            data-testid={testId ? `${testId}-attach-error` : undefined}
+          >
+            {attachError}
+          </span>
+        ) : null}
         <div className="ui-chat-composer__foot">
           {tools ? <div className="ui-chat-composer__tools">{tools}</div> : null}
+          {attach ? (
+            <AttachButton
+              attach={attach}
+              disabled={disabled || room <= 0}
+              testId={testId ? `${testId}-attach` : "composer-attach"}
+              onFiles={(picked) => void add(picked)}
+            />
+          ) : null}
           {voice ? (
             <VoiceButton
               voice={voice}

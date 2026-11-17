@@ -34,6 +34,7 @@ import {
   appUser,
   areaOwner,
   type Db,
+  document,
   membership,
   type Tx,
   tenantChange,
@@ -51,6 +52,7 @@ import {
   listThreads,
   type MessageRow,
   markRead,
+  messageDocuments,
   messageText,
   postAsPerson,
   senseEmitPosted,
@@ -175,6 +177,30 @@ async function checkSources(tx: Tx, tenantId: string, sources: readonly string[]
   }
 }
 
+/** Every attached file must be one of this client's documents (§1.110). */
+async function checkDocuments(tx: Tx, tenantId: string, ids: readonly string[]) {
+  const wanted = [...new Set(ids)];
+  if (wanted.length === 0) return;
+  const found = await tx
+    .select({ id: document.id })
+    .from(document)
+    .where(and(eq(document.tenantId, tenantId), inArray(document.id, wanted)));
+  if (found.length !== wanted.length) {
+    throw new HttpError(422, "invalid_document", "attach only this client's own files");
+  }
+}
+
+/** The attached files' names and types, for showing a message (§1.110). */
+async function documentsById(tx: Tx, tenantId: string, rows: readonly MessageRow[]) {
+  const ids = [...new Set(rows.flatMap((m) => messageDocuments(m)))];
+  if (ids.length === 0) return new Map<string, { name: string; contentType: string }>();
+  const found = await tx
+    .select({ id: document.id, name: document.filename, contentType: document.mimeType })
+    .from(document)
+    .where(and(eq(document.tenantId, tenantId), inArray(document.id, ids)));
+  return new Map(found.map((d) => [d.id, { name: d.name, contentType: d.contentType }]));
+}
+
 // ── Read models ────────────────────────────────────────────────────────────────────────────────
 
 async function portalThreads(
@@ -261,6 +287,7 @@ async function portalMessages(
   // v0.19: each agent's answer says who it is ("Pia · purchasing agent", "Sloan · account
   // assistant"), in the client's language.
   const locale = await tenantLocale(tx, tenantId);
+  const files = await documentsById(tx, tenantId, rows);
   return rows.map((m): PortalMessage => {
     const tr = translated.get(m.id);
     let name: string | null = null;
@@ -299,6 +326,10 @@ async function portalMessages(
       text: messageText(m),
       command: m.command,
       sources: m.sources,
+      documents: messageDocuments(m).flatMap((id) => {
+        const d = files.get(id);
+        return d ? [{ id, ...d }] : [];
+      }),
       createdAt: m.createdAt.toISOString(),
       ...(tr && tr.direction === "out" ? { translation: translationView(tr) } : {}),
     };
@@ -365,6 +396,7 @@ async function opsMessages(tx: Tx, tenantId: string, rows: MessageRow[]): Promis
   );
   // P-7: a client member's words in English, or the lead's in the working language (§1.69).
   const translated = await latestTranslations(tx, tenantId, { messageIds: rows.map((m) => m.id) });
+  const files = await documentsById(tx, tenantId, rows);
   return rows.map((m): OpsMessage => {
     const tr = translated.get(m.id);
     let name: string | null = null;
@@ -388,6 +420,10 @@ async function opsMessages(tx: Tx, tenantId: string, rows: MessageRow[]): Promis
       command: m.command,
       audience: m.audience,
       sources: m.sources,
+      documents: messageDocuments(m).flatMap((id) => {
+        const d = files.get(id);
+        return d ? [{ id, ...d }] : [];
+      }),
       createdAt: m.createdAt.toISOString(),
       ...(tr ? { translation: opsTranslationView(tr) } : {}),
     };
@@ -485,6 +521,7 @@ export function threadRouteHandlers(app: Hono<AppEnv>): void {
     if (!canPost(viewer, t)) throw notFound("thread");
     if (t.status !== "open") throw new HttpError(409, "closed", "this conversation is closed");
     await checkSources(tx, tenantId, body.sources);
+    await checkDocuments(tx, tenantId, body.documents);
     const collect: EventRow[] = [];
     // A client member's message is always for the client's own thread readers (and the operators).
     const posted = await postAsPerson(
@@ -496,6 +533,7 @@ export function threadRouteHandlers(app: Hono<AppEnv>): void {
         operator: false,
         text: body.text,
         sources: body.sources,
+        documents: body.documents,
         audience: "client",
         locale: await tenantLocale(tx, tenantId),
       },
@@ -563,6 +601,7 @@ export function threadRouteHandlers(app: Hono<AppEnv>): void {
     }
     if (t.status !== "open") throw new HttpError(409, "closed", "this thread is closed");
     await checkSources(tx, t.tenantId, body.sources);
+    await checkDocuments(tx, t.tenantId, body.documents);
     // P-7: the lead's words in the client's working language too, stored beside them (§1.69).
     const translation = body.translate ? (await clientTranslation(tx, t.tenantId)).settings : null;
     if (translation && (!translation.working || !translation.outgoing)) {
@@ -585,6 +624,7 @@ export function threadRouteHandlers(app: Hono<AppEnv>): void {
         operator: true,
         text: body.text,
         sources: body.sources,
+        documents: body.documents,
         audience: body.audience,
         locale: await tenantLocale(tx, t.tenantId),
       },
