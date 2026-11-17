@@ -703,14 +703,16 @@ describe("billcom connector: writes", () => {
     });
     await write(BILLCOM_TOOLS.vendorUpdate, undo, wctx("undo:2"));
     expect(bill.vendors[0]).toMatchObject({ email: "ap@acme-lumber.example", phone: "555-0100" });
-    // Changed since it was approved: refused, nothing written.
+    // Changed since it was approved: refused, nothing written (audit 3.8: by the platform's
+    // check, before BILL's own).
     const approvedBefore = { ...changed.before, updatedTime: "2026-01-01T00:00:00.000Z" };
     const stale = await write(
       BILLCOM_TOOLS.vendorUpdate,
       { id: FAKE_BILLCOM.vendors.acme, set: { phone: "555-0123" } },
       wctx("run-2:s:0", { proposedBefore: approvedBefore }),
     ).catch((e) => e);
-    expect(stale.message).toMatch(/since this change was approved/);
+    expect(stale.message).toMatch(/since this change was (approved|proposed)/);
+    expect(writeNotMade(stale)).toBe(true);
   });
 
   it("attaches a stored document to a bill once, and refuses a file BILL can't take", async () => {

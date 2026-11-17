@@ -212,6 +212,25 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
       });
     },
 
+    // Review of audit 3.8: what this run already wrote on this connection.
+    doneInRun(tenantId, runId, connectionId) {
+      return withTenant(db, tenantId, async (tx) => {
+        const rows = await tx
+          .select()
+          .from(externalAction)
+          .where(
+            and(
+              eq(externalAction.tenantId, tenantId),
+              eq(externalAction.runId, runId),
+              eq(externalAction.connectionId, connectionId),
+              eq(externalAction.status, "done"),
+            ),
+          )
+          .orderBy(asc(externalAction.executedAt));
+        return rows.map(toRecord);
+      });
+    },
+
     byKey(tenantId, idempotencyKey) {
       return withTenant(db, tenantId, async (tx) => {
         const [row] = await tx

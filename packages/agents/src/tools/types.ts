@@ -269,6 +269,11 @@ export interface KnowledgePort {
       limit: number;
       /** The asking agent's own memory notes in these scopes are searched too. */
       memory: { agentId: string; scopes: string[] };
+      /**
+       * The run the search is for: the port reads for the person behind it when the agent is the
+       * account agent (invariant 11). Absent: the search is not narrowed.
+       */
+      run?: { runId: string; mode: RunMode } | undefined;
     },
   ): Promise<KnowledgeHitForTool[]>;
   // v0.12 W1-G: voice samples (docs/plan.md §1.42).

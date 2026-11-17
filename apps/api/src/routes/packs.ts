@@ -46,6 +46,7 @@ import {
   type Services,
   txOnly,
 } from "../http";
+import { withCanSign } from "../inbox";
 import { refusePhoneSession } from "../mobile/devices";
 import type { PackReportHandler, RegisteredPack } from "../packs";
 import { signedWriteFor } from "../signed-writes";
@@ -407,10 +408,12 @@ async function reviewView(
   const handler = key ? reviewHandler(services, key) : null;
   if (!key || !handler) throw notFound("review");
   const data = await handler.load(tx, item.tenantId, item.payload as Record<string, unknown>);
+  // 5.14: a viewer signs nothing (ARCHITECTURE §4), as on every other inbox item.
+  const by = await withCanSign(tx, item.tenantId, who);
   return {
     review: key,
     status: item.status,
-    canDecide: item.status === "open" && mayResolve(item, who),
+    canDecide: item.status === "open" && mayResolve(item, by),
     data,
   };
 }
@@ -433,7 +436,16 @@ async function decide(
     const handler = key ? reviewHandler(services, key) : null;
     if (!key || !handler) throw notFound("review");
     if (item.status !== "open") throw new HttpError(409, "not_open", "this item is closed");
-    if (!mayResolve(item, who)) {
+    // 5.14: a viewer signs nothing (ARCHITECTURE §4), as `resolveInboxItem` refuses.
+    const by = await withCanSign(tx, item.tenantId, who);
+    if (by.canSign === false) {
+      throw new HttpError(
+        403,
+        "cannot_sign",
+        "you can see this, but you don't approve for your team",
+      );
+    }
+    if (!mayResolve(item, by)) {
       throw new HttpError(403, "not_assignee", "this item is assigned to someone else");
     }
     let testRun = false;

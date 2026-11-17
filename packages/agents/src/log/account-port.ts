@@ -144,7 +144,11 @@ const ROLE_WORDS: Record<AccountAction, string> = {
 };
 
 /** The run's asker, from its trigger: the person who posted in an account thread. */
-async function askerOf(tx: Tx, tenantId: string, call: AccountCall): Promise<AccountAsker> {
+async function askerOf(
+  tx: Tx,
+  tenantId: string,
+  call: Pick<AccountCall, "agentId" | "runId" | "mode">,
+): Promise<AccountAsker> {
   const [a] = await tx
     .select({ kind: agent.kind, slug: agent.slug })
     .from(agent)
@@ -200,6 +204,40 @@ async function askerOf(tx: Tx, tenantId: string, call: AccountCall): Promise<Acc
     messageId: posted.data.messageId,
     test: false,
   };
+}
+
+/** Whom the account agent reads for in the knowledge and threads ports (invariant 11). */
+export interface AccountReader {
+  role: "client_admin" | "client_user";
+  /** Null when no person asked (a test run reads as the client admin; any other run as nobody). */
+  userId: string | null;
+}
+
+/**
+ * Whom a read is for when the caller is the client's account agent: the person who asked, with
+ * their role, so Sloan's knowledge and thread reads match what the portal shows that person.
+ * Null for any other agent, whose reads stay as they are.
+ */
+// DECISION: a run of the account agent with no person behind it (not started by a message in an
+// account conversation) reads as the narrowest client view, a client user who is nobody: it has
+// no portal of its own to match, and nothing it reads there can reach a person.
+export async function accountReaderOf(
+  tx: Tx,
+  tenantId: string,
+  call: Pick<AccountCall, "agentId" | "runId" | "mode">,
+): Promise<AccountReader | null> {
+  const [a] = await tx
+    .select({ kind: agent.kind, slug: agent.slug })
+    .from(agent)
+    .where(and(eq(agent.id, call.agentId), eq(agent.tenantId, tenantId)));
+  if (a?.kind !== "client" || a.slug !== ACCOUNT_AGENT_SLUG) return null;
+  try {
+    const asker = await askerOf(tx, tenantId, call);
+    return { role: asker.role, userId: asker.userId };
+  } catch (e) {
+    if (e instanceof AccountRefusal) return { role: "client_user", userId: null };
+    throw e;
+  }
 }
 
 const NOT_ACCEPTED = {

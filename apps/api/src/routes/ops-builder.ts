@@ -497,7 +497,7 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
       },
       // v0.19 (§10.15): what the draft would do, by code: a process change to approve, or one
       // that loosens or widens (an owner never drafts those; the operator decides).
-      changeClass: classifyChange(from.bundle, v.bundle),
+      changeClass: classifyChange(from.bundle, v.bundle, { lookup }),
     };
   });
 }

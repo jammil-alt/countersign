@@ -57,6 +57,7 @@ export const knowledgeSearch = defineInternalTool({
       query: input.query,
       limit: input.limit,
       memory: { agentId: ctx.agentId, scopes },
+      run: { runId: ctx.runId, mode: ctx.mode },
     });
     return {
       query: input.query,
