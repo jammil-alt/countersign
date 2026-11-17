@@ -106,6 +106,12 @@ export interface RuntimeStore {
    */
   agentStage(tenantId: string, agentId: string): Promise<string | null>;
   /**
+   * docs/plan.md §1.124: whether the client agent is on a safety hold, read fresh at every write
+   * decision like the stage. While held, every write waits for a person. Optional: a store without
+   * it holds nothing.
+   */
+  agentHold?(tenantId: string, agentId: string): Promise<boolean>;
+  /**
    * What decides who approves a write, read fresh for every proposal so a client's tightening
    * applies at once: the client's approver rules (`tenant.settings.approver_rules`), its default
    * (`tenant.settings.approvals.external_actions`) and its client users' ids.

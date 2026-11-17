@@ -25,6 +25,7 @@ import { plural, RUN_STATUS_WORDS } from "../run/words";
 import type { AgentLinkState } from "../screens/AgentPage";
 import { ClientHealthSection } from "../screens/ClientHealth";
 import { ClientFrame, clientPagePath, type OpsClient, useClientPage } from "./ClientFrame";
+import { ClientWork } from "./ClientWork";
 
 const STAGES: AgentStage[] = ["bench", "trial", "signoff", "live"];
 
@@ -54,36 +55,40 @@ function Overview({ clientId }: { clientId: string }) {
   const waiting = inbox.data?.items ?? [];
 
   return (
-    <PageGrid rail={<Rail clientId={clientId} data={data} threads={threads} />}>
-      {waiting.length > 0 ? (
-        <Section
-          title="Waiting on us"
-          meta={`${waiting.length} open`}
-          action={
-            <Link to={OPS_PATHS.escalations} className="ds-btn ds-btn--link text-sm">
-              Escalations
-            </Link>
-          }
-          testId="ops-client-waiting"
-        >
-          <Card>
-            {waiting.slice(0, 5).map((item) => (
-              <ActivityRow
-                key={item.id}
-                time={shortDate(item.createdAt)}
-                to={OPS_PATHS.escalations}
-                end={<StatusChip state="waiting">Waiting on us</StatusChip>}
-              >
-                {item.title}
-              </ActivityRow>
-            ))}
-          </Card>
-        </Section>
-      ) : null}
+    <>
+      {/* §1.124.3: the client's figures, Sales and Build work, activity and to-dos. */}
+      <ClientWork clientId={clientId} clientName={data.client.name} />
+      <PageGrid rail={<Rail clientId={clientId} data={data} threads={threads} />}>
+        {waiting.length > 0 ? (
+          <Section
+            title="Waiting on us"
+            meta={`${waiting.length} open`}
+            action={
+              <Link to={OPS_PATHS.escalations} className="ds-btn ds-btn--link text-sm">
+                Escalations
+              </Link>
+            }
+            testId="ops-client-waiting"
+          >
+            <Card>
+              {waiting.slice(0, 5).map((item) => (
+                <ActivityRow
+                  key={item.id}
+                  time={shortDate(item.createdAt)}
+                  to={OPS_PATHS.escalations}
+                  end={<StatusChip state="waiting">Waiting on us</StatusChip>}
+                >
+                  {item.title}
+                </ActivityRow>
+              ))}
+            </Card>
+          </Section>
+        ) : null}
 
-      <AgentStages clientId={clientId} agents={agents} activity={data.activity} />
-      <ClientHealthSection clientId={clientId} onChanged={client.reload} />
-    </PageGrid>
+        <AgentStages clientId={clientId} agents={agents} activity={data.activity} />
+        <ClientHealthSection clientId={clientId} onChanged={client.reload} />
+      </PageGrid>
+    </>
   );
 }
 

@@ -209,6 +209,15 @@ export async function executeAction(
   // asks for one: without it the write fails.
   // DECISION: the check is made before anything is sent, once this caller holds the action, so a
   // refused write never starts and a write another caller is making is never failed from here.
+  // docs/plan.md §1.124: the safety hold, as a backstop. Approving a held agent's items is refused
+  // and their redelivery waits (apps/api), so a write reaches here held only when the hold came
+  // between its approval and its execution: it fails closed, never written.
+  if (action.runId && store.agentHold) {
+    const owner = await store.run(input.tenantId, action.runId);
+    if (owner && owner.mode !== "test" && (await store.agentHold(input.tenantId, owner.agentId))) {
+      return notSent("the agent is on a safety hold", { held: true });
+    }
+  }
   const refused = await releaseRefusal(deps, input.tenantId, action, input.runId);
   if (refused) return notSent(refused, { release: true });
   const tool = deps.tools.get(action.tool);

@@ -1,4 +1,13 @@
-# Back office work: Sales, onboarding and Build (design and plan, parked 2026-11-17)
+# Back office work: Sales, onboarding and Build (design and plan, agreed 2026-11-17)
+
+**Status (2026-11-17): Build, Sales, Your call and Reggie are built; onboarding is in progress.**
+The owner asked for the back office work built on 2026-11-17. It is on two stacked PRs, not merged
+until the owner says so: the migrations (0060–0063, PR #380, `claude/ops-work-migrations-szb740`)
+and the code on top of it (PR #383, `claude/ops-work-szb740`): Build, Sales, Your call, and Reggie
+with Autopilot and `support@`/`hello@` email, all against fakes. The decisions are `docs/plan.md`
+§1.124 (the §8 questions it answered are recorded there), the milestones M64–M68. Onboarding (§4)
+is being built on top of it, in steps O1 to O6 (§7). The text below is the plan as agreed; its
+"nothing here is built" is history for everything but onboarding.
 
 The owner wants one place in the back office to bring clients in, sell them more, and build and
 fix what they need, with Reggie doing most of the work so one person can run many clients'

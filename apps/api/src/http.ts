@@ -977,8 +977,11 @@ export async function invokeRoute<R extends RouteSpec>(
   session: Session,
   spec: R,
   raw: RouteInput = {},
-  /** Which front door called it, for the audit row: the MCP server, Reggie (§1.101), or a build (§1.108). */
-  via: "mcp" | "reggie" | "build" = "mcp",
+  /**
+   * Which front door called it, for the audit row: the MCP server, Reggie (§1.101), a build
+   * (§1.108), a deal's set-up (§1.124.2), or a to-do done from Your call (§1.124.3).
+   */
+  via: "mcp" | "reggie" | "build" | "deal" | "todo" = "mcp",
 ): Promise<z.output<R["response"]>> {
   const handler = mounted.get(app)?.get(spec);
   if (!handler) throw new Error(`${spec.method} ${spec.path} is not mounted`);

@@ -95,6 +95,7 @@ describe("rendering", () => {
     credits: { block: 2 },
     lead_message: { messages: 2 },
     signoff: {},
+    issue_update: {},
   };
 
   it("every kind, channel and language: a sentence with the counts and exactly one link", () => {

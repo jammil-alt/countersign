@@ -23,6 +23,7 @@ import {
 } from "@countersign/db";
 import { and, desc, eq, gt, gte, inArray, isNull, like, lte, ne, or } from "drizzle-orm";
 import { notificationsOf } from "../routes/onboarding";
+import { issueUpdateCandidates } from "../work/notify-issue";
 import { type Candidate, candidatesFor } from "./outbox";
 import { leadUserId, memberPerson, type NotifyPerson, type TenantRow, wantsPush } from "./people";
 
@@ -365,5 +366,7 @@ export async function scanCandidates(
     ...(await connectionErrorCandidates(tx, t, people, now)),
     ...(await leadMessageCandidates(tx, t, people, now)),
     ...(await signoffCandidates(tx, t, people)),
+    // docs/plan.md §1.124: Mezonas replied on a request.
+    ...(await issueUpdateCandidates(tx, t, people, now)),
   ];
 }

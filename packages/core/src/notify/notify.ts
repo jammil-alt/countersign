@@ -13,6 +13,8 @@ export const NOTIFICATION_KINDS = [
   "credits",
   "lead_message",
   "signoff",
+  // §1.124: the lead replied on a client's request (an issue or an ask), migration 0060.
+  "issue_update",
 ] as const;
 export const NotificationKind = z.enum(NOTIFICATION_KINDS);
 export type NotificationKind = z.infer<typeof NotificationKind>;
@@ -80,6 +82,8 @@ export const dedupeKeys = {
   credits: (period: string, block: number, userId: string) =>
     `credits:${period}:${block}:${userId}`,
   signoff: (itemId: string, userId: string) => `signoff:${itemId}:${userId}`,
+  /** §1.124: one per reply on a request and person. */
+  issue: (messageId: string, userId: string) => `issue:${messageId}:${userId}`,
 } as const;
 
 /** The prefix every reconnect key of one connection on one UTC day shares (the remind check). */
@@ -111,9 +115,11 @@ export type NotificationCounts = z.infer<typeof NotificationCounts>;
 // the back office for the lead; credits link to the client's settings.
 export function notificationPath(
   kind: NotificationKind,
-  input: { weekStart?: string; clientId?: string; forOperator?: boolean } = {},
+  input: { weekStart?: string; clientId?: string; forOperator?: boolean; requestId?: string } = {},
 ): string {
   switch (kind) {
+    case "issue_update":
+      return input.requestId ? `/requests/${input.requestId}` : "/requests";
     case "items_waiting":
     case "signoff":
       return "/inbox";

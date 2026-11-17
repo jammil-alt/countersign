@@ -16,6 +16,8 @@ export * from "./api/approver-rules";
 export * from "./api/assigned";
 // v0.12 W2-B: automations
 export * from "./api/automations";
+// docs/plan.md §1.124.4: Reggie and Autopilot.
+export * from "./api/autopilot";
 // v0.12 bankfeed
 export * from "./api/bankfeed";
 export * from "./api/billing";
@@ -36,6 +38,8 @@ export * from "./api/connectors";
 export * from "./api/contract";
 // v0.14 capture
 export * from "./api/conversations";
+// docs/plan.md §1.124: back office work (Sales)
+export * from "./api/deals";
 // v0.12 W1-D: the Desk
 export * from "./api/desk";
 export * from "./api/directory";
@@ -108,6 +112,8 @@ export * from "./api/teams";
 export * from "./api/testbench";
 export * from "./api/text-signup";
 export * from "./api/threads";
+// docs/plan.md §1.124.3: Your call
+export * from "./api/todos";
 // P-7: message translation
 export * from "./api/translation";
 // v0.12 W2-E
@@ -119,6 +125,8 @@ export * from "./api/usage";
 export * from "./api/voice";
 // v0.14 W4-A: WhatsApp through Meta
 export * from "./api/whatsapp-meta";
+// docs/plan.md §1.124: back office work (Build).
+export * from "./api/work";
 // v0.14 W4-B
 export * from "./api/zoho";
 export * from "./approvals/rules";
@@ -272,6 +280,7 @@ export * from "./triggers";
 export * from "./units";
 export * from "./weekly/schemas";
 export * from "./weekly/week";
+export * from "./work";
 // v0.12 W2-B
 export * from "./workflow/automation";
 export * from "./workflow/validate";

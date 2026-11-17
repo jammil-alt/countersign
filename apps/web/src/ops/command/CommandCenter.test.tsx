@@ -327,7 +327,7 @@ describe("command center", () => {
     // §1.84: one request for the page. The badge reads the command center's count, and nothing
     // else asks for Needs us, the overview or oversight.
     await waitFor(() =>
-      expect(screen.getByTestId("shell-inbox")).toHaveTextContent("Escalations3"),
+      expect(screen.getByTestId("ops-nav-inbox")).toHaveTextContent("Escalations3"),
     );
     for (const other of ["/api/ops/counts", "/api/ops/needs-us", "/api/ops/overview"]) {
       expect(api.calls).not.toContain(`GET ${other}`);
