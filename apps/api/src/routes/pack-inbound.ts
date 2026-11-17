@@ -24,6 +24,9 @@ import { reportHandled, reportProblem } from "../observability/report";
 import { sampled } from "../observability/sampled";
 
 const spec = routes.packInbound;
+// The ids' shape is the first check, then the pack (in memory), then the address limit, all
+// before any database work. DECISION: any UUID, not only v7: the first client `add-operator`
+// makes has a random (v4) id (packages/db/src/operators.ts).
 const Params = z.object({ pack: z.string(), tenantId: z.uuid(), target: z.uuid() });
 
 /** The request headers a pack may read; nothing else (no cookie, no authorization) is passed. */
@@ -38,9 +41,45 @@ export const INBOUND_HEADERS = [
 
 const noContent = (c: Context<AppEnv>) => c.body(null, 204);
 
-/** The address as a limiter key: a hash, so the address itself goes nowhere. */
+const IPV4 = /^\d{1,3}(\.\d{1,3}){3}$/;
+const HEXTET = /^[0-9a-f]{1,4}$/;
+
+/**
+ * What one sender is, for the limit: an IPv4 address whole, an IPv6 address by its /64 (one
+ * network hands out the rest of its addresses freely). Anything else stays as it was sent.
+ */
+// DECISION: a /64, the smallest network an IPv6 host is normally given, so rotating the low 64
+// bits gets past nothing. An IPv4 address written as IPv6 (`::ffff:a.b.c.d`) counts as itself.
+export function addressScope(ip: string): string {
+  const raw = ip.trim().toLowerCase().replace(/%.*$/, "");
+  if (!raw.includes(":")) return raw;
+  const halves = raw.split("::");
+  if (halves.length > 2) return ip;
+  const parts = (half: string | undefined) => (half ? half.split(":") : []);
+  const head = parts(halves[0]);
+  const tail = parts(halves[1]);
+  const last = tail.at(-1) ?? head.at(-1) ?? "";
+  if (IPV4.test(last)) {
+    const prefix = [...head, ...tail.slice(0, -1)];
+    const mapped =
+      halves.length === 2 && prefix.length === 1 && prefix[0] === "ffff" && head.length === 0;
+    if (mapped) return last;
+    return ip;
+  }
+  const missing = 8 - head.length - tail.length;
+  if (halves.length === 1 ? missing !== 0 : missing < 1) return ip;
+  const groups = [...head, ...Array<string>(halves.length === 2 ? missing : 0).fill("0"), ...tail];
+  if (!groups.every((g) => HEXTET.test(g))) return ip;
+  return `${groups
+    .slice(0, 4)
+    .map((g) => Number.parseInt(g, 16).toString(16))
+    .join(":")}::/64`;
+}
+
+/** The sender as a limiter key: a hash of its scope, so the address itself goes nowhere. */
 async function addressKey(ip: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`in:${ip}`));
+  const scope = addressScope(ip);
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`in:${scope}`));
   return Array.from(new Uint8Array(digest).subarray(0, 16), (b) =>
     b.toString(16).padStart(2, "0"),
   ).join("");
