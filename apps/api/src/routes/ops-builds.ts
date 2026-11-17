@@ -26,6 +26,7 @@ import {
   BuildProposal as BuildProposalSchema,
   buildHasSetupForm,
   buildIssues,
+  ComplianceRefusal,
   FIT_WORDS,
   type FitGap,
   type FitRow,
@@ -56,7 +57,7 @@ import {
   skillVersion,
   type Tx,
 } from "@countersign/db";
-import { createLlmClient, type LlmTransport } from "@countersign/llm";
+import { createLlmClient, DEFAULT_MODELS, type LlmTransport } from "@countersign/llm";
 import { and, asc, eq, inArray, like } from "drizzle-orm";
 import type { Hono } from "hono";
 import {
@@ -75,6 +76,7 @@ import {
   summaries,
   withDecisions,
 } from "../build/store";
+import { clientModels, clientsRefusingModel } from "../compliance/models";
 import {
   type AppContext,
   type AppEnv,
@@ -90,11 +92,18 @@ import {
   toHttpError,
 } from "../http";
 import { reportHandled, reportProblem } from "../observability/report";
-import { workerTransport } from "../runs/execute";
 import { builderContext, builderHttpError } from "./ops-builder";
 
-function transport(services: Pick<Services, "deps" | "env">): LlmTransport {
-  return services.deps.llm?.(services.env) ?? workerTransport(services.env);
+/**
+ * The model transport for a build, held to its client's HIPAA mode (§1.35); a build for everyone
+ * is no client's data. The model runs outside any transaction here, so the database reads it.
+ */
+function transport(services: Pick<Services, "deps" | "env" | "db">, row: BuildRow): LlmTransport {
+  // A template's build tested at a client carries that client's name and its people's words.
+  return clientModels(services, {
+    clients: [row.clientId, row.testClientId],
+    read: services.db,
+  });
 }
 
 const now = () => new Date();
@@ -275,6 +284,10 @@ function failedTurnText(phase: BuildPhase, error: unknown): { code: string; text
       : phase === "poc"
         ? "The test plan isn't written yet"
         : "Nothing changed";
+  // HIPAA mode (§1.35): nothing was sent; the turn says why rather than "try again".
+  if (error instanceof ComplianceRefusal) {
+    return { code: "hipaa", text: `${error.message}. ${what}.` };
+  }
   const code =
     error instanceof BuilderError
       ? error.code === "invalid_answer" &&
@@ -384,7 +397,7 @@ async function turn(
     ];
     // Owner (2026-11-17): the catalog in every phase, and the other work the operator can see.
     const bctx = await builderContext({ ...scoped, services: ctx.services }, row.clientId);
-    const otherWork = await otherWorkLines(scoped.tx, row);
+    const otherWork = await otherWorkLines(scoped.tx, ctx.services, row);
     const client = detail.build.client?.name ?? null;
     return {
       row,
@@ -420,7 +433,7 @@ async function turn(
         ctx: prep.bctx,
         otherWork: prep.otherWork,
       },
-      { llm: createLlmClient({ transport: transport(ctx.services) }) },
+      { llm: createLlmClient({ transport: transport(ctx.services, row) }) },
     );
   } catch (error) {
     const failure = failedTurnText(row.phase, error);
@@ -580,7 +593,7 @@ async function reviewHolds(ctx: LongCtx, row: BuildRow): Promise<boolean> {
       issues: buildIssues(detail)
         .filter((i) => i.open)
         .map((i) => i.title),
-      otherWork: await otherWorkLines(scoped.tx, row),
+      otherWork: await otherWorkLines(scoped.tx, ctx.services, row),
       bctx: await builderContext({ ...scoped, services: ctx.services }, row.clientId),
       client: detail.build.client?.name ?? null,
     };
@@ -599,7 +612,7 @@ async function reviewHolds(ctx: LongCtx, row: BuildRow): Promise<boolean> {
           issues: prep.issues,
           ctx: prep.bctx,
         },
-        { llm: createLlmClient({ transport: transport(ctx.services) }) },
+        { llm: createLlmClient({ transport: transport(ctx.services, row) }) },
       )
     ).concerns;
   } catch (error) {
@@ -608,7 +621,10 @@ async function reviewHolds(ctx: LongCtx, row: BuildRow): Promise<boolean> {
     await ctx.inTx(async (scoped) => {
       await addMessage(scoped.tx, await readBuild(scoped.tx, row.id, true), {
         role: "builder",
-        text: "I couldn't give the brief its second look just now, so it goes on as it is.",
+        text:
+          error instanceof ComplianceRefusal
+            ? `I couldn't give the brief its second look: ${error.message}. It goes on as it is.`
+            : "I couldn't give the brief its second look just now, so it goes on as it is.",
       });
     });
     return false;
@@ -656,8 +672,18 @@ const OTHER_WORK_MAX = 40;
  * phase, and their open issues: so the Builder can name work this one overlaps (QA, 2026-11-16:
  * AP Invoice Review already had an open item for a vendor management flow).
  */
-async function otherWorkLines(tx: Tx, row: BuildRow): Promise<string[]> {
-  const others = (await listBuilds(tx, { status: "open" })).filter((b) => b.id !== row.id);
+async function otherWorkLines(tx: Tx, services: Services, row: BuildRow): Promise<string[]> {
+  const listed = (await listBuilds(tx, { status: "open" })).filter((b) => b.id !== row.id);
+  // DECISION: another client's build is left out where that client's HIPAA mode refuses the
+  // Builder's model (§1.35), rather than refusing this build's turn for it.
+  const refusing = await clientsRefusingModel(
+    services,
+    { clients: listed.flatMap((b) => [b.clientId, b.testClientId]), read: tx },
+    DEFAULT_MODELS.builder,
+  );
+  const others = listed.filter(
+    (b) => !refusing.has(b.clientId ?? "") && !refusing.has(b.testClientId ?? ""),
+  );
   if (others.length === 0) return [];
   const items = await openItemsAcross(tx, others);
   const lines: string[] = [];
@@ -1352,7 +1378,7 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
     }
     const made = await makeTestCases(
       { kind: prep.target.kind, testPlan: plan, target: prep.target.text },
-      { llm: createLlmClient({ transport: transport(ctx.services) }) },
+      { llm: createLlmClient({ transport: transport(ctx.services, prep.row) }) },
     ).catch(builderHttpError);
     let created = 0;
     for (const c of made.cases) {

@@ -13,6 +13,7 @@ import { bankfeedCron } from "./bankfeed/sync";
 import { billingTick } from "./billing/jobs";
 import { raiseCodeAlerts } from "./codes/alerts";
 import { codesFor } from "./codes/client";
+import { clientModels } from "./compliance/models";
 import { purgeRetiredFiles } from "./compliance/retention";
 import { CAPTURE_CRON_MINUTE, captureCronTick } from "./conversations/cron";
 import { captureDepsFor, captureJobsFor } from "./conversations/start";
@@ -175,7 +176,6 @@ import {
   reachDepsFor,
   runDepsFromEnv,
   runtimeFor,
-  workerTransport,
 } from "./runs/execute";
 import { reconcileRuns } from "./runs/reconcile";
 import { staleWritesTick } from "./runs/stale-writes";
@@ -404,7 +404,9 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     await backOfficeTick(
       {
         db,
-        transport: deps.llm?.(env) ?? workerTransport(env),
+        // No one client: the tick works across clients, and its model reads (Reggie's, readOne)
+        // refuse a client in HIPAA mode without a BAA themselves (backoffice/reggie-pass.ts).
+        transport: clientModels({ deps, env }, { clients: [], read: db }),
         mailer: mailerFromEnv(env, deps.fetch?.(env)),
         domain: env.EMAIL_FORWARDING_DOMAIN,
         covered: parseCoveredProcessors(env.BAA_PROCESSORS),
@@ -527,16 +529,16 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     // and last of all, the only pass that calls a model every minute: each person's quiet
     // conversations summarized for next time (v0.19, §10.15). Audit 4.1: within a budget, each
     // call with its own time limit and never retried, so a slow model holds up no other pass.
-    const runBase = runDepsFromEnv(env, { db, platform, instances });
-    const summaryTransport = workerTransport(env, {
-      timeoutMs: SUMMARY_CALL_TIMEOUT_MS,
-      maxRetries: 0,
-    });
     await summaryPass(
       {
         db,
+        // Each person's conversations are their client's: held to its HIPAA mode (§1.35).
         transportFor: (tenantId) =>
-          forClient({ ...runBase, transport: summaryTransport }, tenantId).transport,
+          clientModels(
+            { deps, env },
+            { clients: [tenantId], read: db },
+            { timeoutMs: SUMMARY_CALL_TIMEOUT_MS, maxRetries: 0 },
+          ),
         report: (tenantId, error) =>
           reportHandled(`summaries for client ${tenantId} failed`, error, {
             job: "summaries",

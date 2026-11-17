@@ -11,6 +11,7 @@ import type { Hono } from "hono";
 import { autopilotView, setPlayLevel } from "../backoffice/autopilot";
 import { dealTag, HELLO_LOCAL, sendTaggedEmail, taggedAddress } from "../backoffice/outbound-email";
 import { readOne } from "../backoffice/reggie-pass";
+import { clientModels } from "../compliance/models";
 import {
   type AppEnv,
   HttpError,
@@ -21,7 +22,6 @@ import {
   txOnly,
 } from "../http";
 import { mailerFromEnv } from "../notify/mailer";
-import { workerTransport } from "../runs/execute";
 import { addActivity, dealDetail, readDeal, salesToday } from "../work/deals";
 import { readIssue } from "../work/issues";
 import { logPlay } from "../work/play-log";
@@ -89,7 +89,8 @@ export function autopilotRoutes(app: Hono<AppEnv>): void {
   // Reggie reads an issue again now (the pass reads new ones within a minute on its own).
   mountLong(app, routes.opsIssueRead, async ({ inTx, tenantIds, params, services }) => {
     const row = await txOnly(inTx)((tx) => readIssue(tx, tenantIds, params.id));
-    const transport = services.deps.llm?.(services.env) ?? workerTransport(services.env);
+    // HIPAA mode (§1.35): held to the issue's client, beside readOne's own check.
+    const transport = clientModels(services, { clients: [row.tenantId], read: services.db });
     const read = await readOne(
       { db: services.db, transport, covered: parseCoveredProcessors(services.env.BAA_PROCESSORS) },
       row.tenantId,
