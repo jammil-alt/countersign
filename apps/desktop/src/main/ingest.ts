@@ -9,8 +9,8 @@
 // person's choice for later (docs/open.md).
 
 import { createHash } from "node:crypto";
-import { type FSWatcher, watch } from "node:fs";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { constants, type FSWatcher, watch } from "node:fs";
+import { lstat, open, readdir } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
 import {
   DESKTOP_MAX_FILE_BYTES,
@@ -141,9 +141,17 @@ export class Ingest {
     if (!rel) return "skipped";
     const contentType = desktopFileType(rel);
     if (!contentType) return "skipped";
+    // DECISION: one handle from the check to the read, so the file checked is the file sent (a
+    // swap between them can't send another file). A link is never followed: O_NOFOLLOW refuses one
+    // on a Mac, and the path must still name this very file, not a link to it (Windows has no
+    // O_NOFOLLOW).
+    let handle: import("node:fs/promises").FileHandle | null = null;
     try {
-      const first = await stat(file);
+      handle = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+      const first = await handle.stat();
       if (!first.isFile() || first.size === 0) return "skipped";
+      const entry = await lstat(file);
+      if (!entry.isFile() || entry.ino !== first.ino || entry.dev !== first.dev) return "skipped";
       const since = this.deps.since(folder.id);
       if (since && first.mtime < since) return "skipped";
       if (first.size > DESKTOP_MAX_FILE_BYTES) {
@@ -154,9 +162,10 @@ export class Ingest {
         return "skipped";
       }
       await (this.deps.sleep ?? defaultSleep)(this.deps.settleMs ?? 1000);
-      const second = await stat(file);
+      const second = await handle.stat();
       if (second.size !== first.size || second.mtimeMs !== first.mtimeMs) return "skipped";
-      const bytes = new Uint8Array(await readFile(file));
+      const bytes = new Uint8Array(await handle.readFile());
+      if (bytes.length !== second.size) return "skipped";
       const sha256 = createHash("sha256").update(bytes).digest("hex");
       const key = `${folder.id}:${rel}`;
       if (this.deps.sent(key) === sha256) return "skipped";
@@ -183,6 +192,8 @@ export class Ingest {
       return "sent";
     } catch {
       return "failed";
+    } finally {
+      await handle?.close().catch(() => {});
     }
   }
 }
