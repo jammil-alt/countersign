@@ -275,9 +275,20 @@ export const BROWSER_BLOCKED_HOSTS = [
   "id.me",
 ] as const;
 
-/** The listed domain `host` is, or is under; null when it is on none. Ports and `*.` are ignored. */
+/**
+ * The listed domain `host` is, or is under; null when it is on none. A port and trailing dots are
+ * ignored. A wildcard host (`*.d`) is blocked when it would reach a listed domain: one that is `d`,
+ * under `d`, or above it (`*.google.com` reaches `accounts.google.com`).
+ */
 export function blockedHost(host: string): string | null {
-  const h = host.trim().toLowerCase().replace(/^\*\./, "").replace(/:\d+$/, "").replace(/\.$/, "");
+  const h = host.trim().toLowerCase().replace(/:\d+$/, "").replace(/\.+$/, "");
+  if (h.startsWith("*.")) {
+    const d = h.slice(2);
+    return (
+      BROWSER_BLOCKED_HOSTS.find((e) => e === d || e.endsWith(`.${d}`) || d.endsWith(`.${e}`)) ??
+      null
+    );
+  }
   return BROWSER_BLOCKED_HOSTS.find((d) => h === d || h.endsWith(`.${d}`)) ?? null;
 }
 
@@ -330,12 +341,12 @@ export function checkBrowserUrl(
 ): UrlCheck {
   const u = parseUrl(url);
   if (!u) return { ok: false, code: "invalid", reason: "not a web address" };
-  if (!schemeOk(u) || u.username || u.password) {
-    return { ok: false, code: "scheme", reason: "only https pages without a login in the address" };
-  }
   const listed = blockedHost(u.hostname);
   if (listed) {
     return { ok: false, code: "blocked", reason: `agents never open this site (${listed})` };
+  }
+  if (!schemeOk(u) || u.username || u.password) {
+    return { ok: false, code: "scheme", reason: "only https pages without a login in the address" };
   }
   const href = `${u.origin}${u.pathname}${u.search}`;
   const blocked = [...BROWSER_DEFAULT_BLOCKED, ...rules.block].find((p) => urlMatches(p, href));

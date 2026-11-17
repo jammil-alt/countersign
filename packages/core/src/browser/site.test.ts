@@ -244,6 +244,92 @@ describe("the blocked tier's hosts", () => {
     expect(siteTier("low", null)).toBe("low");
   });
 
+  it("strip every trailing dot", () => {
+    expect(blockedHost("paypal.com..")).toBe("paypal.com");
+    expect(checkBrowserUrl("https://paypal.com../", { allow: ["*"], block: [] })).toMatchObject({
+      ok: false,
+      code: "blocked",
+    });
+  });
+
+  it("block a wildcard host that covers a listed one", () => {
+    expect(blockedHost("*.google.com")).not.toBeNull();
+    expect(blockedHost("*.yahoo.com")).not.toBeNull();
+    expect(blockedHost("*.googleusercontent.com")).toBeNull();
+    expect(blockedHost("*.acme.test")).toBeNull();
+    expect(siteTier("low", on("https://portal.acme.test", { hosts: ["*.google.com"] }))).toBe(
+      "blocked",
+    );
+  });
+
+  const CASES: [string, boolean][] = [
+    ["https://paypal.com/", true],
+    ["https://PAYPAL.COM/", true],
+    ["https://www.paypal.com./", true],
+    ["https://paypal.com../", true],
+    ["https://paypal.com:443/", true],
+    ["https://user:pw@paypal.com/", true],
+    ["https://paypal.com@evil.test/", false],
+    ["https://paypal.com.evil.test/", false],
+    ["https://x.paypal.com/", true],
+    ["https://ｐａｙｐａｌ．ｃｏｍ/", true],
+    ["https://pay%70al.com/", true],
+    ["https://xn--paypal-xx.com/", false],
+    ["https://mail.google.com/", true],
+    ["https://MAIL.google.com/mail/u/0", true],
+    ["https://accounts.google.com/", true],
+    ["https://accounts.google.com./", true],
+    ["https://docs.google.com/", false],
+    ["https://google.com/", false],
+    ["https://www.google.com/accounts", false],
+    ["https://login.microsoftonline.com/", true],
+    ["https://login.microsoftonline.us/", false],
+    ["https://outlook.office365.com/", true],
+    ["https://outlook.cloud.microsoft/", false],
+    ["https://login.live.com/", true],
+    ["https://live.com/", false],
+    ["https://mail.proton.me/", true],
+    ["https://dashboard.stripe.com/", true],
+    ["https://connect.stripe.com/", true],
+    ["https://squareup.com/", true],
+    ["https://app.squareup.com/", true],
+    ["https://square.com/", false],
+    ["https://onlinebanking.usbank.com/", true],
+    ["https://www.amex.com/", false],
+    ["https://global.americanexpress.com/", true],
+    ["https://www.paypal.me/", false],
+    ["https://www.td.com/", true],
+    ["https://easyweb.td.com/", true],
+    ["https://www.53.com/", true],
+    ["https://acme.okta.com/", true],
+    ["https://acme.okta-emea.com/", false],
+    ["https://login.okta.com/", true],
+    ["https://acme.oktapreview.com/", true],
+    ["https://acme.my.onelogin.com/", true],
+    ["https://auth0.com/", false],
+    ["https://acme.us.auth0.com/", false],
+    ["https://login.salesforce.com/", false],
+    ["https://identity.intuit.com/", false],
+    ["https://accounts.intuit.com/", false],
+    ["https://qbo.intuit.com/", false],
+    ["https://[::1]/", false],
+    ["https://64.4.250.36/", false],
+    ["https://mail.yahoo.com/", true],
+    ["https://outlook.office.com/mail/", true],
+    ["https://www.icloud.com/mail", true],
+    ["https://wise.com/", true],
+    ["https://otherwise.com/", false],
+    ["https://key.com/", true],
+    ["https://monkey.com/", false],
+    ["https://id.me/", true],
+    ["https://api.id.me/", true],
+  ];
+
+  it.each(CASES)("decide %s (blocked: %s) as the list says", (url, blocked) => {
+    const r = checkBrowserUrl(url, { allow: ["*"], block: [] });
+    expect(!r.ok && r.code === "blocked").toBe(blocked);
+  });
+
   it("are never opened, even when the site's rules allow them", () => {
     const rules = on("https://secure.chase.com");
     expect(checkBrowserUrl("https://secure.chase.com/accounts", rules)).toMatchObject({

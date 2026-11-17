@@ -85,9 +85,17 @@ export const BLOCKED_HOSTS = [
   "id.me",
 ] as const;
 
-/** The listed domain `host` is, or is under; null when it is on none. Ports and `*.` are ignored. */
+/**
+ * The listed domain `host` is, or is under; null when it is on none. A port and trailing dots are
+ * ignored. A wildcard host (`*.d`) is blocked when it would reach a listed domain: one that is `d`,
+ * under `d`, or above it (`*.google.com` reaches `accounts.google.com`).
+ */
 export function blockedHost(host: string): string | null {
-  const h = host.trim().toLowerCase().replace(/^\*\./, "").replace(/:\d+$/, "").replace(/\.$/, "");
+  const h = host.trim().toLowerCase().replace(/:\d+$/, "").replace(/\.+$/, "");
+  if (h.startsWith("*.")) {
+    const d = h.slice(2);
+    return BLOCKED_HOSTS.find((e) => e === d || e.endsWith(`.${d}`) || d.endsWith(`.${e}`)) ?? null;
+  }
   return BLOCKED_HOSTS.find((d) => h === d || h.endsWith(`.${d}`)) ?? null;
 }
 

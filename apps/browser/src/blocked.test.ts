@@ -3,7 +3,7 @@
 
 import { BROWSER_BLOCKED_HOSTS, blockedHost as coreBlockedHost } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { BLOCKED_HOSTS, blockedHost } from "./blocked";
+import { BLOCKED_HOSTS, blockedHost, onBlockedSite } from "./blocked";
 
 describe("the blocked hosts", () => {
   it("are core's list, entry for entry", () => {
@@ -21,8 +21,26 @@ describe("the blocked hosts", () => {
       "paypal.com.example.test",
       "docs.google.com",
       "portal.supplier.test",
+      "paypal.com..",
+      "*.google.com",
+      "*.googleusercontent.com",
+      "*.x.paypal.com",
     ]) {
       expect(blockedHost(host), host).toBe(coreBlockedHost(host));
+    }
+  });
+
+  it("find a listed site in an address, written any way", () => {
+    for (const [url, blocked] of [
+      ["https://paypal.com../", true],
+      ["https://user:pw@paypal.com/", true],
+      ["https://paypal.com@evil.test/", false],
+      ["https://ｐａｙｐａｌ．ｃｏｍ/", true],
+      ["https://acme.okta.com/", true],
+      ["https://docs.google.com/", false],
+      ["about:blank", false],
+    ] as const) {
+      expect(onBlockedSite(url), url).toBe(blocked);
     }
   });
 });

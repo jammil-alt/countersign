@@ -131,7 +131,8 @@ branches.
   origins, and it never stores, logs or returns one.
 - **The blocked tier is enforced in code** (invariant 13). A list of well-known banks, payment
   services, email accounts and identity providers (`BROWSER_BLOCKED_HOSTS` in
-  `packages/core/src/browser/site.ts`) is matched by domain and every subdomain. A site with any
+  `packages/core/src/browser/site.ts`) is matched by domain and every subdomain, and a
+  wildcard host that would reach a listed one counts. A site with any
   host on it is the blocked tier whatever tier the operator picked: it is never offered to a
   client, never set up, and a run never signs in to it, by the site's newest version and by the
   version a connection pinned. No page on a listed host is ever opened. The browser service
