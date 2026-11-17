@@ -1157,6 +1157,34 @@ describe("qbo webhooks", () => {
     ).toEqual([]);
   });
 
+  it("names multi-word entities as Intuit does in the CloudEvents shape", () => {
+    const realm = "9130357766900456";
+    const events = ["vendorcredit", "billpayment", "journalentry", "purchaseorder", "BILL"].map(
+      (name, i) => ({
+        specversion: "1.0",
+        id: `e-${i}`,
+        source: "intuit.com",
+        type: `qbo.${name}.updated.v1`,
+        time: "2026-11-05T17:41:12.000Z",
+        intuitentityid: String(100 + i),
+        intuitaccountid: realm,
+      }),
+    );
+    expect(parseQboWebhook(events)).toEqual([
+      {
+        realmId: realm,
+        entities: ["Bill", "BillPayment", "JournalEntry", "PurchaseOrder", "VendorCredit"],
+      },
+    ]);
+    expect(parseQboWebhookChanges(events)?.map((c) => c.entity)).toEqual([
+      "VendorCredit",
+      "BillPayment",
+      "JournalEntry",
+      "PurchaseOrder",
+      "Bill",
+    ]);
+  });
+
   it("reads each record change, in both payload shapes, leaving out what isn't Intuit's shape", () => {
     expect(parseQboWebhookChanges(notification)).toEqual([
       {
