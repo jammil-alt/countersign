@@ -273,6 +273,34 @@ describe.skipIf(!h)("signing up for texts", () => {
       expect(changes.some((c) => c.kind === "opt_in")).toBe(false);
     });
 
+    it("treats a number that opted out on WhatsApp as opted out", async () => {
+      const token = tokenIn(
+        j((await H.call(admin("a"), "GET", "/api/texting/signup-link")).json).url,
+      );
+      const NUM = "+15125550166";
+      const [wa] = await H.t.db
+        .insert(contact)
+        .values({
+          tenantId: A(),
+          name: "WhatsApp Person",
+          whatsapp: NUM,
+          optedOutAt: new Date(),
+          optOutSource: "keyword:STOP",
+        })
+        .returning();
+      const res = await submit(token, { name: "Someone Else", phone: NUM });
+      expect(res.status).toBe(200);
+      expect(j(res.json)).toEqual({ confirmation: "sent" });
+      expect(textsTo(NUM)).toHaveLength(0);
+      const same = await H.t.db
+        .select()
+        .from(contact)
+        .where(and(eq(contact.tenantId, A()), eq(contact.phone, NUM)));
+      expect(same).toEqual([]);
+      const changes = (await logOf(wa?.id as string)).map((l) => l.change);
+      expect(changes).toEqual([{ kind: "text_signup_skipped", via: "link", reason: "opted_out" }]);
+    });
+
     it("waits after too many sign-ups in an hour", async () => {
       const token = tokenIn(
         j((await H.call(admin("a"), "GET", "/api/texting/signup-link")).json).url,
@@ -411,6 +439,29 @@ describe.skipIf(!h)("signing up for texts", () => {
       const [row] = await H.t.db.select().from(contact).where(eq(contact.id, ROB));
       expect(row?.optedOutAt).not.toBeNull();
       expect(row?.phone).toBe(PHONE);
+    });
+
+    it("refuses a number that opted out on WhatsApp", async () => {
+      const NUM = "+15125550167";
+      await H.t.db.insert(contact).values({
+        tenantId: A(),
+        name: "WhatsApp Only",
+        whatsapp: NUM,
+        optedOutAt: new Date(),
+        optOutSource: "keyword:STOP",
+      });
+      const KAI = await newContact(admin("a"), { name: "Kai Moss", email: "kai@vendor.example" });
+      await invite(admin("a"), [KAI]);
+      const link = /Choose to get texts: (\S+)/.exec(
+        lastEmailTo("kai@vendor.example")?.text ?? "",
+      )?.[1];
+      const res = await submit(tokenIn(link as string), { phone: NUM });
+      expect(res.status).toBe(409);
+      expect(j(res.json).error.code).toBe("opted_out");
+      expect(textsTo(NUM)).toHaveLength(0);
+      const [row] = await H.t.db.select().from(contact).where(eq(contact.id, KAI));
+      expect(row?.phone).toBeNull();
+      expect(row?.consent ?? {}).not.toHaveProperty("sms");
     });
 
     it("sends one reminder after three days, then no more", async () => {
