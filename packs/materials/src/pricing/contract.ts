@@ -6,8 +6,9 @@
 // contract's. Every alert carries its evidence (invariant 10) and, where money is at stake, its
 // dollar impact; the same alert table, dedupe and test-run behaviour as the price rules.
 
-import { Decimal, dec, formatAmount, toNumeric } from "@countersign/core";
+import { Decimal, dec, toNumeric } from "@countersign/core";
 import type { FreightTerm, StandardUom } from "../schema";
+import { moneyIn } from "./money";
 import type { AlertDraft, Names, Observation } from "./rules";
 
 export const CONTRACT_ALERT_KINDS = [
@@ -121,7 +122,8 @@ export function daysBetween(from: string, to: string): number {
   return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
 }
 
-const usd = (v: Decimal | string) => `$${formatAmount(v)}`;
+// One money format with the rules' (./money.ts).
+const money = moneyIn;
 const contractEvidence = (c: ContractTerms) => [
   c.id,
   ...(c.documentId ? [c.documentId] : []),
@@ -225,9 +227,10 @@ export function contractVariance(
     : perUnit.dividedBy(agreedStd).times(100).toDecimalPlaces(2);
   const item = names.item;
   const at = names.vendor(current.vendorId);
-  const against = `${usd(current.unitPriceStd)} against ${usd(agreedStd)} agreed in "${contract.name}"`;
-  const amount = usd(variance.abs());
-  const toleranceWords = allowance.isZero() ? "" : ` (tolerance ${usd(allowance)})`;
+  const cur = contract.currency;
+  const against = `${money(current.unitPriceStd, cur)} against ${money(agreedStd, cur)} agreed in "${contract.name}"`;
+  const amount = money(variance.abs(), cur);
+  const toleranceWords = allowance.isZero() ? "" : ` (tolerance ${money(allowance, cur)})`;
   const kind = within ? "within_tolerance" : above ? "above_contract" : "below_contract";
   return {
     kind,
@@ -255,8 +258,52 @@ export function contractVariance(
       changePct: pct?.toString() ?? null,
       qtyStd: current.qtyStd,
       standardUom: current.standardUom,
+      currency: cur,
+      lines: 1,
     },
   };
+}
+
+/**
+ * One item's agreed-price alerts on one invoice, as one: the lines' variances added up (two lines
+ * of one item are one overcharge to claim, not the first line's), their evidence together.
+ */
+// DECISION (audit 7.11): variances of one kind for one item are summed per invoice before the one
+// open alert per (kind, item, vendor) stands; above and below the agreed price stay apart (their
+// own kinds), so a saving never nets out an overcharge.
+export function sumVariances(alerts: readonly AlertDraft[], contract: ContractTerms): AlertDraft {
+  const [first] = alerts;
+  if (!first) throw new Error("no alerts to add up");
+  if (alerts.length === 1) return first;
+  const cur = contract.currency;
+  const total = alerts.reduce((s, a) => s.plus(a.dollarImpact ?? "0"), dec("0"));
+  const qty = alerts.reduce((s, a) => s.plus(String(a.facts.qtyStd ?? "0")), dec("0"));
+  const above = total.greaterThan(0);
+  const direction = above ? "above" : "below";
+  const prices = [...new Set(alerts.map((a) => money(String(a.facts.current), cur)))];
+  const agreed = money(String(first.facts.agreed), cur);
+  const tolerance = dec(String(first.facts.tolerance ?? "0"));
+  const toleranceWords = tolerance.isZero() ? "" : ` (tolerance ${money(tolerance, cur)})`;
+  const title =
+    first.facts.direction === direction
+      ? first.title
+      : first.title.replace(String(first.facts.direction), direction);
+  return {
+    ...first,
+    title,
+    body: `${alerts.length} lines at ${prices.join(" and ")} against ${agreed} agreed in "${contract.name}"${toleranceWords}: ${money(total.abs(), cur)} ${above ? "more" : "less"} on this invoice.`,
+    evidence: unique(alerts.flatMap((a) => a.evidence)),
+    dollarImpact: toNumeric(total),
+    facts: { ...first.facts, direction, qtyStd: toNumeric(qty), lines: alerts.length },
+  };
+}
+
+/** A priced line the contract check couldn't compare, and why (for the review's notes). */
+export interface UncheckedLine {
+  observationId: string;
+  docLineId: string | null;
+  catalogItemId: string;
+  reason: string;
 }
 
 /** `not_on_contract`: the contract lists agreed prices, and this line's item isn't among them. */
@@ -275,7 +322,7 @@ export function notOnContract(
     catalogItemId: current.catalogItemId,
     vendorId: current.vendorId,
     title: `${names.item} isn't on ${names.vendor(current.vendorId)}'s contract`,
-    body: `Bought at ${usd(current.unitPriceStd)}; "${contract.name}" has no agreed price for it.`,
+    body: `Bought at ${money(current.unitPriceStd, current.currency ?? contract.currency)}; "${contract.name}" has no agreed price for it.`,
     evidence: unique([...lineEvidence(current), ...contractEvidence(contract)]),
     dollarImpact: null,
     facts: {
@@ -351,14 +398,35 @@ export function termsMismatch(input: {
       });
     }
   }
+  // DECISION (review of fix/materials, finding 8): an invoice in another currency than its contract
+  // is a terms mismatch of its own (its prices aren't checked against the contract's, which
+  // `checkContract` lists as unchecked).
+  if (c.currency !== invoice.currency) {
+    out.push({
+      kind: "terms_mismatch",
+      severity: "warning",
+      catalogItemId: null,
+      vendorId: input.vendorId,
+      title: `${input.vendorName}'s invoice is in ${invoice.currency}, not ${c.currency}`,
+      body: `"${c.name}" agrees prices in ${c.currency}; ${which} bills in ${invoice.currency}, so its prices weren't checked against the contract.`,
+      evidence,
+      dollarImpact: null,
+      facts: {
+        term: "currency",
+        contractId: c.id,
+        contractCurrency: c.currency,
+        invoiceCurrency: invoice.currency,
+      },
+    });
+  }
   if (c.freight === "included" && dec(invoice.freight).greaterThan(0)) {
     out.push({
       kind: "terms_mismatch",
       severity: "warning",
       catalogItemId: null,
       vendorId: input.vendorId,
-      title: `${input.vendorName} charged ${usd(invoice.freight)} freight the contract includes`,
-      body: `"${c.name}" includes freight in its prices; ${which} charges ${usd(invoice.freight)} for it.`,
+      title: `${input.vendorName} charged ${money(invoice.freight, invoice.currency)} freight the contract includes`,
+      body: `"${c.name}" includes freight in its prices; ${which} charges ${money(invoice.freight, invoice.currency)} for it.`,
       evidence,
       dollarImpact: toNumeric(invoice.freight),
       facts: {
@@ -366,6 +434,7 @@ export function termsMismatch(input: {
         contractId: c.id,
         documentId: invoice.documentId,
         freight: toNumeric(invoice.freight),
+        currency: invoice.currency,
       },
     });
   }
@@ -391,25 +460,57 @@ export function checkContract(input: {
   invoice: InvoiceTerms;
   lines: readonly Observation[];
   names: (catalogItemId: string) => Names;
-}): { contract: ContractTerms | null; alerts: AlertDraft[] } {
-  if (input.contracts.length === 0) return { contract: null, alerts: [] };
+}): { contract: ContractTerms | null; alerts: AlertDraft[]; unchecked: UncheckedLine[] } {
+  if (input.contracts.length === 0) return { contract: null, alerts: [], unchecked: [] };
   const contract = contractOn(input.contracts, input.invoice.invoiceDate);
   if (!contract) {
     const off = contractNotInEffect(input);
-    return { contract: null, alerts: off ? [off] : [] };
+    return { contract: null, alerts: off ? [off] : [], unchecked: [] };
   }
   const alerts: AlertDraft[] = [];
+  const variances = new Map<string, AlertDraft[]>();
+  const unchecked: UncheckedLine[] = [];
+  const skip = (o: Observation, reason: string) =>
+    unchecked.push({
+      observationId: o.id,
+      docLineId: o.docLineId,
+      catalogItemId: o.catalogItemId,
+      reason,
+    });
   const hasPrices = input.hasPrices(contract);
+  // DECISION (audit 7.11): a contract in another currency than the invoice checks none of its
+  // lines' prices (no exchange rate is kept); each line is listed as unchecked, with why.
+  const otherCurrency = contract.currency !== input.invoice.currency;
   for (const o of input.lines) {
+    if (otherCurrency) {
+      skip(
+        o,
+        `the contract's prices are in ${contract.currency} and the invoice is in ${input.invoice.currency}`,
+      );
+      continue;
+    }
     const agreed = input.agreedFor(o, contract);
     const names = input.names(o.catalogItemId);
+    // An agreed price with no conversion to the line's unit is on the contract but can't be
+    // compared (invariant 7): listed as unchecked, never "not on contract".
+    if (agreed && agreedPriceStd(agreed, o.standardUom) === null) {
+      skip(
+        o,
+        `its agreed price is per ${agreed.vendorUom ?? "unit"}, with no conversion to ${o.standardUom.replace(/_/g, " ")}`,
+      );
+      continue;
+    }
     const variance = contractVariance(o, agreed, contract, names);
-    if (variance) alerts.push(variance);
+    if (variance) {
+      const key = contractDedupeKey(variance);
+      variances.set(key, [...(variances.get(key) ?? []), variance]);
+    }
     const missing = notOnContract(o, agreed, contract, names, hasPrices);
     if (missing) alerts.push(missing);
   }
+  alerts.unshift(...[...variances.values()].map((group) => sumVariances(group, contract)));
   alerts.push(...termsMismatch({ ...input, contract }));
-  return { contract, alerts };
+  return { contract, alerts, unchecked };
 }
 
 /** The dedupe key of a contract alert (`dedupeKey` in ./rules.ts calls it). */
@@ -425,7 +526,10 @@ export function contractDedupeKey(a: AlertDraft): string {
       return a.facts.term === "freight"
         ? `materials:terms_mismatch:${a.vendorId}:freight:${String(a.facts.documentId)}`
         : `materials:terms_mismatch:${a.vendorId}:${String(a.facts.term)}`;
-    default:
-      return `materials:${a.kind}:${a.catalogItemId}:${a.vendorId}`;
+    default: {
+      // As the price rules' (./rules.ts): another currency than US dollars ends the key.
+      const cur = typeof a.facts.currency === "string" ? a.facts.currency : "USD";
+      return `materials:${a.kind}:${a.catalogItemId}:${a.vendorId}${cur === "USD" ? "" : `:${cur}`}`;
+    }
   }
 }

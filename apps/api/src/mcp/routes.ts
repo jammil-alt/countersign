@@ -33,7 +33,13 @@ import type { Bindings } from "../env";
 import { type AppContext, type AppDeps, type AppEnv, HttpError, requestState } from "../http";
 import { reportHandled, reportProblem } from "../observability/report";
 import { claudeConnectionGate } from "./approval";
-import { logAuditSink, loggedArgs, type McpAuditSink } from "./audit";
+import {
+  auditEventSink,
+  auditRefusedSignIn,
+  loggedArgs,
+  type McpAuditSink,
+  type McpRefusal,
+} from "./audit";
 import {
   type AuthorizationServer,
   authKitServer,
@@ -49,14 +55,15 @@ import { handleHttp, type McpServer, RPC, rpcError, type Tool, type ToolResult }
 /** What the MCP server is built from; tests replace them (AppDeps.mcp). */
 export interface McpDeps {
   authorizationServer(env: Bindings, origin: string): AuthorizationServer;
-  audit(env: Bindings): McpAuditSink;
+  /** Where each tool call's audit entry goes: an `audit_event` row (tests add their own). */
+  audit(c: AppContext): McpAuditSink;
   rateLimiter(env: Bindings): RateLimiter;
   now(): Date;
 }
 
 export const defaultMcpDeps: McpDeps = {
   authorizationServer: (_env, origin) => authKitServer(origin),
-  audit: () => logAuditSink,
+  audit: (c) => auditEventSink(c.get("req").services().db, c),
   rateLimiter: (env) => rateLimiterFor(env),
   now: () => new Date(),
 };
@@ -129,7 +136,18 @@ const metadataResponse = (body: unknown) =>
 
 type Authenticated =
   | { ok: true; session: Session; audience: McpAudience; sessionId: string | null }
-  | { ok: false; response: Response };
+  | {
+      ok: false;
+      response: Response;
+      /** For the `mcp.sign_in` audit row: why, and who when the token named a Mezonas user. */
+      refusal: {
+        reason: McpRefusal;
+        status: number;
+        detail?: string;
+        userId?: string;
+        email?: string;
+      };
+    };
 
 async function authenticate(
   c: AppContext,
@@ -150,6 +168,7 @@ async function authenticate(
       response: jsonError(401, RPC.invalidRequest, "sign in to use Mezonas", {
         "www-authenticate": challenge(),
       }),
+      refusal: { reason: "no_token", status: 401 },
     };
   }
   // Only a request with a token waits on AuthKit: one without learns where to sign in regardless.
@@ -165,6 +184,7 @@ async function authenticate(
         RPC.internalError,
         "the sign-in service can't be reached; try again",
       ),
+      refusal: { reason: "sign_in_unavailable", status: 503 },
     };
   }
   const verified = await verifyAccessToken(
@@ -178,6 +198,7 @@ async function authenticate(
       response: jsonError(401, RPC.invalidRequest, verified.description, {
         "www-authenticate": challenge("invalid_token", verified.description),
       }),
+      refusal: { reason: "invalid_token", status: 401, detail: verified.description },
     };
   }
   const { db } = c.get("req").services();
@@ -188,16 +209,23 @@ async function authenticate(
   // DECISION: the token's subject must already be an app_user's WorkOS id, i.e. someone who has
   // signed in to Mezonas (the back office or their portal) once. The MCP sign-in never provisions
   // or claims an invitation.
-  const forbidden = (message: string) => ({
+  const forbidden = (message: string, reason: McpRefusal) => ({
     ok: false as const,
     response: jsonError(403, RPC.invalidRequest, message),
+    refusal: {
+      reason,
+      status: 403,
+      ...(user ? { userId: user.id, email: user.email } : {}),
+    },
   });
   if (!user) {
-    return forbidden("sign in to Mezonas in a browser once, then connect again");
+    return forbidden("sign in to Mezonas in a browser once, then connect again", "unknown_user");
   }
   const memberships = await authDirectory(db).memberships(user.id);
   const built = buildSession(user, memberships, "workos", null);
-  if (!built.ok) return forbidden("this account is not a member of any business on Mezonas");
+  if (!built.ok) {
+    return forbidden("this account is not a member of any business on Mezonas", "no_membership");
+  }
   // DECISION: an operator gets the back office's tools, even where they also hold a client role
   // (the back office already reaches every client they serve); anyone else with a client role
   // gets the portal's. Membership is read on every call, so a removed person loses access at once.
@@ -208,7 +236,27 @@ async function authenticate(
   if (clientMemberships(built.session).length > 0) {
     return { ok: true, session: built.session, audience: "client", sessionId };
   }
-  return forbidden("this account is not a member of any business on Mezonas");
+  return forbidden("this account is not a member of any business on Mezonas", "no_membership");
+}
+
+/**
+ * The client a tool call acted in, for its audit row: the `client` it named (or its tool set as
+ * its target), when that is one of the caller's; a client's person in one client, that client;
+ * otherwise none (a read across the clients an operator serves).
+ */
+function callClient(
+  session: Session,
+  audience: McpAudience,
+  raw: Record<string, unknown>,
+  target: Record<string, string> | undefined,
+): string | null {
+  const named = typeof raw.client === "string" ? raw.client : (target?.client ?? null);
+  const mine =
+    audience === "ops"
+      ? session.servedTenantIds
+      : clientMemberships(session).map((m) => m.tenantId);
+  if (named && mine.includes(named)) return named;
+  return audience === "client" && mine.length === 1 ? (mine[0] ?? null) : null;
 }
 
 export function mcpRoutes(app: Hono<AppEnv>, deps: AppDeps): void {
@@ -262,7 +310,19 @@ export function mcpRoutes(app: Hono<AppEnv>, deps: AppDeps): void {
       mcp.authorizationServer(c.env, config.authorizationServer),
       mcp.now(),
     );
-    if (!auth.ok) return auth.response;
+    if (!auth.ok) {
+      // A refused sign-in is audited too (§1.35), with why and never the token.
+      // DECISION: not a request with no token at all (every client's first ask, as `mount` leaves
+      // a signed-out browser's unaudited), and the rest only up to a per-address limit, so nobody
+      // can fill the audit log by sending junk: past it the refusal is answered, not written.
+      if (auth.refusal.reason !== "no_token") {
+        const ip = c.req.header("cf-connecting-ip") ?? "unknown";
+        if (await mcp.rateLimiter(c.env).allow(`ip:${ip}`)) {
+          await auditRefusedSignIn(c.get("req").services().db, c, auth.refusal);
+        }
+      }
+      return auth.response;
+    }
     const { session } = auth;
     if (!(await mcp.rateLimiter(c.env).allow(session.user.id))) {
       return jsonError(429, RPC.invalidRequest, "too many calls; wait a minute", {
@@ -272,7 +332,7 @@ export function mcpRoutes(app: Hono<AppEnv>, deps: AppDeps): void {
 
     const services = c.get("req").services();
     const objects = services.deps.objects(c.env);
-    const audit = mcp.audit(c.env);
+    const audit = mcp.audit(c);
     const { audience } = auth;
     const appOrigin = config.resource.slice(0, -MCP_PATH.length);
     // The second step (docs/plan.md §1.120): asked once per HTTP request, at its first tool call.
@@ -302,6 +362,7 @@ export function mcpRoutes(app: Hono<AppEnv>, deps: AppDeps): void {
       const started = Date.now();
       let result: ToolResult;
       let code: string | undefined;
+      let status: number | undefined;
       try {
         const allowed = await approved();
         if (!allowed.ok) throw new HttpError(403, allowed.code, allowed.message);
@@ -310,9 +371,11 @@ export function mcpRoutes(app: Hono<AppEnv>, deps: AppDeps): void {
       } catch (error) {
         const failed = toolError(error);
         code = failed.code;
+        status = failed.status;
         result = { content: failed.content, isError: true };
       }
-      // Never fails the call: a lost audit line is logged, the person still gets the answer.
+      // Never fails the call: a lost audit row is reported, the person still gets the answer.
+      const tenantId = callClient(session, audience, raw, ctx.audit.target);
       await audit
         .record({
           event: "mcp.tool_call",
@@ -322,10 +385,15 @@ export function mcpRoutes(app: Hono<AppEnv>, deps: AppDeps): void {
           audience,
           userId: session.user.id,
           email: session.user.email,
+          role:
+            audience === "ops"
+              ? "operator"
+              : (clientMemberships(session).find((m) => m.tenantId === tenantId)?.role ?? null),
+          tenantId,
           tool: tool.name,
           args: loggedArgs(raw),
           outcome: code ? "error" : (ctx.audit.outcome ?? "ok"),
-          ...(code ? { code } : {}),
+          ...(code ? { code, status: status ?? 500 } : {}),
           ...(ctx.audit.target ? { target: ctx.audit.target } : {}),
           durationMs: Date.now() - started,
         })

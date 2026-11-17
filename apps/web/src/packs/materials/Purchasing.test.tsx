@@ -9,7 +9,9 @@ import { describe, expect, it } from "vitest";
 import { AppProviders } from "../../App";
 import { InboxCard } from "../../inbox/InboxCard";
 import { CLIENT_SESSION, fakeApi } from "../../test/fixtures";
+import { CompareTable } from "./CompareTable";
 import { RequestsView, RequestView } from "./Requests";
+import type { Comparison } from "./types";
 
 const REQ = "00000000-0000-4000-8000-0000000e0001";
 const L1 = "00000000-0000-4000-8000-0000000e1001";
@@ -326,6 +328,47 @@ describe("the request line review card", () => {
     expect(await within(card).findByText("Settled")).toBeInTheDocument();
     await userEvent.click(within(card).getByTestId("request-lines-finish"));
     expect(resolved).toEqual([{ decision: "approve", answer: { settled: 1 } }]);
+  });
+});
+
+describe("the comparison table", () => {
+  it("shows why an offer or a line isn't compared, and no line total for it", async () => {
+    const [line] = COMPARISON.lines;
+    const comparison = {
+      ...COMPARISON,
+      lines: [
+        {
+          ...line,
+          offers: [
+            line?.offers[0],
+            {
+              ...line?.offers[1],
+              comparable: false,
+              note: "quoted 6 sheets of the 12 sheets asked",
+            },
+          ],
+        },
+        {
+          ...line,
+          requestLineId: L2,
+          lineNo: 2,
+          description: "#8 WOOD SCREW",
+          offers: [],
+          best: null,
+          note: "Not compared: no vendor's box, case or container converts to each with a known pack size.",
+        },
+      ],
+    } as unknown as Comparison;
+    renderAt(<CompareTable comparison={comparison} />, {});
+    const rows = await screen.findAllByTestId("materials-compare-row");
+    expect(rows[0]).toHaveTextContent("$696.00");
+    expect(rows[0]).not.toHaveTextContent("$732.00");
+    expect(
+      within(rows[0] as HTMLElement).getByTestId("materials-compare-offer-note"),
+    ).toHaveTextContent("quoted 6 sheets of the 12 sheets asked");
+    expect(within(rows[1] as HTMLElement).getByTestId("materials-compare-note")).toHaveTextContent(
+      "no vendor's box, case or container",
+    );
   });
 });
 

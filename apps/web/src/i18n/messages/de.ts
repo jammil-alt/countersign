@@ -113,6 +113,8 @@ export const de: Messages = {
   "error.not_importable": "Das Verzeichnis importiert aus Zoho CRM oder Podio.",
   "error.contact_exists": "Jemand im Verzeichnis hat diese E-Mail-Adresse oder Nummer schon.",
   "error.rate_limited": "Warten Sie eine Minute und versuchen Sie es erneut.",
+  "error.daily_limit":
+    "Sie haben das heutige Limit dafür erreicht. Versuchen Sie es morgen erneut.",
   "error.no_address": "Wir kennen die Adresse dieses Kontos nicht. Verbinden Sie es erneut.",
   "error.different_account":
     "Das ist ein anderes Konto als das hier verbundene. Trennen Sie es zuerst, dann verbinden Sie das andere.",
@@ -2811,6 +2813,18 @@ export const de: Messages = {
   "bookkeeping.review.loading": "Buchungen werden geladen…",
   "bookkeeping.review.suggested": "Wir schlagen {account} vor",
   "bookkeeping.review.noSuggestion": "Noch kein Vorschlag",
+  "bookkeeping.review.openBill":
+    "Ist das die Zahlung einer offenen Lieferantenrechnung: {what}? Wenn ja, ordnen Sie sie in QuickBooks dieser Rechnung zu und lassen Sie sie hier aus.",
+  "bookkeeping.review.openInvoice":
+    "Ist das der Zahlungseingang einer offenen Rechnung: {what}? Wenn ja, ordnen Sie ihn in QuickBooks dieser Rechnung zu und lassen Sie ihn hier aus.",
+  "bookkeeping.review.openBillPaid":
+    "QuickBooks zeigt diese Lieferantenrechnung als bezahlt: {what}. Wenn dies diese Zahlung ist, lassen Sie sie hier aus.",
+  "bookkeeping.review.openInvoicePaid":
+    "QuickBooks zeigt diese Rechnung als bezahlt: {what}. Wenn dies dieser Zahlungseingang ist, lassen Sie ihn hier aus.",
+  "bookkeeping.review.pairHeld":
+    "Buchung {what}: kann die andere Seite einer Umbuchung sein, die nicht gebucht oder ausgelassen wurde. Entscheiden Sie beide zusammen.",
+  "bookkeeping.review.resent":
+    "Die Bank hat dies erneut gesendet, nachdem sie eine frühere Kopie entfernt hat. Entscheiden Sie hier: Bis dahin wird nichts dafür gebucht.",
   "bookkeeping.review.approve": "Freigeben",
   "bookkeeping.review.account": "Konto für {payee}",
   "bookkeeping.review.why": "Warum, in wenigen Worten (optional)",
@@ -2831,6 +2845,8 @@ export const de: Messages = {
   "bookkeeping.recon.loading": "Abstimmung wird geladen…",
   "bookkeeping.recon.difference": "Differenz",
   "bookkeeping.recon.unexplainedBy": "{amount} nicht erklärt",
+  "bookkeeping.recon.startGap":
+    "Die Anfangssalden weichen um {amount} ab, und nichts aus der letzten Freigabe Übertragene erklärt das. Ergänzen Sie, was zu Beginn des Zeitraums offen war, etwa einen vorher ausgestellten Scheck, der im Zeitraum eingelöst wurde.",
   "bookkeeping.recon.asOf": "Stand {day}",
   "bookkeeping.recon.outcome.balanced": "Ausgeglichen",
   "bookkeeping.recon.outcome.explained": "Erklärt",

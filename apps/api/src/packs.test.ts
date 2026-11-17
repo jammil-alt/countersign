@@ -339,8 +339,8 @@ describe.skipIf(!h)("packs on the platform", () => {
       /^attachment; filename="materials-prices-/,
     );
     const text = await csv.text();
-    expect(text.split("\r\n")[0]).toMatch(/^Item,Category,Unit,Vendor,Last price/);
-    expect(text).toContain("Northline Panel Supply,68.5000");
+    expect(text.split("\r\n")[0]).toMatch(/^Item,Category,Unit,Vendor,Currency,Last price/);
+    expect(text).toContain("Northline Panel Supply,USD,68.5000");
 
     const catalog = await H.call(admin("a"), "GET", "/api/reports/materials/catalog");
     expect((catalog.json as J).report.items.length).toBeGreaterThanOrEqual(1);

@@ -3,7 +3,8 @@
 // `qbo.transfer.create`. Each is a write behind approval like every other (invariant 8), with no
 // prior state. Each carries a `reference` (the booking's) in its private note: a record there with
 // it is this action's own earlier write (reported done, not made again); one with the same account,
-// date and amount without it was entered by someone else, and the write is refused as a duplicate.
+// date and amount and no booking's mark at all was entered by someone else, and the write is
+// refused as a duplicate (another booking's, marked with its own reference, is not).
 
 import { CurrencyCode, DecimalString, dec, type ToolDisplay } from "@countersign/core";
 import { z } from "zod";
@@ -35,6 +36,9 @@ export function referenceMark(reference: string): string {
 const Reference = z
   .string()
   .regex(/^[A-Za-z0-9-]{4,40}$/, "a reference: 4 to 40 letters, digits or dashes");
+
+/** Any booking's marker (`[Mezonas <reference>]`), this one's or another's. */
+const ANY_MARK = /\[Mezonas [A-Za-z0-9-]{4,40}\]/;
 
 function note(memo: string | undefined, reference: string): string {
   return [memo?.trim(), referenceMark(reference)].filter(Boolean).join(" ").slice(0, 4000);
@@ -94,7 +98,10 @@ interface Found {
   id: string;
   syncToken: string;
   total: string;
+  /** This booking's own earlier write. */
   ours: boolean;
+  /** Written for a booking (this one or another): never someone else's entry. */
+  marked: boolean;
 }
 
 /** Records of `entity` on that day whose account and total match; `ours` when they carry the mark. */
@@ -120,6 +127,7 @@ async function sameDay(
       syncToken: String(r.SyncToken ?? "0"),
       total: dec(String(amountOf(r) ?? 0)).toFixed(4),
       ours: String(r.PrivateNote ?? "").includes(mark),
+      marked: ANY_MARK.test(String(r.PrivateNote ?? "")),
     }));
 }
 
@@ -133,7 +141,9 @@ function settleFound(found: Found[], expected: string, what: string, retry: bool
       `${what} for this booking is already in QuickBooks (${ours.id})`,
     );
   }
-  const theirs = same.find((f) => !f.ours);
+  // DECISION: another booking's write (two $150.00 deposits on one day) is not a duplicate of this
+  // one; only a record without any booking's mark is someone else's entry to match instead.
+  const theirs = same.find((f) => !f.marked);
   if (theirs) {
     throw new QboDuplicateBankingError(
       `${what} for the same account, day and amount is already in QuickBooks (${theirs.id}); match it instead`,

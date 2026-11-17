@@ -281,6 +281,8 @@ export function summaryOf(r: {
   outcome: string;
   currency: string;
   leftovers: { side: "a" | "b"; date: string | null; effect: string; label: EngineLabel | null }[];
+  /** What the openings differ by that nothing carried explains. */
+  startGap?: string | null | undefined;
 }): string {
   const head = `${r.aLabel} ${fmt(r.aClosing, r.currency)}, ${r.bLabel} ${fmt(r.bClosing, r.currency)}, difference ${fmt(r.difference, r.currency)}`;
   if (r.outcome === "balanced") return `${head}: everything matches.`;
@@ -291,10 +293,15 @@ export function summaryOf(r: {
         `${l.side === "a" ? r.aLabel : r.bLabel} ${fmt(l.effect, r.currency)}${l.date ? ` on ${l.date}` : ""} (${l.label ? LABEL_WORDS[l.label] : "to explain"})`,
     );
   const more = r.leftovers.length > 5 ? `; ${r.leftovers.length - 5} more` : "";
+  const gap =
+    r.outcome === "unexplained" && r.startGap && !dec(r.startGap).isZero()
+      ? ` The opening balances differ by ${fmt(r.startGap, r.currency)} and nothing carried from the last sign-off explains it: add what was outstanding at the start of the period, such as a check written before it that cleared during it.`
+      : "";
   const unexplained =
     r.outcome === "unexplained"
-      ? ` ${fmt(r.residual, r.currency)} isn't explained by the items we have.`
+      ? ` ${fmt(r.residual, r.currency)} isn't explained by the items we have.${gap}`
       : "";
+  if (r.leftovers.length === 0) return `${head}: every item matches.${unexplained}`;
   return `${head}: ${r.leftovers.length} item${r.leftovers.length === 1 ? "" : "s"} left: ${parts.join("; ")}${more}.${unexplained}`;
 }
 
@@ -415,6 +422,7 @@ export async function runReconciliation(
     residual: result.residual,
     outcome: result.outcome,
     currency,
+    startGap: result.startGap,
     leftovers: leftovers.map(({ side, i, label }) => ({
       side,
       date: itemOf(side, i).date,
@@ -566,6 +574,7 @@ export async function reconciliationView(tx: Tx, tenantId: string, id: string) {
     status: r.status,
     signedOffAt: r.signedOffAt?.toISOString() ?? null,
     note: r.note,
+    startGap: startGapOf(r),
     summary: summaryOf({
       aLabel: r.aLabel,
       bLabel: r.bLabel,
@@ -575,6 +584,7 @@ export async function reconciliationView(tx: Tx, tenantId: string, id: string) {
       residual: r.residual,
       outcome: r.outcome,
       currency: r.currency,
+      startGap: startGapOf(r),
       leftovers: leftovers.map((i) => ({
         side: i.side,
         date: i.txnDate,
@@ -607,6 +617,12 @@ export async function reconciliationView(tx: Tx, tenantId: string, id: string) {
   };
 }
 
+/** What the openings differ by that nothing carried explains, as the run kept it. */
+function startGapOf(r: { settings: unknown }): string {
+  const v = (r.settings as { startGap?: unknown } | null)?.startGap;
+  return toNumeric(dec(typeof v === "string" && /^-?\d+(\.\d+)?$/.test(v) ? v : "0"));
+}
+
 function open(r: { status: string }) {
   if (r.status !== "open")
     throw new PackRefusal(`this reconciliation is ${r.status.replace("_", " ")} and can't change`);
@@ -626,8 +642,8 @@ async function refresh(tx: Tx, tenantId: string, id: string): Promise<void> {
     (s, i) => (i.side === "a" ? s.plus(dec(i.effect)) : s.minus(dec(i.effect))),
     dec("0"),
   );
-  const startGap = dec(String((r.settings as { startGap?: unknown }).startGap ?? "0"));
-  const residual = dec(r.difference).minus(startGap).minus(net);
+  // The start gap stays in the residual (engine.ts): only items, a person's among them, explain.
+  const residual = dec(r.difference).minus(net);
   const outcome = !residual.isZero()
     ? "unexplained"
     : dec(r.difference).isZero() && unmatched.length === 0

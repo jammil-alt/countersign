@@ -4,11 +4,21 @@
 // repeat finds the open alert, a new fee, test runs write nothing, and each client's history and
 // alerts stay its own (invariant 1).
 
-import { alert, closeDb, createDb, type Db, event } from "@countersign/db";
+import {
+  alert,
+  closeDb,
+  createDb,
+  type Db,
+  docExtraction,
+  docLine,
+  event,
+  withTenant,
+} from "@countersign/db";
 import { createTestDatabase, databaseAvailable, type TestDatabase } from "@countersign/db/testing";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { matchLine } from "../catalog/match";
+import { vendorsForItems } from "../purchasing/history";
 import { priceObservation } from "../schema";
 import {
   type InvoiceLine,
@@ -17,6 +27,7 @@ import {
   type ShopFixture,
 } from "../testing.test-helper";
 import { checkPrices } from "./check";
+import { compareVendors, priceHistory, weeklyDigest } from "./history";
 import { recordPrices } from "./record";
 import { priceSettingsFrom } from "./rules";
 
@@ -230,6 +241,276 @@ describe.skipIf(!online)("prices and alerts (database)", () => {
     const eventsNow = await t.db.select({ n: sql<number>`count(*)::int` }).from(event);
     expect(eventsNow[0]?.n).toBe(eventsAfterMatch[0]?.n);
     expect(before.events[0]?.n).toBeLessThanOrEqual(eventsNow[0]?.n ?? 0);
+  });
+
+  it("counts a document read again once: its latest reading's prices only", async () => {
+    const C = await insertShop(t.db, "Millwork C");
+    const settings = priceSettingsFrom({ price_change_pct: 5 });
+    await matchedInvoice(
+      C,
+      "Northline Plywood",
+      [{ description: BB, qty: "10", uom: "SHT", unitPrice: "1.25" }],
+      { date: "2026-09-01" },
+    ).then((d) => recordPrices(db, ctx(C), { documentId: d.documentId }));
+    // Read as 7.25, recorded; then read again as 1.25 (the earlier reading and its price stay).
+    const misread = await matchedInvoice(
+      C,
+      "Northline Plywood",
+      [{ description: BB, qty: "10", uom: "SHT", unitPrice: "7.25" }],
+      { date: "2026-09-15" },
+    );
+    await recordPrices(db, ctx(C), { documentId: misread.documentId });
+    // A newer reading that is never priced (a test run's) replaces nothing.
+    const [dryRead] = await t.db
+      .insert(docExtraction)
+      .values({
+        tenantId: C.tenantId,
+        documentId: misread.documentId,
+        model: "test-model",
+        header: { vendorName: "Vendor", invoiceDate: "2026-09-15" },
+        subtotal: "72.5",
+        total: "72.5",
+        linesSum: "72.5",
+        totalsMatch: true,
+        createdAt: new Date(Date.now() + 30_000),
+      })
+      .returning();
+    await t.db.insert(docLine).values({
+      tenantId: C.tenantId,
+      extractionId: dryRead?.id as string,
+      lineNo: 1,
+      rawDescription: BB,
+      qty: "10",
+      uomRaw: "SHT",
+      unitPrice: "7.25",
+      extPrice: "72.50",
+    });
+    const kept = await withTenant(db, C.tenantId, async (tx) =>
+      priceHistory(tx, C.tenantId, {
+        catalogItemId: (await observations(C.tenantId))[0]?.catalogItemId as string,
+        today: "2026-09-30",
+      }),
+    );
+    expect(kept.map((o) => o.unitPriceStd)).toEqual(["1.2500", "7.2500"]);
+    const [reread] = await t.db
+      .insert(docExtraction)
+      .values({
+        tenantId: C.tenantId,
+        documentId: misread.documentId,
+        model: "test-model",
+        header: { vendorName: "Vendor", invoiceDate: "2026-09-15" },
+        subtotal: "12.5",
+        total: "12.5",
+        linesSum: "12.5",
+        totalsMatch: true,
+        createdAt: new Date(Date.now() + 60_000),
+      })
+      .returning();
+    const [line] = await t.db
+      .insert(docLine)
+      .values({
+        tenantId: C.tenantId,
+        extractionId: reread?.id as string,
+        lineNo: 1,
+        rawDescription: BB,
+        qty: "10",
+        uomRaw: "SHT",
+        unitPrice: "1.25",
+        extPrice: "12.50",
+      })
+      .returning();
+    await matchLine(
+      { db },
+      { tenantId: C.tenantId, agentVersionId: C.agentVersionId, docLineId: line?.id as string },
+    );
+    const changedBefore = await t.db
+      .select()
+      .from(event)
+      .where(and(eq(event.tenantId, C.tenantId), eq(event.type, "materials.price.changed")));
+    await recordPrices(db, ctx(C), { documentId: misread.documentId });
+    expect(await observations(C.tenantId)).toHaveLength(3);
+    // The corrected reading is no change of price against the misread one.
+    const changedAfter = await t.db
+      .select()
+      .from(event)
+      .where(and(eq(event.tenantId, C.tenantId), eq(event.type, "materials.price.changed")));
+    expect(changedAfter).toHaveLength(changedBefore.length);
+
+    // Another vendor's line with no unit: its price is taken per sheet, so it is never compared.
+    const assumed = await matchedInvoice(
+      C,
+      "Keystone Lumber",
+      [{ description: BB, qty: "10", unitPrice: "1.00" }],
+      { date: "2026-10-01" },
+    );
+    await recordPrices(db, ctx(C), { documentId: assumed.documentId });
+    // A real rise to 1.40: 12% over the last price (1.25), and over the 90-day average (1.25).
+    const rise = await matchedInvoice(
+      C,
+      "Northline Plywood",
+      [{ description: BB, qty: "10", uom: "SHT", unitPrice: "1.40" }],
+      { date: "2026-10-01" },
+    );
+    await recordPrices(db, ctx(C), { documentId: rise.documentId });
+    const r = await checkPrices(db, ctx(C), { documentId: rise.documentId, settings });
+    const jump = r.alerts.find((a) => a.kind === "price_jump");
+    // 0.15 a sheet more × 30 sheets bought in 90 days (not 40: the misread line is not a purchase).
+    expect(jump?.dollarImpact).toBe("4.5000");
+    expect(jump?.evidence).not.toContain(misread.lineIds[0]);
+    expect(r.alerts.some((a) => a.kind === "vendor_spread")).toBe(false);
+    expect(r.alerts.find((a) => a.kind === "price_vs_avg")?.body).toBe(
+      "$1.40 a sheet against an average of $1.25 over 2 earlier purchases.",
+    );
+
+    const read = await withTenant(db, C.tenantId, async (tx) => {
+      const itemId = (await observations(C.tenantId))[0]?.catalogItemId as string;
+      return {
+        history: await priceHistory(tx, C.tenantId, { catalogItemId: itemId, today: "2026-10-02" }),
+        vendors: await compareVendors(tx, C.tenantId, {
+          catalogItemId: itemId,
+          today: "2026-10-02",
+        }),
+      };
+    });
+    expect(read.history.map((o) => [o.unitPriceStd, o.uomAssumed])).toEqual([
+      ["1.2500", false],
+      ["1.2500", false],
+      ["1.0000", true],
+      ["1.4000", false],
+    ]);
+    expect(read.vendors.vendors).toHaveLength(1);
+    expect(read.vendors.vendors[0]).toMatchObject({
+      lastPrice: "1.4000",
+      averagePrice: "1.3000",
+      purchases: 3,
+      qtyStd: "30.0000",
+      currency: "USD",
+    });
+  });
+
+  it("keeps a line that doesn't add up out of price history, and reads a price per thousand", async () => {
+    const D = await insertShop(t.db, "Millwork D");
+    const doc = await matchedInvoice(
+      D,
+      "Keystone Lumber",
+      [
+        // 12.50 misread as 1.25; the amount was read right.
+        { description: BB, qty: "12", uom: "SHT", unitPrice: "1.25", extPrice: "150.00" },
+        // 1,240 board feet at 1,850.00 per thousand: 2,294.00.
+        {
+          description: "4/4 RED OAK FAS",
+          qty: "1240",
+          uom: "BF",
+          unitPrice: "1850.00",
+          extPrice: "2294.00",
+        },
+      ],
+      { date: "2026-10-05" },
+    );
+    const r = await recordPrices(db, ctx(D), { documentId: doc.documentId });
+    expect(r).toMatchObject({ recorded: 1, skipped: 1 });
+    expect(r.lines[0]?.skipped).toMatch(/^its quantity times its unit price isn't its amount/);
+    expect(r.lines[1]).toMatchObject({ unitPriceStd: "1.8500", qtyStd: "1240.0000" });
+    expect(await observations(D.tenantId)).toHaveLength(1);
+  });
+
+  it("lists who sold an item per currency, and an assumed unit as a purchase without a price", async () => {
+    const E = await insertShop(t.db, "Millwork E");
+    const priced = async (vendorName: string, line: InvoiceLine, currency?: string) => {
+      const d = await matchedInvoice(E, vendorName, [line], {
+        date: "2026-10-01",
+        ...(currency ? { currency } : {}),
+      });
+      await recordPrices(db, ctx(E), { documentId: d.documentId });
+    };
+    await priced("Northline Plywood", {
+      description: BB,
+      qty: "10",
+      uom: "SHT",
+      unitPrice: "60.00",
+    });
+    await priced(
+      "Keystone Lumber",
+      { description: BB, qty: "10", uom: "SHT", unitPrice: "50.00" },
+      "CAD",
+    );
+    await priced("Cedar Ridge Supply", { description: BB, qty: "10", unitPrice: "40.00" });
+    const itemId = (await observations(E.tenantId))[0]?.catalogItemId as string;
+    const r = await withTenant(db, E.tenantId, (tx) =>
+      vendorsForItems(tx, E.tenantId, { catalogItemIds: [itemId], today: "2026-10-02" }),
+    );
+    expect(
+      r.items[0]?.vendors.map((v) => [v.vendorName, v.lastPrice, v.currency, v.timesBought]),
+    ).toEqual([
+      ["Northline Plywood", "60.0000", "USD", 1],
+      ["Keystone Lumber", "50.0000", "CAD", 1],
+      ["Cedar Ridge Supply", null, null, 1],
+    ]);
+  });
+
+  it("never adds what is at stake across currencies in the week's digest", async () => {
+    const F = await insertShop(t.db, "Millwork F");
+    const vendorId = await F.vendor("Northline Plywood");
+    const at = (amount: string, currency: string, n: number) => ({
+      tenantId: F.tenantId,
+      pack: "materials",
+      kind: "price_jump",
+      subjectType: "vendor",
+      subjectId: vendorId,
+      severity: "warning" as const,
+      title: `Up ${n}`,
+      body: "Up.",
+      evidence: [vendorId],
+      facts: { currency },
+      dollarImpact: amount,
+      currency,
+      dedupeKey: `test:${n}`,
+    });
+    await t.db
+      .insert(alert)
+      .values([at("10.0000", "USD", 1), at("5.0000", "USD", 2), at("20.0000", "CAD", 3)]);
+    const d = await withTenant(db, F.tenantId, (tx) =>
+      weeklyDigest(tx, F.tenantId, { today: new Date().toISOString().slice(0, 10) }),
+    );
+    expect(d).toMatchObject({
+      dollarImpact: "15.0000",
+      currency: "USD",
+      atStake: [
+        { currency: "USD", amount: "15.0000" },
+        { currency: "CAD", amount: "20.0000" },
+      ],
+    });
+    expect(d.message).toContain("3 alerts, about $15.00 and CAD 20.00 at stake.");
+  });
+
+  it("records a fee alert in the invoice's currency", async () => {
+    const G = await insertShop(t.db, "Millwork G");
+    const first = await matchedInvoice(
+      G,
+      "Northline Plywood",
+      [{ description: BB, qty: "1", uom: "SHT", unitPrice: "75.00" }],
+      { date: "2026-10-01", currency: "CAD" },
+    );
+    await recordPrices(db, ctx(G), { documentId: first.documentId });
+    const doc = await matchedInvoice(
+      G,
+      "Northline Plywood",
+      [{ description: BB, qty: "1", uom: "SHT", unitPrice: "75.00" }],
+      {
+        date: "2026-10-20",
+        currency: "CAD",
+        surcharges: [{ label: "Pallet fee", amount: "75.00" }],
+      },
+    );
+    await recordPrices(db, ctx(G), { documentId: doc.documentId });
+    const r = await checkPrices(db, ctx(G), {
+      documentId: doc.documentId,
+      settings: priceSettingsFrom({}),
+    });
+    const fee = r.alerts.find((a) => a.kind === "new_fee");
+    expect(fee?.body).toMatch(/^CAD 75\.00 for "Pallet fee"/);
+    const [row] = (await alerts(G.tenantId)).filter((a) => a.kind === "new_fee");
+    expect(row).toMatchObject({ currency: "CAD", facts: { currency: "CAD" } });
   });
 
   it("keeps each client's prices and alerts its own", async () => {

@@ -7,6 +7,7 @@ import { dec, toNumeric } from "@countersign/core";
 import { type Tx, vendor } from "@countersign/db";
 import { and, asc, desc, eq, gte, isNull, lte } from "drizzle-orm";
 import { liveItem } from "../catalog/store";
+import { fromLatestReading } from "../pricing/record";
 import { daysBefore } from "../pricing/rules";
 import { type Category, catalogItem, itemAlias, priceObservation } from "../schema";
 
@@ -69,6 +70,8 @@ export async function vendorsForItems(
           eq(priceObservation.standardUom, item.standardUom),
           gte(priceObservation.observedOn, since),
           lte(priceObservation.observedOn, input.today),
+          // A document read again counts once: its latest reading's prices only.
+          fromLatestReading(),
         ),
       )
       .orderBy(desc(priceObservation.observedOn), desc(priceObservation.createdAt))
@@ -77,11 +80,16 @@ export async function vendorsForItems(
       .select({ id: itemAlias.id, vendorId: itemAlias.vendorId })
       .from(itemAlias)
       .where(and(eq(itemAlias.tenantId, tenantId), eq(itemAlias.catalogItemId, item.id)));
+    // DECISION (review of fix/materials, finding 6): a vendor's row is per currency (a price in
+    // one is never compared with one in another, nor added to its quantity), and a price whose
+    // unit was assumed (a line with no unit, a QuickBooks bill line) counts as a purchase but not
+    // as a price or a quantity.
     const byVendor = new Map<string, VendorForItem>();
-    for (const o of observations) {
-      const row = byVendor.get(o.vendorId);
+    for (const o of observations.filter((x) => x.ext?.uomAssumed !== true)) {
+      const key = `${o.vendorId}|${o.currency}`;
+      const row = byVendor.get(key);
       if (!row) {
-        byVendor.set(o.vendorId, {
+        byVendor.set(key, {
           vendorId: o.vendorId,
           vendorName: names.get(o.vendorId) ?? "A vendor",
           lastPrice: o.unitPriceStd,
@@ -97,11 +105,31 @@ export async function vendorsForItems(
         row.sources.push(o.id);
       }
     }
+    const rowsOf = (vendorId: string) =>
+      [...byVendor.values()].filter((r) => r.vendorId === vendorId);
+    for (const o of observations.filter((x) => x.ext?.uomAssumed === true)) {
+      const row = rowsOf(o.vendorId)[0];
+      if (row) {
+        row.timesBought += 1;
+        row.sources.push(o.id);
+      } else {
+        byVendor.set(`${o.vendorId}|assumed`, {
+          vendorId: o.vendorId,
+          vendorName: names.get(o.vendorId) ?? "A vendor",
+          lastPrice: null,
+          lastOn: o.observedOn,
+          timesBought: 1,
+          qtyStd: toNumeric("0"),
+          currency: null,
+          sources: [o.id],
+        });
+      }
+    }
     for (const a of aliases) {
-      const row = byVendor.get(a.vendorId);
+      const row = rowsOf(a.vendorId)[0];
       if (row) row.sources.push(a.id);
       else {
-        byVendor.set(a.vendorId, {
+        byVendor.set(`${a.vendorId}|alias`, {
           vendorId: a.vendorId,
           vendorName: names.get(a.vendorId) ?? "A vendor",
           lastPrice: null,
@@ -113,7 +141,23 @@ export async function vendorsForItems(
         });
       }
     }
+    // Cheapest first within the currency most vendors are priced in, then the other currencies.
+    const perCurrency = new Map<string, number>();
+    for (const r of byVendor.values()) {
+      if (r.currency) perCurrency.set(r.currency, (perCurrency.get(r.currency) ?? 0) + 1);
+    }
+    const order = [...perCurrency.entries()]
+      .sort(
+        (a, b) =>
+          b[1] - a[1] ||
+          Number(b[0] === "USD") - Number(a[0] === "USD") ||
+          a[0].localeCompare(b[0]),
+      )
+      .map(([c]) => c);
     const vendors = [...byVendor.values()].sort((a, b) => {
+      const ca = a.currency === null ? order.length : order.indexOf(a.currency);
+      const cb = b.currency === null ? order.length : order.indexOf(b.currency);
+      if (ca !== cb) return ca - cb;
       if (a.lastPrice === null || b.lastPrice === null) {
         return a.lastPrice === b.lastPrice
           ? a.vendorName.localeCompare(b.vendorName)
@@ -177,6 +221,7 @@ export async function frequentItems(
     lte(priceObservation.observedOn, input.to),
     eq(priceObservation.standardUom, catalogItem.standardUom),
     isNull(catalogItem.mergedIntoId),
+    fromLatestReading(),
   ];
   if (input.category) filters.push(eq(catalogItem.category, input.category));
   const rows = await tx

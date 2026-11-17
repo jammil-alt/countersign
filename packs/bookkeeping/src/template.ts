@@ -1071,9 +1071,31 @@ const bookkeeperV3 = once(() =>
   } satisfies AnyAgentBundleInput),
 );
 
-/** The Bookkeeper: v1 as first installed, then v2 (v4 processes) and v3 (the skill model). */
+// ── v4 (2026-11-17): one booking that can't be written doesn't hold up the rest ─────────────────
+//
+// v3 with the posting loop (`post`) set to `onError: continue`: a booking whose QuickBooks write is
+// refused (one already there, an account gone) is left for a person and the loop goes on to the
+// next. Every other step, id and trigger is v3's. Installed templates get it with "Update
+// templates"; a client agent gets it as a template update merged on review (invariant 11).
+
+const bookkeeperV4 = once(() =>
+  AnyAgentBundle.parse({
+    ...bookkeeperV3(),
+    workflows: bookkeeperV3().workflows.map((w) => {
+      if (w.workflow.schemaVersion !== 4) throw new Error(`${w.slug}: not v4`);
+      const steps = processes.replaceSteps(w.workflow.steps, (step) =>
+        step.kind === "for_each" && step.id === "post"
+          ? [{ ...step, onError: "continue" as const }]
+          : undefined,
+      );
+      return { ...w, workflow: { ...w.workflow, steps } };
+    }),
+  } satisfies AnyAgentBundleInput),
+);
+
+/** The Bookkeeper: v1 as first installed, then v2 (v4 processes), v3 (the skill model), v4. */
 export const BOOKKEEPER_TEMPLATE = lazyObject({
   slug: BOOKKEEPER_V1.slug,
   bundle: lazy(() => BOOKKEEPER_V1.bundle),
-  versions: lazy(() => [bookkeeperV2(), bookkeeperV3()]),
+  versions: lazy(() => [bookkeeperV2(), bookkeeperV3(), bookkeeperV4()]),
 });

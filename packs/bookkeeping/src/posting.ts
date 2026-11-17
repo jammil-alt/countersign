@@ -5,18 +5,31 @@
 
 import { BANKING_TOOLS } from "@countersign/connectors";
 import { dec } from "@countersign/core";
-import { ledgerAccount, type Tx, vendor, withTenant } from "@countersign/db";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { ledgerAccount, type Tx, transaction, vendor, withTenant } from "@countersign/db";
+import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { MONEY_KINDS } from "./bookings";
+import { holdPaired, MONEY_KINDS, resentChain, resentWritten } from "./bookings";
 import { defineTool, PackRefusal, type PackTool } from "./pack";
 import { bankAccountLink, bankTxn, booking, bookingLine } from "./schema";
 
 const Id = z.string().uuid();
 const cents = (v: string) => dec(v).toFixed(2);
 
-/** The reference a booking's record carries in the accounting tool (`[Mezonas bk-<id>]`). */
+/** The reference records written before 2026-11-17 carry (`[Mezonas bk-<booking id>]`). */
 export const bookingReference = (bookingId: string) => `bk-${bookingId}`;
+/**
+ * The reference a booking's record carries in the accounting tool (`[Mezonas bt-<bank transaction
+ * id>]`): every booking of one bank transaction carries the same, so a write made for an earlier
+ * booking of it and never recorded (a run stopped after the write) is found as already written,
+ * not made again, when the transaction is booked again.
+ */
+// DECISION: per bank transaction rather than per booking, so the connector's own check ("a record
+// with this reference is this action's earlier write") covers re-bookings with no new field on
+// the write steps (whose versions are fixed).
+export const txnReference = (bankTxnId: string) => `bt-${bankTxnId}`;
+/** A record's mark in its memo, as POSIX patterns: the transaction's, and a booking's (before). */
+const TXN_MARK = "\\[Mezonas bt-([0-9a-f-]{36})\\]";
+const BOOKING_MARK = "\\[Mezonas bk-([0-9a-f-]{36})\\]";
 
 export const readyTool = defineTool({
   id: "bookkeeping.bookings.ready",
@@ -55,6 +68,8 @@ export const readyTool = defineTool({
             inArray(booking.kind, ["expense", "deposit", "transfer"]),
             inArray(bankTxn.status, ["proposed", "approved"]),
             eq(bankAccountLink.mode, "book"),
+            // An earlier copy the bank removed and sent again: a person decides on the copy.
+            sql`${bankTxn.ext} ->> 'resentAs' is null`,
           ),
         )
         .orderBy(asc(bankTxn.txnDate), asc(booking.id))
@@ -120,6 +135,13 @@ export async function qboInput(tx: Tx, tenantId: string, bookingId: string) {
   if (t.status !== "approved" && t.status !== "proposed") {
     throw new PackRefusal(`transaction ${t.id} is ${t.status}: a person decides it first`);
   }
+  if (typeof (t.ext as { resentAs?: unknown }).resentAs === "string") {
+    throw new PackRefusal(
+      `transaction ${t.id} was removed and sent again by the bank: a person decides the new copy`,
+    );
+  }
+  // A copy the bank sent again: a record written for any earlier copy is this money's too.
+  const ids = await resentChain(tx, tenantId, t.id);
   if (l.mode !== "book" || !l.ledgerAccountId) {
     throw new PackRefusal(
       `${l.name ?? "this account"} isn't set to book: approve and add it yourself`,
@@ -143,8 +165,38 @@ export async function qboInput(tx: Tx, tenantId: string, bookingId: string) {
   const lineAccounts: Awaited<ReturnType<typeof ledger>>[] = [];
   for (const line of lines) lineAccounts.push(await ledger(line.ledgerAccountId));
   const memo = (b.memo ?? t.payee ?? "").trim().slice(0, 200) || undefined;
-  const reference = bookingReference(b.id);
+  const reference = txnReference(t.id);
   const sources = [b.id, t.rawRecordId];
+  // A record already written for this transaction, of any kind, synced back: under its reference
+  // (a write nobody recorded, perhaps for a booking of another kind since) or under the old
+  // per-booking reference of one of its bookings. It is in the accounting tool already, and isn't
+  // written again.
+  const [written] = await tx
+    .select({ ext: transaction.ext })
+    .from(transaction)
+    .where(
+      and(
+        eq(transaction.tenantId, tenantId),
+        sql`coalesce((${transaction.ext} -> 'qbo' ->> 'deleted')::boolean, false) = false`,
+        or(
+          sql`substring(coalesce(${transaction.memo}, '') from ${TXN_MARK}::text) in (${sql.join(
+            ids.map((id) => sql`${id}::text`),
+            sql`, `,
+          )})`,
+          sql`substring(coalesce(${transaction.memo}, '') from ${BOOKING_MARK}::text) in (select e.id::text from ${booking} e where e.tenant_id = ${tenantId} and e.bank_txn_id::text in (${sql.join(
+            ids.map((id) => sql`${id}::text`),
+            sql`, `,
+          )}))`,
+        ),
+      ),
+    )
+    .limit(1);
+  if (written) {
+    const q = (written.ext as { qbo?: { entity?: string; id?: string } }).qbo ?? {};
+    throw new PackRefusal(
+      `this transaction is already in QuickBooks (${q.entity ?? "record"} ${q.id ?? ""}): leave it out, or change that record there`,
+    );
+  }
   if (b.kind === "transfer") {
     const other = lineAccounts[0];
     if (!other || lines.length !== 1) throw new PackRefusal("a transfer has one line");
@@ -286,6 +338,18 @@ export const postedTool = defineTool({
       if (b.status === "posted" && b.qboId === (input.qboId ?? null)) {
         return { recorded: false, status: "posted" as const, sources: [b.id] };
       }
+      // Laid out for a signature before the bank sent the transaction again, and written after
+      // all: what was written is recorded, and the copy with it.
+      if (
+        b.status === "superseded" &&
+        input.qboId &&
+        (await resentWritten(tx, ctx, b.bankTxnId, b, {
+          entity: QBO_ENTITY[input.entity],
+          id: input.qboId,
+        }))
+      ) {
+        return { recorded: true, status, sources: [b.id, input.qboId] };
+      }
       if (b.status !== "approved" && b.status !== "proposed") {
         throw new PackRefusal(`booking ${b.id} is ${b.status}: nothing to record`);
       }
@@ -312,6 +376,8 @@ export const postedTool = defineTool({
         .update(bankTxn)
         .set({ status: input.qboId ? "posted" : "needs_review", updatedAt: sql`now()` })
         .where(and(eq(bankTxn.tenantId, ctx.tenantId), eq(bankTxn.id, b.bankTxnId)));
+      // A transfer not written: its other side waits for a person with it.
+      if (!input.qboId) await holdPaired(tx, ctx.tenantId, { id: b.bankTxnId }, "not_written");
       return { recorded: true, status, sources: [b.id, ...(input.qboId ? [input.qboId] : [])] };
     });
   },

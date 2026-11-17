@@ -47,6 +47,8 @@ const Uuid = z.uuid();
 const TotalsOut = z.object({
   totalsMatch: z.boolean(),
   problems: z.array(z.string()),
+  /** Lines whose quantity times unit price isn't their amount: noted, not a totals failure. */
+  lineNotes: z.array(z.string()).default([]),
   linesSum: z.string(),
   lineCount: z.number().int(),
   vendorName: z.string(),
@@ -62,7 +64,7 @@ const TotalsOut = z.object({
 export const docsTotalsCheck = defineInternalTool({
   id: "docs.totals.check",
   description:
-    "Checks a document's reading: the lines add up to the subtotal (within 2 cents or 0.5%), and subtotal, freight, surcharges and tax add up to the total (within 2 cents). Reads only its input.",
+    "Checks a document's reading: the lines add up to the subtotal (within 2 cents or 0.5%), and subtotal, freight, surcharges and tax add up to the total (within 2 cents). Also notes each line whose quantity times unit price isn't its amount (allowing for rounding, credits, and prices per hundred or thousand) in lineNotes: a note, not a reason the totals fail. Reads only its input.",
   sideEffect: "none",
   entity: "document",
   area: "shared",
@@ -76,6 +78,7 @@ export const docsTotalsCheck = defineInternalTool({
     return {
       totalsMatch: check.ok,
       problems: check.problems,
+      lineNotes: check.lineNotes,
       linesSum: check.linesSum,
       lineCount: input.reading.lines.length,
       vendorName: h.vendorName,

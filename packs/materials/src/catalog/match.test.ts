@@ -14,7 +14,7 @@ import { parseLine } from "./keys";
 import { decideLine, MatchError, matchLine } from "./match";
 import { mergeItems } from "./merge";
 import { descriptionHash, normalize } from "./normalize";
-import { createItem, learnAlias } from "./store";
+import { createItem, identifyingSku, learnAlias, taughtCode } from "./store";
 
 const online = await databaseAvailable();
 
@@ -25,6 +25,29 @@ function scripted(turns: FakeTurn[]) {
 
 const answer = (input: Record<string, unknown>): FakeTurn => ({
   toolUse: { name: "record_match", input },
+});
+
+describe("identifyingSku", () => {
+  it("takes item numbers of four digits and more, and mixed codes of three; refuses the rest", () => {
+    const read = (sku: string, lineNo?: number) => identifyingSku(sku, lineNo);
+    expect(["4417", "10001", "W44"].map((s) => read(s))).toEqual(["4417", "10001", "W44"]);
+    expect(["123", "12", "1", "SPO", "N/A", "MISC", "SPO2"].map((s) => read(s))).toEqual([
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+    ]);
+    // The line's own number read as its SKU.
+    expect(read("0002", 2)).toBeNull();
+    expect(read("0002", 3)).toBe("0002");
+    // A person's alias keeps a short code, never a generic one or the line's own number.
+    expect(taughtCode("77", 1)).toBe("77");
+    expect(taughtCode("2", 2)).toBeNull();
+    expect(taughtCode("SPO")).toBeNull();
+  });
 });
 
 describe.skipIf(!online)("matching lines (database)", () => {
@@ -293,6 +316,142 @@ describe.skipIf(!online)("matching lines (database)", () => {
       { tenantId: A.tenantId, agentVersionId: A.agentVersionId, docLineId: next as string },
     );
     expect(r).toMatchObject({ method: "alias", catalogItemId: bbbb?.id });
+  });
+
+  it("never learns a special-order or short code as a SKU, and a SKU never outvotes the line's words", async () => {
+    const vendorId = await A.vendor("Harbor Building Supply");
+    const base = { tenantId: A.tenantId, agentVersionId: A.agentVersionId };
+    const all = await items(A.tenantId);
+    const threeQuarter = all.find(
+      (i) => i.canonicalName === "Baltic birch plywood 3/4in 60x60in BB/BB",
+    );
+    const half = all.find((i) => i.keySignature?.includes("thickness=1/2in"));
+    // A yard's special order code and a line number read as the SKU: matched, never learned.
+    const [spo, num] = await A.invoice(vendorId, [
+      { description: "3/4 BB/BB BALTIC BIRCH 5X5", sku: "SPO" },
+      { description: "3/4 BB/BB BALTIC BIRCH 5X5 UV1S", sku: "12" },
+    ]);
+    expect(await matchLine({ db }, { ...base, docLineId: spo as string })).toMatchObject({
+      decision: "matched",
+      catalogItemId: threeQuarter?.id,
+    });
+    await matchLine({ db }, { ...base, docLineId: num as string });
+    const skus = await t.db
+      .select({ sku: itemAlias.vendorSku })
+      .from(itemAlias)
+      .where(and(eq(itemAlias.tenantId, A.tenantId), eq(itemAlias.vendorId, vendorId)));
+    expect(skus.filter((s) => s.sku !== null)).toEqual([]);
+    // The next special order is another item: its own words decide it, not the code.
+    const [next] = await A.invoice(vendorId, [
+      { description: "1/2 BB/BB BALTIC BIRCH 5X5", sku: "SPO" },
+    ]);
+    const r = await matchLine({ db }, { ...base, docLineId: next as string });
+    expect(r).toMatchObject({ decision: "matched", catalogItemId: half?.id, method: "rules" });
+
+    // A real SKU learned for the 3/4 sheet, on a line that says 1/2: a person decides.
+    await t.db.transaction(async (tx) => {
+      await learnAlias(tx, A.tenantId, {
+        vendorId,
+        vendorSku: "HBS-BB34",
+        descriptionHash: await descriptionHash("hbs bb34 sheet"),
+        normalizedDescription: "3/4 bb/bb baltic birch 5x5",
+        catalogItemId: threeQuarter?.id as string,
+        source: "auto",
+      });
+    });
+    const [odd] = await A.invoice(vendorId, [
+      { description: "1/2 BB/BB BALTIC BIRCH 5X5", sku: "HBS-BB34" },
+    ]);
+    const vetoed = await matchLine({ db }, { ...base, docLineId: odd as string });
+    expect(vetoed).toMatchObject({
+      decision: "unsure",
+      needsReview: true,
+      catalogItemId: null,
+      method: "alias",
+      hingeAttribute: "thickness",
+    });
+    expect(vetoed.candidates).toEqual([
+      expect.objectContaining({ catalogItemId: threeQuarter?.id, vetoed: true }),
+    ]);
+    // A person matches a line to an item its words differ from: the SKU isn't learned for it.
+    const [mis] = await A.invoice(vendorId, [
+      { description: "1/2 BB/BB BALTIC BIRCH 5X5", sku: "HBS-9931" },
+    ]);
+    await decideLine(db, {
+      tenantId: A.tenantId,
+      docLineId: mis as string,
+      userId: A.userId,
+      decision: "matched",
+      catalogItemId: threeQuarter?.id,
+    });
+    const learned = await t.db
+      .select({ sku: itemAlias.vendorSku })
+      .from(itemAlias)
+      .where(and(eq(itemAlias.tenantId, A.tenantId), eq(itemAlias.vendorSku, "HBS-9931")));
+    expect(learned).toEqual([]);
+  });
+
+  it("takes a four-digit item number as a SKU, and keeps a person's alias for a short code, never a generic one", async () => {
+    const vendorId = await A.vendor("Ridgeline Yard");
+    const base = { tenantId: A.tenantId, agentVersionId: A.agentVersionId };
+    const threeQuarter = (await items(A.tenantId)).find(
+      (i) => i.canonicalName === "Baltic birch plywood 3/4in 60x60in BB/BB",
+    );
+    // A small yard's item number: learned, and the next line with it is an alias hit.
+    const [first] = await A.invoice(vendorId, [
+      { description: "3/4 BB/BB BALTIC BIRCH 5X5", sku: "4417" },
+    ]);
+    await matchLine({ db }, { ...base, docLineId: first as string });
+    const [next] = await A.invoice(vendorId, [{ description: "BALTIC BIRCH SHEET", sku: "4417" }]);
+    expect(await matchLine({ db }, { ...base, docLineId: next as string })).toMatchObject({
+      method: "alias",
+      catalogItemId: threeQuarter?.id,
+    });
+    // A person decided a line with a short code: their alias for the code still counts.
+    const [short] = await A.invoice(vendorId, [{ description: "PANEL AS QUOTED", sku: "77" }]);
+    await decideLine(db, {
+      tenantId: A.tenantId,
+      docLineId: short as string,
+      userId: A.userId,
+      decision: "matched",
+      catalogItemId: threeQuarter?.id,
+    });
+    const [again] = await A.invoice(vendorId, [{ description: "PANEL, YOUR ITEM", sku: "77" }]);
+    expect(await matchLine({ db }, { ...base, docLineId: again as string })).toMatchObject({
+      method: "alias",
+      catalogItemId: threeQuarter?.id,
+    });
+    // A person's decision on a special order never makes "SPO" an item: the next one is new.
+    const [spo] = await A.invoice(vendorId, [{ description: "SPECIAL ORDER PANEL", sku: "SPO" }]);
+    await decideLine(db, {
+      tenantId: A.tenantId,
+      docLineId: spo as string,
+      userId: A.userId,
+      decision: "matched",
+      catalogItemId: threeQuarter?.id,
+    });
+    const [nextSpo] = await A.invoice(vendorId, [
+      { description: "WALNUT EDGE BANDING 7/8", sku: "SPO" },
+    ]);
+    const r2 = await matchLine({ db }, { ...base, docLineId: nextSpo as string });
+    expect(r2.method).not.toBe("alias");
+    expect(r2.catalogItemId).not.toBe(threeQuarter?.id);
+    const spoAliases = await t.db
+      .select({ sku: itemAlias.vendorSku })
+      .from(itemAlias)
+      .where(and(eq(itemAlias.tenantId, A.tenantId), eq(itemAlias.vendorSku, "SPO")));
+    expect(spoAliases).toEqual([]);
+    // The line's own number read as its SKU is no SKU.
+    const lines = await A.invoice(vendorId, [
+      { description: "1/2 BB/BB BALTIC BIRCH 5X5" },
+      { description: "1/2 BB/BB BALTIC BIRCH 5X5", sku: "0002" },
+    ]);
+    await matchLine({ db }, { ...base, docLineId: lines[1] as string });
+    const learned = await t.db
+      .select({ sku: itemAlias.vendorSku })
+      .from(itemAlias)
+      .where(and(eq(itemAlias.tenantId, A.tenantId), eq(itemAlias.vendorSku, "0002")));
+    expect(learned).toEqual([]);
   });
 
   it("never lets an automatic alias replace a person's", async () => {
