@@ -164,7 +164,14 @@ const common = {
   "GET /api/ops/counts": () => ({ needsUs: 0, clients: [] }),
   "GET /api/ops/clients": () => ({
     clients: [
-      { id: CLIENT, name: "Hartley Millwork", timezone: "UTC", createdAt: at, agents: 0, openInbox: 0 },
+      {
+        id: CLIENT,
+        name: "Hartley Millwork",
+        timezone: "UTC",
+        createdAt: at,
+        agents: 0,
+        openInbox: 0,
+      },
     ],
   }),
   "GET /api/ops/deals": () => ({ deals: [lead, grow, won], kpis, today: "2026-11-17" }),
@@ -201,7 +208,9 @@ describe("Sales", () => {
     expect(within(table).getByTestId(`sales-row-${LEAD}`)).toHaveTextContent(
       "Ridgeline Dental GroupLead",
     );
-    expect(within(table).getByTestId(`sales-row-${LEAD}`)).toHaveTextContent("Needs you · First reply");
+    expect(within(table).getByTestId(`sales-row-${LEAD}`)).toHaveTextContent(
+      "Needs you · First reply",
+    );
     expect(within(table).getByTestId(`sales-row-${LEAD}`)).toHaveTextContent("10% likely");
     expect(within(table).getByTestId(`sales-row-${LEAD}`)).toHaveTextContent("Today");
     expect(within(table).getByTestId(`sales-row-${GROW}`)).toHaveTextContent("+$700");
@@ -228,7 +237,9 @@ describe("Sales", () => {
     expect(within(heads).getByTestId("sales-head-pitch")).toHaveTextContent(
       "Pitch11 deal1 agent$700/mo",
     );
-    expect(within(heads).getByTestId("sales-head-spotted")).toHaveTextContent("0 deals0 agents$0/mo");
+    expect(within(heads).getByTestId("sales-head-spotted")).toHaveTextContent(
+      "0 deals0 agents$0/mo",
+    );
     const board = screen.getByTestId("sales-board");
     const pitch = within(board).getByRole("region", { name: "Pitch" });
     expect(within(pitch).getByTestId(`sales-card-${GROW}`)).toHaveTextContent("Hartley Millwork");
@@ -281,7 +292,11 @@ describe("Sales", () => {
       [`PATCH /api/ops/deals/${LEAD}`]: ({ init }) => {
         const body = JSON.parse(String(init.body));
         moves.push(body);
-        current = detail({ stage: "proposal", stageName: "Proposal and contract", likelihood: "0.6" });
+        current = detail({
+          stage: "proposal",
+          stageName: "Proposal and contract",
+          likelihood: "0.6",
+        });
         return current;
       },
       [`POST /api/ops/deals/${LEAD}/activity`]: ({ init }) => {
@@ -308,7 +323,9 @@ describe("Sales", () => {
     // The composer opens on the internal note; email comes with Reggie's inbox.
     await userEvent.type(screen.getByTestId("deal-composer-text"), "Karen wants it by January.");
     await userEvent.click(screen.getByTestId("deal-composer-save"));
-    await waitFor(() => expect(notes).toEqual([{ kind: "note", body: "Karen wants it by January." }]));
+    await waitFor(() =>
+      expect(notes).toEqual([{ kind: "note", body: "Karen wants it by January." }]),
+    );
     await userEvent.click(screen.getByTestId("deal-composer-email"));
     expect(screen.getByTestId("deal-composer-email-later")).toBeInTheDocument();
 
@@ -318,9 +335,7 @@ describe("Sales", () => {
     expect(screen.getByTestId("deal-setup-name")).toHaveValue("Ridgeline Dental Group");
     expect(screen.getByTestId("deal-setup-admin")).toHaveValue("karen@ridgeline.example.com");
     expect(screen.getByTestId("deal-setup-agent-1")).toHaveValue("Bookkeeper");
-    expect(screen.getByTestId("deal-setup-go")).toHaveTextContent(
-      "Create the client and 2 builds",
-    );
+    expect(screen.getByTestId("deal-setup-go")).toHaveTextContent("Create the client and 2 builds");
     await userEvent.click(screen.getByTestId("deal-setup-go"));
     await waitFor(() =>
       expect(setups).toEqual([
