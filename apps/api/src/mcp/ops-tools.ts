@@ -597,7 +597,7 @@ const opsHealth: Tool<OpsToolCtx> = {
   name: "ops_health",
   title: "Platform health",
   description:
-    "What went wrong across the clients you serve, or for one client, in the last `hours` (default 24): failed live runs and failed writes to clients' tools grouped by error key, and what is stuck now (runs that stopped before finishing, signed items their run never took, connections in error or not syncing, events set aside after failing to dispatch, by type with the oldest). Each finding has sample ids for run_get, inbox_list or connections_list.",
+    "What went wrong across the clients you serve, or for one client, in the last `hours` (default 24): failed live runs and failed writes to clients' tools grouped by error key, and what is stuck now (runs that stopped before finishing, signed items their run never took, connections in error or not syncing, events set aside after failing to dispatch, by type with the oldest). Each finding has sample ids: runs for run_get, signed items for inbox_list, connections for connections_list; a set-aside finding's ids are event ids, which none of those tools reads (the client's Health page in the back office lists them).",
   input: z.strictObject({
     client: ClientId.optional(),
     hours: z.int().min(1).max(168).default(24),

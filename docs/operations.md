@@ -1444,6 +1444,10 @@ step's date:
   code that needs it. Migrations must therefore keep the previous Worker working (add, then use;
   stop using, then drop).
 - Never edit a migration that has reached `staging` or `main`. Add a new one.
+- Deploy note (audit 4.3, accepted): the notification outbox claims a row before it sends it
+  (`reason` = `sending:…`). In the minute or two of a deploy, a Worker from before the claim may run
+  its notification pass beside a new one; it ignores claims, so a text or phone notification can
+  go twice, rarely, once. Email can't: Resend's idempotency key makes the second send the same one.
 
 ## 4. Backups and restore
 
