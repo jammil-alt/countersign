@@ -1727,6 +1727,41 @@ export const opsRoutes = {
     }),
     response: z.object({ events: z.array(RecentEvent) }),
   }),
+  // Audit 4.6: events set aside after failing to dispatch, and giving them back to the sweep.
+  opsSetAsideEvents: defineRoute({
+    method: "GET",
+    path: "/api/ops/clients/:id/events/set-aside",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "A client's events set aside after failing to dispatch: how many, the oldest, and the 50 set aside last with their error",
+    params: IdParams,
+    response: z.object({
+      count: z.number().int(),
+      oldest: NullableTimestamp,
+      events: z.array(
+        z.object({
+          id: z.string(),
+          type: z.string(),
+          createdAt: Timestamp,
+          setAsideAt: Timestamp,
+          attempts: z.number().int(),
+          error: z.string().nullable(),
+        }),
+      ),
+    }),
+  }),
+  opsRetrySetAsideEvents: defineRoute({
+    method: "POST",
+    path: "/api/ops/clients/:id/events/set-aside/retry",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Give a client's set-aside events back to the dispatcher (the ones named, or the 100 set aside first); their runs start once per event",
+    params: IdParams,
+    body: z.strictObject({ eventIds: z.array(ApiId).min(1).max(100).optional() }),
+    response: z.object({ retried: z.number().int() }),
+  }),
   opsValidateWorkflow: defineRoute({
     method: "POST",
     path: "/api/ops/workflows/validate",
