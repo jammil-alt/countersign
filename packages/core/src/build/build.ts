@@ -657,6 +657,23 @@ export const BuildAction = z.discriminatedUnion("do", [
     reason: z.string().trim().min(20).max(500).describe("What has to be redone there"),
   }),
   z.object({ do: z.literal("run_tests") }),
+  z.object({
+    do: z.literal("edit_draft"),
+    request: z
+      .string()
+      .trim()
+      .min(10)
+      .max(1000)
+      .describe(
+        "The change to the draft, as you'd ask the workflow's Builder: the step by name, what to change and why",
+      ),
+    stepId: z
+      .string()
+      .min(1)
+      .max(100)
+      .optional()
+      .describe("The step it changes, by its id in the draft's steps, when it is about one step"),
+  }),
 ]);
 export type BuildAction = z.infer<typeof BuildAction>;
 
@@ -671,11 +688,15 @@ export const BuildProposal = z.object({
 });
 export type BuildProposal = z.infer<typeof BuildProposal>;
 
-export const PROPOSAL_STATES = ["proposed", "agreed", "declined", "undone"] as const;
+/** `unchanged`: agreed, but the workflow's Builder made no change (it said why). */
+export const PROPOSAL_STATES = ["proposed", "agreed", "unchanged", "declined", "undone"] as const;
 export const ProposalState = z.enum(PROPOSAL_STATES);
 export type ProposalState = z.infer<typeof ProposalState>;
 
-/** Undo is offered where the change has an exact opposite: an item's state. */
+/**
+ * Undo is offered where the change has an exact opposite: an item's state. A draft edit is undone
+ * by its own changes (the Builder session's undo), not by an action.
+ */
 export function proposalUndo(
   action: BuildAction,
   before: BuildItemState | null,

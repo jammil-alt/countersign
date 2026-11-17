@@ -48,6 +48,7 @@ import {
   addMessage,
   type BuildRow,
   buildDetail,
+  draftOutline,
   latestSkillVersion,
   listBuilds,
   type NewItem,
@@ -339,6 +340,10 @@ async function turn(
       ...(detail.gate.reasons.length > 0
         ? [`Can't move on yet: ${detail.gate.reasons.join(" ")}`]
         : []),
+      // The draft's steps by id, so a proposed edit names a real one.
+      ...(row.phase === "draft" || row.phase === "poc"
+        ? await draftOutline({ tx: scoped.tx, services: ctx.services, now }, row)
+        : []),
     ];
     const bctx =
       row.phase === "fitgap" || row.phase === "poc"
@@ -487,7 +492,109 @@ function fitProposal(p: BuildProposal, d: BuildDetail, phase: BuildPhase): Build
         : null;
     case "run_tests":
       return phase === "poc" && d.draft ? p : null;
+    case "edit_draft":
+      // The draft is what the POC tests; from the client test on, the change goes back first.
+      return (phase === "draft" || phase === "poc") &&
+        (d.build.kind === "agent" ? !!d.draft?.versionId : !!d.draft?.sessionId)
+        ? p
+        : null;
   }
+}
+
+type EditAction = Extract<BuildAction, { do: "edit_draft" }>;
+
+interface Edit {
+  sessionId: string;
+  turnId: string;
+  changes: { id: string; label: string }[];
+  text: string;
+  versionId: string | null;
+}
+
+/** An agreed draft edit as its decision keeps it, for its undo. */
+interface SavedEdit {
+  sessionId: string;
+  turnId: string;
+  changeIds: string[];
+  versionId: string | null;
+}
+
+/**
+ * Makes an agreed draft edit: a Builder session on the draft (an agent's: a new one from its latest
+ * version, so nothing older is saved over it; a skill's: the build's own conversation), one turn
+ * with the request (about its step when it names one), and the result saved as a draft version.
+ */
+async function applyEdit(ctx: LongCtx, id: string, a: EditAction, summary: string): Promise<Edit> {
+  const row = await ctx.inTx((scoped) => readBuild(scoped.tx, id, true));
+  let sessionId: string;
+  if (row.kind === "agent") {
+    if (!row.agentId) throw new HttpError(409, "no_draft", "there's no draft to change yet");
+    const started = await call(ctx, routes.opsStartBuilderSession, {
+      body: { kind: "agent", agentId: row.agentId },
+    });
+    sessionId = started.session.id;
+  } else {
+    if (!row.sessionId) throw new HttpError(409, "no_draft", "there's no draft to change yet");
+    sessionId = row.sessionId;
+  }
+  let turn: {
+    id: string;
+    text: string;
+    changes: { id: string; label: string; undoes?: unknown }[];
+  };
+  try {
+    const out = await call(ctx, routes.opsBuilderTurn, {
+      params: { id: sessionId },
+      body: { text: a.request, ...(a.stepId ? { focusStepId: a.stepId } : {}) },
+    });
+    turn = out.turn;
+  } catch (error) {
+    reportHandled("a draft edit in a build failed", error, { kind: "build", build: id });
+    throw new HttpError(
+      503,
+      "edit_failed",
+      "The workflow's Builder couldn't make the change just now, so the draft is as it was. Press Agree to try again.",
+    );
+  }
+  const changes = turn.changes.filter((c) => !c.undoes).map((c) => ({ id: c.id, label: c.label }));
+  let versionId: string | null = null;
+  if (changes.length > 0) {
+    const saved = await call(ctx, routes.opsBuilderSave, {
+      params: { id: sessionId },
+      body: { changeNote: clip(summary, 300) },
+    });
+    versionId = saved.version.id;
+  }
+  return { sessionId, turnId: turn.id, changes, text: turn.text, versionId };
+}
+
+/**
+ * Undoes an agreed draft edit: its changes, newest first, in its Builder session, saved again. An
+ * agent's draft with a newer version than the edit's is not saved over: undo it there instead.
+ */
+async function undoEdit(ctx: LongCtx, id: string, edit: SavedEdit, summary: string): Promise<void> {
+  const row = await ctx.inTx((scoped) => readBuild(scoped.tx, id, true));
+  const agentId = row.kind === "agent" ? row.agentId : null;
+  if (agentId && edit.versionId) {
+    const latest = await ctx.inTx((scoped) => latestVersion(scoped.tx, agentId));
+    if (latest?.id !== edit.versionId) {
+      throw new HttpError(
+        409,
+        "draft_moved",
+        "The draft has changed since this edit, so undoing it here could lose that change. Undo it in the workflow instead.",
+      );
+    }
+  }
+  for (const changeId of [...edit.changeIds].reverse()) {
+    await call(ctx, routes.opsBuilderUndo, {
+      params: { id: edit.sessionId },
+      body: { turnId: edit.turnId, changeId },
+    });
+  }
+  await call(ctx, routes.opsBuilderSave, {
+    params: { id: edit.sessionId },
+    body: { changeNote: clip(`Undo: ${summary}`, 300) },
+  });
 }
 
 /** Makes an agreed change through the build's own route, as the operator. */
@@ -512,12 +619,18 @@ async function runAction(ctx: LongCtx, id: string, a: BuildAction): Promise<void
     case "run_tests":
       await call(ctx, routes.opsBuildRunTests, { params: { id } });
       return;
+    case "edit_draft":
+      throw new Error("a draft edit is made by applyEdit");
   }
 }
 
+const clip = (text: string, max: number) =>
+  text.length > max ? `${text.slice(0, max - 1)}…` : text;
+
 /** What the conversation says after an agreed change, and the next open issue to take. */
-function doneText(summary: string, next: BuildIssue | undefined): string {
-  const done = `Done: ${summary.replace(/[.\s]+$/, "")}.`;
+function doneText(summary: string, next: BuildIssue | undefined, changed: string[] = []): string {
+  const what = changed.length > 0 ? ` Changed: ${changed.join("; ")}.` : "";
+  const done = `Done: ${summary.replace(/[.\s]+$/, "")}.${what}`;
   return next
     ? `${done} Next open issue: “${next.title}”. Shall we take it?`
     : `${done} That was the last open issue.`;
@@ -766,39 +879,86 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
             .from(buildItem)
             .where(and(eq(buildItem.id, itemId), eq(buildItem.buildId, row.id)))
         : [];
-      return { p, before: item?.state ?? null, about: metaAbout(meta) };
+      return {
+        p,
+        before: item?.state ?? null,
+        about: metaAbout(meta),
+        edit: decided?.edit ?? null,
+      };
     });
     const { p, about } = found;
-    const decision = { agree: "agreed", decline: "declined", undo: "undone" } as const;
     // The operator's decision, as their message in the conversation.
-    const record = (before: string | null = null) =>
+    const record = (
+      decision: "agreed" | "unchanged" | "declined" | "undone",
+      extra: Record<string, unknown> = {},
+    ) =>
       ctx.inTx(async (scoped) => {
         const fresh = await readBuild(scoped.tx, id, true);
         await addMessage(scoped.tx, fresh, {
           role: "operator",
           text: { agree: "Agreed.", decline: "Not this.", undo: "Undo that." }[decide],
-          meta: {
-            decides: messageId,
-            decision: decision[decide],
-            ...(before ? { before } : {}),
-            ...(about ? { about } : {}),
-          },
+          meta: { decides: messageId, decision, ...extra, ...(about ? { about } : {}) },
         });
       });
     if (decide === "decline") {
-      await record();
+      await record("declined");
       return detailOf(ctx, id);
     }
-    const action = decide === "agree" ? p.action : proposalUndo(p.action, p.before);
-    if (!action) throw new HttpError(409, "no_undo", "this change has no undo here");
-    await runAction(lc, id, action);
-    await record(decide === "agree" ? found.before : null);
+    let changed: string[] = [];
+    if (p.action.do === "edit_draft") {
+      // Owner (2026-11-17): the draft changes in the build's conversation, made by the workflow's
+      // Builder (its guards, its labelled changes) and saved as a draft version; undo is its own.
+      if (decide === "agree") {
+        const edit = await applyEdit(lc, id, p.action, p.summary);
+        if (edit.changes.length === 0) {
+          await record("unchanged", { result: clip(`Nothing changed: ${edit.text}`, 500) });
+          await ctx.inTx(async (scoped) => {
+            const fresh = await readBuild(scoped.tx, id, true);
+            await addMessage(scoped.tx, fresh, {
+              role: "builder",
+              text: clip(
+                `The draft didn't change. The workflow's Builder said: ${edit.text}`,
+                3000,
+              ),
+              meta: about ? { about } : {},
+            });
+          });
+          return detailOf(ctx, id);
+        }
+        changed = edit.changes.map((c) => c.label);
+        await record("agreed", {
+          result: clip(`Changed: ${changed.join("; ")}`, 1000),
+          edit: {
+            sessionId: edit.sessionId,
+            turnId: edit.turnId,
+            changeIds: edit.changes.map((c) => c.id),
+            versionId: edit.versionId,
+          },
+        });
+      } else {
+        if (!found.edit || found.edit.changeIds.length === 0) {
+          throw new HttpError(409, "no_undo", "this change has no undo here");
+        }
+        await undoEdit(lc, id, found.edit, p.summary);
+        await record("undone");
+      }
+    } else {
+      const action = decide === "agree" ? p.action : proposalUndo(p.action, p.before);
+      if (!action) throw new HttpError(409, "no_undo", "this change has no undo here");
+      await runAction(lc, id, action);
+      await record(
+        decide === "agree" ? "agreed" : "undone",
+        decide === "agree" && found.before ? { before: found.before } : {},
+      );
+    }
     await ctx.inTx(async (scoped) => {
       const fresh = await readBuild(scoped.tx, id, true);
       const issues = buildIssues(await detailIn(scoped, ctx.services, fresh));
       const next = issues.find((i) => i.open && i.key !== about);
       const text =
-        decide === "agree" ? doneText(p.summary, next) : `Undone: ${p.summary}. It's as it was.`;
+        decide === "agree"
+          ? doneText(p.summary, next, changed)
+          : `Undone: ${p.summary}. It's as it was.`;
       await addMessage(scoped.tx, fresh, {
         role: "builder",
         text,

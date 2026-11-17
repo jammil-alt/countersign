@@ -11,6 +11,7 @@ type Proposal = NonNullable<BuildMessageView["proposal"]>;
 const PROPOSAL_WORDS: Record<Proposal["state"], { word: string; tone: Tone }> = {
   proposed: { word: "Waiting on you", tone: "warning" },
   agreed: { word: "Agreed and done", tone: "positive" },
+  unchanged: { word: "Nothing changed", tone: "neutral" },
   declined: { word: "Not this", tone: "neutral" },
   undone: { word: "Undone", tone: "neutral" },
 };
@@ -38,6 +39,16 @@ export function ProposalCard({
         <span className="text-ink-muted">Proposed: </span>
         {proposal.summary}
       </p>
+      {proposal.action.do === "edit_draft" && proposal.state === "proposed" ? (
+        <p className="text-xs text-ink-muted" data-testid="build-proposal-request">
+          The workflow's Builder makes it: {proposal.action.request}
+        </p>
+      ) : null}
+      {proposal.result && proposal.state !== "proposed" ? (
+        <p className="text-xs text-ink" data-testid="build-proposal-result">
+          {proposal.result}
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center gap-2">
         {proposal.state === "proposed" && live ? (
           <>

@@ -193,9 +193,20 @@ const SavedProposal = BuildProposal.extend({
  */
 export const ProposalDecision = z.object({
   decides: z.string(),
-  decision: z.enum(["agreed", "declined", "undone"]),
+  decision: z.enum(["agreed", "unchanged", "declined", "undone"]),
   /** Agreed: an item's state before the change, for its undo. */
   before: BuildItemState.nullable().optional(),
+  /** What was done, in words ("Changed: …"), shown under the proposal. */
+  result: z.string().optional(),
+  /** A draft edit: the Builder session and turn that made it, its changes and the saved version. */
+  edit: z
+    .object({
+      sessionId: z.string(),
+      turnId: z.string(),
+      changeIds: z.array(z.string()),
+      versionId: z.string().nullable(),
+    })
+    .optional(),
 });
 export type ProposalDecision = z.infer<typeof ProposalDecision>;
 
@@ -230,12 +241,15 @@ function messageView(r: MessageRow, decided: ProposalDecision | null = null): Bu
           ...(meta.proposal as object),
           state: decided.decision,
           before: decided.before ?? null,
-          ...(decided.decision === "agreed"
-            ? { result: (meta.proposal as { summary?: unknown }).summary }
-            : {}),
+          ...(decided.result
+            ? { result: decided.result }
+            : decided.decision === "agreed"
+              ? { result: (meta.proposal as { summary?: unknown }).summary }
+              : {}),
         }
       : meta.proposal,
   );
+  const editUndo = (decided?.edit?.changeIds.length ?? 0) > 0;
   const strings = (v: unknown) =>
     Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
   return {
@@ -255,7 +269,7 @@ function messageView(r: MessageRow, decided: ProposalDecision | null = null): Bu
             state: proposal.data.state,
             ...(proposal.data.result ? { result: proposal.data.result } : {}),
             ...(proposal.data.state === "agreed" &&
-            proposalUndo(proposal.data.action, proposal.data.before ?? null)
+            (proposalUndo(proposal.data.action, proposal.data.before ?? null) || editUndo)
               ? { undo: true }
               : {}),
           },
@@ -400,6 +414,29 @@ export function problemPlace(
     }
   }
   return { stepName: null, workflowName: null };
+}
+
+/** The longest outline of the draft's steps sent with a Builder turn. */
+const OUTLINE_STEPS = 80;
+
+/**
+ * The draft's steps, one line each with its id, for the Builder in a build: so a proposed edit
+ * names a real step. Agents only (a skill's draft lives in its own conversation).
+ */
+export async function draftOutline(ctx: StoreCtx, row: BuildRow): Promise<string[]> {
+  if (row.kind !== "agent") return [];
+  const { bundle, view } = await draftFacts(ctx, row);
+  if (!bundle) return [];
+  const lines: string[] = [];
+  for (const w of bundle.workflows) {
+    for (const { step } of processes.allSteps(w.workflow)) {
+      if (lines.length >= OUTLINE_STEPS) return [...lines, "Draft: more steps not listed"];
+      lines.push(
+        `Draft v${view?.version ?? "?"} step [${step.id}] ${step.name || "(no name)"} (${step.kind}), in "${w.name}"`,
+      );
+    }
+  }
+  return lines;
 }
 
 async function draftFacts(ctx: StoreCtx, row: BuildRow): Promise<DraftFacts> {

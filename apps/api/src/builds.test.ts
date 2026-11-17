@@ -6,9 +6,9 @@
 // operator sees a client's build only when it serves the client.
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import type { BuildDetail } from "@countersign/core";
-import { run, testCase, testCaseResult, testSuiteRun } from "@countersign/db";
-import { FakeModel, fakeMessage } from "@countersign/llm";
-import { eq } from "drizzle-orm";
+import { agentVersion, run, testCase, testCaseResult, testSuiteRun } from "@countersign/db";
+import { FakeModel, fakeMessage, type LlmRequest } from "@countersign/llm";
+import { desc, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { admin, createApiHarness, OPERATOR, OTHER_OPERATOR } from "./api.test-helper";
 
@@ -23,6 +23,25 @@ afterAll(() => h?.close());
 const turnAnswer = (input: Record<string, unknown>) => ({
   toolUse: { name: "submit_build_turn", input: { chips: [], items: [], ...input } },
 });
+
+type Draft = { workflows: { workflow: { steps: Record<string, unknown>[] } }[] };
+
+/** Sets the amount on the draft's first step. */
+function setAmount(d: Draft, amount: string): void {
+  const step = d.workflows[0]?.workflow.steps[0] as { input: { amount: string } } | undefined;
+  if (step) step.input.amount = amount;
+}
+
+/** The workflow Builder's turn: the draft it was shown, changed by `fn`. */
+function editsDraft(text: string, fn: (d: Draft) => void) {
+  return (req: LlmRequest) => {
+    const content = req.messages[0]?.content as string;
+    const start = content.indexOf("<current_bundle>") + "<current_bundle>".length;
+    const d = JSON.parse(content.slice(start, content.indexOf("</current_bundle>"))) as Draft;
+    fn(d);
+    return { toolUse: { name: "submit_turn", input: { text, bundle: d } } };
+  };
+}
 
 function draftAnswer() {
   return {
@@ -581,6 +600,152 @@ describe.skipIf(!h)("builds", () => {
     });
     expect(b.messages.find((m) => m.id === again?.id)?.proposal?.state).toBe("declined");
     expect(b.items.find((i) => i.id === w9)?.state).toBe("open");
+  });
+
+  // Owner (2026-11-17): the draft changes in the build's conversation, agreed and undoable.
+  it("changes the draft from the conversation when agreed, and undoes it", async () => {
+    let b = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Draft edits" });
+    const id = b.build.id;
+    model.push(
+      turnAnswer({
+        text: "Got it.",
+        brief: {
+          goal: { text: "Keep records right", state: "confirmed" },
+          trigger: { text: "Someone asks", state: "confirmed" },
+          dataIn: { text: "The record", state: "confirmed" },
+          dataOut: { text: "The corrected record", state: "confirmed" },
+        },
+      }),
+    );
+    await ok("POST", `/api/ops/builds/${id}/turns`, { text: "An agent that fixes records." });
+    model.push(
+      turnAnswer({
+        text: "One we do as is.",
+        fitgap: {
+          rows: [{ id: "update", need: "Update the record", verdict: "native", how: "Testkit" }],
+        },
+      }),
+    );
+    await ok("POST", `/api/ops/builds/${id}/phase`, { to: "fitgap" });
+    model.push(draftAnswer());
+    b = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "draft" });
+    const agentId = b.build.agentId as string;
+    const versions = async () =>
+      H.t.db
+        .select({ version: agentVersion.version, bundle: agentVersion.bundle })
+        .from(agentVersion)
+        .where(eq(agentVersion.agentId, agentId))
+        .orderBy(desc(agentVersion.version));
+
+    // The Builder sees the draft's steps by id and proposes one edit.
+    model.push((req: LlmRequest) => {
+      const sent = JSON.stringify(req.messages);
+      const stepId = /step \[([^\]]+)\] Update the record/.exec(sent)?.[1] ?? "missing";
+      return turnAnswer({
+        text: "The amount should come in as 15.00. I'd change it on the update step.",
+        proposal: {
+          summary: "Set the amount on “Update the record” to 15.00",
+          action: {
+            do: "edit_draft",
+            request: "On “Update the record”, set the amount to 15.00.",
+            stepId,
+          },
+        },
+      });
+    });
+    b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "The amount is wrong." });
+    const step = /Draft v1 step \[([^\]]+)\] Update the record \(write\)/.exec(lastUserText());
+    expect(step).not.toBeNull();
+    const proposed = b.messages.at(-1);
+    expect(proposed?.proposal).toMatchObject({ state: "proposed", action: { do: "edit_draft" } });
+
+    // Agreed: the workflow's Builder makes it (about that step) and it is saved as v2.
+    model.push(
+      editsDraft("Set the amount to 15.00.", (d) => {
+        setAmount(d, "15.00");
+      }),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/messages/${proposed?.id}/proposal`, {
+      decide: "agree",
+    });
+    expect(JSON.stringify(model.requests.at(-1)?.messages)).toContain(
+      "On “Update the record”, set the amount to 15.00.",
+    );
+    const agreed = b.messages.find((m) => m.id === proposed?.id)?.proposal;
+    expect(agreed).toMatchObject({ state: "agreed", undo: true });
+    expect(agreed?.result).toMatch(/^Changed: /);
+    expect(b.messages.at(-1)?.text).toContain("Changed: ");
+    let saved = await versions();
+    expect(saved.map((v) => v.version)).toEqual([2, 1]);
+    expect(JSON.stringify(saved[0]?.bundle)).toContain('"15.00"');
+    expect(b.draft?.version).toBe(2);
+
+    // Undo puts the step back, as a new version: history is never rewritten.
+    b = await ok("POST", `/api/ops/builds/${id}/messages/${proposed?.id}/proposal`, {
+      decide: "undo",
+    });
+    saved = await versions();
+    expect(saved.map((v) => v.version)).toEqual([3, 2, 1]);
+    expect(JSON.stringify(saved[0]?.bundle)).toContain('"12.00"');
+    expect(JSON.stringify(saved[0]?.bundle)).not.toContain('"15.00"');
+    expect(b.messages.find((m) => m.id === proposed?.id)?.proposal?.state).toBe("undone");
+
+    // When the workflow's Builder changes nothing, the conversation says why; nothing is saved.
+    model.push(
+      turnAnswer({
+        text: "I'd rename the step.",
+        proposal: {
+          summary: "Rename the update step",
+          action: { do: "edit_draft", request: "Rename “Update the record” to “Fix the record”." },
+        },
+      }),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "Rename it?" });
+    const rename = b.messages.at(-1);
+    model.push(editsDraft("It already reads well, so I left it.", () => {}));
+    b = await ok("POST", `/api/ops/builds/${id}/messages/${rename?.id}/proposal`, {
+      decide: "agree",
+    });
+    expect(b.messages.find((m) => m.id === rename?.id)?.proposal?.state).toBe("unchanged");
+    expect(b.messages.at(-1)?.text).toContain("It already reads well");
+    expect((await versions()).map((v) => v.version)).toEqual([3, 2, 1]);
+
+    // An edit whose draft was saved again since (in the workflow) is not undone over that save.
+    model.push(
+      turnAnswer({
+        text: "I'd set it to 20.00.",
+        proposal: {
+          summary: "Set the amount to 20.00",
+          action: { do: "edit_draft", request: "On “Update the record”, set the amount to 20.00." },
+        },
+      }),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "Set it to 20.00." });
+    const twenty = b.messages.at(-1);
+    model.push(
+      editsDraft("Set it.", (d) => {
+        setAmount(d, "20.00");
+      }),
+    );
+    await ok("POST", `/api/ops/builds/${id}/messages/${twenty?.id}/proposal`, { decide: "agree" });
+    const elsewhere = (await ok("POST", "/api/ops/builder/sessions", {
+      kind: "agent",
+      agentId,
+    })) as unknown as { session: { id: string } };
+    model.push(
+      editsDraft("Set it to 25.00.", (d) => {
+        setAmount(d, "25.00");
+      }),
+    );
+    await ok("POST", `/api/ops/builder/sessions/${elsewhere.session.id}/turns`, {
+      text: "Set the amount to 25.00.",
+    });
+    await ok("POST", `/api/ops/builder/sessions/${elsewhere.session.id}/save`, {});
+    const refused = await call("POST", `/api/ops/builds/${id}/messages/${twenty?.id}/proposal`, {
+      decide: "undo",
+    });
+    expect(refused.status).toBe(409);
+    expect(JSON.stringify(refused.json)).toContain("Undo it in the workflow instead");
   });
 
   // QA on staging (2026-11-16): the fit-gap failed three times out of three. The raw validation

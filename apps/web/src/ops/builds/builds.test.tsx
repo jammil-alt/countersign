@@ -514,6 +514,64 @@ describe("Builds", () => {
     );
   });
 
+  // Owner (2026-11-17): the draft changes from the build's conversation.
+  it("says what a draft edit asks for, then what it changed, with Undo", async () => {
+    const PROPOSAL = "00000000-0000-4000-8000-0000000b0301";
+    const editing = {
+      summary: "Set the amount on “Pay” to the invoice total",
+      action: {
+        do: "edit_draft" as const,
+        request: "On “Pay”, take the amount from the invoice total.",
+      },
+    };
+    const message = (p: Record<string, unknown>) =>
+      ({
+        id: PROPOSAL,
+        phase: "draft",
+        role: "builder",
+        text: "The amount is fixed at 12.00; it should come from the invoice.",
+        chips: [],
+        changes: [],
+        proposal: { ...editing, ...p },
+        createdAt: at,
+      }) as unknown as BuildDetail["messages"][number];
+    const base = detail();
+    const decided: unknown[] = [];
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: () => ({
+        ...base,
+        messages: [...base.messages, message({ state: "proposed" })],
+      }),
+      [`POST /api/ops/builds/${ID}/messages/${PROPOSAL}/proposal`]: ({ init }) => {
+        decided.push(JSON.parse(String(init.body)));
+        return {
+          ...base,
+          messages: [
+            ...base.messages,
+            message({
+              state: "agreed",
+              undo: true,
+              result: "Changed: Pay: amount from the invoice total",
+            }),
+          ],
+        };
+      },
+    });
+    renderAt(`/ops/builds/${ID}`, api);
+    const view = await screen.findByTestId("build-view");
+    expect(within(view).getByTestId("build-proposal-request")).toHaveTextContent(
+      "The workflow's Builder makes it: On “Pay”, take the amount from the invoice total.",
+    );
+    await userEvent.click(within(view).getByTestId("build-proposal-agree"));
+    await waitFor(() => expect(decided).toEqual([{ decide: "agree" }]));
+    expect(await within(view).findByTestId("build-proposal-result")).toHaveTextContent(
+      "Changed: Pay: amount from the invoice total",
+    );
+    expect(within(view).queryByTestId("build-proposal-request")).toBeNull();
+    expect(within(view).getByTestId("build-proposal-undo")).toBeInTheDocument();
+  });
+
   it("filters the fit-gap by verdict and changes one only with a reason", async () => {
     const sent: unknown[] = [];
     const withTiers = () => {
