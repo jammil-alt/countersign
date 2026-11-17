@@ -21,6 +21,11 @@ export const TextSignupView = z.object({
   name: z.string().nullable(),
   /** The number the client has for them (an invitation), to confirm or change. */
   phone: z.string().nullable(),
+  /**
+   * The client's number that texts, for "text START to …" after a STOP; null when it can't text
+   * yet.
+   */
+  number: z.string().nullable(),
   terms: z.string(),
   wordingVersion: z.number().int(),
   /** `signed_up`: already agreed to texts; `declined`: said "don't ask me again". */

@@ -17,6 +17,7 @@ const page = (over: Record<string, unknown> = {}) => ({
   kind: "link",
   name: null,
   phone: null,
+  number: null,
   terms: TERMS,
   wordingVersion: 1,
   state: "open",
@@ -114,6 +115,26 @@ describe("the texting sign-up page", () => {
       "Rivera Supply won't ask you about texts again. Email keeps working.",
     );
     expect(api.calls).toContain(`POST /api/text-signup/${TOKEN}/decline`);
+  });
+
+  it("tells everyone how to start texts again after a STOP", async () => {
+    const api = fakeApi({
+      "GET /api/session": signedOut,
+      [`GET /api/text-signup/${TOKEN}`]: () => page({ number: "+15125550101" }),
+    });
+    const { unmount } = renderAt(`/texts/${TOKEN}`, api);
+    expect(await screen.findByTestId("text-signup-start-again")).toHaveTextContent(
+      "Texted STOP before? Text START to (512) 555-0101 from your phone.",
+    );
+    unmount();
+    // No number that can text yet: no line.
+    const none = fakeApi({
+      "GET /api/session": signedOut,
+      [`GET /api/text-signup/${TOKEN}`]: () => page(),
+    });
+    renderAt(`/texts/${TOKEN}`, none);
+    await screen.findByTestId("text-signup-title");
+    expect(screen.queryByTestId("text-signup-start-again")).toBeNull();
   });
 
   it("says when someone is already signed up, and when a link is no good", async () => {

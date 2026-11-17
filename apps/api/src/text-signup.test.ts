@@ -120,6 +120,7 @@ describe.skipIf(!h)("signing up for texts", () => {
         kind: "link",
         name: null,
         phone: null,
+        number: "+15125550101",
         terms,
         wordingVersion: 1,
         state: "open",
@@ -244,23 +245,32 @@ describe.skipIf(!h)("signing up for texts", () => {
       expect(kinds.filter((k) => k === "text_signup_skipped")).toHaveLength(3);
     });
 
-    it("never lifts an opt-out: only a START from that number does", async () => {
+    it("never lifts an opt-out, and answers as a sign-up does: only a START from that number lifts it", async () => {
       const token = tokenIn(
         j((await H.call(admin("a"), "GET", "/api/texting/signup-link")).json).url,
       );
+      // The page tells everyone how to start texts again.
+      expect(j((await view(token)).json).number).toBe("+15125550101");
       const PHONE = "+15125550187";
       const OUT = await newContact(admin("a"), { name: "Opted Out", phone: PHONE });
       await H.call(admin("a"), "POST", `/api/contacts/${OUT}/consent`, { action: "opt_out" });
       const res = await submit(token, { name: "Someone", phone: PHONE });
-      expect(res.status).toBe(409);
-      expect(j(res.json).error.code).toBe("opted_out");
-      expect(j(res.json).error.message).toBe(
-        "This number opted out of texts from Client A. To get them again, text START to +15125550101 from this phone.",
-      );
+      // The same answer as a sign-up: the link doesn't say who opted out.
+      expect(res.status).toBe(200);
+      expect(j(res.json)).toEqual({ confirmation: "sent" });
       const [row] = await H.t.db.select().from(contact).where(eq(contact.id, OUT));
       expect(row?.optedOutAt).not.toBeNull();
       expect(row?.consent ?? {}).not.toHaveProperty("sms");
+      expect(row?.name).toBe("Opted Out");
       expect(textsTo(PHONE)).toHaveLength(0);
+      // Counted toward the link's hourly limit, and nothing else.
+      const changes = (await logOf(OUT)).map((l) => l.change as Record<string, unknown>);
+      expect(changes.at(-1)).toEqual({
+        kind: "text_signup_skipped",
+        via: "link",
+        reason: "opted_out",
+      });
+      expect(changes.some((c) => c.kind === "opt_in")).toBe(false);
     });
 
     it("waits after too many sign-ups in an hour", async () => {

@@ -184,17 +184,22 @@ function signedUp(row: ContactRow): boolean {
   return !row.optedOutAt && hasConsent((row.consent ?? {}) as ContactConsent, "sms");
 }
 
+/** The client's number that can text now (the confirmation's sender), or null. */
+function clientNumber(tx: Tx, tenantId: string): Promise<string | null> {
+  return twilioTexter({ secrets: {} }).from(tx, tenantId);
+}
+
 /**
- * Refuses a sign-up for someone who opted out. Typing a number on the page proves nothing about
+ * Refuses a sign-up on an invitation for someone who opted out. Typing a number on the page proves nothing about
  * owning it, so the page never lifts an opt-out: a START texted from the number does
  * (`applyKeyword`), and the answer says so.
  */
-// DECISION: refused in words rather than accepted quietly: the person who owns the number needs
-// to know how to start texts again. The page then tells whoever typed the number that it opted
-// out of this one client's texts, and nothing more.
+// DECISION: an invitation is one person's, so it is refused in words: they need to know how to
+// start texts again. The client's link is anyone's: there an opt-out is answered as a sign-up is
+// (submitTextSignup), and the page tells everyone how START works.
 async function refuseOptedOut(tx: Tx, t: TenantRow, row: ContactRow): Promise<void> {
   if (!row.optedOutAt) return;
-  const number = await twilioTexter({ secrets: {} }).from(tx, t.id);
+  const number = await clientNumber(tx, t.id);
   throw new HttpError(
     409,
     "opted_out",
@@ -247,6 +252,7 @@ export async function viewTextSignup(
     if (!t) return null;
     const base = {
       client: t.name,
+      number: await clientNumber(tx, t.id),
       terms: textSignupTerms(t.name),
       wordingVersion: TEXT_SIGNUP_WORDING_VERSION,
     };
@@ -343,11 +349,14 @@ export async function submitTextSignup(
       // DECISION: a number that already signed up is answered as a sign-up is, with nothing
       // changed and no text sent, so the link can't text one number again and again. Only a log
       // line is written, which counts toward the hourly limit above.
-      if (found && signedUp(found)) {
+      // DECISION: so is an opted-out number, so the link never says who opted out; the page
+      // tells everyone to text START instead, which is the only way an opt-out is lifted.
+      const skip = found?.optedOutAt ? "opted_out" : found && signedUp(found) ? "signed_up" : null;
+      if (found && skip) {
         await logContactChange(tx, payload.t, found.id, null, {
           kind: "text_signup_skipped",
           via: "link",
-          reason: "signed_up",
+          reason: skip,
         });
         return { tenantId: payload.t, client: t.name, phone, send: false };
       }
@@ -357,7 +366,6 @@ export async function submitTextSignup(
           source: "text_signup",
           log: { via: "link" },
         }));
-      await refuseOptedOut(tx, t, row);
       row = await recordTextSignup(tx, row, { source: TEXT_SIGNUP_SOURCES.link, evidence }, now);
     } else {
       // The person's row, locked: two presses at once sign up once.

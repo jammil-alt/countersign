@@ -232,6 +232,11 @@ export function TextSignupScreen() {
           <span data-testid="text-signup-terms">{v.terms}</span>
         </label>
         {error ? <ErrorNotice error={error} /> : null}
+        {v.number ? (
+          <p className="text-sm text-ink-muted" data-testid="text-signup-start-again">
+            {w("startAgain", { number: shown(v.number) })}
+          </p>
+        ) : null}
         <Button
           type="submit"
           variant="primary"
