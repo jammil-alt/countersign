@@ -41,9 +41,9 @@ import {
   EmailSendInput,
   EmailSendOutput,
   type EmailServices,
-  taggedReplyTo,
 } from "../resend/index";
 import { sha256Bytes, toBase64, toHex, utf8 } from "../runtime";
+import { reachReplyTo } from "../upload/forwarding";
 
 export const OUTLOOK_CONNECTOR_ID = "outlook";
 export const OUTLOOK_SEND_TOOL = "outlook.send";
@@ -131,7 +131,7 @@ async function senderOf(ctx: ToolContext): Promise<string> {
 
 async function replyToFor(services: EmailServices, tag: string | undefined) {
   const forwarding = services.replyAddress ? await services.replyAddress() : null;
-  return taggedReplyTo(forwarding, tag);
+  return reachReplyTo(forwarding, tag);
 }
 
 /** Our reference for an action's send: on the message as `X-Mezonas-Ref`, and the output's `id`. */

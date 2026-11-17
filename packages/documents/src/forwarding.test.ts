@@ -47,8 +47,17 @@ describe.skipIf(!h)("email forwarding", () => {
     });
   });
 
+  // What Cloudflare Email Routing writes on top of a message whose envelope sender passed SPF.
+  const spfPass = (from: string) =>
+    `Authentication-Results: mx.cloudflare.net; spf=pass smtp.mailfrom=${from}\r\n`;
+  const withHeaders = (raw: Uint8Array, headers: string) =>
+    new TextEncoder().encode(`${headers}${new TextDecoder().decode(raw)}`);
   const receive = (name: string, from: string, to = address) =>
-    receiveForwardedEmail(harness.deps(), { from, to, raw: eml(name) }, { domain: DOMAIN });
+    receiveForwardedEmail(
+      harness.deps(),
+      { from, to, raw: withHeaders(eml(name), spfPass(from)) },
+      { domain: DOMAIN },
+    );
 
   async function stats() {
     return harness.as(A, async (tx) => {
@@ -134,6 +143,157 @@ describe.skipIf(!h)("email forwarding", () => {
       reason: "sender_not_allowed",
     });
     expect((await as([pass])).status).toBe("accepted");
+  });
+
+  it("counts the envelope sender only when SPF passed for its domain", async () => {
+    const ap = new TextDecoder().decode(eml("forwarded-by-ap.eml"));
+    const as = (headers: string[], from = "ap@hollismillwork.example") =>
+      receiveForwardedEmail(
+        harness.deps(),
+        {
+          from,
+          to: address,
+          raw: new TextEncoder().encode(`${headers.map((h) => `${h}\r\n`).join("")}${ap}`),
+        },
+        { domain: DOMAIN },
+      );
+    // No verdict at all: the envelope alone proves nothing.
+    expect(await as([])).toMatchObject({ status: "dropped", reason: "sender_not_allowed" });
+    // SPF checked another domain than the envelope's.
+    expect(
+      await as([
+        "Authentication-Results: mx.cloudflare.net; spf=pass smtp.mailfrom=elsewhere.example",
+      ]),
+    ).toMatchObject({ status: "dropped", reason: "sender_not_allowed" });
+    expect(
+      await as([
+        "Authentication-Results: mx.cloudflare.net; spf=fail smtp.mailfrom=ap@hollismillwork.example",
+      ]),
+    ).toMatchObject({ status: "dropped", reason: "sender_not_allowed" });
+    const ok = await as([
+      "Authentication-Results: mx.cloudflare.net; spf=pass smtp.mailfrom=ap@hollismillwork.example",
+    ]);
+    expect(ok.status).toBe("accepted");
+    if (ok.status !== "accepted") return;
+    const [doc] = await harness.as(A, (tx) =>
+      tx
+        .select()
+        .from(document)
+        .where(eq(document.id, ok.documents[0]?.id ?? "")),
+    );
+    expect(doc?.meta).toMatchObject({
+      email: {
+        from: "ap@hollismillwork.example",
+        authenticated: true,
+        authenticatedAs: "ap@hollismillwork.example",
+      },
+    });
+  });
+
+  it("reads only Cloudflare's own header, the topmost one, whole", async () => {
+    const vendor = new TextDecoder().decode(eml("from-vendor.eml"));
+    const as = (headers: string[]) =>
+      receiveForwardedEmail(
+        harness.deps(),
+        {
+          from: "spoofer@attacker.example",
+          to: address,
+          raw: new TextEncoder().encode(`${headers.map((h) => `${h}\r\n`).join("")}${vendor}`),
+        },
+        { domain: DOMAIN },
+      );
+    const pass =
+      "Authentication-Results: mx.cloudflare.net; dmarc=pass header.from=keystonehw.example";
+    const drop = { status: "dropped", reason: "sender_not_allowed" };
+    // Cloudflare's verdict in an ARC header on top; the sender's own pass below it.
+    expect(
+      await as([
+        "ARC-Authentication-Results: i=1; mx.cloudflare.net; dmarc=fail header.from=keystonehw.example",
+        pass,
+      ]),
+    ).toMatchObject(drop);
+    // A topmost header from another server.
+    expect(
+      await as([
+        "Authentication-Results: mx.other.example; dmarc=pass header.from=keystonehw.example",
+      ]),
+    ).toMatchObject(drop);
+    // A pass inside a quoted local part of SPF's address.
+    expect(
+      await as([
+        'Authentication-Results: mx.cloudflare.net; spf=pass smtp.mailfrom="x;dmarc=pass header.from=keystonehw.example"@attacker.example; dmarc=fail header.from=keystonehw.example',
+      ]),
+    ).toMatchObject(drop);
+    // Cloudflare's ARC header alone, passing: read.
+    expect(
+      (
+        await as([
+          "ARC-Authentication-Results: i=1; mx.cloudflare.net; dmarc=pass header.from=keystonehw.example",
+        ])
+      ).status,
+    ).toBe("accepted");
+  });
+
+  it("keeps at most 20 attachments of one message, and only files whose bytes match their type", async () => {
+    const pdf = (n: number) => Buffer.from(`%PDF-1.4\n% invoice ${n}\n%%EOF\n`).toString("base64");
+    const parts = [
+      ...Array.from({ length: 22 }, (_, i) => ({
+        type: "application/pdf",
+        name: `invoice-${i + 1}.pdf`,
+        body: pdf(i + 1),
+      })),
+    ];
+    parts.splice(1, 0, {
+      type: "application/pdf",
+      name: "not-a-pdf.pdf",
+      body: Buffer.from("MZ this is not a PDF").toString("base64"),
+    });
+    const boundary = "=_cap";
+    const raw = [
+      "Authentication-Results: mx.cloudflare.net; spf=pass smtp.mailfrom=ap@hollismillwork.example",
+      "From: ap@hollismillwork.example",
+      `To: ${address}`,
+      "Subject: Many invoices",
+      "Message-ID: <cap@mail.example>",
+      "MIME-Version: 1.0",
+      `Content-Type: multipart/mixed; boundary="${boundary}"`,
+      "",
+      `--${boundary}`,
+      "Content-Type: text/plain",
+      "",
+      "See attached.",
+      ...parts.flatMap((p) => [
+        `--${boundary}`,
+        `Content-Type: ${p.type}; name="${p.name}"`,
+        `Content-Disposition: attachment; filename="${p.name}"`,
+        "Content-Transfer-Encoding: base64",
+        "",
+        p.body,
+      ]),
+      `--${boundary}--`,
+      "",
+    ].join("\r\n");
+    const r = await receiveForwardedEmail(
+      harness.deps(),
+      { from: "ap@hollismillwork.example", to: address, raw: new TextEncoder().encode(raw) },
+      { domain: DOMAIN },
+    );
+    expect(r.status).toBe("accepted");
+    if (r.status !== "accepted") return;
+    expect(r.documents).toHaveLength(20);
+    expect(r.documents.map((d) => d.filename)).not.toContain("not-a-pdf.pdf");
+    expect(r.skipped).toEqual([
+      { filename: "not-a-pdf.pdf", reason: "the file is not what its type says" },
+      { filename: "invoice-21.pdf", reason: "more than 20 attachments" },
+      { filename: "invoice-22.pdf", reason: "more than 20 attachments" },
+    ]);
+    const [doc] = await harness.as(A, (tx) =>
+      tx
+        .select()
+        .from(document)
+        .where(eq(document.id, r.documents[0]?.id ?? "")),
+    );
+    expect(doc?.meta).toMatchObject({ email: { skippedAttachments: 3 } });
   });
 
   it("drops mail from a sender not on the list, and counts it", async () => {

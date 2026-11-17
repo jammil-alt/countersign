@@ -4,8 +4,9 @@
 // agents by its command name; the whole address must be the one we compute for that client, so a
 // forged address (another client's label, an agent it doesn't have) is dropped.
 //
-// The sender counts only by a From address whose domain passed DMARC (an unauthenticated From is
-// anyone). A sender one of the agent's email message triggers takes: the message's own words are
+// The sender counts only by a From address whose domain passed DMARC, as Cloudflare's own header
+// says (`readAuthentication`, @countersign/core; an unauthenticated From is anyone). Automatic mail
+// (auto-replies, lists, bounces) starts nothing. A sender one of the agent's email message triggers takes: the message's own words are
 // kept as a raw record `InboundMessage` on the upload connection (4,000 characters, quoted history
 // cut, card numbers redacted; read by agents only through `inbound.get`), its PDF and image
 // attachments as documents, and `inbound.message` is emitted. Anyone else: nothing is stored; a
@@ -130,11 +131,15 @@ export async function receiveAgentEmail(
     let headers: Awaited<ReturnType<typeof parseForwardedEmail>>;
     let reply: Awaited<ReturnType<typeof parseReplyEmail>>;
     try {
-      headers = await parseForwardedEmail(message.raw);
+      headers = await parseForwardedEmail(message.raw, { envelopeFrom: message.from });
       reply = await parseReplyEmail(message.raw);
     } catch {
       return dropped("unreadable");
     }
+    // DECISION: mail a machine sent (an auto-reply, a list, a bounce: `isAutomaticEmail`) starts
+    // nothing and is never answered, not even with the polite reply, so two auto-responders can't
+    // write to each other; it is dropped like mail to an agent with no inbox.
+    if (headers.headers.automatic) return dropped("automatic");
     const agentName = bundle.definition.identity.name;
     const locale = await tenantLocale(tx, tenantId);
     // The From header names the sender only when its domain passed DMARC.
@@ -194,6 +199,9 @@ export async function receiveAgentEmail(
         subject: headers.headers.subject,
         date: headers.headers.date,
         messageId: headers.headers.messageId,
+        // Whether Cloudflare's header proved the From address (DMARC for its domain).
+        authenticated: proven !== null,
+        authenticatedAs: proven,
         agentId: found.agentId,
       },
     };

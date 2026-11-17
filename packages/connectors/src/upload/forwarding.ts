@@ -3,6 +3,7 @@
 // handler, which keeps PDF and image attachments from allowed senders as documents. Headers are
 // kept; bodies never are (invariant 12).
 
+import { type EmailAuthentication, isAutomaticEmail, readAuthentication } from "@countersign/core";
 import PostalMime from "postal-mime";
 import { randomBytes, utf8 } from "../runtime";
 
@@ -107,6 +108,87 @@ export function parseForwardingAddress(
   return { tenantId: bytesUuid(bytes), secret: m[2] as string };
 }
 
+// ── Reply addresses (docs/plan.md §1.25) ───────────────────────────────────────────────────────
+
+// DECISION: replies to an agent's email come back to `r-<client id, base32>+<tag>@<domain>`, not to
+// the forwarding address, so a vendor never learns the address that keeps the client's invoice
+// inbox private (audit, 2026-11-17). The client id opens the client's transaction (as for the
+// forwarding address); the tag names the reach-out by its id and carries 8 random characters kept
+// on the reach-out's plan (`replyTag`), so it can't be made from the id alone. The `r-` form only
+// ever reaches the reply path: it never parses as a forwarding, voice or agent address.
+// `r-` + 26 + `+` + 34 is 63 characters, inside SMTP's 64 for a local part.
+
+/** A reply tag for a reach-out: its id in base32 (26) and 8 random base32 characters (34 in all). */
+export function newReplyTag(reachOutId: string): string {
+  return `${base32(uuidBytes(reachOutId))}${newForwardingSecret()}`;
+}
+
+/**
+ * The reach-out a reply tag names, or null: a tag from `newReplyTag`, or an earlier one (the id in
+ * hex, 32 characters, still on reach-outs sent before reply addresses).
+ */
+export function replyTagReachOutId(tag: string): string | null {
+  const t = tag.trim().toLowerCase();
+  if (/^[0-9a-f]{32}$/.test(t)) return bytesUuid(uuidBytes(t));
+  if (!/^[a-z2-7]{34}$/.test(t)) return null;
+  const bytes = unbase32(t.slice(0, 26));
+  return bytes?.length === 16 ? bytesUuid(bytes) : null;
+}
+
+/** `r-<client id, base32>@<domain>`: the base of a client's reply addresses. */
+export function replyBaseAddress(input: { tenantId: string; domain: string }): string {
+  return `r-${base32(uuidBytes(input.tenantId))}@${input.domain.trim().toLowerCase()}`;
+}
+
+/** The reply base for a client's forwarding address (same client and domain), or null. */
+export function replyBaseFor(forwarding: string | null | undefined): string | null {
+  if (!forwarding) return null;
+  const at = forwarding.lastIndexOf("@");
+  const domain = forwarding.slice(at + 1);
+  const target = at > 0 ? parseForwardingAddress(forwarding, domain) : null;
+  return target ? replyBaseAddress({ tenantId: target.tenantId, domain }) : null;
+}
+
+/**
+ * The Reply-To of an agent's email: the client's reply base with the reach-out's tag, built from
+ * the client's forwarding address (null: replies aren't read). An email with no tag answers no
+ * reach-out and gets no Reply-To, so replies go to the address it was sent from.
+ */
+// DECISION: a stored address that isn't a forwarding address (no secret to keep) is tagged as
+// before; an untagged email carries no Reply-To rather than the forwarding address.
+export function reachReplyTo(
+  forwarding: string | null | undefined,
+  tag: string | undefined,
+): string | null {
+  if (!forwarding || !tag) return null;
+  const base = replyBaseFor(forwarding) ?? forwarding;
+  const at = base.lastIndexOf("@");
+  return `${base.slice(0, at)}+${tag}${base.slice(at)}`;
+}
+
+/**
+ * The client and tag a reply address names (`r-<client id>+<tag>@<domain>`), or null when it is
+ * not a reply address on `domain`. `tag` is null when there is none or it isn't a reply tag.
+ */
+export function parseReplyAddress(
+  address: string,
+  domain: string,
+): { tenantId: string; tag: string | null } | null {
+  const a = address.trim().toLowerCase();
+  const at = a.lastIndexOf("@");
+  if (at < 0 || a.slice(at + 1) !== domain.trim().toLowerCase()) return null;
+  const local = a.slice(0, at);
+  const m = /^r-([a-z2-7]{26})(?:\+(.*))?$/.exec(local);
+  if (!m) return null;
+  const bytes = unbase32(m[1] as string);
+  if (bytes?.length !== 16) return null;
+  const tag = m[2] ?? null;
+  return {
+    tenantId: bytesUuid(bytes),
+    tag: tag !== null && replyTagReachOutId(tag) ? tag : null,
+  };
+}
+
 /** Constant-time string equality, for the stored address. */
 export function sameAddress(a: string, b: string): boolean {
   const x = a.trim().toLowerCase();
@@ -132,11 +214,12 @@ export function normalizeSender(entry: string): string | null {
  * Whether any of the message's senders is on the list. An entry with `@` matches that address; a
  * bare domain matches that domain and its subdomains.
  */
-// DECISION: a message is accepted when its envelope sender (MAIL FROM) matches the client's list,
-// or its From header matches and that From domain passed DMARC (`trustedFromHeader`): a client's
-// own forwarding rule keeps their domain on the envelope, a vendor's mail forwarded by hand keeps
-// the vendor on From. An unauthenticated From header is never enough on its own: anyone who learns
-// the address could otherwise send as an allowed vendor (security review, 2026-11-04).
+// DECISION: a message is accepted when its envelope sender (MAIL FROM) matches the client's list
+// and SPF passed for that envelope's domain, or its From header matches and that From domain passed
+// DMARC (`authenticatedSenders` in @countersign/core): a client's own forwarding rule keeps their
+// domain on the envelope, a vendor's mail forwarded by hand keeps the vendor on From. An
+// unauthenticated sender is never enough on its own: anyone who learns the address could otherwise
+// send as an allowed vendor (security review, 2026-11-04; audit, 2026-11-17).
 export function senderAllowed(allowed: readonly string[], senders: readonly string[]): boolean {
   const list = allowed.map(normalizeSender).filter((v): v is string => v !== null);
   for (const raw of senders) {
@@ -154,19 +237,12 @@ export function senderAllowed(allowed: readonly string[], senders: readonly stri
 }
 
 /**
- * The From domain that passed DMARC, read from the topmost Authentication-Results header: the one
- * the receiving server (Cloudflare Email Routing) adds. Headers further down were written by
- * whoever sent the message and are never read. Null when there is none or DMARC did not pass.
+ * The From domain that passed DMARC, read from the receiving server's own (topmost, Cloudflare's)
+ * authentication header by `readAuthentication` (@countersign/core). Headers further down were
+ * written by whoever sent the message and are never read. Null when DMARC did not pass.
  */
-export function dmarcPassDomain(topAuthenticationResults: string | null): string | null {
-  if (!topAuthenticationResults) return null;
-  const text = topAuthenticationResults.replace(/\(.*?\)/g, " ").toLowerCase();
-  for (const clause of text.split(";")) {
-    if (!/(^|\s)dmarc\s*=\s*pass(\s|$)/.test(clause)) continue;
-    const domain = clause.match(/header\.from\s*=\s*([a-z0-9.-]+)/)?.[1];
-    if (domain) return domain;
-  }
-  return null;
+export function dmarcPassDomain(headers: readonly { key: string; value: string }[]): string | null {
+  return readAuthentication(headers).dmarcFrom;
 }
 
 /** Whether a From header address may count as a sender: its domain is the one that passed DMARC. */
@@ -187,6 +263,10 @@ export interface ForwardedHeaders {
   messageId: string | null;
   /** The From domain that passed DMARC per the receiving server, or null (`dmarcPassDomain`). */
   dmarcPassFrom: string | null;
+  /** The receiving server's verdicts (`readAuthentication`). */
+  auth: EmailAuthentication;
+  /** Sent by a machine (an auto-reply, a list, a bounce): `isAutomaticEmail`. */
+  automatic: boolean;
 }
 
 export interface ForwardedAttachment {
@@ -239,6 +319,10 @@ function addressOf(a: { address?: string | undefined } | undefined): string | nu
 export interface ReplyEmail {
   from: string | null;
   dmarcPassFrom: string | null;
+  /** The receiving server's verdicts (`readAuthentication`). */
+  auth: EmailAuthentication;
+  /** Sent by a machine (an auto-reply, a list, a bounce): `isAutomaticEmail`. */
+  automatic: boolean;
   to: string[];
   subject: string | null;
   messageId: string | null;
@@ -277,8 +361,12 @@ export function replyText(body: string): string {
  * which is kept as untrusted data (never instructions, invariants 9 and 12). Attachments and HTML
  * are dropped here.
  */
-export async function parseReplyEmail(raw: Uint8Array): Promise<ReplyEmail> {
+export async function parseReplyEmail(
+  raw: Uint8Array,
+  options: { envelopeFrom?: string | null } = {},
+): Promise<ReplyEmail> {
   const email = await PostalMime.parse(raw);
+  const auth = readAuthentication(email.headers);
   const header = (k: string) => email.headers.find((h) => h.key === k)?.value ?? null;
   const to = (email.to ?? []).flatMap((a) =>
     a.address ? [a.address.toLowerCase()] : (a.group ?? []).map((m) => m.address.toLowerCase()),
@@ -286,7 +374,9 @@ export async function parseReplyEmail(raw: Uint8Array): Promise<ReplyEmail> {
   const refs = (header("references") ?? "").split(/\s+/).filter((r) => r.startsWith("<"));
   return {
     from: email.from && "address" in email.from ? addressOf(email.from) : null,
-    dmarcPassFrom: dmarcPassDomain(header("authentication-results")),
+    dmarcPassFrom: auth.dmarcFrom,
+    auth,
+    automatic: isAutomaticEmail(email.headers, options.envelopeFrom ?? null),
     to,
     subject: email.subject ?? null,
     messageId: email.messageId ?? null,
@@ -300,8 +390,12 @@ export async function parseReplyEmail(raw: Uint8Array): Promise<ReplyEmail> {
  * Parses a raw message and keeps only what may be stored: a few headers and the PDF and image
  * attachments. The text and HTML bodies are dropped here, before anything is written.
  */
-export async function parseForwardedEmail(raw: Uint8Array): Promise<ForwardedEmail> {
+export async function parseForwardedEmail(
+  raw: Uint8Array,
+  options: { envelopeFrom?: string | null } = {},
+): Promise<ForwardedEmail> {
   const email = await PostalMime.parse(raw, { attachmentEncoding: "arraybuffer" });
+  const auth = readAuthentication(email.headers);
   const attachments: ForwardedAttachment[] = [];
   const skipped: ForwardedEmail["skipped"] = [];
   email.attachments.forEach((a, i) => {
@@ -336,9 +430,9 @@ export async function parseForwardedEmail(raw: Uint8Array): Promise<ForwardedEma
       subject: email.subject ?? null,
       date: email.date ?? null,
       messageId: email.messageId ?? null,
-      dmarcPassFrom: dmarcPassDomain(
-        email.headers.find((h) => h.key === "authentication-results")?.value ?? null,
-      ),
+      dmarcPassFrom: auth.dmarcFrom,
+      auth,
+      automatic: isAutomaticEmail(email.headers, options.envelopeFrom ?? null),
     },
     attachments,
     skipped,

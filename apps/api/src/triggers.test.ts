@@ -297,12 +297,20 @@ describe.skipIf(!h)("triggers, six kinds", () => {
       fetch: () => fakeFetch as never,
     });
 
-    function email(input: { from: string; to: string; id: string; dmarc: boolean; body: string }) {
+    function email(input: {
+      from: string;
+      to: string;
+      id: string;
+      dmarc: boolean;
+      body: string;
+      extra?: string[];
+    }) {
       const domain = input.from.slice(input.from.indexOf("@") + 1);
       const text = [
         ...(input.dmarc
           ? [`Authentication-Results: mx.cloudflare.net; dmarc=pass header.from=${domain}`]
           : []),
+        ...(input.extra ?? []),
         `From: ${input.from}`,
         `To: ${input.to}`,
         "Subject: A charge",
@@ -437,6 +445,41 @@ describe.skipIf(!h)("triggers, six kinds", () => {
         true,
       );
       expect(notes.every((n) => !JSON.stringify(n.body).includes("Pay me"))).toBe(true);
+    });
+
+    it("starts nothing and answers nothing for automatic mail, even from a cardholder", async () => {
+      sent.length = 0;
+      const before = runsOf(remy).length;
+      for (const [i, extra] of [
+        ["Auto-Submitted: auto-replied"],
+        ["Precedence: bulk"],
+        ["X-Autoreply: yes"],
+      ].entries()) {
+        const out = await receive(
+          email({
+            from: "cara@cards.example",
+            to: address,
+            id: `auto-${i}`,
+            dmarc: true,
+            body: "I'm out of the office until Monday.",
+            extra,
+          }),
+        );
+        expect(out?.status).toBe("dropped");
+      }
+      // A stranger's auto-reply gets no polite reply either.
+      await receive(
+        email({
+          from: "eve@strangers.example",
+          to: address,
+          id: "auto-s",
+          dmarc: true,
+          body: "Away.",
+          extra: ["Auto-Submitted: auto-replied"],
+        }),
+      );
+      expect(runsOf(remy)).toHaveLength(before);
+      expect(sent).toEqual([]);
     });
 
     it("drops a forged address for another client", async () => {

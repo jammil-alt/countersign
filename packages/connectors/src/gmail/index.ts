@@ -31,9 +31,9 @@ import {
   EmailSendInput,
   EmailSendOutput,
   type EmailServices,
-  taggedReplyTo,
 } from "../resend/index";
 import { fromBase64Url, fromUtf8 } from "../runtime";
+import { reachReplyTo } from "../upload/forwarding";
 import { buildPlainMessage, gmailRaw } from "./mime";
 
 export const GMAIL_CONNECTOR_ID = "gmail";
@@ -182,7 +182,7 @@ async function senderOf(ctx: ToolContext): Promise<string> {
 
 async function replyToFor(services: EmailServices, tag: string | undefined) {
   const forwarding = services.replyAddress ? await services.replyAddress() : null;
-  return taggedReplyTo(forwarding, tag);
+  return reachReplyTo(forwarding, tag);
 }
 
 /** Our own Message-ID on the sender's domain, from the action's key: a reply's In-Reply-To names it. */

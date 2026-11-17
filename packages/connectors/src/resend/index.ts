@@ -17,6 +17,7 @@ import { type Connector, defineConnector, defineWriteTool, type ToolContext } fr
 import { requireCredentials } from "../credentials-accessor";
 import { type FetchLike, globalFetch } from "../http";
 import { toBase64 } from "../runtime";
+import { reachReplyTo } from "../upload/forwarding";
 
 export const RESEND_CONNECTOR_ID = "resend";
 export const RESEND_API = "https://api.resend.com";
@@ -250,7 +251,7 @@ export function fromAddress(config: ResendConfig): { address: string; header: st
   return { address, header: name ? `${name} <${address}>` : address };
 }
 
-/** The forwarding address with `+<tag>` before the @: replies carry what they answer. */
+/** An address with `+<tag>` before the @ (release emails to the client's own people). */
 export function taggedReplyTo(replyTo: string | null, tag: string | undefined): string | null {
   if (!replyTo) return null;
   if (!tag) return replyTo;
@@ -326,7 +327,8 @@ export function createResendConnector(options: ResendConnectorOptions = {}): Con
           const files = await loadOutbound(ctx, input.attachments, RESEND_ATTACHMENT_LIMITS);
           const creds = ResendCredentials.parse(await requireCredentials(ctx.credentials));
           const from = fromAddress(config);
-          const replyTo = taggedReplyTo(config.replyTo, input.replyTag);
+          // The reply address, never the forwarding address itself (upload/forwarding.ts).
+          const replyTo = reachReplyTo(config.replyTo, input.replyTag);
           // Our own Message-ID, so a reply's In-Reply-To names this send (NOTES.md).
           const messageId = `<${ctx.idempotencyKey.replace(/[^A-Za-z0-9.-]/g, ".")}@${config.sendingDomain}>`;
           const res = z.object({ id: z.string() }).parse(

@@ -222,7 +222,10 @@ describe.skipIf(!h)("documents API", () => {
       };
       const pending: Promise<unknown>[] = [];
       const message = (name: string, from: string) => {
-        const raw = new Uint8Array(file("email", name));
+        // Cloudflare's verdict on top: SPF passed for the envelope sender's domain.
+        const raw = new TextEncoder().encode(
+          `Authentication-Results: mx.cloudflare.net; spf=pass smtp.mailfrom=${from}\r\n${new TextDecoder().decode(file("email", name))}`,
+        );
         return {
           from,
           to: address,

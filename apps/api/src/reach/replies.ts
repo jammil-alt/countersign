@@ -10,12 +10,15 @@ import {
   forwardingOf,
   parseForwardedEmail,
   parseForwardingAddress,
+  parseReplyAddress,
   parseReplyEmail,
   type ReplyEmail,
+  replyTagReachOutId,
   sameAddress,
   UPLOAD_CONNECTOR_ID,
 } from "@countersign/connectors";
 import {
+  authenticatedSenders,
   bytesMatchType,
   isConverseSubject,
   REPLY_DOCUMENTS_MAX,
@@ -37,7 +40,7 @@ import {
 } from "@countersign/db";
 import { DocumentError, storeDocument } from "@countersign/documents";
 import type { EventRow } from "@countersign/senses";
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 // R7
 import { conversationEventOfSubject, sendWithConversation } from "../converse/wake";
 import { type ContactRow, contactThread, type ThreadMessageBody } from "../messaging/contacts";
@@ -69,7 +72,14 @@ async function openFor(tx: Tx, tenantId: string, contactId: string): Promise<Rea
     .limit(20);
 }
 
-async function replyLine(tx: Tx, row: ReachOutRow, who: ContactRow, reply: ReachReply) {
+async function replyLine(
+  tx: Tx,
+  row: ReachOutRow,
+  who: ContactRow,
+  reply: ReachReply,
+  // A reply after the reach-out ended is shown as received, not as its answer.
+  status: "replied" | "received" = "replied",
+) {
   const threadId = await contactThread(tx, who);
   const body: ThreadMessageBody = {
     direction: "in",
@@ -77,7 +87,7 @@ async function replyLine(tx: Tx, row: ReachOutRow, who: ContactRow, reply: Reach
     text: reply.text || "Replied",
     sid: "",
     rawRecordId: reply.rawRecordId ?? "",
-    status: "replied",
+    status,
     reachOut: {
       id: row.id,
       runId: row.runId,
@@ -251,11 +261,43 @@ export async function forwardingAddress(tx: Tx, tenantId: string): Promise<strin
   return conn ? (forwardingOf(conn).address ?? null) : null;
 }
 
+/** Where an email reply was sent: the reply address, or the forwarding address with a tag. */
+type ReplyTarget =
+  | { form: "reply"; tenantId: string; tag: string | null }
+  | { form: "forwarding"; tenantId: string; tag: string; bare: string };
+
+function replyTarget(to: string, domain: string): ReplyTarget | null {
+  const reply = parseReplyAddress(to, domain);
+  if (reply) return { form: "reply", ...reply };
+  // Reach-outs sent before reply addresses: `<forwarding address>+<id in hex>`.
+  const plus = /^([^@+]+)\+([a-z0-9]{6,40})@(.+)$/.exec(to);
+  if (!plus) return null;
+  const target = parseForwardingAddress(to, domain);
+  if (!target) return null;
+  return {
+    form: "forwarding",
+    tenantId: target.tenantId,
+    tag: plus[2] as string,
+    bare: `${plus[1]}@${plus[3]}`,
+  };
+}
+
+/** Constant-time equality of two reply tags. */
+function sameTag(a: string, b: string): boolean {
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  }
+  return diff === 0;
+}
+
 /**
- * An email to `<client forwarding address>+<tag>`: a reply to a reach-out email. Matched when the
- * tag names an open reach-out of that client and the sender is its contact (the envelope sender, or
- * the From header when DMARC passed). Returns null when it isn't one (the caller then treats it as
- * forwarded mail).
+ * An email to a reply address (`r-<client>+<tag>`, or `<client forwarding address>+<tag>` for
+ * reach-outs sent before reply addresses): a reply to a reach-out email. It ends the open reach-out
+ * the tag names when the sender is its contact, proven by Cloudflare's own header (the From header
+ * under DMARC, the envelope sender under SPF). Automatic mail (an out-of-office, a bounce) answers
+ * nothing. A reply that comes after the reach-out ended is kept, not lost (`late`). Returns null
+ * when it isn't one (the caller then treats it as forwarded mail); a reply address is never that.
  */
 export async function receiveReachOutReply(
   db: Db,
@@ -273,67 +315,119 @@ export async function receiveReachOutReply(
   // P-3: `document.received` for the reply's new documents, and their ids to read.
   events: EventRow[];
   fresh: string[];
+  /** A reply after its reach-out ended, kept in the contact's thread (nothing woken). */
+  late: boolean;
 } | null> {
   const to = mail.to.trim().toLowerCase();
-  const plus = /^([^@+]+)\+([a-z0-9]{6,40})@(.+)$/.exec(to);
-  if (!plus) return null;
-  const target = parseForwardingAddress(to, options.domain);
+  const target = replyTarget(to, options.domain);
   if (!target) return null;
-  const tag = plus[2] as string;
-  const bare = `${plus[1]}@${plus[3]}`;
-  const parsed = await parseReplyEmail(mail.raw).catch(() => null);
-  if (!parsed) return null;
-  const filed: { events: EventRow[]; fresh: string[] } = { events: [], fresh: [] };
+  const handled = () => ({
+    tenantId: target.tenantId,
+    woken: [] as Wake[],
+    events: [] as EventRow[],
+    fresh: [] as string[],
+    late: false,
+  });
+  const reachOutId = target.tag ? replyTagReachOutId(target.tag) : null;
+  const parsed = await parseReplyEmail(mail.raw, { envelopeFrom: mail.from }).catch(() => null);
+  if (!parsed) return target.form === "reply" ? handled() : null;
+  const filed: { events: EventRow[]; fresh: string[]; late: boolean } = {
+    events: [],
+    fresh: [],
+    late: false,
+  };
   const woken = await withTenant(db, target.tenantId, async (tx) => {
-    const stored = await options.forwardingAddress(tx, target.tenantId);
-    if (!stored || !sameAddress(stored, bare)) return null;
-    if (!/^[0-9a-f]{32}$/.test(tag)) return null;
-    const id = `${tag.slice(0, 8)}-${tag.slice(8, 12)}-${tag.slice(12, 16)}-${tag.slice(16, 20)}-${tag.slice(20)}`;
-    let [row] = await tx
+    if (target.form === "forwarding") {
+      const stored = await options.forwardingAddress(tx, target.tenantId);
+      if (!stored || !sameAddress(stored, target.bare)) return null;
+      if (!/^[0-9a-f]{32}$/.test(target.tag)) return null;
+    }
+    if (!reachOutId) return [];
+    const [tagged] = await tx
       .select()
       .from(reachOut)
-      .where(
-        and(
-          eq(reachOut.id, id),
-          eq(reachOut.tenantId, target.tenantId),
-          ne(reachOut.status, "ended"),
-        ),
-      );
+      .where(and(eq(reachOut.id, reachOutId), eq(reachOut.tenantId, target.tenantId)));
+    if (!tagged) return [];
+    // The reply address's tag must be the one this reach-out sent (its id alone is not enough).
+    if (target.form === "reply") {
+      const sent = (tagged.plan as { replyTag?: unknown } | null)?.replyTag;
+      if (typeof sent !== "string" || !sameTag(sent, target.tag as string)) return [];
+    }
+    let row: ReachOutRow | undefined = tagged.status !== "ended" ? tagged : undefined;
     // P-9: an email conversation's later messages carry its first message's tag (§1.66), so a
     // reply to any of them goes to the conversation's message waiting now (docs/plan.md §1.71).
-    if (!row) {
-      const [tagged] = await tx
-        .select({ subject: reachOut.subject, contactId: reachOut.contactId })
+    if (!row && tagged.subject.startsWith("converse:")) {
+      [row] = await tx
+        .select()
         .from(reachOut)
-        .where(and(eq(reachOut.id, id), eq(reachOut.tenantId, target.tenantId)));
-      if (tagged?.subject.startsWith("converse:")) {
-        [row] = await tx
-          .select()
-          .from(reachOut)
-          .where(
-            and(
-              eq(reachOut.tenantId, target.tenantId),
-              eq(reachOut.contactId, tagged.contactId),
-              eq(reachOut.subject, tagged.subject),
-              eq(reachOut.status, "open"),
-            ),
-          )
-          .orderBy(desc(reachOut.createdAt))
-          .limit(1);
-      }
+        .where(
+          and(
+            eq(reachOut.tenantId, target.tenantId),
+            eq(reachOut.contactId, tagged.contactId),
+            eq(reachOut.subject, tagged.subject),
+            eq(reachOut.status, "open"),
+          ),
+        )
+        .orderBy(desc(reachOut.createdAt))
+        .limit(1);
     }
-    if (!row) return [];
+    const about = row ?? tagged;
     const [who] = await tx
       .select()
       .from(contact)
-      .where(and(eq(contact.id, row.contactId), eq(contact.tenantId, target.tenantId)));
-    const senders = [mail.from.toLowerCase()];
-    if (parsed.from && parsed.dmarcPassFrom && parsed.from.endsWith(`@${parsed.dmarcPassFrom}`)) {
-      senders.push(parsed.from);
-    }
-    // DECISION: only the contact's own address counts as their reply; anyone else writing to the
-    // tagged address is dropped, so a stranger can't answer for them.
+      .where(and(eq(contact.id, about.contactId), eq(contact.tenantId, target.tenantId)));
+    const senders = authenticatedSenders({
+      envelopeFrom: mail.from,
+      from: parsed.from,
+      auth: parsed.auth,
+    });
+    // DECISION: only the contact's own address, proven, counts as their reply; anyone else writing
+    // to the tagged address is dropped, so a stranger can't answer for them.
     if (!who?.email || !senders.includes(who.email.toLowerCase())) return [];
+    // DECISION: automatic mail (an out-of-office, a bounce, a list: `isAutomaticEmail`) never
+    // answers a reach-out: the reach-out stays open for the person's own reply and the cron's
+    // re-sends. It leaves no thread line either (cheap and quiet); only a log line without content.
+    if (parsed.automatic) {
+      console.log("automatic email to a reply address ignored", {
+        tenantId: target.tenantId,
+        reachOutId: about.id,
+      });
+      return [];
+    }
+    if (!row) {
+      // DECISION: a reply after its reach-out ended (an earlier reply, the timeout or the cron)
+      // is kept as any reply is (a raw record and its PDFs and images as the client's documents)
+      // and shown in the contact's thread on that reach-out, but wakes nothing: the run has moved
+      // on, and a person sees it there. A second delivery of the reply that ended it is not kept.
+      const kept = await keepEmailReply(tx, {
+        tenantId: target.tenantId,
+        row: tagged,
+        mail,
+        parsed,
+        content: options.content,
+        now: options.now,
+        late: true,
+        authenticatedAs: who.email.toLowerCase(),
+      });
+      await replyLine(
+        tx,
+        tagged,
+        who,
+        {
+          channel: "email",
+          text: redactCardNumbers(parsed.text),
+          untrusted: true,
+          rawRecordId: kept.rawRecordId,
+          at: options.now.toISOString(),
+          documents: kept.documents,
+        },
+        "received",
+      );
+      filed.events = kept.events;
+      filed.fresh = kept.fresh;
+      filed.late = true;
+      return [];
+    }
     // P-3: the reply is a raw record (its origin), and its PDFs and images documents of this
     // client, in this transaction: a second delivery finds the reach-out ended and keeps nothing.
     const kept = await keepEmailReply(tx, {
@@ -343,6 +437,7 @@ export async function receiveReachOutReply(
       parsed,
       content: options.content,
       now: options.now,
+      authenticatedAs: who.email.toLowerCase(),
     });
     const w = await recordReply(
       tx,
@@ -381,6 +476,11 @@ class ReplyTaken extends Error {
   override name = "ReplyTaken";
 }
 
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 /**
  * Keeps an email reply: a raw record (headers, the reply's own words, what each attachment
  * became) and its PDFs and images as documents of this client (`source: email`, the raw record as
@@ -397,6 +497,10 @@ async function keepEmailReply(
     parsed: ReplyEmail;
     content: ContentStore | undefined;
     now: Date;
+    /** After the reach-out ended: kept under its own key, once per message. */
+    late?: boolean;
+    /** The sender's address Cloudflare's header proved (the contact's). */
+    authenticatedAs: string;
   },
 ): Promise<{
   rawRecordId: string | null;
@@ -421,6 +525,28 @@ async function keepEmailReply(
     fresh: [] as string[],
   };
   if (!upload) return out;
+  let externalId = input.row.id;
+  if (input.late) {
+    const messageKey = input.parsed.messageId?.slice(0, 300) || (await sha256Hex(input.mail.raw));
+    // The reply that ended the reach-out, delivered again: already kept.
+    if (input.parsed.messageId) {
+      const [first] = await tx
+        .select({ id: rawRecord.id })
+        .from(rawRecord)
+        .where(
+          and(
+            eq(rawRecord.tenantId, input.tenantId),
+            eq(rawRecord.connectionId, upload.id),
+            eq(rawRecord.entityType, REACH_REPLY_EMAIL_ENTITY),
+            eq(rawRecord.externalId, input.row.id),
+            sql`${rawRecord.payload}->>'messageId' = ${input.parsed.messageId}`,
+          ),
+        )
+        .limit(1);
+      if (first) throw new ReplyTaken();
+    }
+    externalId = `${input.row.id}:${messageKey}`;
+  }
   const rawRecordId = uuidv7();
   const files = await parseForwardedEmail(input.mail.raw).catch(() => null);
   const attachments: Record<string, unknown>[] = [];
@@ -467,6 +593,9 @@ async function keepEmailReply(
             to: input.mail.to.toLowerCase(),
             subject: input.parsed.subject,
             messageId: input.parsed.messageId,
+            // Only the contact's proven address reaches here (receiveReachOutReply).
+            authenticated: true,
+            authenticatedAs: input.authenticatedAs,
           },
           rawRecordId,
           reachOutId: input.row.id,
@@ -495,12 +624,13 @@ async function keepEmailReply(
       connectionId: upload.id,
       connector: UPLOAD_CONNECTOR_ID,
       entityType: REACH_REPLY_EMAIL_ENTITY,
-      externalId: input.row.id,
+      externalId,
       externalVersion: null,
       payload: {
         direction: "in",
         channel: "email",
         reachOutId: input.row.id,
+        ...(input.late ? { late: true } : {}),
         from: input.parsed.from ?? input.mail.from.toLowerCase(),
         subject: input.parsed.subject,
         messageId: input.parsed.messageId,

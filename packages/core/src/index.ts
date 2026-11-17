@@ -165,6 +165,8 @@ export * from "./directory/search";
 export * from "./directory/voice-samples";
 export * from "./documents/extraction";
 export * from "./duration";
+// Inbound email: whose verdicts count, and which mail is automatic.
+export * from "./email/authentication";
 // docs/plan.md §1.121: forms, "Request info"
 export * from "./forms";
 // v0.19: area owners (ARCHITECTURE §10.15)

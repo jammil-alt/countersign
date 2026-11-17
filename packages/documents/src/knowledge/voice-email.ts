@@ -12,10 +12,9 @@ import {
   parseReplyEmail,
   sameAddress,
   senderAllowed,
-  trustedFromHeader,
   UPLOAD_CONNECTOR_ID,
 } from "@countersign/connectors";
-import { voiceTagged } from "@countersign/core";
+import { authenticatedSenders, voiceTagged } from "@countersign/core";
 import { connection, type Db, withTenant } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import { addVoiceSample, voicePerson, voicePersonByEmail } from "./voice-samples";
@@ -45,7 +44,7 @@ export function isVoiceSampleAddress(to: string, domain: string): boolean {
 
 /**
  * Receives one `+voice` message. Whose voice it is: the client's own user with the sender's
- * address (the envelope sender, or the From header when its domain passed DMARC), else the
+ * address (the envelope sender when SPF passed for it, or the From header when DMARC passed), else the
  * client's first client admin. Never the forwarded message's own headers, which anyone can write.
  */
 // DECISION: a sender who is on the allowed list but is not one of the client's users (e.g. a
@@ -89,10 +88,12 @@ export async function receiveVoiceSampleEmail(
     } catch {
       return drop("unreadable");
     }
-    const fromHeader = trustedFromHeader(parsed.from, parsed.dmarcPassFrom)
-      ? [parsed.from as string]
-      : [];
-    const senders = [message.from.toLowerCase(), ...fromHeader];
+    // Proven senders only: the envelope under SPF, the From header under DMARC (@countersign/core).
+    const senders = authenticatedSenders({
+      envelopeFrom: message.from,
+      from: parsed.from,
+      auth: parsed.auth,
+    });
     if (!senderAllowed(forwarding.allowedSenders, senders)) return drop("sender_not_allowed");
 
     let person = null;

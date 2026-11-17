@@ -15,6 +15,7 @@ import {
   runPlannedAction,
   type StepContext,
 } from "@countersign/agents";
+import { newReplyTag } from "@countersign/connectors";
 import {
   type AgentMode,
   type AnyAgentBundle,
@@ -501,10 +502,6 @@ async function contactLoad(
   };
 }
 
-function hexId(id: string): string {
-  return id.replace(/-/g, "");
-}
-
 function truncateData(value: unknown): JsonObject {
   const s = JSON.stringify(value ?? null);
   if (s.length <= 8000) return { value: JSON.parse(s) };
@@ -961,7 +958,8 @@ export function reachPort(deps: ReachDeps): ReachPort {
           throw error;
         }
         if (!row) throw new Error("reach_out insert returned nothing");
-        const replyTag = hexId(row.id);
+        // The reply address's tag: the id and a secret of its own (upload/forwarding.ts).
+        const replyTag = newReplyTag(row.id);
         stored.replyTag = replyTag;
         await tx
           .update(reachOut)
