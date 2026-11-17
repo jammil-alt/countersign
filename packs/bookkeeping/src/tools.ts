@@ -8,12 +8,21 @@ import { ledgerAccount, withTenant } from "@countersign/db";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { addNote, listAccounts, unclearAccounts } from "./accounts";
-import { BOOK_CONFIDENCE_AUTO, propose, settle, toReview } from "./bookings";
+import {
+  BOOK_CONFIDENCE_AUTO,
+  markOffered,
+  openItemOf,
+  propose,
+  settle,
+  toReview,
+} from "./bookings";
 import { importFeeds } from "./feed";
 import { defineTool, type PackTool } from "./pack";
 import { bankAccountLink, bankTxn } from "./schema";
 
 const Id = z.string().uuid();
+/** The most transaction ids one step hands the next (settle's open list, the open read's ids). */
+export const OPEN_BATCH = 100;
 
 /** `book_confidence_auto` from the step's skill settings, else the default. */
 export function thresholdFrom(settings: Readonly<Record<string, unknown>>): number {
@@ -77,19 +86,25 @@ export const settleTool = defineTool({
     matched: z.number(),
     transfers: z.number(),
     ruled: z.number(),
+    review: z.number(),
     open: z.array(z.string()),
     openCount: z.number(),
     sources: z.array(z.string()),
   }),
   async run(input, ctx) {
-    const r = await withTenant(ctx.db, ctx.tenantId, (tx) =>
-      settle(
+    const testRun = ctx.mode === "test";
+    return withTenant(ctx.db, ctx.tenantId, async (tx) => {
+      const r = await settle(
         tx,
         { tenantId: ctx.tenantId, agentVersionId: ctx.agentVersionId, runId: ctx.runId },
-        { ...(input.limit ? { limit: input.limit } : {}), testRun: ctx.mode === "test" },
-      ),
-    );
-    return { ...r, openCount: r.open.length, sources: r.open };
+        { ...(input.limit ? { limit: input.limit } : {}), testRun },
+      );
+      // DECISION: at most OPEN_BATCH ids go on, what the next step (the open transactions' read)
+      // takes; they are stamped, so the next pass offers the rest first.
+      const open = r.open.slice(0, OPEN_BATCH);
+      if (!testRun) await markOffered(tx, ctx.tenantId, open);
+      return { ...r, open, openCount: r.open.length, sources: open };
+    });
   },
 });
 
@@ -109,6 +124,18 @@ const TxnOut = z.object({
     kind: z.string(),
     ledgerAccount: z.string().nullable(),
   }),
+  /** An open bill or invoice of the same amount: a person decides it, whatever is proposed. */
+  openItem: z
+    .object({
+      kind: z.enum(["bill", "invoice"]),
+      docNumber: z.string().nullable(),
+      name: z.string().nullable(),
+      date: z.string().nullable(),
+      balance: z.string(),
+      /** Its vendor or customer is the payee: a person decides it. Else only a possibility. */
+      confirmed: z.boolean(),
+    })
+    .nullable(),
 });
 
 export const openTool = defineTool({
@@ -119,7 +146,7 @@ export const openTool = defineTool({
   entity: "transaction",
   area: "shared",
   input: z.object({
-    ids: z.array(Id).max(100).optional(),
+    ids: z.array(Id).max(OPEN_BATCH).optional(),
     limit: z.number().int().min(1).max(100).default(25),
   }),
   output: z.object({ transactions: z.array(TxnOut) }),
@@ -163,11 +190,19 @@ export const openTool = defineTool({
           description: t.description,
           bankCategory: t.bankCategory,
           account: { name: l.name, mask: l.mask, kind: l.kind, ledgerAccount: a },
+          openItem: openItemView(t),
         })),
       };
     });
   },
 });
+
+function openItemView(t: Parameters<typeof openItemOf>[0]) {
+  const item = openItemOf(t);
+  if (!item) return null;
+  const { kind, docNumber, name, date, balance } = item;
+  return { kind, docNumber, name, date, balance, confirmed: item.confirmed === true };
+}
 
 const AccountOut = z.object({
   id: z.string(),
@@ -249,7 +284,8 @@ export const proposeTool = defineTool({
   output: z.object({
     recorded: z.boolean(),
     bookingId: z.string().nullable(),
-    status: z.enum(["proposed", "needs_review"]),
+    /** `matched`: the same transfer was already booked from its other side. */
+    status: z.enum(["proposed", "needs_review", "matched"]),
     sources: z.array(z.string()),
   }),
   async run(input, ctx) {

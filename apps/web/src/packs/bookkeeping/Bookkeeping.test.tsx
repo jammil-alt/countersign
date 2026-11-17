@@ -216,6 +216,113 @@ describe("the booking review card", () => {
     await userEvent.click(within(card).getByTestId("bookings-review-approve"));
     await waitFor(() => expect(bodies).toEqual([{ action: "approve", input: { bankTxnId: TXN } }]));
   });
+
+  it("names the open bill a payment may be for", async () => {
+    const open = view(false);
+    const [txn] = open.data.transactions;
+    if (!txn) throw new Error("no transaction");
+    Object.assign(txn, {
+      booking: null,
+      amount: "4200.0000",
+      openItem: {
+        kind: "bill",
+        docNumber: "H-771",
+        name: "Hardwood Supply",
+        date: "2026-10-20",
+        balance: "4200.0000",
+        currency: "USD",
+      },
+    });
+    renderAt(
+      <InboxCard
+        item={item("bookkeeping.bookings", { bankTxnIds: [TXN] })}
+        onResolve={async () => {}}
+      />,
+      { [`GET /api/inbox/${INBOX}/pack-review`]: () => open },
+    );
+    const card = await screen.findByTestId("bookings-review");
+    const line = within(card).getByTestId("bookings-review-open-item");
+    expect(line).toHaveTextContent("Is this the payment of an open bill: Hardwood Supply · #H-771");
+    expect(line).toHaveTextContent("4,200.00");
+  });
+
+  it("asks whether this is the payment QuickBooks shows the bill paid with", async () => {
+    const open = view(false);
+    const [txn] = open.data.transactions;
+    if (!txn) throw new Error("no transaction");
+    Object.assign(txn, {
+      booking: null,
+      openItem: {
+        kind: "bill",
+        docNumber: null,
+        name: "Hardwood Supply",
+        date: "2026-10-20",
+        balance: "4200.0000",
+        currency: "USD",
+        paid: true,
+      },
+    });
+    renderAt(
+      <InboxCard
+        item={item("bookkeeping.bookings", { bankTxnIds: [TXN] })}
+        onResolve={async () => {}}
+      />,
+      { [`GET /api/inbox/${INBOX}/pack-review`]: () => open },
+    );
+    const card = await screen.findByTestId("bookings-review");
+    const line = within(card).getByTestId("bookings-review-open-item");
+    expect(line).toHaveTextContent("QuickBooks shows this bill paid: Hardwood Supply");
+    expect(line).toHaveTextContent("If this is that payment, leave it out.");
+  });
+
+  it("says when the bank sent a transaction again after removing an earlier copy", async () => {
+    const open = view(false);
+    const [txn] = open.data.transactions;
+    if (!txn) throw new Error("no transaction");
+    Object.assign(txn, { booking: null, resent: true });
+    renderAt(
+      <InboxCard
+        item={item("bookkeeping.bookings", { bankTxnIds: [TXN] })}
+        onResolve={async () => {}}
+      />,
+      { [`GET /api/inbox/${INBOX}/pack-review`]: () => open },
+    );
+    const card = await screen.findByTestId("bookings-review");
+    expect(within(card).getByTestId("bookings-review-resent")).toHaveTextContent(
+      "The bank sent this again after removing an earlier copy. Decide it here: nothing is booked for it until you do.",
+    );
+  });
+
+  it("names the other side of a transfer it waits with", async () => {
+    const open = view(false);
+    const [txn] = open.data.transactions;
+    if (!txn) throw new Error("no transaction");
+    Object.assign(txn, {
+      booking: null,
+      direction: "in",
+      pairedWith: {
+        id: "0190f0c8-0000-7000-8000-0000000000f1",
+        date: "2026-11-03",
+        amount: "2000.0000",
+        currency: "USD",
+        direction: "out",
+        account: "Checking",
+        why: "not_written",
+      },
+    });
+    renderAt(
+      <InboxCard
+        item={item("bookkeeping.bookings", { bankTxnIds: [TXN] })}
+        onResolve={async () => {}}
+      />,
+      { [`GET /api/inbox/${INBOX}/pack-review`]: () => open },
+    );
+    const card = await screen.findByTestId("bookings-review");
+    const line = within(card).getByTestId("bookings-review-paired");
+    expect(line).toHaveTextContent("2,000.00");
+    expect(line).toHaveTextContent("Checking");
+    expect(line).toHaveTextContent("may be the other side of a transfer");
+  });
 });
 
 describe("the account questions card", () => {
@@ -387,6 +494,29 @@ function recView(step: "proposed" | "accepted" | "added" | "signed") {
 }
 
 describe("the reconciliation card", () => {
+  it("says what to add when the opening balances differ", async () => {
+    const view = recView("proposed");
+    Object.assign(view.data.reconciliation, {
+      aOpening: "9500.0000",
+      bOpening: "10000.0000",
+      residual: "-500.0000",
+      startGap: "-500.0000",
+      matches: [],
+    });
+    renderAt(
+      <InboxCard
+        item={item("bookkeeping.reconciliation", { reconciliationId: REC })}
+        onResolve={async () => {}}
+      />,
+      { [`GET /api/inbox/${INBOX}/pack-review`]: () => view },
+    );
+    const card = await screen.findByTestId("reconciliation-review");
+    const gap = within(card).getByTestId("reconciliation-start-gap");
+    expect(gap).toHaveTextContent("The opening balances differ by -$500.00");
+    expect(gap).toHaveTextContent("Add what was outstanding at the start of the period");
+    expect(within(card).getByTestId("reconciliation-sign-off")).toBeDisabled();
+  });
+
   it("leads with the numbers, accepts our suggestion, adds what is missing, then signs off", async () => {
     const bodies: { action: string }[] = [];
     const resolved: unknown[] = [];
@@ -414,6 +544,7 @@ describe("the reconciliation card", () => {
     expect(within(card).getByTestId("reconciliation-residual")).toHaveTextContent(
       "$2.00 isn't explained",
     );
+    expect(within(card).queryByTestId("reconciliation-start-gap")).toBeNull();
     // Signing off waits until nothing is unexplained.
     expect(within(card).getByTestId("reconciliation-sign-off")).toBeDisabled();
     expect(within(card).getByTestId("reconciliation-proposal")).toHaveTextContent(

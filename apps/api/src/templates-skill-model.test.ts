@@ -110,7 +110,7 @@ describe("the skill model's template versions", () => {
       "seed bill-clerk v3",
       "seed document-clerk v2",
       "seed supervisor v5",
-      "bookkeeping bookkeeper v3",
+      "bookkeeping bookkeeper v4",
       "marketing site-report v3",
       "marketing titles v3",
       "marketing article-drafts v3",
@@ -126,6 +126,8 @@ describe("the skill model's template versions", () => {
   const ADVICE: Record<string, string[]> = {
     "seed bill-clerk v3": ["split_long"],
     "bookkeeping bookkeeper v3": ["split_long"],
+    // v4 is v3 with the posting loop set to go on past a refused write: the same advice.
+    "bookkeeping bookkeeper v4": ["split_long"],
     "marketing forum-watch v3": ["split_deep"],
   };
 
@@ -455,7 +457,7 @@ describe.skipIf(!h)("installing, offering and publishing the skill model's versi
     expect(JSON.stringify(version?.bundle)).toContain("supervisor.explain");
   });
 
-  it("gives the Bookkeeper its v3 by Update templates over v2, offered to a fork of v2", async () => {
+  it("gives the Bookkeeper its v3 and v4 by Update templates over v2, offered to a fork of v2", async () => {
     const t = bookkeepingManifest.templates[0];
     const [v2] = t?.versions ?? [];
     if (!t || !v2) throw new Error("no bookkeeper v2");
@@ -488,14 +490,16 @@ describe.skipIf(!h)("installing, offering and publishing the skill model's versi
 
     const update = await H.call(OPERATOR, "POST", "/api/ops/packs/bookkeeping/templates/update");
     expect(update.status, JSON.stringify(update.json)).toBe(200);
+    // v4 (2026-11-17, the posting loop goes on past a refused write) follows v3 in the same update.
     expect(j(update.json).updated).toEqual([
       { slug: "bookkeeper", templateId: tpl.id, version: 3, published: true },
+      { slug: "bookkeeper", templateId: tpl.id, version: 4, published: true },
     ]);
     const usedBy = await H.call(OPERATOR, "GET", `/api/ops/templates/${tpl.id}/used-by`);
     const entry = j(usedBy.json).agents.find(
       (x: { agent: { id: string } }) => x.agent.id === old.id,
     );
-    expect(entry).toMatchObject({ baseVersion: 2, behind: 1 });
+    expect(entry).toMatchObject({ baseVersion: 2, behind: 2 });
 
     const fork = await forkAndPublish(tpl.id, "bookkeeper-v3", { qbo: conn.qbo });
     expect(fork.pub.status, JSON.stringify(fork.pub.json)).toBe(200);

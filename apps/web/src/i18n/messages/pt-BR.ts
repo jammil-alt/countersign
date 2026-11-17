@@ -2749,6 +2749,18 @@ export const ptBR: Messages = {
   "bookkeeping.review.loading": "Carregando as transações…",
   "bookkeeping.review.suggested": "Sugerimos {account}",
   "bookkeeping.review.noSuggestion": "Ainda sem sugestão",
+  "bookkeeping.review.openBill":
+    "É o pagamento de uma conta a pagar em aberto: {what}? Se for, aplique-o a essa conta no QuickBooks e depois deixe-o de fora aqui.",
+  "bookkeeping.review.openInvoice":
+    "É o recebimento de uma fatura em aberto: {what}? Se for, aplique-o a essa fatura no QuickBooks e depois deixe-o de fora aqui.",
+  "bookkeeping.review.openBillPaid":
+    "O QuickBooks mostra esta conta a pagar como paga: {what}. Se este for esse pagamento, deixe-o de fora aqui.",
+  "bookkeeping.review.openInvoicePaid":
+    "O QuickBooks mostra esta fatura como recebida: {what}. Se este for esse recebimento, deixe-o de fora aqui.",
+  "bookkeeping.review.pairHeld":
+    "Lançamento {what}: pode ser o outro lado de uma transferência que não foi registrada ou foi deixada de fora. Decida os dois juntos.",
+  "bookkeeping.review.resent":
+    "O banco enviou isto de novo depois de remover uma cópia anterior. Decida aqui: nada é registrado até você decidir.",
   "bookkeeping.review.approve": "Aprovar",
   "bookkeeping.review.account": "Conta para {payee}",
   "bookkeeping.review.why": "Por quê, em poucas palavras (opcional)",
@@ -2769,6 +2781,8 @@ export const ptBR: Messages = {
   "bookkeeping.recon.loading": "Carregando a conciliação…",
   "bookkeeping.recon.difference": "Diferença",
   "bookkeeping.recon.unexplainedBy": "{amount} sem explicação",
+  "bookkeeping.recon.startGap":
+    "Os saldos iniciais diferem em {amount}, e nada trazido da última aprovação explica isso. Adicione o que estava pendente no início do período, como um cheque emitido antes e compensado durante ele.",
   "bookkeeping.recon.asOf": "Em {day}",
   "bookkeeping.recon.outcome.balanced": "Fechada",
   "bookkeeping.recon.outcome.explained": "Explicada",

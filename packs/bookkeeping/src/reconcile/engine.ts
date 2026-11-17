@@ -4,9 +4,12 @@
 // then groups); the model's proposals and a person's decisions come after, outside this file.
 //
 // The anchor: each side rolls forward (opening + its items = closing) and the difference is
-// explained: (closing A − closing B) = start gap + (Σ unmatched A − Σ unmatched B), where the start
-// gap is (opening A − opening B) less what was carried from the pair's last sign-off. What is left
-// is the residual; anything but 0 is "unexplained".
+// explained by the items: (closing A − closing B) = Σ unmatched A − Σ unmatched B. What is left is
+// the residual; anything but 0 is "unexplained". The start gap, (opening A − opening B) less what
+// was carried from the pair's last sign-off, is part of the residual, never an explanation: the
+// openings should differ by exactly what was carried, and when they don't, something changed
+// before the period (an entry deleted or edited in a month already signed off) that a person
+// explains.
 
 import { dec, toNumeric } from "@countersign/core";
 
@@ -68,7 +71,10 @@ export interface RollForward {
 
 export interface EngineResult {
   difference: string;
-  /** (opening A − opening B) − carried net, or 0 when an opening isn't known. */
+  /**
+   * (opening A − opening B) − carried net, or 0 when an opening isn't known: what the openings
+   * differ by that nothing carried explains. It shows in the residual.
+   */
   startGap: string;
   /** Σ unmatched A − Σ unmatched B. */
   unmatchedNet: string;
@@ -245,8 +251,7 @@ export function reconcile(
   const carriedNet = sum(a.items.filter((i) => i.carried).map((i) => dec(i.effect))).minus(
     sum(b.items.filter((i) => i.carried).map((i) => dec(i.effect))),
   );
-  // DECISION: with an opening unknown, the start is taken as what was carried (start gap 0), so
-  // the residual still names anything the items can't explain.
+  // DECISION: with an opening unknown, the start is taken as what was carried (start gap 0).
   const startGap =
     a.opening === null || b.opening === null
       ? dec("0")
@@ -254,7 +259,11 @@ export function reconcile(
   const unmatchedNet = sum([...freeA].map((i) => ea[i] as Decimal)).minus(
     sum([...freeB].map((j) => eb[j] as Decimal)),
   );
-  const residual = difference.minus(startGap).minus(unmatchedNet);
+  // DECISION: the start gap is never taken off the residual. With both sides rolling forward,
+  // taking it off would leave the residual 0 whatever the openings were, so a gap at the start
+  // (on a pair's first reconciliation too, where nothing is carried) waits for a person, who
+  // explains it with an item of their own.
+  const residual = difference.minus(unmatchedNet);
   const outcome = !residual.isZero()
     ? "unexplained"
     : difference.isZero() && freeA.size === 0 && freeB.size === 0

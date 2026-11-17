@@ -2671,6 +2671,18 @@ export const en = {
   "bookkeeping.review.loading": "Loading the transactions…",
   "bookkeeping.review.suggested": "We suggest {account}",
   "bookkeeping.review.noSuggestion": "No suggestion yet",
+  "bookkeeping.review.openBill":
+    "Is this the payment of an open bill: {what}? If so, apply it to the bill in QuickBooks, then leave this out.",
+  "bookkeeping.review.openInvoice":
+    "Is this the payment of an open invoice: {what}? If so, apply it to the invoice in QuickBooks, then leave this out.",
+  "bookkeeping.review.openBillPaid":
+    "QuickBooks shows this bill paid: {what}. If this is that payment, leave it out.",
+  "bookkeeping.review.openInvoicePaid":
+    "QuickBooks shows this invoice paid: {what}. If this is that payment, leave it out.",
+  "bookkeeping.review.pairHeld":
+    "Bank transaction {what}: may be the other side of a transfer that wasn't written or was left out. Decide the two together.",
+  "bookkeeping.review.resent":
+    "The bank sent this again after removing an earlier copy. Decide it here: nothing is booked for it until you do.",
   "bookkeeping.review.approve": "Approve",
   "bookkeeping.review.account": "Account for {payee}",
   "bookkeeping.review.why": "Why, in a few words (optional)",
@@ -2691,6 +2703,8 @@ export const en = {
   "bookkeeping.recon.loading": "Loading the reconciliation…",
   "bookkeeping.recon.difference": "Difference",
   "bookkeeping.recon.unexplainedBy": "{amount} isn't explained",
+  "bookkeeping.recon.startGap":
+    "The opening balances differ by {amount}, and nothing carried from the last sign-off explains it. Add what was outstanding at the start of the period, such as a check written before it that cleared during it.",
   "bookkeeping.recon.asOf": "As of {day}",
   "bookkeeping.recon.outcome.balanced": "Balanced",
   "bookkeeping.recon.outcome.explained": "Explained",

@@ -2797,6 +2797,18 @@ export const fr: Messages = {
   "bookkeeping.review.loading": "Chargement des opérations…",
   "bookkeeping.review.suggested": "Nous suggérons {account}",
   "bookkeeping.review.noSuggestion": "Pas encore de suggestion",
+  "bookkeeping.review.openBill":
+    "Est-ce le paiement d'une facture fournisseur ouverte : {what} ? Si oui, imputez-le à cette facture dans QuickBooks, puis écartez-le ici.",
+  "bookkeeping.review.openInvoice":
+    "Est-ce l'encaissement d'une facture ouverte : {what} ? Si oui, imputez-le à cette facture dans QuickBooks, puis écartez-le ici.",
+  "bookkeeping.review.openBillPaid":
+    "QuickBooks indique cette facture fournisseur comme réglée : {what}. Si c'est ce paiement, écartez-le ici.",
+  "bookkeeping.review.openInvoicePaid":
+    "QuickBooks indique cette facture comme encaissée : {what}. Si c'est cet encaissement, écartez-le ici.",
+  "bookkeeping.review.pairHeld":
+    "Opération {what} : peut être l'autre côté d'un virement qui n'a pas été enregistré ou a été écarté. Décidez des deux ensemble.",
+  "bookkeeping.review.resent":
+    "La banque a renvoyé cette opération après en avoir retiré une copie antérieure. Décidez ici : rien n'est enregistré avant votre décision.",
   "bookkeeping.review.approve": "Approuver",
   "bookkeeping.review.account": "Compte pour {payee}",
   "bookkeeping.review.why": "Pourquoi, en quelques mots (facultatif)",
@@ -2817,6 +2829,8 @@ export const fr: Messages = {
   "bookkeeping.recon.loading": "Chargement du rapprochement…",
   "bookkeeping.recon.difference": "Écart",
   "bookkeeping.recon.unexplainedBy": "{amount} non expliqué",
+  "bookkeeping.recon.startGap":
+    "Les soldes d'ouverture diffèrent de {amount}, et rien de reporté depuis la dernière validation ne l'explique. Ajoutez ce qui était en suspens au début de la période, comme un chèque émis avant et encaissé pendant celle-ci.",
   "bookkeeping.recon.asOf": "Au {day}",
   "bookkeeping.recon.outcome.balanced": "Équilibré",
   "bookkeeping.recon.outcome.explained": "Expliqué",
