@@ -105,6 +105,10 @@ export const fr: Messages = {
   "error.contact_exists": "Quelqu'un dans l'annuaire a déjà cette adresse e-mail ou ce numéro.",
   "error.rate_limited": "Attendez une minute et réessayez.",
   "error.no_address": "Nous ne connaissons pas l'adresse de ce compte. Connectez-le à nouveau.",
+  "error.different_account":
+    "Ce compte n'est pas celui qui est connecté ici. Déconnectez-le d'abord, puis connectez l'autre.",
+  "error.different_company":
+    "Votre comptabilité ici vient d'une autre entreprise QuickBooks. Demandez-nous de changer d'entreprise.",
   "error.invalid_hours":
     "Ces horaires ne peuvent pas être enregistrés. Indiquez les horaires d'au moins un jour, et gardez chaque absence sous un an.",
   "error.sends_form":

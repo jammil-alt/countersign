@@ -104,6 +104,10 @@ export const it: Messages = {
   "error.contact_exists": "Qualcuno nella rubrica ha già questo indirizzo email o numero.",
   "error.rate_limited": "Attendi un minuto e riprova.",
   "error.no_address": "Non conosciamo l'indirizzo di questo account. Collegalo di nuovo.",
+  "error.different_account":
+    "Questo account è diverso da quello collegato qui. Scollegalo prima, poi collega l'altro.",
+  "error.different_company":
+    "La tua contabilità qui viene da un'altra azienda QuickBooks. Chiedici di cambiare azienda.",
   "error.invalid_hours":
     "Questi orari non possono essere salvati. Indica l'orario di almeno un giorno e tieni ogni assenza sotto un anno.",
   "error.sends_form":

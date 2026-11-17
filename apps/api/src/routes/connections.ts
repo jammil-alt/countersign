@@ -361,6 +361,33 @@ function oauthConnector(platform: Platform, connectorId: string): Connector {
 }
 
 /**
+ * What a sign-in does to a connection that already names an account (`externalAccountId`: a
+ * QuickBooks company, a mailbox, a Slack workspace): `same` (or nothing to compare) keeps it as
+ * before; another account is refused while the connection still holds the first one's sign-in,
+ * since its stored records and sync point belong to that account; on a disconnected connection
+ * it is `other_account`, and the sync starts again from the beginning.
+ */
+// DECISION: QuickBooks refuses another company, connected or not: its ids are small numbers
+// per company, and the client's transactions and vendors are keyed by them per client, not per
+// connection, so a second company's Bill 145 would land on the first one's. Changing the company
+// is ours to do by hand. A connector whose account id names what it reads, not whose account it
+// is (Search Console's property), sets `accountMayChange`.
+export function accountChange(
+  connector: Pick<Connector, "manifest" | "accountMayChange">,
+  existing: Pick<ConnectionRow, "status" | "externalAccountId"> | undefined,
+  next: string | null,
+): "same" | "other_account" | "refuse_connected" | "refuse_company" {
+  const before = existing?.externalAccountId?.trim().toLowerCase();
+  const after = next?.trim().toLowerCase();
+  if (!existing || !before || !after || before === after || connector.accountMayChange) {
+    return "same";
+  }
+  if (connector.manifest.id === QBO_CONNECTOR_ID) return "refuse_company";
+  if (existing.status !== "disconnected") return "refuse_connected";
+  return "other_account";
+}
+
+/**
  * Finishes a provider sign-in: checks the state against the session that posts it (client,
  * connector, user and where it started), exchanges the code, and stores the credentials on the
  * client's one connection for the connector (a reconnect keeps its matrix and bindings). Records
@@ -428,11 +455,28 @@ async function finishSignIn(
       `${connector.manifest.name} did not complete the sign-in`,
     );
   }
+  const change = accountChange(connector, existing, done.grant.externalAccountId);
+  if (change === "refuse_connected") {
+    throw new HttpError(
+      409,
+      "different_account",
+      "This is a different account from the one connected here. Disconnect it first, then connect the other one.",
+    );
+  }
+  if (change === "refuse_company") {
+    throw new HttpError(
+      409,
+      "different_company",
+      "Your books here come from another QuickBooks company. Ask us to change the company.",
+    );
+  }
   const values = {
     status: "connected" as const,
     credentialsEncrypted: done.credentials as Record<string, unknown>,
     externalAccountId: done.grant.externalAccountId,
     connectedBy: input.userId,
+    // Another account on a disconnected connection: its sync starts from the beginning.
+    ...(change === "other_account" ? { syncCursor: null } : {}),
   };
   await ctx.inTx(async (tx) => {
     if (existing) {

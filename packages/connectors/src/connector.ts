@@ -538,6 +538,12 @@ export interface Connector {
   beginLink?(req: LinkRequest): Promise<LinkStart>;
   handleCallback?(params: Record<string, string>, req: CallbackRequest): Promise<ConnectionGrant>;
   /**
+   * A sign-in may change the connection's `externalAccountId`: it names what the connection reads
+   * (Search Console's property), not whose account it is. Absent: a connection that names one
+   * account refuses a sign-in to another while it is connected.
+   */
+  accountMayChange?: boolean;
+  /**
    * Whether this deployment has what signing in needs (e.g. the OAuth client id and secret).
    * Absent means ready. The portal shows "not available yet" for a connector that isn't.
    */
