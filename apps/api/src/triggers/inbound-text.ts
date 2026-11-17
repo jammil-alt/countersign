@@ -8,16 +8,17 @@
 
 import {
   acceptingTriggers,
+  E164_RE,
   INBOUND_MESSAGE_EVENT,
   type InboundMessagePayload,
   messageTriggersOn,
   type SenderFacts,
 } from "@countersign/core";
-import { agent, agentVersion, reachOut, type Tx } from "@countersign/db";
+import { agent, agentVersion, contactChange, reachOut, type Tx } from "@countersign/db";
 import { type EventRow, type EventTypeRegistry, emit } from "@countersign/senses";
-import { and, eq, isNotNull, or, sql } from "drizzle-orm";
+import { and, eq, gt, isNotNull, or, sql } from "drizzle-orm";
 import { agentsListeningOn } from "../channels/resolve";
-import type { ContactRow } from "../messaging/contacts";
+import { type ContactRow, logContactChange } from "../messaging/contacts";
 import { tenantLocale } from "../routes/language";
 import { confirmReply, type InboundReply, noteStranger, strangerReply } from "./replies";
 import { contactFacts } from "./senders";
@@ -119,9 +120,9 @@ export async function routeInboundText(
           registry: input.registry,
           collect: input.collect,
         });
-        // Texts always get the reply, from the number they were sent to; never to someone who
-        // opted out.
-        if (!input.contact.optedOutAt) {
+        // Texts get the reply, from the number they were sent to: never to someone who opted
+        // out, to an automated sender, or more than once a day to the same sender.
+        if (!input.contact.optedOutAt && (await mayAnswer(tx, input, "stranger_reply"))) {
           const polite = strangerReply({
             channel: input.channel,
             agentName,
@@ -157,7 +158,9 @@ export async function routeInboundText(
     );
     if (ev) input.collect.push(ev);
     const confirm = accepting.find((t) => t.on.reply)?.on.reply?.confirm;
-    if (confirm && !input.contact.optedOutAt) {
+    // Never to an automated sender, and a few a day at most, so an auto-responder and an agent
+    // that confirms can't text each other without end (as email's confirmations).
+    if (confirm && !input.contact.optedOutAt && (await mayAnswer(tx, input, "confirm_reply"))) {
       const c = confirmReply({
         channel: input.channel,
         confirm,
@@ -171,4 +174,78 @@ export async function routeInboundText(
     }
   }
   return replies;
+}
+
+/** The window the automatic replies are counted in. */
+const REPLY_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** Automatic replies per sender (contact) and channel in the window, by kind. */
+// DECISION: one polite reply a day to a sender no trigger takes; five confirmations a day to one
+// a trigger takes, enough for a person writing several requests and few enough that two automatic
+// responders stop soon. The messages themselves still reach the agent.
+const REPLY_MAX = { stranger_reply: 1, confirm_reply: 5 } as const;
+
+/** NANP toll-free area codes: numbers that businesses and automated systems send from. */
+const TOLL_FREE = new Set(["800", "833", "844", "855", "866", "877", "888"]);
+
+/**
+ * Whether a sender looks automated: a short code or an alphanumeric sender (not a full
+ * international number), a NANP number that isn't a real one or is toll-free, or the client's own
+ * number. Their messages get no polite reply, so two automatic responders can't answer each other.
+ */
+// DECISION: judged from the number alone (no carrier lookup, which costs per number): a full
+// international number of at least nine digits, and for +1 a valid area code and exchange that
+// isn't toll-free.
+export function looksAutomated(from: string, to: string): boolean {
+  if (from === to || !E164_RE.test(from) || from.length < 10) return true;
+  if (from.startsWith("+1")) {
+    if (!/^\+1[2-9]\d{2}[2-9]\d{6}$/.test(from)) return true;
+    return TOLL_FREE.has(from.slice(2, 5));
+  }
+  return false;
+}
+
+/**
+ * Whether an automatic reply (the polite reply, or a trigger's confirmation) may go to this sender,
+ * recorded on their contact when it may: at most `REPLY_MAX` of the kind per sender per client a
+ * day, never to an automated sender.
+ */
+// DECISION: counted from the contact's own log (`contact_change` kinds `stranger_reply` and
+// `confirm_reply`), as text invitations are, under an advisory lock on the client and the sender,
+// so two messages at once can't both take the last one. Counted when decided, before it is sent:
+// a reply that then fails still counts.
+async function mayAnswer(
+  tx: Tx,
+  input: {
+    tenantId: string;
+    channel: "sms" | "whatsapp";
+    contact: ContactRow;
+    from: string;
+    to: string;
+    now: Date;
+  },
+  kind: keyof typeof REPLY_MAX,
+): Promise<boolean> {
+  if (looksAutomated(input.from, input.to)) return false;
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${`auto-reply:${input.tenantId}:${input.channel}:${input.from}`}, 0))`,
+  );
+  const [recent] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(contactChange)
+    .where(
+      and(
+        eq(contactChange.tenantId, input.tenantId),
+        eq(contactChange.contactId, input.contact.id),
+        gt(contactChange.createdAt, new Date(input.now.getTime() - REPLY_WINDOW_MS)),
+        sql`${contactChange.change}->>'kind' = ${kind}`,
+        sql`${contactChange.change}->>'channel' = ${input.channel}`,
+      ),
+    );
+  if ((recent?.n ?? 0) >= REPLY_MAX[kind]) return false;
+  await logContactChange(tx, input.tenantId, input.contact.id, null, {
+    kind,
+    channel: input.channel,
+  });
+  return true;
 }

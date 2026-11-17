@@ -7,6 +7,7 @@ import {
   autonomyFor,
   readApproverRuleSet,
   readAutonomy,
+  readHold,
 } from "@countersign/core";
 import {
   agent,
@@ -191,6 +192,17 @@ export function dbRuntimeStore(db: Db): RuntimeStore {
           .from(agent)
           .where(and(eq(agent.id, agentId), eq(agent.tenantId, tenantId)));
         return row?.stage ?? null;
+      });
+    },
+
+    // docs/plan.md §1.124: the safety hold.
+    agentHold(tenantId, agentId) {
+      return withTenant(db, tenantId, async (tx) => {
+        const [row] = await tx
+          .select({ hold: agent.hold })
+          .from(agent)
+          .where(and(eq(agent.id, agentId), eq(agent.tenantId, tenantId)));
+        return readHold(row?.hold ?? null) !== null;
       });
     },
 

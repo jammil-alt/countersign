@@ -442,6 +442,13 @@ async function dispatch(
     tool.spec.sideEffect === "external"
       ? effectiveMode(step.agent.bundle.definition, stage)
       : step.agent.bundle.definition.permissions.mode;
+  // docs/plan.md §1.124: the safety hold, read fresh like the stage: while held, every write waits
+  // for a person (an approval ceiling, which only tightens: invariant 8). Test runs are unchanged.
+  const held =
+    tool.spec.sideEffect === "external" && step.mode !== "test" && deps.ports.store.agentHold
+      ? await deps.ports.store.agentHold(step.tenantId, step.agent.agentId)
+      : false;
+  const ceilings = [...(autonomy ? [autonomy] : []), ...(held ? (["approval"] as const) : [])];
   const decision = decideToolCall({
     sideEffect: tool.spec.sideEffect,
     verb: tool.spec.verb,
@@ -449,7 +456,7 @@ async function dispatch(
     grant,
     stepApproval: step.approval?.required,
     agentMode: mode,
-    ceilings: autonomy ? [autonomy] : undefined,
+    ceilings: ceilings.length > 0 ? ceilings : undefined,
     // v0.12 W2-A: the entity and its scope, on the connection and the grant.
     entity: { tool: tool.spec, input, declared: tool.connector.manifest.permissionEntities },
     // §1.73: publishing, posting: a person signs every one.
@@ -591,6 +598,8 @@ async function dispatch(
               entity,
               // §1.73
               alwaysSigned: isAlwaysSigned(tool.spec),
+              // §1.124: on a safety hold.
+              held,
               // Review 2, item 2: a retry's write signed because of an earlier change, which
               // the card names so the person checks it first.
               retry: step.signedBecause ?? null,

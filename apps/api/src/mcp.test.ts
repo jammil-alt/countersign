@@ -475,10 +475,28 @@ describe.skipIf(!h)("MCP server", () => {
         "records_search",
         "ops_health",
         "marketing_report",
+        "code_requests_list",
+        "code_request_get",
+        "catalog_search",
+        "code_request_file",
+        "code_request_claim",
+        "code_request_note",
+        "code_request_rerun_reuse",
+        "code_request_attach_pr",
+        "code_request_set_status",
+      ]);
+      const writes = new Set([
+        "feedback_resolve",
+        "code_request_file",
+        "code_request_claim",
+        "code_request_note",
+        "code_request_rerun_reuse",
+        "code_request_attach_pr",
+        "code_request_set_status",
       ]);
       for (const t of tools) {
         expect(t.inputSchema.type).toBe("object");
-        expect(t.annotations.readOnlyHint).toBe(t.name !== "feedback_resolve");
+        expect(t.annotations.readOnlyHint).toBe(!writes.has(t.name));
       }
       expect(
         Object.keys(tools.find((t) => t.name === "feedback_resolve")?.inputSchema.properties ?? {}),
@@ -1053,6 +1071,88 @@ describe.skipIf(!h)("MCP server", () => {
     } finally {
       limiter = saved;
     }
+  });
+
+  // ── The Dev queue (§1.125) ──────────────────────────────────────────────────────────────────
+
+  describe("Dev queue tools", () => {
+    let ref = "";
+    it("find, search and note as the routes do, recorded as the session; refuse an early claim", async () => {
+      const filed = await asDev(OPERATOR, "POST", "/api/ops/code-requests", {
+        title: "QuickBooks report: balance sheet",
+        kind: "new_tool",
+        spec: {
+          summary: "Read the balance sheet as of a date.",
+          inputs: ["as-of date"],
+          outputs: ["assets", "liabilities", "equity"],
+          acceptance: ["Assets equal liabilities plus equity"],
+          parts: ["qbo.balance_sheet"],
+        },
+      });
+      expect(filed.status, JSON.stringify(filed.json)).toBe(200);
+      ref = j(filed.json).request.ref;
+      // Filing the same capability again from a session returns the one already open.
+      const again = await tool(opToken, "code_request_file", {
+        title: "QuickBooks report: balance sheet",
+        kind: "new_tool",
+        summary: "Read the balance sheet as of a date.",
+      });
+      expect(again.text).toContain(`Not filed: ${ref}`);
+      const fresh = await tool(opToken, "code_request_file", {
+        title: "QuickBooks report: AP aging",
+        kind: "new_tool",
+        summary: "Read accounts payable aging by vendor.",
+        outputs: ["vendor", "buckets"],
+        part: "qbo.ap_aging_report",
+      });
+      expect(fresh.data().request).toMatchObject({ status: "triage", createdBy: "session" });
+      const list = await tool(opToken, "code_requests_list", {});
+      expect(list.data().requests.map((r: { ref: string }) => r.ref)).toContain(ref);
+      const got = await tool(opToken, "code_request_get", { id: ref });
+      expect(got.data().request).toMatchObject({ ref, status: "triage" });
+      expect(got.data().request.moves.claim).toEqual({
+        allowed: false,
+        reason: "Only an accepted request can be claimed.",
+      });
+      const search = await tool(opToken, "catalog_search", { query: "balance sheet report" });
+      expect(search.data().hits.map((h: { ref: string | null }) => h.ref)).toContain(ref);
+      // A claim on a request in triage is refused with the guard's reason.
+      const early = await tool(opToken, "code_request_claim", { id: ref });
+      expect(early.isError).toBe(true);
+      expect(early.text).toMatch(/Only an accepted request can be claimed/);
+      const noted = await tool(opToken, "code_request_note", {
+        id: ref,
+        body: "Looked at qbo.aging_report.",
+      });
+      expect(noted.isError).toBe(false);
+      const events = noted.data().request.events as { kind: string; actor: string }[];
+      expect(events[0]).toMatchObject({ kind: "note", actor: "session" });
+    });
+
+    it("accept and close only with the two-step confirm, and say why a guard refuses", async () => {
+      const preview = await tool(opToken, "code_request_set_status", {
+        id: ref,
+        status: "accepted",
+      });
+      // Its triage isn't done: refused at the preview, with the reason.
+      expect(preview.isError).toBe(true);
+      expect(preview.text).toMatch(/refused/);
+      const close = await tool(opToken, "code_request_set_status", {
+        id: ref,
+        status: "closed",
+        close_reason: "not_worth_it",
+      });
+      expect(close.isError).toBe(false);
+      expect(close.text).toMatch(/Preview, nothing changed yet/);
+      const confirm = /confirm_token "([^"]+)"/.exec(close.text)?.[1] ?? "";
+      const done = await tool(opToken, "code_request_set_status", {
+        id: ref,
+        status: "closed",
+        close_reason: "not_worth_it",
+        confirm_token: confirm,
+      });
+      expect(done.data().request).toMatchObject({ status: "closed", closeReason: "not_worth_it" });
+    });
   });
 
   // ── The client's tools (§1.89) ──────────────────────────────────────────────────────────────

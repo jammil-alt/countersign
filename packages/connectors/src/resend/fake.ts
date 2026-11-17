@@ -100,7 +100,8 @@ export function fakeResend(): FakeResend {
 
       if (method === "POST" && path === "/emails") {
         const from = String(body.from ?? "");
-        const fromDomain = /@([^>\s]+)>?$/.exec(from)?.[1] ?? "";
+        const tail = from.slice(from.lastIndexOf("@") + 1).replace(/>$/, "");
+        const fromDomain = from.includes("@") && /^[^>\s]+$/.test(tail) ? tail : "";
         const allowed = keys.get(key);
         if (allowed && allowed !== fromDomain) {
           return respond(403, { message: `this key can't send from ${fromDomain}` });

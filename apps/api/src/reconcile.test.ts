@@ -108,8 +108,8 @@ describe.skipIf(!h)("the Bookkeeper reconciles a month", () => {
     if (!tools.includes("bookkeeping__reconcile__propose")) {
       throw new Error(`unexpected call: ${tools}`);
     }
-    // The task input (the first message) names the reconciliation.
-    const id = JSON.stringify(r.messages[0]).match(
+    // The task input (the result of its read, 5.14) names the reconciliation.
+    const id = JSON.stringify(r.messages[2]).match(
       /[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/,
     )?.[0];
     if (!JSON.stringify(r.messages).includes('"name":"bookkeeping__reconcile__open"')) {

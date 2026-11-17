@@ -1,4 +1,4 @@
-// Asking Mezonas for this computer's jobs and answering them (docs/plan.md §1.124). The computer
+// Asking Mezonas for this computer's jobs and answering them (docs/plan.md §1.151). The computer
 // never takes a connection in: it waits on GET /api/desktop/jobs (the API holds the request open
 // up to DESKTOP_POLL_SEC), runs what comes back one job at a time, and posts each result.
 // DECISION: a long poll, not a WebSocket to a Durable Object: apps/api has no Durable Objects

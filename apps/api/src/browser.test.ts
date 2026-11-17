@@ -47,6 +47,7 @@ import {
   OPERATOR,
   user,
 } from "./api.test-helper";
+import { pinnedSite } from "./browser/sites";
 import { codesClient } from "./codes/client";
 import type { Bindings } from "./env";
 import { credentialsFor, executeRun, type RunDeps } from "./runs/execute";
@@ -327,6 +328,36 @@ describe.skipIf(!h)("browser connections through the API", () => {
       expect(
         (await H.call(admin("a"), "POST", "/api/access/browser", { site: "bank" })).status,
       ).toBe(409);
+    });
+
+    it("treats a site on a blocked host as the blocked tier, whatever tier was picked", async () => {
+      const PAY = "https://www.paypal.com";
+      const made = await H.call(OPERATOR, "POST", "/api/ops/browser-sites", {
+        slug: "payments",
+        name: "Payments",
+        tier: "low",
+        notes: "Picked low by mistake",
+        profile: {
+          ...PROFILE,
+          login: { ...PROFILE.login, url: `${PAY}/signin`, origins: [PAY] },
+          signOut: { selector: "#logout" },
+          allow: [`${PAY}/activity*`],
+        },
+      });
+      expect(made.status, JSON.stringify(made.json)).toBe(200);
+      expect(j(made.json).site.tier).toBe("blocked");
+      const view = await H.call(admin("a"), "GET", "/api/access");
+      expect(j(view.json).browserSites.map((s: { slug: string }) => s.slug)).not.toContain(
+        "payments",
+      );
+      expect(
+        (await H.call(admin("a"), "POST", "/api/access/browser", { site: "payments" })).status,
+      ).toBe(409);
+      const pinned = await pinnedSite(H.db, {
+        slug: "payments",
+        versionId: j(made.json).site.current.id,
+      });
+      expect(pinned?.tier).toBe("blocked");
     });
 
     it("pins the site's version, makes the agent identity, takes the login write-only", async () => {

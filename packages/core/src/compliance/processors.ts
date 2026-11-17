@@ -128,6 +128,27 @@ export const TEXT_INVITE_FEATURE = {
 } as const;
 
 /**
+ * §1.124.4: Reggie's read of a client's issue sends the client's words and the gathered records to
+ * the model (Anthropic, Mezonas' key). A client in HIPAA mode gets no read until it is covered;
+ * the issue comes to the operator to read instead.
+ */
+export const REGGIE_READ_FEATURE = {
+  id: "backoffice.reggie_read",
+  what: "Reggie's read of a request",
+  processors: ["anthropic"] as readonly Processor[],
+} as const;
+
+/**
+ * §1.124.4: the back office's email to a client's person about a request (Resend, Mezonas' own
+ * mail). A client in HIPAA mode is answered in the portal only until `resend` is covered.
+ */
+export const BACKOFFICE_EMAIL_FEATURE = {
+  id: "backoffice.email",
+  what: "Replies to requests by email",
+  processors: ["resend"] as readonly Processor[],
+} as const;
+
+/**
  * Voice typing in conversations (the owner, 2026-11-15): what a person dictates is sent to OpenAI
  * to be written out, then put in their message box to read before it goes. A client in HIPAA mode
  * is refused it until `openai` is covered, as its OpenAI model calls are.
@@ -227,6 +248,15 @@ export function uncoveredProcessors(
 }
 
 /** Why a client in HIPAA mode can't use something, or null when it can. */
+/**
+ * A call refused because it would send a HIPAA client's data to a processor without a signed BAA
+ * (the message is `processingRefusal`'s). Thrown before anything is sent; apps/api answers it as
+ * 409 `hipaa`, and code that wraps a model's errors passes it on as it is.
+ */
+export class ComplianceRefusal extends Error {
+  override name = "ComplianceRefusal";
+}
+
 export function processingRefusal(
   profile: ComplianceProfile,
   covered: ReadonlySet<Processor>,

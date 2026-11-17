@@ -256,11 +256,12 @@ function transportFor(): LlmTransport {
   const writer = withRecording(
     {
       async create(request: LlmRequest) {
-        // The task input follows its first blank line, as JSON.
-        const first = request.messages[0]?.content;
-        const block = Array.isArray(first) ? first.find((b) => b.type === "text") : undefined;
-        const text = block && "text" in block ? block.text : "";
-        const input = JSON.parse(text.slice(text.indexOf("\n\n") + 2)) as {
+        // The task input is the result of its read (5.14), as JSON.
+        const result = request.messages[2]?.content;
+        const block = Array.isArray(result) ? result[0] : undefined;
+        const text =
+          block?.type === "tool_result" && typeof block.content === "string" ? block.content : "";
+        const input = JSON.parse(text) as {
           input: { lines: { lineNo: number; candidates: { catalogItemId: string }[] }[] };
         };
         const answers = input.input.lines.map((l) => ({

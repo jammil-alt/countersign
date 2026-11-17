@@ -54,6 +54,11 @@ branches.
   answers no tool call until the person approves that Claude sign-in from a browser that did pass
   it (§1.120). The approval link's code is kept only as an HMAC, works for 30 minutes and only for
   its own person; the approval ends with that Claude sign-in, 12 hours at most.
+  Approving also takes the 6-digit code Claude shows beside the link, and the page says when
+  Claude gave the link. The code is friction against phishing (someone sending a person a link to
+  approve for a Claude that isn't theirs), not a cryptographic binding: whoever controls that
+  Claude sees the code. A link stops working after 5 wrong codes; Claude's next call gives a new
+  one.
 - **A person's clients and roles are read again at most every 5 minutes** (`docs/plan.md` §1.93,
   the owner's D2). The sealed session cookie carries them with the time they were read; a request
   inside those 5 minutes uses them instead of reading them.
@@ -80,6 +85,14 @@ branches.
     `operator.remove` audit row, never the last operator. Their open items go to the other
     operators, and a client they led has no lead until one is set. The rest of the day's steps are
     in `docs/operations.md`, "People: joining and leaving".
+  - A phone (the phone app, `docs/plan.md` §1.116): removing it in Settings ends that person's
+    phone-app sessions which signed in before then, in all their clients, on their next request
+    (`mobile.phone_removed` in the audit log). While the second step is on, a phone's signing key
+    can be added only within 10 minutes of signing in or passing the step. A phone-app session
+    decides a card (approve, reject, answer) only with a signature from one of the person's own
+    phones in that client, still set up; without one it is refused (403 `signature_required`) and
+    nothing changes, and the card routes that carry no signature (a batch, an edit, taking a change
+    back, a suggestion, a drafted change, a pack's review) refuse it outright.
 - Roles are `operator`, `client_admin` and `client_user`. Only operators reach `/api/ops` and the
   MCP connector's back-office tools; a client's admin or user signing in to the same connector gets
   read-only tools over the portal's routes, for one of their own clients per call (`docs/plan.md`
@@ -120,6 +133,18 @@ branches.
 - **Browser logins** are typed by the separate browser service (`apps/browser`), which holds no
   secrets: `apps/api` hands it a password or a code for one `fill`, held to the site's login
   origins, and it never stores, logs or returns one.
+- **The blocked tier is enforced in code** (invariant 13). A list of well-known banks, payment
+  services, email accounts and identity providers (`BROWSER_BLOCKED_HOSTS` in
+  `packages/core/src/browser/site.ts`) is matched by domain and every subdomain, and a
+  wildcard host that would reach a listed one counts. A site with any
+  host on it is the blocked tier whatever tier the operator picked: it is never offered to a
+  client, never set up, and a run never signs in to it, by the site's newest version and by the
+  version a connection pinned. No page on a listed host is ever opened. The browser service
+  checks the same list again (`apps/browser/src/blocked.ts`, held equal to core's by a test): it
+  refuses to open a browser for a listed host, refuses to go to or download from one, and checks
+  the browser's address after every navigation and before every read, leaving any page on one
+  without reading it. The list changes only with the code; the operator's tier covers
+  every other site.
 
 ## 5. Where client data may go
 
@@ -162,15 +187,20 @@ branches.
   (`apps/api/src/request-origin.ts`). Signed webhooks, the public forms and beacon, and the phone
   app's own session header are exempt; a body sent to a session route must be JSON.
 - **Rate limiting** (Cloudflare): 50 requests per 10 seconds per IP on `/api/*`, webhooks
-  excluded. The MCP connector has its own limit of 120 calls a minute per operator.
-  `/mcp` is not under `/api/*`, so the Cloudflare rule doesn't cover it: a request there with no
-  token is answered and not recorded, and refused sign-ins are recorded only up to 120 a minute
-  per IP (`MCP_RATE_LIMIT`, key `ip:<address>`).
-  Plain-words questions and voice typing in the portal, which each call a paid model, are
-  limited per person and client to 10 a minute and 200 a day (`apps/api/src/metered.ts`).
+  excluded. The MCP connector has its own limit of 120 calls a minute per operator. `/mcp` is not
+  under `/api/*`, so the Cloudflare rule doesn't cover it: a request there with no token is
+  answered and not recorded, and refused sign-ins are recorded only up to 120 a minute per IP
+  (`MCP_RATE_LIMIT`, key `ip:<address>`). Plain-words questions and voice typing in the portal,
+  which each call a paid model, are limited per person and client to 10 a minute and 200 a day
+  (`apps/api/src/metered.ts`). The public beacon route (`/api/in/`) has its own too: 120 a minute
+  per sending address (an IPv6 address by its /64), checked before any database work
+  (`apps/api/src/routes/pack-inbound.ts`).
 - **Writes to clients' tools** need approval by default, run once each, and record their before
   state (invariant 8). Delete is off.
 - **Webhooks** from Twilio, Stripe, QuickBooks and ElevenLabs are signature-checked.
+- **Bodies with no session** (webhooks, the beacon, the token-link pages and the sign-in steps)
+  are read with a cap: a declared length over the route's limit is refused unread, and a body with
+  no length is read only up to the limit (`apps/api/src/body.ts`; the code service's texts too).
 
 ## 7. Changes, code and dependencies
 

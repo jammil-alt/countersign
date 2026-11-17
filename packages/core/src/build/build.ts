@@ -653,6 +653,9 @@ function openWords(n: number): string {
  */
 // DECISION (owner, 2026-11-17): the Builder proposes one change at a time and the operator agrees;
 // it never changes the build on its own, and it never proposes accepting the approvals check.
+const Short = z.string().min(1).max(100);
+const Lines = z.array(z.string().trim().min(1).max(500)).max(20);
+
 export const BuildAction = z.discriminatedUnion("do", [
   z.object({
     do: z.literal("close_item"),
@@ -676,6 +679,72 @@ export const BuildAction = z.discriminatedUnion("do", [
     reason: z.string().trim().min(20).max(500).describe("What has to be redone there"),
   }),
   z.object({ do: z.literal("run_tests") }),
+  // The Dev queue (docs/plan.md §1.125): bucket B, new code, filed with the triage done; a link
+  // to an open request; its approval; bucket A, a skill drafted as a skill build of its own. The
+  // Builder's rules (packages/agents, BUILD_RULES) say how to fill them; this file is in the web
+  // app's first load, so the schemas carry no descriptions of their own.
+  z.object({
+    do: z.literal("file_code_request"),
+    itemId: Short.optional(),
+    stepId: Short.optional(),
+    workflowId: Short.optional(),
+    request: z.object({
+      title: z.string().trim().min(1).max(200),
+      kind: z.enum(["extend_existing", "new_tool", "new_skill_code", "config_only"]),
+      summary: z.string().trim().min(1).max(2000),
+      inputs: Lines.min(1),
+      outputs: Lines.min(1),
+      rules: Lines.default([]),
+      acceptance: Lines.min(1),
+      part: z.string().trim().min(1).max(200),
+      decision: z.enum(["extend", "new_general", "one_off"]),
+      decisionReason: z.string().trim().min(25).max(2000),
+      otherUses: z.array(z.string().trim().min(1).max(300)).max(20).default([]),
+      considered: z
+        .array(
+          z.object({
+            partId: z.string().min(1).max(300),
+            verdict: z.enum(["use", "extend", "reject"]),
+            reason: z.string().trim().max(1000).default(""),
+            missing: z.string().trim().max(1000).default(""),
+          }),
+        )
+        .max(10)
+        .default([]),
+      questions: z
+        .array(
+          z.object({
+            question: z.string().trim().min(1).max(1000),
+            mode: z.enum(["answer_first", "investigate_during_build"]),
+          }),
+        )
+        .max(10)
+        .default([]),
+    }),
+  }),
+  z.object({
+    do: z.literal("link_code_request"),
+    requestId: Short,
+    ref: z.string().min(1).max(20),
+    itemId: Short.optional(),
+    stepId: Short.optional(),
+    workflowId: Short.optional(),
+  }),
+  z.object({
+    do: z.literal("approve_code_request"),
+    requestId: Short,
+    ref: z.string().min(1).max(20),
+  }),
+  z.object({
+    do: z.literal("draft_skill"),
+    itemId: Short.optional(),
+    stepId: Short.optional(),
+    title: z.string().trim().min(1).max(200),
+    goal: z.string().trim().min(10).max(1000),
+    dataIn: z.string().trim().min(1).max(1000),
+    dataOut: z.string().trim().min(1).max(1000),
+    rules: z.string().trim().max(1000).default(""),
+  }),
   z.object({
     do: z.literal("edit_draft"),
     request: z

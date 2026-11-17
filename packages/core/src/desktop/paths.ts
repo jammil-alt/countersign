@@ -1,4 +1,4 @@
-// The Mezonas desktop app (docs/plan.md §1.124): which folders on a client's computer can be given
+// The Mezonas desktop app (docs/plan.md §1.151): which folders on a client's computer can be given
 // to Mezonas, and which paths inside them a job may name. Pure string rules, shared by apps/api
 // (which refuses a job outside a grant before it is sent) and apps/desktop (which checks again on
 // the computer, after resolving links with the file system). Nothing here touches a disk.

@@ -113,6 +113,72 @@ describe("serveTab", () => {
     );
   });
 
+  it("never opens a site on the blocked list, and leaves one a page moved to", async () => {
+    const t = tab();
+    const served = serveTab(t);
+    await expect(served.goto("https://www.paypal.com/myaccount")).rejects.toThrow(
+      /^agents never open this site$/,
+    );
+    await expect(served.download("https://secure.chase.com/statement.pdf")).rejects.toThrow(
+      /^agents never open this site$/,
+    );
+    expect(t.log).toEqual([]);
+
+    // An allowed address that ends on a listed site, by a redirect or a click: left at once.
+    let movedTo = "https://portal.supplier.test/home";
+    const moved = tab({
+      click: async () => {
+        movedTo = "https://accounts.google.com/signin";
+      },
+      goto: async (url) => {
+        moved.log.push(`goto ${url}`);
+        movedTo = url === "about:blank" ? url : "https://login.microsoftonline.com/common";
+      },
+      url: () => movedTo,
+    });
+    const away = serveTab(moved);
+    await expect(away.click("#sso")).rejects.toThrow(/^agents never open this site$/);
+    expect(movedTo).toBe("about:blank");
+    await expect(away.goto("https://portal.supplier.test/sso")).rejects.toThrow(
+      /^agents never open this site$/,
+    );
+    expect(moved.log).toEqual([
+      "goto about:blank",
+      "goto https://portal.supplier.test/sso",
+      "goto about:blank",
+    ]);
+  });
+
+  it("reads nothing from a page that moved to a listed site by itself, and leaves it", async () => {
+    let at = "https://accounts.google.com/signin";
+    const t = tab({
+      url: () => at,
+      goto: async (url) => {
+        t.log.push(`goto ${url}`);
+        at = url;
+      },
+    });
+    const served = serveTab(t);
+    const reads = [
+      () => served.readText(),
+      () => served.readTables(),
+      () => served.textOf("#a"),
+      () => served.controls(),
+      () => served.sendsForm("#f"),
+      () => served.has("#a"),
+      () => served.screenshot(),
+      () => served.cookies(),
+    ];
+    for (const read of reads) {
+      at = "https://accounts.google.com/signin";
+      await expect(read()).rejects.toThrow(/^agents never open this site$/);
+      expect(at).toBe("about:blank");
+    }
+    // On an ordinary page, reads go on.
+    at = "https://portal.supplier.test/home";
+    expect(await served.readText()).toEqual({ url: at, value: "page text" });
+  });
+
   it("types only on the origins it is given, by the browser's own address now", async () => {
     let live = "https://portal.supplier.test/verify";
     const t = tab({

@@ -42,6 +42,7 @@ import { isGoLiveItem, resolveGoLive } from "./lifecycle/stages";
 import { senseEmitter } from "./runs/dispatch";
 // R5: a late answer and its undo
 import { type LateAnswerNote, lateTitle, type UndoOffer } from "./undo/offer";
+import { agentHeld } from "./work/holds";
 
 export type InboxRow = typeof inboxItem.$inferSelect;
 
@@ -161,6 +162,10 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
   if (item.subjectType === ACCOUNT_CHANGE_SUBJECT) {
     throw new HttpError(409, "use_account_change", "approve this change from its own card");
   }
+  // docs/plan.md §1.124: a build's requirements request is answered through its own form.
+  if (item.subjectType === "requirements_request") {
+    throw new HttpError(409, "use_requirements", "answer these questions on their own form");
+  }
   // R5: the run went ahead without this answer (a deadline's `ifNoAnswer: proceed`): the answer
   // is recorded as late, the lead is told, a late no is offered an undo, and nothing reaches the
   // run. Checked before `expired`: an item the deadline passed may still be answered late.
@@ -191,6 +196,20 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
   if (item.runId) {
     const [r] = await tx.select({ mode: run.mode }).from(run).where(eq(run.id, item.runId));
     testRun = r?.mode === "test";
+  }
+  // docs/plan.md §1.124: a held agent's items wait for Mezonas: approving one is refused while
+  // the hold is on (invariant 8: it only tightens); rejecting (dropping) one is allowed.
+  if (
+    decision !== "reject" &&
+    item.agentId &&
+    !testRun &&
+    (await agentHeld(tx, input.tenantId, item.agentId))
+  ) {
+    throw new HttpError(
+      409,
+      "agent_held",
+      "This agent is on a safety hold. Mezonas reviews held items first.",
+    );
   }
   // v0.12 W1-D: a question with quick answers takes one of them (a decline needs none).
   const choices = readChoices(isPlainObject(item.payload) ? item.payload.choices : undefined);

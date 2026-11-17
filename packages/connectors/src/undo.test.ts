@@ -69,7 +69,7 @@ const ALL: Connector[] = [
   createBillcomConnector(),
   // Odoo: CRM, sales, purchasing, invoicing and inventory.
   createOdooConnector(),
-  // §1.124: folders on a client's computer (registered by apps/api with the desktop API).
+  // §1.151: folders on a client's computer (registered by apps/api with the desktop API).
   createDesktopConnector(),
   createTestkitConnector(),
 ];

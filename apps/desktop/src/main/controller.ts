@@ -1,4 +1,4 @@
-// The desktop app's own logic (docs/plan.md §1.124), apart from Electron so it can be tested:
+// The desktop app's own logic (docs/plan.md §1.151), apart from Electron so it can be tested:
 // signing in, pairing this computer, the folders it gives, the jobs it runs, the files it sends,
 // the Desk it watches and the view the window shows. index.ts gives it the operating system's
 // parts (browser, notifications, folder picker, keychain) and the window.

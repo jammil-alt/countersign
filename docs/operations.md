@@ -1021,7 +1021,10 @@ one code, each with its own WorkOS environment, users and data. One URL for ever
 decides what it does:
 
 - **Operators** (`docs/plan.md` §1.34): it reads what the back office shows for the clients you
-  serve, and its one write (resolving feedback) takes two calls, a preview and a confirm.
+  serve, and its writes on a person's decision (resolving feedback, accepting or closing a Dev
+  queue request) take two calls, a preview and a confirm. The Dev queue's tools (§1.125) also
+  claim a request, note on it, run its reuse check again and attach its PR, with no confirm: they
+  change only the request.
 - **A client's admin or user** (§1.89): it reads what their portal shows them (overview, inbox,
   runs, connections, requests, records, documents, reports), for their own business only. It
   changes nothing; approvals and answers stay in the portal.
@@ -1071,7 +1074,7 @@ If connecting fails:
 | 401 "the access token is not for this server" on every call | AuthKit did not put this server's URL in the token's `aud` (RFC 8707 resource indicator; UNCHECKED) | Look at a token's `aud` in the Worker log or WorkOS, and set `MCP_AUDIENCE` to it under the environment's `vars`. Empty means the default (the `/mcp` URL); there is no way to turn the check off |
 | 503 "the sign-in service can't be reached" | The Worker could not read AuthKit's metadata at `<domain>/.well-known/oauth-authorization-server` | Check `WORKOS_AUTHKIT_DOMAIN` |
 | 503 "the MCP server is not set up here" | `WORKOS_AUTHKIT_DOMAIN` is set but WorkOS sign-in is not fully on (client id, API key, cookie password) | Fix WorkOS sign-in first |
-| A tool error `approval_needed: approve this Claude connection first: open …` | Our second step is on here (`docs/plan.md` §1.120): each Claude sign-in is approved once from a browser | Open the link in the browser where you're signed in to Mezonas (past the code), approve, then ask again. A link works for 30 minutes and only the newest one Claude gave |
+| A tool error `approval_needed: approve this Claude connection first: open …` | Our second step is on here (`docs/plan.md` §1.120): each Claude sign-in is approved once from a browser | Open the link in the browser where you're signed in to Mezonas (past the code), check the time it says Claude asked, type the 6-digit code Claude showed with the link, approve, then ask again. A link works for 30 minutes and only the newest one Claude gave |
 | A tool error `approval_needed: this sign-in can't be approved` | AuthKit's token carries no session id (`sid`; UNCHECKED that AuthKit always sends it) | Disconnect the connector in Claude and connect again; if it persists, look at a token's claims |
 | 429 | More than 120 calls a minute from you (Cloudflare rate limiting, `MCP_RATE_LIMIT`) | Wait a minute |
 
@@ -1086,6 +1089,42 @@ and at most 120 a minute per IP) is `mcp.sign_in`.
 
 Locally the MCP server is off (`WORKOS_AUTHKIT_DOMAIN` is empty in `wrangler.jsonc`); the tests in
 `apps/api/src/mcp.test.ts` run it against a fake AuthKit.
+
+### The Dev queue's daily task (`docs/plan.md` §1.125)
+
+Mezonas can't start a Claude Code session, so the Dev queue is pulled: by any session on demand
+("find DQ-012 and build it"), and by a daily scheduled task as a backstop. The owner creates the
+task (Claude Code → scheduled tasks), once a day outside working hours, each run a fresh session
+on this repository with the **Mezonas Staging** MCP connector. Its prompt:
+
+```text
+You build the Mezonas Dev queue's accepted requests. Read CLAUDE.md first.
+
+1. With the Mezonas Staging MCP tools, list accepted requests (code_requests_list, status "accepted"),
+   oldest first. Work at most 2 this run.
+2. For each: code_request_claim it (the claim keeps other sessions off it), read code_request_get
+   (spec, open questions, reuse check), then search this repository for anything that already does it.
+3. If something already does it: code_request_note naming the part and where it is, and stop with
+   this request. Closing is the operator's, never yours.
+4. Otherwise:
+   - answer the open questions marked investigate_during_build (a note each);
+   - make the smallest change that does it, extending an existing part before adding one;
+   - add tests next to the code; run pnpm check;
+   - open a draft PR against main (main deploys to staging; there is no staging branch), its
+     description saying what it does and how to try it on staging;
+   - code_request_attach_pr with the PR's URL and the catalog part it adds (a tool id, a skill ref,
+     or <part>#<operation> such as data.reshape#dateOffset). Mezonas marks it shipped by itself when
+     the deploy's catalog has that part.
+5. Mark the PR ready. When CI is green with no conflicts, merge it. Exception: a PR with a migration,
+   or a change to CI, deploys or sign-in, needs its own PR and the owner's merge: leave it ready,
+   note that on the request, and say so in your summary. Never skip, disable or quarantine a test
+   to get green; re-run CI once at most, then fix the root cause.
+6. Never accept, close or ship a request. End with a code_request_note on each request you touched
+   summarizing what you did, and a summary of the run.
+```
+
+A request a session is building shows In progress (In review once its PR is attached). A claim
+with no event for 2 hours and no PR goes back to Accepted for the next run.
 
 ## 1.1 Onboarding a client (managed service)
 
@@ -1295,8 +1334,12 @@ disconnected. Then:
 3. Then the owner purges its rows, as `cs_owner`:
    `DIRECT_DATABASE_URL=<cs_owner url> pnpm --filter @countersign/db run db:purge-client -- <client id>`.
    It refuses to run until the 30 days have passed and step 2 is done. It briefly locks each table, so run it at a
-   quiet hour. The audit log keeps the client's rows (ids only). Neon's point-in-time history
-   holds the deleted rows until its restore window passes.
+   quiet hour. Builds for the client go with it; a template's build tested at it stays, no
+   longer tested there. Reggie's conversations about the client go with their messages and every
+   change proposed in them, including any for another client (an action can't outlive its
+   conversation); each change made stays in the audit log (`reggie …`). The audit log keeps the
+   client's rows (ids only). Neon's point-in-time history holds the deleted rows until its
+   restore window passes.
 
 **Exporting a client's data.** The terms promise an export on request until 30 days after the
 service ends. Start it with `POST /api/ops/clients/<id>/exports` (a reason is optional) and list it

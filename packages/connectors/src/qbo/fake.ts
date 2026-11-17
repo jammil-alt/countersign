@@ -332,8 +332,16 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
     // QBO answers at most 1,000 rows to a query.
     if (max > 1000) throw new FakeFault(400, "4001", "maxresults is at most 1000");
     const start = Number(take(/startposition\s+(\d+)/i) ?? "1");
-    const order = take(/orderby\s+(.+)$/i);
-    const where = take(/^where\s+(.+)$/i);
+    // ORDERBY and WHERE run to the end of what's left: sliced by hand, as a regex over the
+    // query's tail is slow on a long run of spaces (CodeQL js/polynomial-redos).
+    const tail = (word: string, at: number): string | null => {
+      if (at < 0 || !/\s/.test(rest.charAt(at + word.length))) return null;
+      const clause = rest.slice(at + word.length).trim();
+      rest = rest.slice(0, at).trim();
+      return clause || null;
+    };
+    const order = tail("orderby", rest.toLowerCase().indexOf("orderby"));
+    const where = rest.toLowerCase().startsWith("where") ? tail("where", 0) : null;
     let rows = [...table(entity).values()];
     if (where) for (const c of splitAnd(where)) rows = rows.filter((r) => matches(r, c));
     if (order) {

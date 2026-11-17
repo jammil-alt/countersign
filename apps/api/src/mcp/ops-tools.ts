@@ -46,6 +46,7 @@ import {
   claimNonce,
   issueConfirmToken,
 } from "./confirm";
+import { DEV_QUEUE_TOOLS } from "./dev-queue-tools";
 import { clip, dataResult, errorResult } from "./output";
 import type { Content, Tool, ToolResult } from "./protocol";
 
@@ -769,6 +770,8 @@ export const OPS_TOOLS: readonly Tool<OpsToolCtx>[] = [
   recordsSearch,
   opsHealth,
   marketingReport,
+  // docs/plan.md §1.125: the Dev queue
+  ...DEV_QUEUE_TOOLS,
 ];
 
 /**

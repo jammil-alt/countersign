@@ -1,9 +1,10 @@
 // Requests (ARCHITECTURE §1 item 7, §11): a client raises one from the portal, it lands in the
 // operator's queue (never the client's inbox), and the operator resolves it as done, with the
-// versions made for it, or declined, with a note. The client reads the outcome, the note and which
+// versions made for it, or declined, with a note. docs/plan.md §1.124: raising one now opens an
+// issue in Build; the queue keeps what was raised before (made here with raiseLegacyRequest). The client reads the outcome, the note and which
 // of its own services changed, never a template.
 
-import { agent, event, inboxItem } from "@countersign/db";
+import { agent, appUser, event, inboxItem, issue, withTenant } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import {
@@ -14,7 +15,7 @@ import {
   testBundle,
   user,
 } from "./api.test-helper";
-import { requestTitle } from "./routes/requests";
+import { raiseLegacyRequest, requestTitle } from "./routes/requests";
 
 const h = await createApiHarness();
 afterAll(() => h?.close());
@@ -56,6 +57,18 @@ describe.skipIf(!h)("requests", () => {
     return call(email, "POST", "/api/requests", body);
   }
 
+  /** A request as the portal raised them before Build (§1.124): an item in the queue. */
+  async function legacy(
+    tenantId: string,
+    email: string,
+    body: { text: string; subject?: string; serviceId?: string },
+  ) {
+    const [u] = await H.t.db.select().from(appUser).where(eq(appUser.email, email));
+    return withTenant(H.t.db, tenantId, (tx) =>
+      raiseLegacyRequest(tx, tenantId, { ...body, raisedBy: (u as { id: string }).id }),
+    );
+  }
+
   it("lets client admins and users raise a request about a service or anything", async () => {
     const svc = await service("intake-a", "Invoice intake");
     intake = svc;
@@ -80,13 +93,20 @@ describe.skipIf(!h)("requests", () => {
       raisedBy: { name: "Client A user" },
     });
 
-    // Stored as the operator's inbox item, so the client's inbox never shows it.
+    // §1.124: stored as issues in Build, no longer as items in the queue; the client's inbox never
+    // shows them.
     const stored = await H.t.db
       .select()
       .from(inboxItem)
       .where(and(eq(inboxItem.tenantId, H.A.tenantId), eq(inboxItem.kind, "change_request")));
-    expect(stored).toHaveLength(2);
-    expect(stored.every((r) => r.assigneeRole === "operator")).toBe(true);
+    expect(stored).toHaveLength(0);
+    const issues = await H.t.db.select().from(issue).where(eq(issue.tenantId, H.A.tenantId));
+    expect(issues.map((i) => [i.title, i.source, i.agentId])).toEqual(
+      expect.arrayContaining([
+        ["Add Acme as a vendor", "portal", svc.id],
+        ["Can you also chase late payments?", "portal", null],
+      ]),
+    );
     const inbox = await call(admin("a"), "GET", "/api/inbox");
     expect((inbox.json as { items: Json[] }).items.some((i) => i.kind === "change_request")).toBe(
       false,
@@ -130,7 +150,13 @@ describe.skipIf(!h)("requests", () => {
   });
 
   it("lists the queue for the clients the operator serves", async () => {
-    await raise(admin("c"), { text: "Client C wants a report" });
+    await legacy(H.A.tenantId, admin("a"), {
+      subject: "Add Acme as a vendor",
+      text: "We started buying from Acme Lumber.\nPlease watch their prices too.",
+      serviceId: intake.id,
+    });
+    await legacy(H.A.tenantId, user("a"), { text: "Can you also chase late payments?" });
+    await legacy(H.C.tenantId, admin("c"), { text: "Client C wants a report" });
     const queue = await call(OPERATOR, "GET", "/api/ops/requests");
     const items = (queue.json as { items: Req[] }).items;
     expect(items.map((i) => (i.client as Json).name)).toEqual(["Client A", "Client A"]);

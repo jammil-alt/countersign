@@ -1,4 +1,4 @@
-// What the app keeps on this computer (docs/plan.md §1.124), in its own data folder: which client
+// What the app keeps on this computer (docs/plan.md §1.151), in its own data folder: which client
 // it is paired with, the folders it gives, its settings, what it has sent, the writes it has done
 // (so a retried job is never done twice) and a short activity list. Secrets (the computer's key
 // and the person's session) are not here: they are in the vault (vault.ts), encrypted by the

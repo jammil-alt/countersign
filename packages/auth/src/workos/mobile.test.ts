@@ -120,7 +120,11 @@ describe("signing in from the phone app", () => {
     const code = new URL(handoff.redirectTo).searchParams.get("code") ?? "";
     const redeemed = await mobileRedeem(code, VERIFIER, PASSWORD, T0);
     if (!redeemed.ok) throw new Error(redeemed.reason);
-    expect(redeemed.session).toBe(rotated);
+    // The rotated session, marked as the phone's (audit 5.2).
+    expect(await openSession(redeemed.session, PASSWORD)).toEqual({
+      ...(await openSession(rotated, PASSWORD)),
+      ph: true,
+    });
 
     const own = await mobileHandoff(request, PASSWORD, T0);
     if (!own.ok) throw new Error(own.reason);
@@ -130,6 +134,7 @@ describe("signing in from the phone app", () => {
     const opened = await openSession(fromCookie.session, PASSWORD);
     expect(opened?.acct).toBeUndefined();
     expect(opened?.mf).toBe("done");
+    expect(opened?.ph).toBe(true);
   });
 
   it("knows a sign-in for the phone by its start cookie", async () => {

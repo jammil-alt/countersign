@@ -1,4 +1,4 @@
-// The window's only way to the main process (docs/plan.md §1.124): `window.mezonas`, with the
+// The window's only way to the main process (docs/plan.md §1.151): `window.mezonas`, with the
 // bridge's methods and nothing else. No Node, no file system, no network from the window.
 
 import { contextBridge, ipcRenderer } from "electron";

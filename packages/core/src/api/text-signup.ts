@@ -21,6 +21,11 @@ export const TextSignupView = z.object({
   name: z.string().nullable(),
   /** The number the client has for them (an invitation), to confirm or change. */
   phone: z.string().nullable(),
+  /**
+   * The client's number that texts, for "text START to …" after a STOP; null when it can't text
+   * yet.
+   */
+  number: z.string().nullable(),
   terms: z.string(),
   wordingVersion: z.number().int(),
   /** `signed_up`: already agreed to texts; `declined`: said "don't ask me again". */
@@ -40,7 +45,10 @@ export const TextSignupSubmit = z.strictObject({
 export type TextSignupSubmitInput = z.input<typeof TextSignupSubmit>;
 
 export const TextSignupDone = z.object({
-  /** `sent`: the confirmation text went; `pending`: the client's number can't text yet. */
+  /**
+   * `sent`: the client's number can text, and a new sign-up's confirmation goes after this answer;
+   * `pending`: the client's number can't text yet. The same for every submit, whatever follows.
+   */
   confirmation: z.enum(["sent", "pending"]),
 });
 

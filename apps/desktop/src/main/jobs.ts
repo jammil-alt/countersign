@@ -1,4 +1,4 @@
-// Doing one job on this computer (docs/plan.md §1.124). The platform decided the job (which tool,
+// Doing one job on this computer (docs/plan.md §1.151). The platform decided the job (which tool,
 // approved or not); this checks it again against this computer's own folders and the disk, does
 // it, and answers. Writes happen once per idempotency key: a retried job answers what was done.
 // A workbook is written only while closed, from a fresh read, after a backup, as a temporary

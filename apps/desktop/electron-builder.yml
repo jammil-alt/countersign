@@ -1,4 +1,4 @@
-# Packaging the Mezonas desktop app (docs/plan.md §1.124): a signed, notarised .dmg for Mac (Apple
+# Packaging the Mezonas desktop app (docs/plan.md §1.151): a signed, notarised .dmg for Mac (Apple
 # silicon and Intel) and a signed installer for Windows, with updates from our own feed.
 # Built by hand for now with `pnpm --filter @countersign/desktop dist` on a Mac (notarisation) and
 # on Windows (signing); a release workflow comes in its own PR (docs/open.md).

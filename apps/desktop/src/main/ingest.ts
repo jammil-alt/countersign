@@ -1,5 +1,5 @@
 // Sending new and changed files from folders set to "send new files to Mezonas" (docs/plan.md
-// §1.124). Each goes to POST /api/desktop/files, signed by this computer, and becomes a document
+// §1.151). Each goes to POST /api/desktop/files, signed by this computer, and becomes a document
 // in the client's documents, where workflows pick it up (an invoice in Accounting/Inbox starts the
 // invoice review). Only documents and office files go (core's DESKTOP_FILE_TYPES), at most 25 MB,
 // never hidden files or Office's lock files, and a file whose contents didn't change isn't sent

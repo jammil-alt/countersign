@@ -30,7 +30,7 @@ export * from "./calendar/index";
 export * from "./connector";
 export * from "./credentials";
 export * from "./credentials-accessor";
-// The Mezonas desktop app (docs/plan.md §1.124): folders on a client's computer.
+// The Mezonas desktop app (docs/plan.md §1.151): folders on a client's computer.
 export * from "./desktop/index";
 export * from "./elevenlabs/index";
 // §1.114: Excel, the workbooks the client picks.

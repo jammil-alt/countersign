@@ -1,4 +1,4 @@
-// This computer's own key (docs/plan.md §1.124): an EC P-256 pair made when the computer is paired.
+// This computer's own key (docs/plan.md §1.151): an EC P-256 pair made when the computer is paired.
 // The private half never leaves the computer (it is kept in the vault, encrypted by the operating
 // system); the public half goes to Mezonas, which checks every request the computer signs with it.
 // ECDSA over SHA-256 with the signature as r‖s, which is what Web Crypto verifies in the Worker.

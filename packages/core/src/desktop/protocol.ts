@@ -1,4 +1,4 @@
-// The Mezonas desktop app (docs/plan.md §1.124): what the platform and a client's computer say to
+// The Mezonas desktop app (docs/plan.md §1.151): what the platform and a client's computer say to
 // each other. The computer never takes a connection in: it asks the API for its jobs, does each
 // one inside the folders it was given, and answers with a result. Every decision (which tool,
 // whether it is approved, whether it may write) stays in apps/api; the computer only does the

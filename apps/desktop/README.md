@@ -1,6 +1,6 @@
 # Mezonas for Mac and Windows (`apps/desktop`)
 
-The desktop app (docs/plan.md §1.124): a client gives Mezonas folders on their own computer, and
+The desktop app (docs/plan.md §1.151): a client gives Mezonas folders on their own computer, and
 agents read files there, add rows to closed Excel workbooks and save new files, each change signed
 first. New documents in a folder can go to Mezonas on their own. The app also shows Your Desk and
 says when something waits. Electron 45 (Node and Chromium), React 19.3 for the window, the design

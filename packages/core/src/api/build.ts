@@ -22,9 +22,19 @@ import {
 } from "../build/build";
 import { isUuid } from "../ids";
 import { AgentStage } from "../lifecycle/stage";
+import { WorkBuildStage, WorkWaitingOn } from "../work/pipelines";
+import { RequirementsRequest } from "../work/requirements";
+import { Standing } from "../work/standing";
 import { defineRoute } from "./contract";
+import { StepCodeRequest } from "./step-code-request";
 
 const Id = z.string().refine((v) => isUuid(v), "not an id");
+const IsoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date such as 2026-12-24");
+export const BuildPath = z.enum(["new", "template"]);
+export type BuildPath = z.infer<typeof BuildPath>;
+/** What started a build or a deal (docs/plan.md §1.124). */
+export const WorkOriginKind = z.enum(["deal", "ask", "enhancement", "issue"]);
+export type WorkOriginKind = z.infer<typeof WorkOriginKind>;
 const OPS = ["operator"] as const;
 const IdParams = z.object({ id: Id });
 const ItemParams = z.object({ id: Id, itemId: Id });
@@ -52,6 +62,19 @@ export const BuildSummary = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   phaseAt: z.string(),
+  // docs/plan.md §1.124: the build as back office work.
+  /** `new`: built through the phases; `template`: forked from a template for the client. */
+  path: BuildPath,
+  templateId: z.string().nullable(),
+  promisedOn: z.string().nullable(),
+  origin: z.object({ kind: WorkOriginKind, id: z.string() }).nullable(),
+  requirements: RequirementsRequest.nullable(),
+  /** Where it stands in Build's Agent builds pipeline: derived, never stored. */
+  pipelineStage: WorkBuildStage,
+  standing: Standing,
+  waitingOn: WorkWaitingOn,
+  statusLine: z.string(),
+  stuck: z.boolean(),
 });
 export type BuildSummary = z.infer<typeof BuildSummary>;
 
@@ -90,6 +113,9 @@ export const BuildItemRef = z.object({
   actionId: z.string().optional(),
   /** A skill's build made for this one. */
   buildId: z.string().optional(),
+  /** The Dev queue's request it waits on (docs/plan.md §1.125), and its number (DQ-012). */
+  codeRequestId: z.string().optional(),
+  codeRequestRef: z.string().optional(),
 });
 
 export const BuildItemView = z.object({
@@ -232,21 +258,38 @@ export const BuildDetail = z.object({
   clientTest: BuildClientTestView.nullable(),
   qaChecks: z.array(QaCheck),
   events: z.array(BuildEventView),
+  /** docs/plan.md §1.125: the steps that require code, with their Dev queue request's status. */
+  codeRequests: z.array(StepCodeRequest).optional(),
 });
 export type BuildDetail = z.infer<typeof BuildDetail>;
 
-export const StartBuild = z.strictObject({
-  kind: BuildKind,
-  title: z.string().trim().min(1).max(200),
-  /** For one client (a client agent, that client's skill); else for everyone. */
-  clientId: Id.optional(),
-});
+export const StartBuild = z
+  .strictObject({
+    kind: BuildKind,
+    title: z.string().trim().min(1).max(200),
+    /** For one client (a client agent, that client's skill); else for everyone. */
+    clientId: Id.optional(),
+    // docs/plan.md §1.124: from a template, what started it, and the date promised.
+    path: BuildPath.optional(),
+    templateId: Id.optional(),
+    origin: z.strictObject({ kind: WorkOriginKind, id: Id }).optional(),
+    promisedOn: IsoDate.optional(),
+  })
+  .refine((b) => b.path !== "template" || (!!b.clientId && !!b.templateId && b.kind === "agent"), {
+    message: "a build from a template is an agent build for a client, with its template",
+    path: ["templateId"],
+  });
 
 export const UpdateBuild = z.strictObject({
   title: z.string().trim().min(1).max(200).optional(),
   brief: Brief.optional(),
   fitgap: FitGap.optional(),
   testPlan: TestPlan.optional(),
+  // docs/plan.md §1.124: moving a promised date is the operator's.
+  promisedOn: IsoDate.nullable().optional(),
+  waitingOn: WorkWaitingOn.optional(),
+  statusLine: z.string().trim().max(120).optional(),
+  stuck: z.boolean().optional(),
 });
 
 /** An item made from a failed case or a rejected write is made once (its key is the case or write). */
@@ -276,6 +319,9 @@ export const buildRoutes = {
     query: z.object({
       status: BuildStatus.optional(),
       agent: Id.optional(),
+      // docs/plan.md §1.124: the Builder board lists new agents; builds from templates are in
+      // Build's Agent builds.
+      path: z.enum(["new", "template", "all"]).default("new"),
     }),
     response: z.object({
       builds: z.array(BuildSummary),

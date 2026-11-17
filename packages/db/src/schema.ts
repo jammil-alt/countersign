@@ -514,6 +514,198 @@ export const buildEvent = pgTable(
 /** The build tables (§1.108): only an operator session reads them; a client never does. */
 export const BUILD_TABLES = ["build", "build_item", "build_message", "build_event"] as const;
 
+// ── The Dev queue: Builder code requests (docs/plan.md §1.125, owner 2026-11-17) ───────────────
+// What the Builder can't make from catalog parts (a new tool, an extension of a built-in) goes to
+// engineering as a numbered request (DQ-001), triaged before it is built and shipped back to the
+// builds waiting on it. Operator only and global, like the build tables: a client never sees one.
+
+export const CODE_REQUEST_KINDS = [
+  "extend_existing",
+  "new_tool",
+  "new_skill_code",
+  "config_only",
+] as const;
+export const CODE_REQUEST_STATUSES = [
+  "triage",
+  "accepted",
+  "in_progress",
+  "shipped",
+  "closed",
+] as const;
+export const CODE_REQUEST_DECISIONS = [
+  "exists",
+  "config",
+  "extend",
+  "new_general",
+  "one_off",
+] as const;
+export const CODE_REQUEST_CLOSE_REASONS = [
+  "exists",
+  "config",
+  "merged",
+  "not_worth_it",
+  "not_possible",
+  "superseded",
+] as const;
+export const CODE_REQUEST_CREATORS = ["builder", "operator", "session"] as const;
+export const CODE_REQUEST_EVENT_KINDS = [
+  "status",
+  "note",
+  "reuse_check",
+  "merge",
+  "claim",
+  "pr",
+  "notified",
+  "shipped",
+] as const;
+
+/**
+ * One request for code: what it must do (`spec`, core's `CodeRequestSpec`), the questions it
+ * leaves (`open_questions`), the reuse check that found what already exists (`reuse_check`), and
+ * the decision on the ladder (exists, config, extend, new_general, one_off) with its reason.
+ * `number` is shown as DQ-001. Updated in place (its history is `code_request_event`); never
+ * deleted.
+ */
+// DECISION: the number is an identity column, global, so DQ numbers never repeat or collide; a
+// refused insert still takes one, so they may skip.
+export const codeRequest = pgTable(
+  "code_request",
+  {
+    id: id(),
+    number: integer("number").notNull().generatedByDefaultAsIdentity(),
+    title: text("title").notNull(),
+    kind: text("kind").$type<(typeof CODE_REQUEST_KINDS)[number]>().notNull(),
+    status: text("status")
+      .$type<(typeof CODE_REQUEST_STATUSES)[number]>()
+      .notNull()
+      .default("triage"),
+    spec: json("spec").notNull().default({}),
+    openQuestions: json<unknown[]>("open_questions").notNull().default([]),
+    reuseCheck: json("reuse_check"),
+    decision: text("decision").$type<(typeof CODE_REQUEST_DECISIONS)[number]>(),
+    decisionReason: text("decision_reason"),
+    /** Other work that would use it; empty means a one-off. */
+    otherUses: text("other_uses").array().notNull().default(sql`'{}'::text[]`),
+    oneOffApprovedBy: uuid("one_off_approved_by").references(() => appUser.id),
+    oneOffApprovedAt: ts("one_off_approved_at"),
+    mergedIntoId: uuid("merged_into_id").references((): AnyPgColumn => codeRequest.id),
+    closeReason: text("close_reason").$type<(typeof CODE_REQUEST_CLOSE_REASONS)[number]>(),
+    /** Who has it, in words ("Mezonas engineering", a person). */
+    owner: text("owner"),
+    claimedBy: uuid("claimed_by").references(() => appUser.id),
+    claimedAt: ts("claimed_at"),
+    prUrl: text("pr_url"),
+    /** The catalog part the code adds (a tool id, a skill ref), set with the PR. */
+    expectedPartId: text("expected_part_id"),
+    shippedPartId: text("shipped_part_id"),
+    shippedStagingAt: ts("shipped_staging_at"),
+    shippedProductionAt: ts("shipped_production_at"),
+    createdBy: text("created_by").$type<(typeof CODE_REQUEST_CREATORS)[number]>().notNull(),
+    createdByUser: uuid("created_by_user").references(() => appUser.id),
+    /** The latest event's time: a claim lapses 2 hours after it. */
+    lastEventAt: ts("last_event_at").notNull().defaultNow(),
+    closedAt: ts("closed_at"),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique("code_request_number_key").on(t.number),
+    index("code_request_status_idx").on(t.status, t.createdAt),
+    check("code_request_title_check", sql`char_length(${t.title}) between 1 and 200`),
+    check("code_request_kind_check", oneOf(t.kind, CODE_REQUEST_KINDS)),
+    check("code_request_status_check", oneOf(t.status, CODE_REQUEST_STATUSES)),
+    check(
+      "code_request_decision_check",
+      sql`${t.decision} is null or ${oneOf(t.decision, CODE_REQUEST_DECISIONS)}`,
+    ),
+    check(
+      "code_request_close_reason_check",
+      sql`${t.closeReason} is null or ${oneOf(t.closeReason, CODE_REQUEST_CLOSE_REASONS)}`,
+    ),
+    check("code_request_created_by_check", oneOf(t.createdBy, CODE_REQUEST_CREATORS)),
+    // Closed always says why; merged always says into what.
+    check(
+      "code_request_closed_check",
+      sql`(${t.status} = 'closed') = (${t.closeReason} is not null)`,
+    ),
+    check(
+      "code_request_merged_check",
+      sql`(${t.closeReason} = 'merged') = (${t.mergedIntoId} is not null)`,
+    ),
+    check(
+      "code_request_not_self_check",
+      sql`${t.mergedIntoId} is null or ${t.mergedIntoId} <> ${t.id}`,
+    ),
+  ],
+);
+
+/**
+ * Where a request is needed: a build, and in it a workflow's step and the build's open item of
+ * kind `gap` (`issue_id`, a `build_item`). One request links to many builds and steps.
+ */
+export const codeRequestLink = pgTable(
+  "code_request_link",
+  {
+    id: id(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => codeRequest.id),
+    buildId: uuid("build_id")
+      .notNull()
+      .references(() => build.id),
+    workflowId: text("workflow_id"),
+    stepId: text("step_id"),
+    issueId: uuid("issue_id").references(() => buildItem.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("code_request_link_request_idx").on(t.requestId),
+    index("code_request_link_build_idx").on(t.buildId),
+    // One link per build and step (a build's link with no step counts once too).
+    uniqueIndex("code_request_link_key").on(
+      t.requestId,
+      t.buildId,
+      sql`coalesce(${t.workflowId}, '')`,
+      sql`coalesce(${t.stepId}, '')`,
+    ),
+  ],
+);
+
+/** A request's history: every change writes one. Insert only, like `audit_event`. */
+export const codeRequestEvent = pgTable(
+  "code_request_event",
+  {
+    id: id(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => codeRequest.id),
+    at: ts("at").notNull().defaultNow(),
+    /** `operator`, `builder`, `session` or `system`. */
+    actor: text("actor").notNull(),
+    userId: uuid("user_id").references(() => appUser.id),
+    kind: text("kind").$type<(typeof CODE_REQUEST_EVENT_KINDS)[number]>().notNull(),
+    body: json("body").notNull().default({}),
+  },
+  (t) => [
+    index("code_request_event_request_idx").on(t.requestId, t.at),
+    check("code_request_event_kind_check", oneOf(t.kind, CODE_REQUEST_EVENT_KINDS)),
+    check(
+      "code_request_event_actor_check",
+      sql`${t.actor} in ('operator', 'builder', 'session', 'system')`,
+    ),
+  ],
+);
+
+/** The Dev queue's tables (§1.125): operator sessions only; links only with their build. */
+export const CODE_REQUEST_TABLES = [
+  "code_request",
+  "code_request_link",
+  "code_request_event",
+] as const;
+
 // ── Tenant tables ────────────────────────────────────────────────────────────────────────────────
 
 const tenantId = () =>
@@ -2729,7 +2921,9 @@ export const messageTranslation = pgTable(
 // ── Knowledge base ───────────────────────────────────────────────────────────────────────────────
 
 /** `voice_sample` (migration 0025): a message in a person's own voice, for writing like them. */
-export const KNOWLEDGE_ENTRY_KINDS = ["faq", "policy", "voice_sample"] as const;
+// §1.125 (0066): `about`, confirmed facts about the client's business, filed when the scope is
+// signed (docs/cases-plan.md §4.7), apart from FAQs and policies.
+export const KNOWLEDGE_ENTRY_KINDS = ["faq", "policy", "voice_sample", "about"] as const;
 export const KNOWLEDGE_ENTRY_STATUSES = ["active", "archived"] as const;
 export const KNOWLEDGE_AUTHOR_ROLES = ["operator", "client_admin"] as const;
 export const KNOWLEDGE_SOURCE_TYPES = ["entry", "document"] as const;
@@ -3426,12 +3620,28 @@ export const NOTIFICATION_KINDS = [
   "credits",
   "lead_message",
   "signoff",
+  // §1.124 (0060): the operator answered a client's request; sent by Build (§1.124.1).
+  "issue_update",
 ] as const;
 /**
- * The kinds the check allows: §1.124 (0060) adds `issue_update` (the operator answered a client's
- * request) ahead of the code that sends it, which moves it into NOTIFICATION_KINDS with core's.
+ * §1.125 (0066): the onboarding emails, sent through this outbox as their own kinds (stream EMAIL;
+ * docs/cases-plan.md §4.4). Rendered at send from the intake and its person, never from `counts`.
+ * The check allows them before core's notification kinds name them, so the previous Worker keeps
+ * working and the next wave's (reminder, scope ready, what happens next) need no migration.
  */
-export const NOTIFICATION_KINDS_ALLOWED = [...NOTIFICATION_KINDS, "issue_update"] as const;
+export const ONBOARDING_NOTIFICATION_KINDS = [
+  "intake_invite",
+  "intake_colleague",
+  "intake_more_questions",
+  "intake_reminder",
+  "intake_scope_ready",
+  "intake_next",
+] as const;
+/** The kinds the check allows: core's, and the onboarding emails' (0066). */
+export const NOTIFICATION_KINDS_ALLOWED = [
+  ...NOTIFICATION_KINDS,
+  ...ONBOARDING_NOTIFICATION_KINDS,
+] as const;
 export const NOTIFICATION_STATUSES = ["queued", "sent", "failed", "skipped"] as const;
 export const WEEKLY_TABLE_STATUSES = ["draft", "sent"] as const;
 
@@ -4899,6 +5109,8 @@ export const TODO_ABOUT_KINDS = [
   "question",
   "run",
   "client",
+  // docs/plan.md §1.125 (migration 0065): a Dev queue request's notice (accepted, shipped).
+  "code_request",
 ] as const;
 export const TODO_STATES = ["open", "done", "snoozed", "dropped"] as const;
 export const TODO_SOURCES = ["operator", "reggie", "play", "question", "email", "system"] as const;
@@ -5031,6 +5243,13 @@ export const deal = pgTable(
     signedCopyName: text("signed_copy_name"),
     replyTag: text("reply_tag"),
     dedupeKey: text("dedupe_key"),
+    /**
+     * §1.125 (0066): the company's client file, before and after set-up. A lost deal keeps it and a
+     * later deal reuses it. Cleared if the file goes (a purged client's).
+     */
+    clientFileId: uuid("client_file_id").references((): AnyPgColumn => clientFile.id, {
+      onDelete: "set null",
+    }),
     createdBy: uuid("created_by").references(() => appUser.id),
     stageAt: ts("stage_at").notNull().defaultNow(),
     wonAt: ts("won_at"),
@@ -5046,6 +5265,7 @@ export const deal = pgTable(
     uniqueIndex("deal_dedupe_key").on(t.dedupeKey).where(sql`${t.dedupeKey} is not null`),
     index("deal_outcome_idx").on(t.outcome, t.kind, t.stage),
     index("deal_client_idx").on(t.clientId),
+    index("deal_client_file_idx").on(t.clientFileId),
     check("deal_kind_check", oneOf(t.kind, DEAL_KINDS)),
     check(
       "deal_stage_check",
@@ -5215,6 +5435,372 @@ export const playLog = pgTable(
   ],
 );
 
+// ── Onboarding v1 (docs/plan.md §1.125; docs/cases-plan.md §4–§5; migration 0066) ──────────────────
+
+export const CLIENT_FILE_STATUSES = ["prospect", "client", "lost"] as const;
+export const FACT_SECTIONS = [
+  "business",
+  "people",
+  "systems",
+  "volumes",
+  "processes",
+  "pains",
+  "limits",
+  "notes",
+] as const;
+export const FACT_SOURCE_KINDS = [
+  "call",
+  "note",
+  "email",
+  "document",
+  "website",
+  "intake",
+  "tool",
+  "run",
+  "other",
+] as const;
+export const FACT_SURENESS = ["heard", "seen", "confirmed"] as const;
+export const FACT_AUDIENCES = ["theirs", "ours"] as const;
+export const FACT_ACTORS = ["operator", "reggie", "client", "system"] as const;
+export const START_MODES = ["point", "talk"] as const;
+
+/**
+ * A client file (cases-plan §4.1): the company, from the first conversation, before and after it is
+ * a client. Operator only, as a deal is: a file about a client is read only by the operators
+ * serving it; a prospect's by every operator. Changes in place (name, website, status); never
+ * deleted by the Worker (a lost prospect's is deleted by the owner's retention job, later).
+ */
+// DECISION: core keeps the same value lists (`packages/core/src/onboarding`); a db test holds them
+// equal, as OWNER_AREAS does.
+export const clientFile = pgTable(
+  "client_file",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    website: text("website"),
+    /** The client it became. One file per client. */
+    clientId: uuid("client_id")
+      .unique("client_file_client_key")
+      .references(() => tenant.id),
+    status: text("status")
+      .$type<(typeof CLIENT_FILE_STATUSES)[number]>()
+      .notNull()
+      .default("prospect"),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    index("client_file_status_idx").on(t.status, t.updatedAt),
+    check("client_file_name_check", sql`char_length(${t.name}) between 1 and 200`),
+    check(
+      "client_file_website_check",
+      sql`${t.website} is null or char_length(${t.website}) between 1 and 300`,
+    ),
+    check("client_file_status_check", oneOf(t.status, CLIENT_FILE_STATUSES)),
+  ],
+);
+
+/**
+ * One fact in a client file, with where it came from (`sources`: record ids, invariant 10), how
+ * sure we are and who may see it (`theirs` or `ours`). Insert only: a correction is a new fact
+ * that replaces the earlier one (`replaces_id`), and a fact is replaced at most once.
+ */
+export const clientFact = pgTable(
+  "client_fact",
+  {
+    id: id(),
+    fileId: uuid("file_id")
+      .notNull()
+      .references(() => clientFile.id, { onDelete: "cascade" }),
+    section: text("section").$type<(typeof FACT_SECTIONS)[number]>().notNull(),
+    text: text("text").notNull(),
+    sourceKind: text("source_kind").$type<(typeof FACT_SOURCE_KINDS)[number]>().notNull(),
+    sources: json<string[]>("sources").notNull().default([]),
+    sureness: text("sureness").$type<(typeof FACT_SURENESS)[number]>().notNull().default("heard"),
+    audience: text("audience").$type<(typeof FACT_AUDIENCES)[number]>().notNull().default("ours"),
+    replacesId: uuid("replaces_id").references((): AnyPgColumn => clientFact.id),
+    actor: text("actor").$type<(typeof FACT_ACTORS)[number]>().notNull(),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("client_fact_file_idx").on(t.fileId, t.createdAt),
+    uniqueIndex("client_fact_replaces_key")
+      .on(t.replacesId)
+      .where(sql`${t.replacesId} is not null`),
+    check("client_fact_section_check", oneOf(t.section, FACT_SECTIONS)),
+    check("client_fact_text_check", sql`char_length(${t.text}) between 1 and 2000`),
+    check("client_fact_source_kind_check", oneOf(t.sourceKind, FACT_SOURCE_KINDS)),
+    check("client_fact_sources_check", sql`jsonb_typeof(${t.sources}) = 'array'`),
+    check("client_fact_sureness_check", oneOf(t.sureness, FACT_SURENESS)),
+    check("client_fact_audience_check", oneOf(t.audience, FACT_AUDIENCES)),
+    check("client_fact_actor_check", oneOf(t.actor, FACT_ACTORS)),
+    check("client_fact_replaces_check", sql`${t.replacesId} is null or ${t.replacesId} <> ${t.id}`),
+  ],
+);
+
+/**
+ * A saved start for Sign up now and Invite (cases-plan §4.3): its name, what it covers (core
+ * `Covers`), the lead's note and how the client starts. Operator only and global. Changes in
+ * place; archived, never deleted. Seeded ones carry a `seed_key` so seeding runs once each.
+ */
+// DECISION: `seed_key` (e.g. `general`, `area:purchasing`, `template:<slug>`, `account`) beside
+// `seeded`, so the seeding (stream SALES, in code, not the migration) is idempotent.
+export const salesStart = pgTable(
+  "sales_start",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    /** Core `Covers`: `{general, areas[], templateIds[]}`, validated where written. */
+    covers: json<{ general: boolean; areas: string[]; templateIds: string[] }>("covers").notNull(),
+    note: text("note").notNull().default(""),
+    startMode: text("start_mode").$type<(typeof START_MODES)[number]>().notNull().default("point"),
+    seeded: boolean("seeded").notNull().default(false),
+    seedKey: text("seed_key"),
+    archivedAt: ts("archived_at"),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    uniqueIndex("sales_start_seed_key").on(t.seedKey).where(sql`${t.seedKey} is not null`),
+    check("sales_start_name_check", sql`char_length(${t.name}) between 1 and 80`),
+    check("sales_start_covers_check", sql`jsonb_typeof(${t.covers}) = 'object'`),
+    check("sales_start_note_check", sql`char_length(${t.note}) <= 2000`),
+    check("sales_start_mode_check", oneOf(t.startMode, START_MODES)),
+    check("sales_start_seed_check", sql`${t.seeded} = (${t.seedKey} is not null)`),
+  ],
+);
+
+export const INTAKE_STATUSES = [
+  "sent",
+  "open",
+  "scope_ready",
+  "signed",
+  "done",
+  "cancelled",
+] as const;
+export const ANSWER_STATES = ["answered", "confirmed", "corrected", "not_sure", "later"] as const;
+export const ANSWER_SOURCES = ["form", "chat", "voice", "call", "tool", "lead"] as const;
+export const INTAKE_EVENT_KINDS = [
+  "sent",
+  "scheduled",
+  "delivered",
+  "bounced",
+  "opened",
+  "signed_in",
+  "wrong_account",
+  "answered",
+  "asked",
+  "colleague_invited",
+  "different_process",
+  "section_started",
+  "section_not_now",
+  "cards_added",
+  "reminded",
+  "scope_ready",
+  "signed",
+  "done",
+  "cancelled",
+] as const;
+
+/**
+ * A client's intake (cases-plan §4.2, §4.5): what it covers, the guide (core `Guide`, with each
+ * field's state and only `theirs` facts, copied in when sent), how it starts, the lead's note.
+ * The client's own record: forced RLS on the client. `deal_id` and `file_id` name operator rows
+ * without a foreign key, so nothing of the client's points into an operator-only table's policy.
+ * Changes in place (status, guide when cards are added); never deleted.
+ */
+export const intake = pgTable(
+  "intake",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    dealId: uuid("deal_id"),
+    fileId: uuid("file_id"),
+    covers: json<{ general: boolean; areas: string[]; templateIds: string[] }>("covers").notNull(),
+    guide: json("guide").notNull(),
+    startMode: text("start_mode").$type<(typeof START_MODES)[number]>().notNull().default("point"),
+    /** The lead it's from (name, photo and voice in the emails and on the page). */
+    leadUserId: uuid("lead_user_id").references(() => appUser.id),
+    leadNote: text("lead_note").notNull().default(""),
+    status: text("status").$type<(typeof INTAKE_STATUSES)[number]>().notNull().default("sent"),
+    /** Sent at a time (Invite's "Send at"); null: sent when made. */
+    sendAt: ts("send_at"),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique("intake_id_tenant_key").on(t.id, t.tenantId),
+    index("intake_tenant_idx").on(t.tenantId, t.status, t.createdAt),
+    index("intake_send_at_idx").on(t.sendAt).where(sql`${t.sendAt} is not null`),
+    check("intake_covers_check", sql`jsonb_typeof(${t.covers}) = 'object'`),
+    check("intake_guide_check", sql`jsonb_typeof(${t.guide}) = 'object'`),
+    check("intake_start_mode_check", oneOf(t.startMode, START_MODES)),
+    check("intake_lead_note_check", sql`char_length(${t.leadNote}) <= 2000`),
+    check("intake_status_check", oneOf(t.status, INTAKE_STATUSES)),
+  ],
+);
+
+/**
+ * A person asked in an intake: the admin, others with the whole intake or some sections (null:
+ * all), and colleagues asked later. Changes in place (their user once made, their sections).
+ */
+export const intakePerson = pgTable(
+  "intake_person",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    intakeId: uuid("intake_id").notNull(),
+    userId: uuid("user_id").references(() => appUser.id),
+    /** Stored lowercased. */
+    email: text("email").notNull(),
+    name: text("name").notNull(),
+    /** Guide section keys; null for every section. */
+    sections: text("sections").array(),
+    isAdmin: boolean("is_admin").notNull().default(false),
+    /** Their language for the emails and the welcome page (core `Locale`); else the client's. */
+    language: text("language"),
+    invitedBy: uuid("invited_by").references(() => appUser.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("intake_person_id_tenant_key").on(t.id, t.tenantId),
+    unique("intake_person_email_key").on(t.intakeId, t.email),
+    foreignKey({
+      name: "intake_person_intake_fk",
+      columns: [t.intakeId, t.tenantId],
+      foreignColumns: [intake.id, intake.tenantId],
+    }),
+    check("intake_person_email_check", sql`char_length(${t.email}) between 3 and 320`),
+    check("intake_person_name_check", sql`char_length(${t.name}) between 1 and 200`),
+    check(
+      "intake_person_language_check",
+      sql`${t.language} is null or char_length(${t.language}) between 2 and 10`,
+    ),
+  ],
+);
+
+/**
+ * An answer (insert only): a field's value with its state and source. The latest answer to a field
+ * is the one that counts; nothing is changed in place. No value for `not_sure` and `later`.
+ */
+export const intakeAnswer = pgTable(
+  "intake_answer",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    intakeId: uuid("intake_id").notNull(),
+    fieldKey: text("field_key").notNull(),
+    value: jsonb("value"),
+    state: text("state").$type<(typeof ANSWER_STATES)[number]>().notNull(),
+    source: text("source").$type<(typeof ANSWER_SOURCES)[number]>().notNull(),
+    userId: uuid("user_id").references(() => appUser.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "intake_answer_intake_fk",
+      columns: [t.intakeId, t.tenantId],
+      foreignColumns: [intake.id, intake.tenantId],
+    }),
+    index("intake_answer_field_idx").on(t.tenantId, t.intakeId, t.fieldKey, t.createdAt),
+    check("intake_answer_field_check", sql`char_length(${t.fieldKey}) between 1 and 100`),
+    check("intake_answer_state_check", oneOf(t.state, ANSWER_STATES)),
+    check("intake_answer_source_check", oneOf(t.source, ANSWER_SOURCES)),
+    check(
+      "intake_answer_value_check",
+      sql`${t.state} in ('not_sure', 'later') or ${t.value} is not null`,
+    ),
+  ],
+);
+
+/**
+ * The scope, per version (cases-plan §4.7; used from the next wave): what each agent will do,
+ * read and change, signed by the client admin. Insert only, but for its signature: the Worker may
+ * set `signed_by` and `signed_at` (a column grant), never the body. A change is a new version.
+ */
+export const intakeScope = pgTable(
+  "intake_scope",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    intakeId: uuid("intake_id").notNull(),
+    version: integer("version").notNull(),
+    body: json("body").notNull(),
+    signedBy: uuid("signed_by").references(() => appUser.id),
+    signedAt: ts("signed_at"),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("intake_scope_version_key").on(t.intakeId, t.version),
+    foreignKey({
+      name: "intake_scope_intake_fk",
+      columns: [t.intakeId, t.tenantId],
+      foreignColumns: [intake.id, intake.tenantId],
+    }),
+    check("intake_scope_version_check", sql`${t.version} >= 1`),
+    check("intake_scope_body_check", sql`jsonb_typeof(${t.body}) = 'object'`),
+    check("intake_scope_signed_check", sql`(${t.signedBy} is null) = (${t.signedAt} is null)`),
+  ],
+);
+
+/** The intake's log (insert only): sent, delivered, opened, signed in, answered, asked… */
+export const intakeEvent = pgTable(
+  "intake_event",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    intakeId: uuid("intake_id").notNull(),
+    kind: text("kind").$type<(typeof INTAKE_EVENT_KINDS)[number]>().notNull(),
+    personId: uuid("person_id"),
+    meta: json("meta").notNull().default({}),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "intake_event_intake_fk",
+      columns: [t.intakeId, t.tenantId],
+      foreignColumns: [intake.id, intake.tenantId],
+    }),
+    foreignKey({
+      name: "intake_event_person_fk",
+      columns: [t.personId, t.tenantId],
+      foreignColumns: [intakePerson.id, intakePerson.tenantId],
+    }),
+    index("intake_event_intake_idx").on(t.tenantId, t.intakeId, t.createdAt),
+    check("intake_event_kind_check", oneOf(t.kind, INTAKE_EVENT_KINDS)),
+  ],
+);
+
+/**
+ * Onboarding's operator-only tables tied to a client (§1.125): an operator session reads only the
+ * files about clients it serves or about none (prospects), and a fact only with its file. A
+ * client's session never sees a row. `sales_start` is global and in OPERATOR_ONLY_TABLES.
+ */
+export const CLIENT_FILE_TABLES = ["client_file", "client_fact"] as const;
+
+/** Onboarding's tenant tables (§1.125), in TENANT_TABLES too. */
+export const INTAKE_TABLES = [
+  "intake",
+  "intake_person",
+  "intake_answer",
+  "intake_scope",
+  "intake_event",
+] as const;
+
 /**
  * The back office work's operator-only tables (§1.124): an operator session reads only rows about
  * the clients it serves or no client; a client's session never sees a row. Not in
@@ -5328,6 +5914,12 @@ export const TENANT_TABLES = [
   "issue",
   "issue_event",
   "client_ask",
+  // 0066: a client's intake, its people, answers, scope and log (docs/plan.md §1.125).
+  "intake",
+  "intake_person",
+  "intake_answer",
+  "intake_scope",
+  "intake_event",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 
@@ -5355,4 +5947,6 @@ export const OPERATOR_ONLY_TABLES = [
   "browser_site_version",
   "saved_view",
   "connector_setting",
+  // 0066: saved starts for Sign up now and Invite (docs/plan.md §1.125).
+  "sales_start",
 ] as const;

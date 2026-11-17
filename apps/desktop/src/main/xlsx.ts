@@ -1,4 +1,4 @@
-// Reading and changing .xlsx workbooks on the client's computer (docs/plan.md §1.124), without
+// Reading and changing .xlsx workbooks on the client's computer (docs/plan.md §1.151), without
 // Excel. A workbook is a zip of XML parts; we change only the cells we write, in the worksheet's
 // own XML, and copy every other part byte for byte, so formats, formulas, charts, pivots, names
 // and anything we don't understand stay exactly as they were.

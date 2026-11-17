@@ -1,4 +1,4 @@
-// Secrets on this computer (docs/plan.md §1.124): the computer's private key and the person's
+// Secrets on this computer (docs/plan.md §1.151): the computer's private key and the person's
 // session. Each is encrypted by the operating system (Electron's safeStorage: the Keychain on a
 // Mac, DPAPI on Windows) before it is written, in its own file readable only by this user.
 // DECISION: no secret is kept where the OS can't encrypt it: on a machine without a keychain the

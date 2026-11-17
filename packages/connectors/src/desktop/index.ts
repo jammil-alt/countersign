@@ -1,5 +1,5 @@
 // "desktop": folders on a client's own computer, through the Mezonas desktop app (docs/plan.md
-// §1.124). A client admin pairs a computer from the app and gives it folders, each for reading or
+// §1.151). A client admin pairs a computer from the app and gives it folders, each for reading or
 // for reading and writing; the API keeps that list in the connection's `config`, and the computer
 // keeps its own copy. A tool here never touches a file: it checks the folder against the list,
 // then hands one job to the computer through `services.desktop` and checks the answer. The

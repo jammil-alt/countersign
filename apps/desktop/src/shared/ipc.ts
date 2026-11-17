@@ -1,4 +1,4 @@
-// What the window and the main process say to each other (docs/plan.md §1.124). The window never
+// What the window and the main process say to each other (docs/plan.md §1.151). The window never
 // touches files, keys or the network: it asks the main process through `window.mezonas`, which
 // the preload exposes, and gets plain data back. Shared by the main process, the preload and the
 // window; types only, plus the channel names.

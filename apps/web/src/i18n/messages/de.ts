@@ -92,6 +92,8 @@ export const de: Messages = {
   "error.run_ended": "Dieser Ablauf ist beendet; mit diesem Eintrag geschieht nichts mehr.",
   "error.fingerprint_required":
     "Diese Seite ist nicht mehr aktuell; laden Sie sie neu und sehen Sie noch einmal nach.",
+  "error.signature_required":
+    "Dafür braucht es die Signatur Ihres Telefons. Signieren Sie mit Face ID oder Fingerabdruck in der App oder entscheiden Sie im Browser.",
   "error.not_assignee": "Das wartet auf jemand anderen.",
   "error.not_connected": "Dieses Tool ist nicht verbunden.",
   "error.not_available": "Das ist noch nicht verfügbar.",
@@ -3085,6 +3087,11 @@ export const de: Messages = {
     "Claude möchte Mezonas in Ihrem Namen nutzen. Die erste Anfrage kam um {time}. Geben Sie es nur frei, wenn Sie Claude gerade selbst verbunden haben.",
   "connectClaude.lasts":
     "Dieser Link gilt bis {time}. Nach der Freigabe gilt sie, bis diese Claude-Anmeldung endet, höchstens 12 Stunden.",
+  "connectClaude.requested":
+    "Claude hat Ihnen diesen Link um {time} gegeben. Wenn Sie Claude nicht gerade selbst gefragt haben, geben Sie ihn nicht frei.",
+  "connectClaude.confirm": "Der Code, den Claude Ihnen gezeigt hat",
+  "connectClaude.confirmHint":
+    "Claude zeigt mit diesem Link einen 6-stelligen Code. Geben Sie den ein, den Ihr eigenes Claude zeigt, nie einen, den Ihnen jemand anderes schickt.",
   "connectClaude.approve": "Freigeben",
   "connectClaude.approving": "Wird freigegeben…",
   "connectClaude.approved":
@@ -3093,6 +3100,36 @@ export const de: Messages = {
     "Dieser Link ist abgelaufen. Fragen Sie Claude erneut, um einen neuen zu erhalten.",
   "connectClaude.unknown":
     "Dieser Link passt zu keiner Ihrer Claude-Verbindungen. Fragen Sie Claude erneut, um einen neuen zu erhalten.",
+  // ── §1.124: Requests (issues and asks) and requirements forms ──
+  "requests.title": "Anfragen",
+  "requests.lede":
+    "Etwas funktioniert nicht, oder eine Idee für uns: Sagen Sie es hier Ihrem Ansprechpartner bei Mezonas.",
+  "requests.new": "Neue Anfrage",
+  "requests.empty": "Noch keine Anfragen.",
+  "requests.state.on_it": "Wir kümmern uns darum",
+  "requests.state.waiting_on_you": "Wartet auf Sie",
+  "requests.state.fixed": "Behoben",
+  "requests.state.closed": "Geschlossen",
+  "requests.kind.problem": "Etwas funktioniert nicht",
+  "requests.kind.idea": "Eine Idee oder eine Änderung",
+  "requests.kindQuestion": "Worum geht es?",
+  "requests.service": "Betrifft",
+  "requests.serviceNone": "Nichts Bestimmtes",
+  "requests.text": "Sagen Sie uns, was passiert ist oder was Sie sich wünschen",
+  "requests.reply": "Schreiben Sie Ihrem Ansprechpartner bei Mezonas",
+  "requests.replySend": "Senden",
+  "requests.confirm": "Bestätigen, dass es behoben ist",
+  "requests.stillHappening": "Es passiert immer noch",
+  "requests.back": "Alle Anfragen",
+  "requests.lead": "Ihr Ansprechpartner bei Mezonas",
+  "requests.you": "Sie",
+  "requests.number": "Anfrage Nr. {n}",
+  "requirements.title": "Fragen für Ihren neuen Agenten",
+  "requirements.save": "Entwurf speichern",
+  "requirements.submit": "Antworten senden",
+  "requirements.progress": "{answered} von {total} beantwortet",
+  "requirements.sent": "Gesendet. Danke: Wir übernehmen ab hier.",
+  "requirements.due": "Fällig am {date}",
   // ── Access per person (docs/plan.md §1.122) ──
   "access.edit": "Zugriff",
   "access.title": "Was {name} tun kann",

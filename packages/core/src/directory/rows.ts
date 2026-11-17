@@ -261,7 +261,7 @@ const str = (v: unknown): string | undefined =>
 /** Rich text from Podio or Zoho as plain text. */
 const plain = (v: unknown): string | undefined =>
   str(v)
-    ?.replace(/<[^>]*>/g, " ")
+    ?.replace(/<[^<>]*>/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 2000) || undefined;

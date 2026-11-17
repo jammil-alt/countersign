@@ -1,4 +1,4 @@
-// Where a job's file is on this computer, checked again here (docs/plan.md §1.124): the platform
+// Where a job's file is on this computer, checked again here (docs/plan.md §1.151): the platform
 // already refused paths outside the folders it knows, but this computer holds to its own list and
 // to the disk as it is, after following links. A path that leaves its folder through a symbolic
 // link, a junction or an alias is refused like one written with "..".

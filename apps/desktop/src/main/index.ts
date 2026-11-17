@@ -1,4 +1,4 @@
-// The Mezonas desktop app's Electron shell (docs/plan.md §1.124): one window, a tray icon that
+// The Mezonas desktop app's Electron shell (docs/plan.md §1.151): one window, a tray icon that
 // keeps the app running when the window is closed, the `mezonas://` link for sign-in, the OS's
 // notifications, folder picker and keychain, and updates. Everything else is controller.ts.
 //

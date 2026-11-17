@@ -237,7 +237,7 @@ test("nothing may depend on apps/mobile", () => {
   assert.match(r.out, /the phone app, not a library/);
 });
 
-// §1.124: the desktop app.
+// §1.151: the desktop app.
 const desktop = (dependencies, src = 'import { routes } from "@countersign/core";\n') => ({
   "apps/desktop/package.json": { name: "@countersign/desktop", dependencies },
   "apps/desktop/src/main/api.ts": src,

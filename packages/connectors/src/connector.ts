@@ -59,7 +59,7 @@ export interface ConnectorServices {
   browser?: BrowserServices;
   /** The client's stored documents, for tools that send one to the tool (QBO attachments). */
   documents?: DocumentServices;
-  /** Jobs for a paired computer, through the desktop app (desktop/index.ts, plan §1.124). */
+  /** Jobs for a paired computer, through the desktop app (desktop/index.ts, plan §1.151). */
   desktop?: DesktopServices;
   // v0.12 W1-F
   /** What sync already stored for this connection (QBO: duplicate bills, receivable ids). */

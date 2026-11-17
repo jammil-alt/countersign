@@ -1,4 +1,4 @@
-// The app's way to the Mezonas API (docs/plan.md §1.124). Two kinds of request:
+// The app's way to the Mezonas API (docs/plan.md §1.151). Two kinds of request:
 // - as the person: the sealed session from sign-in, in MOBILE_SESSION_HEADER, as the phone app
 //   sends it (the API answers a refreshed session in the same header, or an empty one when it
 //   ended); routes from core's contract, bodies and answers checked with its schemas;

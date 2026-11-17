@@ -1,4 +1,4 @@
-// Whether someone has a workbook open (docs/plan.md §1.124). We write a workbook only while it is
+// Whether someone has a workbook open (docs/plan.md §1.151). We write a workbook only while it is
 // closed: Excel keeps its own copy in memory and would overwrite ours on its next save, or the
 // person would lose theirs.
 // DECISION: two signs, either is enough. Excel's owner file (`~$Name.xlsx`, beside the workbook,

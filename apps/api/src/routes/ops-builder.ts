@@ -100,9 +100,9 @@ import {
   turnViews,
   updateSession,
 } from "../builder/sessions";
+import { clientModels } from "../compliance/models";
 import { type AppEnv, ensureClient, type HandlerCtx, HttpError, mount, notFound } from "../http";
 import { reportHandled } from "../observability/report";
-import { workerTransport } from "../runs/execute";
 import { agentSummary, versionSummary } from "./mappers";
 import { builderAutomations } from "./ops-automations";
 import {
@@ -115,10 +115,12 @@ import {
 
 type Ctx = HandlerCtx<never>;
 
-/** The model transport: the app's (tests pass a FakeModel), else the Worker's live one. */
-function transport(ctx: Pick<Ctx, "services">): LlmTransport {
-  const { deps, env } = ctx.services;
-  return deps.llm?.(env) ?? workerTransport(env);
+/**
+ * The model transport, held to the client's HIPAA mode (§1.35) when the work is a client's; a
+ * template or a shared skill is no client's data. Called inside the request's transaction.
+ */
+function transport(ctx: Pick<Ctx, "services" | "tx">, clientId: string | null): LlmTransport {
+  return clientModels(ctx.services, { clients: [clientId], read: ctx.tx });
 }
 
 /**
@@ -370,7 +372,7 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
         ctx: bctx,
       },
       {
-        llm: createLlmClient({ transport: transport(ctx) }),
+        llm: createLlmClient({ transport: transport(ctx, clientId) }),
         // Review: a new agent from the Builder is a first version: every step is new.
         validate: (bundle) =>
           validateForPublish(tx, pseudo, stored(bundle), services.platform.ctx, {
@@ -466,7 +468,7 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
         ctx: bctx,
       },
       {
-        llm: createLlmClient({ transport: transport(ctx) }),
+        llm: createLlmClient({ transport: transport(ctx, row.tenantId) }),
         validate: (bundle) =>
           validateForPublish(tx, row, stored(bundle), services.platform.ctx, { previous }),
       },
@@ -495,7 +497,7 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
       },
       // v0.19 (§10.15): what the draft would do, by code: a process change to approve, or one
       // that loosens or widens (an owner never drafts those; the operator decides).
-      changeClass: classifyChange(from.bundle, v.bundle),
+      changeClass: classifyChange(from.bundle, v.bundle, { lookup }),
     };
   });
 }
@@ -795,7 +797,7 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
     const history = turns
       .filter((t) => t.command !== "/start")
       .map((t) => ({ role: t.role, text: t.text }));
-    const llm = createLlmClient({ transport: transport(ctx) });
+    const llm = createLlmClient({ transport: transport(ctx, s.tenantId) });
     const builderTurnId = uuidv7();
 
     if (s.kind === "skill") {

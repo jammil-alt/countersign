@@ -208,6 +208,15 @@
     padding-top: var(--space-2-5);
     padding-bottom: var(--space-2-5);
   }
+  /* §1.124: page tabs (Sales, Build, Autopilot) scroll within themselves at phone width instead of
+   * widening the page, as in docs/design/pipelines.html. */
+  .page-tabs {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .page-tabs a {
+    flex: none;
+  }
   .ds-navitem[aria-current="page"],
   .ds-listrow__title,
   .ds-label,

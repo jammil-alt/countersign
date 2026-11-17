@@ -52,6 +52,9 @@ export interface ThreadsReadInput {
   agentId: string;
   threadId: string;
   limit: number;
+  /** The run reading: the account agent reads for the person behind it (invariant 11). */
+  runId: string;
+  mode: RunMode;
 }
 
 /** Threads as tools reach them; implemented over packages/threads in `src/log/threads-port.ts`. */
@@ -170,6 +173,8 @@ export const threadsRead = defineInternalTool({
       agentId: ctx.agentId,
       threadId,
       limit: input.limit,
+      runId: ctx.runId,
+      mode: ctx.mode,
     });
     return {
       threadId: read.threadId,

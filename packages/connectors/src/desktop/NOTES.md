@@ -1,6 +1,6 @@
 # desktop: what is unchecked
 
-The connector is built against `fake.ts`; the computer's side is `apps/desktop` (docs/plan.md §1.124).
+The connector is built against `fake.ts`; the computer's side is `apps/desktop` (docs/plan.md §1.151).
 
 ## Not built yet
 

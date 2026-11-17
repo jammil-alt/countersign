@@ -3,19 +3,24 @@
 // never passes our second step, so while the step is on its tool calls are answered with this link;
 // the person, signed in here past the step, approves it. It lasts until that Claude sign-in ends,
 // 12 hours at most. One screen in both shells: an operator's link opens the back office, a client's
-// the portal.
-import type { ClaudeConnection } from "@countersign/core";
+// the portal. Audit 5.3: the page says when Claude asked with this link, and approving takes the
+// short code Claude showed beside it, typed here, so it is never one click on a link alone.
+import { CLAUDE_CONFIRM_DIGITS, type ClaudeConnection } from "@countersign/core";
 import { type ReactNode, useState } from "react";
 import { useParams } from "react-router-dom";
 import { isApiError } from "../api/client";
 import { apiRoutes } from "../api/routes";
 import { useApi, useApiClient } from "../api/useApi";
 import { useI18n } from "../i18n/i18n";
+import { Field, TextInput } from "../ui/forms";
 import { Page } from "../ui/page";
 import { Badge, Button, Card, ErrorNotice, Loading, PageHeader } from "../ui/primitives";
 
 /** The link's code, as the API's contract has it (anything else matches nothing). */
 const CODE = /^[a-z2-7]{32}$/;
+/** The code Claude showed beside the link: digits only, spaces and dashes typed with it dropped. */
+const confirmOf = (typed: string) => typed.replace(/[\s-]/g, "");
+const CONFIRM = new RegExp(`^[0-9]{${CLAUDE_CONFIRM_DIGITS}}$`);
 
 export function ConnectClaudeScreen() {
   const { t } = useI18n();
@@ -62,14 +67,23 @@ function ConnectionCard({
   const api = useApiClient();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const [typed, setTyped] = useState("");
+  const confirm = confirmOf(typed);
   const started = fmt.time(connection.startedAt);
   const until = fmt.time(connection.expiresAt);
+  const requested = connection.requestedAt ? fmt.time(connection.requestedAt) : null;
 
   async function approve() {
+    if (!CONFIRM.test(confirm)) return;
     setBusy(true);
     setError(null);
     try {
-      onApproved(await api.call(apiRoutes.claudeConnectionApprove, { params: { code } }));
+      onApproved(
+        await api.call(apiRoutes.claudeConnectionApprove, {
+          params: { code },
+          body: { confirm },
+        }),
+      );
     } catch (e) {
       setError(e);
     } finally {
@@ -97,21 +111,44 @@ function ConnectionCard({
           {t("connectClaude.expired")}
         </p>
       ) : (
-        <div className="flex flex-col gap-4" data-testid="connect-claude-waiting">
+        <form
+          className="flex flex-col gap-4"
+          data-testid="connect-claude-waiting"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void approve();
+          }}
+        >
           <p className="text-ink">{t("connectClaude.waiting", { time: started })}</p>
+          {requested ? (
+            <p className="text-ink" data-testid="connect-claude-requested">
+              {t("connectClaude.requested", { time: requested })}
+            </p>
+          ) : null}
+          <Field label={t("connectClaude.confirm")} hint={t("connectClaude.confirmHint")}>
+            <TextInput
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              inputMode="numeric"
+              autoComplete="off"
+              maxLength={CLAUDE_CONFIRM_DIGITS + 4}
+              className="w-40"
+              data-testid="connect-claude-confirm"
+            />
+          </Field>
           <p className="text-sm text-ink-muted">{t("connectClaude.lasts", { time: until })}</p>
           <div>
             <Button
+              type="submit"
               variant="primary"
-              disabled={busy}
+              disabled={busy || !CONFIRM.test(confirm)}
               data-testid="connect-claude-approve"
-              onClick={() => void approve()}
             >
               {busy ? t("connectClaude.approving") : t("connectClaude.approve")}
             </Button>
           </div>
           {error ? <ErrorNotice error={error} /> : null}
-        </div>
+        </form>
       )}
     </Card>
   );

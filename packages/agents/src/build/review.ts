@@ -14,7 +14,7 @@ import {
   type ModelId,
 } from "@countersign/llm";
 import { z } from "zod";
-import { BuilderError, catalogBriefBlock, totalCost } from "../builder/builder";
+import { BuilderError, catalogBriefBlock, modelUnavailable, totalCost } from "../builder/builder";
 import type { BuilderContext } from "../builder/context";
 
 export const REVIEW_TOOL = "submit_review";
@@ -134,9 +134,6 @@ export async function reviewBrief(
         code: error.code,
       });
     }
-    throw new BuilderError(
-      "model_unavailable",
-      error instanceof Error ? error.message : String(error),
-    );
+    throw modelUnavailable(error);
   }
 }

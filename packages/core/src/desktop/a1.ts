@@ -1,4 +1,4 @@
-// A1 cell references for workbooks on a client's computer (docs/plan.md §1.124). The desktop app
+// A1 cell references for workbooks on a client's computer (docs/plan.md §1.151). The desktop app
 // imports only core, so it can't use the connectors' Sheets helpers (packages/connectors/src/gsheets
 // /a1.ts); this is the part it needs, with Excel's limits. Index loops, no regular expressions:
 // what a model or a workbook supplies never goes through one.
