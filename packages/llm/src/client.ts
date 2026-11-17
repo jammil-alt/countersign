@@ -124,19 +124,32 @@ export function unstringified(input: unknown, issues: readonly z.core.$ZodIssue[
   return out;
 }
 
+/** Keys a repair never walks through or writes: they reach an object's prototype. */
+const UNSAFE_KEYS: ReadonlySet<PropertyKey> = new Set(["__proto__", "constructor", "prototype"]);
+
+/** The value at `path`, through own properties only (never a prototype's). */
 function valueAt(root: unknown, path: readonly PropertyKey[]): unknown {
   let at: unknown = root;
   for (const key of path) {
     if (typeof at !== "object" || at === null) return undefined;
+    if (UNSAFE_KEYS.has(key) || !Object.hasOwn(at, key)) return undefined;
     at = (at as Record<PropertyKey, unknown>)[key];
   }
   return at;
 }
 
+/** Replaces the own property at `path`; nothing is written where there is none, or to a prototype. */
 function setAt(root: unknown, path: readonly PropertyKey[], value: unknown): void {
+  const key = path[path.length - 1];
+  if (key === undefined || path.some((k) => UNSAFE_KEYS.has(k))) return;
   const parent = valueAt(root, path.slice(0, -1));
-  if (typeof parent === "object" && parent !== null) {
-    (parent as Record<PropertyKey, unknown>)[path[path.length - 1] as PropertyKey] = value;
+  if (typeof parent === "object" && parent !== null && Object.hasOwn(parent, key)) {
+    Object.defineProperty(parent, key, {
+      value,
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
   }
 }
 

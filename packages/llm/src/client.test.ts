@@ -6,6 +6,7 @@ import {
   LlmToolError,
   toolInputSchema,
   UnpricedModelError,
+  unstringified,
 } from "./client";
 import { FakeModel, type FakeTurn, fakeMessage } from "./fake";
 import type * as Anthropic from "./messages";
@@ -99,6 +100,23 @@ describe("callTool", () => {
     });
     // The model's own input is left as it sent it.
     expect(typeof input.plan).toBe("string");
+  });
+
+  it("never repairs through or onto a prototype", () => {
+    const Rec = z.object({ notes: z.record(z.string(), z.object({ a: z.string() })) });
+    const input = JSON.parse('{"notes": {"__proto__": "{\\"polluted\\": \\"yes\\"}"}}');
+    const parsed = Rec.safeParse(input);
+    const issues = parsed.success ? [] : parsed.error.issues;
+    const out = unstringified(input, [
+      ...issues,
+      { code: "invalid_type", expected: "object", path: ["notes", "__proto__"], message: "x" },
+      { code: "invalid_type", expected: "object", path: ["__proto__", "polluted"], message: "x" },
+    ] as never);
+    const notes = (out as { notes: Record<string, unknown> }).notes;
+    expect(Object.getPrototypeOf(notes)).toBe(Object.prototype);
+    expect(notes.polluted).toBeUndefined();
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect(Object.prototype).not.toHaveProperty("polluted");
   });
 
   it("still refuses JSON text that isn't the object the schema wants", async () => {
