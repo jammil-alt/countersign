@@ -30,7 +30,7 @@ import {
   user,
 } from "./api.test-helper";
 import { lifecycleTick } from "./lifecycle/cron";
-import { USAGE_SWEEP_MINUTE } from "./runs/dispatch";
+import { dispatchByIds, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
 
 const h = await createApiHarness();
 afterAll(() => h?.close());
@@ -557,5 +557,66 @@ describe.skipIf(!h)("go-live stages and client controls", () => {
       eventId: e.id,
     });
     expect(asClient.status).toBe(403);
+  });
+
+  it("counts what came in while it was paused on resume, and runs it only when asked, once", async () => {
+    const { id } = await ready("weekend-pause");
+    await ok(OPERATOR, "POST", `/api/ops/agents/${id}/activate`);
+    const doc = async (payload: Record<string, unknown> = { filename: "inv.pdf" }) => {
+      const [e] = await H.t.db
+        .insert(event)
+        .values({ tenantId: A().tenantId, type: "document.received", payload })
+        .returning();
+      if (!e) throw new Error("no event");
+      // Dispatched as the after-commit dispatch does it: stamped, whatever started.
+      await dispatchByIds({ db: H.db, instances: H.instances }, A().tenantId, [e.id]);
+      return e.id;
+    };
+    const runsOn = async (eventId: string) =>
+      (await H.t.db.select().from(run).where(eq(run.agentId, id))).filter(
+        (r) => (r.trigger as Json)?.eventId === eventId,
+      );
+    const before = await doc();
+    expect(await runsOn(before)).toHaveLength(1);
+
+    await ok(admin("a"), "POST", `/api/services/${id}/pause`, { reason: "Away for the weekend" });
+    const during = await doc();
+    // A test run's event never starts a live run, paused or not.
+    const [testRun] = await H.t.db
+      .select()
+      .from(run)
+      .where(and(eq(run.agentId, id), eq(run.mode, "test")));
+    const fromTest = await doc({ runId: testRun?.id });
+    // Consumed by the dispatcher while paused: nothing started.
+    expect(await runsOn(during)).toHaveLength(0);
+    expect(
+      (await H.t.db.select().from(event).where(eq(event.id, during)))[0]?.dispatchedAt,
+    ).not.toBeNull();
+
+    // Resume says how many, and starts none of them.
+    const resumed = await ok(admin("a"), "POST", `/api/services/${id}/resume`);
+    expect(resumed.missedEvents).toBe(1);
+    expect(await runsOn(during)).toHaveLength(0);
+    const after = await doc();
+    expect(await runsOn(after)).toHaveLength(1);
+
+    const missed = await ok(OPERATOR, "GET", `/api/ops/agents/${id}/missed-events`);
+    expect(missed.missed).toMatchObject({ count: 1, more: false });
+    const ran = await ok(OPERATOR, "POST", `/api/ops/agents/${id}/missed-events/run`);
+    expect(ran.runs.map((r: Json) => r.workflow)).toEqual(["on-doc"]);
+    expect(ran.left).toBe(0);
+    const [started] = await runsOn(during);
+    expect(started).toMatchObject({ mode: "live", id: ran.runs[0].runId });
+    expect(H.instances.started.has(ran.runs[0].runId)).toBe(true);
+    // Once: asked again, nothing more starts.
+    expect((await ok(OPERATOR, "POST", `/api/ops/agents/${id}/missed-events/run`)).runs).toEqual(
+      [],
+    );
+    expect((await ok(OPERATOR, "GET", `/api/ops/agents/${id}/missed-events`)).missed.count).toBe(0);
+    expect(await runsOn(fromTest)).toHaveLength(0);
+    // The operator's only.
+    expect((await H.call(admin("a"), "GET", `/api/ops/agents/${id}/missed-events`)).status).toBe(
+      403,
+    );
   });
 });
