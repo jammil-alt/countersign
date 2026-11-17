@@ -25,6 +25,8 @@ import { accountRoutes } from "./account";
 import { approverRuleRoutes } from "./approver-rules";
 // v0.12 W2-B: automations
 import { automationRoutes, BuilderAutomation } from "./automations";
+// docs/plan.md §1.123.4: back office work (Reggie and Autopilot)
+import { autopilotRoutes } from "./autopilot";
 // v0.12 bankfeed
 import { bankfeedRoutes, LinkStartView } from "./bankfeed";
 import { billingRoutes } from "./billing";
@@ -2424,5 +2426,6 @@ export const routes = {
   ...reshapeRoutes,
   // docs/plan.md §1.123: back office work
   ...workRoutes,
+  ...autopilotRoutes,
 } as const;
 export type Routes = typeof routes;

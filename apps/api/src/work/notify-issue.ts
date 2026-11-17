@@ -68,6 +68,8 @@ export async function issueUpdateCandidates(
   for (const m of ours) {
     const s = subjects.find((x) => x.threadId === m.threadId);
     if (!s) continue;
+    // §1.123.4: an issue that came by email is answered by email (backoffice/outbound-email.ts).
+    if (s.source === "email") continue;
     const raiser = s.raisedBy ? clientPeople.find((p) => p.userId === s.raisedBy) : undefined;
     const to = raiser ? [raiser] : clientPeople.filter((p) => p.role === "client_admin");
     for (const p of to) {
