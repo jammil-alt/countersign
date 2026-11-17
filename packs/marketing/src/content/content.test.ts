@@ -214,6 +214,10 @@ describe("textOf", () => {
     expect(textOf("<scr<b>ipt>alert(1)</scr</b>ipt>")).not.toMatch(/<\s*script/i);
   });
 
+  it("drops a tag left open at the end", () => {
+    expect(textOf("<p>Words</p><script src=x")).toBe("Words");
+  });
+
   it("stays quick on a long run of <", () => {
     const started = performance.now();
     textOf("<".repeat(50_000));

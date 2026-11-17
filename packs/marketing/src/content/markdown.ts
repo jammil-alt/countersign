@@ -266,20 +266,41 @@ const ENTITIES: Record<string, string> = {
   "&#39;": "'",
 };
 
+const INLINE = new Set([
+  "a",
+  "strong",
+  "em",
+  "b",
+  "i",
+  "u",
+  "s",
+  "code",
+  "sup",
+  "sub",
+  "small",
+  "span",
+]);
+
 /**
  * The words of rendered HTML, for counting and for the claims lint. The result is plain text, never
  * put back into HTML.
  */
 export const textOf = (html: string): string => {
-  let text = html;
-  // Strip tags until none is left, so a tag split around another (`<scr<b>ipt>`) can't survive.
-  // `[^<>]` keeps each pass linear on a run of `<`.
-  for (let before = ""; before !== text; ) {
-    before = text;
-    text = text
-      // Inline tags join their words to the text around them; block tags separate.
-      .replace(/<\/?(?:a|strong|em|b|i|u|s|code|sup|sub|small|span)\b[^<>]*>/g, "")
-      .replace(/<[^<>]*>/g, " ");
+  // Tags out by hand, not by regex: everything from a `<` to the next `>` goes (to the end if none),
+  // so no `<` from markup is left, however tags are split or nested, in one linear pass.
+  // Inline tags join their words to the text around them; block tags separate.
+  let text = "";
+  for (let i = 0; i < html.length; ) {
+    const open = html.indexOf("<", i);
+    if (open < 0) {
+      text += html.slice(i);
+      break;
+    }
+    text += html.slice(i, open);
+    const close = html.indexOf(">", open + 1);
+    const name = /^\/?([a-z0-9]+)/i.exec(html.slice(open + 1, open + 20))?.[1]?.toLowerCase();
+    if (!name || !INLINE.has(name)) text += " ";
+    i = close < 0 ? html.length : close + 1;
   }
   return (
     text
