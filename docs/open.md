@@ -265,6 +265,12 @@ sign-in stays off until `MOBILE_SIGNIN=on` and phone notifications until `MOBILE
 - Owner decisions open: whether the portal shows the agent's reason for a choice; `between` in
   business hours; more than 10 passes.
 
+### Approvals bound to what was seen (code; audit 3.4, 2026-11-17)
+
+- The portal and the phone send the fingerprint of the card as shown, and the API refuses an
+  answer to a card that changed since (409 `changed`). Open: the back office's own resolve
+  (`/api/ops/inbox/:id/resolve`) and the operator's step-in don't check one yet.
+
 ### Language and legal
 
 - A **fluent speaker's review** of the five translations (Spanish, French, Portuguese, Italian,

@@ -272,6 +272,7 @@ const AGENTS_STATUS: Record<AgentsError["code"], HttpError["status"]> = {
   not_assignee: 403,
   test_run: 409,
   invalid_grant: 422,
+  run_ended: 409,
 };
 
 /** Postgres errors that mean the request, not the server, is at fault. */

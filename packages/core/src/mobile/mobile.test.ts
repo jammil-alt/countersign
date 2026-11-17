@@ -44,6 +44,31 @@ describe("the phone app's contract", () => {
     const lines = (total: string) => ({ id: "i", title: "Send PO", payload: { input: { total } } });
     expect(itemFingerprintText(lines("4820.00"))).not.toBe(itemFingerprintText(lines("5820.00")));
     expect(itemFingerprintText({ id: "i", title: "Send PO", display: { b: 2 } })).not.toBe(a);
+    // Names looked up for bare ids are help text: named or not, the same card.
+    const tool = { name: { en: "Bill" }, fields: [] };
+    expect(
+      itemFingerprintText({
+        id: "i",
+        title: "Send PO",
+        display: { connectorName: "QuickBooks", tool, names: { accounts: { "20": "Supplies" } } },
+      }),
+    ).toBe(
+      itemFingerprintText({
+        id: "i",
+        title: "Send PO",
+        display: { connectorName: "QuickBooks", tool },
+      }),
+    );
+    // The tool's display itself still counts.
+    expect(
+      itemFingerprintText({ id: "i", title: "Send PO", display: { connectorName: "Gmail", tool } }),
+    ).not.toBe(
+      itemFingerprintText({
+        id: "i",
+        title: "Send PO",
+        display: { connectorName: "QuickBooks", tool },
+      }),
+    );
   });
 
   it("accepts Expo push tokens and P-256 public keys only", () => {

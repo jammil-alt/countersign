@@ -17,7 +17,9 @@ export type AgentsErrorCode =
   | "unknown_tool"
   | "not_assignee"
   | "test_run"
-  | "invalid_grant";
+  | "invalid_grant"
+  /** Audit 3.3: the item's run has ended, so nothing would be done with the answer. */
+  | "run_ended";
 
 export class AgentsError extends Error {
   override name = "AgentsError";

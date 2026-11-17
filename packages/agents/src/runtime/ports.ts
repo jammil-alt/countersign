@@ -329,6 +329,12 @@ export interface ExternalActionStore {
     /** Follow-up 4: `claim`, the claim it was executed under: only then does it fail. */
     options?: { inbox?: FailureInboxItem; claim?: string | null },
   ): Promise<ExternalActionRecord>;
+  /**
+   * Audit 3.5: marks an `approved` action, not yet claimed, `rejected` with `error` (the gate
+   * refused it as it was about to be executed). Any other is returned as it is: one claimed
+   * meanwhile is its caller's to settle.
+   */
+  refuse(tenantId: string, actionId: string, error: unknown): Promise<ExternalActionRecord>;
 }
 
 /** What `claim` found (ExternalActionStore.claim). */
@@ -469,6 +475,11 @@ export interface CarryCandidate {
    * error names another step): never executed again without a new approval (`carryDecision`).
    */
   carriedOn?: boolean;
+  /**
+   * Audit 3.3: signed after its run had ended (before a resolve refused that): never executed
+   * without a new approval (`carryDecision`).
+   */
+  signedAfterRunEnded?: boolean;
 }
 
 /** src/log/carried-actions.ts. */

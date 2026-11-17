@@ -2,6 +2,8 @@
 // needs you (the top of the Inbox with "Not now", and the supervisor's findings), the weekly
 // summary when one was sent, the lead's note with a reply, and the latest work. Each count once,
 // empty sections left out. Never a bundle or a cost.
+
+import { itemFingerprint, PortalInboxItem } from "@countersign/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -634,7 +636,13 @@ describe("Home's account check", () => {
     expect(screen.queryByText(/connection_signin:x/)).not.toBeInTheDocument();
     expect(screen.queryByTestId("desk-sign")).not.toBeInTheDocument();
     await userEvent.click(screen.getByTestId("desk-done"));
-    expect(sent).toEqual([{ decision: "approve" }]);
+    // Audit 3.4: with the item as it was shown.
+    expect(sent).toEqual([
+      {
+        decision: "approve",
+        fingerprint: await itemFingerprint(PortalInboxItem.parse(item)),
+      },
+    ]);
   });
 
   // v0.19 (ARCHITECTURE §10.15 "Home"): who looks after what, ideas, and Ask opening the chat.

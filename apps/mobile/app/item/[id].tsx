@@ -23,7 +23,7 @@ import {
   signedInput,
   whyLines,
 } from "../../src/desk/model";
-import { decodePrivateKey, signDecision } from "../../src/device/signing";
+import { decodePrivateKey, itemFingerprint, signDecision } from "../../src/device/signing";
 import { useApp } from "../../src/state/app";
 import { useDesk } from "../../src/state/desk";
 import { readPrivateKey } from "../../src/state/store";
@@ -439,7 +439,8 @@ function Question({
     try {
       await api.call(routes.portalResolveInbox, {
         params: { id: item.id },
-        body: { decision: "approve", answer: value },
+        // Audit 3.4: the item as the person saw it.
+        body: { decision: "approve", answer: value, fingerprint: itemFingerprint(item) },
         byPerson: true,
       });
       desk.drop(item.id);
@@ -669,7 +670,12 @@ function DecideSheet({
       }
       const out = await api.call(routes.portalResolveInbox, {
         params: { id: item.id },
-        body: { decision, ...(deviceSignature ? { deviceSignature } : {}) },
+        body: {
+          decision,
+          // Audit 3.4: the item as the person saw it, signed or not.
+          fingerprint: itemFingerprint(item),
+          ...(deviceSignature ? { deviceSignature } : {}),
+        },
         byPerson: true,
       });
       desk.drop(item.id);
@@ -683,14 +689,24 @@ function DecideSheet({
       leave();
       void desk.refresh();
     } catch (e) {
+      // Changed since it was opened: the Desk is read again, so the item shows as it is now.
+      if (isApiError(e) && (e.code === "changed" || e.code === "item_changed")) {
+        void desk.refresh();
+      }
       setProblem(
-        isApiError(e) && e.status === 409
-          ? "This item changed since you opened it. Look at it again before you sign."
-          : isApiError(e) && e.code === "signature_stale"
-            ? "Your phone's clock looks off, so the signature was too old. Check the time and sign again."
-            : isApiError(e) && (e.code === "signature_invalid" || e.code === "device_unknown")
-              ? "This phone's signature wasn't accepted. Set up signing again in Settings."
-              : "That didn't go through. Try again.",
+        isApiError(e) && e.code === "run_ended"
+          ? "This run has ended, so nothing will be done with this item."
+          : isApiError(e) && e.code === "already_resolved"
+            ? "Someone has already answered this."
+            : isApiError(e) && e.code === "expired"
+              ? "This has expired: nothing is waiting on it any more."
+              : isApiError(e) && e.status === 409
+                ? "This item changed since you opened it. Look at it again before you sign."
+                : isApiError(e) && e.code === "signature_stale"
+                  ? "Your phone's clock looks off, so the signature was too old. Check the time and sign again."
+                  : isApiError(e) && (e.code === "signature_invalid" || e.code === "device_unknown")
+                    ? "This phone's signature wasn't accepted. Set up signing again in Settings."
+                    : "That didn't go through. Try again.",
       );
     } finally {
       setBusy(false);

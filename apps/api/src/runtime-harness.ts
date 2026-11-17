@@ -154,6 +154,8 @@ export class DeskProbeWorkflow extends WorkflowEntrypoint<Bindings, DeskProbePar
         store: {
           run: async () => ({ mode: "live", agentId: "probe" }),
           connection: async () => connection,
+          // Audit 3.5: the gate is asked again at execution; the probe's agent has no grant row.
+          grant: async () => null,
         },
       },
       tools: new ToolRegistry({ connectors: new ConnectorRegistry([testkit]) }),

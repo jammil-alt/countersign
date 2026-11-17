@@ -2,9 +2,11 @@
 // doesn't name ("#20") reads by its name on the client's card, found in the connection's synced
 // records; never another client's records, and the before state's own names come first.
 import { createQboConnector } from "@countersign/connectors";
-import { inboxItem, rawRecord } from "@countersign/db";
+import { itemFingerprint, PortalInboxItem } from "@countersign/core";
+import { externalAction, inboxItem, rawRecord } from "@countersign/db";
+import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
-import { admin, createApiHarness } from "./api.test-helper";
+import { AS_SENT, admin, createApiHarness } from "./api.test-helper";
 import { unnamedIds } from "./change-names";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
@@ -126,5 +128,78 @@ describe.skipIf(!h)("portal inbox names", () => {
     const again = await H.call(admin("a"), "GET", "/api/inbox?status=open");
     const plain = j(again.json).items.find((i: { id: string }) => i.id === named?.id);
     expect(plain.display.names).toBeUndefined();
+  });
+
+  it("names every card of a busy inbox as it would alone, and signs each as the list showed it", async () => {
+    // Fifteen cards, each booked to its own account that only a synced item names: four lookups
+    // each, more than one response's worth if the budget were shared.
+    await H.t.db
+      .update(inboxItem)
+      .set({ status: "expired" })
+      .where(eq(inboxItem.tenantId, H.A.tenantId));
+    const ids: string[] = [];
+    for (let n = 0; n < 15; n++) {
+      const account = String(300 + n);
+      await H.t.db.insert(rawRecord).values({
+        tenantId: H.A.tenantId,
+        connectionId: H.A.connectionId,
+        connector: "qbo",
+        entityType: "Item",
+        externalId: `item-${account}`,
+        externalVersion: "0",
+        payload: {
+          Id: `item-${account}`,
+          ExpenseAccountRef: { value: account, name: `Account ${account}` },
+        },
+      });
+      const lineInput = {
+        ...input,
+        lines: [{ accountId: account, description: "Panels", amount: "9742.35" }],
+      };
+      const [item] = await H.t.db
+        .insert(inboxItem)
+        .values({
+          tenantId: H.A.tenantId,
+          kind: "external_action",
+          title: "QuickBooks bill",
+          assigneeRole: "client_admin",
+          createdAt: new Date(Date.now() - (15 - n) * 60_000),
+          payload: {
+            tool: "qbo.bill.update_lines",
+            connectionId: H.A.connectionId,
+            input: lineInput,
+            before: beforeState({ id: account }),
+          },
+        })
+        .returning();
+      if (!item) throw new Error("no item");
+      await H.t.db.insert(externalAction).values({
+        tenantId: H.A.tenantId,
+        connectionId: H.A.connectionId,
+        tool: "qbo.bill.update_lines",
+        input: lineInput,
+        idempotencyKey: `names-${item.id}`,
+        status: "proposed",
+        inboxItemId: item.id,
+      });
+      ids.push(item.id);
+    }
+    const list = await H.call(admin("a"), "GET", "/api/inbox?status=open");
+    expect(list.status, JSON.stringify(list.json)).toBe(200);
+    const items = j(list.json).items as unknown[];
+    expect(items).toHaveLength(15);
+    // The last card in the list (the oldest) is named as it would be alone.
+    const last = PortalInboxItem.parse(items.at(-1));
+    expect(last.id).toBe(ids[0]);
+    expect(last.display).toMatchObject({ names: { accounts: { "300": "Account 300" } } });
+    // Signed with the fingerprint the web computes from the list it was sent.
+    const res = await H.call(
+      admin("a"),
+      "POST",
+      `/api/inbox/${last.id}/resolve`,
+      { decision: "approve", fingerprint: await itemFingerprint(last) },
+      { [AS_SENT]: "1" },
+    );
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
   });
 });

@@ -4,7 +4,8 @@
 // and verification run in the API with Web Crypto; the app signs with its own library.
 
 import { z } from "zod";
-import { canonicalJson } from "../canonical";
+import { canonicalJson, sha256Hex } from "../canonical";
+import { isPlainObject } from "../json";
 
 /**
  * The header that carries the app's sealed session, both ways: the app sends it in place of the
@@ -78,12 +79,15 @@ export type MyPush = z.infer<typeof MyPush>;
 /** How far a signature's time may be from the server's, either way. */
 export const DEVICE_SIGNATURE_SKEW_SEC = 5 * 60;
 
+/** An item's fingerprint (`itemFingerprint`): SHA-256, hex. */
+export const ItemFingerprint = z.string().regex(/^[0-9a-f]{64}$/);
+
 export const DeviceSignature = z.strictObject({
   deviceId: z.string().uuid(),
   /** When the person signed (ISO 8601), part of what is signed. */
   at: z.string().datetime(),
   /** The item as the person saw it: `itemFingerprint` of the Desk item. */
-  fingerprint: z.string().regex(/^[0-9a-f]{64}$/),
+  fingerprint: ItemFingerprint,
   /** ECDSA P-256 over SHA-256 of `deviceSignedText(...)`, r‖s (64 bytes), base64url. */
   signature: z.string().regex(/^[A-Za-z0-9\-_]{86}$/),
 });
@@ -120,16 +124,39 @@ export function deviceSignedText(input: {
 // display and payload) rather than internal ids or timestamps, so the app and the API compute it
 // from the same object, with nothing the portal hides. `display` alone is the tool's field layout,
 // not the values, which is why the payload is in it.
+// DECISION (review of audit 3.4): the display's `names` (labels for ids the before state leaves
+// bare, looked up from synced records as the response is built) are left out: they are help text
+// derived from the records, not what is written or approved, and a lookup may name an id in one
+// response and not in another. Everything written and approved (the input, the edit, the record
+// before, the title, the tool's display) is covered.
 export function itemFingerprintText(item: {
   id: string;
   title: string;
   display?: unknown;
   payload?: unknown;
 }): string {
+  const display =
+    isPlainObject(item.display) && "names" in item.display
+      ? Object.fromEntries(Object.entries(item.display).filter(([k]) => k !== "names"))
+      : (item.display ?? null);
   return canonicalJson({
     id: item.id,
     title: item.title,
-    display: item.display ?? null,
+    display,
     payload: item.payload ?? null,
   });
+}
+
+/**
+ * Audit 3.4: SHA-256 (hex) of `itemFingerprintText`, with Web Crypto: what the web sends with an
+ * answer as the item the person saw (`ResolveBody.fingerprint`), and what the API compares it
+ * with. The phone computes the same with its own library.
+ */
+export function itemFingerprint(item: {
+  id: string;
+  title: string;
+  display?: unknown;
+  payload?: unknown;
+}): Promise<string> {
+  return sha256Hex(itemFingerprintText(item));
 }

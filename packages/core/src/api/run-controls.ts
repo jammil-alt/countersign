@@ -108,12 +108,22 @@ export type CarryDecision =
 // continue`, `carriedOn`: its run didn't end at that step). The run took its route on that failure;
 // making the write now would be a second decision nobody signed, so it is proposed again.
 export function carryDecision(
-  action: { status: string; approvedAt: Date | null; error: unknown; carriedOn?: boolean },
+  action: {
+    status: string;
+    approvedAt: Date | null;
+    error: unknown;
+    carriedOn?: boolean;
+    signedAfterRunEnded?: boolean;
+  },
   now: Date,
 ): CarryDecision {
   if (action.status === "done") return "done";
   if (!["approved", "executing", "failed"].includes(action.status)) return "propose";
   if (!action.approvedAt) return "propose";
+  // Audit 3.3: a signature given after its run had ended (a card an older Worker left open) was
+  // never the run's to use: the write, never started, is asked for again. A run's end now closes
+  // its cards. One already started (executing, failed) keeps the rules above and below.
+  if (action.status === "approved" && action.signedAfterRunEnded === true) return "propose";
   if (now.getTime() - action.approvedAt.getTime() >= CARRIED_APPROVAL_MAX_AGE_MS) return "propose";
   const error = action.error as { unconfirmed?: unknown } | null;
   if (action.status === "failed" && error?.unconfirmed === true) return "propose";
