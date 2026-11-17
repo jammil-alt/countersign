@@ -276,10 +276,20 @@ export function compareOffers(input: {
       // to cents, `po.ts`). Its quantity is held against the quantity asked: short is shown, not
       // compared, and leaves the vendor's quote incomplete; more than asked (a minimum order) is
       // compared at that cost; when no rule tells, it is not compared.
+      // DECISION (second review, M1): a vendor that gave no quantity quotes the quantity asked:
+      // in the unit asked, its price times it; in another unit, the asked standard quantity at its
+      // standard price (`recordQuote` stores a quantity only in the vendor's own unit).
+      const sameUnitAsked = unitKey(line.unit) === null || unitKey(o.unit) === unitKey(line.unit);
       const cost =
-        o.available && o.unitPrice !== null
-          ? toNumeric(cents(dec(o.unitPrice).times(o.qty ?? line.qty)))
-          : null;
+        !o.available || o.unitPrice === null
+          ? null
+          : o.qty !== null
+            ? toNumeric(cents(dec(o.unitPrice).times(o.qty)))
+            : sameUnitAsked
+              ? toNumeric(cents(dec(o.unitPrice).times(line.qty)))
+              : basis?.std && line.qtyStd !== null
+                ? toNumeric(cents(dec(basis.price).times(line.qtyStd)))
+                : null;
       if (basis && !packaged) {
         bases.set(o.id, basis);
         coverages.set(o.id, coverageOf(o, line));
@@ -436,7 +446,16 @@ export function compareOffers(input: {
       linesPriced: priced,
       linesMissing: lines.filter((l) => l.missing.includes(q.vendorId)).length,
       linesUnavailable: lines.filter((l) => l.unavailable.includes(q.vendorId)).length,
-      complete: counted.length > 0 && priced === counted.length,
+      // DECISION (second review, H2): a line no price could be compared on is left out of the
+      // totals, not out of "quoted every line": a vendor that didn't price it isn't complete.
+      complete:
+        counted.length > 0 &&
+        priced === counted.length &&
+        lines.every(
+          (l) =>
+            l.compared ||
+            l.offers.some((o) => o.quoteRequestId === q.id && o.available && o.unitPrice !== null),
+        ),
       maxLeadTimeDays: lead,
       late,
     };
@@ -496,7 +515,17 @@ function suggest(
   const single = pool[0];
 
   // The split: every line from the vendor with its best comparable price.
-  const covered = lines.every((l) => l.best !== null && l.best.cost !== null);
+  // DECISION (second review, H3): only in one currency, the single vendor's when there is one;
+  // a split whose lines' best prices are in two currencies is never added up or suggested.
+  const bestCurrency = (l: LineComparison) =>
+    l.offers.find((o) => o.quoteLineId === l.best?.quoteLineId)?.currency ?? null;
+  const allBest = lines.every((l) => l.best !== null && l.best.cost !== null);
+  const splitCurrencies = [...new Set(lines.map(bestCurrency))];
+  const covered =
+    allBest && splitCurrencies.length === 1 && (!single || splitCurrencies[0] === single.currency);
+  const mixed = allBest && !covered && lines.length > 1;
+  const mixedIn = [...new Set([...splitCurrencies, single?.currency ?? null])].filter(Boolean);
+  const mixedReason = `Buying each line from its cheapest vendor would mix currencies (${mixedIn.join(" and ")}), so no split is suggested.`;
   const parts = new Map<
     string,
     { quoteRequestId: string; vendorId: string; ids: string[]; total: Decimal }
@@ -548,6 +577,7 @@ function suggest(
     if (single.late && input.neededBy) {
       reasons.push(`No vendor that quoted every line can deliver by ${input.neededBy}.`);
     }
+    if (mixed) reasons.push(mixedReason);
     if (covered && parts.size > 1) {
       const saving = dec(single.total).minus(splitTotal);
       const pct = dec(single.total).isZero() ? dec("0") : saving.dividedBy(single.total).times(100);
@@ -604,6 +634,7 @@ function suggest(
     };
   }
   return none([
+    ...(mixed ? [mixedReason] : []),
     ...lines
       .filter((l) => l.best === null || l.best.cost === null)
       .map(

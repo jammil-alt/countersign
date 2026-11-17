@@ -10,6 +10,7 @@ import { type Db, document, type Tx, tenant, vendor, withTenant } from "@counter
 import { countPages } from "@countersign/documents";
 import { and, eq } from "drizzle-orm";
 import { PageSizes, PDFDocument, type PDFFont, type PDFPage, rgb, StandardFonts } from "pdf-lib";
+import { readUom } from "../pricing/uom";
 import { quoteLines, quoteRow, vendorAliases } from "./quotes";
 import {
   clientDay,
@@ -269,6 +270,18 @@ export async function poContent(
     if (input.requestLineIds && !input.requestLineIds.includes(row.id)) continue;
     const ql = quoted.find((x) => x.purchaseRequestLineId === row.id);
     if (!ql?.available || ql.unitPrice === null) continue;
+    // DECISION (second review, M1): with no quantity of its own, the vendor's line orders the
+    // quantity asked only in the unit asked; in another unit a person says how many first.
+    const sameUnit =
+      !row.unit?.trim() ||
+      (ql.unit?.trim().toLowerCase() ?? "") === (row.unit?.trim().toLowerCase() ?? "") ||
+      (readUom(ql.unit) !== null && readUom(ql.unit) === readUom(row.unit));
+    if (ql.qty === null && !sameUnit) {
+      throw new PurchasingError(
+        "invalid",
+        `line ${row.lineNo}: the vendor quoted per ${ql.unit} without saying how many; set the quantity to order`,
+      );
+    }
     const qty = ql.qty ?? row.qty;
     // P-9 (0036): a line nobody has said how many of is never ordered.
     if (qty === null) {

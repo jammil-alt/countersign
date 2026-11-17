@@ -690,6 +690,39 @@ export function standardPrice(
   };
 }
 
+/** A unit as compared: its one spelling when known, else its words; null when none is given. */
+const unitKey = (raw: string | null): string | null =>
+  raw?.trim() ? (readUom(raw) ?? raw.trim().toLowerCase()) : null;
+
+/**
+ * The quantity a vendor that gave none quotes, in its own unit: the quantity asked when it quoted
+ * in the unit asked; else the asked quantity in standard units turned into its unit (500 each is
+ * 5 boxes of 100) when both convert; else none (a person says how many before an order).
+ */
+// DECISION (second review of fix/materials, M1): never the asked number under the vendor's unit
+// (500 each asked, quoted per box, is not 500 boxes).
+export function quotedQtyAsAsked(
+  asked: { row: RequestLineRow; item: CatalogItemRow | null },
+  line: { unit: string | null; description: string | null },
+  vendorItem: { vendorUom: string | null; stdPerVendorUom: string | null } | null,
+): string | null {
+  if (asked.row.qty === null) return null;
+  // A line asked with no unit is for whatever unit the vendor quotes.
+  if (unitKey(asked.row.unit) === null || unitKey(line.unit) === unitKey(asked.row.unit)) {
+    return asked.row.qty;
+  }
+  if (!asked.item) return null;
+  const askedConv = convertLine(
+    asked.row.unit,
+    asked.item.standardUom,
+    parseLine(asked.row.description).attributes,
+    asked.item.attributes as Record<string, unknown>,
+  );
+  const quotedConv = quotedConversion(asked.item, line, asked.row, vendorItem);
+  if (!askedConv.ok || !quotedConv.ok) return null;
+  return toNumeric(dec(asked.row.qty).times(askedConv.factor).dividedBy(quotedConv.factor));
+}
+
 async function checkAnswer(tx: Tx, tenantId: string, input: RecordQuoteInput) {
   if (input.answerRawRecordId) {
     const [row] = await tx
@@ -854,7 +887,7 @@ export async function recordQuote(
         purchaseRequestLineId: l.requestLineId,
         catalogItemId: asked.item?.id ?? null,
         description: l.description ?? null,
-        qty: l.qty ?? asked.row.qty,
+        qty: l.qty ?? quotedQtyAsAsked(asked, { unit, description: l.description ?? null }, vi),
         unit,
         unitPrice,
         currency,

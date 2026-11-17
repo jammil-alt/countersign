@@ -227,6 +227,31 @@ describe.skipIf(!online)("QuickBooks pieces of the buyer (database)", () => {
     settings.qbo_account_id = undefined;
   });
 
+  it("never orders the asked number in the vendor's own unit when it gave no quantity", async () => {
+    settings.qbo_account_id = "33";
+    const r = await call(requestCreate, {
+      channel: "email",
+      lines: [{ description: "#8 X 1-5/8 WOOD SCREW", qty: "500", unit: "EA" }],
+    });
+    const rfq = await call(quoteCreate, { requestId: r.request.id, vendorIds: [v.keystone] });
+    const quoteId = rfq.quotes[0].id;
+    await call(quoteMarkSent, { quoteRequestId: quoteId, sentVia: "email" });
+    const rec = await call(quoteRecord, {
+      quoteRequestId: quoteId,
+      lines: [{ requestLineId: r.request.lines[0].id, unitPrice: "9.00", unit: "BX" }],
+    });
+    // Per box, size unknown, no quantity: not 500 boxes.
+    expect(rec.lines[0].qty).toBeNull();
+    expect(
+      await fails(poQboLinesTool, {
+        requestId: r.request.id,
+        quoteRequestId: quoteId,
+        txnDate: "2026-11-08",
+      }),
+    ).toMatch(/quoted per BX without saying how many/);
+    settings.qbo_account_id = undefined;
+  });
+
   it("dates the order on the client's own day, not the UTC one", async () => {
     settings.qbo_account_id = "33";
     await t.db

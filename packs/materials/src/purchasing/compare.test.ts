@@ -6,7 +6,8 @@
 import { describe, expect, it } from "vitest";
 import type { CatalogItemRow } from "../catalog/store";
 import { type CompareLine, type CompareOfferInput, compareOffers } from "./compare";
-import { standardPrice } from "./quotes";
+import { quotedQtyAsAsked, standardPrice } from "./quotes";
+import type { RequestLineRow } from "./requests";
 
 const REQ = "req-1";
 const sheet = (id: string, lineNo: number, qty: string): CompareLine => ({
@@ -300,6 +301,99 @@ describe("compareOffers", () => {
     );
   });
 
+  it("never counts a vendor that didn't price a line left out of the totals as complete", () => {
+    const three = [
+      ...quotes,
+      { id: "q-c", vendorId: "v-c", vendorName: "Cedar Ridge", receivedAt: null },
+    ];
+    const screws: CompareLine = {
+      ...sheet("l2", 2, "5.0000"),
+      unit: "BX",
+      standardUom: "each",
+      qtyStd: null,
+    };
+    const c = compareOffers({
+      ...base,
+      quotes: three,
+      lines: [sheet("l1", 1, "10.0000"), screws],
+      offers: [
+        offer("q-a", "l1", std("50.0000")),
+        offer("q-a", "l2", { unit: "BX", unitPrice: "9.0000", qty: "5.0000" }),
+        offer("q-b", "l1", std("51.0000")),
+        offer("q-b", "l2", { unit: "BX", unitPrice: "8.0000", qty: "5.0000" }),
+        // Cheapest plywood, but no screws at all.
+        offer("q-c", "l1", std("49.0000")),
+      ],
+    });
+    expect(c.lines[1]?.compared).toBe(false);
+    expect(c.vendors.map((v) => [v.vendorName, v.total, v.complete])).toEqual([
+      ["Atlas Panel", "500.0000", true],
+      ["Birch Supply", "510.0000", true],
+      ["Cedar Ridge", "490.0000", false],
+    ]);
+    expect(c.suggestion).toMatchObject({ kind: "single", vendorId: "v-a" });
+    expect(c.suggestion.reasons[0]).toBe(
+      "Atlas Panel quoted every line for $500.00 in total, the lowest of 2 complete quotes.",
+    );
+  });
+
+  it("never suggests a split that adds up prices in two currencies", () => {
+    const four = [
+      ...quotes,
+      { id: "q-c", vendorId: "v-c", vendorName: "Cedar Ridge", receivedAt: null },
+      { id: "q-d", vendorId: "v-d", vendorName: "Dogwood", receivedAt: null },
+    ];
+    const lines = [sheet("l1", 1, "10.0000"), sheet("l2", 2, "10.0000")];
+    const c = compareOffers({
+      ...base,
+      quotes: four,
+      lines,
+      offers: [
+        offer("q-a", "l1", std("1.0000")),
+        offer("q-b", "l1", std("2.0000")),
+        offer("q-c", "l2", std("100.0000", { currency: "CAD" })),
+        offer("q-d", "l2", std("200.0000", { currency: "CAD" })),
+      ],
+    });
+    expect(c.suggestion.kind).toBe("none");
+    expect(c.suggestion.total).toBeNull();
+    expect(c.suggestion.reasons[0]).toBe(
+      "Buying each line from its cheapest vendor would mix currencies (USD and CAD), so no split is suggested.",
+    );
+  });
+
+  it("costs a quote that gives no quantity at the quantity asked, in its own unit", () => {
+    const screws: CompareLine = {
+      ...sheet("l1", 1, "500.0000"),
+      unit: "EA",
+      standardUom: "each",
+      qtyStd: "500.0000",
+    };
+    const c = compareOffers({
+      ...base,
+      lines: [screws],
+      offers: [
+        // 9.00 a box of 100, no quantity: 500 each is 45.00, not 500 boxes.
+        offer("q-a", "l1", {
+          unit: "BX",
+          unitPrice: "9.0000",
+          unitPriceStd: "0.0900",
+          standardUom: "each",
+        }),
+        offer("q-b", "l1", {
+          unit: "EA",
+          unitPrice: "0.1200",
+          unitPriceStd: "0.1200",
+          standardUom: "each",
+        }),
+      ],
+    });
+    const by = (v: string) => c.lines[0]?.offers.find((o) => o.vendorId === v);
+    expect(by("v-a")).toMatchObject({ cost: "45.0000", comparable: true, note: null });
+    expect(by("v-b")).toMatchObject({ cost: "60.0000", comparable: true });
+    expect(c.lines[0]?.best?.vendorId).toBe("v-a");
+  });
+
   it("never compares across currencies", () => {
     const three = [
       ...quotes,
@@ -396,6 +490,24 @@ describe("compareOffers", () => {
   it("says so when no quote is in", () => {
     const c = compareOffers({ ...base, quotes: [], lines: [sheet("l1", 1, "1")], offers: [] });
     expect(c.suggestion).toMatchObject({ kind: "none", reasons: ["No quotes are in yet."] });
+  });
+});
+
+describe("quotedQtyAsAsked", () => {
+  const screws = {
+    id: "item-screws",
+    standardUom: "each",
+    attributes: { kind: "screw" },
+  } as unknown as CatalogItemRow;
+  const asked = {
+    row: { qty: "500.0000", unit: "EA", description: "#8 X 1-1/4 WOOD SCREW" } as RequestLineRow,
+    item: screws,
+  };
+  it("turns the quantity asked into the vendor's unit, else leaves it to a person", () => {
+    const box = { vendorUom: "pack", stdPerVendorUom: "100" };
+    expect(quotedQtyAsAsked(asked, { unit: "BX", description: null }, box)).toBe("5.0000");
+    expect(quotedQtyAsAsked(asked, { unit: "BX", description: null }, null)).toBeNull();
+    expect(quotedQtyAsAsked(asked, { unit: "ea", description: null }, null)).toBe("500.0000");
   });
 });
 
