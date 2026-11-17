@@ -86,6 +86,8 @@ export const ptBR: Messages = {
   "error.changed": "Este item mudou desde que você o abriu; olhe de novo.",
   "error.run_ended": "Esta execução terminou; nada será feito com este item.",
   "error.fingerprint_required": "Esta página está desatualizada; recarregue-a e olhe de novo.",
+  "error.signature_required":
+    "Isto precisa da assinatura do seu celular. Assine com Face ID ou a digital no app, ou decida em um navegador.",
   "error.not_assignee": "Isto aguarda outra pessoa.",
   "error.not_connected": "Essa ferramenta não está conectada.",
   "error.not_available": "Isso ainda não está disponível.",
@@ -106,6 +108,7 @@ export const ptBR: Messages = {
   "error.not_importable": "O diretório importa do Zoho CRM ou do Podio.",
   "error.contact_exists": "Alguém no diretório já tem esse e-mail ou esse número.",
   "error.rate_limited": "Aguarde um minuto e tente de novo.",
+  "error.daily_limit": "Você chegou ao limite de hoje para isto. Tente de novo amanhã.",
   "error.no_address": "Não sabemos o endereço desta conta. Conecte-a de novo.",
   "error.different_account":
     "Esta conta é diferente da que está conectada aqui. Desconecte-a primeiro e depois conecte a outra.",
@@ -2754,6 +2757,18 @@ export const ptBR: Messages = {
   "bookkeeping.review.loading": "Carregando as transações…",
   "bookkeeping.review.suggested": "Sugerimos {account}",
   "bookkeeping.review.noSuggestion": "Ainda sem sugestão",
+  "bookkeeping.review.openBill":
+    "É o pagamento de uma conta a pagar em aberto: {what}? Se for, aplique-o a essa conta no QuickBooks e depois deixe-o de fora aqui.",
+  "bookkeeping.review.openInvoice":
+    "É o recebimento de uma fatura em aberto: {what}? Se for, aplique-o a essa fatura no QuickBooks e depois deixe-o de fora aqui.",
+  "bookkeeping.review.openBillPaid":
+    "O QuickBooks mostra esta conta a pagar como paga: {what}. Se este for esse pagamento, deixe-o de fora aqui.",
+  "bookkeeping.review.openInvoicePaid":
+    "O QuickBooks mostra esta fatura como recebida: {what}. Se este for esse recebimento, deixe-o de fora aqui.",
+  "bookkeeping.review.pairHeld":
+    "Lançamento {what}: pode ser o outro lado de uma transferência que não foi registrada ou foi deixada de fora. Decida os dois juntos.",
+  "bookkeeping.review.resent":
+    "O banco enviou isto de novo depois de remover uma cópia anterior. Decida aqui: nada é registrado até você decidir.",
   "bookkeeping.review.approve": "Aprovar",
   "bookkeeping.review.account": "Conta para {payee}",
   "bookkeeping.review.why": "Por quê, em poucas palavras (opcional)",
@@ -2774,6 +2789,8 @@ export const ptBR: Messages = {
   "bookkeeping.recon.loading": "Carregando a conciliação…",
   "bookkeeping.recon.difference": "Diferença",
   "bookkeeping.recon.unexplainedBy": "{amount} sem explicação",
+  "bookkeeping.recon.startGap":
+    "Os saldos iniciais diferem em {amount}, e nada trazido da última aprovação explica isso. Adicione o que estava pendente no início do período, como um cheque emitido antes e compensado durante ele.",
   "bookkeeping.recon.asOf": "Em {day}",
   "bookkeeping.recon.outcome.balanced": "Fechada",
   "bookkeeping.recon.outcome.explained": "Explicada",
@@ -3008,6 +3025,11 @@ export const ptBR: Messages = {
     "O Claude pede para usar a Mezonas em seu nome. O primeiro pedido foi às {time}. Aprove só se você acabou de conectar o Claude.",
   "connectClaude.lasts":
     "Este link funciona até {time}. Depois de aprovada, dura até essa sessão do Claude terminar, no máximo 12 horas.",
+  "connectClaude.requested":
+    "O Claude deu este link às {time}. Se você não pediu ao Claude agora há pouco, não aprove.",
+  "connectClaude.confirm": "O código que o Claude mostrou",
+  "connectClaude.confirmHint":
+    "O Claude mostra um código de 6 dígitos com este link. Digite o que o seu próprio Claude mostra, nunca um que outra pessoa enviar.",
   "connectClaude.approve": "Aprovar",
   "connectClaude.approving": "Aprovando…",
   "connectClaude.approved":
@@ -3015,6 +3037,36 @@ export const ptBR: Messages = {
   "connectClaude.expired": "Este link expirou. Peça de novo ao Claude para receber um novo.",
   "connectClaude.unknown":
     "Este link não corresponde a nenhuma conexão do Claude sua. Peça de novo ao Claude para receber um novo.",
+  // ── §1.124: Requests (issues and asks) and requirements forms ──
+  "requests.title": "Solicitações",
+  "requests.lede":
+    "Algo não está funcionando, ou uma ideia para nós: conte aqui ao seu responsável na Mezonas.",
+  "requests.new": "Nova solicitação",
+  "requests.empty": "Nenhuma solicitação ainda.",
+  "requests.state.on_it": "Estamos cuidando disso",
+  "requests.state.waiting_on_you": "Aguardando você",
+  "requests.state.fixed": "Corrigido",
+  "requests.state.closed": "Encerrado",
+  "requests.kind.problem": "Algo não está funcionando",
+  "requests.kind.idea": "Uma ideia ou uma mudança",
+  "requests.kindQuestion": "O que é?",
+  "requests.service": "Sobre",
+  "requests.serviceNone": "Nada em particular",
+  "requests.text": "Conte o que aconteceu, ou o que você gostaria",
+  "requests.reply": "Escreva ao seu responsável na Mezonas",
+  "requests.replySend": "Enviar",
+  "requests.confirm": "Confirmar que está corrigido",
+  "requests.stillHappening": "Ainda está acontecendo",
+  "requests.back": "Todas as solicitações",
+  "requests.lead": "Seu responsável na Mezonas",
+  "requests.you": "Você",
+  "requests.number": "Solicitação nº {n}",
+  "requirements.title": "Perguntas para o seu novo agente",
+  "requirements.save": "Salvar rascunho",
+  "requirements.submit": "Enviar respostas",
+  "requirements.progress": "{answered} de {total} respondidas",
+  "requirements.sent": "Enviado. Obrigado: a partir daqui é com a gente.",
+  "requirements.due": "Prazo: {date}",
   // ── Access per person (docs/plan.md §1.122) ──
   "access.edit": "Acesso",
   "access.title": "O que {name} pode fazer",

@@ -1,4 +1,4 @@
-// Where a client's people email and text Sloan (docs/plan.md §1.124): its own address on the
+// Where a client's people email and text Sloan (docs/plan.md §1.150): its own address on the
 // forwarding domain and the account's number. The portal shows it on Sloan's page; the back office
 // on the client's, to pass on.
 

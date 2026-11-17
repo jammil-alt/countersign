@@ -322,6 +322,12 @@ export const REGGIE_TABLES = ["reggie_conversation", "reggie_message", "reggie_a
 export const BUILD_KINDS = ["agent", "skill"] as const;
 export const BUILD_PHASES = ["intake", "fitgap", "draft", "poc", "client_test", "qa"] as const;
 export const BUILD_STATUSES = ["open", "live", "stopped"] as const;
+/** §1.124: how a build makes its agent; a fork of a template skips the build phases. */
+export const BUILD_PATHS = ["new", "template"] as const;
+/** §1.124: what a build or a deal came from. */
+export const WORK_ORIGIN_KINDS = ["deal", "ask", "enhancement", "issue"] as const;
+/** §1.124: whose move an item of back office work waits on. */
+export const WORK_WAITING_ON = ["operator", "reggie", "client"] as const;
 
 /**
  * One build of a new agent or skill, for a client (`client_id`: a client agent or that client's
@@ -357,9 +363,36 @@ export const build = pgTable(
       .defaultNow()
       .$onUpdate(() => new Date()),
     phaseAt: ts("phase_at").notNull().defaultNow(),
+    // docs/plan.md §1.124 (migration 0060): the build as back office work.
+    // DECISION: builds get a promised date (owner, 2026-11-17); moving it is the operator's.
+    promisedOn: date("promised_on"),
+    /** `new`: built through the phases; `template`: forked from `template_id` for the client. */
+    path: text("path").$type<(typeof BUILD_PATHS)[number]>().notNull().default("new"),
+    templateId: uuid("template_id").references((): AnyPgColumn => agent.id),
+    /** What the build came from: a deal, a client's ask, an enhancement or an issue. */
+    originKind: text("origin_kind").$type<(typeof WORK_ORIGIN_KINDS)[number]>(),
+    originId: uuid("origin_id"),
+    /** The requirements request sent to the client (core `RequirementsRequest`). */
+    requirements: json("requirements"),
+    waitingOn: text("waiting_on")
+      .$type<(typeof WORK_WAITING_ON)[number]>()
+      .notNull()
+      .default("operator"),
+    statusLine: text("status_line").notNull().default(""),
+    stuck: boolean("stuck").notNull().default(false),
+    manualRank: integer("manual_rank"),
   },
   (t) => [
     index("build_phase_idx").on(t.status, t.phase, t.updatedAt),
+    index("build_origin_idx").on(t.originKind, t.originId),
+    check("build_path_check", oneOf(t.path, BUILD_PATHS)),
+    check(
+      "build_origin_kind_check",
+      sql`${t.originKind} is null or ${oneOf(t.originKind, WORK_ORIGIN_KINDS)}`,
+    ),
+    check("build_origin_check", sql`(${t.originKind} is null) = (${t.originId} is null)`),
+    check("build_waiting_on_check", oneOf(t.waitingOn, WORK_WAITING_ON)),
+    check("build_status_line_check", sql`char_length(${t.statusLine}) <= 120`),
     index("build_agent_idx").on(t.agentId),
     index("build_test_agent_idx").on(t.testAgentId),
     check("build_kind_check", oneOf(t.kind, BUILD_KINDS)),
@@ -480,6 +513,198 @@ export const buildEvent = pgTable(
 
 /** The build tables (§1.108): only an operator session reads them; a client never does. */
 export const BUILD_TABLES = ["build", "build_item", "build_message", "build_event"] as const;
+
+// ── The Dev queue: Builder code requests (docs/plan.md §1.125, owner 2026-11-17) ───────────────
+// What the Builder can't make from catalog parts (a new tool, an extension of a built-in) goes to
+// engineering as a numbered request (DQ-001), triaged before it is built and shipped back to the
+// builds waiting on it. Operator only and global, like the build tables: a client never sees one.
+
+export const CODE_REQUEST_KINDS = [
+  "extend_existing",
+  "new_tool",
+  "new_skill_code",
+  "config_only",
+] as const;
+export const CODE_REQUEST_STATUSES = [
+  "triage",
+  "accepted",
+  "in_progress",
+  "shipped",
+  "closed",
+] as const;
+export const CODE_REQUEST_DECISIONS = [
+  "exists",
+  "config",
+  "extend",
+  "new_general",
+  "one_off",
+] as const;
+export const CODE_REQUEST_CLOSE_REASONS = [
+  "exists",
+  "config",
+  "merged",
+  "not_worth_it",
+  "not_possible",
+  "superseded",
+] as const;
+export const CODE_REQUEST_CREATORS = ["builder", "operator", "session"] as const;
+export const CODE_REQUEST_EVENT_KINDS = [
+  "status",
+  "note",
+  "reuse_check",
+  "merge",
+  "claim",
+  "pr",
+  "notified",
+  "shipped",
+] as const;
+
+/**
+ * One request for code: what it must do (`spec`, core's `CodeRequestSpec`), the questions it
+ * leaves (`open_questions`), the reuse check that found what already exists (`reuse_check`), and
+ * the decision on the ladder (exists, config, extend, new_general, one_off) with its reason.
+ * `number` is shown as DQ-001. Updated in place (its history is `code_request_event`); never
+ * deleted.
+ */
+// DECISION: the number is an identity column, global, so DQ numbers never repeat or collide; a
+// refused insert still takes one, so they may skip.
+export const codeRequest = pgTable(
+  "code_request",
+  {
+    id: id(),
+    number: integer("number").notNull().generatedByDefaultAsIdentity(),
+    title: text("title").notNull(),
+    kind: text("kind").$type<(typeof CODE_REQUEST_KINDS)[number]>().notNull(),
+    status: text("status")
+      .$type<(typeof CODE_REQUEST_STATUSES)[number]>()
+      .notNull()
+      .default("triage"),
+    spec: json("spec").notNull().default({}),
+    openQuestions: json<unknown[]>("open_questions").notNull().default([]),
+    reuseCheck: json("reuse_check"),
+    decision: text("decision").$type<(typeof CODE_REQUEST_DECISIONS)[number]>(),
+    decisionReason: text("decision_reason"),
+    /** Other work that would use it; empty means a one-off. */
+    otherUses: text("other_uses").array().notNull().default(sql`'{}'::text[]`),
+    oneOffApprovedBy: uuid("one_off_approved_by").references(() => appUser.id),
+    oneOffApprovedAt: ts("one_off_approved_at"),
+    mergedIntoId: uuid("merged_into_id").references((): AnyPgColumn => codeRequest.id),
+    closeReason: text("close_reason").$type<(typeof CODE_REQUEST_CLOSE_REASONS)[number]>(),
+    /** Who has it, in words ("Mezonas engineering", a person). */
+    owner: text("owner"),
+    claimedBy: uuid("claimed_by").references(() => appUser.id),
+    claimedAt: ts("claimed_at"),
+    prUrl: text("pr_url"),
+    /** The catalog part the code adds (a tool id, a skill ref), set with the PR. */
+    expectedPartId: text("expected_part_id"),
+    shippedPartId: text("shipped_part_id"),
+    shippedStagingAt: ts("shipped_staging_at"),
+    shippedProductionAt: ts("shipped_production_at"),
+    createdBy: text("created_by").$type<(typeof CODE_REQUEST_CREATORS)[number]>().notNull(),
+    createdByUser: uuid("created_by_user").references(() => appUser.id),
+    /** The latest event's time: a claim lapses 2 hours after it. */
+    lastEventAt: ts("last_event_at").notNull().defaultNow(),
+    closedAt: ts("closed_at"),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique("code_request_number_key").on(t.number),
+    index("code_request_status_idx").on(t.status, t.createdAt),
+    check("code_request_title_check", sql`char_length(${t.title}) between 1 and 200`),
+    check("code_request_kind_check", oneOf(t.kind, CODE_REQUEST_KINDS)),
+    check("code_request_status_check", oneOf(t.status, CODE_REQUEST_STATUSES)),
+    check(
+      "code_request_decision_check",
+      sql`${t.decision} is null or ${oneOf(t.decision, CODE_REQUEST_DECISIONS)}`,
+    ),
+    check(
+      "code_request_close_reason_check",
+      sql`${t.closeReason} is null or ${oneOf(t.closeReason, CODE_REQUEST_CLOSE_REASONS)}`,
+    ),
+    check("code_request_created_by_check", oneOf(t.createdBy, CODE_REQUEST_CREATORS)),
+    // Closed always says why; merged always says into what.
+    check(
+      "code_request_closed_check",
+      sql`(${t.status} = 'closed') = (${t.closeReason} is not null)`,
+    ),
+    check(
+      "code_request_merged_check",
+      sql`(${t.closeReason} = 'merged') = (${t.mergedIntoId} is not null)`,
+    ),
+    check(
+      "code_request_not_self_check",
+      sql`${t.mergedIntoId} is null or ${t.mergedIntoId} <> ${t.id}`,
+    ),
+  ],
+);
+
+/**
+ * Where a request is needed: a build, and in it a workflow's step and the build's open item of
+ * kind `gap` (`issue_id`, a `build_item`). One request links to many builds and steps.
+ */
+export const codeRequestLink = pgTable(
+  "code_request_link",
+  {
+    id: id(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => codeRequest.id),
+    buildId: uuid("build_id")
+      .notNull()
+      .references(() => build.id),
+    workflowId: text("workflow_id"),
+    stepId: text("step_id"),
+    issueId: uuid("issue_id").references(() => buildItem.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("code_request_link_request_idx").on(t.requestId),
+    index("code_request_link_build_idx").on(t.buildId),
+    // One link per build and step (a build's link with no step counts once too).
+    uniqueIndex("code_request_link_key").on(
+      t.requestId,
+      t.buildId,
+      sql`coalesce(${t.workflowId}, '')`,
+      sql`coalesce(${t.stepId}, '')`,
+    ),
+  ],
+);
+
+/** A request's history: every change writes one. Insert only, like `audit_event`. */
+export const codeRequestEvent = pgTable(
+  "code_request_event",
+  {
+    id: id(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => codeRequest.id),
+    at: ts("at").notNull().defaultNow(),
+    /** `operator`, `builder`, `session` or `system`. */
+    actor: text("actor").notNull(),
+    userId: uuid("user_id").references(() => appUser.id),
+    kind: text("kind").$type<(typeof CODE_REQUEST_EVENT_KINDS)[number]>().notNull(),
+    body: json("body").notNull().default({}),
+  },
+  (t) => [
+    index("code_request_event_request_idx").on(t.requestId, t.at),
+    check("code_request_event_kind_check", oneOf(t.kind, CODE_REQUEST_EVENT_KINDS)),
+    check(
+      "code_request_event_actor_check",
+      sql`${t.actor} in ('operator', 'builder', 'session', 'system')`,
+    ),
+  ],
+);
+
+/** The Dev queue's tables (§1.125): operator sessions only; links only with their build. */
+export const CODE_REQUEST_TABLES = [
+  "code_request",
+  "code_request_link",
+  "code_request_event",
+] as const;
 
 // ── Tenant tables ────────────────────────────────────────────────────────────────────────────────
 
@@ -736,6 +961,12 @@ export const agent = pgTable(
      * process. Operational, never in a version; null reads as the template's area, else `general`.
      */
     area: text("area").$type<OwnerArea>(),
+    /**
+     * A safety hold (docs/plan.md §1.124, migration 0060): while set, the agent's writes and sends
+     * wait for a person. Operational, never in a version; set only on client agents (enforced in
+     * code). Null when not held.
+     */
+    hold: json<AgentHold>("hold"),
   },
   (t) => [
     unique("agent_tenant_slug_key").on(t.tenantId, t.slug).nullsNotDistinct(),
@@ -828,6 +1059,18 @@ export interface AgentStageState {
 }
 
 /** `agent.pause` (ARCHITECTURE §5.5): one side's pause; `all` pauses every agent of the client. */
+/**
+ * A client agent's safety hold (docs/plan.md §1.124): the issue it is held for, who placed it and
+ * why. Core's `AgentHold` schema validates it; this is its stored shape.
+ */
+export interface AgentHold {
+  issueId: string;
+  by: "reggie" | "operator";
+  userId: string | null;
+  at: string;
+  reason: string;
+}
+
 export interface AgentPause {
   side: "client" | "operator" | "system";
   by: string | null;
@@ -1897,7 +2140,7 @@ export const docExtraction = pgTable(
     total: money("total").notNull(),
     linesSum: money("lines_sum").notNull(),
     totalsMatch: boolean("totals_match").notNull(),
-    /** What validateTotals found, in words, when the totals do not match. */
+    /** What validateTotals found, in words: totals that do not match, and lines whose own arithmetic doesn't add up (noted only). */
     problems: json<string[]>("problems").notNull().default([]),
     /** The model's overall confidence, 0–1. */
     confidence: numeric("confidence", { precision: 4, scale: 3 }),
@@ -2678,7 +2921,9 @@ export const messageTranslation = pgTable(
 // ── Knowledge base ───────────────────────────────────────────────────────────────────────────────
 
 /** `voice_sample` (migration 0025): a message in a person's own voice, for writing like them. */
-export const KNOWLEDGE_ENTRY_KINDS = ["faq", "policy", "voice_sample"] as const;
+// §1.125 (0066): `about`, confirmed facts about the client's business, filed when the scope is
+// signed (docs/cases-plan.md §4.7), apart from FAQs and policies.
+export const KNOWLEDGE_ENTRY_KINDS = ["faq", "policy", "voice_sample", "about"] as const;
 export const KNOWLEDGE_ENTRY_STATUSES = ["active", "archived"] as const;
 export const KNOWLEDGE_AUTHOR_ROLES = ["operator", "client_admin"] as const;
 export const KNOWLEDGE_SOURCE_TYPES = ["entry", "document"] as const;
@@ -3375,6 +3620,27 @@ export const NOTIFICATION_KINDS = [
   "credits",
   "lead_message",
   "signoff",
+  // §1.124 (0060): the operator answered a client's request; sent by Build (§1.124.1).
+  "issue_update",
+] as const;
+/**
+ * §1.125 (0066): the onboarding emails, sent through this outbox as their own kinds (stream EMAIL;
+ * docs/cases-plan.md §4.4). Rendered at send from the intake and its person, never from `counts`.
+ * The check allows them before core's notification kinds name them, so the previous Worker keeps
+ * working and the next wave's (reminder, scope ready, what happens next) need no migration.
+ */
+export const ONBOARDING_NOTIFICATION_KINDS = [
+  "intake_invite",
+  "intake_colleague",
+  "intake_more_questions",
+  "intake_reminder",
+  "intake_scope_ready",
+  "intake_next",
+] as const;
+/** The kinds the check allows: core's, and the onboarding emails' (0066). */
+export const NOTIFICATION_KINDS_ALLOWED = [
+  ...NOTIFICATION_KINDS,
+  ...ONBOARDING_NOTIFICATION_KINDS,
 ] as const;
 export const NOTIFICATION_STATUSES = ["queued", "sent", "failed", "skipped"] as const;
 export const WEEKLY_TABLE_STATUSES = ["draft", "sent"] as const;
@@ -3455,7 +3721,7 @@ export const notification = pgTable(
     index("notification_tenant_idx").on(t.tenantId, t.createdAt),
     index("notification_queued_idx").on(t.createdAt).where(sql`${t.status} = 'queued'`),
     check("notification_channel_check", oneOf(t.channel, NOTIFICATION_CHANNELS)),
-    check("notification_kind_check", oneOf(t.kind, NOTIFICATION_KINDS)),
+    check("notification_kind_check", oneOf(t.kind, NOTIFICATION_KINDS_ALLOWED)),
     check("notification_status_check", oneOf(t.status, NOTIFICATION_STATUSES)),
   ],
 );
@@ -4548,6 +4814,1008 @@ export const runAuditMark = pgTable(
   ],
 );
 
+// ── Back office work (docs/plan.md §1.124) ───────────────────────────────────────────────────────
+// Sales, Build, Your call and Autopilot (docs/cases-plan.md): a client's issues and asks (tenant
+// tables, migration 0060), and the operator's enhancements, to-dos, deals and plays (operator-only
+// tables, migrations 0060–0063). Builds gain their promised date and origin above.
+
+export const ISSUE_URGENCIES = ["critical", "high", "normal", "low"] as const;
+export const ISSUE_STAGES = ["reported", "cause", "fix", "verify", "closed"] as const;
+export const ISSUE_CAUSE_KINDS = ["setup", "data", "agent", "platform", "not_a_bug"] as const;
+export const ISSUE_SOURCES = [
+  "portal",
+  "sloan",
+  "email",
+  "feedback",
+  "error_report",
+  "ops",
+  "reggie",
+  "legacy_request",
+  "trial_rejection",
+] as const;
+
+/**
+ * A client's problem with its agents or the platform, numbered per client from 1 (assigned in the
+ * insert's transaction under an advisory lock on the client). Its conversation is a thread
+ * (`subject_type='issue'`). `reggie_read` is Reggie's read of it (core `ReggieRead`) and never
+ * reaches a portal response. Updated in place; never deleted.
+ */
+// DECISION: numbers are per client, with no cross-client count (§1.124).
+export const issue = pgTable(
+  "issue",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    number: integer("number").notNull(),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    urgency: text("urgency").$type<(typeof ISSUE_URGENCIES)[number]>().notNull().default("normal"),
+    stage: text("stage").$type<(typeof ISSUE_STAGES)[number]>().notNull().default("reported"),
+    causeKind: text("cause_kind").$type<(typeof ISSUE_CAUSE_KINDS)[number]>(),
+    agentId: uuid("agent_id"),
+    source: text("source").$type<(typeof ISSUE_SOURCES)[number]>().notNull(),
+    raisedBy: uuid("raised_by").references(() => appUser.id),
+    raisedByEmail: text("raised_by_email"),
+    threadId: uuid("thread_id").notNull(),
+    waitingOn: text("waiting_on")
+      .$type<(typeof WORK_WAITING_ON)[number]>()
+      .notNull()
+      .default("operator"),
+    /** One plain line on where it stands. */
+    statusLine: text("status_line").notNull().default(""),
+    stuck: boolean("stuck").notNull().default(false),
+    /** The targets, from the urgency and the client's business hours (core `issueTargets`). */
+    replyBy: ts("reply_by"),
+    fixBy: ts("fix_by"),
+    firstReplyAt: ts("first_reply_at"),
+    /** The operator's move in the work order; null keeps Reggie's order. */
+    manualRank: integer("manual_rank"),
+    reggieRead: json("reggie_read"),
+    /** Reggie's read is due (a new issue or a client's message); null when read. */
+    needsReadAt: ts("needs_read_at"),
+    /** The `+tag` of the address its emails go out from and come back to. */
+    replyTag: text("reply_tag"),
+    /** A change request from the Desk it was adopted from (§1.11 requests, folded in). */
+    legacyItemId: uuid("legacy_item_id"),
+    feedbackId: uuid("feedback_id").references(() => feedback.id),
+    originRunId: uuid("origin_run_id"),
+    /** The ask it was converted to ("it isn't a fault"). */
+    askId: uuid("ask_id"),
+    stageAt: ts("stage_at").notNull().defaultNow(),
+    closedAt: ts("closed_at"),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique("issue_id_tenant_key").on(t.id, t.tenantId),
+    unique("issue_number_key").on(t.tenantId, t.number),
+    unique("issue_reply_tag_key").on(t.replyTag),
+    uniqueIndex("issue_legacy_item_key")
+      .on(t.legacyItemId)
+      .where(sql`${t.legacyItemId} is not null`),
+    uniqueIndex("issue_feedback_key").on(t.feedbackId).where(sql`${t.feedbackId} is not null`),
+    foreignKey({
+      name: "issue_agent_fk",
+      columns: [t.agentId, t.tenantId],
+      foreignColumns: [agent.id, agent.tenantId],
+    }),
+    foreignKey({
+      name: "issue_thread_fk",
+      columns: [t.threadId, t.tenantId],
+      foreignColumns: [thread.id, thread.tenantId],
+    }),
+    foreignKey({
+      name: "issue_legacy_item_fk",
+      columns: [t.legacyItemId, t.tenantId],
+      foreignColumns: [inboxItem.id, inboxItem.tenantId],
+    }),
+    foreignKey({
+      name: "issue_ask_fk",
+      columns: [t.askId, t.tenantId],
+      foreignColumns: [clientAsk.id, clientAsk.tenantId],
+    }),
+    index("issue_stage_idx").on(t.tenantId, t.stage, t.urgency),
+    index("issue_agent_idx").on(t.tenantId, t.agentId),
+    index("issue_needs_read_idx").on(t.needsReadAt).where(sql`${t.needsReadAt} is not null`),
+    check("issue_number_check", sql`${t.number} >= 1`),
+    check("issue_title_check", sql`char_length(${t.title}) between 1 and 200`),
+    check("issue_description_check", sql`char_length(${t.description}) <= 4000`),
+    check("issue_urgency_check", oneOf(t.urgency, ISSUE_URGENCIES)),
+    check("issue_stage_check", oneOf(t.stage, ISSUE_STAGES)),
+    check(
+      "issue_cause_kind_check",
+      sql`${t.causeKind} is null or ${oneOf(t.causeKind, ISSUE_CAUSE_KINDS)}`,
+    ),
+    check("issue_source_check", oneOf(t.source, ISSUE_SOURCES)),
+    check("issue_waiting_on_check", oneOf(t.waitingOn, WORK_WAITING_ON)),
+    check("issue_status_line_check", sql`char_length(${t.statusLine}) <= 120`),
+  ],
+);
+
+export const ISSUE_EVENT_KINDS = [
+  "created",
+  "stage",
+  "urgency",
+  "cause",
+  "hold",
+  "release",
+  "rollback",
+  "reply",
+  "note",
+  "link",
+  "reggie_read",
+  "assign",
+  "close",
+  "reopen",
+  "converted",
+  "moved",
+] as const;
+export const ISSUE_EVENT_ACTORS = ["operator", "reggie", "client", "system"] as const;
+
+/** An issue's history: what changed, from what to what, by whom and why. Insert only. */
+export const issueEvent = pgTable(
+  "issue_event",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    issueId: uuid("issue_id").notNull(),
+    kind: text("kind").$type<(typeof ISSUE_EVENT_KINDS)[number]>().notNull(),
+    fromValue: text("from_value"),
+    toValue: text("to_value"),
+    payload: json("payload").notNull().default({}),
+    reason: text("reason"),
+    actor: text("actor").$type<(typeof ISSUE_EVENT_ACTORS)[number]>().notNull(),
+    userId: uuid("user_id").references(() => appUser.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "issue_event_issue_fk",
+      columns: [t.issueId, t.tenantId],
+      foreignColumns: [issue.id, issue.tenantId],
+    }),
+    index("issue_event_issue_idx").on(t.tenantId, t.issueId, t.createdAt),
+    check("issue_event_kind_check", oneOf(t.kind, ISSUE_EVENT_KINDS)),
+    check("issue_event_actor_check", oneOf(t.actor, ISSUE_EVENT_ACTORS)),
+  ],
+);
+
+export const CLIENT_ASK_SOURCES = [...ISSUE_SOURCES, "question"] as const;
+export const CLIENT_ASK_STATUSES = ["open", "grouped", "told", "closed"] as const;
+
+/**
+ * A client's idea or change ("an idea or a change"), in its own words. Grouped with other clients'
+ * asks under an enhancement; told when it ships. Its conversation is a thread
+ * (`subject_type='client_ask'`). Updated in place; never deleted.
+ */
+export const clientAsk = pgTable(
+  "client_ask",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    title: text("title").notNull(),
+    text: text("text").notNull(),
+    source: text("source").$type<(typeof CLIENT_ASK_SOURCES)[number]>().notNull(),
+    raisedBy: uuid("raised_by").references(() => appUser.id),
+    raisedByEmail: text("raised_by_email"),
+    agentId: uuid("agent_id"),
+    threadId: uuid("thread_id").notNull(),
+    /**
+     * The issue it was converted from. DECISION: a single-column key, unlike the issue's own
+     * `ask_id`: two required links between the tables would be a cycle the client purge cannot
+     * order (purge.ts); the code sets it inside the client's own transaction.
+     */
+    issueId: uuid("issue_id").references((): AnyPgColumn => issue.id),
+    enhancementId: uuid("enhancement_id").references(() => enhancement.id),
+    status: text("status").$type<(typeof CLIENT_ASK_STATUSES)[number]>().notNull().default("open"),
+    replyTag: text("reply_tag"),
+    toldAt: ts("told_at"),
+    closedAt: ts("closed_at"),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique("client_ask_id_tenant_key").on(t.id, t.tenantId),
+    unique("client_ask_reply_tag_key").on(t.replyTag),
+    foreignKey({
+      name: "client_ask_agent_fk",
+      columns: [t.agentId, t.tenantId],
+      foreignColumns: [agent.id, agent.tenantId],
+    }),
+    foreignKey({
+      name: "client_ask_thread_fk",
+      columns: [t.threadId, t.tenantId],
+      foreignColumns: [thread.id, thread.tenantId],
+    }),
+    index("client_ask_status_idx").on(t.tenantId, t.status),
+    index("client_ask_enhancement_idx").on(t.enhancementId),
+    check("client_ask_title_check", sql`char_length(${t.title}) between 1 and 200`),
+    check("client_ask_text_check", sql`char_length(${t.text}) between 1 and 4000`),
+    check("client_ask_source_check", oneOf(t.source, CLIENT_ASK_SOURCES)),
+    check("client_ask_status_check", oneOf(t.status, CLIENT_ASK_STATUSES)),
+  ],
+);
+
+export const ENHANCEMENT_STAGES = ["captured", "grouped", "decided", "built", "shipped"] as const;
+export const ENHANCEMENT_DECISIONS = ["do", "later", "no", "sell"] as const;
+export const ENHANCEMENT_SCOPES = ["template", "client", "new_agent"] as const;
+
+/**
+ * An improvement the operator may make, grouping clients' asks: decided (do, later, no, sell),
+ * built and shipped. Operator only and global.
+ */
+// DECISION: an enhancement holds no client's words; those stay on each client_ask (invariant 11).
+export const enhancement = pgTable(
+  "enhancement",
+  {
+    id: id(),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    stage: text("stage").$type<(typeof ENHANCEMENT_STAGES)[number]>().notNull().default("captured"),
+    decision: text("decision").$type<(typeof ENHANCEMENT_DECISIONS)[number]>(),
+    decisionNote: text("decision_note"),
+    scope: text("scope").$type<(typeof ENHANCEMENT_SCOPES)[number]>(),
+    size: text("size"),
+    templateId: uuid("template_id").references(() => agent.id),
+    decideBy: date("decide_by"),
+    waitingOn: text("waiting_on")
+      .$type<(typeof WORK_WAITING_ON)[number]>()
+      .notNull()
+      .default("operator"),
+    statusLine: text("status_line").notNull().default(""),
+    stuck: boolean("stuck").notNull().default(false),
+    manualRank: integer("manual_rank"),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    stageAt: ts("stage_at").notNull().defaultNow(),
+    decidedAt: ts("decided_at"),
+    shippedAt: ts("shipped_at"),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    index("enhancement_stage_idx").on(t.stage, t.updatedAt),
+    check("enhancement_title_check", sql`char_length(${t.title}) between 1 and 200`),
+    check("enhancement_description_check", sql`char_length(${t.description}) <= 4000`),
+    check("enhancement_stage_check", oneOf(t.stage, ENHANCEMENT_STAGES)),
+    check(
+      "enhancement_decision_check",
+      sql`${t.decision} is null or ${oneOf(t.decision, ENHANCEMENT_DECISIONS)}`,
+    ),
+    check(
+      "enhancement_scope_check",
+      sql`${t.scope} is null or ${oneOf(t.scope, ENHANCEMENT_SCOPES)}`,
+    ),
+    check("enhancement_waiting_on_check", oneOf(t.waitingOn, WORK_WAITING_ON)),
+    check("enhancement_status_line_check", sql`char_length(${t.statusLine}) <= 120`),
+  ],
+);
+
+export const TODO_OWNERS = ["operator", "reggie", "client"] as const;
+export const TODO_ABOUT_KINDS = [
+  "issue",
+  "client_ask",
+  "enhancement",
+  "build",
+  "deal",
+  "question",
+  "run",
+  "client",
+  // docs/plan.md §1.125 (migration 0065): a Dev queue request's notice (accepted, shipped).
+  "code_request",
+] as const;
+export const TODO_STATES = ["open", "done", "snoozed", "dropped"] as const;
+export const TODO_SOURCES = ["operator", "reggie", "play", "question", "email", "system"] as const;
+
+/**
+ * One thing to do in the back office (Your call, migration 0061): the operator's, Reggie's or the
+ * client's, about a client or none, with Reggie's read, plan and draft when it made it, and the
+ * one action that does it (`primary_action`). Made once per `dedupe_key`. Updated in place; never
+ * deleted (dropped instead).
+ */
+// DECISION: a to-do is owned by the operator, Reggie or the client, with an optional named
+// operator (`owner_user_id`) (owner, 2026-11-17).
+export const todo = pgTable(
+  "todo",
+  {
+    id: id(),
+    clientId: uuid("client_id").references(() => tenant.id),
+    owner: text("owner").$type<(typeof TODO_OWNERS)[number]>().notNull(),
+    ownerUserId: uuid("owner_user_id").references(() => appUser.id),
+    title: text("title").notNull(),
+    detail: text("detail").notNull().default(""),
+    why: text("why"),
+    dueAt: ts("due_at"),
+    aboutKind: text("about_kind").$type<(typeof TODO_ABOUT_KINDS)[number]>(),
+    aboutId: uuid("about_id"),
+    state: text("state").$type<(typeof TODO_STATES)[number]>().notNull().default("open"),
+    snoozedUntil: ts("snoozed_until"),
+    source: text("source").$type<(typeof TODO_SOURCES)[number]>().notNull().default("operator"),
+    /** The Autopilot play that made it. */
+    playKey: text("play_key"),
+    /** Reggie's read and how sure it is. */
+    read: text("read"),
+    sure: text("sure"),
+    plan: json<unknown[]>("plan"),
+    /** `{to, channel: 'portal'|'email'|'portal_email', subject?, text}`. */
+    draft: json("draft"),
+    options: json<unknown[]>("options"),
+    /** `{label, kind: 'send_reply'|'approve_plan'|'decide'|'open'|'confirm_card'|'send_requirements', ref}`. */
+    primaryAction: json("primary_action"),
+    /** The client's Desk item or lead request it mirrors. */
+    deskItemId: uuid("desk_item_id"),
+    dedupeKey: text("dedupe_key"),
+    doneAt: ts("done_at"),
+    doneBy: uuid("done_by").references(() => appUser.id),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    uniqueIndex("todo_dedupe_key").on(t.dedupeKey).where(sql`${t.dedupeKey} is not null`),
+    index("todo_state_idx").on(t.state, t.owner, t.dueAt),
+    index("todo_client_idx").on(t.clientId, t.state),
+    index("todo_about_idx").on(t.aboutKind, t.aboutId),
+    check("todo_owner_check", oneOf(t.owner, TODO_OWNERS)),
+    check("todo_title_check", sql`char_length(${t.title}) between 1 and 300`),
+    check("todo_detail_check", sql`char_length(${t.detail}) <= 4000`),
+    check("todo_why_check", sql`${t.why} is null or char_length(${t.why}) <= 300`),
+    check(
+      "todo_about_kind_check",
+      sql`${t.aboutKind} is null or ${oneOf(t.aboutKind, TODO_ABOUT_KINDS)}`,
+    ),
+    check("todo_about_check", sql`(${t.aboutKind} is null) = (${t.aboutId} is null)`),
+    check("todo_state_check", oneOf(t.state, TODO_STATES)),
+    check("todo_source_check", oneOf(t.source, TODO_SOURCES)),
+  ],
+);
+
+export const DEAL_KINDS = ["new", "expansion"] as const;
+export const DEAL_NEW_STAGES = [
+  "lead",
+  "qualified",
+  "diagnostic",
+  "proposal",
+  "setup",
+  "live",
+] as const;
+export const DEAL_EXPANSION_STAGES = ["spotted", "pitch", "offered", "agreed", "billed"] as const;
+export const DEAL_OUTCOMES = ["open", "won", "lost", "not_now", "no"] as const;
+export const DEAL_SOURCES = ["site_form", "email", "referral", "ops", "reggie"] as const;
+
+/**
+ * A deal (Sales, migration 0062): a new account (a company, later a client) or more for a client
+ * (expansion), with its stage, value a month, what was agreed and the signed copy. Money is
+ * numeric(14,4) with its currency (invariant 6). Updated in place; never deleted.
+ */
+// DECISION: deals are operator-only tables, not a pack (owner, 2026-11-17); contracts stay by hand
+// (the signed copy is uploaded, `agreed_mrr` recorded).
+export const deal = pgTable(
+  "deal",
+  {
+    id: id(),
+    kind: text("kind").$type<(typeof DEAL_KINDS)[number]>().notNull(),
+    clientId: uuid("client_id").references(() => tenant.id),
+    company: text("company"),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    stage: text("stage")
+      .$type<(typeof DEAL_NEW_STAGES)[number] | (typeof DEAL_EXPANSION_STAGES)[number]>()
+      .notNull(),
+    agentCount: integer("agent_count").notNull().default(0),
+    /** `[{name, templateId | null}]`. */
+    agentsSold: json<{ name: string; templateId: string | null }[]>("agents_sold")
+      .notNull()
+      .default([]),
+    mrr: usd("mrr"),
+    currency: text("currency").notNull().default("USD"),
+    outcome: text("outcome").$type<(typeof DEAL_OUTCOMES)[number]>().notNull().default("open"),
+    outcomeReason: text("outcome_reason"),
+    checkBackOn: date("check_back_on"),
+    waitingOn: text("waiting_on")
+      .$type<(typeof WORK_WAITING_ON)[number]>()
+      .notNull()
+      .default("operator"),
+    statusLine: text("status_line").notNull().default(""),
+    stuck: boolean("stuck").notNull().default(false),
+    nextStep: text("next_step").notNull().default(""),
+    nextDueOn: date("next_due_on"),
+    source: text("source").$type<(typeof DEAL_SOURCES)[number]>().notNull().default("ops"),
+    sourceDetail: text("source_detail"),
+    /** Why it is worth pursuing: `[{text, sources[]}]` (invariant 10). */
+    evidence: json<{ text: string; sources: string[] }[]>("evidence").notNull().default([]),
+    originKind: text("origin_kind").$type<(typeof WORK_ORIGIN_KINDS)[number]>(),
+    originId: uuid("origin_id"),
+    agreedMrr: numeric("agreed_mrr", { precision: 14, scale: 4 }),
+    agreedFrom: date("agreed_from"),
+    signedCopyKey: text("signed_copy_key"),
+    signedCopyName: text("signed_copy_name"),
+    replyTag: text("reply_tag"),
+    dedupeKey: text("dedupe_key"),
+    /**
+     * §1.125 (0066): the company's client file, before and after set-up. A lost deal keeps it and a
+     * later deal reuses it. Cleared if the file goes (a purged client's).
+     */
+    clientFileId: uuid("client_file_id").references((): AnyPgColumn => clientFile.id, {
+      onDelete: "set null",
+    }),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    stageAt: ts("stage_at").notNull().defaultNow(),
+    wonAt: ts("won_at"),
+    closedAt: ts("closed_at"),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique("deal_reply_tag_key").on(t.replyTag),
+    uniqueIndex("deal_dedupe_key").on(t.dedupeKey).where(sql`${t.dedupeKey} is not null`),
+    index("deal_outcome_idx").on(t.outcome, t.kind, t.stage),
+    index("deal_client_idx").on(t.clientId),
+    index("deal_client_file_idx").on(t.clientFileId),
+    check("deal_kind_check", oneOf(t.kind, DEAL_KINDS)),
+    check(
+      "deal_stage_check",
+      sql`(${t.kind} = 'new' and ${oneOf(t.stage, DEAL_NEW_STAGES)}) or (${t.kind} = 'expansion' and ${oneOf(t.stage, DEAL_EXPANSION_STAGES)})`,
+    ),
+    check(
+      "deal_company_check",
+      sql`${t.company} is null or char_length(${t.company}) between 1 and 200`,
+    ),
+    check("deal_title_check", sql`char_length(${t.title}) between 1 and 200`),
+    check("deal_description_check", sql`char_length(${t.description}) <= 2000`),
+    check("deal_agent_count_check", sql`${t.agentCount} >= 0`),
+    check("deal_outcome_check", oneOf(t.outcome, DEAL_OUTCOMES)),
+    check("deal_waiting_on_check", oneOf(t.waitingOn, WORK_WAITING_ON)),
+    check("deal_status_line_check", sql`char_length(${t.statusLine}) <= 120`),
+    check("deal_source_check", oneOf(t.source, DEAL_SOURCES)),
+    check(
+      "deal_origin_kind_check",
+      sql`${t.originKind} is null or ${oneOf(t.originKind, WORK_ORIGIN_KINDS)}`,
+    ),
+    check("deal_origin_check", sql`(${t.originKind} is null) = (${t.originId} is null)`),
+    check(
+      "deal_expansion_client_check",
+      sql`${t.kind} <> 'expansion' or ${t.clientId} is not null`,
+    ),
+    check("deal_who_check", sql`${t.clientId} is not null or ${t.company} is not null`),
+  ],
+);
+
+/**
+ * A person on a deal: who we talk to. Updated in place; the Worker never deletes one. Its deal's
+ * deletion (only a client's purge, as cs_owner) takes its people and activity with it.
+ */
+export const dealPerson = pgTable(
+  "deal_person",
+  {
+    id: id(),
+    dealId: uuid("deal_id")
+      .notNull()
+      .references(() => deal.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    email: text("email"),
+    phone: text("phone"),
+    role: text("role"),
+    isPrimary: boolean("is_primary").notNull().default(false),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    index("deal_person_deal_idx").on(t.dealId),
+    check("deal_person_name_check", sql`char_length(${t.name}) between 1 and 200`),
+  ],
+);
+
+export const DEAL_ACTIVITY_KINDS = [
+  "email_in",
+  "email_out",
+  "note",
+  "call",
+  "meeting",
+  "stage",
+  "system",
+  "form",
+  "terms",
+] as const;
+export const DEAL_ACTIVITY_ACTORS = ["operator", "reggie", "contact", "system"] as const;
+
+/** A deal's history: emails, notes, calls, stage moves, terms. Email text is data. Insert only. */
+export const dealActivity = pgTable(
+  "deal_activity",
+  {
+    id: id(),
+    dealId: uuid("deal_id")
+      .notNull()
+      .references(() => deal.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<(typeof DEAL_ACTIVITY_KINDS)[number]>().notNull(),
+    actor: text("actor").$type<(typeof DEAL_ACTIVITY_ACTORS)[number]>().notNull(),
+    userId: uuid("user_id").references(() => appUser.id),
+    subject: text("subject"),
+    body: text("body").notNull().default(""),
+    meta: json("meta").notNull().default({}),
+    sources: json<string[]>("sources").notNull().default([]),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("deal_activity_deal_idx").on(t.dealId, t.createdAt),
+    check("deal_activity_kind_check", oneOf(t.kind, DEAL_ACTIVITY_KINDS)),
+    check("deal_activity_actor_check", oneOf(t.actor, DEAL_ACTIVITY_ACTORS)),
+    check("deal_activity_body_check", sql`char_length(${t.body}) <= 20000`),
+  ],
+);
+
+export const PLAY_FLOWS = ["new", "grow", "issues", "builds", "enh", "questions"] as const;
+export const PLAY_LEVELS = ["off", "draft", "send"] as const;
+export const PLAY_OUTCOMES = ["drafted", "sent", "done", "skipped", "refused"] as const;
+
+/**
+ * How far Reggie goes with one play at one stage of a flow (Autopilot, migration 0063): off, draft
+ * for a person, or send and tell. Operator only and global; one row per play.
+ */
+// DECISION: no row means `draft`, a code default (core `DEFAULT_PLAY_LEVEL`), so a new play never
+// sends on its own until the operator says so.
+export const playSetting = pgTable(
+  "play_setting",
+  {
+    id: id(),
+    flow: text("flow").$type<(typeof PLAY_FLOWS)[number]>().notNull(),
+    stage: text("stage").notNull(),
+    play: text("play").notNull(),
+    level: text("level").$type<(typeof PLAY_LEVELS)[number]>().notNull(),
+    updatedBy: uuid("updated_by").references(() => appUser.id),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique("play_setting_key").on(t.flow, t.stage, t.play),
+    check("play_setting_flow_check", oneOf(t.flow, PLAY_FLOWS)),
+    check("play_setting_level_check", oneOf(t.level, PLAY_LEVELS)),
+  ],
+);
+
+/**
+ * What a play did, once (Autopilot's track record and Done today): drafted, sent, done, skipped
+ * or refused, about what, at which level. Only the flag columns change: a person flags a row for
+ * its play's record. Never deleted.
+ */
+export const playLog = pgTable(
+  "play_log",
+  {
+    id: id(),
+    clientId: uuid("client_id").references(() => tenant.id),
+    flow: text("flow").$type<(typeof PLAY_FLOWS)[number]>().notNull(),
+    stage: text("stage").notNull(),
+    play: text("play").notNull(),
+    level: text("level").$type<(typeof PLAY_LEVELS)[number]>().notNull(),
+    outcome: text("outcome").$type<(typeof PLAY_OUTCOMES)[number]>().notNull(),
+    /** A person changed the draft before it went. */
+    edited: boolean("edited").notNull().default(false),
+    aboutKind: text("about_kind").$type<(typeof TODO_ABOUT_KINDS)[number]>(),
+    aboutId: uuid("about_id"),
+    summary: text("summary").notNull().default(""),
+    /** Ours only: nothing went to a client or a lead. */
+    internal: boolean("internal").notNull().default(false),
+    flaggedAt: ts("flagged_at"),
+    flaggedBy: uuid("flagged_by").references(() => appUser.id),
+    flagNote: text("flag_note"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("play_log_created_idx").on(t.createdAt),
+    index("play_log_play_idx").on(t.flow, t.play, t.createdAt),
+    check("play_log_flow_check", oneOf(t.flow, PLAY_FLOWS)),
+    check("play_log_level_check", oneOf(t.level, PLAY_LEVELS)),
+    check("play_log_outcome_check", oneOf(t.outcome, PLAY_OUTCOMES)),
+    check(
+      "play_log_about_kind_check",
+      sql`${t.aboutKind} is null or ${oneOf(t.aboutKind, TODO_ABOUT_KINDS)}`,
+    ),
+    check("play_log_about_check", sql`(${t.aboutKind} is null) = (${t.aboutId} is null)`),
+    check("play_log_summary_check", sql`char_length(${t.summary}) <= 300`),
+  ],
+);
+
+// ── Onboarding v1 (docs/plan.md §1.125; docs/cases-plan.md §4–§5; migration 0066) ──────────────────
+
+export const CLIENT_FILE_STATUSES = ["prospect", "client", "lost"] as const;
+export const FACT_SECTIONS = [
+  "business",
+  "people",
+  "systems",
+  "volumes",
+  "processes",
+  "pains",
+  "limits",
+  "notes",
+] as const;
+export const FACT_SOURCE_KINDS = [
+  "call",
+  "note",
+  "email",
+  "document",
+  "website",
+  "intake",
+  "tool",
+  "run",
+  "other",
+] as const;
+export const FACT_SURENESS = ["heard", "seen", "confirmed"] as const;
+export const FACT_AUDIENCES = ["theirs", "ours"] as const;
+export const FACT_ACTORS = ["operator", "reggie", "client", "system"] as const;
+export const START_MODES = ["point", "talk"] as const;
+
+/**
+ * A client file (cases-plan §4.1): the company, from the first conversation, before and after it is
+ * a client. Operator only, as a deal is: a file about a client is read only by the operators
+ * serving it; a prospect's by every operator. Changes in place (name, website, status); never
+ * deleted by the Worker (a lost prospect's is deleted by the owner's retention job, later).
+ */
+// DECISION: core keeps the same value lists (`packages/core/src/onboarding`); a db test holds them
+// equal, as OWNER_AREAS does.
+export const clientFile = pgTable(
+  "client_file",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    website: text("website"),
+    /** The client it became. One file per client. */
+    clientId: uuid("client_id")
+      .unique("client_file_client_key")
+      .references(() => tenant.id),
+    status: text("status")
+      .$type<(typeof CLIENT_FILE_STATUSES)[number]>()
+      .notNull()
+      .default("prospect"),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    index("client_file_status_idx").on(t.status, t.updatedAt),
+    check("client_file_name_check", sql`char_length(${t.name}) between 1 and 200`),
+    check(
+      "client_file_website_check",
+      sql`${t.website} is null or char_length(${t.website}) between 1 and 300`,
+    ),
+    check("client_file_status_check", oneOf(t.status, CLIENT_FILE_STATUSES)),
+  ],
+);
+
+/**
+ * One fact in a client file, with where it came from (`sources`: record ids, invariant 10), how
+ * sure we are and who may see it (`theirs` or `ours`). Insert only: a correction is a new fact
+ * that replaces the earlier one (`replaces_id`), and a fact is replaced at most once.
+ */
+export const clientFact = pgTable(
+  "client_fact",
+  {
+    id: id(),
+    fileId: uuid("file_id")
+      .notNull()
+      .references(() => clientFile.id, { onDelete: "cascade" }),
+    section: text("section").$type<(typeof FACT_SECTIONS)[number]>().notNull(),
+    text: text("text").notNull(),
+    sourceKind: text("source_kind").$type<(typeof FACT_SOURCE_KINDS)[number]>().notNull(),
+    sources: json<string[]>("sources").notNull().default([]),
+    sureness: text("sureness").$type<(typeof FACT_SURENESS)[number]>().notNull().default("heard"),
+    audience: text("audience").$type<(typeof FACT_AUDIENCES)[number]>().notNull().default("ours"),
+    replacesId: uuid("replaces_id").references((): AnyPgColumn => clientFact.id),
+    actor: text("actor").$type<(typeof FACT_ACTORS)[number]>().notNull(),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("client_fact_file_idx").on(t.fileId, t.createdAt),
+    uniqueIndex("client_fact_replaces_key")
+      .on(t.replacesId)
+      .where(sql`${t.replacesId} is not null`),
+    check("client_fact_section_check", oneOf(t.section, FACT_SECTIONS)),
+    check("client_fact_text_check", sql`char_length(${t.text}) between 1 and 2000`),
+    check("client_fact_source_kind_check", oneOf(t.sourceKind, FACT_SOURCE_KINDS)),
+    check("client_fact_sources_check", sql`jsonb_typeof(${t.sources}) = 'array'`),
+    check("client_fact_sureness_check", oneOf(t.sureness, FACT_SURENESS)),
+    check("client_fact_audience_check", oneOf(t.audience, FACT_AUDIENCES)),
+    check("client_fact_actor_check", oneOf(t.actor, FACT_ACTORS)),
+    check("client_fact_replaces_check", sql`${t.replacesId} is null or ${t.replacesId} <> ${t.id}`),
+  ],
+);
+
+/**
+ * A saved start for Sign up now and Invite (cases-plan §4.3): its name, what it covers (core
+ * `Covers`), the lead's note and how the client starts. Operator only and global. Changes in
+ * place; archived, never deleted. Seeded ones carry a `seed_key` so seeding runs once each.
+ */
+// DECISION: `seed_key` (e.g. `general`, `area:purchasing`, `template:<slug>`, `account`) beside
+// `seeded`, so the seeding (stream SALES, in code, not the migration) is idempotent.
+export const salesStart = pgTable(
+  "sales_start",
+  {
+    id: id(),
+    name: text("name").notNull(),
+    /** Core `Covers`: `{general, areas[], templateIds[]}`, validated where written. */
+    covers: json<{ general: boolean; areas: string[]; templateIds: string[] }>("covers").notNull(),
+    note: text("note").notNull().default(""),
+    startMode: text("start_mode").$type<(typeof START_MODES)[number]>().notNull().default("point"),
+    seeded: boolean("seeded").notNull().default(false),
+    seedKey: text("seed_key"),
+    archivedAt: ts("archived_at"),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    uniqueIndex("sales_start_seed_key").on(t.seedKey).where(sql`${t.seedKey} is not null`),
+    check("sales_start_name_check", sql`char_length(${t.name}) between 1 and 80`),
+    check("sales_start_covers_check", sql`jsonb_typeof(${t.covers}) = 'object'`),
+    check("sales_start_note_check", sql`char_length(${t.note}) <= 2000`),
+    check("sales_start_mode_check", oneOf(t.startMode, START_MODES)),
+    check("sales_start_seed_check", sql`${t.seeded} = (${t.seedKey} is not null)`),
+  ],
+);
+
+export const INTAKE_STATUSES = [
+  "sent",
+  "open",
+  "scope_ready",
+  "signed",
+  "done",
+  "cancelled",
+] as const;
+export const ANSWER_STATES = ["answered", "confirmed", "corrected", "not_sure", "later"] as const;
+export const ANSWER_SOURCES = ["form", "chat", "voice", "call", "tool", "lead"] as const;
+export const INTAKE_EVENT_KINDS = [
+  "sent",
+  "scheduled",
+  "delivered",
+  "bounced",
+  "opened",
+  "signed_in",
+  "wrong_account",
+  "answered",
+  "asked",
+  "colleague_invited",
+  "different_process",
+  "section_started",
+  "section_not_now",
+  "cards_added",
+  "reminded",
+  "scope_ready",
+  "signed",
+  "done",
+  "cancelled",
+] as const;
+
+/**
+ * A client's intake (cases-plan §4.2, §4.5): what it covers, the guide (core `Guide`, with each
+ * field's state and only `theirs` facts, copied in when sent), how it starts, the lead's note.
+ * The client's own record: forced RLS on the client. `deal_id` and `file_id` name operator rows
+ * without a foreign key, so nothing of the client's points into an operator-only table's policy.
+ * Changes in place (status, guide when cards are added); never deleted.
+ */
+export const intake = pgTable(
+  "intake",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    dealId: uuid("deal_id"),
+    fileId: uuid("file_id"),
+    covers: json<{ general: boolean; areas: string[]; templateIds: string[] }>("covers").notNull(),
+    guide: json("guide").notNull(),
+    startMode: text("start_mode").$type<(typeof START_MODES)[number]>().notNull().default("point"),
+    /** The lead it's from (name, photo and voice in the emails and on the page). */
+    leadUserId: uuid("lead_user_id").references(() => appUser.id),
+    leadNote: text("lead_note").notNull().default(""),
+    status: text("status").$type<(typeof INTAKE_STATUSES)[number]>().notNull().default("sent"),
+    /** Sent at a time (Invite's "Send at"); null: sent when made. */
+    sendAt: ts("send_at"),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique("intake_id_tenant_key").on(t.id, t.tenantId),
+    index("intake_tenant_idx").on(t.tenantId, t.status, t.createdAt),
+    index("intake_send_at_idx").on(t.sendAt).where(sql`${t.sendAt} is not null`),
+    check("intake_covers_check", sql`jsonb_typeof(${t.covers}) = 'object'`),
+    check("intake_guide_check", sql`jsonb_typeof(${t.guide}) = 'object'`),
+    check("intake_start_mode_check", oneOf(t.startMode, START_MODES)),
+    check("intake_lead_note_check", sql`char_length(${t.leadNote}) <= 2000`),
+    check("intake_status_check", oneOf(t.status, INTAKE_STATUSES)),
+  ],
+);
+
+/**
+ * A person asked in an intake: the admin, others with the whole intake or some sections (null:
+ * all), and colleagues asked later. Changes in place (their user once made, their sections).
+ */
+export const intakePerson = pgTable(
+  "intake_person",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    intakeId: uuid("intake_id").notNull(),
+    userId: uuid("user_id").references(() => appUser.id),
+    /** Stored lowercased. */
+    email: text("email").notNull(),
+    name: text("name").notNull(),
+    /** Guide section keys; null for every section. */
+    sections: text("sections").array(),
+    isAdmin: boolean("is_admin").notNull().default(false),
+    /** Their language for the emails and the welcome page (core `Locale`); else the client's. */
+    language: text("language"),
+    invitedBy: uuid("invited_by").references(() => appUser.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("intake_person_id_tenant_key").on(t.id, t.tenantId),
+    unique("intake_person_email_key").on(t.intakeId, t.email),
+    foreignKey({
+      name: "intake_person_intake_fk",
+      columns: [t.intakeId, t.tenantId],
+      foreignColumns: [intake.id, intake.tenantId],
+    }),
+    check("intake_person_email_check", sql`char_length(${t.email}) between 3 and 320`),
+    check("intake_person_name_check", sql`char_length(${t.name}) between 1 and 200`),
+    check(
+      "intake_person_language_check",
+      sql`${t.language} is null or char_length(${t.language}) between 2 and 10`,
+    ),
+  ],
+);
+
+/**
+ * An answer (insert only): a field's value with its state and source. The latest answer to a field
+ * is the one that counts; nothing is changed in place. No value for `not_sure` and `later`.
+ */
+export const intakeAnswer = pgTable(
+  "intake_answer",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    intakeId: uuid("intake_id").notNull(),
+    fieldKey: text("field_key").notNull(),
+    value: jsonb("value"),
+    state: text("state").$type<(typeof ANSWER_STATES)[number]>().notNull(),
+    source: text("source").$type<(typeof ANSWER_SOURCES)[number]>().notNull(),
+    userId: uuid("user_id").references(() => appUser.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "intake_answer_intake_fk",
+      columns: [t.intakeId, t.tenantId],
+      foreignColumns: [intake.id, intake.tenantId],
+    }),
+    index("intake_answer_field_idx").on(t.tenantId, t.intakeId, t.fieldKey, t.createdAt),
+    check("intake_answer_field_check", sql`char_length(${t.fieldKey}) between 1 and 100`),
+    check("intake_answer_state_check", oneOf(t.state, ANSWER_STATES)),
+    check("intake_answer_source_check", oneOf(t.source, ANSWER_SOURCES)),
+    check(
+      "intake_answer_value_check",
+      sql`${t.state} in ('not_sure', 'later') or ${t.value} is not null`,
+    ),
+  ],
+);
+
+/**
+ * The scope, per version (cases-plan §4.7; used from the next wave): what each agent will do,
+ * read and change, signed by the client admin. Insert only, but for its signature: the Worker may
+ * set `signed_by` and `signed_at` (a column grant), never the body. A change is a new version.
+ */
+export const intakeScope = pgTable(
+  "intake_scope",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    intakeId: uuid("intake_id").notNull(),
+    version: integer("version").notNull(),
+    body: json("body").notNull(),
+    signedBy: uuid("signed_by").references(() => appUser.id),
+    signedAt: ts("signed_at"),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("intake_scope_version_key").on(t.intakeId, t.version),
+    foreignKey({
+      name: "intake_scope_intake_fk",
+      columns: [t.intakeId, t.tenantId],
+      foreignColumns: [intake.id, intake.tenantId],
+    }),
+    check("intake_scope_version_check", sql`${t.version} >= 1`),
+    check("intake_scope_body_check", sql`jsonb_typeof(${t.body}) = 'object'`),
+    check("intake_scope_signed_check", sql`(${t.signedBy} is null) = (${t.signedAt} is null)`),
+  ],
+);
+
+/** The intake's log (insert only): sent, delivered, opened, signed in, answered, asked… */
+export const intakeEvent = pgTable(
+  "intake_event",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    intakeId: uuid("intake_id").notNull(),
+    kind: text("kind").$type<(typeof INTAKE_EVENT_KINDS)[number]>().notNull(),
+    personId: uuid("person_id"),
+    meta: json("meta").notNull().default({}),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "intake_event_intake_fk",
+      columns: [t.intakeId, t.tenantId],
+      foreignColumns: [intake.id, intake.tenantId],
+    }),
+    foreignKey({
+      name: "intake_event_person_fk",
+      columns: [t.personId, t.tenantId],
+      foreignColumns: [intakePerson.id, intakePerson.tenantId],
+    }),
+    index("intake_event_intake_idx").on(t.tenantId, t.intakeId, t.createdAt),
+    check("intake_event_kind_check", oneOf(t.kind, INTAKE_EVENT_KINDS)),
+  ],
+);
+
+/**
+ * Onboarding's operator-only tables tied to a client (§1.125): an operator session reads only the
+ * files about clients it serves or about none (prospects), and a fact only with its file. A
+ * client's session never sees a row. `sales_start` is global and in OPERATOR_ONLY_TABLES.
+ */
+export const CLIENT_FILE_TABLES = ["client_file", "client_fact"] as const;
+
+/** Onboarding's tenant tables (§1.125), in TENANT_TABLES too. */
+export const INTAKE_TABLES = [
+  "intake",
+  "intake_person",
+  "intake_answer",
+  "intake_scope",
+  "intake_event",
+] as const;
+
+/**
+ * The back office work's operator-only tables (§1.124): an operator session reads only rows about
+ * the clients it serves or no client; a client's session never sees a row. Not in
+ * OPERATOR_ONLY_TABLES, whose policies are `app_is_operator()` alone.
+ */
+export const BACKOFFICE_WORK_OPERATOR_TABLES = [
+  "enhancement",
+  "todo",
+  "deal",
+  "deal_person",
+  "deal_activity",
+  "play_setting",
+  "play_log",
+] as const;
+
 /**
  * Every table with a `tenant_id`, in the order RLS tests walk them. Migration 0002 enables and
  * forces row-level security on each; migrations.test.ts checks this list against the database.
@@ -4642,6 +5910,16 @@ export const TENANT_TABLES = [
   "area_owner_version",
   // 0058: forms, "Request info" (docs/plan.md §1.121).
   "form_request",
+  // 0060: a client's issues, their history and its asks (docs/plan.md §1.124).
+  "issue",
+  "issue_event",
+  "client_ask",
+  // 0066: a client's intake, its people, answers, scope and log (docs/plan.md §1.125).
+  "intake",
+  "intake_person",
+  "intake_answer",
+  "intake_scope",
+  "intake_event",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 
@@ -4669,4 +5947,6 @@ export const OPERATOR_ONLY_TABLES = [
   "browser_site_version",
   "saved_view",
   "connector_setting",
+  // 0066: saved starts for Sign up now and Invite (docs/plan.md §1.125).
+  "sales_start",
 ] as const;

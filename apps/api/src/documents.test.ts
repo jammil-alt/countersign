@@ -188,7 +188,9 @@ describe.skipIf(!h)("documents API", () => {
       expect(got.status).toBe(200);
       address = (got.json as J).forwarding.address;
       expect(address).toMatch(
-        new RegExp(`^client-a-[a-z2-7]{26}-[a-z2-7]{8}@${DOMAIN.replace(/\./g, "\\.")}$`),
+        new RegExp(
+          `^client-a-[a-z2-7]{26}-[a-z2-7]{8}@${DOMAIN.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`,
+        ),
       );
       const again = await harness.call(admin("a"), "GET", "/api/connections/upload/forwarding");
       expect((again.json as J).forwarding.address).toBe(address);

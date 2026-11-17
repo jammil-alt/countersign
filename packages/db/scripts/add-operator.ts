@@ -12,9 +12,17 @@ if (!url || !email) {
   process.exit(1);
 }
 
+// Who ran it, for the `operator.add` audit row: BY when set, else the GitHub Actions run (its
+// actor and run id, which Actions always sets), else nobody named.
+const by =
+  process.env.BY ||
+  (process.env.GITHUB_ACTOR
+    ? `${process.env.GITHUB_ACTOR}, run ${process.env.GITHUB_RUN_ID ?? "?"}`
+    : null);
+
 const db = createDb(url, { max: 1 });
 try {
-  const r = await addOperator(db, { email, name: nameParts.join(" ") || null });
+  const r = await addOperator(db, { email, name: nameParts.join(" ") || null, by });
   console.error(
     `db:add-operator: ${r.created ? "invited" : "already present"}; operator of ${r.clients} client(s)` +
       (r.createdClient ? `; created the first client, ${r.createdClient}` : ""),

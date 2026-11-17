@@ -1,4 +1,4 @@
-// Sloan's answer goes back the way the person wrote (docs/plan.md §1.124). After Sloan posts in an
+// Sloan's answer goes back the way the person wrote (docs/plan.md §1.150). After Sloan posts in an
 // account thread for the client (its own answer, or an area owner's through `account.reply_as`),
 // the person's latest message there says how it came: by email, the answer is emailed to their
 // sign-in address with Sloan's address to reply to; by text, it is texted from the number they

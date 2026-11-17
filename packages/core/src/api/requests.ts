@@ -24,6 +24,10 @@ export const RequestSubmission = z.strictObject({
   text: z.string().trim().min(1).max(REQUEST_TEXT_MAX),
   /** The service it is about; none for a new service or anything else. */
   serviceId: Id.optional(),
+  /**
+   * docs/plan.md §1.124: "Something isn't working" (an issue) or "An idea or a change" (an ask).
+   */
+  kind: z.enum(["problem", "idea"]).default("problem"),
 });
 export type RequestSubmission = z.infer<typeof RequestSubmission>;
 

@@ -285,3 +285,126 @@ tr.g .dt-share i { background: var(--data-line); }
 .mz-ws__n { font: 500 12px/1 var(--font-mono); color: var(--ink-muted); }
 .mz-ws__who { font: 400 13px/1 var(--font-sans); color: var(--ink-muted); white-space: nowrap; }
 .mz-ws__who--lead { color: var(--copper); font-weight: 500; }
+
+/* ---- Mezonas app patterns (added at the owner's request, 2026-11-16) ----
+   The owner's choices made in the app since the first delivery, and the work-list patterns the
+   back office shares (README "App patterns"). DECISION: added here, not only in the app, so the
+   prototypes and the app read one source; the owner's next delivery should carry them. */
+
+/* The owner's choices (2026-11-10): small radius on cards and tables, two weights, numbers in
+   data tables in Geist with tabular figures, text cells that wrap. */
+.ds-card, .dt { border-radius: var(--radius-sm); }
+.dt thead th.n { font-size: 10px; }
+.dt .n:not(th) { font-family: var(--font-sans); font-size: 13px; }
+.dt td { white-space: normal; }
+.dt-ana td { padding-top: var(--space-2-5); padding-bottom: var(--space-2-5); }
+.ds-navitem[aria-current="page"], .ds-listrow__title, .ds-label, .ds-turn__who, .ds-avatar, .dt-title { font-weight: 500; }
+
+/* Pills the delivery lacked: risk (always with a word), a person (copper), and a leading dot. */
+.ds-pill--risk { color: var(--risk-ink); background: var(--risk-tint); border-color: var(--risk-line); }
+.ds-pill--person { color: var(--copper-ink); background: var(--copper-tint); border-color: var(--copper-tint); }
+.ds-pill--dot { gap: 6px; }
+.ds-pill--dot::before { content: ""; width: 6px; height: 6px; flex: none; border-radius: 50%; background: currentColor; }
+.ds-pill--sm { padding: 2px 8px; font-size: 11px; }
+
+/* KPI boxes: a row of numbers above the data they count. Tones carry a word in the label. */
+.ds-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(176px, 1fr)); gap: var(--space-3); }
+.ds-kpi { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; padding: var(--space-4) var(--space-5); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); color: inherit; text-decoration: none; }
+.ds-kpi__label { font: 400 13px/18px var(--font-sans); color: var(--ink-muted); }
+.ds-kpi__value { font: 500 28px/32px var(--font-sans); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ds-kpi__note { font: 400 12px/18px var(--font-sans); color: var(--ink-muted); }
+.ds-kpi--signal { background: var(--signal-tint); border-color: var(--signal-tint); }
+.ds-kpi--signal .ds-kpi__label, .ds-kpi--signal .ds-kpi__note { color: var(--signal-ink); }
+.ds-kpi--risk { border-color: var(--risk-line); }
+.ds-kpi--risk .ds-kpi__label, .ds-kpi--risk .ds-kpi__value { color: var(--risk-ink); }
+.ds-kpi--positive .ds-kpi__label { color: var(--positive); }
+a.ds-kpi:hover { border-color: var(--line-strong); }
+a.ds-kpi--signal:hover { border-color: var(--signal); }
+.ds-kpis--compact .ds-kpi { padding: var(--space-3) var(--space-4); }
+.ds-kpis--compact .ds-kpi__value { font-size: 20px; line-height: 26px; }
+@media (max-width: 767.98px) {
+  .ds-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ds-kpi { padding: var(--space-3) var(--space-4); }
+  .ds-kpi__value { font-size: 22px; line-height: 28px; }
+}
+
+/* Page tabs: .ds-tabs on links, for a section with several lists (Sales, Build). */
+.ds-tabs a { display: inline-flex; gap: var(--space-1-5); align-items: center; padding: var(--space-3) 0; border-bottom: 2px solid transparent; margin-bottom: -1px; font: 500 13px/1 var(--font-sans); color: var(--ink-muted); text-decoration: none; }
+.ds-tabs a:hover { color: var(--ink); text-decoration: none; }
+.ds-tabs a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--slate); }
+
+/* Filter chips: on/off with aria-pressed, an optional count. */
+.ds-filter { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; gap: var(--space-1-5); height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--radius-pill); background: var(--surface); font: 500 12px/1 var(--font-sans); color: var(--ink-muted); white-space: nowrap; cursor: pointer; }
+.ds-filter:hover { color: var(--ink); border-color: var(--line-strong); }
+.ds-filter:focus-visible { box-shadow: 0 0 0 2px var(--focus-ring); }
+.ds-filter[aria-pressed="true"] { background: var(--slate-tint); border-color: var(--slate-tint); color: var(--slate); }
+.ds-filter .ds-num { font-size: 11px; color: inherit; opacity: .8; }
+.ds-filters { display: flex; gap: var(--space-1-5); flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+
+/* A data table on the page itself: the page scrolls until the KPIs are gone, then the toolbar and
+   the column heads stay at the top while the rows scroll under them. --dt-stick is the top of the
+   scrolling area (0 inside a scrolling main). */
+.dt--page { --dt-bar-h: 56px; overflow: visible; }
+.ds-datahead { position: sticky; top: var(--dt-stick, 0px); z-index: 6; background: var(--surface); border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
+.dt--page .dt-bar { box-sizing: border-box; height: var(--dt-bar-h); flex-wrap: nowrap; background: var(--surface); border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
+.dt--page .dt-bar .ds-filters { flex: 1; min-width: 0; }
+.dt--page thead th { top: calc(var(--dt-stick, 0px) + var(--dt-bar-h)); box-shadow: inset 0 -1px 0 var(--line); }
+.dt--page .dt-search { flex: none; }
+.dt--page .dt-status { border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
+.dt-empty { padding: var(--space-8) var(--space-4); text-align: center; color: var(--ink-muted); font-size: 13px; }
+
+/* Due dates: tracked on every list. Late is risk, today is signal (waiting on you), with a word. */
+.mz-due { display: inline-flex; flex-direction: column; gap: 2px; font: 400 13px/1.2 var(--font-sans); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mz-due small { font-size: 11px; color: var(--ink-muted); }
+.mz-due--late, .mz-due--late small { color: var(--risk-ink); }
+.mz-due--late { font-weight: 500; }
+.mz-due--today { color: var(--signal-ink); font-weight: 500; }
+.mz-due--none { color: var(--ink-faint); }
+
+/* Urgency for issues: critical jumps the line (risk); high is ink; normal and low are quiet. */
+.mz-urgency { display: inline-flex; align-items: center; padding: 3px 8px; border: 1px solid; border-radius: var(--radius-pill); font: 500 11px/1 var(--font-sans); white-space: nowrap; }
+.mz-urgency--critical { color: var(--risk-ink); background: var(--risk-tint); border-color: var(--risk-line); }
+.mz-urgency--high { color: var(--ink); background: var(--surface); border-color: var(--line-strong); }
+.mz-urgency--normal, .mz-urgency--low { color: var(--ink-muted); background: var(--surface-subtle); border-color: var(--line); }
+
+/* An agent at work: a slate dot, pulsing while it works. Agents' work stays ink. */
+.mz-agentline { display: inline-flex; align-items: center; gap: 6px; font: 500 12px/1.2 var(--font-sans); color: var(--ink-muted); }
+.mz-agentline::before { content: ""; width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--slate); }
+.mz-agentline--working::before { animation: mz-pulse 1.4s ease-in-out infinite; }
+@keyframes mz-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .mz-agentline--working::before { animation: none; } }
+
+/* The safety hold: an agent's writes and messages stopped until a person releases it. */
+.mz-hold { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; justify-content: space-between; padding: var(--space-3) var(--space-4); background: var(--risk-tint); border: 1px solid var(--risk-line); border-radius: var(--radius-sm); color: var(--risk-ink); font-size: 14px; }
+.mz-hold b { font-weight: 600; }
+.mz-hold .ds-btn--secondary { border-color: var(--risk-line); }
+
+/* A to-do: one list across the back office; the owner is you (copper), the agent or the client. */
+.mz-todo { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: var(--space-2); align-items: start; padding: var(--space-2-5) 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.mz-todo:last-child { border-bottom: 0; }
+.mz-todo input { margin-top: 3px; }
+.mz-todo small { display: block; font-size: 12px; color: var(--ink-muted); }
+
+/* Pipeline board: stage heads stick with the toolbar (name, count, totals); the columns scroll
+   sideways under them (the page keeps .mz-board__heads in step with .mz-board__body). */
+.mz-board__heads, .mz-board__body { display: grid; grid-template-columns: repeat(var(--stages, 5), minmax(232px, 1fr)); gap: var(--space-2); padding: 0 var(--space-3); }
+.mz-board__heads { overflow: hidden; padding-top: var(--space-2); padding-bottom: var(--space-2); background: var(--surface); border-bottom: 1px solid var(--line); }
+.mz-board__body { overflow-x: auto; padding-top: var(--space-2); padding-bottom: var(--space-3); }
+.mz-stagehead { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: var(--space-2-5) var(--space-3); background: var(--surface-subtle); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.mz-stagehead__name { display: flex; justify-content: space-between; gap: var(--space-2); font: 500 13px/1.25 var(--font-sans); }
+.mz-stagehead__name span:last-child { color: var(--ink-muted); font-variant-numeric: tabular-nums; }
+.mz-stagehead__totals { display: flex; flex-wrap: wrap; gap: 2px var(--space-3); font: 400 12px/1.3 var(--font-sans); color: var(--ink-muted); }
+.mz-stagehead__totals b { font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+.mz-board__col { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; min-height: 360px; padding: var(--space-2); background: var(--surface-subtle); border: 1px solid transparent; border-radius: var(--radius-sm); }
+.mz-board__col.is-drop { border-color: var(--slate); }
+.mz-board__auto { display: flex; gap: 6px; padding: 2px var(--space-1) var(--space-1); font-size: 12px; line-height: 1.4; color: var(--ink-muted); }
+.mz-board__auto::before { content: ""; width: 6px; height: 6px; flex: none; margin-top: 5px; border-radius: 50%; background: var(--slate); }
+.mz-kcard { display: flex; flex-direction: column; gap: var(--space-1-5); padding: var(--space-3); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink); text-decoration: none; cursor: grab; }
+.mz-kcard:hover { border-color: var(--line-strong); text-decoration: none; }
+.mz-kcard--you { box-shadow: inset 3px 0 0 var(--signal); }
+.mz-kcard--critical { box-shadow: inset 3px 0 0 var(--risk); }
+.mz-kcard__top { display: flex; justify-content: space-between; gap: var(--space-2); align-items: flex-start; }
+.mz-kcard__title { font: 500 13px/1.35 var(--font-sans); }
+.mz-kcard__desc { font-size: 12px; line-height: 1.4; color: var(--ink-muted); }
+.mz-kcard__foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px var(--space-2); margin-top: var(--space-1); }
+.mz-kcard__fig { font: 500 12px/1 var(--font-sans); font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }

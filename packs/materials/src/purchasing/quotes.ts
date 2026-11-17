@@ -4,7 +4,7 @@
 // followed. Quoted prices get their standard-unit price only through a conversion rule
 // (invariant 7). A quote is not a price observation: price history stays what was paid.
 
-import { dec, toNumeric } from "@countersign/core";
+import { Decimal, dec, toNumeric } from "@countersign/core";
 import {
   type Db,
   docLine,
@@ -19,7 +19,14 @@ import {
 import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { parseLine } from "../catalog/keys";
 import type { CatalogItemRow } from "../catalog/store";
-import { convert, readUom } from "../pricing/uom";
+import {
+  type Conversion,
+  convertLine,
+  PACKAGING_UOMS,
+  readUom,
+  unitKey,
+  withoutPackaging,
+} from "../pricing/uom";
 import {
   itemAlias,
   priceObservation,
@@ -34,10 +41,12 @@ import {
   recordLastPrice,
   recordLeadTime,
   resolveVendorItem,
+  vendorItemForUnit,
 } from "../vendor/store";
 // P-9
 import { vendorContacts } from "./contacts";
 import {
+  clientDay,
   type PurchasingContext,
   PurchasingError,
   type RequestLineRow,
@@ -645,26 +654,81 @@ export interface RecordedLine extends QuoteLineView {
  * A quoted price in the item's standard unit. DECISION: a quoted line without a unit or a
  * quantity is for the unit and quantity asked.
  */
+// DECISION (audit 7.8): the rule invoices are priced by (`convertLine`): a box converts only
+// through a pack size that is this vendor's, from its own words on the quoted line or its vendor
+// item's conversion for that unit; never the master item's pack size or the one the request
+// asked for (a box of 50 is not a box of 100). The request's other words (a container, a
+// length) still count.
+/** How many of the item's standard unit one quoted unit is, by `standardPrice`'s rule. */
+export function quotedConversion(
+  item: Pick<CatalogItemRow, "standardUom" | "attributes">,
+  line: { unit: string | null; description: string | null },
+  asked: { description: string },
+  vendorItem?: { vendorUom: string | null; stdPerVendorUom: string | null } | null,
+): Conversion {
+  const lineAttributes = {
+    ...withoutPackaging(parseLine(asked.description).attributes),
+    ...(line.description ? parseLine(line.description).attributes : {}),
+  };
+  return convertLine(
+    line.unit,
+    item.standardUom,
+    { text: line.description, attributes: lineAttributes },
+    item.attributes as Record<string, unknown>,
+    vendorItem,
+  );
+}
+
 export function standardPrice(
   item: CatalogItemRow | null,
   line: { unit: string | null; unitPrice: string | null; description: string | null },
   asked: { description: string },
+  vendorItem?: { vendorUom: string | null; stdPerVendorUom: string | null } | null,
 ): { unitPriceStd: string | null; standardUom: string | null; conversion: string | null } {
   if (!item)
     return { unitPriceStd: null, standardUom: null, conversion: "not matched to a catalog item" };
   if (line.unitPrice === null) return { unitPriceStd: null, standardUom: null, conversion: null };
-  const attributes = {
-    ...(item.attributes as Record<string, string>),
-    ...parseLine(asked.description).attributes,
-    ...(line.description ? parseLine(line.description).attributes : {}),
-  };
-  const conv = convert(line.unit, item.standardUom, attributes);
+  const conv = quotedConversion(item, line, asked, vendorItem);
   if (!conv.ok) return { unitPriceStd: null, standardUom: null, conversion: conv.reason };
   return {
     unitPriceStd: toNumeric(dec(line.unitPrice).dividedBy(conv.factor)),
     standardUom: item.standardUom,
     conversion: conv.rule,
   };
+}
+
+/**
+ * The quantity a vendor that gave none quotes, in its own unit: the quantity asked when it quoted
+ * in the unit asked; else the asked quantity in standard units turned into its unit (500 each is
+ * 5 boxes of 100) when both convert; else none (a person says how many before an order).
+ */
+// DECISION (second review of fix/materials, M1): never the asked number under the vendor's unit
+// (500 each asked, quoted per box, is not 500 boxes).
+export function quotedQtyAsAsked(
+  asked: { row: RequestLineRow; item: CatalogItemRow | null },
+  line: { unit: string | null; description: string | null },
+  vendorItem: { vendorUom: string | null; stdPerVendorUom: string | null } | null,
+): string | null {
+  if (asked.row.qty === null) return null;
+  // A line asked with no unit is in its item's standard unit (as `convertLine` reads it); with no
+  // item, in whatever unit the vendor quotes. A box and a case are two units (`unitKey`).
+  const askedUnit = unitKey(asked.row.unit) ?? unitKey(asked.item?.standardUom ?? null);
+  if (askedUnit === null || unitKey(line.unit) === askedUnit) return asked.row.qty;
+  if (!asked.item) return null;
+  const askedConv = convertLine(
+    asked.row.unit,
+    asked.item.standardUom,
+    { text: asked.row.description, attributes: parseLine(asked.row.description).attributes },
+    asked.item.attributes as Record<string, unknown>,
+  );
+  const quotedConv = quotedConversion(asked.item, line, asked.row, vendorItem);
+  if (!askedConv.ok || !quotedConv.ok) return null;
+  const qty = dec(asked.row.qty).times(askedConv.factor).dividedBy(quotedConv.factor);
+  // DECISION (third review of fix/materials, finding 8): boxes, cases and pails are ordered whole:
+  // 500 each from boxes of 30 is 17 boxes (the comparison then says it is more than asked), so the
+  // order and its cost agree.
+  const packaged = PACKAGING_UOMS.has(readUom(line.unit) ?? "");
+  return toNumeric(packaged ? qty.toDecimalPlaces(0, Decimal.ROUND_UP) : qty);
 }
 
 async function checkAnswer(tx: Tx, tenantId: string, input: RecordQuoteInput) {
@@ -726,6 +790,8 @@ async function quoteToVendorItem(
     vendorId: string;
     item: CatalogItemRow;
     unit: string | null;
+    /** The quote line's own words (a pack size it states), as `recordQuote` reads them. */
+    lineText: string | null;
     unitPrice: string | null;
     unitPriceStd: string | null;
     leadTimeDays: number | null;
@@ -740,6 +806,8 @@ async function quoteToVendorItem(
     catalogItemId: q.item.id,
     sku: null,
     vendorUom: unit,
+    unitRaw: q.unit,
+    lineText: q.lineText,
   });
   if (vi?.status !== "active") return;
   const last = priceForVendorItem(vi, {
@@ -810,10 +878,20 @@ export async function recordQuote(
       };
       const unit = l.unit ?? asked.row.unit;
       const unitPrice = l.unitPrice ?? null;
+      // The vendor's one item in the quoted unit, for its pack size (`standardPrice`).
+      const vi = asked.item
+        ? await vendorItemForUnit(tx, ctx.tenantId, {
+            vendorId: q.vendorId,
+            catalogItemId: asked.item.id,
+            unitRaw: unit,
+            lineText: l.description ?? null,
+          })
+        : null;
       const std = standardPrice(
         asked.item,
         { unit, unitPrice, description: l.description ?? null },
         asked.row,
+        vi,
       );
       const values = {
         tenantId: ctx.tenantId,
@@ -821,7 +899,7 @@ export async function recordQuote(
         purchaseRequestLineId: l.requestLineId,
         catalogItemId: asked.item?.id ?? null,
         description: l.description ?? null,
-        qty: l.qty ?? asked.row.qty,
+        qty: l.qty ?? quotedQtyAsAsked(asked, { unit, description: l.description ?? null }, vi),
         unit,
         unitPrice,
         currency,
@@ -846,12 +924,16 @@ export async function recordQuote(
           vendorId: q.vendorId,
           item: asked.item,
           unit,
+          lineText: l.description ?? null,
           unitPrice,
           unitPriceStd: std.unitPriceStd,
           leadTimeDays: l.leadTimeDays ?? null,
-          on: (input.receivedAt ? new Date(input.receivedAt) : new Date())
-            .toISOString()
-            .slice(0, 10),
+          // The client's own day the quote came in (its time zone).
+          on: await clientDay(
+            tx,
+            ctx.tenantId,
+            input.receivedAt ? new Date(input.receivedAt) : new Date(),
+          ),
           sourceId: row.id,
           currency,
         });

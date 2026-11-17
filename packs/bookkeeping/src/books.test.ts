@@ -547,7 +547,7 @@ describe.skipIf(!online)("bookkeeping (database, as cs_worker)", () => {
         lines: [{ accountId: "80", amount: "64.00" }],
       },
     });
-    expect(hd.purchase?.reference).toMatch(/^bk-/);
+    expect(hd.purchase?.reference).toBe(`bt-${(await txnId("t-2")).id}`);
     const xfer = await inA(async (tx) => qboInput(tx, A.tenantId, await byTxn("x-out")));
     expect(xfer).toMatchObject({
       entity: "transfer",

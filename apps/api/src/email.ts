@@ -11,8 +11,11 @@ import {
   receiveVoiceSampleEmail,
 } from "@countersign/documents";
 import { receiveReleaseEmail, wakeRelease } from "./access/release";
-// §1.124: Sloan by email
+// §1.150: Sloan by email
 import { receiveSloanEmail } from "./account/reach";
+// §1.124.4: the back office's support@ and hello@
+import { receiveBackOfficeEmail } from "./backoffice/inbound-email";
+import { backOfficeLocals } from "./backoffice/outbound-email";
 import type { Bindings } from "./env";
 import { type AppDeps, defaultDeps, type Services } from "./http";
 import { forwardingAddress, receiveReachOutReply, wakeAll } from "./reach/replies";
@@ -98,6 +101,31 @@ export async function handleEmail(
       }
       return { status: "dropped", tenantId: reply.tenantId, reason: "unknown_address" };
     }
+    // §1.124.4: mail to the back office (`support@`, `hello@` and their `+tag` replies) becomes an
+    // issue, a reply on one, a lead deal or a to-do; never forwarded mail.
+    const office = await receiveBackOfficeEmail(
+      db,
+      { from: message.from, to: message.to, raw },
+      { domain, locals: backOfficeLocals(env), content: new ContentStore(deps.objects(env)) },
+    );
+    if (office.handled) {
+      if (office.tenantId && (office.events.length > 0 || office.fresh.length > 0)) {
+        const services = { db, env, deps } as Pick<Services, "db" | "env" | "deps">;
+        const tenantId = office.tenantId;
+        closeLater = true;
+        waitUntil(
+          (async () => {
+            try {
+              await dispatchEvents({ db, instances: deps.instances(env) }, office.events);
+              await extractInBackground(services, tenantId, office.fresh);
+            } finally {
+              await close();
+            }
+          })(),
+        );
+      }
+      return { status: "dropped", tenantId: office.tenantId, reason: "unknown_address" };
+    }
     // v0.12 W1-G: mail to `<forwarding address>+voice` is a voice sample (docs/plan.md §1.42): its
     // text is kept as one, nothing else; it is never ordinary forwarded mail.
     if (isVoiceSampleAddress(message.to, domain)) {
@@ -119,7 +147,7 @@ export async function handleEmail(
       };
     }
     const content = new ContentStore(deps.objects(env));
-    // §1.124: mail to Sloan's address (`sloan.<client>-<id>@domain`) is the person's message in
+    // §1.150: mail to Sloan's address (`sloan.<client>-<id>@domain`) is the person's message in
     // their conversation with Sloan; it is never an agent's mail or forwarded mail.
     const toSloan = await receiveSloanEmail(
       { db, content, registry: deps.platform(env).events },

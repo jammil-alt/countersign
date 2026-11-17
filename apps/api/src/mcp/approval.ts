@@ -8,9 +8,21 @@
 // The link's code is kept only as an HMAC under ENCRYPTION_KEY (as recovery codes are), in
 // `mcp_session_approval` (migration 0042), read and written as the person (withUser).
 
-import { CLAUDE_LINK_MIN, type ClaudeConnection, SESSION_MAX_AGE_SEC } from "@countersign/core";
-import { type Db, mcpSessionApproval, withUser } from "@countersign/db";
-import { and, eq, inArray } from "drizzle-orm";
+import {
+  CLAUDE_CONFIRM_DIGITS,
+  CLAUDE_LINK_MIN,
+  type ClaudeConnection,
+  SESSION_MAX_AGE_SEC,
+} from "@countersign/core";
+import {
+  auditEvent,
+  type Db,
+  mcpSessionApproval,
+  type Tx,
+  withOperator,
+  withUser,
+} from "@countersign/db";
+import { and, count, eq, inArray, sql } from "drizzle-orm";
 import type { Bindings } from "../env";
 import type { AppDeps } from "../http";
 import { secondFactorSetupOf } from "../second-factor";
@@ -35,7 +47,91 @@ export async function connectionCodeHash(key: string, code: string): Promise<str
   return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/**
+ * Audit 5.3: the short code Claude shows beside a link, which the person types on the approval
+ * page: CLAUDE_CONFIRM_DIGITS digits from an HMAC of the link's code under the same key, with its
+ * own label. Nothing more is stored: the link's code gives it back, and only Claude's answer and
+ * the person's typing ever show it.
+ */
+// DECISION: derived, not stored, so mcp_session_approval needs no new column (no migration); the
+// page never returns it, so approving takes reading it from the Claude that asked.
+export async function connectionConfirmCode(key: string, code: string): Promise<string> {
+  const k = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(`mezonas-claude-confirm:${key}`),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(code)));
+  const n = new DataView(sig.buffer).getUint32(0) % 10 ** CLAUDE_CONFIRM_DIGITS;
+  return String(n).padStart(CLAUDE_CONFIRM_DIGITS, "0");
+}
+
 type ApprovalRow = typeof mcpSessionApproval.$inferSelect;
+
+/** Wrong codes a link takes before it stops working (a new one comes with Claude's next call). */
+export const CLAUDE_CONFIRM_MAX_TRIES = 5;
+
+/**
+ * Checks the code typed for a link (audit 5.3) under a per-link advisory lock, so codes sent at
+ * once are taken one at a time: `ok`; `wrong` (its refused row written by `wrongRow` in the same
+ * step); `spent`, the wrong code that used the link's last try; or `ended`, a link already past
+ * its tries. The caller ends the link on `spent` (`endLink`). Refused `mcp.approve` rows are the
+ * count, read in an operator scope over no clients as they have none (as `claimAttempt`).
+ */
+export async function checkConfirm(input: {
+  db: Db;
+  row: ApprovalRow;
+  keys: readonly string[];
+  code: string;
+  typed: string;
+  wrongRow: (tx: Tx) => Promise<void>;
+}): Promise<"ok" | "wrong" | "spent" | "ended"> {
+  const { row } = input;
+  return withOperator(input.db, [], async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`claude-confirm:${row.id}`}, 0))`,
+    );
+    const [tried] = await tx
+      .select({ n: count() })
+      .from(auditEvent)
+      .where(
+        and(
+          eq(auditEvent.actorUserId, row.userId),
+          eq(auditEvent.action, "mcp.approve"),
+          eq(auditEvent.outcome, "refused"),
+          sql`${auditEvent.target} ->> 'connection' = ${row.id}`,
+          sql`${auditEvent.createdAt} >= ${row.expiresAt}::timestamptz - ${`${CLAUDE_LINK_MIN} minutes`}::interval`,
+        ),
+      );
+    const n = tried?.n ?? 0;
+    if (n >= CLAUDE_CONFIRM_MAX_TRIES) return "ended";
+    const expected = await Promise.all(input.keys.map((k) => connectionConfirmCode(k, input.code)));
+    if (expected.some((e) => sameText(e, input.typed))) return "ok";
+    await input.wrongRow(tx);
+    return n + 1 >= CLAUDE_CONFIRM_MAX_TRIES ? "spent" : "wrong";
+  });
+}
+
+/** A link past its tries matches nothing from now on: Claude's next call gives a new one. */
+export async function endLink(db: Db, row: ApprovalRow): Promise<void> {
+  await withUser(db, row.userId, (tx) =>
+    tx
+      .update(mcpSessionApproval)
+      .set({ codeHash: `ended:${crypto.randomUUID()}` })
+      .where(and(eq(mcpSessionApproval.id, row.id), eq(mcpSessionApproval.userId, row.userId))),
+  );
+}
+
+/** Equal strings, compared in time that doesn't depend on where they differ. */
+function sameText(a: string, b: string): boolean {
+  const x = new TextEncoder().encode(a);
+  const y = new TextEncoder().encode(b);
+  let d = x.length ^ y.length;
+  for (let i = 0; i < Math.max(x.length, y.length); i++) d |= (x[i] ?? 0) ^ (y[i] ?? 0);
+  return d === 0;
+}
 
 /** What the approval page shows for a row. */
 export function connectionView(row: ApprovalRow, now: Date): ClaudeConnection {
@@ -43,6 +139,10 @@ export function connectionView(row: ApprovalRow, now: Date): ClaudeConnection {
   return {
     status: row.approvedAt && live ? "approved" : live ? "waiting" : "expired",
     startedAt: row.createdAt.toISOString(),
+    // Each refused call gives a new link that works CLAUDE_LINK_MIN minutes from then.
+    requestedAt: row.approvedAt
+      ? null
+      : new Date(row.expiresAt.getTime() - CLAUDE_LINK_MIN * 60_000).toISOString(),
     expiresAt: row.expiresAt.toISOString(),
   };
 }
@@ -155,10 +255,11 @@ export async function claudeConnectionGate(input: {
         target: [mcpSessionApproval.workosSessionId, mcpSessionApproval.userId],
         set: { codeHash, expiresAt, approvedAt: null },
       });
+    const confirm = await connectionConfirmCode(key, code);
     return {
       ok: false,
       code: "approval_needed",
-      message: `approve this Claude connection first: open ${input.approvePage(code)} in the browser where you're signed in to Mezonas (the link works for ${CLAUDE_LINK_MIN} minutes), then ask again`,
+      message: `approve this Claude connection first: open ${input.approvePage(code)} in the browser where you're signed in to Mezonas and type the code ${confirm} there (the link works for ${CLAUDE_LINK_MIN} minutes), then ask again. Show the person the link and the code`,
     } as const;
   });
 }

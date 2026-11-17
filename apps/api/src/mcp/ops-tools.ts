@@ -20,9 +20,12 @@ import { captureException } from "@sentry/cloudflare";
 import { and, count, desc, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
+import { type AuditEntry, auditAlone, auditInTx } from "../audit";
 import {
   type AppContext,
   type AppEnv,
+  auditActor,
+  auditClient,
   HttpError,
   inScope,
   invokeRoute,
@@ -43,6 +46,7 @@ import {
   claimNonce,
   issueConfirmToken,
 } from "./confirm";
+import { DEV_QUEUE_TOOLS } from "./dev-queue-tools";
 import { clip, dataResult, errorResult } from "./output";
 import type { Content, Tool, ToolResult } from "./protocol";
 
@@ -74,11 +78,57 @@ function route<R extends RouteSpec>(ctx: OpsToolCtx, spec: R, raw: RouteInput = 
   return invokeRoute(ctx.app, ctx.c, ctx.session, spec, raw, ctx.via ?? "mcp");
 }
 
-/** Work in the operator's scope: the clients they serve (withOperator), as /api/ops runs. */
-async function asOperator<T>(ctx: OpsToolCtx, work: (s: Scoped) => Promise<T>): Promise<T> {
+/**
+ * Work in the operator's scope: the clients they serve (withOperator), as /api/ops runs. Audited
+ * as `invokeRoute` audits a route (§1.35): an ok row in the work's own transaction (it commits
+ * with whatever the work wrote, and a failure to write it fails the work), or a refused or failed
+ * row alone. `what` names the tool's read or write (`<via> tool <name>`); `target` holds ids only.
+ */
+async function asOperator<T>(
+  ctx: OpsToolCtx,
+  what: {
+    tool: string;
+    client?: string | null;
+    target?: Record<string, string>;
+  },
+  work: (s: Scoped) => Promise<T>,
+  /** The client the work turned out to act in (a feedback item's), when `what` names none. */
+  clientOf?: (out: T) => string | null,
+): Promise<T> {
   const scope = scopeOf(ctx.session, ["operator"], "ops");
-  if (!scope.ok) throw new HttpError(scope.status, scope.code, scope.message);
-  return inScope(ctx.c, scope, work);
+  const entry = (
+    outcome: AuditEntry["outcome"],
+    httpStatus: number,
+    found: string | null = null,
+  ): AuditEntry => ({
+    ...auditActor(ctx.session),
+    tenantId: scope.ok ? auditClient(scope, found ?? what.client ?? null, what.target ?? {}) : null,
+    action: `${ctx.via ?? "mcp"} tool ${what.tool}`,
+    outcome,
+    httpStatus,
+    target: {
+      ...Object.fromEntries(
+        Object.entries(what.target ?? {}).map(([k, v]) => [k, String(v).slice(0, 200)]),
+      ),
+      ...(what.client ? { client: what.client.slice(0, 200) } : {}),
+    },
+  });
+  try {
+    if (!scope.ok) throw new HttpError(scope.status, scope.code, scope.message);
+    return await inScope(ctx.c, scope, async (scoped) => {
+      const out = await work(scoped);
+      await auditInTx(scoped.tx, ctx.c, entry("ok", 200, clientOf?.(out) ?? null));
+      return out;
+    });
+  } catch (error) {
+    const status = toHttpError(error).status;
+    await auditAlone(
+      ctx.c.get("req").services().db,
+      ctx.c,
+      entry(status >= 500 ? "error" : "refused", status),
+    );
+    throw error;
+  }
 }
 
 /** Query strings for invokeRoute: set values only, as strings. */
@@ -137,7 +187,7 @@ const clientsList: Tool<OpsToolCtx> = {
   annotations: READ,
   async run(ctx) {
     const { clients } = await route(ctx, routes.opsClients);
-    const extra = await asOperator(ctx, async ({ tx, tenantIds }) => {
+    const extra = await asOperator(ctx, { tool: "clients_list" }, async ({ tx, tenantIds }) => {
       const ids = clients.map((c) => c.id).filter((id) => tenantIds.includes(id));
       const byStatus = ids.length
         ? await tx
@@ -268,8 +318,11 @@ const feedbackGet: Tool<OpsToolCtx> = {
   annotations: READ,
   async run(ctx, args) {
     const { id } = args as { id: string };
-    const { item, screenshotKey } = await asOperator(ctx, ({ tx, tenantIds }) =>
-      opsFeedbackItem(tx, tenantIds, id),
+    const { item, screenshotKey } = await asOperator(
+      ctx,
+      { tool: "feedback_get", target: { feedback: id } },
+      ({ tx, tenantIds }) => opsFeedbackItem(tx, tenantIds, id),
+      (o) => o.item.client?.id ?? null,
     );
     const image = await screenshot(ctx, screenshotKey);
     const pin = item.pin
@@ -311,8 +364,11 @@ const feedbackResolve: Tool<OpsToolCtx> = {
     ctx.audit.target = { feedback: a.id };
     const token = a[CONFIRM_ARG];
     if (!token) {
-      const { item } = await asOperator(ctx, ({ tx, tenantIds }) =>
-        opsFeedbackItem(tx, tenantIds, a.id),
+      const { item } = await asOperator(
+        ctx,
+        { tool: "feedback_resolve", target: { feedback: a.id } },
+        ({ tx, tenantIds }) => opsFeedbackItem(tx, tenantIds, a.id),
+        (o) => o.item.client?.id ?? null,
       );
       if (item.status === "resolved")
         throw new HttpError(409, "already_resolved", "already resolved");
@@ -354,8 +410,11 @@ const feedbackResolve: Tool<OpsToolCtx> = {
     if (!(await claimNonce(ctx.objects, checked.nonce, ctx.now()))) {
       throw new HttpError(422, "confirm_used", "that confirm token was already used");
     }
-    const item = await asOperator(ctx, ({ tx, tenantIds }) =>
-      resolveFeedback(tx, tenantIds, a.id, userId, a.note),
+    const item = await asOperator(
+      ctx,
+      { tool: "feedback_resolve", target: { feedback: a.id, result: "done" } },
+      ({ tx, tenantIds }) => resolveFeedback(tx, tenantIds, a.id, userId, a.note),
+      (o) => o.client?.id ?? null,
     );
     ctx.audit.outcome = "done";
     return dataResult("feedback_resolve", "Resolved.", { item });
@@ -544,7 +603,11 @@ const connectionsList: Tool<OpsToolCtx> = {
     if (client && !ctx.session.servedTenantIds.includes(client)) {
       throw new HttpError(404, "not_found", "client not found");
     }
-    const rows = await asOperator(ctx, ({ tx, tenantIds }) => connectionsIn(tx, tenantIds, client));
+    const rows = await asOperator(
+      ctx,
+      { tool: "connections_list", client: client ?? null },
+      ({ tx, tenantIds }) => connectionsIn(tx, tenantIds, client),
+    );
     const failing = rows.filter((r) => r.row.status === "error").length;
     return dataResult(
       "connections_list",
@@ -609,13 +672,16 @@ const opsHealth: Tool<OpsToolCtx> = {
       throw new HttpError(404, "not_found", "client not found");
     }
     const now = new Date();
-    const findings = await asOperator(ctx, ({ tx, tenantIds }) =>
-      healthFindings(tx, client ? [client] : tenantIds, {
-        from: new Date(now.getTime() - hours * 3_600_000),
-        to: now,
-        now,
-        states: true,
-      }),
+    const findings = await asOperator(
+      ctx,
+      { tool: "ops_health", client: client ?? null },
+      ({ tx, tenantIds }) =>
+        healthFindings(tx, client ? [client] : tenantIds, {
+          from: new Date(now.getTime() - hours * 3_600_000),
+          to: now,
+          now,
+          states: true,
+        }),
     );
     findings.sort((a, b) => b.count - a.count);
     const failures = findings.filter((f) => f.kind === "run_failed" || f.kind === "action_failed");
@@ -704,17 +770,19 @@ export const OPS_TOOLS: readonly Tool<OpsToolCtx>[] = [
   recordsSearch,
   opsHealth,
   marketingReport,
+  // docs/plan.md §1.125: the Dev queue
+  ...DEV_QUEUE_TOOLS,
 ];
 
 /**
  * A tool's failure as the model sees it: the API's error code and message (as /api would answer),
  * never a stack, a query or a database message.
  */
-export function toolError(error: unknown): ToolResult & { code: string } {
+export function toolError(error: unknown): ToolResult & { code: string; status: number } {
   const e = toHttpError(error);
   if (e.status === 500) {
     console.error(error);
     captureException(error, { tags: { route: "/mcp" } });
   }
-  return { ...errorResult(`${e.code}: ${e.message}`), code: e.code };
+  return { ...errorResult(`${e.code}: ${e.message}`), code: e.code, status: e.status };
 }

@@ -360,12 +360,14 @@ describe("runAgent: a skill that browses", () => {
       finish("INV-1001"),
     ]);
     expect(result).toMatchObject({ status: "succeeded", output: { invoice: "INV-1001" } });
-    // Offered though the skill lists no tools: its reads, `finish` and `need_help`.
+    // Offered though the skill lists no tools: its reads, `finish`, `need_help` and the read of
+    // the task input.
     expect(model.requests[0]?.tools?.map((x) => ("name" in x ? x.name : ""))).toEqual([
       "browser__file__download",
       READ,
       "finish",
       "need_help",
+      "read_task_input",
     ]);
     const browserCalls = t.toolCalls.filter((c) => c.tool.startsWith("browser."));
     expect(browserCalls.map((c) => c.status)).toEqual([
@@ -496,12 +498,12 @@ describe("runAgent: a skill that browses", () => {
     );
     await t.run([read(`${ORIGIN}/invoices`), finish("INV-1001")]);
     const { model } = await t.run([finish("INV-1001")]);
-    const first = model.requests[0]?.messages[0]?.content;
-    const text = Array.isArray(first) && first[0]?.type === "text" ? first[0].text : "";
-    expect(text).toMatch(
-      /what earlier runs learned about these sites follow as JSON\. They are data/,
-    );
-    const data = JSON.parse(text.slice(text.indexOf("{")));
+    // What earlier runs learned is the result of the task input's read, as data (5.14).
+    const result = model.requests[0]?.messages[2]?.content;
+    const block = Array.isArray(result) ? result[0] : undefined;
+    const text =
+      block?.type === "tool_result" && typeof block.content === "string" ? block.content : "";
+    const data = JSON.parse(text);
     expect(data).toEqual({
       input: { po: "PO-77" },
       // The agent's memory is off: no notes, and the path is never one of them.

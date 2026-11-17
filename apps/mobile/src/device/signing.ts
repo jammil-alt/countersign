@@ -69,3 +69,53 @@ export function signDecision(input: {
   const signature = p256.sign(utf8(text), input.privateKey, { prehash: true, lowS: true });
   return { deviceId: input.deviceId, at, fingerprint, signature: base64url(signature) };
 }
+
+/** What the app sends to decide an item (`POST /api/inbox/:id/resolve`), signed on this phone. */
+export interface SignedDecisionBody {
+  decision: "approve" | "reject";
+  answer?: string;
+  /** Audit 3.4: the item as the person saw it. */
+  fingerprint: string;
+  deviceSignature: DeviceSignature;
+}
+
+/**
+ * Audit 5.2: every decision the app sends, a change signed or rejected, a question answered or a
+ * quick answer, carries this phone's signature: the API refuses the app's session without one
+ * (403 `signature_required`). Reading the key is the Face ID or fingerprint check (`readKey`,
+ * src/state/store.ts). A phone not set up to sign, or a check that didn't finish, sends nothing.
+ */
+export async function signedDecision(input: {
+  deviceId: string | null;
+  item: { id: string; title: string; display?: unknown; payload?: unknown };
+  decision: "approve" | "reject";
+  answer?: string;
+  prompt: string;
+  readKey: (prompt: string) => Promise<string | null>;
+  at?: Date;
+}): Promise<{ ok: true; body: SignedDecisionBody } | { ok: false; problem: string }> {
+  if (!input.deviceId) {
+    return {
+      ok: false,
+      problem: "This phone isn't set up to sign. Set it up in Settings, then try again.",
+    };
+  }
+  const key = await input.readKey(input.prompt);
+  if (!key) return { ok: false, problem: "Face ID didn't finish, so nothing was sent." };
+  const deviceSignature = signDecision({
+    privateKey: decodePrivateKey(key),
+    deviceId: input.deviceId,
+    item: input.item,
+    decision: input.decision,
+    at: input.at ?? new Date(),
+  });
+  return {
+    ok: true,
+    body: {
+      decision: input.decision,
+      ...(input.answer !== undefined ? { answer: input.answer } : {}),
+      fingerprint: deviceSignature.fingerprint,
+      deviceSignature,
+    },
+  };
+}

@@ -28,7 +28,7 @@ export interface PersonPostInput {
   /** The client's language, for the system's answer. */
   locale: Locale;
   /**
-   * §1.124: more of the body beside the words, e.g. `via: "email"` and the email's subject when the
+   * §1.150: more of the body beside the words, e.g. `via: "email"` and the email's subject when the
    * person wrote to Sloan by email or text. Never `text`, `args` or `documents`.
    */
   extra?: JsonObject;

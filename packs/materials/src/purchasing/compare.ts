@@ -1,18 +1,25 @@
 // Comparing quotes (docs/plan.md §1.67, `materials.quote.compare`): deterministic, never a model.
 // Per request line, the offers compare in the catalog item's standard unit; an offer whose unit has
 // no conversion rule compares only with offers in the very same unit (invariant 7: never across
-// units without a rule), and never across currencies. Then a total per vendor, the lines each
-// vendor left out or can't supply, lead times against the needed-by date, and a suggestion (one
-// vendor, or a split) with its reasons and the records behind it (invariant 10).
+// units without a rule), never when that unit is a box, case or pail (one vendor's box is not
+// another's), and never across currencies. The quantity each vendor quoted is held against the
+// quantity asked (in standard units when both convert): one for less is short and not compared,
+// one for more is compared at what it will cost. Each offer costs what its purchase order will
+// charge: the quoted quantity times the price, rounded to cents (`po.ts`). Then a total per
+// vendor, the lines each vendor left out or can't supply, lead times against the needed-by date,
+// and a suggestion (one vendor, or a split) with its reasons and the records behind it
+// (invariant 10).
 
 import { type Decimal, dec, formatAmount, toNumeric } from "@countersign/core";
 import { type Db, type Tx, vendor, withTenant } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import { parseLine } from "../catalog/keys";
 import { daysBefore } from "../pricing/rules";
-import { convert, readUom } from "../pricing/uom";
+import { convertLine, PACKAGING_UOMS, readUom, unitKey } from "../pricing/uom";
 import { quoteRequest } from "../schema";
-import { quoteLines } from "./quotes";
+import { vendorItemForUnit } from "../vendor/store";
+import { cents } from "./po";
+import { quotedConversion, quoteLines } from "./quotes";
 import { type PurchasingContext, PurchasingError, requestLines, requestRow } from "./requests";
 
 /** A split is suggested only when it saves at least this much on the best single vendor. */
@@ -47,6 +54,8 @@ export interface CompareOfferInput {
   currency: string;
   unitPriceStd: string | null;
   standardUom: string | null;
+  /** The quantity quoted in the item's standard unit, when its unit converts; else null. */
+  qtyStd?: string | null | undefined;
   leadTimeDays: number | null;
   available: boolean;
 }
@@ -61,7 +70,7 @@ export interface Offer {
   currency: string;
   unitPriceStd: string | null;
   standardUom: string | null;
-  /** What this vendor would charge for the line as asked. */
+  /** What this vendor's purchase order would charge for the line: quoted quantity × price. */
   cost: string | null;
   leadTimeDays: number | null;
   available: boolean;
@@ -90,6 +99,11 @@ export interface LineComparison {
   missing: string[];
   unavailable: string[];
   note: string | null;
+  /**
+   * False when vendors priced the line but no price could be compared (a box of no known size,
+   * units with no rule between them): it is left out of every vendor's total and completeness.
+   */
+  compared: boolean;
 }
 
 export interface VendorTotal {
@@ -138,7 +152,16 @@ interface Basis {
   std: boolean;
   price: string;
   per: string;
+  /** Per box, case or pail with no known pack size: a unit of its own, never compared. */
+  packaged?: boolean;
 }
+
+const UNIT_WORDS: Record<string, string> = {
+  board_foot: "board feet",
+  linear_foot: "linear feet",
+  each: "each",
+};
+const unitWords = (uom: string) => UNIT_WORDS[uom] ?? `${uom.replace(/_/g, " ")}s`;
 
 function basisOf(o: CompareOfferInput, line: CompareLine): Basis | null {
   if (!o.available || o.unitPrice === null) return null;
@@ -152,6 +175,55 @@ function basisOf(o: CompareOfferInput, line: CompareLine): Basis | null {
   }
   const unit = readUom(o.unit) ?? (o.unit?.trim().toLowerCase() || "unstated unit");
   return { key: `${o.currency}|${unit}`, std: false, price: o.unitPrice, per: unit };
+}
+
+type Coverage = "covered" | "short" | "over" | "unknown";
+
+/**
+ * Whether what the vendor quoted covers what was asked: in standard units when both convert,
+ * else in the unit asked when the vendor quoted in it (a line with no unit and no catalog item is
+ * for whatever unit the vendor quotes); else nothing tells.
+ */
+function coverageOf(
+  o: CompareOfferInput,
+  line: CompareLine,
+): { is: Coverage; note: string | null } {
+  if (o.qty === null) return { is: "covered", note: null };
+  const words = (qty: string, unit: string | null) =>
+    [dec(qty).toString(), unit].filter(Boolean).join(" ");
+  let quoted: string;
+  let asked: string;
+  let unit: string | null;
+  if (o.qtyStd != null && line.qtyStd !== null && line.standardUom !== null) {
+    quoted = o.qtyStd;
+    asked = line.qtyStd;
+    unit = unitWords(line.standardUom);
+  } else if (
+    unitKey(o.unit) === unitKey(line.unit) ||
+    (unitKey(line.unit) === null && line.qtyStd === null)
+  ) {
+    quoted = o.qty;
+    asked = line.qty;
+    unit = o.unit?.trim() || null;
+  } else {
+    return {
+      is: "unknown",
+      note: `quoted ${words(o.qty, o.unit?.trim() || null)}, and no rule says whether that covers the ${words(line.qty, line.unit)} asked`,
+    };
+  }
+  const c = dec(quoted).comparedTo(dec(asked));
+  if (c < 0)
+    return {
+      is: "short",
+      note: `quoted ${words(quoted, unit)} of the ${words(asked, unit)} asked`,
+    };
+  if (c > 0) {
+    return {
+      is: "over",
+      note: `quoted ${words(quoted, unit)} where ${words(asked, unit)} were asked (a minimum order?): priced as quoted`,
+    };
+  }
+  return { is: "covered", note: null };
 }
 
 /**
@@ -178,6 +250,10 @@ export function compareOffers(input: {
     const bases = new Map<string, Basis>();
     const missing: string[] = [];
     const unavailable: string[] = [];
+    let shortCount = 0;
+    let packagedCount = 0;
+    let unknownCount = 0;
+    const coverages = new Map<string, { is: Coverage; note: string | null }>();
     for (const q of quotes) {
       const o = input.offers.find((x) => x.quoteRequestId === q.id && x.requestLineId === line.id);
       if (!o) {
@@ -187,15 +263,37 @@ export function compareOffers(input: {
       sources.add(o.id);
       if (!o.available) unavailable.push(q.vendorId);
       const basis = basisOf(o, line);
-      if (basis) bases.set(o.id, basis);
-      // DECISION: an offer's cost for the line as asked is its standard-unit price times the
-      // asked quantity in standard units; otherwise its price times the quantity quoted.
+      // DECISION (audit 7.8): a price per box, case or pail that doesn't convert to the standard
+      // unit is never compared, not even with another vendor's in the same word: a box of 50 is
+      // not a box of 100. It is set aside, and the others compare among themselves.
+      const packaged = basis !== null && !basis.std && PACKAGING_UOMS.has(basis.per);
+      // DECISION (review of fix/materials, finding 2): an offer costs what its purchase order
+      // will charge (the quoted quantity, else the asked one, times the price, each line rounded
+      // to cents, `po.ts`). Its quantity is held against the quantity asked: short is shown, not
+      // compared, and leaves the vendor's quote incomplete; more than asked (a minimum order) is
+      // compared at that cost; when no rule tells, it is not compared.
+      // DECISION (second review, M1): a vendor that gave no quantity quotes the quantity asked:
+      // in the unit asked, its price times it; in another unit, the asked standard quantity at its
+      // standard price (`recordQuote` stores a quantity only in the vendor's own unit).
+      // A line asked with no unit is in its item's standard unit (as `convertLine` reads it),
+      // else, with no item, in whatever unit the vendor quotes.
+      const askedUnit = unitKey(line.unit) ?? unitKey(line.standardUom);
+      const sameUnitAsked = askedUnit === null || unitKey(o.unit) === askedUnit;
       const cost =
-        basis?.std && line.qtyStd !== null
-          ? toNumeric(dec(basis.price).times(line.qtyStd))
-          : o.unitPrice !== null && o.qty !== null && o.available
-            ? toNumeric(dec(o.unitPrice).times(o.qty))
-            : null;
+        !o.available || o.unitPrice === null
+          ? null
+          : o.qty !== null
+            ? toNumeric(cents(dec(o.unitPrice).times(o.qty)))
+            : sameUnitAsked
+              ? toNumeric(cents(dec(o.unitPrice).times(line.qty)))
+              : basis?.std && line.qtyStd !== null
+                ? toNumeric(cents(dec(basis.price).times(line.qtyStd)))
+                : null;
+      if (basis && !packaged) {
+        bases.set(o.id, basis);
+        coverages.set(o.id, coverageOf(o, line));
+      }
+      if (packaged) packagedCount++;
       offers.push({
         quoteRequestId: q.id,
         quoteLineId: o.id,
@@ -210,7 +308,13 @@ export function compareOffers(input: {
         leadTimeDays: o.leadTimeDays,
         available: o.available,
         comparable: false,
-        note: o.available ? (o.unitPrice === null ? "no price" : null) : "not available",
+        note: !o.available
+          ? "not available"
+          : o.unitPrice === null
+            ? "no price"
+            : packaged
+              ? `quoted per ${o.unit?.trim() || "pack"} with no known pack size, so it can't be compared`
+              : null,
       });
     }
     // The basis the line compares in: its standard unit when any offer converts to it, else the
@@ -236,8 +340,14 @@ export function compareOffers(input: {
     for (const offer of offers) {
       const b = bases.get(offer.quoteLineId);
       if (!b) continue;
-      if (b.key === primary) offer.comparable = true;
-      else if (primary !== null) {
+      if (b.key === primary) {
+        // In the line's basis: compared when what was quoted covers what was asked.
+        const cov = coverages.get(offer.quoteLineId);
+        offer.comparable = cov?.is === "covered" || cov?.is === "over";
+        offer.note = cov?.note ?? null;
+        if (cov?.is === "short") shortCount++;
+        if (cov?.is === "unknown") unknownCount++;
+      } else if (primary !== null) {
         const [cur, per] = primary.split("|");
         offer.note =
           b.key.split("|")[0] !== cur
@@ -251,22 +361,37 @@ export function compareOffers(input: {
     if (primary === null && ranked.length > 1) {
       note =
         "Not compared: the vendors quoted this line in different units or currencies with no conversion rule.";
+    } else if (ranked.length === 0 && packagedCount > 0) {
+      note = `Not compared: no vendor's box, case or container converts to ${line.standardUom ?? "the unit asked"} with a known pack size.`;
+    } else if (primary !== null && !offers.some((o) => o.comparable) && shortCount > 0) {
+      note = "No vendor quoted the whole quantity asked.";
+    } else if (primary !== null && !offers.some((o) => o.comparable) && unknownCount > 0) {
+      note =
+        "Not compared: the vendors quoted this line in different units from the one asked, with no conversion rule.";
     } else if (ranked.length === 0 && offers.length > 0) {
       note = "No vendor gave a price for this line.";
     } else if (offers.length === 0) {
       note = quotes.length === 0 ? null : "No vendor quoted this line.";
     }
+    // Ranked on what each purchase order would charge, then the price, the lead time, the name.
     const comparable = offers.filter((o) => o.comparable);
     const best = comparable.sort((a, b) => {
       const pa = bases.get(a.quoteLineId)?.price ?? "0";
       const pb = bases.get(b.quoteLineId)?.price ?? "0";
       return (
+        dec(a.cost ?? "0").comparedTo(dec(b.cost ?? "0")) ||
         dec(pa).comparedTo(dec(pb)) ||
         (a.leadTimeDays ?? Number.MAX_SAFE_INTEGER) - (b.leadTimeDays ?? Number.MAX_SAFE_INTEGER) ||
         a.vendorName.localeCompare(b.vendorName)
       );
     })[0];
     const bestBasis = best ? bases.get(best.quoteLineId) : undefined;
+    // DECISION (review of fix/materials, finding 7): a line vendors priced but nobody's price
+    // could be compared on is left out of every vendor's total and completeness (the suggestion
+    // says so), rather than leaving every quote incomplete. A line nobody quoted in full, or at
+    // all, still counts against each vendor.
+    const priced = offers.some((o) => o.available && o.unitPrice !== null);
+    const compared = best !== undefined || !priced || shortCount > 0;
     lines.push({
       requestLineId: line.id,
       lineNo: line.lineNo,
@@ -290,6 +415,7 @@ export function compareOffers(input: {
       missing,
       unavailable,
       note,
+      compared,
     });
   }
 
@@ -299,7 +425,8 @@ export function compareOffers(input: {
     let priced = 0;
     let lead: number | null = null;
     let currency: string | null = null;
-    for (const l of lines) {
+    const counted = lines.filter((l) => l.compared);
+    for (const l of counted) {
       const o = l.offers.find((x) => x.quoteRequestId === q.id);
       if (!o?.comparable || o.cost === null) continue;
       priced++;
@@ -318,7 +445,16 @@ export function compareOffers(input: {
       linesPriced: priced,
       linesMissing: lines.filter((l) => l.missing.includes(q.vendorId)).length,
       linesUnavailable: lines.filter((l) => l.unavailable.includes(q.vendorId)).length,
-      complete: lines.length > 0 && priced === lines.length,
+      // DECISION (second review, H2): a line no price could be compared on is left out of the
+      // totals, not out of "quoted every line": a vendor that didn't price it isn't complete.
+      complete:
+        counted.length > 0 &&
+        priced === counted.length &&
+        lines.every(
+          (l) =>
+            l.compared ||
+            l.offers.some((o) => o.quoteRequestId === q.id && o.available && o.unitPrice !== null),
+        ),
       maxLeadTimeDays: lead,
       late,
     };
@@ -338,7 +474,7 @@ export function compareOffers(input: {
 
 function suggest(
   input: { neededBy: string | null; quotes: readonly CompareQuote[] },
-  lines: readonly LineComparison[],
+  allLines: readonly LineComparison[],
   vendors: readonly VendorTotal[],
   minPct: Decimal,
 ): Suggestion {
@@ -352,7 +488,16 @@ function suggest(
     reasons,
   });
   if (input.quotes.length === 0) return none(["No quotes are in yet."]);
-  if (lines.length === 0) return none(["The request has no lines."]);
+  if (allLines.length === 0) return none(["The request has no lines."]);
+  // Lines no price could be compared on are left out of the totals, and the reasons say so.
+  const left = allLines
+    .filter((l) => !l.compared)
+    .map(
+      (l) =>
+        `Line ${l.lineNo} (${l.description}) is left out of the totals: ${(l.note ?? "its prices can't be compared").replace(/\.$/, "").replace(/^Not compared: /, "")}.`,
+    );
+  const lines = allLines.filter((l) => l.compared);
+  if (lines.length === 0) return none(left);
 
   const complete = vendors
     .filter((v) => v.complete)
@@ -369,7 +514,17 @@ function suggest(
   const single = pool[0];
 
   // The split: every line from the vendor with its best comparable price.
-  const covered = lines.every((l) => l.best !== null && l.best.cost !== null);
+  // DECISION (second review, H3): only in one currency, the single vendor's when there is one;
+  // a split whose lines' best prices are in two currencies is never added up or suggested.
+  const bestCurrency = (l: LineComparison) =>
+    l.offers.find((o) => o.quoteLineId === l.best?.quoteLineId)?.currency ?? null;
+  const allBest = lines.every((l) => l.best !== null && l.best.cost !== null);
+  const splitCurrencies = [...new Set(lines.map(bestCurrency))];
+  const covered =
+    allBest && splitCurrencies.length === 1 && (!single || splitCurrencies[0] === single.currency);
+  const mixed = allBest && !covered && lines.length > 1;
+  const mixedIn = [...new Set([...splitCurrencies, single?.currency ?? null])].filter(Boolean);
+  const mixedReason = `Buying each line from its cheapest vendor would mix currencies (${mixedIn.join(" and ")}), so no split is suggested.`;
   const parts = new Map<
     string,
     { quoteRequestId: string; vendorId: string; ids: string[]; total: Decimal }
@@ -421,6 +576,7 @@ function suggest(
     if (single.late && input.neededBy) {
       reasons.push(`No vendor that quoted every line can deliver by ${input.neededBy}.`);
     }
+    if (mixed) reasons.push(mixedReason);
     if (covered && parts.size > 1) {
       const saving = dec(single.total).minus(splitTotal);
       const pct = dec(single.total).isZero() ? dec("0") : saving.dividedBy(single.total).times(100);
@@ -438,6 +594,7 @@ function suggest(
               (p) =>
                 `${nameOf(p.vendorId)}: ${p.requestLineIds.length} ${p.requestLineIds.length === 1 ? "line" : "lines"}, ${money(p.total, currency)}.`,
             ),
+            ...left,
           ],
         };
       }
@@ -454,7 +611,7 @@ function suggest(
       total: single.total,
       currency,
       split: [],
-      reasons,
+      reasons: [...reasons, ...left],
     };
   }
   if (covered) {
@@ -471,17 +628,20 @@ function suggest(
           (p) =>
             `${nameOf(p.vendorId)}: ${p.requestLineIds.length} ${p.requestLineIds.length === 1 ? "line" : "lines"}, ${money(p.total, currency)}.`,
         ),
+        ...left,
       ],
     };
   }
-  return none(
-    lines
+  return none([
+    ...(mixed ? [mixedReason] : []),
+    ...lines
       .filter((l) => l.best === null || l.best.cost === null)
       .map(
         (l) =>
           `Line ${l.lineNo} (${l.description}) has no price we can compare${l.note ? `: ${l.note.replace(/\.$/, "").toLowerCase()}` : ""}.`,
       ),
-  );
+    ...left,
+  ]);
 }
 
 /** Loads a request's received quotes and compares them. */
@@ -524,18 +684,40 @@ export async function compareQuotesTx(
       ctx.tenantId,
       quotes.map((x) => x.q.id),
     );
+    // Each quoted quantity in standard units, by the rule its price was converted by
+    // (`quotedConversion`: the vendor's words or its one vendor item in that unit word).
+    const vendorOf = new Map(quotes.map(({ q }) => [q.id, q.vendorId]));
+    const byLine = new Map(lines.map((l) => [l.row.id, l]));
+    const offerQtyStd = new Map<string, string | null>();
+    for (const o of offers) {
+      const asked = byLine.get(o.purchaseRequestLineId);
+      const vendorId = vendorOf.get(o.quoteRequestId);
+      if (!asked?.item || !vendorId || o.qty === null || o.unitPriceStd === null) continue;
+      const vi = await vendorItemForUnit(tx, ctx.tenantId, {
+        vendorId,
+        catalogItemId: asked.item.id,
+        unitRaw: o.unit,
+        lineText: o.description,
+      });
+      const conv = quotedConversion(asked.item, o, asked.row, vi);
+      offerQtyStd.set(o.id, conv.ok ? toNumeric(dec(o.qty).times(conv.factor)) : null);
+    }
     return compareOffers({
       requestId: r.id,
       neededBy: r.neededBy,
       asOf: input.asOf,
       splitMinSavingPct: input.splitMinSavingPct,
       lines: lines.map(({ row, item }) => {
+        // DECISION (review of fix/materials, finding 2): the request converts by the same rule as
+        // quotes and invoices (`convertLine`): its own words, never the master item's pack size.
         let qtyStd: string | null = null;
         if (item) {
-          const conv = convert(row.unit, item.standardUom, {
-            ...(item.attributes as Record<string, string>),
-            ...parseLine(row.description).attributes,
-          });
+          const conv = convertLine(
+            row.unit,
+            item.standardUom,
+            { text: row.description, attributes: parseLine(row.description).attributes },
+            item.attributes as Record<string, unknown>,
+          );
           if (conv.ok) qtyStd = toNumeric(dec(row.qty as string).times(conv.factor));
         }
         return {
@@ -565,6 +747,7 @@ export async function compareQuotesTx(
         currency: o.currency,
         unitPriceStd: o.unitPriceStd,
         standardUom: o.standardUom,
+        qtyStd: offerQtyStd.get(o.id) ?? null,
         leadTimeDays: o.leadTimeDays,
         available: o.available,
       })),

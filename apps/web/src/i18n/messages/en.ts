@@ -82,6 +82,8 @@ export const en = {
   "error.changed": "This card changed since you opened it; look again.",
   "error.run_ended": "This run has ended; nothing will be done with this card.",
   "error.fingerprint_required": "This page is out of date; reload it and look again.",
+  "error.signature_required":
+    "This needs your phone's signature. Sign it with Face ID or a fingerprint in the app, or decide it in a browser.",
   "error.not_assignee": "This waits on someone else.",
   "error.not_connected": "That tool isn't connected.",
   "error.not_available": "That isn't available yet.",
@@ -101,6 +103,7 @@ export const en = {
   "error.not_importable": "The directory imports from Zoho CRM or Podio.",
   "error.contact_exists": "Someone in the directory already has that email address or number.",
   "error.rate_limited": "Wait a minute and try again.",
+  "error.daily_limit": "You've reached today's limit for this. Try again tomorrow.",
   "error.no_address": "We don't know this account's address. Connect it again.",
   "error.different_account":
     "This is a different account from the one connected here. Disconnect it first, then connect the other one.",
@@ -2676,6 +2679,18 @@ export const en = {
   "bookkeeping.review.loading": "Loading the transactions…",
   "bookkeeping.review.suggested": "We suggest {account}",
   "bookkeeping.review.noSuggestion": "No suggestion yet",
+  "bookkeeping.review.openBill":
+    "Is this the payment of an open bill: {what}? If so, apply it to the bill in QuickBooks, then leave this out.",
+  "bookkeeping.review.openInvoice":
+    "Is this the payment of an open invoice: {what}? If so, apply it to the invoice in QuickBooks, then leave this out.",
+  "bookkeeping.review.openBillPaid":
+    "QuickBooks shows this bill paid: {what}. If this is that payment, leave it out.",
+  "bookkeeping.review.openInvoicePaid":
+    "QuickBooks shows this invoice paid: {what}. If this is that payment, leave it out.",
+  "bookkeeping.review.pairHeld":
+    "Bank transaction {what}: may be the other side of a transfer that wasn't written or was left out. Decide the two together.",
+  "bookkeeping.review.resent":
+    "The bank sent this again after removing an earlier copy. Decide it here: nothing is booked for it until you do.",
   "bookkeeping.review.approve": "Approve",
   "bookkeeping.review.account": "Account for {payee}",
   "bookkeeping.review.why": "Why, in a few words (optional)",
@@ -2696,6 +2711,8 @@ export const en = {
   "bookkeeping.recon.loading": "Loading the reconciliation…",
   "bookkeeping.recon.difference": "Difference",
   "bookkeeping.recon.unexplainedBy": "{amount} isn't explained",
+  "bookkeeping.recon.startGap":
+    "The opening balances differ by {amount}, and nothing carried from the last sign-off explains it. Add what was outstanding at the start of the period, such as a check written before it that cleared during it.",
   "bookkeeping.recon.asOf": "As of {day}",
   "bookkeeping.recon.outcome.balanced": "Balanced",
   "bookkeeping.recon.outcome.explained": "Explained",
@@ -2925,6 +2942,11 @@ export const en = {
     "Claude is asking to use Mezonas as you. It first asked at {time}. Approve it only if you just connected Claude yourself.",
   "connectClaude.lasts":
     "This link works until {time}. Once approved, it lasts until that Claude sign-in ends, 12 hours at most.",
+  "connectClaude.requested":
+    "Claude gave you this link at {time}. If you didn't ask Claude for it just now, don't approve it.",
+  "connectClaude.confirm": "The code Claude showed you",
+  "connectClaude.confirmHint":
+    "Claude shows a 6-digit code with this link. Type the one your own Claude shows you, never one someone else sends you.",
   "connectClaude.approve": "Approve",
   "connectClaude.approving": "Approving…",
   "connectClaude.approved":
@@ -2932,6 +2954,35 @@ export const en = {
   "connectClaude.expired": "This link has expired. Ask Claude again to get a new one.",
   "connectClaude.unknown":
     "This link doesn't match a Claude connection of yours. Ask Claude again to get a new one.",
+  // ── §1.124: Requests (issues and asks) and requirements forms ──
+  "requests.title": "Requests",
+  "requests.lede": "Something isn't working, or an idea for us: tell your Mezonas lead here.",
+  "requests.new": "New request",
+  "requests.empty": "No requests yet.",
+  "requests.state.on_it": "We're on it",
+  "requests.state.waiting_on_you": "Waiting on you",
+  "requests.state.fixed": "Fixed",
+  "requests.state.closed": "Closed",
+  "requests.kind.problem": "Something isn't working",
+  "requests.kind.idea": "An idea or a change",
+  "requests.kindQuestion": "What is it?",
+  "requests.service": "About",
+  "requests.serviceNone": "Nothing in particular",
+  "requests.text": "Tell us what happened, or what you'd like",
+  "requests.reply": "Write to your Mezonas lead",
+  "requests.replySend": "Send",
+  "requests.confirm": "Confirm it's fixed",
+  "requests.stillHappening": "It's still happening",
+  "requests.back": "All requests",
+  "requests.lead": "Your Mezonas lead",
+  "requests.you": "You",
+  "requests.number": "Request #{n}",
+  "requirements.title": "Questions for your new agent",
+  "requirements.save": "Save a draft",
+  "requirements.submit": "Send answers",
+  "requirements.progress": "{answered} of {total} answered",
+  "requirements.sent": "Sent. Thank you: we'll take it from here.",
+  "requirements.due": "Due {date}",
   // ── Access per person (docs/plan.md §1.122) ──
   "access.edit": "Access",
   "access.title": "What {name} can do",

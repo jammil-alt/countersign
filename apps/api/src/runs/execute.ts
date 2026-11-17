@@ -91,7 +91,7 @@ import {
 } from "@countersign/workflows";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { dbReleasePort, type ReleaseDeps, releaseDepsFromEnv } from "../access/release";
-// §1.124: Sloan by email and text
+// §1.150: Sloan by email and text
 import { deliveringThreads } from "../account/answer";
 // v0.12 W2-D
 import { accountViews } from "../account/views";
@@ -170,7 +170,7 @@ export interface RunDeps {
   // §1.121
   /** Where form links point and what signs them; absent: `forms.request` sends nothing. */
   forms?: FormLinks;
-  // §1.124
+  // §1.150
   /** EMAIL_FORWARDING_DOMAIN: Sloan's address, for its answers by email; absent: none by email. */
   forwardingDomain?: string | null;
 }
@@ -292,7 +292,7 @@ export function runDepsFromEnv(
     },
     // §1.121: form links on the app's own origin, signed with the Worker's key.
     forms: { origin: originOf(env), env },
-    // §1.124: Sloan's answers by email name its address to reply to.
+    // §1.150: Sloan's answers by email name its address to reply to.
     forwardingDomain: env.EMAIL_FORWARDING_DOMAIN?.trim() || null,
   };
 }
@@ -385,7 +385,7 @@ export function runtimeFor(
     // §1.77: web research on the same transport, when the deployment has it on.
     ...(deps.webResearch ? { webResearch: { transport: deps.transport } } : {}),
   });
-  // §1.124: Sloan's answer to a person who wrote by email or text goes back that way.
+  // §1.150: Sloan's answer to a person who wrote by email or text goes back that way.
   if (deps.notify && ports.threads) {
     ports.threads = deliveringThreads(ports.threads, {
       db,

@@ -356,7 +356,8 @@ describe("before a session and in the back office", () => {
     });
     renderAt("/ops/inbox", api);
     const shell = await screen.findByTestId("shell-ops");
-    expect(within(shell).getByTestId("shell-inbox")).toHaveTextContent("Escalations");
+    expect(within(shell).getByTestId("shell-inbox")).toHaveTextContent("Your call");
+    expect(within(shell).getByTestId("ops-nav-inbox")).toHaveTextContent("Escalations");
     expect(screen.getByRole("complementary", { name: "Navigation" })).toBeInTheDocument();
     // No language picker in the back office.
     await userEvent.click(screen.getByTestId("shell-avatar"));

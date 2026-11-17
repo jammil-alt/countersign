@@ -102,6 +102,11 @@ export function TextSignupScreen() {
           {done === "sent" ? w("doneSent", { client }) : w("donePending", { client })}
         </p>
         <p className="mt-2 text-sm text-ink-muted">{w("stopAnyTime")}</p>
+        {v.number ? (
+          <p className="mt-2 text-sm text-ink-muted" data-testid="text-signup-start-again">
+            {w("startAgain", { number: shown(v.number) })}
+          </p>
+        ) : null}
       </Frame>
     );
   }
@@ -232,6 +237,11 @@ export function TextSignupScreen() {
           <span data-testid="text-signup-terms">{v.terms}</span>
         </label>
         {error ? <ErrorNotice error={error} /> : null}
+        {v.number ? (
+          <p className="text-sm text-ink-muted" data-testid="text-signup-start-again">
+            {w("startAgain", { number: shown(v.number) })}
+          </p>
+        ) : null}
         <Button
           type="submit"
           variant="primary"

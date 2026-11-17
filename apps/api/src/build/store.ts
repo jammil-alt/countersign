@@ -39,6 +39,7 @@ import {
   readBrief,
   readFitGap,
   readQa,
+  readRequirements,
   readTestPlan,
   toProcessBundle,
 } from "@countersign/core";
@@ -61,8 +62,10 @@ import {
 } from "@countersign/db";
 import { and, asc, desc, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
+import { stepRequests } from "../dev-queue/store";
 import { iso, notFound, type Services } from "../http";
 import { goLiveView } from "../lifecycle/stages";
+import { buildFacts, buildStageOf, buildStanding } from "../work/work-list";
 
 export type BuildRow = typeof build.$inferSelect;
 export type BuildItemRow = typeof buildItem.$inferSelect;
@@ -136,8 +139,11 @@ export async function summaries(tx: Tx, rows: BuildRow[]): Promise<BuildSummary[
     tx,
     rows.map((r) => r.id),
   );
+  // docs/plan.md §1.124: where each build stands in Build's Agent builds pipeline.
+  const facts = await buildFacts(tx, rows);
   return rows.map((r) => {
     const c = counts.get(r.id);
+    const f = facts.get(r.id);
     return {
       id: r.id,
       kind: r.kind,
@@ -157,6 +163,16 @@ export async function summaries(tx: Tx, rows: BuildRow[]): Promise<BuildSummary[
       createdAt: iso(r.createdAt) as string,
       updatedAt: iso(r.updatedAt) as string,
       phaseAt: iso(r.phaseAt) as string,
+      path: r.path,
+      templateId: r.templateId,
+      promisedOn: r.promisedOn,
+      origin: r.originKind && r.originId ? { kind: r.originKind, id: r.originId } : null,
+      requirements: readRequirements(r.requirements),
+      pipelineStage: buildStageOf(r, f),
+      standing: buildStanding(r, f),
+      waitingOn: r.waitingOn,
+      statusLine: r.statusLine,
+      stuck: r.stuck,
     };
   });
 }
@@ -173,7 +189,14 @@ export function itemView(r: BuildItemRow): BuildItemView {
     owner: r.owner,
     state: r.state,
     stepId: r.stepId,
-    ref: { ...str("testCaseId"), ...str("runId"), ...str("actionId"), ...str("buildId") },
+    ref: {
+      ...str("testCaseId"),
+      ...str("runId"),
+      ...str("actionId"),
+      ...str("buildId"),
+      ...str("codeRequestId"),
+      ...str("codeRequestRef"),
+    },
     key: r.key ?? null,
     createdAt: iso(r.createdAt) as string,
     resolvedAt: iso(r.resolvedAt),
@@ -917,15 +940,22 @@ export async function buildDetail(ctx: StoreCtx, row: BuildRow): Promise<BuildDe
         at: iso(e.createdAt) as string,
       }),
     ),
+    codeRequests: await stepRequests(ctx.tx, [row.id]),
   };
 }
 
 /** Builds for the board: open ones by phase (or of one status), newest moves first. */
 export async function listBuilds(
   tx: Tx,
-  q: { status?: BuildRow["status"] | undefined; agent?: string | undefined },
+  q: {
+    status?: BuildRow["status"] | undefined;
+    agent?: string | undefined;
+    path?: "new" | "template" | "all" | undefined;
+  },
 ): Promise<BuildRow[]> {
   const where = [
+    // docs/plan.md §1.124: the Builder board keeps new agents; template builds are Build's.
+    ...(q.path && q.path !== "all" ? [eq(build.path, q.path)] : []),
     q.status ? eq(build.status, q.status) : ne(build.status, "stopped"),
     ...(q.agent ? [sql`(${build.agentId} = ${q.agent} or ${build.testAgentId} = ${q.agent})`] : []),
   ];

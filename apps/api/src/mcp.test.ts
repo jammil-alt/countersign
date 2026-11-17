@@ -5,12 +5,12 @@
 // and the client's own tools: the portal's reads, one client per call, nothing of the back office.
 
 import { appUser, auditEvent, feedback, membership } from "@countersign/db";
-import { eq } from "drizzle-orm";
+import { and, desc, eq, like } from "drizzle-orm";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type ApiHarness, admin, createApiHarness, OPERATOR, testBundle } from "./api.test-helper";
 import type { Bindings } from "./env";
-import type { McpAuditEntry } from "./mcp/audit";
+import { auditEventSink, type McpAuditEntry } from "./mcp/audit";
 import { issueConfirmToken, usedTokenKey } from "./mcp/confirm";
 import { memoryRateLimiter, type RateLimiter } from "./mcp/limits";
 import { UNTRUSTED_CLOSE } from "./mcp/output";
@@ -61,11 +61,16 @@ const h = await createApiHarness({
         };
       },
     }),
-    audit: () => ({
-      async record(entry) {
-        audit.push(entry);
-      },
-    }),
+    // The entries as the server hands them over, and the real sink's audit_event rows.
+    audit: (c) => {
+      const rows = auditEventSink(c.get("req").services().db, c);
+      return {
+        async record(entry) {
+          audit.push(entry);
+          await rows.record(entry);
+        },
+      };
+    },
     rateLimiter: () => limiter,
     now: () => clock,
   },
@@ -470,10 +475,28 @@ describe.skipIf(!h)("MCP server", () => {
         "records_search",
         "ops_health",
         "marketing_report",
+        "code_requests_list",
+        "code_request_get",
+        "catalog_search",
+        "code_request_file",
+        "code_request_claim",
+        "code_request_note",
+        "code_request_rerun_reuse",
+        "code_request_attach_pr",
+        "code_request_set_status",
+      ]);
+      const writes = new Set([
+        "feedback_resolve",
+        "code_request_file",
+        "code_request_claim",
+        "code_request_note",
+        "code_request_rerun_reuse",
+        "code_request_attach_pr",
+        "code_request_set_status",
       ]);
       for (const t of tools) {
         expect(t.inputSchema.type).toBe("object");
-        expect(t.annotations.readOnlyHint).toBe(t.name !== "feedback_resolve");
+        expect(t.annotations.readOnlyHint).toBe(!writes.has(t.name));
       }
       expect(
         Object.keys(tools.find((t) => t.name === "feedback_resolve")?.inputSchema.properties ?? {}),
@@ -918,6 +941,220 @@ describe.skipIf(!h)("MCP server", () => {
       target: { id: H.A.tenantId },
     });
   });
+  it("writes an audit_event row for each tool call, with ids and never the token or free text", async () => {
+    await tool(opToken, "feedback_list", { client: H.A.tenantId, limit: 1 });
+    const [row] = await H.t.db
+      .select()
+      .from(auditEvent)
+      .where(eq(auditEvent.action, "mcp.tool_call feedback_list"))
+      .orderBy(desc(auditEvent.createdAt))
+      .limit(1);
+    expect(row).toMatchObject({
+      tenantId: H.A.tenantId,
+      actorKind: "user",
+      actorUserId: H.operator,
+      actorEmail: OPERATOR,
+      actorRole: "operator",
+      outcome: "ok",
+      httpStatus: 200,
+      target: { client: H.A.tenantId, audience: "ops", result: "ok" },
+    });
+    await tool(opToken, "client_get", { client: H.C.tenantId });
+    const [refused] = await H.t.db
+      .select()
+      .from(auditEvent)
+      .where(eq(auditEvent.action, "mcp.tool_call client_get"))
+      .orderBy(desc(auditEvent.createdAt))
+      .limit(1);
+    // Not one of this operator's clients: refused, and not filed under that client.
+    expect(refused).toMatchObject({
+      tenantId: null,
+      outcome: "refused",
+      httpStatus: 404,
+      target: { client: H.C.tenantId, code: "not_found", result: "error" },
+    });
+    const search = await tool(opToken, "records_search", { client: H.A.tenantId, q: "Acme 4411" });
+    expect(search.isError, search.text).toBe(false);
+    const rows = await H.t.db
+      .select()
+      .from(auditEvent)
+      .where(eq(auditEvent.action, "mcp.tool_call records_search"));
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) expect(JSON.stringify(r.target)).not.toContain("Acme 4411");
+  });
+
+  it("audits the reads and the write it makes in the operator's scope (feedback, connections, health)", async () => {
+    const scoped = () =>
+      H.t.db.select().from(auditEvent).where(like(auditEvent.action, "mcp tool %"));
+    const before = new Set((await scoped()).map((r) => r.id));
+    await tool(opToken, "feedback_get", { id: ids.feedbackA });
+    await tool(opToken, "connections_list", { client: H.B.tenantId });
+    await tool(opToken, "ops_health", {});
+    await tool(opToken, "clients_list");
+    const recent = (await scoped()).filter((r) => !before.has(r.id));
+    const byAction = (a: string) => recent.filter((r) => r.action === a);
+    expect(byAction("mcp tool feedback_get").at(-1)).toMatchObject({
+      tenantId: H.A.tenantId,
+      actorUserId: H.operator,
+      actorRole: "operator",
+      outcome: "ok",
+      target: { feedback: ids.feedbackA },
+    });
+    expect(byAction("mcp tool connections_list").at(-1)).toMatchObject({
+      tenantId: H.B.tenantId,
+      outcome: "ok",
+      target: { client: H.B.tenantId },
+    });
+    expect(byAction("mcp tool ops_health")).toHaveLength(1);
+    expect(byAction("mcp tool clients_list")).toHaveLength(1);
+    // The resolve (the connector's one write) leaves its row in its own transaction.
+    const done = await H.t.db
+      .select()
+      .from(auditEvent)
+      .where(and(eq(auditEvent.action, "mcp tool feedback_resolve"), eq(auditEvent.outcome, "ok")));
+    expect(done.some((r) => (r.target as Record<string, string>).result === "done")).toBe(true);
+    // Another operator's read of a client they don't serve is refused, and audited as refused.
+    await tool(otherToken, "feedback_get", { id: ids.feedbackA });
+    const [refused] = await H.t.db
+      .select()
+      .from(auditEvent)
+      .where(eq(auditEvent.action, "mcp tool feedback_get"))
+      .orderBy(desc(auditEvent.createdAt))
+      .limit(1);
+    expect(refused).toMatchObject({
+      actorUserId: H.otherOperator,
+      outcome: "refused",
+      httpStatus: 404,
+    });
+  });
+
+  it("audits a refused sign-in: a bad token, an unknown user; never the token, never a tokenless ask", async () => {
+    const ping = { jsonrpc: "2.0", id: 1, method: "ping" };
+    const signIns = () =>
+      H.t.db.select().from(auditEvent).where(eq(auditEvent.action, "mcp.sign_in"));
+    const before = new Set((await signIns()).map((r) => r.id));
+    // No token at all is a client finding out where to sign in, as a signed-out browser: no row.
+    expect((await post(null, ping)).status).toBe(401);
+    const bad = await token(WORKOS.operator, { key: stranger.privateKey });
+    expect((await post(bad, ping)).status).toBe(401);
+    expect((await post(await token("user_nobody"), ping)).status).toBe(403);
+    const rows = (await signIns())
+      .filter((r) => !before.has(r.id))
+      .sort((a, b) => (a.id < b.id ? -1 : 1));
+    expect(
+      rows.map((r) => [r.outcome, r.httpStatus, (r.target as { reason: string }).reason]),
+    ).toEqual([
+      ["refused", 401, "invalid_token"],
+      ["refused", 403, "unknown_user"],
+    ]);
+    for (const r of rows) {
+      expect(r.actorKind).toBe("anonymous");
+      expect(JSON.stringify(r)).not.toContain(bad.slice(0, 40));
+    }
+  });
+
+  it("writes refused sign-in rows for one address only up to its limit", async () => {
+    const saved = limiter;
+    limiter = memoryRateLimiter(2);
+    try {
+      const ping = { jsonrpc: "2.0", id: 1, method: "ping" };
+      const signIns = () =>
+        H.t.db.select().from(auditEvent).where(eq(auditEvent.action, "mcp.sign_in"));
+      const before = new Set((await signIns()).map((r) => r.id));
+      const from = { "cf-connecting-ip": "203.0.113.9" };
+      for (let i = 0; i < 4; i++) expect((await post("junk", ping, from)).status).toBe(401);
+      const rows = (await signIns()).filter((r) => !before.has(r.id));
+      expect(rows).toHaveLength(2);
+      // Another address has its own allowance.
+      expect((await post("junk", ping, { "cf-connecting-ip": "203.0.113.10" })).status).toBe(401);
+      expect((await signIns()).filter((r) => !before.has(r.id))).toHaveLength(3);
+    } finally {
+      limiter = saved;
+    }
+  });
+
+  // ── The Dev queue (§1.125) ──────────────────────────────────────────────────────────────────
+
+  describe("Dev queue tools", () => {
+    let ref = "";
+    it("find, search and note as the routes do, recorded as the session; refuse an early claim", async () => {
+      const filed = await asDev(OPERATOR, "POST", "/api/ops/code-requests", {
+        title: "QuickBooks report: balance sheet",
+        kind: "new_tool",
+        spec: {
+          summary: "Read the balance sheet as of a date.",
+          inputs: ["as-of date"],
+          outputs: ["assets", "liabilities", "equity"],
+          acceptance: ["Assets equal liabilities plus equity"],
+          parts: ["qbo.balance_sheet"],
+        },
+      });
+      expect(filed.status, JSON.stringify(filed.json)).toBe(200);
+      ref = j(filed.json).request.ref;
+      // Filing the same capability again from a session returns the one already open.
+      const again = await tool(opToken, "code_request_file", {
+        title: "QuickBooks report: balance sheet",
+        kind: "new_tool",
+        summary: "Read the balance sheet as of a date.",
+      });
+      expect(again.text).toContain(`Not filed: ${ref}`);
+      const fresh = await tool(opToken, "code_request_file", {
+        title: "QuickBooks report: AP aging",
+        kind: "new_tool",
+        summary: "Read accounts payable aging by vendor.",
+        outputs: ["vendor", "buckets"],
+        part: "qbo.ap_aging_report",
+      });
+      expect(fresh.data().request).toMatchObject({ status: "triage", createdBy: "session" });
+      const list = await tool(opToken, "code_requests_list", {});
+      expect(list.data().requests.map((r: { ref: string }) => r.ref)).toContain(ref);
+      const got = await tool(opToken, "code_request_get", { id: ref });
+      expect(got.data().request).toMatchObject({ ref, status: "triage" });
+      expect(got.data().request.moves.claim).toEqual({
+        allowed: false,
+        reason: "Only an accepted request can be claimed.",
+      });
+      const search = await tool(opToken, "catalog_search", { query: "balance sheet report" });
+      expect(search.data().hits.map((h: { ref: string | null }) => h.ref)).toContain(ref);
+      // A claim on a request in triage is refused with the guard's reason.
+      const early = await tool(opToken, "code_request_claim", { id: ref });
+      expect(early.isError).toBe(true);
+      expect(early.text).toMatch(/Only an accepted request can be claimed/);
+      const noted = await tool(opToken, "code_request_note", {
+        id: ref,
+        body: "Looked at qbo.aging_report.",
+      });
+      expect(noted.isError).toBe(false);
+      const events = noted.data().request.events as { kind: string; actor: string }[];
+      expect(events[0]).toMatchObject({ kind: "note", actor: "session" });
+    });
+
+    it("accept and close only with the two-step confirm, and say why a guard refuses", async () => {
+      const preview = await tool(opToken, "code_request_set_status", {
+        id: ref,
+        status: "accepted",
+      });
+      // Its triage isn't done: refused at the preview, with the reason.
+      expect(preview.isError).toBe(true);
+      expect(preview.text).toMatch(/refused/);
+      const close = await tool(opToken, "code_request_set_status", {
+        id: ref,
+        status: "closed",
+        close_reason: "not_worth_it",
+      });
+      expect(close.isError).toBe(false);
+      expect(close.text).toMatch(/Preview, nothing changed yet/);
+      const confirm = /confirm_token "([^"]+)"/.exec(close.text)?.[1] ?? "";
+      const done = await tool(opToken, "code_request_set_status", {
+        id: ref,
+        status: "closed",
+        close_reason: "not_worth_it",
+        confirm_token: confirm,
+      });
+      expect(done.data().request).toMatchObject({ status: "closed", closeReason: "not_worth_it" });
+    });
+  });
+
   // ── The client's tools (§1.89) ──────────────────────────────────────────────────────────────
 
   describe("client tools", () => {

@@ -84,6 +84,8 @@ export const es: Messages = {
   "error.changed": "Este elemento cambió desde que lo abrió; vuelva a mirarlo.",
   "error.run_ended": "Esta ejecución terminó; no se hará nada con este elemento.",
   "error.fingerprint_required": "Esta página está desactualizada; recárguela y vuelva a mirar.",
+  "error.signature_required":
+    "Esto necesita la firma de su teléfono. Fírmelo con Face ID o la huella en la app, o decídalo en un navegador.",
   "error.not_assignee": "Esto espera a otra persona.",
   "error.not_connected": "Esa herramienta no está conectada.",
   "error.not_available": "Eso aún no está disponible.",
@@ -105,6 +107,7 @@ export const es: Messages = {
   "error.not_importable": "El directorio importa desde Zoho CRM o Podio.",
   "error.contact_exists": "Alguien del directorio ya tiene ese correo o ese número.",
   "error.rate_limited": "Espere un minuto e inténtelo de nuevo.",
+  "error.daily_limit": "Ha llegado al límite de hoy para esto. Inténtelo de nuevo mañana.",
   "error.no_address": "No sabemos la dirección de esta cuenta. Vuelva a conectarla.",
   "error.different_account":
     "Esta es una cuenta distinta de la que está conectada aquí. Desconéctela primero y luego conecte la otra.",
@@ -2753,6 +2756,18 @@ export const es: Messages = {
   "bookkeeping.review.loading": "Cargando los movimientos…",
   "bookkeeping.review.suggested": "Sugerimos {account}",
   "bookkeeping.review.noSuggestion": "Aún sin sugerencia",
+  "bookkeeping.review.openBill":
+    "¿Es el pago de una factura de proveedor pendiente: {what}? Si es así, aplícalo a esa factura en QuickBooks y luego exclúyelo aquí.",
+  "bookkeeping.review.openInvoice":
+    "¿Es el cobro de una factura pendiente: {what}? Si es así, aplícalo a esa factura en QuickBooks y luego exclúyelo aquí.",
+  "bookkeeping.review.openBillPaid":
+    "QuickBooks muestra esta factura de proveedor como pagada: {what}. Si este es ese pago, exclúyelo aquí.",
+  "bookkeeping.review.openInvoicePaid":
+    "QuickBooks muestra esta factura como cobrada: {what}. Si este es ese cobro, exclúyelo aquí.",
+  "bookkeeping.review.pairHeld":
+    "Movimiento {what}: puede ser la otra parte de una transferencia que no se registró o se excluyó. Decide ambos a la vez.",
+  "bookkeeping.review.resent":
+    "El banco volvió a enviar esto después de quitar una copia anterior. Decide aquí: no se registra nada hasta que lo hagas.",
   "bookkeeping.review.approve": "Aprobar",
   "bookkeeping.review.account": "Cuenta para {payee}",
   "bookkeeping.review.why": "Por qué, en pocas palabras (opcional)",
@@ -2773,6 +2788,8 @@ export const es: Messages = {
   "bookkeeping.recon.loading": "Cargando la conciliación…",
   "bookkeeping.recon.difference": "Diferencia",
   "bookkeeping.recon.unexplainedBy": "{amount} sin explicar",
+  "bookkeeping.recon.startGap":
+    "Los saldos iniciales difieren en {amount} y nada arrastrado de la última aprobación lo explica. Añade lo que estaba pendiente al inicio del periodo, como un cheque emitido antes que se cobró durante el periodo.",
   "bookkeeping.recon.asOf": "Al {day}",
   "bookkeeping.recon.outcome.balanced": "Cuadra",
   "bookkeeping.recon.outcome.explained": "Explicada",
@@ -3007,6 +3024,11 @@ export const es: Messages = {
     "Claude pide usar Mezonas en su nombre. Lo pidió por primera vez a las {time}. Apruébelo solo si acaba de conectar Claude usted mismo.",
   "connectClaude.lasts":
     "Este enlace funciona hasta las {time}. Una vez aprobada, dura hasta que termine esa sesión de Claude, 12 horas como máximo.",
+  "connectClaude.requested":
+    "Claude le dio este enlace a las {time}. Si no se lo pidió a Claude hace un momento, no lo apruebe.",
+  "connectClaude.confirm": "El código que le mostró Claude",
+  "connectClaude.confirmHint":
+    "Claude muestra un código de 6 dígitos con este enlace. Escriba el que le muestra su propio Claude, nunca uno que otra persona le envíe.",
   "connectClaude.approve": "Aprobar",
   "connectClaude.approving": "Aprobando…",
   "connectClaude.approved":
@@ -3015,6 +3037,36 @@ export const es: Messages = {
     "Este enlace venció. Vuelva a pedírselo a Claude para obtener uno nuevo.",
   "connectClaude.unknown":
     "Este enlace no corresponde a ninguna conexión de Claude suya. Vuelva a pedírselo a Claude para obtener uno nuevo.",
+  // ── §1.124: Requests (issues and asks) and requirements forms ──
+  "requests.title": "Solicitudes",
+  "requests.lede":
+    "Algo no funciona, o una idea para nosotros: cuénteselo aquí a su responsable en Mezonas.",
+  "requests.new": "Nueva solicitud",
+  "requests.empty": "Aún no hay solicitudes.",
+  "requests.state.on_it": "Estamos en ello",
+  "requests.state.waiting_on_you": "Esperamos su respuesta",
+  "requests.state.fixed": "Resuelto",
+  "requests.state.closed": "Cerrado",
+  "requests.kind.problem": "Algo no funciona",
+  "requests.kind.idea": "Una idea o un cambio",
+  "requests.kindQuestion": "¿Qué es?",
+  "requests.service": "Sobre",
+  "requests.serviceNone": "Nada en particular",
+  "requests.text": "Cuéntenos qué pasó o qué le gustaría",
+  "requests.reply": "Escriba a su responsable en Mezonas",
+  "requests.replySend": "Enviar",
+  "requests.confirm": "Confirmar que está resuelto",
+  "requests.stillHappening": "Sigue pasando",
+  "requests.back": "Todas las solicitudes",
+  "requests.lead": "Su responsable en Mezonas",
+  "requests.you": "Usted",
+  "requests.number": "Solicitud n.º {n}",
+  "requirements.title": "Preguntas para su nuevo agente",
+  "requirements.save": "Guardar borrador",
+  "requirements.submit": "Enviar respuestas",
+  "requirements.progress": "{answered} de {total} respondidas",
+  "requirements.sent": "Enviado. Gracias: nosotros nos encargamos.",
+  "requirements.due": "Vence el {date}",
   // ── Access per person (docs/plan.md §1.122) ──
   "access.edit": "Acceso",
   "access.title": "Qué puede hacer {name}",

@@ -15,6 +15,7 @@ import type {
   BrowserTab,
   BrowserTabService,
 } from "@countersign/connectors";
+import { blockedHost } from "./blocked";
 import { browserRunOpener } from "./driver";
 import type { BrowserEnv } from "./env";
 import { OpenInput, serveTab } from "./serve";
@@ -95,6 +96,10 @@ export class Browsers extends WorkerEntrypoint<BrowserEnv> implements BrowserSer
     const parsed = OpenInput.safeParse(input);
     if (!parsed.success) {
       return { ok: false, error: { code: "invalid", message: "invalid open request" } };
+    }
+    // The blocked tier's hosts are never reached, whatever apps/api asked for (./blocked.ts).
+    if (parsed.data.hosts.some((host) => blockedHost(host) !== null)) {
+      return { ok: false, error: { code: "invalid", message: "agents never open this site" } };
     }
     const opener = browserRunOpener(this.env);
     const tab = opener ? await opener(parsed.data) : null;

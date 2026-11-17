@@ -31,9 +31,11 @@ export interface MailMessage {
   idempotencyKey: string;
   /** Sent in a client's name: `<name> via Mezonas` (docs/plan.md §1.98). Default `Mezonas`. */
   onBehalfOf?: string;
-  /** §1.124: where a reply goes (Sloan's address), when not to the sender. */
+  /** §1.124.4: where replies go (Sloan's address, or the back office's tagged address), as Resend's `reply_to`. */
   replyTo?: string;
-  /** §1.124: `In-Reply-To` and `References`, so the answer threads under the person's email. */
+  /** §1.124.4: extra headers (e.g. In-Reply-To), as Resend's `headers`. */
+  headers?: Record<string, string>;
+  /** Sloan by email: `In-Reply-To` and `References`, so the answer threads under the person's email. */
   inReplyTo?: string;
 }
 
@@ -83,9 +85,13 @@ export function resendMailer(input: {
           text: m.text,
           ...(m.html ? { html: m.html } : {}),
           ...(m.replyTo ? { reply_to: m.replyTo } : {}),
-          ...(m.inReplyTo
-            ? { headers: { "In-Reply-To": m.inReplyTo, References: m.inReplyTo } }
-            : {}),
+          ...(() => {
+            const headers = {
+              ...m.headers,
+              ...(m.inReplyTo ? { "In-Reply-To": m.inReplyTo, References: m.inReplyTo } : {}),
+            };
+            return Object.keys(headers).length > 0 ? { headers } : {};
+          })(),
         },
         { "Idempotency-Key": `notify-${m.idempotencyKey}` },
       )) as { id?: unknown } | null;
@@ -117,7 +123,7 @@ export interface Texter {
   /** Sends from the client's number; returns the message SID. Throws when it can't. */
   send(tx: Tx, tenantId: string, input: { to: string; body: string }): Promise<string>;
   /**
-   * §1.124: sends from one number of one of the client's Twilio connections (the number a person
+   * §1.150: sends from one number of one of the client's Twilio connections (the number a person
    * texted), through its Messaging Service once verified. Throws when it can't.
    */
   sendFrom?(

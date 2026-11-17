@@ -8,6 +8,7 @@
 import { KPI_DAYS, shortRunId } from "@countersign/core";
 import {
   agent,
+  auditEvent,
   connection,
   contact,
   docExtraction,
@@ -23,7 +24,7 @@ import {
   vendor,
 } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
@@ -735,6 +736,57 @@ describe.skipIf(!h)("command center, search and questions", () => {
     expect(j(res.json)).toMatchObject({ understood: true });
     expect(j(res.json).runs.map((r: { id: string }) => r.id)).toEqual([ids.r8]);
     expect(await sloanRuns(H.B.tenantId)).toHaveLength(0);
+  });
+
+  it("limits each person's questions: 10 a minute, sent at once or not, and never calls the model past it", async () => {
+    const asked = () => model.requests.length;
+    const before = asked();
+    model.push(
+      ...Array.from({ length: 10 }, () => ({
+        toolUse: { name: "run_filter", input: { statuses: ["succeeded"] } },
+      })),
+    );
+    // Twelve at once: the per-person count is claimed one at a time, so exactly ten go through.
+    const answers = await Promise.all(
+      Array.from({ length: 12 }, () =>
+        H.call(user("b"), "POST", "/api/runs/ask", { text: "what went through" }),
+      ),
+    );
+    expect(answers.map((r) => r.status).sort()).toEqual([...Array(10).fill(200), 429, 429]);
+    const refused = answers.find((r) => r.status === 429);
+    expect(j(refused?.json).error.code).toBe("rate_limited");
+    expect(asked() - before).toBe(10);
+    // Another person in the same client has their own allowance.
+    model.push({ toolUse: { name: "run_filter", input: { statuses: ["succeeded"] } } });
+    expect(
+      (await H.call(admin("b"), "POST", "/api/runs/ask", { text: "what went through" })).status,
+    ).toBe(200);
+  });
+
+  it("limits each person's questions to 200 a day, with a plain 429", async () => {
+    // Earlier today: 198 claimed questions, two hours ago, beside the two made above.
+    const [person] = await H.t.db.execute<{ id: string }>(
+      sql`select id from app_user where email = ${user("a")}`,
+    );
+    await H.t.db.insert(auditEvent).values(
+      Array.from({ length: 198 }, () => ({
+        tenantId: H.A.tenantId,
+        actorKind: "user" as const,
+        actorUserId: person?.id ?? null,
+        action: "metered runs.ask",
+        outcome: "ok" as const,
+        target: {},
+        createdAt: hoursAgo(2),
+      })),
+    );
+    const before = model.requests.length;
+    const res = await H.call(user("a"), "POST", "/api/runs/ask", { text: "what failed" });
+    expect(res.status).toBe(429);
+    expect(j(res.json).error).toMatchObject({
+      code: "daily_limit",
+      message: expect.stringContaining("today's limit"),
+    });
+    expect(model.requests.length).toBe(before);
   });
 
   it("answers the back office across the clients served, never others", async () => {

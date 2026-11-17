@@ -18,6 +18,15 @@ describe("Browsers.open", () => {
     );
   });
 
+  it("refuses to open a browser for a host on the blocked list", async () => {
+    for (const hosts of [["www.paypal.com"], ["portal.supplier.test", "*.okta.com"]]) {
+      expect(await browsers.open({ hosts })).toEqual({
+        ok: false,
+        error: { code: "invalid", message: "agents never open this site" },
+      });
+    }
+  });
+
   it("refuses a request outside the contract", async () => {
     const invalid = { ok: false, error: { code: "invalid", message: "invalid open request" } };
     for (const input of [

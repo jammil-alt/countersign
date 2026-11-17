@@ -17,6 +17,9 @@ const db = createDb(url, { max: 1 });
 try {
   const report = await purgeClient(db, tenantId);
   for (const d of report.deleted) if (d.rows > 0) console.error(`  ${d.table}: ${d.rows}`);
+  for (const c of report.cleared) {
+    if (c.rows > 0) console.error(`  ${c.table}.${c.column} cleared: ${c.rows}`);
+  }
   console.error(
     `db:purge-client: ${report.name} (${report.tenantId}) purged; ${report.usersDeleted} users removed`,
   );

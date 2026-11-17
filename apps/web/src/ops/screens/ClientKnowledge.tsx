@@ -30,6 +30,7 @@ export function ClientKnowledgeRoute() {
 
 const HIT_LABEL: Record<KnowledgeHit["kind"], string> = {
   ...KIND_LABEL,
+  about: "About the business",
   document: "Document",
   memory: "Memory note",
 };

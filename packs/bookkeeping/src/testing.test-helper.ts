@@ -3,7 +3,7 @@
 // QuickBooks purchases as its sync maps them. Written through the superuser connection (which
 // bypasses RLS); the tests then act as cs_worker.
 
-import type { AgentBundle } from "@countersign/core";
+import { type AgentBundle, dec } from "@countersign/core";
 import {
   agent,
   agentVersion,
@@ -14,6 +14,7 @@ import {
   ledgerAccount,
   membership,
   rawRecord,
+  receivable,
   tenant,
   transaction,
   vendor,
@@ -69,6 +70,23 @@ export interface BooksFixture {
     date: string;
     accountQboId: string;
     credit?: boolean;
+    memo?: string;
+  }): Promise<string>;
+  /** A QuickBooks bill as sync maps it, with what is still owed on it (its latest version). */
+  qboBill(b: {
+    id: string;
+    total: string;
+    balance: string;
+    date: string;
+    vendorId?: string;
+  }): Promise<string>;
+  /** A QuickBooks invoice as sync maps it, with what the customer still owes. */
+  qboInvoice(i: {
+    id: string;
+    total: string;
+    balance: string;
+    date: string;
+    customer: string;
   }): Promise<string>;
   vendor(name: string, qboId?: string): Promise<string>;
 }
@@ -218,10 +236,86 @@ export async function insertBooks(db: Db, name: string): Promise<BooksFixture> {
           txnDate: p.date,
           total: p.total,
           externalId: `Purchase:${p.id}`,
+          memo: p.memo ?? null,
           ext: { qbo: { entity: "Purchase", id: p.id, accountId: p.accountQboId } },
         })
         .returning();
       if (!row) throw new Error("no transaction");
+      return row.id;
+    },
+    async qboBill(b) {
+      const [raw] = await db
+        .insert(rawRecord)
+        .values({
+          tenantId,
+          connectionId: qbo.id,
+          connector: "qbo",
+          entityType: "Bill",
+          externalId: b.id,
+          externalVersion: `v1:${++versions}`,
+          payload: {
+            Id: b.id,
+            TxnDate: b.date,
+            TotalAmt: Number(b.total),
+            Balance: Number(b.balance),
+          },
+        })
+        .returning();
+      if (!raw) throw new Error("no raw record");
+      const [row] = await db
+        .insert(transaction)
+        .values({
+          tenantId,
+          kind: "bill",
+          connector: "qbo",
+          vendorId: b.vendorId ?? null,
+          txnDate: b.date,
+          total: b.total,
+          externalId: `Bill:${b.id}`,
+          sourceRawRecordId: raw.id,
+          ext: { qbo: { entity: "Bill", id: b.id, accountId: null } },
+        })
+        .returning();
+      if (!row) throw new Error("no transaction");
+      return row.id;
+    },
+    async qboInvoice(i) {
+      const [raw] = await db
+        .insert(rawRecord)
+        .values({
+          tenantId,
+          connectionId: qbo.id,
+          connector: "qbo",
+          entityType: "Invoice",
+          externalId: i.id,
+          externalVersion: `v1:${++versions}`,
+          payload: {
+            Id: i.id,
+            TxnDate: i.date,
+            TotalAmt: Number(i.total),
+            Balance: Number(i.balance),
+          },
+        })
+        .returning();
+      if (!raw) throw new Error("no raw record");
+      const [row] = await db
+        .insert(receivable)
+        .values({
+          tenantId,
+          connectionId: qbo.id,
+          connector: "qbo",
+          externalId: i.id,
+          docNumber: i.id,
+          customerExternalId: `c-${i.id}`,
+          customerName: i.customer,
+          txnDate: i.date,
+          total: i.total,
+          balance: i.balance,
+          status: dec(i.balance).isZero() ? "paid" : "open",
+          sourceRawRecordId: raw.id,
+        })
+        .returning();
+      if (!row) throw new Error("no receivable");
       return row.id;
     },
     async vendor(vendorName, qboId) {

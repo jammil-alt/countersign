@@ -51,6 +51,7 @@ import {
   type ReachChannel,
   ReachConditions,
   type ReachReply,
+  readHold,
   routeApproval,
 } from "@countersign/core";
 import {
@@ -1101,11 +1102,16 @@ export function conversePort(deps: ConverseDeps): ConversePort {
           req.approval.required === "not_required" &&
           effectiveMode(definition, agentRow.stage) === "act" &&
           conn?.create === "auto" &&
-          !chosen.plan.needsSignature;
+          !chosen.plan.needsSignature &&
+          // docs/plan.md §1.124: a held agent's messages wait for a person.
+          readHold(agentRow.hold) === null;
         // DECISION: until the agent is live, and for a person whose channel needs approval, every
         // message is signed (invariant 8; docs/plan.md §1.42). R7: and when the step says so.
         const perMessage =
-          options.perMessage === true || chosen.plan.needsSignature || agentRow.stage !== "live";
+          options.perMessage === true ||
+          chosen.plan.needsSignature ||
+          agentRow.stage !== "live" ||
+          readHold(agentRow.hold) !== null;
         // WhatsApp's 24-hour window for the opening: a template outside it, or nothing.
         let template: StoredPlan["whatsappTemplate"];
         if (channel === "whatsapp" && chosen.who.whatsapp) {

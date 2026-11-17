@@ -10,6 +10,7 @@ import {
   accountFresh,
   type CarriedAccount,
   epochSec,
+  refuse,
   requireRole,
   type Session,
   secondFactorGate,
@@ -26,7 +27,13 @@ import {
   R2ObjectStore,
   type StripeClient,
 } from "@countersign/connectors";
-import { assignedUserMayUse, type Role, type RouteSpec, routeFamily } from "@countersign/core";
+import {
+  assignedUserMayUse,
+  ComplianceRefusal,
+  type Role,
+  type RouteSpec,
+  routeFamily,
+} from "@countersign/core";
 import {
   closeDb,
   createDb,
@@ -38,7 +45,7 @@ import {
   withSession,
   withTenant,
 } from "@countersign/db";
-import { createOpenAITranscriber, type LlmTransport, type Transcriber } from "@countersign/llm";
+import type { LlmTransport, Transcriber } from "@countersign/llm";
 import { captureException } from "@sentry/cloudflare";
 import { and, eq } from "drizzle-orm";
 import type { Context, Hono } from "hono";
@@ -46,10 +53,12 @@ import { createMiddleware } from "hono/factory";
 import { z } from "zod";
 import { type AuditEntry, auditAction, auditAlone, auditInTx, auditTarget } from "./audit";
 import { type AdapterChoice, accountInTx, authDirectory, chooseAdapter } from "./auth";
+import { readTextLimited } from "./body";
 import type { BrowserDeps } from "./browser/services";
 import type { Bindings } from "./env";
 import type { ExportJobs } from "./exports/instances";
 import type { McpDeps } from "./mcp/routes";
+import { PHONE_ENDED_MESSAGE, phoneEndedForPerson } from "./mobile/phone-session";
 import { reportHandled } from "./observability/report";
 import { type Platform, platformFor } from "./platform";
 import type { QboSyncInstances } from "./qbo/instances";
@@ -111,15 +120,6 @@ export interface AppDeps {
    * Tests pass a fake.
    */
   transcriber?(env: Bindings): Transcriber | null;
-}
-
-/** Voice typing's speech-to-text, or null where it is off (no OpenAI key). */
-export function transcriberFor(deps: AppDeps, env: Bindings): Transcriber | null {
-  if (deps.transcriber) return deps.transcriber(env);
-  const key = env.OPENAI_API_KEY?.trim();
-  return key
-    ? createOpenAITranscriber({ apiKey: key, fetch: globalFetch() as unknown as typeof fetch })
-    : null;
 }
 
 /** The Stripe client for billing, or null where billing is off (no key). */
@@ -302,6 +302,8 @@ export function toHttpError(error: unknown): HttpError {
     );
   }
   if (error instanceof ScopeError) return new HttpError(403, "forbidden", error.message);
+  // HIPAA mode (§1.35): a call that would send a client's data to a vendor without a BAA.
+  if (error instanceof ComplianceRefusal) return new HttpError(409, "hipaa", error.message);
   if (error instanceof z.ZodError) {
     return new HttpError(400, "invalid_request", z.prettifyError(error), error.issues);
   }
@@ -384,7 +386,21 @@ export interface HandlerCtx<R extends RouteSpec> extends PublicCtx<R> {
 
 type Result<R extends RouteSpec> = z.input<R["response"]>;
 
-async function parseInput<R extends RouteSpec>(c: AppContext, spec: R) {
+/**
+ * The most a route with no session takes as its JSON body. DECISION (audit 6.5): 1 MiB. It holds
+ * a form of 40 long answers at their 20,000-character cap (about 800 KB) and is far past the
+ * sign-in steps' and texting sign-up's few fields. It does not hold the form schema's ceiling: 40
+ * table questions of 50 rows by 8 long-text cells allow 320 million characters, which no limit
+ * should take; a form that large gets 413 when its draft is saved or it is sent.
+ */
+export const PUBLIC_BODY_MAX_BYTES = 1024 * 1024;
+
+async function parseInput<R extends RouteSpec>(
+  c: AppContext,
+  spec: R,
+  /** Read the body bounded, refusing a longer one with 413 (routes with no session). */
+  maxBytes?: number,
+) {
   const params = spec.params ? spec.params.parse(c.req.param()) : undefined;
   const query = spec.query ? spec.query.parse(c.req.query()) : undefined;
   let body: unknown;
@@ -396,8 +412,10 @@ async function parseInput<R extends RouteSpec>(c: AppContext, spec: R) {
       throw new HttpError(415, "invalid_request", "the body must be JSON (application/json)");
     }
     let raw: unknown;
+    const text = maxBytes === undefined ? undefined : await readTextLimited(c.req.raw, maxBytes);
+    if (text === null) throw new HttpError(413, "too_large", "the body is too large");
     try {
-      raw = await c.req.json();
+      raw = text === undefined ? await c.req.json() : JSON.parse(text);
     } catch {
       throw new HttpError(400, "invalid_request", "the body must be JSON");
     }
@@ -426,7 +444,7 @@ export function mountPublic<R extends RouteSpec>(
 ): void {
   app.on(spec.method, spec.path, async (c) => {
     try {
-      const { query, body } = await parseInput(c, spec);
+      const { query, body } = await parseInput(c, spec, PUBLIC_BODY_MAX_BYTES);
       const services = c.get("req").services();
       return respond(c, spec, await handler({ c, body, query, services }));
     } catch (error) {
@@ -673,7 +691,10 @@ function withAgentScope<R extends RouteSpec>(
   if (mode === "long") {
     const run = handler as (ctx: LongHandlerCtx<R>) => Promise<unknown>;
     return async (ctx) =>
-      run({ ...ctx, agents: await ctx.inTx((scoped) => agentScope(spec, scoped.tx, ctx)) });
+      run({
+        ...ctx,
+        agents: await ctx.inTx((scoped) => agentScope(spec, scoped.tx, ctx)),
+      });
   }
   const run = handler as (ctx: HandlerCtx<R>) => Promise<unknown>;
   return async (ctx) => run({ ...ctx, agents: await agentScope(spec, ctx.tx, ctx) });
@@ -731,6 +752,18 @@ function mountWith<R extends RouteSpec>(
       // which run outside mount. Checked before any account is read or carried.
       const pending = secondFactorGate(identified);
       if (pending) return refused(pending);
+      // Audit 5.2: a phone app's session signed in before the person removed one of their phones,
+      // in any of their clients, is over (./mobile/phone-session.ts). Its own short reads, before
+      // the request's transaction; a browser's session reads nothing here.
+      if (
+        identified.phone &&
+        (await phoneEndedForPerson(services.db, {
+          phone: identified.phone,
+          user: { id: identified.userId },
+        }))
+      ) {
+        return refused(refuse("session_invalid", PHONE_ENDED_MESSAGE, identified.setCookies));
+      }
       const { userId } = identified;
       const requested = requestedClient(c);
       const nowSec = epochSec(now);
@@ -747,6 +780,7 @@ function mountWith<R extends RouteSpec>(
           requested,
           identified.setCookies,
           identified.secondFactor,
+          identified,
         );
         if (!result.ok) return result;
         setCookies = result.setCookies;
@@ -959,8 +993,11 @@ export async function invokeRoute<R extends RouteSpec>(
   session: Session,
   spec: R,
   raw: RouteInput = {},
-  /** Which front door called it, for the audit row: the MCP server, Reggie (§1.101), or a build (§1.108). */
-  via: "mcp" | "reggie" | "build" = "mcp",
+  /**
+   * Which front door called it, for the audit row: the MCP server, Reggie (§1.101), a build
+   * (§1.108), a deal's set-up (§1.124.2), or a to-do done from Your call (§1.124.3).
+   */
+  via: "mcp" | "reggie" | "build" | "deal" | "todo" = "mcp",
 ): Promise<z.output<R["response"]>> {
   const handler = mounted.get(app)?.get(spec);
   if (!handler) throw new Error(`${spec.method} ${spec.path} is not mounted`);

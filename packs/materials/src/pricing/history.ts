@@ -2,12 +2,14 @@
 // for it (`materials.prices.compare_vendors`), and the week's digest (`materials.weekly-digest`):
 // changes, creep, vendor spread, new fees and their dollar impact. Reads only.
 
-import { dec, formatAmount, toNumeric } from "@countersign/core";
+import { dec, toNumeric } from "@countersign/core";
 import { alert, type Tx, vendor } from "@countersign/db";
 import { and, asc, desc, eq, gte, inArray, lte } from "drizzle-orm";
 import { PACK_ID } from "../ids";
 import { catalogItem, priceObservation } from "../schema";
-import { daysBefore } from "./rules";
+import { alertCurrency, atStakeOf } from "./money";
+import { fromLatestReading } from "./record";
+import { daysBefore, moneyIn } from "./rules";
 
 export async function priceHistory(
   tx: Tx,
@@ -24,6 +26,8 @@ export async function priceHistory(
     eq(priceObservation.tenantId, tenantId),
     eq(priceObservation.catalogItemId, input.catalogItemId),
     gte(priceObservation.observedOn, since),
+    // A document read again counts once: its latest reading's prices only (audit 7.9).
+    fromLatestReading(),
   ];
   if (input.vendorId) filters.push(eq(priceObservation.vendorId, input.vendorId));
   const rows = await tx
@@ -42,6 +46,9 @@ export async function priceHistory(
     qtyStd: o.qtyStd,
     standardUom: o.standardUom,
     docLineId: o.docLineId,
+    currency: o.currency,
+    /** The line stated no unit: the price was taken to be per the standard unit. */
+    uomAssumed: o.ext?.uomAssumed === true,
   }));
 }
 
@@ -50,9 +57,18 @@ export async function compareVendors(
   tenantId: string,
   input: { catalogItemId: string; days?: number | undefined; today: string },
 ) {
-  const history = await priceHistory(tx, tenantId, { ...input, days: input.days ?? 90 });
+  // DECISION (audit 7.9): vendors are compared on prices whose unit was read, not assumed (a
+  // line with no unit, a QuickBooks bill line), and per currency: a vendor billing in two
+  // currencies is listed once in each, and the cheapest is named only among the vendors in the
+  // currency most of them bill in (none when two currencies tie).
+  const history = (await priceHistory(tx, tenantId, { ...input, days: input.days ?? 90 })).filter(
+    (o) => !o.uomAssumed,
+  );
   const byVendor = new Map<string, typeof history>();
-  for (const o of history) byVendor.set(o.vendorId, [...(byVendor.get(o.vendorId) ?? []), o]);
+  for (const o of history) {
+    const key = `${o.vendorId}|${o.currency}`;
+    byVendor.set(key, [...(byVendor.get(key) ?? []), o]);
+  }
   const vendors = [...byVendor.values()].map((obs) => {
     const last = obs.at(-1) as (typeof history)[number];
     const avg = obs.reduce((s, o) => s.plus(o.unitPriceStd), dec("0")).dividedBy(obs.length);
@@ -65,10 +81,21 @@ export async function compareVendors(
       purchases: obs.length,
       qtyStd: toNumeric(obs.reduce((s, o) => s.plus(o.qtyStd), dec("0"))),
       standardUom: last.standardUom,
+      currency: last.currency,
     };
   });
-  vendors.sort((a, b) => dec(a.lastPrice).comparedTo(dec(b.lastPrice)));
-  return { vendors, cheapest: vendors[0]?.vendorId ?? null, sources: history.map((o) => o.id) };
+  const perCurrency = new Map<string, number>();
+  for (const v of vendors) perCurrency.set(v.currency, (perCurrency.get(v.currency) ?? 0) + 1);
+  const [top, next] = [...perCurrency.entries()].sort((a, b) => b[1] - a[1]);
+  const main = top && !(next && next[1] === top[1]) ? top[0] : null;
+  vendors.sort(
+    (a, b) =>
+      Number(b.currency === main) - Number(a.currency === main) ||
+      a.currency.localeCompare(b.currency) ||
+      dec(a.lastPrice).comparedTo(dec(b.lastPrice)),
+  );
+  const cheapest = main === null ? null : (vendors.find((v) => v.currency === main) ?? null);
+  return { vendors, cheapest: cheapest?.vendorId ?? null, sources: history.map((o) => o.id) };
 }
 
 /** Last price against the one before, per item and vendor, for prices seen in the period. */
@@ -87,6 +114,7 @@ export async function weeklyDigest(
         eq(priceObservation.tenantId, tenantId),
         gte(priceObservation.observedOn, start),
         lte(priceObservation.observedOn, input.today),
+        fromLatestReading(),
       ),
     )
     .orderBy(desc(priceObservation.observedOn));
@@ -110,6 +138,7 @@ export async function weeklyDigest(
     from: string;
     to: string;
     changePct: string;
+    currency: string;
   }[] = [];
   const pairs = new Set<string>();
   for (const o of recent) {
@@ -124,7 +153,9 @@ export async function weeklyDigest(
           eq(priceObservation.tenantId, tenantId),
           eq(priceObservation.catalogItemId, o.catalogItemId),
           eq(priceObservation.vendorId, o.vendorId),
+          eq(priceObservation.currency, o.currency),
           lte(priceObservation.observedOn, daysBefore(start, 1)),
+          fromLatestReading(),
         ),
       )
       .orderBy(desc(priceObservation.observedOn))
@@ -140,6 +171,7 @@ export async function weeklyDigest(
       from: prev.unitPriceStd,
       to: o.unitPriceStd,
       changePct: c.toDecimalPlaces(1).toString(),
+      currency: o.currency,
     });
   }
   changes.sort((a, b) => dec(b.changePct).abs().comparedTo(dec(a.changePct).abs()));
@@ -154,22 +186,20 @@ export async function weeklyDigest(
       ),
     )
     .orderBy(desc(alert.createdAt));
-  // §1.104: a saving (a negative impact, paid below the agreed price) doesn't net out what is at stake.
-  const impact = alerts.reduce(
-    (s, a) => (dec(a.dollarImpact ?? "0").greaterThan(0) ? s.plus(a.dollarImpact ?? "0") : s),
-    dec("0"),
-  );
+  // §1.104: a saving (a negative impact, paid below the agreed price) doesn't net out what is at
+  // stake; and (second review, M5) amounts in two currencies are never added together.
+  const stake = atStakeOf(alerts);
   const ups = changes.filter((c) => dec(c.changePct).greaterThan(0)).length;
   const lines = [
     `${recent.length} prices recorded from ${start} to ${input.today}; ${ups} went up and ${changes.length - ups} went down.`,
     alerts.length > 0
-      ? `${alerts.length} alerts, about $${formatAmount(impact)} at stake.`
+      ? `${alerts.length} alerts, about ${stake.atStake.map((s) => moneyIn(s.amount, s.currency)).join(" and ")} at stake.`
       : "No new alerts.",
     ...changes
       .slice(0, 5)
       .map(
         (c) =>
-          `${c.item} at ${c.vendor}: $${formatAmount(c.from)} to $${formatAmount(c.to)} (${dec(c.changePct).greaterThan(0) ? "+" : ""}${c.changePct}%).`,
+          `${c.item} at ${c.vendor}: ${moneyIn(c.from, c.currency)} to ${moneyIn(c.to, c.currency)} (${dec(c.changePct).greaterThan(0) ? "+" : ""}${c.changePct}%).`,
       ),
     ...alerts.slice(0, 5).map((a) => a.title),
   ];
@@ -183,9 +213,13 @@ export async function weeklyDigest(
       kind: a.kind,
       title: a.title,
       dollarImpact: a.dollarImpact,
+      currency: alertCurrency(a),
       status: a.status,
     })),
-    dollarImpact: toNumeric(impact),
+    /** In `currency`; `atStake` has each currency's. */
+    dollarImpact: stake.dollarImpact,
+    currency: stake.currency,
+    atStake: stake.atStake,
     message: lines.join("\n"),
     sources: [...recent.map((o) => o.id), ...alerts.map((a) => a.id)],
   };

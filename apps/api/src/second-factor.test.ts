@@ -4,13 +4,20 @@
 // browser" for 30 days, operators held to an authenticator app, the limit on wrong codes, and an
 // operator's reset forgetting every browser.
 
-import type { WorkOSAuthentication, WorkOSClient } from "@countersign/auth";
+import {
+  openSession,
+  SESSION_COOKIE,
+  sealSession,
+  type WorkOSAuthentication,
+  type WorkOSClient,
+} from "@countersign/auth";
 import { memoryCodeVerifier } from "@countersign/connectors";
 import { appUser, auditEvent } from "@countersign/db";
 import { and, asc, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { type ApiHarness, createApiHarness } from "./api.test-helper";
 import type { Bindings } from "./env";
+import { claimAttempt } from "./second-factor";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
@@ -267,6 +274,49 @@ describe.skipIf(!h)("the second step of signing in (§1.100)", () => {
     expect(reused.status).toBe(422);
   });
 
+  it("keeps the person signed in when passing the step also refreshes the session", async () => {
+    // A pending sign-in whose refresh is due: the code took a while to arrive.
+    const [u] = await H.t.db.select().from(appUser).where(eq(appUser.id, H.A.admin));
+    const id = workosIds.get(H.A.admin) ?? "wu_admin";
+    const now = Math.floor(Date.now() / 1000);
+    const slow = await sealSession(
+      {
+        v: 1,
+        uid: H.A.admin,
+        wuid: id,
+        email: u?.email ?? "",
+        worg: null,
+        sid: `sess_${id}`,
+        rt: "rt_spent_by_the_refresh",
+        iat: now - 400,
+        rat: now - 100,
+        exp: now + 3600,
+        lat: now - 10,
+        mf: "pending",
+        mfx: now + 200,
+      },
+      PASSWORD,
+    );
+    signingIn = {
+      user: { id, email: u?.email ?? "", firstName: null, lastName: null, emailVerified: true },
+      organizationId: null,
+      refreshToken: "rt_after_the_refresh",
+      sessionId: `sess_${id}`,
+      authenticationMethod: "Password",
+    };
+    const b = new Browser();
+    b.jar.set(SESSION_COOKIE, slow);
+    const passed = await request(b, "POST", "/api/auth/second-factor/verify", {
+      kind: "sms",
+      code: "246810",
+    });
+    expect(passed.status, JSON.stringify(passed.json)).toBe(200);
+    // The cookie the browser keeps is the refreshed session, now past the step.
+    const kept = await openSession(b.jar.get(SESSION_COOKIE) ?? "", PASSWORD);
+    expect(kept).toMatchObject({ mf: "done", rt: "rt_after_the_refresh" });
+    expect((await request(b, "GET", "/api/session")).status).toBe(200);
+  });
+
   it("refuses after 5 wrong codes in 15 minutes", async () => {
     const b = new Browser();
     await signIn(b, H.A.user);
@@ -288,6 +338,67 @@ describe.skipIf(!h)("the second step of signing in (§1.100)", () => {
     });
     expect(blocked.status).toBe(429);
     expect(blocked.json.error.code).toBe("too_many_attempts");
+  });
+
+  it("counts tries sent at once one at a time, before any code is checked", async () => {
+    const b = new Browser();
+    await signIn(b, H.B.admin);
+    await request(b, "POST", "/api/auth/second-factor/setup", {
+      kind: "sms",
+      phone: "+15559876543",
+    });
+    // Eight wrong codes at once: five are checked and refused, the rest refused unchecked.
+    const tries = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        request(b, "POST", "/api/auth/second-factor/verify", { kind: "sms", code: "111111" }),
+      ),
+    );
+    expect(tries.map((t) => t.status).sort()).toEqual([422, 422, 422, 422, 422, 429, 429, 429]);
+    // The right code is refused too, until the 15 minutes pass.
+    const right = await request(b, "POST", "/api/auth/second-factor/verify", {
+      kind: "sms",
+      code: "246810",
+    });
+    expect([right.status, right.json.error.code]).toEqual([429, "too_many_attempts"]);
+    const recovery = await request(b, "POST", "/api/auth/second-factor/recovery", {
+      code: "AAAA-BBBB",
+    });
+    expect(recovery.status).toBe(429);
+    const attempts = await H.t.db
+      .select()
+      .from(auditEvent)
+      .where(
+        and(
+          eq(auditEvent.action, "session.second_factor_attempt"),
+          eq(auditEvent.actorUserId, H.B.admin),
+        ),
+      );
+    expect(attempts).toHaveLength(5);
+    // A try whose row can't be written is no try: the claim fails rather than letting it through.
+    await expect(
+      claimAttempt(H.t.db, H.operator, async () => {
+        throw new Error("audit row not written");
+      }),
+    ).rejects.toThrow("audit row not written");
+  });
+
+  it("counts code sends at once one at a time", async () => {
+    const b = new Browser();
+    await signIn(b, H.C.admin);
+    const setup = await request(b, "POST", "/api/auth/second-factor/setup", {
+      kind: "sms",
+      phone: "+15550001111",
+    });
+    expect(setup.status, JSON.stringify(setup.json)).toBe(200);
+    const before = verifier.sent.length;
+    // Setting up sent one; of eight more at once, four fit in the limit of five.
+    const sends = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        request(b, "POST", "/api/auth/second-factor/send", { kind: "sms" }),
+      ),
+    );
+    expect(sends.map((r) => r.status).sort()).toEqual([200, 200, 200, 200, 429, 429, 429, 429]);
+    expect(verifier.sent.length - before).toBe(4);
   });
 
   const operator = new Browser();

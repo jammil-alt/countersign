@@ -88,6 +88,8 @@ export const fr: Messages = {
   "error.run_ended": "Cette exécution est terminée ; rien ne sera fait avec cet élément.",
   "error.fingerprint_required":
     "Cette page n'est plus à jour ; rechargez-la et regardez à nouveau.",
+  "error.signature_required":
+    "Ceci demande la signature de votre téléphone. Signez avec Face ID ou l'empreinte dans l'app, ou décidez dans un navigateur.",
   "error.not_assignee": "Ceci attend quelqu'un d'autre.",
   "error.not_connected": "Cet outil n'est pas connecté.",
   "error.not_available": "Ce n'est pas encore disponible.",
@@ -108,6 +110,7 @@ export const fr: Messages = {
   "error.not_importable": "L'annuaire importe depuis Zoho CRM ou Podio.",
   "error.contact_exists": "Quelqu'un dans l'annuaire a déjà cette adresse e-mail ou ce numéro.",
   "error.rate_limited": "Attendez une minute et réessayez.",
+  "error.daily_limit": "Vous avez atteint la limite du jour pour ceci. Réessayez demain.",
   "error.no_address": "Nous ne connaissons pas l'adresse de ce compte. Connectez-le à nouveau.",
   "error.different_account":
     "Ce compte n'est pas celui qui est connecté ici. Déconnectez-le d'abord, puis connectez l'autre.",
@@ -2802,6 +2805,18 @@ export const fr: Messages = {
   "bookkeeping.review.loading": "Chargement des opérations…",
   "bookkeeping.review.suggested": "Nous suggérons {account}",
   "bookkeeping.review.noSuggestion": "Pas encore de suggestion",
+  "bookkeeping.review.openBill":
+    "Est-ce le paiement d'une facture fournisseur ouverte : {what} ? Si oui, imputez-le à cette facture dans QuickBooks, puis écartez-le ici.",
+  "bookkeeping.review.openInvoice":
+    "Est-ce l'encaissement d'une facture ouverte : {what} ? Si oui, imputez-le à cette facture dans QuickBooks, puis écartez-le ici.",
+  "bookkeeping.review.openBillPaid":
+    "QuickBooks indique cette facture fournisseur comme réglée : {what}. Si c'est ce paiement, écartez-le ici.",
+  "bookkeeping.review.openInvoicePaid":
+    "QuickBooks indique cette facture comme encaissée : {what}. Si c'est cet encaissement, écartez-le ici.",
+  "bookkeeping.review.pairHeld":
+    "Opération {what} : peut être l'autre côté d'un virement qui n'a pas été enregistré ou a été écarté. Décidez des deux ensemble.",
+  "bookkeeping.review.resent":
+    "La banque a renvoyé cette opération après en avoir retiré une copie antérieure. Décidez ici : rien n'est enregistré avant votre décision.",
   "bookkeeping.review.approve": "Approuver",
   "bookkeeping.review.account": "Compte pour {payee}",
   "bookkeeping.review.why": "Pourquoi, en quelques mots (facultatif)",
@@ -2822,6 +2837,8 @@ export const fr: Messages = {
   "bookkeeping.recon.loading": "Chargement du rapprochement…",
   "bookkeeping.recon.difference": "Écart",
   "bookkeeping.recon.unexplainedBy": "{amount} non expliqué",
+  "bookkeeping.recon.startGap":
+    "Les soldes d'ouverture diffèrent de {amount}, et rien de reporté depuis la dernière validation ne l'explique. Ajoutez ce qui était en suspens au début de la période, comme un chèque émis avant et encaissé pendant celle-ci.",
   "bookkeeping.recon.asOf": "Au {day}",
   "bookkeeping.recon.outcome.balanced": "Équilibré",
   "bookkeeping.recon.outcome.explained": "Expliqué",
@@ -3057,6 +3074,11 @@ export const fr: Messages = {
     "Claude demande à utiliser Mezonas en votre nom. Première demande à {time}. Approuvez-la seulement si vous venez de connecter Claude vous-même.",
   "connectClaude.lasts":
     "Ce lien fonctionne jusqu'à {time}. Une fois approuvée, elle dure jusqu'à la fin de cette connexion à Claude, 12 heures au plus.",
+  "connectClaude.requested":
+    "Claude vous a donné ce lien à {time}. Si vous ne venez pas de le demander à Claude, ne l'approuvez pas.",
+  "connectClaude.confirm": "Le code que Claude vous a montré",
+  "connectClaude.confirmHint":
+    "Claude affiche un code à 6 chiffres avec ce lien. Saisissez celui que votre propre Claude vous montre, jamais un code envoyé par quelqu'un d'autre.",
   "connectClaude.approve": "Approuver",
   "connectClaude.approving": "Approbation…",
   "connectClaude.approved":
@@ -3064,6 +3086,36 @@ export const fr: Messages = {
   "connectClaude.expired": "Ce lien a expiré. Redemandez à Claude pour en obtenir un nouveau.",
   "connectClaude.unknown":
     "Ce lien ne correspond à aucune de vos connexions Claude. Redemandez à Claude pour en obtenir un nouveau.",
+  // ── §1.124: Requests (issues and asks) and requirements forms ──
+  "requests.title": "Demandes",
+  "requests.lede":
+    "Quelque chose ne marche pas, ou une idée pour nous : dites-le ici à votre responsable Mezonas.",
+  "requests.new": "Nouvelle demande",
+  "requests.empty": "Aucune demande pour l'instant.",
+  "requests.state.on_it": "Nous nous en occupons",
+  "requests.state.waiting_on_you": "En attente de votre réponse",
+  "requests.state.fixed": "Corrigé",
+  "requests.state.closed": "Fermé",
+  "requests.kind.problem": "Quelque chose ne marche pas",
+  "requests.kind.idea": "Une idée ou un changement",
+  "requests.kindQuestion": "De quoi s'agit-il ?",
+  "requests.service": "Concerne",
+  "requests.serviceNone": "Rien de particulier",
+  "requests.text": "Dites-nous ce qui s'est passé, ou ce que vous souhaitez",
+  "requests.reply": "Écrire à votre responsable Mezonas",
+  "requests.replySend": "Envoyer",
+  "requests.confirm": "Confirmer que c'est corrigé",
+  "requests.stillHappening": "Ça continue",
+  "requests.back": "Toutes les demandes",
+  "requests.lead": "Votre responsable Mezonas",
+  "requests.you": "Vous",
+  "requests.number": "Demande n° {n}",
+  "requirements.title": "Questions pour votre nouvel agent",
+  "requirements.save": "Enregistrer un brouillon",
+  "requirements.submit": "Envoyer les réponses",
+  "requirements.progress": "{answered} sur {total} répondues",
+  "requirements.sent": "Envoyé. Merci : nous prenons le relais.",
+  "requirements.due": "À rendre le {date}",
   // ── Access per person (docs/plan.md §1.122) ──
   "access.edit": "Accès",
   "access.title": "Ce que {name} peut faire",

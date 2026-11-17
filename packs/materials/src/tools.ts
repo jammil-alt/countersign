@@ -569,6 +569,9 @@ export const pricesHistory = defineTool({
         qtyStd: z.string(),
         standardUom: z.string(),
         docLineId: z.string().nullable(),
+        currency: z.string(),
+        /** The line stated no unit: the price was taken to be per the standard unit. */
+        uomAssumed: z.boolean(),
       }),
     ),
     sources: z.array(z.string()),
@@ -584,7 +587,7 @@ export const pricesHistory = defineTool({
 export const pricesCompareVendors = defineTool({
   id: "materials.prices.compare_vendors",
   description:
-    "What each vendor charged for an item over the last `days` (default 90): last and average price, purchases and quantity, cheapest first.",
+    "What each vendor charged for an item over the last `days` (default 90): last and average price, purchases and quantity, in each price's currency, cheapest first. Prices whose unit was assumed (a line with no unit, a QuickBooks bill line) are left out.",
   sideEffect: "none",
   entity: "price",
   summary: "Compared {{vendors.length}} vendors",
@@ -603,6 +606,7 @@ export const pricesCompareVendors = defineTool({
         purchases: z.number(),
         qtyStd: z.string(),
         standardUom: z.string(),
+        currency: z.string(),
       }),
     ),
     cheapest: z.string().nullable(),
@@ -638,6 +642,7 @@ export const pricesDigest = defineTool({
         from: z.string(),
         to: z.string(),
         changePct: z.string(),
+        currency: z.string(),
       }),
     ),
     alerts: z.array(
@@ -646,10 +651,14 @@ export const pricesDigest = defineTool({
         kind: z.string(),
         title: z.string(),
         dollarImpact: z.string().nullable(),
+        currency: z.string(),
         status: z.string(),
       }),
     ),
+    /** At stake in `currency`; `atStake` has each currency's, never added together. */
     dollarImpact: z.string(),
+    currency: z.string(),
+    atStake: z.array(z.object({ currency: z.string(), amount: z.string() })),
     message: z.string(),
     sources: z.array(z.string()),
   }),

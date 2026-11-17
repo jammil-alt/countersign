@@ -1,4 +1,4 @@
-// Sloan by email and text (docs/plan.md §1.124): a client's people email Sloan's own address and
+// Sloan by email and text (docs/plan.md §1.150): a client's people email Sloan's own address and
 // text the account's number; their words land in their own conversation with Sloan ("By email",
 // "By text") and start Sloan's chat as a portal message does; Sloan's answer goes back the way they
 // wrote. Strangers get the polite fixed reply and nothing is kept.

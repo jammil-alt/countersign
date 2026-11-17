@@ -8,6 +8,7 @@ import type { Hono } from "hono";
 import { resolveAccountChange } from "../account/changes";
 import { installPlatformTemplate, latestSeededVersion } from "../account/templates";
 import { type AppEnv, mount, notFound } from "../http";
+import { refusePhoneSession } from "../mobile/devices";
 import { dispatchEvents } from "../runs/dispatch";
 
 export function accountRoutes(app: Hono<AppEnv>): void {
@@ -25,6 +26,8 @@ export function accountRoutes(app: Hono<AppEnv>): void {
   });
 
   mount(app, routes.portalResolveAccountChange, async (ctx) => {
+    // Audit 5.2: a phone's session decides a card only with a signature; this route carries none.
+    refusePhoneSession(ctx.session);
     const collect: EventRow[] = [];
     const out = await resolveAccountChange(ctx, {
       // The session's one client, never one from the request.

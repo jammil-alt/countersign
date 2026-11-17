@@ -41,7 +41,8 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
 import { consumeTextReply, type Wake, wakeRelease } from "../access/release";
-// §1.124: Sloan by text
+import { readTextLimited } from "../body";
+// §1.150: Sloan by text
 import {
   isAccountTextLine,
   postToSloan,
@@ -88,10 +89,8 @@ function twiml(c: Context<AppEnv>, status = 200) {
 }
 
 async function readForm(req: Request): Promise<Record<string, string>> {
-  const declared = Number(req.headers.get("content-length") ?? "0");
-  if (declared > MAX_BYTES) throw new HttpError(413, "too_large", "the body is too large");
-  const text = await req.text();
-  if (text.length > MAX_BYTES) throw new HttpError(413, "too_large", "the body is too large");
+  const text = await readTextLimited(req, MAX_BYTES);
+  if (text === null) throw new HttpError(413, "too_large", "the body is too large");
   try {
     return formDecode(text);
   } catch {
@@ -362,7 +361,7 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
         // triggers (`inbound.message`), or gets the polite reply (docs/plan.md §1.48). Keywords
         // (STOP, START, HELP) are never requests.
         if (!keyword) {
-          // §1.124: a text to the account's number from one of the client's people, signed up
+          // §1.150: a text to the account's number from one of the client's people, signed up
           // for texts, that no agent takes and no agent waits on, is theirs to Sloan.
           const sloanPerson =
             msg.channel === "sms" &&

@@ -1,4 +1,4 @@
-// Sloan by email and text (docs/plan.md §1.124): a client's people reach their account agent at its
+// Sloan by email and text (docs/plan.md §1.150): a client's people reach their account agent at its
 // own address on the forwarding domain and at the account's number, and Sloan answers the way the
 // message came. What arrives is a message in the person's own conversation with Sloan (an account
 // thread), so Sloan's chat runs as it does for the portal and the portal shows both sides.

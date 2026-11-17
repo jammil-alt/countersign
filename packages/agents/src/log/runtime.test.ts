@@ -450,6 +450,35 @@ describe.skipIf(!harness)("runtime", () => {
     ).toBe("rejected");
   });
 
+  // Review of audit 3.8: two changes one step proposed to the same record are both made once
+  // approved; the second's marker moved only because of the first.
+  it("makes a run's two approved changes to one record, the second after the first", async () => {
+    const s = await step(h.A);
+    const one = await callTool(h.deps(), s, update("21.00"));
+    const two = await callTool(h.deps(), s, {
+      toolId: TESTKIT_UPDATE_TOOL,
+      input: { id: "r1", name: "Renamed by the second change" },
+    });
+    if (one.status !== "awaiting_approval" || two.status !== "awaiting_approval") {
+      throw new Error(`${one.status} ${two.status}`);
+    }
+    for (const p of [one, two]) {
+      await resolveExternalAction(h.db, {
+        tenantId: h.A.tenantId,
+        inboxItemId: p.inboxItemId ?? "",
+        decision: "approve",
+        by: { userId: h.A.adminId, role: "client_admin" },
+      });
+    }
+    const first = await executeAction(h.deps(), { tenantId: h.A.tenantId, actionId: one.actionId });
+    expect(first.status).toBe("done");
+    const second = await executeAction(h.deps(), {
+      tenantId: h.A.tenantId,
+      actionId: two.actionId,
+    });
+    expect(second.status, JSON.stringify(second)).toBe("done");
+  });
+
   it("a card left open on a run that has ended is never signed", async () => {
     const s = await step(h.A);
     const proposed = await callTool(h.deps(), s, update("13.00"));
@@ -1150,11 +1179,13 @@ describe.skipIf(!harness)("runtime", () => {
     expect(result.modelCalls).toBe(2);
     expect(new Decimal(result.costUsd).gt(0)).toBe(true);
 
-    // Only the skill's tools (plus finish) are offered; the instructions are in the system prompt.
+    // Only the skill's tools (plus finish, and the read of the task input) are offered; the
+    // instructions are in the system prompt.
     const first = model.requests[0];
     expect(first?.tools?.map((t) => (t as { name: string }).name).sort()).toEqual(
       [
         "finish",
+        "read_task_input",
         "inbox__create",
         "memory__write",
         "testkit__record__query",
@@ -1514,7 +1545,9 @@ describe.skipIf(!harness)("runtime", () => {
       new FakeModel([{ toolUse: { name: "finish", input: { answer: "ok" } } }]);
     const aModel = finishOnly();
     await runFor(h.A, aModel);
-    const aPrompt = JSON.stringify(aModel.requests[0]?.messages[0]);
+    // The notes come back as the result of the task input's read (5.14), never in the user turn.
+    expect(JSON.stringify(aModel.requests[0]?.messages[0])).not.toContain("planks");
+    const aPrompt = JSON.stringify(aModel.requests[0]?.messages[2]);
     expect(aPrompt).toContain("Client A calls boards planks");
     expect(aPrompt).not.toContain("Test-only note");
 

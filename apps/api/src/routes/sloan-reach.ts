@@ -1,4 +1,4 @@
-// Where a client's people email and text Sloan (docs/plan.md §1.124): `GET /api/sloan/reach` for
+// Where a client's people email and text Sloan (docs/plan.md §1.150): `GET /api/sloan/reach` for
 // the client's people, and the client's own under `/api/ops/clients/:id` for its operators.
 
 import { routes } from "@countersign/core";

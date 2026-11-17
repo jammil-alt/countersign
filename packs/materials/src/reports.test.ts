@@ -78,10 +78,16 @@ describe.skipIf(!online)("demo prices and reports (database)", () => {
     expect(jump).toMatchObject({ status: "open", vendorId: bb?.vendorId });
     expect(jump?.evidence.length).toBeGreaterThan(0);
     expect(Number(report.totals.dollarImpact)).toBeGreaterThan(0);
+    // One currency: its total is the one at stake, never added across currencies.
+    expect(report.totals).toMatchObject({
+      currency: "USD",
+      atStake: [{ currency: "USD", amount: report.totals.dollarImpact }],
+    });
+    expect(bb?.currency).toBe("USD");
 
     const csv = priceWatchCsv(report).split("\r\n");
     expect(csv[0]).toBe(
-      "Item,Category,Unit,Vendor,Last price,Last purchased,Price before,Change %,Purchases (90 days),Quantity (90 days),Open alerts",
+      "Item,Category,Unit,Vendor,Currency,Last price,Last purchased,Price before,Change %,Purchases (90 days),Quantity (90 days),Open alerts",
     );
     expect(csv).toHaveLength(report.rows.length + 2);
   });

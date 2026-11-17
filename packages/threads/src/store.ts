@@ -128,7 +128,7 @@ export async function startAccountThread(
 }
 
 /**
- * §1.124: the person's conversation with Sloan for one channel ("By email", "By text"), opened on
+ * §1.150: the person's conversation with Sloan for one channel ("By email", "By text"), opened on
  * first use and found again by its fixed title. A transaction lock on (client, person, title) keeps
  * two messages arriving together from opening two.
  */

@@ -41,6 +41,7 @@ import { and, eq } from "drizzle-orm";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
 import { coverOnlyReleasePort } from "../access/release";
+import { readTextLimited } from "../body";
 import {
   CALL_ENTITIES,
   type CallPayload,
@@ -52,10 +53,11 @@ import {
   type TranscriptPayload,
   threadCallLine,
 } from "../calls/store";
+import { clientModels } from "../compliance/models";
 import { type AppEnv, errorResponse, HttpError } from "../http";
 import { connectorServicesFor } from "../messaging/services";
 import { dispatchEvents, senseEmitter } from "../runs/dispatch";
-import { credentialsFor, workerTransport } from "../runs/execute";
+import { credentialsFor } from "../runs/execute";
 import { voiceDepsFor } from "./twilio-voice";
 
 const TOOL_BODY_MAX = 16 * 1024;
@@ -69,10 +71,8 @@ const FollowUp = z.object({ what: z.string().trim().min(1).max(1000) });
 const GRACE_MS = 5 * 60 * 1000;
 
 async function readText(req: Request, max: number): Promise<string> {
-  const declared = Number(req.headers.get("content-length") ?? "0");
-  if (declared > max) throw new HttpError(413, "too_large", "the body is too large");
-  const text = await req.text();
-  if (text.length > max) throw new HttpError(413, "too_large", "the body is too large");
+  const text = await readTextLimited(req, max);
+  if (text === null) throw new HttpError(413, "too_large", "the body is too large");
   return text;
 }
 
@@ -219,8 +219,8 @@ export function voiceHookRoutes(app: Hono<AppEnv>): void {
         ports,
         tools: services.platform.tools,
         catalog: services.platform.catalog,
-        // Reads only: the gate calls no model here.
-        transport: workerTransport(services.env),
+        // Reads only: the gate calls no model here; held to the client's HIPAA mode all the same.
+        transport: clientModels(services, { clients: [tenantId], read: services.db }),
         ...(services.env.ENCRYPTION_KEY
           ? { credentials: credentialsFor(services.db, credentialKeysFromEnv(services.env)) }
           : {}),

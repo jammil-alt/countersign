@@ -9,7 +9,7 @@ import {
 
 const TENANT = "0b9d2f3e-1c4a-4b7e-9f00-123456789abc";
 
-describe("Sloan by email and text (§1.124)", () => {
+describe("Sloan by email and text (§1.150)", () => {
   it("names the client's Sloan on the forwarding domain, and knows its own shape", () => {
     const a = sloanAddress({
       clientName: "Ana's Millwork",

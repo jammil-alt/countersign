@@ -15,6 +15,10 @@ concurrency:
   group: ci-${{ github.head_ref || github.ref_name }}${{ github.event.pull_request.draft && '-draft' || '' }}
   cancel-in-progress: true
 
+# The called checks only read the repository; a caller's grant is the most they can have.
+permissions:
+  contents: read
+
 jobs:
   checks:
     if: github.event_name != 'pull_request' || !github.event.pull_request.draft

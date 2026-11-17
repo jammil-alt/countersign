@@ -143,7 +143,7 @@ export function PortalSloanScreen() {
               label: t("table.askSloan"),
               active: !changeMode,
             },
-            { to: PORTAL_PATHS.requests, label: t("sloan.mode.change"), active: changeMode },
+            { to: PORTAL_PATHS.sloanChange, label: t("sloan.mode.change"), active: changeMode },
           ]}
         />
       </div>
@@ -392,7 +392,7 @@ function SloanRail() {
   const isAdmin = role === "client_admin";
   const inbox = useApi(apiRoutes.portalInbox, { query: { status: "open" } });
   const overview = useApi(apiRoutes.portalOverview);
-  // §1.124: Sloan's own address and the account's number, where they're set up.
+  // §1.150: Sloan's own address and the account's number, where they're set up.
   const reach = useApi(apiRoutes.portalSloanReach);
   const changes = (inbox.data?.items ?? []).filter(isAccountChangeItem);
 
@@ -432,7 +432,7 @@ function SloanRail() {
         action={
           // What Sloan passes to us lands under "Ask for a change", with our answers.
           <Link
-            to={PORTAL_PATHS.requests}
+            to={PORTAL_PATHS.sloanChange}
             className="text-sm text-link hover:underline"
             data-testid="portal-sloan-requests"
           >

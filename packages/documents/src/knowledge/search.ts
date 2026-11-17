@@ -10,7 +10,8 @@ export const SEARCH_LIMIT_DEFAULT = 5;
 export const SEARCH_LIMIT_MAX = 20;
 export const SEARCH_QUERY_MAX = 500;
 
-export type KnowledgeHitKind = "faq" | "policy" | "document" | "memory";
+// §1.125 (0066): `about`, confirmed facts about the client's business (filed at the scope's signing).
+export type KnowledgeHitKind = "faq" | "policy" | "about" | "document" | "memory";
 
 export interface KnowledgeHit {
   kind: KnowledgeHitKind;
@@ -33,6 +34,11 @@ export interface SearchKnowledgeOptions {
    * of the client's live notes (`"all"`, the back office's preview), or none.
    */
   memory?: { agentId: string; scopes: string[] } | "all" | null;
+  /**
+   * Whether FAQs and policies are searched (default true). False for a reader the portal shows
+   * none to (a client user asking the account agent): then only documents and notes are found.
+   */
+  entries?: boolean;
 }
 
 const HEADLINE = `StartSel="", StopSel="", MaxWords=40, MinWords=12, ShortWord=2, MaxFragments=2, FragmentDelimiter=" … "`;
@@ -90,7 +96,9 @@ export async function searchKnowledge(
       and(
         eq(knowledgeChunk.tenantId, tenantId),
         sql`${knowledgeChunk.tsv} @@ ${q}`,
-        sql`(${knowledgeChunk.sourceType} = 'document' or ${knowledgeEntry.status} = 'active')`,
+        options.entries === false
+          ? eq(knowledgeChunk.sourceType, "document")
+          : sql`(${knowledgeChunk.sourceType} = 'document' or ${knowledgeEntry.status} = 'active')`,
         // Voice samples (migration 0025) are read only as samples, never as answers.
         sql`(${knowledgeEntry.kind} is null or ${knowledgeEntry.kind} <> 'voice_sample')`,
       ),

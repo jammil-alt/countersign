@@ -414,6 +414,48 @@
       "when": 1794889201665,
       "tag": "0059_member_agents",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1794890399080,
+      "tag": "0060_issues",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1794890436696,
+      "tag": "0061_todos",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1794890478051,
+      "tag": "0062_deals",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1794890511369,
+      "tag": "0063_autopilot",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1794932363431,
+      "tag": "0065_code_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1794933887828,
+      "tag": "0066_onboarding",
+      "breakpoints": true
     }
   ]
 }

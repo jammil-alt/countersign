@@ -15,11 +15,11 @@ import {
   vendor,
   withTenant,
 } from "@countersign/db";
-import { vendorForDocument } from "@countersign/documents";
+import { lineArithmetic, vendorForDocument } from "@countersign/documents";
 import { emit } from "@countersign/senses";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { parseLine } from "../catalog/keys";
-import { latestMatch, liveItem } from "../catalog/store";
+import { identifyingSku, latestMatch, liveItem } from "../catalog/store";
 import { materialsEventRegistry } from "../events";
 import { priceObservation } from "../schema";
 import {
@@ -28,9 +28,42 @@ import {
   recordLastPrice,
   resolveVendorItem,
   type VendorItemRow,
+  vendorItemForUnit,
 } from "../vendor/store";
 import type { Observation } from "./rules";
 import { convertLine, readUom } from "./uom";
+
+/**
+ * A price observation from a document line is history until a newer reading of its document has
+ * been priced in its place. A document read again keeps its earlier reading's lines and their
+ * observations (invariant 3: never updated or deleted), so every reader of price history leaves
+ * the superseded ones out with this condition. A newer reading that recorded no prices (a test
+ * run's, or another agent's that doesn't price) replaces nothing. A price from a QuickBooks bill
+ * line (no document line) always counts.
+ */
+// DECISION (audit 7.9): superseded readings are left out in the queries, not deleted; a reading
+// supersedes an older one only once it has price observations of its own, and then hides all of
+// the older reading's lines, those it priced again and those it didn't.
+export function fromLatestReading(): SQL {
+  return sql`(${priceObservation.docLineId} is null or not exists (
+    select 1
+    from ${docLine} as po_line
+    join ${docExtraction} as po_read on po_read.id = po_line.extraction_id
+    join ${docExtraction} as po_newer
+      on po_newer.tenant_id = po_read.tenant_id
+     and po_newer.document_id = po_read.document_id
+     and (po_newer.created_at, po_newer.id) > (po_read.created_at, po_read.id)
+    where po_line.id = ${priceObservation.docLineId}
+      and po_line.tenant_id = ${priceObservation.tenantId}
+      and exists (
+        select 1
+        from ${docLine} as po_newer_line
+        join ${priceObservation} as po_newer_price
+          on po_newer_price.doc_line_id = po_newer_line.id
+         and po_newer_price.tenant_id = po_newer_line.tenant_id
+        where po_newer_line.extraction_id = po_newer.id
+          and po_newer_line.tenant_id = po_newer.tenant_id)))`;
+}
 
 export class PricingError extends Error {
   override name = "PricingError";
@@ -230,7 +263,7 @@ export async function priceLines(
       continue;
     }
     const withItem = { ...base, catalogItemId: item.id, catalogItemName: item.canonicalName };
-    const sku = cleanSku(l.vendorSku);
+    const sku = identifyingSku(cleanSku(l.vendorSku), l.lineNo);
     const vendorUom = l.uomRaw?.trim()
       ? (readUom(l.uomRaw) ?? l.uomRaw.trim().toLowerCase())
       : item.standardUom;
@@ -242,14 +275,27 @@ export async function priceLines(
       catalogItemId: item.id,
       sku,
       vendorUom,
+      unitRaw: l.uomRaw,
+      lineText: l.rawDescription,
     });
     const vi = found && found.catalogItemId === item.id ? found : null;
+    // The conversion is the vendor item's that the line's SKU names; without one, the vendor's one
+    // item recorded in the line's unit word (`vendorItemForUnit`: a case is not the box).
+    const convVi =
+      vi && sku && vi.sku === sku
+        ? vi
+        : await vendorItemForUnit(tx, tenantId, {
+            vendorId: doc.vendorId,
+            catalogItemId: item.id,
+            unitRaw: l.uomRaw,
+            lineText: l.rawDescription,
+          });
     const conv = convertLine(
       l.uomRaw,
       item.standardUom,
-      parseLine(l.rawDescription).attributes,
+      { text: l.rawDescription, attributes: parseLine(l.rawDescription).attributes },
       item.attributes as Record<string, unknown>,
-      vi,
+      convVi,
     );
     if (!conv.ok) {
       out.push({ ...withItem, skipped: conv.reason });
@@ -260,10 +306,23 @@ export async function priceLines(
       out.push({ ...withItem, skipped: "no quantity" });
       continue;
     }
+    // DECISION (audit 7.9): a line whose quantity times unit price isn't its amount (a misread
+    // price) is kept out of price history until its reading is corrected (`lineArithmetic`); a
+    // price printed per hundred or per thousand is per unit once divided.
+    const arithmetic = lineArithmetic(l);
+    if (arithmetic.problem) {
+      out.push({
+        ...withItem,
+        skipped: `its quantity times its unit price isn't its amount (${arithmetic.problem}); not recorded until the reading is corrected`,
+      });
+      continue;
+    }
     // DECISION: a line with a discount is priced at what was paid (its amount over its quantity);
     // otherwise at its printed unit price.
     const discounted = l.discount !== null && dec(l.discount).greaterThan(0);
-    const unitRaw = discounted ? dec(l.extPrice).dividedBy(qty) : dec(l.unitPrice);
+    const unitRaw = discounted
+      ? dec(l.extPrice).dividedBy(qty)
+      : dec(l.unitPrice).dividedBy(arithmetic.per);
     const qtyStd = qty.times(conv.factor);
     const unitStd = unitRaw.dividedBy(conv.factor);
     const share = linesTotal.isZero() ? dec("0") : extras.times(l.extPrice).dividedBy(linesTotal);
@@ -285,6 +344,8 @@ export async function priceLines(
       qtyStd: toNumeric(qtyStd),
       standardUom: item.standardUom,
       docLineId: l.id,
+      currency: doc.currency,
+      ...(conv.assumed ? { uomAssumed: true } : {}),
       line,
       ext: {
         uomRaw: l.uomRaw,
@@ -292,6 +353,7 @@ export async function priceLines(
         factor: conv.factor.toString(),
         conversion: conv.rule,
         ...(conv.assumed ? { uomAssumed: true } : {}),
+        ...(arithmetic.per !== 1 ? { pricedPer: arithmetic.per } : {}),
         landedUnitPriceStd: toNumeric(landed),
         freightShare: toNumeric(share),
       },
@@ -341,6 +403,14 @@ export async function recordPrices(
               eq(priceObservation.tenantId, ctx.tenantId),
               eq(priceObservation.catalogItemId, d.catalogItemId),
               eq(priceObservation.vendorId, d.vendorId),
+              eq(priceObservation.currency, doc.currency),
+              fromLatestReading(),
+              // Not another reading of this document: a re-read is no change of price.
+              sql`not exists (
+                select 1 from ${docLine} as prev_line
+                join ${docExtraction} as prev_read on prev_read.id = prev_line.extraction_id
+                where prev_line.id = ${priceObservation.docLineId}
+                  and prev_read.document_id = ${doc.documentId})`,
             ),
           )
           .orderBy(desc(priceObservation.observedOn), desc(priceObservation.createdAt))

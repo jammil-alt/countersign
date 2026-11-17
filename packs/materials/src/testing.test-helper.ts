@@ -47,6 +47,8 @@ export interface InvoiceLine {
   qty?: string;
   uom?: string | null;
   unitPrice?: string;
+  /** The line's amount as read; quantity × unit price when not given. */
+  extPrice?: string;
 }
 
 export interface ShopFixture {
@@ -92,6 +94,8 @@ export interface InvoiceOptions {
   header?: Record<string, unknown>;
   /** §1.104: no purchase behind it yet (an invoice from email, no accounting tool). */
   unlinked?: boolean;
+  /** The reading's currency (USD when not given). */
+  currency?: string;
 }
 
 let counter = 0;
@@ -188,6 +192,7 @@ export async function insertShop(db: Db, name: string): Promise<ShopFixture> {
             ...(options.date ? { invoiceDate: options.date } : {}),
             ...options.header,
           },
+          ...(options.currency ? { currency: options.currency } : {}),
           freight: options.freight ?? "0",
           surcharges: options.surcharges ?? [],
           subtotal: "100",
@@ -210,7 +215,8 @@ export async function insertShop(db: Db, name: string): Promise<ShopFixture> {
             qty: line.qty ?? "1",
             uomRaw: line.uom ?? null,
             unitPrice: line.unitPrice ?? "10",
-            extPrice: String(Number(line.unitPrice ?? "10") * Number(line.qty ?? "1")),
+            extPrice:
+              line.extPrice ?? String(Number(line.unitPrice ?? "10") * Number(line.qty ?? "1")),
           })
           .returning();
         if (!dl) throw new Error("no doc line");

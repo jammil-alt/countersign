@@ -20,10 +20,14 @@ import {
   createItem,
   findAlias,
   findCandidates,
+  identifyingSku,
   learnAlias,
   liveItem,
   loadLine,
   recordMatch,
+  skuContradicts,
+  taughtCode,
+  wordsDiffer,
 } from "./store";
 
 export { MATCH_CONFIDENCE_AUTO };
@@ -97,7 +101,14 @@ export class MatchError extends Error {
 }
 
 export interface Prepared {
-  line: { raw: string; normalized: string; sku: string | null; hash: string };
+  line: {
+    raw: string;
+    normalized: string;
+    sku: string | null;
+    /** The line's code as printed, uppercased, when it is no SKU (`identifyingSku`). */
+    taughtSku: string | null;
+    hash: string;
+  };
   vendorId: string;
 }
 
@@ -116,7 +127,12 @@ export async function prepare(
     line: {
       raw: row.rawDescription,
       normalized,
-      sku: row.vendorSku?.trim().toUpperCase() || null,
+      // A special-order or short code is no SKU (`identifyingSku`): the words decide the line,
+      // unless a person taught an alias for that code.
+      sku: identifyingSku(row.vendorSku, row.lineNo),
+      taughtSku: identifyingSku(row.vendorSku, row.lineNo)
+        ? null
+        : taughtCode(row.vendorSku, row.lineNo),
       hash: await descriptionHash(normalized),
     },
     vendorId,
@@ -157,24 +173,38 @@ export async function matchLine(deps: MatchDeps, input: MatchLineInput): Promise
     const hit = await findAlias(tx, input.tenantId, {
       vendorId: prepared.vendorId,
       vendorSku: prepared.line.sku,
+      taughtSku: prepared.line.taughtSku,
       descriptionHash: prepared.line.hash,
     });
     if (!hit) return { prepared, result: null };
     const parsed = parseNormalized(prepared.line.normalized);
-    const verdict: Verdict = {
-      decision: "matched",
-      item: hit.item,
-      confidence: 1,
-      method: "alias",
-      hinge: null,
-    };
+    // DECISION (audit 7.10): a SKU alias still meets the hard rule: when the line's own words
+    // state a key attribute differently from the item's, a person decides (the alias may have
+    // been learned from a misread line, or the vendor reuses the code).
+    const differ =
+      hit.via === "sku" ? await skuContradicts(tx, input.tenantId, parsed, hit.item) : null;
+    const verdict: Verdict = differ
+      ? {
+          decision: "unsure",
+          item: null,
+          confidence: VETOED_CONFIDENCE,
+          method: "alias",
+          hinge: differ,
+        }
+      : {
+          decision: "matched",
+          item: hit.item,
+          confidence: 1,
+          method: "alias",
+          hinge: null,
+        };
     const result = await recordVerdict(
       tx,
       input,
       prepared,
       parsed,
       verdict,
-      [],
+      differ ? [view({ item: hit.item, similarity: null }, parsed)] : [],
       false,
       threshold,
       registry,
@@ -384,6 +414,7 @@ export async function recordVerdict(
       normalizedDescription: prepared.line.normalized,
       catalogItemId: item.id,
       source: "auto",
+      skuFits: wordsDiffer(parsed, item) === null,
     });
   }
   const confidence = verdict.confidence.toFixed(3);
@@ -465,11 +496,12 @@ export async function decideLine(db: Db, input: HumanDecisionInput): Promise<Mat
     });
     await learnAlias(tx, input.tenantId, {
       vendorId: prepared.vendorId,
-      vendorSku: prepared.line.sku,
+      vendorSku: prepared.line.sku ?? prepared.line.taughtSku,
       descriptionHash: prepared.line.hash,
       normalizedDescription: prepared.line.normalized,
       catalogItemId: item.id,
       source: "human",
+      skuFits: wordsDiffer(parsed, item) === null,
     });
     await emit(
       tx,

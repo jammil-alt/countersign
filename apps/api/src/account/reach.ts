@@ -1,4 +1,4 @@
-// Sloan by email and text (docs/plan.md §1.124). A client's people email Sloan at its own address
+// Sloan by email and text (docs/plan.md §1.150). A client's people email Sloan at its own address
 // (`sloan.<client label>-<client id>@<forwarding domain>`) and text the account's number; each
 // message becomes theirs in their own conversation with Sloan ("By email", "By text"), so Sloan's
 // chat workflow runs as it does for the portal, under the same rules (invariant 11). Sloan's answer

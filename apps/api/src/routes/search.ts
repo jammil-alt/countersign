@@ -18,12 +18,13 @@ import {
   shortRunId,
 } from "@countersign/core";
 import { agent, run, type Tx, tenant } from "@countersign/db";
-import { createLlmClient, type LlmTransport } from "@countersign/llm";
+import { createLlmClient } from "@countersign/llm";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
-import { type AppEnv, ensureClient, type HandlerCtx, mount } from "../http";
+import { clientModels } from "../compliance/models";
+import { type AppEnv, ensureClient, mount, mountLong } from "../http";
+import { claimMetered } from "../metered";
 import { clientStatusWhere, clientWaits, OPEN_RUN } from "../runs/client-status";
-import { workerTransport } from "../runs/execute";
 import { reachContext, runWaits } from "../runs/run-wait";
 import { runSubjects } from "../runs/subject";
 import { compileQuestion } from "../runs-ask/ask";
@@ -83,12 +84,6 @@ async function searchAll(tx: Tx, scope: SearchScope, q: string) {
     organizations,
     documents,
   };
-}
-
-/** The model transport: the app's (tests pass a FakeModel), else the Worker's live one. */
-function transport(ctx: Pick<HandlerCtx<never>, "services">): LlmTransport {
-  const { deps, env } = ctx.services;
-  return deps.llm?.(env) ?? workerTransport(env);
 }
 
 function namesOf(context: AskContext) {
@@ -195,82 +190,103 @@ export function searchRoutes(app: Hono<AppEnv>): void {
   });
 
   // ── Plain-words questions ──
-  // DECISION: the model call runs inside the request's transaction (as the Builder's do), so the
-  // question's cost is written with the request; a refused answer is a 200 with `understood:
-  // false`, not an error status, because an error would roll back the cost it incurred.
+  // DECISION: the model call runs between two short transactions (`mountLong`), never inside
+  // one: the first reads the question's context (and, in the portal, claims the person's
+  // allowance), the second writes the question's cost and reads the runs it found. A refused
+  // answer is a 200 with `understood: false`, not an error status, as before.
 
-  mount(app, routes.portalRunsAsk, async (ctx) => {
-    const { tx, tenantIds, body, services, session } = ctx;
-    const tenantId = tenantIds[0] as string;
-    const context = await askContext(tx, {
-      surface: "portal",
-      tenantIds: [tenantId],
-      platform: services.platform,
-      now: new Date(),
-    });
-    const llm = createLlmClient({ transport: transport(ctx) });
-    const outcome = await compileQuestion({ llm, question: body.text, context });
-    if (outcome.record) {
-      await recordAskUsage(tx, {
+  mountLong(app, routes.portalRunsAsk, async (ctx) => {
+    const { body, services, session } = ctx;
+    const tenantId = ctx.tenantIds[0] as string;
+    const context = await ctx.inTx(async ({ tx }) => {
+      // Audit 5.9: each person's questions are limited per minute and per day (../metered.ts).
+      await claimMetered(tx, ctx.c, { kind: "runs.ask", tenantId, session, role: ctx.role });
+      return askContext(tx, {
         surface: "portal",
-        tenantId,
-        userId: session.user.id,
-        question: body.text,
-        record: outcome.record,
-        filter: outcome.ok ? outcome.filter : null,
-        refused: outcome.ok ? null : outcome.reason,
+        tenantIds: [tenantId],
+        platform: services.platform,
+        now: new Date(),
       });
-    }
-    if (!outcome.ok) {
-      console.info(JSON.stringify({ event: "runs.ask.refused", reason: outcome.reason }));
-      return { understood: false as const, message: ASK_NOT_UNDERSTOOD };
-    }
-    // The portal's own filter (no back-office keys: the schema refused them), its live runs only.
-    const filter = portalRunFilter(outcome.filter);
-    // Statuses are the client's (a run waiting on the client is "waiting"), as on its runs list.
-    const { statuses, ...rest } = filter;
-    const runs = await runSummaries(
-      tx,
-      tenantId,
-      [
-        ...runFilterWhere(rest, services.platform.ctx.tools.specs()),
-        ...clientStatusWhere(statuses),
-      ],
-      ASK_RUNS_LIMIT,
-      services.platform,
-    );
-    return {
-      understood: true as const,
-      filter,
-      chips: askChips(filter, namesOf(context)),
-      // v0.14 W4-B: what the question asked that the filter can't express.
-      leftOut: outcome.leftOut,
-      query: runFilterQuery(filter),
-      runs: runs.map((r) => ({ ...r, shortId: shortRunId(r.id) })),
-    };
+    });
+    // HIPAA mode (§1.35): the question and the client's names go to the model only if allowed.
+    const llm = createLlmClient({
+      transport: clientModels(services, { clients: [tenantId], read: services.db }),
+    });
+    const outcome = await compileQuestion({ llm, question: body.text, context });
+    return ctx.inTx(async ({ tx }) => {
+      if (outcome.record) {
+        await recordAskUsage(tx, {
+          surface: "portal",
+          tenantId,
+          userId: session.user.id,
+          question: body.text,
+          record: outcome.record,
+          filter: outcome.ok ? outcome.filter : null,
+          refused: outcome.ok ? null : outcome.reason,
+        });
+      }
+      if (!outcome.ok) {
+        console.info(JSON.stringify({ event: "runs.ask.refused", reason: outcome.reason }));
+        return { understood: false as const, message: ASK_NOT_UNDERSTOOD };
+      }
+      // The portal's own filter (no back-office keys: the schema refused them), its live runs only.
+      const filter = portalRunFilter(outcome.filter);
+      // Statuses are the client's (a run waiting on the client is "waiting"), as on its runs list.
+      const { statuses, ...rest } = filter;
+      const runs = await runSummaries(
+        tx,
+        tenantId,
+        [
+          ...runFilterWhere(rest, services.platform.ctx.tools.specs()),
+          ...clientStatusWhere(statuses),
+        ],
+        ASK_RUNS_LIMIT,
+        services.platform,
+      );
+      return {
+        understood: true as const,
+        filter,
+        chips: askChips(filter, namesOf(context)),
+        // v0.14 W4-B: what the question asked that the filter can't express.
+        leftOut: outcome.leftOut,
+        query: runFilterQuery(filter),
+        runs: runs.map((r) => ({ ...r, shortId: shortRunId(r.id) })),
+      };
+    });
   });
 
-  mount(app, routes.opsRunsAsk, async (ctx) => {
-    const { tx, body, services, session } = ctx;
+  mountLong(app, routes.opsRunsAsk, async (ctx) => {
+    const { body, services, session } = ctx;
     const ids = opsIds(ctx, body.client);
-    const context = await askContext(tx, {
-      surface: "ops",
-      tenantIds: ids,
-      platform: services.platform,
-      now: new Date(),
-    });
-    const llm = createLlmClient({ transport: transport(ctx) });
-    const outcome = await compileQuestion({ llm, question: body.text, context });
-    if (outcome.record) {
-      await recordAskUsage(tx, {
+    const context = await ctx.inTx(({ tx }) =>
+      askContext(tx, {
         surface: "ops",
-        tenantId: null,
-        userId: session.user.id,
-        question: body.text,
-        record: outcome.record,
-        filter: outcome.ok ? outcome.filter : null,
-        refused: outcome.ok ? null : outcome.reason,
-      });
+        tenantIds: ids,
+        platform: services.platform,
+        now: new Date(),
+      }),
+    );
+    // DECISION: a question across clients carries every one's names, so each client it covers
+    // must allow the model (HIPAA mode, §1.35); asking about one client names only that one.
+    // Read outside any transaction: the model call runs between the route's two (mountLong).
+    const llm = createLlmClient({
+      transport: clientModels(services, { clients: ids, read: services.db }),
+    });
+    const outcome = await compileQuestion({ llm, question: body.text, context });
+    const record = outcome.record;
+    if (record) {
+      // The operator's own cost: logged, never written (./runs-ask/usage.ts).
+      await ctx.inTx(({ tx }) =>
+        recordAskUsage(tx, {
+          surface: "ops",
+          tenantId: null,
+          userId: session.user.id,
+          question: body.text,
+          record,
+          filter: outcome.ok ? outcome.filter : null,
+          refused: outcome.ok ? null : outcome.reason,
+        }),
+      );
     }
     if (!outcome.ok) {
       console.info(JSON.stringify({ event: "runs.ask.refused", reason: outcome.reason }));
@@ -278,36 +294,38 @@ export function searchRoutes(app: Hono<AppEnv>): void {
     }
     const filter = outcome.filter;
     // The runs list's own query, over the clients this question covers.
-    const rows = await tx
-      .select({ r: run, a: agent })
-      .from(run)
-      .innerJoin(agent, and(eq(agent.id, run.agentId), eq(agent.tenantId, run.tenantId)))
-      .where(
-        and(
-          inArray(run.tenantId, ids),
-          ...runFilterWhere(filter, services.platform.ctx.tools.specs()),
-        ),
-      )
-      .orderBy(desc(run.createdAt))
-      .limit(ASK_RUNS_LIMIT);
-    const client = await clientNames(tx, ids);
-    return {
-      understood: true as const,
-      filter,
-      chips: askChips(filter, namesOf(context)),
-      // v0.14 W4-B: what the question asked that the filter can't express.
-      leftOut: outcome.leftOut,
-      query: runFilterQuery(filter),
-      runs: rows.map(({ r, a }) => ({
-        id: r.id,
-        shortId: shortRunId(r.id),
-        client: client(r.tenantId) ?? { id: r.tenantId, name: "" },
-        agent: { id: a.id, name: a.name, serviceName: a.serviceName },
-        status: r.status,
-        mode: r.mode,
-        createdAt: r.createdAt.toISOString(),
-        costUsd: r.costUsd,
-      })),
-    };
+    return ctx.inTx(async ({ tx }) => {
+      const rows = await tx
+        .select({ r: run, a: agent })
+        .from(run)
+        .innerJoin(agent, and(eq(agent.id, run.agentId), eq(agent.tenantId, run.tenantId)))
+        .where(
+          and(
+            inArray(run.tenantId, ids),
+            ...runFilterWhere(filter, services.platform.ctx.tools.specs()),
+          ),
+        )
+        .orderBy(desc(run.createdAt))
+        .limit(ASK_RUNS_LIMIT);
+      const client = await clientNames(tx, ids);
+      return {
+        understood: true as const,
+        filter,
+        chips: askChips(filter, namesOf(context)),
+        // v0.14 W4-B: what the question asked that the filter can't express.
+        leftOut: outcome.leftOut,
+        query: runFilterQuery(filter),
+        runs: rows.map(({ r, a }) => ({
+          id: r.id,
+          shortId: shortRunId(r.id),
+          client: client(r.tenantId) ?? { id: r.tenantId, name: "" },
+          agent: { id: a.id, name: a.name, serviceName: a.serviceName },
+          status: r.status,
+          mode: r.mode,
+          createdAt: r.createdAt.toISOString(),
+          costUsd: r.costUsd,
+        })),
+      };
+    });
   });
 }

@@ -15,7 +15,16 @@ import {
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { activeAccount, addNote, listAccounts } from "./accounts";
-import { addRule, approve, bookByPerson, exclude, liveBooking } from "./bookings";
+import {
+  addRule,
+  approve,
+  bookByPerson,
+  exclude,
+  heldPairOf,
+  liveBooking,
+  openItemOf,
+  resentOfId,
+} from "./bookings";
 import { importFeeds } from "./feed";
 import { PACK_ID } from "./ids";
 import {
@@ -80,6 +89,12 @@ export async function txnView(tx: Tx, tenantId: string, id: string) {
     status: t.status,
     account: { id: l.id, name: l.name, mask: l.mask, kind: l.kind },
     removedAfterPosting: (t.ext as { removedAfterPosting?: boolean }).removedAfterPosting === true,
+    /** An open bill or invoice this may be the payment of: why it waits for a person. */
+    openItem: openItemOf(t),
+    /** The bank sent this again after removing an earlier copy: why it waits for a person. */
+    resent: resentOfId(t) !== null,
+    /** The transfer's other side, when this waits for a person because that transfer didn't stand. */
+    pairedWith: await pairedView(tx, tenantId, t),
     booking: live
       ? {
           id: live.id,
@@ -100,6 +115,33 @@ export async function txnView(tx: Tx, tenantId: string, id: string) {
           })),
         }
       : null,
+  };
+}
+
+/** The side a held transaction may be the other half of, as the card names it. */
+async function pairedView(tx: Tx, tenantId: string, t: Parameters<typeof heldPairOf>[0]) {
+  const id = heldPairOf(t);
+  if (!id) return null;
+  const [row] = await tx
+    .select({ t: bankTxn, l: bankAccountLink })
+    .from(bankTxn)
+    .innerJoin(
+      bankAccountLink,
+      and(
+        eq(bankAccountLink.id, bankTxn.accountLinkId),
+        eq(bankAccountLink.tenantId, bankTxn.tenantId),
+      ),
+    )
+    .where(and(eq(bankTxn.tenantId, tenantId), eq(bankTxn.id, id)));
+  if (!row) return null;
+  return {
+    id: row.t.id,
+    date: row.t.txnDate,
+    amount: row.t.amount,
+    currency: row.t.currency,
+    direction: row.t.direction,
+    account: row.l.name,
+    why: String((t.ext as { heldWhy?: unknown }).heldWhy),
   };
 }
 

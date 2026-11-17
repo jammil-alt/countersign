@@ -4,11 +4,11 @@
 // dictating about it; an operator can't name a client it doesn't serve; OpenAI failing is said
 // plainly; nothing is stored.
 import { DEV_USER_HEADER } from "@countersign/auth";
-import { tenant } from "@countersign/db";
+import { auditEvent, tenant } from "@countersign/db";
 import { TranscribeError, type Transcriber } from "@countersign/llm";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
-import { admin, createApiHarness, OPERATOR, OTHER_OPERATOR } from "./api.test-helper";
+import { admin, createApiHarness, OPERATOR, OTHER_OPERATOR, user } from "./api.test-helper";
 
 const heard: { bytes: number; type: string; language?: string | undefined }[] = [];
 let failNext = false;
@@ -96,6 +96,50 @@ describe.skipIf(!h)("voice typing", () => {
     failNext = true;
     const failed = await post(OPERATOR, "/api/ops/transcribe", AUDIO);
     expect([failed.status, failed.json.error?.code]).toEqual([502, "voice_failed"]);
+  });
+
+  it("counts only recordings it sends: a refused one uses none of the allowance", async () => {
+    for (let i = 0; i < 10; i++) {
+      const bad = await post(admin("c"), "/api/transcribe", AUDIO, "image/jpeg");
+      expect(bad.json.error?.code).toBe("not_audio");
+    }
+    const empty = await post(admin("c"), "/api/transcribe", new Uint8Array(), "audio/ogg");
+    expect(empty.json.error?.code).toBe("empty");
+    const ok = await post(admin("c"), "/api/transcribe", AUDIO);
+    expect(ok.status, JSON.stringify(ok.json)).toBe(200);
+  });
+
+  it("limits each person's recordings in the portal: 10 a minute, sent at once or not", async () => {
+    const before = heard.length;
+    const sent = await Promise.all(
+      Array.from({ length: 12 }, () => post(user("b"), "/api/transcribe", AUDIO)),
+    );
+    expect(sent.map((r) => r.status).sort()).toEqual([...Array(10).fill(200), 429, 429]);
+    expect(sent.find((r) => r.status === 429)?.json.error?.code).toBe("rate_limited");
+    // Only the ten allowed reached OpenAI.
+    expect(heard.length - before).toBe(10);
+  });
+
+  it("limits each person's recordings in the portal to 200 a day", async () => {
+    const [person] = await H.t.db.execute<{ id: string }>(
+      sql`select id from app_user where email = ${admin("b")}`,
+    );
+    // Earlier today: 199 recordings two hours ago, beside the one written out above.
+    await H.t.db.insert(auditEvent).values(
+      Array.from({ length: 199 }, () => ({
+        tenantId: H.B.tenantId,
+        actorKind: "user" as const,
+        actorUserId: person?.id ?? null,
+        action: "metered transcribe",
+        outcome: "ok" as const,
+        target: {},
+        createdAt: new Date(Date.now() - 2 * 3_600_000),
+      })),
+    );
+    const before = heard.length;
+    const res = await post(admin("b"), "/api/transcribe", AUDIO);
+    expect([res.status, res.json.error?.code]).toEqual([429, "daily_limit"]);
+    expect(heard.length).toBe(before);
   });
 
   it("is a person's only", async () => {

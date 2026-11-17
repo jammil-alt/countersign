@@ -54,3 +54,61 @@ export function payeeKey(text: string | null | undefined): string {
     .filter((w) => w.length > 0 && !/\d/.test(w) && !NOISE.has(w) && w !== "&");
   return words.slice(0, KEY_WORDS).join(" ");
 }
+
+/**
+ * Words a bank uses for how money moved, never for who it went to: with numbers dropped, "CHECK
+ * 1041" and "CHECK 1042" are one key, "MOBILE DEPOSIT" is `mobile`, "WIRE TRANSFER OUT" is
+ * `wire out`.
+ */
+const GENERIC = new Set([
+  ...NOISE,
+  "check",
+  "chk",
+  "cheque",
+  "mobile",
+  "remote",
+  "atm",
+  "wire",
+  "zelle",
+  "venmo",
+  "paypal",
+  "cash",
+  "app",
+  "ach",
+  "eft",
+  "electronic",
+  "bill",
+  "pay",
+  "pymt",
+  "draft",
+  "branch",
+  "teller",
+  "counter",
+  "in",
+  "out",
+  "to",
+  "from",
+  "for",
+  "of",
+  "the",
+  "no",
+  "banking",
+  "bank",
+  "external",
+  "internal",
+  "outgoing",
+  "incoming",
+  "domestic",
+  "international",
+  "funds",
+  "instant",
+  "inst",
+]);
+
+// DECISION: a key made only of such words names no payee, so no rule is learned, written or
+// applied for it (a rule `check → Rent` would book every check, whoever it paid); a person decides
+// each one. An empty key is generic too.
+export function isGenericPayeeKey(key: string | null | undefined): boolean {
+  const words = (key ?? "").split(/\s+/).filter((w) => w.length > 0);
+  return words.every((w) => GENERIC.has(w));
+}

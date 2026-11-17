@@ -133,6 +133,29 @@ export interface ReviewTransaction {
   description: string | null;
   status: BankTxnStatus;
   account: { id: string; name: string | null; mask: string | null; kind: string };
+  /** An open bill or invoice of the same amount: why it waits for a person. */
+  openItem?: {
+    kind: "bill" | "invoice";
+    docNumber: string | null;
+    name: string | null;
+    date: string | null;
+    balance: string;
+    currency: string;
+    /** Paid in QuickBooks since: the card asks whether this is that payment, to leave it out. */
+    paid?: boolean;
+  } | null;
+  /** The bank sent this again after removing an earlier copy: a person decides it. */
+  resent?: boolean;
+  /** The transfer's other side, when this waits because that transfer didn't stand. */
+  pairedWith?: {
+    id: string;
+    date: string;
+    amount: string;
+    currency: string;
+    direction: "in" | "out";
+    account: string | null;
+    why: string;
+  } | null;
   booking: {
     id: string;
     kind: string;
@@ -252,6 +275,8 @@ export interface ReconciliationView {
   bClosing: string;
   difference: string;
   residual: string;
+  /** What the openings differ by that nothing carried explains (part of the residual). */
+  startGap?: string;
   outcome: ReconOutcome;
   status: ReconStatus;
   signedOffAt: string | null;

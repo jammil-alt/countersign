@@ -15,7 +15,7 @@ Mezonas is the product name and the name of every public resource; `countersign`
 
 | | Staging | Production |
 |---|---|---|
-| Deployed by | every push to `main` (`deploy.yml`) | a `v*` tag, or Actions → Deploy → production |
+| Deployed by | every push to `main` (`deploy.yml`); a branch by hand (Actions → Quick deploy to staging) | a `v*` tag, or Actions → Deploy → production |
 | Address | `https://staging.mezonas.com` | `https://app.mezonas.com` |
 | Worker | `mezonas-staging` (`wrangler deploy --env=staging`) | `mezonas` (`--env=production`) |
 | Neon project / branch | `mezonas` / `staging` | `mezonas` / `main` |
@@ -1021,7 +1021,10 @@ one code, each with its own WorkOS environment, users and data. One URL for ever
 decides what it does:
 
 - **Operators** (`docs/plan.md` §1.34): it reads what the back office shows for the clients you
-  serve, and its one write (resolving feedback) takes two calls, a preview and a confirm.
+  serve, and its writes on a person's decision (resolving feedback, accepting or closing a Dev
+  queue request) take two calls, a preview and a confirm. The Dev queue's tools (§1.125) also
+  claim a request, note on it, run its reuse check again and attach its PR, with no confirm: they
+  change only the request.
 - **A client's admin or user** (§1.89): it reads what their portal shows them (overview, inbox,
   runs, connections, requests, records, documents, reports), for their own business only. It
   changes nothing; approvals and answers stay in the portal.
@@ -1071,19 +1074,57 @@ If connecting fails:
 | 401 "the access token is not for this server" on every call | AuthKit did not put this server's URL in the token's `aud` (RFC 8707 resource indicator; UNCHECKED) | Look at a token's `aud` in the Worker log or WorkOS, and set `MCP_AUDIENCE` to it under the environment's `vars`. Empty means the default (the `/mcp` URL); there is no way to turn the check off |
 | 503 "the sign-in service can't be reached" | The Worker could not read AuthKit's metadata at `<domain>/.well-known/oauth-authorization-server` | Check `WORKOS_AUTHKIT_DOMAIN` |
 | 503 "the MCP server is not set up here" | `WORKOS_AUTHKIT_DOMAIN` is set but WorkOS sign-in is not fully on (client id, API key, cookie password) | Fix WorkOS sign-in first |
-| A tool error `approval_needed: approve this Claude connection first: open …` | Our second step is on here (`docs/plan.md` §1.120): each Claude sign-in is approved once from a browser | Open the link in the browser where you're signed in to Mezonas (past the code), approve, then ask again. A link works for 30 minutes and only the newest one Claude gave |
+| A tool error `approval_needed: approve this Claude connection first: open …` | Our second step is on here (`docs/plan.md` §1.120): each Claude sign-in is approved once from a browser | Open the link in the browser where you're signed in to Mezonas (past the code), check the time it says Claude asked, type the 6-digit code Claude showed with the link, approve, then ask again. A link works for 30 minutes and only the newest one Claude gave |
 | A tool error `approval_needed: this sign-in can't be approved` | AuthKit's token carries no session id (`sid`; UNCHECKED that AuthKit always sends it) | Disconnect the connector in Claude and connect again; if it persists, look at a token's claims |
 | 429 | More than 120 calls a minute from you (Cloudflare rate limiting, `MCP_RATE_LIMIT`) | Wait a minute |
 
 To cut a connector off: remove the person's memberships (takes effect on the next call),
 or end their sessions in WorkOS (tokens last as long as AuthKit's access-token lifetime, a few
-minutes by default; nothing here refreshes them). Every tool call is a log line
-`{"event":"mcp.tool_call",…}` in Workers Logs, with the person, `audience` (`ops` or `client`),
-the tool, its arguments (never a confirm token) and the outcome; each read is also a row in the
-audit log (`mcp GET /api/…`).
+minutes by default; nothing here refreshes them). Every tool call is a row in the audit log
+(`mcp.tool_call <tool>`), with the person, the client it named, `audience` (`ops` or `client`),
+the arguments that are ids (never a confirm token or free text) and the outcome; each read or
+write it makes is also a row (`mcp GET /api/…`, or `mcp tool <tool>` where no route answers it),
+and a refused sign-in (a bad token, no Mezonas account or client; not a request with no token,
+and at most 120 a minute per IP) is `mcp.sign_in`.
 
 Locally the MCP server is off (`WORKOS_AUTHKIT_DOMAIN` is empty in `wrangler.jsonc`); the tests in
 `apps/api/src/mcp.test.ts` run it against a fake AuthKit.
+
+### The Dev queue's daily task (`docs/plan.md` §1.125)
+
+Mezonas can't start a Claude Code session, so the Dev queue is pulled: by any session on demand
+("find DQ-012 and build it"), and by a daily scheduled task as a backstop. The owner creates the
+task (Claude Code → scheduled tasks), once a day outside working hours, each run a fresh session
+on this repository with the **Mezonas Staging** MCP connector. Its prompt:
+
+```text
+You build the Mezonas Dev queue's accepted requests. Read CLAUDE.md first.
+
+1. With the Mezonas Staging MCP tools, list accepted requests (code_requests_list, status "accepted"),
+   oldest first. Work at most 2 this run.
+2. For each: code_request_claim it (the claim keeps other sessions off it), read code_request_get
+   (spec, open questions, reuse check), then search this repository for anything that already does it.
+3. If something already does it: code_request_note naming the part and where it is, and stop with
+   this request. Closing is the operator's, never yours.
+4. Otherwise:
+   - answer the open questions marked investigate_during_build (a note each);
+   - make the smallest change that does it, extending an existing part before adding one;
+   - add tests next to the code; run pnpm check;
+   - open a draft PR against main (main deploys to staging; there is no staging branch), its
+     description saying what it does and how to try it on staging;
+   - code_request_attach_pr with the PR's URL and the catalog part it adds (a tool id, a skill ref,
+     or <part>#<operation> such as data.reshape#dateOffset). Mezonas marks it shipped by itself when
+     the deploy's catalog has that part.
+5. Mark the PR ready. When CI is green with no conflicts, merge it. Exception: a PR with a migration,
+   or a change to CI, deploys or sign-in, needs its own PR and the owner's merge: leave it ready,
+   note that on the request, and say so in your summary. Never skip, disable or quarantine a test
+   to get green; re-run CI once at most, then fix the root cause.
+6. Never accept, close or ship a request. End with a code_request_note on each request you touched
+   summarizing what you did, and a summary of the run.
+```
+
+A request a session is building shows In progress (In review once its PR is attached). A claim
+with no event for 2 hours and no PR goes back to Accepted for the next run.
 
 ## 1.1 Onboarding a client (managed service)
 
@@ -1293,8 +1334,12 @@ disconnected. Then:
 3. Then the owner purges its rows, as `cs_owner`:
    `DIRECT_DATABASE_URL=<cs_owner url> pnpm --filter @countersign/db run db:purge-client -- <client id>`.
    It refuses to run until the 30 days have passed and step 2 is done. It briefly locks each table, so run it at a
-   quiet hour. The audit log keeps the client's rows (ids only). Neon's point-in-time history
-   holds the deleted rows until its restore window passes.
+   quiet hour. Builds for the client go with it; a template's build tested at it stays, no
+   longer tested there. Reggie's conversations about the client go with their messages and every
+   change proposed in them, including any for another client (an action can't outlive its
+   conversation); each change made stays in the audit log (`reggie …`). The audit log keeps the
+   client's rows (ids only). Neon's point-in-time history holds the deleted rows until its
+   restore window passes.
 
 **Exporting a client's data.** The terms promise an export on request until 30 days after the
 service ends. Start it with `POST /api/ops/clients/<id>/exports` (a reason is optional) and list it
@@ -1337,7 +1382,7 @@ be disabled, as in `db:purge-client`.
 ## 1.3 People: joining and leaving (access control)
 
 **Joining.** The first operator of an environment: Actions → **Add operator** ("The first
-operator" above). After that, an operator invites another from the back office's **Users**
+operator" above); each run leaves an `operator.add` audit row naming the run. After that, an operator invites another from the back office's **Users**
 (`/ops/users`): they serve every client the inviting operator serves, and "Give all my clients"
 adds the ones they lack (`docs/plan.md` §1.122). A client's person: invited from the client's People
 (back office) or Team (portal, the client admin), as an admin or a user; a user can be limited to
@@ -1402,18 +1447,70 @@ step's date:
   configs and R2 buckets (§1). Safe to re-run; it rotates `cs_worker`'s passwords only when asked.
   Waits for the `production` environment's approval, as do **Add operator** and **Remove operator**
   when their target is production.
-- **`deploy.yml`**: on push to `main` (staging) or a `v*` tag (production): the full check, then
-  migrates the target's Neon branch as `cs_owner`, deploys the code service (`apps/mfa`) and its
+- **`deploy.yml`**: on push to `main` (staging) or a `v*` tag (production): `checks.yml`, then the
+  deploy job, which lives in **`deploy-app.yml`** (a reusable workflow, so `deploy.yml` and the
+  quick deploy below share one copy of its steps and secrets): it migrates the target's Neon branch
+  as `cs_owner`, deploys the code service (`apps/mfa`) and its
   secrets, then the browser service (`apps/browser`), builds `apps/web` and runs `wrangler deploy`
   for apps/api (whose `CODES` and `BROWSER` bindings need both deployed first). Its `site` job builds `apps/site` and deploys `mezonas-site`, from
-  `main` only. After the Worker deploys, **`scripts/smoke.sh`** checks the app from the outside
+  `main` only.
+  - **Production** (a `v*` tag, or Actions → Deploy → production) always runs the full check:
+    `static`, every package's tests (`check`) and the screen sweep (`sweep`).
+  - **Staging from a push to `main`** skips `check` and `sweep` when the merged pull request's CI
+    already passed them (owner, 2026-11-17: they took about 13 of a staging deploy's 16 minutes,
+    repeating the pull request's 15). Its `tested` job asks GitHub's API (with `checks: read`)
+    whether the push added exactly one merge commit (first parent: `main` before the push) whose
+    second parent, the pull request's head, has successful `checks / check` and `checks / sweep`
+    check runs from GitHub Actions. Then only `static` runs: lint, layering, typecheck, the web
+    build and its size budget. Anything else runs the full check as before: a direct push, a
+    squash or rebase merge, a pull request merged before its CI finished (no success yet), a
+    failed or missing CI, a manual run, an API that doesn't answer. The run's summary says which.
+  - After the Worker deploys, **`scripts/smoke.sh`** checks the app from the outside
   (`/api/health` answers; `/api/ready` answers 200 with `"db":"ok"`, which it does only when the
   Worker's own database connection, Hyperdrive as `cs_worker`, answers `select now()` within 3 s,
   a query Hyperdrive never caches; the page and its script load; `/api/session` refuses with a JSON 401), retrying for 2 minutes; a
   failure marks the deploy failed. Given a commit (a second argument, or `EXPECTED_SHA`), it also
   checks that `/api/ready`'s `sha` (the Worker's `DEPLOYED_SHA`) is that commit; without one it
-  skips that comparison. Run it by hand against either environment:
-  `scripts/smoke.sh https://staging.mezonas.com [commit]`.
+  skips that comparison. Every deploy passes the commit it deployed, so a green smoke test means
+  that commit is live. A production deploy (a tag or a manual run) first checks that its commit
+  is on `main` and stops before migrating if it isn't. Run it by hand against either environment:
+  `scripts/smoke.sh https://staging.mezonas.com [commit]`. The run's summary says which branch
+  and commit the target now runs.
+- **Quick deploy to staging** (`quick-deploy.yml`, by hand): a branch on staging without
+  merging it, in about 5–6 minutes, to try a fix there. Actions → **Quick deploy to staging** →
+  Run workflow → "Use workflow from": the branch → Run. The branch needs the workflow file, so a
+  branch from before it reached `main` merges `main` first. It checks lint, layering
+  (`lint:deps`) and typecheck only, no tests and no sweep, then runs `deploy-app.yml` to staging
+  (never production), smoke test included, and its summary says which branch and commit staging
+  runs.
+  - **It runs in the branch's own context, never `main`'s** (CodeQL, 2026-11-17). The branch's
+    unreviewed code runs in it, and code running in `main`'s context can write `main`'s Actions
+    cache, which production deploys restore from. Run from the branch, anything it writes stays
+    in that branch's cache.
+  - **Refused:** a run from a tag, and a branch that adds, changes or removes a migration `main`
+    doesn't have (`packages/db/migrations/*.sql`, `packages/db/migrations/meta`, compared with
+    `origin/main`). A migration applied to staging can't be taken back, and one that reached
+    staging may never be edited (§3), so it would be frozen before review. Migrations reach
+    staging by merging; to quick-deploy the rest of a branch first, move its migration to a pull
+    request of its own and merge that. The refusal is the branch's own copy of the workflow, so
+    it guards against mistakes, not against someone who edits it out. The gate for that is the
+    `staging` environment's rules (Settings → Environments), as it is for Deploy run by hand from
+    a branch. If `staging` allows only `main` to deploy, quick deploys are refused there too.
+  - **One staging deploy at a time:** its deploy job holds `deploy.yml`'s `deploy-staging` group
+    and is never cancelled (a cancelled deploy could stop between the migration and the Worker).
+    Its checks run beside a deploy in progress; only the deploy waits. GitHub keeps one waiting
+    run per group, so a quick deploy waiting behind a deploy and a deploy from `main` waiting
+    behind one replace each other, the newest kept; a replaced deploy from `main` reaches
+    staging with the next merge, or by hand (Actions → Deploy → staging).
+  - **Staging shows whatever was deployed last.** The next deploy from `main` (any merge, or
+    Actions → Deploy → staging) puts staging back to `main`. Two people or sessions quick-deploying
+    different branches overwrite each other until then: check `https://staging.mezonas.com/api/ready`'s
+    `sha` (or the run's summary) for what you're looking at.
+- **What staging skips, accepted (owner, 2026-11-17).** Staging deploys from `main` trust the pull
+  request's CI, which tested the pull request's head merged with `main` as it was then, and only
+  the packages it touched and their dependents (`scope: affected`). So two pull requests that each
+  passed CI can reach staging together untested, and a quick deploy reaches it with no tests at
+  all. Production still runs everything on the tagged commit before it deploys.
 - **The screen sweep** (`checks.yml`'s `sweep` job, `apps/web/e2e/route-sweep.mjs`): beside the
   tests, on the seeded database, the built app runs on `wrangler dev` with the dev sign-in and real
   Chromium opens every screen of the back office (as the operator) and the portal (as the Demo

@@ -537,6 +537,33 @@ describe("texted codes", () => {
     expect(r).toMatchObject({ ok: true, value: { status: "pending" } });
   });
 
+  it("reads a text's body no further than its limit", async () => {
+    const id = await withPhone();
+    let pulled = 0;
+    const TOTAL = 8 * 1024 * 1024;
+    const res = await exports.default.fetch(
+      new Request(`${ORIGIN}/twilio/sms/${id.id}`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          "x-twilio-signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        },
+        body: new ReadableStream<Uint8Array>(
+          {
+            pull(controller) {
+              if (pulled >= TOTAL) return controller.close();
+              pulled += 64 * 1024;
+              controller.enqueue(new Uint8Array(64 * 1024).fill(0x61));
+            },
+          },
+          { highWaterMark: 0 },
+        ),
+      }),
+    );
+    expect(res.status).toBe(413);
+    expect(pulled).toBeLessThan(TOTAL);
+  });
+
   it("refuses a second number for the same identity", async () => {
     const id = await withPhone();
     const again = await codes.addPhone({ tenantId: TENANT, identityId: id.id });

@@ -85,7 +85,7 @@ const SOURCE: Record<ChannelLine["source"], string> = {
 };
 
 /**
- * §1.124: where the client's people email and text Sloan, to pass on. Only their own people are
+ * §1.150: where the client's people email and text Sloan, to pass on. Only their own people are
  * answered; anyone else gets the polite fixed reply.
  */
 function SloanReachCard({ clientId }: { clientId: string }) {

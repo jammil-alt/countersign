@@ -366,6 +366,54 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
       status: "open",
       dueAt: new Date(Date.now() + 86_400_000),
     });
+  // §1.124 (0060): an issue with its thread and first event, and an idea the client asked for, on
+  // a thread of its own. Plain SQL, and only where the tables exist, like the form above.
+  const [work] = await db.$client<{ ok: boolean }[]>`
+    select to_regclass('public.issue') is not null as ok`;
+  if (work?.ok) {
+    const [it] = await db.$client<{ id: string }[]>`
+      insert into thread (tenant_id, subject_type, title) values (${tenantId}, 'issue', 'Request #1')
+      returning id`;
+    const [is] = await db.$client<{ id: string }[]>`
+      insert into issue (tenant_id, number, title, agent_id, source, raised_by, thread_id)
+      values (${tenantId}, 1, 'Invoices stopped matching', ${a.id}, 'portal', ${u.id}, ${it?.id ?? ""})
+      returning id`;
+    await db.$client`
+      insert into issue_event (tenant_id, issue_id, kind, to_value, actor, user_id)
+      values (${tenantId}, ${is?.id ?? ""}, 'created', 'reported', 'client', ${u.id})`;
+    const [at] = await db.$client<{ id: string }[]>`
+      insert into thread (tenant_id, subject_type, title) values (${tenantId}, 'client_ask', 'Idea')
+      returning id`;
+    await db.$client`
+      insert into client_ask (tenant_id, title, text, source, raised_by, thread_id)
+      values (${tenantId}, 'Weekly summary by email', 'Could we get the summary on Mondays?',
+              'portal', ${u.id}, ${at?.id ?? ""})`;
+  }
+  // §1.125 (0066): an intake with its admin, an answer, a scope and a log line. Plain SQL, and only
+  // where the tables exist, like the issue above.
+  const [onboarding] = await db.$client<{ ok: boolean }[]>`
+    select to_regclass('public.intake') is not null as ok`;
+  if (onboarding?.ok) {
+    const [ik] = await db.$client<{ id: string }[]>`
+      insert into intake (tenant_id, covers, guide, lead_note)
+      values (${tenantId}, ${JSON.stringify({ general: true, areas: ["purchasing"], templateIds: [] })}::jsonb,
+              ${JSON.stringify({ version: 1, sections: [] })}::jsonb, 'A few questions about bills')
+      returning id`;
+    const [ip] = await db.$client<{ id: string }[]>`
+      insert into intake_person (tenant_id, intake_id, user_id, email, name, is_admin)
+      values (${tenantId}, ${ik?.id ?? ""}, ${u.id}, ${`admin-${tenantId}@example.com`}, 'Dana Ruiz', true)
+      returning id`;
+    await db.$client`
+      insert into intake_answer (tenant_id, intake_id, field_key, value, state, source, user_id)
+      values (${tenantId}, ${ik?.id ?? ""}, 'general.approver', ${JSON.stringify("Dana")}::jsonb,
+              'answered', 'form', ${u.id})`;
+    await db.$client`
+      insert into intake_scope (tenant_id, intake_id, version, body)
+      values (${tenantId}, ${ik?.id ?? ""}, 1, ${JSON.stringify({ agents: [] })}::jsonb)`;
+    await db.$client`
+      insert into intake_event (tenant_id, intake_id, kind, person_id)
+      values (${tenantId}, ${ik?.id ?? ""}, 'sent', ${ip?.id ?? ""})`;
+  }
   await db.insert(accessRelease).values({
     tenantId,
     connectionId: c.id,

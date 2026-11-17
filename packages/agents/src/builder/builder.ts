@@ -6,6 +6,7 @@
 // drafts and revises v4 processes (docs/plan.md §1.86); a v3 source reaches it read as processes.
 
 import {
+  ComplianceRefusal,
   canonicalJson,
   dec,
   type ProcessAgentBundle,
@@ -86,6 +87,19 @@ export class BuilderError extends Error {
   ) {
     super(message);
   }
+}
+
+/**
+ * A model call that failed, as the Builder reports it: `model_unavailable`, except a HIPAA mode
+ * refusal (core's `ComplianceRefusal`, nothing was sent), which passes as it is so the caller can
+ * say why.
+ */
+export function modelUnavailable(error: unknown): Error {
+  if (error instanceof ComplianceRefusal) return error;
+  return new BuilderError(
+    "model_unavailable",
+    error instanceof Error ? error.message : String(error),
+  );
 }
 
 // ── Prompt ───────────────────────────────────────────────────────────────────────────────────────
@@ -271,10 +285,7 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
           },
         );
       }
-      throw new BuilderError(
-        "model_unavailable",
-        error instanceof Error ? error.message : String(error),
-      );
+      throw modelUnavailable(error);
     }
     const guarded = input.guard(answer);
     const errors = await options.validate(guarded.bundle);

@@ -209,6 +209,15 @@ export async function executeAction(
   // asks for one: without it the write fails.
   // DECISION: the check is made before anything is sent, once this caller holds the action, so a
   // refused write never starts and a write another caller is making is never failed from here.
+  // docs/plan.md §1.124: the safety hold, as a backstop. Approving a held agent's items is refused
+  // and their redelivery waits (apps/api), so a write reaches here held only when the hold came
+  // between its approval and its execution: it fails closed, never written.
+  if (action.runId && store.agentHold) {
+    const owner = await store.run(input.tenantId, action.runId);
+    if (owner && owner.mode !== "test" && (await store.agentHold(input.tenantId, owner.agentId))) {
+      return notSent("the agent is on a safety hold", { held: true });
+    }
+  }
   const refused = await releaseRefusal(deps, input.tenantId, action, input.runId);
   if (refused) return notSent(refused, { release: true });
   const tool = deps.tools.get(action.tool);
@@ -220,6 +229,14 @@ export async function executeAction(
   if (own?.kind !== "connector") {
     return notSent(`${action.tool} isn't supplied by the ${conn.connector} connection`);
   }
+  // Review of audit 3.8: what this run already wrote on this connection, so a second change it
+  // proposed to the same record is not refused for the first one's mark.
+  const earlier =
+    action.runId && actions.doneInRun
+      ? (await actions.doneInRun(input.tenantId, action.runId, action.connectionId))
+          .filter((a) => a.id !== action.id)
+          .flatMap((a) => [a.result, a.after].filter((v) => v !== undefined && v !== null))
+      : [];
   // Wave 5 review: whether the handler was reached. An error before it (the connector's checks,
   // the input, the before read) wrote nothing; one after it may come after the provider took it.
   let sending = false;
@@ -241,6 +258,12 @@ export async function executeAction(
         sending: () => {
           sending = true;
         },
+        // Audit 3.8: refused if the record moved since it was proposed, except on a takeover,
+        // whose earlier try may have moved it (the connector's retry check decides then).
+        recheck: !retaken,
+        earlier,
+        // The input the proposal's before state was read for: an edit may name another record.
+        proposedInput: action.input,
       },
     );
   } catch (error) {

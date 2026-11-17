@@ -21,6 +21,7 @@ import { type Tx, tenant } from "@countersign/db";
 import { TranscribeError, type Transcriber } from "@countersign/llm";
 import { eq } from "drizzle-orm";
 import type { Hono } from "hono";
+import { clientTranscriber } from "../compliance/models";
 import {
   type AppContext,
   type AppEnv,
@@ -28,8 +29,8 @@ import {
   HttpError,
   mountLong,
   type Services,
-  transcriberFor,
 } from "../http";
+import { claimMetered } from "../metered";
 
 /** The recording, refused unless a type a browser records and a size voice typing takes. */
 async function readRecording(c: AppContext): Promise<{ audio: Uint8Array; type: string }> {
@@ -74,8 +75,10 @@ async function refuseUncovered(
   return settings;
 }
 
-function transcriberOf(services: Services): Transcriber {
-  const t = transcriberFor(services.deps, services.env);
+function transcriberOf(services: Services, clientId: string | null): Transcriber {
+  // Held to the client's HIPAA mode here too, beside the route's own check (called outside any
+  // transaction).
+  const t = clientTranscriber(services, { clients: [clientId], read: services.db });
   if (!t) throw new HttpError(503, "voice_off", "voice typing isn't set up here");
   return t;
 }
@@ -102,7 +105,7 @@ export function voiceRoutes(app: Hono<AppEnv>): void {
       ensureClient(ctx, clientId);
       await ctx.inTx((scoped) => refuseUncovered(scoped.tx, ctx.services, clientId));
     }
-    const t = transcriberOf(ctx.services);
+    const t = transcriberOf(ctx.services, clientId);
     return writeOut(t, await readRecording(ctx.c));
   });
 
@@ -117,7 +120,20 @@ export function voiceRoutes(app: Hono<AppEnv>): void {
       client: clientLanguage(settings),
       browser: parseAcceptLanguage(ctx.c.req.header("accept-language")),
     });
-    const t = transcriberOf(ctx.services);
-    return writeOut(t, await readRecording(ctx.c), locale.slice(0, 2));
+    const t = transcriberOf(ctx.services, clientId);
+    const recording = await readRecording(ctx.c);
+    // Audit 5.9: each person's recordings are limited per minute and per day (../metered.ts).
+    // DECISION: claimed once the recording is known to be one we would send (the client covered,
+    // voice typing set up, the recording's type and size right) and just before it goes to
+    // OpenAI, so only a recording that is sent uses the allowance.
+    await ctx.inTx((scoped) =>
+      claimMetered(scoped.tx, ctx.c, {
+        kind: "transcribe",
+        tenantId: clientId,
+        session: ctx.session,
+        role: ctx.role,
+      }),
+    );
+    return writeOut(t, recording, locale.slice(0, 2));
   });
 }

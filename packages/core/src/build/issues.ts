@@ -37,6 +37,8 @@ export interface BuildIssue {
   itemId: string | null;
   /** Messages about it: its thread. */
   talk: number;
+  /** The Dev queue request it waits on (docs/plan.md §1.125): "Waiting on DQ-012". */
+  waitingOn: { id: string; ref: string } | null;
 }
 
 const SOURCE_ORDER: Record<IssueSource, number> = {
@@ -57,14 +59,22 @@ export function buildIssues(d: BuildDetail): BuildIssue[] {
   // Open items hold the moves into the client test and the go-live.
   const itemsHold = d.gate.next === "client_test" || phase === "qa";
 
+  // A missing step whose part is in the Dev queue waits on its request.
+  const waitingByStep = new Map<string, { id: string; ref: string }>();
+  for (const i of d.items) {
+    const w = waitingOf(i.ref);
+    if (w && i.stepId && itemOpen(i.state)) waitingByStep.set(i.stepId, w);
+  }
   for (const p of d.draft?.problems ?? []) {
     const where = [p.stepName ?? p.stepId, p.workflowName ?? p.workflow].filter(Boolean);
     const key = `problem:${p.key}`;
+    const waiting = p.stepId ? (waitingByStep.get(p.stepId) ?? null) : null;
+    const place = where.length > 0 ? `In ${where.map((w) => `“${w}”`).join(" of ")}` : "";
     out.push({
       key,
       source: "problem",
       title: p.title,
-      detail: where.length > 0 ? `In ${where.map((w) => `“${w}”`).join(" of ")}` : "",
+      detail: waiting ? [place, `Waiting on ${waiting.ref}`].filter(Boolean).join(". ") : place,
       phase: "draft",
       open: true,
       blocking: true,
@@ -72,6 +82,7 @@ export function buildIssues(d: BuildDetail): BuildIssue[] {
       owner: null,
       itemId: null,
       talk: t(key),
+      waitingOn: waiting,
     });
   }
   const itemFor = (ref: "testCaseId" | "actionId", id: string) =>
@@ -91,6 +102,7 @@ export function buildIssues(d: BuildDetail): BuildIssue[] {
       owner: null,
       itemId: null,
       talk: t(key),
+      waitingOn: null,
     });
   }
   // The checklist is read in every phase, but it is QA's: before QA every check "fails".
@@ -109,6 +121,7 @@ export function buildIssues(d: BuildDetail): BuildIssue[] {
       owner: null,
       itemId: null,
       talk: t(key),
+      waitingOn: null,
     });
   }
   for (const r of d.clientTest?.rejections ?? []) {
@@ -126,11 +139,13 @@ export function buildIssues(d: BuildDetail): BuildIssue[] {
       owner: null,
       itemId: null,
       talk: t(key),
+      waitingOn: null,
     });
   }
   for (const i of d.items) {
     const key = `item:${i.id}`;
     const open = itemOpen(i.state);
+    const waiting = waitingOf(i.ref);
     out.push({
       key,
       source: "item",
@@ -139,10 +154,11 @@ export function buildIssues(d: BuildDetail): BuildIssue[] {
       phase: i.phase,
       open,
       blocking: open && itemsHold,
-      state: ITEM_STATE_WORDS[i.state],
+      state: waiting && open ? `Waiting on ${waiting.ref}` : ITEM_STATE_WORDS[i.state],
       owner: i.owner,
       itemId: i.id,
       talk: t(key),
+      waitingOn: waiting,
     });
   }
   return out
@@ -155,6 +171,16 @@ export function buildIssues(d: BuildDetail): BuildIssue[] {
         a.at - b.at,
     )
     .map(({ issue }) => issue);
+}
+
+/** The request an item's ref names, if any. */
+function waitingOf(ref: {
+  codeRequestId?: string | undefined;
+  codeRequestRef?: string | undefined;
+}) {
+  return ref.codeRequestId && ref.codeRequestRef
+    ? { id: ref.codeRequestId, ref: ref.codeRequestRef }
+    : null;
 }
 
 /** One line per issue, for the Builder: its key first, so it can name the one it is about. */

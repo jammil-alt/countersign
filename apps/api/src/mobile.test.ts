@@ -218,7 +218,7 @@ describe.skipIf(!h)("signing a Desk item on a phone", () => {
       path,
       await signed("approve", { signAs: "reject" }),
     );
-    expect([swapped.status, j(swapped.json).error.code]).toEqual([401, "signature_invalid"]);
+    expect([swapped.status, j(swapped.json).error.code]).toEqual([403, "signature_required"]);
     const old = await H.call(
       admin("a"),
       "POST",
