@@ -168,6 +168,13 @@ then one pass of its "To verify" list against the real service.
 
 ## 4. Everything else
 
+### Back office work: Sales and Build (designed 2026-11-17, parked)
+
+One to-do list (Your call), Sales (new accounts and expansion) and Build (issues, agent builds and
+enhancements in one work order), with Reggie doing most of the work. Agreed as a design and a plan
+to come back to; nothing is built. The plan, its steps (B1–W1) and the owner's open questions:
+`docs/cases-plan.md`. The screens: `docs/design/pipelines.html` and `docs/design/workflows.html`.
+
 ### Area owners, owner chat and Home (designed 2026-11-12)
 
 ARCHITECTURE v0.19 §10.15, `docs/plan.md` §1.117 and §10 (O1–O8). Built on
