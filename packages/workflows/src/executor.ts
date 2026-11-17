@@ -3004,18 +3004,25 @@ class Executor {
     let by = "";
     let unsure = false;
     if (allowed.length > 1) {
-      const answer = await this.runner.do(`${name}:choose`, async () => {
-        if (!this.ctx.choice) return { path: null, by: "" };
-        return this.ctx.choice.choose({
-          run,
-          nodeId: name,
-          stepRunId: opened.stepRunId,
-          stepId: step.id,
-          stepName: step.name,
-          paths: allowed.map((p) => ({ id: p.id, name: p.name, describe: p.describe ?? "" })),
-          data: step.show ? resolveTemplate(step.show, frame.scope) : choiceData(frame.scope),
-        });
-      });
+      // Retried as skill and action steps are, not on the platform's defaults.
+      const answer = await this.runner.do(
+        `${name}:choose`,
+        async (): Promise<{ path: string | null; by: string; failed?: string }> => {
+          if (!this.ctx.choice) return { path: null, by: "" };
+          return this.ctx.choice.choose({
+            run,
+            nodeId: name,
+            stepRunId: opened.stepRunId,
+            stepId: step.id,
+            stepName: step.name,
+            paths: allowed.map((p) => ({ id: p.id, name: p.name, describe: p.describe ?? "" })),
+            data: step.show ? resolveTemplate(step.show, frame.scope) : choiceData(frame.scope),
+          });
+        },
+        this.ctx.stepConfig,
+      );
+      // The agent couldn't be asked: the step fails, with the reason; no path is taken.
+      if (answer.failed) await this.choiceFailed(step, name, opened.stepRunId, answer.failed);
       by = answer.by;
       picked = allowed.find((p) => p.id === answer.path);
       unsure = picked === undefined;
@@ -3070,6 +3077,30 @@ class Executor {
       ...(frame.checks ? { checks: frame.checks } : {}),
     });
     this.record(frame, step, output);
+  }
+
+  /** An agent's choice that couldn't be made: its step's row fails with the reason, and the run. */
+  async choiceFailed(
+    step: processes.Step,
+    name: string,
+    stepRunId: string,
+    failed: string,
+  ): Promise<never> {
+    const reason = `${clientLabel(asLabelled(step))}: ${failed}`;
+    await this.runner.do(`${name}:failed`, async () => {
+      await this.ctx.log.update(stepRunId, {
+        status: "failed",
+        error: reason,
+        summary: `${stepStateLabel(asLabelled(step), false)}: ${this.words.failed}`,
+      });
+      return null;
+    });
+    throw new RunEnd({
+      status: "failed",
+      reason,
+      nodeId: name,
+      errorKey: this.errorKeyOf(step, failed),
+    });
   }
 
   async forEach(step: processes.ForEachStep, name: string, frame: Frame): Promise<void> {
@@ -3202,7 +3233,7 @@ class Executor {
         const until = step.until;
         const verdict = await this.runner.do(
           `${name}:r${pass}:until`,
-          async (): Promise<{ done: boolean | null; feedback?: string }> => {
+          async (): Promise<{ done: boolean | null; feedback?: string; failed?: string }> => {
             if ("rules" in until) return { done: evaluateRules(until.rules, scope) };
             // M61: the agent says. No port, or no answer that held: the repeat ends at its limit.
             if (!this.ctx.choice) return { done: null };
@@ -3222,9 +3253,21 @@ class Executor {
             return {
               done: answer.done,
               ...(answer.feedback ? { feedback: answer.feedback } : {}),
+              ...(answer.failed ? { failed: answer.failed } : {}),
             };
           },
+          // Retried as skill and action steps are, not on the platform's defaults.
+          "rules" in step.until ? undefined : this.ctx.stepConfig,
         );
+        // The agent couldn't be asked: the repeat fails, with the reason (below, as `ended`).
+        if (verdict.failed) {
+          throw new RunEnd({
+            status: "failed",
+            reason: `${label}: ${verdict.failed}`,
+            nodeId: name,
+            errorKey: this.errorKeyOf(step, verdict.failed),
+          });
+        }
         if (verdict.done === true) {
           done = true;
           break;
@@ -3245,10 +3288,16 @@ class Executor {
     for (const [id, entry] of Object.entries(previous ?? {})) last[id] = entry.output;
     const output = { passes, done, last };
     const stops = !ended && !done && step.onLimit === "stop";
+    // The repeat's own failure (its agent couldn't be asked) is kept on its row.
+    const ownFailure =
+      ended?.result.status === "failed" && ended.result.nodeId === name
+        ? ended.result.reason
+        : null;
     await this.runner.do(`${name}:done`, async () => {
       await log.update(stepRunId, {
         status: stops || ended?.result.status === "failed" ? "failed" : "succeeded",
         output: { passes, done },
+        ...(ownFailure ? { error: ownFailure } : {}),
         ...(ended ? {} : { summary: `${label}: ${this.words.rounds(passes, done)}` }),
       });
       return null;

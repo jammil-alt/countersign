@@ -894,8 +894,20 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
         return fail(`model call failed: ${error instanceof Error ? error.message : String(error)}`);
       }
       if (response.stop_reason === "refusal") return fail("the model declined the task");
-      messages.push({ role: "assistant", content: response.content as TurnContent });
       const uses = response.content.filter((b): b is ToolUse => b.type === "tool_use");
+      // An answer cut off at max_tokens holds calls whose input may be incomplete (a cut-off
+      // input that doesn't parse reads as `{}`): none of them runs, a finish included.
+      // DECISION: the step fails with the cause rather than asking again, since the same
+      // ceiling would cut the next answer off too; an answer cut off in its words alone (no
+      // call) is asked for its finish as before.
+      if (response.stop_reason === "max_tokens" && uses.length > 0) {
+        return fail(
+          `the model's answer was cut off at max_tokens (${model.maxTokens}) while calling ${uses
+            .map((u) => u.name)
+            .join(", ")}: nothing it asked for was run; raise the model's max tokens`,
+        );
+      }
+      messages.push({ role: "assistant", content: response.content as TurnContent });
       // Over budget: a valid finish in this answer still counts; nothing else runs.
       if (cost.gt(maxCost)) {
         const done = uses.find((u) => u.name === FINISH_TOOL && checkOutput(def, u.input).ok);

@@ -228,7 +228,8 @@ describe.skipIf(!harness)("run oversight: the review and its record", () => {
     const result = JSON.stringify(req?.messages.at(-1));
     expect(result).toContain("tool_result");
     expect(result).toContain("UNTRUSTED-ERROR-TEXT");
-    expect(req?.tool_choice).toEqual({ type: "tool", name: "finish" });
+    expect(req?.tool_choice).toEqual({ type: "auto", disable_parallel_tool_use: true });
+    expect(req?.system).toContain("calling the `finish` tool exactly once");
   });
 
   it("counts an invalid corrected input, or a decision the cause doesn't allow, as no intervention", async () => {

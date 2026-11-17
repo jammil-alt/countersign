@@ -421,4 +421,55 @@ describe("converseTurn", () => {
     expect(system).not.toContain("It is over");
     expect(calls).toEqual([expect.objectContaining({ action: "conversation" })]);
   });
+
+  const turnOn = (id: string) =>
+    ({
+      tenantId: "t1",
+      runId: RUN,
+      stepRunId: "0195f1a2-0000-7000-8000-0000000000b2",
+      agentVersionId: "v1",
+      key: "talk",
+      turn: 1,
+      language: "en",
+      goal: "Confirm Friday.",
+      opening: "Ask about Friday.",
+      result: { type: "object", properties: { ok: { type: "boolean" } } },
+      confirm: true,
+      data: null,
+      about: [],
+      who: { name: "Pat Lee" },
+      channel: "sms",
+      clientName: "Acme",
+      transcript: [],
+      lastAsked: null,
+      messagesLeft: 3,
+      maxChars: 480,
+      model: { id, maxTokens: 4096 },
+    }) as const;
+
+  it("asks the default models without forcing a tool, naming `turn` in the instructions", async () => {
+    for (const id of ["claude-sonnet-5-5", "claude-opus-5-5"]) {
+      const model = new FakeModel([
+        { toolUse: { name: "turn", input: { action: "ask", message: "Is Friday good?" } } },
+      ]);
+      const { d } = runtime(model);
+      const r = await converseTurn(d, turnOn(id));
+      expect(r.ok).toBe(true);
+      expect(model.requests[0]?.tool_choice).toEqual({
+        type: "auto",
+        disable_parallel_tool_use: true,
+      });
+      expect(String(model.requests[0]?.system)).toContain("calling the `turn` tool exactly once");
+    }
+  });
+
+  it("fails a turn cut off at max_tokens, never sending its message", async () => {
+    const model = new FakeModel([
+      { toolUse: { name: "turn", input: { action: "ask", message: "Is Fri" } }, cutOff: true },
+    ]);
+    const { d } = runtime(model);
+    const r = await converseTurn(d, turnOn("claude-sonnet-5-5"));
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.error).toMatch(/^turn 1: the answer was cut off at max_tokens/);
+  });
 });

@@ -58,11 +58,15 @@ import {
   type TotalSample,
 } from "@countersign/core";
 import {
+  ANSWER_TOOL_CHOICE,
+  answerToolCall,
+  answerToolInstruction,
   createLlmClient,
   type LlmCallRecord,
+  type LlmCallResult,
   type LlmExchange,
-  type LlmMessage,
   type LlmRequest,
+  LlmToolError,
 } from "@countersign/llm";
 import type { RuntimeDeps } from "./context";
 import { checkAgainst } from "./json-schema";
@@ -582,13 +586,13 @@ export async function overseeStep(
     );
   };
   const llm = createLlmClient({ transport: deps.transport, onCall });
-  let response: LlmMessage;
+  let result: LlmCallResult;
   try {
-    ({ message: response } = await llm.message(
+    result = await llm.message(
       {
         model: model.id,
         max_tokens: model.maxTokens,
-        system,
+        system: `${system}\n\n${answerToolInstruction(OVERSEE_FINISH_TOOL)}`,
         messages,
         tools: [
           {
@@ -604,18 +608,23 @@ export async function overseeStep(
             }) as never,
           },
         ],
-        tool_choice: { type: "tool", name: OVERSEE_FINISH_TOOL },
+        tool_choice: ANSWER_TOOL_CHOICE,
       },
       { label: `${req.nodeId}:oversee:${req.seq}` },
-    ));
+    );
   } catch (error) {
     return none(`the review failed: ${error instanceof Error ? error.message : String(error)}`);
   }
-  const use = response.content.find(
-    (b): b is Extract<LlmMessage["content"][number], { type: "tool_use" }> =>
-      b.type === "tool_use" && b.name === OVERSEE_FINISH_TOOL,
-  );
-  if (!use) return none("the agent gave no decision");
+  let use: { input: unknown };
+  try {
+    use = answerToolCall(result, OVERSEE_FINISH_TOOL);
+  } catch (error) {
+    if (!(error instanceof LlmToolError)) throw error;
+    // A cut-off decision is never acted on: its input may be incomplete.
+    return error.code === "max_tokens"
+      ? none(`the review failed: ${error.message}`)
+      : none("the agent gave no decision");
+  }
   const parsed = parseOversightDecision(use.input, req.cause, decides);
   if (!parsed.ok) return none(parsed.reason);
   const decision = parsed.decision;

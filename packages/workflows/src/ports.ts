@@ -581,11 +581,23 @@ export interface JudgeRequest {
  * Where the agent chooses. Each answer is recorded by the port (an `oversight_decision` row) and
  * returned once; the executor calls it inside a durable step, so a replay never asks again.
  */
+// DECISION: a choice the agent couldn't make (its model call failed, or its answer was cut off at
+// max_tokens) comes back as `failed` with the reason, not as a throw: the answer is stored by the
+// durable step like any other, so the engine never retries the same paid call, a replay asks
+// nothing again, and the executor fails the step with that reason (never "unsure").
 export interface ChoicePort {
-  /** A path id the request allowed, or null when unsure (or no answer held). */
-  choose(request: ChoiceRequest): Promise<{ path: string | null; by: string }>;
-  /** Done or not, or null when no answer held (the repeat ends at its limit). */
-  judge(request: JudgeRequest): Promise<{ done: boolean | null; feedback?: string; by: string }>;
+  /**
+   * A path id the request allowed, or null when unsure (or no answer held). `failed`: the agent
+   * couldn't be asked, and why; the step fails.
+   */
+  choose(request: ChoiceRequest): Promise<{ path: string | null; by: string; failed?: string }>;
+  /**
+   * Done or not, or null when no answer held (the repeat ends at its limit). `failed`: the agent
+   * couldn't be asked, and why; the step fails.
+   */
+  judge(
+    request: JudgeRequest,
+  ): Promise<{ done: boolean | null; feedback?: string; by: string; failed?: string }>;
 }
 
 // Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)"): the owner's check on every step, recorded.

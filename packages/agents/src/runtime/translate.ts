@@ -116,15 +116,13 @@ export async function translateOnce(
 
 function readAnswer(response: LlmMessage): TranslateAnswer {
   if (response.stop_reason === "refusal") throw new TranslateError("the model declined");
+  // A call cut off at max_tokens may hold half a translation: never used.
+  if (response.stop_reason === "max_tokens") throw new TranslateError("the answer was cut off");
   const call = response.content.find(
     (b): b is Extract<LlmMessage["content"][number], { type: "tool_use" }> =>
       b.type === "tool_use" && b.name === TRANSLATE_FINISH_TOOL,
   );
-  if (!call) {
-    throw new TranslateError(
-      response.stop_reason === "max_tokens" ? "the answer was cut off" : "no answer was given",
-    );
-  }
+  if (!call) throw new TranslateError("no answer was given");
   const parsed = TranslateAnswer.safeParse(call.input);
   if (!parsed.success) throw new TranslateError("the answer was not a translation");
   if (parsed.data.sourceLanguage !== "other" && !parsed.data.translation.trim()) {

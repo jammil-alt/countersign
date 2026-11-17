@@ -305,20 +305,24 @@ export async function runTurn(s: TurnScope, conversationId: string, words: strin
       { label: "reggie" },
     );
     if (record.costUsd) cost = cost.plus(record.costUsd);
-    // The answer as the next request takes it: its words and tool calls.
-    const content: Exclude<ModelMessage["content"], string> = [];
-    for (const b of message.content) {
-      if (b.type === "text") content.push({ type: "text", text: b.text });
-      else if (b.type === "tool_use") {
-        content.push({ type: "tool_use", id: b.id, name: b.name, input: b.input });
-      }
-    }
-    turn.push({ role: "assistant", content });
     const calls = message.content.filter(
       (b): b is Extract<(typeof message.content)[number], { type: "tool_use" }> =>
         b.type === "tool_use",
     );
-    if (message.stop_reason !== "tool_use" || calls.length === 0) {
+    // Its calls run only when the answer stopped to call them: one cut off at max_tokens may be
+    // incomplete, and runs nothing.
+    const acting = message.stop_reason === "tool_use" && calls.length > 0;
+    // The answer as the next request takes it: its words, and its tool calls when they run. A
+    // call that never runs is left out, since a later request can't carry a call without its
+    // result.
+    const content: Exclude<ModelMessage["content"], string> = [];
+    for (const b of message.content) {
+      if (b.type === "text") content.push({ type: "text", text: b.text });
+      else if (b.type === "tool_use" && acting) {
+        content.push({ type: "tool_use", id: b.id, name: b.name, input: b.input });
+      }
+    }
+    if (!acting) {
       answer = message.content
         .filter(
           (b): b is Extract<(typeof message.content)[number], { type: "text" }> =>
@@ -327,8 +331,20 @@ export async function runTurn(s: TurnScope, conversationId: string, words: strin
         .map((b) => b.text)
         .join("\n")
         .trim();
+      if (message.stop_reason === "max_tokens") {
+        answer = answer
+          ? `${answer}\n\n(My answer was cut off. Ask me again with less at once.)`
+          : "My answer was cut off. Ask me again with less at once.";
+      }
+      // An answer of words only; with none left, a line, since a later request can't carry an
+      // empty message.
+      turn.push({
+        role: "assistant",
+        content: content.length > 0 ? content : [{ type: "text", text: answer || "(no answer)" }],
+      });
       break;
     }
+    turn.push({ role: "assistant", content });
     const results = [];
     for (const call of calls) {
       used.push(call.name);
