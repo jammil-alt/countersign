@@ -103,6 +103,7 @@ export const en = {
     "This is a different account from the one connected here. Disconnect it first, then connect the other one.",
   "error.different_company":
     "Your books here come from another QuickBooks company. Ask us to change the company.",
+  "error.sync_running": "We're reading this company's books right now. Try again in a few minutes.",
   "error.invalid_hours":
     "These hours can't be saved. Give at least one day its hours, and keep each time away under a year.",
   "error.sends_form":

@@ -107,6 +107,8 @@ export const es: Messages = {
     "Esta es una cuenta distinta de la que está conectada aquí. Desconéctela primero y luego conecte la otra.",
   "error.different_company":
     "Sus libros aquí vienen de otra empresa de QuickBooks. Pídanos que cambiemos la empresa.",
+  "error.sync_running":
+    "Estamos leyendo los libros de esta empresa ahora mismo. Inténtelo de nuevo en unos minutos.",
   "error.invalid_hours":
     "No se puede guardar este horario. Indique el horario de al menos un día y que cada ausencia dure menos de un año.",
   "error.sends_form":

@@ -149,8 +149,10 @@ export async function qboSyncStep(
       cursor: page.next as unknown as Record<string, never>,
       initial: page.initial,
       now: now(),
+      externalAccountId: row.externalAccountId,
     }),
   );
+  if (result.dropped) return skip("the connection was signed in to another company");
   return {
     done: page.done,
     stored: result.stored,

@@ -109,6 +109,8 @@ export const fr: Messages = {
     "Ce compte n'est pas celui qui est connecté ici. Déconnectez-le d'abord, puis connectez l'autre.",
   "error.different_company":
     "Votre comptabilité ici vient d'une autre entreprise QuickBooks. Demandez-nous de changer d'entreprise.",
+  "error.sync_running":
+    "Nous lisons la comptabilité de cette entreprise en ce moment. Réessayez dans quelques minutes.",
   "error.invalid_hours":
     "Ces horaires ne peuvent pas être enregistrés. Indiquez les horaires d'au moins un jour, et gardez chaque absence sous un an.",
   "error.sends_form":

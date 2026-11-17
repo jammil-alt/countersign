@@ -5,17 +5,19 @@
 // connector that names one account per connection is checked on its own.
 
 import {
+  ContentStore,
   createBankfeedConnector,
   createLinkedInConnector,
   createQboConnector,
   generateEncryptionKey,
 } from "@countersign/connectors";
 import { FAKE_QBO_CLIENT, FAKE_QBO_REALM, fakeQbo } from "@countersign/connectors/testing";
-import { connection, rawRecord, withTenant } from "@countersign/db";
+import { connection, externalAction, rawRecord, vendor, withTenant } from "@countersign/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type ApiHarness, admin, createApiHarness, OPERATOR } from "./api.test-helper";
 import { MemoryQboSyncInstances } from "./qbo/instances";
+import { storeQboPage } from "./qbo/store";
 import { accountChange } from "./routes/connections";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
@@ -25,7 +27,7 @@ const ENCRYPTION_KEY = generateEncryptionKey();
 const ORIGIN = "https://staging.mezonas.test";
 /** A second company the same Intuit user can pick. */
 const OTHER_REALM = "4620816365171234567";
-const qbo = fakeQbo({ codes: ["code-1", "code-2", "code-3", "code-4", "code-5"] });
+const qbo = fakeQbo({ codes: Array.from({ length: 8 }, (_, i) => `code-${i + 1}`) });
 
 const h = await createApiHarness({
   connectors: () => [
@@ -119,6 +121,88 @@ describe.skipIf(!h)("signing in to QuickBooks again", () => {
     expect(r?.syncCursor).toMatchObject({ running: { instanceId: "qbo-x" } });
   });
 
+  it("drops a page read from the first company before the switch", async () => {
+    const before = await row();
+    const out = await withTenant(H.db, H.A.tenantId, (tx) =>
+      storeQboPage(tx, new ContentStore(H.objects), {
+        tenantId: H.A.tenantId,
+        connectionId,
+        records: [
+          {
+            entityType: "Vendor",
+            externalId: "56",
+            externalVersion: "0",
+            payload: { Id: "56", SyncToken: "0", DisplayName: "Northwest Plywood Supply" },
+          },
+        ],
+        files: new Map(),
+        cursor: { v: 1, phase: "cdc", changedSince: "2026-11-05T17:59:00.000Z" },
+        initial: true,
+        now: new Date(),
+        // The step began on the first company.
+        externalAccountId: FAKE_QBO_REALM,
+      }),
+    );
+    expect(out).toMatchObject({ dropped: true, stored: 0 });
+    expect(
+      await H.t.db.select().from(rawRecord).where(eq(rawRecord.connectionId, connectionId)),
+    ).toEqual([]);
+    expect(await row()).toEqual(before);
+  });
+
+  it("refuses to change the company while a sync of it is running", async () => {
+    const running = { instanceId: "qbo-y", reason: "cron", at: new Date().toISOString() };
+    await H.t.db
+      .update(connection)
+      .set({ syncCursor: { running } })
+      .where(eq(connection.id, connectionId));
+    const other = await signIn("code-4", FAKE_QBO_REALM);
+    expect(other.status, JSON.stringify(other.json)).toBe(409);
+    expect(j(other.json).error).toMatchObject({ code: "sync_running" });
+    expect((await row())?.externalAccountId).toBe(OTHER_REALM);
+    await H.t.db
+      .update(connection)
+      .set({ syncCursor: null })
+      .where(eq(connection.id, connectionId));
+  });
+
+  it("refuses another company once a vendor or a write holds QuickBooks ids", async () => {
+    // A vendor the purchasing agent made in QuickBooks names its id.
+    const [v] = await withTenant(H.db, H.A.tenantId, (tx) =>
+      tx
+        .insert(vendor)
+        .values({
+          tenantId: H.A.tenantId,
+          name: "Cascade Hardwoods",
+          normalizedName: "cascade hardwoods",
+          externalRefs: { qbo: "57" },
+        })
+        .returning({ id: vendor.id }),
+    );
+    const byVendor = await signIn("code-5", FAKE_QBO_REALM);
+    expect(byVendor.status, JSON.stringify(byVendor.json)).toBe(409);
+    expect(j(byVendor.json).error).toMatchObject({ code: "different_company" });
+    await withTenant(H.db, H.A.tenantId, (tx) =>
+      tx
+        .update(vendor)
+        .set({ externalRefs: {} })
+        .where(eq(vendor.id, v?.id ?? "")),
+    );
+    // A write made in the company through this connection.
+    await withTenant(H.db, H.A.tenantId, (tx) =>
+      tx.insert(externalAction).values({
+        tenantId: H.A.tenantId,
+        connectionId,
+        tool: "qbo.vendor.create",
+        idempotencyKey: "reconnect-test",
+      }),
+    );
+    const byWrite = await signIn("code-6", FAKE_QBO_REALM);
+    expect(byWrite.status, JSON.stringify(byWrite.json)).toBe(409);
+    expect(j(byWrite.json).error).toMatchObject({ code: "different_company" });
+    expect((await row())?.externalAccountId).toBe(OTHER_REALM);
+  });
+
   it("refuses another company once records are stored, and leaves the connection as it was", async () => {
     await withTenant(H.db, H.A.tenantId, (tx) =>
       tx.insert(rawRecord).values({
@@ -132,7 +216,7 @@ describe.skipIf(!h)("signing in to QuickBooks again", () => {
       }),
     );
     const before = await row();
-    const other = await signIn("code-4", FAKE_QBO_REALM);
+    const other = await signIn("code-7", FAKE_QBO_REALM);
     expect(other.status, JSON.stringify(other.json)).toBe(409);
     expect(j(other.json).error).toMatchObject({ code: "different_company" });
     expect(await row()).toEqual(before);
@@ -143,7 +227,7 @@ describe.skipIf(!h)("signing in to QuickBooks again", () => {
     expect(off.status, JSON.stringify(off.json)).toBe(200);
     const before = await row();
     expect(before?.status).toBe("disconnected");
-    const other = await signIn("code-5", FAKE_QBO_REALM);
+    const other = await signIn("code-8", FAKE_QBO_REALM);
     expect(other.status, JSON.stringify(other.json)).toBe(409);
     expect(j(other.json).error).toMatchObject({ code: "different_company" });
     expect(await row()).toEqual(before);
@@ -206,7 +290,21 @@ describe("a sign-in to another account (every connector)", () => {
     expect(accountChange(property, connected, as("sc-domain:example.com"))).toBe("same");
     const bank = createBankfeedConnector();
     expect(accountChange(bank, connected, as("item-2"))).toBe("same");
+  });
+
+  it("matches LinkedIn on any page the person runs, and refuses a wholly different set", () => {
     const pages = createLinkedInConnector({});
-    expect(accountChange(pages, connected, as("urn:li:organization:2"))).toBe("same");
+    const mine = {
+      status: "connected" as const,
+      ...as("urn:li:organization:1", ["urn:li:organization:1", "urn:li:organization:2"]),
+    };
+    const reordered = as("urn:li:organization:2", [
+      "urn:li:organization:2",
+      "urn:li:organization:3",
+    ]);
+    expect(accountChange(pages, mine, reordered)).toBe("same");
+    expect(accountChange(pages, mine, as("urn:li:organization:9", ["urn:li:organization:9"]))).toBe(
+      "refuse_connected",
+    );
   });
 });

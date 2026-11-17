@@ -62,6 +62,11 @@ export interface StorePageInput {
   cursor: JsonObject;
   initial: boolean;
   now: Date;
+  /**
+   * The company the page was read from (the connection's account when its step began). A page
+   * whose connection has since been signed in to another company is dropped (`dropped`).
+   */
+  externalAccountId?: string | null;
 }
 
 export interface StorePageResult {
@@ -73,6 +78,8 @@ export interface StorePageResult {
   documents: number;
   /** Events for dispatch after commit. */
   events: EventRow[];
+  /** Nothing was stored: the connection was signed in to another company meanwhile. */
+  dropped?: boolean;
 }
 
 /** Which of these records this connection already has (same entity, id and version). */
@@ -122,6 +129,16 @@ export async function storeQboPage(
     documents: 0,
     events: [],
   };
+  if (input.externalAccountId !== undefined) {
+    // Audit 2.2 review: the connection row is locked for the page, as a sign-in locks it, so a
+    // page read from one company never lands on a connection now on another.
+    const [now] = await tx
+      .select({ account: connection.externalAccountId })
+      .from(connection)
+      .where(and(eq(connection.id, connectionId), eq(connection.tenantId, tenantId)))
+      .for("update");
+    if (!now || now.account !== input.externalAccountId) return { ...out, dropped: true };
+  }
   const news = async (e: Parameters<typeof emit>[1]) => {
     if (input.initial) return;
     const row = await emit(tx, e);

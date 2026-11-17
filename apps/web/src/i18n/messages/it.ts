@@ -108,6 +108,8 @@ export const it: Messages = {
     "Questo account è diverso da quello collegato qui. Scollegalo prima, poi collega l'altro.",
   "error.different_company":
     "La tua contabilità qui viene da un'altra azienda QuickBooks. Chiedici di cambiare azienda.",
+  "error.sync_running":
+    "Stiamo leggendo la contabilità di questa azienda proprio ora. Riprova tra qualche minuto.",
   "error.invalid_hours":
     "Questi orari non possono essere salvati. Indica l'orario di almeno un giorno e tieni ogni assenza sotto un anno.",
   "error.sends_form":

@@ -377,14 +377,16 @@ export function createLinkedInConnector(options: LinkedInOptions = {}): Connecto
         // The first page names the account on the Connections card.
         externalAccountId: `urn:li:organization:${pages[0]?.id}`,
         credentials: credentials as unknown as JsonObject,
-        config: config as unknown as JsonObject,
+        // Every page the person administers names the same account: LinkedIn's order of them
+        // isn't promised, and pages come and go, so a sign-in again matches on any of them.
+        config: {
+          ...config,
+          accountIds: pages.map((p) => `urn:li:organization:${p.id}`).sort(),
+        } as unknown as JsonObject,
       };
     },
 
     tokens: refresher,
-    // The first page the person administers names the connection; signing in again may list
-    // them in another order, or with others.
-    accountMayChange: true,
 
     // DECISION: disconnect revokes the token at LinkedIn (best effort), then the platform drops it.
     async revoke(ctx) {

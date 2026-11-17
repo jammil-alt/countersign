@@ -54,6 +54,7 @@ const CODE_KEYS: Record<string, PlainKey> = {
   // A sign-in to another account than the connection's (audit 2.2).
   different_account: "error.different_account",
   different_company: "error.different_company",
+  sync_running: "error.sync_running",
   // R8: hours the hours routes refuse (no open hours, away for over a year, a date that isn't one).
   invalid_hours: "error.invalid_hours",
   // Wave 4: a recorded click on a button that sends a form, not marked as the one that does.
