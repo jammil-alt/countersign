@@ -51,4 +51,8 @@ export const OPS_PATHS = {
   issue: (id: string) => `/ops/issues/${id}`,
   newIssue: "/ops/issues/new",
   enhancement: (id: string) => `/ops/enhancements/${id}`,
+  // §1.123 back office work: Sales (All deals, New accounts, Expansion) and a deal.
+  sales: "/ops/sales",
+  salesTab: (tab: "all" | "new" | "grow") => `/ops/sales/${tab}`,
+  deal: (id: string) => `/ops/deals/${id}`,
 } as const;

@@ -2,6 +2,7 @@
 // hold, Reggie's read, requirements requests and the screens' words.
 
 export * from "./build-stage";
+export * from "./deals";
 export * from "./hold";
 export * from "./pipelines";
 export * from "./reggie-read";

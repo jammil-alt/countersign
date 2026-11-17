@@ -45,6 +45,8 @@ import { connectorRoutes } from "./connectors";
 import { defineRoute } from "./contract";
 // v0.14 capture: WhatsApp conversations and their capture
 import { conversationRoutes } from "./conversations";
+// docs/plan.md §1.123: back office work (Sales)
+import { dealRoutes } from "./deals";
 import { deskRoutes } from "./desk";
 import { directoryRoutes } from "./directory";
 import { DocumentDetail, DocumentSummary } from "./documents";
@@ -2327,6 +2329,8 @@ export const routes = {
   ...voiceRoutes,
   // docs/plan.md §1.121: forms, "Request info"
   ...formRoutes,
+  // docs/plan.md §1.123: back office work
+  ...dealRoutes,
   ...knowledgeRoutes,
   ...callRoutes,
   ...billingRoutes,

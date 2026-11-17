@@ -101,6 +101,8 @@ import { BuildSection } from "./work/build/BuildSection";
 import { EnhancementPage } from "./work/build/EnhancementPage";
 import { IssuePage } from "./work/build/IssuePage";
 import { NewIssue } from "./work/build/NewIssue";
+import { DealScreen } from "./work/sales/DealPage";
+import { SalesScreen } from "./work/sales/SalesSection";
 
 export const opsRoutes = (
   <>
@@ -248,6 +250,9 @@ export const opsRoutes = (
     <Route path="issues/new" element={<NewIssue />} />
     <Route path="issues/:id" element={<IssuePage />} />
     <Route path="enhancements/:id" element={<EnhancementPage />} />
+    <Route path="sales" element={<SalesScreen />} />
+    <Route path="sales/:tab" element={<SalesScreen />} />
+    <Route path="deals/:id" element={<DealScreen />} />
     {/* Packs (P-1): switch a business area on per client, and a client's pack reports */}
     <Route path="packs" element={<OpsPacksScreen />} />
     {/* §1.73: the Marketing area (docs/marketing-plan.md §4.7, §11): the entry opens our own
