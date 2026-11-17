@@ -171,12 +171,12 @@ then one pass of its "To verify" list against the real service.
 ### Client intake and onboarding (designed 2026-11-17, not built)
 
 From a lead to the first agent built: a client file (what we know about each prospect and client,
-filled by us and Reggie from every conversation), the client made at "yes", an invite written from
-the file with proposed agents, then Getting started in the portal (get to the point, or talk it
-through with Sloan; tools connected as it goes) that ends in a signed scope and opens one build per
-agent. Ties into the Sales and Build
-design (`docs/cases-plan.md`). The design, its steps (K1–K2, I1–I6) and the owner's open questions:
-`docs/onboarding-plan.md`.
+filled by us and Reggie from every conversation); **Invite** on the lead record (who, a general,
+area or agents intake filled from the file, a branded email from the lead), which makes the
+account; a branded welcome page and sign-in; Getting started (get to the point, or talk it through
+with Sloan; tools connected as it goes); a signed scope that opens one build per agent. Ties into
+the Sales and Build design (`docs/cases-plan.md`). The design, its steps (K1–K2, E1, I1–I5) and
+the owner's open questions: `docs/onboarding-plan.md`.
 
 ### Area owners, owner chat and Home (designed 2026-11-12)
 
