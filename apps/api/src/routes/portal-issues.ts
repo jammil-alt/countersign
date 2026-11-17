@@ -17,18 +17,16 @@ import {
   type RequirementAnswers,
   RequirementField,
   type Role,
-  readRequirements,
   requirementsProgress,
   routes,
 } from "@countersign/core";
-import { agent, build, clientAsk, inboxItem, issue, type Tx } from "@countersign/db";
+import { agent, clientAsk, inboxItem, issue, type Tx } from "@countersign/db";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
-import { type AppEnv, HttpError, iso, mount, notFound } from "../http";
+import { type AppEnv, HttpError, mount, notFound } from "../http";
 import type { AskRow } from "../work/asks";
 import {
-  addIssueEvent,
   closeIssue,
   type IssueRow,
   leadNameFor,
