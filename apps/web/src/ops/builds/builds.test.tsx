@@ -585,6 +585,40 @@ describe("Builds", () => {
     await waitFor(() => expect(calls).toHaveLength(2));
     expect(calls[0]).toContain("monthly");
     expect(calls[1]).toBe("move");
+    cleanup();
+
+    // QA (2026-11-17, fourth run): a status changed on the brief, then Confirm. The status saves
+    // at once (no "Save the brief" to press), and Confirm moves on.
+    calls.length = 0;
+    const saved: unknown[] = [];
+    const api3 = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: () => intake,
+      [`PATCH /api/ops/builds/${ID}`]: ({ init }) => {
+        const brief = JSON.parse(String(init.body)).brief;
+        saved.push(brief.trigger.state);
+        calls.push("save");
+        return { ...intake, build: { ...intake.build, brief } };
+      },
+      [`POST /api/ops/builds/${ID}/phase`]: () => {
+        calls.push("move");
+        return intake;
+      },
+    });
+    renderAt(`/ops/builds/${ID}`, api3);
+    const view3 = await screen.findByTestId("build-view");
+    await userEvent.selectOptions(within(view3).getByLabelText("Starts when: how sure"), "assumed");
+    await waitFor(() => expect(saved).toEqual(["assumed"]));
+    expect(within(view3).queryByTestId("build-brief-save")).toBeNull();
+    // On an issue when Confirm is pressed: the move takes the conversation off it (QA, fourth
+    // run: the box still said it was about an old question while the draft was made).
+    await userEvent.click(within(view3).getByTestId(`build-issue-item:${ITEM}-talk`));
+    expect(within(view3).getByTestId("build-focus")).toBeInTheDocument();
+    const confirm = within(view3).getByTestId("build-confirm-brief");
+    expect(confirm).toBeEnabled();
+    await userEvent.click(confirm);
+    await waitFor(() => expect(calls).toEqual(["save", "move"]));
+    expect(within(view3).queryByTestId("build-focus")).toBeNull();
   });
 
   it("says what a draft edit asks for, then what it changed, with Undo", async () => {

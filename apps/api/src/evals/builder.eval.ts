@@ -89,6 +89,7 @@ describe.skipIf(!key)("the Builder's test cases", () => {
               text: r.concerns.map((x, i) => `${i + 1}. ${x.title} ${x.detail}`).join("\n"),
               chips: [],
               items: [],
+              answered: [],
             },
             calls: r.calls,
             costUsd: r.costUsd,

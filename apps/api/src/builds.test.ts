@@ -734,7 +734,26 @@ describe.skipIf(!h)("builds", () => {
     expect(JSON.stringify(review?.system)).toContain("no ERP or accounting tool");
     expect(JSON.stringify(review?.system)).toContain("<catalog>");
 
-    // The same brief, confirmed again: no second review, on to the fit-gap.
+    // QA (2026-11-17, fourth run): answering a question in the chat closes it, and says so.
+    const question = b.items.find((i) => i.kind === "question");
+    if (!question) throw new Error("no question");
+    model.push(
+      turnAnswer({
+        text: "Then it goes in the vendor list. That settles the question.",
+        brief: {
+          dataOut: { text: "The vendor in QuickBooks, or the vendor list", state: "confirmed" },
+        },
+        answered: [`item:${question.id}`, "item:00000000-0000-4000-8000-000000000000"],
+      }),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "The vendor list, then." });
+    expect(b.items.find((i) => i.id === question.id)?.state).toBe("done");
+    expect(b.messages.at(-1)?.changes).toContain(
+      "Answered: Where does the vendor go for a client with no accounting system?",
+    );
+
+    // Confirmed again, with the brief changed by the answer: no second review (once a build),
+    // on to the fit-gap.
     const asked = model.requests.length;
     model.push(
       turnAnswer({

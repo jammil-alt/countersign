@@ -96,6 +96,12 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
   const [busy, setBusy] = useState<string | null>(null);
   const [pending, setPending] = useState<{ text: string; since: number } | null>(null);
   const [error, setError] = useState<unknown>(null);
+  // QA (2026-11-17, fourth run): a failure while saving or moving showed above the page while the
+  // operator was at the brief's foot, and the button looked dead. The error comes into view.
+  const errorBox = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (error) errorBox.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+  }, [error]);
   // QA (2026-11-17): the action that failed, so the notice can offer to try it again.
   const lastAct = useRef<(() => Promise<boolean>) | null>(null);
   const split = useSplit();
@@ -141,6 +147,9 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
   /** One change: the answer is the build as it is now. */
   const act: Act = async (route, opts) => {
     lastAct.current = () => act(route, opts);
+    // QA (2026-11-17, fourth run): for the five minutes the draft was being made, the box said it
+    // was about an old, answered question. A move to another phase starts the conversation there.
+    if (route.path === apiRoutes.opsMoveBuild.path) offIssue();
     setBusy(route.path);
     setError(null);
     try {
@@ -274,7 +283,7 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
         </p>
       ) : null}
       {error ? (
-        <div className="flex flex-col gap-2" data-testid="build-error">
+        <div ref={errorBox} className="flex flex-col gap-2" data-testid="build-error">
           <ErrorNotice error={error} />
           {retryable(error) && lastAct.current ? (
             <div>
@@ -865,7 +874,17 @@ function IntakePanel({ detail, current, busy, act }: PanelProps) {
                   <Select
                     aria-label={`${BRIEF_LABELS[k]}: how sure`}
                     value={f.state}
-                    onChange={(e) => set(k, { state: e.target.value as BriefFieldState })}
+                    // QA (2026-11-17, fourth run): a status change left the brief unsaved and
+                    // Confirm looked dead until "Save the brief". A status is one choice, not
+                    // typing: it saves at once, with the brief as it reads on screen.
+                    onChange={(e) => {
+                      const next: Brief = {
+                        ...brief,
+                        [k]: { ...f, state: e.target.value as BriefFieldState },
+                      };
+                      setBrief(next);
+                      void act(apiRoutes.opsUpdateBuild, { params: { id }, body: { brief: next } });
+                    }}
                   >
                     {BRIEF_STATES.map((s) => (
                       <option key={s} value={s}>

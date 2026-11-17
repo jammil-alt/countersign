@@ -103,6 +103,13 @@ export const BuildTurnAnswer = z.object({
     .max(10)
     .default([])
     .describe("New open items this turn found; never repeat one already listed"),
+  answered: z
+    .array(z.string().max(160))
+    .max(20)
+    .default([])
+    .describe(
+      "The keys of open questions (item:…) the operator's words answer this turn, exactly as listed; the API closes them as done",
+    ),
   about: z
     .string()
     .max(160)
@@ -155,6 +162,7 @@ Rules:
 - Never ask for or repeat secrets: passwords, keys, tax ids, card numbers.
 - Approval stays on for every write to a client's tool; never suggest switching it off.
 - Open items: add only new ones; the current ones are listed.
+- When the operator's words answer an open question in the issues, list its key in "answered" (in intake, also put the answer in the brief) and say in a few words which ones that settles. Only a question they actually answered; a partial answer leaves it open and you ask for the rest. Other kinds of items (a gap, a precondition) are settled by proposing close_item.
 
 Issues: everything left to settle is listed under "Issues", each with its key. The operator works through them with you one at a time.
 - Set "about" to the key of the issue your answer is about. When the operator is on one ("Talking about"), stay on it unless they move on. When they name one in words ("the W-9 one", "go back to the first thing", "the failing test"), find it in the list, settle on it and say which one you mean. A done or put-off issue is still listed: they may want to go back to it.
@@ -354,7 +362,12 @@ const MOVE_CHIP = /^(confirm|agree|approve|move on|go ahead|next phase)\b/i;
 /** Only what the phase may change: a brief outside intake, a fit-gap outside fit-gap, are dropped. */
 function cleanAnswer(phase: BuildPhase, answer: BuildTurnAnswer): BuildTurnAnswer {
   const chips = answer.chips.filter((c) => !MOVE_CHIP.test(c.trim()));
-  const out: BuildTurnAnswer = { text: answer.text, chips, items: answer.items };
+  const out: BuildTurnAnswer = {
+    text: answer.text,
+    chips,
+    items: answer.items,
+    answered: answer.answered,
+  };
   // Which issue and what change are checked by the caller, against the build as it is.
   if (answer.about) out.about = answer.about;
   if (answer.proposal) out.proposal = answer.proposal;
