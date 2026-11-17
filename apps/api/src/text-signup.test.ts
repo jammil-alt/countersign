@@ -13,9 +13,9 @@ import {
   fakeResend,
   fakeTwilio,
 } from "@countersign/connectors/testing";
-import { a2pKeywordsOf, textSignupTerms } from "@countersign/core";
+import { a2pKeywordsOf, TEXT_SIGNUP_LINK_HOURLY_MAX, textSignupTerms } from "@countersign/core";
 import { contact, contactChange, tenant, withTenant } from "@countersign/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { type ApiHarness, admin, createApiHarness, OPERATOR, user } from "./api.test-helper";
 import { sendTextInvitations, signTextSignup } from "./messaging/signup";
@@ -347,6 +347,50 @@ describe.skipIf(!h)("signing up for texts", () => {
       expect(failed.status).toBe(200);
       expect(j(failed.json)).toEqual({ confirmation: "sent" });
       expect(await textsTo(FAILS)).toHaveLength(0);
+    });
+
+    it("holds the hourly limit when many submit at once", async () => {
+      const token = tokenIn(
+        j((await H.call(admin("a"), "GET", "/api/texting/signup-link")).json).url,
+      );
+      // Three left in this hour.
+      const counted = () =>
+        H.t.db
+          .select({ n: sql<number>`count(*)::int` })
+          .from(contactChange)
+          .where(
+            and(
+              eq(contactChange.tenantId, A()),
+              gt(contactChange.createdAt, new Date(Date.now() - 60 * 60 * 1000)),
+              sql`${contactChange.change}->>'via' = 'link'`,
+              inArray(sql`${contactChange.change}->>'kind'`, ["opt_in", "text_signup_skipped"]),
+            ),
+          )
+          .then((r) => r[0]?.n ?? 0);
+      const [anyone] = await H.t.db
+        .select()
+        .from(contact)
+        .where(eq(contact.tenantId, A()))
+        .limit(1);
+      const fill = TEXT_SIGNUP_LINK_HOURLY_MAX - 3 - (await counted());
+      expect(fill).toBeGreaterThan(0);
+      await H.t.db.insert(contactChange).values(
+        Array.from({ length: fill }, () => ({
+          tenantId: A(),
+          contactId: anyone?.id as string,
+          actorId: null,
+          change: { kind: "opt_in", via: "link" },
+        })),
+      );
+      const numbers = Array.from({ length: 12 }, (_, i) => `+1512556${String(i).padStart(4, "0")}`);
+      const res = await Promise.all(
+        numbers.map((phone) => submit(token, { name: "Burst", phone })),
+      );
+      expect(res.filter((r) => r.status === 200)).toHaveLength(3);
+      expect(res.filter((r) => r.status === 429)).toHaveLength(9);
+      let texts = 0;
+      for (const n of numbers) texts += (await textsTo(n)).length;
+      expect(texts).toBe(3);
     });
 
     it("waits after too many sign-ups in an hour", async () => {

@@ -347,6 +347,11 @@ export async function submitTextSignup(
       // looks for. An invitation is tied to one person and signs up once (below).
       const name = body.name?.trim();
       if (!name) throw new HttpError(422, "invalid_name", "Enter your name.");
+      // One submit on the client's link at a time, so submits at once can't pass the limit
+      // together; held until the transaction ends.
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`signup-link:${payload.t}`}, 0))`,
+      );
       const [recent] = await tx
         .select({ n: sql<number>`count(*)::int` })
         .from(contactChange)
