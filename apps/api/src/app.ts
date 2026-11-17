@@ -145,6 +145,8 @@ import { claudeConnectionRoutes, secondFactorRoutes } from "./routes/second-fact
 import { sessionRoutes } from "./routes/session";
 // v0.14 W4-C: the Slack channel picker
 import { slackRoutes } from "./routes/slack";
+// §1.150: Sloan by email and text
+import { sloanReachRoutes } from "./routes/sloan-reach";
 // v0.14 W4-A
 // P-6
 import { stepInRouteHandlers } from "./routes/step-in";
@@ -288,6 +290,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   contactRoutes(app);
   // docs/plan.md §1.98
   textSignupRoutes(app);
+  sloanReachRoutes(app);
   // §1.121: forms, "Request info": the public page's routes
   formRoutes(app);
   // docs/plan.md §1.101: Reggie, and the lead's requests on a client admin's Desk

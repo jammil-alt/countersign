@@ -2024,6 +2024,11 @@ export const en = {
   "sloan.mezonas": "Mezonas",
   "sloan.changes": "Waiting on you: changes to your account",
   "sloan.adminSigns": "Your admin approves changes to your account.",
+  "sloan.reach.title": "Email or text Sloan",
+  "sloan.reach.email": "Email",
+  "sloan.reach.text": "Text",
+  "sloan.reach.note":
+    "Answers come back the way you wrote and show here too. Texts reach Sloan from the number you signed up for texts with.",
   "sloan.canTitle": "Sloan can",
   "sloan.can.see": "See every agent's work, runs and receipts",
   "sloan.can.pause": "Pause or resume an agent, right away",

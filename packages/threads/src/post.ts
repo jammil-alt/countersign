@@ -3,7 +3,13 @@
 // An unknown command is kept as the person's text with a system answer after it, and starts
 // nothing. The caller has checked who may post here and that the sources are this client's.
 
-import { type Locale, type MessageAudience, parseCommand, THREAD_WORDS } from "@countersign/core";
+import {
+  type JsonObject,
+  type Locale,
+  type MessageAudience,
+  parseCommand,
+  THREAD_WORDS,
+} from "@countersign/core";
 import type { Tx } from "@countersign/db";
 import { resolveCommand } from "./commands";
 import { type EmitPosted, type MessageRow, postMessage, type ThreadRow } from "./store";
@@ -21,6 +27,11 @@ export interface PersonPostInput {
   audience: MessageAudience;
   /** The client's language, for the system's answer. */
   locale: Locale;
+  /**
+   * §1.150: more of the body beside the words, e.g. `via: "email"` and the email's subject when the
+   * person wrote to Sloan by email or text. Never `text`, `args` or `documents`.
+   */
+  extra?: JsonObject;
 }
 
 /** Posts the message (and a system answer to an unknown command); returns them in order. */
@@ -38,8 +49,10 @@ export async function postAsPerson(
     audience: input.audience,
   };
   // §1.110: the files ride in the body, beside the words, on whatever the message becomes.
-  const files =
-    input.documents && input.documents.length > 0 ? { documents: [...input.documents] } : {};
+  const files = {
+    ...(input.extra ?? {}),
+    ...(input.documents && input.documents.length > 0 ? { documents: [...input.documents] } : {}),
+  };
   const parsed = parseCommand(input.text);
   if (!parsed) {
     return [

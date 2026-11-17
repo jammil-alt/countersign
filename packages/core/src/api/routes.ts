@@ -119,6 +119,8 @@ import {
 } from "./skill-model";
 // v0.14 W4-C: the Slack channel picker
 import { slackRoutes } from "./slack";
+// §1.150
+import { sloanReachRoutes } from "./sloan-reach";
 // P-6
 import { SteppedIn, stepInRoutes } from "./step-in";
 import { PortalHealth, supervisorRoutes } from "./supervisor";
@@ -2430,6 +2432,8 @@ export const routes = {
   ...messagingRoutes,
   // docs/plan.md §1.98: signing up for texts
   ...textSignupRoutes,
+  // §1.150: Sloan by email and text
+  ...sloanReachRoutes,
   // docs/plan.md §1.101: Reggie, the operator's account agent
   ...reggieRoutes,
   // docs/plan.md §1.108: builds, from intake to go-live

@@ -2084,6 +2084,11 @@ export const ptBR: Messages = {
   "sloan.mezonas": "Mezonas",
   "sloan.changes": "Esperando por você: alterações na sua conta",
   "sloan.adminSigns": "Seu administrador aprova as alterações na sua conta.",
+  "sloan.reach.title": "Mande e-mail ou mensagem para Sloan",
+  "sloan.reach.email": "E-mail",
+  "sloan.reach.text": "Mensagem",
+  "sloan.reach.note":
+    "As respostas voltam pelo mesmo caminho e também aparecem aqui. As mensagens chegam a Sloan do número que você cadastrou para receber mensagens.",
   "sloan.canTitle": "O Sloan pode",
   "sloan.can.see": "Ver o trabalho, as execuções e os comprovantes de cada agente",
   "sloan.can.pause": "Pausar ou retomar um agente na hora",

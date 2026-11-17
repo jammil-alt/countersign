@@ -11,7 +11,7 @@ import type {
   ThreadMessagePostedPayload,
 } from "@countersign/core";
 import { message, type Tx, thread, threadRead } from "@countersign/db";
-import { and, asc, desc, eq, inArray, lt, ne, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, ne, or, type SQL, sql } from "drizzle-orm";
 
 export type ThreadRow = typeof thread.$inferSelect;
 export type MessageRow = typeof message.$inferSelect;
@@ -122,6 +122,49 @@ export async function startAccountThread(
       title: owner?.name ?? "Account",
       createdBy: userId,
     })
+    .returning();
+  if (!made) throw new Error("thread insert returned nothing");
+  return made;
+}
+
+/**
+ * §1.150: the person's conversation with Sloan for one channel ("By email", "By text"), opened on
+ * first use and found again by its fixed title. A transaction lock on (client, person, title) keeps
+ * two messages arriving together from opening two.
+ */
+export async function channelAccountThread(
+  tx: Tx,
+  tenantId: string,
+  userId: string,
+  title: string,
+): Promise<ThreadRow> {
+  const find = async () => {
+    const [row] = await tx
+      .select()
+      .from(thread)
+      .where(
+        and(
+          eq(thread.tenantId, tenantId),
+          eq(thread.subjectType, "account"),
+          isNull(thread.subjectId),
+          eq(thread.createdBy, userId),
+          eq(thread.title, title),
+        ),
+      )
+      .orderBy(asc(thread.createdAt))
+      .limit(1);
+    return row;
+  };
+  const found = await find();
+  if (found) return found;
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${`thread:account:${tenantId}:${userId}:${title}`}, 0))`,
+  );
+  const again = await find();
+  if (again) return again;
+  const [made] = await tx
+    .insert(thread)
+    .values({ tenantId, subjectType: "account", subjectId: null, title, createdBy: userId })
     .returning();
   if (!made) throw new Error("thread insert returned nothing");
   return made;

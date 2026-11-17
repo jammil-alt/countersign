@@ -2142,6 +2142,11 @@ export const de: Messages = {
   "sloan.mezonas": "Mezonas",
   "sloan.changes": "Wartet auf Sie: Änderungen an Ihrem Konto",
   "sloan.adminSigns": "Ihr Administrator gibt Änderungen an Ihrem Konto frei.",
+  "sloan.reach.title": "Sloan per E-Mail oder SMS schreiben",
+  "sloan.reach.email": "E-Mail",
+  "sloan.reach.text": "SMS",
+  "sloan.reach.note":
+    "Antworten kommen auf demselben Weg zurück und stehen auch hier. SMS erreichen Sloan von der Nummer, mit der Sie sich für SMS angemeldet haben.",
   "sloan.canTitle": "Sloan kann",
   "sloan.can.see": "Die Arbeit, Abläufe und Belege jedes Agenten sehen",
   "sloan.can.pause": "Einen Agenten sofort pausieren oder fortsetzen",
