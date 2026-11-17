@@ -141,6 +141,8 @@ export interface ReviewTransaction {
     date: string | null;
     balance: string;
     currency: string;
+    /** Paid in QuickBooks since: the person leaves this transaction out. */
+    paid?: boolean;
   } | null;
   /** The transfer's other side, when this waits because that transfer didn't stand. */
   pairedWith?: {

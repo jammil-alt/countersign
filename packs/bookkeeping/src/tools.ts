@@ -8,7 +8,14 @@ import { ledgerAccount, withTenant } from "@countersign/db";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { addNote, listAccounts, unclearAccounts } from "./accounts";
-import { BOOK_CONFIDENCE_AUTO, openItemOf, propose, settle, toReview } from "./bookings";
+import {
+  BOOK_CONFIDENCE_AUTO,
+  markOffered,
+  openItemOf,
+  propose,
+  settle,
+  toReview,
+} from "./bookings";
 import { importFeeds } from "./feed";
 import { defineTool, type PackTool } from "./pack";
 import { bankAccountLink, bankTxn } from "./schema";
@@ -85,17 +92,19 @@ export const settleTool = defineTool({
     sources: z.array(z.string()),
   }),
   async run(input, ctx) {
-    const r = await withTenant(ctx.db, ctx.tenantId, (tx) =>
-      settle(
+    const testRun = ctx.mode === "test";
+    return withTenant(ctx.db, ctx.tenantId, async (tx) => {
+      const r = await settle(
         tx,
         { tenantId: ctx.tenantId, agentVersionId: ctx.agentVersionId, runId: ctx.runId },
-        { ...(input.limit ? { limit: input.limit } : {}), testRun: ctx.mode === "test" },
-      ),
-    );
-    // DECISION: at most OPEN_BATCH ids go on, what the next step (the open transactions' read)
-    // takes; the rest stay `new` and are answered by the next pass.
-    const open = r.open.slice(0, OPEN_BATCH);
-    return { ...r, open, openCount: r.open.length, sources: open };
+        { ...(input.limit ? { limit: input.limit } : {}), testRun },
+      );
+      // DECISION: at most OPEN_BATCH ids go on, what the next step (the open transactions' read)
+      // takes; they are stamped, so the next pass offers the rest first.
+      const open = r.open.slice(0, OPEN_BATCH);
+      if (!testRun) await markOffered(tx, ctx.tenantId, open);
+      return { ...r, open, openCount: r.open.length, sources: open };
+    });
   },
 });
 
@@ -275,7 +284,8 @@ export const proposeTool = defineTool({
   output: z.object({
     recorded: z.boolean(),
     bookingId: z.string().nullable(),
-    status: z.enum(["proposed", "needs_review"]),
+    /** `matched`: the same transfer was already booked from its other side. */
+    status: z.enum(["proposed", "needs_review", "matched"]),
     sources: z.array(z.string()),
   }),
   async run(input, ctx) {

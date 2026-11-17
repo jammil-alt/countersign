@@ -246,6 +246,35 @@ describe("the booking review card", () => {
     expect(line).toHaveTextContent("4,200.00");
   });
 
+  it("says when the bill was paid in QuickBooks since", async () => {
+    const open = view(false);
+    const [txn] = open.data.transactions;
+    if (!txn) throw new Error("no transaction");
+    Object.assign(txn, {
+      booking: null,
+      openItem: {
+        kind: "bill",
+        docNumber: null,
+        name: "Hardwood Supply",
+        date: "2026-10-20",
+        balance: "4200.0000",
+        currency: "USD",
+        paid: true,
+      },
+    });
+    renderAt(
+      <InboxCard
+        item={item("bookkeeping.bookings", { bankTxnIds: [TXN] })}
+        onResolve={async () => {}}
+      />,
+      { [`GET /api/inbox/${INBOX}/pack-review`]: () => open },
+    );
+    const card = await screen.findByTestId("bookings-review");
+    expect(within(card).getByTestId("bookings-review-open-item")).toHaveTextContent(
+      "Paid in QuickBooks against Hardwood Supply",
+    );
+  });
+
   it("names the other side of a transfer it waits with", async () => {
     const open = view(false);
     const [txn] = open.data.transactions;

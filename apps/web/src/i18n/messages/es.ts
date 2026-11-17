@@ -2752,6 +2752,7 @@ export const es: Messages = {
     "¿Es el pago de una factura de proveedor pendiente: {what}? Si es así, aplícalo a esa factura en QuickBooks y luego exclúyelo aquí.",
   "bookkeeping.review.openInvoice":
     "¿Es el cobro de una factura pendiente: {what}? Si es así, aplícalo a esa factura en QuickBooks y luego exclúyelo aquí.",
+  "bookkeeping.review.openItemPaid": "Pagado en QuickBooks contra {what}: exclúyelo aquí.",
   "bookkeeping.review.pairHeld":
     "Movimiento {what}: puede ser la otra parte de una transferencia que no se registró o se excluyó. Decide ambos a la vez.",
   "bookkeeping.review.approve": "Aprobar",

@@ -2769,6 +2769,7 @@ export const it: Messages = {
     "È il pagamento di una fattura fornitore aperta: {what}? Se sì, registralo su quella fattura in QuickBooks, poi escludilo qui.",
   "bookkeeping.review.openInvoice":
     "È l'incasso di una fattura aperta: {what}? Se sì, registralo su quella fattura in QuickBooks, poi escludilo qui.",
+  "bookkeeping.review.openItemPaid": "Pagato in QuickBooks su {what}: escludilo qui.",
   "bookkeeping.review.pairHeld":
     "Movimento {what}: può essere l'altro lato di un giroconto non registrato o escluso. Decidi i due insieme.",
   "bookkeeping.review.approve": "Approva",

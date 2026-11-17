@@ -67,6 +67,20 @@ describe("the Bookkeeping manifest", () => {
     expect(actions.sort()).toEqual(Object.values(BANKING_TOOLS).sort());
   });
 
+  it("goes on to the next booking when one can't be written (v4)", () => {
+    const [template] = bookkeepingManifest.templates;
+    const latest = template?.versions?.at(-1) as AgentBundle | undefined;
+    if (!latest) throw new Error("no later version");
+    const loops: Step[] = [];
+    for (const wf of latest.workflows) {
+      walkSteps(wf.workflow, ({ step }: { step: Step }) => {
+        if (step.kind === "for_each" && step.id === "post") loops.push(step);
+      });
+    }
+    expect(loops.length).toBeGreaterThan(0);
+    for (const loop of loops) expect((loop as { onError?: string }).onError).toBe("continue");
+  });
+
   it("serves its cards, actions and reports by name", () => {
     expect(Object.keys(BOOKKEEPING_REVIEWS).sort()).toEqual([
       "bookkeeping.account-questions",

@@ -2675,6 +2675,7 @@ export const en = {
     "Is this the payment of an open bill: {what}? If so, apply it to the bill in QuickBooks, then leave this out.",
   "bookkeeping.review.openInvoice":
     "Is this the payment of an open invoice: {what}? If so, apply it to the invoice in QuickBooks, then leave this out.",
+  "bookkeeping.review.openItemPaid": "Paid in QuickBooks against {what}: leave this out.",
   "bookkeeping.review.pairHeld":
     "Bank transaction {what}: may be the other side of a transfer that wasn't written or was left out. Decide the two together.",
   "bookkeeping.review.approve": "Approve",

@@ -2815,6 +2815,8 @@ export const de: Messages = {
     "Ist das die Zahlung einer offenen Lieferantenrechnung: {what}? Wenn ja, ordnen Sie sie in QuickBooks dieser Rechnung zu und lassen Sie sie hier aus.",
   "bookkeeping.review.openInvoice":
     "Ist das der Zahlungseingang einer offenen Rechnung: {what}? Wenn ja, ordnen Sie ihn in QuickBooks dieser Rechnung zu und lassen Sie ihn hier aus.",
+  "bookkeeping.review.openItemPaid":
+    "In QuickBooks mit {what} verrechnet: lassen Sie dies hier aus.",
   "bookkeeping.review.pairHeld":
     "Buchung {what}: kann die andere Seite einer Umbuchung sein, die nicht gebucht oder ausgelassen wurde. Entscheiden Sie beide zusammen.",
   "bookkeeping.review.approve": "Freigeben",

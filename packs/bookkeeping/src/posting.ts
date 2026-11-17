@@ -3,10 +3,10 @@
 // (`qbo.purchase.create`, `qbo.deposit.create`, `qbo.transfer.create`, each behind approval) and
 // `bookkeeping.booking.posted` records what it became.
 
-import { BANKING_TOOLS, referenceMark } from "@countersign/connectors";
+import { BANKING_TOOLS } from "@countersign/connectors";
 import { dec } from "@countersign/core";
 import { ledgerAccount, type Tx, transaction, vendor, withTenant } from "@countersign/db";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { holdPaired, MONEY_KINDS } from "./bookings";
 import { defineTool, PackRefusal, type PackTool } from "./pack";
@@ -27,8 +27,9 @@ export const bookingReference = (bookingId: string) => `bk-${bookingId}`;
 // with this reference is this action's earlier write") covers re-bookings with no new field on
 // the write steps (whose versions are fixed).
 export const txnReference = (bankTxnId: string) => `bt-${bankTxnId}`;
-/** A per-booking mark in a record's memo, as a POSIX pattern. */
-const LEGACY_MARK = "\\[Mezonas bk-[0-9a-f-]{36}\\]";
+/** A record's mark in its memo, as POSIX patterns: the transaction's, and a booking's (before). */
+const TXN_MARK = "\\[Mezonas bt-([0-9a-f-]{36})\\]";
+const BOOKING_MARK = "\\[Mezonas bk-([0-9a-f-]{36})\\]";
 
 export const readyTool = defineTool({
   id: "bookkeeping.bookings.ready",
@@ -157,41 +158,29 @@ export async function qboInput(tx: Tx, tenantId: string, bookingId: string) {
   const memo = (b.memo ?? t.payee ?? "").trim().slice(0, 200) || undefined;
   const reference = txnReference(t.id);
   const sources = [b.id, t.rawRecordId];
-  // A record an earlier booking of this transaction wrote under the old per-booking reference,
-  // synced back: it is already in the accounting tool, and isn't written again.
-  const earlier = await tx
-    .select({ id: booking.id })
-    .from(booking)
+  // A record already written for this transaction, of any kind, synced back: under its reference
+  // (a write nobody recorded, perhaps for a booking of another kind since) or under the old
+  // per-booking reference of one of its bookings. It is in the accounting tool already, and isn't
+  // written again.
+  const [written] = await tx
+    .select({ ext: transaction.ext })
+    .from(transaction)
     .where(
       and(
-        eq(booking.tenantId, tenantId),
-        eq(booking.bankTxnId, t.id),
-        sql`${booking.id} <> ${b.id}`,
-        sql`${booking.kind} <> 'match'`,
-      ),
-    );
-  if (earlier.length > 0) {
-    const marks = earlier.map((e) => referenceMark(bookingReference(e.id)));
-    const [written] = await tx
-      .select({ ext: transaction.ext })
-      .from(transaction)
-      .where(
-        and(
-          eq(transaction.tenantId, tenantId),
-          sql`coalesce((${transaction.ext} -> 'qbo' ->> 'deleted')::boolean, false) = false`,
-          inArray(
-            sql`substring(coalesce(${transaction.memo}, '') from ${LEGACY_MARK}::text)`,
-            marks,
-          ),
+        eq(transaction.tenantId, tenantId),
+        sql`coalesce((${transaction.ext} -> 'qbo' ->> 'deleted')::boolean, false) = false`,
+        or(
+          sql`substring(coalesce(${transaction.memo}, '') from ${TXN_MARK}::text) = ${t.id}::text`,
+          sql`substring(coalesce(${transaction.memo}, '') from ${BOOKING_MARK}::text) in (select e.id::text from ${booking} e where e.tenant_id = ${tenantId} and e.bank_txn_id = ${t.id})`,
         ),
-      )
-      .limit(1);
-    if (written) {
-      const q = (written.ext as { qbo?: { entity?: string; id?: string } }).qbo ?? {};
-      throw new PackRefusal(
-        `an earlier booking of this transaction is already in QuickBooks (${q.entity ?? "record"} ${q.id ?? ""}): leave this one out, or change that record there`,
-      );
-    }
+      ),
+    )
+    .limit(1);
+  if (written) {
+    const q = (written.ext as { qbo?: { entity?: string; id?: string } }).qbo ?? {};
+    throw new PackRefusal(
+      `this transaction is already in QuickBooks (${q.entity ?? "record"} ${q.id ?? ""}): leave it out, or change that record there`,
+    );
   }
   if (b.kind === "transfer") {
     const other = lineAccounts[0];

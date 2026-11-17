@@ -385,6 +385,91 @@ async function repairPaired(
   }
 }
 
+/**
+ * The same transfer already booked from the other side: a live transfer on another transaction,
+ * on the account this one's transfer goes to, whose line is this transaction's account, the same
+ * amount the other way, within TRANSFER_BOOKED_DAYS, that no other transaction is matched to.
+ */
+async function otherSideBooked(
+  tx: Tx,
+  tenantId: string,
+  t: TxnRow,
+  lineAccountId: string,
+): Promise<{ bookingId: string; status: string; side: TxnRow } | null> {
+  const link = await linkOf(tx, tenantId, t.accountLinkId);
+  if (!link.ledgerAccountId) return null;
+  const day = (n: number) => sql`(${t.txnDate}::date + ${n}::int)`;
+  const [found] = await tx
+    .select({ b: booking, side: bankTxn })
+    .from(booking)
+    .innerJoin(
+      bankTxn,
+      and(eq(bankTxn.id, booking.bankTxnId), eq(bankTxn.tenantId, booking.tenantId)),
+    )
+    .innerJoin(
+      bankAccountLink,
+      and(
+        eq(bankAccountLink.id, bankTxn.accountLinkId),
+        eq(bankAccountLink.tenantId, bankTxn.tenantId),
+      ),
+    )
+    .where(
+      and(
+        eq(booking.tenantId, tenantId),
+        eq(booking.kind, "transfer"),
+        inArray(booking.status, [...LIVE_BOOKING_STATUSES]),
+        ne(bankTxn.id, t.id),
+        eq(bankAccountLink.ledgerAccountId, lineAccountId),
+        eq(bankTxn.direction, t.direction === "out" ? "in" : "out"),
+        eq(bankTxn.amount, t.amount),
+        eq(bankTxn.currency, t.currency),
+        gte(bankTxn.txnDate, day(-TRANSFER_BOOKED_DAYS)),
+        lte(bankTxn.txnDate, day(TRANSFER_BOOKED_DAYS)),
+        sql`exists (select 1 from ${bookingLine} l where l.tenant_id = ${booking.tenantId} and l.booking_id = ${booking.id} and l.ledger_account_id = ${link.ledgerAccountId})`,
+        sql`not exists (select 1 from ${bankTxn} o where o.tenant_id = ${booking.tenantId} and o.id <> ${t.id} and o.status = 'matched' and o.ext ->> 'transferBookingId' = ${booking.id}::text)`,
+      ),
+    )
+    .orderBy(sql`abs(${bankTxn.txnDate} - ${t.txnDate}::date)`, asc(booking.id))
+    .limit(1);
+  return found ? { bookingId: found.b.id, status: found.b.status, side: found.side } : null;
+}
+
+/** This side matched to the transfer booked on the other: its own pairings freed first. */
+async function joinBooked(
+  tx: Tx,
+  tenantId: string,
+  t: TxnRow,
+  other: { bookingId: string; side: TxnRow },
+  decidedBy: Record<string, unknown>,
+): Promise<void> {
+  await repairPaired(tx, tenantId, t, {
+    bookingId: other.bookingId,
+    kind: "match",
+    lineAccountId: null,
+  });
+  const [now] = await tx
+    .select()
+    .from(bankTxn)
+    .where(and(eq(bankTxn.tenantId, tenantId), eq(bankTxn.id, t.id)));
+  await matchSide(tx, tenantId, now ?? t, other.bookingId, other.side.id, decidedBy);
+}
+
+/** The other side's own proposed transfer gives way to this one's: it is matched to it. */
+async function takeOver(
+  tx: Tx,
+  tenantId: string,
+  other: { side: TxnRow },
+  bookingId: string,
+  t: TxnRow,
+): Promise<void> {
+  await repairPaired(tx, tenantId, other.side, { bookingId, kind: "match", lineAccountId: null });
+  const [now] = await tx
+    .select()
+    .from(bankTxn)
+    .where(and(eq(bankTxn.tenantId, tenantId), eq(bankTxn.id, other.side.id)));
+  await matchSide(tx, tenantId, now ?? other.side, bookingId, t.id);
+}
+
 /** Held for a person because it may be the other side of a transfer that didn't stand. */
 export function heldPairOf(t: Pick<TxnRow, "ext" | "status">): string | null {
   const ext = t.ext as { pairedTxnId?: unknown; heldWhy?: unknown };
@@ -435,6 +520,8 @@ export async function settle(
     review: 0,
     open: [],
   };
+  // Writes made and synced back but never recorded, first: they leave the transactions read below.
+  if (!opts.testRun) await recordWritten(tx, who);
   const fromLinks = () =>
     tx
       .select()
@@ -465,7 +552,14 @@ export async function settle(
         ),
       ),
     )
-    .orderBy(asc(bankTxn.txnDate), asc(bankTxn.id))
+    // DECISION: what was never handed to the model comes first, then what was handed on longest
+    // ago (`ext.offeredAt`, stamped by the settle tool), so what the model leaves can't keep newer
+    // transactions from it.
+    .orderBy(
+      sql`${bankTxn.ext} ->> 'offeredAt' asc nulls first`,
+      asc(bankTxn.txnDate),
+      asc(bankTxn.id),
+    )
     .limit(opts.limit ?? SETTLE_LIMIT);
   // DECISION: a proposal on an account set to `suggest` waits for the client to enter it in the
   // accounting tool; once it is there, the match step finds it and the proposal gives way. Checked
@@ -507,6 +601,10 @@ export async function settle(
       continue;
     }
     if (await matchExisting(tx, who, t, link, opts.testRun)) {
+      result.matched += 1;
+      continue;
+    }
+    if (await resentMatch(tx, who, t, opts.testRun)) {
       result.matched += 1;
       continue;
     }
@@ -651,14 +749,195 @@ async function matchExisting(
   return true;
 }
 
+/** Stamps the transactions handed on to the model, so the next pass offers others first. */
+export async function markOffered(tx: Tx, tenantId: string, ids: readonly string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await tx
+    .update(bankTxn)
+    .set({ ext: sql`${bankTxn.ext} || jsonb_build_object('offeredAt', now()::text)` })
+    .where(and(eq(bankTxn.tenantId, tenantId), inArray(bankTxn.id, [...ids])));
+}
+
+/**
+ * The bank sent a transaction again under a new id after the first was decided and posted
+ * (`removedAfterPosting`): the same account, day, amount and direction. It is what was already
+ * written, recorded as posted from that booking, and nothing is written again.
+ */
+// DECISION: deposits and transfers aren't synced back from QuickBooks, so matching the record
+// itself can't find them; the earlier transaction's booking says what was written. The same day
+// only (a re-send keeps it; a daily charge of the same amount is another), one re-sent
+// transaction per earlier one (`ext.resentAs`), and never a write another transaction already
+// stands for.
+async function resentMatch(tx: Tx, who: Decider, t: TxnRow, testRun = false): Promise<boolean> {
+  const [found] = await tx
+    .select({ earlier: bankTxn, b: booking })
+    .from(bankTxn)
+    .innerJoin(
+      booking,
+      and(eq(booking.bankTxnId, bankTxn.id), eq(booking.tenantId, bankTxn.tenantId)),
+    )
+    .where(
+      and(
+        eq(bankTxn.tenantId, who.tenantId),
+        ne(bankTxn.id, t.id),
+        eq(bankTxn.accountLinkId, t.accountLinkId),
+        eq(bankTxn.direction, t.direction),
+        eq(bankTxn.amount, t.amount),
+        eq(bankTxn.currency, t.currency),
+        eq(bankTxn.txnDate, t.txnDate),
+        sql`coalesce((${bankTxn.ext} ->> 'removedAfterPosting')::boolean, false)`,
+        sql`${bankTxn.ext} ->> 'resentAs' is null`,
+        eq(booking.status, "posted"),
+        // Not what another transaction already stands for (matched to the record itself).
+        sql`(${booking.qboId} is null or not exists (select 1 from ${booking} x where x.tenant_id = ${booking.tenantId} and x.bank_txn_id <> ${bankTxn.id} and x.status in ('proposed', 'approved', 'posted') and x.qbo_id = ${booking.qboId} and x.qbo_entity is not distinct from ${booking.qboEntity}))`,
+      ),
+    )
+    .orderBy(asc(bankTxn.id))
+    .limit(1);
+  if (!found) return false;
+  if (testRun) return true;
+  const { earlier, b } = found;
+  const lines = await tx
+    .select()
+    .from(bookingLine)
+    .where(and(eq(bookingLine.tenantId, who.tenantId), eq(bookingLine.bookingId, b.id)))
+    .orderBy(asc(bookingLine.lineNo));
+  await insertBooking(
+    tx,
+    who.tenantId,
+    t,
+    {
+      kind: b.kind,
+      status: "posted",
+      decidedBy: "match",
+      confidence: 1,
+      matchedTransactionId: b.matchedTransactionId,
+      transferLinkId: b.transferLinkId,
+      vendorId: b.vendorId,
+      memo: b.memo,
+      reason: `The bank sent this again under a new id: already in the accounting tool${b.qboEntity && b.qboId ? ` as ${b.qboEntity} ${b.qboId}` : ""}`,
+      sources: [earlier.rawRecordId, b.id],
+      agentVersionId: who.agentVersionId,
+      runId: who.runId,
+      qboEntity: b.qboEntity,
+      qboId: b.qboId,
+    },
+    lines.map((l) => ({
+      ledgerAccountId: l.ledgerAccountId,
+      amount: l.amount,
+      classRef: l.classRef,
+      customerRef: l.customerRef,
+      description: l.description,
+    })),
+  );
+  await setStatus(tx, who.tenantId, t.id, "matched", { ...t.ext, resentOf: earlier.id });
+  await tx
+    .update(bankTxn)
+    .set({ ext: { ...earlier.ext, resentAs: t.id }, updatedAt: sql`now()` })
+    .where(and(eq(bankTxn.tenantId, who.tenantId), eq(bankTxn.id, earlier.id)));
+  return true;
+}
+
+/** A booking's mark in a synced record's memo, as POSIX patterns (the transaction's, a booking's). */
+const TXN_MARK = "\\[Mezonas bt-([0-9a-f-]{36})\\]";
+const BOOKING_MARK = "\\[Mezonas bk-([0-9a-f-]{36})\\]";
+
+/**
+ * A write made for a transaction that nobody recorded (a run stopped after the write), now synced
+ * back with the transaction's mark: its standing booking is recorded as posted with that record,
+ * so it isn't laid out and refused again every day. A record of another kind than the booking
+ * would write (a purchase for a booking now a transfer) fails the booking for a person instead.
+ */
+async function recordWritten(tx: Tx, who: Decider): Promise<void> {
+  const rows = await tx
+    .select({ b: booking, t: bankTxn, r: transaction, ledgerKind: ledgerAccount.kind })
+    .from(booking)
+    .innerJoin(
+      bankTxn,
+      and(eq(bankTxn.id, booking.bankTxnId), eq(bankTxn.tenantId, booking.tenantId)),
+    )
+    .innerJoin(
+      bankAccountLink,
+      and(
+        eq(bankAccountLink.id, bankTxn.accountLinkId),
+        eq(bankAccountLink.tenantId, bankTxn.tenantId),
+      ),
+    )
+    .leftJoin(
+      ledgerAccount,
+      and(
+        eq(ledgerAccount.id, bankAccountLink.ledgerAccountId),
+        eq(ledgerAccount.tenantId, bankAccountLink.tenantId),
+      ),
+    )
+    .innerJoin(
+      transaction,
+      and(
+        eq(transaction.tenantId, booking.tenantId),
+        sql`coalesce((${transaction.ext} -> 'qbo' ->> 'deleted')::boolean, false) = false`,
+        or(
+          sql`substring(coalesce(${transaction.memo}, '') from ${TXN_MARK}::text) = ${bankTxn.id}::text`,
+          sql`substring(coalesce(${transaction.memo}, '') from ${BOOKING_MARK}::text) in (select e.id::text from ${booking} e where e.tenant_id = ${booking.tenantId} and e.bank_txn_id = ${bankTxn.id})`,
+        ),
+      ),
+    )
+    .where(
+      and(
+        eq(booking.tenantId, who.tenantId),
+        inArray(booking.status, ["proposed", "approved"]),
+        inArray(booking.kind, ["expense", "deposit", "transfer"]),
+        // Only accounts the Bookkeeper writes for; on one set to suggest the match step decides.
+        eq(bankAccountLink.mode, "book"),
+      ),
+    )
+    .limit(RECHECK_LIMIT);
+  const done = new Set<string>();
+  for (const { b, t, r, ledgerKind } of rows) {
+    if (done.has(b.id)) continue;
+    done.add(b.id);
+    const qbo = (r.ext as { qbo?: { entity?: string; id?: string } }).qbo ?? {};
+    // What this booking would write: a purchase for an expense, or money back onto a card.
+    const writesPurchase = b.kind === "expense" || (b.kind === "deposit" && ledgerKind === "card");
+    if (writesPurchase && qbo.entity === "Purchase" && qbo.id) {
+      await tx
+        .update(booking)
+        .set({
+          status: "posted",
+          qboEntity: "Purchase",
+          qboId: qbo.id,
+          postedAt: sql`now()`,
+          decidedAt: b.decidedAt ?? sql`now()`,
+        })
+        .where(and(eq(booking.tenantId, who.tenantId), eq(booking.id, b.id)));
+      await setStatus(tx, who.tenantId, t.id, "posted");
+    } else {
+      await tx
+        .update(booking)
+        .set({
+          status: "failed",
+          error: `Already in QuickBooks as ${qbo.entity ?? "a record"} ${qbo.id ?? ""} from an earlier booking of this transaction`,
+          decidedAt: sql`now()`,
+        })
+        .where(and(eq(booking.tenantId, who.tenantId), eq(booking.id, b.id)));
+      await setStatus(tx, who.tenantId, t.id, "needs_review");
+      await holdPaired(tx, who.tenantId, t, "not_written");
+    }
+  }
+}
+
 /** Sides of a transfer this far apart, the first already booked as one, are still the same. */
 export const TRANSFER_BOOKED_DAYS = 10;
 
 /**
- * Money out of one account on the feed and the same amount into another within MATCH_DAYS (a
- * card payment, a move to savings): one transfer, booked on the side the money left. Answers the
- * other side's id. The other side is undecided, or held for a person as this one's pair.
+ * Money out of one account on the feed and the same amount into another within
+ * TRANSFER_BOOKED_DAYS (a card payment, a move to savings): one transfer, booked on the side the
+ * money left. Answers the other side's id. The other side is undecided, or held for a person as
+ * this one's pair.
  */
+// DECISION: the two sides are paired up to TRANSFER_BOOKED_DAYS apart before either reaches the
+// model, so the model never books both (a card payment can post days later across a weekend).
+// The nearest wins; further apart than MATCH_DAYS, the transfer is proposed for a person
+// (needs_review) rather than for the write steps.
 async function transferPair(
   tx: Tx,
   who: Decider,
@@ -694,8 +973,8 @@ async function transferPair(
             sql`${bankTxn.ext} ->> 'pairedTxnId' = ${t.id}::text`,
           ),
         ),
-        gte(bankTxn.txnDate, day(-MATCH_DAYS)),
-        lte(bankTxn.txnDate, day(MATCH_DAYS)),
+        gte(bankTxn.txnDate, day(-TRANSFER_BOOKED_DAYS)),
+        lte(bankTxn.txnDate, day(TRANSFER_BOOKED_DAYS)),
       ),
     )
     .orderBy(sql`abs(${bankTxn.txnDate} - ${t.txnDate}::date)`, asc(bankTxn.id));
@@ -704,6 +983,10 @@ async function transferPair(
   if (testRun) return pair.txn.id;
   const [from, fromLink, to, toLink] =
     t.direction === "out" ? [t, link, pair.txn, pair.link] : [pair.txn, pair.link, t, link];
+  const apart = Math.abs(
+    (Date.parse(`${from.txnDate}T00:00:00Z`) - Date.parse(`${to.txnDate}T00:00:00Z`)) / 86_400_000,
+  );
+  const near = apart <= MATCH_DAYS;
   // A held side the transfer is now booked on: what was proposed for it while held gives way.
   await supersede(tx, who.tenantId, from.id);
   const id = await insertBooking(
@@ -714,16 +997,22 @@ async function transferPair(
       kind: "transfer",
       status: "proposed",
       decidedBy: "match",
-      confidence: 0.9,
+      confidence: near ? 0.9 : 0.7,
       transferLinkId: toLink.id,
-      reason: `The same amount left ${fromLink.name ?? "one account"} and reached ${toLink.name ?? "another"} within 3 days`,
+      reason: `The same amount left ${fromLink.name ?? "one account"} and reached ${toLink.name ?? "another"} ${apart === 0 ? "the same day" : `${apart} day${apart === 1 ? "" : "s"} apart`}`,
       sources: [to.rawRecordId],
       agentVersionId: who.agentVersionId,
       runId: who.runId,
     },
     [{ ledgerAccountId: toLink.ledgerAccountId ?? "", amount: from.amount }],
   );
-  await setStatus(tx, who.tenantId, from.id, "proposed", withoutPair(from.ext));
+  await setStatus(
+    tx,
+    who.tenantId,
+    from.id,
+    near ? "proposed" : "needs_review",
+    withoutPair(from.ext),
+  );
   await matchSide(tx, who.tenantId, to, id, from.id);
   return pair.txn.id;
 }
@@ -790,6 +1079,8 @@ export interface OpenItem {
   currency: string;
   /** The vendor or customer is the transaction's payee: a person decides it. Else a hint only. */
   confirmed: boolean;
+  /** Paid in QuickBooks since: the person leaves this transaction out. */
+  paid?: boolean;
 }
 
 /** The payee and a vendor's or customer's name are one: every word of the shorter in the other. */
@@ -918,38 +1209,81 @@ export function openItemOf(t: Pick<TxnRow, "ext">): OpenItem | null {
   return item && typeof item === "object" ? item : null;
 }
 
+/** Where a bill or invoice a transaction was held for stands now. */
+async function itemNow(
+  tx: Tx,
+  tenantId: string,
+  item: OpenItem,
+): Promise<{ gone: boolean; balance: string | null; paid: boolean }> {
+  if (item.kind === "bill" && item.transactionId) {
+    const [bill] = await tx
+      .select({
+        deleted: sql<boolean>`coalesce((${transaction.ext} -> 'qbo' ->> 'deleted')::boolean, false)`,
+        balance: sql<string>`coalesce((${rawRecord.payload} ->> 'Balance')::numeric, ${transaction.total})::text`,
+      })
+      .from(transaction)
+      .leftJoin(
+        rawRecord,
+        and(
+          eq(rawRecord.id, transaction.sourceRawRecordId),
+          eq(rawRecord.tenantId, transaction.tenantId),
+        ),
+      )
+      .where(and(eq(transaction.tenantId, tenantId), eq(transaction.id, item.transactionId)));
+    if (!bill || bill.deleted) return { gone: true, balance: null, paid: false };
+    return { gone: false, balance: toNumeric(dec(bill.balance)), paid: false };
+  }
+  if (item.kind === "invoice" && item.receivableId) {
+    const [inv] = await tx
+      .select()
+      .from(receivable)
+      .where(and(eq(receivable.tenantId, tenantId), eq(receivable.id, item.receivableId)));
+    if (!inv || inv.status === "void" || inv.status === "deleted") {
+      return { gone: true, balance: null, paid: false };
+    }
+    return { gone: false, balance: inv.balance, paid: inv.status === "paid" };
+  }
+  return { gone: true, balance: null, paid: false };
+}
+
 /**
- * Transactions waiting for a person because of an open bill or invoice, checked again: once that
- * bill or invoice is paid, gone or no longer this amount, the transaction goes back to `new`.
+ * Transactions waiting for a person because of an open bill or invoice, checked again. Paid in
+ * QuickBooks (what is owed fell by exactly this amount, or the invoice is paid): it stays with a
+ * person, to be left out, since the payment is in the books there. Deleted, voided or changed to
+ * another amount: it goes back to `new`, to be decided again.
  */
+// DECISION: a bill or invoice paid in QuickBooks never frees its payment to be booked again (bill
+// payments aren't synced, so the bank transaction would become a second expense); a person leaves
+// it out with the card saying it is paid there.
 async function recheckOpenItems(tx: Tx, who: Decider): Promise<void> {
   const held = await tx
-    .select({ t: bankTxn, l: bankAccountLink })
+    .select({ t: bankTxn })
     .from(bankTxn)
-    .innerJoin(
-      bankAccountLink,
-      and(
-        eq(bankAccountLink.id, bankTxn.accountLinkId),
-        eq(bankAccountLink.tenantId, bankTxn.tenantId),
-      ),
-    )
     .where(
       and(
         eq(bankTxn.tenantId, who.tenantId),
         eq(bankTxn.status, "needs_review"),
         sql`${bankTxn.ext} -> 'openItem' ->> 'confirmed' = 'true'`,
+        sql`coalesce((${bankTxn.ext} -> 'openItem' ->> 'paid')::boolean, false) = false`,
       ),
     )
     .limit(RECHECK_LIMIT);
-  for (const { t, l } of held) {
+  for (const { t } of held) {
     const was = openItemOf(t);
-    const now = await openItemFor(tx, t, l);
-    const same =
-      now?.confirmed &&
-      now.kind === was?.kind &&
-      (now.transactionId ?? now.receivableId) === (was?.transactionId ?? was?.receivableId);
-    if (same) continue;
-    if (await liveBooking(tx, who.tenantId, t.id)) {
+    if (!was) continue;
+    const now = await itemNow(tx, who.tenantId, was);
+    if (!now.gone && now.balance !== null && dec(now.balance).eq(dec(was.balance))) continue;
+    const paid =
+      !now.gone &&
+      now.balance !== null &&
+      (now.paid || dec(was.balance).minus(dec(now.balance)).eq(dec(t.amount)));
+    if (paid) {
+      await setStatus(tx, who.tenantId, t.id, "needs_review", {
+        ...t.ext,
+        // What was owed stays, for the card to name; the bill or invoice is paid now.
+        openItem: { ...was, paid: true },
+      });
+    } else if (await liveBooking(tx, who.tenantId, t.id)) {
       // A suggestion stands: it stays with a person, without the stale candidate.
       await setStatus(tx, who.tenantId, t.id, "needs_review", withoutOpenItem(t.ext));
     } else {
@@ -1050,7 +1384,7 @@ export async function propose(
   who: Decider,
   input: ProposeInput,
   threshold: number = BOOK_CONFIDENCE_AUTO,
-): Promise<{ bookingId: string; status: "proposed" | "needs_review" }> {
+): Promise<{ bookingId: string; status: "proposed" | "needs_review" | "matched" }> {
   const t = await txnOf(tx, who.tenantId, input.bankTxnId);
   if (!["new", "needs_review"].includes(t.status)) {
     throw new PackRefusal(
@@ -1069,6 +1403,15 @@ export async function propose(
         : "deposit";
   if (lines.length > 1 && types.some((ty) => MONEY_KINDS.includes(ty))) {
     throw new PackRefusal("a transfer has one line");
+  }
+  // The same transfer, already booked from the other side: this side is matched to it.
+  const other =
+    kind === "transfer" && lines[0]
+      ? await otherSideBooked(tx, who.tenantId, t, lines[0].ledgerAccountId)
+      : null;
+  if (other) {
+    await joinBooked(tx, who.tenantId, t, other, deciderOf(who));
+    return { bookingId: other.bookingId, status: "matched" };
   }
   await supersede(tx, who.tenantId, t.id);
   const bookingId = await insertBooking(
@@ -1119,11 +1462,25 @@ export async function approve(tx: Tx, who: PersonDecision, bankTxnId: string): P
   if (!live || live.status !== "proposed") {
     throw new PackRefusal("there's no proposal for this transaction to approve");
   }
+  let other: Awaited<ReturnType<typeof otherSideBooked>> = null;
+  if (live.kind === "transfer") {
+    const [line] = await tx
+      .select()
+      .from(bookingLine)
+      .where(and(eq(bookingLine.tenantId, who.tenantId), eq(bookingLine.bookingId, live.id)));
+    if (line) other = await otherSideBooked(tx, who.tenantId, t, line.ledgerAccountId);
+  }
+  // The same transfer approved or written from the other side: this side is matched to it.
+  if (other && other.status !== "proposed") {
+    await joinBooked(tx, who.tenantId, t, other, { userId: who.userId });
+    return other.bookingId;
+  }
   await tx
     .update(booking)
     .set({ status: "approved", userId: who.userId, decidedAt: sql`now()` })
     .where(and(eq(booking.tenantId, who.tenantId), eq(booking.id, live.id)));
   await setStatus(tx, who.tenantId, t.id, "approved");
+  if (other) await takeOver(tx, who.tenantId, other, live.id, t);
   await learn(tx, who, t);
   return live.id;
 }
@@ -1173,6 +1530,16 @@ export async function bookByPerson(tx: Tx, who: PersonDecision, input: BookInput
         );
     }
   }
+  // The same transfer booked from the other side: a person's or approved one stands and this side
+  // is matched to it; a proposal there gives way to this person's booking.
+  const other =
+    kind === "transfer" && lines[0]
+      ? await otherSideBooked(tx, who.tenantId, t, lines[0].ledgerAccountId)
+      : null;
+  if (other && other.status !== "proposed") {
+    await joinBooked(tx, who.tenantId, t, other, { userId: who.userId });
+    return other.bookingId;
+  }
   await supersede(tx, who.tenantId, t.id);
   const why = input.why?.replace(/\s+/g, " ").trim() || null;
   const id = await insertBooking(
@@ -1199,6 +1566,7 @@ export async function bookByPerson(tx: Tx, who: PersonDecision, input: BookInput
     lineAccountId: first?.ledgerAccountId ?? null,
     byPerson: true,
   });
+  if (other) await takeOver(tx, who.tenantId, other, id, t);
   if (why && first) {
     await addNote(
       tx,

@@ -2753,6 +2753,7 @@ export const ptBR: Messages = {
     "É o pagamento de uma conta a pagar em aberto: {what}? Se for, aplique-o a essa conta no QuickBooks e depois deixe-o de fora aqui.",
   "bookkeeping.review.openInvoice":
     "É o recebimento de uma fatura em aberto: {what}? Se for, aplique-o a essa fatura no QuickBooks e depois deixe-o de fora aqui.",
+  "bookkeeping.review.openItemPaid": "Pago no QuickBooks contra {what}: deixe-o de fora aqui.",
   "bookkeeping.review.pairHeld":
     "Lançamento {what}: pode ser o outro lado de uma transferência que não foi registrada ou foi deixada de fora. Decida os dois juntos.",
   "bookkeeping.review.approve": "Aprovar",

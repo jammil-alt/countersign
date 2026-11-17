@@ -107,9 +107,11 @@ export function BookingsReview({
                   {txn.openItem ? (
                     <p className="text-sm text-ink" data-testid="bookings-review-open-item">
                       {t(
-                        txn.openItem.kind === "bill"
-                          ? "bookkeeping.review.openBill"
-                          : "bookkeeping.review.openInvoice",
+                        txn.openItem.paid
+                          ? "bookkeeping.review.openItemPaid"
+                          : txn.openItem.kind === "bill"
+                            ? "bookkeeping.review.openBill"
+                            : "bookkeeping.review.openInvoice",
                         {
                           what: [
                             txn.openItem.name,
