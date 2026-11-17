@@ -18,7 +18,7 @@ import { insertShop, type ShopFixture } from "../testing.test-helper";
 import { type PackToolContext, packToolContext } from "../tools";
 import { EMBEDDING_TEMPLATE } from "./embedding-text";
 import { registerLines } from "./pipeline";
-import { priceForVendorItem, recordLastPrice, recordLeadTime } from "./store";
+import { priceForVendorItem, recordLastPrice, recordLeadTime, vendorItemForUnit } from "./store";
 import {
   embeddingsWrite,
   vendorItemDiscontinue,
@@ -312,6 +312,55 @@ describe.skipIf(!online)("the vendor catalog's tools", () => {
       [2, "open", "thickness"],
       [3, "open", null],
     ]);
+  });
+
+  it("takes a pack size for a line without a SKU only from the one vendor item in its very word", async () => {
+    const screws = await item(A, "#8 X 1-1/4 WOOD SCREW");
+    const [box, kase] = await t.db
+      .insert(vendorItem)
+      .values([
+        {
+          tenantId: A.tenantId,
+          vendorId: cedar,
+          catalogItemId: screws,
+          sku: "CRL-S100",
+          name: "#8 SCREW 100/BX",
+          vendorUom: "pack",
+          stdPerVendorUom: "100",
+          ext: { unitWord: "box" },
+        },
+        {
+          tenantId: A.tenantId,
+          vendorId: cedar,
+          catalogItemId: screws,
+          sku: "CRL-S1000",
+          name: "#8 SCREW 1000/CS",
+          vendorUom: "pack",
+          stdPerVendorUom: "1000",
+          ext: { unitWord: "case" },
+        },
+      ])
+      .returning();
+    const forUnit = (unitRaw: string | null, catalogItemId = screws) =>
+      withTenant(t.db, A.tenantId, (tx) =>
+        vendorItemForUnit(tx, A.tenantId, { vendorId: cedar, catalogItemId, unitRaw }),
+      );
+    expect((await forUnit("CS"))?.id).toBe(kase?.id);
+    expect((await forUnit("box"))?.id).toBe(box?.id);
+    // A pack, a carton: neither is recorded in that word, so no size is known.
+    expect(await forUnit("PK")).toBeNull();
+    expect(await forUnit("CTN")).toBeNull();
+    // A box recorded before the word was kept converts nothing without its SKU.
+    const nails = await item(A, "16D COMMON NAIL");
+    await t.db.insert(vendorItem).values({
+      tenantId: A.tenantId,
+      vendorId: cedar,
+      catalogItemId: nails,
+      name: "16D NAIL BOX",
+      vendorUom: "pack",
+      stdPerVendorUom: "500",
+    });
+    expect(await forUnit("CS", nails)).toBeNull();
   });
 
   it("writes nothing in a test run's Register item, and answers what it would have", async () => {

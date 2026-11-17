@@ -824,6 +824,7 @@ export const quoteCompare = defineTool({
         missing: z.array(z.string()),
         unavailable: z.array(z.string()),
         note: z.string().nullable(),
+        compared: z.boolean(),
       }),
     ),
     vendors: z.array(

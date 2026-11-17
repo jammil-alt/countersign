@@ -59,7 +59,7 @@ import {
   wordsDiffer,
 } from "../catalog/store";
 import { materialsEventRegistry } from "../events";
-import { convertLine, readUom, withoutPackaging } from "../pricing/uom";
+import { convertLine, readUom, unitWord, withoutPackaging } from "../pricing/uom";
 import { type Category, catalogItem, priceObservation, vendorItem } from "../schema";
 import { EMBEDDING_TEMPLATE, embeddingText, stripTerms } from "./embedding-text";
 import {
@@ -1081,6 +1081,7 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
           // The pack is the vendor's (vendor_item.pack_size), as the line states it.
           ...(pack ? { packSize: `${pack} per ${vendorUom}` } : {}),
           vendorUom,
+          unitWord: unitWord(line.uomRaw),
           stdPerVendorUom: conv.ok ? toNumeric(conv.factor) : null,
         },
         by,

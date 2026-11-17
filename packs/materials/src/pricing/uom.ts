@@ -58,6 +58,38 @@ const SPELLINGS: Record<string, string> = {
   KIT: "container",
 };
 
+// A box, a case and a carton are all a `pack` to the conversion table, but not the same pack: the
+// word a vendor wrote, in one spelling, tells a vendor's box from its case.
+const PACKAGING_WORDS: Record<string, string> = {
+  BX: "box",
+  BOX: "box",
+  BOXES: "box",
+  PK: "pack",
+  PKG: "pack",
+  PACK: "pack",
+  CS: "case",
+  CASE: "case",
+  CTN: "carton",
+  CARTON: "carton",
+  PAIL: "pail",
+  CAN: "can",
+  DRUM: "drum",
+  KIT: "kit",
+};
+
+/** Units that are a vendor's packaging: their size is the vendor's, not the item's. */
+export const PACKAGING_UOMS: ReadonlySet<string> = new Set(["pack", "container"]);
+
+/**
+ * The unit a vendor wrote, finer than `readUom` for packaging (`box`, `case`, `carton`, `pail`),
+ * else as `readUom` reads it, else its own words; null when none is given.
+ */
+export function unitWord(raw: string | null | undefined): string | null {
+  if (!raw?.trim()) return null;
+  const key = raw.toUpperCase().replace(/[.\s]/g, "");
+  return PACKAGING_WORDS[key] ?? readUom(raw) ?? raw.trim().toLowerCase();
+}
+
 /** An invoice unit in one spelling (`sheet`, `board_foot`, `pack`, …), or null if unknown. */
 export function readUom(raw: string | null | undefined): string | null {
   if (!raw) return null;

@@ -19,7 +19,7 @@ import {
 import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { parseLine } from "../catalog/keys";
 import type { CatalogItemRow } from "../catalog/store";
-import { convertLine, readUom, withoutPackaging } from "../pricing/uom";
+import { type Conversion, convertLine, readUom, withoutPackaging } from "../pricing/uom";
 import {
   itemAlias,
   priceObservation,
@@ -34,10 +34,12 @@ import {
   recordLastPrice,
   recordLeadTime,
   resolveVendorItem,
+  vendorItemForUnit,
 } from "../vendor/store";
 // P-9
 import { vendorContacts } from "./contacts";
 import {
+  clientDay,
   type PurchasingContext,
   PurchasingError,
   type RequestLineRow,
@@ -650,6 +652,26 @@ export interface RecordedLine extends QuoteLineView {
 // item's conversion for that unit; never the master item's pack size or the one the request
 // asked for (a box of 50 is not a box of 100). The request's other words (a container, a
 // length) still count.
+/** How many of the item's standard unit one quoted unit is, by `standardPrice`'s rule. */
+export function quotedConversion(
+  item: Pick<CatalogItemRow, "standardUom" | "attributes">,
+  line: { unit: string | null; description: string | null },
+  asked: { description: string },
+  vendorItem?: { vendorUom: string | null; stdPerVendorUom: string | null } | null,
+): Conversion {
+  const lineAttributes = {
+    ...withoutPackaging(parseLine(asked.description).attributes),
+    ...(line.description ? parseLine(line.description).attributes : {}),
+  };
+  return convertLine(
+    line.unit,
+    item.standardUom,
+    lineAttributes,
+    item.attributes as Record<string, unknown>,
+    vendorItem,
+  );
+}
+
 export function standardPrice(
   item: CatalogItemRow | null,
   line: { unit: string | null; unitPrice: string | null; description: string | null },
@@ -659,17 +681,7 @@ export function standardPrice(
   if (!item)
     return { unitPriceStd: null, standardUom: null, conversion: "not matched to a catalog item" };
   if (line.unitPrice === null) return { unitPriceStd: null, standardUom: null, conversion: null };
-  const lineAttributes = {
-    ...withoutPackaging(parseLine(asked.description).attributes),
-    ...(line.description ? parseLine(line.description).attributes : {}),
-  };
-  const conv = convertLine(
-    line.unit,
-    item.standardUom,
-    lineAttributes,
-    item.attributes as Record<string, unknown>,
-    vendorItem,
-  );
+  const conv = quotedConversion(item, line, asked, vendorItem);
   if (!conv.ok) return { unitPriceStd: null, standardUom: null, conversion: conv.reason };
   return {
     unitPriceStd: toNumeric(dec(line.unitPrice).dividedBy(conv.factor)),
@@ -821,21 +833,19 @@ export async function recordQuote(
       };
       const unit = l.unit ?? asked.row.unit;
       const unitPrice = l.unitPrice ?? null;
-      // The vendor's own item in the quoted unit, for its pack size (`standardPrice`).
-      const vendorUnit = unit?.trim() ? (readUom(unit) ?? unit.trim().toLowerCase()) : null;
+      // The vendor's one item in the quoted unit, for its pack size (`standardPrice`).
       const vi = asked.item
-        ? await resolveVendorItem(tx, ctx.tenantId, {
+        ? await vendorItemForUnit(tx, ctx.tenantId, {
             vendorId: q.vendorId,
             catalogItemId: asked.item.id,
-            sku: null,
-            vendorUom: vendorUnit,
+            unitRaw: unit,
           })
         : null;
       const std = standardPrice(
         asked.item,
         { unit, unitPrice, description: l.description ?? null },
         asked.row,
-        vi && vi.status === "active" && vi.catalogItemId === asked.item?.id ? vi : null,
+        vi,
       );
       const values = {
         tenantId: ctx.tenantId,
@@ -871,9 +881,12 @@ export async function recordQuote(
           unitPrice,
           unitPriceStd: std.unitPriceStd,
           leadTimeDays: l.leadTimeDays ?? null,
-          on: (input.receivedAt ? new Date(input.receivedAt) : new Date())
-            .toISOString()
-            .slice(0, 10),
+          // The client's own day the quote came in (its time zone).
+          on: await clientDay(
+            tx,
+            ctx.tenantId,
+            input.receivedAt ? new Date(input.receivedAt) : new Date(),
+          ),
           sourceId: row.id,
           currency,
         });

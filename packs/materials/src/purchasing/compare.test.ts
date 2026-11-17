@@ -32,7 +32,7 @@ const offer = (
   id: `ql-${++n}`,
   quoteRequestId,
   requestLineId,
-  qty: "10.0000",
+  qty: null,
   unit: "SHT",
   unitPrice: null,
   currency: "USD",
@@ -69,7 +69,8 @@ describe("compareOffers", () => {
     expect(c.lines[1]?.best).toMatchObject({ vendorId: "v-a", price: "0.2000", cost: "0.6000" });
     expect(c.vendors.map((v) => [v.vendorName, v.total, v.complete])).toEqual([
       ["Atlas Panel", "611.6000", true],
-      ["Birch Supply", "611.9010", true],
+      // 61.1001 × 10 = 611.001: each line rounded to cents, as its purchase order is.
+      ["Birch Supply", "611.9000", true],
     ]);
     expect(c.suggestion).toMatchObject({ kind: "single", vendorId: "v-a", total: "611.6000" });
     expect(c.suggestion.reasons[0]).toBe(
@@ -122,7 +123,8 @@ describe("compareOffers", () => {
     );
     expect(c.lines[0]?.offers.every((o) => !o.comparable)).toBe(true);
     expect(c.suggestion.kind).toBe("none");
-    expect(c.suggestion.reasons[0]).toMatch(/^Line 1 \(line 1\) has no price we can compare/);
+    expect(c.lines[0]?.compared).toBe(false);
+    expect(c.suggestion.reasons[0]).toMatch(/^Line 1 \(line 1\) is left out of the totals/);
   });
 
   it("compares offers in the same unit when the line has no catalog item", () => {
@@ -185,7 +187,56 @@ describe("compareOffers", () => {
     expect(same.suggestion.kind).toBe("none");
   });
 
-  it("costs a line on the quantity asked, and a vendor quoting less is not complete", () => {
+  it("costs each offer at what its purchase order charges, and holds what was quoted against what was asked", () => {
+    const three = [
+      ...quotes,
+      { id: "q-c", vendorId: "v-c", vendorName: "Cedar Ridge", receivedAt: null },
+    ];
+    // 100 sheets asked with no unit (the item counts sheets).
+    const asked: CompareLine = { ...sheet("l1", 1, "100.0000"), unit: null };
+    const c = compareOffers({
+      ...base,
+      quotes: three,
+      lines: [asked],
+      offers: [
+        // 2 bundles of 50 at 50.00: 100 sheets, 100.00.
+        offer("q-a", "l1", {
+          ...std("1.0000"),
+          unit: "bundle",
+          unitPrice: "50.0000",
+          qty: "2.0000",
+          qtyStd: "100.0000",
+        }),
+        // A minimum order: 150 sheets at 0.95 is cheaper a sheet, but its order is 142.50.
+        offer("q-b", "l1", std("0.9500", { qty: "150.0000", qtyStd: "150.0000" })),
+        // 1 bundle of 50 for the 100 asked: short, whatever its price.
+        offer("q-c", "l1", {
+          ...std("0.5000"),
+          unit: "bundle",
+          unitPrice: "25.0000",
+          qty: "1.0000",
+          qtyStd: "50.0000",
+        }),
+      ],
+    });
+    const line = c.lines[0];
+    const by = (v: string) => line?.offers.find((o) => o.vendorId === v);
+    expect(by("v-a")).toMatchObject({ comparable: true, cost: "100.0000", note: null });
+    expect(by("v-b")).toMatchObject({ comparable: true, cost: "142.5000" });
+    expect(by("v-b")?.note).toBe(
+      "quoted 150 sheets where 100 sheets were asked (a minimum order?): priced as quoted",
+    );
+    expect(by("v-c")).toMatchObject({ comparable: false });
+    expect(by("v-c")?.note).toBe("quoted 50 sheets of the 100 sheets asked");
+    expect(line?.best).toMatchObject({ vendorId: "v-a", cost: "100.0000" });
+    expect(c.vendors.map((v) => [v.vendorName, v.total, v.complete])).toEqual([
+      ["Atlas Panel", "100.0000", true],
+      ["Birch Supply", "142.5000", true],
+      ["Cedar Ridge", "0.0000", false],
+    ]);
+    expect(c.suggestion).toMatchObject({ kind: "single", vendorId: "v-a", total: "100.0000" });
+
+    // With no catalog item, in the unit asked: half the bundles is short.
     const bundles: CompareLine = {
       ...sheet("l1", 1, "100.0000"),
       unit: "bundle",
@@ -193,34 +244,60 @@ describe("compareOffers", () => {
       standardUom: null,
       qtyStd: null,
     };
-    const c = compareOffers({
+    const raw = compareOffers({
       ...base,
       lines: [bundles],
       offers: [
         offer("q-a", "l1", { unit: "bundle", unitPrice: "2.0000", qty: "100.0000" }),
-        // Half the quantity at a higher price: 125.00 on its face, 250.00 for what was asked.
         offer("q-b", "l1", { unit: "bundle", unitPrice: "2.5000", qty: "50.0000" }),
       ],
     });
-    const short = c.lines[0]?.offers.find((o) => o.vendorId === "v-b");
-    expect(short).toMatchObject({ comparable: false, cost: "250.0000" });
-    expect(short?.note).toBe("quoted 50 of the 100 asked");
-    expect(c.vendors.map((v) => [v.vendorName, v.total, v.complete])).toEqual([
+    const short = raw.lines[0]?.offers.find((o) => o.vendorId === "v-b");
+    expect(short).toMatchObject({ comparable: false, cost: "125.0000" });
+    expect(short?.note).toBe("quoted 50 bundle of the 100 bundle asked");
+    expect(raw.vendors.map((v) => [v.vendorName, v.total, v.complete])).toEqual([
       ["Atlas Panel", "200.0000", true],
       ["Birch Supply", "0.0000", false],
     ]);
-    expect(c.suggestion).toMatchObject({ kind: "single", vendorId: "v-a", total: "200.0000" });
-    // A standard-unit offer for less than asked is short as well.
-    const std100 = compareOffers({
+  });
+
+  it("compares the comparable offers when another vendor's box can't be, and leaves out a line nobody's can", () => {
+    const three = [
+      ...quotes,
+      { id: "q-c", vendorId: "v-c", vendorName: "Cedar Ridge", receivedAt: null },
+    ];
+    const each: CompareLine = {
+      ...sheet("l1", 1, "10.0000"),
+      unit: "EA",
+      catalogItemId: null,
+      standardUom: null,
+      qtyStd: null,
+    };
+    const screws: CompareLine = { ...sheet("l2", 2, "5.0000"), unit: "BX", qtyStd: null };
+    const c = compareOffers({
       ...base,
-      lines: [sheet("l1", 1, "100.0000")],
+      quotes: three,
+      lines: [each, screws],
       offers: [
-        offer("q-a", "l1", std("1.0000", { qty: "100.0000" })),
-        offer("q-b", "l1", std("0.9000", { qty: "50.0000" })),
+        offer("q-a", "l1", { unit: "EA", unitPrice: "2.0000" }),
+        offer("q-b", "l1", { unit: "EA", unitPrice: "1.9000" }),
+        offer("q-c", "l1", { unit: "BX", unitPrice: "15.0000" }),
+        offer("q-a", "l2", { unit: "BX", unitPrice: "9.0000" }),
+        offer("q-b", "l2", { unit: "BX", unitPrice: "8.0000" }),
       ],
     });
-    expect(std100.lines[0]?.best?.vendorId).toBe("v-a");
-    expect(std100.vendors.find((v) => v.vendorId === "v-b")?.complete).toBe(false);
+    expect(c.lines[0]?.best).toMatchObject({ vendorId: "v-b", cost: "19.0000" });
+    expect(c.lines[0]?.compared).toBe(true);
+    expect(c.lines[1]).toMatchObject({ best: null, compared: false });
+    expect(c.vendors.map((v) => [v.vendorName, v.complete])).toEqual([
+      ["Atlas Panel", true],
+      ["Birch Supply", true],
+      ["Cedar Ridge", false],
+    ]);
+    expect(c.suggestion).toMatchObject({ kind: "single", vendorId: "v-b", total: "19.0000" });
+    expect(c.suggestion.reasons.at(-1)).toBe(
+      "Line 2 (line 2) is left out of the totals: no vendor's box, case or container converts to sheet with a known pack size.",
+    );
   });
 
   it("never compares across currencies", () => {

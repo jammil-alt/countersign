@@ -28,6 +28,7 @@ import {
   recordLastPrice,
   resolveVendorItem,
   type VendorItemRow,
+  vendorItemForUnit,
 } from "../vendor/store";
 import type { Observation } from "./rules";
 import { convertLine, readUom } from "./uom";
@@ -275,12 +276,22 @@ export async function priceLines(
       vendorUom,
     });
     const vi = found && found.catalogItemId === item.id ? found : null;
+    // The conversion is the vendor item's that the line's SKU names; without one, the vendor's one
+    // item recorded in the line's unit word (`vendorItemForUnit`: a case is not the box).
+    const convVi =
+      vi && sku && vi.sku === sku
+        ? vi
+        : await vendorItemForUnit(tx, tenantId, {
+            vendorId: doc.vendorId,
+            catalogItemId: item.id,
+            unitRaw: l.uomRaw,
+          });
     const conv = convertLine(
       l.uomRaw,
       item.standardUom,
       parseLine(l.rawDescription).attributes,
       item.attributes as Record<string, unknown>,
-      vi,
+      convVi,
     );
     if (!conv.ok) {
       out.push({ ...withItem, skipped: conv.reason });

@@ -9,8 +9,8 @@ import { dec } from "@countersign/core";
 import { type Db, type Tx, vendor, withTenant } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import { vendorContacts } from "./contacts";
-import { cents, clientDay, poContent } from "./po";
-import { type PurchasingContext, PurchasingError } from "./requests";
+import { cents, poContent } from "./po";
+import { clientDay, type PurchasingContext, PurchasingError } from "./requests";
 
 /** A QuickBooks vendor as `qbo.vendor.query` lists it. */
 export interface QboVendorSeen {

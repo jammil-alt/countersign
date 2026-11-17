@@ -7,6 +7,7 @@ import { dec, toNumeric } from "@countersign/core";
 import { type Tx, vendor } from "@countersign/db";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, type SQL, sql } from "drizzle-orm";
 import { liveItem } from "../catalog/store";
+import { PACKAGING_UOMS, readUom, unitWord } from "../pricing/uom";
 import {
   type Category,
   catalogItem,
@@ -141,6 +142,35 @@ export async function vendorAlias(
 }
 
 /**
+ * The vendor item whose conversion converts a line in `unitRaw` that names no SKU (a quote's line,
+ * an invoice line without one): the vendor's one active item for the master item in that unit;
+ * for a box, case or pail, the one recorded in that very word (`ext.unitWord`). Null when there
+ * is none or more than one: the unit then has no known size (invariant 7).
+ */
+// DECISION (review of fix/materials, finding 3): a box of 100 and a case of 1000 are both a
+// `pack`, so a packaging unit takes a vendor item's conversion only when exactly one vendor item
+// was recorded in the same word; an item recorded before the word was kept has none and converts
+// nothing for a line without its SKU.
+export async function vendorItemForUnit(
+  tx: Tx,
+  tenantId: string,
+  key: { vendorId: string; catalogItemId: string; unitRaw: string | null },
+): Promise<VendorItemRow | null> {
+  const unit = key.unitRaw?.trim()
+    ? (readUom(key.unitRaw) ?? key.unitRaw.trim().toLowerCase())
+    : null;
+  const inUnit = (await vendorItemsFor(tx, tenantId, key.vendorId, key.catalogItemId)).filter(
+    (v) => v.status === "active" && (v.vendorUom ?? "") === (unit ?? ""),
+  );
+  const word = unitWord(key.unitRaw);
+  const fits =
+    unit !== null && PACKAGING_UOMS.has(unit)
+      ? inUnit.filter((v) => (v.ext as { unitWord?: unknown } | null)?.unitWord === word)
+      : inUnit;
+  return fits.length === 1 ? (fits[0] ?? null) : null;
+}
+
+/**
  * The vendor item a decided line is: its SKU's, else the one the semantic match named, else the
  * vendor's item for that master item in the line's unit, else its only one. Null: a new one.
  */
@@ -198,6 +228,8 @@ export interface VendorItemFields {
   currency?: string | undefined;
   // §1.104: the contract the list price is the agreed price of (with a list price only).
   contractId?: string | null | undefined;
+  /** The unit as the vendor wrote it, finer than `vendorUom` (`unitWord`): kept in `ext`. */
+  unitWord?: string | null | undefined;
   // §1.104 (0052): the client's tolerance on the agreed price (an amount, a percent).
   priceToleranceAmount?: string | null | undefined;
   priceTolerancePct?: string | null | undefined;
@@ -236,6 +268,7 @@ export async function createVendorItem(
       priceToleranceAmount: f.priceToleranceAmount ?? null,
       priceTolerancePct: f.priceTolerancePct ?? null,
       currency: f.currency ?? "USD",
+      ...(f.unitWord ? { ext: { unitWord: f.unitWord } } : {}),
       ...("agentVersionId" in by
         ? { createdByAgentVersionId: by.agentVersionId || null }
         : { createdByUserId: by.userId }),

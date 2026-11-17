@@ -7,6 +7,7 @@ import { type Db, vendor, withTenant } from "@countersign/db";
 import { EMBED_BATCH_MAX, EMBEDDING_DIMENSIONS } from "@countersign/llm";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
+import { unitWord } from "../pricing/uom";
 import { catalogItem, VENDOR_ITEM_STATUSES, vendorItem } from "../schema";
 import { Answer, Checked, LookedUp, Open } from "../split";
 import { defineTool, type PackTool, type PackToolContext } from "../tools";
@@ -638,6 +639,7 @@ function saveVendorItem(
       ctx.tenantId,
       {
         ...fields,
+        unitWord: unitWord(input.vendorUom),
         vendorId: input.vendorId,
         catalogItemId: input.catalogItemId,
         name: input.name,

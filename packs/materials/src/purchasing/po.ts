@@ -5,13 +5,19 @@
 // attach it to an email or a QuickBooks purchase order. It writes nothing to a client's tool.
 
 import type { ContentStore } from "@countersign/connectors";
-import { Decimal, dec, formatAmount, isoToday, toNumeric } from "@countersign/core";
+import { Decimal, dec, formatAmount, toNumeric } from "@countersign/core";
 import { type Db, document, type Tx, tenant, vendor, withTenant } from "@countersign/db";
 import { countPages } from "@countersign/documents";
 import { and, eq } from "drizzle-orm";
 import { PageSizes, PDFDocument, type PDFFont, type PDFPage, rgb, StandardFonts } from "pdf-lib";
 import { quoteLines, quoteRow, vendorAliases } from "./quotes";
-import { type PurchasingContext, PurchasingError, requestLines, requestRow } from "./requests";
+import {
+  clientDay,
+  type PurchasingContext,
+  PurchasingError,
+  requestLines,
+  requestRow,
+} from "./requests";
 
 // The design system's ink, muted ink, slate and border (packages/design-system/tokens.css).
 const INK = rgb(0x1a / 255, 0x1f / 255, 0x26 / 255);
@@ -64,16 +70,6 @@ function winAnsi(font: PDFFont, text: string): string {
 /** Cents, half up (as QuickBooks rounds an amount). */
 export const cents = (v: string | Decimal): string =>
   dec(v).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toFixed(2);
-
-/** A client's own day for a moment, from its time zone (`tenant.timezone`; UTC when unknown). */
-export async function clientDay(tx: Tx, tenantId: string, at: Date): Promise<string> {
-  const [row] = await tx
-    .select({ timezone: tenant.timezone })
-    .from(tenant)
-    .where(eq(tenant.id, tenantId))
-    .limit(1);
-  return isoToday(at, row?.timezone);
-}
 
 function moneyText(amount: string, currency: string): string {
   return currency === "USD" ? `$${formatAmount(amount)}` : `${currency} ${formatAmount(amount)}`;

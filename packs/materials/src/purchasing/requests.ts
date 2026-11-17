@@ -5,12 +5,14 @@
 // here writes to a client's tool: the order itself is placed elsewhere (QuickBooks, approval on)
 // and only its reference is kept here.
 
+import { isoToday } from "@countersign/core";
 import {
   contact,
   type Db,
   membership,
   rawRecord,
   type Tx,
+  tenant,
   vendor,
   withTenant,
 } from "@countersign/db";
@@ -27,6 +29,16 @@ import {
   type RequestStatus,
 } from "../schema";
 import { matchText, type TextCandidate } from "./match-text";
+
+/** A client's own day for a moment, from its time zone (`tenant.timezone`; UTC when unknown). */
+export async function clientDay(tx: Tx, tenantId: string, at: Date): Promise<string> {
+  const [row] = await tx
+    .select({ timezone: tenant.timezone })
+    .from(tenant)
+    .where(eq(tenant.id, tenantId))
+    .limit(1);
+  return isoToday(at, row?.timezone);
+}
 
 export interface PurchasingContext {
   tenantId: string;

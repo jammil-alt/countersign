@@ -150,6 +150,8 @@ export interface Offer {
   leadTimeDays: number | null;
   available: boolean;
   comparable: boolean;
+  /** Why the offer isn't compared (or how it was), in the pack's words. */
+  note?: string | null;
 }
 
 export interface Comparison {
@@ -163,6 +165,8 @@ export interface Comparison {
     unit: string | null;
     offers: Offer[];
     best: { quoteRequestId: string; vendorId: string } | null;
+    /** Why the line wasn't compared, when it wasn't. */
+    note?: string | null;
   }[];
   vendors: {
     quoteRequestId: string;

@@ -12,7 +12,7 @@ import { type Db, type Tx, vendor, withTenant } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import { descriptionHash, normalize } from "../catalog/normalize";
 import { liveItem } from "../catalog/store";
-import { readUom } from "../pricing/uom";
+import { readUom, unitWord } from "../pricing/uom";
 import {
   cleanSku,
   createVendorItem,
@@ -292,7 +292,7 @@ export async function importPriceListRows(
     const made = await createVendorItem(
       tx,
       tenantId,
-      { ...fields, vendorId, catalogItemId, sku, name },
+      { ...fields, vendorId, catalogItemId, sku, name, unitWord: unitWord(r.vendorUom) },
       input.by,
     );
     if (made.created) {
