@@ -4,6 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { allRoutes } from "../api/all-routes";
 import { clientFileRoutes, startRoutes } from "../api/client-files";
 import { checkRouteContract, forbiddenPortalFields, routeFamily } from "../api/contract";
 import {
@@ -13,7 +14,6 @@ import {
   welcomeRoutes,
 } from "../api/intake";
 import { InviteDraft, inviteRoutes, SignUpNowDraft } from "../api/invite";
-import { allRoutes } from "../api/all-routes";
 import { routes } from "../api/routes";
 import {
   Covers,
