@@ -1,7 +1,7 @@
 // The Dev queue's words for the screens (docs/plan.md §1.125), apart from the schemas so they
 // load with the back office, not in the app's first load (scripts/web-size.mjs).
 
-import type { StepCodeRequest } from "../api/code-requests";
+import type { StepCodeRequest } from "../api/step-code-request";
 import type {
   CloseReason,
   CodeRequestDecision,

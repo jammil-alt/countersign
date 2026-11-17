@@ -16,6 +16,7 @@ import {
   type CodeRequestDetail,
   type CodeRequestMove,
   type CodeRequestSummary,
+  codeRequestRoutes,
   DECISION_WORDS,
   type ReuseCandidate,
   type ReuseVerdict,
@@ -23,7 +24,6 @@ import {
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ApiError } from "../../api/client";
-import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { Field, Select, TextArea, TextInput } from "../../ui/forms";
 import { Loaded } from "../../ui/page";
@@ -97,7 +97,7 @@ function RequestList({ onOpen }: { onOpen(ref: string): void }) {
   const [kind, setKind] = useState<string>("");
   const [buildId, setBuildId] = useState<string>("");
   const [environment, setEnvironment] = useState<string>("");
-  const list = useApi(apiRoutes.opsCodeRequests, {
+  const list = useApi(codeRequestRoutes.opsCodeRequests, {
     query: {
       status,
       ...(kind ? { kind: kind as CodeRequestSummary["kind"] } : {}),
@@ -295,7 +295,7 @@ function MoveButton({
 }
 
 function RequestPage({ id, onBack }: { id: string; onBack(): void }) {
-  const state = useApi(apiRoutes.opsCodeRequest, { params: { id } });
+  const state = useApi(codeRequestRoutes.opsCodeRequest, { params: { id } });
   return (
     <div className="flex flex-col gap-4" data-testid="dev-queue-request">
       <div>
@@ -418,7 +418,7 @@ function RequestBody({ request: r, onChanged }: { request: CodeRequestDetail; on
               primary
               busy={busy}
               onClick={() =>
-                void run(() => client.call(apiRoutes.opsAcceptCodeRequest, { params }))
+                void run(() => client.call(codeRequestRoutes.opsAcceptCodeRequest, { params }))
               }
             />
             {r.decision === "one_off" ? (
@@ -427,7 +427,9 @@ function RequestBody({ request: r, onChanged }: { request: CodeRequestDetail; on
                 move="approve_one_off"
                 label="Approve as a one-off"
                 busy={busy}
-                onClick={() => void run(() => client.call(apiRoutes.opsApproveOneOff, { params }))}
+                onClick={() =>
+                  void run(() => client.call(codeRequestRoutes.opsApproveOneOff, { params }))
+                }
               />
             ) : null}
             <MoveButton
@@ -435,7 +437,9 @@ function RequestBody({ request: r, onChanged }: { request: CodeRequestDetail; on
               move="claim"
               label="Claim"
               busy={busy}
-              onClick={() => void run(() => client.call(apiRoutes.opsClaimCodeRequest, { params }))}
+              onClick={() =>
+                void run(() => client.call(codeRequestRoutes.opsClaimCodeRequest, { params }))
+              }
             />
             <MoveButton
               request={r}
@@ -488,7 +492,7 @@ function RequestBody({ request: r, onChanged }: { request: CodeRequestDetail; on
                 data-testid="dev-queue-close-confirm"
                 onClick={() =>
                   void run(async () => {
-                    await client.call(apiRoutes.opsCloseCodeRequest, {
+                    await client.call(codeRequestRoutes.opsCloseCodeRequest, {
                       params,
                       body: {
                         reason: closeReason as (typeof CODE_REQUEST_CLOSE_REASONS)[number],
@@ -533,7 +537,7 @@ function RequestBody({ request: r, onChanged }: { request: CodeRequestDetail; on
                 busy={busy || !pr.url.trim() || !pr.part.trim()}
                 onClick={() =>
                   void run(() =>
-                    client.call(apiRoutes.opsCodeRequestPr, {
+                    client.call(codeRequestRoutes.opsCodeRequestPr, {
                       params,
                       body: { prUrl: pr.url.trim(), expectedPartId: pr.part.trim() },
                     }),
@@ -621,7 +625,7 @@ function RequestBody({ request: r, onChanged }: { request: CodeRequestDetail; on
             data-testid="dev-queue-note-add"
             onClick={() =>
               void run(async () => {
-                await client.call(apiRoutes.opsCodeRequestNote, {
+                await client.call(codeRequestRoutes.opsCodeRequestNote, {
                   params,
                   body: { body: note.trim() },
                 });
@@ -736,7 +740,9 @@ function ReuseCheckCard({
             label="Run again"
             busy={busy}
             onClick={() =>
-              void run(() => client.call(apiRoutes.opsCodeRequestReuse, { params: { id: r.id } }))
+              void run(() =>
+                client.call(codeRequestRoutes.opsCodeRequestReuse, { params: { id: r.id } }),
+              )
             }
           />
         </span>
@@ -829,7 +835,7 @@ function ReuseCheckCard({
                 data-testid="dev-queue-verdicts-save"
                 onClick={() =>
                   void run(async () => {
-                    await client.call(apiRoutes.opsUpdateCodeRequest, {
+                    await client.call(codeRequestRoutes.opsUpdateCodeRequest, {
                       params: { id: r.id },
                       body: {
                         verdicts: Object.entries(edits)
@@ -907,7 +913,7 @@ function DecisionCard({
                 data-testid="dev-queue-decision-save"
                 onClick={() =>
                   void run(() =>
-                    client.call(apiRoutes.opsUpdateCodeRequest, {
+                    client.call(codeRequestRoutes.opsUpdateCodeRequest, {
                       params: { id: r.id },
                       body: {
                         decision: (decision || null) as CodeRequestDetail["decision"],

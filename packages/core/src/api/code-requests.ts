@@ -19,6 +19,7 @@ import {
 } from "../build/code-requests";
 import { isUuid } from "../ids";
 import { defineRoute } from "./contract";
+import { StepCodeRequest } from "./step-code-request";
 
 const Id = z.string().refine((v) => isUuid(v), "not an id");
 const OPS = ["operator"] as const;
@@ -148,22 +149,6 @@ export const UpdateCodeRequest = z.strictObject({
   verdicts: z.array(CandidateVerdict).max(20).optional(),
   owner: z.string().trim().min(1).max(200).nullable().optional(),
 });
-
-/** A step that requires code (docs/plan.md §1.125), and its request as the Dev queue has it now. */
-export const StepCodeRequest = z.object({
-  buildId: z.string(),
-  workflowId: z.string().nullable(),
-  stepId: z.string().nullable(),
-  request: z.object({
-    id: z.string(),
-    ref: z.string(),
-    title: z.string(),
-    status: CodeRequestStatus,
-    inReview: z.boolean(),
-    shippedStagingAt: z.string().nullable(),
-  }),
-});
-export type StepCodeRequest = z.infer<typeof StepCodeRequest>;
 
 const ListQuery = z.object({
   /** A status, `open` (not shipped or closed, the default) or `all`. */

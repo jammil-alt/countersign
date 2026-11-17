@@ -12,6 +12,7 @@ export * from "./account/words";
 export * from "./api/a2p";
 export * from "./api/access";
 export * from "./api/account";
+export * from "./api/all-routes";
 export * from "./api/approver-rules";
 export * from "./api/assigned";
 // v0.12 W2-B: automations
@@ -103,6 +104,7 @@ export * from "./api/second-factor";
 export * from "./api/skill-model";
 // v0.14 W4-C: the Slack channel picker
 export * from "./api/slack";
+export * from "./api/step-code-request";
 export * from "./api/step-data";
 // P-6
 export * from "./api/step-in";

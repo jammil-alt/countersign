@@ -4,6 +4,7 @@
 // link) and Reopen. Drafted in the prototype's back-office style (no prototype screen;
 // docs/ui-plan.md): each item a card with who and where in its head, the actions in its foot.
 import type { FeedbackItem, FeedbackSource } from "@countersign/core";
+import { codeRequestRoutes } from "@countersign/core";
 import { type ReactNode, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
@@ -53,7 +54,9 @@ export function OpsFeedbackScreen() {
   };
   // Each tab's open count, whichever tab shows.
   const openFeedback = useApi(apiRoutes.opsFeedback, { query: { status: "open" } });
-  const openRequests = useApi(apiRoutes.opsCodeRequests, { query: { status: "open", limit: 1 } });
+  const openRequests = useApi(codeRequestRoutes.opsCodeRequests, {
+    query: { status: "open", limit: 1 },
+  });
   const tabs = (
     <div className="mb-4 max-w-full overflow-x-auto">
       <div className="ds-seg" data-testid="ops-feedback-tabs">

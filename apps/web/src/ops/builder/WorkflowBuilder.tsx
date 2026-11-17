@@ -17,6 +17,7 @@ import {
   agentSkillEntry,
   type BuilderCatalog,
   canonicalJson,
+  codeRequestRoutes,
   effectiveModel,
   lookupSkill,
   type ProcessAgentBundle,
@@ -408,7 +409,7 @@ function BuilderBody(
   const { agent, from, data, base } = props;
   const navigate = useNavigate();
   // docs/plan.md §1.125: steps that require code, with their request's status in the Dev queue.
-  const codeRequests = useApi(apiRoutes.opsAgentCodeRequests, { params: { id: agent.id } });
+  const codeRequests = useApi(codeRequestRoutes.opsAgentCodeRequests, { params: { id: agent.id } });
   const ctx = useMemo(() => typingContext(data), [data]);
   // The version as the builder edits it: v3 workflows read as processes, every id kept. It is the
   // starting point, not an edit: nothing is unsaved until the operator changes something.

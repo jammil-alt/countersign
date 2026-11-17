@@ -17,15 +17,9 @@ export const CODE_REQUEST_KINDS = [
 export const CodeRequestKind = z.enum(CODE_REQUEST_KINDS);
 export type CodeRequestKind = z.infer<typeof CodeRequestKind>;
 
-export const CODE_REQUEST_STATUSES = [
-  "triage",
-  "accepted",
-  "in_progress",
-  "shipped",
-  "closed",
-] as const;
-export const CodeRequestStatus = z.enum(CODE_REQUEST_STATUSES);
-export type CodeRequestStatus = z.infer<typeof CodeRequestStatus>;
+import { CODE_REQUEST_STATUSES, CodeRequestStatus } from "./code-request-status";
+
+export { CODE_REQUEST_STATUSES, CodeRequestStatus };
 
 /** Not shipped and not closed. */
 export function requestOpen(status: CodeRequestStatus): boolean {
