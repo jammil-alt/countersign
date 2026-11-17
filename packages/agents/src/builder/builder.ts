@@ -111,6 +111,19 @@ export function catalogBlock(ctx: BuilderContext): string {
   return `<catalog>\n${JSON.stringify(catalogForPrompt(ctx))}\n</catalog>`;
 }
 
+/**
+ * The longest answer the Builder may write. A drafted agent is one tool call holding the whole
+ * bundle, and the model's thinking counts against the same limit: a 17-step workflow ran past
+ * 16,000 tokens and was cut off (QA on staging, 2026-11-17). The transport streams, so a high
+ * limit costs no HTTP timeout; the models allow 128K.
+ */
+// DECISION (QA on staging, 2026-11-17): 64,000, half the models' ceiling, with a smaller-draft
+// retry (`shorter`) for anything still cut off.
+export const BUILDER_ANSWER_TOKENS = 64_000;
+
+/** Asked once of a draft that was cut off: the main path now, the rest added step by step. */
+export const DRAFT_SHORTER = `Your last answer was too long to finish and was cut off. Answer again with a smaller first draft: the main path only, at most 10 steps, short instructions, no optional branches. Name each step you left out in "gaps", one plain sentence each, so it can be added to the draft one at a time.`;
+
 export interface BuilderOptions {
   llm: LlmClient;
   /** Default `DEFAULT_MODELS.builder`. */
@@ -186,6 +199,8 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
     presentText?: (text: string) => string;
     /** Errors the draft had before this answer (keys from `errorKey`): not the model's to repair. */
     known?: ReadonlySet<string>;
+    /** Asked once when an answer is cut off at the token limit: how to answer smaller. */
+    shorter?: string;
   },
   options: BuilderOptions,
 ): Promise<{
@@ -199,6 +214,7 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
   const calls: LlmCallRecord[] = [];
   const messages: CallToolInput<unknown>["messages"] = [{ role: "user", content: input.first }];
   let repairs = options.repairs ?? 1;
+  let shortened = false;
   for (;;) {
     let answer: T;
     try {
@@ -207,7 +223,7 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
         system: input.system ?? RULES,
         messages,
         tool: { name: input.toolName, description: input.toolDescription, schema: input.schema },
-        maxTokens: 16_000,
+        maxTokens: BUILDER_ANSWER_TOKENS,
         label: input.label,
         ...(options.signal ? { signal: options.signal } : {}),
       });
@@ -225,6 +241,19 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
               content: `That answer did not match the schema:\n${error.message}\n\nAnswer again with the whole corrected answer.`,
             },
           );
+          continue;
+        }
+        // Cut off: once, ask for a smaller answer (the main path, the rest named in gaps), so a
+        // big job still gets a draft to add to step by step instead of nothing.
+        if (error.code === "max_tokens" && input.shorter && !shortened) {
+          shortened = true;
+          const last = messages[messages.length - 1];
+          if (last && typeof last.content === "string") {
+            messages[messages.length - 1] = {
+              ...last,
+              content: `${last.content}\n\n${input.shorter}`,
+            };
+          }
           continue;
         }
         throw new BuilderError(
@@ -297,6 +326,7 @@ ${input.description}
     {
       schema: DraftAnswer,
       toolName: "submit_draft",
+      shorter: DRAFT_SHORTER,
       toolDescription: "Submit the drafted agent bundle with its summary and gaps.",
       label: "builder.draft-agent",
       ctx,

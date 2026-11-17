@@ -50,7 +50,7 @@ import {
   useState,
 } from "react";
 import { Link } from "react-router-dom";
-import type { CallOptions } from "../../api/client";
+import { type CallOptions, isApiError } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { voiceFor } from "../../api/voice";
@@ -75,6 +75,19 @@ import {
 
 type Act = <R extends RouteSpec>(route: R, opts: CallOptions<R>) => Promise<boolean>;
 
+/**
+ * Whether trying an action again can help: the Builder's own failures (its model, its answer) and
+ * the server's or the network's. Not a refusal (a 400, a 409): the same call gets the same answer.
+ */
+function retryable(error: unknown): boolean {
+  if (!isApiError(error)) return false;
+  return (
+    error.status === 0 ||
+    error.status >= 500 ||
+    ["builder_failed", "builder_unavailable", "edit_failed"].includes(error.code)
+  );
+}
+
 export function BuildView({ id, embedded = false }: { id: string; embedded?: boolean }) {
   const api = useApiClient();
   const loaded = useApi(apiRoutes.opsBuild, { params: { id } });
@@ -83,6 +96,8 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
   const [busy, setBusy] = useState<string | null>(null);
   const [pending, setPending] = useState<{ text: string; since: number } | null>(null);
   const [error, setError] = useState<unknown>(null);
+  // QA (2026-11-17): the action that failed, so the notice can offer to try it again.
+  const lastAct = useRef<(() => Promise<boolean>) | null>(null);
   const split = useSplit();
   // The conversation's box, so an open question's "Answer" can start the reply there.
   const [draftText, setDraftText] = useState("");
@@ -125,6 +140,7 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
 
   /** One change: the answer is the build as it is now. */
   const act: Act = async (route, opts) => {
+    lastAct.current = () => act(route, opts);
     setBusy(route.path);
     setError(null);
     try {
@@ -257,7 +273,23 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
           Not yet: {PHASE_WORDS[shown].closes.replace("Closes", "This phase closes")}
         </p>
       ) : null}
-      {error ? <ErrorNotice error={error} /> : null}
+      {error ? (
+        <div className="flex flex-col gap-2" data-testid="build-error">
+          <ErrorNotice error={error} />
+          {retryable(error) && lastAct.current ? (
+            <div>
+              <Button
+                size="sm"
+                disabled={!!busy}
+                onClick={() => void lastAct.current?.()}
+                data-testid="build-error-retry"
+              >
+                Try again
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Feedback (2026-11-16): the conversation stays within the screen and scrolls on its own;
           on a wide screen the line between the two columns drags to make either wider. */}
@@ -277,7 +309,11 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
             </span>
             <span className="text-sm text-ink-muted">{PHASE_WORDS[b.phase].label}</span>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4" data-testid="build-chat-scroll">
+          <div
+            className="min-h-0 flex-1 overflow-y-auto px-5 py-4"
+            data-testid="build-chat-scroll"
+            data-chat-scroll
+          >
             <ChatLog
               follow={`${detail.messages.length}:${pending?.text ?? ""}`}
               testId="build-messages"
@@ -568,7 +604,8 @@ function BuildHeader({ detail }: { detail: BuildDetail }) {
               : "For every client",
           b.testClient ? `Tested at ${b.testClient.name}` : null,
           b.createdBy ? `Started by ${b.createdBy}` : null,
-          plural(b.openItems, "open item"),
+          // QA (2026-11-17): one name and one count, the Issues panel's.
+          plural(buildIssues(detail).filter((i) => i.open).length, "open issue"),
         ]
           .filter(Boolean)
           .join(" · ")}
@@ -780,11 +817,18 @@ function IntakePanel({ detail, current, busy, act }: PanelProps) {
             <Next
               label="Confirm the brief"
               detail={detail}
-              busy={isBusy(busy) || dirty}
+              busy={isBusy(busy)}
               testId="build-confirm-brief"
-              onClick={() =>
-                void act(apiRoutes.opsMoveBuild, { params: { id }, body: { to: "fitgap" } })
-              }
+              // QA (2026-11-17): with a change not saved the button did nothing, and nothing said
+              // why. Confirming saves the brief as it reads on screen first.
+              onClick={async () => {
+                if (
+                  dirty &&
+                  !(await act(apiRoutes.opsUpdateBuild, { params: { id }, body: { brief } }))
+                )
+                  return;
+                void act(apiRoutes.opsMoveBuild, { params: { id }, body: { to: "fitgap" } });
+              }}
             />
           </div>
         ) : null
@@ -981,7 +1025,7 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
           meta={
             template
               ? "A template has no client yet: ask the Builder to make these the client intake form"
-              : "Each becomes an open item until it is"
+              : "Each becomes an issue until it is"
           }
         >
           <ul className="flex flex-col">
@@ -1035,11 +1079,17 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
           <Next
             label="Agree the direction and draft it"
             detail={detail}
-            busy={isBusy(busy) || dirty}
+            busy={isBusy(busy)}
             testId="build-agree"
-            onClick={() =>
-              void act(apiRoutes.opsMoveBuild, { params: { id }, body: { to: "draft" } })
-            }
+            // Agreeing saves the fit-gap as it reads on screen first (as Confirm the brief does).
+            onClick={async () => {
+              if (
+                dirty &&
+                !(await act(apiRoutes.opsUpdateBuild, { params: { id }, body: { fitgap } }))
+              )
+                return;
+              void act(apiRoutes.opsMoveBuild, { params: { id }, body: { to: "draft" } });
+            }}
           />
         </div>
       ) : null}
@@ -1291,7 +1341,7 @@ function FitRowView({
             </button>
           ) : owner ? (
             <p className="mt-1 text-xs" data-testid={`build-fit-${r.id}-item`}>
-              Becomes an open item for {OWNER_WORDS[owner]} when you agree the direction.
+              Becomes an issue for {OWNER_WORDS[owner]} when you agree the direction.
             </p>
           ) : null}
         </td>
@@ -1332,9 +1382,11 @@ function VerdictChange({
   onSend: (to: FitVerdict, reason: string) => Promise<void>;
 }) {
   const options = FIT_VERDICTS.filter((v) => v !== row.verdict);
-  const [to, setTo] = useState<FitVerdict>(options[0] ?? "figure_out");
+  // QA (2026-11-17): it started on the first option (Native), so accepting the default proposed
+  // the biggest change; nothing is chosen until the operator picks.
+  const [to, setTo] = useState<FitVerdict | "">("");
   const [reason, setReason] = useState("");
-  const as = fitChangeKind(row.verdict, to);
+  const as = to ? fitChangeKind(row.verdict, to) : null;
   const short = reason.trim().length < FIT_REASON_MIN;
   return (
     <div className="flex flex-col gap-2.5" data-testid={`build-fit-${row.id}-form`}>
@@ -1344,9 +1396,12 @@ function VerdictChange({
           aria-label={`New verdict: ${row.need}`}
           className="w-40"
           value={to}
-          onChange={(e) => setTo(e.target.value as FitVerdict)}
+          onChange={(e) => setTo(e.target.value as FitVerdict | "")}
           data-testid={`build-fit-${row.id}-to`}
         >
+          <option value="" disabled>
+            Pick one
+          </option>
           {options.map((v) => (
             <option key={v} value={v}>
               {FIT_WORDS[v]}
@@ -1354,11 +1409,13 @@ function VerdictChange({
           ))}
         </Select>
       </div>
-      <p className="text-xs text-ink-muted">
-        {as === "challenge"
-          ? "That's less work, so the Builder checks it against the catalog and answers in the conversation. Say why you think we have it: the part that does it, or what the client really does at this step. If the row doesn't describe the step right, say how it should read."
-          : "That's more work, so it changes now and stays when the Builder writes the fit-gap again. Say why the Builder's verdict is wrong: what's missing, or what makes this case harder."}
-      </p>
+      {as === null ? null : (
+        <p className="text-xs text-ink-muted">
+          {as === "challenge"
+            ? "That's less work, so the Builder checks it against the catalog and answers in the conversation. Say why you think we have it: the part that does it, or what the client really does at this step. If the row doesn't describe the step right, say how it should read."
+            : "That's more work, so it changes now and stays when the Builder writes the fit-gap again. Say why the Builder's verdict is wrong: what's missing, or what makes this case harder."}
+        </p>
+      )}
       <TextArea
         aria-label={`Why: ${row.need}`}
         rows={3}
@@ -1374,8 +1431,10 @@ function VerdictChange({
       <div className="flex items-center gap-3">
         <Button
           size="sm"
-          disabled={busy || short}
-          onClick={() => void onSend(to, reason.trim())}
+          disabled={busy || short || !to}
+          onClick={() => {
+            if (to) void onSend(to, reason.trim());
+          }}
           data-testid={`build-fit-${row.id}-send`}
         >
           {as === "challenge" ? "Ask the Builder" : "Change it"}
@@ -1733,7 +1792,7 @@ function PocPanel({ detail, current, busy, act }: PanelProps) {
                           })
                         }
                       >
-                        Make it an open item
+                        Make it an issue
                       </Button>
                     )}
                   </li>
@@ -1895,7 +1954,7 @@ function ClientTestPanel({ detail, current, busy, act }: PanelProps) {
                         })
                       }
                     >
-                      Make it an open item
+                      Make it an issue
                     </Button>
                   )}
                 </li>
@@ -2206,7 +2265,7 @@ function ItemsPanel({
             }}
           >
             <TextInput
-              aria-label="New open item"
+              aria-label="New issue"
               placeholder="Something left to do"
               className="w-auto min-w-0 flex-1"
               value={title}
