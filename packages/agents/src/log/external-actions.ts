@@ -111,11 +111,13 @@ async function current(tx: Tx, tenantId: string, id: string): Promise<ExternalAc
  * Audit 3.2: how long a claimed execution belongs to its caller. After that its caller is taken to
  * have stopped (a crash) and another may take it over, with the same idempotency key.
  */
-// DECISION: 15 minutes, a skill or action step's own timeout (apps/api's STEP_CONFIG): no live
-// caller holds a write longer, and a step retried sooner finds the change still under way (busy)
-// rather than run it a second time. The claim time is `executed_at`, set at claim and again when
-// done: no new column, and a failed write then shows when it was tried.
-export const EXECUTING_LEASE_MINUTES = 15;
+// DECISION (review 2, item 4): 25 minutes, ten more than a skill or action step's own timeout
+// (apps/api's STEP_CONFIG, 15 minutes). The claim is made partway into the step, so a step timed
+// out mid-write may still have its request in flight when the platform retries it: the margin
+// keeps that retry from taking the write over until the timed-out invocation is surely done.
+// The claim time is `executed_at`, set at claim and again when done: no new column, and a failed
+// write then shows when it was tried. The sweep waits this long and a grace more.
+export const EXECUTING_LEASE_MINUTES = 25;
 
 export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): ExternalActionStore {
   const finishedEvent = async (tx: Tx, row: Row, type: string) => {

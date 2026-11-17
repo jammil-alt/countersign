@@ -16,6 +16,7 @@ import {
   nextIdempotencyKey,
   type RuntimeDeps,
   type StepContext,
+  signAllWrites,
 } from "./context";
 
 /** Said of a carried write that failed after it may have reached the provider. */
@@ -24,6 +25,11 @@ export const MAY_HAVE_HAPPENED = " (the change may have happened: check before t
 /** Whether a failed action's error says nothing was written (`notWritten`, `executeAction`). */
 function notWritten(error: unknown): boolean {
   return isPlainObject(error) && error.notWritten === true;
+}
+
+/** The run in a run's write key (`<run>:<step>:<index>`). */
+function runOfKey(key: string): string | null {
+  return key.split(":")[0] || null;
 }
 
 /** A carried write's outcome, or null to propose it as any other. Live retries only. */
@@ -44,8 +50,31 @@ export async function carryApproval(
   const now = deps.now?.() ?? new Date();
   // Follow-up 3: this call's own position in the step (`<run>:<step>:<index>`, before it is taken).
   const position = nextIdempotencyKey(step).slice(`${step.runId}:`.length);
+  const same = new Set<string>();
   for (const c of candidates) {
-    if (c.tool !== toolId || (await hashJson(c.input)) !== hash) continue;
+    if (c.tool === toolId && (await hashJson(c.input)) === hash) same.add(c.id);
+  }
+  // Review 2, item 3: a write the run retried may have made (`unconfirmed`: a connector couldn't
+  // tell, or the stale-write sweep turned it over) is never proposed again as new: whatever the
+  // gate says, a person signs it, told to check the earlier one first.
+  // DECISION: matched by its input, or by its place in the step when the input differs.
+  const maybeMade = candidates.find(
+    (c) =>
+      c.tool === toolId &&
+      c.status === "failed" &&
+      isPlainObject(c.error) &&
+      c.error.unconfirmed === true &&
+      (same.has(c.id) || c.idempotencyKey.endsWith(`:${position}`)),
+  );
+  if (maybeMade) {
+    signAllWrites(step, {
+      code: "retry_unconfirmed",
+      actionId: maybeMade.id,
+      runId: runOfKey(maybeMade.idempotencyKey),
+    });
+  }
+  for (const c of candidates) {
+    if (!same.has(c.id)) continue;
     const carry = carryDecision(c, now);
     if (carry === "propose") continue;
     // DECISION: a write the system approved (the automatic path, no signer) is carried only while
@@ -100,7 +129,11 @@ export async function carryApproval(
   );
   if (made) {
     idempotencyKey(step);
-    step.signAllWrites = true;
+    signAllWrites(step, {
+      code: "retry_reworded",
+      actionId: made.id,
+      runId: runOfKey(made.idempotencyKey),
+    });
     return {
       status: "recorded",
       actionId: made.id,

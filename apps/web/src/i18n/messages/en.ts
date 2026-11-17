@@ -415,6 +415,7 @@ export const en = {
   "desk.worksheet.title": "Worksheet",
   "desk.worksheet.how": "How {agent} got here",
   "desk.worksheet.yourSign": "Your approval",
+  "desk.worksheet.earlierChange": "Open the earlier change",
   "desk.team.title": "Who approves what",
   "desk.team.undo": "Undo window",
   "desk.team.undoOff": "Off",

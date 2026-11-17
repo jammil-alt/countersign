@@ -47,6 +47,7 @@ import {
   nextIdempotencyKey,
   type RuntimeDeps,
   type StepContext,
+  signAllWrites,
 } from "./context";
 import { recordModelCall } from "./model-call";
 import type { ExternalActionRecord, ToolCallStatus } from "./ports";
@@ -153,8 +154,10 @@ const LOG_STATUS: Record<ToolOutcome["status"], ToolCallStatus> = {
   awaiting_release: "awaiting_approval",
   refused: "refused",
   failed: "failed",
-  // The step waits for an earlier try's claim to run out: logged as waiting, as a release is.
-  busy: "awaiting_approval",
+  // Review 2, item 7: the step waits for an earlier try's claim to run out. No approval is asked
+  // for, so it is logged as still running (its output says what it waits for), never as an
+  // approval wait. DECISION: no new tool_call status (that would need a migration).
+  busy: "running",
   // Follow-up 3: nothing was done for this call; the step's change stands as it is.
   recorded: "refused",
 };
@@ -162,6 +165,12 @@ const LOG_STATUS: Record<ToolOutcome["status"], ToolCallStatus> = {
 export interface CallToolInput {
   toolId: string;
   input: unknown;
+  /**
+   * Review 2, item 5: the input is the step's own (an action step, a tool-mode skill's handler),
+   * never a model's. A change found under the call's key with another input is then reported
+   * (`recorded`) and never settled on: the caller fails the step.
+   */
+  ownInput?: boolean;
   /** The tools this call may use (the skill's tools plus extraTools); absent = any registered. */
   allowed?: ReadonlySet<string>;
   /**
@@ -260,7 +269,7 @@ export async function callTool(
       });
       outcome = refusal
         ? { status: "refused", reason: refusal }
-        : await dispatch(deps, step, resolved, input, call.scope?.sessions);
+        : await dispatch(deps, step, resolved, input, call.scope?.sessions, call.ownInput);
     }
   } catch (error) {
     // DECISION (v0.16): a connector's own refusal (a site's pages, its sign-in caps) is a refusal,
@@ -287,7 +296,7 @@ export async function callTool(
             : outcome.status === "awaiting_release"
               ? { status: outcome.status, releaseId: outcome.releaseId }
               : outcome.status === "busy"
-                ? { status: outcome.status, leaseEndsAt: outcome.leaseEndsAt }
+                ? { status: "waiting_for_claim", leaseEndsAt: outcome.leaseEndsAt }
                 : outcome.status === "recorded"
                   ? { alreadyRecorded: outcome.change }
                   : outcome.status === "awaiting_approval" && outcome.recorded
@@ -307,10 +316,11 @@ async function dispatch(
   tool: RegisteredTool,
   input: unknown,
   sessions: RunSessions | undefined,
+  ownInput?: boolean,
 ): Promise<ToolOutcome> {
   // A retry finds its first try's action before any check, the fixed-input check included.
   if (tool.kind === "connector" && tool.spec.sideEffect === "external") {
-    const resumed = await resumeProposed(deps, step, tool, input);
+    const resumed = await resumeProposed(deps, step, tool, input, ownInput === true);
     if (resumed) return resumed;
   }
   // Inputs that become instructions are the step's own fixed text, before any approval card or
@@ -563,11 +573,6 @@ async function dispatch(
             // What chose the approver: a rule (with the rules' revision), the step, the agent,
             // the client's default, or the default (the client admin).
             approverRoute: { source: approver.source, ruleId: approver.ruleId, revision },
-            // Follow-up 3: signed because this try's model asked for a change the step already
-            // had with another input.
-            ...(step.signAllWrites === true && decision === "run"
-              ? { signedAfterRetry: true }
-              : {}),
             // v0.12 W1-D: why it waits, over the gate's own inputs (core explainWrite); the
             // gate's decision above is unchanged.
             whyApproval: explainWrite({
@@ -586,6 +591,9 @@ async function dispatch(
               entity,
               // §1.73
               alwaysSigned: isAlwaysSigned(tool.spec),
+              // Review 2, item 2: a retry's write signed because of an earlier change, which
+              // the card names so the person checks it first.
+              retry: step.signedBecause ?? null,
             }) as JsonObject,
           },
           // v0.12 W1-D: the items one step proposes are signed together.
@@ -669,6 +677,7 @@ async function resumeProposed(
   step: StepContext,
   tool: RegisteredTool,
   input: unknown,
+  ownInput: boolean,
 ): Promise<ToolOutcome | null> {
   const existing = await deps.ports.actions.byKey(step.tenantId, nextIdempotencyKey(step));
   if (!existing) return null;
@@ -681,7 +690,12 @@ async function resumeProposed(
     };
   }
   if (await sameWrite(tool, input, existing.input)) return settle(deps, step, tool, existing);
-  step.signAllWrites = true;
+  // Review 2, item 5: an input that is the step's own never settles on another one's card or
+  // write: the caller fails the step, naming it.
+  if (ownInput) {
+    return { status: "recorded", actionId: existing.id, change: recordedChange(existing) };
+  }
+  signAllWrites(step, { code: "retry_reworded", actionId: existing.id, runId: existing.runId });
   return recordedOutcome(deps, step, tool, existing);
 }
 
@@ -695,7 +709,14 @@ async function recordedOutcome(
   tool: RegisteredTool,
   existing: ExternalActionRecord,
 ): Promise<ToolOutcome> {
-  if (existing.status === "proposed" || existing.status === "approved") {
+  // Review 2, item 1: a change claimed by an earlier try that may have stopped mid-write is taken
+  // over as recorded (its own input, under its key) once the claim runs out, as for a matching
+  // call: the step waits (`busy`) meanwhile, so it never ends with the change left claimed.
+  if (
+    existing.status === "proposed" ||
+    existing.status === "approved" ||
+    existing.status === "executing"
+  ) {
     const settled = await settle(deps, step, tool, existing);
     if (settled.status === "awaiting_approval") {
       return { ...settled, recorded: recordedChange(existing) };

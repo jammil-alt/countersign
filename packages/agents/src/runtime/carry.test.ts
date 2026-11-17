@@ -208,4 +208,26 @@ describe("carried approvals and the gate", () => {
     expect(r).toBeNull();
     expect(reopened).toEqual([]);
   });
+
+  it("never proposes a write that may have been made as new: a person signs it, told to check first", async () => {
+    for (const input of [
+      { id: "r1", amount: "12.00" },
+      // At the same place with another input, too.
+      { id: "r1", amount: "12.50" },
+    ]) {
+      const { deps, step, reopened } = setup({
+        error: { message: "may have been made", unconfirmed: true },
+      });
+      const r = await carryApproval(deps, step, "testkit.record.update", input, "run");
+      // Proposed again (null), but signed: never automatic under a new key.
+      expect(r).toBeNull();
+      expect(reopened).toEqual([]);
+      expect(step.signAllWrites).toBe(true);
+      expect(step.signedBecause).toEqual({
+        code: "retry_unconfirmed",
+        actionId: "action-1",
+        runId: RETRY_OF,
+      });
+    }
+  });
 });

@@ -442,6 +442,7 @@ export const fr: Messages = {
   "desk.worksheet.title": "Feuille de travail",
   "desk.worksheet.how": "Comment {agent} en est arrivé là",
   "desk.worksheet.yourSign": "Votre approbation",
+  "desk.worksheet.earlierChange": "Ouvrir le changement précédent",
   "desk.team.title": "Qui approuve quoi",
   "desk.team.undo": "Délai d'annulation",
   "desk.team.undoOff": "Désactivé",

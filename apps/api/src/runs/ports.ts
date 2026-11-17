@@ -401,7 +401,8 @@ export function agentPort(
         // The step as written in the version: fixed inputs are checked against it, not `input`.
         literalInput: step.input,
       };
-      const o = await callTool(deps, ctx, { toolId: step.tool, input });
+      // Review 2, item 5: the step's own input: another one under its key fails the step.
+      const o = await callTool(deps, ctx, { toolId: step.tool, input, ownInput: true });
       switch (o.status) {
         case "done":
           return { kind: "done", output: o.output };

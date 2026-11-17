@@ -427,6 +427,7 @@ export const es: Messages = {
   "desk.worksheet.title": "Hoja de trabajo",
   "desk.worksheet.how": "Cómo llegó {agent} hasta aquí",
   "desk.worksheet.yourSign": "Su aprobación",
+  "desk.worksheet.earlierChange": "Abrir el cambio anterior",
   "desk.team.title": "Quién aprueba qué",
   "desk.team.undo": "Margen para deshacer",
   "desk.team.undoOff": "Desactivado",

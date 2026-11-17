@@ -659,6 +659,8 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
       toolId: def.handler,
       input: checkedInput.value,
       allowed,
+      // Review 2, item 5: the step's own input: another one under its key fails the step below.
+      ownInput: true,
     });
     track(o);
     if (o.status === "awaiting_release") return awaitRelease(o);

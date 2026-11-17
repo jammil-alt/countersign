@@ -28,7 +28,7 @@ import {
   toolCall,
 } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import type { AgentsError } from "../errors";
@@ -840,6 +840,75 @@ describe.skipIf(!harness)("runtime", () => {
     expect(await reviews(open.id)).toHaveLength(0);
   });
 
+  it("a reworded retry takes over a change left claimed, as recorded, once the claim runs out", async () => {
+    await h.setPermissions(h.A, { update: "auto" });
+    const deps = h.deps();
+    const action = await approvedChange(deps, "4.04");
+    // The first try claimed it and stopped mid-write.
+    expect((await deps.ports.actions.claim(h.A.tenantId, action.id)).claimed).toBe(true);
+    const runId = action.runId ?? "";
+    const writes = h.backend.writes.length;
+
+    // Inside the claim, a reworded call waits for it (logged as running, not as an approval).
+    const early = await step(h.A, { runId, mode: "act", approval: "not_required" });
+    expect(await callTool(deps, early, update("4.40"))).toMatchObject({
+      status: "busy",
+      actionId: action.id,
+    });
+    const [logged] = await h.client(h.A, (tx) =>
+      tx
+        .select()
+        .from(toolCall)
+        .where(eq(toolCall.stepRunId, early.stepRunId))
+        .orderBy(desc(toolCall.createdAt))
+        .limit(1),
+    );
+    expect(logged).toMatchObject({ status: "running", output: { status: "waiting_for_claim" } });
+    expect(h.backend.writes.length).toBe(writes);
+
+    // Once it ran out, the recorded change (4.04, never 4.40) is made under its key.
+    await expireLease(action.id);
+    const later = await step(h.A, { runId, mode: "act", approval: "not_required" });
+    expect(await callTool(deps, later, update("4.40"))).toMatchObject({
+      status: "recorded",
+      change: { status: "done", input: { id: "r1", amount: "4.04" } },
+    });
+    expect(h.backend.writes.length).toBe(writes + 1);
+    expect(h.backend.get(h.A.connectionId, "r1")?.amount).toBe("4.04");
+    expect(later.signAllWrites).toBe(true);
+    await h.setPermissions(h.A, {});
+  });
+
+  it("a step's own input never settles on another change under its key", async () => {
+    const deps = h.deps();
+    const s = await step(h.A);
+    const proposed = await callTool(deps, s, update("7.70"));
+    if (proposed.status !== "awaiting_approval") throw new Error(proposed.status);
+    const again = await step(h.A, { runId: s.runId });
+    const out = await callTool(deps, again, { ...update("7.77"), ownInput: true });
+    expect(out).toMatchObject({ status: "recorded", actionId: proposed.actionId });
+    expect(again.signAllWrites).toBeUndefined();
+    const rows = await h.client(h.A, (tx) =>
+      tx.select().from(externalAction).where(eq(externalAction.runId, s.runId)),
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.status).toBe("proposed");
+
+    // An approved one is not executed for it either.
+    const action = await approvedChange(deps, "7.10");
+    const writes = h.backend.writes.length;
+    const fixed = await step(h.A, {
+      runId: action.runId ?? "",
+      mode: "act",
+      approval: "not_required",
+    });
+    expect(await callTool(deps, fixed, { ...update("7.11"), ownInput: true })).toMatchObject({
+      status: "recorded",
+      actionId: action.id,
+    });
+    expect(h.backend.writes.length).toBe(writes);
+  });
+
   it("a retry whose model asks for the step's change with another input is told the change, and the step waits on its card", async () => {
     const r = await newRun(h.A);
     const at = {
@@ -911,6 +980,18 @@ describe.skipIf(!harness)("runtime", () => {
     // The model's next write would run on its own; after that call it waits for a person.
     const next = await callTool(deps, retried, update("7.00"));
     expect(next.status).toBe("awaiting_approval");
+    // The card says why, and names the change to check first.
+    const firstId = (told.status === "recorded" && told.actionId) || "";
+    const [card] = await h.client(h.A, (tx) =>
+      tx
+        .select()
+        .from(inboxItem)
+        .where(eq(inboxItem.id, (next.status === "awaiting_approval" && next.inboxItemId) || "")),
+    );
+    expect((card?.payload as { whyApproval?: unknown } | undefined)?.whyApproval).toMatchObject({
+      reasons: ["retry_reworded"],
+      related: { actionId: firstId, runId: s.runId },
+    });
     expect(h.backend.writes.length).toBe(writes);
     // A fresh try (no mismatch) runs on its own as before.
     const fresh = await step(h.A, { mode: "act", approval: "not_required" });
