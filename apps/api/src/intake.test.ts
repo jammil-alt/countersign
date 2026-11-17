@@ -212,6 +212,11 @@ describe.skipIf(!h)("Getting started", () => {
       "/api/intake",
     );
     expect(view.sections.map((s) => s.key)).toEqual(["area:purchasing"]);
+    // "Who approves" is asked on the general card, which isn't theirs: it is on their card.
+    expect(view.sections[0]?.fields.find((f) => f.key === "general.approver")?.sectionKey).toBe(
+      "general",
+    );
+    expect(view.sections[0]?.fields.some((f) => f.key === "general.what")).toBe(false);
     expect(view.progress.map((p) => p.sectionKey)).toEqual(["area:purchasing"]);
   });
 

@@ -3,6 +3,8 @@
 // it belongs to: an agent, a run, Settings, or the search box (Sloan).
 export const PORTAL_PATHS = {
   home: "/",
+  // §1.125.2: Getting started (the welcome page goes on here after sign-in).
+  start: "/start",
   inbox: "/inbox",
   runs: "/runs",
   // DECISION: the portal addresses an agent by its service id (`/agents/:id`), not a slug: every

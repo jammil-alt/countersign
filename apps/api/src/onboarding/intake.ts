@@ -21,6 +21,7 @@ import {
   OPEN_INTAKE_STATUSES,
   type OpsIntakeSummary,
   type PortalIntakeView,
+  portalField,
   portalSection,
   type SectionProgress,
   visibleSectionKeys,
@@ -387,7 +388,17 @@ export async function portalView(
       lead: row.leadUserId ? { name: d.names.get(row.leadUserId) ?? "", photoUrl: null } : null,
       createdAt: row.createdAt.toISOString(),
     },
-    sections: sections.map(portalSection),
+    // A question shared into a card whose home card this person doesn't see is asked on theirs
+    // (it keeps its home's `sectionKey`): Mark, asked only for Purchasing, answers "who approves".
+    sections: sections.map((s) => {
+      const shown = portalSection(s);
+      const shared = d.guide.sections
+        .filter((home) => !visible.includes(home.key))
+        .flatMap((home) => home.fields)
+        .filter((f) => f.alsoIn.includes(s.key) && f.state !== "known")
+        .map(portalField);
+      return { ...shown, fields: [...shown.fields, ...shared] };
+    }),
     answers: answers.filter((a) => fieldKeys.has(a.fieldKey)),
     progress: progressOf(d, answers).filter((p) => visible.includes(p.sectionKey)),
     people: d.people.map((p) => ({
