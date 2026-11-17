@@ -67,6 +67,7 @@ import { EMBEDDING_TEMPLATE, embeddingText, stripTerms } from "./embedding-text"
 import {
   adoptWord,
   cleanSku,
+  contradictsSize,
   createVendorItem,
   isOlderItem,
   lineOf,
@@ -1082,14 +1083,23 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
     // the line's own words over the master item's specs, never the master item's pack size, else
     // the vendor item's own conversion for that unit (`convertLine`).
     const lineAttributes = parseLine(line.rawDescription).attributes;
-    const conv = convertLine(line.uomRaw, item.standardUom, lineAttributes, item.attributes, vi);
+    const conv = convertLine(
+      line.uomRaw,
+      item.standardUom,
+      { text: line.rawDescription, attributes: lineAttributes },
+      item.attributes,
+      vi,
+    );
     let createdVendorItem = false;
     // The vendor item the line is filed under; none when a new one can't be made for its word
     // (the vendor's one item without a SKU in that unit is another box or case).
     let filed: VendorItemRow | null = vi;
     let filedNote: string | null = null;
     if (!vi) {
-      const pack = lineAttributes.pack_size;
+      const words = lineOf(line.uomRaw, line.rawDescription);
+      const packaged = PACKAGING_UOMS.has(vendorUom);
+      // A box, case or pail's size is the one the line states for its unit (`statedPack`).
+      const pack = packaged ? words.pack.size : lineAttributes.pack_size;
       const made = await createVendorItem(
         tx,
         tenantId,
@@ -1109,15 +1119,21 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
       createdVendorItem = made.created;
       if (made.created) result.vendorItemIds.push(made.item.id);
       const word = unitWord(line.uomRaw);
+      // The vendor's item of another size than the line states is not its (`contradictsSize`).
+      const otherSize =
+        !made.created &&
+        packaged &&
+        (recordedWord(made.item) ?? word) === word &&
+        contradictsSize(made.item, words);
       filed =
-        made.created || !PACKAGING_UOMS.has(vendorUom) || recordedWord(made.item) === word
+        made.created || !packaged || (recordedWord(made.item) === word && !otherSize)
           ? made.item
           : null;
-      if (!filed && isOlderItem(made.item)) {
+      const stated = words.pack.sizes.map((x) => `${x} a ${word ?? "unit"}`);
+      if (!filed && otherSize) {
+        filedNote = `filed under no vendor item: this line states ${stated.join(", ")}, and the vendor's item ${made.item.sku ? `with this SKU` : "without a SKU in this unit"} holds ${dec(made.item.stdPerVendorUom ?? "0").toString()}; give the line its own SKU or correct its pack size to register it`;
+      } else if (!filed && isOlderItem(made.item)) {
         // An older item (`effectiveWord`): the line didn't state its pack size.
-        const stated = lineOf(line.uomRaw, line.rawDescription)
-          .packs.filter((p) => p.word === word)
-          .map((p) => `${p.size} a ${p.word}`);
         const size = made.item.stdPerVendorUom
           ? `its pack size of ${dec(made.item.stdPerVendorUom).toString()}`
           : "its pack size (none is recorded)";

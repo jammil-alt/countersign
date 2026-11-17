@@ -293,7 +293,7 @@ export async function priceLines(
     const conv = convertLine(
       l.uomRaw,
       item.standardUom,
-      parseLine(l.rawDescription).attributes,
+      { text: l.rawDescription, attributes: parseLine(l.rawDescription).attributes },
       item.attributes as Record<string, unknown>,
       convVi,
     );

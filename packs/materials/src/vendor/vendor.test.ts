@@ -14,6 +14,7 @@ import { mergeItems } from "../catalog/merge";
 import { descriptionHash, normalize } from "../catalog/normalize";
 import { openLines } from "../catalog/split";
 import { loadPricedDocument, priceLines } from "../pricing/record";
+import { standardPrice } from "../purchasing/quotes";
 import {
   backfillFromBillsTool,
   quoteCreate,
@@ -1407,6 +1408,253 @@ describe.skipIf(!online)("the vendor catalog's tools", () => {
       lastPriceStd: "0.0950",
       lastPriceSource: "quote",
     });
+  });
+
+  it("converts a line at the size it states for its own unit, never at another pack's beside it", async () => {
+    const shop = await insertShop(t.db, "Millwork W");
+    const text = "#8 X 1-1/4 WOOD SCREW";
+    const screws = await item(shop, text);
+    const stdOf = async (observationId: string | null | undefined) =>
+      (
+        await t.db
+          .select()
+          .from(priceObservation)
+          .where(eq(priceObservation.id, observationId ?? ""))
+      )[0]?.unitPriceStd;
+    // S1: a box line naming the case beside it, on an older box of 100.
+    const v1 = await shop.vendor("Box Beside Case Supply");
+    const box = await olderItem(shop, v1, screws, { name: text, stdPerVendorUom: "100" });
+    const s1Line = `${text} 1000/CS 100/BX`;
+    const s1 = await registerOne(
+      shop,
+      v1,
+      screws,
+      { description: s1Line, qty: "2", uom: "BX", unitPrice: "9.00" },
+      "2026-11-03",
+    );
+    expect(s1.lines[0]?.vendorItemId).toBe(box.id);
+    expect(await stdOf(s1.lines[0]?.observationId)).toBe("0.0900");
+    const s1Doc = await shop.invoiceDoc(
+      v1,
+      [{ description: s1Line, qty: "2", uom: "BX", unitPrice: "9.00" }],
+      { date: "2026-11-04" },
+    );
+    await registerLines(t.db, {
+      tenantId: shop.tenantId,
+      agentVersionId: shop.agentVersionId,
+      documentId: s1Doc.documentId,
+      vendorId: v1,
+      lines: [decided(1, s1Line, { decision: "matched", catalogItemId: screws })],
+      testRun: false,
+    });
+    const priced = await withTenant(t.db, shop.tenantId, async (tx) =>
+      priceLines(tx, shop.tenantId, await loadPricedDocument(tx, shop.tenantId, s1Doc.documentId)),
+    );
+    expect(priced.lines[0]?.unitPriceStd).toBe("0.0900");
+    // S3: a case line naming the box first, on an older case of 1000.
+    const v3 = await shop.vendor("Case After Box Supply");
+    const kase = await olderItem(shop, v3, screws, { name: text, stdPerVendorUom: "1000" });
+    const s3 = await registerOne(
+      shop,
+      v3,
+      screws,
+      { description: `${text} BX/100 CS/1000`, qty: "1", uom: "CS", unitPrice: "80.00" },
+      "2026-11-03",
+    );
+    expect(s3.lines[0]?.vendorItemId).toBe(kase.id);
+    expect(await stdOf(s3.lines[0]?.observationId)).toBe("0.0800");
+    // S2: a case of ten boxes of 100 is 1000, on an older case and on a new one.
+    const s2Line = `${text} 100/BX 10 BX/CS`;
+    const v2 = await shop.vendor("Ten Boxes Supply");
+    const kase2 = await olderItem(shop, v2, screws, { name: text, stdPerVendorUom: "1000" });
+    const s2 = await registerOne(
+      shop,
+      v2,
+      screws,
+      { description: s2Line, qty: "1", uom: "CS", unitPrice: "80.00" },
+      "2026-11-03",
+    );
+    expect(s2.lines[0]?.vendorItemId).toBe(kase2.id);
+    expect(await stdOf(s2.lines[0]?.observationId)).toBe("0.0800");
+    const v4 = await shop.vendor("New Case Supply");
+    const s4 = await registerOne(
+      shop,
+      v4,
+      screws,
+      { description: s2Line, qty: "1", uom: "CS", unitPrice: "80.00" },
+      "2026-11-03",
+    );
+    expect(await vendorItemRow(s4.lines[0]?.vendorItemId ?? "")).toMatchObject({
+      stdPerVendorUom: "1000.0000",
+      ext: { unitWord: "case" },
+    });
+    expect(await stdOf(s4.lines[0]?.observationId)).toBe("0.0800");
+    // A quote's box line: per screw at the box's size, never the case's beside it.
+    const screwItem = (await t.db.select().from(catalogItem).where(eq(catalogItem.id, screws)))[0];
+    expect(
+      standardPrice(
+        screwItem ?? null,
+        { unit: "BX", unitPrice: "9.00", description: s1Line },
+        { description: text },
+        null,
+      ).unitPriceStd,
+    ).toBe("0.0900");
+  });
+
+  it("never takes a line or a price list row whose stated size isn't the item's, by word or SKU", async () => {
+    const shop = await insertShop(t.db, "Millwork X");
+    const v = await shop.vendor("Fifty Supply");
+    const text = "#8 X 1-1/4 WOOD SCREW";
+    const screws = await item(shop, text);
+    const first = await registerOne(
+      shop,
+      v,
+      screws,
+      { description: `${text} 100/BX`, qty: "1", uom: "BX", unitPrice: "9.00" },
+      "2026-11-01",
+    );
+    const boxId = first.lines[0]?.vendorItemId ?? "";
+    const second = await registerOne(
+      shop,
+      v,
+      screws,
+      { description: `${text} 50/BX`, qty: "1", uom: "BX", unitPrice: "5.00" },
+      "2026-11-05",
+    );
+    expect(second.lines[0]?.vendorItemId).toBeNull();
+    expect(second.lines[0]?.note).toMatch(/^filed under no vendor item: this line states 50 a box/);
+    expect(await vendorItemRow(boxId)).toMatchObject({
+      lastPrice: "9.0000",
+      stdPerVendorUom: "100.0000",
+    });
+    // The same with the vendor's SKU.
+    const w = await shop.vendor("Fifty SKU Supply");
+    const skuFirst = await registerOne(
+      shop,
+      w,
+      screws,
+      { description: `${text} 100/BX`, sku: "FS-100", qty: "1", uom: "BX", unitPrice: "9.00" },
+      "2026-11-01",
+    );
+    const skuId = skuFirst.lines[0]?.vendorItemId ?? "";
+    expect(await vendorItemRow(skuId)).toMatchObject({
+      sku: "FS-100",
+      stdPerVendorUom: "100.0000",
+    });
+    const skuSecond = await registerOne(
+      shop,
+      w,
+      screws,
+      { description: `${text} 50/BX`, sku: "FS-100", qty: "1", uom: "BX", unitPrice: "5.00" },
+      "2026-11-05",
+    );
+    expect(skuSecond.lines[0]?.vendorItemId).toBeNull();
+    expect(skuSecond.lines[0]?.note).toMatch(/with this SKU holds 100/);
+    expect((await vendorItemRow(skuId))?.lastPrice).toBe("9.0000");
+    // A price list row by that SKU: a case row, or a box of 50, is skipped; a box row is taken.
+    const before = await vendorItemRow(skuId);
+    const bySku = (row: Record<string, string>) =>
+      importPriceList(t.db, {
+        tenantId: shop.tenantId,
+        vendorId: w,
+        listPriceOn: "2026-11-10",
+        by: { agentVersionId: shop.agentVersionId },
+        testRun: false,
+        rows: [{ sku: "FS-100", ...row }],
+      } as never);
+    const caseRow = await bySku({ name: `${text} CASE`, vendorUom: "CS", listPrice: "80.00" });
+    expect(caseRow.rows[0]).toMatchObject({ outcome: "skipped" });
+    expect(caseRow.rows[0]?.reason).toMatch(/its box, not this case/);
+    const fifty = await bySku({ name: `${text} 50/BX`, vendorUom: "BX", stdPerVendorUom: "50" });
+    expect(fifty.rows[0]).toMatchObject({ outcome: "skipped" });
+    expect(fifty.rows[0]?.reason).toMatch(/pack size of 100 per unit, and this row states 50/);
+    expect(await vendorItemRow(skuId)).toEqual(before);
+    const taken = await importPriceList(t.db, {
+      tenantId: shop.tenantId,
+      vendorId: w,
+      listPriceOn: "2026-11-11",
+      by: { agentVersionId: shop.agentVersionId },
+      testRun: false,
+      rows: [{ sku: "FS-100", name: `${text} 100/BX`, vendorUom: "BX", listPrice: "9.50" }],
+    } as never);
+    expect(taken.rows[0]?.outcome).toBe("updated");
+    expect((await vendorItemRow(skuId))?.listPrice).toBe("9.5000");
+  });
+
+  it("never folds a box into the case on a merge: each keeps its own prices", async () => {
+    const shop = await insertShop(t.db, "Millwork Y");
+    const v = await shop.vendor("Merge Pack Supply");
+    const into = await item(shop, "#8 X 1-1/4 WOOD SCREW");
+    const from = await item(shop, "#8 X 1-1/4 WOOD SCREWS");
+    const c = await registerOne(
+      shop,
+      v,
+      into,
+      { description: "#8 X 1-1/4 WOOD SCREW 1000/CS", qty: "1", uom: "CS", unitPrice: "80.00" },
+      "2026-11-01",
+    );
+    const b = await registerOne(
+      shop,
+      v,
+      from,
+      { description: "#8 X 1-1/4 WOOD SCREWS 100/BX", qty: "1", uom: "BX", unitPrice: "9.00" },
+      "2026-11-05",
+    );
+    const caseId = c.lines[0]?.vendorItemId ?? "";
+    const boxId = b.lines[0]?.vendorItemId ?? "";
+    const caseBefore = await vendorItemRow(caseId);
+    await mergeItems(t.db, {
+      tenantId: shop.tenantId,
+      fromId: from,
+      intoId: into,
+      userId: shop.userId,
+    });
+    expect(await vendorItemRow(caseId)).toMatchObject({
+      status: "active",
+      lastPrice: caseBefore?.lastPrice,
+      lastPriceStd: caseBefore?.lastPriceStd,
+      stdPerVendorUom: "1000.0000",
+    });
+    const boxAfter = await vendorItemRow(boxId);
+    expect(boxAfter).toMatchObject({ status: "discontinued", lastPrice: "9.0000" });
+    expect(boxAfter?.ext).toMatchObject({ notFoldedInto: caseId });
+    const boxPrices = await t.db
+      .select()
+      .from(priceObservation)
+      .where(eq(priceObservation.id, b.lines[0]?.observationId ?? ""));
+    expect(boxPrices[0]?.vendorItemId).toBe(boxId);
+    const aliases = await t.db.select().from(itemAlias).where(eq(itemAlias.vendorId, v));
+    expect(aliases.map((a) => a.vendorItemId)).not.toContain(boxId);
+    expect(aliases.filter((a) => a.vendorItemId === caseId)).toHaveLength(1);
+  });
+
+  it("never gives a QuickBooks bill line without a unit to the vendor's only item when it is a box", async () => {
+    const shop = await insertShop(t.db, "Millwork Z");
+    const v = await shop.vendor("Bill Box Supply");
+    const text = "#8 X 1-1/4 WOOD SCREW";
+    const screws = await item(shop, text);
+    const box = await olderItem(shop, v, screws, {
+      name: `${text} 100/BX`,
+      stdPerVendorUom: "100",
+      lastPrice: "9.0000",
+    });
+    await shop.qboBill({
+      id: "77",
+      vendorId: v,
+      date: "2026-11-05",
+      lines: [{ id: "1", item: "Screws", description: text, qty: 200, unitPrice: 0.11 }],
+    });
+    const r = (await backfillFromBillsTool.run(
+      { from: "2026-11-01", to: "2026-11-30" },
+      ctx(shop, t.db),
+    )) as J;
+    expect(r).toMatchObject({ recorded: 1 });
+    const [price] = await t.db
+      .select()
+      .from(priceObservation)
+      .where(eq(priceObservation.vendorId, v));
+    expect(price).toMatchObject({ unitPriceStd: "0.1100", vendorItemId: null });
+    expect(await vendorItemRow(box.id)).toMatchObject({ lastPrice: "9.0000" });
   });
 
   it("matches a vendor only on what the agent's match_on names, and refuses a word it doesn't know", async () => {

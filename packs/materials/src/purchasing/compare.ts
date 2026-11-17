@@ -715,7 +715,7 @@ export async function compareQuotesTx(
           const conv = convertLine(
             row.unit,
             item.standardUom,
-            parseLine(row.description).attributes,
+            { text: row.description, attributes: parseLine(row.description).attributes },
             item.attributes as Record<string, unknown>,
           );
           if (conv.ok) qtyStd = toNumeric(dec(row.qty as string).times(conv.factor));

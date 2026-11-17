@@ -116,6 +116,12 @@ const PACK_PATTERNS: readonly { re: RegExp; size: number; word: number }[] = [
   },
 ];
 
+// 10 BX/CS, 4 BOXES PER CASE: how many of one pack another holds.
+const NESTED_PACK = new RegExp(
+  `(?:^|[^\\d.])(\\d+)\\s*(${PACKAGING_TOKENS})\\s*(?:\\/|PER)\\s*(${PACKAGING_TOKENS})(?![A-Z])`,
+  "g",
+);
+
 /**
  * The packs a text states with their size (`100/BX`, `CS/1000`, `BOX OF 100`, `CS 100`): each
  * word (`box`, `case`...) with how many it holds. A word with no number states nothing (a "BOX
@@ -131,7 +137,59 @@ export function packsIn(text: string | null | undefined): { word: string; size: 
       if (word && size && Number(size) > 0) out.push({ word, size: String(Number(size)) });
     }
   }
+  // DECISION (fifth review of fix/materials, S2): "10 BX/CS" is ten boxes to a case, so the
+  // case holds ten times the box's size when the text states the box's one size; else it states
+  // nothing about the case.
+  for (const m of upper.matchAll(NESTED_PACK)) {
+    const inner = unitWord(m[2]);
+    const outer = unitWord(m[3]);
+    const n = Number(m[1]);
+    const innerSizes = [...new Set(out.filter((p) => p.word === inner).map((p) => p.size))];
+    const one = innerSizes.length === 1 ? innerSizes[0] : undefined;
+    if (outer && inner !== outer && n > 0 && one !== undefined) {
+      out.push({ word: outer, size: dec(one).times(n).toString() });
+    }
+  }
   return out;
+}
+
+/** What a line states about the size of its own unit: a box, case or pail's word and its sizes. */
+export interface StatedPack {
+  /** The line's unit as the vendor wrote it (`unitWord`), or null. */
+  word: string | null;
+  /** The distinct sizes the line states for its own unit; empty when it states none. */
+  sizes: string[];
+  /** The one size, when the line states exactly one for its unit; else null (none, or two). */
+  size: string | null;
+}
+
+/**
+ * The pack size a line states for its own unit, read one way for matching and for converting:
+ * for a box, case or pail, the sizes `packsIn` reads in the unit's own word (`100/BX` for a box
+ * line, never the `1000/CS` beside it); when the text states no pack in any word, the parser's
+ * pack size (`100CT`); else none. Sizes that disagree give no size. Other units state none.
+ */
+// DECISION (fifth review of fix/materials, finding 1): matching (`effectiveWord`) and every
+// conversion (`convertLine`) read a line's pack size here, so a line is never filed under a box
+// of 100 and converted at the case's 1000 beside it. The parser's first X/N (`pack_size`) counts
+// only when the text names no pack in any word, since it may be another pack's. No usable size:
+// the line converts as a line without one does (the vendor item's conversion, else none).
+export function statedPack(
+  uomRaw: string | null | undefined,
+  text: string | null | undefined,
+  parsedPackSize?: string | null | undefined,
+): StatedPack {
+  const word = unitWord(uomRaw);
+  const unit = readUom(uomRaw);
+  if (word === null || unit === null || !PACKAGING_UOMS.has(unit)) {
+    return { word, sizes: [], size: null };
+  }
+  const packs = packsIn(text);
+  const own = packs.filter((p) => p.word === word).map((p) => p.size);
+  const parsed = parsedPackSize && Number(parsedPackSize) > 0 ? [parsedPackSize] : [];
+  const raw = own.length > 0 ? own : packs.length === 0 ? parsed : [];
+  const sizes = [...new Set(raw.map((x) => dec(x).toString()))];
+  return { word, sizes, size: sizes.length === 1 ? (sizes[0] ?? null) : null };
 }
 
 /**
@@ -268,15 +326,28 @@ export function withoutPackaging(attributes: Readonly<Record<string, unknown>>):
 export function convertLine(
   uomRaw: string | null | undefined,
   standardUom: StandardUom,
-  line: Readonly<Attributes>,
+  line: {
+    /** The line's own words, for the pack size it states (`statedPack`). */
+    text: string | null | undefined;
+    /** Its attributes as parsed (a request's specs may be added under them). */
+    attributes: Readonly<Attributes>;
+  },
   item: Readonly<Record<string, unknown>>,
   vendorItem?: { vendorUom: string | null; stdPerVendorUom: string | null } | null,
 ): Conversion {
-  const conv = convert(uomRaw, standardUom, { ...withoutPackaging(item), ...line });
-  if (conv.ok || !vendorItem?.stdPerVendorUom) return conv;
+  const pack = statedPack(uomRaw, line.text, line.attributes.pack_size);
   const unit = uomRaw?.trim() ? (readUom(uomRaw) ?? uomRaw.trim().toLowerCase()) : null;
+  const own: Attributes = { ...line.attributes };
+  if (unit !== null && PACKAGING_UOMS.has(unit)) {
+    delete own.pack_size;
+    if (pack.size !== null) own.pack_size = pack.size;
+  }
+  const conv = convert(uomRaw, standardUom, { ...withoutPackaging(item), ...own });
+  if (conv.ok || !vendorItem?.stdPerVendorUom) return conv;
   const factor = dec(vendorItem.stdPerVendorUom);
   if (unit === null || unit !== vendorItem.vendorUom || !factor.greaterThan(0)) return conv;
+  // A size the line states for its unit that isn't the vendor item's is no conversion by it.
+  if (pack.sizes.some((x) => !dec(x).equals(factor))) return conv;
   return {
     ok: true,
     factor,

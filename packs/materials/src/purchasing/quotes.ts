@@ -673,7 +673,7 @@ export function quotedConversion(
   return convertLine(
     line.unit,
     item.standardUom,
-    lineAttributes,
+    { text: line.description, attributes: lineAttributes },
     item.attributes as Record<string, unknown>,
     vendorItem,
   );
@@ -718,7 +718,7 @@ export function quotedQtyAsAsked(
   const askedConv = convertLine(
     asked.row.unit,
     asked.item.standardUom,
-    parseLine(asked.row.description).attributes,
+    { text: asked.row.description, attributes: parseLine(asked.row.description).attributes },
     asked.item.attributes as Record<string, unknown>,
   );
   const quotedConv = quotedConversion(asked.item, line, asked.row, vendorItem);

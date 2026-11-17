@@ -2,7 +2,7 @@
 // without a rule (invariant 7).
 
 import { describe, expect, it } from "vitest";
-import { convert, packsIn, readUom } from "./uom";
+import { convert, convertLine, packsIn, readUom, statedPack } from "./uom";
 
 describe("units", () => {
   it("reads invoice spellings", () => {
@@ -60,7 +60,10 @@ describe("packsIn", () => {
   });
 
   it("never reads a number that another pack or a measure follows as a pack's size", () => {
-    expect(packsIn("#8 SCREW 100/BX 10 BX/CS")).toEqual([{ word: "box", size: "100" }]);
+    expect(packsIn("#8 SCREW 100/BX 10 BX/CS")).toEqual([
+      { word: "box", size: "100" },
+      { word: "case", size: "1000" },
+    ]);
     expect(packsIn("PAIL 5 GAL")).toEqual([]);
     expect(packsIn("CAN 12 OZ")).toEqual([]);
     expect(packsIn("SPRAY PAINT CAN 12OZ")).toEqual([]);
@@ -71,5 +74,43 @@ describe("packsIn", () => {
     expect(packsIn("BOX 10 X 3")).toEqual([]);
     expect(packsIn("100 PER BOX")).toEqual([{ word: "box", size: "100" }]);
     expect(packsIn("#10 SCREW BX 100")).toEqual([{ word: "box", size: "100" }]);
+  });
+});
+
+describe("statedPack", () => {
+  it("reads a line's pack size for its own unit only, and none when its sizes disagree", () => {
+    const text = "#8 X 1-1/4 WOOD SCREW";
+    expect(statedPack("BX", `${text} 1000/CS 100/BX`, "1000").size).toBe("100");
+    expect(statedPack("CS", `${text} BX/100 CS/1000`, "100").size).toBe("1000");
+    expect(statedPack("CS", `${text} 100/BX 10 BX/CS`, "100").size).toBe("1000");
+    expect(statedPack("BX", `${text} 100/BX BOX OF 50`, "100")).toMatchObject({
+      size: null,
+      sizes: ["100", "50"],
+    });
+    // The parser's pack size only when no pack is named in any word.
+    expect(statedPack("BX", `${text} 100CT`, "100").size).toBe("100");
+    expect(statedPack("CS", `${text} 100/BX`, "100")).toMatchObject({ size: null, sizes: [] });
+    expect(statedPack("EA", `${text} 100/BX`, "100").size).toBeNull();
+  });
+
+  it("converts by that size, else as a line with no pack size does", () => {
+    const line = (text: string) => ({ text, attributes: { pack_size: "1000" } });
+    const factor = (
+      uom: string,
+      text: string,
+      vi?: { vendorUom: string; stdPerVendorUom: string },
+    ) => {
+      const c = convertLine(uom, "each", line(text), {}, vi ?? null);
+      return c.ok ? c.factor.toString() : null;
+    };
+    expect(factor("BX", "SCREW 1000/CS 100/BX")).toBe("100");
+    expect(factor("CS", "SCREW 100/BX")).toBeNull();
+    expect(factor("CS", "SCREW 100/BX", { vendorUom: "pack", stdPerVendorUom: "1000" })).toBe(
+      "1000",
+    );
+    // Sizes that disagree: no size, and not the vendor item's either when one contradicts it.
+    expect(
+      factor("BX", "SCREW 100/BX BOX OF 50", { vendorUom: "pack", stdPerVendorUom: "100" }),
+    ).toBeNull();
   });
 });
