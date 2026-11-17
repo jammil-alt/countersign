@@ -6,7 +6,7 @@ import { routes } from "@countersign/core";
 import type { Db } from "@countersign/db";
 import { Hono } from "hono";
 import { sloanTick } from "./account/sloan";
-import { summarizeQuietConversations } from "./account/summaries";
+import { SUMMARY_CALL_TIMEOUT_MS, summaryPass } from "./account/summaries";
 import { bankfeedCron } from "./bankfeed/sync";
 import { billingTick } from "./billing/jobs";
 import { raiseCodeAlerts } from "./codes/alerts";
@@ -163,6 +163,7 @@ import {
   reachDepsFor,
   runDepsFromEnv,
   runtimeFor,
+  workerTransport,
 } from "./runs/execute";
 import { reconcileRuns } from "./runs/reconcile";
 import { staleWritesTick } from "./runs/stale-writes";
@@ -368,8 +369,28 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
         healthTick: async (tenantId, at, timeZone) => {
           const run = forClient(runDepsFromEnv(env, { db, platform, instances }), tenantId);
           await platformHealthTick({ db, runtime: runtimeFor(run) }, tenantId, at, timeZone);
-          // v0.19: each person's quiet conversations summarized for next time (§10.15).
-          await summarizeQuietConversations({ db, transport: run.transport }, tenantId, at);
+        },
+        // v0.19: each person's quiet conversations summarized for next time (§10.15). Audit 4.1:
+        // after every client's minute, within a budget, each call short and never retried.
+        afterClients: (clients, at) => {
+          const base = runDepsFromEnv(env, { db, platform, instances });
+          const transport = workerTransport(env, {
+            timeoutMs: SUMMARY_CALL_TIMEOUT_MS,
+            maxRetries: 0,
+          });
+          return summaryPass(
+            {
+              db,
+              clients,
+              transportFor: (tenantId) => forClient({ ...base, transport }, tenantId).transport,
+              report: (tenantId, error) =>
+                reportHandled(`summaries for client ${tenantId} failed`, error, {
+                  job: "summaries",
+                  client: tenantId,
+                }),
+            },
+            at,
+          );
         },
       },
       scheduledTime,
@@ -451,7 +472,11 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     }
     if (scheduledTime.getUTCMinutes() === USAGE_SWEEP_MINUTE) {
       // v0.12 W2-G: `origin` for the credits notifications the pass queues.
-      await billingTick({ db, stripe: stripeFor(deps, env), origin: originOf(env) }, scheduledTime);
+      // A failure is reported; the vault, retention and pack passes below still run.
+      await billingTick(
+        { db, stripe: stripeFor(deps, env), origin: originOf(env) },
+        scheduledTime,
+      ).catch((error: unknown) => reportHandled("billing tick failed", error, { job: "billing" }));
       // Client data keys: re-wrap after a master key rotation, move v1 envelopes to v2. A failure
       // here waits for the next hour; it never holds up the next tick.
       await vaultTick(db, env).catch((error: unknown) =>
