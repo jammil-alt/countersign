@@ -18,13 +18,21 @@ import {
 } from "../reggie/reggie";
 
 /**
- * Reggie's model transport, held to the HIPAA mode (§1.35) of every client the operator serves.
- * The model runs outside any transaction, so the database reads it.
+ * Reggie's model transport, held to the HIPAA mode (§1.35) of every client the operator serves
+ * and the conversation's own client. The model runs outside any transaction, so the database
+ * reads it.
  */
-// DECISION: every client served, even in a conversation about one client: Reggie's tools read
-// any client the operator serves, so any of them may reach the model in a turn's tool results.
-function transport(ctx: Pick<HandlerCtx<RouteSpec>, "services" | "tenantIds">): LlmTransport {
-  return clientModels(ctx.services, { clients: ctx.tenantIds, read: ctx.services.db });
+// DECISION: every client served, even in a conversation about one client, and whatever client
+// the request names (`?client=`, `x-countersign-client`): Reggie's tools read any client the
+// operator serves, so any of them may reach the model in a turn's tool results.
+function transport(
+  ctx: Pick<HandlerCtx<RouteSpec>, "services" | "session">,
+  conversationClient: string | null,
+): LlmTransport {
+  return clientModels(ctx.services, {
+    clients: [...ctx.session.servedTenantIds, conversationClient],
+    read: ctx.services.db,
+  });
 }
 
 export function reggieRoutes(app: Hono<AppEnv>): void {
@@ -45,12 +53,15 @@ export function reggieRoutes(app: Hono<AppEnv>): void {
 
   mountLong(app, routes.opsReggieTurn, async (ctx) => {
     const inTx = txOnly(ctx.inTx);
+    const conversation = await inTx((tx) =>
+      ownConversation(tx, ctx.session.user.id, ctx.params.id),
+    );
     await runTurn(
       {
         app,
         c: ctx.c,
         session: ctx.session,
-        transport: transport(ctx),
+        transport: transport(ctx, conversation.clientId),
         inTx,
         now: () => new Date(),
       },

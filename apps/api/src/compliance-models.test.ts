@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { type BuildDetail, ComplianceRefusal } from "@countersign/core";
 import { tenant } from "@countersign/db";
 import { FakeModel, type Transcriber } from "@countersign/llm";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { admin, createApiHarness, OPERATOR } from "./api.test-helper";
 import { clientModels, clientTranscriber } from "./compliance/models";
@@ -112,6 +112,40 @@ describe.skipIf(!h)("HIPAA mode's model guard outside a run", () => {
     expect(last?.text).toContain("HIPAA mode");
   });
 
+  it("refuses a template's build tested at a HIPAA client", async () => {
+    const started = await H.call(OPERATOR, "POST", "/api/ops/builds", {
+      kind: "agent",
+      title: "Shared records",
+    });
+    const id = (started.json as BuildDetail).build.id;
+    await H.t.db.execute(sql`update build set test_client_id = ${A.tenantId} where id = ${id}`);
+    const turn = await H.call(OPERATOR, "POST", `/api/ops/builds/${id}/turns`, {
+      text: "It reviews records",
+    });
+    expect(turn.status).toBe(200);
+    expect(model.requests).toHaveLength(0);
+    expect((turn.json as BuildDetail).messages.at(-1)?.text).toContain("HIPAA mode");
+  });
+
+  it("leaves a HIPAA client's builds out of another build's turn", async () => {
+    await H.call(OPERATOR, "POST", "/api/ops/builds", {
+      kind: "agent",
+      title: "Clinic intake for A",
+      clientId: A.tenantId,
+    });
+    const other = await H.call(OPERATOR, "POST", "/api/ops/builds", {
+      kind: "agent",
+      title: "Invoices for B",
+      clientId: B.tenantId,
+    });
+    const id = (other.json as BuildDetail).build.id;
+    await H.call(OPERATOR, "POST", `/api/ops/builds/${id}/turns`, { text: "It reads invoices" });
+    expect(model.requests).toHaveLength(1);
+    const sent = JSON.stringify(model.requests[0]);
+    expect(sent).toContain("Invoices for B");
+    expect(sent).not.toContain("Clinic intake for A");
+  });
+
   it("refuses Reggie while a client it can read is in HIPAA mode", async () => {
     const about = await H.call(OPERATOR, "POST", "/api/ops/reggie/conversations", {
       clientId: A.tenantId,
@@ -129,6 +163,24 @@ describe.skipIf(!h)("HIPAA mode's model guard outside a run", () => {
       await H.call(OPERATOR, "POST", `/api/ops/reggie/conversations/${allId}/turns`, {
         text: "How is it going?",
       }),
+    );
+    // Naming another client on the request doesn't narrow what Reggie can read.
+    refused(
+      await H.call(
+        OPERATOR,
+        "POST",
+        `/api/ops/reggie/conversations/${allId}/turns?client=${B.tenantId}`,
+        { text: "How is it going?" },
+      ),
+    );
+    refused(
+      await H.call(
+        OPERATOR,
+        "POST",
+        `/api/ops/reggie/conversations/${allId}/turns`,
+        { text: "How is it going?" },
+        { "x-countersign-client": B.tenantId },
+      ),
     );
     expect(model.requests).toHaveLength(0);
   });
@@ -151,6 +203,14 @@ describe.skipIf(!h)("HIPAA mode's model guard outside a run", () => {
         .catch(() => {});
     }
     expect(model.requests).toHaveLength(2);
+
+    // Several clients' HIPAA mode is read in one query.
+    const select = vi.spyOn(H.db, "select");
+    await clientModels(services, { clients: [B.tenantId, H.C.tenantId], read: H.db })
+      .create(request)
+      .catch(() => {});
+    expect(select).toHaveBeenCalledTimes(1);
+    select.mockRestore();
 
     const t = clientTranscriber(
       { ...services, deps: { transcriber: () => transcriber } } as never,
@@ -184,22 +244,84 @@ describe("where apps/api gets a model", () => {
     text: readFileSync(path, "utf8"),
   }));
 
+  /** Code lines (comments left out), with where each one is. */
+  const lines = (src: { file: string; text: string }) =>
+    src.text
+      .split("\n")
+      .map((line, i) => ({ line: line.trim(), at: `${src.file}:${i + 1}` }))
+      .filter(({ line }) => !line.startsWith("//") && !line.startsWith("*"));
+
   it("makes transports and transcribers only in compliance/models.ts", () => {
     const raw =
-      /\bworkerTransport\(|\.llm\??\.\(|\.llm\(|\.extractionTransport\??\.?\(|\.translationTransport\??\.?\(|\.transcriber\??\.?\(|\b(anthropic|openai|xai|gemini|routing)Transport\(|\bcreateOpenAITranscriber\(/;
-    // DECISION: the definitions themselves: the Worker's transport and run deps (execute.ts),
-    // and the app's default dependencies (http.ts).
-    const allowed = new Set(["compliance/models.ts", "runs/execute.ts", "http.ts"]);
+      /\bworkerTransport\(|\.llm\??\.?\(|\.extractionTransport\??\.?\(|\.translationTransport\??\.?\(|\.transcriber\??\.?\(|\b(worker|anthropic|openai|xai|gemini|routing)Transport\(|\bcreateOpenAITranscriber\(/;
+    // DECISION: outside compliance/models.ts, only the definitions themselves, line by line: the
+    // Worker's transport and run deps' (execute.ts), and the app's default reader (http.ts).
+    const allowed: Record<string, readonly string[]> = {
+      "runs/execute.ts": [
+        "export function workerTransport(",
+        "return routingTransport({",
+        "...(anthropicKey ? { anthropic: anthropicTransport(",
+        "...(openaiKey ? { openai: openaiTransport(",
+        "...(xaiKey ? { xai: xaiTransport(",
+        "...(geminiKey ? { google: geminiTransport(",
+        "transport: workerTransport(env),",
+      ],
+      "http.ts": [
+        "extractionTransport: (env) => (env.ANTHROPIC_API_KEY?.trim() ? workerTransport(env)",
+      ],
+    };
     const offenders = sources
-      .filter((s) => !allowed.has(s.file))
+      .filter((s) => s.file !== "compliance/models.ts")
       .flatMap((s) =>
-        s.text
-          .split("\n")
-          .map((line, i) => ({ line, at: `${s.file}:${i + 1}` }))
-          .filter(({ line }) => !line.trim().startsWith("//") && !line.trim().startsWith("*"))
+        lines(s)
           .filter(({ line }) => raw.test(line))
+          .filter(({ line }) => !(allowed[s.file] ?? []).some((ok) => line.startsWith(ok)))
           .map(({ at }) => at),
       );
+    expect(offenders).toEqual([]);
+  });
+
+  it("imports what makes a transport or transcriber only where it is allowed", () => {
+    // Value imports (any alias, any line layout) of a transport maker, the transcriber maker or
+    // a namespace that holds them. A guardrail, not a parser.
+    const makers = /^(\w+Transport|createOpenAITranscriber)$/;
+    // Names that end so but make nothing (a type; a pack tool's transport handed in).
+    const types = new Set(["LlmTransport", "packToolTransport"]);
+    const allowed: Record<string, readonly string[]> = {
+      "compliance/models.ts": ["workerTransport", "createOpenAITranscriber"],
+      "runs/execute.ts": [
+        "anthropicTransport",
+        "geminiTransport",
+        "openaiTransport",
+        "routingTransport",
+        "xaiTransport",
+      ],
+      "http.ts": ["workerTransport"],
+    };
+    const offenders = sources.flatMap((s) => {
+      const out: string[] = [];
+      for (const m of s.text.matchAll(
+        /import\s+(type\s+)?\{([^}]*)\}\s*from\s*["']([^"']+)["']/g,
+      )) {
+        if (m[1]) continue;
+        for (const spec of (m[2] ?? "").split(",").map((x) => x.trim())) {
+          if (!spec || spec.startsWith("type ")) continue;
+          const name = spec.split(/\s+as\s+/)[0] as string;
+          if (makers.test(name) && !types.has(name) && !(allowed[s.file] ?? []).includes(name)) {
+            out.push(`${s.file}: ${name}`);
+          }
+        }
+      }
+      for (const m of s.text.matchAll(/import\s+\*\s+as\s+\w+\s+from\s*["']([^"']+)["']/g)) {
+        if (/^@countersign\/llm$|runs\/execute$/.test(m[1] ?? ""))
+          out.push(`${s.file}: * from ${m[1]}`);
+      }
+      for (const m of s.text.matchAll(/import\(\s*["']([^"']+)["']\s*\)/g)) {
+        if (/^@countersign\/llm$|runs\/execute$/.test(m[1] ?? ""))
+          out.push(`${s.file}: import(${m[1]})`);
+      }
+      return out;
+    });
     expect(offenders).toEqual([]);
   });
 

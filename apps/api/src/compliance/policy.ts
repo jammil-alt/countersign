@@ -17,28 +17,42 @@ import {
 } from "@countersign/core";
 import { type Db, type Tx, tenant } from "@countersign/db";
 import type { EmbedRequest, LlmTransport, Transcriber } from "@countersign/llm";
-import { eq } from "drizzle-orm";
+import { inArray } from "drizzle-orm";
 
 export { ComplianceRefusal };
 
+/** Clients' profiles: one client's, or several read together (`many`). */
+export interface ProfileReader {
+  (tenantId: string): Promise<ComplianceProfile>;
+  many(tenantIds: readonly string[]): Promise<ComplianceProfile[]>;
+}
+
 /**
- * A client's profile, read once per client for the life of the returned function: through the
+ * Clients' profiles, read once per client for the life of the returned reader: through the
  * database, or through a request's open transaction (a Worker's request has one connection).
+ * `many` reads the clients not read yet in one query.
  */
-export function profileReader(db: Db | Tx): (tenantId: string) => Promise<ComplianceProfile> {
+export function profileReader(db: Db | Tx): ProfileReader {
   const cache = new Map<string, Promise<ComplianceProfile>>();
-  return (tenantId) => {
-    let p = cache.get(tenantId);
-    if (!p) {
-      p = db
-        .select({ settings: tenant.settings })
+  const many = (tenantIds: readonly string[]) => {
+    const missing = [...new Set(tenantIds)].filter((id) => !cache.has(id));
+    if (missing.length > 0) {
+      const rows = db
+        .select({ id: tenant.id, settings: tenant.settings })
         .from(tenant)
-        .where(eq(tenant.id, tenantId))
-        .then(([row]) => complianceOf(row?.settings as Record<string, unknown> | undefined));
-      cache.set(tenantId, p);
+        .where(inArray(tenant.id, missing))
+        .then((found) => new Map(found.map((r) => [r.id, r.settings])));
+      for (const id of missing) {
+        cache.set(
+          id,
+          rows.then((byId) => complianceOf(byId.get(id) as Record<string, unknown> | undefined)),
+        );
+      }
     }
-    return p;
+    return Promise.all(tenantIds.map((id) => cache.get(id) as Promise<ComplianceProfile>));
   };
+  const one = async (tenantId: string) => (await many([tenantId]))[0] as ComplianceProfile;
+  return Object.assign(one, { many });
 }
 
 export function hipaaToolPolicy(
@@ -54,6 +68,16 @@ export function hipaaToolPolicy(
   };
 }
 
+/** Several clients' profiles: in one query when the reader can. */
+function readAll(
+  profiles: (tenantId: string) => Promise<ComplianceProfile>,
+  ids: readonly string[],
+): Promise<ComplianceProfile[]> {
+  return "many" in profiles
+    ? (profiles as ProfileReader).many(ids)
+    : Promise.all(ids.map((id) => profiles(id)));
+}
+
 /** The first refusal among the clients, or null when every one of them allows the processor. */
 async function refusalFor(
   tenantIds: string | readonly string[],
@@ -62,11 +86,27 @@ async function refusalFor(
   processor: Processor,
   what: string,
 ): Promise<string | null> {
-  for (const id of typeof tenantIds === "string" ? [tenantIds] : tenantIds) {
-    const refusal = processingRefusal(await profiles(id), covered, [processor], what);
+  const ids = typeof tenantIds === "string" ? [tenantIds] : tenantIds;
+  for (const profile of await readAll(profiles, ids)) {
+    const refusal = processingRefusal(profile, covered, [processor], what);
     if (refusal) return refusal;
   }
   return null;
+}
+
+/** Of the clients, those that may not send data to the processor (HIPAA mode without its BAA). */
+export async function refusingClients(
+  tenantIds: readonly string[],
+  profiles: ProfileReader,
+  covered: ReadonlySet<Processor>,
+  processor: Processor,
+): Promise<Set<string>> {
+  const read = await profiles.many(tenantIds);
+  return new Set(
+    tenantIds.filter(
+      (_, i) => processingRefusal(read[i] as ComplianceProfile, covered, [processor], "") !== null,
+    ),
+  );
 }
 
 /**
@@ -120,9 +160,9 @@ export function guardTranscriber(
 ): Transcriber {
   return {
     async transcribe(request, options) {
-      for (const id of tenantIds) {
+      for (const profile of await readAll(profiles, tenantIds)) {
         const refusal = processingRefusal(
-          await profiles(id),
+          profile,
           covered,
           VOICE_FEATURE.processors,
           VOICE_FEATURE.what,

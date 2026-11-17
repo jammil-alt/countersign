@@ -6,13 +6,13 @@
 // making a transport of its own.
 
 import { globalFetch } from "@countersign/connectors";
-import { parseCoveredProcessors } from "@countersign/core";
+import { parseCoveredProcessors, processorForModel } from "@countersign/core";
 import type { Db, Tx } from "@countersign/db";
 import { createOpenAITranscriber, type LlmTransport, type Transcriber } from "@countersign/llm";
 import type { Bindings } from "../env";
 import type { AppDeps } from "../http";
 import { workerTransport } from "../runs/execute";
-import { guardModels, guardTranscriber, profileReader } from "./policy";
+import { guardModels, guardTranscriber, profileReader, refusingClients } from "./policy";
 
 interface ModelServices {
   deps: AppDeps;
@@ -104,4 +104,23 @@ export function clientTranscriber(services: ModelServices, scope: ModelScope): T
       ? createOpenAITranscriber({ apiKey: key, fetch: globalFetch() as unknown as typeof fetch })
       : null;
   return inner ? held(services, scope, inner, guardTranscriber) : null;
+}
+
+/**
+ * Of the clients, those whose HIPAA mode refuses `model`'s vendor: their data is left out of a call
+ * that would otherwise carry it beside another client's (a build's list of other work).
+ */
+export function clientsRefusingModel(
+  services: ModelServices,
+  scope: ModelScope,
+  model: string,
+): Promise<Set<string>> {
+  const ids = [...new Set(scope.clients.filter((id): id is string => !!id))];
+  if (ids.length === 0) return Promise.resolve(new Set());
+  return refusingClients(
+    ids,
+    profileReader(scope.read),
+    parseCoveredProcessors(services.env.BAA_PROCESSORS),
+    processorForModel(model),
+  );
 }

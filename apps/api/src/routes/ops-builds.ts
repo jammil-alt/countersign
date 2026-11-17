@@ -57,7 +57,7 @@ import {
   skillVersion,
   type Tx,
 } from "@countersign/db";
-import { createLlmClient, type LlmTransport } from "@countersign/llm";
+import { createLlmClient, DEFAULT_MODELS, type LlmTransport } from "@countersign/llm";
 import { and, asc, eq, inArray, like } from "drizzle-orm";
 import type { Hono } from "hono";
 import {
@@ -76,7 +76,7 @@ import {
   summaries,
   withDecisions,
 } from "../build/store";
-import { clientModels } from "../compliance/models";
+import { clientModels, clientsRefusingModel } from "../compliance/models";
 import {
   type AppContext,
   type AppEnv,
@@ -99,7 +99,11 @@ import { builderContext, builderHttpError } from "./ops-builder";
  * is no client's data. The model runs outside any transaction here, so the database reads it.
  */
 function transport(services: Pick<Services, "deps" | "env" | "db">, row: BuildRow): LlmTransport {
-  return clientModels(services, { clients: [row.clientId], read: services.db });
+  // A template's build tested at a client carries that client's name and its people's words.
+  return clientModels(services, {
+    clients: [row.clientId, row.testClientId],
+    read: services.db,
+  });
 }
 
 const now = () => new Date();
@@ -393,7 +397,7 @@ async function turn(
     ];
     // Owner (2026-11-17): the catalog in every phase, and the other work the operator can see.
     const bctx = await builderContext({ ...scoped, services: ctx.services }, row.clientId);
-    const otherWork = await otherWorkLines(scoped.tx, row);
+    const otherWork = await otherWorkLines(scoped.tx, ctx.services, row);
     const client = detail.build.client?.name ?? null;
     return {
       row,
@@ -589,7 +593,7 @@ async function reviewHolds(ctx: LongCtx, row: BuildRow): Promise<boolean> {
       issues: buildIssues(detail)
         .filter((i) => i.open)
         .map((i) => i.title),
-      otherWork: await otherWorkLines(scoped.tx, row),
+      otherWork: await otherWorkLines(scoped.tx, ctx.services, row),
       bctx: await builderContext({ ...scoped, services: ctx.services }, row.clientId),
       client: detail.build.client?.name ?? null,
     };
@@ -668,8 +672,18 @@ const OTHER_WORK_MAX = 40;
  * phase, and their open issues: so the Builder can name work this one overlaps (QA, 2026-11-16:
  * AP Invoice Review already had an open item for a vendor management flow).
  */
-async function otherWorkLines(tx: Tx, row: BuildRow): Promise<string[]> {
-  const others = (await listBuilds(tx, { status: "open" })).filter((b) => b.id !== row.id);
+async function otherWorkLines(tx: Tx, services: Services, row: BuildRow): Promise<string[]> {
+  const listed = (await listBuilds(tx, { status: "open" })).filter((b) => b.id !== row.id);
+  // DECISION: another client's build is left out where that client's HIPAA mode refuses the
+  // Builder's model (§1.35), rather than refusing this build's turn for it.
+  const refusing = await clientsRefusingModel(
+    services,
+    { clients: listed.flatMap((b) => [b.clientId, b.testClientId]), read: tx },
+    DEFAULT_MODELS.builder,
+  );
+  const others = listed.filter(
+    (b) => !refusing.has(b.clientId ?? "") && !refusing.has(b.testClientId ?? ""),
+  );
   if (others.length === 0) return [];
   const items = await openItemsAcross(tx, others);
   const lines: string[] = [];
