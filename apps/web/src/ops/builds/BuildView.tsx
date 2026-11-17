@@ -395,7 +395,7 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
                 value={draftText}
                 onValueChange={setDraftText}
                 inputRef={box}
-                onSend={say}
+                onSend={(text) => say(text)}
                 inputTestId="build-input"
                 sendTestId="build-send"
                 voice={voiceFor("ops", b.client?.id ?? b.testClient?.id)}
