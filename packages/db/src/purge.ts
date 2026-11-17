@@ -1,13 +1,16 @@
 // Purging a retired client (docs/plan.md §1.35): every row that belongs to it, in every table that
-// references `tenant`, then the client itself, and its users who belong to no other client. The
-// audit log stays (it has no foreign key to `tenant` and holds ids, never content).
+// references `tenant` and every table whose rows can't outlive one of those (a build's items,
+// messages and events), then the client itself, and its users who belong to no other client.
+// Links to its rows from rows that stay (a template's build tested at it) are cleared. The audit
+// log stays (it has no foreign key to `tenant` and holds ids, never content). What is touched is
+// read from the schema's foreign keys (`purgePlan`), so a new table is covered as it is added.
 //
 // Run by the owner as cs_owner (`db:purge-client`), never by the Worker: cs_runtime has no DELETE on
 // history, and the history triggers refuse deletes, so they are disabled for this transaction only
 // (`DISABLE TRIGGER USER` leaves foreign-key checks on). That takes each table's lock briefly.
 
-import { sql } from "drizzle-orm";
-import type { Db } from "./client";
+import { type SQL, sql } from "drizzle-orm";
+import type { Db, Tx } from "./client";
 
 export const PURGE_AFTER_DAYS = 30;
 
@@ -16,6 +19,8 @@ export interface PurgeReport {
   name: string;
   /** Rows deleted per table, in the order they were deleted. */
   deleted: { table: string; rows: number }[];
+  /** Links to the client's rows (or to the client) cleared on rows that stay or go. */
+  cleared: { table: string; column: string; rows: number }[];
   usersDeleted: number;
 }
 
@@ -23,61 +28,144 @@ export class PurgeRefused extends Error {
   override name = "PurgeRefused";
 }
 
-interface Reference {
-  table: string;
-  column: string;
-}
-
 const ident = (name: string) => `"${name.replace(/"/g, '""')}"`;
+const list = (names: readonly string[]) => names.map(ident).join(", ");
 
-/** Tables with a single-column foreign key to tenant(id), and the column. */
-async function tenantReferences(db: Db): Promise<Reference[]> {
-  const rows = await db.execute<{ table: string; column: string }>(sql`
-    select c.conrelid::regclass::text as table, a.attname as column
-    from pg_constraint c
-    join pg_attribute a on a.attrelid = c.conrelid and a.attnum = c.conkey[1]
-    where c.contype = 'f' and c.confrelid = 'public.tenant'::regclass
-      and cardinality(c.conkey) = 1`);
-  return [...rows].map((r) => ({ table: r.table.replace(/^public\./, ""), column: r.column }));
-}
-
-interface Link {
+export interface ForeignKey {
   child: string;
   parent: string;
-  /** The child's referencing columns. */
+  /** The child's referencing columns, in the key's order. */
   columns: string[];
-  /** Whether every one of them may be null. */
+  /** The parent's referenced columns, in the same order. */
+  refColumns: string[];
+  /** Whether every one of the child's columns may be null. */
   nullable: boolean;
 }
 
-/** Foreign keys between `tables` (child → parent), self-references left out. */
-async function links(db: Db, tables: readonly string[]): Promise<Link[]> {
+/** Every foreign key in the public schema, self-references left out. */
+async function foreignKeys(db: Db | Tx): Promise<ForeignKey[]> {
   const rows = await db.execute<{
     child: string;
     parent: string;
     columns: string[];
+    ref_columns: string[];
     nullable: boolean;
   }>(sql`
     select c.conrelid::regclass::text as child, c.confrelid::regclass::text as parent,
-      (select json_agg(a.attname::text) from pg_attribute a
-       where a.attrelid = c.conrelid and a.attnum = any(c.conkey)) as columns,
+      (select json_agg(a.attname::text order by k.n)
+       from unnest(c.conkey) with ordinality k(attnum, n)
+       join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum) as columns,
+      (select json_agg(a.attname::text order by k.n)
+       from unnest(c.confkey) with ordinality k(attnum, n)
+       join pg_attribute a on a.attrelid = c.confrelid and a.attnum = k.attnum) as ref_columns,
       not exists (select 1 from pg_attribute a
                   where a.attrelid = c.conrelid and a.attnum = any(c.conkey)
                     and a.attnotnull) as nullable
     from pg_constraint c
-    where c.contype = 'f' and c.conrelid <> c.confrelid`);
-  const set = new Set(tables);
-  return [...rows]
-    .map((r) => ({
-      child: r.child.replace(/^public\./, ""),
-      parent: r.parent.replace(/^public\./, ""),
-      columns: r.columns,
-      nullable: r.nullable,
-    }))
-    .filter((l) => set.has(l.child) && set.has(l.parent));
+    where c.contype = 'f' and c.conrelid <> c.confrelid
+      and c.connamespace = 'public'::regnamespace`);
+  const bare = (name: string) => name.replace(/^public\./, "");
+  return [...rows].map((r) => ({
+    child: bare(r.child),
+    parent: bare(r.parent),
+    columns: r.columns,
+    refColumns: r.ref_columns,
+    nullable: r.nullable,
+  }));
 }
 
-function parentsOf(tables: readonly string[], required: readonly Link[]) {
+/**
+ * What purging a client touches, read from the schema's foreign keys, so a new table is covered
+ * without a change here:
+ * - every table with a foreign key to `tenant`: its rows whose owner column names the client
+ *   (`tenant_id`; else its one client column, or `client_id`: a build, Reggie's records);
+ * - every table whose rows can't exist without such a row (a required key to it: a build's items,
+ *   messages and events), and so on down;
+ * - nullable links to any of those rows, from any table, are cleared first (an agent's live
+ *   version; a template's build tested at the client), and so are other columns naming the client
+ *   (a build's `test_client_id`).
+ */
+export interface PurgePlan {
+  /** The tables rows are deleted from, children before parents. */
+  order: string[];
+  /** Each table's rows of the client. */
+  rowsOf: Map<string, (tenantId: string) => SQL>;
+  /** Each table's column naming its client (never cleared), where it has one. */
+  owner: Map<string, string>;
+  /** Other columns naming a client: cleared where they name this one. */
+  mentions: { table: string; column: string }[];
+  /** Nullable links into the tables above: cleared where they point at a row being deleted. */
+  clear: ForeignKey[];
+}
+
+export async function purgePlan(db: Db | Tx): Promise<PurgePlan> {
+  const keys = await foreignKeys(db);
+  const owner = new Map<string, string>();
+  const mentions: PurgePlan["mentions"] = [];
+  const clientColumns = new Map<string, string[]>();
+  for (const k of keys) {
+    if (k.parent !== "tenant" || k.child === "tenant" || k.columns.length !== 1) continue;
+    clientColumns.set(k.child, [...(clientColumns.get(k.child) ?? []), k.columns[0] as string]);
+  }
+  for (const [table, columns] of clientColumns) {
+    // DECISION: `tenant_id` is a row's client; a table without one names it `client_id` (a build,
+    // whose `test_client_id` only says where it is tested), or in its only client column.
+    const own = columns.includes("tenant_id")
+      ? "tenant_id"
+      : columns.length === 1
+        ? (columns[0] as string)
+        : columns.includes("client_id")
+          ? "client_id"
+          : null;
+    if (!own) throw new Error(`purge: ${table} names a client in ${columns.join(", ")}`);
+    owner.set(table, own);
+    for (const column of columns) if (column !== own) mentions.push({ table, column });
+  }
+  const rowsOf = new Map<string, (tenantId: string) => SQL>(
+    [...owner].map(([table, column]) => [
+      table,
+      (id: string) => sql`${sql.raw(ident(column))} = ${id}`,
+    ]),
+  );
+  // Rows that can't outlive a deleted row (a required key to it), down to the last level.
+  const inKeys = (k: ForeignKey, id: string) => {
+    const parentRows = rowsOf.get(k.parent) as (tenantId: string) => SQL;
+    return sql`(${sql.raw(list(k.columns))}) in (select ${sql.raw(list(k.refColumns))}
+      from ${sql.raw(ident(k.parent))} where ${parentRows(id)})`;
+  };
+  const plan = new Set(owner.keys());
+  const required = (k: ForeignKey) => !k.nullable && k.child !== "tenant" && plan.has(k.parent);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const k of keys) {
+      if (required(k) && !plan.has(k.child)) {
+        plan.add(k.child);
+        grew = true;
+      }
+    }
+  }
+  for (const table of plan) {
+    if (rowsOf.has(table)) continue;
+    const via = keys.filter((k) => k.child === table && required(k));
+    rowsOf.set(table, (id) =>
+      sql.join(
+        via.map((k) => inKeys(k, id)),
+        sql` or `,
+      ),
+    );
+  }
+  const tables = [...rowsOf.keys()];
+  const order = deleteOrder(
+    parentsOf(
+      tables,
+      keys.filter((k) => !k.nullable && rowsOf.has(k.child) && rowsOf.has(k.parent)),
+    ),
+  );
+  const clear = keys.filter((k) => k.nullable && k.child !== "tenant" && rowsOf.has(k.parent));
+  return { order, rowsOf, owner, mentions, clear };
+}
+
+function parentsOf(tables: readonly string[], required: readonly ForeignKey[]) {
   const parents = new Map<string, Set<string>>(tables.map((t) => [t, new Set<string>()]));
   for (const l of required) parents.get(l.child)?.add(l.parent);
   return parents;
@@ -132,19 +220,8 @@ export async function purgeClient(
       }
     }
 
-    const refs = (await tenantReferences(db)).filter((r) => r.table !== "tenant");
-    const tables = refs.map((r) => r.table);
-    const columnOf = new Map(refs.map((r) => [r.table, r.column]));
-    // Some tables point at each other (an agent at its live version, the version at its agent).
-    // The nullable links are cleared first, on this client's rows only, which leaves an order.
-    const all = await links(db, tables);
-    const order = deleteOrder(
-      parentsOf(
-        tables,
-        all.filter((l) => !l.nullable),
-      ),
-    );
-    const clear = all.filter((l) => l.nullable);
+    // Read in the transaction: the owner's script has one connection.
+    const plan = await purgePlan(tx);
     // Its users: those whose only memberships were in this client.
     const users = [
       ...(await tx.execute<{ user_id: string }>(sql`
@@ -153,33 +230,53 @@ export async function purgeClient(
                           where o.user_id = m.user_id and o.tenant_id <> ${tenantId})`)),
     ].map((r) => r.user_id);
 
-    for (const table of tables) {
+    const touched = [
+      ...new Set([
+        ...plan.order,
+        ...plan.mentions.map((m) => m.table),
+        ...plan.clear.map((k) => k.child),
+      ]),
+    ];
+    for (const table of touched) {
       await tx.execute(sql.raw(`alter table ${ident(table)} disable trigger user`));
     }
-    for (const l of clear) {
-      const column = columnOf.get(l.child);
-      if (!column) continue;
-      // The client column stays: a same-client link where it may be null (test_case_result's run,
-      // 0028) is broken by its other columns, and clearing it would make the row look shared.
-      const cols = l.columns.filter((col) => col !== column);
-      if (cols.length === 0) continue;
-      const sets = cols.map((col) => `${ident(col)} = null`).join(", ");
-      const anySet = cols.map((col) => `${ident(col)} is not null`).join(" or ");
-      await tx.execute(
-        sql`update ${sql.raw(ident(l.child))} set ${sql.raw(sets)}
-            where ${sql.raw(ident(column))} = ${tenantId} and (${sql.raw(anySet)})`,
+    const cleared: PurgeReport["cleared"] = [];
+    const count = (result: unknown) => Number((result as { count?: number }).count ?? 0);
+    // Another column naming this client (a template's build tested at it): it no longer does.
+    for (const m of plan.mentions) {
+      const result = await tx.execute(
+        sql`update ${sql.raw(ident(m.table))} set ${sql.raw(ident(m.column))} = null
+            where ${sql.raw(ident(m.column))} = ${tenantId}`,
       );
+      cleared.push({ table: m.table, column: m.column, rows: count(result) });
+    }
+    // Nullable links to a row about to go: cleared, on this client's rows (an agent and its live
+    // version point at each other) and on any other (a template's build and its test copy).
+    for (const k of plan.clear) {
+      const rows = plan.rowsOf.get(k.parent);
+      // A row's own client column stays: a same-client link where it may be null
+      // (test_case_result's run, 0028) is broken by its other columns, and clearing the client
+      // would make the row look shared.
+      const cols = k.columns.filter((col) => col !== plan.owner.get(k.child));
+      if (!rows || cols.length === 0) continue;
+      const result = await tx.execute(
+        sql`update ${sql.raw(ident(k.child))}
+            set ${sql.raw(cols.map((col) => `${ident(col)} = null`).join(", "))}
+            where (${sql.raw(list(k.columns))}) in (select ${sql.raw(list(k.refColumns))}
+              from ${sql.raw(ident(k.parent))} where ${rows(tenantId)})`,
+      );
+      cleared.push({ table: k.child, column: cols.join(", "), rows: count(result) });
     }
     const deleted: PurgeReport["deleted"] = [];
-    for (const table of order) {
-      const column = columnOf.get(table);
-      if (!column) continue;
+    for (const table of plan.order) {
+      const rows = plan.rowsOf.get(table);
+      if (!rows) continue;
       const result = await tx.execute(
-        sql`delete from ${sql.raw(ident(table))} where ${sql.raw(ident(column))} = ${tenantId}`,
+        sql`delete from ${sql.raw(ident(table))} where ${rows(tenantId)}`,
       );
-      deleted.push({ table, rows: Number((result as { count?: number }).count ?? 0) });
+      deleted.push({ table, rows: count(result) });
     }
-    for (const table of tables) {
+    for (const table of touched) {
       await tx.execute(sql.raw(`alter table ${ident(table)} enable trigger user`));
     }
     await tx.execute(sql`delete from tenant where id = ${tenantId}`);
@@ -201,6 +298,6 @@ export async function purgeClient(
       insert into audit_event (tenant_id, actor_kind, action, outcome, target)
       values (${tenantId}, 'system', 'client.purge', 'ok',
               ${JSON.stringify({ name: t.name, users: String(usersDeleted) })}::jsonb)`);
-    return { tenantId, name: t.name, deleted, usersDeleted };
+    return { tenantId, name: t.name, deleted, cleared, usersDeleted };
   });
 }

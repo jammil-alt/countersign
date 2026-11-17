@@ -3,8 +3,9 @@
 
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { closeDb, createDb } from "./client";
 import { type ClientFixture, insertClient, insertOperatorRows } from "./fixtures.test-helper";
-import { deleteOrder, PurgeRefused, purgeClient } from "./purge";
+import { deleteOrder, PurgeRefused, purgeClient, purgePlan } from "./purge";
 import { deal, dealActivity, dealPerson, playLog, TENANT_TABLES, todo } from "./schema";
 import { createTestDatabase, databaseAvailable, type TestDatabase } from "./testing";
 
@@ -128,5 +129,119 @@ describe.skipIf(!online)("purgeClient", () => {
     await expect(
       t.db.execute(sql`delete from agent_version where tenant_id = ${B.tenantId}`),
     ).rejects.toThrow();
+  });
+
+  it("covers every table that names a client, so a new one can't be left behind", async () => {
+    const plan = await purgePlan(t.db);
+    // A column naming a client with no foreign key to it would be missed: the audit log alone
+    // has one, on purpose (it outlives the client).
+    const naming = [
+      ...(await t.db.execute<{ table_name: string; column_name: string }>(sql`
+        select table_name, column_name from information_schema.columns
+        where table_schema = 'public' and column_name in ('tenant_id', 'client_id')
+          and table_name <> 'audit_event'`)),
+    ];
+    for (const { table_name: table, column_name: column } of naming) {
+      expect(plan.rowsOf.has(table), `${table}.${column} is purged`).toBe(true);
+    }
+    for (const table of TENANT_TABLES.filter((tb) => tb !== "audit_event")) {
+      expect(plan.order, table).toContain(table);
+    }
+    // A build's rows go with the client's build; a template's build tested there only loses it.
+    expect(plan.order).toEqual(expect.arrayContaining(["build", "build_item", "build_event"]));
+    expect(plan.owner.get("build")).toBe("client_id");
+    expect(plan.mentions).toEqual([{ table: "build", column: "test_client_id" }]);
+  });
+
+  it("purges a client with builds and Reggie's records about it, keeping the operator's own", async () => {
+    const X = await insertClient(t.db, "X");
+    const Y = await insertClient(t.db, "Y");
+    const one = async <T>(q: ReturnType<typeof sql>) =>
+      [...(await t.db.execute<T & Record<string, unknown>>(q))][0] as T;
+    const op = await one<{ id: string }>(sql`
+      insert into app_user (email, name) values (${`op-${X.tenantId}@example.com`}, 'Op')
+      returning id`);
+    // A build for X (its agent, Builder conversation and test copy), with its items, messages
+    // and events; a template build tested at X; and Y's build.
+    const build = async (
+      client: string | null,
+      testClient: string | null,
+      testAgent: string | null,
+      agentId: string | null,
+      session: string | null,
+    ) =>
+      (
+        await one<{ id: string }>(sql`
+          insert into build (client_id, kind, title, agent_id, session_id, test_client_id,
+            test_agent_id, created_by)
+          values (${client}, 'agent', 'A build', ${agentId}, ${session}, ${testClient},
+            ${testAgent}, ${op.id})
+          returning id`)
+      ).id;
+    const xBuild = await build(X.tenantId, X.tenantId, X.agentId, X.agentId, X.builderSessionId);
+    const templateBuild = await build(null, X.tenantId, X.agentId, null, null);
+    const yBuild = await build(Y.tenantId, Y.tenantId, Y.agentId, Y.agentId, Y.builderSessionId);
+    for (const id of [xBuild, templateBuild, yBuild]) {
+      await t.db.execute(sql`
+        insert into build_item (build_id, phase, kind, title) values (${id}, 'intake', 'note', 'n')`);
+      await t.db.execute(sql`
+        insert into build_message (build_id, phase, role, text) values (${id}, 'intake', 'operator', 'hi')`);
+      await t.db.execute(sql`insert into build_event (build_id, kind) values (${id}, 'phase')`);
+    }
+    // Reggie: a conversation about X, and a proposal for X in one about everything.
+    const aboutX = await one<{ id: string }>(sql`
+      insert into reggie_conversation (user_id, client_id) values (${op.id}, ${X.tenantId})
+      returning id`);
+    await t.db.execute(sql`
+      insert into reggie_message (conversation_id, role, text) values (${aboutX.id}, 'operator', 'x')`);
+    const aboutAll = await one<{ id: string }>(sql`
+      insert into reggie_conversation (user_id) values (${op.id}) returning id`);
+    await t.db.execute(sql`
+      insert into reggie_message (conversation_id, role, text) values (${aboutAll.id}, 'operator', 'all')`);
+    await t.db.execute(sql`
+      insert into reggie_action (conversation_id, user_id, client_id, tool, args, preview)
+      values (${aboutAll.id}, ${op.id}, ${X.tenantId}, 'clients_get', '{}', '{}')`);
+
+    await t.db.execute(
+      sql`update tenant set retired_at = now() - interval '31 days' where id = ${X.tenantId}`,
+    );
+    // Through one connection, as the owner's script runs it.
+    const script = createDb(t.url, { max: 1 });
+    const report = await purgeClient(script, X.tenantId, { force: true }).finally(() =>
+      closeDb(script),
+    );
+    expect(report.cleared).toContainEqual({ table: "build", column: "test_client_id", rows: 2 });
+
+    const rows = async (q: ReturnType<typeof sql>) => [...(await t.db.execute(q))].length;
+    expect(await rows(sql`select 1 from tenant where id = ${X.tenantId}`)).toBe(0);
+    // X's build and everything on it are gone.
+    for (const table of ["build_item", "build_message", "build_event"]) {
+      expect(
+        await rows(sql`select 1 from ${sql.raw(table)} where build_id = ${xBuild}`),
+        table,
+      ).toBe(0);
+      expect(
+        await rows(
+          sql`select 1 from ${sql.raw(table)} where build_id in (${templateBuild}, ${yBuild})`,
+        ),
+        `${table} of the others`,
+      ).toBe(2);
+    }
+    expect(await rows(sql`select 1 from build where id = ${xBuild}`)).toBe(0);
+    // The template's build stays, no longer tested at X.
+    expect([
+      ...(await t.db.execute(
+        sql`select test_client_id, test_agent_id from build where id = ${templateBuild}`,
+      )),
+    ]).toEqual([{ test_client_id: null, test_agent_id: null }]);
+    expect(
+      await rows(sql`select 1 from build where id = ${yBuild} and client_id = ${Y.tenantId}`),
+    ).toBe(1);
+    // Reggie's records about X go; the conversation about everything stays.
+    expect(await rows(sql`select 1 from reggie_conversation where id = ${aboutX.id}`)).toBe(0);
+    expect(await rows(sql`select 1 from reggie_action where client_id = ${X.tenantId}`)).toBe(0);
+    expect(
+      await rows(sql`select 1 from reggie_message where conversation_id = ${aboutAll.id}`),
+    ).toBe(1);
   });
 });

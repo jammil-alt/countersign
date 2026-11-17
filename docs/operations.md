@@ -1295,7 +1295,8 @@ disconnected. Then:
 3. Then the owner purges its rows, as `cs_owner`:
    `DIRECT_DATABASE_URL=<cs_owner url> pnpm --filter @countersign/db run db:purge-client -- <client id>`.
    It refuses to run until the 30 days have passed and step 2 is done. It briefly locks each table, so run it at a
-   quiet hour. The audit log keeps the client's rows (ids only). Neon's point-in-time history
+   quiet hour. Builds for the client go with it; a template's build tested at it stays, no
+   longer tested there. The audit log keeps the client's rows (ids only). Neon's point-in-time history
    holds the deleted rows until its restore window passes.
 
 **Exporting a client's data.** The terms promise an export on request until 30 days after the
