@@ -8,7 +8,7 @@ import { dec } from "@countersign/core";
 import { ledgerAccount, type Tx, transaction, vendor, withTenant } from "@countersign/db";
 import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { holdPaired, MONEY_KINDS, resentWritten } from "./bookings";
+import { holdPaired, MONEY_KINDS, resentChain, resentWritten } from "./bookings";
 import { defineTool, PackRefusal, type PackTool } from "./pack";
 import { bankAccountLink, bankTxn, booking, bookingLine } from "./schema";
 
@@ -140,9 +140,8 @@ export async function qboInput(tx: Tx, tenantId: string, bookingId: string) {
       `transaction ${t.id} was removed and sent again by the bank: a person decides the new copy`,
     );
   }
-  // A copy the bank sent again: a record written for the earlier copy is this money's too.
-  const resentOf = (t.ext as { resentOf?: unknown }).resentOf;
-  const ids = typeof resentOf === "string" ? [t.id, resentOf] : [t.id];
+  // A copy the bank sent again: a record written for any earlier copy is this money's too.
+  const ids = await resentChain(tx, tenantId, t.id);
   if (l.mode !== "book" || !l.ledgerAccountId) {
     throw new PackRefusal(
       `${l.name ?? "this account"} isn't set to book: approve and add it yourself`,

@@ -9,6 +9,7 @@ import {
   closeDb,
   createDb,
   type Db,
+  ledgerAccountNote,
   rawRecord,
   type Tx,
   transaction,
@@ -1514,14 +1515,23 @@ describe.skipIf(!online)("settling (database, as cs_worker)", () => {
     expect(proposed.status).toBe("proposed");
     // A run lays it out for a signature.
     await b.inA((tx) => qboInput(tx, b.A.tenantId, proposed.bookingId));
-    // A person books the card side as that same transfer.
+    // A person books the card side as that same transfer, saying why.
     const decided = await b.inA(async (tx) =>
       bookByPerson(tx, b.person, {
         bankTxnId: (await b.txn("a")).id,
         lines: [{ ledgerAccountId: b.A.accounts.Checking ?? "" }],
+        why: "We pay the card from checking",
       }),
     );
     expect(decided).toBe(proposed.bookingId);
+    // The person's words are kept as the client's note, as when booked on this side.
+    const notes = await t.db
+      .select()
+      .from(ledgerAccountNote)
+      .where(eq(ledgerAccountNote.tenantId, b.A.tenantId));
+    expect(notes.map((x) => [x.ledgerAccountId, x.note, x.source])).toEqual([
+      [b.A.accounts.Checking, "We pay the card from checking", "client"],
+    ]);
     expect(await b.liveOf("c")).toMatchObject({
       id: proposed.bookingId,
       status: "approved",
@@ -1538,7 +1548,7 @@ describe.skipIf(!online)("settling (database, as cs_worker)", () => {
     expect(ready.bookings.map((x) => x.bookingId)).toEqual([proposed.bookingId]);
   });
 
-  it("asks again about a bill paid in QuickBooks once the payment there is undone or the bill goes", async () => {
+  it("asks again about a bill paid in QuickBooks once the payment there is undone, and holds it otherwise", async () => {
     const b = await books(
       [{ account: CHECKING, ledger: "Checking" }],
       [{ id: "seen", amount: "1.00", date: "2026-11-01", merchantName: "Shell" }],
@@ -1578,14 +1588,162 @@ describe.skipIf(!online)("settling (database, as cs_worker)", () => {
       openItem: { transactionId: bill, balance: "4200.0000", confirmed: true },
     });
     expect((open.ext as { openItem?: { paid?: boolean } }).openItem?.paid).not.toBe(true);
-    // Paid again, then the bill deleted: nothing holds it any more.
+    // Paid again, then the bill edited to a higher total (300 more owed): the payment stays
+    // applied there, so it stays with a person, still paid, and nothing is ready to write.
     await balance("0", "v4");
     await b.inA((tx) => settle(tx, b.who));
     expect((await b.txn("bp")).ext).toMatchObject({ openItem: { paid: true } });
+    await balance("300", "v5");
+    for (let i = 0; i < 2; i++) {
+      const r = await b.inA((tx) => settle(tx, b.who));
+      expect(r.open).not.toContain((await b.txn("bp")).id);
+      expect(await b.txn("bp")).toMatchObject({
+        status: "needs_review",
+        ext: { openItem: { transactionId: bill, paid: true } },
+      });
+    }
+    // The model's suggestion doesn't take it past the person.
+    await b.inA(async (tx) =>
+      propose(tx, b.who, {
+        bankTxnId: (await b.txn("bp")).id,
+        lines: [{ ledgerAccountId: b.A.accounts["Job Materials"] ?? "" }],
+        confidence: 0.95,
+        reason: "materials",
+      }),
+    );
+    expect((await b.txn("bp")).status).toBe("needs_review");
+    const ready = (await tool("bookkeeping.bookings.ready").run({ limit: 25 }, b.ctx())) as {
+      bookings: unknown[];
+    };
+    expect(ready.bookings).toEqual([]);
+    // The bill deleted: once paid, a person still decides.
     await t.db.execute(
       sql`update transaction set ext = jsonb_set(ext, '{qbo,deleted}', 'true') where id = ${bill}`,
     );
     await b.inA((tx) => settle(tx, b.who));
-    expect((await b.txn("bp")).ext).not.toHaveProperty("openItem");
+    expect(await b.txn("bp")).toMatchObject({
+      status: "needs_review",
+      ext: { openItem: { paid: true } },
+    });
+  });
+
+  it("records a posted charge the bank sends again twice as the one write", async () => {
+    const b = await books(
+      [{ account: CHECKING, ledger: "Checking" }],
+      [{ id: "s", amount: "39.99", date: "2026-11-03", merchantName: "Figma" }],
+    );
+    await b.inA((tx) => settle(tx, b.who));
+    const p = await b.inA(async (tx) =>
+      propose(tx, b.who, {
+        bankTxnId: (await b.txn("s")).id,
+        lines: [{ ledgerAccountId: b.A.accounts.Software ?? "" }],
+        confidence: 0.95,
+        reason: "software",
+      }),
+    );
+    await b.posted(p.bookingId, "purchase", "555");
+    // The write syncs back from QuickBooks with its reference.
+    await b.A.qboPurchase({
+      id: "555",
+      total: "39.9900",
+      date: "2026-11-03",
+      accountQboId: "35",
+      memo: `Figma [Mezonas bt-${(await b.txn("s")).id}]`,
+    });
+    await b.A.feedRemoved("s");
+    await b.more({ id: "s2", amount: "39.99", date: "2026-11-03", merchantName: "Figma" });
+    await b.inA((tx) => settle(tx, b.who));
+    expect(await b.liveOf("s2")).toMatchObject({ status: "posted", qboId: "555" });
+    await b.A.feedRemoved("s2");
+    await b.more({ id: "s3", amount: "39.99", date: "2026-11-03", merchantName: "Figma" });
+    const r = await b.inA((tx) => settle(tx, b.who));
+    expect(r.open).toEqual([]);
+    expect((await b.txn("s3")).status).toBe("matched");
+    expect(await b.liveOf("s3")).toMatchObject({ status: "posted", qboId: "555" });
+  });
+
+  it("refuses to write a copy when the write for any earlier copy in its chain is there", async () => {
+    const b = await books(
+      [{ account: CHECKING, ledger: "Checking" }],
+      [{ id: "s", amount: "39.99", date: "2026-11-03", merchantName: "Figma" }],
+    );
+    await b.inA((tx) => settle(tx, b.who));
+    await b.inA(async (tx) =>
+      propose(tx, b.who, {
+        bankTxnId: (await b.txn("s")).id,
+        lines: [{ ledgerAccountId: b.A.accounts.Software ?? "" }],
+        confidence: 0.95,
+        reason: "software",
+      }),
+    );
+    await b.inA(async (tx) => approve(tx, b.person, (await b.txn("s")).id));
+    // Removed and re-sent twice before anything is written: each copy waits for a person.
+    await b.A.feedRemoved("s");
+    await b.more({ id: "s2", amount: "39.99", date: "2026-11-03", merchantName: "Figma" });
+    await b.inA((tx) => settle(tx, b.who));
+    await b.inA(async (tx) => exclude(tx, b.person, { bankTxnId: (await b.txn("s2")).id }));
+    await b.A.feedRemoved("s2");
+    await b.more({ id: "s3", amount: "39.99", date: "2026-11-03", merchantName: "Figma" });
+    await b.inA((tx) => settle(tx, b.who));
+    expect(await b.txn("s3")).toMatchObject({
+      status: "needs_review",
+      ext: { resentOf: (await b.txn("s2")).id },
+    });
+    // The first copy's write was made after all and syncs back under its mark.
+    await b.A.qboPurchase({
+      id: "556",
+      total: "39.9900",
+      date: "2026-11-03",
+      accountQboId: "35",
+      memo: `Figma [Mezonas bt-${(await b.txn("s")).id}]`,
+    });
+    const id = await b.inA(async (tx) =>
+      bookByPerson(tx, b.person, {
+        bankTxnId: (await b.txn("s3")).id,
+        lines: [{ ledgerAccountId: b.A.accounts.Software ?? "" }],
+      }),
+    );
+    await expect(b.inA((tx) => qboInput(tx, b.A.tenantId, id))).rejects.toThrow(
+      "already in QuickBooks (Purchase 556)",
+    );
+  });
+
+  it("keeps the open-bill question on a held payment the bank sends again", async () => {
+    const b = await books(
+      [{ account: CHECKING, ledger: "Checking" }],
+      [{ id: "seen", amount: "1.00", date: "2026-11-01", merchantName: "Shell" }],
+    );
+    const hardwood = await b.A.vendor("Hardwood Supply", "56");
+    const bill = await b.A.qboBill({
+      id: "301",
+      total: "4200.0000",
+      balance: "4200.0000",
+      date: "2026-10-20",
+      vendorId: hardwood,
+    });
+    await b.more({
+      id: "bp",
+      amount: "4200.00",
+      date: "2026-11-03",
+      description: "ACH HARDWOOD SUPPLY",
+    });
+    await b.inA((tx) => settle(tx, b.who));
+    expect((await b.txn("bp")).status).toBe("needs_review");
+    await b.A.feedRemoved("bp");
+    await b.more({
+      id: "bp2",
+      amount: "4200.00",
+      date: "2026-11-03",
+      description: "ACH HARDWOOD SUPPLY",
+    });
+    await b.inA((tx) => settle(tx, b.who));
+    await b.inA((tx) => settle(tx, b.who));
+    expect(await b.txn("bp2")).toMatchObject({
+      status: "needs_review",
+      ext: {
+        resentOf: (await b.txn("bp")).id,
+        openItem: { kind: "bill", transactionId: bill, confirmed: true },
+      },
+    });
   });
 });

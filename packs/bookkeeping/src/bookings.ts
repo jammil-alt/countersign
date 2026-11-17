@@ -13,7 +13,20 @@ import {
   transaction,
   vendor,
 } from "@countersign/db";
-import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  lte,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import { activeAccount, addNote } from "./accounts";
 import { PackRefusal } from "./pack";
 import { isGenericPayeeKey, payeeKey } from "./payee";
@@ -497,7 +510,7 @@ async function joinProposed(
   t: TxnRow,
   other: { bookingId: string; side: TxnRow },
 ): Promise<string> {
-  await tx
+  const approved = await tx
     .update(booking)
     .set({ status: "approved", userId: who.userId, decidedAt: sql`now()` })
     .where(
@@ -506,7 +519,11 @@ async function joinProposed(
         eq(booking.id, other.bookingId),
         eq(booking.status, "proposed"),
       ),
-    );
+    )
+    .returning({ id: booking.id });
+  if (approved.length === 0) {
+    throw new PackRefusal("the other side's transfer changed meanwhile: decide this one again");
+  }
   await setStatus(tx, who.tenantId, other.side.id, "approved");
   await joinBooked(tx, who.tenantId, t, other, { userId: who.userId });
   return other.bookingId;
@@ -806,6 +823,22 @@ export async function markOffered(tx: Tx, tenantId: string, ids: readonly string
     .where(and(eq(bankTxn.tenantId, tenantId), inArray(bankTxn.id, [...ids])));
 }
 
+/**
+ * A transaction and every earlier copy it was sent again in place of (`resentOf`, followed all
+ * the way back): one money, whichever copy a write was made for.
+ */
+export async function resentChain(tx: Tx, tenantId: string, id: string): Promise<string[]> {
+  const rows = await tx.execute<{ id: string }>(sql`
+    with recursive chain(id) as (
+      select ${id}::uuid
+      union
+      select (b.ext ->> 'resentOf')::uuid from ${bankTxn} b join chain c on b.id = c.id
+      where b.tenant_id = ${tenantId} and b.ext ->> 'resentOf' is not null
+    )
+    select id::text as id from chain`);
+  return [...rows].map((r) => r.id);
+}
+
 /** The plain note on a copy the bank sent again, waiting for a person. */
 export const RESENT_NOTE = "The bank sent this again after removing an earlier copy";
 
@@ -901,15 +934,21 @@ async function resentMatch(
   let transfer: { id: string; bankTxnId: string } | null = null;
   if (posted) {
     // Not what another transaction already stands for (matched to the record itself).
+    // The earlier copy's own chain (and any copy since sent again) is this same money.
+    const chain = await resentChain(tx, who.tenantId, earlier.id);
     const [taken] = posted.qboId
       ? await tx
           .select({ id: booking.id })
           .from(booking)
+          .innerJoin(
+            bankTxn,
+            and(eq(bankTxn.id, booking.bankTxnId), eq(bankTxn.tenantId, booking.tenantId)),
+          )
           .where(
             and(
               eq(booking.tenantId, who.tenantId),
-              ne(booking.bankTxnId, earlier.id),
-              ne(booking.bankTxnId, t.id),
+              notInArray(booking.bankTxnId, [...chain, t.id]),
+              sql`${bankTxn.ext} ->> 'resentAs' is null`,
               inArray(booking.status, [...LIVE_BOOKING_STATUSES]),
               eq(booking.qboId, posted.qboId),
               sql`${booking.qboEntity} is not distinct from ${posted.qboEntity}`,
@@ -956,8 +995,11 @@ async function resentMatch(
       .where(and(eq(bankTxn.tenantId, who.tenantId), eq(bankTxn.id, t.id)));
   } else {
     await retireEarlier(tx, who.tenantId, earlier);
+    // An open bill or invoice the earlier copy was held for (or hinted at) holds the copy too.
+    const item = openItemOf(earlier);
     await setStatus(tx, who.tenantId, t.id, "needs_review", {
       ...t.ext,
+      ...(item ? { openItem: item } : {}),
       resentOf: earlier.id,
       note: RESENT_NOTE,
     });
@@ -1538,7 +1580,9 @@ async function recheckOpenItems(tx: Tx, who: Decider): Promise<void> {
         const { paid: _, ...item } = was;
         await setStatus(tx, who.tenantId, t.id, "needs_review", { ...t.ext, openItem: item });
       }
-    } else if (paid) {
+    } else if (paid || was.paid) {
+      // Once paid there, only the payment being undone frees it: a bill edited or deleted since
+      // keeps it with a person (the payment may still be applied there).
       if (!was.paid) {
         await setStatus(tx, who.tenantId, t.id, "needs_review", {
           ...t.ext,
@@ -1804,39 +1848,43 @@ export async function bookByPerson(tx: Tx, who: PersonDecision, input: BookInput
     kind === "transfer" && lines[0]
       ? await otherSideBooked(tx, who.tenantId, t, lines[0].ledgerAccountId)
       : null;
+  const why = input.why?.replace(/\s+/g, " ").trim() || null;
+  const first = lines[0];
+  let id: string;
   if (other && other.status !== "proposed") {
     await joinBooked(tx, who.tenantId, t, other, { userId: who.userId });
-    return other.bookingId;
-  }
-  if (other && other.mode === "book") return joinProposed(tx, who, t, other);
-  await supersede(tx, who.tenantId, t.id);
-  const why = input.why?.replace(/\s+/g, " ").trim() || null;
-  const id = await insertBooking(
-    tx,
-    who.tenantId,
-    t,
-    {
+    id = other.bookingId;
+  } else if (other && other.mode === "book") {
+    id = await joinProposed(tx, who, t, other);
+  } else {
+    await supersede(tx, who.tenantId, t.id);
+    id = await insertBooking(
+      tx,
+      who.tenantId,
+      t,
+      {
+        kind,
+        status: "approved",
+        decidedBy: "person",
+        confidence: 1,
+        vendorId: input.vendorId ?? null,
+        memo: input.memo ?? null,
+        reason: why,
+        userId: who.userId,
+      },
+      lines,
+    );
+    await setStatus(tx, who.tenantId, t.id, "approved");
+    await repairPaired(tx, who.tenantId, t, {
+      bookingId: id,
       kind,
-      status: "approved",
-      decidedBy: "person",
-      confidence: 1,
-      vendorId: input.vendorId ?? null,
-      memo: input.memo ?? null,
-      reason: why,
-      userId: who.userId,
-    },
-    lines,
-  );
-  await setStatus(tx, who.tenantId, t.id, "approved");
-  const first = lines[0];
-  await repairPaired(tx, who.tenantId, t, {
-    bookingId: id,
-    kind,
-    lineAccountId: first?.ledgerAccountId ?? null,
-    byPerson: true,
-    decidedBy: { userId: who.userId },
-  });
-  if (other) await takeOver(tx, who.tenantId, other, id, t, { userId: who.userId });
+      lineAccountId: first?.ledgerAccountId ?? null,
+      byPerson: true,
+      decidedBy: { userId: who.userId },
+    });
+    if (other) await takeOver(tx, who.tenantId, other, id, t, { userId: who.userId });
+  }
+  // Joined to the other side's transfer or booked here, the person's note and rule are kept.
   if (why && first) {
     await addNote(
       tx,
