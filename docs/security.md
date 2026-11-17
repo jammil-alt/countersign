@@ -181,14 +181,13 @@ branches.
   (`apps/api/src/request-origin.ts`). Signed webhooks, the public forms and beacon, and the phone
   app's own session header are exempt; a body sent to a session route must be JSON.
 - **Rate limiting** (Cloudflare): 50 requests per 10 seconds per IP on `/api/*`, webhooks
-  excluded. The MCP connector has its own limit of 120 calls a minute per operator.
-  `/mcp` is not under `/api/*`, so the Cloudflare rule doesn't cover it: a request there with no
-  token is answered and not recorded, and refused sign-ins are recorded only up to 120 a minute
-  per IP (`MCP_RATE_LIMIT`, key `ip:<address>`).
-  Plain-words questions and voice typing in the portal, which each call a paid model, are
-  limited per person and client to 10 a minute and 200 a day (`apps/api/src/metered.ts`).
-  The public beacon route (`/api/in/`) has its own too: 120 a minute per sending address and 120 a minute
-  per measured site, checked before any database work (`apps/api/src/routes/pack-inbound.ts`).
+  excluded. The MCP connector has its own limit of 120 calls a minute per operator. `/mcp` is not
+  under `/api/*`, so the Cloudflare rule doesn't cover it: a request there with no token is
+  answered and not recorded, and refused sign-ins are recorded only up to 120 a minute per IP
+  (`MCP_RATE_LIMIT`, key `ip:<address>`). Plain-words questions and voice typing in the portal,
+  which each call a paid model, are limited per person and client to 10 a minute and 200 a day
+  (`apps/api/src/metered.ts`). The public beacon route (`/api/in/`) has its own too: 120 a minute
+  per sending address, checked before any database work (`apps/api/src/routes/pack-inbound.ts`).
 - **Writes to clients' tools** need approval by default, run once each, and record their before
   state (invariant 8). Delete is off.
 - **Webhooks** from Twilio, Stripe, QuickBooks and ElevenLabs are signature-checked.

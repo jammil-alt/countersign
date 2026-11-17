@@ -1,7 +1,7 @@
 // M43 (docs/plan.md §1.72): `POST /api/in/:pack/:tenantId/:target`, what a pack takes from
 // outside with no session: for the Marketing pack, a measured website's beacon. Nothing here
 // names a pack (invariant 2): the platform checks that the pack is registered with an inbound
-// handler, that the request is within the limits per address and per target, and that the client
+// handler, that the request is within the limit per sending address, and that the client
 // has it on, caps the body, and hands the pack the request's facts.
 //
 // Always 204 with no body, whatever happened, so a sender learns nothing about which clients,
@@ -20,7 +20,8 @@ import { z } from "zod";
 import { readTextLimited } from "../body";
 import type { AppEnv } from "../http";
 import { type RateLimiter, rateLimiterFor } from "../mcp/limits";
-import { reportHandled } from "../observability/report";
+import { reportHandled, reportProblem } from "../observability/report";
+import { sampled } from "../observability/sampled";
 
 const spec = routes.packInbound;
 const Params = z.object({ pack: z.string(), tenantId: z.uuid(), target: z.uuid() });
@@ -46,21 +47,37 @@ async function addressKey(ip: string): Promise<string> {
 }
 
 /**
- * Whether a request is within the inbound limits: per sending address, then per target (for the
- * Marketing pack, per measured site), so neither a new user agent nor a new address gets past them.
+ * Whether a request is within the inbound limit: per sending address, so a new user agent gets
+ * past nothing.
  */
-// DECISION: the limits use the Rate Limiting binding the Worker already has (`MCP_RATE_LIMIT`,
-// 120 a minute per key, per Cloudflare location), with keys of their own, rather than a new
-// binding or a database counter: they are checked before any database work, and a refused request
-// costs nothing. A request over a limit is not counted as dropped (that would be a write per
-// request); it gets the same 204. A site that outgrows 120 beacons a minute needs its own binding.
+// DECISION: the limit uses the Rate Limiting binding the Worker already has (`MCP_RATE_LIMIT`,
+// 120 a minute per key, per Cloudflare location), with keys of its own, checked before any
+// database work. There is no per-site limit: on the same binding it would be 120 a minute too, so
+// one address could use up a site's allowance and a busy site would lose real beacons. A per-site
+// limit needs its own binding, set well above the address limit; that is a later change. A request
+// over the limit gets the same 204 and is counted in this isolate, reported at most once a minute.
 export async function withinInboundLimits(
   limiter: RateLimiter,
-  req: { pack: string; tenantId: string; target: string; ip: string },
+  req: { ip: string },
 ): Promise<boolean> {
-  if (!(await limiter.allow(`in:ip:${await addressKey(req.ip)}`))) return false;
-  return limiter.allow(`in:target:${req.pack}:${req.tenantId}:${req.target}`);
+  return limiter.allow(`in:ip:${await addressKey(req.ip)}`);
 }
+
+/** Counts requests over the limit and reports the count at most once a minute (no address). */
+export function droppedReporter(
+  report: (count: number) => void,
+  now: () => number = Date.now,
+): () => void {
+  const counted = sampled((count) => report(count), 60_000, now);
+  return () => counted(undefined);
+}
+
+const dropped = droppedReporter((count) =>
+  reportProblem("pack inbound requests over the address limit", {
+    job: "pack_inbound",
+    dropped: String(count),
+  }),
+);
 
 export function packInboundRoutes(app: Hono<AppEnv>): void {
   app.post(spec.path, async (c) => {
@@ -72,13 +89,11 @@ export function packInboundRoutes(app: Hono<AppEnv>): void {
       const pack = services.platform.packs.find((p) => p.manifest.id === packId);
       if (!pack?.inbound) return noContent(c);
       const ip = c.req.header("cf-connecting-ip") ?? "";
-      const allowed = await withinInboundLimits(rateLimiterFor(c.env, "inbound"), {
-        pack: packId,
-        tenantId,
-        target,
-        ip,
-      });
-      if (!allowed) return noContent(c);
+      const allowed = await withinInboundLimits(rateLimiterFor(c.env, "inbound"), { ip });
+      if (!allowed) {
+        dropped();
+        return noContent(c);
+      }
       const on = await withTenant(services.db, tenantId, (tx) =>
         tx
           .select({ pack: tenantPack.pack })

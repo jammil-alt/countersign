@@ -130,7 +130,7 @@ describe.skipIf(!h)("the Marketing pack on the platform", () => {
     expect(other.status).toBe(404);
   });
 
-  describe("limits beacons per address and per site, whatever the user agent", () => {
+  describe("limits beacons per address, whatever the user agent", () => {
     const LIMIT = 120;
     const addSite = async (domain: string) => {
       const added = await H.call(
@@ -158,7 +158,7 @@ describe.skipIf(!h)("the Marketing pack on the platform", () => {
       expect(await stored(id)).toBe(LIMIT);
     });
 
-    it("stops storing one site's beacons past the limit, from any address", async () => {
+    it("keeps storing a site's beacons from many addresses", async () => {
       const id = await addSite("many-addresses.example.com");
       for (let i = 0; i < LIMIT + 10; i++) {
         const res = await inbound(H.A.tenantId, id, {
@@ -168,7 +168,7 @@ describe.skipIf(!h)("the Marketing pack on the platform", () => {
         });
         expect(res.status).toBe(204);
       }
-      expect(await stored(id)).toBe(LIMIT);
+      expect(await stored(id)).toBe(LIMIT + 10);
     });
   });
 });
