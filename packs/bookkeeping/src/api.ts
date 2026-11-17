@@ -15,7 +15,7 @@ import {
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { activeAccount, addNote, listAccounts } from "./accounts";
-import { addRule, approve, bookByPerson, exclude, liveBooking } from "./bookings";
+import { addRule, approve, bookByPerson, exclude, liveBooking, openItemOf } from "./bookings";
 import { importFeeds } from "./feed";
 import { PACK_ID } from "./ids";
 import {
@@ -80,6 +80,8 @@ export async function txnView(tx: Tx, tenantId: string, id: string) {
     status: t.status,
     account: { id: l.id, name: l.name, mask: l.mask, kind: l.kind },
     removedAfterPosting: (t.ext as { removedAfterPosting?: boolean }).removedAfterPosting === true,
+    /** An open bill or invoice this may be the payment of: why it waits for a person. */
+    openItem: openItemOf(t),
     booking: live
       ? {
           id: live.id,

@@ -216,6 +216,37 @@ describe("the booking review card", () => {
     await userEvent.click(within(card).getByTestId("bookings-review-approve"));
     await waitFor(() => expect(bodies).toEqual([{ action: "approve", input: { bankTxnId: TXN } }]));
   });
+
+  it("names the open bill a payment may be for", async () => {
+    const open = view(false);
+    const [txn] = open.data.transactions;
+    if (!txn) throw new Error("no transaction");
+    Object.assign(txn, {
+      booking: null,
+      amount: "4200.0000",
+      openItem: {
+        kind: "bill",
+        docNumber: "H-771",
+        name: "Hardwood Supply",
+        date: "2026-10-20",
+        balance: "4200.0000",
+        currency: "USD",
+      },
+    });
+    renderAt(
+      <InboxCard
+        item={item("bookkeeping.bookings", { bankTxnIds: [TXN] })}
+        onResolve={async () => {}}
+      />,
+      { [`GET /api/inbox/${INBOX}/pack-review`]: () => open },
+    );
+    const card = await screen.findByTestId("bookings-review");
+    const line = within(card).getByTestId("bookings-review-open-item");
+    expect(line).toHaveTextContent(
+      "Looks like the payment of an open bill: Hardwood Supply · #H-771",
+    );
+    expect(line).toHaveTextContent("4,200.00");
+  });
 });
 
 describe("the account questions card", () => {

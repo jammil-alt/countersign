@@ -8,7 +8,7 @@ import { dec } from "@countersign/core";
 import { ledgerAccount, type Tx, vendor, withTenant } from "@countersign/db";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
-import { MONEY_KINDS } from "./bookings";
+import { MONEY_KINDS, releasePaired } from "./bookings";
 import { defineTool, PackRefusal, type PackTool } from "./pack";
 import { bankAccountLink, bankTxn, booking, bookingLine } from "./schema";
 
@@ -312,6 +312,8 @@ export const postedTool = defineTool({
         .update(bankTxn)
         .set({ status: input.qboId ? "posted" : "needs_review", updatedAt: sql`now()` })
         .where(and(eq(bankTxn.tenantId, ctx.tenantId), eq(bankTxn.id, b.bankTxnId)));
+      // A transfer not written: its other side is decided on its own again.
+      if (!input.qboId) await releasePaired(tx, ctx.tenantId, [b.id]);
       return { recorded: true, status, sources: [b.id, ...(input.qboId ? [input.qboId] : [])] };
     });
   },

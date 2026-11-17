@@ -2765,6 +2765,10 @@ export const it: Messages = {
   "bookkeeping.review.loading": "Caricamento dei movimenti…",
   "bookkeeping.review.suggested": "Suggeriamo {account}",
   "bookkeeping.review.noSuggestion": "Ancora nessun suggerimento",
+  "bookkeeping.review.openBill":
+    "Sembra il pagamento di una fattura fornitore aperta: {what}. Registralo su quella fattura in QuickBooks, poi escludilo qui.",
+  "bookkeeping.review.openInvoice":
+    "Sembra l'incasso di una fattura aperta: {what}. Registralo su quella fattura in QuickBooks, poi escludilo qui.",
   "bookkeeping.review.approve": "Approva",
   "bookkeeping.review.account": "Conto per {payee}",
   "bookkeeping.review.why": "Perché, in poche parole (facoltativo)",

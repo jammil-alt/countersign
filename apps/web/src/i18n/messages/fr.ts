@@ -2797,6 +2797,10 @@ export const fr: Messages = {
   "bookkeeping.review.loading": "Chargement des opérations…",
   "bookkeeping.review.suggested": "Nous suggérons {account}",
   "bookkeeping.review.noSuggestion": "Pas encore de suggestion",
+  "bookkeeping.review.openBill":
+    "Cela ressemble au paiement d'une facture fournisseur ouverte : {what}. Imputez-le à cette facture dans QuickBooks, puis écartez-le ici.",
+  "bookkeeping.review.openInvoice":
+    "Cela ressemble à l'encaissement d'une facture ouverte : {what}. Imputez-le à cette facture dans QuickBooks, puis écartez-le ici.",
   "bookkeeping.review.approve": "Approuver",
   "bookkeeping.review.account": "Compte pour {payee}",
   "bookkeeping.review.why": "Pourquoi, en quelques mots (facultatif)",

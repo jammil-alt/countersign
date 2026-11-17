@@ -133,6 +133,15 @@ export interface ReviewTransaction {
   description: string | null;
   status: BankTxnStatus;
   account: { id: string; name: string | null; mask: string | null; kind: string };
+  /** An open bill or invoice of the same amount: why it waits for a person. */
+  openItem?: {
+    kind: "bill" | "invoice";
+    docNumber: string | null;
+    name: string | null;
+    date: string | null;
+    balance: string;
+    currency: string;
+  } | null;
   booking: {
     id: string;
     kind: string;

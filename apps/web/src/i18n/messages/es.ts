@@ -2748,6 +2748,10 @@ export const es: Messages = {
   "bookkeeping.review.loading": "Cargando los movimientos…",
   "bookkeeping.review.suggested": "Sugerimos {account}",
   "bookkeeping.review.noSuggestion": "Aún sin sugerencia",
+  "bookkeeping.review.openBill":
+    "Parece el pago de una factura de proveedor pendiente: {what}. Aplícalo a esa factura en QuickBooks y luego exclúyelo aquí.",
+  "bookkeeping.review.openInvoice":
+    "Parece el cobro de una factura pendiente: {what}. Aplícalo a esa factura en QuickBooks y luego exclúyelo aquí.",
   "bookkeeping.review.approve": "Aprobar",
   "bookkeeping.review.account": "Cuenta para {payee}",
   "bookkeeping.review.why": "Por qué, en pocas palabras (opcional)",

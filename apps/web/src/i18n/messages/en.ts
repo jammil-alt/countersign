@@ -2671,6 +2671,10 @@ export const en = {
   "bookkeeping.review.loading": "Loading the transactions…",
   "bookkeeping.review.suggested": "We suggest {account}",
   "bookkeeping.review.noSuggestion": "No suggestion yet",
+  "bookkeeping.review.openBill":
+    "Looks like the payment of an open bill: {what}. Apply it to the bill in QuickBooks, then leave this out.",
+  "bookkeeping.review.openInvoice":
+    "Looks like the payment of an open invoice: {what}. Apply it to the invoice in QuickBooks, then leave this out.",
   "bookkeeping.review.approve": "Approve",
   "bookkeeping.review.account": "Account for {payee}",
   "bookkeeping.review.why": "Why, in a few words (optional)",

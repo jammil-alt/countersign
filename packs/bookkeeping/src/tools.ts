@@ -8,7 +8,7 @@ import { ledgerAccount, withTenant } from "@countersign/db";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { addNote, listAccounts, unclearAccounts } from "./accounts";
-import { BOOK_CONFIDENCE_AUTO, propose, settle, toReview } from "./bookings";
+import { BOOK_CONFIDENCE_AUTO, openItemOf, propose, settle, toReview } from "./bookings";
 import { importFeeds } from "./feed";
 import { defineTool, type PackTool } from "./pack";
 import { bankAccountLink, bankTxn } from "./schema";
@@ -77,6 +77,7 @@ export const settleTool = defineTool({
     matched: z.number(),
     transfers: z.number(),
     ruled: z.number(),
+    review: z.number(),
     open: z.array(z.string()),
     openCount: z.number(),
     sources: z.array(z.string()),
@@ -109,6 +110,16 @@ const TxnOut = z.object({
     kind: z.string(),
     ledgerAccount: z.string().nullable(),
   }),
+  /** An open bill or invoice of the same amount: a person decides it, whatever is proposed. */
+  openItem: z
+    .object({
+      kind: z.enum(["bill", "invoice"]),
+      docNumber: z.string().nullable(),
+      name: z.string().nullable(),
+      date: z.string().nullable(),
+      balance: z.string(),
+    })
+    .nullable(),
 });
 
 export const openTool = defineTool({
@@ -163,11 +174,19 @@ export const openTool = defineTool({
           description: t.description,
           bankCategory: t.bankCategory,
           account: { name: l.name, mask: l.mask, kind: l.kind, ledgerAccount: a },
+          openItem: openItemView(t),
         })),
       };
     });
   },
 });
+
+function openItemView(t: Parameters<typeof openItemOf>[0]) {
+  const item = openItemOf(t);
+  if (!item) return null;
+  const { kind, docNumber, name, date, balance } = item;
+  return { kind, docNumber, name, date, balance };
+}
 
 const AccountOut = z.object({
   id: z.string(),

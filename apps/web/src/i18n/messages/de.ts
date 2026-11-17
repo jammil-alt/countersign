@@ -2811,6 +2811,10 @@ export const de: Messages = {
   "bookkeeping.review.loading": "Buchungen werden geladen…",
   "bookkeeping.review.suggested": "Wir schlagen {account} vor",
   "bookkeeping.review.noSuggestion": "Noch kein Vorschlag",
+  "bookkeeping.review.openBill":
+    "Sieht aus wie die Zahlung einer offenen Lieferantenrechnung: {what}. Ordnen Sie sie in QuickBooks dieser Rechnung zu und lassen Sie sie hier aus.",
+  "bookkeeping.review.openInvoice":
+    "Sieht aus wie der Zahlungseingang einer offenen Rechnung: {what}. Ordnen Sie ihn in QuickBooks dieser Rechnung zu und lassen Sie ihn hier aus.",
   "bookkeeping.review.approve": "Freigeben",
   "bookkeeping.review.account": "Konto für {payee}",
   "bookkeeping.review.why": "Warum, in wenigen Worten (optional)",

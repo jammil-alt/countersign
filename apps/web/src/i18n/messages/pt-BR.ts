@@ -2749,6 +2749,10 @@ export const ptBR: Messages = {
   "bookkeeping.review.loading": "Carregando as transações…",
   "bookkeeping.review.suggested": "Sugerimos {account}",
   "bookkeeping.review.noSuggestion": "Ainda sem sugestão",
+  "bookkeeping.review.openBill":
+    "Parece o pagamento de uma conta a pagar em aberto: {what}. Aplique-o a essa conta no QuickBooks e depois deixe-o de fora aqui.",
+  "bookkeeping.review.openInvoice":
+    "Parece o recebimento de uma fatura em aberto: {what}. Aplique-o a essa fatura no QuickBooks e depois deixe-o de fora aqui.",
   "bookkeeping.review.approve": "Aprovar",
   "bookkeeping.review.account": "Conta para {payee}",
   "bookkeeping.review.why": "Por quê, em poucas palavras (opcional)",
