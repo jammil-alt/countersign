@@ -42,6 +42,7 @@ import type { RegisteredPack } from "./packs";
 // v0.12 W3-B
 import { rampCron } from "./ramp/poll";
 import { reachOutTick } from "./reach/service";
+import { requestOrigin } from "./request-origin";
 import { a2pRoutes } from "./routes/a2p";
 import { accessRoutes } from "./routes/access";
 // v0.12 W2-D: Sloan, the account agent
@@ -182,6 +183,9 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // The MCP server (/mcp) and its OAuth metadata get the same headers (docs/plan.md §1.35).
   app.use("/mcp", securityHeaders);
   app.use("/.well-known/*", securityHeaders);
+  // State-changing requests come from the app's own pages (./request-origin.ts), checked before
+  // the phone app's header is read as a cookie.
+  app.use("/api/*", requestOrigin);
   // Liveness needs nothing: no database, no session.
   app.get(routes.health.path, (c) => c.json(routes.health.response.parse({ ok: true })));
   // §1.116: the phone app's session header, read as the session cookie (before anything reads it).

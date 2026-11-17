@@ -64,7 +64,7 @@
   // Non-secret configuration. Secrets (WORKOS_API_KEY, WORKOS_COOKIE_PASSWORD, ANTHROPIC_API_KEY,
   // ENCRYPTION_KEY) are set with `wrangler secret put`, or in apps/api/.dev.vars locally, never here.
   "vars": {
-    // development | staging | production. The dev sign-in adapter refuses to run in production.
+    // development | staging | production. The dev sign-in adapter runs only in development.
     "ENVIRONMENT": "development",
     // dev | workos (docs/plan.md §1.1 "Auth provider").
     "AUTH_PROVIDER": "dev",

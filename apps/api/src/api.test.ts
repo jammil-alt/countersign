@@ -109,6 +109,36 @@ describe.skipIf(!h)("API", () => {
       expect(workos.status).not.toBe(200);
     });
 
+    it("has no dev sign-in outside development, even when AUTH_PROVIDER says dev or is unset", async () => {
+      const ctx = { waitUntil: () => {}, passThroughOnException: () => {}, props: {} } as never;
+      const { ENVIRONMENT: _env, AUTH_PROVIDER: _provider, ...bare } = H.env;
+      for (const [name, env] of [
+        ["staging", { ...H.env, ENVIRONMENT: "staging", AUTH_PROVIDER: "dev" }],
+        ["preview", { ...H.env, ENVIRONMENT: "preview" }],
+        // An environment block without ENVIRONMENT or AUTH_PROVIDER (wrangler inherits no vars).
+        ["unset", bare],
+      ] as const) {
+        for (const [method, path, body, status] of [
+          ["GET", "/api/auth/dev/users", undefined, 404],
+          ["POST", "/api/auth/dev/sign-in", { email: OPERATOR }, 404],
+          ["GET", "/api/session", undefined, 503],
+        ] as const) {
+          const res = await H.app.request(
+            path,
+            {
+              method,
+              headers: { "x-countersign-dev-user": OPERATOR, "content-type": "application/json" },
+              ...(body ? { body: JSON.stringify(body) } : {}),
+            },
+            env,
+            ctx,
+          );
+          expect(res.status, `${method} ${path} ${name}`).toBe(status);
+          expect(res.headers.get("set-cookie") ?? "").not.toContain("cs_dev_user=");
+        }
+      }
+    });
+
     it("tells the sign-in page which sign-in to show, and sends WorkOS failures back to it", async () => {
       const ctx = { waitUntil: () => {}, passThroughOnException: () => {}, props: {} } as never;
       const as = (env: Record<string, string>) => (path: string) =>

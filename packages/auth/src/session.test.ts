@@ -45,7 +45,10 @@ const directory = {
   },
 };
 
-const adapter = createDevAdapter({ directory, env: { NODE_ENV: "test" } });
+const adapter = createDevAdapter({
+  directory,
+  env: { NODE_ENV: "test", ENVIRONMENT: "development" },
+});
 const req = (email?: string) =>
   new Request("http://localhost/api/session", {
     headers: email ? { [DEV_USER_HEADER]: email } : {},
@@ -65,6 +68,28 @@ describe("dev adapter", () => {
       DevAdapterRefusedError,
     );
     expect(isProduction({ ENVIRONMENT: "staging" })).toBe(false);
+  });
+
+  it("runs only where ENVIRONMENT says development", async () => {
+    for (const env of [
+      {},
+      { NODE_ENV: "test" },
+      { ENVIRONMENT: "staging" },
+      { ENVIRONMENT: "" },
+      { ENVIRONMENT: "preview" },
+      { ENVIRONMENT: "development", NODE_ENV: "production" },
+    ]) {
+      expect(() => createDevAdapter({ directory, env }), JSON.stringify(env)).toThrow(
+        DevAdapterRefusedError,
+      );
+    }
+    expect(createDevAdapter({ directory, env: { ENVIRONMENT: " Development " } }).kind).toBe("dev");
+    // And refuses every request if its environment stops saying so.
+    const env: { ENVIRONMENT?: string } = { ENVIRONMENT: "development" };
+    const shifting = createDevAdapter({ directory, env });
+    env.ENVIRONMENT = "staging";
+    const refused = await shifting.identify(req("admin@millwork.test"), new Date());
+    expect(refused.ok ? null : refused.code).toBe("adapter_disabled");
   });
 
   it("signs in a seeded user by email, from the header or the cookie", async () => {
