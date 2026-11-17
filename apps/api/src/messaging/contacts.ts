@@ -622,8 +622,9 @@ export async function relationshipForMany(
 
 /**
  * A person signed up for texts themselves (docs/plan.md §1.98): express consent for texts on their
- * phone, and any opt-out lifted, as their own START lifts it. The evidence is logged with it: the
- * way in, the exact words they agreed to and where the request came from.
+ * phone. An opt-out is never lifted here: only a START from the number lifts it (`applyKeyword`),
+ * and the page refuses someone who opted out. The evidence is logged with it: the way in, the exact
+ * words they agreed to and where the request came from.
  */
 export async function recordTextSignup(
   tx: Tx,
@@ -635,7 +636,7 @@ export async function recordTextSignup(
   consent.sms = { grantedAt: now.toISOString(), source: input.source, basis: "express" };
   const [u] = await tx
     .update(contact)
-    .set({ optedOutAt: null, optOutSource: null, consent: stored(consent) })
+    .set({ consent: stored(consent) })
     .where(and(eq(contact.id, row.id), eq(contact.tenantId, row.tenantId)))
     .returning();
   await log(tx, row.tenantId, row.id, null, {

@@ -30,10 +30,10 @@ import {
   textSignupTerms,
 } from "@countersign/core";
 import { contact, contactChange, type Db, type Tx, tenant, withTenant } from "@countersign/db";
-import { and, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, eq, gt, gte, inArray, isNotNull, or, sql } from "drizzle-orm";
 import type { Bindings } from "../env";
 import { HttpError } from "../http";
-import type { Mailer } from "../notify/mailer";
+import { type Mailer, twilioTexter } from "../notify/mailer";
 import { isProductionEnv } from "../platform";
 import {
   type ContactRow,
@@ -184,6 +184,48 @@ function signedUp(row: ContactRow): boolean {
   return !row.optedOutAt && hasConsent((row.consent ?? {}) as ContactConsent, "sms");
 }
 
+/**
+ * A contact of this client who opted out and has this number, for texts or WhatsApp, or null. A
+ * STOP on either is an opt-out of the number, wherever the client keeps it.
+ */
+async function optedOutOn(tx: Tx, tenantId: string, number: string): Promise<ContactRow | null> {
+  const [row] = await tx
+    .select()
+    .from(contact)
+    .where(
+      and(
+        eq(contact.tenantId, tenantId),
+        or(eq(contact.phone, number), eq(contact.whatsapp, number)),
+        isNotNull(contact.optedOutAt),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+/** The client's number that can text now (the confirmation's sender), or null. */
+function clientNumber(tx: Tx, tenantId: string): Promise<string | null> {
+  return twilioTexter({ secrets: {} }).from(tx, tenantId);
+}
+
+/**
+ * Refuses a sign-up on an invitation for someone who opted out. Typing a number on the page proves nothing about
+ * owning it, so the page never lifts an opt-out: a START texted from the number does
+ * (`applyKeyword`), and the answer says so.
+ */
+// DECISION: an invitation is one person's, so it is refused in words: they need to know how to
+// start texts again. The client's link is anyone's: there an opt-out is answered as a sign-up is
+// (submitTextSignup), and the page tells everyone how START works.
+async function refuseOptedOut(tx: Tx, t: TenantRow, row: ContactRow | null): Promise<void> {
+  if (!row?.optedOutAt) return;
+  const number = await clientNumber(tx, t.id);
+  throw new HttpError(
+    409,
+    "opted_out",
+    `This number opted out of texts from ${t.name}. To get them again, text START to ${number ?? `${t.name}'s number`} from this phone.`,
+  );
+}
+
 /** What `contact_change` says about texting invitations for these contacts. */
 async function inviteHistory(
   tx: Tx,
@@ -229,6 +271,7 @@ export async function viewTextSignup(
     if (!t) return null;
     const base = {
       client: t.name,
+      number: await clientNumber(tx, t.id),
       terms: textSignupTerms(t.name),
       wordingVersion: TEXT_SIGNUP_WORDING_VERSION,
     };
@@ -248,6 +291,8 @@ export interface TextSignupDone {
   tenantId: string;
   client: string;
   phone: string;
+  /** False when nothing was signed up (a repeat on the client's link): no confirmation text. */
+  send: boolean;
 }
 
 /**
@@ -276,6 +321,11 @@ export async function submitTextSignup(
       "Enter your mobile number with its area code, for example (555) 123-4567.",
     );
   }
+  // DECISION: both ways in take US and Canadian numbers only: the page sends a text to whatever
+  // number is typed, and an invitation link can be forwarded as easily as the client's link.
+  if (!isNanpNumber(phone)) {
+    throw new HttpError(422, "invalid_phone", "Enter a US or Canadian mobile number.");
+  }
   return withTenant(db, payload.t, async (tx) => {
     const t = await tenantOf(tx, payload.t);
     if (!t) throw gone();
@@ -292,14 +342,16 @@ export async function submitTextSignup(
     let row: ContactRow;
     if (payload.k === "l") {
       if (linkKeyOf(t) !== payload.n) throw gone();
-      // DECISION: the client's link takes US and Canadian numbers only, and at most
-      // TEXT_SIGNUP_LINK_HOURLY_MAX sign-ups an hour: a public form that sends a text is what SMS
-      // pumping looks for. An invitation is tied to one person and has neither limit.
-      if (!isNanpNumber(phone)) {
-        throw new HttpError(422, "invalid_phone", "Enter a US or Canadian mobile number.");
-      }
+      // DECISION: the client's link takes at most TEXT_SIGNUP_LINK_HOURLY_MAX submits an hour,
+      // sign-ups and skipped ones alike: a public form that sends a text is what SMS pumping
+      // looks for. An invitation is tied to one person and signs up once (below).
       const name = body.name?.trim();
       if (!name) throw new HttpError(422, "invalid_name", "Enter your name.");
+      // One submit on the client's link at a time, so submits at once can't pass the limit
+      // together; held until the transaction ends.
+      await tx.execute(
+        sql`select pg_advisory_xact_lock(hashtextextended(${`signup-link:${payload.t}`}, 0))`,
+      );
       const [recent] = await tx
         .select({ n: sql<number>`count(*)::int` })
         .from(contactChange)
@@ -307,7 +359,7 @@ export async function submitTextSignup(
           and(
             eq(contactChange.tenantId, payload.t),
             gt(contactChange.createdAt, new Date(now.getTime() - 60 * 60 * 1000)),
-            sql`${contactChange.change}->>'kind' = 'opt_in'`,
+            sql`${contactChange.change}->>'kind' in ('opt_in', 'text_signup_skipped')`,
             sql`${contactChange.change}->>'via' = 'link'`,
           ),
         );
@@ -318,6 +370,21 @@ export async function submitTextSignup(
         .select()
         .from(contact)
         .where(and(eq(contact.tenantId, payload.t), eq(contact.phone, phone)));
+      // DECISION: a number that already signed up is answered as a sign-up is, with nothing
+      // changed and no text sent, so the link can't text one number again and again. Only a log
+      // line is written, which counts toward the hourly limit above.
+      // DECISION: so is an opted-out number, so the link never says who opted out; the page
+      // tells everyone to text START instead, which is the only way an opt-out is lifted.
+      const out = found?.optedOutAt ? found : await optedOutOn(tx, payload.t, phone);
+      const skipped = out ?? (found && signedUp(found) ? found : null);
+      if (skipped) {
+        await logContactChange(tx, payload.t, skipped.id, null, {
+          kind: "text_signup_skipped",
+          via: "link",
+          reason: out ? "opted_out" : "signed_up",
+        });
+        return { tenantId: payload.t, client: t.name, phone, send: false };
+      }
       row =
         found ??
         (await createContact(tx, payload.t, { name, phone }, null, now, {
@@ -326,8 +393,50 @@ export async function submitTextSignup(
         }));
       row = await recordTextSignup(tx, row, { source: TEXT_SIGNUP_SOURCES.link, evidence }, now);
     } else {
-      const found = await contactOf(tx, payload.t, payload.c);
+      // The person's row, locked: two presses at once sign up once.
+      const [found] = await tx
+        .select()
+        .from(contact)
+        .where(and(eq(contact.id, payload.c), eq(contact.tenantId, payload.t)))
+        .for("update");
       if (!found) throw gone();
+      // DECISION: an invitation signs up once, so it sends at most one confirmation text. "Used"
+      // is a sign-up (or a skipped one, below) through an invitation logged since this one was
+      // sent (its expiry less TEXT_INVITE_DAYS): no table or token id is needed. Checked first, so
+      // a used invitation answers the same whatever number is typed.
+      const sentAt = new Date((payload.e - TEXT_INVITE_DAYS * 24 * 60 * 60) * 1000);
+      const [used] = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(contactChange)
+        .where(
+          and(
+            eq(contactChange.tenantId, payload.t),
+            eq(contactChange.contactId, found.id),
+            gte(contactChange.createdAt, sentAt),
+            sql`${contactChange.change}->>'kind' in ('opt_in', 'text_signup_skipped')`,
+            sql`${contactChange.change}->>'via' = 'invitation'`,
+          ),
+        );
+      if ((used?.n ?? 0) > 0) {
+        throw new HttpError(
+          409,
+          "used",
+          "This invitation has already been used. To change your number, ask the business.",
+        );
+      }
+      // The invited person's own opt-out: told how to start texts again.
+      await refuseOptedOut(tx, t, found);
+      // DECISION: another contact's opted-out number is answered as a sign-up is, with nothing
+      // changed or sent, and uses the invitation: an invitation can be forwarded, and it must not
+      // tell who opted out either.
+      if (await optedOutOn(tx, payload.t, phone)) {
+        await logContactChange(tx, payload.t, found.id, null, {
+          kind: "text_signup_skipped",
+          via: "invitation",
+          reason: "opted_out",
+        });
+        return { tenantId: payload.t, client: t.name, phone, send: false };
+      }
       row = found;
       if (row.phone !== phone) {
         // Their own number: the old one's consent for texts and calls goes with it (§1.22).
@@ -342,7 +451,7 @@ export async function submitTextSignup(
         now,
       );
     }
-    return { tenantId: payload.t, client: t.name, phone };
+    return { tenantId: payload.t, client: t.name, phone, send: true };
   });
 }
 
