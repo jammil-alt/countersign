@@ -1,5 +1,5 @@
 // The back-office frame (docs/design/prototype.html, `#O1-Command`; docs/design/pipelines.html for
-// §1.123): "Back office" and the client picker in the top bar (the one way to choose a client; it
+// §1.124): "Back office" and the client picker in the top bar (the one way to choose a client; it
 // keeps the picked client from page to page, ./pickedClient.tsx), ⌘K search across the clients
 // served, Your call with its count; a sidebar that lists places only: Home, Your call and Clients;
 // Work (Sales, Build); Run (Runs, Escalations, Reggie, Autopilot); Make (Agent lab, Library, Packs)
@@ -134,7 +134,7 @@ function OpsFrame({ children }: { children: ReactNode }) {
   usePoll(reloadCounts, own, INBOX_COUNT_POLL_MS, countsState.loading);
   const counts = own ? countsState.data : (shared ?? undefined);
   const needsUs = counts?.needsUs;
-  // §1.123.3: Your call's count (what needs a person), asked with the badges: when the place
+  // §1.124.3: Your call's count (what needs a person), asked with the badges: when the place
   // changes and on the same poll. DECISION: read from GET /api/ops/todos, the list itself, so the
   // count is the list's and no second count can drift from it.
   const call = useApi(apiRoutes.opsTodos, settled ? { query: {} } : null);
@@ -219,7 +219,7 @@ function OpsFrame({ children }: { children: ReactNode }) {
                 end
                 testId="ops-nav-home"
               />
-              {/* §1.123.3: Your call, the one list of what needs a person. */}
+              {/* §1.124.3: Your call, the one list of what needs a person. */}
               <SidebarLink
                 to={OPS_PATHS.call}
                 icon="desk"
@@ -234,7 +234,7 @@ function OpsFrame({ children }: { children: ReactNode }) {
                 testId="ops-nav-clients"
               />
             </div>
-            {/* §1.123: the back office's work, Sales and Build. */}
+            {/* §1.124: the back office's work, Sales and Build. */}
             <SidebarSection label="Work">
               <SidebarLink to={OPS_PATHS.sales} icon="lead" label="Sales" testId="ops-nav-sales" />
               <SidebarLink
@@ -266,7 +266,7 @@ function OpsFrame({ children }: { children: ReactNode }) {
                 label="Reggie"
                 testId="ops-nav-reggie"
               />
-              {/* §1.123.4: how far Reggie goes on its own, play by play. */}
+              {/* §1.124.4: how far Reggie goes on its own, play by play. */}
               <SidebarLink
                 to={OPS_PATHS.autopilot}
                 icon="settings"

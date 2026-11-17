@@ -13,7 +13,7 @@ export const NOTIFICATION_KINDS = [
   "credits",
   "lead_message",
   "signoff",
-  // §1.123: the lead replied on a client's request (an issue or an ask), migration 0061.
+  // §1.124: the lead replied on a client's request (an issue or an ask), migration 0060.
   "issue_update",
 ] as const;
 export const NotificationKind = z.enum(NOTIFICATION_KINDS);
@@ -82,7 +82,7 @@ export const dedupeKeys = {
   credits: (period: string, block: number, userId: string) =>
     `credits:${period}:${block}:${userId}`,
   signoff: (itemId: string, userId: string) => `signoff:${itemId}:${userId}`,
-  /** §1.123: one per reply on a request and person. */
+  /** §1.124: one per reply on a request and person. */
   issue: (messageId: string, userId: string) => `issue:${messageId}:${userId}`,
 } as const;
 

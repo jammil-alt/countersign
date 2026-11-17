@@ -1,4 +1,4 @@
-// Asks and enhancements (docs/plan.md §1.123.1; docs/cases-plan.md §3.2, B4). A client's ask ("an
+// Asks and enhancements (docs/plan.md §1.124.1; docs/cases-plan.md §3.2, B4). A client's ask ("an
 // idea or a change") stays the client's, in its words, on its own conversation; the operator groups
 // asks across clients under an enhancement (operator-only, global, holding no client's words:
 // invariant 11), decides it (do, later, no or sell it) and, once shipped, tells everyone who asked.

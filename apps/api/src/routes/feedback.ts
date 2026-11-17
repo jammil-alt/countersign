@@ -284,7 +284,7 @@ export function feedbackRouteHandlers(app: Hono<AppEnv>): void {
     const tenantId = tenantIds[0] as string;
     if (!(await portalEnabled(tx, tenantId))) throw feedbackOff();
     const made = await insertFeedback(tx, { ...body, tenantId, userId: session.user.id });
-    // docs/plan.md §1.123: the client hears back now: what they sent is an issue in Build, in the
+    // docs/plan.md §1.124: the client hears back now: what they sent is an issue in Build, in the
     // same transaction. Back-office feedback is unchanged.
     await issueFromFeedback(tx, {
       id: made.id,

@@ -1,4 +1,4 @@
-// To-dos (docs/plan.md §1.123; migration 0062), the small part every back office work stream uses:
+// To-dos (docs/plan.md §1.124; migration 0061), the small part every back office work stream uses:
 // add one (made once per `dedupeKey`), close those about an item, and the line a record's side
 // panel shows. `todo` is operator-only (RLS on `app_is_operator()` and the clients served), so
 // these run in an operator's transaction.

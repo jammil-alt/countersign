@@ -1,4 +1,4 @@
-// The portal's Requests (docs/plan.md §1.123.1; docs/cases-plan.md B2): the client's issues
+// The portal's Requests (docs/plan.md §1.124.1; docs/cases-plan.md B2): the client's issues
 // ("something isn't working") and asks ("an idea or a change") as a conversation with its Mezonas
 // lead, and the requirements form a build sends to the client admin's Desk. The portal says
 // "Requests" (owner, 2026-11-17).

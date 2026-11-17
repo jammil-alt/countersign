@@ -1,4 +1,4 @@
-// Build (docs/plan.md §1.123.1; docs/design/pipelines.html `section('build')`): issues, agent
+// Build (docs/plan.md §1.124.1; docs/design/pipelines.html `section('build')`): issues, agent
 // builds and enhancements in one order. All work is the work order as a list, with the reason each
 // item is where it is; each kind's tab opens on its board, stage by stage. KPIs over it scroll
 // away; the filter chips, search and column heads stay.

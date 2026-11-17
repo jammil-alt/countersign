@@ -1,4 +1,4 @@
-// Reggie's read-gather-draft pass (docs/plan.md §1.123.4; docs/cases-plan.md §5, A1). A client's
+// Reggie's read-gather-draft pass (docs/plan.md §1.124.4; docs/cases-plan.md §6, A1). A client's
 // new issue, a client message on one, or an email sets `issue.needs_read_at`; the pass reads each
 // such issue, once, and writes Reggie's read: what it is, how urgent, the agent it's about, what it
 // found (with sources) and its plan and draft. Then Autopilot's plays act at their level: at

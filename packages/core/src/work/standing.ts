@@ -1,4 +1,4 @@
-// Where an item stands (docs/plan.md §1.123): needs you, Reggie on it, waiting on the client,
+// Where an item stands (docs/plan.md §1.124): needs you, Reggie on it, waiting on the client,
 // stuck or held, or done; and the list filters over it (the prototype's `st` and FILTERS).
 
 import { z } from "zod";

@@ -1,4 +1,4 @@
-// Reggie on the back office's work (docs/plan.md §1.123.4; docs/cases-plan.md A1): the read pass
+// Reggie on the back office's work (docs/plan.md §1.124.4; docs/cases-plan.md A1): the read pass
 // writes a read, sources and a draft that only a person sends while plays are at draft; a critical
 // read holds the agent at any level; Autopilot starts every play at draft and refuses Send on what
 // is always the operator's, in code; Reggie's work tools read as the operator and change only by

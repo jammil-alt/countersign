@@ -1,4 +1,4 @@
-// Set-up (docs/cases-plan.md S2; docs/plan.md §1.123.2): a won-over lead becomes a client with a
+// Set-up (docs/cases-plan.md S2; docs/plan.md §1.124.2): a won-over lead becomes a client with a
 // build per agent sold, and an agreed expansion opens its builds at the client. Creating a client
 // is always the operator's: the route itself is the approval. Each step runs as the operator
 // through `invokeRoute` (its roles, scope, checks and audit row, marked as the deal's), the client
@@ -46,7 +46,7 @@ function servingToo(session: Session, clientId: string): Session {
 /**
  * Opens a build per agent at the client, as the operator, each carrying where it came from, its
  * template and its promised date. A build from a template forks the template's live version into
- * the client there (§1.123.1).
+ * the client there (§1.124.1).
  */
 async function openBuilds(
   app: Hono<AppEnv>,

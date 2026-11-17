@@ -1,4 +1,4 @@
-// The back office's email (docs/plan.md §1.123.4; docs/cases-plan.md W1): the tagged reply
+// The back office's email (docs/plan.md §1.124.4; docs/cases-plan.md W1): the tagged reply
 // addresses that thread an answer back to its issue, ask or deal, and what we send. Mail goes over
 // Mezonas' own Resend sender (notify/mailer.ts) as "<lead> via Mezonas", with `reply_to` set to the
 // item's tagged address on EMAIL_FORWARDING_DOMAIN and the message id as its idempotency key. A

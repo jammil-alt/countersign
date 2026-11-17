@@ -150,7 +150,7 @@ export interface Vars {
   /** e.g. `in.mezonas.com`: Cloudflare Email Routing sends it to `email()`. Unset: forwarding is off. */
   EMAIL_FORWARDING_DOMAIN?: string;
   /**
-   * §1.123.4: the back office's own addresses on EMAIL_FORWARDING_DOMAIN, comma separated local
+   * §1.124.4: the back office's own addresses on EMAIL_FORWARDING_DOMAIN, comma separated local
    * parts (default `support,hello`): `support@` for clients (issues), `hello@` for leads (deals).
    */
   // DECISION: two inbound addresses, support@ and hello@, configurable (owner, 2026-11-17).

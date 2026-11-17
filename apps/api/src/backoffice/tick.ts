@@ -1,4 +1,4 @@
-// The back office's cron work (docs/plan.md §1.123.4), one line in `runCron`: every minute Reggie's
+// The back office's cron work (docs/plan.md §1.124.4), one line in `runCron`: every minute Reggie's
 // read pass and the email replies on issues that came by email; hourly the chases and the
 // questions; nightly expansion spotting. Each part's failure is reported and the rest go on.
 

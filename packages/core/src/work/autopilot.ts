@@ -1,4 +1,4 @@
-// Autopilot (docs/plan.md §1.123.4; docs/cases-plan.md §5, A1): what Reggie does in each stage of
+// Autopilot (docs/plan.md §1.124.4; docs/cases-plan.md §6, A1): what Reggie does in each stage of
 // each flow, and how far it goes on its own: off, a draft for a person, or send and tell. The
 // catalog's words are the agreed prototype's (docs/design/pipelines.html, PLAYS). Every play starts
 // at `draft`; what is always the operator's is checked in code (`playMaySend`, `REGGIE_NEVER_AUTO`),
@@ -320,7 +320,7 @@ export function playMaySend(play: Pick<Play, "locked" | "internal">): boolean {
   return !(play.locked && !play.internal);
 }
 
-/** Always the operator's, at any Autopilot setting (docs/cases-plan.md §5). */
+/** Always the operator's, at any Autopilot setting (docs/cases-plan.md §6). */
 export const ALWAYS_YOURS: readonly string[] = [
   "Releasing a safety hold, or rolling an agent back.",
   "Anything that changes how a client's agent works, or loosens an approval.",

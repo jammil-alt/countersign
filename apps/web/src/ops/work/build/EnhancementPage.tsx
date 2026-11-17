@@ -1,4 +1,4 @@
-// An enhancement (docs/plan.md §1.123.1): the asks it groups (each in its client's words), the
+// An enhancement (docs/plan.md §1.124.1): the asks it groups (each in its client's words), the
 // decision (do it, later, no or sell it: yours) and, once shipped, the note everyone who asked
 // is told. "Sell it" hands over to Sales with the enhancement as the deal's origin.
 import { type EnhancementDetail, PIPELINES, type WorkEnhancementDecision } from "@countersign/core";

@@ -1,4 +1,4 @@
-// Autopilot's two small stores (docs/plan.md §1.123; migration 0064): how far a play goes (its
+// Autopilot's two small stores (docs/plan.md §1.124; migration 0063): how far a play goes (its
 // `play_setting` row, else the code default, `draft`) and what a play did (`play_log`, Autopilot's
 // track record and Your call's Done today). Both tables are operator-only, so these run in an
 // operator's transaction.

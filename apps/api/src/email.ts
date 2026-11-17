@@ -11,7 +11,7 @@ import {
   receiveVoiceSampleEmail,
 } from "@countersign/documents";
 import { receiveReleaseEmail, wakeRelease } from "./access/release";
-// §1.123.4: the back office's support@ and hello@
+// §1.124.4: the back office's support@ and hello@
 import { receiveBackOfficeEmail } from "./backoffice/inbound-email";
 import { backOfficeLocals } from "./backoffice/outbound-email";
 import type { Bindings } from "./env";
@@ -99,7 +99,7 @@ export async function handleEmail(
       }
       return { status: "dropped", tenantId: reply.tenantId, reason: "unknown_address" };
     }
-    // §1.123.4: mail to the back office (`support@`, `hello@` and their `+tag` replies) becomes an
+    // §1.124.4: mail to the back office (`support@`, `hello@` and their `+tag` replies) becomes an
     // issue, a reply on one, a lead deal or a to-do; never forwarded mail.
     const office = await receiveBackOfficeEmail(
       db,

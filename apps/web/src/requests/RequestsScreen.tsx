@@ -1,4 +1,4 @@
-// The portal's Requests (docs/plan.md §1.123.1): the client's problems and ideas, each a
+// The portal's Requests (docs/plan.md §1.124.1): the client's problems and ideas, each a
 // conversation with its Mezonas lead. A new request asks what it is ("Something isn't working" or
 // "An idea or a change"), what it's about and the words. A client user sees what they raised; the
 // client admin sees everyone's. Nothing internal reaches here: no notes, urgency or Reggie.

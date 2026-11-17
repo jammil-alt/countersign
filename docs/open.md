@@ -168,15 +168,22 @@ then one pass of its "To verify" list against the real service.
 
 ## 4. Everything else
 
-### Back office work: Sales, Build, Your call and Autopilot (built 2026-11-17, not merged)
+### Back office work: Sales, onboarding and Build (built 2026-11-17, not merged; onboarding in progress)
 
-One to-do list (Your call), Sales (new accounts and expansion) and Build (issues, agent builds and
-enhancements in one work order), with Reggie doing most of the work. Built on two stacked draft
-PRs, neither merged: the migrations (0061–0064, PR #380) and the code on top of it
-(PR #383, `claude/ops-work-szb740`). Waiting on the owner to try it on staging and say when to merge.
-Decisions: `docs/plan.md` §1.123 (M64–M68); the plan: `docs/cases-plan.md`; the screens:
-`docs/design/pipelines.html` and `docs/design/workflows.html`. What each stream left open is in
-its "Not yet" row in §1.123.1–§1.123.4.
+One to-do list (Your call), Sales (new accounts and expansion), onboarding and Build (issues, agent
+builds and enhancements in one work order), with Reggie doing most of the work. Build, Sales, Your
+call and Reggie with Autopilot are built on two stacked PRs, neither merged: the migrations
+(0060–0063, PR #380) and the code on top of it (PR #383, `claude/ops-work-szb740`). Waiting on the
+owner to try it on staging and say when to merge. Decisions: `docs/plan.md` §1.124 (M64–M68); what
+each stream left open is in its "Not yet" row in §1.124.1–§1.124.4.
+
+Onboarding is being built on top of it: a client file of what we know about each prospect and
+client; **Invite** from the lead record (a general, area or agents intake, filled from the file) and
+**Sign up now** for someone ready to start, both logged as a deal at the right stage; branded emails
+and a welcome page; Getting started in the portal (get to the point, or talk it through with Sloan;
+tools connected as it goes); a signed scope that moves each agent's build past its requirements.
+The plan, its steps (B1–O6) and the owner's open questions: `docs/cases-plan.md`. The screens:
+`docs/design/pipelines.html` and `docs/design/workflows.html` (onboarding not drawn yet).
 
 ### Area owners, owner chat and Home (designed 2026-11-12)
 

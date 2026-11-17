@@ -1,5 +1,5 @@
 // Requests on both surfaces. The client asks from Sloan's "Ask for a change" (`/sloan?mode=change`)
-// and follows the reply; §1.123: `/requests` is the client's Requests page (its issues and asks, a
+// and follows the reply; §1.124: `/requests` is the client's Requests page (its issues and asks, a
 // conversation each), and the back office works them in Build (`/ops/requests` redirects to its
 // Issues): the work order with a reason per row, and the issue with its notes kept internal.
 import { render, screen, waitFor, within } from "@testing-library/react";

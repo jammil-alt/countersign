@@ -1,4 +1,4 @@
-// The back office work screens' shared parts (docs/plan.md §1.123), on the design system's App
+// The back office work screens' shared parts (docs/plan.md §1.124), on the design system's App
 // patterns only (README "App patterns"): KPI boxes, page tabs, filter chips, due dates, urgency,
 // where an item stands, the safety hold banner and board cards. No colours of their own.
 import type { HoldView, Standing, WorkKpi, WorkUrgency } from "@countersign/core";

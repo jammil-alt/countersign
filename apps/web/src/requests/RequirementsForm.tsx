@@ -1,4 +1,4 @@
-// A requirements request on the client admin's Desk (docs/plan.md §1.123.1; cases-plan §3.2): the
+// A requirements request on the client admin's Desk (docs/plan.md §1.124.1; cases-plan §3.2): the
 // new agent's intake questions, some filled in from what we know. A draft is saved as they go and
 // the answers sent once; the operator sees how many are answered.
 import type { PortalRequirementsForm } from "@countersign/core";

@@ -3054,7 +3054,7 @@ export const fr: Messages = {
   "connectClaude.expired": "Ce lien a expiré. Redemandez à Claude pour en obtenir un nouveau.",
   "connectClaude.unknown":
     "Ce lien ne correspond à aucune de vos connexions Claude. Redemandez à Claude pour en obtenir un nouveau.",
-  // ── §1.123: Requests (issues and asks) and requirements forms ──
+  // ── §1.124: Requests (issues and asks) and requirements forms ──
   "requests.title": "Demandes",
   "requests.lede":
     "Quelque chose ne marche pas, ou une idée pour nous : dites-le ici à votre responsable Mezonas.",

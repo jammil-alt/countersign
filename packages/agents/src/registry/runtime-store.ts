@@ -195,7 +195,7 @@ export function dbRuntimeStore(db: Db): RuntimeStore {
       });
     },
 
-    // docs/plan.md §1.123: the safety hold.
+    // docs/plan.md §1.124: the safety hold.
     agentHold(tenantId, agentId) {
       return withTenant(db, tenantId, async (tx) => {
         const [row] = await tx

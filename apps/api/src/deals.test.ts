@@ -1,4 +1,4 @@
-// Sales through the API (docs/plan.md §1.123.2; docs/cases-plan.md S1–S2): a lead's deal from
+// Sales through the API (docs/plan.md §1.124.2; docs/cases-plan.md S1–S2): a lead's deal from
 // its first stage to set-up, which creates the client (the operator now serves it) and a build per
 // agent sold; an expansion deal held by its client's trouble; stage moves and outcomes on the
 // timeline, with Reggie's check-back; terms by hand with the signed copy; and the scope rules: a

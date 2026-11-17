@@ -1,4 +1,4 @@
-// Questions (docs/plan.md §1.123.4; docs/cases-plan.md §3.3): activity on the client, not items in
+// Questions (docs/plan.md §1.124.4; docs/cases-plan.md §3.3): activity on the client, not items in
 // a pipeline. Sloan answers in the portal; a client's question in their account conversation that
 // no client-audience reply answered within 4 business hours becomes the operator's to-do ("Hand
 // you the hard ones"), once per message. Hourly from the cron.

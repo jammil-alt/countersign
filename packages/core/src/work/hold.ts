@@ -1,4 +1,4 @@
-// The safety hold (docs/plan.md §1.123; docs/cases-plan.md §3.2): on a critical issue the client
+// The safety hold (docs/plan.md §1.124; docs/cases-plan.md §3.2): on a critical issue the client
 // agent's writes and messages stop; its runs go on as drafts and the held items wait. Only a person
 // releases it. Stored on `agent.hold`; operational, never in a version.
 

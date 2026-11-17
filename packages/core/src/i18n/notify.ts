@@ -29,7 +29,7 @@ export interface NotifyWords {
     action: string;
   };
   signoff: { subject: string; line: string; action: string };
-  /** §1.123: the lead replied on one of the client's requests (an issue or an ask). */
+  /** §1.124: the lead replied on one of the client's requests (an issue or an ask). */
   issueUpdate: { subject: string; action: string };
   /** The email's last line. */
   footer: string;

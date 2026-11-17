@@ -1,4 +1,4 @@
-// docs/plan.md §1.123: the safety hold in the gate. A write the gate would run unsigned (step not
+// docs/plan.md §1.124: the safety hold in the gate. A write the gate would run unsigned (step not
 // required, matrix auto, mode act, live) waits for a person while the agent is held, with `held`
 // in whyApproval; a test run is unchanged; executing an approved write of a held agent fails
 // closed, never written.

@@ -2923,7 +2923,7 @@ export const en = {
   "connectClaude.expired": "This link has expired. Ask Claude again to get a new one.",
   "connectClaude.unknown":
     "This link doesn't match a Claude connection of yours. Ask Claude again to get a new one.",
-  // ── §1.123: Requests (issues and asks) and requirements forms ──
+  // ── §1.124: Requests (issues and asks) and requirements forms ──
   "requests.title": "Requests",
   "requests.lede": "Something isn't working, or an idea for us: tell your Mezonas lead here.",
   "requests.new": "New request",

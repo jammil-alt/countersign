@@ -1,4 +1,4 @@
-// Your call through the API (docs/plan.md §1.123.3; docs/cases-plan.md T1): one list of what needs
+// Your call through the API (docs/plan.md §1.124.3; docs/cases-plan.md T1): one list of what needs
 // a person with a due date (to-dos, escalations, runs to check, Reggie's cards), Reggie's and the
 // clients' lists, Later, Take it, Do it through the item's own route, what Reggie did today and its
 // flag, and the client page's work and activity read across the tables that keep it. Operator

@@ -25,7 +25,7 @@ import { accountRoutes } from "./account";
 import { approverRuleRoutes } from "./approver-rules";
 // v0.12 W2-B: automations
 import { automationRoutes, BuilderAutomation } from "./automations";
-// docs/plan.md §1.123.4: back office work (Reggie and Autopilot)
+// docs/plan.md §1.124.4: back office work (Reggie and Autopilot)
 import { autopilotRoutes } from "./autopilot";
 // v0.12 bankfeed
 import { bankfeedRoutes, LinkStartView } from "./bankfeed";
@@ -47,7 +47,7 @@ import { connectorRoutes } from "./connectors";
 import { defineRoute } from "./contract";
 // v0.14 capture: WhatsApp conversations and their capture
 import { conversationRoutes } from "./conversations";
-// docs/plan.md §1.123: back office work (Sales)
+// docs/plan.md §1.124: back office work (Sales)
 import { dealRoutes } from "./deals";
 import { deskRoutes } from "./desk";
 import { directoryRoutes } from "./directory";
@@ -2398,7 +2398,7 @@ export const routes = {
   ...voiceRoutes,
   // docs/plan.md §1.121: forms, "Request info"
   ...formRoutes,
-  // docs/plan.md §1.123: back office work
+  // docs/plan.md §1.124: back office work
   ...dealRoutes,
   ...knowledgeRoutes,
   ...callRoutes,
@@ -2491,11 +2491,11 @@ export const routes = {
   ...skillModelRoutes,
   // Reshape data (owner, 2026-11-11): propose a Reshape step's mapping, and its sample values.
   ...reshapeRoutes,
-  // docs/plan.md §1.123: back office work
+  // docs/plan.md §1.124: back office work
   ...workRoutes,
-  // docs/plan.md §1.123.3: Your call
+  // docs/plan.md §1.124.3: Your call
   ...todoRoutes,
-  // docs/plan.md §1.123.4: Reggie and Autopilot
+  // docs/plan.md §1.124.4: Reggie and Autopilot
   ...autopilotRoutes,
 } as const;
 export type Routes = typeof routes;

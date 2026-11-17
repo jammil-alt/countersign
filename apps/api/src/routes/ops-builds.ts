@@ -986,7 +986,7 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsStartBuild, async (ctx) => {
     const clientId = ctx.body.clientId ?? null;
     if (clientId) ensureClient(ctx, clientId);
-    // docs/plan.md §1.123: a build from a template forks it into the client at once, as Reggie's
+    // docs/plan.md §1.124: a build from a template forks it into the client at once, as Reggie's
     // agent_add does (the fork is the client's agent from here on); a new agent goes through the
     // Builder's phases.
     const path = ctx.body.path ?? "new";
@@ -1052,7 +1052,7 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
         ...(brief ? { brief } : {}),
         ...(fitgap ? { fitgap } : {}),
         ...(testPlan ? { testPlan } : {}),
-        // docs/plan.md §1.123: moving a promised date is the operator's (this route's only).
+        // docs/plan.md §1.124: moving a promised date is the operator's (this route's only).
         ...(promisedOn !== undefined ? { promisedOn } : {}),
         ...(waitingOn ? { waitingOn } : {}),
         ...(statusLine !== undefined ? { statusLine } : {}),

@@ -98,7 +98,7 @@ import { AutomationPage } from "./skills/AutomationPage";
 import { NewSkillScreen } from "./skills/NewSkill";
 import { SkillPage } from "./skills/SkillPage";
 import { AutopilotScreen } from "./work/autopilot/AutopilotScreen";
-// §1.123 back office work
+// §1.124 back office work
 import { BuildSection } from "./work/build/BuildSection";
 import { EnhancementPage } from "./work/build/EnhancementPage";
 import { IssuePage } from "./work/build/IssuePage";
@@ -249,7 +249,7 @@ export const opsRoutes = (
     <Route path="security/clients/:clientId" element={<SecurityClientScreen />} />
     <Route path="security/audit" element={<OpsAuditScreen />} />
     <Route path="requests" element={<Redirect to="/ops/build/issues" />} />
-    {/* §1.123 back office work */}
+    {/* §1.124 back office work */}
     <Route path="build" element={<BuildSection />} />
     <Route path="build/:tab" element={<BuildSection />} />
     <Route path="issues/new" element={<NewIssue />} />

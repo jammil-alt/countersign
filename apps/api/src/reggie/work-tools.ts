@@ -1,4 +1,4 @@
-// Reggie's tools for the back office's work (docs/plan.md §1.123.4; docs/cases-plan.md §5, A1):
+// Reggie's tools for the back office's work (docs/plan.md §1.124.4; docs/cases-plan.md §6, A1):
 // Build's issues, asks, enhancements and builds, Sales' deals and the safety holds. As every Reggie
 // tool (§1.101): reads run the back office's own routes as the signed-in operator, scoped to the
 // clients they serve and fenced as untrusted data; a change only proposes a card, and only the
@@ -366,7 +366,7 @@ const DealCreateArgs = z.strictObject({
 });
 
 // DECISION: Reggie's deals start at no value (mrr 0): prices and terms are the operator's
-// (docs/cases-plan.md §5), entered on the deal's page.
+// (docs/cases-plan.md §6), entered on the deal's page.
 const dealCreate = change(
   "deal_create",
   "Propose opening a deal: a new account (a company, not yet a client) or expansion for a client. Its value and terms are the operator's to enter. Nothing happens until the operator confirms.",

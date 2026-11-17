@@ -1,4 +1,4 @@
-// `/ops/autopilot` and `/ops/autopilot/:flow` (docs/plan.md §1.123.4; docs/design/pipelines.html
+// `/ops/autopilot` and `/ops/autopilot/:flow` (docs/plan.md §1.124.4; docs/design/pipelines.html
 // `autopilot()`): what Reggie does in each stage of each flow and how far it goes on its own. Every
 // play starts at "Draft for me". A play that is always yours shows its lock and can't be set to
 // send (the server refuses it too, 409 always_yours). Internal plays read Off, Suggest, On.

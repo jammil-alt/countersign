@@ -1,4 +1,4 @@
-// Mail to the back office (docs/plan.md §1.123.4; docs/cases-plan.md W1): `support@` and `hello@`
+// Mail to the back office (docs/plan.md §1.124.4; docs/cases-plan.md W1): `support@` and `hello@`
 // on EMAIL_FORWARDING_DOMAIN (BACKOFFICE_INBOUND), and their `+tag` reply addresses.
 //
 // - A reply to a tagged issue or ask lands on it, from the person it emailed or a member of that

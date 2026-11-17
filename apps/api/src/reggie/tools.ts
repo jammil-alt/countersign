@@ -11,7 +11,7 @@ import { type AppContext, type AppEnv, HttpError, invokeRoute, type RouteInput }
 import { OPS_TOOLS, type OpsToolCtx } from "../mcp/ops-tools";
 import { clip, dataResult } from "../mcp/output";
 import type { Content, ToolResult } from "../mcp/protocol";
-// §1.123.4
+// §1.124.4
 import { WORK_TOOLS } from "./work-tools";
 
 /** What every Reggie tool gets: the request, the operator's session and the app's routes. */
@@ -768,7 +768,7 @@ export const REGGIE_TOOLS: readonly ReggieTool[] = [
   textingRegistrationSubmit,
   agentAdd,
   textingInvitationsSend,
-  // §1.123.4: the back office's work (issues, asks, enhancements, builds, deals, holds).
+  // §1.124.4: the back office's work (issues, asks, enhancements, builds, deals, holds).
   ...WORK_TOOLS,
 ];
 

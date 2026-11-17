@@ -1,4 +1,4 @@
-// The client page's work (docs/plan.md §1.123.3; the prototype's `clientPage()`): its figures, its
+// The client page's work (docs/plan.md §1.124.3; the prototype's `clientPage()`): its figures, its
 // open Sales and Build work, its activity read across the tables that keep it (All activity,
 // Messages, Questions, Runs, Decisions and changes), and the to-dos for the client (ours, Reggie's
 // and the client's) with Add. On top of the Overview tab.

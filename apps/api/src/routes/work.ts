@@ -1,4 +1,4 @@
-// Build in the back office (docs/plan.md §1.123.1; docs/cases-plan.md §3.2): the work list in the
+// Build in the back office (docs/plan.md §1.124.1; docs/cases-plan.md §3.2): the work list in the
 // work order, issues and their conversation, the safety hold, asks and enhancements, and a build's
 // requirements request. Operator only; each route runs over the clients the operator serves.
 
@@ -227,7 +227,7 @@ export function workRouteHandlers(app: Hono<AppEnv>): void {
   });
 
   // Releasing is a person's, here only: never one of Reggie's tools or the MCP server's
-  // (docs/cases-plan.md §5, "always the operator's").
+  // (docs/cases-plan.md §6, "always the operator's").
   mount(app, routes.opsReleaseAgent, async ({ tx, tenantIds, params, body, session }) => {
     const [view] = await holdViews(tx, tenantIds, { agentId: params.id });
     const was = await releaseHold(tx, {

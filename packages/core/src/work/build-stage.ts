@@ -1,4 +1,4 @@
-// Where an agent build stands in Build's Agent builds pipeline (docs/plan.md §1.123): derived from
+// Where an agent build stands in Build's Agent builds pipeline (docs/plan.md §1.124): derived from
 // the build, its agent's go-live stage and its requirements request; never stored.
 
 import type { BuildPhase, BuildStatus } from "../build/build";

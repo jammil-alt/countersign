@@ -3006,7 +3006,7 @@ export const ptBR: Messages = {
   "connectClaude.expired": "Este link expirou. Peça de novo ao Claude para receber um novo.",
   "connectClaude.unknown":
     "Este link não corresponde a nenhuma conexão do Claude sua. Peça de novo ao Claude para receber um novo.",
-  // ── §1.123: Requests (issues and asks) and requirements forms ──
+  // ── §1.124: Requests (issues and asks) and requirements forms ──
   "requests.title": "Solicitações",
   "requests.lede":
     "Algo não está funcionando, ou uma ideia para nós: conte aqui ao seu responsável na Mezonas.",

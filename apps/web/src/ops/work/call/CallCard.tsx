@@ -1,4 +1,4 @@
-// One card on Your call (docs/plan.md §1.123.3; the prototype's `callList()`): the tag, the title
+// One card on Your call (docs/plan.md §1.124.3; the prototype's `callList()`): the tag, the title
 // linked to its item, the client and due date, Reggie's read and plan, why it needs a person (risk
 // when critical), the draft with Edit, the options, the form, how sure Reggie is, and the buttons.
 // Built on the design system's classes and tokens only; no colours of its own.

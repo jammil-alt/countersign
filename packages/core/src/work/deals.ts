@@ -1,4 +1,4 @@
-// Sales (docs/cases-plan.md S1–S2, docs/plan.md §1.123.2): deals for new accounts and for more
+// Sales (docs/cases-plan.md S1–S2, docs/plan.md §1.124.2): deals for new accounts and for more
 // from a client, as the agreed prototype has them (docs/design/pipelines.html: PIPES, salesKpis,
 // salesTable). Pure: the stages and their likelihood, where a deal stands, what is late, the
 // Sales KPIs and the words. Money is a decimal string (invariant 6), summed with decimal.js.

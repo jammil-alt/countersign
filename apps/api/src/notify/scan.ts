@@ -366,7 +366,7 @@ export async function scanCandidates(
     ...(await connectionErrorCandidates(tx, t, people, now)),
     ...(await leadMessageCandidates(tx, t, people, now)),
     ...(await signoffCandidates(tx, t, people)),
-    // docs/plan.md §1.123: Mezonas replied on a request.
+    // docs/plan.md §1.124: Mezonas replied on a request.
     ...(await issueUpdateCandidates(tx, t, people, now)),
   ];
 }

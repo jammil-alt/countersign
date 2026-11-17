@@ -1,4 +1,4 @@
-// Your call at /ops/call (docs/plan.md §1.123.3; docs/cases-plan.md T1; the prototype's
+// Your call at /ops/call (docs/plan.md §1.124.3; docs/cases-plan.md T1; the prototype's
 // `yourCall()`): one list for everything in the back office that needs a person. Yours as cards
 // with Reggie's read, plan, why, draft and options; Reggie's and the clients' as tables; and what
 // Reggie did on its own today. KPIs over it, then a sticky bar with the lists, the kind chips and

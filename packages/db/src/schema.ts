@@ -3426,7 +3426,7 @@ export const NOTIFICATION_KINDS = [
   "credits",
   "lead_message",
   "signoff",
-  // §1.123 (0061): the operator answered a client's request; sent by Build (§1.123.1).
+  // §1.124 (0060): the operator answered a client's request; sent by Build (§1.124.1).
   "issue_update",
 ] as const;
 /** The kinds the check allows (the same list; kept as its own name for the check). */

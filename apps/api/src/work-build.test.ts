@@ -1,4 +1,4 @@
-// Build (docs/plan.md §1.123.1; docs/cases-plan.md B2–B5): issues numbered per client with their
+// Build (docs/plan.md §1.124.1; docs/cases-plan.md B2–B5): issues numbered per client with their
 // conversation and history, kept to their client (invariant 1); the portal's Requests never carry
 // a note, Reggie's read or anything internal (invariant 11); the safety hold on a critical issue,
 // whose held items wait and which only an operator releases; requests, Sloan's pass_to_lead and
@@ -283,7 +283,7 @@ describe.skipIf(!h)("Build", () => {
     const path = `/api/ops/agents/${clerk}/release`;
     expect((await call(admin("a"), "POST", path, { reason: "fixed" })).status).toBe(403);
     expect((await call(OTHER_OPERATOR, "POST", path, { reason: "fixed" })).status).toBe(404);
-    // Reggie may read holds and propose placing one (§1.123.4); nothing of its or the MCP's releases.
+    // Reggie may read holds and propose placing one (§1.124.4); nothing of its or the MCP's releases.
     for (const tool of [...REGGIE_TOOLS, ...OPS_TOOLS]) {
       expect(tool.name).not.toMatch(/release|unhold|rollback/);
     }

@@ -1,4 +1,4 @@
-// The back office's email (docs/plan.md §1.123.4; docs/cases-plan.md W1), against fakes only: mail
+// The back office's email (docs/plan.md §1.124.4; docs/cases-plan.md W1), against fakes only: mail
 // to support@ from a client's person opens an issue and our reply goes back by email with a tagged
 // reply-to; their answer lands on the issue; mail to hello@ from a stranger opens a lead deal, and
 // the deal's email threads back to it; anything else is a "Sort this" to-do. Nothing is bounced.

@@ -5072,14 +5072,27 @@ screen that invites other operators, who may all be admins for now. Outside ARCH
 | Not here | A limited user's document by id is checked by client, not by agent. Reports, records and contacts are closed to a limited user, not narrowed to their agents' areas. Lesser operator roles. A new client is still served only by the operator who made it until they give it to others here. |
 | Checked | `apps/api/src/member-agents.test.ts` (lists and choices; another client's agent; an admin's list; runs, services, inbox, resolve and table narrowed; closed sections 403 `not_assigned`; empty and null lists; invite with agents; role and signing in place, self, last admin; a client user can't; operators listed only within your clients, invited into all of yours, invited again adds none, removed, a client's person and yourself refused, client people 403). `packages/core/src/api/assigned.test.ts` (each allowlist entry is a real portal route a client user may call). `apps/web/src/portal/screens/TeamAccess.test.tsx`, `apps/web/src/ops/screens/Users.test.tsx`, `apps/web/src/shell/layouts.test.tsx`. |
 
-### 1.123 Back office work: Sales, Build, Your call and Autopilot (owner, 2026-11-17; migrations 0061–0064)
+### 1.123 Filter, group and total a list (owner, 2026-11-17; from the third Builder QA run)
+
+The third QA run on staging (weekly past-due reminders) stopped at the draft: no part of the
+catalog could keep invoices 15 or more days past due, group them by customer and total them.
+"Most finance agents need to filter and group a list" (owner).
+
+| Topic | Decision |
+|---|---|
+| A skill of its own | `data.group-list`, "Filter, group and total a list": a built-in deterministic skill (`mode: tool`, its pure handler `data.list.group`), like Reshape data. Not more Reshape expressions: Reshape's set stays small on purpose (§1.86, owner 2026-11-11, "anything more is a skill of its own"); Reshape maps one value at a time, this works on a whole list. // DECISION |
+| What it does | Keeps the items that meet every rule (equals or not, at least / more than / at most / less than a number, set or not set, a date at least N days before `asOf`), groups the kept ones by one field, sums chosen fields per group in decimals (invariant 6), and drops groups under a minimum total. It returns the groups with their items and totals, the kept items with no value in the group field (a customer with no email), and counts. A value it can't read as the rule's type is not kept. // DECISION |
+| Its settings | In the step's input (the list, the rules, the group field, the totals, the minimum), as `docs.check-totals` takes its own: no new kind of skill setting. `asOf` defaults to today (UTC); a test case passes one. // DECISION |
+| Not yet | Sorting, and totals other than sums (count is each group's `count`). |
+
+### 1.124 Back office work: Sales, Build, Your call and Autopilot (owner, 2026-11-17; migrations 0060–0063)
 
 The owner agreed the design (`docs/design/pipelines.html`, `docs/design/workflows.html`) and the
 plan (`docs/cases-plan.md`) on 2026-11-17 and asked for it built. Outside ARCHITECTURE's v1 scope,
 recorded as the owner's decision as §1.101 and §1.108 were. Built in five parts: the migrations
-(0061 issues, asks, enhancements, the hold and the build columns; 0062 to-dos; 0063 deals; 0064
-Autopilot) on their own PR, then four streams on one code PR stacked on it: Build (§1.123.1,
-M65), Sales (§1.123.2, M67), Your call (§1.123.3, M66), Reggie and Autopilot (§1.123.4, M68).
+(0060 issues, asks, enhancements, the hold and the build columns; 0061 to-dos; 0062 deals; 0063
+Autopilot) on their own PR, then four streams on one code PR stacked on it: Build (§1.124.1,
+M65), Sales (§1.124.2, M67), Your call (§1.124.3, M66), Reggie and Autopilot (§1.124.4, M68).
 Each stream's table is its own; the owner's decisions are these.
 
 | Topic | Decision |
@@ -5095,11 +5108,11 @@ Each stream's table is its own; the owner's decisions are these.
 | Numbers | Issues are numbered per client from 1, under an advisory lock in the insert's transaction. No `play_setting` row means a play is at draft. // DECISION |
 | Providers | Every provider, email included, against the existing fakes; tests use `LLM_MODE=replay` or `FakeModel`. No new vendor (`packages/core/src/compliance/processors.ts` names the new uses). |
 
-### 1.123.1 Build: issues, the safety hold, asks and enhancements, builds (owner, 2026-11-17; M65)
+### 1.124.1 Build: issues, the safety hold, asks and enhancements, builds (owner, 2026-11-17; M65)
 
-Stream A1 of back office work (`docs/cases-plan.md` §3.2, steps B2 to B5; migrations 0061–0064).
+Stream A1 of back office work (`docs/cases-plan.md` §3.2, steps B2 to B5; migrations 0060–0063).
 Outside ARCHITECTURE's v1 scope at the owner's request, as §1.101 and §1.108 are. The
-decisions below are this stream's; §1.123 records the owner's.
+decisions below are this stream's; §1.124 records the owner's.
 
 | Topic | Decision |
 |---|---|
@@ -5116,13 +5129,13 @@ decisions below are this stream's; §1.123 records the owner's.
 | The work order | Core `workOrder`: critical first (oldest first), then high issues, then any dated build that would miss its promised date after the issues (high 2 days, normal 1, low 2 each, plus its own work), then normal and low issues, then builds by promised date (undated last), then enhancements most-asked first (later last, no left out). The operator's moves (`manual_rank`) go where they put them. Each row says why. // DECISION: "today" is the UTC date: the list spans clients in many zones. |
 | Checked | `packages/core/src/work/work.test.ts` (targets, standing, the prototype's order), `packages/agents/src/runtime/hold.unit.test.ts` (the gate and the backstop), `apps/api/src/work-build.test.ts` (isolation, the portal's leaks, the hold, release, fold-in, asks, builds, requirements, the order, the notice), `apps/web/src/requests/Requests.test.tsx`. |
 | Review fixes (2026-11-17) | Deciding an enhancement "no" posts its note on each grouped ask the operator serves and closes those asks. Releasing a hold moves its undelivered approvals' `deliver_after` to the release, and redelivery's day counts from the later of the resolution and `deliver_after`, so a hold longer than a day doesn't strand a run. An adopted change request's old messages (its resolution note) bring no `issue_update` notice: they predate the adopted thread. |
-| Not yet | Nothing of this stream's own: the client page's to-dos and the sidebar entry are Your call's (§1.123.3), Reggie's read and plays and email Reggie's (§1.123.4). |
+| Not yet | Nothing of this stream's own: the client page's to-dos and the sidebar entry are Your call's (§1.124.3), Reggie's read and plays and email Reggie's (§1.124.4). |
 
-### 1.123.2 Sales (stream A2, M67; `docs/cases-plan.md` S1–S2)
+### 1.124.2 Sales (stream A2, M67; `docs/cases-plan.md` S1–S2)
 
-The deals for new accounts and expansion (migration 0063), the Sales section at `/ops/sales`
+The deals for new accounts and expansion (migration 0062), the Sales section at `/ops/sales`
 (All deals, New accounts, Expansion) and a deal's page at `/ops/deals/:id`, as the agreed
-prototype has them (`docs/design/pipelines.html`). §1.123's head and the owner's decisions are
+prototype has them (`docs/design/pipelines.html`). §1.124's head and the owner's decisions are
 written by stage 0; this table is the Sales stream's only.
 
 | Topic | Decision |
@@ -5134,13 +5147,13 @@ written by stage 0; this table is the Sales stream's only.
 | Outcomes | Won, lost (Reggie checks back in 90 days), not now (60 days), no (a reason required). The check-back is a Reggie to-do about the deal, made once (`deal:<id>:checkback:<date>`). Made with `addTodo` (`apps/api/src/work/todos-store.ts`). |
 | Money | Decimal strings in and out (invariant 6); the figures add with decimal.js. A won deal counts at its agreed value when terms were recorded. Renewals (an expansion titled "Renewal…") show without "+". // DECISION: every deal is USD today; the figures add amounts as they are. |
 | Terms | By hand (owner, 2026-11-17): the agreed price a month and from when, on the timeline; the signed copy, a PDF (magic bytes, at most 10 MB) at `operator/deals/<id>/signed-<ms>.pdf` in R2, a 5-minute link as feedback screenshots. // DECISION: a new upload is a new object; the deal points at the latest. |
-| Set-up | The route is the operator's approval ("creating a client is always yours"). It runs `opsCreateClient` (the path Reggie's `client_create` takes) and then `opsStartBuild` per agent, each through `invokeRoute` as the operator, audited `deal …`; the builds open with the client added to the session's served clients (the id the create returned). The deal names its client before the builds open, so a stop part way leaves the rest to `open-builds`. Each build is started with its `path`, `templateId`, `origin` (the deal) and `promisedOn` through `StartBuild` (§1.123.1); one from a template forks it into the client there. |
+| Set-up | The route is the operator's approval ("creating a client is always yours"). It runs `opsCreateClient` (the path Reggie's `client_create` takes) and then `opsStartBuild` per agent, each through `invokeRoute` as the operator, audited `deal …`; the builds open with the client added to the session's served clients (the id the create returned). The deal names its client before the builds open, so a stop part way leaves the rest to `open-builds`. Each build is started with its `path`, `templateId`, `origin` (the deal) and `promisedOn` through `StartBuild` (§1.124.1); one from a template forks it into the client there. |
 | Expansion builds | `open-builds` at Agreed (or a new account at Set up the account), the same way. |
 | Dates | // DECISION: Sales reads "today" and "this month" in UTC: deals span clients and a lead has no time zone. |
-| Not here | The deal's email is Reggie's inbox's route (`POST /api/ops/deals/:id/email`, §1.123.4), which the composer's Email tab sends through; to-dos on a deal (§1.123.3); the sidebar entry (B1); Reggie's read beyond the deal's evidence. |
+| Not here | The deal's email is Reggie's inbox's route (`POST /api/ops/deals/:id/email`, §1.124.4), which the composer's Email tab sends through; to-dos on a deal (§1.124.3); the sidebar entry (B1); Reggie's read beyond the deal's evidence. |
 | Checked | `packages/core/src/work/deals.test.ts`, `apps/api/src/deals.test.ts` (lead to set-up, the client served and a build per agent with its origin and promised date, set-up refused early and twice, outcomes and the check-back, terms and the signed copy, the hold, open-builds, the scope rules, set-up on one connection), `apps/web/src/ops/work/sales/sales.test.tsx`, and the route contract's operator-only checks. |
 
-### 1.123.3 Your call (stream B1, M66; `docs/cases-plan.md` T1)
+### 1.124.3 Your call (stream B1, M66; `docs/cases-plan.md` T1)
 
 The one list of what needs a person (`/ops/call`), the client page's work, activity and to-dos,
 and the back office's sidebar, as the agreed prototype has them (`docs/design/pipelines.html`,
@@ -5148,14 +5161,14 @@ and the back office's sidebar, as the agreed prototype has them (`docs/design/pi
 
 | Topic | Decision |
 |---|---|
-| Where | Core `work/call.ts` (owners, the kind chips, tags, Later, the words) and `api/todos.ts` (the routes); `apps/api/src/work/todos.ts`, `work/activity.ts`, `work/client-work.ts`, `routes/todos.ts`; `apps/web/src/ops/work/call/` and `apps/web/src/ops/client/ClientWork.tsx`. Operator only: `todo` and `play_log` are operator-only tables (migrations 0062, 0064), and no portal route returns any of it. |
+| Where | Core `work/call.ts` (owners, the kind chips, tags, Later, the words) and `api/todos.ts` (the routes); `apps/api/src/work/todos.ts`, `work/activity.ts`, `work/client-work.ts`, `routes/todos.ts`; `apps/web/src/ops/work/call/` and `apps/web/src/ops/client/ClientWork.tsx`. Operator only: `todo` and `play_log` are operator-only tables (migrations 0061, 0063), and no portal route returns any of it. |
 | Who has it | `owner` is the operator, Reggie or the client, with an optional named operator (`owner_user_id`). // DECISION (owner): to-dos are owned by operator, reggie or client, with an optional operator. "Only mine" shows the to-dos named to you and those named to no one. A to-do about no client is every operator's; one about a client only the operators serving it (RLS and the query). |
 | Yours | Open to-do rows plus, read where they are kept and never copied: open escalations (inbox items for us), runs queued for audit and not yet marked, open build items we own on open builds, and changes Reggie proposed to you. The read ones link to their own screens (`editable: false`). Critical first, then by due date, undated last. |
 | The clients' | Client to-dos plus the open items on their Desks (approvals, requests and forms for client roles), each with its due date; a Desk item a to-do already mirrors (`desk_item_id`) shows once. |
-| Do it | Runs the to-do's primary action as the operator through `invokeRoute` (audited `todo …`): `send_reply` posts the (edited) draft on the issue as a client message; `approve_plan` makes a to-do per step (Reggie's for its `auto` steps, the client's for theirs, else yours, once each); `decide` sends the chosen option to the enhancement's decide or the deal's outcome or stage; `send_requirements` the build's requirements request; `confirm_card` Reggie's confirm. Then the to-do is done. `open` only takes you there. A deal's reply is sent by Reggie's inbox's `sendDealEmail` (the `opsDealEmail` route's own code, §1.123.4), called directly because a slow route can't go through `invokeRoute`; a refusal there leaves the to-do open. |
+| Do it | Runs the to-do's primary action as the operator through `invokeRoute` (audited `todo …`): `send_reply` posts the (edited) draft on the issue as a client message; `approve_plan` makes a to-do per step (Reggie's for its `auto` steps, the client's for theirs, else yours, once each); `decide` sends the chosen option to the enhancement's decide or the deal's outcome or stage; `send_requirements` the build's requirements request; `confirm_card` Reggie's confirm. Then the to-do is done. `open` only takes you there. A deal's reply is sent by Reggie's inbox's `sendDealEmail` (the `opsDealEmail` route's own code, §1.124.4), called directly because a slow route can't go through `invokeRoute`; a refusal there leaves the to-do open. |
 | Undo | // DECISION: the 5 seconds before a draft goes are the page's: it waits before asking, so nothing is sent or stored in that time. |
 | Later | Until 9:00 the next weekday. // DECISION: in UTC: a to-do spans clients in many zones and an operator has no zone of its own yet. |
-| Take it | Moves one of Reggie's to the operator, named to them. Remind (a client's) is Reggie's stream's route (`POST /api/ops/todos/:id/remind`, §1.123.4). |
+| Take it | Moves one of Reggie's to the operator, named to them. Remind (a client's) is Reggie's stream's route (`POST /api/ops/todos/:id/remind`, §1.124.4). |
 | Done today | `play_log` rows sent or done today (UTC), by flow, Sent or Internal; Flag sets `flagged_at`, the one update a play_log row takes. |
 | Counts | Need you (due today), Critical held (the holds), Reggie is on (done today), Waiting on clients (overdue), Questions this week (client people's messages in their account conversations, with the median minutes to the first answer). The top bar's desk is Your call with its count, read from `GET /api/ops/todos` with the badges' refreshes. |
 | Client page | On top of the Overview tab: KPIs (A month, Open issues, Builds, Sales open, Questions), its open Sales and Build work, its activity and its to-dos with Add. // DECISION: "A month" is the won deals' agreed price, else their value, by hand (owner: contracts stay by hand). |
@@ -5163,19 +5176,19 @@ and the back office's sidebar, as the agreed prototype has them (`docs/design/pi
 | Records | The issue page adds a to-do in place; the deal and enhancement pages have a to-dos panel (`GET /api/ops/todos?about=kind:id`). |
 | Sidebar | Home, Your call (count), Clients; Work: Sales, Build; Run: Runs, Escalations (count), Reggie, Autopilot; Make: Agent lab, Library, Packs; Business; Utilities at the foot. The Builder board is reached from Build's Agent builds tab. |
 | Review fixes (2026-11-17) | Decide reads its choices from the to-do's `options` (`{label, value}` as plays make them, or words) and shows their labels; Reggie's "Confirm the urgency" is decided through `PATCH /api/ops/issues/:id`. Send on a requirements chase (`ref.buildId`) posts it in the client's lead conversation from the operator and logs the chase play. |
-| Not yet | The prototype's form preview on a requirements card (the request is sent from the build); the phone alert (owner: none yet); play logging when a person sends a play's draft (§1.123.4's). |
+| Not yet | The prototype's form preview on a requirements card (the request is sent from the build); the phone alert (owner: none yet); play logging when a person sends a play's draft (§1.124.4's). |
 | Checked | `packages/core/src/work/call.test.ts`, `apps/api/src/todos.test.ts` (roles, scope and RLS, Mine, Later, Take it, escalations and Desk items, Do it through the issue's route, Approve plan, a refused deal email leaving the to-do open, Done today and Flag, activity, the client page), `apps/web/src/ops/work/call/call.test.tsx`, and the route contract's operator-only checks. |
 
-### 1.123.4 Reggie and Autopilot (stream B2, M68; `docs/cases-plan.md` A1 and W1)
+### 1.124.4 Reggie and Autopilot (stream B2, M68; `docs/cases-plan.md` A1 and W1)
 
 Reggie's tools on the back office's work, the read-gather-draft pass, Autopilot at
-`/ops/autopilot`, and email to and from `support@` and `hello@`. §1.123's head and the owner's
+`/ops/autopilot`, and email to and from `support@` and `hello@`. §1.124's head and the owner's
 decisions are written by stage 0; this table is the Reggie stream's only.
 
 | Topic | Decision |
 |---|---|
 | Where | Core `work/autopilot.ts` (the plays, word for word from the prototype's PLAYS; `ALWAYS_YOURS`; `playMaySend`; `REGGIE_NEVER_AUTO` and `REGGIE_NEVER_A_TOOL`) and `api/autopilot.ts` (the routes); `apps/api/src/backoffice/` (`reggie-pass.ts`, `autopilot.ts`, `inbound-email.ts`, `outbound-email.ts`, `questions.ts`, `spotting.ts`, `tick.ts`); `apps/api/src/reggie/work-tools.ts` (spread into `REGGIE_TOOLS`); `apps/api/src/routes/autopilot.ts`; `apps/api/src/work/play-log.ts`; `apps/web/src/ops/work/autopilot/`. |
-| Tools | Reads (`work_list`, `issue_get`, `deals_list`, `deal_get`, `enhancement_get`, `holds_list`) run the back office's routes as the operator, fenced as untrusted data, as §1.101's reads. Changes are cards the operator confirms: `issue_create`, `issue_update` (urgency, stage, cause only), `issue_reply`, `ask_group`, `enhancement_decide_draft`, `deal_create` (no value), `deal_update` (no value or terms), `deal_setup`, `build_open` (no promised date), `requirements_send`, `hold_place`. Never a tool at all: releasing a hold, rolling back, moving a promised date, prices and terms (a test checks the list, and that release is in neither Reggie's nor the MCP server's tools). // DECISION: `todos_list` and `todo_create` are not built yet (Your call's routes, §1.123.3, were a parallel stream; they are now on the same branch); Reggie reads to-dos through `issue_get` meanwhile. |
+| Tools | Reads (`work_list`, `issue_get`, `deals_list`, `deal_get`, `enhancement_get`, `holds_list`) run the back office's routes as the operator, fenced as untrusted data, as §1.101's reads. Changes are cards the operator confirms: `issue_create`, `issue_update` (urgency, stage, cause only), `issue_reply`, `ask_group`, `enhancement_decide_draft`, `deal_create` (no value), `deal_update` (no value or terms), `deal_setup`, `build_open` (no promised date), `requirements_send`, `hold_place`. Never a tool at all: releasing a hold, rolling back, moving a promised date, prices and terms (a test checks the list, and that release is in neither Reggie's nor the MCP server's tools). // DECISION: `todos_list` and `todo_create` are not built yet (Your call's routes, §1.124.3, were a parallel stream; they are now on the same branch); Reggie reads to-dos through `issue_get` meanwhile. |
 | The read pass | An issue a client raised, a client message on one, or an email sets `needs_read_at`; the every-minute cron reads up to 10 (`readPending`), and an operator can ask again (`POST /api/ops/issues/:id/read`). Gathering is code, in one operator transaction scoped to that one client: the conversation's client side (fenced), the client's agents, the agent's last two versions, last 20 live runs, writes waiting on approval, other open issues about it. One model call (`DEFAULT_MODELS.reggie`, `callTool` with core `ReggieRead` less its times); sources not among the gathered ids are dropped, and a finding left with none is dropped. // DECISION: the cron, not `waitUntil`, starts the pass: a minute meets the target and keeps request handlers free of model calls. A failed or invalid read waits 10 minutes and tries again. |
 | Plays after a read | Each checks `mayAct` (its level, its lock, the always-yours list, Reggie being unsure) and writes `play_log`. Tell the client we have it: on the first read of an unanswered issue; at draft an operator to-do with the draft and `send_reply`; at send a client message from the client's lead. Set the urgency: at draft a to-do to confirm; at send it raises (never lowers). Find the cause: set at send when Reggie names one. An unsure read, or a plan step that is the operator's, is a to-do with the read and plan. // DECISION: a critical read is applied and holds the agent at any level, audited as the system's (it only tightens); it still comes to Your call as "Critical: …". `ReggieRead` gains an optional `cause`. |
 | Autopilot | Every play starts at draft (no `play_setting` row). `PUT /api/ops/autopilot/:flow/:stage/:play` refuses `send` with 409 `always_yours` for a locked play that reaches someone outside; off and draft are always allowed; a locked internal play (the safety hold, bench tests) may be on. The track line counts this month's `play_log`; "Ready to send on its own?" shows after the last 5 sent went unchanged. // DECISION: Expansion's Offered and Live and billed, and Enhancements' Decided and Built, are locked as the spelled-out flows' are. |
@@ -5186,19 +5199,6 @@ decisions are written by stage 0; this table is the Reggie stream's only.
 | Checked | `apps/api/src/backoffice-reggie.test.ts` (Autopilot at draft, every lock refused in code, the tools' lists, a reply by card only once confirmed, the read's fencing and sources, nothing sent at draft, an unsure read, a critical read's hold, sending at send, reading again), `apps/api/src/backoffice-email.test.ts` (an issue by email and its emailed reply, a tagged reply from its person only, a lead deal and its threaded email, "Sort this", the reminder, questions, spotting, the chase), `apps/web/src/ops/work/autopilot/autopilot.test.tsx`. |
 | Review fixes (2026-11-17) | A critical issue given its agent by a later read holds that agent, as the issue route does. // DECISION: "Sort this" mail from a member of several clients is a to-do in each of them (`client_id` set), and a stray reply on a client's deal is that client's, so only their operators read it; only mail tied to no client has no client. |
 | Not yet | Reggie's tools for to-dos (with Your call's routes); outbound email for asks; chasing missing connections; documents nobody picked up as a signal; the site's "Get started" form. |
-
-### 1.124 Filter, group and total a list (owner, 2026-11-17; from the third Builder QA run)
-
-The third QA run on staging (weekly past-due reminders) stopped at the draft: no part of the
-catalog could keep invoices 15 or more days past due, group them by customer and total them.
-"Most finance agents need to filter and group a list" (owner).
-
-| Topic | Decision |
-|---|---|
-| A skill of its own | `data.group-list`, "Filter, group and total a list": a built-in deterministic skill (`mode: tool`, its pure handler `data.list.group`), like Reshape data. Not more Reshape expressions: Reshape's set stays small on purpose (§1.86, owner 2026-11-11, "anything more is a skill of its own"); Reshape maps one value at a time, this works on a whole list. // DECISION |
-| What it does | Keeps the items that meet every rule (equals or not, at least / more than / at most / less than a number, set or not set, a date at least N days before `asOf`), groups the kept ones by one field, sums chosen fields per group in decimals (invariant 6), and drops groups under a minimum total. It returns the groups with their items and totals, the kept items with no value in the group field (a customer with no email), and counts. A value it can't read as the rule's type is not kept. // DECISION |
-| Its settings | In the step's input (the list, the rules, the group field, the totals, the minimum), as `docs.check-totals` takes its own: no new kind of skill setting. `asOf` defaults to today (UTC); a test case passes one. // DECISION |
-| Not yet | Sorting, and totals other than sums (count is each group's `count`). |
 
 ## 2. Package layering
 
@@ -6329,16 +6329,16 @@ shows it, the link goes by email once approved, the contact adds a file and send
 the page with no sign-in, and the run goes on with them; a form outside the step's limits sends
 nothing; an unanswered request ends at its due date; test runs never send. Against fakes.
 
-### M64: Back office work: schema and contract (§1.123)
+### M64: Back office work: schema and contract (§1.124)
 
-Migrations 0061–0064 on their own PR (issues, issue history, asks, enhancements, the agent's
+Migrations 0060–0063 on their own PR (issues, issue history, asks, enhancements, the agent's
 hold, the build's new columns, to-dos, deals, Autopilot's settings and log), with forced RLS and
 the migration test; the core contract and shared parts the four streams build on.
 
 **Done when** the migrations apply on a copy of staging with the previous Worker still working,
 and one client's session reads no other client's issue and no operator-only row.
 
-### M65: Build: issues, the safety hold, requests folded in (§1.123.1)
+### M65: Build: issues, the safety hold, requests folded in (§1.124.1)
 
 Issues with their conversation, history and targets; the safety hold in the gate; requests,
 Sloan's pass_to_lead and portal Feedback folded in; asks and enhancements; builds' promised date,
@@ -6349,14 +6349,14 @@ portal's Requests.
 agent's run writes nothing and its items wait, and only an operator releases it; `/ops/requests`
 redirects; All work lists everything in the agreed order with a reason for each.
 
-### M66: Your call (§1.123.3)
+### M66: Your call (§1.124.3)
 
 To-dos (`todo`), Your call with Yours, Reggie's, the clients' and Done today, the client page's
 to-dos and activity read across existing tables, and the sidebar.
 
 **Done when** every item that needs a person is on one list with a due date.
 
-### M67: Sales (§1.123.2)
+### M67: Sales (§1.124.2)
 
 Deals (new accounts and expansion) with their people and activity, the lists and boards with
 stage totals, the deal page with terms by hand and the signed copy, and set-up opening the client
@@ -6365,7 +6365,7 @@ and its builds.
 **Done when** a deal goes from lead to first agent live on staging; set-up creates the client and
 its builds.
 
-### M68: Reggie on the work: tools, the read pass, Autopilot, `support@` and `hello@` (§1.123.4)
+### M68: Reggie on the work: tools, the read pass, Autopilot, `support@` and `hello@` (§1.124.4)
 
 Reggie's tools for issues, asks, enhancements, builds, deals and holds; the read-gather-draft
 pass on new issues and messages; Autopilot with every play at draft and what is always yours

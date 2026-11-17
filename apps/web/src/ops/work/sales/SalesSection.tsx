@@ -1,4 +1,4 @@
-// `/ops/sales` and `/ops/sales/:tab` (docs/plan.md §1.123.2; docs/design/pipelines.html
+// `/ops/sales` and `/ops/sales/:tab` (docs/plan.md §1.124.2; docs/design/pipelines.html
 // `section('sales', …)`): New accounts and Expansion under one sidebar item. All deals is one
 // sortable list; each pipeline opens on its board, with the stage heads' totals (deals, agents,
 // value a month), and a list beside it. KPIs scroll away; the toolbar and the column heads stay.
@@ -43,7 +43,7 @@ import {
   Standing,
 } from "./parts";
 
-/** Autopilot's page (§1.123.4); its route comes with Reggie's stream. */
+/** Autopilot's page (§1.124.4); its route comes with Reggie's stream. */
 const AUTOPILOT = "/ops/autopilot";
 
 type Col = "client" | "deal" | "pipe" | "stage" | "status" | "agents" | "mrr" | "due";
@@ -137,7 +137,7 @@ function SalesSection({ tab }: { tab: SalesTab }) {
   const all = useApi(apiRoutes.opsDeals, { query: { tab: "all" } });
   const api = useApiClient();
   const [params] = useSearchParams();
-  // An enhancement Build decided to sell arrives as `?from=enhancement:<id>` (§1.123.1).
+  // An enhancement Build decided to sell arrives as `?from=enhancement:<id>` (§1.124.1).
   const from = params.get("from");
   const [starting, setStarting] = useState(from !== null);
   const [filter, setFilter] = useState<DealFilter>("open");

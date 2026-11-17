@@ -1,4 +1,4 @@
-// Autopilot and the back office's email routes (docs/plan.md §1.123.4): the Autopilot screen and a
+// Autopilot and the back office's email routes (docs/plan.md §1.124.4): the Autopilot screen and a
 // play's level, a deal's email to its person, a reminder for what waits on a client, and asking
 // Reggie to read an issue again. Operator only. Sending mail is a slow route (mountLong): no
 // transaction is held while Resend answers.
@@ -106,7 +106,7 @@ type LongArgs = LongHandlerCtx<typeof routes.opsDealEmail>;
 
 /**
  * Sends a deal's email (`POST /api/ops/deals/:id/email`). A slow route can't be run through
- * `invokeRoute`, so Your call's "Do it" (§1.123.3) calls this directly, as the same operator.
+ * `invokeRoute`, so Your call's "Do it" (§1.124.3) calls this directly, as the same operator.
  */
 export async function sendDealEmail(
   {

@@ -32,7 +32,7 @@ export const OPS_PATHS = {
   // (/ops/feedback, /ops/audit, /ops/requests, /ops/run-audit) redirect here.
   utilities: "/ops/utilities",
   feedback: "/ops/utilities/feedback",
-  // §1.123: requests are issues and asks in Build now; the old addresses redirect to its Issues.
+  // §1.124: requests are issues and asks in Build now; the old addresses redirect to its Issues.
   requests: "/ops/build/issues",
   // §1.102: the audit log is a tab of Security and compliance (./security/paths.ts).
   audit: "/ops/security/audit",
@@ -46,20 +46,20 @@ export const OPS_PATHS = {
   browserSites: "/ops/library/browser-sites",
   // §1.73: the Marketing area's entry; a client's marketing pages are in packs/marketing/ops/paths.ts.
   marketing: "/ops/marketing",
-  // §1.123 back office work: Build (issues, agent builds, enhancements) and its records.
+  // §1.124 back office work: Build (issues, agent builds, enhancements) and its records.
   buildWork: "/ops/build",
   buildTab: (tab: "all" | "issues" | "builds" | "enh") =>
     tab === "all" ? "/ops/build" : `/ops/build/${tab}`,
   issue: (id: string) => `/ops/issues/${id}`,
   newIssue: "/ops/issues/new",
   enhancement: (id: string) => `/ops/enhancements/${id}`,
-  // §1.123 back office work: Sales (All deals, New accounts, Expansion) and a deal.
+  // §1.124 back office work: Sales (All deals, New accounts, Expansion) and a deal.
   sales: "/ops/sales",
   salesTab: (tab: "all" | "new" | "grow") => `/ops/sales/${tab}`,
   deal: (id: string) => `/ops/deals/${id}`,
-  // §1.123.3: Your call, the one list of what needs a person.
+  // §1.124.3: Your call, the one list of what needs a person.
   call: "/ops/call",
-  // §1.123.4 back office work: Autopilot (what Reggie does in each stage, and how far).
+  // §1.124.4 back office work: Autopilot (what Reggie does in each stage, and how far).
   autopilot: "/ops/autopilot",
   autopilotFlow: (flow: string) => `/ops/autopilot/${flow}`,
 } as const;

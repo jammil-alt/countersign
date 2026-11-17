@@ -1,4 +1,4 @@
-// Your call (docs/plan.md §1.123.3; docs/cases-plan.md T1): the to-do list across the back office,
+// Your call (docs/plan.md §1.124.3; docs/cases-plan.md T1): the to-do list across the back office,
 // what Reggie did on its own today, and the client page's to-dos, work and activity. Operator only:
 // `todo` and `play_log` are operator-only tables, and no portal route returns any of it
 // (invariant 11).

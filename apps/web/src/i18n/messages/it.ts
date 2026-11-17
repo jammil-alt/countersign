@@ -3022,7 +3022,7 @@ export const it: Messages = {
     "Questo link è scaduto. Lo chieda di nuovo a Claude per riceverne uno nuovo.",
   "connectClaude.unknown":
     "Questo link non corrisponde a nessuna Sua connessione di Claude. Lo chieda di nuovo a Claude per riceverne uno nuovo.",
-  // ── §1.123: Requests (issues and asks) and requirements forms ──
+  // ── §1.124: Requests (issues and asks) and requirements forms ──
   "requests.title": "Richieste",
   "requests.lede": "Qualcosa non funziona, o un'idea per noi: dillo qui al tuo referente Mezonas.",
   "requests.new": "Nuova richiesta",

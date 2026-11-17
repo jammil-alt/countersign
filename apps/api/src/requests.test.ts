@@ -1,6 +1,6 @@
 // Requests (ARCHITECTURE §1 item 7, §11): a client raises one from the portal, it lands in the
 // operator's queue (never the client's inbox), and the operator resolves it as done, with the
-// versions made for it, or declined, with a note. docs/plan.md §1.123: raising one now opens an
+// versions made for it, or declined, with a note. docs/plan.md §1.124: raising one now opens an
 // issue in Build; the queue keeps what was raised before (made here with raiseLegacyRequest). The client reads the outcome, the note and which
 // of its own services changed, never a template.
 
@@ -57,7 +57,7 @@ describe.skipIf(!h)("requests", () => {
     return call(email, "POST", "/api/requests", body);
   }
 
-  /** A request as the portal raised them before Build (§1.123): an item in the queue. */
+  /** A request as the portal raised them before Build (§1.124): an item in the queue. */
   async function legacy(
     tenantId: string,
     email: string,
@@ -93,7 +93,7 @@ describe.skipIf(!h)("requests", () => {
       raisedBy: { name: "Client A user" },
     });
 
-    // §1.123: stored as issues in Build, no longer as items in the queue; the client's inbox never
+    // §1.124: stored as issues in Build, no longer as items in the queue; the client's inbox never
     // shows them.
     const stored = await H.t.db
       .select()

@@ -1,4 +1,4 @@
-// Back office work (docs/plan.md §1.123; docs/cases-plan.md §3): the pipelines, their stages, the
+// Back office work (docs/plan.md §1.124; docs/cases-plan.md §3): the pipelines, their stages, the
 // line under each stage saying what Reggie does there, and the sections' tabs. The words are the
 // agreed prototype's (docs/design/pipelines.html, PIPES and SECTIONS).
 

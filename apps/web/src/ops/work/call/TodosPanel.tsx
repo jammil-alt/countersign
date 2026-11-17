@@ -1,4 +1,4 @@
-// To-dos beside a record (docs/plan.md §1.123.3): the open to-dos about an issue, a deal, a build
+// To-dos beside a record (docs/plan.md §1.124.3): the open to-dos about an issue, a deal, a build
 // or an enhancement, or a client's, each with who has it and when it's due; tick one done; add
 // one (yours, Reggie's or the client's). The design system's `mz-todo` rows.
 import type { TodoAboutKind, TodoOwner, TodoView } from "@countersign/core";

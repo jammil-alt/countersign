@@ -960,7 +960,7 @@ export async function invokeRoute<R extends RouteSpec>(
   raw: RouteInput = {},
   /**
    * Which front door called it, for the audit row: the MCP server, Reggie (§1.101), a build
-   * (§1.108), a deal's set-up (§1.123.2), or a to-do done from Your call (§1.123.3).
+   * (§1.108), a deal's set-up (§1.124.2), or a to-do done from Your call (§1.124.3).
    */
   via: "mcp" | "reggie" | "build" | "deal" | "todo" = "mcp",
 ): Promise<z.output<R["response"]>> {

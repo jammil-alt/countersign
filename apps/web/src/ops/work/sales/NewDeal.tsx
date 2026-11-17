@@ -1,4 +1,4 @@
-// New deal (docs/plan.md §1.123.2): a company not yet a client, or more for a client. The value
+// New deal (docs/plan.md §1.124.2): a company not yet a client, or more for a client. The value
 // a month is typed as money and sent as a decimal string (invariant 6). From an enhancement Build
 // decided to sell (`?from=enhancement:<id>`), the deal carries that origin.
 import { DECIMAL_RE, type DealKind, type DealOrigin } from "@countersign/core";

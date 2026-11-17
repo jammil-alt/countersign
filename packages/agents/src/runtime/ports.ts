@@ -106,7 +106,7 @@ export interface RuntimeStore {
    */
   agentStage(tenantId: string, agentId: string): Promise<string | null>;
   /**
-   * docs/plan.md §1.123: whether the client agent is on a safety hold, read fresh at every write
+   * docs/plan.md §1.124: whether the client agent is on a safety hold, read fresh at every write
    * decision like the stage. While held, every write waits for a person. Optional: a store without
    * it holds nothing.
    */

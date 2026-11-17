@@ -1,4 +1,4 @@
-// Autopilot on the server (docs/plan.md §1.123.4): the screen's view (every play at its level, with
+// Autopilot on the server (docs/plan.md §1.124.4): the screen's view (every play at its level, with
 // its record this month), setting a level, and `mayAct`, the check every play runs before it drafts
 // or sends. What is always the operator's is refused here in code, whatever the screen shows.
 

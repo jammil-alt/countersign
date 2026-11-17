@@ -1,4 +1,4 @@
-// Sales (docs/plan.md §1.123.2; docs/cases-plan.md S1–S2): the operator's deals for new accounts
+// Sales (docs/plan.md §1.124.2; docs/cases-plan.md S1–S2): the operator's deals for new accounts
 // and expansion. Every route is the operator's (`/api/ops`), in a transaction scoped to the clients
 // the operator serves; a deal for a lead names no client. Set-up, which creates the client and
 // its builds, is in ../work/deal-setup.ts.

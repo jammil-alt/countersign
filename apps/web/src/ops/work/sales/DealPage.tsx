@@ -1,4 +1,4 @@
-// `/ops/deals/:id` (docs/plan.md §1.123.2; docs/design/pipelines.html `record()` for a deal): the
+// `/ops/deals/:id` (docs/plan.md §1.124.2; docs/design/pipelines.html `record()` for a deal): the
 // deal's stage stepper, the composer and its timeline, and beside them its terms, people, Reggie's
 // read, the builds it opened and its details. "Set up the account" on a new deal at its proposal
 // or set-up creates the client and a build per agent; an agreed expansion opens its builds.
@@ -452,7 +452,7 @@ type ComposerTab = (typeof COMPOSER_TABS)[number][0];
 
 function Composer({ id, isLead, onDone }: { id: string; isLead: boolean; onDone(): void }) {
   const api = useApiClient();
-  // The Email tab sends through Reggie's inbox (§1.123.4, `POST /api/ops/deals/:id/email`) to
+  // The Email tab sends through Reggie's inbox (§1.124.4, `POST /api/ops/deals/:id/email`) to
   // the deal's primary person, written on the timeline as email out. The composer opens on the
   // internal note.
   const [tab, setTab] = useState<ComposerTab>("note");

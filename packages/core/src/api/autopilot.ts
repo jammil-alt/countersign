@@ -1,4 +1,4 @@
-// Autopilot and the back office's email (docs/plan.md §1.123.4; docs/cases-plan.md A1, W1): what
+// Autopilot and the back office's email (docs/plan.md §1.124.4; docs/cases-plan.md A1, W1): what
 // Reggie does in each stage and how far it goes on its own, a deal's email to its person, a reminder
 // for what waits on a client, and Reggie's read of an issue on demand. Operator only.
 

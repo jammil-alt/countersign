@@ -1,4 +1,4 @@
-// Build (docs/plan.md §1.123.1; docs/cases-plan.md §3.2): a client's issues and asks, the
+// Build (docs/plan.md §1.124.1; docs/cases-plan.md §3.2): a client's issues and asks, the
 // operator's enhancements, agent builds and the work order across them, the safety hold, and the
 // portal's Requests (the client's view of its issues and asks). The portal never gets internal
 // notes, Reggie's read, plan or draft, to-dos, urgency, the work order or another client's asks

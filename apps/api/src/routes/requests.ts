@@ -7,7 +7,7 @@
 // The client sees its requests, their status, the note and which of its services changed; never a
 // template, an agent slug or anything of a bundle (invariant 11).
 //
-// docs/plan.md §1.123: raising one now makes an issue (a problem) or an ask (an idea) in Build;
+// docs/plan.md §1.124: raising one now makes an issue (a problem) or an ask (an idea) in Build;
 // the queue and its routes stay for what was raised before, until the hourly adoption
 // (work/legacy.ts) has made an issue of each.
 
@@ -95,7 +95,7 @@ function statusFilter(status: "open" | "resolved" | "all"): SQL[] {
 
 /**
  * Raises a client's request. v0.12 W2-D: a function, so Sloan's `account.pass_to_lead` raises it
- * exactly as the portal does. docs/plan.md §1.123: a problem becomes an issue and an idea an ask,
+ * exactly as the portal does. docs/plan.md §1.124: a problem becomes an issue and an idea an ask,
  * in the same transaction; the requests queue keeps only what was raised before.
  */
 // DECISION: Sloan's conversation link (`extra`) is no longer stored on the request: the issue or
@@ -469,7 +469,7 @@ async function lockRequest(tx: Tx, tenantIds: readonly string[], id: string): Pr
 
 export function requestRouteHandlers(app: Hono<AppEnv>): void {
   // ── Portal ─────────────────────────────────────────────────────────────────────────────────────
-  // docs/plan.md §1.123: the client's requests are its issues and asks now, plus any request raised
+  // docs/plan.md §1.124: the client's requests are its issues and asks now, plus any request raised
   // before that the hourly adoption hasn't made an issue of yet.
   mount(app, routes.portalRequests, async ({ tx, tenantIds, role, session, query }) => {
     const tenantId = tenantIds[0] as string;

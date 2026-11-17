@@ -1,4 +1,4 @@
-// An issue's targets (docs/plan.md §1.123; docs/cases-plan.md §3.2): when we reply and when we fix
+// An issue's targets (docs/plan.md §1.124; docs/cases-plan.md §3.2): when we reply and when we fix
 // it, from its urgency and the client's business hours. Pure, over the platform's clock
 // (process/clock.ts).
 

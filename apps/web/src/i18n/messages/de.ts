@@ -3071,7 +3071,7 @@ export const de: Messages = {
     "Dieser Link ist abgelaufen. Fragen Sie Claude erneut, um einen neuen zu erhalten.",
   "connectClaude.unknown":
     "Dieser Link passt zu keiner Ihrer Claude-Verbindungen. Fragen Sie Claude erneut, um einen neuen zu erhalten.",
-  // ── §1.123: Requests (issues and asks) and requirements forms ──
+  // ── §1.124: Requests (issues and asks) and requirements forms ──
   "requests.title": "Anfragen",
   "requests.lede":
     "Etwas funktioniert nicht, oder eine Idee für uns: Sagen Sie es hier Ihrem Ansprechpartner bei Mezonas.",

@@ -24,7 +24,7 @@ import { type GrantLimits, grantLevel } from "./grants";
  * - `stage`: the agent is in its trial or sign-off stage, where every write is signed;
  * - `person`: the person the change reaches asked to see it first (their autonomy);
  * - `always`: §1.73, the change is one a person always signs (publishing, posting);
- * - `held`: §1.123, the agent is on a safety hold while Mezonas fixes a problem.
+ * - `held`: §1.124, the agent is on a safety hold while Mezonas fixes a problem.
  * - `retry_reworded`: a retry asked for a change its step already had, with another input, so
  *   every write of that try is signed (`related` names the change it already had);
  * - `retry_unconfirmed`: an earlier try of this change may have gone through (`related`).
@@ -100,7 +100,7 @@ export interface ExplainWriteInput {
   entity?: string | null | undefined;
   /** §1.73: the tool always needs a person (core `isAlwaysSigned`). */
   alwaysSigned?: boolean | undefined;
-  /** §1.123: the agent is on a safety hold. */
+  /** §1.124: the agent is on a safety hold. */
   held?: boolean | undefined;
   /**
    * A retry's write that waits for a person because of an earlier change (the runtime's

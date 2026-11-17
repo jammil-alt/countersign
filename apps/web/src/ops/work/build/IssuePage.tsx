@@ -1,4 +1,4 @@
-// An issue (docs/plan.md §1.123.1; docs/design/pipelines.html `record()`): the safety hold with
+// An issue (docs/plan.md §1.124.1; docs/design/pipelines.html `record()`): the safety hold with
 // what waits, the stage stepper, the conversation with the client (replies, internal notes and a
 // question on their Desk), its history, and beside it the to-dos, Reggie's read and plan, and the
 // details. Notes stay in the back office; the client reads only replies.

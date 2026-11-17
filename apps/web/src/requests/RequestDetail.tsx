@@ -1,4 +1,4 @@
-// A request in the portal (docs/plan.md §1.123.1): the conversation with the client's Mezonas
+// A request in the portal (docs/plan.md §1.124.1): the conversation with the client's Mezonas
 // lead, and, once we ask, "Confirm it's fixed" or "It's still happening". The lead is the only
 // person at Mezonas named; internal notes never reach here.
 import type { PortalWorkRequestDetail } from "@countersign/core";

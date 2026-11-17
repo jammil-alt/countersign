@@ -1,4 +1,4 @@
-// Your call (docs/plan.md §1.123.3; docs/cases-plan.md T1): the one list of what needs a person.
+// Your call (docs/plan.md §1.124.3; docs/cases-plan.md T1): the one list of what needs a person.
 // To-do rows (operator-only, `todo`) plus what is read from its own table and never copied: open
 // escalations (inbox items for us), runs queued for audit, build items we own, changes Reggie
 // proposed, and for the clients' list the items on their Desks. Everything runs in the operator's

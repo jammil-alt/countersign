@@ -32,7 +32,7 @@ describe("the frame's counts", () => {
       "GET /api/ops/clients": () => ({ clients: [] }),
       "GET /api/ops/counts": () => ({ needsUs: 2, clients: [] }),
       "GET /api/ops/runs": () => ({ runs: [], agents: [] }),
-      // §1.123.3: Your call's count, from its list.
+      // §1.124.3: Your call's count, from its list.
       "GET /api/ops/todos": () => ({
         items: [],
         counts: {
@@ -61,7 +61,7 @@ describe("the frame's counts", () => {
       </MemoryRouter>,
     );
     await waitFor(() => expect(screen.getByTestId("ops-nav-inbox")).toHaveTextContent("2"));
-    // The top bar's desk is Your call, with its count (§1.123.3).
+    // The top bar's desk is Your call, with its count (§1.124.3).
     await waitFor(() => expect(screen.getByTestId("shell-inbox")).toHaveTextContent("Your call3"));
     expect(counts()).toBe(1);
     const firstCalls = calls();

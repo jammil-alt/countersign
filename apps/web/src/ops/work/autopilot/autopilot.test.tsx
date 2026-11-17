@@ -1,4 +1,4 @@
-// Autopilot in the back office (docs/plan.md §1.123.4; docs/design/pipelines.html `autopilot()`):
+// Autopilot in the back office (docs/plan.md §1.124.4; docs/design/pipelines.html `autopilot()`):
 // each flow's stages and plays, every one at "Draft for me" to start; a locked play's Send is
 // disabled with its lock line; setting a level calls the route; the always-yours list and targets.
 import {

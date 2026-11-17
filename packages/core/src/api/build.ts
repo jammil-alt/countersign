@@ -31,7 +31,7 @@ const Id = z.string().refine((v) => isUuid(v), "not an id");
 const IsoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date such as 2026-12-24");
 export const BuildPath = z.enum(["new", "template"]);
 export type BuildPath = z.infer<typeof BuildPath>;
-/** What started a build or a deal (docs/plan.md §1.123). */
+/** What started a build or a deal (docs/plan.md §1.124). */
 export const WorkOriginKind = z.enum(["deal", "ask", "enhancement", "issue"]);
 export type WorkOriginKind = z.infer<typeof WorkOriginKind>;
 const OPS = ["operator"] as const;
@@ -61,7 +61,7 @@ export const BuildSummary = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   phaseAt: z.string(),
-  // docs/plan.md §1.123: the build as back office work.
+  // docs/plan.md §1.124: the build as back office work.
   /** `new`: built through the phases; `template`: forked from a template for the client. */
   path: BuildPath,
   templateId: z.string().nullable(),
@@ -263,7 +263,7 @@ export const StartBuild = z
     title: z.string().trim().min(1).max(200),
     /** For one client (a client agent, that client's skill); else for everyone. */
     clientId: Id.optional(),
-    // docs/plan.md §1.123: from a template, what started it, and the date promised.
+    // docs/plan.md §1.124: from a template, what started it, and the date promised.
     path: BuildPath.optional(),
     templateId: Id.optional(),
     origin: z.strictObject({ kind: WorkOriginKind, id: Id }).optional(),
@@ -279,7 +279,7 @@ export const UpdateBuild = z.strictObject({
   brief: Brief.optional(),
   fitgap: FitGap.optional(),
   testPlan: TestPlan.optional(),
-  // docs/plan.md §1.123: moving a promised date is the operator's.
+  // docs/plan.md §1.124: moving a promised date is the operator's.
   promisedOn: IsoDate.nullable().optional(),
   waitingOn: WorkWaitingOn.optional(),
   statusLine: z.string().trim().max(120).optional(),
@@ -313,7 +313,7 @@ export const buildRoutes = {
     query: z.object({
       status: BuildStatus.optional(),
       agent: Id.optional(),
-      // docs/plan.md §1.123: the Builder board lists new agents; builds from templates are in
+      // docs/plan.md §1.124: the Builder board lists new agents; builds from templates are in
       // Build's Agent builds.
       path: z.enum(["new", "template", "all"]).default("new"),
     }),

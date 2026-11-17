@@ -1,4 +1,4 @@
-// The client hears back on its requests (docs/plan.md §1.123.1; docs/cases-plan.md B2): each reply
+// The client hears back on its requests (docs/plan.md §1.124.1; docs/cases-plan.md B2): each reply
 // from Mezonas on an issue's or ask's conversation (audience client) is an `issue_update` notice to
 // the person who raised it, or to the client admins when nobody at the client did (an email from
 // outside, the back office). Found by the notification pass like the lead thread's messages.
@@ -72,7 +72,7 @@ export async function issueUpdateCandidates(
   for (const m of ours) {
     const s = subjects.find((x) => x.threadId === m.threadId);
     if (!s) continue;
-    // §1.123.4: an issue that came by email is answered by email (backoffice/outbound-email.ts).
+    // §1.124.4: an issue that came by email is answered by email (backoffice/outbound-email.ts).
     if (s.source === "email") continue;
     // An adopted change request (work/legacy.ts) brings its old messages, its resolution note
     // among them, onto a thread made in the same transaction: they are history the client was

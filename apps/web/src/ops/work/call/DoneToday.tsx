@@ -1,4 +1,4 @@
-// Done today on Your call (docs/plan.md §1.123.3; the prototype's `handledList()`): everything
+// Done today on Your call (docs/plan.md §1.124.3; the prototype's `handledList()`): everything
 // Reggie did on its own today, by flow, each Sent (a client or a lead saw it) or Internal; Flag
 // puts one on its play's record.
 import { YOUR_CALL_WORDS } from "@countersign/core";

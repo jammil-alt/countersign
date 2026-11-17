@@ -73,7 +73,7 @@ export async function redeliverResolutions(
           // undo window or a safety hold (releaseHold moves `deliver_after` to the release).
           sql`greatest(${inboxItem.resolvedAt}, ${inboxItem.deliverAfter}) > ${new Date(now.getTime() - REDELIVER_WINDOW_MS).toISOString()}::timestamptz`,
           inArray(run.status, [...GOING]),
-          // docs/plan.md §1.123: a held agent's approvals wait for the release (an undo window's
+          // docs/plan.md §1.124: a held agent's approvals wait for the release (an undo window's
           // included); a rejection still reaches its run.
           sql`not exists (select 1 from agent a where a.id = ${inboxItem.agentId} and a.tenant_id = ${inboxItem.tenantId} and a.hold is not null and coalesce(${inboxItem.resolution}->>'approved', '') <> 'false' and ${run.mode} <> 'test')`,
         ),

@@ -1,4 +1,4 @@
-// A requirements request (docs/plan.md §1.123; docs/cases-plan.md §3.2): a build's intake
+// A requirements request (docs/plan.md §1.124; docs/cases-plan.md §3.2): a build's intake
 // questions, pre-filled from what we know, sent to the client admin's Desk with a due date.
 
 import { z } from "zod";

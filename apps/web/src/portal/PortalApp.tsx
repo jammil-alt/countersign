@@ -127,7 +127,7 @@ export function PortalLayout({ children }: { children: ReactNode }) {
               reserveCount
               testId="portal-nav-inbox"
             />
-            {/* §1.123: the client's Requests (issues and asks). */}
+            {/* §1.124: the client's Requests (issues and asks). */}
             <SidebarLink
               to={PORTAL_PATHS.requests}
               icon="message"

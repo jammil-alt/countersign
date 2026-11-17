@@ -1,4 +1,4 @@
-// Reggie's read of an issue (docs/plan.md §1.123; docs/cases-plan.md §5): what it is, how urgent,
+// Reggie's read of an issue (docs/plan.md §1.124; docs/cases-plan.md §6): what it is, how urgent,
 // the agent it's about, what Reggie found (with sources, invariant 10), its plan and a draft.
 // Stored on `issue.reggie_read`; never in a portal response.
 
@@ -24,7 +24,7 @@ export const ReggieRead = z.object({
     .max(6),
   draft: z.object({ text: z.string().max(4000) }).nullable(),
   sure: z.string().max(200),
-  /** Reggie's guess at the cause's kind, when it has one (§1.123.4: "Find the cause"). */
+  /** Reggie's guess at the cause's kind, when it has one (§1.124.4: "Find the cause"). */
   cause: WorkCauseKind.nullable().optional(),
   confident: z.boolean(),
   at: z.string(),

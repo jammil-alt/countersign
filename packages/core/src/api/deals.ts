@@ -1,4 +1,4 @@
-// Sales routes (docs/plan.md §1.123.2; docs/cases-plan.md S1–S2): deals for new accounts and for
+// Sales routes (docs/plan.md §1.124.2; docs/cases-plan.md S1–S2): deals for new accounts and for
 // more from a client, their people, activity and terms, and set-up, which opens the client and a
 // build per agent sold. Operator only: deals are operator-only tables, not a pack (owner,
 // 2026-11-17), and no portal route returns any of it.

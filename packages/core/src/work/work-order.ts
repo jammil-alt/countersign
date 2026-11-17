@@ -1,4 +1,4 @@
-// The work order (docs/plan.md §1.123; docs/cases-plan.md §3.2): Build's three kinds in one
+// The work order (docs/plan.md §1.124; docs/cases-plan.md §3.2): Build's three kinds in one
 // order, with the reason each item is where it is. Critical issues first, always. Then high, normal
 // and low issues before builds, unless a build would miss its promised date, in which case it goes
 // first. Enhancements after builds, most-asked first. The operator can move anything. Pure.

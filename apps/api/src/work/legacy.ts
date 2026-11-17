@@ -1,4 +1,4 @@
-// Folding in (docs/plan.md §1.123.1; docs/cases-plan.md B4): a client's portal Feedback becomes an
+// Folding in (docs/plan.md §1.124.1; docs/cases-plan.md B4): a client's portal Feedback becomes an
 // issue as it is sent, and what was raised before Build existed is adopted: every change request
 // (§1.11) and every open portal Feedback item gets an issue, once (the unique `legacy_item_id` and
 // `feedback_id`). The old rows are left as they are, so the previous Worker keeps working.

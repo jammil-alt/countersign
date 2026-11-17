@@ -3,7 +3,7 @@
 // due dates, where a deal stands, and sortable column heads. No new colours, fonts, radii or
 // shadows; both themes come from the tokens.
 // DECISION: kept in the Sales folder for now; the shared work parts (apps/web/src/ops/work/,
-// §1.123 stage 0) replace them when they land, with the same classes.
+// §1.124 stage 0) replace them when they land, with the same classes.
 import { type DealStanding, daysFrom, shortDay, wholeMoney } from "@countersign/core";
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";

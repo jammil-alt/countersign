@@ -1,4 +1,4 @@
-// Your call (docs/plan.md §1.123.3; docs/cases-plan.md T1): the to-do routes, what Reggie did on
+// Your call (docs/plan.md §1.124.3; docs/cases-plan.md T1): the to-do routes, what Reggie did on
 // its own today, and the client page's work and activity. Operator only (`/api/ops`), each in a
 // transaction over the clients the operator serves. "Do it" runs the to-do's primary action as the
 // operator through `invokeRoute` (that route's roles, checks and audit row, marked `todo`), so a
@@ -338,7 +338,7 @@ export function todoRoutes(app: Hono<AppEnv>): void {
           });
           href = aboutHref("issue", ref.issueId);
         } else if (ref.dealId) {
-          // The deal's email is Reggie's inbox's (§1.123.4). It is a slow route, which
+          // The deal's email is Reggie's inbox's (§1.124.4). It is a slow route, which
           // invokeRoute can't run, so its sending is called directly, as this operator.
           await sendDealEmail(ctx, ref.dealId, { subject: draft?.subject ?? row.title, text });
           href = aboutHref("deal", ref.dealId);

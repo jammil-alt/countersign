@@ -442,7 +442,7 @@ async function dispatch(
     tool.spec.sideEffect === "external"
       ? effectiveMode(step.agent.bundle.definition, stage)
       : step.agent.bundle.definition.permissions.mode;
-  // docs/plan.md §1.123: the safety hold, read fresh like the stage: while held, every write waits
+  // docs/plan.md §1.124: the safety hold, read fresh like the stage: while held, every write waits
   // for a person (an approval ceiling, which only tightens: invariant 8). Test runs are unchanged.
   const held =
     tool.spec.sideEffect === "external" && step.mode !== "test" && deps.ports.store.agentHold
@@ -598,7 +598,7 @@ async function dispatch(
               entity,
               // §1.73
               alwaysSigned: isAlwaysSigned(tool.spec),
-              // §1.123: on a safety hold.
+              // §1.124: on a safety hold.
               held,
               // Review 2, item 2: a retry's write signed because of an earlier change, which
               // the card names so the person checks it first.

@@ -1,4 +1,4 @@
-// Build's lists (docs/plan.md §1.123.1; docs/cases-plan.md §3.2): issues, agent builds and
+// Build's lists (docs/plan.md §1.124.1; docs/cases-plan.md §3.2): issues, agent builds and
 // enhancements of the clients served, in the work order with the reason for each, the KPIs over
 // them, and the holds. Open items plus those done in the last 30 days.
 

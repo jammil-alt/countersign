@@ -1,4 +1,4 @@
-// Sales in the back office (docs/plan.md §1.123.2; docs/design/pipelines.html): All deals as one
+// Sales in the back office (docs/plan.md §1.124.2; docs/design/pipelines.html): All deals as one
 // list with the prototype's KPIs and columns, filters and search; a pipeline's board with its
 // stage totals; a new deal sent as a decimal string; and a deal's page: the stage stepper, a
 // note on the timeline, terms, and set-up, which creates the client and its builds.

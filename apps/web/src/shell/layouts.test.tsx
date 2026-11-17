@@ -102,7 +102,7 @@ describe("back office layout", () => {
     expect(screen.getByTestId("shell-search")).toHaveTextContent(
       "Find a client, agent, run or record",
     );
-    // §1.123.3: the top bar's desk is Your call; Escalations keeps its count in the sidebar.
+    // §1.124.3: the top bar's desk is Your call; Escalations keeps its count in the sidebar.
     expect(screen.getByTestId("shell-inbox")).toHaveAttribute("href", "/ops/call");
     expect(screen.getByTestId("shell-inbox")).toHaveTextContent("Your call");
     const escalations = screen.getByTestId("ops-nav-inbox");
@@ -117,7 +117,7 @@ describe("back office layout", () => {
     expect(switcher).toHaveTextContent("Sandbox");
     expect(await clientOptions()).toEqual(["All clients", "Sandbox", "Demo client"]);
 
-    // Places only (§1.123.3): Home, Your call, Clients; Work; Run; Make; Business; and Utilities.
+    // Places only (§1.124.3): Home, Your call, Clients; Work; Run; Make; Business; and Utilities.
     const nav = screen.getByRole("complementary", { name: "Navigation" });
     expect(within(nav).getByTestId("ops-nav-home")).toHaveAttribute("href", "/ops");
     expect(within(nav).getByTestId("ops-nav-home")).toHaveTextContent("Home");
@@ -387,7 +387,7 @@ describe("portal layout", () => {
     expect(screen.getByTestId("shell-avatar")).toHaveClass("ds-avatar--self");
 
     // Review 1: the sidebar lists places (Home, Inbox, Runs, Accounts, Contacts), Settings at its
-    // foot; no agents, no "Your business", no "More", no Sloan card. §1.123: and Requests.
+    // foot; no agents, no "Your business", no "More", no Sloan card. §1.124: and Requests.
     const nav = screen.getByRole("complementary", { name: "Navigation" });
     const links = within(nav)
       .getAllByRole("link")

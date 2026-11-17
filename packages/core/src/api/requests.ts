@@ -25,7 +25,7 @@ export const RequestSubmission = z.strictObject({
   /** The service it is about; none for a new service or anything else. */
   serviceId: Id.optional(),
   /**
-   * docs/plan.md §1.123: "Something isn't working" (an issue) or "An idea or a change" (an ask).
+   * docs/plan.md §1.124: "Something isn't working" (an issue) or "An idea or a change" (an ask).
    */
   kind: z.enum(["problem", "idea"]).default("problem"),
 });

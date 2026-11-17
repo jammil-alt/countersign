@@ -1,4 +1,4 @@
-// A client's activity on its page in the back office (docs/plan.md §1.123.3; docs/cases-plan.md
+// A client's activity on its page in the back office (docs/plan.md §1.124.3; docs/cases-plan.md
 // T1), read across the tables that keep it and never copied: messages on the lead's, issues' and
 // asks' conversations (notes marked as ours), questions in the client's account conversations with
 // the time to Sloan's answer, runs, and decisions and changes (issue history, the client's deals'

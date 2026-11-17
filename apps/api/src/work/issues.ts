@@ -1,4 +1,4 @@
-// Issues (docs/plan.md §1.123.1; docs/cases-plan.md §3.2, B2–B4): a client's problem, numbered per
+// Issues (docs/plan.md §1.124.1; docs/cases-plan.md §3.2, B2–B4): a client's problem, numbered per
 // client, with its conversation (a thread, `subject_type='issue'`), its history (`issue_event`,
 // insert only), its targets and, on a critical one, the agent's safety hold. Raised from the
 // portal, Sloan's pass_to_lead, Feedback, an error report, the back office, Reggie or email; old
@@ -99,7 +99,7 @@ export async function createIssue(tx: Tx, input: CreateIssueInput): Promise<Issu
       );
     if (!a) throw notFound("agent");
   }
-  // DECISION: numbers are per client, from 1, with no cross-client count (§1.123); the lock keeps
+  // DECISION: numbers are per client, from 1, with no cross-client count (§1.124); the lock keeps
   // two issues raised at once from taking the same number.
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`issue:${input.tenantId}`}))`);
   const [max] = await tx

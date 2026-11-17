@@ -1,4 +1,4 @@
-// The client page's work (docs/plan.md §1.123.3; the prototype's `clientPage()`): its figures,
+// The client page's work (docs/plan.md §1.124.3; the prototype's `clientPage()`): its figures,
 // its open Sales and Build work, and its to-dos (ours, Reggie's and the client's), read from the
 // lists Sales and Build already keep. Operator only, in the operator's transaction.
 

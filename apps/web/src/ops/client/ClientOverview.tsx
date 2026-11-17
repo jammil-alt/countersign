@@ -56,7 +56,7 @@ function Overview({ clientId }: { clientId: string }) {
 
   return (
     <>
-      {/* §1.123.3: the client's figures, Sales and Build work, activity and to-dos. */}
+      {/* §1.124.3: the client's figures, Sales and Build work, activity and to-dos. */}
       <ClientWork clientId={clientId} clientName={data.client.name} />
       <PageGrid rail={<Rail clientId={clientId} data={data} threads={threads} />}>
         {waiting.length > 0 ? (

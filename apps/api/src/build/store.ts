@@ -138,7 +138,7 @@ export async function summaries(tx: Tx, rows: BuildRow[]): Promise<BuildSummary[
     tx,
     rows.map((r) => r.id),
   );
-  // docs/plan.md §1.123: where each build stands in Build's Agent builds pipeline.
+  // docs/plan.md §1.124: where each build stands in Build's Agent builds pipeline.
   const facts = await buildFacts(tx, rows);
   return rows.map((r) => {
     const c = counts.get(r.id);
@@ -945,7 +945,7 @@ export async function listBuilds(
   },
 ): Promise<BuildRow[]> {
   const where = [
-    // docs/plan.md §1.123: the Builder board keeps new agents; template builds are Build's.
+    // docs/plan.md §1.124: the Builder board keeps new agents; template builds are Build's.
     ...(q.path && q.path !== "all" ? [eq(build.path, q.path)] : []),
     q.status ? eq(build.status, q.status) : ne(build.status, "stopped"),
     ...(q.agent ? [sql`(${build.agentId} = ${q.agent} or ${build.testAgentId} = ${q.agent})`] : []),

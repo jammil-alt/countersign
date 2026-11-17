@@ -1,4 +1,4 @@
-// The safety hold (docs/plan.md §1.123.1; docs/cases-plan.md §3.2, B3). On a critical issue the
+// The safety hold (docs/plan.md §1.124.1; docs/cases-plan.md §3.2, B3). On a critical issue the
 // client agent's writes and messages stop: the permission gate adds an approval ceiling for every
 // external tool while held (packages/agents runtime), sends are never automatic, approving a held
 // agent's Desk items answers 409, and redelivery waits. Its runs go on as drafts. Placing a hold

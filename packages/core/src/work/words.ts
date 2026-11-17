@@ -1,4 +1,4 @@
-// The back office work screens' words (docs/plan.md §1.123), from the agreed prototype
+// The back office work screens' words (docs/plan.md §1.124), from the agreed prototype
 // (docs/design/pipelines.html). Plain, short, sentence case.
 
 export const WORK_WORDS = {

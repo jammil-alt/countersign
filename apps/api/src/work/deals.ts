@@ -1,5 +1,5 @@
-// Sales (docs/plan.md §1.123.2; docs/cases-plan.md S1–S2): reading and writing deals, their people
-// and their activity in an operator's transaction. Deals are operator-only tables (migration 0063):
+// Sales (docs/plan.md §1.124.2; docs/cases-plan.md S1–S2): reading and writing deals, their people
+// and their activity in an operator's transaction. Deals are operator-only tables (migration 0062):
 // row-level security keeps a deal that names a client to operators serving it, and every query
 // here says the same (invariant 1). Money stays a decimal string (invariant 6).
 

@@ -462,7 +462,7 @@ describe.skipIf(!h)("Sloan, the account agent", () => {
     expect(j(calls[0]?.output)).toMatchObject({ status: "refused", loosens: true });
     const passed = j(calls[1]?.output);
     expect(passed.status).toBe("passed");
-    // docs/plan.md §1.123: a request Sloan passes is an issue in Build, marked as Sloan's.
+    // docs/plan.md §1.124: a request Sloan passes is an issue in Build, marked as Sloan's.
     const [request] = await H.t.db
       .select()
       .from(issue)

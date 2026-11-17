@@ -34,7 +34,7 @@ export const PORTAL_PATHS = {
   // Off the nav: reached from an agent, a run, Home or Sloan.
   reports: "/reports",
   records: "/records",
-  // §1.123: the client's Requests (its issues and asks), each a conversation with the lead.
+  // §1.124: the client's Requests (its issues and asks), each a conversation with the lead.
   requests: "/requests",
   request: (id: string) => `/requests/${id}`,
   requirements: (itemId: string) => `/requirements/${itemId}`,

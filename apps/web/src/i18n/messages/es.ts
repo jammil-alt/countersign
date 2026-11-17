@@ -3006,7 +3006,7 @@ export const es: Messages = {
     "Este enlace venció. Vuelva a pedírselo a Claude para obtener uno nuevo.",
   "connectClaude.unknown":
     "Este enlace no corresponde a ninguna conexión de Claude suya. Vuelva a pedírselo a Claude para obtener uno nuevo.",
-  // ── §1.123: Requests (issues and asks) and requirements forms ──
+  // ── §1.124: Requests (issues and asks) and requirements forms ──
   "requests.title": "Solicitudes",
   "requests.lede":
     "Algo no funciona, o una idea para nosotros: cuénteselo aquí a su responsable en Mezonas.",

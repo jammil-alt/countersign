@@ -1,4 +1,4 @@
-// Your call in the back office (docs/plan.md §1.123.3; docs/design/pipelines.html `yourCall()`):
+// Your call in the back office (docs/plan.md §1.124.3; docs/design/pipelines.html `yourCall()`):
 // the KPIs, Yours as cards with Reggie's read, plan, why and draft; Do it waits five seconds for
 // Undo before a draft goes; Later; the kind chips and search; Reggie's list with Take it; Done
 // today with Flag; and the sidebar's places.

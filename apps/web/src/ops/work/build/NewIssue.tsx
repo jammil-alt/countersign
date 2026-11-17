@@ -1,4 +1,4 @@
-// New item in Build (docs/plan.md §1.123.1): an issue for a client (something isn't working), or
+// New item in Build (docs/plan.md §1.124.1): an issue for a client (something isn't working), or
 // a client's ask (an idea or a change). Builds start from the Builder board.
 import type { WorkUrgency } from "@countersign/core";
 import { useState } from "react";

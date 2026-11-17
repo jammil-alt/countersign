@@ -1,4 +1,4 @@
-// Your call (docs/plan.md §1.123.3; docs/cases-plan.md T1): the one to-do list across the back
+// Your call (docs/plan.md §1.124.3; docs/cases-plan.md T1): the one to-do list across the back
 // office. Who has a to-do, what it is about, the kind chips over the list, the tag on each card,
 // when "Later" brings one back, the client page's activity filters, and the screen's words, from
 // the agreed prototype (docs/design/pipelines.html, `yourCall()` and `clientPage()`).

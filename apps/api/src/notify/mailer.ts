@@ -30,9 +30,9 @@ export interface MailMessage {
   idempotencyKey: string;
   /** Sent in a client's name: `<name> via Mezonas` (docs/plan.md §1.98). Default `Mezonas`. */
   onBehalfOf?: string;
-  /** §1.123.4: where replies go (the back office's tagged address), as Resend's `reply_to`. */
+  /** §1.124.4: where replies go (the back office's tagged address), as Resend's `reply_to`. */
   replyTo?: string;
-  /** §1.123.4: extra headers (e.g. In-Reply-To), as Resend's `headers`. */
+  /** §1.124.4: extra headers (e.g. In-Reply-To), as Resend's `headers`. */
   headers?: Record<string, string>;
 }
 

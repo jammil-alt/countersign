@@ -146,7 +146,7 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
   if (item.subjectType === ACCOUNT_CHANGE_SUBJECT) {
     throw new HttpError(409, "use_account_change", "approve this change from its own card");
   }
-  // docs/plan.md §1.123: a build's requirements request is answered through its own form.
+  // docs/plan.md §1.124: a build's requirements request is answered through its own form.
   if (item.subjectType === "requirements_request") {
     throw new HttpError(409, "use_requirements", "answer these questions on their own form");
   }
@@ -172,7 +172,7 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
     const [r] = await tx.select({ mode: run.mode }).from(run).where(eq(run.id, item.runId));
     testRun = r?.mode === "test";
   }
-  // docs/plan.md §1.123: a held agent's items wait for Mezonas: approving one is refused while
+  // docs/plan.md §1.124: a held agent's items wait for Mezonas: approving one is refused while
   // the hold is on (invariant 8: it only tightens); rejecting (dropping) one is allowed.
   if (
     decision !== "reject" &&

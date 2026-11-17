@@ -102,7 +102,7 @@ export const portalRoutes = (
     <Route path="access/*" element={<VaultRedirect />} />
     <Route path="directory" element={<Redirect to="/contacts" />} />
     <Route path="billing" element={<Redirect to="/settings/billing" />} />
-    {/* §1.123: Requests, the client's issues and asks; Sloan's change mode stays. */}
+    {/* §1.124: Requests, the client's issues and asks; Sloan's change mode stays. */}
     <Route path="requests" element={<RequestsScreen />} />
     <Route path="requests/:id" element={<RequestDetailScreen />} />
     <Route path="requirements/:itemId" element={<RequirementsScreen />} />

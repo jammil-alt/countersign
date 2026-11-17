@@ -1,4 +1,4 @@
-// Expansion spotting (docs/plan.md §1.123.4; Sales' Expansion, "Spotted"): nightly, deterministic
+// Expansion spotting (docs/plan.md §1.124.4; Sales' Expansion, "Spotted"): nightly, deterministic
 // signals per live client open an expansion deal at `spotted` with its evidence and sources
 // (invariant 10), and a to-do for the operator: "Pursue?". Each signal is made once (`dedupe_key`).
 // Nothing reaches the client: pitching is a later stage, and prices are always the operator's.
