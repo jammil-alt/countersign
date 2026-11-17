@@ -65,9 +65,12 @@ dashboard.
    `staging` from `main`.
 3. On each branch, with SQL: `cs_runtime` (NOLOGIN) and `cs_worker` (LOGIN, member of `cs_runtime` only).
    `cs_worker` is never created through Neon's console or API: Neon-managed roles join `neon_superuser`
-   and would skip row-level security. Each run gives it a new random password per branch, which exists
-   only inside the job and in Hyperdrive.
-4. Hyperdrive `mezonas-db` (→ Neon `main` as `cs_worker`) and `mezonas-db-staging` (→ `staging`).
+   and would skip row-level security. A new Hyperdrive config gets a new random password, which exists
+   only inside the job and in Hyperdrive; an existing one keeps its password unless the run has
+   **rotate_password** ticked (staging is changed before `main`).
+4. Hyperdrive `mezonas-db` (→ Neon `main` as `cs_worker`) and `mezonas-db-staging` (→ `staging`),
+   with query caching off: the client scope is a transaction setting the cache can't see. The job
+   waits for the `production` environment's approval.
 5. R2 buckets `mezonas` and `mezonas-staging`.
 
 After the first run: save the project id from the run summary as the repository **variable**
@@ -1358,7 +1361,9 @@ removal and a new invite.
   Actions version updates monthly, one grouped pull request each, majors included. Turn on Dependabot alerts and security updates, and
   secret scanning with push protection, in the repository's Settings → Code security.
 - **`bootstrap.yml`**: by hand only; creates or updates the Neon project, branches and roles, Hyperdrive
-  configs and R2 buckets (§1). Safe to re-run; each run rotates `cs_worker`'s passwords.
+  configs and R2 buckets (§1). Safe to re-run; it rotates `cs_worker`'s passwords only when asked.
+  Waits for the `production` environment's approval, as do **Add operator** and **Remove operator**
+  when their target is production.
 - **`deploy.yml`**: on push to `main` (staging) or a `v*` tag (production): the full check, then
   migrates the target's Neon branch as `cs_owner`, deploys the code service (`apps/mfa`) and its
   secrets, then the browser service (`apps/browser`), builds `apps/web` and runs `wrangler deploy`

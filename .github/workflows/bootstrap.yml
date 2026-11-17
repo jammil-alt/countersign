@@ -35,6 +35,10 @@ on:
         description: Neon organization id for a new project (leave empty for the API key's own account)
         type: string
         default: ""
+      rotate_password:
+        description: Give cs_worker a new password on both branches (staging first). A new Hyperdrive config always gets one.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -47,6 +51,9 @@ jobs:
   bootstrap:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # It changes production's database roles and Hyperdrive, so it waits for the production
+    # environment's approval like a production deploy.
+    environment: production
     env:
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
       NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
@@ -54,6 +61,7 @@ jobs:
       CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       REGION: ${{ inputs.region }}
       ORG_ID: ${{ inputs.org_id }}
+      ROTATE: ${{ inputs.rotate_password }}
       NEON: https://console.neon.tech/api/v2
       CF: https://api.cloudflare.com/client/v4
     steps:
@@ -224,12 +232,18 @@ jobs:
           cf() { api -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" "$@"; }
 
           provision() { # branch_id, hyperdrive name
-            local branch=$1 name=$2 owner_uri worker_password host existing body id
+            local branch=$1 name=$2 owner_uri worker_password="" host existing body id rotate=$ROTATE
             owner_uri=$(neon "$NEON/projects/$PROJECT/connection_uri?branch_id=$branch&database_name=countersign&role_name=cs_owner&pooled=false" | jq -r '.uri')
             echo "::add-mask::$owner_uri"
-            worker_password=$(openssl rand -hex 24)
-            echo "::add-mask::$worker_password"
-            psql "$owner_uri" -v ON_ERROR_STOP=1 -q -v pw="$worker_password" <<'SQL'
+            existing=$(cf "$CF/accounts/$CF_ACCOUNT/hyperdrive/configs" | jq -r --arg n "$name" '[.result[] | select(.name == $n)][0].id // empty')
+            # A new config needs the password, so it always gets one. An existing one keeps its
+            # password unless asked: rotating changes the role first and Hyperdrive second, and a
+            # failure between the two leaves the Worker unable to connect until a re-run.
+            [ -n "$existing" ] || rotate=true
+            if [ "$rotate" = true ]; then
+              worker_password=$(openssl rand -hex 24)
+              echo "::add-mask::$worker_password"
+              psql "$owner_uri" -v ON_ERROR_STOP=1 -q -v pw="$worker_password" <<'SQL'
           SELECT format('CREATE ROLE cs_runtime NOLOGIN')
             WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'cs_runtime') \gexec
           SELECT format('CREATE ROLE cs_worker LOGIN PASSWORD %L', :'pw')
@@ -237,13 +251,30 @@ jobs:
           SELECT format('ALTER ROLE cs_worker LOGIN PASSWORD %L', :'pw') \gexec
           GRANT cs_runtime TO cs_worker;
           SQL
+            else
+              psql "$owner_uri" -v ON_ERROR_STOP=1 -q <<'SQL'
+          SELECT format('CREATE ROLE cs_runtime NOLOGIN')
+            WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'cs_runtime') \gexec
+          DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'cs_worker') THEN
+              RAISE EXCEPTION 'cs_worker is missing: run again with rotate_password ticked';
+            END IF;
+          END $$;
+          GRANT cs_runtime TO cs_worker;
+          SQL
+            fi
             host=$(sed -E 's#^postgres(ql)?://[^@]+@([^/:]+).*#\2#' <<<"$owner_uri")
+            # DECISION: query caching off. The client scope is a transaction setting the cache can't
+            # see, and nearly every query runs in a transaction, so caching buys nothing here.
             body=$(jq -n --arg n "$name" --arg h "$host" --arg pw "$worker_password" \
-              '{name: $n, origin: {scheme: "postgres", host: $h, port: 5432, database: "countersign", user: "cs_worker", password: $pw}}')
-            existing=$(cf "$CF/accounts/$CF_ACCOUNT/hyperdrive/configs" | jq -r --arg n "$name" '[.result[] | select(.name == $n)][0].id // empty')
+              '{name: $n, origin: {scheme: "postgres", host: $h, port: 5432, database: "countersign", user: "cs_worker", password: $pw}, caching: {disabled: true}}')
             if [ -n "$existing" ]; then
-              cf -X PATCH "$CF/accounts/$CF_ACCOUNT/hyperdrive/configs/$existing" -d "$(jq '{origin}' <<<"$body")" > /dev/null
-              id=$existing; echo "Updated Hyperdrive $name"
+              if [ "$rotate" = true ]; then
+                cf -X PATCH "$CF/accounts/$CF_ACCOUNT/hyperdrive/configs/$existing" -d "$(jq '{origin, caching}' <<<"$body")" > /dev/null
+              else
+                cf -X PATCH "$CF/accounts/$CF_ACCOUNT/hyperdrive/configs/$existing" -d "$(jq '{caching}' <<<"$body")" > /dev/null
+              fi
+              id=$existing; echo "Updated Hyperdrive $name (password rotated: $rotate)"
             else
               id=$(cf -X POST "$CF/accounts/$CF_ACCOUNT/hyperdrive/configs" -d "$body" | jq -r '.result.id')
               echo "Created Hyperdrive $name"
@@ -255,8 +286,9 @@ jobs:
           echo "### Hyperdrive (ids go in apps/api/wrangler.jsonc)" >> "$GITHUB_STEP_SUMMARY"
           echo "| Config | Id |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          provision "$MAIN_BRANCH" mezonas-db
+          # Staging first, so a failure stops before production changes.
           provision "$STAGING_BRANCH" mezonas-db-staging
+          provision "$MAIN_BRANCH" mezonas-db
 
           echo "### R2 buckets" >> "$GITHUB_STEP_SUMMARY"
           for bucket in mezonas mezonas-staging; do
