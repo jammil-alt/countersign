@@ -1269,7 +1269,8 @@ function DraftPanel({ detail, current, busy, act }: PanelProps) {
         ? `/ops/skills/new?session=${d.sessionId}`
         : null
       : b.agentId
-        ? `/ops/agents/${b.agentId}`
+        ? // Straight to the draft's workflow, not the agent's overview (owner, 2026-11-16).
+          `/ops/agents/${b.agentId}/workflow`
         : null;
   return (
     <Card

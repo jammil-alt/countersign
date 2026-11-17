@@ -409,6 +409,12 @@ describe("AgentScreen", () => {
     // On the agent page the build has no header of its own: the agent's bar is it.
     expect(within(view).queryByTestId("build-header")).toBeNull();
     expect(within(view).getByTestId("build-phase-draft")).toHaveAttribute("aria-current", "step");
+    // While it is being built, back goes to its build, not to the list of agents.
+    expect(screen.queryByTestId("agent-back")).toBeNull();
+    expect(screen.getByTestId("agent-back-build")).toHaveTextContent(
+      "Back to the build: Material costs",
+    );
+    expect(screen.getByTestId("agent-back-build")).toHaveAttribute("href", `/ops/builds/${BUILD}`);
   });
 
   it("shows the page's frame while the agent loads", async () => {

@@ -4,11 +4,12 @@
 // sweep only, never staging.
 // SEED_DEMO=1 also seeds the demo clients, Harbor Millwork and Fox River Cabinetry
 // (src/seed-demo.ts): weeks of sample runs, changes, documents and usage each, for looking at the
-// portal and the back office.
+// portal and the back office; and three builds in the Draft phase (src/seed-builds.ts).
 // DECISION: the demo seed is for local runs, and for a staging demo only when the owner chooses to
 // run it there; never on by default, never on production.
 import { closeDb, createDb } from "../src/client";
 import { seed } from "../src/seed";
+import { seedDraftBuilds } from "../src/seed-builds";
 import { DEMO_PROFILES, seedDemo } from "../src/seed-demo";
 
 const url = process.env.DIRECT_DATABASE_URL;
@@ -28,8 +29,10 @@ try {
       (result.demoDesk ? ", the e2e Desk item" : ""),
   );
   if (demo) {
+    const tenants: Record<string, string> = {};
     for (const profile of DEMO_PROFILES) {
       const d = await seedDemo(db, { operatorId: result.users.operator, profile });
+      tenants[profile.key] = d.tenantId;
       const c = d.counts;
       console.error(
         `db:seed: demo client ${profile.name}: ${c.runs} runs, ${c.stepRuns} steps, ` +
@@ -37,6 +40,12 @@ try {
           `${c.transactions} transactions, ${c.contacts} contacts, ${c.usageDays} days of usage`,
       );
     }
+    const builds = await seedDraftBuilds(db, {
+      operatorId: result.users.operator,
+      harborId: tenants.harbor as string,
+      foxRiverId: tenants.foxriver as string,
+    });
+    console.error(`db:seed: draft builds: ${Object.keys(builds).join(", ")}`);
   }
 } catch (error) {
   console.error("db:seed failed:", error instanceof Error ? error.message : error);

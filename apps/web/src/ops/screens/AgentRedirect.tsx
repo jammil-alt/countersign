@@ -1,7 +1,7 @@
 // `/ops/agents/:id`: an agent by its id (what search and the API name) sent on to its page, which
 // is addressed by slug: a template's in the Agent lab, a client agent's under its client. The
 // agent it loaded travels with the redirect, so its page shows at once (the owner's review: agent
-// pages took 3+ seconds and then redirected).
+// pages took 3+ seconds and then redirected). `/ops/agents/:id/workflow` opens its Workflow tab.
 import { Navigate, useParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
@@ -19,7 +19,7 @@ export function opsAgentHref(agent: {
     : `/ops/clients/${agent.tenantId}/agents/${agent.slug}`;
 }
 
-export function OpsAgentRedirect() {
+export function OpsAgentRedirect({ tab }: { tab?: "workflow" } = {}) {
   const { id = "" } = useParams();
   const { data, error, reload } = useApi(apiRoutes.opsAgent, { params: { id } });
   const base = `/ops/agents/${id}`;
@@ -34,5 +34,6 @@ export function OpsAgentRedirect() {
   }
   if (!data) return <AgentFrameSkeleton base={base} tabs={false} />;
   const state: AgentLinkState = { agent: data };
-  return <Navigate to={opsAgentHref(data.agent)} replace state={state} />;
+  const to = opsAgentHref(data.agent);
+  return <Navigate to={tab ? `${to}/${tab}` : to} replace state={state} />;
 }
