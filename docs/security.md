@@ -137,8 +137,9 @@ branches.
   client, never set up, and a run never signs in to it, by the site's newest version and by the
   version a connection pinned. No page on a listed host is ever opened. The browser service
   checks the same list again (`apps/browser/src/blocked.ts`, held equal to core's by a test): it
-  refuses to open a browser for a listed host, refuses to go to or download from one, and leaves
-  any page that ends on one. The list changes only with the code; the operator's tier covers
+  refuses to open a browser for a listed host, refuses to go to or download from one, and checks
+  the browser's address after every navigation and before every read, leaving any page on one
+  without reading it. The list changes only with the code; the operator's tier covers
   every other site.
 
 ## 5. Where client data may go

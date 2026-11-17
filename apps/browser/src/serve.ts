@@ -6,7 +6,8 @@
 // A value typed by `fill` (a password, a code) or set by `setCookies` (a held session) is used for
 // that one call: it is never logged, kept or returned, and a failure answers a fixed message
 // instead of Playwright's, so the value can't come back inside an error. A site on the blocked
-// list (./blocked.ts) is never opened, and a page that ends on one is left at once.
+// list (./blocked.ts) is never opened, and a page found on one, after a navigation or before a
+// read, is left at once.
 
 import type {
   BrowserCookie,
@@ -69,7 +70,8 @@ export function serveTab(tab: BrowserTab): BrowserTabService {
     return (fn as (...args: never[]) => unknown).bind(tab) as NonNullable<BrowserTab[K]>;
   };
   const neverOpened = () => new BrowserServiceError("agents never open this site");
-  // A page that ended on a site on the blocked list (a redirect, a click) is left at once.
+  // A page on a site on the blocked list (after a redirect, a click, or by itself) is left at
+  // once: checked after every navigation and before every read.
   const leaveIfBlocked = async () => {
     if (!onBlockedSite(await live())) return;
     await tab.goto("about:blank").catch(() => undefined);
@@ -113,21 +115,27 @@ export function serveTab(tab: BrowserTab): BrowserTabService {
       return answer(null);
     },
     async has(selector) {
+      await leaveIfBlocked();
       return answer(await tab.has(parse(Selector, selector, "selector")));
     },
     async readText() {
+      await leaveIfBlocked();
       return answer(await tab.readText());
     },
     async readTables() {
+      await leaveIfBlocked();
       return answer(await tab.readTables());
     },
     async textOf(selector) {
+      await leaveIfBlocked();
       return answer(await needs("textOf")(parse(Selector, selector, "selector")));
     },
     async controls() {
+      await leaveIfBlocked();
       return answer(await needs("controls")());
     },
     async sendsForm(selector) {
+      await leaveIfBlocked();
       return answer(await needs("sendsForm")(parse(Selector, selector, "selector")));
     },
     async readOnly(on) {
@@ -142,6 +150,7 @@ export function serveTab(tab: BrowserTab): BrowserTabService {
       return answer(file);
     },
     async cookies() {
+      await leaveIfBlocked();
       return answer(await tab.cookies());
     },
     async setCookies(cookies) {
@@ -159,6 +168,7 @@ export function serveTab(tab: BrowserTab): BrowserTabService {
       return answer(null);
     },
     async screenshot() {
+      await leaveIfBlocked();
       return answer(await tab.screenshot());
     },
     async alive() {
