@@ -21,6 +21,7 @@ import { useAgentsChanged } from "../agents/ui";
 import { useClientSummary } from "../OpsLayout";
 import { OPS_PATHS } from "../paths";
 import { runsLink } from "../run/links";
+import { InviteSheet } from "../work/onboarding/InviteSheet";
 
 export type OpsClient = ResponseOf<typeof apiRoutes.opsClient>;
 
@@ -33,7 +34,7 @@ export function useClientPage(): ApiState<OpsClient> {
   return state;
 }
 
-export type ClientTabId = "overview" | "agents" | "data" | "setup" | "packs" | "settings";
+export type ClientTabId = "overview" | "agents" | "file" | "data" | "setup" | "packs" | "settings";
 
 /**
  * The six tabs. `pages`: the addresses under `/ops/clients/:clientId` each tab owns, the first
@@ -46,6 +47,8 @@ export const CLIENT_TABS: {
 }[] = [
   { id: "overview", label: "Overview", pages: [["", "Overview"]] },
   { id: "agents", label: "Agents", pages: [["agents", "Agents"]] },
+  // §1.149: what we know about the client, from the first call on (operator only).
+  { id: "file", label: "File", pages: [["file", "Client file"]] },
   {
     id: "data",
     label: "Data",
@@ -248,6 +251,8 @@ function FrameView({
   const name = data?.client.name ?? summary?.name;
   const at = clientPageOf(pathname, clientId);
   const tab = CLIENT_TABS.find((t) => t.id === at.tab);
+  // §1.149: Invite from the client page: more people, or an intake for an expansion or a new area.
+  const [inviting, setInviting] = useState(false);
 
   return (
     <ClientPageContext.Provider value={client}>
@@ -285,6 +290,14 @@ function FrameView({
                   >
                     Ask Reggie
                   </Link>
+                  <button
+                    type="button"
+                    className={buttonClass("ghost")}
+                    onClick={() => setInviting(true)}
+                    data-testid="ops-client-intake-invite"
+                  >
+                    Invite
+                  </button>
                   {actions}
                 </>
               }
@@ -318,6 +331,17 @@ function FrameView({
             {intro}
           </div>
           {children}
+          {inviting ? (
+            <InviteSheet
+              setup={{
+                target: { clientId },
+                name: name ?? "the client",
+                people: [],
+                existingClient: true,
+              }}
+              onClose={() => setInviting(false)}
+            />
+          ) : null}
         </Page>
       </AgentHuesProvider>
     </ClientPageContext.Provider>

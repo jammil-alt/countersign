@@ -186,7 +186,7 @@ then one pass of its "To verify" list against the real service.
 
 ## 4. Everything else
 
-### Back office work: Sales, onboarding and Build (merged 2026-11-17; onboarding in progress)
+### Back office work: Sales, onboarding and Build (merged 2026-11-17; onboarding O1–O3 merged)
 
 One to-do list (Your call), Sales (new accounts and expansion), onboarding and Build (issues, agent
 builds and enhancements in one work order), with Reggie doing most of the work. Build, Sales, Your
@@ -194,13 +194,38 @@ call and Reggie with Autopilot are built and merged on 2026-11-17 in two PRs: th
 (0060–0063, PR #380) and the code on top of it (PR #383). Decisions: `docs/plan.md` §1.124 (M64–M68); what
 each stream left open is in its "Not yet" row in §1.124.1–§1.124.4.
 
-Onboarding is being built on top of it: a client file of what we know about each prospect and
-client; **Invite** from the lead record (a general, area or agents intake, filled from the file) and
-**Sign up now** for someone ready to start, both logged as a deal at the right stage; branded emails
-and a welcome page; Getting started in the portal (get to the point, or talk it through with Sloan;
-tools connected as it goes); a signed scope that moves each agent's build past its requirements.
+Onboarding's first part (steps O1–O3, `docs/plan.md` §1.149, M69, migration 0066) is built on
+top of it and merged on 2026-11-17 (the migration, PR #417, then the code, PR #406): a client file of what we know about each prospect and
+client; **Invite** from the lead record (a general, area or agents intake, filled from the file's
+`theirs` facts) and **Sign up now** from a saved start, both logged as a deal at the right stage
+(stages are a record, every account is in Sales); the branded invite from the lead at `hello@`
+and the welcome page with sign-in by the invited address; **Getting started** in the portal (get to
+the point: cards, "We think", Connect, Ask someone else, Different process in mind?); the build's
+Requirements request reading its card. All against fakes. What it still needs:
+
+- Code, next wave (`docs/cases-plan.md` §7): talk it through with Sloan (O4); the scope, signing,
+  facts into the knowledge base and builds into fit-gap (O5); Reggie filing facts and suggesting
+  what to cover; reminders and the remaining emails; voice (O6).
+- Code, smaller: delivered and bounced from Resend's webhooks; "Just the account" still sends
+  WorkOS's own invitation rather than a branded welcome-only email; a client file's documents (no
+  storage yet); pack and template questions shown in English; the retention job for lost
+  prospects; a "send it again" for an invite that didn't go (today it leaves the lead a to-do).
+  The full list: `docs/plan.md` §1.149.5 and §1.149.6.
+- The owner's call: whether the deal page's old "Set up the account" card stays now that Invite
+  does the set-up.
+
 The plan, its steps (B1–O6) and the owner's open questions: `docs/cases-plan.md`. The screens:
 `docs/design/pipelines.html` and `docs/design/workflows.html` (onboarding not drawn yet).
+
+Owner steps for onboarding's emails and sign-in (O1, `docs/plan.md` §1.149; how-to in
+`docs/operations.md`, Resend under "Worker secrets" and WorkOS under "By hand"):
+
+- **Resend**: verify `mezonas.com` (SPF, DKIM, DMARC) and send from `hello@mezonas.com` in
+  production (`RESEND_FALLBACK_DOMAIN`); a mailbox or routing rule for `hello@`. Next to P2.
+- **WorkOS**: Google and Microsoft sign-in switched on, Mezonas' logo and colours on the hosted
+  sign-in and its code emails, `auth.mezonas.com` if the plan allows; then try a test invite to a
+  real inbox on staging and check what `packages/auth/NOTES.md` lists, first whether a new address
+  can sign up without a WorkOS invitation.
 
 ### The Dev queue (built 2026-11-17, `docs/plan.md` §1.125)
 
@@ -246,7 +271,7 @@ PRs #384–#414 closed the launch audit's findings for the first clients. What t
 
 | # | What | Kind | Notes |
 |---|---|---|---|
-| H1 | **Live checks on staging**: one run each of a conversation step, an agent-chosen path, an agent-judged repeat, an oversight review of a failed step and an AI second check, on the default models. | Owner, after merge | §1.126. The fake model now refuses what the API refuses, but nothing has run these on the live models. |
+| H1 | **Live checks on staging**: one run each of a conversation step, an agent-chosen path, an agent-judged repeat, an oversight review of a failed step and an AI second check, on the default models. | Owner, after merge | §1.149. The fake model now refuses what the API refuses, but nothing has run these on the live models. |
 | H2 | **The real-mail check** (§1 P5). | Owner, gate before production | §1.129. |
 | H3 | **GitHub and Hyperdrive settings** from PR #384: caching off on the two existing Hyperdrive configs (`wrangler hyperdrive update <id> --caching-disabled`, or run Bootstrap with `rotate_password` unticked); the `production` environment with required reviewers and deployment limited to `main` and `v*` tags. If `staging` allows only `main` to deploy, allow the branches that quick-deploy (`claude/*`). | Owner, by hand | Not checked here whether these are done. `docs/operations.md`. |
 | H4 | **A per-site limit on the beacon** needs a Rate Limiting binding of its own, set well above the per-address limit; on the shared binding one address could empty a site's allowance. | Code and `wrangler.jsonc` | §1.141. Only a per-address limit today. |
@@ -254,7 +279,7 @@ PRs #384–#414 closed the launch audit's findings for the first clients. What t
 | H6 | **"Who is asking" on the Claude approval page**: the Claude client's name and where the request came from. | Migration on `mcp_session_approval`, then code | §1.130. Today the page shows when Claude asked and takes Claude's code. |
 | H7 | **The portal's resume screen** doesn't show the events that arrived while an agent was paused (`missedEvents`); the back office's go-live panel does. | Code, copy in six languages | §1.137. |
 | H8 | **`refresh_failing` connections** show as connected with an open finding; the ops MCP's `needsAttention` and the daily troubled list count only `status = 'error'`, so they don't list them. LinkedIn's and HubSpot's dead-grant codes come from their docs, not a live call. | Code; check live | §1.134. |
-| H9 | **The web app's first load**: load each language's wording on demand, to bring it back under the old 470 kB. | Code | §1.146. 480 kB now. |
+| H9 | **The web app's first load**: load each language's wording on demand, to bring it back under the old 470 kB. | Code | §1.146. 490 kB now; each screen loading only its own routes (audit 4.6) helps too. |
 | H10 | **Texting edge cases**: a brand-new number submitted twice at once can hit the contact phone index and get a 500 (as before #411); after an invitation is used up by a skipped submit, the link still shows the form, and submitting it gives 409 `used`. | Code, small | §1.142. |
 
 ### The phone app (owner, 2026-11-13; `docs/plan.md` §1.116, `apps/mobile/README.md`)

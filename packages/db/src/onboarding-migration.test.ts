@@ -1,23 +1,47 @@
-// Onboarding v1 (migration 0066, docs/plan.md §1.125) as the Worker's role sees it. A client file,
+// Onboarding v1 (migration 0066, docs/plan.md §1.149) as the Worker's role sees it. A client file,
 // its facts and the saved starts are the operator's: a client's session reads none of them, and an
 // operator sees only files about the clients it serves or about none (prospects), and a fact only
 // with its file. A client's intake, its people, answers, scope and log are its own: forced RLS, and
 // one client's session never reads another's. Facts, answers and the log are insert only; a scope
 // version takes only its signature; nothing is deleted.
 
+import {
+  ANSWER_SOURCES as CORE_ANSWER_SOURCES,
+  ANSWER_STATES as CORE_ANSWER_STATES,
+  FACT_ACTORS as CORE_FACT_ACTORS,
+  FACT_AUDIENCES as CORE_FACT_AUDIENCES,
+  FACT_SECTIONS as CORE_FACT_SECTIONS,
+  FACT_SOURCE_KINDS as CORE_FACT_SOURCE_KINDS,
+  FACT_SURENESS as CORE_FACT_SURENESS,
+  CLIENT_FILE_STATUSES as CORE_FILE_STATUSES,
+  INTAKE_EVENT_KINDS as CORE_INTAKE_EVENT_KINDS,
+  INTAKE_STATUSES as CORE_INTAKE_STATUSES,
+  START_MODES as CORE_START_MODES,
+} from "@countersign/core";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withOperator, withTenant } from "./client";
 import { type ClientFixture, insertClient } from "./fixtures.test-helper";
 import {
+  ANSWER_SOURCES,
+  ANSWER_STATES,
+  CLIENT_FILE_STATUSES,
   CLIENT_FILE_TABLES,
   clientFact,
   clientFile,
   deal,
+  FACT_ACTORS,
+  FACT_AUDIENCES,
+  FACT_SECTIONS,
+  FACT_SOURCE_KINDS,
+  FACT_SURENESS,
+  INTAKE_EVENT_KINDS,
+  INTAKE_STATUSES,
   INTAKE_TABLES,
   intake,
   intakeAnswer,
   intakeScope,
+  START_MODES,
   salesStart,
 } from "./schema";
 import { asWorker, createTestDatabase, databaseAvailable, type TestDatabase } from "./testing";
@@ -34,8 +58,21 @@ async function errorCode(promise: Promise<unknown>): Promise<string | undefined>
   return undefined;
 }
 
-// The value lists are checked against core's word for word with the code that names them
-// (the onboarding code's own PR adds that test here).
+describe("onboarding's value lists", () => {
+  it("are core's, word for word", () => {
+    expect([...CLIENT_FILE_STATUSES]).toEqual([...CORE_FILE_STATUSES]);
+    expect([...FACT_SECTIONS]).toEqual([...CORE_FACT_SECTIONS]);
+    expect([...FACT_SOURCE_KINDS]).toEqual([...CORE_FACT_SOURCE_KINDS]);
+    expect([...FACT_SURENESS]).toEqual([...CORE_FACT_SURENESS]);
+    expect([...FACT_AUDIENCES]).toEqual([...CORE_FACT_AUDIENCES]);
+    expect([...FACT_ACTORS]).toEqual([...CORE_FACT_ACTORS]);
+    expect([...START_MODES]).toEqual([...CORE_START_MODES]);
+    expect([...INTAKE_STATUSES]).toEqual([...CORE_INTAKE_STATUSES]);
+    expect([...ANSWER_STATES]).toEqual([...CORE_ANSWER_STATES]);
+    expect([...ANSWER_SOURCES]).toEqual([...CORE_ANSWER_SOURCES]);
+    expect([...INTAKE_EVENT_KINDS]).toEqual([...CORE_INTAKE_EVENT_KINDS]);
+  });
+});
 
 describe.skipIf(!online)("the onboarding tables", () => {
   let t: TestDatabase;

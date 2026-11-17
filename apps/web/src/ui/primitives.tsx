@@ -247,7 +247,7 @@ export function PageHeader({
           {subtitle ? <p className="mt-1 text-ink-muted">{subtitle}</p> : null}
         </div>
       </div>
-      {actions ? <div className="flex shrink-0 flex-wrap gap-2">{actions}</div> : null}
+      {actions ? <div className="flex max-w-full shrink-0 flex-wrap gap-2">{actions}</div> : null}
     </header>
   );
 }

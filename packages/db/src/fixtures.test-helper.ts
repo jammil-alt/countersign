@@ -389,7 +389,7 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
       values (${tenantId}, 'Weekly summary by email', 'Could we get the summary on Mondays?',
               'portal', ${u.id}, ${at?.id ?? ""})`;
   }
-  // §1.125 (0066): an intake with its admin, an answer, a scope and a log line. Plain SQL, and only
+  // §1.149 (0066): an intake with its admin, an answer, a scope and a log line. Plain SQL, and only
   // where the tables exist, like the issue above.
   const [onboarding] = await db.$client<{ ok: boolean }[]>`
     select to_regclass('public.intake') is not null as ok`;

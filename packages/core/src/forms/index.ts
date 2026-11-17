@@ -220,6 +220,10 @@ function secretIn(...texts: (string | undefined)[]): boolean {
   return texts.some((t) => typeof t === "string" && SECRET_WORDS.test(t));
 }
 
+/** Whether words ask for a secret (a card number, a password, a social security number…). */
+// docs/plan.md §1.149.2: the intake's questions keep the same rule as a form's.
+export const asksForSecret = (...texts: (string | undefined)[]): boolean => secretIn(...texts);
+
 function questionProblems(q: Question | ColumnQuestion, where: string, out: FormProblem[]) {
   if (secretIn(q.label, q.help)) {
     out.push({

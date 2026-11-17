@@ -61,6 +61,7 @@ import { Select, TextArea, TextInput } from "../../ui/forms";
 import { Badge, Button, Card, cx, Loading, Tag } from "../../ui/primitives";
 import { AboutLink, FocusBar, ProposalCard } from "./issues";
 import { problemAdvice, problemWhere } from "./problems";
+import { RequirementsCard } from "./RequirementsCard";
 import {
   BRIEF_STATE_TONE,
   BRIEF_STATE_WORDS,
@@ -262,6 +263,10 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
           </li>
         ))}
       </ol>
+      {/* §1.149.2: a client's build from a template reads its Requirements from the intake. */}
+      {b.client && b.templateId ? (
+        <RequirementsCard clientId={b.client.id} templateId={b.templateId} />
+      ) : null}
 
       {b.status !== "open" ? (
         <p className="text-sm text-ink-muted" data-testid="build-closed">

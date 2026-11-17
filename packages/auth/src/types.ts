@@ -144,14 +144,25 @@ export type InviteDelivery =
   | { readonly status: "sent"; readonly invitationId: string }
   /** Nothing to send: the dev sign-in lists every user, so they can sign in at once. */
   | { readonly status: "not_sent"; readonly reason: "dev_sign_in" }
+  /** Not the provider's to send: Mezonas sends its own branded invite (docs/plan.md §1.149). */
+  | { readonly status: "not_sent"; readonly reason: "ours" }
   /** The provider refused or could not be reached; `reason` is its error code, never its text. */
   | { readonly status: "failed"; readonly reason: string };
+
+/** How an invitation goes out. */
+export interface InviteOptions {
+  /**
+   * False: the provider sends nothing of its own, since Mezonas sends the branded invite (Invite
+   * and Sign up now, docs/cases-plan.md §4.4: one email, not two). Default true.
+   */
+  readonly providerEmail?: boolean;
+}
 
 export interface AuthAdapter {
   readonly kind: AdapterKind;
   identify(request: Request, now: Date): Promise<Identification>;
   /** Tell an invited address how to sign in. Never throws: a failure is a `failed` delivery. */
-  invite(email: string): Promise<InviteDelivery>;
+  invite(email: string, options?: InviteOptions): Promise<InviteDelivery>;
 }
 
 /** Reads auth needs on every request. */

@@ -1,7 +1,7 @@
 // Sign-in, sign-out and the session (packages/auth): WorkOS in deployed environments, the dev
 // adapter locally (plan §1.1 "Auth provider").
 
-import { getSession, toSessionResponse } from "@countersign/auth";
+import { getSession, parseSignInMethod, toSessionResponse } from "@countersign/auth";
 import { isOperatorRole, routes } from "@countersign/core";
 import { appUser, userMemberships, withTenant } from "@countersign/db";
 import { asc } from "drizzle-orm";
@@ -103,8 +103,14 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
       );
     }
     const r = await choice.workos.signIn(
-      // `retry=1`: the callback sent the browser back here once after a failure (below).
-      { returnTo: c.req.query("return_to") ?? null, restart: c.req.query("retry") === "1" },
+      {
+        returnTo: c.req.query("return_to") ?? null,
+        // `retry=1`: the callback sent the browser back here once after a failure (below).
+        restart: c.req.query("retry") === "1",
+        // §1.149: the welcome page's Google, Microsoft or email button, with the invited address.
+        method: parseSignInMethod(c.req.query("method")),
+        loginHint: c.req.query("login_hint") ?? null,
+      },
       new Date(),
     );
     if (!r.ok) return c.redirect(signInFailure(r.code), 302);
