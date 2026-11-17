@@ -85,6 +85,10 @@ export const UpdateClientFile = z.strictObject({
   name: z.string().trim().min(1).max(200).optional(),
   website: Website.nullable().optional(),
   status: ClientFileStatus.optional(),
+  /** Link the file to the client it became (once: a client has one file). */
+  clientId: Id.optional(),
+  /** Point a deal at this file. */
+  dealId: Id.optional(),
 });
 export type UpdateClientFile = z.infer<typeof UpdateClientFile>;
 
@@ -126,7 +130,8 @@ export const clientFileRoutes = {
     path: "/api/ops/client-files/:id",
     auth: "session",
     roles: OPS,
-    summary: "Change a client file's name, website or status (its facts are only added to)",
+    summary:
+      "Change a client file's name, website or status, or link it to its client or a deal (its facts are only added to)",
     params: IdParams,
     body: UpdateClientFile,
     response: ClientFileDetail,

@@ -6,6 +6,7 @@ import { Locale } from "../i18n/locale";
 import { isUuid } from "../ids";
 // §1.116: the phone app
 import { DeviceSignature, ItemFingerprint } from "../mobile/mobile";
+import { DecimalString } from "../money";
 // Wave 6: the run audit (the owner's check on every step, the audit queue, the export)
 import { OwnerCheckView } from "../oversight/check";
 import { STEP_KINDS } from "../process/schema";
@@ -1220,8 +1221,40 @@ export const opsRoutes = {
        * leaves the client without it until the operator adds it from the client's page.
        */
       supervisor: z.boolean().optional(),
+      /**
+       * §1.125 "Every account is in Sales": the deal and client file this client is set up from.
+       * Omitted: the company's open New account deal (by name), else a new one at Set up the
+       * account with the stages before it skipped.
+       */
+      sales: z
+        .strictObject({
+          dealId: ApiId.optional(),
+          fileId: ApiId.optional(),
+          website: z.string().trim().min(1).max(300).optional(),
+          /** A new deal's title; default "New account". */
+          title: z.string().trim().min(1).max(200).optional(),
+          /** Why the stages before Set up the account were skipped; default "signed up directly". */
+          why: z.string().trim().min(1).max(200).optional(),
+          /** The agreed price a month, when known (Sign up now): recorded as the deal's terms. */
+          agreedMrr: DecimalString.refine((v) => !v.startsWith("-"), "not below zero").optional(),
+          currency: z
+            .string()
+            .regex(/^[A-Z]{3}$/, "an ISO 4217 code")
+            .optional(),
+          /**
+           * Whether what we're starting with was chosen (agents or an intake). False adds "What are
+           * we starting with for …?" to Your call. Default: a named deal, or its agents sold.
+           */
+          chosen: z.boolean().optional(),
+        })
+        .optional(),
     }),
-    response: z.object({ client: ClientSummary, admin: InviteResult.nullable() }),
+    response: z.object({
+      client: ClientSummary,
+      admin: InviteResult.nullable(),
+      /** The deal at Set up the account and the client file, both now the client's. */
+      sales: z.object({ dealId: z.string(), fileId: z.string() }),
+    }),
   }),
   opsClient: defineRoute({
     method: "GET",
