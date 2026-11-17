@@ -16,6 +16,7 @@ import {
 import {
   build,
   clientAsk,
+  codeRequest,
   deal,
   enhancement,
   issue,
@@ -148,6 +149,15 @@ async function clientOfAbout(
         .where(eq(enhancement.id, about.id));
       if (!e) throw notFound("enhancement");
       // Everyone's: an enhancement names no client.
+      return null;
+    }
+    case "code_request": {
+      // docs/plan.md §1.125: a Dev queue request is everyone's too.
+      const [r] = await tx
+        .select({ id: codeRequest.id })
+        .from(codeRequest)
+        .where(eq(codeRequest.id, about.id));
+      if (!r) throw notFound("request");
       return null;
     }
   }
