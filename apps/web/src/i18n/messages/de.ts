@@ -944,6 +944,9 @@ export const de: Messages = {
     "Eine pro Zeile. Eine Domain (ihrlieferant.de) gilt für alle Adressen dort.",
   "forwarding.edit": "Bearbeiten, wer weiterleiten darf",
   "forwarding.drop.sender_not_allowed": "der Absender steht nicht auf Ihrer Liste",
+  "forwarding.drop.sender_unverified":
+    "der Absender steht auf Ihrer Liste, aber wir konnten nicht bestätigen, dass sie von ihm kam",
+  "forwarding.drop.auto_reply": "es war eine automatische Antwort, etwa eine Abwesenheitsnotiz",
   "forwarding.drop.unknown_address": "sie ging an eine alte oder falsche Adresse",
   "forwarding.drop.too_large": "sie war größer als 25 MB",
   "forwarding.drop.unreadable": "die Nachricht war nicht lesbar",
@@ -1463,6 +1466,7 @@ export const de: Messages = {
   "contacts.status.failed": "fehlgeschlagen",
   "contacts.status.read": "gelesen",
   "contacts.status.received": "empfangen",
+  "contacts.status.unverified": "empfangen, Absender nicht bestätigt",
   "contacts.status.replied": "beantwortet",
   "contacts.status.not_sent": "nicht gesendet",
   "contacts.status.no_reply": "keine Antwort",

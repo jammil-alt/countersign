@@ -135,12 +135,12 @@ describe.skipIf(!h)("email forwarding", () => {
     const fail =
       "Authentication-Results: mx.cloudflare.net; dmarc=fail header.from=keystonehw.example";
 
-    expect(await as([])).toMatchObject({ status: "dropped", reason: "sender_not_allowed" });
-    expect(await as([fail])).toMatchObject({ status: "dropped", reason: "sender_not_allowed" });
+    expect(await as([])).toMatchObject({ status: "dropped", reason: "sender_unverified" });
+    expect(await as([fail])).toMatchObject({ status: "dropped", reason: "sender_unverified" });
     // A pass the sender wrote themselves sits below the receiving server's header: not read.
     expect(await as([fail, pass])).toMatchObject({
       status: "dropped",
-      reason: "sender_not_allowed",
+      reason: "sender_unverified",
     });
     expect((await as([pass])).status).toBe("accepted");
   });
@@ -157,19 +157,19 @@ describe.skipIf(!h)("email forwarding", () => {
         },
         { domain: DOMAIN },
       );
-    // No verdict at all: the envelope alone proves nothing.
-    expect(await as([])).toMatchObject({ status: "dropped", reason: "sender_not_allowed" });
+    // No verdict at all: the envelope alone proves nothing (on the list, but unverified).
+    expect(await as([])).toMatchObject({ status: "dropped", reason: "sender_unverified" });
     // SPF checked another domain than the envelope's.
     expect(
       await as([
         "Authentication-Results: mx.cloudflare.net; spf=pass smtp.mailfrom=elsewhere.example",
       ]),
-    ).toMatchObject({ status: "dropped", reason: "sender_not_allowed" });
+    ).toMatchObject({ status: "dropped", reason: "sender_unverified" });
     expect(
       await as([
         "Authentication-Results: mx.cloudflare.net; spf=fail smtp.mailfrom=ap@hollismillwork.example",
       ]),
-    ).toMatchObject({ status: "dropped", reason: "sender_not_allowed" });
+    ).toMatchObject({ status: "dropped", reason: "sender_unverified" });
     const ok = await as([
       "Authentication-Results: mx.cloudflare.net; spf=pass smtp.mailfrom=ap@hollismillwork.example",
     ]);
@@ -190,6 +190,46 @@ describe.skipIf(!h)("email forwarding", () => {
     });
   });
 
+  it("records as authenticated the proven address that is on the list", async () => {
+    // From proven but not on the list; the envelope proven and on it.
+    const raw = new TextEncoder().encode(
+      [
+        "Authentication-Results: mx.cloudflare.net; spf=pass smtp.mailfrom=ap@hollismillwork.example; dmarc=pass header.from=unknown-vendor.example",
+        "From: accounts@unknown-vendor.example",
+        `To: ${address}`,
+        "Subject: Invoice",
+        "MIME-Version: 1.0",
+        'Content-Type: multipart/mixed; boundary="m"',
+        "",
+        "--m",
+        'Content-Type: application/pdf; name="matched.pdf"',
+        'Content-Disposition: attachment; filename="matched.pdf"',
+        "Content-Transfer-Encoding: base64",
+        "",
+        Buffer.from("%PDF-1.4\n% matched sender\n%%EOF\n").toString("base64"),
+        "--m--",
+        "",
+      ].join("\r\n"),
+    );
+    const r = await receiveForwardedEmail(
+      harness.deps(),
+      { from: "ap@hollismillwork.example", to: address, raw },
+      { domain: DOMAIN },
+    );
+    expect(r.status).toBe("accepted");
+    if (r.status !== "accepted") return;
+    expect(r.documents[0]?.created).toBe(true);
+    const [doc] = await harness.as(A, (tx) =>
+      tx
+        .select()
+        .from(document)
+        .where(eq(document.id, r.documents[0]?.id ?? "")),
+    );
+    expect(doc?.meta).toMatchObject({
+      email: { authenticated: true, authenticatedAs: "ap@hollismillwork.example" },
+    });
+  });
+
   it("reads only Cloudflare's own header, the topmost one, whole", async () => {
     const vendor = new TextDecoder().decode(eml("from-vendor.eml"));
     const as = (headers: string[]) =>
@@ -204,7 +244,7 @@ describe.skipIf(!h)("email forwarding", () => {
       );
     const pass =
       "Authentication-Results: mx.cloudflare.net; dmarc=pass header.from=keystonehw.example";
-    const drop = { status: "dropped", reason: "sender_not_allowed" };
+    const drop = { status: "dropped", reason: "sender_unverified" };
     // Cloudflare's verdict in an ARC header on top; the sender's own pass below it.
     expect(
       await as([

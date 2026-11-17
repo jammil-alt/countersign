@@ -7,6 +7,7 @@
 
 import {
   type ContentStore,
+  countForwarded,
   forwardingOf,
   parseForwardedEmail,
   parseForwardingAddress,
@@ -77,8 +78,8 @@ async function replyLine(
   row: ReachOutRow,
   who: ContactRow,
   reply: ReachReply,
-  // A reply after the reach-out ended is shown as received, not as its answer.
-  status: "replied" | "received" = "replied",
+  // Mail kept without answering is shown as received (or unverified), not as the answer.
+  status: "replied" | "received" | "unverified" = "replied",
 ) {
   const threadId = await contactThread(tx, who);
   const body: ThreadMessageBody = {
@@ -296,7 +297,8 @@ function sameTag(a: string, b: string): boolean {
  * reach-outs sent before reply addresses): a reply to a reach-out email. It ends the open reach-out
  * the tag names when the sender is its contact, proven by Cloudflare's own header (the From header
  * under DMARC, the envelope sender under SPF). Automatic mail (an out-of-office, a bounce) answers
- * nothing. A reply that comes after the reach-out ended is kept, not lost (`late`). Returns null
+ * nothing. Mail from the contact that can't answer (late, unproven, a system's) is kept in their
+ * thread without waking anything (`keptOnly`). Returns null
  * when it isn't one (the caller then treats it as forwarded mail); a reply address is never that.
  */
 export async function receiveReachOutReply(
@@ -315,8 +317,8 @@ export async function receiveReachOutReply(
   // P-3: `document.received` for the reply's new documents, and their ids to read.
   events: EventRow[];
   fresh: string[];
-  /** A reply after its reach-out ended, kept in the contact's thread (nothing woken). */
-  late: boolean;
+  /** Kept in the contact's thread without answering (late, unverified or a system's): no wake. */
+  keptOnly: boolean;
 } | null> {
   const to = mail.to.trim().toLowerCase();
   const target = replyTarget(to, options.domain);
@@ -326,15 +328,15 @@ export async function receiveReachOutReply(
     woken: [] as Wake[],
     events: [] as EventRow[],
     fresh: [] as string[],
-    late: false,
+    keptOnly: false,
   });
   const reachOutId = target.tag ? replyTagReachOutId(target.tag) : null;
   const parsed = await parseReplyEmail(mail.raw, { envelopeFrom: mail.from }).catch(() => null);
   if (!parsed) return target.form === "reply" ? handled() : null;
-  const filed: { events: EventRow[]; fresh: string[]; late: boolean } = {
+  const filed: { events: EventRow[]; fresh: string[]; keptOnly: boolean } = {
     events: [],
     fresh: [],
-    late: false,
+    keptOnly: false,
   };
   const woken = await withTenant(db, target.tenantId, async (tx) => {
     if (target.form === "forwarding") {
@@ -381,37 +383,69 @@ export async function receiveReachOutReply(
       from: parsed.from,
       auth: parsed.auth,
     });
-    // DECISION: only the contact's own address, proven, counts as their reply; anyone else writing
-    // to the tagged address is dropped, so a stranger can't answer for them.
-    if (!who?.email || !senders.includes(who.email.toLowerCase())) return [];
-    // DECISION: automatic mail (an out-of-office, a bounce, a list: `isAutomaticEmail`) never
-    // answers a reach-out: the reach-out stays open for the person's own reply and the cron's
-    // re-sends. It leaves no thread line either (cheap and quiet); only a log line without content.
-    if (parsed.automatic) {
-      console.log("automatic email to a reply address ignored", {
+    const email = who?.email?.toLowerCase() ?? null;
+    const proven = !!email && senders.includes(email);
+    // The contact's address on the envelope or in From, without proof (no DMARC, SPF not passing).
+    const claimed = !!email && (mail.from.trim().toLowerCase() === email || parsed.from === email);
+    // DECISION: only mail from the contact's own address is theirs; anyone else writing to the
+    // tagged address is dropped (a log line without content), so a stranger can't answer for them.
+    if (!who || !email || (!proven && !claimed)) {
+      console.log("email to a reply address not from its contact; dropped", {
         tenantId: target.tenantId,
         reachOutId: about.id,
       });
       return [];
     }
-    if (!row) {
-      // DECISION: a reply after its reach-out ended (an earlier reply, the timeout or the cron)
-      // is kept as any reply is (a raw record and its PDFs and images as the client's documents)
-      // and shown in the contact's thread on that reach-out, but wakes nothing: the run has moved
-      // on, and a person sees it there. A second delivery of the reply that ended it is not kept.
+    // The same message again (Email Routing retries, a resend): kept once, answers once.
+    if (
+      parsed.messageId &&
+      (await replyAlreadyKept(tx, target.tenantId, parsed.messageId, proven))
+    ) {
+      return [];
+    }
+    // DECISION: an auto-reply or bounce (an out-of-office: `emailAutomation`) never answers a
+    // reach-out, which stays open for the person's own reply and the cron's re-sends. It leaves a
+    // log line without content and is counted on the client's inbound mail, nothing else.
+    if (parsed.automatic === "auto_reply") {
+      console.log("automatic reply to a reply address ignored", {
+        tenantId: target.tenantId,
+        reachOutId: about.id,
+      });
+      const upload = await uploadConnection(tx, target.tenantId);
+      if (upload) {
+        await countForwarded(tx, upload, { accepted: false, reason: "auto_reply" }, options.now);
+      }
+      return [];
+    }
+    // DECISION: three kinds of mail from the contact are kept but answer nothing and wake nothing
+    // (a raw record, its PDFs and images as quiet documents, a "received" line in the contact's
+    // thread on the reach-out), so a person sees them and nothing is lost:
+    // - `late`: the reach-out had ended (an earlier reply, the timeout or the cron);
+    // - `unverified`: from the contact's address, but not proven by Cloudflare's header (shown
+    //   as unverified, never taken as their answer);
+    // - `machine`: written by a system (a quoting or ticket system), which would otherwise answer
+    //   every message of a conversation.
+    const keepOnly = !proven
+      ? "unverified"
+      : !row
+        ? "late"
+        : parsed.automatic === "machine"
+          ? "machine"
+          : null;
+    if (keepOnly) {
       const kept = await keepEmailReply(tx, {
         tenantId: target.tenantId,
-        row: tagged,
+        row: about,
         mail,
         parsed,
         content: options.content,
         now: options.now,
-        late: true,
-        authenticatedAs: who.email.toLowerCase(),
+        keepOnly,
+        authenticatedAs: proven ? email : null,
       });
       await replyLine(
         tx,
-        tagged,
+        about,
         who,
         {
           channel: "email",
@@ -421,13 +455,12 @@ export async function receiveReachOutReply(
           at: options.now.toISOString(),
           documents: kept.documents,
         },
-        "received",
+        proven ? "received" : "unverified",
       );
-      filed.events = kept.events;
-      filed.fresh = kept.fresh;
-      filed.late = true;
+      filed.keptOnly = true;
       return [];
     }
+    if (!row) return [];
     // P-3: the reply is a raw record (its origin), and its PDFs and images documents of this
     // client, in this transaction: a second delivery finds the reach-out ended and keeps nothing.
     const kept = await keepEmailReply(tx, {
@@ -437,7 +470,7 @@ export async function receiveReachOutReply(
       parsed,
       content: options.content,
       now: options.now,
-      authenticatedAs: who.email.toLowerCase(),
+      authenticatedAs: email,
     });
     const w = await recordReply(
       tx,
@@ -476,6 +509,47 @@ class ReplyTaken extends Error {
   override name = "ReplyTaken";
 }
 
+/**
+ * Whether this client already kept an email reply with this Message-ID (any reach-out), as proven
+ * or as unverified as this one: an unproven copy never stands in for the proven message.
+ */
+async function replyAlreadyKept(
+  tx: Tx,
+  tenantId: string,
+  messageId: string,
+  proven: boolean,
+): Promise<boolean> {
+  // Replies are kept on the upload connection: (connection, entity) is its unique key's prefix.
+  const upload = await uploadConnection(tx, tenantId);
+  if (!upload) return false;
+  const [seen] = await tx
+    .select({ id: rawRecord.id })
+    .from(rawRecord)
+    .where(
+      and(
+        eq(rawRecord.tenantId, tenantId),
+        eq(rawRecord.connectionId, upload.id),
+        eq(rawRecord.entityType, REACH_REPLY_EMAIL_ENTITY),
+        sql`${rawRecord.payload}->>'messageId' = ${messageId}`,
+        proven
+          ? sql`(${rawRecord.payload}->>'unverified') is null`
+          : sql`${rawRecord.payload}->>'unverified' = 'true'`,
+      ),
+    )
+    .limit(1);
+  return !!seen;
+}
+
+async function uploadConnection(tx: Tx, tenantId: string) {
+  const [upload] = await tx
+    .select({ id: connection.id, tenantId: connection.tenantId })
+    .from(connection)
+    .where(and(eq(connection.tenantId, tenantId), eq(connection.connector, UPLOAD_CONNECTOR_ID)))
+    .orderBy(connection.createdAt)
+    .limit(1);
+  return upload ?? null;
+}
+
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
   return [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -497,10 +571,10 @@ async function keepEmailReply(
     parsed: ReplyEmail;
     content: ContentStore | undefined;
     now: Date;
-    /** After the reach-out ended: kept under its own key, once per message. */
-    late?: boolean;
-    /** The sender's address Cloudflare's header proved (the contact's). */
-    authenticatedAs: string;
+    /** Kept without answering: under its own key, documents quiet (`meta.via: late_reply`). */
+    keepOnly?: "late" | "unverified" | "machine";
+    /** The sender's address Cloudflare's header proved (the contact's); null when unproven. */
+    authenticatedAs: string | null;
   },
 ): Promise<{
   rawRecordId: string | null;
@@ -526,25 +600,8 @@ async function keepEmailReply(
   };
   if (!upload) return out;
   let externalId = input.row.id;
-  if (input.late) {
+  if (input.keepOnly) {
     const messageKey = input.parsed.messageId?.slice(0, 300) || (await sha256Hex(input.mail.raw));
-    // The reply that ended the reach-out, delivered again: already kept.
-    if (input.parsed.messageId) {
-      const [first] = await tx
-        .select({ id: rawRecord.id })
-        .from(rawRecord)
-        .where(
-          and(
-            eq(rawRecord.tenantId, input.tenantId),
-            eq(rawRecord.connectionId, upload.id),
-            eq(rawRecord.entityType, REACH_REPLY_EMAIL_ENTITY),
-            eq(rawRecord.externalId, input.row.id),
-            sql`${rawRecord.payload}->>'messageId' = ${input.parsed.messageId}`,
-          ),
-        )
-        .limit(1);
-      if (first) throw new ReplyTaken();
-    }
     externalId = `${input.row.id}:${messageKey}`;
   }
   const rawRecordId = uuidv7();
@@ -593,17 +650,20 @@ async function keepEmailReply(
             to: input.mail.to.toLowerCase(),
             subject: input.parsed.subject,
             messageId: input.parsed.messageId,
-            // Only the contact's proven address reaches here (receiveReachOutReply).
-            authenticated: true,
+            // Whether Cloudflare's header proved the contact's address.
+            authenticated: input.authenticatedAs !== null,
             authenticatedAs: input.authenticatedAs,
           },
           rawRecordId,
           reachOutId: input.row.id,
           reachOutReply: true,
+          // Kept without answering: nobody asked for it, so nothing reads it or starts on it.
+          ...(input.keepOnly ? { via: "late_reply" } : {}),
         },
+        ...(input.keepOnly ? { announce: false } : {}),
       });
       if (!out.documents.includes(stored.document.id)) out.documents.push(stored.document.id);
-      if (stored.created) out.fresh.push(stored.document.id);
+      if (stored.created && !input.keepOnly) out.fresh.push(stored.document.id);
       if (stored.event) out.events.push(stored.event);
       attachments.push({
         contentType: a.mimeType,
@@ -630,7 +690,8 @@ async function keepEmailReply(
         direction: "in",
         channel: "email",
         reachOutId: input.row.id,
-        ...(input.late ? { late: true } : {}),
+        ...(input.keepOnly ? { keptOnly: input.keepOnly } : {}),
+        ...(input.authenticatedAs === null ? { unverified: true } : {}),
         from: input.parsed.from ?? input.mail.from.toLowerCase(),
         subject: input.parsed.subject,
         messageId: input.parsed.messageId,

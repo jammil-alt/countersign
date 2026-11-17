@@ -880,6 +880,9 @@ export const en = {
   "forwarding.sendersHelp": "One per line. A domain (yourvendor.com) covers everyone at it.",
   "forwarding.edit": "Edit who may forward",
   "forwarding.drop.sender_not_allowed": "the sender isn't on your list",
+  "forwarding.drop.sender_unverified":
+    "the sender is on your list, but we couldn't confirm it came from them",
+  "forwarding.drop.auto_reply": "it was an automatic reply, such as an out-of-office",
   "forwarding.drop.unknown_address": "it was sent to an old or wrong address",
   "forwarding.drop.too_large": "it was over 25 MB",
   "forwarding.drop.unreadable": "the message couldn't be read",
@@ -1381,6 +1384,7 @@ export const en = {
   "contacts.status.failed": "failed",
   "contacts.status.read": "read",
   "contacts.status.received": "received",
+  "contacts.status.unverified": "received, sender not confirmed",
   "contacts.status.replied": "replied",
   "contacts.status.not_sent": "not sent",
   "contacts.status.no_reply": "no reply",

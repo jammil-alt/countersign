@@ -907,6 +907,9 @@ export const es: Messages = {
   "forwarding.sendersHelp": "Uno por línea. Un dominio (suproveedor.com) incluye a todos en él.",
   "forwarding.edit": "Editar quién puede reenviar",
   "forwarding.drop.sender_not_allowed": "el remitente no está en su lista",
+  "forwarding.drop.sender_unverified":
+    "el remitente está en su lista, pero no pudimos confirmar que lo envió",
+  "forwarding.drop.auto_reply": "era una respuesta automática, como un aviso de ausencia",
   "forwarding.drop.unknown_address": "se envió a una dirección antigua o equivocada",
   "forwarding.drop.too_large": "pesaba más de 25 MB",
   "forwarding.drop.unreadable": "no se pudo leer el mensaje",
@@ -1421,6 +1424,7 @@ export const es: Messages = {
   "contacts.status.failed": "fallido",
   "contacts.status.read": "leído",
   "contacts.status.received": "recibido",
+  "contacts.status.unverified": "recibido, remitente sin confirmar",
   "contacts.status.replied": "respondido",
   "contacts.status.not_sent": "no enviado",
   "contacts.status.no_reply": "sin respuesta",

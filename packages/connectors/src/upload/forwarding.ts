@@ -3,7 +3,12 @@
 // handler, which keeps PDF and image attachments from allowed senders as documents. Headers are
 // kept; bodies never are (invariant 12).
 
-import { type EmailAuthentication, isAutomaticEmail, readAuthentication } from "@countersign/core";
+import {
+  type EmailAuthentication,
+  type EmailAutomation,
+  emailAutomation,
+  readAuthentication,
+} from "@countersign/core";
 import PostalMime from "postal-mime";
 import { randomBytes, utf8 } from "../runtime";
 
@@ -221,6 +226,14 @@ export function normalizeSender(entry: string): string | null {
 // unauthenticated sender is never enough on its own: anyone who learns the address could otherwise
 // send as an allowed vendor (security review, 2026-11-04; audit, 2026-11-17).
 export function senderAllowed(allowed: readonly string[], senders: readonly string[]): boolean {
+  return matchingSender(allowed, senders) !== null;
+}
+
+/** The first of the message's senders that is on the list (lower case), or null. */
+export function matchingSender(
+  allowed: readonly string[],
+  senders: readonly string[],
+): string | null {
   const list = allowed.map(normalizeSender).filter((v): v is string => v !== null);
   for (const raw of senders) {
     const s = raw.trim().toLowerCase();
@@ -229,11 +242,11 @@ export function senderAllowed(allowed: readonly string[], senders: readonly stri
     const domain = s.slice(at + 1);
     for (const entry of list) {
       if (entry.includes("@") ? entry === s : domain === entry || domain.endsWith(`.${entry}`)) {
-        return true;
+        return s;
       }
     }
   }
-  return false;
+  return null;
 }
 
 /**
@@ -265,8 +278,8 @@ export interface ForwardedHeaders {
   dmarcPassFrom: string | null;
   /** The receiving server's verdicts (`readAuthentication`). */
   auth: EmailAuthentication;
-  /** Sent by a machine (an auto-reply, a list, a bounce): `isAutomaticEmail`. */
-  automatic: boolean;
+  /** Not a person's mail: an auto-reply or bounce, or mail a system wrote (`emailAutomation`). */
+  automatic: EmailAutomation | null;
 }
 
 export interface ForwardedAttachment {
@@ -321,8 +334,8 @@ export interface ReplyEmail {
   dmarcPassFrom: string | null;
   /** The receiving server's verdicts (`readAuthentication`). */
   auth: EmailAuthentication;
-  /** Sent by a machine (an auto-reply, a list, a bounce): `isAutomaticEmail`. */
-  automatic: boolean;
+  /** Not a person's mail: an auto-reply or bounce, or mail a system wrote (`emailAutomation`). */
+  automatic: EmailAutomation | null;
   to: string[];
   subject: string | null;
   messageId: string | null;
@@ -376,7 +389,7 @@ export async function parseReplyEmail(
     from: email.from && "address" in email.from ? addressOf(email.from) : null,
     dmarcPassFrom: auth.dmarcFrom,
     auth,
-    automatic: isAutomaticEmail(email.headers, options.envelopeFrom ?? null),
+    automatic: emailAutomation(email.headers, options.envelopeFrom ?? null),
     to,
     subject: email.subject ?? null,
     messageId: email.messageId ?? null,
@@ -432,7 +445,7 @@ export async function parseForwardedEmail(
       messageId: email.messageId ?? null,
       dmarcPassFrom: auth.dmarcFrom,
       auth,
-      automatic: isAutomaticEmail(email.headers, options.envelopeFrom ?? null),
+      automatic: emailAutomation(email.headers, options.envelopeFrom ?? null),
     },
     attachments,
     skipped,

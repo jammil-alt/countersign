@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   authenticatedSenders,
+  emailAutomation,
   envelopeAuthenticated,
   fromAuthenticated,
-  isAutomaticEmail,
   readAuthentication,
 } from "./authentication";
 
@@ -137,27 +137,47 @@ describe("authenticatedSenders", () => {
   });
 });
 
-describe("isAutomaticEmail", () => {
-  it("knows auto-replies, lists, bulk mail and bounces", () => {
-    expect(isAutomaticEmail([h("auto-submitted", "auto-replied")], "a@x.example")).toBe(true);
-    expect(
-      isAutomaticEmail([h("auto-submitted", "auto-generated (vacation)")], "a@x.example"),
-    ).toBe(true);
-    for (const p of ["bulk", "junk", "list", "auto_reply"]) {
-      expect(isAutomaticEmail([h("precedence", p)], "a@x.example")).toBe(true);
+describe("emailAutomation", () => {
+  it("knows auto-replies and bounces", () => {
+    for (const headers of [
+      [h("auto-submitted", "auto-replied")],
+      [h("auto-submitted", "Auto-Replied (vacation)")],
+      [h("precedence", "auto_reply")],
+      [h("x-autoreply", "yes")],
+      [h("x-autorespond", "1")],
+      [h("return-path", "<>")],
+    ]) {
+      expect(emailAutomation(headers, "a@x.example")).toBe("auto_reply");
     }
-    expect(isAutomaticEmail([h("x-autoreply", "yes")], "a@x.example")).toBe(true);
-    expect(isAutomaticEmail([h("x-autorespond", "1")], "a@x.example")).toBe(true);
-    expect(isAutomaticEmail([], "")).toBe(true);
-    expect(isAutomaticEmail([], "<>")).toBe(true);
-    expect(isAutomaticEmail([h("return-path", "<>")], "a@x.example")).toBe(true);
+    expect(emailAutomation([], "")).toBe("auto_reply");
+    expect(emailAutomation([], "<>")).toBe("auto_reply");
+    // An auto-reply that also says bulk is still an auto-reply.
+    expect(
+      emailAutomation(
+        [h("precedence", "bulk"), h("auto-submitted", "auto-replied")],
+        "a@x.example",
+      ),
+    ).toBe("auto_reply");
+  });
+
+  it("knows mail a system wrote: ERPs, ticket systems, lists", () => {
+    for (const headers of [
+      [h("auto-submitted", "auto-generated")],
+      [h("auto-submitted", "auto-notified")],
+      [h("precedence", "bulk")],
+      [h("precedence", "list")],
+      [h("precedence", "junk")],
+    ]) {
+      expect(emailAutomation(headers, "a@x.example")).toBe("machine");
+    }
   });
 
   it("takes a person's mail as a person's", () => {
-    expect(isAutomaticEmail([h("auto-submitted", "no")], "a@x.example")).toBe(false);
-    expect(isAutomaticEmail([h("precedence", "first-class")], "a@x.example")).toBe(false);
-    expect(isAutomaticEmail([h("return-path", "<a@x.example>")], "a@x.example")).toBe(false);
-    expect(isAutomaticEmail([h("subject", "Re: quote")], "a@x.example")).toBe(false);
-    expect(isAutomaticEmail([], null)).toBe(false);
+    expect(emailAutomation([h("auto-submitted", "no")], "a@x.example")).toBeNull();
+    expect(emailAutomation([h("precedence", "first-class")], "a@x.example")).toBeNull();
+    expect(emailAutomation([h("x-autoreply", "no")], "a@x.example")).toBeNull();
+    expect(emailAutomation([h("return-path", "<a@x.example>")], "a@x.example")).toBeNull();
+    expect(emailAutomation([h("subject", "Re: quote")], "a@x.example")).toBeNull();
+    expect(emailAutomation([], null)).toBeNull();
   });
 });

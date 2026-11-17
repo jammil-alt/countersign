@@ -75,7 +75,7 @@ export async function handleEmail(
       await wakeAll(deps.instances(env), reply.woken);
       // P-7: the reply's words, translated beside it where the client has it on (§1.69); a late
       // reply's too, kept in the thread.
-      const translate = reply.woken.length > 0 || reply.late;
+      const translate = reply.woken.length > 0 || reply.keptOnly;
       // P-3: then dispatched and read in the background, like forwarded mail.
       if (reply.events.length > 0 || reply.fresh.length > 0 || translate) {
         const services = { db, env, deps } as Pick<Services, "db" | "env" | "deps">;

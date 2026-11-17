@@ -204,32 +204,46 @@ export function authenticatedSenders(input: {
 
 // ── Automatic mail ──────────────────────────────────────────────────────────────────────────────
 
-const AUTOMATIC_PRECEDENCE = new Set(["bulk", "junk", "list", "auto_reply"]);
-
 /**
- * Whether a message was sent by a machine, not a person (RFC 3834 and the common headers):
- * `Auto-Submitted` other than `no`, `Precedence: bulk|junk|list|auto_reply`, `X-Autoreply` or
- * `X-Autorespond`, or an empty return path (`<>`, a bounce or a notice). Such mail never answers
- * a reach-out or starts anything. A sender who adds these to their own mail only makes it count
- * less, so the sender's own headers are fine to read here.
+ * How a message was sent, when not by a person writing it (RFC 3834 and the common headers):
+ * - `auto_reply`: an answer a machine sent for a person: `Auto-Submitted: auto-replied`,
+ *   `Precedence: auto_reply`, `X-Autoreply` or `X-Autorespond`, or an empty return path (`<>`, a
+ *   bounce or a delivery notice). It never answers or starts anything.
+ * - `machine`: mail a system wrote (`Auto-Submitted: auto-generated` or any other value but `no`,
+ *   `Precedence: bulk|list|junk`): an ERP's invoice, a ticket system, a mailing list. It may be read
+ *   like any mail from its sender, but is never answered automatically, so two machines can't write
+ *   to each other.
+ * - null: a person's mail.
+ * A sender who adds these to their own mail only makes it count less, so the sender's own headers
+ * are fine to read here.
  */
-export function isAutomaticEmail(
+export type EmailAutomation = "auto_reply" | "machine";
+
+export function emailAutomation(
   headers: readonly { key: string; value: string }[],
   envelopeFrom: string | null,
-): boolean {
+): EmailAutomation | null {
   const envelope = (envelopeFrom ?? "").trim();
-  if (envelopeFrom !== null && (envelope === "" || envelope === "<>")) return true;
+  if (envelopeFrom !== null && (envelope === "" || envelope === "<>")) return "auto_reply";
+  let machine = false;
   for (const h of headers) {
     const v = h.value
       .replace(/\([^()]*\)/g, " ")
       .trim()
       .toLowerCase();
-    if (h.key === "auto-submitted" && v.split(/[\s;]/)[0] !== "no") return true;
-    if (h.key === "precedence" && AUTOMATIC_PRECEDENCE.has(v.split(/[\s;]/)[0] ?? "")) return true;
-    if ((h.key === "x-autoreply" || h.key === "x-autorespond") && !/^(no|false)$/.test(v)) {
-      return true;
+    const word = v.split(/[\s;]/)[0] ?? "";
+    if (h.key === "auto-submitted") {
+      if (word === "auto-replied") return "auto_reply";
+      if (word !== "no") machine = true;
     }
-    if (h.key === "return-path" && /^<\s*>$/.test(v)) return true;
+    if (h.key === "precedence") {
+      if (word === "auto_reply") return "auto_reply";
+      if (word === "bulk" || word === "list" || word === "junk") machine = true;
+    }
+    if ((h.key === "x-autoreply" || h.key === "x-autorespond") && !/^(no|false)$/.test(v)) {
+      return "auto_reply";
+    }
+    if (h.key === "return-path" && /^<\s*>$/.test(v)) return "auto_reply";
   }
-  return false;
+  return machine ? "machine" : null;
 }

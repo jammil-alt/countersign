@@ -34,9 +34,14 @@ on `in.staging.mezonas.com` before relying on it for a real client.
    that Cloudflare's own header sits above the forged one.
 3. **Spoofed envelope.** From a server outside the allowed domain's SPF record, send with the
    envelope sender (MAIL FROM) set to an allowed address and no From on the list. It must be dropped.
-4. **Replies.** Answer an agent's email from the contact's mailbox: the reach-out ends as replied.
+4. **Microsoft 365 senders.** From a vendor mailbox on Microsoft 365 (its mail already carries
+   `ARC-Authentication-Results: i=1; mx.microsoft.com; …` written by Microsoft), forward a PDF and
+   answer an agent's email. Both must be accepted: Cloudflare's own header must sit above
+   Microsoft's. If Microsoft's is the topmost, every Microsoft 365 sender is refused.
+5. **Replies.** Answer an agent's email from the contact's mailbox: the reach-out ends as replied.
    An out-of-office from the same mailbox must leave it open; a second answer after it ended shows
-   in the contact's thread as received.
+   in the contact's thread as received; an answer from a mailbox whose domain has no SPF or DMARC
+   shows as unverified and doesn't end it.
 
 If step 2 or 3 is accepted, stop: the reader does not read the header Cloudflare adds, and no
 sender check on the forwarding domain can be relied on until it does.

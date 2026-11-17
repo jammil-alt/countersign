@@ -239,7 +239,7 @@ describe.skipIf(!h)("voice samples", () => {
       expect(r).toMatchObject({ status: "accepted", personUserId: sam });
     });
 
-    it("drops mail from anyone not on the allowed list", async () => {
+    it("drops mail that only claims an allowed sender, as unverified", async () => {
       const r = await receiveVoiceSampleEmail(
         { db: harness.db },
         {
@@ -255,7 +255,7 @@ describe.skipIf(!h)("voice samples", () => {
         },
         { domain: DOMAIN },
       );
-      expect(r).toMatchObject({ status: "dropped", reason: "sender_not_allowed" });
+      expect(r).toMatchObject({ status: "dropped", reason: "sender_unverified" });
       const all = await harness.as(A, (tx) =>
         listKnowledgeEntries(tx, A.tenantId, { kind: "voice_sample", includeArchived: true }),
       );
@@ -278,7 +278,7 @@ describe.skipIf(!h)("voice samples", () => {
         },
         { domain: DOMAIN },
       );
-      expect(r).toMatchObject({ status: "dropped", reason: "sender_not_allowed" });
+      expect(r).toMatchObject({ status: "dropped", reason: "sender_unverified" });
     });
 
     it("leaves ordinary forwarding without a body", async () => {

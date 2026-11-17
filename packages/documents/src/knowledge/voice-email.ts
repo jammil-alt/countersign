@@ -33,7 +33,13 @@ export type VoiceEmailOutcome =
   | {
       status: "dropped";
       tenantId: string | null;
-      reason: "unknown_address" | "sender_not_allowed" | "too_large" | "unreadable" | "no_person";
+      reason:
+        | "unknown_address"
+        | "sender_not_allowed"
+        | "sender_unverified"
+        | "too_large"
+        | "unreadable"
+        | "no_person";
     };
 
 /** Whether this message is for a `+voice` address on our domain (else it is ordinary mail). */
@@ -94,7 +100,15 @@ export async function receiveVoiceSampleEmail(
       from: parsed.from,
       auth: parsed.auth,
     });
-    if (!senderAllowed(forwarding.allowedSenders, senders)) return drop("sender_not_allowed");
+    if (!senderAllowed(forwarding.allowedSenders, senders)) {
+      // On the list but not proven reads differently from not on the list (forwarding.ts).
+      const claimed = [message.from, ...(parsed.from ? [parsed.from] : [])];
+      return drop(
+        senderAllowed(forwarding.allowedSenders, claimed)
+          ? "sender_unverified"
+          : "sender_not_allowed",
+      );
+    }
 
     let person = null;
     for (const s of senders) {

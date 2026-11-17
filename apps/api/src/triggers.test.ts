@@ -447,12 +447,12 @@ describe.skipIf(!h)("triggers, six kinds", () => {
       expect(notes.every((n) => !JSON.stringify(n.body).includes("Pay me"))).toBe(true);
     });
 
-    it("starts nothing and answers nothing for automatic mail, even from a cardholder", async () => {
+    it("starts nothing and answers nothing for an auto-reply, even from a cardholder", async () => {
       sent.length = 0;
       const before = runsOf(remy).length;
       for (const [i, extra] of [
         ["Auto-Submitted: auto-replied"],
-        ["Precedence: bulk"],
+        ["Precedence: auto_reply"],
         ["X-Autoreply: yes"],
       ].entries()) {
         const out = await receive(
@@ -479,6 +479,42 @@ describe.skipIf(!h)("triggers, six kinds", () => {
         }),
       );
       expect(runsOf(remy)).toHaveLength(before);
+      expect(sent).toEqual([]);
+    });
+
+    it("starts from a system's mail like any other, but never answers it", async () => {
+      sent.length = 0;
+      const before = runsOf(remy).length;
+      for (const [i, extra] of [
+        ["Auto-Submitted: auto-generated"],
+        ["Precedence: bulk"],
+      ].entries()) {
+        const out = await receive(
+          email({
+            from: "cara@cards.example",
+            to: address,
+            id: `machine-${i}`,
+            dmarc: true,
+            body: `Card statement ${i + 1} attached.`,
+            extra,
+          }),
+        );
+        expect(out?.status).toBe("accepted");
+      }
+      expect(runsOf(remy)).toHaveLength(before + 2);
+      // A stranger's system mail: no run, and no polite reply.
+      await receive(
+        email({
+          from: "eve@strangers.example",
+          to: address,
+          id: "machine-s",
+          dmarc: true,
+          body: "Your ticket was updated.",
+          extra: ["Auto-Submitted: auto-generated"],
+        }),
+      );
+      expect(runsOf(remy)).toHaveLength(before + 2);
+      // Neither the confirmation nor the polite reply went out.
       expect(sent).toEqual([]);
     });
 

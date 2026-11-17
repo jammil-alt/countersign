@@ -279,6 +279,11 @@ describe.skipIf(!h)("a conversation by email", () => {
         }
         const tagged = firstTag;
         expect(sent.replyTo).toEqual([tagged]);
+        if (google.sent.length > 1) {
+          // The first answer delivered again (same Message-ID) answers nothing now.
+          await replyTo(tagged, "12 sheets of 3/4 birch ply, by Dec 1 please");
+          expect(woke()).toBeUndefined();
+        }
         await replyTo(
           tagged,
           google.sent.length === 1 ? "12 sheets of 3/4 birch ply, by Dec 1 please" : INJECTED,

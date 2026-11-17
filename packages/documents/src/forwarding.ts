@@ -8,10 +8,10 @@ import {
   countForwarded,
   forwardingOf,
   MAX_FORWARDED_BYTES,
+  matchingSender,
   parseForwardedEmail,
   parseForwardingAddress,
   sameAddress,
-  senderAllowed,
   UPLOAD_CONNECTOR_ID,
 } from "@countersign/connectors";
 import { authenticatedSenders, bytesMatchType } from "@countersign/core";
@@ -50,6 +50,8 @@ export type DropReason =
   | "not_our_domain"
   | "unknown_address"
   | "sender_not_allowed"
+  // On the list by envelope or From, but Cloudflare's header doesn't prove it (no SPF or DMARC).
+  | "sender_unverified"
   | "too_large"
   | "unreadable";
 
@@ -102,7 +104,17 @@ export async function receiveForwardedEmail(
       from: parsed.headers.from,
       auth: parsed.headers.auth,
     });
-    if (!senderAllowed(forwarding.allowedSenders, senders)) return drop("sender_not_allowed");
+    const matched = matchingSender(forwarding.allowedSenders, senders);
+    if (!matched) {
+      // DECISION: a sender who is on the list but not proven is told apart from one who isn't on
+      // it, so the client sees why (`forwarding.drop.sender_unverified`).
+      const claimed = [message.from, ...(parsed.headers.from ? [parsed.headers.from] : [])];
+      return drop(
+        matchingSender(forwarding.allowedSenders, claimed)
+          ? "sender_unverified"
+          : "sender_not_allowed",
+      );
+    }
 
     // Each attachment's bytes must be what its type says; at most FORWARDED_DOCUMENTS_MAX kept.
     const skipped = parsed.skipped.map((s) => ({ filename: s.filename, reason: s.reason }));
@@ -129,7 +141,8 @@ export async function receiveForwardedEmail(
         date: parsed.headers.date,
         messageId: parsed.headers.messageId,
         authenticated: senders.length > 0,
-        authenticatedAs: senders[0] ?? null,
+        // The proven address that is on the client's list.
+        authenticatedAs: matched,
         ...(skipped.length > parsed.skipped.length
           ? { skippedAttachments: skipped.length - parsed.skipped.length }
           : {}),

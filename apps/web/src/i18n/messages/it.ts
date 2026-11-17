@@ -914,6 +914,9 @@ export const it: Messages = {
     "Uno per riga. Un dominio (tuofornitore.it) vale per tutti i suoi indirizzi.",
   "forwarding.edit": "Modifica chi può inoltrare",
   "forwarding.drop.sender_not_allowed": "il mittente non è nel tuo elenco",
+  "forwarding.drop.sender_unverified":
+    "il mittente è nel tuo elenco, ma non abbiamo potuto confermare che l'abbia inviato lui",
+  "forwarding.drop.auto_reply": "era una risposta automatica, come un avviso di assenza",
   "forwarding.drop.unknown_address": "è stato inviato a un indirizzo vecchio o sbagliato",
   "forwarding.drop.too_large": "superava i 25 MB",
   "forwarding.drop.unreadable": "non è stato possibile leggere il messaggio",
@@ -1429,6 +1432,7 @@ export const it: Messages = {
   "contacts.status.failed": "non riuscito",
   "contacts.status.read": "letto",
   "contacts.status.received": "ricevuto",
+  "contacts.status.unverified": "ricevuto, mittente non confermato",
   "contacts.status.replied": "ha risposto",
   "contacts.status.not_sent": "non inviato",
   "contacts.status.no_reply": "nessuna risposta",
