@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Back-office workflows</title>
+<!-- The workflows behind the back office's pipelines (docs/cases-plan.md), to agree before the
+     screens: three buckets, their stages, who acts, and the hand-offs between them. -->
+<link rel="stylesheet" href="../../packages/design-system/tokens.css">
+<link rel="stylesheet" href="../../packages/design-system/components/bundle.css">
+<link rel="icon" href="../../packages/design-system/assets/Logos/favicon.svg">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 400 14px/1.5 var(--font-sans); }
+  .page { max-width: 1240px; margin: 0 auto; padding: var(--space-10) var(--space-8) var(--space-24); }
+  @media (max-width: 900px) { .page { padding: var(--space-6) var(--space-4) var(--space-16); } }
+  h1 { margin: 0; font: 500 32px/38px var(--font-sans); letter-spacing: -0.02em; }
+  h2 { margin: 0; font: 500 22px/28px var(--font-sans); letter-spacing: -0.01em; }
+  h3 { margin: 0; font: 600 16px/22px var(--font-sans); }
+  p { margin: 0; }
+  .lede { margin-top: var(--space-2); font-size: 16px; color: var(--ink-muted); max-width: 760px; }
+  .muted { color: var(--ink-muted); }
+  .small { font-size: 13px; }
+  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-4); margin-bottom: var(--space-8); }
+  section { margin-top: var(--space-12); }
+  .sec-head { display: flex; align-items: baseline; gap: var(--space-3); margin-bottom: var(--space-2); }
+  .sec-n { font: 500 12px/1 var(--font-mono); color: var(--ink-muted); }
+  .sec-lede { color: var(--ink-muted); margin-bottom: var(--space-5); max-width: 820px; }
+
+  /* Legend */
+  .legend { display: flex; flex-wrap: wrap; gap: var(--space-4); font-size: 12px; color: var(--ink-muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+
+  /* Who acts */
+  .who { display: inline-flex; align-items: center; gap: 5px; font: 500 11px/1 var(--font-sans); padding: 3px 7px; border-radius: var(--radius-pill); white-space: nowrap; border: 1px solid; }
+  .who--reggie { color: var(--ink-muted); background: var(--surface-subtle); border-color: var(--line); }
+  .who--reggie::before { content: ""; width: 6px; height: 6px; border-radius: 99px; background: var(--slate); }
+  .who--you { color: var(--copper-ink); background: var(--copper-tint); border-color: var(--copper-tint); }
+  .who--client { color: var(--ink); background: var(--surface); border-color: var(--line-strong); }
+  .gate { display: inline-flex; align-items: center; font: 500 11px/1 var(--font-sans); padding: 3px 7px; border-radius: var(--radius-pill); color: var(--signal-ink); background: var(--signal-tint); border: 1px solid var(--signal); white-space: nowrap; }
+
+  /* Overview */
+  .router { display: grid; grid-template-columns: 220px 40px 200px 40px minmax(0, 1fr); align-items: stretch; gap: 0; }
+  @media (max-width: 1000px) { .router { grid-template-columns: 1fr; gap: var(--space-3); } .arrow-col { display: none; } }
+  .box { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); padding: var(--space-4); }
+  .box h4 { margin: 0 0 var(--space-2); font: 500 11px/14px var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-muted); }
+  .box ul { margin: 0; padding: 0; list-style: none; font-size: 13px; }
+  .box li { padding: 5px 0; border-bottom: 1px solid var(--line); }
+  .box li:last-child { border-bottom: 0; }
+  .arrow-col { display: flex; align-items: center; justify-content: center; color: var(--line-strong); font-size: 20px; }
+  .sorter { display: flex; flex-direction: column; justify-content: center; gap: var(--space-2); }
+  .sorter p { font-size: 13px; }
+  .kinds { display: grid; grid-template-rows: repeat(5, auto); gap: var(--space-2); }
+  .kind { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: var(--space-3); align-items: center; padding: var(--space-2-5) var(--space-3-5); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 13px; }
+  .kind b { font-weight: 600; }
+  .kind .to { color: var(--ink-muted); }
+  .kind.quiet { background: transparent; border-style: dashed; }
+
+  .buckets { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); margin-top: var(--space-6); }
+  @media (max-width: 1000px) { .buckets { grid-template-columns: 1fr; } }
+  .bucket { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-3); }
+  .bucket .eyebrow { font: 500 11px/14px var(--font-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-muted); }
+  .bucket h3 { font: 500 20px/26px var(--font-sans); letter-spacing: -0.01em; }
+  .bucket .flows { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-1); }
+  .bucket .flow { display: flex; justify-content: space-between; gap: var(--space-2); align-items: center; padding: var(--space-2-5) var(--space-3); background: var(--surface-subtle); border-radius: var(--radius-sm); font-size: 13px; }
+  .bucket .flow a { color: var(--ink); font-weight: 600; }
+  .bucket .flow span { color: var(--ink-muted); font-size: 12px; text-align: right; }
+  .bucket .ends { font-size: 12px; color: var(--ink-muted); border-top: 1px solid var(--line); padding-top: var(--space-3); margin-top: auto; }
+
+  /* Chains */
+  .chain { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0; margin: var(--space-4) 0 var(--space-3); }
+  .st { position: relative; min-width: 120px; flex: 1; padding: var(--space-3) var(--space-3-5) var(--space-3) var(--space-5); background: var(--surface); border: 1px solid var(--line); margin-right: -1px; display: flex; flex-direction: column; gap: 6px; }
+  .st:first-child { border-radius: var(--radius-md) 0 0 var(--radius-md); padding-left: var(--space-3-5); }
+  .st:last-child { border-radius: 0 var(--radius-md) var(--radius-md) 0; }
+  .st .n { font: 500 11px/1 var(--font-mono); color: var(--ink-muted); }
+  .st .name { font: 600 14px/1.25 var(--font-sans); }
+  .st .tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: auto; }
+  .st.end { background: var(--positive-tint); border-color: var(--positive-tint); }
+  .st.end .name { color: var(--positive); }
+  .st::after { content: ""; position: absolute; right: -7px; top: 50%; width: 12px; height: 12px; background: inherit; border-top: 1px solid var(--line); border-right: 1px solid var(--line); transform: translateY(-50%) rotate(45deg); z-index: 1; }
+  .st:last-child::after { display: none; }
+  .st.end::after { border-color: var(--positive-tint); }
+  @media (max-width: 900px) { .chain { flex-direction: column; } .st { margin-right: 0; margin-bottom: -1px; border-radius: 0 !important; padding-left: var(--space-3-5); } .st::after { display: none; } .st:first-child { border-radius: var(--radius-md) var(--radius-md) 0 0 !important; } .st:last-child { border-radius: 0 0 var(--radius-md) var(--radius-md) !important; } }
+  .branches { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-4); }
+  .branch { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; padding: 5px 10px; border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); color: var(--ink-muted); }
+  .branch b { color: var(--ink); font-weight: 600; }
+  .handoff { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; padding: 5px 10px; border-radius: var(--radius-sm); background: var(--slate-tint); color: var(--slate); font-weight: 500; }
+
+  /* Stage tables */
+  .tbl { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font: 500 12px/1 var(--font-sans); color: var(--ink-muted); padding: 10px var(--space-3-5); background: var(--surface-subtle); border-bottom: 1px solid var(--line); }
+  td { padding: var(--space-3) var(--space-3-5); border-bottom: 1px solid var(--line); vertical-align: top; line-height: 1.5; }
+  tr:last-child td { border-bottom: 0; }
+  td:first-child { font-weight: 600; white-space: nowrap; width: 130px; }
+  td.dash { color: var(--ink-faint); }
+  @media (max-width: 900px) { .tbl { overflow-x: auto; } table { min-width: 820px; } }
+
+  .flow-card { background: transparent; margin-top: var(--space-8); }
+  .flow-card > h3 { display: flex; align-items: center; gap: var(--space-2); }
+  .flow-card > p { color: var(--ink-muted); margin-top: var(--space-1); max-width: 820px; }
+
+  .order { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); margin: var(--space-4) 0 var(--space-2); }
+  @media (max-width: 900px) { .order { grid-template-columns: 1fr; } }
+  .order div { padding: var(--space-3-5) var(--space-4); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); font-size: 13px; }
+  .order b { display: block; font: 600 14px/1.3 var(--font-sans); margin-bottom: 2px; }
+  .order .k { font: 500 11px/1 var(--font-mono); color: var(--ink-muted); }
+
+  .two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); margin-top: var(--space-4); }
+  @media (max-width: 900px) { .two { grid-template-columns: 1fr; } }
+  .sig { margin: 0; padding: 0; list-style: none; }
+  .sig li { padding: var(--space-2-5) 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .sig li:last-child { border-bottom: 0; }
+  .sig b { font-weight: 600; }
+
+  .hand { display: grid; grid-template-columns: 1fr 24px 1fr minmax(0, 2fr); gap: var(--space-3); align-items: center; padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line); font-size: 13px; }
+  .hand:last-child { border-bottom: 0; }
+  .hand .f, .hand .t { font-weight: 600; }
+  .hand .a { color: var(--ink-faint); text-align: center; }
+  .hand .w { color: var(--ink-muted); }
+  @media (max-width: 900px) { .hand { grid-template-columns: 1fr; gap: 2px; } .hand .a { display: none; } }
+
+  .qs { counter-reset: q; margin: 0; padding: 0; list-style: none; }
+  .qs li { counter-increment: q; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: var(--space-2); padding: var(--space-3-5) var(--space-4); border-bottom: 1px solid var(--line); }
+  .qs li:last-child { border-bottom: 0; }
+  .qs li::before { content: counter(q); font: 500 12px/22px var(--font-mono); color: var(--ink-muted); }
+  .qs b { font-weight: 600; }
+  .qs .rec { display: block; margin-top: 4px; color: var(--ink-muted); font-size: 13px; }
+  .note-banner { margin-bottom: var(--space-6); padding: var(--space-2-5) var(--space-3-5); border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); font-size: 12px; color: var(--ink-muted); }
+  .exists { font: 500 11px/1 var(--font-sans); color: var(--positive); background: var(--positive-tint); padding: 3px 7px; border-radius: var(--radius-pill); }
+  /* One to-do */
+  .pieces { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
+  @media (max-width: 1000px) { .pieces { grid-template-columns: 1fr; } }
+  .piece { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); display: flex; flex-direction: column; gap: var(--space-2); }
+  .piece h3 { font: 600 15px/1.3 var(--font-sans); }
+  .piece p { font-size: 13px; color: var(--ink-muted); }
+  .piece .eg { font-size: 12px; color: var(--ink-muted); border-top: 1px solid var(--line); padding-top: var(--space-2); margin-top: auto; }
+  .todo-map { display: grid; grid-template-columns: minmax(0, 1fr) 40px 300px; gap: 0; margin-top: var(--space-4); align-items: stretch; }
+  @media (max-width: 1000px) { .todo-map { grid-template-columns: 1fr; gap: var(--space-3); } }
+  .owners { display: flex; flex-direction: column; gap: var(--space-2); }
+  .owner { padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); border: 1px solid var(--line); background: var(--surface); font-size: 13px; }
+  .owner b { display: block; font-weight: 600; font-size: 14px; margin-bottom: 2px; }
+  .owner.you { border-color: var(--signal); background: var(--signal-tint); }
+  .owner.you b { color: var(--signal-ink); }
+  .src { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; }
+  .src div { padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 13px; padding-right: var(--space-3); }
+  .src div span { color: var(--ink-muted); }
+  .done-list { margin: 0; padding: 0; list-style: none; }
+  .done-list li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: var(--space-2); padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line); font-size: 13px; }
+  .done-list li:last-child { border-bottom: 0; }
+  .done-list .n { font: 500 12px/20px var(--font-mono); color: var(--positive); }
+  .later { display: inline-flex; font: 500 11px/1 var(--font-sans); color: var(--ink-muted); border: 1px dashed var(--line-strong); padding: 3px 7px; border-radius: var(--radius-pill); }
+  .crit { color: var(--risk-ink); background: var(--risk-tint); border: 1px solid var(--risk-line); font: 500 11px/1 var(--font-sans); padding: 3px 7px; border-radius: var(--radius-pill); white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="note-banner">Draft for agreeing the workflows before the screens (docs/cases-plan.md). Second pass, with the owner's answers of 2026-11-16. Names and numbers are examples.</div>
+
+  <div class="top">
+    <div>
+      <h1>How the work flows</h1>
+      <p class="lede">Three buckets: bring them in, sell them more, build what they need. Everything comes in one way and is kept as activity on the client. Every piece of work, in any bucket or anywhere else in the back office, is a to-do on one list. Reggie does most of them; the ones that need a person come to you.</p>
+    </div>
+    <button class="ds-btn ds-btn--ghost ds-btn--sm" id="theme" type="button">Dark</button>
+  </div>
+  <div class="legend">
+    <span><span class="who who--reggie">Reggie</span> does it</span>
+    <span><span class="who who--you">You</span> do it</span>
+    <span><span class="who who--client">Client</span> does it</span>
+    <span><span class="gate">Your call</span> it waits for your decision</span>
+    <span><span class="exists">Built</span> exists today</span>
+    <span><span class="later">Later</span> not in the first version</span>
+  </div>
+
+  <!-- 0. The pieces -->
+  <section>
+    <div class="sec-head"><span class="sec-n">00</span><h2>Three pieces, one to-do list</h2></div>
+    <p class="sec-lede">The pipelines aren't a separate tool. They sit on two things the whole back office shares: activity (what happened) and to-dos (what someone has to do). A card in a pipeline is just the thing the activity and to-dos are about.</p>
+    <div class="pieces">
+      <div class="piece">
+        <span class="type-eyebrow muted">What happened</span>
+        <h3>Activity</h3>
+        <p>Every email, message, call, meeting note, question, answer, run, sign-off and change, on one timeline per client (and per lead before they're a client). Kept, never deleted.</p>
+        <div class="eg">A client's question is activity: answered and logged, not a ticket.</div>
+      </div>
+      <div class="piece">
+        <span class="type-eyebrow muted">What someone has to do</span>
+        <h3>To-do</h3>
+        <p>One list for the whole back office. Each to-do has an owner (you, Reggie or the client), a due time, why it exists, and the thing it's about. Done when the work is done, not when it's ticked.</p>
+        <div class="eg">"Approve the fix for Hartley's Ferguson bills", due today, yours.</div>
+      </div>
+      <div class="piece">
+        <span class="type-eyebrow muted">What it's about</span>
+        <h3>Cards</h3>
+        <p>Deals, opportunities, issues, agent builds and enhancements: the pipelines' cards. A card's stage moves when its to-dos are done; its timeline is the activity about it.</p>
+        <div class="eg">Issue #1042: its stage, severity, activity and to-dos in one place.</div>
+      </div>
+    </div>
+
+    <div class="todo-map">
+      <div class="box">
+        <h4>Everything that makes a to-do</h4>
+        <div class="src">
+          <div>Pipeline stages <span>each stage's steps</span></div>
+          <div>Questions <span>until answered</span></div>
+          <div>Escalations and step-ins <span>today's Escalations</span></div>
+          <div>Runs held for review <span>the run audit queue</span></div>
+          <div>Build open items <span>the ones that are yours</span></div>
+          <div>Reggie's cards <span>changes waiting to confirm</span></div>
+          <div>Desk items and forms <span>owned by the client</span></div>
+          <div>Feedback and error reports <span>before they're sorted</span></div>
+          <div>Connections and texting <span>a token expiring, a registration</span></div>
+          <div>Renewals and check-ins <span>dated</span></div>
+        </div>
+      </div>
+      <div class="arrow-col">→</div>
+      <div class="owners">
+        <div class="owner you"><b>Yours: Your call</b>Only what needs a person, ranked. Reggie's read and draft on each.</div>
+        <div class="owner"><b>Reggie's</b>What it's working on now. You can watch, reorder or take one.</div>
+        <div class="owner"><b>The client's</b>Their Desk items and forms. Reggie chases them; overdue ones come to you.</div>
+      </div>
+    </div>
+    <p class="muted small" style="margin-top: var(--space-3)">Today's separate queues (Escalations, the run audit queue, build items, requests, feedback) become views of this one list, filtered by where they came from.</p>
+  </section>
+
+  <!-- 1. The way in -->
+  <section>
+    <div class="sec-head"><span class="sec-n">01</span><h2>One way in</h2></div>
+    <p class="sec-lede">Every message, form, report and signal lands in one place and becomes activity. Reggie reads it, adds it to the right client or lead, and decides what it is.</p>
+    <div class="router">
+      <div class="box">
+        <h4>Comes in from</h4>
+        <ul>
+          <li>Email to hello@ and support@</li>
+          <li>The site's Get started form</li>
+          <li>The portal and Sloan</li>
+          <li>The Feedback button and error reports</li>
+          <li>Calls and meetings (your notes)</li>
+          <li>What Reggie notices: failed runs, rejected writes, usage, renewals</li>
+        </ul>
+      </div>
+      <div class="arrow-col">→</div>
+      <div class="box sorter">
+        <h4>Reggie sorts</h4>
+        <p>Who it's from (a lead, a client's person, nobody we know), what it's about, how urgent, and whether it's already open somewhere.</p>
+        <p class="muted">Unsure: a to-do for you with Reggie's best guess.</p>
+      </div>
+      <div class="arrow-col">→</div>
+      <div class="kinds">
+        <div class="kind"><b>New lead</b><span class="to">A card in New account</span></div>
+        <div class="kind"><b>Opportunity</b><span class="to">A card in Expansion</span></div>
+        <div class="kind"><b>Issue</b><span class="to">A card in Issues, triaged for urgency</span></div>
+        <div class="kind"><b>Enhancement</b><span class="to">A card in Enhancements</span></div>
+        <div class="kind quiet"><b>Question</b><span class="to">Activity with a to-do until it's answered (below)</span></div>
+      </div>
+    </div>
+
+    <div class="flow-card">
+      <h3>Staying on top of questions without tickets</h3>
+      <p>A question is activity, not a card. What keeps it from getting lost is its to-do.</p>
+      <div class="tbl" style="margin-top: var(--space-3)"><table>
+        <thead><tr><th>When</th><th>What happens</th></tr></thead>
+        <tbody>
+          <tr><td>It comes in</td><td>Sloan answers it in the portal, or Reggie drafts an answer. A to-do, Reggie's, says it's waiting for an answer.</td></tr>
+          <tr><td>Answered</td><td>The to-do closes. The answer is on the client's timeline with what it was based on.</td></tr>
+          <tr><td>Not answered in 4 business hours</td><td>The to-do becomes yours, on Your call, with Reggie's draft.</td></tr>
+          <tr><td>The client follows up</td><td>Reggie checks whether the answer worked. "That's not working" makes it an issue; "can it do this" makes it an enhancement. The question links to the card.</td></tr>
+          <tr><td>Asked three times</td><td>By any clients, in the past 30 days: Reggie drafts a knowledge entry so Sloan answers it next time, for you to approve.</td></tr>
+          <tr><td>Every Monday</td><td>A line on Your call: questions this week, how fast they were answered, which ones took longest, what's repeating.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- buckets overview -->
+  <section>
+    <div class="buckets" style="margin-top:0">
+      <div class="bucket">
+        <div class="eyebrow">02 · Bring them in</div>
+        <h3>A new client</h3>
+        <p class="muted small">From a lead to a client set up, with what each agent needs written down.</p>
+        <div class="flows"><div class="flow"><a href="#new">New account</a><span>6 stages</span></div></div>
+        <div class="ends">Ends: the first agent is live. The client moves to Sell them more, and its agents to Build.</div>
+      </div>
+      <div class="bucket">
+        <div class="eyebrow">03 · Sell them more</div>
+        <h3>More for a client</h3>
+        <p class="muted small">New agents, new business areas, more volume, renewals. Contracts by hand for now.</p>
+        <div class="flows"><div class="flow"><a href="#grow">Expansion</a><span>5 stages</span></div></div>
+        <div class="ends">Ends: the new terms are signed and recorded, and each new agent goes to Build.</div>
+      </div>
+      <div class="bucket">
+        <div class="eyebrow">04 · Build what they need</div>
+        <h3>The work itself</h3>
+        <p class="muted small">Critical issues first; then issues and builds, without a build missing its date; then enhancements.</p>
+        <div class="flows">
+          <div class="flow"><a href="#issues">Issues</a><span>Triaged for urgency</span></div>
+          <div class="flow"><a href="#agents">Agent builds</a><span>Start with the requirements request</span></div>
+          <div class="flow"><a href="#enh">Enhancements and feedback</a><span>Grouped across clients</span></div>
+        </div>
+        <div class="ends">Ends: live, fixed or shipped, and the client told.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. New account -->
+  <section id="new">
+    <div class="sec-head"><span class="sec-n">02</span><h2>Bring them in: new account</h2></div>
+    <p class="sec-lede">One card per company, from the first email to the first agent going live. Set-up is part of it: the account is made and what each agent needs is written down, so each agent's build starts ready.</p>
+    <div class="chain">
+      <div class="st"><span class="n">1</span><span class="name">Lead</span><span class="tags"><span class="who who--reggie">Reggie</span><span class="gate">First reply</span></span></div>
+      <div class="st"><span class="n">2</span><span class="name">Qualified</span><span class="tags"><span class="who who--reggie">Reggie</span><span class="gate">Go or not a fit</span></span></div>
+      <div class="st"><span class="n">3</span><span class="name">Diagnostic</span><span class="tags"><span class="who who--you">You</span><span class="who who--reggie">Reggie</span></span></div>
+      <div class="st"><span class="n">4</span><span class="name">Proposal and contract</span><span class="tags"><span class="who who--you">You</span><span class="who who--client">Client</span></span></div>
+      <div class="st"><span class="n">5</span><span class="name">Set up the account</span><span class="tags"><span class="who who--reggie">Reggie</span><span class="who who--client">Client</span></span></div>
+      <div class="st end"><span class="n">6</span><span class="name">First agent live</span><span class="tags"><span class="who who--client">Client</span></span></div>
+    </div>
+    <div class="branches">
+      <span class="branch"><b>Not a fit or lost</b> a reason; Reggie drafts a check-back in 90 days</span>
+      <span class="handoff">Set up → one agent build per agent sold, each starting with its requirements request</span>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>Stage</th><th>Reggie</th><th>You</th><th>Client</th><th>Moves on when</th></tr></thead>
+      <tbody>
+        <tr><td>1 Lead</td><td>Makes the card from the form or email. Reads their site: size, locations, tools. Drafts the first reply with two times for a diagnostic.</td><td>Send the first reply (until you let Reggie send these).</td><td class="dash">—</td><td>They reply.</td></tr>
+        <tr><td>2 Qualified</td><td>Scores the fit: tools we connect, volume, the business areas we cover. Names the agents that fit, from our templates. Books the call when they pick a time.</td><td>Go, or not a fit.</td><td>Picks a time.</td><td>The diagnostic is booked.</td></tr>
+        <tr><td>3 Diagnostic</td><td>Prepares the questions. After the call, turns your notes into the written plan: their processes, the agents, what each saves.</td><td>Run the call. Edit and send the plan.</td><td>The call.</td><td>The plan is sent.</td></tr>
+        <tr><td>4 Proposal and contract</td><td>Drafts the proposal from the plan and our price list. Nudges after 5 days. Keeps the signed contract on the card once you add it.</td><td>Set the price. Send the contract and add the signed copy (by hand for now).</td><td>Signs.</td><td>You record it signed, with the copy.</td></tr>
+        <tr><td>5 Set up the account</td><td>Proposes the client (your card), invites the admin, sends the welcome and the account's Desk requests (who signs, texting). Writes down, from each sold agent's intake questionnaire and the diagnostic, what that agent will need, then opens one agent build per agent. Chases every 2 days.</td><td>Confirm the client. Hold the kickoff.</td><td>Adds its people.</td><td>The admin is in and every sold agent has its build.</td></tr>
+        <tr><td>6 First agent live</td><td>Follows the agent builds. Sends the first Weekly Table.</td><td class="dash">—</td><td>Signs the first agent live.</td><td>The first agent is live: the card closes as won and set up.</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- 3. Expansion -->
+  <section id="grow">
+    <div class="sec-head"><span class="sec-n">03</span><h2>Sell them more: expansion</h2></div>
+    <p class="sec-lede">Reggie watches every live client each night and opens an opportunity when it sees one, with the evidence from their own data. You decide which to pursue. Contracts and billing changes are by hand for now: you agree the terms and record them on the card.</p>
+    <div class="two">
+      <div class="box">
+        <h4>What Reggie looks for</h4>
+        <ul class="sig">
+          <li><b>They ask for something we don't do.</b> An enhancement that is really a new agent comes here.</li>
+          <li><b>Work we see but don't handle.</b> Emails and documents forwarded that no agent picks up; a business area with data and no agent (a bank feed, no Bookkeeping).</li>
+          <li><b>What similar clients use.</b> Agents that clients of the same kind and size have and this one doesn't.</li>
+          <li><b>Growing past their plan.</b> Volume up for three months running.</li>
+          <li><b>Renewal coming.</b> 60 days ahead, with a summary of what we did for them.</li>
+        </ul>
+      </div>
+      <div class="box">
+        <h4>What it doesn't do</h4>
+        <ul class="sig">
+          <li>Pitch to a client with an open critical or high issue. Fix first, sell after.</li>
+          <li>Pitch to a client whose health is at risk. That's a check-in, for you.</li>
+          <li>Promise a price or a date. Those are yours.</li>
+          <li>Send an offer without your OK.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="chain">
+      <div class="st"><span class="n">1</span><span class="name">Spotted</span><span class="tags"><span class="who who--reggie">Reggie</span><span class="gate">Pursue?</span></span></div>
+      <div class="st"><span class="n">2</span><span class="name">Pitch</span><span class="tags"><span class="who who--reggie">Reggie</span><span class="who who--you">You</span></span></div>
+      <div class="st"><span class="n">3</span><span class="name">Terms</span><span class="tags"><span class="who who--you">You</span><span class="who who--client">Client</span></span></div>
+      <div class="st"><span class="n">4</span><span class="name">Agreed</span><span class="tags"><span class="who who--reggie">Reggie</span></span></div>
+      <div class="st end"><span class="n">5</span><span class="name">Live and billed</span><span class="tags"><span class="who who--client">Client</span></span></div>
+    </div>
+    <div class="branches">
+      <span class="branch"><b>Not now</b> Reggie looks again in 60 days</span>
+      <span class="branch"><b>No</b> with a reason, so it isn't raised again</span>
+      <span class="handoff">Agreed → one agent build per new agent</span>
+    </div>
+    <div class="tbl"><table>
+      <thead><tr><th>Stage</th><th>Reggie</th><th>You</th><th>Client</th><th>Moves on when</th></tr></thead>
+      <tbody>
+        <tr><td>1 Spotted</td><td>Opens it with the signal, the receipts and a rough value: "140 bank questions forwarded last month, about 9 hours of their time."</td><td>Pursue, not now, or no.</td><td class="dash">—</td><td>You pursue it.</td></tr>
+        <tr><td>2 Pitch</td><td>Drafts the pitch in their numbers: the agent, what it does, before and after the monthly price.</td><td>Set the price. Talk to them.</td><td class="dash">—</td><td>You send it.</td></tr>
+        <tr><td>3 Terms</td><td>Nudges after 5 days. Keeps what was sent and signed on the card.</td><td>Agree the terms with them; record the change with the signed copy (by hand for now).</td><td>Agrees and signs.</td><td>You record it agreed.</td></tr>
+        <tr><td>4 Agreed</td><td>Opens the agent builds, each starting with its requirements request. Tells the client what happens next and when.</td><td class="dash">—</td><td class="dash">—</td><td>The builds go live.</td></tr>
+        <tr><td>5 Live and billed</td><td>Puts the new price on the bill from the go-live date. Tells the client what's new.</td><td>Check the bill change.</td><td>Signs the new agent live.</td><td>Done.</td></tr>
+      </tbody>
+    </table></div>
+    <div class="box" style="margin-top: var(--space-4)">
+      <h4>Later <span class="later" style="margin-left:6px">Later</span></h4>
+      <ul class="sig">
+        <li><b>A Billing page in the client's portal.</b> Their plan, their agents and prices, what's on the next bill. They can add an agent from there, and we can post a change (a new agent, a new price, renewal terms) for the client admin to agree.</li>
+        <li><b>Contracts in the tool.</b> Once the manual way shows what we need: templates, versions, who signed what and when.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- 4. Build -->
+  <section id="build">
+    <div class="sec-head"><span class="sec-n">04</span><h2>Build what they need</h2></div>
+    <p class="sec-lede">Three kinds of work on one list, in one order. Reggie keeps the order and warns you before a promised date slips.</p>
+    <div class="order">
+      <div><span class="k">FIRST, ALWAYS</span><b>Critical issues</b>Business critical or security. Ahead of everything, with a safety hold if needed.</div>
+      <div><span class="k">THEN, TOGETHER</span><b>Issues and promised builds</b>High, normal and low issues go ahead of builds, as long as no build misses its promised date. When one would, the build goes first.</div>
+      <div><span class="k">THEN</span><b>Enhancements</b>By how many clients asked and what it's worth.</div>
+    </div>
+
+    <div class="flow-card" id="issues">
+      <h3>Issues</h3>
+      <p>Something that isn't working as it should. Reggie often finds them before the client does: failed or stuck runs, more rejected writes than usual, a connection down. The first thing it does is triage the urgency.</p>
+      <div class="tbl" style="margin: var(--space-4) 0"><table>
+        <thead><tr><th>Urgency</th><th>What it means</th><th>Safety hold</th><th>First reply</th><th>Fixed or worked around</th></tr></thead>
+        <tbody>
+          <tr><td><span class="crit">Critical</span></td><td>Business critical: an agent wrote something wrong to a client's tool, money or orders are at stake, or work has stopped. Security: a leaked secret, a connection used in a way it shouldn't be, someone who shouldn't have access, a client's data where it shouldn't be.</td><td>Reggie holds the agent at once</td><td>1 hour, any day</td><td>Same day</td></tr>
+          <tr><td>High</td><td>Wrong results held for signing, or a client is blocked from part of their work.</td><td>Your call</td><td>4 business hours</td><td>2 business days</td></tr>
+          <tr><td>Normal</td><td>Something wrong, with a way around it.</td><td>No</td><td>1 business day</td><td>Slotted before builds</td></tr>
+          <tr><td>Low</td><td>Cosmetic or rare.</td><td>No</td><td>2 business days</td><td>Slotted before builds</td></tr>
+        </tbody>
+      </table></div>
+
+      <div class="box" style="margin-bottom: var(--space-4)">
+        <h4>The safety hold</h4>
+        <ul class="sig">
+          <li><b>What it stops:</b> the agent's writes to the client's tools and its messages out (email, texts, calls). Runs keep going as drafts, so nothing is lost: what it would have done waits, held.</li>
+          <li><b>For security:</b> also the connections involved, until you've looked. The client's own tools aren't touched.</li>
+          <li><b>Who:</b> Reggie puts it on by itself for a critical issue (it only makes things safer). Only you take it off: release, release after a fix, or roll back to an earlier version.</li>
+          <li><b>Who's told:</b> you at once (a phone notification), the client admin in plain words within the hour, and the hold is on the issue's timeline.</li>
+          <li><b>After:</b> what was held is reviewed: sent as is, edited, or dropped.</li>
+        </ul>
+      </div>
+
+      <div class="chain">
+        <div class="st"><span class="n">1</span><span class="name">Reported</span><span class="tags"><span class="who who--reggie">Reggie</span></span></div>
+        <div class="st"><span class="n">2</span><span class="name">Urgency</span><span class="tags"><span class="who who--reggie">Reggie</span><span class="crit">Hold if critical</span></span></div>
+        <div class="st"><span class="n">3</span><span class="name">Cause</span><span class="tags"><span class="who who--reggie">Reggie</span><span class="gate">If unsure</span></span></div>
+        <div class="st"><span class="n">4</span><span class="name">Fix</span><span class="tags"><span class="who who--reggie">Reggie</span><span class="gate">Approve fix</span></span></div>
+        <div class="st"><span class="n">5</span><span class="name">Verify</span><span class="tags"><span class="who who--reggie">Reggie</span><span class="who who--client">Client</span></span></div>
+        <div class="st end"><span class="n">6</span><span class="name">Closed</span><span class="tags"><span class="who who--reggie">Reggie</span></span></div>
+      </div>
+      <div class="branches">
+        <span class="branch"><b>Not a bug</b> Reggie explains how it works, and it closes</span>
+        <span class="branch"><b>Missing feature</b> it becomes an enhancement</span>
+      </div>
+      <div class="tbl"><table>
+        <thead><tr><th>Stage</th><th>Reggie</th><th>You</th><th>Client</th><th>Moves on when</th></tr></thead>
+        <tbody>
+          <tr><td>1 Reported</td><td>Tells the client we have it. Links the runs, errors and versions.</td><td class="dash">—</td><td>Reports it, or not (Reggie found it).</td><td>At once.</td></tr>
+          <tr><td>2 Urgency</td><td>Sets the urgency from what's at stake. Critical: puts the safety hold on and tells you and the client.</td><td>Change the urgency if it's wrong.</td><td class="dash">—</td><td>At once.</td></tr>
+          <tr><td>3 Cause</td><td>Finds the cause and its kind: the client's set-up (a connection, a person), data (a stale contract), the agent (its steps or instructions), our platform (our code), or not a bug.</td><td>Confirm the cause when Reggie isn't sure.</td><td>Answers a question if asked.</td><td>The cause is known.</td></tr>
+          <tr><td>4 Fix</td><td>Set-up or data: drafts the fix (a Desk request, a record update). The agent: drafts a new version with the Builder. Our platform: writes the engineering issue with links to the evidence (never client data), and tells the client what to expect.</td><td>Approve the fix. Every change to an agent is yours. Release the hold.</td><td>Does its part, if any.</td><td>The fix is in.</td></tr>
+          <tr><td>5 Verify</td><td>Runs the affected items again, or watches the next runs. Asks the client to confirm.</td><td class="dash">—</td><td>Confirms, or reopens.</td><td>Confirmed, or 3 clean days.</td></tr>
+          <tr><td>6 Closed</td><td>Tells the client what fixed it. Checks the other clients on the same template and opens the same fix there.</td><td class="dash">—</td><td class="dash">—</td><td>Done.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+
+    <div class="flow-card" id="agents">
+      <h3>Agent builds <span class="exists">Built: builds, go-live stages, the intake form</span></h3>
+      <p>One card per agent per client, from a sale, an expansion or an enhancement big enough to be its own agent. Every build starts by sending the client its requirements request: the agent's intake questionnaire, as a form link they fill in and attach files to. Then one of two paths: set up from a template, or build something new (kept as a template when others could use it).</p>
+      <div class="flow-card" style="margin-top: var(--space-4)">
+        <h3 class="small muted" style="font-size:13px">From a template: set up</h3>
+        <div class="chain">
+          <div class="st"><span class="n">1</span><span class="name">Requirements request</span><span class="tags"><span class="who who--reggie">Reggie</span><span class="who who--client">Client</span></span></div>
+          <div class="st"><span class="n">2</span><span class="name">Connect</span><span class="tags"><span class="who who--client">Client</span></span></div>
+          <div class="st"><span class="n">3</span><span class="name">Bench test</span><span class="tags"><span class="who who--reggie">Reggie</span><span class="gate">Start trial</span></span></div>
+          <div class="st"><span class="n">4</span><span class="name">Trial</span><span class="tags"><span class="who who--client">Client signs every write</span></span></div>
+          <div class="st"><span class="n">5</span><span class="name">Sign-off</span><span class="tags"><span class="who who--client">Client</span></span></div>
+          <div class="st end"><span class="n">6</span><span class="name">Live</span></div>
+        </div>
+      </div>
+      <div class="flow-card" style="margin-top: var(--space-2)">
+        <h3 class="small muted" style="font-size:13px">Something new: build</h3>
+        <div class="chain">
+          <div class="st"><span class="n">1</span><span class="name">Requirements request</span><span class="tags"><span class="who who--reggie">Builder</span><span class="who who--client">Client</span></span></div>
+          <div class="st"><span class="n">2</span><span class="name">Intake</span><span class="tags"><span class="who who--you">You</span><span class="who who--reggie">Builder</span></span></div>
+          <div class="st"><span class="n">3</span><span class="name">Fit-gap</span><span class="tags"><span class="who who--reggie">Builder</span><span class="gate">Agree</span></span></div>
+          <div class="st"><span class="n">4</span><span class="name">Draft</span><span class="tags"><span class="who who--reggie">Builder</span></span></div>
+          <div class="st"><span class="n">5</span><span class="name">POC test</span><span class="tags"><span class="who who--reggie">Builder</span></span></div>
+          <div class="st"><span class="n">6</span><span class="name">Client test</span><span class="tags"><span class="who who--client">Client</span></span></div>
+          <div class="st"><span class="n">7</span><span class="name">QA</span><span class="tags"><span class="gate">Go or no-go</span></span></div>
+          <div class="st end"><span class="n">8</span><span class="name">Live</span></div>
+        </div>
+      </div>
+      <div class="tbl"><table>
+        <thead><tr><th>Set-up stage</th><th>Reggie</th><th>You</th><th>Client</th><th>Moves on when</th></tr></thead>
+        <tbody>
+          <tr><td>1 Requirements request</td><td>Sends the agent's intake questionnaire as a form link to the right person (tools, tolerances, who approves, the AP address, contracts to attach), with a due date. Chases before it's due. Reads the answers back and turns anything missing or unclear into a to-do (the client's, or yours). A new agent has no template yet, so the Builder drafts its questionnaire from the diagnostic plan or the request, and the answers become the intake brief.</td><td>Approve the request before it goes (until you let Reggie send these).</td><td>Fills it in, attaches files.</td><td>Every required answer in.</td></tr>
+          <tr><td>2 Connect</td><td>Says which tools are missing and how. Chases.</td><td class="dash">—</td><td>Connects its tools.</td><td>Every binding works.</td></tr>
+          <tr><td>3 Bench test</td><td>Runs test runs on the client's own data. Never writes. Reports what it would have done.</td><td>Start the trial.</td><td class="dash">—</td><td>A passing test run, and you start it.</td></tr>
+          <tr><td>4 Trial</td><td>Reports the trial each week: runs, signed, rejected and why. A rejection becomes an issue.</td><td class="dash">—</td><td>Signs every write.</td><td>14 days and 25 runs.</td></tr>
+          <tr><td>5 Sign-off</td><td>Puts the go-live summary on the client admin's Desk.</td><td class="dash">—</td><td>Approves going live.</td><td>Approved.</td></tr>
+          <tr><td>6 Live</td><td>Tells the client. Starts billing it. Watches it for issues.</td><td class="dash">—</td><td class="dash">—</td><td>Done.</td></tr>
+        </tbody>
+      </table></div>
+      <p class="muted small" style="margin-top: var(--space-3)">Each build has a promised date once you give one to the client. Reggie works out from the build's open to-dos whether it will make it, and that's what decides when issues may go ahead of it.</p>
+    </div>
+
+    <div class="flow-card" id="enh">
+      <h3>Enhancements and feedback</h3>
+      <p>Things that would make it better: requests, the Feedback button, ideas in conversations. Reggie groups the same ask across clients, so you decide once and the change reaches everyone who asked.</p>
+      <div class="chain">
+        <div class="st"><span class="n">1</span><span class="name">Captured</span><span class="tags"><span class="who who--reggie">Reggie</span></span></div>
+        <div class="st"><span class="n">2</span><span class="name">Grouped</span><span class="tags"><span class="who who--reggie">Reggie</span></span></div>
+        <div class="st"><span class="n">3</span><span class="name">Decided</span><span class="tags"><span class="gate">Do, later, no or sell</span></span></div>
+        <div class="st"><span class="n">4</span><span class="name">Built</span><span class="tags"><span class="who who--reggie">Builder</span><span class="gate">Approve version</span></span></div>
+        <div class="st end"><span class="n">5</span><span class="name">Shipped and told</span><span class="tags"><span class="who who--reggie">Reggie</span></span></div>
+      </div>
+      <div class="branches">
+        <span class="branch"><b>Later</b> Reggie tells them it's on the list</span>
+        <span class="branch"><b>No</b> Reggie drafts a kind no, with the reason</span>
+        <span class="handoff">Sell it → it's a new agent: Sell them more</span>
+      </div>
+      <div class="tbl"><table>
+        <thead><tr><th>Stage</th><th>Reggie</th><th>You</th><th>Client</th><th>Moves on when</th></tr></thead>
+        <tbody>
+          <tr><td>1 Captured</td><td>Thanks them. Asks one question if the ask isn't clear.</td><td class="dash">—</td><td>Asks.</td><td>The ask is clear.</td></tr>
+          <tr><td>2 Grouped</td><td>Merges it with the same ask from other clients and counts it: "4 clients, all on the Purchasing agent: POs as PDF." Says whether it's a template change, one client's change or a new agent, and roughly how big.</td><td class="dash">—</td><td class="dash">—</td><td>Ready for you.</td></tr>
+          <tr><td>3 Decided</td><td>Drafts the reply for each decision.</td><td>Do it, later, no, or sell it.</td><td class="dash">—</td><td>You decide.</td></tr>
+          <tr><td>4 Built</td><td>A template change: a new template version, merged into each client by the update review. One client's: a new version of their agent. Either way, a small build.</td><td>Approve the version.</td><td class="dash">—</td><td>Published.</td></tr>
+          <tr><td>5 Shipped and told</td><td>Tells every client who asked, in their language, what changed.</td><td class="dash">—</td><td class="dash">—</td><td>Done.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- 5. Hand-offs -->
+  <section>
+    <div class="sec-head"><span class="sec-n">05</span><h2>Where work passes between buckets</h2></div>
+    <p class="sec-lede">Each hand-off keeps a link both ways, and the activity goes with it, so you can see a sale's builds and a build's sale.</p>
+    <div class="tbl">
+      <div class="hand"><span class="f">New account · Set up</span><span class="a">→</span><span class="t">Agent builds</span><span class="w">One per agent sold, with what it needs written down and its requirements request ready.</span></div>
+      <div class="hand"><span class="f">New account · First agent live</span><span class="a">→</span><span class="t">Expansion</span><span class="w">The client is watched for opportunities from then on.</span></div>
+      <div class="hand"><span class="f">Expansion · Agreed</span><span class="a">→</span><span class="t">Agent builds</span><span class="w">One per new agent.</span></div>
+      <div class="hand"><span class="f">Question · "That's not working"</span><span class="a">→</span><span class="t">Issue</span><span class="w">The question links to the issue.</span></div>
+      <div class="hand"><span class="f">Question · "Can it do this"</span><span class="a">→</span><span class="t">Enhancement</span><span class="w">Grouped with the same ask from others.</span></div>
+      <div class="hand"><span class="f">Enhancement · Sell it</span><span class="a">→</span><span class="t">Expansion</span><span class="w">The ask was a new agent. The clients who asked are the first to offer it to.</span></div>
+      <div class="hand"><span class="f">Issue · Missing feature</span><span class="a">→</span><span class="t">Enhancement</span><span class="w">The client is told it's not a fault, and that it's on the list.</span></div>
+      <div class="hand"><span class="f">Agent build · Trial rejection</span><span class="a">→</span><span class="t">Issue</span><span class="w">A rejected write in the trial is looked at like any issue.</span></div>
+      <div class="hand"><span class="f">Open critical or high issue</span><span class="a">→</span><span class="t">Expansion holds</span><span class="w">No pitch to a client while something of theirs is broken.</span></div>
+    </div>
+  </section>
+
+  <!-- 6. Decisions -->
+  <section>
+    <div class="sec-head"><span class="sec-n">06</span><h2>Agreed</h2></div>
+    <div class="tbl"><ul class="done-list">
+      <li><span class="n">1</span><span>Set-up is the end of New account: the account is made and each agent's needs written down. Each agent build starts with its requirements request, the intake questionnaire sent as a form.</span></li>
+      <li><span class="n">2</span><span>Contracts and billing changes are by hand first, recorded on the card with the signed copy. Later, a Billing page in the portal where clients add things and agree the changes we post.</span></li>
+      <li><span class="n">3</span><span>Critical issues (business critical or security) go first. Other issues go before builds, unless a build would miss its promised date. Enhancements after.</span></li>
+      <li><span class="n">4</span><span>A safety hold: Reggie stops an agent's writes and messages on a critical issue; only you release it.</span></li>
+      <li><span class="n">5</span><span>Platform bugs become engineering issues with links to the evidence, never client data.</span></li>
+      <li><span class="n">6</span><span>A question is activity, not a ticket, with a to-do that keeps it from getting lost.</span></li>
+      <li><span class="n">7</span><span>One to-do list across the whole back office; the pipelines are built on it, not beside it.</span></li>
+    </ul></div>
+
+    <div class="sec-head" style="margin-top: var(--space-10)"><span class="sec-n">07</span><h2>Still to agree</h2></div>
+    <div class="tbl"><ol class="qs">
+      <li><div><b>Should a high issue also get a safety hold on its own?</b><span class="rec">This draft: only critical issues are held by Reggie; for a high one, "Hold it?" is your call.</span></div></li>
+      <li><div><b>Does the hold need a phone notification at any hour?</b><span class="rec">This draft: yes for critical, since the first reply target is 1 hour any day. That means someone on call; today that's you.</span></div></li>
+      <li><div><b>Who gets a client's to-dos when you have a team?</b><span class="rec">This draft: the client's lead by default, so everything works with one person now and splits by client later.</span></div></li>
+      <li><div><b>Promised dates on builds.</b><span class="rec">Builds don't have one today. A date you give the client, set on the build, so Reggie can protect it.</span></div></li>
+    </ol></div>
+  </section>
+</div>
+<script>
+const btn = document.getElementById("theme");
+const dark = () => { const t = document.documentElement.dataset.theme; return t ? t === "dark" : matchMedia("(prefers-color-scheme: dark)").matches; };
+const label = () => (btn.textContent = dark() ? "Light" : "Dark");
+btn.addEventListener("click", () => { document.documentElement.dataset.theme = dark() ? "light" : "dark"; label(); });
+label();
+</script>
+</body>
+</html>
