@@ -471,7 +471,12 @@ export function newFees(input: {
       body: `${moneyIn(fee.amount, input.currency ?? "USD")} for "${fee.label}", which none of their ${input.priorInvoices} earlier invoices had.`,
       evidence: input.evidence,
       dollarImpact: toNumeric(fee.amount),
-      facts: { label: fee.label, feeType: type, amount: toNumeric(fee.amount) },
+      facts: {
+        label: fee.label,
+        feeType: type,
+        amount: toNumeric(fee.amount),
+        currency: input.currency ?? "USD",
+      },
     });
   }
   return out;

@@ -15,7 +15,7 @@ import { type Db, type Tx, vendor, withTenant } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import { parseLine } from "../catalog/keys";
 import { daysBefore } from "../pricing/rules";
-import { convertLine, PACKAGING_UOMS, readUom } from "../pricing/uom";
+import { convertLine, PACKAGING_UOMS, readUom, unitKey } from "../pricing/uom";
 import { quoteRequest } from "../schema";
 import { vendorItemForUnit } from "../vendor/store";
 import { cents } from "./po";
@@ -156,10 +156,6 @@ interface Basis {
   packaged?: boolean;
 }
 
-/** A unit as compared: its one spelling when known, else its words; null when none is given. */
-const unitKey = (raw: string | null): string | null =>
-  raw?.trim() ? (readUom(raw) ?? raw.trim().toLowerCase()) : null;
-
 const UNIT_WORDS: Record<string, string> = {
   board_foot: "board feet",
   linear_foot: "linear feet",
@@ -279,7 +275,10 @@ export function compareOffers(input: {
       // DECISION (second review, M1): a vendor that gave no quantity quotes the quantity asked:
       // in the unit asked, its price times it; in another unit, the asked standard quantity at its
       // standard price (`recordQuote` stores a quantity only in the vendor's own unit).
-      const sameUnitAsked = unitKey(line.unit) === null || unitKey(o.unit) === unitKey(line.unit);
+      // A line asked with no unit is in its item's standard unit (as `convertLine` reads it),
+      // else, with no item, in whatever unit the vendor quotes.
+      const askedUnit = unitKey(line.unit) ?? unitKey(line.standardUom);
+      const sameUnitAsked = askedUnit === null || unitKey(o.unit) === askedUnit;
       const cost =
         !o.available || o.unitPrice === null
           ? null

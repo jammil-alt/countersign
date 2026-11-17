@@ -483,6 +483,36 @@ describe.skipIf(!online)("prices and alerts (database)", () => {
     expect(d.message).toContain("3 alerts, about $15.00 and CAD 20.00 at stake.");
   });
 
+  it("records a fee alert in the invoice's currency", async () => {
+    const G = await insertShop(t.db, "Millwork G");
+    const first = await matchedInvoice(
+      G,
+      "Northline Plywood",
+      [{ description: BB, qty: "1", uom: "SHT", unitPrice: "75.00" }],
+      { date: "2026-10-01", currency: "CAD" },
+    );
+    await recordPrices(db, ctx(G), { documentId: first.documentId });
+    const doc = await matchedInvoice(
+      G,
+      "Northline Plywood",
+      [{ description: BB, qty: "1", uom: "SHT", unitPrice: "75.00" }],
+      {
+        date: "2026-10-20",
+        currency: "CAD",
+        surcharges: [{ label: "Pallet fee", amount: "75.00" }],
+      },
+    );
+    await recordPrices(db, ctx(G), { documentId: doc.documentId });
+    const r = await checkPrices(db, ctx(G), {
+      documentId: doc.documentId,
+      settings: priceSettingsFrom({}),
+    });
+    const fee = r.alerts.find((a) => a.kind === "new_fee");
+    expect(fee?.body).toMatch(/^CAD 75\.00 for "Pallet fee"/);
+    const [row] = (await alerts(G.tenantId)).filter((a) => a.kind === "new_fee");
+    expect(row).toMatchObject({ currency: "CAD", facts: { currency: "CAD" } });
+  });
+
   it("keeps each client's prices and alerts its own", async () => {
     const doc = await matchedInvoice(
       B,

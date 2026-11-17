@@ -10,7 +10,7 @@ import { type Db, document, type Tx, tenant, vendor, withTenant } from "@counter
 import { countPages } from "@countersign/documents";
 import { and, eq } from "drizzle-orm";
 import { PageSizes, PDFDocument, type PDFFont, type PDFPage, rgb, StandardFonts } from "pdf-lib";
-import { readUom } from "../pricing/uom";
+import { unitKey } from "../pricing/uom";
 import { quoteLines, quoteRow, vendorAliases } from "./quotes";
 import {
   clientDay,
@@ -265,17 +265,17 @@ export async function poContent(
   const lines: PoLine[] = [];
   const ids: string[] = [];
   let total = dec("0");
-  for (const { row } of asked) {
+  for (const { row, item } of asked) {
     // P-9: a split order holds only its vendor's share of the lines.
     if (input.requestLineIds && !input.requestLineIds.includes(row.id)) continue;
     const ql = quoted.find((x) => x.purchaseRequestLineId === row.id);
     if (!ql?.available || ql.unitPrice === null) continue;
     // DECISION (second review, M1): with no quantity of its own, the vendor's line orders the
     // quantity asked only in the unit asked; in another unit a person says how many first.
-    const sameUnit =
-      !row.unit?.trim() ||
-      (ql.unit?.trim().toLowerCase() ?? "") === (row.unit?.trim().toLowerCase() ?? "") ||
-      (readUom(ql.unit) !== null && readUom(ql.unit) === readUom(row.unit));
+    // A box and a case are two units (`unitKey`); a line asked with no unit is in its item's
+    // standard unit, and with no item in whatever unit the vendor quotes.
+    const askedUnit = unitKey(row.unit) ?? unitKey(item?.standardUom ?? null);
+    const sameUnit = askedUnit === null || unitKey(ql.unit) === askedUnit;
     if (ql.qty === null && !sameUnit) {
       throw new PurchasingError(
         "invalid",

@@ -394,6 +394,29 @@ describe("compareOffers", () => {
     expect(c.lines[0]?.best?.vendorId).toBe("v-a");
   });
 
+  it("costs a quote with no quantity on a request with no unit in the item's unit", () => {
+    const screws: CompareLine = {
+      ...sheet("l1", 1, "500.0000"),
+      unit: null,
+      standardUom: "each",
+      qtyStd: "500.0000",
+    };
+    const c = compareOffers({
+      ...base,
+      lines: [screws],
+      offers: [
+        offer("q-a", "l1", {
+          unit: "BX",
+          unitPrice: "9.0000",
+          unitPriceStd: "0.0900",
+          standardUom: "each",
+        }),
+      ],
+    });
+    // 500 screws at 0.09: 45.00, never 500 boxes.
+    expect(c.lines[0]?.offers[0]).toMatchObject({ cost: "45.0000", comparable: true });
+  });
+
   it("never compares across currencies", () => {
     const three = [
       ...quotes,
@@ -508,6 +531,28 @@ describe("quotedQtyAsAsked", () => {
     expect(quotedQtyAsAsked(asked, { unit: "BX", description: null }, box)).toBe("5.0000");
     expect(quotedQtyAsAsked(asked, { unit: "BX", description: null }, null)).toBeNull();
     expect(quotedQtyAsAsked(asked, { unit: "ea", description: null }, null)).toBe("500.0000");
+    // Boxes are ordered whole: 500 each from boxes of 30 is 17 boxes.
+    const thirty = { vendorUom: "pack", stdPerVendorUom: "30" };
+    expect(quotedQtyAsAsked(asked, { unit: "BX", description: null }, thirty)).toBe("17.0000");
+  });
+
+  it("reads a request with no unit in its item's unit, and a box and a case as two units", () => {
+    const noUnit = { ...asked, row: { ...asked.row, unit: null } as RequestLineRow };
+    const box = { vendorUom: "pack", stdPerVendorUom: "100" };
+    // 500 screws asked with no unit, quoted per box of 100: 5 boxes, not 500.
+    expect(quotedQtyAsAsked(noUnit, { unit: "BX", description: null }, box)).toBe("5.0000");
+    // 5 boxes of 100 asked, quoted per case of unknown size: nothing, not 5 cases.
+    const boxes = {
+      ...asked,
+      row: {
+        qty: "5.0000",
+        unit: "BX",
+        description: "#8 X 1-1/4 WOOD SCREW 100/BX",
+      } as RequestLineRow,
+    };
+    expect(quotedQtyAsAsked(boxes, { unit: "CS", description: null }, null)).toBeNull();
+    const kase = { vendorUom: "pack", stdPerVendorUom: "1000" };
+    expect(quotedQtyAsAsked(boxes, { unit: "CS", description: null }, kase)).toBe("1.0000");
   });
 });
 

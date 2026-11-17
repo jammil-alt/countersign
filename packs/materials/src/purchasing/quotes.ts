@@ -4,7 +4,7 @@
 // followed. Quoted prices get their standard-unit price only through a conversion rule
 // (invariant 7). A quote is not a price observation: price history stays what was paid.
 
-import { dec, toNumeric } from "@countersign/core";
+import { Decimal, dec, toNumeric } from "@countersign/core";
 import {
   type Db,
   docLine,
@@ -19,7 +19,14 @@ import {
 import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { parseLine } from "../catalog/keys";
 import type { CatalogItemRow } from "../catalog/store";
-import { type Conversion, convertLine, readUom, withoutPackaging } from "../pricing/uom";
+import {
+  type Conversion,
+  convertLine,
+  PACKAGING_UOMS,
+  readUom,
+  unitKey,
+  withoutPackaging,
+} from "../pricing/uom";
 import {
   itemAlias,
   priceObservation,
@@ -690,10 +697,6 @@ export function standardPrice(
   };
 }
 
-/** A unit as compared: its one spelling when known, else its words; null when none is given. */
-const unitKey = (raw: string | null): string | null =>
-  raw?.trim() ? (readUom(raw) ?? raw.trim().toLowerCase()) : null;
-
 /**
  * The quantity a vendor that gave none quotes, in its own unit: the quantity asked when it quoted
  * in the unit asked; else the asked quantity in standard units turned into its unit (500 each is
@@ -707,10 +710,10 @@ export function quotedQtyAsAsked(
   vendorItem: { vendorUom: string | null; stdPerVendorUom: string | null } | null,
 ): string | null {
   if (asked.row.qty === null) return null;
-  // A line asked with no unit is for whatever unit the vendor quotes.
-  if (unitKey(asked.row.unit) === null || unitKey(line.unit) === unitKey(asked.row.unit)) {
-    return asked.row.qty;
-  }
+  // A line asked with no unit is in its item's standard unit (as `convertLine` reads it); with no
+  // item, in whatever unit the vendor quotes. A box and a case are two units (`unitKey`).
+  const askedUnit = unitKey(asked.row.unit) ?? unitKey(asked.item?.standardUom ?? null);
+  if (askedUnit === null || unitKey(line.unit) === askedUnit) return asked.row.qty;
   if (!asked.item) return null;
   const askedConv = convertLine(
     asked.row.unit,
@@ -720,7 +723,12 @@ export function quotedQtyAsAsked(
   );
   const quotedConv = quotedConversion(asked.item, line, asked.row, vendorItem);
   if (!askedConv.ok || !quotedConv.ok) return null;
-  return toNumeric(dec(asked.row.qty).times(askedConv.factor).dividedBy(quotedConv.factor));
+  const qty = dec(asked.row.qty).times(askedConv.factor).dividedBy(quotedConv.factor);
+  // DECISION (third review of fix/materials, finding 8): boxes, cases and pails are ordered whole:
+  // 500 each from boxes of 30 is 17 boxes (the comparison then says it is more than asked), so the
+  // order and its cost agree.
+  const packaged = PACKAGING_UOMS.has(readUom(line.unit) ?? "");
+  return toNumeric(packaged ? qty.toDecimalPlaces(0, Decimal.ROUND_UP) : qty);
 }
 
 async function checkAnswer(tx: Tx, tenantId: string, input: RecordQuoteInput) {

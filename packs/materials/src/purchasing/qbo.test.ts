@@ -249,6 +249,22 @@ describe.skipIf(!online)("QuickBooks pieces of the buyer (database)", () => {
         txnDate: "2026-11-08",
       }),
     ).toMatch(/quoted per BX without saying how many/);
+    // 5 boxes asked, quoted per case with no quantity: a case is not a box; no order of 5 cases.
+    const boxes = await call(requestCreate, {
+      channel: "email",
+      lines: [{ description: "#8 X 2 WOOD SCREW 100/BX", qty: "5", unit: "BX" }],
+    });
+    const rfq2 = await call(quoteCreate, { requestId: boxes.request.id, vendorIds: [v.keystone] });
+    const q2 = rfq2.quotes[0].id;
+    await call(quoteMarkSent, { quoteRequestId: q2, sentVia: "email" });
+    const rec2 = await call(quoteRecord, {
+      quoteRequestId: q2,
+      lines: [{ requestLineId: boxes.request.lines[0].id, unitPrice: "80.00", unit: "CS" }],
+    });
+    expect(rec2.lines[0].qty).toBeNull();
+    expect(
+      await fails(poQboLinesTool, { requestId: boxes.request.id, quoteRequestId: q2 }),
+    ).toMatch(/quoted per CS without saying how many/);
     settings.qbo_account_id = undefined;
   });
 

@@ -180,7 +180,13 @@ export async function contractCheckFor(
   });
 }
 
-async function raise(tx: Tx, ctx: PricingContext, draft: AlertDraft): Promise<RaisedAlert> {
+async function raise(
+  tx: Tx,
+  ctx: PricingContext,
+  draft: AlertDraft,
+  /** The document's currency, for an alert whose facts name none. */
+  currency: string,
+): Promise<RaisedAlert> {
   const key = dedupeKey(draft);
   const view = {
     kind: draft.kind,
@@ -208,7 +214,7 @@ async function raise(tx: Tx, ctx: PricingContext, draft: AlertDraft): Promise<Ra
       facts: { ...draft.facts, vendorId: draft.vendorId, catalogItemId: draft.catalogItemId },
       dollarImpact: draft.dollarImpact,
       // The currency its dollar impact is in (the invoice's), as its facts say.
-      currency: typeof draft.facts.currency === "string" ? draft.facts.currency : "USD",
+      currency: typeof draft.facts.currency === "string" ? draft.facts.currency : currency,
       dedupeKey: key,
       raisedByRunId: ctx.runId ?? null,
       agentVersionId: ctx.agentVersionId,
@@ -343,7 +349,7 @@ export async function checkPrices(
       const key = dedupeKey(d);
       if (seen.has(key)) continue;
       seen.add(key);
-      alerts.push(await raise(tx, ctx, d));
+      alerts.push(await raise(tx, ctx, d, doc.currency));
     }
     return {
       documentId: doc.documentId,

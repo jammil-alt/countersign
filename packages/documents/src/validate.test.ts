@@ -113,6 +113,9 @@ describe("validateTotals", () => {
     // is 6.275.
     expect(fits({ qty: "733", unitPrice: "1855.00", extPrice: "1359.72" })).toBe(true);
     expect(fits({ qty: "50", unitPrice: "12.55", extPrice: "6.28" })).toBe(true);
+    // A zero amount is no price per hundred or thousand: 2 at 4.50 for 0.00 doesn't add up.
+    expect(fits({ qty: "2", unitPrice: "4.50", extPrice: "0.00" })).toBe(false);
+    expect(fits({ qty: "1", unitPrice: "0.85", extPrice: "0.00" })).toBe(false);
     expect(lineArithmetic({ qty: "733", unitPrice: "1855.00", extPrice: "1359.72" }).per).toBe(
       1000,
     );

@@ -434,6 +434,7 @@ export function termsMismatch(input: {
         contractId: c.id,
         documentId: invoice.documentId,
         freight: toNumeric(invoice.freight),
+        currency: invoice.currency,
       },
     });
   }

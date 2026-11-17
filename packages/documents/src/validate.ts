@@ -78,7 +78,11 @@ export function lineArithmetic(line: LineFigures): { per: 1 | 100 | 1000; proble
     .times(half(Math.max(2, unitPrice.decimalPlaces())))
     .plus(qty.decimalPlaces() > 0 ? unitPrice.abs().times(half(qty.decimalPlaces())) : dec("0"));
   for (const per of [1, 100, 1000] as const) {
-    const allowance = dec(LINE_TOLERANCE).plus(rounding.dividedBy(per));
+    // DECISION (third review of fix/materials, finding 5): a price per hundred or thousand is read
+    // only from an amount that isn't zero (2 at 4.50 for 0.00 is no price per thousand), and its
+    // amount rounds to the half cent, not the whole one.
+    if (per !== 1 && amount.isZero()) break;
+    const allowance = dec(per === 1 ? LINE_TOLERANCE : "0.005").plus(rounding.dividedBy(per));
     if (computed.dividedBy(per).minus(amount).abs().lessThanOrEqualTo(allowance)) {
       return { per, problem: null };
     }

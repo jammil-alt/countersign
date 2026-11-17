@@ -90,6 +90,17 @@ export function unitWord(raw: string | null | undefined): string | null {
   return PACKAGING_WORDS[key] ?? readUom(raw) ?? raw.trim().toLowerCase();
 }
 
+/**
+ * A unit as two lines' units are told apart: its one spelling (`sheet`, `each`), a box, case or
+ * pail by its word (`pack:box` is not `pack:case`), else its own words; null when none is given.
+ */
+export function unitKey(raw: string | null | undefined): string | null {
+  if (!raw?.trim()) return null;
+  const uom = readUom(raw);
+  if (uom !== null && PACKAGING_UOMS.has(uom)) return `${uom}:${unitWord(raw)}`;
+  return uom ?? raw.trim().toLowerCase();
+}
+
 /** An invoice unit in one spelling (`sheet`, `board_foot`, `pack`, …), or null if unknown. */
 export function readUom(raw: string | null | undefined): string | null {
   if (!raw) return null;
