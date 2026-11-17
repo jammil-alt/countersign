@@ -510,7 +510,14 @@ export function createLinkedInConnector(options: LinkedInOptions = {}): Connecto
               reason: String(res.status),
               at: ctx.now(),
             });
-            if (res.status === 401) throw new ReconnectRequiredError("LinkedIn refused the token");
+            // DECISION: a 401 right after a refresh that worked is not a dead grant (the try is
+            // refused above, so a later one may post); a lasting one is raised after a day.
+            if (res.status === 401) {
+              throw new LinkedInApiError(
+                401,
+                "LinkedIn refused our access just after we renewed it; we'll keep trying",
+              );
+            }
             const answer = (await readJson(res)) as { message?: unknown } | null;
             const why = typeof answer?.message === "string" ? answer.message.slice(0, 300) : "";
             throw new LinkedInApiError(

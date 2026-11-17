@@ -463,7 +463,19 @@ export function microsoftSignIn(
         const res = await tokens.withAccessToken(
           (token) => once(token, method, path, body, timeoutMs),
           (r) => r.status === 401,
+          { write: method.toUpperCase() !== "GET" },
         );
+        // DECISION: a 401 right after a refresh that worked is not a dead grant: the connection
+        // stays connected and a later try may get through (a lasting one is raised after a day).
+        // A token straight from a sign-in (`graphWith`) refused is still a reconnect.
+        if (res.status === 401) {
+          throw new MicrosoftApiError(
+            401,
+            `Microsoft refused our access to ${spec.provider} just after we renewed it; we'll keep trying`,
+            "unauthorized",
+            true,
+          );
+        }
         return finish(res, opts?.accept);
       };
     },

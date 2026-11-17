@@ -574,41 +574,55 @@ export function createGsheetsConnector(options: GsheetsOptions = {}): GsheetsCon
   /** One Google call with this token: JSON in and out. Throws on anything but 2xx. */
   type Call = (method: string, url: string, body?: unknown) => Promise<unknown>;
 
+  function send(token: string, method: string, url: string, body?: unknown) {
+    return doFetch()(url, {
+      method,
+      headers: {
+        authorization: `Bearer ${token}`,
+        accept: "application/json",
+        ...(body === undefined ? {} : { "content-type": "application/json; charset=UTF-8" }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      redirect: "manual",
+      signal: timeoutSignal(30_000),
+    });
+  }
+
+  async function answer(res: HttpResponseLike): Promise<unknown> {
+    const json = readJson(await res.text());
+    if (res.status === 401) throw new ReconnectRequiredError("Google refused the access token");
+    if (!res.ok) {
+      throw new SheetsApiError(
+        res.status,
+        `Google Sheets refused the request (${res.status}): ${googleMessage(json)}`,
+      );
+    }
+    return json;
+  }
+
   function callWith(token: string): Call {
-    return async (method, url, body) => {
-      const res = await doFetch()(url, {
-        method,
-        headers: {
-          authorization: `Bearer ${token}`,
-          accept: "application/json",
-          ...(body === undefined ? {} : { "content-type": "application/json; charset=UTF-8" }),
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        redirect: "manual",
-        signal: timeoutSignal(30_000),
-      });
-      const json = readJson(await res.text());
-      if (res.status === 401) throw new ReconnectRequiredError("Google refused the access token");
-      if (!res.ok) {
-        throw new SheetsApiError(
-          res.status,
-          `Google Sheets refused the request (${res.status}): ${googleMessage(json)}`,
-        );
-      }
-      return json;
-    };
+    return async (method, url, body) => answer(await send(token, method, url, body));
   }
 
   /** A call for a connection: refreshes before expiry, and once more after a 401. */
   function callFor(ctx: ConnectionContext): Call {
     const tokens = tokenManager({ credentials: ctx.credentials, refresher, now: ctx.now });
     return async (method, url, body) => {
-      try {
-        return await callWith(await tokens.accessToken())(method, url, body);
-      } catch (error) {
-        if (!(error instanceof ReconnectRequiredError)) throw error;
-        return callWith((await tokens.refresh()).accessToken)(method, url, body);
+      const res = await tokens.withAccessToken(
+        (token) => send(token, method, url, body),
+        (r) => r.status === 401,
+        { write: method.toUpperCase() !== "GET" },
+      );
+      // DECISION: a 401 right after a refresh that worked is not a dead grant: the connection
+      // stays connected and a later try may get through (a lasting one is raised after a day).
+      if (res.status === 401) {
+        throw new SheetsApiError(
+          401,
+          "Google refused our access just after we renewed it; we'll keep trying",
+          true,
+        );
       }
+      return answer(res);
     };
   }
 

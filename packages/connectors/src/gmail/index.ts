@@ -351,7 +351,7 @@ export function createGmailConnector(options: GmailOptions = {}): GmailConnector
       const error = new GmailApiError(
         res.status,
         res.status === 401
-          ? "Google refused the access token after a refresh"
+          ? "Google refused our access just after we renewed it; we'll keep trying"
           : `Gmail refused the email (${res.status}): ${typeof msg === "string" ? msg : "no reason given"}`,
       );
       throw sendRefusedStatus(res.status) ? Object.assign(error, { notWritten: true }) : error;

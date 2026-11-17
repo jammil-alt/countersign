@@ -7,6 +7,7 @@
 
 import { dbConnectionAttention, toConnectionRef } from "@countersign/agents";
 import {
+  attentionReasonOf,
   type ConnectionRef,
   type CredentialsAccessor,
   credentialKeysFromEnv,
@@ -152,7 +153,7 @@ export async function pollRampConnection(
         emit: senseEmitter(deps.platform.events, { collect: events }),
       }).needsAttention(row.tenantId, {
         connectionId: row.id,
-        reason: "signin_expired",
+        reason: attentionReasonOf(error),
         detail: error.message,
       });
       return { stored: 0, events };

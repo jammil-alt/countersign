@@ -15,7 +15,12 @@ import { formDecode } from "../http";
 import { captureBefore, executeWrite, runReadTool, standInOutput, ToolCallError } from "../invoke";
 import { memoryLogger } from "../logger";
 import { beginAuthorization, completeAuthorization } from "../oauth/flow";
-import { ReconnectRequiredError, TokenRefreshError } from "../oauth/tokens";
+import {
+  AccessFailingError,
+  attentionReasonOf,
+  ReconnectRequiredError,
+  TokenRefreshError,
+} from "../oauth/tokens";
 import { ConnectorRegistry } from "../registry";
 import { fromUtf8, utf8 } from "../runtime";
 import { FAKE_QBO_CLIENT, FAKE_QBO_REALM, fakeQbo, jsonResponse, QBO_FIXTURES } from "../testing";
@@ -414,9 +419,72 @@ describe("qbo connector: manifest and sign-in", () => {
     const error = await runReadTool(wrongKeys, QBO_TOOLS.itemQuery, {}, ctx()).catch((e) => e);
     expect(error).toBeInstanceOf(TokenRefreshError);
     expect(error).not.toBeInstanceOf(ReconnectRequiredError);
-    expect(store.current()).toEqual(before);
-    // With the right keys again, the same grant still works.
+    // The tokens are as they were; when the failures started is kept beside them.
+    expect(store.current()).toEqual({
+      ...before,
+      accessFailingSince: NOW.toISOString(),
+      accessFailingCode: "invalid_client",
+    });
+    // With the right keys again, the same grant still works, and the record of failing is gone.
     await runReadTool(s.connector, QBO_TOOLS.itemQuery, {}, ctx());
+    expect(store.current()).not.toHaveProperty("accessFailingSince");
+  });
+
+  it("raises the connection for a person once renewing access has failed for a day", async () => {
+    let clock = NOW;
+    const s = setup({ now: () => clock });
+    const { ctx } = await signedIn(s);
+    const wrongKeys = createQboConnector({
+      clientId: FAKE_QBO_CLIENT.clientId,
+      clientSecret: "not-the-secret",
+      environment: "sandbox",
+      fetch: s.qbo.fetch,
+      sleep: fastSleep,
+      now: () => clock,
+    });
+    s.qbo.expireAccessTokens();
+    const at = (when: Date) => ({ ...ctx(), now: () => when });
+    // Failing for 23 hours: still retryable, the connection is left as it is.
+    await expect(runReadTool(wrongKeys, QBO_TOOLS.itemQuery, {}, at(clock))).rejects.toBeInstanceOf(
+      TokenRefreshError,
+    );
+    clock = new Date(NOW.getTime() + 23 * 3600_000);
+    await expect(runReadTool(wrongKeys, QBO_TOOLS.itemQuery, {}, at(clock))).rejects.toBeInstanceOf(
+      TokenRefreshError,
+    );
+    // A day without a break: a person is asked to look, with its own reason.
+    clock = new Date(NOW.getTime() + 24 * 3600_000);
+    const raised = await runReadTool(wrongKeys, QBO_TOOLS.itemQuery, {}, at(clock)).catch((e) => e);
+    expect(raised).toBeInstanceOf(AccessFailingError);
+    expect(raised).toBeInstanceOf(ReconnectRequiredError);
+    expect(attentionReasonOf(raised)).toBe("refresh_failing");
+    expect(raised.message).not.toMatch(/invalid_client/);
+  });
+
+  it("raises a QuickBooks 401 that lasts a day past successful refreshes", async () => {
+    let clock = NOW;
+    const s = setup({ now: () => clock });
+    const { ctx } = await signedIn(s);
+    const refusing = createQboConnector({
+      ...FAKE_QBO_CLIENT,
+      environment: "sandbox",
+      fetch: async (url, init) =>
+        url.includes("/v3/company/")
+          ? jsonResponse(401, {
+              fault: { error: [{ code: "3200", message: "AuthenticationFailed" }] },
+            })
+          : s.qbo.fetch(url, init),
+      sleep: fastSleep,
+      now: () => clock,
+    });
+    const at = () => ({ ...ctx(), now: () => clock });
+    await expect(runReadTool(refusing, QBO_TOOLS.itemQuery, {}, at())).rejects.toMatchObject({
+      status: 401,
+      retryable: true,
+    });
+    clock = new Date(NOW.getTime() + 25 * 3600_000);
+    const raised = await runReadTool(refusing, QBO_TOOLS.itemQuery, {}, at()).catch((e) => e);
+    expect(attentionReasonOf(raised)).toBe("refresh_failing");
   });
 
   it("treats a provider incident at the token endpoint as retryable", async () => {

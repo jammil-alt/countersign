@@ -355,6 +355,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
         });
       },
       (r) => r.status === 401,
+      { write: method !== "GET" },
     );
     // v0.14 W4-B: 304, nothing modified since (the sync's list calls).
     if (res.status === 204 || res.status === 304) return null;
@@ -365,7 +366,16 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
     } catch {
       json = null;
     }
-    if (res.status === 401) throw new ReconnectRequiredError("Zoho refused the access token");
+    // DECISION: a 401 right after a refresh that worked is not a dead grant: the connection stays
+    // connected and a later try may get through (tokenManager raises a lasting one after a day).
+    if (res.status === 401) {
+      throw new ZohoApiError(
+        401,
+        "unauthorized",
+        "Zoho refused our access just after we renewed it; we'll keep trying",
+        true,
+      );
+    }
     if (!res.ok) {
       const e = (json ?? {}) as { code?: unknown; message?: unknown };
       const code = typeof e.code === "string" ? e.code : `HTTP_${res.status}`;

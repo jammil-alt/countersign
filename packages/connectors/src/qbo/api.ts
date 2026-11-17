@@ -427,6 +427,7 @@ export async function qboClient(ctx: ToolContext, opts: QboClientOptions): Promi
               signal: timeoutSignal(30_000),
             }),
           (r) => r.status === 401,
+          { write: method !== "GET" },
         ),
       );
       if (res.status === 429 && attempt < BACKOFF_MS.length) {
@@ -451,7 +452,7 @@ export async function qboClient(ctx: ToolContext, opts: QboClientOptions): Promi
       throw new QboApiError(
         401,
         "HTTP_401",
-        "QuickBooks refused the access token after a refresh",
+        "QuickBooks refused our access just after we renewed it; we'll keep trying",
         true,
         intuitTidOf(res),
       );

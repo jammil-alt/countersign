@@ -9,6 +9,7 @@ import {
 } from "../connector";
 import { type FetchLike, formEncode, globalFetch, timeoutSignal } from "../http";
 import {
+  DEAD_GRANT_CODES,
   OAuthTokens,
   ReconnectRequiredError,
   refreshRefused,
@@ -229,7 +230,8 @@ export function createPodioConnector(options: PodioOptions = {}): Connector {
       if (!r.ok) {
         if (r.status === 400 || r.status === 401) {
           // invalid_grant: revoked, or unused past its lifetime. The client signs in again.
-          throw refreshRefused("Podio", r.error);
+          // A 400 or 401 we can't read still asks for a reconnect, as before; our keys don't.
+          throw refreshRefused("Podio", r.error, DEAD_GRANT_CODES, "reconnect");
         }
         throw new PodioApiError(
           r.status,
@@ -271,6 +273,7 @@ export function createPodioConnector(options: PodioOptions = {}): Connector {
           signal: timeoutSignal(20_000),
         }),
       (r) => r.status === 401,
+      { write: method !== "GET" },
     );
     if (res.status === 204) return null;
     const text = await res.text();
@@ -280,7 +283,16 @@ export function createPodioConnector(options: PodioOptions = {}): Connector {
     } catch {
       json = null;
     }
-    if (res.status === 401) throw new ReconnectRequiredError("Podio refused the access token");
+    // DECISION: a 401 right after a refresh that worked is not a dead grant: the connection stays
+    // connected and a later try may get through (tokenManager raises a lasting one after a day).
+    if (res.status === 401) {
+      throw new PodioApiError(
+        401,
+        "unauthorized",
+        "Podio refused our access just after we renewed it; we'll keep trying",
+        true,
+      );
+    }
     if (!res.ok) {
       const e = (json ?? {}) as { error?: unknown; error_description?: unknown };
       const code = typeof e.error === "string" ? e.error : `HTTP_${res.status}`;

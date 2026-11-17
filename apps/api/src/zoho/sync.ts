@@ -7,6 +7,7 @@
 
 import { dbConnectionAttention } from "@countersign/agents";
 import {
+  attentionReasonOf,
   type ConnectionRef,
   type CredentialsAccessor,
   noopLogger,
@@ -87,7 +88,7 @@ async function needsSignIn(deps: ZohoSyncDeps, tenantId: string, connectionId: s
   const emitter = senseEmitter(deps.platform.events, { collect });
   await dbConnectionAttention(deps.db, { emit: emitter }).needsAttention(tenantId, {
     connectionId,
-    reason: "signin_expired",
+    reason: attentionReasonOf(e),
     detail: e.message,
   });
   return collect;

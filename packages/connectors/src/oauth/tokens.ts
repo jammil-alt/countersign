@@ -40,11 +40,15 @@ export class ReconnectRequiredError extends Error {
  * app's keys (`invalid_client`), a provider incident (`server_error`,
  * `temporarily_unavailable`), a rate limit, an answer we couldn't read. The client's sign-in is
  * still good, so the connection is left as it is: the call fails like any other transient error
- * (the step's retry, the next sync). Nothing was sent to the provider's API, so nothing was
- * written (`notWritten`).
+ * (the step's retry, the next sync). The message is plain words (a run's error can reach the
+ * client's portal); the provider's code is in `code`, for the logs.
  */
 export class TokenRefreshError extends Error {
-  readonly notWritten = true;
+  /**
+   * Nothing was written: true unless this tool call had already reached the provider before the
+   * refresh failed (tokenManager sets it, see `reachedProvider`).
+   */
+  notWritten = true;
   readonly retryable = true;
   constructor(
     /** The provider's error code (`invalid_client`), or `HTTP_<status>`. */
@@ -56,13 +60,65 @@ export class TokenRefreshError extends Error {
   }
 }
 
+/** How long a connection's access may keep failing to renew before it is raised for a person. */
+export const ACCESS_FAILING_ATTENTION_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Access to the tool has failed to renew for `ACCESS_FAILING_ATTENTION_MS` without a break (the
+ * token endpoint's errors, or the provider refusing a token it has just renewed): the connection
+ * needs a person (reason `refresh_failing`, not `signin_expired`). A ReconnectRequiredError, so
+ * every caller that raises a connection for a person raises this one too.
+ */
+export class AccessFailingError extends ReconnectRequiredError {
+  readonly attentionReason = "refresh_failing" as const;
+  notWritten = true;
+  constructor(
+    /** When the failures started (ISO). */
+    readonly since: string,
+    /** The latest failure's code, for the logs. */
+    readonly code: string,
+  ) {
+    super("we haven't been able to renew our access to this tool for a day; we're looking at it");
+    this.name = "AccessFailingError";
+  }
+}
+
+/** Why a connection needs a person, from the error a connector threw (`signin_expired` else). */
+export function attentionReasonOf(error: unknown): "signin_expired" | "refresh_failing" {
+  return (error as { attentionReason?: unknown } | null)?.attentionReason === "refresh_failing"
+    ? "refresh_failing"
+    : "signin_expired";
+}
+
 /** OAuth's code for a refresh token that is revoked, expired or already spent (RFC 6749 §5.2). */
 export const DEAD_GRANT_CODES: readonly string[] = ["invalid_grant"];
 
 /**
- * A refused refresh as the error to throw: ReconnectRequiredError only when the provider's code
- * says the grant itself is dead (`deadCodes`: `invalid_grant`, plus a provider's own word for it);
- * anything else is a TokenRefreshError, which leaves the connection connected.
+ * Codes that are ours or the provider's to fix, never the client's: our app's keys, a grant type
+ * or request we got wrong, a provider incident, a rate limit. Never a reason to disconnect.
+ */
+export const NOT_THE_CLIENTS_CODES: readonly string[] = [
+  "invalid_client",
+  "unauthorized_client",
+  "unsupported_grant_type",
+  "server_error",
+  "temporarily_unavailable",
+  // HubSpot's words for our app's keys and grant type.
+  "BAD_CLIENT_ID",
+  "BAD_CLIENT_SECRET",
+  "BAD_GRANT_TYPE",
+  // Ramp's API codes for a rate limit and its own trouble.
+  "RATE_LIMITED",
+  "INTERNAL_SERVER_ERROR",
+];
+
+/**
+ * A refused refresh as the error to throw: ReconnectRequiredError when the provider's code says
+ * the grant itself is dead (`deadCodes`: `invalid_grant`, plus a provider's own word for it), a
+ * TokenRefreshError (the connection stays connected) for a code that is ours or the provider's
+ * (`NOT_THE_CLIENTS_CODES`). Any other code, or none we can read, follows `otherwise`: `retry`
+ * for providers whose token errors we know, `reconnect` where their shape is unchecked and a
+ * 400 or 401 was all we had before.
  */
 // DECISION: only the codes that mean the refresh token is dead disconnect a client. A wrong or
 // rotated client secret, or a provider incident that answers OAuth errors, would otherwise mark
@@ -71,13 +127,22 @@ export function refreshRefused(
   provider: string,
   error: unknown,
   deadCodes: readonly string[] = DEAD_GRANT_CODES,
+  otherwise: "retry" | "reconnect" = "retry",
 ): ReconnectRequiredError | TokenRefreshError {
-  // The provider's code goes into messages and logs: a short token only.
+  // The provider's code goes into logs only: a short token.
   const code =
     typeof error === "string" && /^[A-Za-z0-9_. -]{1,64}$/.test(error) ? error : "unknown_error";
-  return deadCodes.includes(code)
-    ? new ReconnectRequiredError(`${provider} refused the refresh: ${code}`)
-    : new TokenRefreshError(code, `${provider}'s token endpoint refused the refresh: ${code}`);
+  const dead =
+    deadCodes.includes(code) ||
+    (otherwise === "reconnect" && !NOT_THE_CLIENTS_CODES.includes(code));
+  return dead
+    ? Object.assign(new ReconnectRequiredError(`${provider} ended our access; connect it again`), {
+        code,
+      })
+    : new TokenRefreshError(
+        code,
+        `${provider} didn't renew our access just now; we'll keep trying`,
+      );
 }
 
 /**
@@ -112,18 +177,48 @@ export function needsRefresh(tokens: OAuthTokens, now: Date, skewMs = REFRESH_SK
   return Date.parse(tokens.expiresAt) - skewMs <= now.getTime();
 }
 
+/**
+ * Per credentials accessor (one tool call or sync step on one connection): whether a call has
+ * reached the provider, so a refresh that fails after it no longer says nothing was written.
+ */
+const reached = new WeakMap<CredentialsAccessor, true>();
+
+/**
+ * Whether a call that may write has reached the provider with these credentials (an answer other
+ * than 401, or none at all).
+ */
+export function reachedProvider(credentials: CredentialsAccessor): boolean {
+  return reached.has(credentials);
+}
+
+/** Fields kept with the tokens while renewing access keeps failing (cleared once a call works). */
+const FAILING_SINCE = "accessFailingSince";
+const FAILING_CODE = "accessFailingCode";
+
 export interface TokenManager {
   /** A valid access token, refreshing (and persisting) first when it is about to expire. */
   accessToken(): Promise<string>;
   /** Refreshes now (e.g. after a 401) and persists the result. */
   refresh(): Promise<OAuthTokens>;
   /**
+   * For a caller that makes its own calls with `accessToken()`: a call went through, so a record
+   * of failing access is cleared.
+   */
+  worked(): Promise<void>;
+  /**
    * Runs `fn` with an access token; if the result says the token was refused (`isUnauthorized`,
-   * e.g. HTTP 401), refreshes once and runs it again.
+   * e.g. HTTP 401), refreshes once and runs it again. A result the provider took clears a record
+   * of failing access; one refused again right after a refresh adds to it.
    */
   withAccessToken<T>(
     fn: (accessToken: string) => Promise<T>,
     isUnauthorized: (result: T) => boolean,
+    /**
+     * `write: false` for a call that changes nothing (a GET): it doesn't count as having reached
+     * the provider, so a refresh failing later in the same tool call still says nothing was
+     * written. Unsaid, a call counts as a possible write.
+     */
+    call?: { write?: boolean },
   ): Promise<T>;
 }
 
@@ -194,6 +289,57 @@ export function tokenManager(opts: {
     return parse(after).tokens;
   }
 
+  /**
+   * Access failed without a dead grant (`error`: the refresh's, or a token refused right after a
+   * refresh): records since when, once, with the tokens, and gives the error to throw, an
+   * AccessFailingError once it has gone on for `ACCESS_FAILING_ATTENTION_MS`. Best effort: a
+   * failure to record leaves the error as it was.
+   */
+  // DECISION: the start of the failures is kept with the connection's own encrypted credentials
+  // (no new column, and no read beyond what a refresh already does); a fresh sign-in replaces
+  // them, and a call the provider takes clears it (`working`).
+  async function failing(error: unknown): Promise<unknown> {
+    const code =
+      (error as { code?: unknown } | null)?.code ?? (error as Error | null)?.name ?? "error";
+    const label = typeof code === "string" ? code.slice(0, 64) : "error";
+    let out: unknown = error;
+    const update = opts.credentials.update?.bind(opts.credentials);
+    if (update) {
+      try {
+        const after = await update((stored) =>
+          stored === null || typeof stored[FAILING_SINCE] === "string"
+            ? null
+            : { ...stored, [FAILING_SINCE]: now().toISOString(), [FAILING_CODE]: label },
+        );
+        const since = after?.[FAILING_SINCE];
+        if (
+          typeof since === "string" &&
+          now().getTime() - Date.parse(since) >= ACCESS_FAILING_ATTENTION_MS
+        ) {
+          out = new AccessFailingError(since, label);
+        }
+      } catch {
+        // Recording is best effort; the call fails with its own error.
+      }
+    }
+    if (out instanceof TokenRefreshError || out instanceof AccessFailingError) {
+      out.notWritten = !reachedProvider(opts.credentials);
+    }
+    return out;
+  }
+
+  /** A call the provider took: access works, so a record of failing access is cleared. */
+  async function working(): Promise<void> {
+    const update = opts.credentials.update?.bind(opts.credentials);
+    const cached = await opts.credentials.get().catch(() => null);
+    if (!update || !cached || cached[FAILING_SINCE] === undefined) return;
+    await update((stored) => {
+      if (!stored || stored[FAILING_SINCE] === undefined) return null;
+      const { [FAILING_SINCE]: _since, [FAILING_CODE]: _code, ...rest } = stored;
+      return rest as JsonObject;
+    }).catch(() => undefined);
+  }
+
   /** The stored tokens once their refresh token is no longer `spent`, or null if it stays. */
   async function rotatedSince(spent: string): Promise<OAuthTokens | null> {
     // Without `update` the accessor can only give its cached copy: one look is enough.
@@ -225,7 +371,8 @@ export function tokenManager(opts: {
           try {
             next = OAuthTokens.parse(await opts.refresher.refresh(tokens, { now: now() }));
           } catch (error) {
-            if (!(error instanceof ReconnectRequiredError) || attempt > 0) throw error;
+            if (!(error instanceof ReconnectRequiredError)) throw await failing(error);
+            if (attempt > 0) throw error;
             // Refused: if another isolate rotated the refresh token meanwhile, the grant is alive
             // and its tokens are stored (or are about to be: the provider may refuse us before
             // the other isolate has saved its answer). Only a refusal of the stored token, still
@@ -254,10 +401,42 @@ export function tokenManager(opts: {
   return {
     accessToken,
     refresh,
-    async withAccessToken(fn, isUnauthorized) {
-      const first = await fn(await accessToken());
-      if (!isUnauthorized(first)) return first;
-      return fn((await refresh()).accessToken);
+    async worked() {
+      await working();
+    },
+    async withAccessToken(fn, isUnauthorized, kind) {
+      const mayWrite = kind?.write !== false;
+      const call = async (token: string) => {
+        let result: Awaited<ReturnType<typeof fn>>;
+        try {
+          result = await fn(token);
+        } catch (error) {
+          // No answer (a timeout, a dropped connection): the request may have reached it.
+          if (mayWrite) reached.set(opts.credentials, true);
+          throw error;
+        }
+        if (mayWrite && !isUnauthorized(result)) reached.set(opts.credentials, true);
+        return result;
+      };
+      const first = await call(await accessToken());
+      if (!isUnauthorized(first)) {
+        await working();
+        return first;
+      }
+      const second = await call((await refresh()).accessToken);
+      if (!isUnauthorized(second)) {
+        await working();
+        return second;
+      }
+      // Refused right after a refresh that worked: not a dead grant, but if it lasts a person
+      // should look (the caller fails this call with its own retryable error).
+      const raised = await failing(
+        Object.assign(new Error("refused_after_refresh"), {
+          code: "refused_after_refresh",
+        }),
+      );
+      if (raised instanceof AccessFailingError) throw raised;
+      return second;
     },
   };
 }

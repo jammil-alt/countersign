@@ -217,7 +217,10 @@ export function createGscOauthConnector(options: GscOauthOptions = {}): SearchCo
       }
       throw error;
     }
-    return readGscProperty(property, token, span, doFetch());
+    const read = await readGscProperty(property, token, span, doFetch());
+    // The read went through: access works (clears a record of failing renewals).
+    await tokens.worked();
+    return read;
   }
 
   const connector: Connector = defineConnector({

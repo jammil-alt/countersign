@@ -358,9 +358,18 @@ export function createGcalConnector(options: GcalOptions = {}): Connector {
             signal: timeoutSignal(30_000),
           }),
         (r) => r.status === 401,
+        { write: method.toUpperCase() !== "GET" },
       );
       const json = readJson(await res.text());
-      if (res.status === 401) throw new ReconnectRequiredError("Google refused the access token");
+      // DECISION: a 401 right after a refresh that worked is not a dead grant: the connection
+      // stays connected and a later try may get through (a lasting one is raised after a day).
+      if (res.status === 401) {
+        throw new GcalApiError(
+          401,
+          "Google refused our access just after we renewed it; we'll keep trying",
+          true,
+        );
+      }
       if (!res.ok && !opts.accept?.includes(res.status)) {
         throw new GcalApiError(
           res.status,

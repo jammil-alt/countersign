@@ -12,10 +12,10 @@ import { formDecode, parseUrl } from "../http";
 import { captureBefore, executeWrite, runReadTool } from "../invoke";
 import { memoryLogger } from "../logger";
 import { beginAuthorization, completeAuthorization } from "../oauth/flow";
-import { ReconnectRequiredError } from "../oauth/tokens";
+import { ReconnectRequiredError, TokenRefreshError } from "../oauth/tokens";
 import { connectionLevel } from "../permissions";
 import { ConnectorRegistry } from "../registry";
-import { FAKE_HUBSPOT, fakeHubspot } from "../testing";
+import { FAKE_HUBSPOT, fakeHubspot, jsonResponse } from "../testing";
 import {
   createHubspotConnector,
   HUBSPOT_SCOPES,
@@ -438,5 +438,33 @@ describe("hubspot connector", () => {
     await expect(
       runReadTool(connector, HUBSPOT_TOOLS.get, { objectType: "deals", id: FAKE_HUBSPOT.deal }, c),
     ).rejects.toBeInstanceOf(ReconnectRequiredError);
+  });
+
+  it("keeps the grant for our keys, and still asks for a reconnect when the refusal can't be read", async () => {
+    const hs = fakeHubspot();
+    const { credentials } = await signedIn(hs);
+    const refused = async (status: number, body: unknown) => {
+      const connector = createHubspotConnector({
+        clientId: FAKE_HUBSPOT.clientId,
+        clientSecret: FAKE_HUBSPOT.clientSecret,
+        fetch: async (url, init) =>
+          url.endsWith("/oauth/v1/token") ? jsonResponse(status, body) : hs.fetch(url, init),
+      });
+      hs.expireAccessTokens();
+      const { c } = ctx(credentials);
+      return runReadTool(
+        connector,
+        HUBSPOT_TOOLS.get,
+        { objectType: "deals", id: FAKE_HUBSPOT.deal },
+        c,
+      ).catch((e) => e);
+    };
+    expect(await refused(400, { status: "BAD_CLIENT_ID", message: "no such app" })).toBeInstanceOf(
+      TokenRefreshError,
+    );
+    expect(await refused(400, { status: "BAD_REFRESH_TOKEN" })).toBeInstanceOf(
+      ReconnectRequiredError,
+    );
+    expect(await refused(400, null)).toBeInstanceOf(ReconnectRequiredError);
   });
 });

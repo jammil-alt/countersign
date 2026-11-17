@@ -7,6 +7,8 @@ import { fromBase64Url, fromUtf8, toBase64Url, utf8 } from "../runtime";
 import { beginAuthorization, completeAuthorization, type OAuthCallbackError } from "./flow";
 import { createOAuthState, OAUTH_STATE_TTL_MS, readOAuthState, verifyOAuthState } from "./state";
 import {
+  AccessFailingError,
+  DEAD_GRANT_CODES,
   needsRefresh,
   type OAuthTokens,
   ReconnectRequiredError,
@@ -360,6 +362,104 @@ describe("tokenManager", () => {
     expect(refreshRefused("Zoho", "invalid_code", ["invalid_code"])).toBeInstanceOf(
       ReconnectRequiredError,
     );
+    // Where the provider's token errors are unchecked, a code we can't read still disconnects,
+    // as a bare 400 did before; our keys never do.
+    for (const code of [undefined, "HTTP_400", "something_new"]) {
+      expect(refreshRefused("Ramp", code, DEAD_GRANT_CODES, "reconnect")).toBeInstanceOf(
+        ReconnectRequiredError,
+      );
+    }
+    for (const code of ["invalid_client", "BAD_CLIENT_ID", "unauthorized_client"]) {
+      expect(refreshRefused("HubSpot", code, DEAD_GRANT_CODES, "reconnect")).toBeInstanceOf(
+        TokenRefreshError,
+      );
+    }
+    // Client-facing words carry no provider code.
+    expect(refreshRefused("Intuit", "invalid_client").message).not.toMatch(/invalid_client/);
+    expect(refreshRefused("Intuit", "invalid_grant").message).not.toMatch(/invalid_grant/);
+  });
+
+  it("says nothing was written only while no call of this tool reached the provider", async () => {
+    const down: TokenRefresher = {
+      async refresh() {
+        throw new TokenRefreshError("server_error", "the provider didn't renew our access");
+      },
+    };
+    // The refresh fails before any call: nothing was written.
+    const fresh = memoryCredentials(tokens({ expiresAt: t0.toISOString() }));
+    const m1 = tokenManager({ credentials: fresh, refresher: down, now: () => t0 });
+    await expect(
+      m1.withAccessToken(
+        async () => ({ status: 200 }),
+        () => false,
+      ),
+    ).rejects.toMatchObject({ notWritten: true });
+    // A read went through, then the refresh failed: still nothing written.
+    const read = memoryCredentials(tokens());
+    const m2 = tokenManager({ credentials: read, refresher: down, now: () => t0 });
+    await m2.withAccessToken(
+      async () => ({ status: 200 }),
+      () => false,
+      { write: false },
+    );
+    await expect(
+      m2.withAccessToken(
+        async () => ({ status: 401 }),
+        (r) => r.status === 401,
+      ),
+    ).rejects.toMatchObject({ notWritten: true });
+    // A write went through first (one tool making two calls): the claim is no longer made.
+    const wrote = memoryCredentials(tokens());
+    const m3 = tokenManager({ credentials: wrote, refresher: down, now: () => t0 });
+    await m3.withAccessToken(
+      async () => ({ status: 201 }),
+      () => false,
+    );
+    const second = tokenManager({ credentials: wrote, refresher: down, now: () => t0 });
+    await expect(
+      second.withAccessToken(
+        async () => ({ status: 401 }),
+        (r) => r.status === 401,
+      ),
+    ).rejects.toMatchObject({ notWritten: false });
+  });
+
+  it("keeps when renewing access started failing, clears it once a call works", async () => {
+    let failing = true;
+    const flaky: TokenRefresher = {
+      async refresh(current, { now }) {
+        if (failing) throw new TokenRefreshError("invalid_client", "not renewed");
+        return {
+          ...current,
+          accessToken: "at-9",
+          expiresAt: new Date(now.getTime() + 3600_000).toISOString(),
+        };
+      },
+    };
+    const credentials = memoryCredentials(tokens({ expiresAt: t0.toISOString() }));
+    const at = (h: number) => new Date(t0.getTime() + h * 3600_000);
+    const call = (h: number) =>
+      tokenManager({ credentials, refresher: flaky, now: () => at(h) }).withAccessToken(
+        async () => ({ status: 200 }),
+        () => false,
+      );
+    await expect(call(0)).rejects.toBeInstanceOf(TokenRefreshError);
+    expect(credentials.current()).toMatchObject({
+      accessFailingSince: t0.toISOString(),
+      accessFailingCode: "invalid_client",
+    });
+    // Later failures keep the first time.
+    await expect(call(12)).rejects.toBeInstanceOf(TokenRefreshError);
+    expect(credentials.current()).toMatchObject({ accessFailingSince: t0.toISOString() });
+    // Fixed within the day: the record goes, and a later failure starts the clock again.
+    failing = false;
+    await call(20);
+    expect(credentials.current()).not.toHaveProperty("accessFailingSince");
+    failing = true;
+    await credentials.set({ ...(credentials.current() ?? {}), expiresAt: at(30).toISOString() });
+    await expect(call(30)).rejects.toBeInstanceOf(TokenRefreshError);
+    await expect(call(53)).rejects.toBeInstanceOf(TokenRefreshError);
+    await expect(call(54)).rejects.toBeInstanceOf(AccessFailingError);
   });
 
   it("asks for a reconnect when there is nothing to refresh with", async () => {
