@@ -163,6 +163,8 @@ branches.
   app's own session header are exempt; a body sent to a session route must be JSON.
 - **Rate limiting** (Cloudflare): 50 requests per 10 seconds per IP on `/api/*`, webhooks
   excluded. The MCP connector has its own limit of 120 calls a minute per operator.
+  Plain-words questions and voice typing in the portal, which each call a paid model, are
+  limited per person and client to 10 a minute and 200 a day (`apps/api/src/metered.ts`).
 - **Writes to clients' tools** need approval by default, run once each, and record their before
   state (invariant 8). Delete is off.
 - **Webhooks** from Twilio, Stripe, QuickBooks and ElevenLabs are signature-checked.

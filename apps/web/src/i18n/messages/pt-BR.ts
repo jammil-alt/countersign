@@ -106,6 +106,7 @@ export const ptBR: Messages = {
   "error.not_importable": "O diretório importa do Zoho CRM ou do Podio.",
   "error.contact_exists": "Alguém no diretório já tem esse e-mail ou esse número.",
   "error.rate_limited": "Aguarde um minuto e tente de novo.",
+  "error.daily_limit": "Você chegou ao limite de hoje para isto. Tente de novo amanhã.",
   "error.no_address": "Não sabemos o endereço desta conta. Conecte-a de novo.",
   "error.different_account":
     "Esta conta é diferente da que está conectada aqui. Desconecte-a primeiro e depois conecte a outra.",

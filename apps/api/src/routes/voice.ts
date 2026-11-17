@@ -30,6 +30,7 @@ import {
   type Services,
   transcriberFor,
 } from "../http";
+import { claimMetered } from "../metered";
 
 /** The recording, refused unless a type a browser records and a size voice typing takes. */
 async function readRecording(c: AppContext): Promise<{ audio: Uint8Array; type: string }> {
@@ -109,7 +110,19 @@ export function voiceRoutes(app: Hono<AppEnv>): void {
   mountLong(app, routes.portalTranscribe, async (ctx) => {
     const clientId = ctx.tenantIds[0];
     if (!clientId) throw new HttpError(403, "forbidden", "no client");
-    const settings = await ctx.inTx((scoped) => refuseUncovered(scoped.tx, ctx.services, clientId));
+    const settings = await ctx.inTx(async (scoped) => {
+      const out = await refuseUncovered(scoped.tx, ctx.services, clientId);
+      // Audit 5.9: each person's recordings are limited per minute and per day (../metered.ts).
+      // DECISION: claimed once the recording is known to be sendable to OpenAI and before it is
+      // read, so a refused one costs nothing and an over-limit one is never uploaded.
+      await claimMetered(scoped.tx, ctx.c, {
+        kind: "transcribe",
+        tenantId: clientId,
+        session: ctx.session,
+        role: ctx.role,
+      });
+      return out;
+    });
     // The language the person reads in (theirs, else the client's, else the browser's) helps
     // the model hear it right. DECISION: the back office leaves it to the model to detect.
     const locale = resolveLocale({
