@@ -29,6 +29,8 @@ export interface NotifyWords {
     action: string;
   };
   signoff: { subject: string; line: string; action: string };
+  /** §1.123: the lead replied on one of the client's requests (an issue or an ask). */
+  issueUpdate: { subject: string; action: string };
   /** The email's last line. */
   footer: string;
 }
@@ -73,6 +75,10 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
       line: "See what it did during its trial and approve it in your inbox.",
       action: "Open your inbox",
     },
+    issueUpdate: {
+      subject: "Your Mezonas lead replied to your request",
+      action: "Read and reply",
+    },
     footer: "This email is from Mezonas. You choose which emails you get in your settings.",
   },
   es: {
@@ -115,6 +121,10 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
       subject: "Un agente espera su aprobación para empezar",
       line: "Vea lo que hizo durante su prueba y apruébelo en su bandeja.",
       action: "Abrir su bandeja",
+    },
+    issueUpdate: {
+      subject: "Su responsable en Mezonas respondió a su solicitud",
+      action: "Leer y responder",
     },
     footer: "Este correo es de Mezonas. Usted elige qué correos recibe en su configuración.",
   },
@@ -161,6 +171,10 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
       line: "Voyez ce qu'il a fait pendant son essai et approuvez-le dans votre boîte de réception.",
       action: "Ouvrir votre boîte de réception",
     },
+    issueUpdate: {
+      subject: "Votre responsable Mezonas a répondu à votre demande",
+      action: "Lire et répondre",
+    },
     footer:
       "Cet e-mail vient de Mezonas. Vous choisissez les e-mails que vous recevez dans vos paramètres.",
   },
@@ -205,6 +219,10 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
       line: "Veja o que ele fez durante o teste e aprove na sua caixa de entrada.",
       action: "Abrir sua caixa de entrada",
     },
+    issueUpdate: {
+      subject: "Seu responsável na Mezonas respondeu à sua solicitação",
+      action: "Ler e responder",
+    },
     footer: "Este e-mail é do Mezonas. Você escolhe quais e-mails recebe nas suas configurações.",
   },
   it: {
@@ -247,6 +265,10 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
       subject: "Un agente aspetta la tua approvazione per partire",
       line: "Guarda cosa ha fatto durante la prova e approva dalla posta in arrivo.",
       action: "Apri la posta in arrivo",
+    },
+    issueUpdate: {
+      subject: "Il tuo referente Mezonas ha risposto alla tua richiesta",
+      action: "Leggi e rispondi",
     },
     footer: "Questa email è di Mezonas. Scegli quali email ricevere nelle impostazioni.",
   },
@@ -292,6 +314,10 @@ export const NOTIFY_WORDS: Record<Locale, NotifyWords> = {
       subject: "Ein Agent wartet auf Ihre Freigabe für den Start",
       line: "Sehen Sie, was er in der Testphase getan hat, und geben Sie ihn in Ihrem Posteingang frei.",
       action: "Posteingang öffnen",
+    },
+    issueUpdate: {
+      subject: "Ihr Ansprechpartner bei Mezonas hat auf Ihre Anfrage geantwortet",
+      action: "Lesen und antworten",
     },
     footer:
       "Diese E-Mail kommt von Mezonas. Welche E-Mails Sie bekommen, wählen Sie in Ihren Einstellungen.",

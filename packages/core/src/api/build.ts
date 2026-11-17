@@ -22,9 +22,18 @@ import {
 } from "../build/build";
 import { isUuid } from "../ids";
 import { AgentStage } from "../lifecycle/stage";
+import { WorkBuildStage, WorkWaitingOn } from "../work/pipelines";
+import { RequirementsRequest } from "../work/requirements";
+import { Standing } from "../work/standing";
 import { defineRoute } from "./contract";
 
 const Id = z.string().refine((v) => isUuid(v), "not an id");
+const IsoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date such as 2026-12-24");
+export const BuildPath = z.enum(["new", "template"]);
+export type BuildPath = z.infer<typeof BuildPath>;
+/** What started a build or a deal (docs/plan.md §1.123). */
+export const WorkOriginKind = z.enum(["deal", "ask", "enhancement", "issue"]);
+export type WorkOriginKind = z.infer<typeof WorkOriginKind>;
 const OPS = ["operator"] as const;
 const IdParams = z.object({ id: Id });
 const ItemParams = z.object({ id: Id, itemId: Id });
@@ -52,6 +61,19 @@ export const BuildSummary = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   phaseAt: z.string(),
+  // docs/plan.md §1.123: the build as back office work.
+  /** `new`: built through the phases; `template`: forked from a template for the client. */
+  path: BuildPath,
+  templateId: z.string().nullable(),
+  promisedOn: z.string().nullable(),
+  origin: z.object({ kind: WorkOriginKind, id: z.string() }).nullable(),
+  requirements: RequirementsRequest.nullable(),
+  /** Where it stands in Build's Agent builds pipeline: derived, never stored. */
+  pipelineStage: WorkBuildStage,
+  standing: Standing,
+  waitingOn: WorkWaitingOn,
+  statusLine: z.string(),
+  stuck: z.boolean(),
 });
 export type BuildSummary = z.infer<typeof BuildSummary>;
 
@@ -231,18 +253,33 @@ export const BuildDetail = z.object({
 });
 export type BuildDetail = z.infer<typeof BuildDetail>;
 
-export const StartBuild = z.strictObject({
-  kind: BuildKind,
-  title: z.string().trim().min(1).max(200),
-  /** For one client (a client agent, that client's skill); else for everyone. */
-  clientId: Id.optional(),
-});
+export const StartBuild = z
+  .strictObject({
+    kind: BuildKind,
+    title: z.string().trim().min(1).max(200),
+    /** For one client (a client agent, that client's skill); else for everyone. */
+    clientId: Id.optional(),
+    // docs/plan.md §1.123: from a template, what started it, and the date promised.
+    path: BuildPath.optional(),
+    templateId: Id.optional(),
+    origin: z.strictObject({ kind: WorkOriginKind, id: Id }).optional(),
+    promisedOn: IsoDate.optional(),
+  })
+  .refine((b) => b.path !== "template" || (!!b.clientId && !!b.templateId && b.kind === "agent"), {
+    message: "a build from a template is an agent build for a client, with its template",
+    path: ["templateId"],
+  });
 
 export const UpdateBuild = z.strictObject({
   title: z.string().trim().min(1).max(200).optional(),
   brief: Brief.optional(),
   fitgap: FitGap.optional(),
   testPlan: TestPlan.optional(),
+  // docs/plan.md §1.123: moving a promised date is the operator's.
+  promisedOn: IsoDate.nullable().optional(),
+  waitingOn: WorkWaitingOn.optional(),
+  statusLine: z.string().trim().max(120).optional(),
+  stuck: z.boolean().optional(),
 });
 
 /** An item made from a failed case or a rejected write is made once (its key is the case or write). */
@@ -272,6 +309,9 @@ export const buildRoutes = {
     query: z.object({
       status: BuildStatus.optional(),
       agent: Id.optional(),
+      // docs/plan.md §1.123: the Builder board lists new agents; builds from templates are in
+      // Build's Agent builds.
+      path: z.enum(["new", "template", "all"]).default("new"),
     }),
     response: z.object({
       builds: z.array(BuildSummary),

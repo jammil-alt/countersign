@@ -85,6 +85,7 @@ import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
 import { reggieRoutes } from "./reggie";
 import { requestRoutes } from "./requests";
+import { workRoutes } from "./work";
 // Reshape data (2026-11-11): the builder's proposal and samples for a Reshape step.
 import { reshapeRoutes } from "./reshape";
 import { RunAuditState, runAuditRoutes } from "./run-audit";
@@ -2417,5 +2418,7 @@ export const routes = {
   ...skillModelRoutes,
   // Reshape data (owner, 2026-11-11): propose a Reshape step's mapping, and its sample values.
   ...reshapeRoutes,
+  // docs/plan.md §1.123: back office work
+  ...workRoutes,
 } as const;
 export type Routes = typeof routes;
