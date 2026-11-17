@@ -402,7 +402,9 @@ export function llmWebResearch(options: LlmWebResearchOptions): WebResearchPort 
       const { message } = await client(call).message(
         {
           model,
-          max_tokens: 64,
+          // DECISION: as a search's, room for the fetch call and any thinking before it (which
+          // counts against max_tokens); the page itself comes back as input, not output.
+          max_tokens: 1024,
           system: FETCH_SYSTEM,
           messages: [{ role: "user", content: [{ type: "text", text: `Link: ${input.url}` }] }],
           tools: [

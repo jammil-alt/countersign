@@ -145,7 +145,9 @@ export async function summarizeQuietConversations(
       const { message: answer } = await llm.message(
         {
           model: owner.model,
-          max_tokens: 300,
+          // DECISION: room for the model's thinking, which counts against max_tokens on the
+          // default models, and a few sentences; the note is still cut to NOTE_MAX.
+          max_tokens: 2048,
           system: SYSTEM,
           messages: [
             { role: "user", content: "Summarize this conversation." },

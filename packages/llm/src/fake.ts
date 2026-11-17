@@ -1,6 +1,7 @@
 // A scripted model for tests: answers each call with the next scripted response, and keeps every
 // request it was sent so a test can assert on prompts and tools.
 
+import { AnthropicError } from "./anthropic";
 import type * as Anthropic from "./messages";
 import type { LlmMessage, LlmRequest, LlmTransport } from "./transport";
 
@@ -17,6 +18,8 @@ export type FakeTurn =
       readonly toolUse: { readonly name: string; readonly input: unknown };
       readonly text?: string;
       readonly usage?: FakeUsage;
+      /** The answer ran out of `max_tokens` during the call: its input is incomplete. */
+      readonly cutOff?: true;
     }
   | { readonly refusal: true; readonly usage?: FakeUsage }
   | { readonly error: Error }
@@ -76,9 +79,28 @@ function toMessage(turn: Exclude<FakeTurn, (r: LlmRequest) => FakeTurn>, model: 
       caller: { type: "direct" },
     } as Anthropic.ToolUseBlock;
     const content = turn.text ? [textBlock(turn.text), block] : [block];
-    return fakeMessage(model, content, "tool_use", turn.usage);
+    return fakeMessage(model, content, turn.cutOff ? "max_tokens" : "tool_use", turn.usage);
   }
   return fakeMessage(model, [textBlock(turn.text)], "end_turn", turn.usage);
+}
+
+/**
+ * Models that always think, and so refuse a forced tool choice (`{type: "tool"}` or
+ * `{type: "any"}`) with a 400, as the API does (see callTool's DECISION in ./client.ts).
+ */
+const REFUSES_FORCED_TOOL_CHOICE = /^claude-(sonnet|opus)-5-5(?!\d)/;
+
+/** The 400 the API answers a forced tool choice with on a model that always thinks. */
+export function forcedToolChoiceError(model: string): AnthropicError | null {
+  if (!REFUSES_FORCED_TOOL_CHOICE.test(model)) return null;
+  const body = {
+    type: "error",
+    error: {
+      type: "invalid_request_error",
+      message: `tool_choice that forces tool use is not supported by ${model}: use tool_choice auto`,
+    },
+  };
+  return new AnthropicError(`400 ${JSON.stringify(body)}`, 400, body, null);
 }
 
 export class FakeModel implements LlmTransport {
@@ -101,6 +123,13 @@ export class FakeModel implements LlmTransport {
 
   async create(request: LlmRequest): Promise<LlmMessage> {
     this.requests.push(structuredClone(request));
+    // Strict as the API: a forced tool choice on a model that refuses it fails before any answer,
+    // so the scripted turn is not used.
+    const choice = request.tool_choice?.type;
+    if (choice === "tool" || choice === "any") {
+      const refused = forcedToolChoiceError(request.model);
+      if (refused) throw refused;
+    }
     let turn = this.#script.shift();
     if (turn === undefined) {
       throw new FakeModelExhaustedError(

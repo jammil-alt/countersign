@@ -2309,7 +2309,8 @@ use the answer like any typed output.
 **Turns.** Each turn is one model call on the agent (agent-mode work: its instructions, memory notes
 and the client's language; the step's `model` overrides the agent's). The model sees a platform
 preamble, the goal and the brief as instructions; the transcript and the record's data arrive in a
-tool-result block, never as instructions (invariant 9). It answers through one forced tool, `turn`:
+tool-result block, never as instructions (invariant 9). It answers by calling one tool, `turn`,
+named in its instructions (no forced tool choice):
 
 | Answer | Effect |
 |---|---|

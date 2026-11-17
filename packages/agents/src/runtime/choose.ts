@@ -16,11 +16,15 @@ import {
   processes,
 } from "@countersign/core";
 import {
+  ANSWER_TOOL_CHOICE,
+  answerToolCall,
+  answerToolInstruction,
   createLlmClient,
   type LlmCallRecord,
+  type LlmCallResult,
   type LlmExchange,
-  type LlmMessage,
   type LlmRequest,
+  LlmToolError,
 } from "@countersign/llm";
 import type { RuntimeDeps } from "./context";
 import { recordModelCall } from "./model-call";
@@ -114,7 +118,20 @@ function clip(value: unknown): string {
 
 type Usage = { cost: Decimal; tokensIn: number; tokensOut: number };
 
-/** One `finish` call with the run's data as a tool result; null when the call fails. */
+/** The choice couldn't be made: the model call failed or its answer was cut off. */
+export class ChoiceError extends Error {
+  override name = "ChoiceError";
+}
+
+/**
+ * One `finish` call with the run's data as a tool result: its input, or undefined when the model
+ * answered without one that can be read (no call, or it declined).
+ */
+// DECISION: a failed model call (the provider's error, a time-out) or an answer cut off at
+// max_tokens throws a ChoiceError and records no choice, so the step fails as any step whose model
+// call fails: the run fails at it, visibly, with the cause, and can be retried from it. Neither is
+// the agent being unsure, so neither takes "Otherwise" (or asks a person) in its place. An answer
+// that holds no usable `finish` is unsure, as before.
 async function ask(
   deps: RuntimeDeps,
   req: { run: ChoiceRun; stepRunId: string; label: string },
@@ -123,7 +140,7 @@ async function ask(
   data: unknown,
   finish: Record<string, unknown>,
   usage: Usage,
-): Promise<unknown | null> {
+): Promise<unknown> {
   const { tenantId } = req.run;
   type MessageParam = LlmRequest["messages"][number];
   const messages: MessageParam[] = [
@@ -161,13 +178,13 @@ async function ask(
     );
   };
   const llm = createLlmClient({ transport: deps.transport, onCall });
-  let response: LlmMessage;
+  let result: LlmCallResult;
   try {
-    ({ message: response } = await llm.message(
+    result = await llm.message(
       {
         model: model.id,
-        max_tokens: model.maxTokens ?? 1024,
-        system,
+        max_tokens: model.maxTokens ?? 4096,
+        system: `${system}\n\n${answerToolInstruction(FINISH)}`,
         messages,
         tools: [
           {
@@ -181,18 +198,23 @@ async function ask(
             input_schema: finish as never,
           },
         ],
-        tool_choice: { type: "tool", name: FINISH },
+        tool_choice: ANSWER_TOOL_CHOICE,
       },
       { label: req.label },
-    ));
-  } catch {
-    return null;
+    );
+  } catch (error) {
+    throw new ChoiceError(
+      `the agent couldn't be asked: ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
   }
-  const use = response.content.find(
-    (b): b is Extract<LlmMessage["content"][number], { type: "tool_use" }> =>
-      b.type === "tool_use" && b.name === FINISH,
-  );
-  return use?.input ?? null;
+  try {
+    return answerToolCall(result, FINISH).input;
+  } catch (error) {
+    if (!(error instanceof LlmToolError)) throw error;
+    if (error.code === "max_tokens") throw new ChoiceError(error.message, { cause: error });
+    return undefined;
+  }
 }
 
 async function owner(deps: RuntimeDeps, run: ChoiceRun, settings?: OversightSettings) {
@@ -215,7 +237,10 @@ async function spent(store: ChoiceStore, run: ChoiceRun, settings?: OversightSet
   return new Decimal(totals.costUsd).gte(max);
 }
 
-/** An `if`'s path, chosen by the agent: an allowed path's id, or null when unsure. */
+/**
+ * An `if`'s path, chosen by the agent: an allowed path's id, or null when unsure. Throws a
+ * ChoiceError when the agent couldn't be asked (the step fails).
+ */
 export async function choosePath(
   deps: RuntimeDeps,
   store: ChoiceStore,
@@ -265,7 +290,10 @@ export async function choosePath(
   return { path: picked?.path ?? null, by: me.name };
 }
 
-/** A repeat's pass, judged by the agent: done or not, or null when no answer held. */
+/**
+ * A repeat's pass, judged by the agent: done or not, or null when no answer held. Throws a
+ * ChoiceError when the agent couldn't be asked (the step fails).
+ */
 export async function judgePass(
   deps: RuntimeDeps,
   store: ChoiceStore,
@@ -327,7 +355,6 @@ export async function judgePass(
 /** The decision's note: the agent's reason, or why no answer held. */
 function noteOf(answer: unknown, reason: string | undefined): string {
   if (reason) return reason.slice(0, processes.CHOICE_REASON_MAX);
-  if (answer === null) return "The agent couldn't be asked.";
   const said =
     answer && typeof answer === "object" && "reason" in answer && typeof answer.reason === "string"
       ? answer.reason.trim()

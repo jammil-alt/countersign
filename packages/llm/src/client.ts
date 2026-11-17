@@ -221,6 +221,55 @@ export function toolInputSchema(schema: z.ZodType): Anthropic.ToolInputSchema {
   return json as Anthropic.ToolInputSchema;
 }
 
+// DECISION: no forced tool_choice. `{type: "tool"}` and `{type: "any"}` are rejected (400) by
+// claude-sonnet-5-5 and claude-opus-5-5, our defaults (they always think), so a call that wants
+// its answer as one tool's input sends `auto` with parallel calls off and an instruction naming
+// the tool (`answerToolInstruction`), then reads the answer with `answerToolCall`: a missing call
+// is an error, not a retry. callTool does this, and so does every runtime call that offers more
+// tools than the one that answers (a `read_*` tool already called, then `finish`).
+export const ANSWER_TOOL_CHOICE = {
+  type: "auto",
+  disable_parallel_tool_use: true,
+} as const satisfies Anthropic.ToolChoice;
+
+/** The instruction that names the tool an answer must come in. */
+export function answerToolInstruction(toolName: string): string {
+  return `Give your answer by calling the \`${toolName}\` tool exactly once.`;
+}
+
+/**
+ * The call to `toolName` in an answer. Throws LlmToolError when there is none: the model declined
+ * (`refusal`), answered without it (`no_tool_call`), or ran out of `max_tokens` (`max_tokens`).
+ * An answer cut off at max_tokens is never used, even when it holds a call to the tool: the
+ * call's input may be incomplete (a cut-off input that doesn't parse reads as `{}`).
+ */
+export function answerToolCall(result: LlmCallResult, toolName: string): Anthropic.ToolUseBlock {
+  const { message: response } = result;
+  if (response.stop_reason === "refusal") {
+    throw new LlmToolError("refusal", `the model declined to call ${toolName}`, {
+      toolName,
+      result,
+    });
+  }
+  const call = response.content.find(
+    (b): b is Anthropic.ToolUseBlock => b.type === "tool_use" && b.name === toolName,
+  );
+  if (response.stop_reason === "max_tokens") {
+    throw new LlmToolError(
+      "max_tokens",
+      `the answer was cut off at max_tokens ${call ? "while" : "before"} calling ${toolName}: raise the model's max tokens`,
+      { toolName, result, ...(call ? { input: call.input } : {}) },
+    );
+  }
+  if (!call) {
+    throw new LlmToolError("no_tool_call", `the model answered without calling ${toolName}`, {
+      toolName,
+      result,
+    });
+  }
+  return call;
+}
+
 /**
  * A call to a model of another provider than Anthropic's that has no price. Refused before it is
  * made: its cost would be recorded as nothing, so no run, owner or monthly cost limit could stop
@@ -299,13 +348,9 @@ export function createLlmClient(options: LlmClientOptions): LlmClient {
 
   async function callTool<T>(input: CallToolInput<T>): Promise<CallToolResult<T>> {
     const { tool } = input;
-    // DECISION: no forced tool_choice. `{type: "tool"}` and `{type: "any"}` are rejected (400) by
-    // claude-sonnet-5-5 and claude-opus-5-5, our defaults, so every model gets `auto` with
-    // parallel calls off and an instruction naming the tool; the answer is validated with Zod
-    // either way, and a missing call is an error, not a retry.
     const instruction: Anthropic.TextBlockParam = {
       type: "text",
-      text: `Give your answer by calling the \`${tool.name}\` tool exactly once.`,
+      text: answerToolInstruction(tool.name),
     };
     const system =
       input.system === undefined
@@ -327,7 +372,7 @@ export function createLlmClient(options: LlmClientOptions): LlmClient {
             ...(tool.strict ? { strict: true } : {}),
           },
         ],
-        tool_choice: { type: "auto", disable_parallel_tool_use: true },
+        tool_choice: ANSWER_TOOL_CHOICE,
         ...(input.effort ? { output_config: { effort: input.effort } } : {}),
       },
       {
@@ -336,25 +381,8 @@ export function createLlmClient(options: LlmClientOptions): LlmClient {
       },
     );
     const { message: response } = result;
-    if (response.stop_reason === "refusal") {
-      throw new LlmToolError("refusal", `the model declined to call ${tool.name}`, {
-        toolName: tool.name,
-        result,
-      });
-    }
-    const call = response.content.find(
-      (b): b is Anthropic.ToolUseBlock => b.type === "tool_use" && b.name === tool.name,
-    );
-    if (!call) {
-      const code = response.stop_reason === "max_tokens" ? "max_tokens" : "no_tool_call";
-      throw new LlmToolError(
-        code,
-        code === "max_tokens"
-          ? `the answer was cut off at max_tokens before calling ${tool.name}`
-          : `the model answered without calling ${tool.name}`,
-        { toolName: tool.name, result },
-      );
-    }
+    // Refusal, a cut-off answer and a missing call all throw here (answerToolCall).
+    const call = answerToolCall(result, tool.name);
     let parsed = tool.schema.safeParse(call.input);
     if (!parsed.success) {
       const repaired = unstringified(call.input, parsed.error.issues);
