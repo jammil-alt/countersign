@@ -369,6 +369,8 @@ const RegisteredOut = z.object({
   observationId: z.string().nullable(),
   recorded: z.boolean(),
   priceSkipped: z.string().nullable(),
+  /** Why the line is filed under no vendor item, when it isn't. */
+  note: z.string().nullable(),
 });
 
 const NeedsPersonOut = z.object({

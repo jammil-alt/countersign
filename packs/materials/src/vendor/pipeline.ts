@@ -65,6 +65,7 @@ import { convertLine, PACKAGING_UOMS, readUom, unitWord, withoutPackaging } from
 import { type Category, catalogItem, priceObservation, vendorItem } from "../schema";
 import { EMBEDDING_TEMPLATE, embeddingText, stripTerms } from "./embedding-text";
 import {
+  adoptWord,
   cleanSku,
   createVendorItem,
   priceForVendorItem,
@@ -410,7 +411,7 @@ export async function lookupBySku(
     const parsed = parseNormalized(normalized);
     // A special-order or short code is no SKU (`identifyingSku`): the line's words decide it.
     const sku = identifyingSku(cleanSku(l.sku), l.lineNo);
-    const taughtSku = sku ? null : taughtCode(l.sku);
+    const taughtSku = sku ? null : taughtCode(l.sku, l.lineNo);
     const base = {
       docLineId: l.id,
       lineNo: l.lineNo,
@@ -811,6 +812,8 @@ export interface RegisteredLine {
   recorded: boolean;
   /** Why the line has no price recorded (no conversion rule, no quantity). */
   priceSkipped: string | null;
+  /** Why the line is filed under no vendor item, when it isn't (a person may register it). */
+  note: string | null;
 }
 
 export interface NeedsPerson {
@@ -943,6 +946,7 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
       observationId: null,
       recorded: false,
       priceSkipped: null,
+      note: null,
     };
     const askPerson = (reason: string, candidates = d.candidates) => {
       result.needsPerson.push({
@@ -1067,6 +1071,9 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
       vi = await updateVendorItem(tx, tenantId, vi.id, { catalogItemId: item.id });
       result.changedVendorItemIds.push(vi.id);
     }
+    // A box or case item made before words were kept takes the word it was found in.
+    if (vi && PACKAGING_UOMS.has(vendorUom))
+      vi = await adoptWord(tx, tenantId, vi, unitWord(line.uomRaw));
     // The vendor's unit and how many standard units it is (invariant 7: no rule, no std price):
     // the line's own words over the master item's specs, never the master item's pack size, else
     // the vendor item's own conversion for that unit (`convertLine`).
@@ -1076,6 +1083,7 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
     // The vendor item the line is filed under; none when a new one can't be made for its word
     // (the vendor's one item without a SKU in that unit is another box or case).
     let filed: VendorItemRow | null = vi;
+    let filedNote: string | null = null;
     if (!vi) {
       const pack = lineAttributes.pack_size;
       const made = await createVendorItem(
@@ -1103,6 +1111,9 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
         (made.item.ext as { unitWord?: unknown } | null)?.unitWord === word
           ? made.item
           : null;
+      if (!filed) {
+        filedNote = `filed under no vendor item: the vendor's item without a SKU in this unit is another ${String((made.item.ext as { unitWord?: unknown } | null)?.unitWord ?? "pack")}, not this ${word ?? "unit"}; give the line its SKU to register it`;
+      }
     } else if (vi.stdPerVendorUom === null && conv.ok && (vi.vendorUom ?? "") === vendorUom) {
       filed = await updateVendorItem(tx, tenantId, vi.id, {
         stdPerVendorUom: toNumeric(conv.factor),
@@ -1121,7 +1132,7 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
     await learnAlias(tx, tenantId, {
       vendorId: input.vendorId,
       // A person's decision keeps the line's code whatever it is (`learnAlias`).
-      vendorSku: human ? cleanSku(line.sku) : sku,
+      vendorSku: human ? (sku ?? taughtCode(line.sku, line.lineNo)) : sku,
       descriptionHash: hash,
       normalizedDescription: normalized,
       catalogItemId: item.id,
@@ -1257,6 +1268,7 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
       decision,
       catalogItemId: item.id,
       vendorItemId: filed?.id ?? null,
+      note: filedNote,
       createdItem,
       createdVendorItem,
       observationId,

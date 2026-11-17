@@ -130,7 +130,9 @@ export async function prepare(
       // A special-order or short code is no SKU (`identifyingSku`): the words decide the line,
       // unless a person taught an alias for that code.
       sku: identifyingSku(row.vendorSku, row.lineNo),
-      taughtSku: identifyingSku(row.vendorSku, row.lineNo) ? null : taughtCode(row.vendorSku),
+      taughtSku: identifyingSku(row.vendorSku, row.lineNo)
+        ? null
+        : taughtCode(row.vendorSku, row.lineNo),
       hash: await descriptionHash(normalized),
     },
     vendorId,

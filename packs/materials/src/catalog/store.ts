@@ -147,9 +147,15 @@ export function genericSku(raw: string | null | undefined): boolean {
  */
 // DECISION (second review of fix/materials, M4): a person's alias on a generic code would match
 // every later special order at once; only a short code keeps the person's word.
-export function taughtCode(raw: string | null | undefined): string | null {
+export function taughtCode(
+  raw: string | null | undefined,
+  lineNo?: number | null | undefined,
+): string | null {
   const sku = raw?.trim().toUpperCase() || null;
-  return sku && !genericSku(sku) ? sku : null;
+  if (!sku || genericSku(sku)) return null;
+  // The line's own number read as its SKU is no code (as `identifyingSku`).
+  if (lineNo != null && /^\d+$/.test(sku) && Number(sku) === lineNo) return null;
+  return sku;
 }
 
 /**

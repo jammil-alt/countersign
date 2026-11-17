@@ -296,6 +296,17 @@ export async function importPriceListRows(
       { ...fields, vendorId, catalogItemId, sku, name },
       input.by,
     );
+    // DECISION (third review of fix/materials, finding 7): a row that lands on the vendor's item
+    // without a SKU in the same unit but another word (a case on the box) is that other item, not
+    // this one: it is skipped with the reason rather than written over the box.
+    const existingWord = (made.item.ext as { unitWord?: unknown } | null)?.unitWord;
+    const rowWord = unitWord(r.vendorUom);
+    if (!made.created && typeof existingWord === "string" && rowWord && existingWord !== rowWord) {
+      skip(
+        `the vendor's item without a SKU in this unit is its ${existingWord}, not this ${rowWord}: give the row its SKU`,
+      );
+      continue;
+    }
     if (made.created) {
       result.created++;
       result.vendorItemIds.push(made.item.id);

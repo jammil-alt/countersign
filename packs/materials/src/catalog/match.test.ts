@@ -14,7 +14,7 @@ import { parseLine } from "./keys";
 import { decideLine, MatchError, matchLine } from "./match";
 import { mergeItems } from "./merge";
 import { descriptionHash, normalize } from "./normalize";
-import { createItem, identifyingSku, learnAlias } from "./store";
+import { createItem, identifyingSku, learnAlias, taughtCode } from "./store";
 
 const online = await databaseAvailable();
 
@@ -43,6 +43,10 @@ describe("identifyingSku", () => {
     // The line's own number read as its SKU.
     expect(read("0002", 2)).toBeNull();
     expect(read("0002", 3)).toBe("0002");
+    // A person's alias keeps a short code, never a generic one or the line's own number.
+    expect(taughtCode("77", 1)).toBe("77");
+    expect(taughtCode("2", 2)).toBeNull();
+    expect(taughtCode("SPO")).toBeNull();
   });
 });
 
