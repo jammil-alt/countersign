@@ -19,8 +19,12 @@ import type { BuilderContext } from "../builder/context";
 
 export const REVIEW_TOOL = "submit_review";
 
-/** At most this many concerns: the ones that matter most. */
-export const REVIEW_MAX = 8;
+/**
+ * At most this many concerns: the ones that matter most. QA (2026-11-17, fourth run): eight a
+ * press, on every press, never let the brief feel finished. The review runs once a build (the
+ * API) and names only what a first draft can't do without.
+ */
+export const REVIEW_MAX = 5;
 
 export const ReviewAnswer = z.object({
   concerns: z
@@ -63,7 +67,9 @@ export interface ReviewInput {
 
 const REVIEW_RULES = `You review a brief for Mezonas, a managed-agents service for back-office work, before the operator confirms it and the build moves on to checking it against the catalog. You did not write the brief. Your job is to find what it doesn't settle that would make the agent wrong, stuck or unsafe once it runs for real clients.
 
-Read the brief against the checklist, the catalog and the other work. Name only what applies to this work and the brief doesn't already settle; skip the rest. Most important first: what would break the agent or put a client's data or money at risk. Each concern is a question the operator can answer, in plain words, with why it matters. If another build or its open issue covers part of this work, raise it. Never ask for secrets (passwords, tax ids, card numbers). If the brief settles everything that matters, answer with no concerns.
+The brief doesn't have to be complete: it has to be good enough for a first draft. The fit-gap, the draft and the tests will settle much of the rest, and every question you raise is one more the operator has to answer before going on. So name only what a first draft can't do without: what would make the agent do the wrong work, get stuck on most runs, or put a client's data or money at risk. A detail that can be settled while drafting or testing (a wording, a threshold to tune, a rare case) is not a concern now.
+
+Read the brief against the checklist, the catalog and the other work. Name only what applies to this work and the brief doesn't already settle; skip the rest. At most ${REVIEW_MAX}, most important first. Each concern is a question the operator can answer, in plain words, with why it matters. If another build or its open issue covers part of this work, raise it. Never ask for secrets (passwords, tax ids, card numbers). If the brief settles everything that matters, answer with no concerns.
 
 Checklist:
 ${BUILD_CHECKLIST.map((c) => `- ${c.id}: ${c.question}`).join("\n")}`;
