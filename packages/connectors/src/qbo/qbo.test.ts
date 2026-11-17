@@ -1096,7 +1096,7 @@ describe("qbo sync", () => {
       // The attachments' place: after the last one read.
       attachments: {
         since: "2026-10-31T15:02:40Z",
-        skip: 1,
+        skip: 0,
         historyUntil: "2026-11-05T17:59:00.000Z",
       },
     });

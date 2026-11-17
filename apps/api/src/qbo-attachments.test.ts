@@ -5,7 +5,7 @@
 
 import { ContentStore, createQboConnector, generateEncryptionKey } from "@countersign/connectors";
 import { FAKE_QBO_CLIENT, FAKE_QBO_REALM, fakeQbo } from "@countersign/connectors/testing";
-import { document, transaction } from "@countersign/db";
+import { document, rawRecord, transaction } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type ApiHarness, admin, createApiHarness, OPERATOR } from "./api.test-helper";
@@ -165,5 +165,74 @@ describe.skipIf(!h)("a first QuickBooks sync with many large attachments", () =>
     );
     expect(again.documents).toBe(0);
     expect(fileCalls()).toHaveLength(COUNT + 1);
+  });
+
+  it("reads business data first in every sync, and skips a file that keeps failing", async () => {
+    const later = (s: number) => new Date(NOW.getTime() + s * 1000);
+    clock.now = later(10);
+    const broken = qbo.attachFile("Bill", "146", {
+      fileName: "broken.pdf",
+      bytes: pdf(900, 2000),
+      contentType: "application/pdf",
+    });
+    const fine = qbo.attachFile("Bill", "146", {
+      fileName: "fine.pdf",
+      bytes: pdf(901, 2000),
+      contentType: "application/pdf",
+    });
+    qbo.failFile(broken);
+    clock.now = NOW;
+    const tries = () => qbo.requests.filter((r) => r.url.startsWith(`${FILES}${broken}`)).length;
+    const once = { do: <T>(_n: string, fn: () => Promise<T>) => fn() };
+    const sync = (at: number) =>
+      runQboSync(
+        { ...deps(), now: () => later(at) },
+        { tenantId: H.A.tenantId, connectionId, reason: "operator" },
+        once,
+      );
+    // The file fails: the sync fails at its attachment page.
+    await expect(sync(20)).rejects.toThrow();
+    expect(tries()).toBe(1);
+    // Meanwhile a bill is entered: the next sync reads it first, then fails on the file again.
+    clock.now = later(25);
+    qbo.put("Bill", {
+      Id: "148",
+      SyncToken: "0",
+      TxnDate: "2026-11-05",
+      VendorRef: { value: "56", name: "Northwest Plywood Supply" },
+      Line: [
+        {
+          Id: "1",
+          Amount: 12,
+          DetailType: "AccountBasedExpenseLineDetail",
+          AccountBasedExpenseLineDetail: { AccountRef: { value: "80" } },
+        },
+      ],
+      TotalAmt: 12,
+    });
+    clock.now = NOW;
+    await expect(sync(30)).rejects.toThrow();
+    const bill148 = await H.t.db
+      .select()
+      .from(transaction)
+      .where(and(eq(transaction.tenantId, H.A.tenantId), eq(transaction.externalId, "Bill:148")));
+    expect(bill148).toHaveLength(1);
+    expect(tries()).toBe(2);
+    // The third try fails too: the attachment is stored without its file, and the sync goes on.
+    const third = await sync(40);
+    expect(third.skipped).toBeUndefined();
+    expect(third.skippedFiles).toBe(1);
+    expect(tries()).toBe(3);
+    const ids = (await docs()).map((d) => (d.meta as { attachableId?: string }).attachableId);
+    expect(ids).toContain(fine);
+    expect(ids).not.toContain(broken);
+    const [raw] = await H.t.db
+      .select()
+      .from(rawRecord)
+      .where(and(eq(rawRecord.connectionId, connectionId), eq(rawRecord.externalId, broken)));
+    expect(raw).toBeDefined();
+    // And it is not tried again.
+    await sync(50);
+    expect(tries()).toBe(3);
   });
 });

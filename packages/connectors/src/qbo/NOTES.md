@@ -45,9 +45,10 @@ Against the docs:
    handle both), whether deleted objects come after all the others in an answer, whether
    `Attachable` and `VendorCredit` are accepted in `entities`, the `changedSince` formats accepted
    (we send UTC with `Z`), and the exact shape of a deleted record. Deletions of an entity that
-   alone has 1,000 changes since the last read may be missed: queries can't see them (audit 2.5).
-   Also that an entity read by query after a capped answer includes inactive name-list records
-   (`select * from Vendor` may return active ones only).
+   alone has 1,000 changes since the last read may be missed: queries can't see them (audit 2.5);
+   the sync reports it ("qbo CDC cap: deletions may be missed", with the entity and connection).
+   Name lists read by query after a capped answer send `and Active in (true, false)` (made inactive
+   is how QuickBooks deletes them): check that the filter combines with `Metadata.LastUpdatedTime`.
 3. Throttling numbers (500 a minute, 10 at once per realm; separate limits for batch and for
    attachments?) and whether 429 answers carry `Retry-After`.
 4. `requestid`: its maximum length (we send 36 hex characters), how long Intuit remembers it, and
@@ -59,9 +60,13 @@ Against the docs:
    where the amount is not qty × unit price rounded half up to cents).
 7. Whether QBO gives new lines the ids of lines they replace (our "already done" check does not
    rely on line ids).
-8. Query filters we use: `Metadata.LastUpdatedTime >= '<UTC time with Z>'` with `orderby
-   Metadata.LastUpdatedTime` (attachments and a capped CDC's catch-up; we page by the last time read
-   and how many rows had exactly that time, so ties must come in the same order each time),
+8. Query filters we use: `Metadata.LastUpdatedTime >= '<UTC time, whole seconds, Z>'` with
+   `orderby Metadata.LastUpdatedTime` (attachments and a capped CDC's catch-up). We send no
+   fractions of a second (the docs list error 300, "Time value is incorrect"; the fake refuses
+   them): check that form is accepted. Paging reads the last second it reached again, whole; only a
+   second that fills a whole page is paged into by position, so ties within it must come in the
+   same order each time, and a row changed between two such pages may be missed (QuickBooks has no
+   second sort key we know of);
    `VendorRef = '…'` on Bill, `EntityRef = '…'` on Purchase, `Id in (…)`,
    `DocNumber`, `TxnDate` ranges, `DisplayName like '%…%'`, `Name like '%…%'`, and
    `AttachableRef.EntityRef.Type` / `.value` on Attachable. Also that `select * from Vendor` returns

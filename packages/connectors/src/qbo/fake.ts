@@ -177,6 +177,10 @@ function matches(record: Entity, cond: string): boolean {
     return have.some((h) => list.includes(String(h)));
   }
   const want = unquote(rhs);
+  // Intuit's query times have whole seconds; anything finer is refused (error 300).
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\./.test(want)) {
+    throw new FakeFault(400, "300", "Time value is incorrect");
+  }
   return have.some((h) => {
     if (op === "like") {
       const re = new RegExp(
@@ -227,6 +231,11 @@ export interface FakeQboOptions {
   codes?: string[];
   /** The fake's clock (MetaData times, CDC). */
   now?: () => Date;
+  /**
+   * MetaData times in whole seconds, as QuickBooks keeps them, so changes in one second tie.
+   * Without it each change gets its own millisecond.
+   */
+  wholeSeconds?: boolean;
 }
 
 /** One sandbox company and Intuit's OAuth endpoints, from fixtures. */
@@ -282,12 +291,19 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
   files.set("5000000000000401", utf8("%PDF-1.4\n% Cascade Hardwoods invoice 77812\n%%EOF\n"));
 
   const stamp = () => {
+    if (opts.wholeSeconds) {
+      const t = new Date(Math.floor(now().getTime() / 1000) * 1000).toISOString();
+      lastModified = t > lastModified ? t : lastModified;
+      return lastModified.replace(".000Z", "Z");
+    }
     // Strictly increasing, so CDC sees every change.
     let t = now().toISOString();
     if (t <= lastModified) t = new Date(Date.parse(lastModified) + 1).toISOString();
     lastModified = t;
     return t;
   };
+  /** Attachment files whose download fails (500), and how many more times. */
+  const failing = new Map<string, number>();
 
   function touch(entity: string, row: Entity, created = false) {
     const t = stamp();
@@ -1037,6 +1053,11 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
         const id = rawUrl.slice(FILES.length + 1).split("?")[0] ?? "";
         const bytes = files.get(id);
         if (!bytes) return response(404, "not found");
+        const fails = failing.get(id) ?? 0;
+        if (fails > 0) {
+          failing.set(id, fails - 1);
+          return response(500, "storage is having a moment");
+        }
         const row = table("Attachable").get(id);
         return response(
           200,
@@ -1195,6 +1216,10 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
       );
       files.set(attachableId, file.bytes);
       return attachableId;
+    },
+    /** The file's download fails `times` more times (500). */
+    failFile(attachableId: string, times = Number.POSITIVE_INFINITY) {
+      failing.set(attachableId, times);
     },
     fileOf(attachableId: string): Uint8Array | undefined {
       return files.get(attachableId);

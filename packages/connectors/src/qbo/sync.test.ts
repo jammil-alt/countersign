@@ -21,9 +21,9 @@ import {
 const NOW = new Date("2026-11-05T18:00:00.000Z");
 const tenant = "0190f0c8-0000-7000-8000-000000000001";
 
-async function setup() {
+async function setup(opts: { wholeSeconds?: boolean } = {}) {
   const clock = { now: NOW };
-  const qbo = fakeQbo({ now: () => clock.now });
+  const qbo = fakeQbo({ now: () => clock.now, ...opts });
   const connector = createQboConnector({
     ...FAKE_QBO_CLIENT,
     environment: "sandbox",
@@ -109,15 +109,15 @@ describe("qbo sync: attachments (audit 2.3)", () => {
       }
     });
     const attachmentPages = pages.filter((p) => p.records[0]?.entityType === "Attachable");
-    // 62 attachments (two from the fixtures), at most 25 to a page, each read once, as history.
-    expect(attachmentPages.length).toBe(3);
+    // 62 attachments (two from the fixtures), at most 25 to a page, as history. The sixty share
+    // one second, which is read again from its start, so a few come twice (stored once).
+    expect(attachmentPages.length).toBeGreaterThanOrEqual(3);
     for (const p of attachmentPages) {
       expect(p.records.length).toBeLessThanOrEqual(QBO_ATTACHMENT_PAGE_SIZE);
       expect(p.records.every((r) => r.entityType === "Attachable")).toBe(true);
       expect(p.initial).toBe(true);
     }
     const attachments = attachmentPages.flatMap((p) => p.records.map(key));
-    expect(attachments).toHaveLength(62);
     expect(new Set(attachments).size).toBe(62);
     // No page before the attachments' read has any: the initial read leaves them out.
     const firstAttachments = pages.indexOf(attachmentPages[0] as QboSyncPage);
@@ -156,7 +156,10 @@ describe("qbo sync: attachments (audit 2.3)", () => {
     const next = rest.pages.flatMap((p) =>
       p.records.filter((r) => r.entityType === "Attachable").map(key),
     );
-    expect(next).toEqual(first.records.slice(3).map(key));
+    // The second they share is read again from its start: the three stored come again (and are
+    // known), and the rest follow.
+    expect(next).toEqual(expect.arrayContaining(first.records.slice(3).map(key)));
+    expect(new Set(next).size).toBe(next.length);
     expect(rest.pages[0]?.records.some((r) => r.entityType === "Attachable")).toBe(false);
   });
 
@@ -175,6 +178,73 @@ describe("qbo sync: attachments (audit 2.3)", () => {
     expect(pages[0]?.initial).toBe(false);
     expect(pages.flatMap((p) => p.records.map(key))).toEqual(["Attachable:5000000000000401:0"]);
     expect(cursor).toMatchObject({ phase: "cdc", ar: true, ledger: true });
+  });
+});
+
+describe("qbo sync: time and ties (audit review)", () => {
+  it("reads every row of a second shared across pages, though one changed in between", async () => {
+    // QuickBooks keeps times in whole seconds: thirty receipts scanned in one second.
+    const { qbo, client, clock } = await setup({ wholeSeconds: true });
+    clock.now = new Date("2026-10-20T12:00:00.000Z");
+    const ids: string[] = [];
+    for (let i = 0; i < 30; i++) {
+      ids.push(
+        qbo.attachFile("Bill", "146", {
+          fileName: `receipt-${i}.pdf`,
+          bytes: utf8(`%PDF-1.4\n% receipt ${i}\n%%EOF\n`),
+          contentType: "application/pdf",
+        }),
+      );
+    }
+    clock.now = NOW;
+    let edited = false;
+    const { pages } = await syncAll(client, null, NOW, (_i, done) => {
+      // After the first attachment page, someone renames one of the receipts it read.
+      if (!edited && done.some((p) => p.records[0]?.entityType === "Attachable")) {
+        edited = true;
+        const row = qbo.get("Attachable", ids[3] as string);
+        qbo.put("Attachable", { ...row, Id: ids[3] as string, SyncToken: "1", Note: "renamed" });
+      }
+    });
+    const seen = new Set(
+      pages.flatMap((p) =>
+        p.records.filter((r) => r.entityType === "Attachable").map((r) => r.externalId),
+      ),
+    );
+    for (const id of ids) expect(seen).toContain(id);
+    expect(seen).toContain(`${ids[3]}`);
+    expect(
+      pages.flatMap((p) => p.records.map(key)).filter((k) => k === `Attachable:${ids[3]}:1`),
+    ).not.toHaveLength(0);
+  });
+
+  it("sends whole seconds in query times, whatever the clock", async () => {
+    const { qbo, client, clock } = await setup();
+    // A connection in error for a week, read with a clock that has milliseconds.
+    clock.now = new Date("2026-11-12T09:00:00.000Z");
+    for (let i = 0; i < 1100; i++) qbo.put("Bill", bill(String(2000 + i)));
+    const receipt = qbo.attachFile("Bill", "146", {
+      fileName: "receipt.pdf",
+      bytes: utf8("%PDF-1.4\n% receipt\n%%EOF\n"),
+      contentType: "application/pdf",
+    });
+    const stored: QboSyncCursor = {
+      v: 1,
+      phase: "cdc",
+      ar: true,
+      ledger: true,
+      changedSince: "2026-11-05T17:59:00.123Z",
+    };
+    const { pages } = await syncAll(client, stored, new Date("2026-11-13T10:00:00.456Z"));
+    const seen = new Set(pages.flatMap((p) => p.records.map(key)));
+    expect(seen).toContain("Bill:3099:0");
+    expect(seen).toContain(`Attachable:${receipt}:0`);
+    const literals = qbo
+      .apiCalls("GET", "query")
+      .map((r) => decodeURIComponent(r.url.replace(/\+/g, " ")))
+      .flatMap((u) => [...u.matchAll(/LastUpdatedTime >= '([^']+)'/g)].map((m) => m[1]));
+    expect(literals.length).toBeGreaterThan(0);
+    for (const t of literals) expect(t).toMatch(/T\d{2}:\d{2}:\d{2}Z$/);
   });
 });
 
@@ -200,7 +270,11 @@ describe("qbo sync: CDC at the cap (audit 2.5)", () => {
     for (let i = 0; i < 700; i++) expect(seen).toContain(`Bill:${2000 + i}:0`);
     for (let i = 0; i < 600; i++) expect(seen).toContain(`Purchase:${5000 + i}:0`);
     expect(seen).toContain("Bill:145:deleted");
-    expect(pages.every((p) => !p.initial)).toBe(true);
+    expect(
+      pages
+        .filter((p) => p.records.some((r) => r.entityType !== "Attachable"))
+        .every((p) => !p.initial),
+    ).toBe(true);
     // The CDC point moves on only once every entity is read.
     expect(after).toMatchObject({ phase: "cdc", changedSince: "2026-11-19T09:59:00.000Z" });
     expect(after).not.toHaveProperty("catchUp");
@@ -222,6 +296,10 @@ describe("qbo sync: CDC at the cap (audit 2.5)", () => {
       .filter((u) => u.includes("from Bill where Metadata.LastUpdatedTime"));
     expect(queries.length).toBeGreaterThanOrEqual(2);
     expect(queries[0]).toContain("maxresults 1000");
+    // The deletions Bill's own answer cut off can't be seen: the page says so, for a report.
+    expect(pages.filter((p) => p.deletionsMayBeMissed).map((p) => p.deletionsMayBeMissed)).toEqual([
+      "Bill",
+    ]);
     // A query can't see deletions, and Bill's own CDC answer, at the cap, may have cut this one
     // off (NOTES.md "To verify"); the CDC point still moves on, past every bill.
     expect(pages.at(-1)?.next).toMatchObject({ changedSince: "2026-11-19T09:59:00.000Z" });

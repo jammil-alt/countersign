@@ -22,9 +22,9 @@ import { type QboClient, qboLiteral } from "./api";
 
 /** A place in a list read in order of last change: from `since`, the first `skip` rows done. */
 const TimeCursor = z.object({
-  /** A QBO time literal (UTC, `Z`). */
+  /** A QBO time literal (UTC, `Z`, whole seconds). */
   since: z.string(),
-  /** Rows changed exactly at `since` already read. */
+  /** Rows of the second `since` already read: only when that second filled whole pages. */
   skip: z.number().int().min(0),
 });
 
@@ -34,6 +34,8 @@ const AttachmentsCursor = TimeCursor.extend({
   historyUntil: z.string().optional(),
   /** More attachments are waiting (a backfill, or a page cut short). */
   more: z.boolean().optional(),
+  /** Failed tries to download a file, by attachment id (a file is skipped after a few). */
+  failures: z.record(z.string(), z.number().int().min(1)).optional(),
 });
 
 export const QboSyncCursor = z.discriminatedUnion("phase", [
@@ -108,6 +110,11 @@ export interface QboSyncOptions {
   arInitialDays?: number;
   /** Rows per initial page (QBO allows up to 1000). */
   pageSize?: number;
+  /**
+   * The first page of a sync: CDC reads whatever the stored cursor's turn says, so a failing
+   * attachment page never holds business data up (the attachments come next).
+   */
+  cdcFirst?: boolean;
 }
 
 export interface QboSyncPage {
@@ -123,6 +130,11 @@ export interface QboSyncPage {
    * stored (the step's download budget ran out); more pages follow.
    */
   resumeAfter?: (kept: number) => QboSyncCursor;
+  /**
+   * Audit 2.5: this entity alone reached CDC's cap, so its deletions past the cut may not be seen
+   * (the caller reports it).
+   */
+  deletionsMayBeMissed?: QboEntity;
 }
 
 // DECISION: an initial sync reads 90 days of transactions and attachments (by transaction date,
@@ -228,7 +240,7 @@ export async function qboSyncPage(
   if (c.phase === "cdc" && (c.ar !== true || c.ledger !== true)) c = backfill(c, opts);
   if (c.phase === "initial") return initialPage(client, c, opts);
   if (c.catchUp) return catchUpPage(client, c, c.catchUp);
-  if (c.turn === "attachments") return attachmentPage(client, c);
+  if (c.turn === "attachments" && opts.cdcFirst !== true) return attachmentPage(client, c);
   return cdcPage(client, c, opts);
 }
 
@@ -386,7 +398,7 @@ function attachmentsOf(c: CdcCursor): AttachmentsPlace {
  */
 function caughtUp(c: CdcCursor, startedAt: Date, attachments: boolean): CdcCursor {
   const { catchUp: _c, turn: _t, ...rest } = c;
-  const due = attachments || c.attachments?.more === true;
+  const due = attachments || c.attachments?.more === true || c.turn === "attachments";
   return {
     ...rest,
     ar: true,
@@ -451,7 +463,10 @@ async function catchUpPage(
     };
   };
   if (cu.query) {
-    const sql = `select * from ${entity} where Metadata.LastUpdatedTime >= ${qboLiteral(cu.query.since)} orderby Metadata.LastUpdatedTime startposition ${cu.query.skip + 1} maxresults ${QBO_QUERY_MAX}`;
+    // DECISION (audit 2.5): name lists bring their inactive records too: making a record inactive
+    // is how QuickBooks deletes a vendor, customer, item or account.
+    const active = QBO_NAME_LISTS.has(entity) ? " and Active in (true, false)" : "";
+    const sql = `select * from ${entity} where Metadata.LastUpdatedTime >= ${qboLiteral(qboTime(cu.query.since))}${active} orderby Metadata.LastUpdatedTime startposition ${cu.query.skip + 1} maxresults ${QBO_QUERY_MAX}`;
     const { rows } = await client.query(sql, entity);
     const records = rows
       .map((r) => qboRawRecord(entity, r))
@@ -478,6 +493,7 @@ async function catchUpPage(
     next: { ...c, catchUp: { ...cu, query: { since: qboTime(c.changedSince), skip: 0 } } },
     done: false,
     initial: false,
+    deletionsMayBeMissed: entity,
   };
 }
 
@@ -488,7 +504,7 @@ async function catchUpPage(
  */
 async function attachmentPage(client: QboClient, c: CdcCursor): Promise<QboSyncPage> {
   const a = attachmentsOf(c);
-  const sql = `select * from Attachable where Metadata.LastUpdatedTime >= ${qboLiteral(a.since)} orderby Metadata.LastUpdatedTime startposition ${a.skip + 1} maxresults ${QBO_ATTACHMENT_PAGE_SIZE}`;
+  const sql = `select * from Attachable where Metadata.LastUpdatedTime >= ${qboLiteral(qboTime(a.since))} orderby Metadata.LastUpdatedTime startposition ${a.skip + 1} maxresults ${QBO_ATTACHMENT_PAGE_SIZE}`;
   const { rows } = await client.query(sql, "Attachable");
   let taken = rows;
   let initial = false;
@@ -555,27 +571,56 @@ function timeOf(row: unknown): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-/** A time as a QBO literal: UTC with `Z`, milliseconds only when there are some. */
-// UNCHECKED (NOTES.md): that queries take a UTC time with `Z` (the initial read always sent one).
-function qboTime(t: string | number): string {
-  return new Date(typeof t === "number" ? t : Date.parse(t)).toISOString().replace(".000Z", "Z");
+/** A time as a QBO literal: UTC with `Z`, floored to whole seconds. */
+// DECISION (audit 2.5 review): Intuit's query docs show times without fractions of a second (and
+// an error 300, "Time value is incorrect"), so a time is floored: with `>=` that reads a little
+// more, never less. UNCHECKED (NOTES.md): the literal's exact form.
+export function qboTime(t: string | number): string {
+  const ms = typeof t === "number" ? t : Date.parse(t);
+  return new Date(Math.floor(ms / 1000) * 1000).toISOString().replace(".000Z", "Z");
 }
 
 /**
- * The place after reading `rows`, in order of last change, from `at`: the last one's time, and
- * how many read at exactly that time (the next query starts after them).
+ * The place after reading `rows`, in order of last change, from `at`. A page that reaches a later
+ * second starts the next read at that second, whole: rows read again are known by their version
+ * and stored once, and a row of that second that changed meanwhile has moved on, never skipped.
+ * Only a page wholly inside one second counts rows into it (`skip`): QuickBooks has no later key to
+ * order by, so a row changed between two such pages may be missed (NOTES.md "To verify").
  */
 function advance(at: TimePlace, rows: unknown[]): TimePlace {
-  let since = at.since;
-  let skip = at.skip;
-  for (const row of rows) {
-    const t = timeOf(row);
-    if (t === null || t === Date.parse(since)) {
-      skip += 1;
-    } else {
-      since = qboTime(t);
-      skip = 1;
-    }
+  const since = qboTime(at.since);
+  const last = rows.length > 0 ? timeOf(rows[rows.length - 1]) : null;
+  if (last !== null && Date.parse(qboTime(last)) > Date.parse(since)) {
+    return { since: qboTime(last), skip: 0 };
   }
-  return { since, skip };
+  return { since, skip: at.skip + rows.length };
+}
+
+/** Name lists: QuickBooks deletes their records by making them inactive. */
+const QBO_NAME_LISTS = new Set<string>([
+  "Account",
+  "Class",
+  "Department",
+  "Vendor",
+  "Item",
+  "Customer",
+]);
+
+/** A cursor with one more failed try to download an attachment's file (audit 2.3 review). */
+export function qboNoteAttachmentFailure(
+  cursor: QboSyncCursor | null,
+  attachableId: string,
+): QboSyncCursor | null {
+  if (cursor?.phase !== "cdc") return cursor;
+  const a = attachmentsOf(cursor);
+  const failures = { ...(a.failures ?? {}) };
+  failures[attachableId] = (failures[attachableId] ?? 0) + 1;
+  // A handful at most: the oldest go first.
+  const kept = Object.fromEntries(Object.entries(failures).slice(-20));
+  return { ...cursor, attachments: { ...a, failures: kept } };
+}
+
+/** How many times each attachment's file failed to download (a cursor's own count). */
+export function qboAttachmentFailures(cursor: QboSyncCursor | null): Record<string, number> {
+  return cursor?.phase === "cdc" ? (cursor.attachments?.failures ?? {}) : {};
 }
