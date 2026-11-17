@@ -5,6 +5,7 @@
 
 import { createOAuthState } from "@countersign/connectors";
 import {
+  allRoutes,
   buildPath,
   checkRouteContract,
   forbiddenPortalFields,
@@ -15,7 +16,7 @@ import {
 import { afterAll, describe, expect, it } from "vitest";
 import { admin, createApiHarness, OPERATOR, user } from "./api.test-helper";
 
-const ROUTES = Object.entries(routes) as [string, RouteSpec][];
+const ROUTES = Object.entries(allRoutes) as [string, RouteSpec][];
 
 function filled(path: string): string {
   return buildPath(path, new Proxy({}, { get: () => crypto.randomUUID() }));
@@ -23,7 +24,7 @@ function filled(path: string): string {
 
 describe("route contract (static)", () => {
   it("holds for every route the API serves", () => {
-    expect(checkRouteContract(routes)).toEqual([]);
+    expect(checkRouteContract(allRoutes)).toEqual([]);
   });
 
   it("lets only a person's own authenticator setup show a secret, once (§1.100)", () => {

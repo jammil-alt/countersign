@@ -234,3 +234,20 @@ Built against the fake; check against the sandbox company:
 4. Accrual versus cash basis (`accounting_method`): we send none; a bank account is the same either way.
 5. Report limits (rows per report) for a busy account in one month.
 
+
+## Reconciling: not possible through the API (Dev queue, docs/plan.md §1.125)
+
+As far as we know, QuickBooks Online's Accounting API has no way to reconcile: no endpoint marks
+transactions reconciled or closes a reconciliation, and the `Purchase`, `Deposit` and `JournalEntry`
+entities expose no writable cleared or reconciled status. Reconciliation (`packs/bookkeeping/src/
+reconcile/`) therefore matches and reports in Mezonas and leaves the reconcile itself to a person in
+QuickBooks. A Dev queue request for "mark items reconciled in QuickBooks" closes as `not_possible`.
+Unchecked against a sandbox company: confirm with Intuit's API reference and the sandbox before
+relying on it for a client.
+
+## Customer and job names (Dev queue, DQ "QuickBooks read: customer parent and is-job")
+
+Whether `qbo.aging_report` (`ar.ts`) returns the full "Parent:Job" name for a sub-customer can't be
+told from the code: every connector is built against a fake (`fake.ts`), which returns whatever the
+test wrote. It needs the sandbox company: run the aging report for a customer with a job and read
+the row's name. If it carries "Parent:Job", the request closes as `config`.
