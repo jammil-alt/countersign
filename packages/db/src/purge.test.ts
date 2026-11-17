@@ -2,6 +2,7 @@
 // of any other client; the audit log stays.
 
 import { sql } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeDb, createDb } from "./client";
 import { type ClientFixture, insertClient, insertOperatorRows } from "./fixtures.test-helper";
@@ -151,6 +152,28 @@ describe.skipIf(!online)("purgeClient", () => {
     expect(plan.order).toEqual(expect.arrayContaining(["build", "build_item", "build_event"]));
     expect(plan.owner.get("build")).toBe("client_id");
     expect(plan.mentions).toEqual([{ table: "build", column: "test_client_id" }]);
+  });
+
+  it("clears links on the client's own rows where rows name their client by tenant_id", async () => {
+    const plan = await purgePlan(t.db);
+    const dialect = new PgDialect();
+    const id = "00000000-0000-0000-0000-000000000001";
+    const text = (table: string) =>
+      plan.clear
+        .filter((c) => c.key.child === table)
+        .map((c) => dialect.sqlToQuery(c.where(id)).sql);
+    // The largest tables: each clear is limited to the client's rows (and its index).
+    for (const table of ["step_run", "model_call", "message", "external_action", "alert"]) {
+      expect(text(table).length, table).toBeGreaterThan(0);
+      for (const q of text(table)) expect(q, table).toContain(`"${table}"."tenant_id" = $`);
+    }
+    // A template's row may point at the client's (operator tables allow tenant_id null).
+    for (const q of text("builder_session")) {
+      expect(q).toContain(`"builder_session"."tenant_id" is null`);
+    }
+    // A build may be another client's or a template's, tested at this one: not limited.
+    expect(text("build").length).toBeGreaterThan(0);
+    for (const q of text("build")) expect(q).not.toContain(`"build"."client_id"`);
   });
 
   it("purges a client with builds and Reggie's records about it, keeping the operator's own", async () => {

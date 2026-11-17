@@ -94,8 +94,8 @@ export interface PurgePlan {
   owner: Map<string, string>;
   /** Other columns naming a client: cleared where they name this one. */
   mentions: { table: string; column: string }[];
-  /** Nullable links into the tables above: cleared where they point at a row being deleted. */
-  clear: ForeignKey[];
+  /** Nullable links into the tables above: cleared on `where`'s rows (they point at a row going). */
+  clear: { key: ForeignKey; where: (tenantId: string) => SQL }[];
 }
 
 export async function purgePlan(db: Db | Tx): Promise<PurgePlan> {
@@ -161,7 +161,35 @@ export async function purgePlan(db: Db | Tx): Promise<PurgePlan> {
       keys.filter((k) => !k.nullable && rowsOf.has(k.child) && rowsOf.has(k.parent)),
     ),
   );
-  const clear = keys.filter((k) => k.nullable && k.child !== "tenant" && rowsOf.has(k.parent));
+  // DECISION: a row whose client is `tenant_id` points only at its own client's rows, or, an
+  // operator table's (tenant_id null), at a template's or the client's: the clear is limited to
+  // those rows, on the indexed client column, so the largest tables (step_run, model_call,
+  // message, external_action) are never scanned across clients. A table that names its client
+  // otherwise (a build, which may be a template's tested at this client) is cleared wherever it
+  // points at a row going.
+  const optional = new Set(
+    [
+      ...(await db.execute<{ table_name: string }>(sql`
+        select table_name from information_schema.columns
+        where table_schema = 'public' and column_name = 'tenant_id' and is_nullable = 'YES'`)),
+    ].map((r) => r.table_name),
+  );
+  const clear = keys
+    .filter((k) => k.nullable && k.child !== "tenant" && rowsOf.has(k.parent))
+    .map((key) => {
+      const own = owner.get(key.child) === "tenant_id" ? `${ident(key.child)}."tenant_id"` : null;
+      const parentRows = rowsOf.get(key.parent) as (tenantId: string) => SQL;
+      const pointing = (id: string) =>
+        sql`(${sql.raw(list(key.columns))}) in (select ${sql.raw(list(key.refColumns))}
+          from ${sql.raw(ident(key.parent))} where ${parentRows(id)})`;
+      const where = !own
+        ? pointing
+        : optional.has(key.child)
+          ? (id: string) =>
+              sql`(${sql.raw(own)} = ${id} or ${sql.raw(own)} is null) and ${pointing(id)}`
+          : (id: string) => sql`${sql.raw(own)} = ${id} and ${pointing(id)}`;
+      return { key, where };
+    });
   return { order, rowsOf, owner, mentions, clear };
 }
 
@@ -234,7 +262,7 @@ export async function purgeClient(
       ...new Set([
         ...plan.order,
         ...plan.mentions.map((m) => m.table),
-        ...plan.clear.map((k) => k.child),
+        ...plan.clear.map((c) => c.key.child),
       ]),
     ];
     for (const table of touched) {
@@ -252,18 +280,16 @@ export async function purgeClient(
     }
     // Nullable links to a row about to go: cleared, on this client's rows (an agent and its live
     // version point at each other) and on any other (a template's build and its test copy).
-    for (const k of plan.clear) {
-      const rows = plan.rowsOf.get(k.parent);
+    for (const { key: k, where } of plan.clear) {
       // A row's own client column stays: a same-client link where it may be null
       // (test_case_result's run, 0028) is broken by its other columns, and clearing the client
       // would make the row look shared.
       const cols = k.columns.filter((col) => col !== plan.owner.get(k.child));
-      if (!rows || cols.length === 0) continue;
+      if (cols.length === 0) continue;
       const result = await tx.execute(
         sql`update ${sql.raw(ident(k.child))}
             set ${sql.raw(cols.map((col) => `${ident(col)} = null`).join(", "))}
-            where (${sql.raw(list(k.columns))}) in (select ${sql.raw(list(k.refColumns))}
-              from ${sql.raw(ident(k.parent))} where ${rows(tenantId)})`,
+            where ${where(tenantId)}`,
       );
       cleared.push({ table: k.child, column: cols.join(", "), rows: count(result) });
     }
