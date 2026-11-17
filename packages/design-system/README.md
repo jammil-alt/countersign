@@ -93,6 +93,22 @@ Built from Groundwork v0.1 and rethemed: plain CSS, no framework. Load `tokens.c
 - Data tables, picked by the reader's job and never mixed in one table: `TableLedger` to check and export, `TableAnalytical` to spot outliers, `TableGrouped` to drill into segments, `TableHeatmap` to compare across periods. Numbers right-aligned with tabular figures; only marks use `data-*` colors.
 - Icons and logos shown through `<img>` keep their file color; in the dark theme use the `-paper` logo files and inline SVG icons.
 
+## App patterns
+
+Added at the owner's request (2026-11-16) at the end of `components/bundle.css`, from choices made in the app since the first delivery. The next delivery should carry them.
+
+- The owner's choices: small radius on cards and tables, two weights (400 and 500), table numbers in Geist with tabular figures, text cells that wrap.
+- Pills: `ds-pill--risk` (always with a word), `ds-pill--person` (copper), `ds-pill--dot`, `ds-pill--sm`.
+- KPI boxes: `ds-kpis` holding `ds-kpi` (label, value, note); tones `--signal`, `--risk`, `--positive` colour the label; `ds-kpis--compact`. They sit above the data they count and scroll away.
+- Page tabs: `ds-tabs` on links with `aria-current="page"`, for a section with several lists (Sales, Build).
+- Filter chips: `ds-filters` holding `ds-filter` buttons, on with `aria-pressed`, with an optional `ds-num` count.
+- A data table on the page: `dt dt--page` with its `dt-bar` inside `ds-datahead`. The page scrolls until the KPIs are gone; then the toolbar and the column heads stay at the top. `--dt-stick` is the top of the scrolling area. `dt-empty` for no rows.
+- Due dates: `mz-due` with `--late` (risk, with how late), `--today` (signal) and `--none`.
+- Issue urgency: `mz-urgency--critical|high|normal|low`.
+- An agent at work: `mz-agentline`, pulsing with `--working`.
+- The safety hold: `mz-hold`. A to-do row: `mz-todo`.
+- Pipeline boards: `mz-board__heads` (stage heads with name, count and totals, `mz-stagehead`) sticks with the toolbar; `mz-board__body` holds the `mz-board__col` columns and scrolls sideways, with the page keeping the heads in step. Cards are `mz-kcard`, `--you` (signal edge) or `--critical` (risk edge).
+
 ## Imagery
 
 - Real people at a real table, shot top-down or over the shoulder: hands, laptops, papers, a phone, coffee. Small businesses as they are, not staged offices.
