@@ -54,6 +54,7 @@ import {
 import type { EventRow } from "@countersign/senses";
 import { and, desc, eq, inArray, isNull, ne, or, type SQL, sql } from "drizzle-orm";
 import type { Hono } from "hono";
+import { agentWhere, ensureSeesRun } from "../assigned";
 import { auditInTx } from "../audit";
 import { changeDisplay, clientTitles, itemDisplay, plainTitle } from "../change-display";
 import { syncedRefNames } from "../change-names";
@@ -106,8 +107,9 @@ type RunWorkflow = AnyAgentBundle["workflows"][number]["workflow"];
 export function portalInboxFilter(role: Role, userId: string): SQL {
   const notOperator = or(isNull(inboxItem.assigneeRole), ne(inboxItem.assigneeRole, "operator"));
   if (role === "client_admin") return notOperator as SQL;
-  // v0.12 W1-D: items routed to the role skip viewers (`membership.can_sign` false).
-  const signs = sql`exists (select 1 from ${membership} where ${membership.tenantId} = ${inboxItem.tenantId} and ${membership.userId} = ${userId} and ${membership.canSign})`;
+  // v0.12 W1-D: items routed to the role skip viewers (`membership.can_sign` false). §1.122: and,
+  // for a client user limited to some agents, items of other agents (or of none).
+  const signs = sql`exists (select 1 from ${membership} where ${membership.tenantId} = ${inboxItem.tenantId} and ${membership.userId} = ${userId} and ${membership.canSign} and (${membership.agentIds} is null or ${inboxItem.agentId} = any(${membership.agentIds})))`;
   return and(
     notOperator,
     or(
@@ -831,8 +833,10 @@ function by(session: Session, role: Role) {
 }
 
 export function portalRouteHandlers(app: Hono<AppEnv>): void {
-  mount(app, routes.portalOverview, async ({ tx, tenantIds, role, session }) => {
+  mount(app, routes.portalOverview, async ({ tx, tenantIds, role, session, agents }) => {
     const tenantId = tenantIds[0] as string;
+    // §1.122: a client user limited to some agents sees only those, and only their runs.
+    const theirs = agentWhere(run.agentId, agents);
     // 6.4: the overview's reads asked together in the request's transaction (postgres-js
     // pipelines them; none changes the scope), and a count of open items, not their ids.
     const [[t], services, going, [open], recentRuns, summary, findings] = await Promise.all([
@@ -853,6 +857,7 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
             eq(agent.tenantId, tenantId),
             eq(agent.kind, "client"),
             inArray(agent.runStatus, ["active", "paused"]),
+            agentWhere(agent.id, agents),
           ),
         )
         .orderBy(agent.slug),
@@ -868,10 +873,11 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
             snoozedNow(false),
           ),
         ),
-      runSummaries(tx, tenantId, [], 5),
+      runSummaries(tx, tenantId, theirs ? [theirs] : [], 5),
       // The supervisor's latest summary: one statement over `event` (its index is 7.3).
       latestHealthSummary(tx, tenantId),
-      portalFindings(tx, tenantId, role, session.user.id),
+      // The supervisor's findings are about the whole business: not for a limited client user.
+      agents === null ? portalFindings(tx, tenantId, role, session.user.id) : Promise.resolve([]),
     ]);
     if (!t) throw notFound("client");
     return {
@@ -980,16 +986,19 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
     return { item: item as NonNullable<typeof item> };
   });
 
-  mount(app, routes.portalRuns, async ({ tx, tenantIds, query, services }) => {
+  mount(app, routes.portalRuns, async ({ tx, tenantIds, query, services, agents }) => {
     // v0.12 W1-E: RunFilter without the back office's keys (refused by the query schema), the
     // client's own live runs only.
     const tenantId = tenantIds[0] as string;
     // QA round 1: statuses are the client's (a run waiting on the client is "waiting" whatever
     // its stored status), so the filter, the list and the chart agree.
     const { statuses, ...filter } = portalRunFilter(query.filter);
+    const theirs = agentWhere(run.agentId, agents);
     const where = [
       ...runFilterWhere(filter, services.platform.ctx.tools.specs()),
       ...clientStatusWhere(statuses),
+      // §1.122: a client user limited to some agents sees only their runs.
+      ...(theirs ? [theirs] : []),
     ];
     const runs = await runSummaries(tx, tenantId, where, query.limit, services.platform);
     if (!query.perDay) return { runs };
@@ -1001,14 +1010,26 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
     return { runs, perDay: await clientRunsPerDay(tx, scope, t?.timezone ?? "UTC") };
   });
 
-  mount(app, routes.portalRun, async ({ tx, tenantIds, params, services, session, role }) =>
-    // P-6: the viewer, for the conversations they may take over (docs/plan.md §1.68).
-    portalRunView(tx, tenantIds[0] as string, params.id, services.platform, by(session, role)),
+  mount(
+    app,
+    routes.portalRun,
+    async ({ tx, tenantIds, params, services, session, role, agents }) => {
+      await ensureSeesRun(tx, tenantIds[0] as string, params.id, agents);
+      // P-6: the viewer, for the conversations they may take over (docs/plan.md §1.68).
+      return portalRunView(
+        tx,
+        tenantIds[0] as string,
+        params.id,
+        services.platform,
+        by(session, role),
+      );
+    },
   );
 
-  mount(app, routes.portalRunStatus, async ({ tx, tenantIds, params }) =>
-    portalRunStatus(tx, tenantIds[0] as string, params.id),
-  );
+  mount(app, routes.portalRunStatus, async ({ tx, tenantIds, params, agents }) => {
+    await ensureSeesRun(tx, tenantIds[0] as string, params.id, agents);
+    return portalRunStatus(tx, tenantIds[0] as string, params.id);
+  });
 
   mount(app, routes.portalConnections, async ({ tx, tenantIds, services, session }) => ({
     connections: await portalConnections(

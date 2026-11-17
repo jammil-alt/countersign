@@ -6,6 +6,7 @@
 import { getAgent } from "@countersign/agents";
 import { routes } from "@countersign/core";
 import type { Hono } from "hono";
+import { ensureSeesAgent } from "../assigned";
 import { type AppEnv, type HandlerCtx, HttpError, mount, notFound } from "../http";
 import {
   controllableAgents,
@@ -128,11 +129,14 @@ export function lifecycleRoutes(app: Hono<AppEnv>): void {
 
   // ── Run now ──────────────────────────────────────────────────────────────────────────────────
 
-  mount(app, routes.portalRunForms, async ({ tx, tenantIds, params }) => ({
-    forms: await runForms(tx, tenantIds[0] as string, params.id),
-  }));
+  mount(app, routes.portalRunForms, async ({ tx, tenantIds, params, agents }) => {
+    // §1.122: an agent off a limited client user's list is "not found".
+    ensureSeesAgent(agents, params.id);
+    return { forms: await runForms(tx, tenantIds[0] as string, params.id) };
+  });
 
   mount(app, routes.portalRunNow, async (ctx) => {
+    ensureSeesAgent(ctx.agents, ctx.params.id);
     const request = await runNow(ctx.tx, {
       tenantId: ctx.tenantIds[0] as string,
       agentId: ctx.params.id,

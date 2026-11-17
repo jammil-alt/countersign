@@ -11,7 +11,7 @@ import { useApi, useApiClient } from "../api/useApi";
 import { FeedbackButton } from "../feedback/Feedback";
 import { useI18n } from "../i18n/i18n";
 import { usePoll } from "../runs/usePoll";
-import { useSession } from "../session/session";
+import { useAssignedAgents, useSession } from "../session/session";
 import { AgentSwitcher, canSwitch } from "../shell/AgentSwitcher";
 import type { SearchRun } from "../shell/Search";
 import { AppShell, SidebarLink } from "../shell/Shell";
@@ -65,6 +65,9 @@ export function PortalLayout({ children }: { children: ReactNode }) {
     href: PORTAL_PATHS.agent(s.id),
   }));
   const agentMatch = useMatch("/agents/:id/*");
+  // docs/plan.md §1.122: a client user limited to some agents has their agents, their runs and
+  // their inbox; the business's accounts, contacts, search and Sloan are closed to them.
+  const limited = useAssignedAgents() !== null;
   const intentZone = useIntentZone();
 
   const search: SearchRun = useCallback(
@@ -82,14 +85,18 @@ export function PortalLayout({ children }: { children: ReactNode }) {
         context={
           <span data-testid="portal-client-name">{client?.name ?? t("shell.noClient")}</span>
         }
-        search={{
-          placeholder: t("shell.searchPlaceholder"),
-          run: search,
-          ask: {
-            label: (q) => t("shell.askSloan", { q }),
-            href: (q) => askSloan(q),
-          },
-        }}
+        search={
+          limited
+            ? null
+            : {
+                placeholder: t("shell.searchPlaceholder"),
+                run: search,
+                ask: {
+                  label: (q) => t("shell.askSloan", { q }),
+                  href: (q) => askSloan(q),
+                },
+              }
+        }
         desk={{
           to: PORTAL_PATHS.inbox,
           label: t("nav.inbox"),
@@ -102,7 +109,7 @@ export function PortalLayout({ children }: { children: ReactNode }) {
             <AgentSwitcher current={agentMatch.params.id} agents={switchAgents} />
           ) : null
         }
-        topAction={<AskSloanButton />}
+        topAction={limited ? null : <AskSloanButton />}
         sidebar={
           <nav className="flex flex-col gap-0.5">
             <SidebarLink
@@ -126,18 +133,31 @@ export function PortalLayout({ children }: { children: ReactNode }) {
               label={t("nav.runs")}
               testId="portal-nav-runs"
             />
-            <SidebarLink
-              to={PORTAL_PATHS.accounts}
-              icon="bank"
-              label={t("nav.accounts")}
-              testId="portal-nav-accounts"
-            />
-            <SidebarLink
-              to={PORTAL_PATHS.contacts}
-              icon="team"
-              label={t("nav.contacts")}
-              testId="portal-nav-contacts"
-            />
+            {limited ? null : (
+              <>
+                <SidebarLink
+                  to={PORTAL_PATHS.accounts}
+                  icon="bank"
+                  label={t("nav.accounts")}
+                  testId="portal-nav-accounts"
+                />
+                <SidebarLink
+                  to={PORTAL_PATHS.contacts}
+                  icon="team"
+                  label={t("nav.contacts")}
+                  testId="portal-nav-contacts"
+                />
+              </>
+            )}
+            {/* §1.122: the admin's team management (who uses the portal and what each works on). */}
+            {client?.role === "client_admin" ? (
+              <SidebarLink
+                to={PORTAL_PATHS.team}
+                icon="lead"
+                label={t("teamPage.title")}
+                testId="portal-nav-team"
+              />
+            ) : null}
           </nav>
         }
         sidebarFooter={

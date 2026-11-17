@@ -15,6 +15,7 @@ import { StatusFilter } from "../../inbox/StatusFilter";
 import { shortTime } from "../../runs/format";
 import { subjectTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
+import { useAssignedAgents } from "../../session/session";
 import { AgentBadge } from "../../ui/badges";
 import { Select } from "../../ui/forms";
 import { Icon } from "../../ui/icons";
@@ -94,6 +95,7 @@ export function PortalRunsScreen() {
   const [notUnderstood, setNotUnderstood] = useState(false);
   const [asked, setAsked] = useState<Asked | null>(null);
   const overview = useApi(apiRoutes.portalOverview);
+  const limited = useAssignedAgents() !== null;
 
   // An answered question is the list's filter; the tabs and pickers apply when there is none.
   const statuses = TABS[tab];
@@ -163,39 +165,51 @@ export function PortalRunsScreen() {
     <Page testId="portal-runs-page">
       <PageHeader title={t("runs.title")} subtitle={t("runsPage.subtitle")} />
 
-      <form onSubmit={(e) => void ask(e)} className="ds-card ui-ask" data-testid="portal-runs-ask">
-        <Icon name="search" className="text-ink-muted" />
-        {asked
-          ? asked.chips.map((c) => (
-              <span key={`${c.key}:${c.value}`} className="ds-tag" data-testid="portal-runs-chip">
-                {Object.hasOwn(CHIP_WORDS, c.key) ? t(CHIP_WORDS[c.key] as PlainKey) : c.key}{" "}
-                <span className="figures">{chipValue(c)}</span>
-              </span>
-            ))
-          : null}
-        <input
-          aria-label={t("runsPage.ask.label")}
-          data-testid="portal-runs-ask-input"
-          value={question}
-          maxLength={500}
-          onChange={(e) => setQuestion(e.target.value)}
-          placeholder={t("runsPage.ask.placeholder")}
-          className="ui-ask__input"
-        />
-        {asked ? (
-          <Button size="sm" variant="ghost" onClick={clearAsk} data-testid="portal-runs-ask-clear">
-            {t("runsPage.ask.clear")}
-          </Button>
-        ) : null}
-        <Button
-          size="sm"
-          type="submit"
-          disabled={asking || question.trim().length < 3}
-          data-testid="portal-runs-ask-send"
+      {/* docs/plan.md §1.122: asking in words reads every agent's runs; not for a limited user. */}
+      {limited ? null : (
+        <form
+          onSubmit={(e) => void ask(e)}
+          className="ds-card ui-ask"
+          data-testid="portal-runs-ask"
         >
-          {asking ? t("runsPage.ask.asking") : t("runsPage.ask.send")}
-        </Button>
-      </form>
+          <Icon name="search" className="text-ink-muted" />
+          {asked
+            ? asked.chips.map((c) => (
+                <span key={`${c.key}:${c.value}`} className="ds-tag" data-testid="portal-runs-chip">
+                  {Object.hasOwn(CHIP_WORDS, c.key) ? t(CHIP_WORDS[c.key] as PlainKey) : c.key}{" "}
+                  <span className="figures">{chipValue(c)}</span>
+                </span>
+              ))
+            : null}
+          <input
+            aria-label={t("runsPage.ask.label")}
+            data-testid="portal-runs-ask-input"
+            value={question}
+            maxLength={500}
+            onChange={(e) => setQuestion(e.target.value)}
+            placeholder={t("runsPage.ask.placeholder")}
+            className="ui-ask__input"
+          />
+          {asked ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={clearAsk}
+              data-testid="portal-runs-ask-clear"
+            >
+              {t("runsPage.ask.clear")}
+            </Button>
+          ) : null}
+          <Button
+            size="sm"
+            type="submit"
+            disabled={asking || question.trim().length < 3}
+            data-testid="portal-runs-ask-send"
+          >
+            {asking ? t("runsPage.ask.asking") : t("runsPage.ask.send")}
+          </Button>
+        </form>
+      )}
       {askError ? <ErrorNotice error={askError} /> : null}
       {notUnderstood ? (
         <p className="text-sm text-ink-muted" role="status" data-testid="portal-runs-ask-unclear">

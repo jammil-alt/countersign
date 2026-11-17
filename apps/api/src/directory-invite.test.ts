@@ -98,6 +98,7 @@ describe.skipIf(!h)("invite from the directory", () => {
         role: "client_user",
         signedIn: null,
         canSign: true,
+        agentIds: null,
       },
       email: { status: "not_sent", reason: "dev_sign_in" },
     });

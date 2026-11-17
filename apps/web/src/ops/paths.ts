@@ -36,6 +36,8 @@ export const OPS_PATHS = {
   // §1.102: the audit log is a tab of Security and compliance (./security/paths.ts).
   audit: "/ops/security/audit",
   security: "/ops/security",
+  // §1.122: Mezonas's own people (operators): invite, give clients, remove.
+  users: "/ops/users",
   // Wave 6: the audit queue (runs picked for a person to check), a Utilities tab.
   runAudit: "/ops/utilities/run-audit",
   // R8: website logins are connectors, in the Library (/ops/browser-sites and

@@ -11,6 +11,7 @@ import {
   findNodeStep,
   type Locale,
   routes,
+  seesAgent,
   shownOnTimeline,
   type TableView,
   userLanguage,
@@ -411,7 +412,7 @@ function localeFor(t: TenantRow, userId: string): Locale {
 const pdfs = new WeakMap<Request, { bytes: Uint8Array; filename: string }>();
 
 export function tableRouteHandlers(app: Hono<AppEnv>): void {
-  mount(app, routes.portalTable, async ({ tx, tenantIds, role, session, services }) => {
+  mount(app, routes.portalTable, async ({ tx, tenantIds, role, session, services, agents }) => {
     const t = await clientOf(tx, tenantIds[0] as string);
     const table = await buildTable(
       tx,
@@ -426,7 +427,20 @@ export function tableRouteHandlers(app: Hono<AppEnv>): void {
       locale: await tenantLocale(tx, t.id),
       catalog: services.platform.catalog,
     });
-    return { ...table, ...home };
+    if (agents === null) return { ...table, ...home };
+    // §1.122: a client user limited to some agents sees their agents and their steps; the area
+    // owners, ideas and the lead's note are about the whole business. The Desk part is theirs already (the inbox
+    // filter). DECISION: the week's figures stay the business's totals; the portal doesn't show
+    // them to a limited user.
+    return {
+      ...table,
+      services: table.services.filter((x) => seesAgent(agents, x.id)),
+      recent: table.recent.filter((x) => seesAgent(agents, x.service.id)),
+      // The lead's note is to the business, answered in a thread a limited user can't reach.
+      lead: null,
+      owners: [],
+      ideas: [],
+    };
   });
 
   mount(app, routes.portalWeekly, async ({ tx, tenantIds, query }) => {

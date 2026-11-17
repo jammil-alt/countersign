@@ -18,6 +18,7 @@ import {
 } from "@countersign/db";
 import { and, asc, eq, inArray, isNull, ne, notLike, or, sql } from "drizzle-orm";
 import type { Hono } from "hono";
+import { ensureSeesRun } from "../assigned";
 import { auditInTx } from "../audit";
 import { CSV_BOM, CSV_TYPE, type CsvValue, csvLine, jsonCell } from "../exports/csv";
 import { periodOf } from "../exports/period";
@@ -385,7 +386,9 @@ export function auditExportRoutes(app: Hono<AppEnv>): void {
     },
   );
 
-  mount(app, routes.portalRunAudit, async ({ tx, tenantIds, params }) => ({
-    entries: await runAuditTrail(tx, tenantIds[0] as string, params.id),
-  }));
+  mount(app, routes.portalRunAudit, async ({ tx, tenantIds, params, agents }) => {
+    // §1.122: a client user limited to some agents reads only their runs.
+    await ensureSeesRun(tx, tenantIds[0] as string, params.id, agents);
+    return { entries: await runAuditTrail(tx, tenantIds[0] as string, params.id) };
+  });
 }

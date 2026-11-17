@@ -6,6 +6,7 @@
 import { clientApproverSetting, updateInfo } from "@countersign/agents";
 import type { InviteDelivery } from "@countersign/auth";
 import {
+  type AssignableAgent,
   type ContactInviteBody,
   DEFAULT_NOTIFICATIONS,
   type ExternalApprover,
@@ -13,6 +14,8 @@ import {
   type InviteResult,
   isOwnPerson,
   type Member,
+  type MemberAccessBody,
+  type MemberAgents,
   type NotificationSettings,
   type OpsClientSettings,
   type OpsOverview,
@@ -100,6 +103,7 @@ export async function membersOf(
       role: membership.role,
       workosUserId: appUser.workosUserId,
       canSign: membership.canSign,
+      agentIds: membership.agentIds,
     })
     .from(membership)
     .innerJoin(appUser, eq(appUser.id, membership.userId))
@@ -117,7 +121,109 @@ export async function membersOf(
     role: r.role,
     signedIn: options.signIns ? r.workosUserId !== null : null,
     canSign: r.canSign,
+    agentIds: r.agentIds ?? null,
   }));
+}
+
+// ── Access in place (docs/plan.md §1.122) ────────────────────────────────────────────────────────
+
+/** The client agents a client user can be given: every client agent but test copies and retired. */
+export async function assignableAgents(tx: Tx, tenantId: string): Promise<AssignableAgent[]> {
+  const rows = await tx
+    .select({ id: agent.id, name: agent.name, serviceName: agent.serviceName })
+    .from(agent)
+    .where(
+      and(
+        eq(agent.tenantId, tenantId),
+        eq(agent.kind, "client"),
+        eq(agent.testCopy, false),
+        or(isNull(agent.runStatus), ne(agent.runStatus, "retired")),
+      ),
+    )
+    .orderBy(agent.slug);
+  return rows.map((a) => ({ id: a.id, name: a.serviceName ?? a.name }));
+}
+
+/**
+ * A client user's agent list as stored: null for every agent, else the ids once each, all of them
+ * this client's agents (another client's, a test copy or a retired one is refused, 422).
+ */
+async function checkedAgents(
+  tx: Tx,
+  tenantId: string,
+  agentIds: MemberAgents | undefined,
+): Promise<string[] | null> {
+  if (agentIds === undefined || agentIds === null) return null;
+  const wanted = [...new Set(agentIds)];
+  if (wanted.length === 0) return [];
+  const known = new Set((await assignableAgents(tx, tenantId)).map((a) => a.id));
+  if (wanted.some((id) => !known.has(id))) {
+    throw new HttpError(422, "unknown_agent", "one of those agents isn't this client's");
+  }
+  return wanted;
+}
+
+/**
+ * Changes a client person's role, whether they sign and which agents they see, in one client. A
+ * client admin always signs and sees every agent, so making someone an admin clears their list.
+ * The portal's admin can't change their own access, and a client keeps at least one admin.
+ * Operators are never changed here. The request's audit row (mount) records who changed whom.
+ */
+// DECISION: the list is read on each request (`agentScope`), so a change applies at the person's
+// next request; their role and "can sign" ride in the carried account, so those apply within 5
+// minutes (docs/plan.md §1.93), as a removal does.
+export async function updateMember(
+  tx: Tx,
+  tenantId: string,
+  userId: string,
+  body: MemberAccessBody,
+  by: { userId: string; surface: "ops" | "portal"; signIns: boolean },
+): Promise<{ member: Member }> {
+  if (by.surface === "portal" && userId === by.userId) {
+    throw new HttpError(409, "self", "you can't change your own access; ask another admin or us");
+  }
+  const [m] = await tx
+    .select({ role: membership.role, canSign: membership.canSign, agentIds: membership.agentIds })
+    .from(membership)
+    .where(and(eq(membership.tenantId, tenantId), eq(membership.userId, userId)));
+  // The portal never learns who serves the client: an operator is "not found" there.
+  if (!m || (by.surface === "portal" && m.role === "operator")) throw notFound("member");
+  if (m.role === "operator") {
+    throw new HttpError(409, "is_operator", "operators are managed on the Users screen");
+  }
+  const role = body.role ?? m.role;
+  if (role === "client_admin") {
+    if (body.canSign === false)
+      throw new HttpError(422, "admin_signs", "a client admin always signs");
+    if (body.agentIds) {
+      throw new HttpError(422, "admin_sees_all", "a client admin sees every agent");
+    }
+  }
+  if (m.role === "client_admin" && role !== "client_admin") {
+    const [admins] = await tx
+      .select({ n: count() })
+      .from(membership)
+      .where(and(eq(membership.tenantId, tenantId), eq(membership.role, "client_admin")));
+    if ((admins?.n ?? 0) <= 1) {
+      throw new HttpError(409, "last_admin", "a client keeps at least one admin");
+    }
+  }
+  const canSign = role === "client_admin" ? true : (body.canSign ?? m.canSign);
+  const agentIds =
+    role === "client_admin"
+      ? null
+      : body.agentIds !== undefined
+        ? await checkedAgents(tx, tenantId, body.agentIds)
+        : (m.agentIds ?? null);
+  await tx
+    .update(membership)
+    .set({ role, canSign, agentIds })
+    .where(and(eq(membership.tenantId, tenantId), eq(membership.userId, userId)));
+  const [member] = (
+    await membersOf(tx, tenantId, { clientRolesOnly: true, signIns: by.signIns })
+  ).filter((x) => x.userId === userId);
+  if (!member) throw notFound("member");
+  return { member };
 }
 
 /**
@@ -186,6 +292,7 @@ export async function inviteToClient(
     name?: string | undefined;
     role: InvitableRole;
     canSign?: boolean | undefined;
+    agentIds?: MemberAgents | undefined;
   },
   options: { surface: "ops" | "portal" },
 ): Promise<InviteResult> {
@@ -227,7 +334,13 @@ export async function inviteToClient(
     throw new HttpError(422, "admin_signs", "a client admin always signs");
   }
   const canSign = input.role === "client_admin" ? true : input.canSign !== false;
-  await tx.insert(membership).values({ tenantId, userId, role: input.role, canSign });
+  // §1.122: a client user may be limited to some agents; an admin sees every agent.
+  if (input.role === "client_admin" && input.agentIds) {
+    throw new HttpError(422, "admin_sees_all", "a client admin sees every agent");
+  }
+  const agentIds =
+    input.role === "client_admin" ? null : await checkedAgents(tx, tenantId, input.agentIds);
+  await tx.insert(membership).values({ tenantId, userId, role: input.role, canSign, agentIds });
 
   const signIns = knowsSignIns(ctx);
   const result: InviteResult = {
@@ -238,6 +351,7 @@ export async function inviteToClient(
       role: input.role,
       signedIn: signIns ? !!existing?.workosUserId : null,
       canSign,
+      agentIds,
     },
     email: { status: "failed", reason: "not_attempted" },
   };
@@ -295,7 +409,7 @@ export async function inviteContact(
   return inviteToClient(
     ctx,
     tenantId,
-    { email, name: row.name, role: body.role, canSign: body.canSign },
+    { email, name: row.name, role: body.role, canSign: body.canSign, agentIds: body.agentIds },
     options,
   );
 }
@@ -530,6 +644,7 @@ async function opsSettings(
     },
     notifications: notificationsOf(t.settings),
     members: await membersOf(tx, t.id, { clientRolesOnly: false, signIns: knowsSignIns(ctx) }),
+    agents: await assignableAgents(tx, t.id),
   };
 }
 
@@ -612,6 +727,15 @@ export function onboardingRouteHandlers(app: Hono<AppEnv>): void {
     });
   });
 
+  mount(app, routes.opsUpdateMember, async (ctx) => {
+    ensureClient(ctx, ctx.params.id);
+    return updateMember(ctx.tx, ctx.params.id, ctx.params.userId, ctx.body, {
+      userId: ctx.session.user.id,
+      surface: "ops",
+      signIns: knowsSignIns(ctx),
+    });
+  });
+
   mount(app, routes.opsContactInvite, async (ctx) => {
     await invitableClient(ctx, ctx.params.id);
     return inviteContact(ctx, ctx.params.id, ctx.params.contactId, ctx.body, { surface: "ops" });
@@ -623,7 +747,17 @@ export function onboardingRouteHandlers(app: Hono<AppEnv>): void {
       clientRolesOnly: true,
       signIns: knowsSignIns(ctx),
     }),
+    agents: await assignableAgents(ctx.tx, ctx.tenantIds[0] as string),
   }));
+
+  mount(app, routes.portalUpdateUser, (ctx) =>
+    // The session's one client, never one from the request.
+    updateMember(ctx.tx, ctx.tenantIds[0] as string, ctx.params.id, ctx.body, {
+      userId: ctx.session.user.id,
+      surface: "portal",
+      signIns: knowsSignIns(ctx),
+    }),
+  );
 
   mount(app, routes.portalInvite, (ctx) =>
     // The session's one client, never one from the request.

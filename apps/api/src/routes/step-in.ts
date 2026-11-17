@@ -7,6 +7,7 @@ import type { Approver } from "@countersign/agents";
 import { routes } from "@countersign/core";
 import type { EventRow } from "@countersign/senses";
 import type { Hono } from "hono";
+import { ensureSeesRun } from "../assigned";
 import { controlConversation } from "../converse/control";
 import { portalConversation, runConversations } from "../converse/views";
 import { type AppEnv, ensureClient, iso, mount, notFound, type Services } from "../http";
@@ -85,6 +86,8 @@ export function stepInRouteHandlers(app: Hono<AppEnv>): void {
   mount(app, routes.portalConversationControl, async (ctx) => {
     const { tx, params, body, session, services, role, tenantIds } = ctx;
     const tenantId = tenantIds[0] as string;
+    // §1.122: a client user limited to some agents takes over only their runs' conversations.
+    await ensureSeesRun(tx, tenantId, params.id, ctx.agents);
     const by: Approver = { userId: session.user.id, role: role as Approver["role"] };
     const collect: EventRow[] = [];
     const outcome = await controlConversation(tx, {

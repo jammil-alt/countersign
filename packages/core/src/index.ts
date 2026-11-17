@@ -13,6 +13,7 @@ export * from "./api/a2p";
 export * from "./api/access";
 export * from "./api/account";
 export * from "./api/approver-rules";
+export * from "./api/assigned";
 // v0.12 W2-B: automations
 export * from "./api/automations";
 // v0.12 bankfeed
@@ -64,6 +65,7 @@ export * from "./api/models";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
 export * from "./api/notify";
 export * from "./api/onboarding";
+export * from "./api/operators";
 // v0.13 W2-I: run oversight
 export * from "./api/oversight";
 // v0.19: area owners (ARCHITECTURE §10.15)

@@ -2911,4 +2911,25 @@ export const en = {
   "connectClaude.expired": "This link has expired. Ask Claude again to get a new one.",
   "connectClaude.unknown":
     "This link doesn't match a Claude connection of yours. Ask Claude again to get a new one.",
+  // ── Access per person (docs/plan.md §1.122) ──
+  "access.edit": "Access",
+  "access.title": "What {name} can do",
+  "access.canSign": "Approves changes",
+  "access.canSignHelp": "Off: they see their agents' work and approve nothing.",
+  "access.agents": "Agents they work on",
+  "access.allAgents": "All agents",
+  "access.someAgents": "Only the agents I pick",
+  "access.noAgents": "There are no agents to pick yet.",
+  "access.pickOne": "Pick at least one agent, or choose all agents.",
+  "access.adminSeesAll": "Admins work on every agent and approve changes.",
+  "access.seesAll": "Works on every agent.",
+  "access.sees": "Works on {agents}.",
+  "access.seesNone": "Works on no agents yet.",
+  "access.save": "Save",
+  "access.cancel": "Cancel",
+  "access.saved": "Saved. It reaches them within 5 minutes.",
+  "access.problem": "We couldn't save that. Try again.",
+  "access.problem.lastAdmin": "Your business needs at least one admin.",
+  "access.limitedHelp":
+    "Users see only the agents you give them, with their runs and the items for them.",
 } as const;

@@ -509,6 +509,12 @@ export const membership = pgTable(
     // this client (core's `processes.PersonHours`, validated where written). Null: the client's
     // hours, never away.
     hours: json<processes.PersonHours>("hours"),
+    /**
+     * The client agents a client user may see and work on (migration 0059, docs/plan.md §1.122).
+     * Null: every agent, as before. Only a `client_user` is ever limited; an admin and an operator
+     * keep null. Ids are client agents of this client, checked where written.
+     */
+    agentIds: uuid("agent_ids").array(),
   },
   (t) => [
     primaryKey({ columns: [t.tenantId, t.userId] }),
