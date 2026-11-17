@@ -398,6 +398,14 @@ export const DEFAULT_APPROVAL_TIMEOUT: Duration = "7 days";
 /** Follow-up 6: how many undo windows a run waits out after its approval's time ran out. */
 const HOLD_ROUNDS = 3;
 
+/**
+ * The most items one for each takes (audit 4.4). Each item's steps are durable steps of the run's
+ * one instance, which the engine caps; a longer list fails at the step's start, before any item.
+ */
+// DECISION: 200, the audit's figure: a for each of a few steps stays well inside the engine's
+// steps per instance, and a client's batch larger than that is a sign to split the work.
+export const FOR_EACH_MAX_ITEMS = 200;
+
 // DECISION (R3): a skill that needs help asks the lead, who has one business day to answer; no
 // answer stops the run (owner, 2026-11-10: "ask the lead").
 const HELP_DEADLINE: processes.Deadline = {
@@ -3151,16 +3159,38 @@ class Executor {
     if (!Array.isArray(items)) {
       throw new Error(`for_each ${step.id}: "${step.over}" is not a list`);
     }
-    const { stepRunId } = await this.runner.do(name, async () => {
+    // Audit 4.4: a list over the cap fails the step at its start, before any item runs. The check
+    // is inside the step's first durable call, so a run already past it (in flight) goes on.
+    const tooMany =
+      items.length > FOR_EACH_MAX_ITEMS
+        ? `${clientLabel(asLabelled(step))}: ${items.length} items, over the ${FOR_EACH_MAX_ITEMS} one for each may take`
+        : null;
+    const { stepRunId, refused } = await this.runner.do(name, async () => {
       const id = await log.start({
         runId: run.id,
         nodeId: name,
         nodeType: "for_each",
         input: { count: items.length },
       });
+      if (tooMany) {
+        await log.update(id, {
+          status: "failed",
+          error: tooMany,
+          summary: `${stepStateLabel(asLabelled(step), false)}: ${this.words.failed}`,
+        });
+        return { stepRunId: id, refused: tooMany };
+      }
       await log.update(id, { status: "running" });
-      return { stepRunId: id };
+      return { stepRunId: id, refused: null as string | null };
     });
+    if (refused) {
+      throw new RunEnd({
+        status: "failed",
+        reason: refused,
+        nodeId: name,
+        errorKey: this.errorKeyOf(step, refused),
+      });
+    }
 
     let ended: RunEnd | undefined;
     // Wave 5: with `onError: continue`, an item whose steps failed (a failure they reported) doesn't

@@ -8,6 +8,7 @@ export {
   // v0.13 W2-I
   type ExecutorOversight,
   executeWorkflow,
+  FOR_EACH_MAX_ITEMS,
   pool,
   type RunEndStatus,
   type RunResult,

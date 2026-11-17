@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { executeWorkflow, pool } from "./executor";
+import { executeWorkflow, FOR_EACH_MAX_ITEMS, pool } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
 import { Harness, RUN, SKILL, WRITE_TOOL, wf } from "./fakes.test-helper";
 import { inboxEventType } from "./runner";
@@ -716,6 +716,53 @@ describe("forks", () => {
 });
 
 describe("for_each", () => {
+  const each = {
+    id: "each",
+    kind: "for_each",
+    name: "Each line",
+    over: "{{trigger.lines}}",
+    steps: [{ id: "line", kind: "skill", name: "Line", skill: "x.y", input: { i: "{{index}}" } }],
+  };
+
+  it("fails at its start, before any item, on a list over the cap", async () => {
+    const h = new Harness();
+    const lines = Array.from({ length: FOR_EACH_MAX_ITEMS + 1 }, (_, i) => i);
+    const result = await executeWorkflow(new FakeStepRunner(), h.context(), wf([each]), { lines });
+    expect(result).toMatchObject({
+      status: "failed",
+      reason: `Each line: ${FOR_EACH_MAX_ITEMS + 1} items, over the ${FOR_EACH_MAX_ITEMS} one for each may take`,
+      nodeId: "each",
+    });
+    expect(h.agentCalls).toHaveLength(0);
+    expect(h.row("each")).toMatchObject({ status: "failed", input: { count: lines.length } });
+  });
+
+  it("takes a list at the cap, and a run already past its start goes on (in flight)", async () => {
+    const h = new Harness();
+    const atCap = Array.from({ length: FOR_EACH_MAX_ITEMS }, (_, i) => i);
+    expect(
+      (await executeWorkflow(new FakeStepRunner(), h.context(), wf([each]), { lines: atCap }))
+        .status,
+    ).toBe("succeeded");
+    // A run whose loop started before the cap: its stored start has no refusal, so it goes on.
+    const inFlight = new Harness();
+    const runner = new FakeStepRunner();
+    const started = await runner.do("each", async () => ({
+      stepRunId: await inFlight.context().log.start({
+        runId: RUN.id,
+        nodeId: "each",
+        nodeType: "for_each",
+        input: { count: 250 },
+      }),
+    }));
+    expect(started.stepRunId).toBeTruthy();
+    runner.replay();
+    const lines = Array.from({ length: 250 }, (_, i) => i);
+    const result = await executeWorkflow(runner, inFlight.context(), wf([each]), { lines });
+    expect(result.status).toBe("succeeded");
+    expect(inFlight.agentCalls).toHaveLength(250);
+  });
+
   it("runs each item with bounded concurrency under stepId:index:childId names", async () => {
     const h = new Harness();
     let running = 0;
