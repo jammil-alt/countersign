@@ -388,9 +388,11 @@ export interface HandlerCtx<R extends RouteSpec> extends PublicCtx<R> {
 type Result<R extends RouteSpec> = z.input<R["response"]>;
 
 /**
- * The most a route with no session takes as its JSON body. DECISION (audit 6.5): 1 MiB, past the
- * largest form a person can fill in (40 answers of 20,000 characters) and far past the sign-in
- * steps' and texting sign-up's few fields.
+ * The most a route with no session takes as its JSON body. DECISION (audit 6.5): 1 MiB. It holds
+ * a form of 40 long answers at their 20,000-character cap (about 800 KB) and is far past the
+ * sign-in steps' and texting sign-up's few fields. It does not hold the form schema's ceiling: 40
+ * table questions of 50 rows by 8 long-text cells allow 320 million characters, which no limit
+ * should take; a form that large gets 413 when its draft is saved or it is sent.
  */
 export const PUBLIC_BODY_MAX_BYTES = 1024 * 1024;
 
