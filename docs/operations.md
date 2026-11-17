@@ -1077,10 +1077,11 @@ If connecting fails:
 
 To cut a connector off: remove the person's memberships (takes effect on the next call),
 or end their sessions in WorkOS (tokens last as long as AuthKit's access-token lifetime, a few
-minutes by default; nothing here refreshes them). Every tool call is a log line
-`{"event":"mcp.tool_call",…}` in Workers Logs, with the person, `audience` (`ops` or `client`),
-the tool, its arguments (never a confirm token) and the outcome; each read is also a row in the
-audit log (`mcp GET /api/…`).
+minutes by default; nothing here refreshes them). Every tool call is a row in the audit log
+(`mcp.tool_call <tool>`), with the person, the client it named, `audience` (`ops` or `client`),
+the arguments that are ids (never a confirm token or free text) and the outcome; each read or
+write it makes is also a row (`mcp GET /api/…`, or `mcp tool <tool>` where no route answers it),
+and a refused sign-in (no token, a bad one, no Mezonas account or client) is `mcp.sign_in`.
 
 Locally the MCP server is off (`WORKOS_AUTHKIT_DOMAIN` is empty in `wrangler.jsonc`); the tests in
 `apps/api/src/mcp.test.ts` run it against a fake AuthKit.

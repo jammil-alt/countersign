@@ -91,7 +91,8 @@ branches.
 
 - `audit_event` records **who read or changed what, when and from where**:
   - every request to a session route, reads included;
-  - every back-office or portal read made through the MCP connector;
+  - every tool call made through the MCP connector, and each back-office or portal read or write
+    it makes, and every sign-in to it that is refused;
   - every sign-in, refused sign-in and sign-out;
   - system actions such as file purges.
 - Each row holds the person, their role, the client, the action, the outcome, the ids involved,
