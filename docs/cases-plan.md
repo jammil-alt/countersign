@@ -6,7 +6,7 @@ until the owner says so: the migrations (0060–0063, PR #380, `claude/ops-work-
 and the code on top of it (PR #383, `claude/ops-work-szb740`): Build, Sales, Your call, and Reggie
 with Autopilot and `support@`/`hello@` email, all against fakes. The decisions are `docs/plan.md`
 §1.124 (the §8 questions it answered are recorded there), the milestones M64–M68. Onboarding (§4)
-is being built on top of it, in steps O1 to O6 (§7). The text below is the plan as agreed; its
+is being built on top of it, in steps O1 to O6 (§7): O1–O3 first (`docs/plan.md` §1.125, M69, migration 0064). The text below is the plan as agreed; its
 "nothing here is built" is history for everything but onboarding.
 
 The owner wants one place in the back office to bring clients in, sell them more, and build and

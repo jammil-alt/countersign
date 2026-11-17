@@ -5201,6 +5201,60 @@ decisions are written by stage 0; this table is the Reggie stream's only.
 | Review fixes (2026-11-17) | A critical issue given its agent by a later read holds that agent, as the issue route does. // DECISION: "Sort this" mail from a member of several clients is a to-do in each of them (`client_id` set), and a stray reply on a client's deal is that client's, so only their operators read it; only mail tied to no client has no client. |
 | Not yet | Reggie's tools for to-dos (with Your call's routes); outbound email for asks; chasing missing connections; documents nobody picked up as a signal; the site's "Get started" form. |
 
+### 1.125 Onboarding v1: the client file, starts, Invite and Sign up now, the intake (owner, 2026-11-17; migration 0064; M69)
+
+`docs/cases-plan.md` §4–§5, steps O1–O3, with Sales' "stages are a record, not a gate" and "every
+account is in Sales" (§3.1). Outside ARCHITECTURE's v1 scope at the owner's request, as §1.124 is.
+Built in one wave on top of §1.124: a foundation (this section's schema, contract and seams), then
+three streams in parallel. O4 (Sloan's talk-it-through), O5 (the scope, signing, facts into the
+knowledge base, the fit-gap hand-off), Reggie filing facts, reminders and O6 (voice) are the next
+wave's; the foundation leaves room for them and builds none of them.
+
+**Owner decisions** (cases-plan §8 questions 9–18; the owner took the design's answer each time,
+2026-11-17):
+
+| # | Question | Decision |
+|---|---|---|
+| 9 | Who sends the invite | The lead by name: `<Lead> at Mezonas <hello@mezonas.com>`, Reply-To the lead's own address. Mezonas' own emails stay `Mezonas <notify@…>`. |
+| 10 | Inviting before a proposal | A general intake makes the account early (the deal moves to Set up the account); no sign-in-free questionnaire for very early leads. |
+| 11 | Areas without a pack | Offered, with core's generic area questions (Sales and Receivables today). // DECISION in `onboarding/starts.ts` |
+| 12 | The default start | Get to the point. Sloan's talk-it-through is a choice, and either way can switch to the other. // DECISION in `onboarding/starts.ts` |
+| 13 | Our notes | Operator only, always: never shown to the client, Sloan or their agents (invariant 11). What an agent should know becomes a `theirs` fact the client confirms, or a rule on the agent. New facts start `ours`. // DECISION in `onboarding/facts.ts` |
+| 14 | A lost prospect | Its file is kept 12 months after the deal is lost, then deleted; a lost lead we had invited has its account retired at Lost. The retention job is later (not this wave). |
+| 15 | The scope | Signed by the client admin before we build (next wave, O5); `intake_scope` is in 0064 for it. |
+| 16 | Calls | The operator's own debriefs first (typed, voice typing or an uploaded transcript); no call recording. |
+| 17 | Reminders | Drafted for the operator to send (Autopilot `draft`); next wave. |
+| 18 | Seeded starts | General only, one per area, one per template, and "Just the account" (no intake, the welcome email only). |
+
+**The foundation's decisions:**
+
+| Topic | Decision |
+|---|---|
+| Migration 0064 | Additive only. `client_file` and `client_fact` operator-only as `deal` is (RLS: `app_is_operator()` and, where a file names a client, one the session serves; a fact only with its file); `sales_start` operator-only and global (in `OPERATOR_ONLY_TABLES`); `deal.client_file_id` (nullable, `on delete set null`); the tenant tables `intake`, `intake_person`, `intake_answer`, `intake_scope`, `intake_event` with forced RLS on `app.tenant_ids`; `knowledge_entry.kind` gains `about`; `notification.kind` gains the onboarding emails' kinds (`intake_invite`, `intake_colleague`, `intake_more_questions`, and next wave's `intake_reminder`, `intake_scope_ready`, `intake_next`) ahead of core naming them, so the next wave needs no migration. |
+| History | Facts, answers and the intake's log are insert only (no UPDATE grant). A correction is a new fact naming the one it replaces; a fact is replaced at most once (a unique index), so the current facts are a list, never a tree (core `currentFacts`). A scope version is insert only but for its signature: a column grant on `signed_by` and `signed_at`, never the body. Nothing is deleted by the Worker; a purged client's file and facts go with it (`deal.client_file_id` is cleared). |
+| No foreign keys into the operator's tables | `intake.deal_id` and `intake.file_id` are plain ids: a client's row never points into an operator-only table. |
+| Starts | Seeded in code by stream SALES, not by the migration: the areas and templates are the running platform's. Each seeded start has a `seed_key` (`general`, `area:<area>`, `template:<slug>`, `account`), so seeding runs once each; `seeded = (seed_key is not null)`. Archived, never deleted. "Just the account" is a start that covers nothing, so Sign up now always names a start. |
+| Covers and the guide | Core `Covers` `{general, areas[], templateIds[]}`. Areas are every business area but `general` (core `INTAKE_AREAS`). The guide (core `Guide`, stored on `intake.guide`) has sections `general`, `area:<area>`, `agent:<template id>` in that order (`sectionKeysOf`), each a list of fields of kind text, long_text, number, money, date, choice, choices, yes_no, files or tool, with required-to-start, a hint, where a confirmed answer is filed (`fileSection`), and a state: known, to confirm (with its "We think" value and words), to ask, or later. Field keys are stable (`general.approver`); fields with the same `shareKey` are asked once. Values are checked by their kind (`fieldValueSchema`); money is a decimal string and currency (invariant 6). |
+| Answers | The latest answer to a field counts; states answered, confirmed, corrected, not sure, later; sources form, chat, voice, call, tool, lead. A section's Start with this or Not now is an `intake_event` (`section_started`, `section_not_now`), not an answer. |
+| The portal | Getting started reads `/api/intake` (the client's open intake, only the sections this person was asked). Its views carry the guide's questions, "We think" in words and their own answers: never a fact's id, a question's origin, an `ours` fact or anything of ours (core `PortalIntakeView`, checked in `onboarding.test.ts`). "Ask someone else" with a new address is the client admin's (§1.14: only an admin invites). |
+| The welcome link | Core `WelcomeLinkToken` `{t, i, p, e}` (client, intake, person, expiry), signed like the form link under its own label. It works for 14 days; an expired one shows the lead's name only, to ask for a new one. The token is never a way in on its own: after sign-in the address must be the invited one. |
+| Emails | Through the notifications outbox (§1.37) as their own kinds, written in the inviting transaction and sent after the commit by the notification pass (idempotency key, `skipped` without Resend), rendered then from the intake and its person in the person's language. Invite's "Send at" is `intake.send_at`. |
+| The knowledge base's `about` | A search hit's kind (`KnowledgeHit`, `knowledge.search`'s result) may be `about`; the back office labels it "About the business". Entries of the kind are made when a scope is signed (next wave). |
+| Seams | Until a stream lands, its functions throw and its routes answer 501 `not_built`, naming the stream; the route contract and the mount are in place, so the contract tests hold from the start. |
+
+**Streams and their seams** (each builds behind the contract above; `docs/cases-plan.md` §7):
+
+| Stream | Builds | Where (stubs today) |
+|---|---|---|
+| SALES | Client files and facts by hand, starts (seeded and saved), Invite and Sign up now (`previewInvite`, `runInvite`: one transaction, then the emails), a deal for every client made elsewhere, stages as a record (skip forward, to-dos for what's missing), the lead record's Invite panel and the client file tab | `packages/core/src/api/client-files.ts`, `packages/core/src/api/invite.ts`, `apps/api/src/routes/client-files.ts`, `apps/api/src/routes/invite.ts`, `apps/api/src/onboarding/invite.ts` |
+| INTAKE | The guide (`buildGuide`, `mergeFields`, `guideTotals`, `guideProgress`; core's general and generic area sections; a pack's area section as data; a template's intake form read into a section), the ops and portal intake routes, Getting started's cards ("We think", Connect, Different process in mind?, Ask someone else), the build's Requirements panel reading its card | `packages/core/src/onboarding/guide.ts`, `packages/core/src/api/intake.ts`, `apps/api/src/routes/intake.ts` |
+| EMAIL | The branded layout and the invite, colleague and more-questions emails in six languages, the welcome link and page, its sign-in with the invited address, the WorkOS one-email check | `packages/core/src/email/layout.ts`, `packages/core/src/email/onboarding.ts`, `apps/api/src/onboarding/emails.ts`, `apps/api/src/onboarding/link.ts`, `apps/api/src/routes/welcome.ts` |
+
+| Topic | Decision |
+|---|---|
+| Checked | `packages/db/src/onboarding-migration.test.ts` (RLS on every table, a client session reads no file, fact or start, an operator only the files about clients it serves or none, one client never reads another's intake rows, insert-only grants and the scope's signature, a fact replaced once, the widened checks, the deal's file cleared), `packages/db/src/rls.test.ts` and `purge.test.ts` (the intake tables in every client's fixture; a client's file and facts go with it), `packages/core/src/onboarding/onboarding.test.ts` (facts, covers, values, the bodies' rules, the routes' contract and the portal's views), and the route contract's tests in `apps/api`. |
+| Not yet | Everything the streams build; the retention job for lost prospects (q14); the next wave's O4–O6, reminders and Reggie filing facts. |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
@@ -6376,6 +6430,20 @@ questions and expansion spotting.
 **Done when** each new issue shows a read and a draft within a minute and nothing is sent without
 a person; an email from a client's person opens an issue and a reply lands on it, all against
 fakes.
+
+### M69: Onboarding v1: the client file, starts, Invite and Sign up now, the intake (§1.125)
+
+Migration 0064 on its own commit (the client file and its facts, starts, the deal's file, the
+intake and its people, answers, scope and log, the knowledge base's `about`, the onboarding
+emails' notification kinds), with forced RLS and its test; core's contract (facts, starts, covers,
+the guide, the intake, the routes) and the seams; then three streams: SALES, INTAKE and EMAIL.
+
+**Done when** from a lead record on staging the owner invites a test admin, who answers the cards
+and connects the QuickBooks sandbox in about fifteen minutes; Sign up now does the same in one
+confirm and the deal lands at Set up the account with the stages before it skipped; a guide for
+general, Purchasing and one agent asks "who approves" once and skips what the file has confirmed;
+a test invite shows one branded email, the welcome page and a branded sign-in. Against fakes, but
+for the owner's Resend and WorkOS steps.
 
 ---
 
