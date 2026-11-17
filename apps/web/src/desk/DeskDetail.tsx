@@ -6,12 +6,14 @@
 import {
   EDITABLE_KINDS,
   isPlainObject,
+  itemFingerprint,
   type LocalizedText,
   pickLocalized,
   type ToolDisplay,
 } from "@countersign/core";
 import { type ReactNode, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { isApiError } from "../api/client";
 import { apiRoutes } from "../api/routes";
 import { useApiClient } from "../api/useApi";
 import type { PlainKey } from "../i18n/catalog";
@@ -122,6 +124,26 @@ export function DeskDetail({
   // A decision was made here (a batch may keep open items: they wait as their own entries).
   const settled = decision !== null && decision !== "snoozed";
 
+  /**
+   * Audit 3.4: the entry's items as the API shows them now. An answer names the item as it is on
+   * screen (its fingerprint), so after a change made here (an edit, an undo) or one refused as
+   * changed since, the card shows what the API holds before anything more is signed.
+   */
+  // DECISION (audit 3.4): a reload that fails leaves the card as it was; an answer to it is then
+  // refused as changed if it did change, and that reloads again.
+  async function reload() {
+    try {
+      const lists = await Promise.all([
+        api.call(apiRoutes.portalInbox, { query: { status: "open" } }),
+        api.call(apiRoutes.portalInbox, { query: { status: "open", view: "snoozed" } }),
+      ]);
+      const now = new Map(lists.flatMap((l) => l.items).map((i) => [i.id, i]));
+      setItems((cur) => cur.map((i) => now.get(i.id) ?? i));
+    } catch {
+      // As it was.
+    }
+  }
+
   async function act(run: () => Promise<void>) {
     setBusy(true);
     setError(null);
@@ -130,6 +152,11 @@ export function DeskDetail({
       onChanged();
     } catch (e) {
       setError(e);
+      // Changed since the person opened it: the card shows it as it is now, to look again.
+      if (isApiError(e) && e.code === "changed") {
+        await reload();
+        onChanged();
+      }
     } finally {
       setBusy(false);
     }
@@ -149,7 +176,7 @@ export function DeskDetail({
       } else {
         const res = await api.call(apiRoutes.portalResolveInbox, {
           params: { id: lead.id },
-          body,
+          body: { ...body, fingerprint: await itemFingerprint(lead) },
         });
         setItems([res.item]);
       }
@@ -158,12 +185,17 @@ export function DeskDetail({
 
   const resolveBatch = (decide: "approve" | "reject") =>
     act(async () => {
-      const ids = items.filter((i) => ticked.has(i.id) && i.status === "open").map((i) => i.id);
+      const signing = items.filter((i) => ticked.has(i.id) && i.status === "open");
+      const ids = signing.map((i) => i.id);
       const res = await api.call(apiRoutes.portalBatchResolve, {
         body: {
           batchKey: lead.batchKey as string,
           approve: decide === "approve" ? ids : [],
           reject: decide === "reject" ? ids : [],
+          // Audit 3.4: each item as it is on screen.
+          fingerprints: Object.fromEntries(
+            await Promise.all(signing.map(async (i) => [i.id, await itemFingerprint(i)] as const)),
+          ),
         },
       });
       const states = new Map(res.items.map((s) => [s.id, s]));
@@ -212,6 +244,8 @@ export function DeskDetail({
         }),
       );
       setDecision(null);
+      // The undo is recorded on the item: shown as the API now holds it, to sign it again.
+      await reload();
     });
 
   const tickedOpen = items.filter((i) => ticked.has(i.id) && i.status === "open").length;
@@ -282,6 +316,8 @@ export function DeskDetail({
                     },
                   ]);
                   setEditing(false);
+                  // As the API holds it, so the signature is on the edit as stored.
+                  await reload();
                 })
               }
             />
@@ -339,6 +375,7 @@ export function DeskDetail({
                       payload: withMessage(lead.payload, sent),
                     },
                   ]);
+                  await reload();
                 })
               }
             />
@@ -911,6 +948,9 @@ function Outcome({
             : t("inbox.outcome.resolved");
   const left = inWindow.length > 0 ? Math.max(...inWindow.map((i) => undoLeft(i, now))) : 0;
   const declined = decision === "rejected" || decision === "declined";
+  // Review of audit 3.5: signed, then refused as it was about to be made (the agent's access was
+  // narrowed since): nothing was written, and the card says why.
+  const notDone = isPlainObject(lead.payload.notDone) ? lead.payload.notDone.reason : undefined;
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
@@ -924,6 +964,11 @@ function Outcome({
           <span className="text-sm text-ink-muted">{fmt.time(lead.resolvedAt)}</span>
         ) : null}
       </div>
+      {typeof notDone === "string" && notDone ? (
+        <p className="text-sm text-risk" data-testid="desk-not-done">
+          {t("desk.notDone", { reason: notDone })}
+        </p>
+      ) : null}
       {left > 0 ? (
         <div className="flex items-center gap-2">
           <span className="text-sm text-ink-muted" data-testid="desk-undo-left">

@@ -24,6 +24,11 @@ async function retryChain(tx: Tx, tenantId: string, runId: string): Promise<stri
   return chain;
 }
 
+/** Whether a signature came after its run had ended. */
+function signedAfter(approvedAt: Date | null, finishedAt: Date | null | undefined): boolean {
+  return approvedAt !== null && finishedAt != null && approvedAt.getTime() > finishedAt.getTime();
+}
+
 export function dbCarriedActions(db: Db): CarriedActionsPort {
   return {
     candidates(tenantId, { retryOf, nodeId }) {
@@ -43,14 +48,13 @@ export function dbCarriedActions(db: Db): CarriedActionsPort {
           .orderBy(externalAction.createdAt);
         // Wave 5 review: where each run ended, so a failed write its run went on past
         // (`onError: continue`) is never carried (`carryDecision`).
-        const ends = new Map(
-          (
-            await tx
-              .select({ id: run.id, error: run.error })
-              .from(run)
-              .where(and(eq(run.tenantId, tenantId), inArray(run.id, runs)))
-          ).map((r) => [r.id, r.error]),
-        );
+        const ended = await tx
+          .select({ id: run.id, error: run.error, finishedAt: run.finishedAt })
+          .from(run)
+          .where(and(eq(run.tenantId, tenantId), inArray(run.id, runs)));
+        const ends = new Map(ended.map((r) => [r.id, r.error]));
+        // Audit 3.3: when each run ended, so a signature given after that is never carried.
+        const finished = new Map(ended.map((r) => [r.id, r.finishedAt]));
         // Only this node's own writes: `<run>:<node>:<index>`, not a deeper node's.
         return rows
           .filter((r) => /^\d+$/.test(r.idempotencyKey.slice(`${r.runId}:${nodeId}:`.length)))
@@ -68,6 +72,10 @@ export function dbCarriedActions(db: Db): CarriedActionsPort {
               error: r.error,
               carriedOn:
                 r.status === "failed" && wentOnPast(nodeId, r.runId ? ends.get(r.runId) : null),
+              signedAfterRunEnded: signedAfter(
+                r.approvedAt,
+                r.runId ? finished.get(r.runId) : null,
+              ),
             }),
           );
       });

@@ -8,11 +8,10 @@
 // `exists`); any other run with no instance, and a run whose instance has ended, is marked failed
 // with the reason and reported once.
 
+import { closeRunApprovalsTx } from "@countersign/agents";
 import {
   agent,
   type Db,
-  externalAction,
-  inboxItem,
   reachOut,
   run,
   stepRun,
@@ -154,26 +153,14 @@ export async function failOpenRun(
         inArray(stepRun.status, [...OPEN_STEP]),
       ),
     );
-  await tx
-    .update(inboxItem)
-    .set({ status: "expired" })
-    .where(
-      and(
-        eq(inboxItem.runId, r.id),
-        eq(inboxItem.tenantId, r.tenantId),
-        eq(inboxItem.status, "open"),
-      ),
-    );
-  await tx
-    .update(externalAction)
-    .set({ status: "rejected", error: { code: "run_failed", message: error.reason } })
-    .where(
-      and(
-        eq(externalAction.runId, r.id),
-        eq(externalAction.tenantId, r.tenantId),
-        eq(externalAction.status, "proposed"),
-      ),
-    );
+  // Audit 3.3: the same close as every run's end, of every open item here.
+  await closeRunApprovalsTx(
+    tx,
+    r.tenantId,
+    r.id,
+    { code: "run_failed", message: error.reason },
+    { items: "all" },
+  );
   await closeRunReachOuts(tx, r, "the run ended");
   await queueFinishedRun(tx, r);
   if (options.quiet) return true;

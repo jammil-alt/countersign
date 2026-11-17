@@ -5,7 +5,7 @@ import { DESK_ITEM_FIELDS } from "../desk/item";
 import { Locale } from "../i18n/locale";
 import { isUuid } from "../ids";
 // §1.116: the phone app
-import { DeviceSignature } from "../mobile/mobile";
+import { DeviceSignature, ItemFingerprint } from "../mobile/mobile";
 // Wave 6: the run audit (the owner's check on every step, the audit queue, the export)
 import { OwnerCheckView } from "../oversight/check";
 import { STEP_KINDS } from "../process/schema";
@@ -243,6 +243,12 @@ export const ResolveBody = z.strictObject({
   note: Note.optional(),
   /** §1.116: signed on a registered phone with Face ID or a fingerprint (checked, then recorded). */
   deviceSignature: DeviceSignature.optional(),
+  /**
+   * Audit 3.4: the item as the person saw it (`itemFingerprint` of the portal's item). The portal
+   * requires it (or a phone's signature, which carries one) and refuses an answer to an item that
+   * changed since (409 `changed`).
+   */
+  fingerprint: ItemFingerprint.optional(),
 });
 
 // ── Back office shapes ───────────────────────────────────────────────────────────────────────────

@@ -5,14 +5,29 @@
 
 import { executeAction } from "@countersign/agents";
 import { defineConnector, defineWriteTool } from "@countersign/connectors";
-import { AgentBundle, type AgentBundleInput, DecimalString } from "@countersign/core";
-import { agent, connection, externalAction, inboxItem, membership, tenant } from "@countersign/db";
+import {
+  AgentBundle,
+  type AgentBundleInput,
+  DecimalString,
+  itemFingerprint,
+  PortalInboxItem,
+} from "@countersign/core";
+import {
+  agent,
+  connection,
+  externalAction,
+  inboxItem,
+  membership,
+  run,
+  tenant,
+} from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
   type ApiHarness,
+  AS_SENT,
   admin,
   createApiHarness,
   FakeWorkflowStep,
@@ -404,6 +419,109 @@ describe.skipIf(!h)("the Desk", () => {
     ]);
   });
 
+  /** Each open item of the person's inbox as the portal shows it, by id, with its fingerprint. */
+  const seenBy = async (who: string) => {
+    const list = j((await H.call(who, "GET", "/api/inbox")).json).items as unknown[];
+    const out = new Map<string, string>();
+    for (const raw of list) {
+      const item = PortalInboxItem.parse(raw);
+      out.set(item.id, await itemFingerprint(item));
+    }
+    return out;
+  };
+
+  it("signs only the card as the person saw it: one changed since is refused and nothing is recorded", async () => {
+    const { params } = await start("one");
+    let checked = false;
+    const step = new FakeWorkflowStep(async (_name, type) => {
+      const item = await itemFor(type);
+      const path = `/api/inbox/${item.id}`;
+      const seen = (await seenBy(admin("a"))).get(item.id) as string;
+      expect(seen).toMatch(/^[0-9a-f]{64}$/);
+      // Someone changes the card while it is open on this person's screen.
+      const original = (await actionOf(item.id)).input as Record<string, unknown>;
+      const edited = await H.call(admin("a"), "PUT", `${path}/edit`, {
+        input: { ...original, subject: "Your invoice, changed" },
+      });
+      expect(edited.status, JSON.stringify(edited.json)).toBe(200);
+      const stale = await H.call(
+        admin("a"),
+        "POST",
+        `${path}/resolve`,
+        { decision: "approve", fingerprint: seen },
+        { [AS_SENT]: "1" },
+      );
+      expect(stale.status).toBe(409);
+      expect(j(stale.json).error).toMatchObject({
+        code: "changed",
+        message: "This card changed since you opened it; look again",
+      });
+      const [still] = await H.t.db.select().from(inboxItem).where(eq(inboxItem.id, item.id));
+      expect(still).toMatchObject({ status: "open", resolvedBy: null, resolution: null });
+      expect(await actionOf(item.id)).toMatchObject({ status: "proposed", approvedBy: null });
+      // A rejection names what was seen too, and an answer that names nothing is refused.
+      const staleNo = await H.call(
+        admin("a"),
+        "POST",
+        `${path}/resolve`,
+        { decision: "reject", fingerprint: seen },
+        { [AS_SENT]: "1" },
+      );
+      expect([staleNo.status, j(staleNo.json).error.code]).toEqual([409, "changed"]);
+      const blind = await H.call(
+        admin("a"),
+        "POST",
+        `${path}/resolve`,
+        { decision: "approve" },
+        { [AS_SENT]: "1" },
+      );
+      expect([blind.status, j(blind.json).error.code]).toEqual([400, "fingerprint_required"]);
+      // Looked at again: signed.
+      const fresh = (await seenBy(admin("a"))).get(item.id) as string;
+      expect(fresh).not.toBe(seen);
+      const ok = await H.call(
+        admin("a"),
+        "POST",
+        `${path}/resolve`,
+        { decision: "reject", fingerprint: fresh },
+        { [AS_SENT]: "1" },
+      );
+      expect(ok.status, JSON.stringify(ok.json)).toBe(200);
+      checked = true;
+      const [event] = eventFor(type);
+      return event?.event.payload;
+    });
+    await executeRun(deps(), params, cloudflareStepRunner(step));
+    expect(checked).toBe(true);
+  });
+
+  it("never undoes an approval once its run has ended", async () => {
+    const { runId, params } = await start("one");
+    let checked = false;
+    const step = new FakeWorkflowStep(async (_name, type) => {
+      const item = await itemFor(type);
+      const path = `/api/inbox/${item.id}`;
+      const approved = await H.call(admin("a"), "POST", `${path}/resolve`, { decision: "approve" });
+      expect(j(approved.json).item.deliverAfter).not.toBeNull();
+      // The run ends while the approval is still inside its window.
+      await H.t.db
+        .update(run)
+        .set({ status: "cancelled", finishedAt: new Date() })
+        .where(eq(run.id, runId));
+      const undo = await H.call(admin("a"), "POST", `${path}/undo`);
+      expect([undo.status, j(undo.json).error.code]).toEqual([409, "run_ended"]);
+      const [still] = await H.t.db.select().from(inboxItem).where(eq(inboxItem.id, item.id));
+      expect(still?.status).toBe("resolved");
+      expect((await actionOf(item.id)).status).toBe("approved");
+      checked = true;
+      throw Object.assign(new Error("Execution timed out after 1000ms"), {
+        name: "WorkflowTimeoutError",
+      });
+    });
+    await executeRun(deps(), params, cloudflareStepRunner(step)).catch(() => null);
+    expect(checked).toBe(true);
+  });
+
   it("writes nothing when an approval is undone, and delivers a rejection at once", async () => {
     const before = sent.size;
     const { params } = await start("one");
@@ -462,6 +580,29 @@ describe.skipIf(!h)("the Desk", () => {
           .update(inboxItem)
           .set({ assigneeRole: "client_admin" })
           .where(eq(inboxItem.id, c));
+        // Audit 3.4: one item that changed since the person looked refuses the whole batch.
+        const seen = await seenBy(admin("a"));
+        const last = [a, b, c].sort().at(-1) as string;
+        const stale = await batch(
+          {
+            batchKey: key,
+            approve: [a, b],
+            reject: [c],
+            fingerprints: Object.fromEntries(
+              [a, b, c].map((id) => [id, id === last ? "0".repeat(64) : seen.get(id)]),
+            ),
+          },
+          admin("a"),
+        );
+        expect([stale.status, j(stale.json).error.code]).toEqual([409, "changed"]);
+        const missing = await H.call(
+          admin("a"),
+          "POST",
+          "/api/inbox/batch/resolve",
+          { batchKey: key, approve: [a, b], reject: [c], fingerprints: {} },
+          { [AS_SENT]: "1" },
+        );
+        expect(missing.status).toBe(400);
         const none = await H.t.db
           .select()
           .from(inboxItem)

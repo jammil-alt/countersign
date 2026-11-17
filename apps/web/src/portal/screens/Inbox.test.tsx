@@ -6,17 +6,22 @@
 // a question waits with the rest and takes an answer; a change's editable fields are edited before
 // approving; a viewer sees and never approves. Who approves what is in Settings. The shell's Inbox
 // count follows every action. `/desk` lands here.
+
+import { itemFingerprint, PortalInboxItem } from "@countersign/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
 import { BILL_ITEM } from "../../test/changes";
-import { CLIENT_SESSION, fakeApi } from "../../test/fixtures";
+import { CLIENT_SESSION, fakeApi, Reply } from "../../test/fixtures";
 
 const SERVICE = { id: "00000000-0000-4000-8000-0000000a0c01", name: "Pia" };
 const ITEM = { ...BILL_ITEM, resolvedBy: null, service: SERVICE, batchKey: null };
 const ME = CLIENT_SESSION.user.id;
+
+/** Audit 3.4: the fingerprint of an item as the screen received it (the route's schema). */
+const seen = (item: unknown) => itemFingerprint(PortalInboxItem.parse(item));
 
 function overview(inbox: number) {
   return {
@@ -160,7 +165,7 @@ describe("The Inbox: a QuickBooks change", () => {
     const sign = within(card).getByTestId("desk-sign");
     expect(sign).toHaveTextContent("Approve and update QuickBooks Online");
     await userEvent.click(sign);
-    expect(resolved).toEqual([{ decision: "approve" }]);
+    expect(resolved).toEqual([{ decision: "approve", fingerprint: await seen(ITEM) }]);
     // Approved: the card stays, in copper, with Undo while the window lasts; the count follows.
     expect(await within(card).findByTestId("desk-outcome")).toHaveTextContent("Approved by you");
     expect(within(card).getByTestId("desk-undo-left")).toHaveTextContent(/seconds to undo/);
@@ -233,7 +238,9 @@ describe("The Inbox: batches, not now, questions, edits", () => {
     await userEvent.click(within(card).getByTestId(`desk-batch-tick-${two.id}`));
     expect(sign).toHaveTextContent("Approve 1 of 2");
     await userEvent.click(sign);
-    expect(bodies).toEqual([{ batchKey: key, approve: [one.id], reject: [] }]);
+    expect(bodies).toEqual([
+      { batchKey: key, approve: [one.id], reject: [], fingerprints: { [one.id]: await seen(one) } },
+    ]);
     expect(await within(card).findByTestId("desk-outcome")).toHaveTextContent("1 of 2 done by you");
   });
 
@@ -300,7 +307,9 @@ describe("The Inbox: batches, not now, questions, edits", () => {
     const card = screen.getByTestId("desk-detail");
     await userEvent.type(within(card).getByTestId("desk-answer-input"), "Yes, the same sheet");
     await userEvent.click(within(card).getByTestId("desk-answer-send"));
-    expect(answers).toEqual([{ decision: "approve", answer: "Yes, the same sheet" }]);
+    expect(answers).toEqual([
+      { decision: "approve", answer: "Yes, the same sheet", fingerprint: await seen(question) },
+    ]);
     expect(await within(card).findByTestId("desk-outcome")).toHaveTextContent("Answered by you");
   });
 
@@ -326,13 +335,18 @@ describe("The Inbox: batches, not now, questions, edits", () => {
       },
     };
     const edits: unknown[] = [];
+    const signed: unknown[] = [];
+    let shown: typeof mail = mail;
     const api = fakeApi({
       ...base,
       "GET /api/overview": () => overview(1),
-      "GET /api/inbox": inbox(() => ({ open: [mail] })),
+      "GET /api/inbox": inbox(() => ({ open: [shown] })),
       [`PUT /api/inbox/${mail.id}/edit`]: ({ init }) => {
         const body = JSON.parse(String(init.body)) as { input: Record<string, unknown> };
         edits.push(body);
+        // As the API stores it: who edited is kept with the edit.
+        const edited = { input: body.input, by: ME, at: new Date().toISOString() };
+        shown = { ...mail, payload: { ...mail.payload, edited } as typeof mail.payload };
         return {
           item: {
             id: mail.id,
@@ -365,7 +379,54 @@ describe("The Inbox: batches, not now, questions, edits", () => {
       },
     ]);
     expect(await within(card).findByTestId("desk-edited")).toBeInTheDocument();
-    expect(within(card).getByTestId("desk-sign")).toBeInTheDocument();
+    // Audit 3.4: signed as the API holds the edit, not as the screen pieced it together.
+    api.on(`POST /api/inbox/${mail.id}/resolve`, ({ init }) => {
+      signed.push(JSON.parse(String(init.body)));
+      return { item: { ...shown, status: "resolved", resolvedAt: new Date().toISOString() } };
+    });
+    await userEvent.click(within(card).getByTestId("desk-sign"));
+    await waitFor(() => expect(signed).toHaveLength(1));
+    expect(signed).toEqual([{ decision: "approve", fingerprint: await seen(shown) }]);
+  });
+
+  it("says a card changed since it was opened, shows it as it is now, and signs that", async () => {
+    const changed = {
+      ...ITEM,
+      payload: { ...ITEM.payload, edited: { input: { lines: [] }, by: "someone", at: "x" } },
+    };
+    let now: typeof ITEM = ITEM;
+    const bodies: { fingerprint?: string }[] = [];
+    const api = fakeApi({
+      ...base,
+      "GET /api/overview": () => overview(1),
+      "GET /api/inbox": inbox(() => ({ open: [now] })),
+      [`POST /api/inbox/${ITEM.id}/resolve`]: async ({ init }) => {
+        const body = JSON.parse(String(init.body)) as { fingerprint?: string };
+        bodies.push(body);
+        if (body.fingerprint !== (await seen(now))) {
+          return new Reply(409, {
+            error: {
+              code: "changed",
+              message: "This card changed since you opened it; look again",
+            },
+          });
+        }
+        return { item: { ...now, status: "resolved", resolvedAt: new Date().toISOString() } };
+      },
+    });
+    renderAt("/inbox", api);
+    const card = await screen.findByTestId("desk-detail");
+    // Someone else changes it while it is open here.
+    now = changed as typeof ITEM;
+    await userEvent.click(within(card).getByTestId("desk-sign"));
+    expect(
+      await within(card).findByText("This card changed since you opened it; look again"),
+    ).toBeInTheDocument();
+    expect(bodies).toEqual([{ decision: "approve", fingerprint: await seen(ITEM) }]);
+    // Looked at again, as it is now: signed.
+    await userEvent.click(within(card).getByTestId("desk-sign"));
+    expect(await within(card).findByTestId("desk-outcome")).toHaveTextContent("Approved by you");
+    expect(bodies.at(-1)).toEqual({ decision: "approve", fingerprint: await seen(changed) });
   });
 
   it("shows a viewer the item without its buttons", async () => {
@@ -527,6 +588,30 @@ describe("The Inbox: Mezonas stepped in", () => {
     await userEvent.click(within(box).getByTestId("desk-late-undo"));
     await waitFor(() => expect(pressed).toBe(1));
     expect(await within(card).findByText("Undone. We put the change back.")).toBeInTheDocument();
+  });
+
+  it("says a signed change was not done, and why, when the agent's access was narrowed since", async () => {
+    const refused = {
+      ...ITEM,
+      id: "00000000-0000-4000-8000-0000000b0104",
+      status: "resolved",
+      resolvedAt: "2026-11-10T15:00:00.000Z",
+      resolvedBy: { id: ME, name: "Demo admin" },
+      payload: {
+        ...ITEM.payload,
+        notDone: { reason: "update is off for this change now", at: "2026-11-10T15:01:00.000Z" },
+      },
+    };
+    const api = fakeApi({
+      ...base,
+      "GET /api/overview": () => overview(0),
+      "GET /api/inbox": inbox(() => ({ resolved: [refused] })),
+    });
+    renderAt("/inbox?view=done", api);
+    const card = await screen.findByTestId("desk-detail");
+    expect(await within(card).findByTestId("desk-not-done")).toHaveTextContent(
+      "Not done: update is off for this change now",
+    );
   });
 
   it("says when we passed an item to you, and why", async () => {

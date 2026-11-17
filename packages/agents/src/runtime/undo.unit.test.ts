@@ -149,6 +149,11 @@ function memoryActions(options: { keepsAfter: boolean }) {
       if (!a) throw new Error("missing");
       return put({ ...a, status: "failed", error });
     },
+    async refuse(_t, id, error) {
+      const a = rows.get(id);
+      if (!a) throw new Error("missing");
+      return a.status === "approved" ? put({ ...a, status: "rejected", error }) : { ...a };
+    },
     async proposeUndo(_t, input: ProposeUndoInput) {
       const existing = [...rows.values()].find((r) => r.idempotencyKey === input.idempotencyKey);
       if (existing) return { action: { ...existing }, created: false };

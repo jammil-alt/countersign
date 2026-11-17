@@ -96,6 +96,24 @@ export async function executeAction(
       throw new AgentsError("test_run", "test runs never execute external actions");
     }
   }
+  // Audit 3.5: a signature is not a grant. A change an agent proposed is asked of the gate again
+  // as it is about to be made (the connection's matrix, the agent's grant and its tool subset, as
+  // they are now), and one refused is rejected before anything is sent.
+  // DECISION (audit 3.5): only before its first claim (`approved`): a change already claimed may
+  // have been sent, so a takeover settles it whatever the grant says now. The refusal fails the
+  // step with its reason (a person said yes, so it is not their no), and the change is `rejected`,
+  // so a retry asks for it afresh rather than carrying the signature.
+  if (found.status === "approved" && found.agentVersionId) {
+    const refused = await grantRefusal(deps, input.tenantId, found);
+    if (refused) {
+      const row = await actions.refuse(input.tenantId, found.id, {
+        code: GATE_REFUSED,
+        message: refused,
+        notWritten: true,
+      });
+      if (row.status === "rejected") return { status: "failed", action: row, error: refused };
+    }
+  }
   const {
     action,
     claimed,
@@ -117,8 +135,14 @@ export async function executeAction(
         };
       case "proposed":
         return { status: "awaiting_approval", action };
-      case "rejected":
-        return { status: "rejected", action };
+      case "rejected": {
+        // Audit 3.5: refused by the gate as it was about to be made (above): told the same way
+        // again, never as a person's no.
+        const refused = gateRefusalOf(action.error);
+        return refused
+          ? { status: "failed", action, error: refused }
+          : { status: "rejected", action };
+      }
       case "approved":
         // v0.12 W1-D: approved but still inside its undo window: not executed now. The run is
         // told once the window has passed, and an undo before then puts it back to proposed.
@@ -283,6 +307,41 @@ export async function executeAction(
       ),
     );
   }
+}
+
+/** `error.code` of a change the gate refused as it was about to be made (audit 3.5). */
+const GATE_REFUSED = "gate_refused";
+
+/** The reason a change was refused as it was about to be made, or null. */
+function gateRefusalOf(error: unknown): string | null {
+  return isPlainObject(error) && error.code === GATE_REFUSED && typeof error.message === "string"
+    ? error.message
+    : null;
+}
+
+/**
+ * Why the gate refuses an agent's approved change now (`signedGateRefusal`, as an edit and an undo
+ * are asked), or null. A change whose tool or connection is gone is left to the checks made once
+ * it is claimed, which say so.
+ */
+async function grantRefusal(
+  deps: RuntimeDeps,
+  tenantId: string,
+  action: ExternalActionRecord,
+): Promise<string | null> {
+  const { store } = deps.ports;
+  const owner = action.runId ? await store.run(tenantId, action.runId) : null;
+  if (!owner) return null;
+  const conn = await store.connection(tenantId, action.connectionId);
+  const own = conn ? deps.tools.forConnector(action.tool, conn.connector) : undefined;
+  if (!conn || own?.kind !== "connector") return null;
+  return signedGateRefusal(deps, tenantId, {
+    spec: own.spec,
+    connector: own.connector,
+    conn,
+    agentId: owner.agentId,
+    input: action.editedInput ?? action.input,
+  });
 }
 
 /** Why an approved write may not run now for want of a release, or null. */

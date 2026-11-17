@@ -53,7 +53,7 @@ import {
   makeBundle,
 } from "./harness.test-helper";
 import { dbModelCalls } from "./model-calls";
-import { createRun } from "./run-log";
+import { createRun, finishRun } from "./run-log";
 import { rollupUsageDaily } from "./usage";
 
 const harness = await createHarness();
@@ -406,6 +406,72 @@ describe.skipIf(!harness)("runtime", () => {
     const retried = await callTool(h.deps(), await step(h.A, { runId: s.runId }), update("9.99"));
     expect(retried.status).toBe("refused");
     expect(h.backend.writes.length).toBe(writes);
+  });
+
+  it("a run's end closes its cards: open ones expire, waiting changes are rejected, none is signed after", async () => {
+    const s = await step(h.A);
+    const first = await callTool(h.deps(), s, update("11.00"));
+    const second = await callTool(h.deps(), s, update("12.00"));
+    if (first.status !== "awaiting_approval" || second.status !== "awaiting_approval") {
+      throw new Error("not waiting");
+    }
+    const ended = await h.client(h.A, (tx) =>
+      finishRun(tx, {
+        tenantId: h.A.tenantId,
+        runId: s.runId,
+        status: "failed",
+        error: { reason: "a write failed" },
+      }),
+    );
+    expect(ended).toBe(true);
+    const items = await h.client(h.A, (tx) =>
+      tx.select().from(inboxItem).where(eq(inboxItem.runId, s.runId)),
+    );
+    expect(items.map((i) => i.status)).toEqual(["expired", "expired"]);
+    const actions = await h.client(h.A, (tx) =>
+      tx.select().from(externalAction).where(eq(externalAction.runId, s.runId)),
+    );
+    for (const a of actions) {
+      expect(a).toMatchObject({
+        status: "rejected",
+        approvedBy: null,
+        error: { code: "run_ended" },
+      });
+    }
+    const late = await resolveExternalAction(h.db, {
+      tenantId: h.A.tenantId,
+      inboxItemId: first.inboxItemId ?? "",
+      decision: "approve",
+      by: { userId: h.A.adminId, role: "client_admin" },
+    }).catch((e: AgentsError) => e.code);
+    expect(late).toBe("invalid_state");
+    expect(
+      (await executeAction(h.deps(), { tenantId: h.A.tenantId, actionId: first.actionId })).status,
+    ).toBe("rejected");
+  });
+
+  it("a card left open on a run that has ended is never signed", async () => {
+    const s = await step(h.A);
+    const proposed = await callTool(h.deps(), s, update("13.00"));
+    if (proposed.status !== "awaiting_approval") throw new Error(proposed.status);
+    // Ended by a Worker from before a run's end closed its cards: the card is still open.
+    await h.client(h.A, (tx) =>
+      tx.update(run).set({ status: "failed", finishedAt: new Date() }).where(eq(run.id, s.runId)),
+    );
+    const late = await resolveExternalAction(h.db, {
+      tenantId: h.A.tenantId,
+      inboxItemId: proposed.inboxItemId ?? "",
+      decision: "approve",
+      by: { userId: h.A.adminId, role: "client_admin" },
+    }).catch((e: AgentsError) => e);
+    expect(late).toMatchObject({
+      code: "run_ended",
+      message: "This run has ended; nothing will be done with this card",
+    });
+    const [action] = await h.client(h.A, (tx) =>
+      tx.select().from(externalAction).where(eq(externalAction.id, proposed.actionId)),
+    );
+    expect(action).toMatchObject({ status: "proposed", approvedBy: null });
   });
 
   it("a test run never executes, even where the gate would run it", async () => {

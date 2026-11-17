@@ -426,7 +426,8 @@ describe.skipIf(!h)("v4 processes in apps/api", () => {
         .select()
         .from(externalAction)
         .where(eq(externalAction.runId, p.runId));
-      expect(action?.status).toBe("proposed");
+      // Audit 3.3: the run's end closes what it left waiting: never signed, never written.
+      expect(action).toMatchObject({ status: "rejected", error: { code: "run_ended" } });
     });
 
     it("never goes ahead for an agent that only suggests", async () => {
