@@ -162,6 +162,25 @@ describe("reconcile", () => {
     expect(r.outcome).toBe("explained");
   });
 
+  it("leaves a gap in the opening balances unexplained, even when every item matches", () => {
+    // A cleared $500.00 check deleted from QuickBooks in an earlier month: the books start higher.
+    const items = [
+      { ref: "x1", date: "2026-11-04", effect: "3000.00" },
+      { ref: "x2", date: "2026-11-12", effect: "-500.00" },
+    ];
+    const bank = side("Bank", "12000.00", items, "9500.00");
+    const books = side("QuickBooks", "12500.00", items, "10000.00");
+    const r = reconcile(bank, books, DEFAULT_RECON_SETTINGS, "2026-11-30");
+    expect(r.matches).toHaveLength(2);
+    expect(r).toMatchObject({
+      difference: "-500.0000",
+      startGap: "-500.0000",
+      unmatchedNet: "0.0000",
+      residual: "-500.0000",
+      outcome: "unexplained",
+    });
+  });
+
   it("clears last month's deposit in transit against this month's bank deposit", () => {
     // October left $250 on the books, not yet at the bank. November: it reaches the bank.
     const bank = side(

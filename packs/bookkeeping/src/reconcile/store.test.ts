@@ -75,6 +75,7 @@ describe.skipIf(!online)("reconciliation (database, as cs_worker)", () => {
     status: string;
     outcome: string;
     residual: string;
+    startGap: string;
     summary: string;
     items: {
       id: string;
@@ -335,6 +336,58 @@ describe.skipIf(!online)("reconciliation (database, as cs_worker)", () => {
     const left = (await load(A, id)).items.find((i) => i.state === "unmatched");
     await decide(A, id, { action: "label", input: { itemId: left?.id, label: "timing" } });
     expect((await load(A, id)).items.find((i) => i.id === left?.id)?.label).toBe("timing");
+  });
+
+  it("won't sign off when the opening balances differ and nothing carried explains it", async () => {
+    const items = [
+      { id: "1", date: "2026-11-04", effect: "3000.00" },
+      { id: "2", date: "2026-11-12", effect: "-500.00" },
+    ];
+    const out = (await tool("bookkeeping.reconcile").run(
+      {
+        a: { source: "given", label: "Statement", opening: "9500.00", closing: "12000.00", items },
+        b: qbo(
+          "10000.00",
+          "12500.00",
+          items.map((i) => ({ ...i, id: `q${i.id}` })),
+        ),
+        asOf: "2026-11-30",
+        periodStart: "2026-11-01",
+        pairKey: "test:opening",
+      },
+      ctx(A),
+    )) as Record<string, unknown>;
+    expect(out).toMatchObject({
+      outcome: "unexplained",
+      residual: "-500.0000",
+      matched: 2,
+      leftovers: 0,
+      needsPerson: true,
+    });
+    expect(out.summary).toContain("The opening balances differ by −$500.00");
+    const id = String(out.reconciliationId);
+    const view = await load(A, id);
+    expect(view).toMatchObject({
+      outcome: "unexplained",
+      residual: "-500.0000",
+      startGap: "-500.0000",
+    });
+    await expect(decide(A, id, { action: "sign_off", input: { note: "fine" } })).rejects.toThrow(
+      "isn't explained yet",
+    );
+    // A person names what the bank has and the books don't; then it can be signed off.
+    await decide(A, id, {
+      action: "add_item",
+      input: {
+        side: "a",
+        date: "2026-10-15",
+        effect: "-500.00",
+        description: "Check 1038 cleared in October and was deleted from the books",
+      },
+    });
+    expect(await load(A, id)).toMatchObject({ outcome: "explained", residual: "0.0000" });
+    await decide(A, id, { action: "sign_off", input: {} });
+    expect((await load(A, id)).status).toBe("signed_off");
   });
 
   it("keeps the model's proposal for a person, who accepts it; a mismatched one is refused", async () => {
