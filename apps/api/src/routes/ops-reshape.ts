@@ -7,6 +7,7 @@
 
 import { resolveCustomSkill, suggestReshape } from "@countersign/agents";
 import {
+  ComplianceRefusal,
   isoToday,
   parseSkillRef,
   processes,
@@ -21,16 +22,18 @@ import { run, stepRun } from "@countersign/db";
 import { createLlmClient, type LlmTransport } from "@countersign/llm";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
+import { clientModels } from "../compliance/models";
 import { type AppEnv, type HandlerCtx, HttpError, mount } from "../http";
-import { workerTransport } from "../runs/execute";
 import { agentInScope } from "./ops-lineage";
 
 type Ctx = HandlerCtx<never>;
 
-/** The model transport: the app's (tests pass a replay), else the Worker's live one. */
-function transport(ctx: Pick<Ctx, "services">): LlmTransport {
-  const { deps, env } = ctx.services;
-  return deps.llm?.(env) ?? workerTransport(env);
+/**
+ * The model transport, held to the agent's client's HIPAA mode (§1.35; a template's is no
+ * client's). Called inside the request's transaction.
+ */
+function transport(ctx: Pick<Ctx, "services" | "tx">, clientId: string | null): LlmTransport {
+  return clientModels(ctx.services, { clients: [clientId], read: ctx.tx });
 }
 
 /** The process and its Reshape step, as the builder sent them. */
@@ -99,8 +102,10 @@ export function opsReshapeRoutes(app: Hono<AppEnv>): void {
     if (body.ai !== false && ask.length > 0) {
       const s = await suggestReshape(
         { context, mapping: proposal.mapping, unmapped: ask },
-        { llm: createLlmClient({ transport: transport(ctx) }) },
+        { llm: createLlmClient({ transport: transport(ctx, row.tenantId) }) },
       ).catch((error: unknown) => {
+        // HIPAA mode: nothing was sent; answered as 409 `hipaa`, saying why.
+        if (error instanceof ComplianceRefusal) throw error;
         throw new HttpError(
           503,
           "builder_unavailable",

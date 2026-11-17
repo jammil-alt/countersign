@@ -178,6 +178,8 @@ describe.skipIf(!h)("channels through the API", () => {
   let pia = "";
   let remy = "";
   let dana = "";
+  let bot = "";
+  let tollFree = "";
 
   async function addConnection(tenantId: string, connector: string, config: object) {
     const [row] = await H.t.db
@@ -226,7 +228,16 @@ describe.skipIf(!h)("channels through the API", () => {
       .values({ tenantId: A(), name: "Dana", phone: "+15557770001" })
       .returning();
     dana = c?.id as string;
-    // Remy starts on a text from Dana.
+    const [b, f] = await H.t.db
+      .insert(contact)
+      .values([
+        { tenantId: A(), name: "Vendor desk", phone: "+15557779001" },
+        { tenantId: A(), name: "Vendor line", phone: "+18775550100" },
+      ])
+      .returning();
+    bot = b?.id as string;
+    tollFree = f?.id as string;
+    // Remy starts on a text from Dana (and two vendor numbers), and confirms it.
     const remyBundle = testBundle("Remy Records");
     const [wf] = remyBundle.workflows;
     if (!wf) throw new Error("no workflow");
@@ -237,7 +248,12 @@ describe.skipIf(!h)("channels through the API", () => {
           ...wf.workflow,
           trigger: {
             id: "msg",
-            on: { type: "message", channels: ["sms"], from: { contactIds: [dana] } },
+            on: {
+              type: "message",
+              channels: ["sms"],
+              from: { contactIds: [dana, bot, tollFree] },
+              reply: { confirm: "We got your message." },
+            },
           },
         },
       },
@@ -401,5 +417,97 @@ describe.skipIf(!h)("channels through the API", () => {
     ]);
     // Pia's own number isn't the account's: Remy doesn't hear what comes in there.
     expect(await textOn(second, "SM-second")).toEqual([]);
+  });
+
+  const OURS = "+15550000101";
+  const stranger = async (phone: string) => {
+    const [c] = await H.t.db
+      .insert(contact)
+      .values({ tenantId: A(), name: phone, phone })
+      .returning();
+    return c as NonNullable<typeof c>;
+  };
+  let n = 0;
+  const textFrom = (
+    who: Awaited<ReturnType<typeof stranger>>,
+    from: string,
+    now = new Date(),
+    knownContact = false,
+  ) =>
+    withTenant(H.db, A(), async (tx) => {
+      const sid = `SM-stranger-${++n}`;
+      const [raw] = await tx
+        .insert(rawRecord)
+        .values({
+          tenantId: A(),
+          connectionId: main,
+          connector: "twilio",
+          entityType: "Message",
+          externalId: sid,
+          externalVersion: null,
+          payload: {},
+        })
+        .returning();
+      return routeInboundText(tx, {
+        tenantId: A(),
+        connectionId: main,
+        channel: "sms",
+        sid,
+        contact: who,
+        knownContact,
+        rawRecordId: raw?.id as string,
+        from,
+        to: OURS,
+        now,
+        registry: H.platform.events,
+        collect: [],
+      });
+    });
+
+  it("answers someone it doesn't take at most once a day, and never an automated sender", async () => {
+    await call(OPERATOR, "PUT", `/api/ops/clients/${A()}/channels`, { channels: { sms: main } });
+    const EVE = "+15557770002";
+    const eve = await stranger(EVE);
+    expect(await textFrom(eve, EVE)).toEqual([
+      expect.objectContaining({ channel: "sms", from: OURS, to: EVE }),
+    ]);
+    // The same sender again that day: no reply.
+    expect(await textFrom(eve, EVE)).toEqual([]);
+    // The next day, one more.
+    expect(await textFrom(eve, EVE, new Date(Date.now() + 25 * 60 * 60 * 1000))).toHaveLength(1);
+
+    // Two messages at once: one reply.
+    const IVY = "+15557770003";
+    const ivy = await stranger(IVY);
+    const both = await Promise.all([textFrom(ivy, IVY), textFrom(ivy, IVY)]);
+    expect(both.flat()).toHaveLength(1);
+
+    // Short codes, alphanumeric senders, toll-free numbers and the client's own number: none.
+    for (const from of ["+18885550100", "+18005550100", "898211", "+12345", "ALERTS", OURS]) {
+      const who = await stranger(`+1555777${String(++n).padStart(4, "0")}`);
+      expect(await textFrom(who, from), from).toEqual([]);
+    }
+  });
+
+  it("confirms to a sender it takes at most five times a day, and never to an automated sender", async () => {
+    await call(OPERATOR, "PUT", `/api/ops/clients/${A()}/channels`, { channels: { sms: main } });
+    const [vendor, line] = await H.t.db
+      .select()
+      .from(contact)
+      .where(eq(contact.tenantId, A()))
+      .then((rows) => [rows.find((r) => r.id === bot), rows.find((r) => r.id === tollFree)]);
+    const VENDOR = "+15557779001";
+    const replies: number[] = [];
+    for (let i = 0; i < 7; i++) {
+      replies.push(
+        (await textFrom(vendor as NonNullable<typeof vendor>, VENDOR, new Date(), true)).length,
+      );
+    }
+    // The confirmation stops after five.
+    expect(replies).toEqual([1, 1, 1, 1, 1, 0, 0]);
+    // A toll-free sender the trigger takes: no confirmation.
+    expect(
+      await textFrom(line as NonNullable<typeof line>, "+18775550100", new Date(), true),
+    ).toEqual([]);
   });
 });

@@ -11,6 +11,7 @@ import { tenant, withTenant } from "@countersign/db";
 import { claimUnreadDocuments, giveUpReading, READING_ATTEMPTS } from "@countersign/documents";
 import { EmittedEvents } from "@countersign/senses";
 import { isNull, type SQL, sql } from "drizzle-orm";
+import { readsDocuments } from "../compliance/models";
 import { MESSAGE_MEDIA_ENTITY } from "../conversations/capture";
 import type { Services } from "../http";
 import { reportHandled, reportProblem } from "../observability/report";
@@ -130,7 +131,7 @@ export async function readingSweep(
   const out: ReadingSweepResult = { read: 0, failed: 0, quiet: 0 };
   if (at.getUTCMinutes() % READING_SWEEP_EVERY_MINUTES !== READING_SWEEP_MINUTE) return out;
   // Without a model key nothing is read on arrival either: documents wait for an agent's reading.
-  if (!services.deps.extractionTransport(services.env)) return out;
+  if (!readsDocuments(services)) return out;
   const deadline = Date.now() + READING_SWEEP_BUDGET_MS;
   const clients = await services.db
     .select({ id: tenant.id })

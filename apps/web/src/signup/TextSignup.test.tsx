@@ -17,6 +17,7 @@ const page = (over: Record<string, unknown> = {}) => ({
   kind: "link",
   name: null,
   phone: null,
+  number: null,
   terms: TERMS,
   wordingVersion: 1,
   state: "open",
@@ -66,7 +67,7 @@ describe("the texting sign-up page", () => {
     expect(submit).toBeEnabled();
     await userEvent.click(submit);
     expect(await screen.findByTestId("text-signup-done")).toHaveTextContent(
-      "We sent a text from Rivera Supply to confirm.",
+      "Look for a text from Rivera Supply to confirm.",
     );
     expect(posts).toEqual([
       { name: "Dana Kim", phone: "(512) 555-0177", agree: true, wordingVersion: 1 },
@@ -114,6 +115,36 @@ describe("the texting sign-up page", () => {
       "Rivera Supply won't ask you about texts again. Email keeps working.",
     );
     expect(api.calls).toContain(`POST /api/text-signup/${TOKEN}/decline`);
+  });
+
+  it("tells everyone how to start texts again after a STOP", async () => {
+    const api = fakeApi({
+      "GET /api/session": signedOut,
+      [`GET /api/text-signup/${TOKEN}`]: () => page({ number: "+15125550101" }),
+      [`POST /api/text-signup/${TOKEN}`]: () => ({ confirmation: "sent" }),
+    });
+    const { unmount } = renderAt(`/texts/${TOKEN}`, api);
+    expect(await screen.findByTestId("text-signup-start-again")).toHaveTextContent(
+      "Texted STOP before? Text START to (512) 555-0101 from your phone.",
+    );
+    // And again once the form is sent: no text comes to a number that texted STOP.
+    await userEvent.type(screen.getByTestId("text-signup-name"), "Dana Kim");
+    await userEvent.type(screen.getByTestId("text-signup-phone"), "(512) 555-0177");
+    await userEvent.click(screen.getByTestId("text-signup-agree"));
+    await userEvent.click(screen.getByTestId("text-signup-submit"));
+    await screen.findByTestId("text-signup-done");
+    expect(screen.getByTestId("text-signup-start-again")).toHaveTextContent(
+      "Texted STOP before? Text START to (512) 555-0101 from your phone.",
+    );
+    unmount();
+    // No number that can text yet: no line.
+    const none = fakeApi({
+      "GET /api/session": signedOut,
+      [`GET /api/text-signup/${TOKEN}`]: () => page(),
+    });
+    renderAt(`/texts/${TOKEN}`, none);
+    await screen.findByTestId("text-signup-title");
+    expect(screen.queryByTestId("text-signup-start-again")).toBeNull();
   });
 
   it("says when someone is already signed up, and when a link is no good", async () => {

@@ -25,7 +25,10 @@ through the API, typed by `@countersign/core`'s route contract; its look comes f
   JWK).
 - **Signing.** Sign or Reject reads the key (that read is the Face ID prompt) and signs core's
   `deviceSignedText` (device, item, decision, the item's fingerprint, the time); the signature rides
-  on `POST /api/inbox/:id/resolve`. The undo window then counts down on the Desk.
+  on `POST /api/inbox/:id/resolve`. An answer to a question, quick ones on the Desk included, is
+  signed the same way as a yes: the API refuses a decision from the app's session without a valid
+  signature (403 `signature_required`), so a phone not set up to sign sends none. The undo window
+  then counts down on the Desk.
 - **Notifications.** A count and nothing else on the lock screen (or with the business name, if the
   person chose that). A tap opens the Desk, Messages or Settings (`data.kind`, `data.path`).
 

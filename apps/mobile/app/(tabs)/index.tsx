@@ -1,5 +1,6 @@
 // Your Desk: what waits on you. Changes open to be signed; questions with quick answers are
-// answered here in one tap; "Not now" sets an item aside. After a signature, the undo window.
+// answered here in one tap, signed with Face ID; "Not now" sets an item aside. After a signature,
+// the undo window.
 import { pickLocalized, routes } from "@countersign/core";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
@@ -15,9 +16,10 @@ import {
   undoLeft,
   whyLines,
 } from "../../src/desk/model";
-import { itemFingerprint } from "../../src/device/signing";
+import { signedDecision } from "../../src/device/signing";
 import { useApp } from "../../src/state/app";
 import { useDesk } from "../../src/state/desk";
+import { readPrivateKey } from "../../src/state/store";
 import { radius, space, usePalette } from "../../src/theme/theme";
 import { Icon } from "../../src/ui/Icon";
 import {
@@ -137,10 +139,11 @@ export default function Desk() {
 }
 
 function DeskCard({ item, onLater }: { item: DeskItem; onLater: () => void }) {
-  const { api, me } = useApp();
+  const { api, deviceId, me } = useApp();
   const desk = useDesk();
   const p = usePalette();
   const [busy, setBusy] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
   const need = needOf(item);
   const locale = me?.language.effective ?? "en";
   const choices = need === "answer" ? quickAnswers(item.payload, locale) : null;
@@ -156,15 +159,30 @@ function DeskCard({ item, onLater }: { item: DeskItem; onLater: () => void }) {
 
   const answer = async (value: string) => {
     setBusy(value);
+    setProblem(null);
     try {
+      // Audit 5.2: a quick answer is signed on the phone too, or not sent.
+      const signed = await signedDecision({
+        deviceId,
+        item,
+        decision: "approve",
+        answer: value,
+        prompt: "Answer with Face ID",
+        readKey: readPrivateKey,
+      });
+      if (!signed.ok) {
+        setProblem(signed.problem);
+        return;
+      }
       await api.call(routes.portalResolveInbox, {
         params: { id: item.id },
-        // Audit 3.4: the item as the person saw it.
-        body: { decision: "approve", answer: value, fingerprint: itemFingerprint(item) },
+        body: signed.body,
         byPerson: true,
       });
       desk.drop(item.id);
       void desk.refresh();
+    } catch {
+      setProblem("Your answer didn't go through. Try again.");
     } finally {
       setBusy(null);
     }
@@ -203,6 +221,7 @@ function DeskCard({ item, onLater }: { item: DeskItem; onLater: () => void }) {
           ))}
           <Button kind="ghost" label="Not now" onPress={onLater} />
         </View>
+        {problem ? <Note tone="risk">{problem}</Note> : null}
       </Card>
     );
   }

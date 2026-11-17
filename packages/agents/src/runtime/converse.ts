@@ -134,10 +134,13 @@ export async function converseTurn(
     ? "To finish, first send a `confirm` message that restates the result in plain words and asks the person to confirm it. When they confirm, answer `done` with that result and `confirmed: true`. If they correct it, ask or confirm again."
     : "When you have the result, answer `done` with it.";
   const channelWords = CHANNEL_WORDS[req.channel];
+  // The person's name stays in the data (`with`), never in these instructions: a contact's name can
+  // be theirs to set (a WhatsApp profile name), so it is untrusted text (invariant 9).
+  const person = "one person (`with` in the conversation's data)";
   // R7: an ended conversation is only read; the words for a live one are unchanged.
   const conversation = req.finished
-    ? `## This conversation\nYou talked with ${req.who.name} by ${channelWords}, for ${req.clientName}. It is over: send nothing.\nGoal: ${req.goal}\nRead what was said and answer \`done\` with the result, using only what the person said (\`confirmed: true\` only if they confirmed it). If it isn't there, answer \`give_up\` with the reason.`
-    : `## This conversation\nYou are writing to ${req.who.name} by ${channelWords}, for ${req.clientName}.\nGoal: ${req.goal}\nThe first message: ${req.opening}\n${finishing}\nIf you can't reach the goal (they refuse, don't know, or it needs someone else), answer \`give_up\` with the reason; a person takes over.`;
+    ? `## This conversation\nYou talked with ${person} by ${channelWords}, for ${req.clientName}. It is over: send nothing.\nGoal: ${req.goal}\nRead what was said and answer \`done\` with the result, using only what the person said (\`confirmed: true\` only if they confirmed it). If it isn't there, answer \`give_up\` with the reason.`
+    : `## This conversation\nYou are writing to ${person} by ${channelWords}, for ${req.clientName}.\nGoal: ${req.goal}\nThe first message: ${req.opening}\n${finishing}\nIf you can't reach the goal (they refuse, don't know, or it needs someone else), answer \`give_up\` with the reason; a person takes over.`;
   const system = [
     CONVERSE_PREAMBLE,
     `## Who you are\n${definition.identity.name}: ${definition.identity.role}. ${definition.identity.mission}`,

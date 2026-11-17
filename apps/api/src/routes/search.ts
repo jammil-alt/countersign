@@ -18,13 +18,13 @@ import {
   shortRunId,
 } from "@countersign/core";
 import { agent, run, type Tx, tenant } from "@countersign/db";
-import { createLlmClient, type LlmTransport } from "@countersign/llm";
+import { createLlmClient } from "@countersign/llm";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
-import { type AppEnv, ensureClient, type HandlerCtx, mount, mountLong } from "../http";
+import { clientModels } from "../compliance/models";
+import { type AppEnv, ensureClient, mount, mountLong } from "../http";
 import { claimMetered } from "../metered";
 import { clientStatusWhere, clientWaits, OPEN_RUN } from "../runs/client-status";
-import { workerTransport } from "../runs/execute";
 import { reachContext, runWaits } from "../runs/run-wait";
 import { runSubjects } from "../runs/subject";
 import { compileQuestion } from "../runs-ask/ask";
@@ -84,12 +84,6 @@ async function searchAll(tx: Tx, scope: SearchScope, q: string) {
     organizations,
     documents,
   };
-}
-
-/** The model transport: the app's (tests pass a FakeModel), else the Worker's live one. */
-function transport(ctx: Pick<HandlerCtx<never>, "services">): LlmTransport {
-  const { deps, env } = ctx.services;
-  return deps.llm?.(env) ?? workerTransport(env);
 }
 
 function namesOf(context: AskContext) {
@@ -214,7 +208,10 @@ export function searchRoutes(app: Hono<AppEnv>): void {
         now: new Date(),
       });
     });
-    const llm = createLlmClient({ transport: transport(ctx) });
+    // HIPAA mode (§1.35): the question and the client's names go to the model only if allowed.
+    const llm = createLlmClient({
+      transport: clientModels(services, { clients: [tenantId], read: services.db }),
+    });
     const outcome = await compileQuestion({ llm, question: body.text, context });
     return ctx.inTx(async ({ tx }) => {
       if (outcome.record) {
@@ -269,7 +266,12 @@ export function searchRoutes(app: Hono<AppEnv>): void {
         now: new Date(),
       }),
     );
-    const llm = createLlmClient({ transport: transport(ctx) });
+    // DECISION: a question across clients carries every one's names, so each client it covers
+    // must allow the model (HIPAA mode, §1.35); asking about one client names only that one.
+    // Read outside any transaction: the model call runs between the route's two (mountLong).
+    const llm = createLlmClient({
+      transport: clientModels(services, { clients: ids, read: services.db }),
+    });
     const outcome = await compileQuestion({ llm, question: body.text, context });
     const record = outcome.record;
     if (record) {

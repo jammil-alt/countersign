@@ -14,6 +14,7 @@ import {
 import { personDevice, type Tx } from "@countersign/db";
 import { and, asc, eq, isNull, ne } from "drizzle-orm";
 import { HttpError, notFound } from "../http";
+import type { PhoneSessionOf } from "./phone-session";
 
 type DeviceRow = typeof personDevice.$inferSelect;
 
@@ -205,7 +206,8 @@ export async function verifySigned(
 /**
  * A Desk item signed on a phone: the person's own phone with a key, a signature of this decision
  * on this item as they saw it, made within DEVICE_SIGNATURE_SKEW_SEC. Anything else is refused
- * before the item is touched; the phone's last use is recorded.
+ * before the item is touched (a phone that isn't theirs or was removed, or a signature that doesn't
+ * match: 403 `signature_required`); the phone's last use is recorded.
  */
 export async function checkDeviceSignature(
   tx: Tx,
@@ -226,8 +228,10 @@ export async function checkDeviceSignature(
     .select()
     .from(personDevice)
     .where(and(mine(input.tenantId, input.userId), eq(personDevice.id, sig.deviceId)));
+  // Audit 5.2: not one of the person's phones in this client, or removed since: 403
+  // `signature_required`, as a missing signature is.
   if (!device?.publicKey) {
-    throw new HttpError(403, "device_unknown", "this phone can't sign: set it up again in the app");
+    throw signatureRequired("this phone can't sign: set it up again in the app");
   }
   const at = Date.parse(sig.at);
   if (
@@ -247,10 +251,37 @@ export async function checkDeviceSignature(
     at: sig.at,
   });
   if (!(await verifySigned(device.publicKey, text, sig.signature))) {
-    throw new HttpError(401, "signature_invalid", "the signature doesn't match: sign again");
+    throw signatureRequired("the signature doesn't match: sign again");
   }
   await tx
     .update(personDevice)
     .set({ lastSeenAt: input.now })
     .where(and(mine(input.tenantId, input.userId), eq(personDevice.id, device.id)));
+}
+
+// ── Deciding a card from a phone (audit 5.2) ───────────────────────────────────────────────────
+
+/** A decision on a card from a phone without a signature the API accepts: nothing changes. */
+export function signatureRequired(
+  message = "sign this on your phone with Face ID or a fingerprint",
+): HttpError {
+  return new HttpError(403, "signature_required", message);
+}
+
+/**
+ * Audit 5.2: a phone's session decides a card only with its phone's signature, which the one-item
+ * resolve carries (`ResolveBody.deviceSignature`, checked by `checkDeviceSignature`). A route that
+ * decides a card and carries no signature (a batch, an edit before signing, taking a change back,
+ * a suggestion, a drafted change, a pack's review) refuses a phone's session before anything is
+ * read or written; a browser's session goes on as before.
+ */
+// DECISION: refused outright rather than given signatures of their own: the phone app decides one
+// card at a time on the resolve route and calls none of these, and a signature covers a yes or a
+// no on one item as shown (`deviceSignedText`), which none of them is. They stay in the browser.
+// DECISION: the Desk's undo (`/api/inbox/:id/undo`, inside the window) is not refused: it writes
+// nothing to a client's tools, only opens the card again, which then needs a signed decision.
+export function refusePhoneSession(session: Pick<PhoneSessionOf, "phone">): void {
+  if (session.phone) {
+    throw signatureRequired("do this in a browser: on the phone, each card is signed on its own");
+  }
 }

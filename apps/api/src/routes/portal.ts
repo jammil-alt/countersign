@@ -65,7 +65,7 @@ import { mayControlConversation } from "../converse/control";
 import { portalConversation, runConversations } from "../converse/views";
 import { type AppEnv, HttpError, iso, mount, notFound } from "../http";
 import { type InboxRow, resolveInboxItem, scrubForPortal, sendResolution } from "../inbox";
-import { checkDeviceSignature } from "../mobile/devices";
+import { checkDeviceSignature, signatureRequired } from "../mobile/devices";
 // v0.13 W2-I
 import { timelineOversight } from "../oversight/views";
 import type { Platform } from "../platform";
@@ -932,6 +932,9 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
   mount(app, routes.portalResolveInbox, async (ctx) => {
     const { tx, tenantIds, role, session, params, body, services } = ctx;
     const tenantId = tenantIds[0] as string;
+    // Audit 5.2: from the phone app's session, only with a signature from one of the person's own
+    // phones in this client (checked below, before the item changes); a browser's as before.
+    if (session.phone && !body.deviceSignature) throw signatureRequired();
     // Audit 3.4: an answer names the item as the person saw it: its fingerprint, or a phone's
     // signature (which carries one).
     // DECISION (audit 3.4): required, with no grace for older clients: the phone app has no store

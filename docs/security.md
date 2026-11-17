@@ -88,7 +88,11 @@ branches.
   - A phone (the phone app, `docs/plan.md` §1.116): removing it in Settings ends that person's
     phone-app sessions which signed in before then, in all their clients, on their next request
     (`mobile.phone_removed` in the audit log). While the second step is on, a phone's signing key
-    can be added only within 10 minutes of signing in or passing the step.
+    can be added only within 10 minutes of signing in or passing the step. A phone-app session
+    decides a card (approve, reject, answer) only with a signature from one of the person's own
+    phones in that client, still set up; without one it is refused (403 `signature_required`) and
+    nothing changes, and the card routes that carry no signature (a batch, an edit, taking a change
+    back, a suggestion, a drafted change, a pack's review) refuse it outright.
 - Roles are `operator`, `client_admin` and `client_user`. Only operators reach `/api/ops` and the
   MCP connector's back-office tools; a client's admin or user signing in to the same connector gets
   read-only tools over the portal's routes, for one of their own clients per call (`docs/plan.md`

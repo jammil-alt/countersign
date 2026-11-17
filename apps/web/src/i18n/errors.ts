@@ -24,6 +24,8 @@ const CODE_KEYS: Record<string, PlainKey> = {
   changed: "error.changed",
   run_ended: "error.run_ended",
   fingerprint_required: "error.fingerprint_required",
+  // Audit 5.2: a decision from the phone app without its phone's signature.
+  signature_required: "error.signature_required",
   not_assignee: "error.not_assignee",
   not_connected: "error.not_connected",
   not_available: "error.not_available",

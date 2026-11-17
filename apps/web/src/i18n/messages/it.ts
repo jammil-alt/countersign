@@ -86,6 +86,8 @@ export const it: Messages = {
   "error.changed": "Questa voce è cambiata da quando l'hai aperta; guardala di nuovo.",
   "error.run_ended": "Questa esecuzione è terminata; non verrà fatto nulla con questa voce.",
   "error.fingerprint_required": "Questa pagina non è aggiornata; ricaricala e guarda di nuovo.",
+  "error.signature_required":
+    "Serve la firma del tuo telefono. Firma con Face ID o l'impronta nell'app, oppure decidi da un browser.",
   "error.not_assignee": "Questo aspetta un'altra persona.",
   "error.not_connected": "Questo strumento non è collegato.",
   "error.not_available": "Non è ancora disponibile.",

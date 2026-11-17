@@ -27,7 +27,13 @@ import {
   R2ObjectStore,
   type StripeClient,
 } from "@countersign/connectors";
-import { assignedUserMayUse, type Role, type RouteSpec, routeFamily } from "@countersign/core";
+import {
+  assignedUserMayUse,
+  ComplianceRefusal,
+  type Role,
+  type RouteSpec,
+  routeFamily,
+} from "@countersign/core";
 import {
   closeDb,
   createDb,
@@ -39,7 +45,7 @@ import {
   withSession,
   withTenant,
 } from "@countersign/db";
-import { createOpenAITranscriber, type LlmTransport, type Transcriber } from "@countersign/llm";
+import type { LlmTransport, Transcriber } from "@countersign/llm";
 import { captureException } from "@sentry/cloudflare";
 import { and, eq } from "drizzle-orm";
 import type { Context, Hono } from "hono";
@@ -114,15 +120,6 @@ export interface AppDeps {
    * Tests pass a fake.
    */
   transcriber?(env: Bindings): Transcriber | null;
-}
-
-/** Voice typing's speech-to-text, or null where it is off (no OpenAI key). */
-export function transcriberFor(deps: AppDeps, env: Bindings): Transcriber | null {
-  if (deps.transcriber) return deps.transcriber(env);
-  const key = env.OPENAI_API_KEY?.trim();
-  return key
-    ? createOpenAITranscriber({ apiKey: key, fetch: globalFetch() as unknown as typeof fetch })
-    : null;
 }
 
 /** The Stripe client for billing, or null where billing is off (no key). */
@@ -305,6 +302,8 @@ export function toHttpError(error: unknown): HttpError {
     );
   }
   if (error instanceof ScopeError) return new HttpError(403, "forbidden", error.message);
+  // HIPAA mode (§1.35): a call that would send a client's data to a vendor without a BAA.
+  if (error instanceof ComplianceRefusal) return new HttpError(409, "hipaa", error.message);
   if (error instanceof z.ZodError) {
     return new HttpError(400, "invalid_request", z.prettifyError(error), error.issues);
   }

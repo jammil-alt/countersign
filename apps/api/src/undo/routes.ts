@@ -17,6 +17,7 @@ import type { Hono } from "hono";
 import { auditInTx } from "../audit";
 import { type AppEnv, HttpError, mountLong, notFound, type Services, txOnly } from "../http";
 import { withCanSign } from "../inbox";
+import { refusePhoneSession } from "../mobile/devices";
 import { operatorApprovers } from "../routes/ops-clients";
 import { portalInboxFilter } from "../routes/portal";
 import { forClient, runDepsFromEnv, runtimeFor } from "../runs/execute";
@@ -130,6 +131,8 @@ async function pressUndo(
 
 export function undoRouteHandlers(app: Hono<AppEnv>): void {
   mountLong(app, undoRoutes.portalUndoChange, async (ctx) => {
+    // Audit 5.2: a phone's session decides a card only with a signature; this route carries none.
+    refusePhoneSession(ctx.session);
     const tenantId = ctx.tenantIds[0] as string;
     const find = async (tx: Tx) => {
       // Only an item the portal's inbox shows this person, in their one client (invariant 1).

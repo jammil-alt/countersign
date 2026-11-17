@@ -19,12 +19,7 @@ import {
   type UploadConnectionRow,
   updateForwarding,
 } from "@countersign/connectors";
-import {
-  connectorShown,
-  type ExtractedHeader,
-  parseCoveredProcessors,
-  routes,
-} from "@countersign/core";
+import { connectorShown, type ExtractedHeader, routes } from "@countersign/core";
 import {
   docExtraction,
   document,
@@ -50,7 +45,7 @@ import { createLlmClient } from "@countersign/llm";
 import { collectEmitted, EmittedEvents, type EventRow, emit } from "@countersign/senses";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Hono } from "hono";
-import { guardModels, profileReader } from "../compliance/policy";
+import { clientExtractionModels } from "../compliance/models";
 import {
   type AppContext,
   type AppEnv,
@@ -231,15 +226,9 @@ export async function extractInBackground(
   documentIds: readonly string[],
   options: { claim?: string } = {},
 ): Promise<void> {
-  const inner = services.deps.extractionTransport(services.env);
-  if (!inner || documentIds.length === 0) return;
   // A client in HIPAA mode: only a model whose provider has a signed BAA reads its documents.
-  const transport = guardModels(
-    inner,
-    tenantId,
-    profileReader(services.db),
-    parseCoveredProcessors(services.env.BAA_PROCESSORS),
-  );
+  const transport = clientExtractionModels(services, { clients: [tenantId], read: services.db });
+  if (!transport || documentIds.length === 0) return;
   const content = new ContentStore(services.deps.objects(services.env));
   // DECISION: a background read keeps no `model_call` row: the table names a run and step (both
   // NOT NULL, with foreign keys), and this read has neither. Its tokens and cost are on its
