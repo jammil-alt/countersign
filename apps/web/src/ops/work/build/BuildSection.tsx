@@ -89,7 +89,7 @@ export function BuildSection() {
         subtitle={WORK_WORDS.build.lede}
         actions={
           <>
-            <Link className="ds-btn ds-btn--ghost ds-btn--sm" to={OPS_PATHS.builds}>
+            <Link className="ds-btn ds-btn--ghost ds-btn--sm" to={OPS_PATHS.labDrafts}>
               {WORK_WORDS.build.builderBoard}
             </Link>
             <NewIssueLink />

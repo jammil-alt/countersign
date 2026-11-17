@@ -536,7 +536,8 @@ export function AgentScreen({
                 <Loading />
               ) : (
                 <EmptyState>
-                  This agent has no open build. <Link to="/ops/builds">See every build</Link>.
+                  This agent has no open build.{" "}
+                  <Link to="/ops/lab?tab=drafts">See every build in the Agent lab</Link>.
                 </EmptyState>
               )
             }

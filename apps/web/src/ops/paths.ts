@@ -9,8 +9,13 @@ export const OPS_PATHS = {
   reggie: "/ops/reggie",
   askReggie: (clientId: string) => `/ops/reggie?client=${clientId}`,
   lab: "/ops/lab",
-  /** docs/plan.md §1.108: builds, from intake to go-live. */
+  /**
+   * docs/plan.md §1.108: builds, from intake to go-live. The board is the Agent lab's Drafts tab
+   * (owner, 2026-11-17); `/ops/builds` redirects there. New starts a build from the lab.
+   */
   builds: "/ops/builds",
+  labDrafts: "/ops/lab?tab=drafts",
+  labNew: (kind: "template" | "client" | "skill" = "template") => `/ops/lab?tab=drafts&new=${kind}`,
   build: (id: string) => `/ops/builds/${id}`,
   // O5 New agent, O6 Workflow builder, O7 Triggers (UI-2c), under the agent page (UI-2b).
   newTemplate: "/ops/templates/new",

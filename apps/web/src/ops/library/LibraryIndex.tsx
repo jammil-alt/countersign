@@ -40,7 +40,7 @@ export function LibraryIndexScreen() {
         title="Library"
         subtitle="Everything agents are built from. A workflow puts a trigger, skills and tools in order; each client's agent is one workflow."
         actions={
-          <Link to="/ops/templates/new" className={buttonClass("primary")}>
+          <Link to="/ops/lab?tab=drafts&new=template" className={buttonClass("primary")}>
             Make a template
           </Link>
         }

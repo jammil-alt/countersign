@@ -7,7 +7,7 @@ export const WORK_WORDS = {
     lede: "Issues, agent builds and enhancements in one order. Reggie keeps the order; you can move anything.",
     newItem: "New item",
     autopilot: "Autopilot",
-    builderBoard: "Builder board",
+    builderBoard: "Drafts in the Agent lab",
   },
   empty: "Nothing matches.",
   clear: "Clear the search and filters",

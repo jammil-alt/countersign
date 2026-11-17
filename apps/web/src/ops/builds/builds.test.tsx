@@ -161,36 +161,83 @@ const common = {
   "GET /api/ops/counts": () => ({ needsUs: 0, clients: [] }),
 };
 
+const DRAFT_AGENT = "00000000-0000-4000-8000-00000000f0ff";
+
+/** The Agent lab, where the board lives now: the build's draft agent is one of its drafts. */
+const lab = {
+  "GET /api/ops/lab": () => ({
+    published: [],
+    drafts: [
+      {
+        agent: {
+          id: DRAFT_AGENT,
+          slug: "invoice-intake-reviewer",
+          name: "Invoice intake reviewer",
+          kind: "template" as const,
+          liveVersion: null,
+          latestVersion: 1,
+          latestVersionId: "00000000-0000-4000-8000-00000000e001",
+          liveVersionId: null,
+        },
+        clients: 0,
+        behind: 0,
+        maxBehind: 0,
+        tests: { cases: 0, live: null, latest: null },
+      },
+    ],
+    clientOnly: [],
+  }),
+  "GET /api/ops/templates": () => ({ templates: [] }),
+};
+
 describe("Builds", () => {
-  it("shows the board by phase and starts a build", async () => {
+  it("lives in the Agent lab: the old board's address opens Drafts, by phase", async () => {
+    const api = fakeApi({
+      ...common,
+      ...lab,
+      "GET /api/ops/builds": () => ({
+        builds: [{ ...summary, agentId: DRAFT_AGENT }],
+        items: [{ ...detail().items[0], buildId: ID, buildTitle: summary.title }],
+      }),
+    });
+    renderAt("/ops/builds", api);
+    const board = await screen.findByTestId("builds-board");
+    expect(screen.getByTestId("lab-tab-drafts")).toHaveAttribute("aria-pressed", "true");
+    // The draft agent the build made shows as the build, not twice.
+    expect(screen.getByTestId("lab-tab-drafts")).toHaveTextContent("Drafts · 1");
+    const fit = within(board).getByRole("region", { name: "Fit-gap" });
+    expect(within(fit).getByTestId(`builds-card-${ID}`)).toHaveTextContent(
+      "Invoice intake reviewer",
+    );
+    expect(within(fit).getByTestId(`builds-card-${ID}`)).toHaveTextContent("1 open issue");
+    // The board's table of items across builds is gone: Your call and Work → Build list them.
+    expect(screen.queryByTestId("builds-items")).toBeNull();
+  });
+
+  it("starts a template, a client agent or a skill from the lab's New, each as a build", async () => {
     const started: unknown[] = [];
     const api = fakeApi({
       ...common,
-      "GET /api/ops/builds": () => ({
-        builds: [summary],
-        items: [{ ...detail().items[0], buildId: ID, buildTitle: summary.title }],
-      }),
+      ...lab,
+      "GET /api/ops/builds": () => ({ builds: [], items: [] }),
       "POST /api/ops/builds": ({ init }) => {
         started.push(JSON.parse(String(init.body)));
         return detail();
       },
       [`GET /api/ops/builds/${ID}`]: () => detail(),
     });
-    renderAt("/ops/builds", api);
-    const board = await screen.findByTestId("builds-board");
-    const fit = within(board).getByRole("region", { name: "Fit-gap" });
-    expect(within(fit).getByTestId(`builds-card-${ID}`)).toHaveTextContent(
-      "Invoice intake reviewer",
+    // The old New template address opens the same form, on Template.
+    renderAt("/ops/templates/new", api);
+    await screen.findByTestId("builds-start");
+    expect(screen.getByTestId("builds-start-kind-template")).toHaveAttribute(
+      "aria-pressed",
+      "true",
     );
-    expect(within(fit).getByTestId(`builds-card-${ID}`)).toHaveTextContent("1 open issue");
-    expect(screen.getByTestId("builds-items")).toHaveTextContent("How many: still open");
-    // Who has each item, in words; gold says it waits on you.
-    const row = screen.getByTestId(`builds-item-${ITEM}`);
-    expect(row).toHaveTextContent("You");
-    expect(row).toHaveTextContent("Waiting on you");
-
-    await userEvent.click(screen.getByTestId("builds-new"));
+    expect(screen.queryByTestId("builds-start-client")).toBeNull();
+    // A client agent needs its client.
+    await userEvent.click(screen.getByTestId("builds-start-kind-client"));
     await userEvent.type(screen.getByTestId("builds-start-title"), "Invoice intake reviewer");
+    expect(screen.getByTestId("builds-start-go")).toBeDisabled();
     await screen.findByRole("option", { name: "Harbor Millwork only" });
     await userEvent.selectOptions(
       screen.getByTestId("builds-start-client"),

@@ -592,8 +592,8 @@ function BuildHeader({ detail }: { detail: BuildDetail }) {
   return (
     <header className="flex flex-col gap-2" data-testid="build-header">
       <p className="eyebrow text-ink-muted">
-        <Link to="/ops/builds" className="hover:underline">
-          Builds
+        <Link to="/ops/lab?tab=drafts" className="hover:underline">
+          Agent lab · Drafts
         </Link>
       </p>
       <div className="flex flex-wrap items-center gap-2">

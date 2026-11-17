@@ -17,8 +17,8 @@ import {
   OPERATOR_SESSION,
   SANDBOX_DETAIL,
 } from "../../test/fixtures";
+import { NewAgentConversation } from "./NewAgentConversation";
 import { NewClientAgentScreen } from "./NewClientAgentScreen";
-import { NewTemplateScreen } from "./TemplateScreens";
 
 const CLIENT = SANDBOX_DETAIL.client.id;
 const TEMPLATE = {
@@ -43,7 +43,9 @@ function renderAt(path: string, routes: Parameters<typeof fakeApi>[0]) {
         <SessionProvider>
           <SignedIn>
             <Routes>
-              <Route path="/ops/templates/new" element={<NewTemplateScreen />} />
+              {/* A template now starts as a build (the Agent lab's New); the conversation that drafts
+                  an agent is the client agent screen's, and is mounted here on its own. */}
+              <Route path="/ops/templates/new" element={<NewAgentConversation other={null} />} />
               <Route path="/ops/templates/:slug/*" element={<p>template page</p>} />
               <Route path="/ops/clients/:clientId/agents/new" element={<NewClientAgentScreen />} />
               <Route path="/ops/clients/:clientId/agents/:slug/*" element={<p>agent page</p>} />
@@ -55,34 +57,6 @@ function renderAt(path: string, routes: Parameters<typeof fakeApi>[0]) {
   );
   return { api, user: userEvent.setup() };
 }
-
-describe("new template", () => {
-  it("needs a name, then creates a blank draft template and opens it", async () => {
-    const sent: {
-      slug: string;
-      bundle: { workflows: unknown[]; definition: { identity: { name: string } } };
-    }[] = [];
-    const { user } = renderAt("/ops/templates/new", {
-      "POST /api/ops/templates": ({ init }) => {
-        const body = JSON.parse(String(init.body));
-        sent.push(body);
-        return { agent: { ...TEMPLATE, slug: body.slug }, version: AGENT_DETAIL.versions[1] };
-      },
-    });
-    await user.click(await screen.findByTestId("new-template-start-blank"));
-    await user.click(await screen.findByTestId("new-template-create"));
-    expect(screen.getByTestId("new-template-name-error")).toBeInTheDocument();
-    expect(sent).toEqual([]);
-
-    await user.type(screen.getByTestId("new-template-name-input"), "Purchasing clerk");
-    expect(screen.getByTestId("new-template-slug-input")).toHaveValue("purchasing-clerk");
-    await user.click(screen.getByTestId("new-template-create"));
-    expect(await screen.findByText("template page")).toBeInTheDocument();
-    expect(sent[0]?.slug).toBe("purchasing-clerk");
-    expect(sent[0]?.bundle.definition.identity.name).toBe("Purchasing clerk");
-    expect(sent[0]?.bundle.workflows).toHaveLength(1);
-  });
-});
 
 const SESSION_ID = "00000000-0000-4000-8000-0000000c5001";
 const TURN_ID = "00000000-0000-4000-8000-0000000c5102";

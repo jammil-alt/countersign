@@ -47,7 +47,7 @@ export function ProcessesBank() {
         title="Workflows"
         subtitle="Triggers, then steps top to bottom, each step able to carry checks. An agent is one workflow and its owner."
         actions={
-          <Link to="/ops/templates/new" className={buttonClass("primary")}>
+          <Link to="/ops/lab?tab=drafts&new=template" className={buttonClass("primary")}>
             Make a template
           </Link>
         }
@@ -76,7 +76,7 @@ export function ProcessesBank() {
               {data.processes.length === 0 ? (
                 <EmptyState
                   line="No templates yet. Make one with the Builder, or from a client's agent in the Agent lab."
-                  action={{ label: "Make a template", to: "/ops/templates/new" }}
+                  action={{ label: "Make a template", to: "/ops/lab?tab=drafts&new=template" }}
                 />
               ) : shown.length === 0 ? (
                 <EmptyState>No template matches.</EmptyState>

@@ -319,7 +319,7 @@ export const buildRoutes = {
     query: z.object({
       status: BuildStatus.optional(),
       agent: Id.optional(),
-      // docs/plan.md §1.124: the Builder board lists new agents; builds from templates are in
+      // docs/plan.md §1.124: the Agent lab's Drafts (the old Builder board) lists new agents; builds from templates are in
       // Build's Agent builds.
       path: z.enum(["new", "template", "all"]).default("new"),
     }),
