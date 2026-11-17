@@ -3,7 +3,6 @@
 // the API checks the signature before it records the decision (docs/plan.md §1.116). Questions are
 // answered here; a release code is entered here.
 import { pickLocalized, routes } from "@countersign/core";
-import * as LocalAuthentication from "expo-local-authentication";
 import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
@@ -23,7 +22,7 @@ import {
   signedInput,
   whyLines,
 } from "../../src/desk/model";
-import { decodePrivateKey, itemFingerprint, signDecision } from "../../src/device/signing";
+import { signedDecision } from "../../src/device/signing";
 import { useApp } from "../../src/state/app";
 import { useDesk } from "../../src/state/desk";
 import { readPrivateKey } from "../../src/state/store";
@@ -424,7 +423,7 @@ function Question({
   item: DeskItem;
   locale: "en" | "es" | "fr" | "pt-BR" | "it" | "de";
 }) {
-  const { api } = useApp();
+  const { api, deviceId } = useApp();
   const desk = useDesk();
   const p = usePalette();
   const [answer, setAnswer] = useState("");
@@ -437,10 +436,22 @@ function Question({
     setBusy(value);
     setProblem(null);
     try {
+      // Audit 5.2: an answer is signed on the phone too, or not sent.
+      const signed = await signedDecision({
+        deviceId,
+        item,
+        decision: "approve",
+        answer: value,
+        prompt: "Answer with Face ID",
+        readKey: readPrivateKey,
+      });
+      if (!signed.ok) {
+        setProblem(signed.problem);
+        return;
+      }
       await api.call(routes.portalResolveInbox, {
         params: { id: item.id },
-        // Audit 3.4: the item as the person saw it.
-        body: { decision: "approve", answer: value, fingerprint: itemFingerprint(item) },
+        body: signed.body,
         byPerson: true,
       });
       desk.drop(item.id);
@@ -645,37 +656,21 @@ function DecideSheet({
     setBusy(true);
     setProblem(null);
     try {
-      const prompt = approve ? "Sign with Face ID" : "Reject with Face ID";
-      let deviceSignature: ReturnType<typeof signDecision> | undefined;
-      if (deviceId) {
-        const key = await readPrivateKey(prompt);
-        if (!key) {
-          setProblem("Face ID didn't finish, so nothing was signed.");
-          return;
-        }
-        deviceSignature = signDecision({
-          privateKey: decodePrivateKey(key),
-          deviceId,
-          item,
-          decision,
-          at: new Date(),
-        });
-      } else {
-        // A phone not set up for signing still asks for Face ID before it decides.
-        const ok = await LocalAuthentication.authenticateAsync({ promptMessage: prompt });
-        if (!ok.success) {
-          setProblem("Face ID didn't finish, so nothing was signed.");
-          return;
-        }
+      // Audit 5.2: signed with this phone's key, or not sent; the item's fingerprint is in it.
+      const signed = await signedDecision({
+        deviceId,
+        item,
+        decision,
+        prompt: approve ? "Sign with Face ID" : "Reject with Face ID",
+        readKey: readPrivateKey,
+      });
+      if (!signed.ok) {
+        setProblem(signed.problem);
+        return;
       }
       const out = await api.call(routes.portalResolveInbox, {
         params: { id: item.id },
-        body: {
-          decision,
-          // Audit 3.4: the item as the person saw it, signed or not.
-          fingerprint: itemFingerprint(item),
-          ...(deviceSignature ? { deviceSignature } : {}),
-        },
+        body: signed.body,
         byPerson: true,
       });
       desk.drop(item.id);
@@ -704,7 +699,7 @@ function DecideSheet({
                 ? "This item changed since you opened it. Look at it again before you sign."
                 : isApiError(e) && e.code === "signature_stale"
                   ? "Your phone's clock looks off, so the signature was too old. Check the time and sign again."
-                  : isApiError(e) && (e.code === "signature_invalid" || e.code === "device_unknown")
+                  : isApiError(e) && e.code === "signature_required"
                     ? "This phone's signature wasn't accepted. Set up signing again in Settings."
                     : "That didn't go through. Try again.",
       );
