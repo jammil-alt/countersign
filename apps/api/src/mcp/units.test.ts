@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { Bindings } from "../env";
 import { authKitServer } from "./authorization-server";
 import { mcpStateOf } from "./config";
-import { memoryRateLimiter } from "./limits";
+import { memoryRateLimiter, rateLimiterFor } from "./limits";
 import { clip, dataResult, REDACTED, safeJson, scrubSecrets, UNTRUSTED_CLOSE } from "./output";
 
 describe("output", () => {
@@ -97,6 +97,30 @@ describe("rate limit", () => {
     expect(await limiter.allow("b")).toBe(true);
     t = 1000;
     expect(await limiter.allow("a")).toBe(true);
+  });
+});
+
+describe("rate limiter binding failures", () => {
+  it("fall back to the isolate's window and are reported at most once a minute", async () => {
+    let t = 0;
+    const reports: [number, unknown][] = [];
+    const env = {
+      MCP_RATE_LIMIT: {
+        limit: async () => {
+          throw new Error("binding down");
+        },
+      },
+    } as unknown as Bindings;
+    const limiter = rateLimiterFor(env, "test", {
+      report: (count, error) => reports.push([count, error]),
+      now: () => t,
+    });
+    for (let i = 0; i < 5; i++) expect(await limiter.allow(`k${i}`)).toBe(true);
+    expect(reports.map(([n]) => n)).toEqual([1]);
+    t = 60_000;
+    await limiter.allow("k");
+    expect(reports.map(([n]) => n)).toEqual([1, 5]);
+    expect(String(reports[1]?.[1])).toContain("binding down");
   });
 });
 
