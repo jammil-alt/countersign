@@ -1130,7 +1130,9 @@ describe("qbo sync", () => {
     const file = await s.connector.downloadAttachment?.(ctx(), refs?.[0] as never);
     expect(fromUtf8(file?.bytes ?? new Uint8Array())).toContain("Cascade Hardwoods invoice 77812");
     // The presigned link gets no bearer token.
-    const fileCall = s.qbo.requests.find((r) => r.url.startsWith("https://qbo-files.fake.example"));
+    const fileCall = s.qbo.requests.find(
+      (r) => new URL(r.url).origin === "https://qbo-files.fake.example",
+    );
     expect(fileCall?.headers.authorization).toBeUndefined();
   });
 });

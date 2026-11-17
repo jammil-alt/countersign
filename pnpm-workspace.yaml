@@ -7,9 +7,17 @@ allowBuilds:
   workerd: true
 # As in Plenary Labs: the Workers test pool runs the same miniflare and wrangler as apps/api's own
 # wrangler, so the runtime under test is the one `wrangler dev` and `wrangler deploy` use.
+# Keep these two at wrangler 4.161.0's own: the older pair brought undici 7.29.0 and sharp 0.35.4
+# (OSV-Scanner, 2026-11-16).
 overrides:
-  "@cloudflare/vitest-pool-workers>miniflare": 5.20260910.0-alpha
-  "@cloudflare/vitest-pool-workers>wrangler": 4.131.0
+  "@cloudflare/vitest-pool-workers>miniflare": 5.20261110.2-beta
+  "@cloudflare/vitest-pool-workers>wrangler": 4.161.0
+  # The test pool pins zod 4.4.3, which can exhaust memory on oversized collections
+  # (GHSA-mrhx-c7xc-m3w5, fixed in 4.6.6). The workspace's own zod is already past it.
+  "@cloudflare/vitest-pool-workers>zod": ^4.6.7
+  # drizzle-kit > @esbuild-kit/esm-loader > core-utils pins esbuild ~0.18, whose dev server answers
+  # any website (GHSA-67mh-4wv8-2f99, fixed in 0.25.0). core-utils only calls transform.
+  "@esbuild-kit/core-utils>esbuild": ^0.25.12
   # The phone app's build tooling (expo > @expo/fingerprint) asks for minimatch ^10.2.6, which has
   # a ReDoS (GHSA-g3hv-75wg-m249, fixed in 11.0.1; OSV-Scanner on #323). Same API, patched major.
   "@expo/fingerprint>minimatch": ^11.0.1

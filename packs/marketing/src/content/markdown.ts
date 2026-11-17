@@ -258,16 +258,34 @@ export function renderMarkdown(source: string): Rendered {
   return { html: sanitized.html, removed: sanitized.removed, headings, links, topHeadings };
 }
 
-/** The words of rendered HTML, for counting and for the claims lint. */
-export const textOf = (html: string): string =>
-  html
-    // Inline tags join their words to the text around them; block tags separate.
-    .replace(/<\/?(?:a|strong|em|b|i|u|s|code|sup|sub|small|span)\b[^>]*>/g, "")
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, " ")
-    .trim();
+const ENTITIES: Record<string, string> = {
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&#39;": "'",
+};
+
+/**
+ * The words of rendered HTML, for counting and for the claims lint. The result is plain text, never
+ * put back into HTML.
+ */
+export const textOf = (html: string): string => {
+  let text = html;
+  // Strip tags until none is left, so a tag split around another (`<scr<b>ipt>`) can't survive.
+  // `[^<>]` keeps each pass linear on a run of `<`.
+  for (let before = ""; before !== text; ) {
+    before = text;
+    text = text
+      // Inline tags join their words to the text around them; block tags separate.
+      .replace(/<\/?(?:a|strong|em|b|i|u|s|code|sup|sub|small|span)\b[^<>]*>/g, "")
+      .replace(/<[^<>]*>/g, " ");
+  }
+  return (
+    text
+      // One pass, so `&amp;lt;` reads `&lt;` and is not unescaped twice.
+      .replace(/&(?:amp|lt|gt|quot|#39);/g, (entity) => ENTITIES[entity] ?? entity)
+      .replace(/\s+/g, " ")
+      .trim()
+  );
+};
