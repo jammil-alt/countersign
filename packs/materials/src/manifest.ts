@@ -268,7 +268,7 @@ export const materialsManifest: PackManifest = lazyParse(PackManifest, () => ({
   // built before stay registered for stored steps, and new steps take the Library ones.
   librarySkills: VENDOR_LIBRARY_SKILLS,
   superseded: SUPERSEDED_BY_LIBRARY_SKILLS,
-  // §1.126.2: the area's questions for a client's intake (Getting started's card).
+  // §1.149.2: the area's questions for a client's intake (Getting started's card).
   intakeSection: PURCHASING_INTAKE_SECTION,
   screens: [
     {

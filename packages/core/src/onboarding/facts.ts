@@ -1,4 +1,4 @@
-// The client file (docs/cases-plan.md §4.1; docs/plan.md §1.126): what we know about a prospect or
+// The client file (docs/cases-plan.md §4.1; docs/plan.md §1.149): what we know about a prospect or
 // a client, from the first conversation on. A file is the company a deal points at before set-up;
 // its facts are insert only, and a correction is a new fact that replaces an earlier one. Operator
 // only: no portal route returns a file or a fact (invariant 11). Only `theirs` facts are ever

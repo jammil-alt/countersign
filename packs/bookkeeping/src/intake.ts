@@ -1,5 +1,5 @@
 // The Bookkeeping area's questions for a client's intake (docs/cases-plan.md §4.2 step 2; docs/plan.md
-// §1.126.2): data in the manifest, asked on the Bookkeeping card of Getting started. Plain words;
+// §1.149.2): data in the manifest, asked on the Bookkeeping card of Getting started. Plain words;
 // never a secret: accounts are named, never numbered, and the client connects the bank itself.
 
 import type { GuideSectionSourceInput } from "@countersign/core";

@@ -1,4 +1,4 @@
-// Onboarding v1 (docs/plan.md §1.126; docs/cases-plan.md §4): the client file and its facts, starts
+// Onboarding v1 (docs/plan.md §1.149; docs/cases-plan.md §4): the client file and its facts, starts
 // and what an intake covers, the guide and where its questions come from, the intake and its
 // answers. Pure: schemas, types and small helpers.
 export * from "./answers";

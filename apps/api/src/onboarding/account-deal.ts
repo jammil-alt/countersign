@@ -1,4 +1,4 @@
-// Every account is in Sales (docs/cases-plan.md §3.1; docs/plan.md §1.126): a client made anywhere
+// Every account is in Sales (docs/cases-plan.md §3.1; docs/plan.md §1.149): a client made anywhere
 // (the back office's New client, Reggie's `client_create`, a deal's set-up, Invite and Sign up now)
 // is made by one route, `opsCreateClient`, and this runs in its transaction, so each new client is
 // logged in Sales exactly once. The deal it is set up from (named, or the named file's open New

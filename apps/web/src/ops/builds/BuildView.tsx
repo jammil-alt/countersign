@@ -263,7 +263,7 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
           </li>
         ))}
       </ol>
-      {/* §1.126.2: a client's build from a template reads its Requirements from the intake. */}
+      {/* §1.149.2: a client's build from a template reads its Requirements from the intake. */}
       {b.client && b.templateId ? (
         <RequirementsCard clientId={b.client.id} templateId={b.templateId} />
       ) : null}

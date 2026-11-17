@@ -1,4 +1,4 @@
-// Where an intake's questions come from (docs/cases-plan.md §4.2 step 2; docs/plan.md §1.126.2): core's
+// Where an intake's questions come from (docs/cases-plan.md §4.2 step 2; docs/plan.md §1.149.2): core's
 // general section, each covered area's section (its pack's manifest, as data, else core's generic
 // one) and each covered template's client intake form, read into core's `GuideSectionSource`. Invite
 // and Sign up now (stream SALES) hand these with the file's `theirs` facts to core's `buildGuide`.

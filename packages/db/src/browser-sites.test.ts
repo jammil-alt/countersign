@@ -60,7 +60,7 @@ describe.skipIf(!online)("browser_site and browser_site_version", () => {
       await tx.insert(savedView).values({ userId: A.userId, surface: "ops_runs", name: "Failed" });
       // And the connectors catalog (0026).
       await tx.insert(connectorSetting).values({ connector: "qbo", status: "live" });
-      // And the saved starts (0066, docs/plan.md §1.126).
+      // And the saved starts (0066, docs/plan.md §1.149).
       await tx.insert(salesStart).values({
         name: "General only",
         covers: { general: true, areas: [], templateIds: [] },

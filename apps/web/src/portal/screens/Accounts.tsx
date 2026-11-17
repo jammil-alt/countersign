@@ -120,7 +120,7 @@ export function VaultRedirect() {
 
 /**
  * Connects a tool the way this page does: the provider's own sign-in, Meta's signup page or Plaid
- * Link. Getting started's Connect cards (docs/plan.md §1.126.2) use it too, so there is one flow.
+ * Link. Getting started's Connect cards (docs/plan.md §1.149.2) use it too, so there is one flow.
  */
 export async function startConnect(api: ApiClient, connector: string): Promise<void> {
   // v0.14 W4-A: Meta's Embedded Signup runs on a page of its own (Meta's SDK is allowed only

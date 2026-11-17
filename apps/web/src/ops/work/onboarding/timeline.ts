@@ -1,5 +1,5 @@
 // A deal's timeline with onboarding in it (docs/cases-plan.md §3.1 "stages are a record, not a
-// gate"; §4.4; docs/plan.md §1.126): the stages a deal passed over show as skipped, with who and
+// gate"; §4.4; docs/plan.md §1.149): the stages a deal passed over show as skipped, with who and
 // why, and its intakes' log (sent, delivered, opened, signed in, answered…) goes in among the
 // deal's own lines, by time.
 
@@ -12,7 +12,7 @@ import { intakeEventWords } from "./words";
 /**
  * The stages a deal skipped: its `stage` lines that read "Skipped <stage>…".
  */
-// DECISION (§1.126, stream screens): the API writes a skipped stage as a `stage` line whose body is
+// DECISION (§1.149, stream screens): the API writes a skipped stage as a `stage` line whose body is
 // "Skipped Diagnostic: signed up directly." (meta.skipped is not in DealActivityView), so the
 // stepper reads the stage's name off the line. If a skipped stage is later reached, it is no longer
 // shown as skipped.

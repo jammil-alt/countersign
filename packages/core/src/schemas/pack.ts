@@ -41,7 +41,7 @@ export const PackManifest = z
     // (invariant 3); the palette and the Builder offer the replacement instead (core's
     // `newStepSkillReason`).
     superseded: z.record(z.string(), z.string()).optional(),
-    // docs/plan.md §1.126.2 (cases-plan §4.2 step 2): the questions an intake asks about the
+    // docs/plan.md §1.149.2 (cases-plan §4.2 step 2): the questions an intake asks about the
     // pack's business area, as data (kind `area`, its area named). The platform reads them from
     // the manifest; an area without a pack gets core's generic questions.
     intakeSection: GuideSectionSource.optional(),

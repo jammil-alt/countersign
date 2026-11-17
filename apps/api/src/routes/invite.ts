@@ -1,4 +1,4 @@
-// Invite and Sign up now (docs/plan.md §1.126; docs/cases-plan.md §4.2, §4.3): the operator's
+// Invite and Sign up now (docs/plan.md §1.149; docs/cases-plan.md §4.2, §4.3): the operator's
 // confirm, always (cases-plan §6). The previews change nothing; the sends run `runInvite`
 // (../onboarding/invite.ts) as slow routes, since they call other routes through `invokeRoute`.
 // Sign up now is Invite with a saved start's defaults: the same plan, the same confirmation.

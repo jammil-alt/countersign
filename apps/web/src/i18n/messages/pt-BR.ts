@@ -3083,7 +3083,7 @@ export const ptBR: Messages = {
   "access.problem.lastAdmin": "Sua empresa precisa de pelo menos um admin.",
   "access.limitedHelp":
     "Usuários veem só os agentes que você der a eles, com suas execuções e tarefas.",
-  // ── Getting started (docs/plan.md §1.126.2) ──
+  // ── Getting started (docs/plan.md §1.149.2) ──
   "start.title": "Primeiros passos",
   "start.subtitle": "{answered} de {total} respondidas",
   "start.none": "Nada para responder agora",

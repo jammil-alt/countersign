@@ -1,4 +1,4 @@
-// Onboarding in the back office (docs/plan.md §1.126; docs/cases-plan.md §4): the client file on a
+// Onboarding in the back office (docs/plan.md §1.149; docs/cases-plan.md §4): the client file on a
 // deal's page (facts by section with their badges, ours marked "Only us", add, correct, history);
 // Invite's five steps from a lead record, sending the draft the preview showed; Sign up now from
 // Sales with a start and a price, and its "Review first" into Invite's questions; the saved

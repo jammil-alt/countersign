@@ -1,4 +1,4 @@
-// Onboarding v1's contract (docs/plan.md §1.126): the client file's facts, what an intake covers,
+// Onboarding v1's contract (docs/plan.md §1.149): the client file's facts, what an intake covers,
 // the guide's field values, the route bodies' rules, and the portal's views carrying nothing of
 // ours. The guide itself is tested in guide.test.ts and the emails in email/onboarding.test.ts.
 
@@ -13,6 +13,7 @@ import {
   welcomeRoutes,
 } from "../api/intake";
 import { InviteDraft, inviteRoutes, SignUpNowDraft } from "../api/invite";
+import { allRoutes } from "../api/all-routes";
 import { routes } from "../api/routes";
 import {
   Covers,
@@ -136,8 +137,11 @@ describe("the onboarding routes", () => {
 
   it("are in the contract and keep its rules", () => {
     expect(checkRouteContract(all)).toEqual([]);
+    // Served beside the web's registry (all-routes.ts), so the API mounts them and the contract
+    // and access tests walk them, but they stay out of the web app's first load.
     for (const [name, r] of Object.entries(all)) {
-      expect((routes as Record<string, unknown>)[name], name).toBe(r);
+      expect((allRoutes as Record<string, unknown>)[name], name).toBe(r);
+      expect((routes as Record<string, unknown>)[name], name).toBeUndefined();
     }
   });
 

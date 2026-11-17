@@ -56,9 +56,9 @@ export interface WorkOSClient {
   authorizationUrl(input: {
     redirectUri: string;
     state: string;
-    /** §1.126: AuthKit (default), or straight to Google's or Microsoft's own sign-in. */
+    /** §1.149: AuthKit (default), or straight to Google's or Microsoft's own sign-in. */
     provider?: WorkOSProvider;
-    /** §1.126: the address to fill in (the invited one, from the welcome page). */
+    /** §1.149: the address to fill in (the invited one, from the welcome page). */
     loginHint?: string;
   }): string;
   authenticateWithCode(code: string): Promise<WorkOSAuthentication>;
@@ -180,7 +180,7 @@ export function createWorkOS(options: WorkOSOptions): WorkOSClient {
       url.searchParams.set("redirect_uri", redirectUri);
       url.searchParams.set("provider", provider ?? "authkit");
       url.searchParams.set("state", state);
-      // §1.126: unchecked against WorkOS (NOTES.md): AuthKit fills its email field with it, and
+      // §1.149: unchecked against WorkOS (NOTES.md): AuthKit fills its email field with it, and
       // Google and Microsoft are said to preselect the account.
       if (loginHint) url.searchParams.set("login_hint", loginHint);
       return url.toString();

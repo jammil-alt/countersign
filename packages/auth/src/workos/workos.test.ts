@@ -132,7 +132,7 @@ async function sessionCookieFor(now = T0) {
 const withCookie = (cookie: string, url = `${ORIGIN}/api/session`) =>
   new Request(url, { headers: { cookie } });
 
-describe("sign-in from the welcome page (§1.126)", () => {
+describe("sign-in from the welcome page (§1.149)", () => {
   it("passes the method and a plain address on, and drops anything else", async () => {
     const seen: Parameters<WorkOSClient["authorizationUrl"]>[0][] = [];
     const { adapter } = setup(
@@ -377,7 +377,7 @@ describe("sign-in flow", () => {
   });
 });
 
-describe("the welcome page's fallback invitation (§1.126, unchecked)", () => {
+describe("the welcome page's fallback invitation (§1.149, unchecked)", () => {
   it("makes a WorkOS invitation and hands back its accept link, or WorkOS's code", async () => {
     const workos = fakeWorkOS({
       sendInvitation: vi.fn(async () => ({ id: "inv_9", acceptUrl: "https://workos.test/a/9" })),
@@ -414,7 +414,7 @@ describe("invitations", () => {
     expect(workos.sendInvitation).toHaveBeenCalledWith("new@millwork.test");
   });
 
-  it("makes no WorkOS invitation when Mezonas sends its own invite (§1.126)", async () => {
+  it("makes no WorkOS invitation when Mezonas sends its own invite (§1.149)", async () => {
     const workos = fakeWorkOS();
     const { adapter } = setup(workos);
     expect(await adapter.invite("new@millwork.test", { providerEmail: false })).toEqual({
@@ -634,7 +634,7 @@ describe("WorkOS client over fetch", () => {
     });
   });
 
-  it("starts sign-in at AuthKit, or Google's or Microsoft's own, with a login hint (§1.126)", () => {
+  it("starts sign-in at AuthKit, or Google's or Microsoft's own, with a login hint (§1.149)", () => {
     const client = createWorkOS({ clientId: "client_1", apiKey: "sk", fetch: vi.fn() });
     const plain = new URL(
       client.authorizationUrl({ redirectUri: "https://x.test/cb", state: "s" }),

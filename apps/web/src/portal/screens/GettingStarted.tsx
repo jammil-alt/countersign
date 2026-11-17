@@ -1,5 +1,5 @@
 // `/start`: Getting started (docs/cases-plan.md §4.5 "Get to the point", §4.6; docs/plan.md
-// §1.126.2), the client's home while an intake is open and no agent is live. The lead's note, then
+// §1.149.2), the client's home while an intake is open and no agent is live. The lead's note, then
 // a card per part (the business, each area, each agent): what an agent would do, "We think" lines
 // to say yes to or change, at most about five questions (the rest one click away), a Connect card
 // for each tool (the Accounts page's own connect flow), Start with this or Not now, and Ask someone

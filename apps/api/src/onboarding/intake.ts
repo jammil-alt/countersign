@@ -1,5 +1,5 @@
 // A client's intake as the back office and the portal read it (docs/cases-plan.md §4.5; docs/plan.md
-// §1.126.2): the stored guide, its people, the latest answer to each field, each card's progress
+// §1.149.2): the stored guide, its people, the latest answer to each field, each card's progress
 // and the log. The portal's view holds only the cards a person was asked (all of them for the
 // client admin), "We think" in words, and nothing of ours (invariant 11): no fact ids, no
 // question's origin, no `ours` fact (the guide never holds one).

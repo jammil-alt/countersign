@@ -1,4 +1,4 @@
-// The branded email layout (docs/cases-plan.md §4.4; docs/plan.md §1.126): one layout for
+// The branded email layout (docs/cases-plan.md §4.4; docs/plan.md §1.149): one layout for
 // everything the client sees from us: the Mezonas logo (a PNG hosted with the app; mail clients
 // drop SVG), the design system's colours and type, borders not shadows, a plain-text part,
 // readable in light and dark mail clients, six languages. Notification emails move onto it after.

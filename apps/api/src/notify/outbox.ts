@@ -50,7 +50,7 @@ export type NotificationRow = typeof notification.$inferSelect;
 
 export interface NotifyDeps {
   mailer: Mailer;
-  /** §1.126: what signs the onboarding emails' welcome links (the Worker's key). */
+  /** §1.149: what signs the onboarding emails' welcome links (the Worker's key). */
   links?: WelcomeLinkEnv;
   texter: Texter;
   /** §1.116: phone notifications (Expo's push service); none means off (rows skipped). */
@@ -189,7 +189,7 @@ interface Claimed {
   rendered: ReturnType<typeof renderNotification>;
   claim: string;
   /**
-   * §1.126: an onboarding email, rendered from its intake and sent to the intake person (who may
+   * §1.149: an onboarding email, rendered from its intake and sent to the intake person (who may
    * have no account yet) from the lead; `person` and `rendered` are unused for it.
    */
   onboarding?: Extract<PreparedOnboardingEmail, { kind: "send" }>;
@@ -219,7 +219,7 @@ export async function sendQueued(
 ): Promise<SendSummary | null> {
   const out: SendSummary = { sent: 0, skipped: 0, failed: 0, held: 0 };
   const pusher = deps.pusher ?? unconfiguredPusher;
-  // §1.126: onboarding emails that didn't go, each left as a to-do for the lead after its settle.
+  // §1.149: onboarding emails that didn't go, each left as a to-do for the lead after its settle.
   const unsent: Parameters<typeof leaveUnsentTodo>[1][] = [];
   const claimed = await withTenant(db, tenantId, async (tx) => {
     const t = await tenantRow(tx, tenantId);
@@ -268,7 +268,7 @@ export async function sendQueued(
         await settle(tx, row, { status: "skipped", reason });
         out.skipped++;
       };
-      // §1.126: the onboarding emails go to the intake's person, account or not, whatever their
+      // §1.149: the onboarding emails go to the intake's person, account or not, whatever their
       // notification settings (they asked for none yet), at once rather than in quiet hours.
       if (isOnboardingNotificationKind(row.kind)) {
         const prepared = await prepareOnboardingEmail(
@@ -416,7 +416,7 @@ export async function sendQueued(
     let gone: string[] = [];
     try {
       if (onboarding) {
-        // §1.126: from the lead at hello@, Reply-To the lead; the row's id is the idempotency key.
+        // §1.149: from the lead at hello@, Reply-To the lead; the row's id is the idempotency key.
         providerId = await deps.mailer.send({ ...onboarding.message, idempotencyKey: row.id });
       } else if (row.channel === "push") {
         const pushed = await sendPush(pusher, t, person, row);
@@ -524,7 +524,7 @@ async function sendPush(
   row: NotificationRow,
 ): Promise<{ id: string | null; gone: string[] }> {
   const weekStart = weekOfKey(row.dedupeKey);
-  // §1.126: the onboarding emails are email only; nothing else reaches a phone.
+  // §1.149: the onboarding emails are email only; nothing else reaches a phone.
   if (isOnboardingNotificationKind(row.kind)) return { id: null, gone: [] };
   const words = renderPush({
     kind: row.kind,

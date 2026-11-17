@@ -206,7 +206,7 @@ export interface NewActivity {
 }
 
 /** One line on a deal's timeline (insert only). */
-// DECISION (§1.126): a line is stamped with the clock, not the transaction's start, so the lines one
+// DECISION (§1.149): a line is stamped with the clock, not the transaction's start, so the lines one
 // transaction writes (a move and the stages it skipped) keep their order on the timeline.
 export async function addActivity(tx: Tx, dealId: string, a: NewActivity): Promise<void> {
   await tx.insert(dealActivity).values({

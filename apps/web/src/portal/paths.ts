@@ -3,7 +3,7 @@
 // it belongs to: an agent, a run, Settings, or the search box (Sloan).
 export const PORTAL_PATHS = {
   home: "/",
-  // §1.126.2: Getting started (the welcome page goes on here after sign-in).
+  // §1.149.2: Getting started (the welcome page goes on here after sign-in).
   start: "/start",
   inbox: "/inbox",
   runs: "/runs",

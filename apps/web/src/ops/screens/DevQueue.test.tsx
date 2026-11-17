@@ -121,8 +121,11 @@ describe("the Dev queue tab", () => {
     });
     renderAt("/ops/utilities/feedback?tab=dev-queue", api);
     const tabs = await screen.findByTestId("ops-feedback-tabs");
-    expect(within(tabs).getByTestId("ops-feedback-tab-user-feedback")).toHaveTextContent(
-      "User feedback 0",
+    // The counts arrive after the tabs: wait for each, as for the Dev queue's below.
+    await waitFor(() =>
+      expect(within(tabs).getByTestId("ops-feedback-tab-user-feedback")).toHaveTextContent(
+        "User feedback 0",
+      ),
     );
     await waitFor(() =>
       expect(within(tabs).getByTestId("ops-feedback-tab-dev-queue")).toHaveTextContent(

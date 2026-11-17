@@ -1,4 +1,4 @@
-// Invite and Sign up now (docs/cases-plan.md §4.2, §4.3; docs/plan.md §1.126): one function both
+// Invite and Sign up now (docs/cases-plan.md §4.2, §4.3; docs/plan.md §1.149): one function both
 // routes run. From the draft it makes the client (or uses the one there is) with the operator
 // serving it, invites its people (§1.14's refusals first: an operator's address, someone in another
 // client), adds the covered templates' agents on the bench with approvals on and a build each at
@@ -663,7 +663,7 @@ function confirmLines(plan: Plan): string[] {
 
 // ── The emails and page, as they'll be seen ────────────────────────────────────────────────────
 
-/** `<Lead> at Mezonas <hello@…>` (owner decision q9, §1.126). */
+/** `<Lead> at Mezonas <hello@…>` (owner decision q9, §1.149). */
 function senderOf(services: Services, lead: Plan["lead"]): string {
   const domain = services.env.EMAIL_FORWARDING_DOMAIN?.trim() || "mezonas.com";
   return `${lead.name} at Mezonas <hello@${domain}>`;

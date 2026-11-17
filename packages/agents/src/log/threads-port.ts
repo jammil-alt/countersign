@@ -8,7 +8,6 @@
 
 import {
   ACCOUNT_AGENT_SLUG,
-  isClientThreadKind,
   isPlainObject,
   type JsonObject,
   type MessageAudience,
@@ -28,6 +27,7 @@ import {
 } from "@countersign/db";
 import {
   agentThread,
+  canRead,
   type EmitPosted,
   findThread,
   leadOf,
@@ -41,6 +41,7 @@ import {
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { AgentsError, notFound } from "../errors";
 import type { ThreadMessageForTool, ThreadsPort } from "../tools/threads";
+import { accountReaderOf } from "./account-port";
 import type { Emit } from "./external-actions";
 
 async function isAccountAgent(tx: Tx, tenantId: string, agentId: string): Promise<boolean> {
@@ -200,9 +201,15 @@ export function dbThreadsPort(db: Db, options: { emit?: Emit } = {}): ThreadsPor
       return withTenant(db, tenantId, async (tx) => {
         const t = await findThread(tx, [tenantId], input.threadId);
         if (!t) throw notFound(`thread ${input.threadId}`);
-        const account = await isAccountAgent(tx, tenantId, input.agentId);
-        // Sloan sees only what the portal shows: the client's own kinds, client-facing messages.
-        if (account && !isClientThreadKind(t.subjectType))
+        const reader = await accountReaderOf(tx, tenantId, input);
+        const account = reader !== null;
+        // Sloan sees only what the portal shows the person asking: the client's own kinds,
+        // client-facing messages, and another person's account conversation only for a client
+        // admin (the portal's own rule, `canRead`).
+        if (
+          reader &&
+          !canRead({ kind: "client", role: reader.role, userId: reader.userId ?? "" }, t)
+        )
           throw notFound(`thread ${input.threadId}`);
         const audiences: MessageAudience[] = account ? ["client"] : ["client", "operator"];
         const rows = await listMessages(tx, t, { audiences, limit: input.limit });

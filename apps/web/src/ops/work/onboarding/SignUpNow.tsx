@@ -1,4 +1,4 @@
-// Sign up now (docs/cases-plan.md §4.3; docs/plan.md §1.126): the quick path for someone ready to
+// Sign up now (docs/cases-plan.md §4.3; docs/plan.md §1.149): the quick path for someone ready to
 // start. One small form (company, person and email, a saved start, the agreed price if known),
 // then one confirm with the same words as Invite's, from the preview route. "Review first" opens
 // the full Invite at step 3 (the questions) with the start's defaults. In Sales next to New, and on

@@ -1,4 +1,4 @@
-// Invite (docs/cases-plan.md §4.2; docs/plan.md §1.126): a side panel from a deal's page or the
+// Invite (docs/cases-plan.md §4.2; docs/plan.md §1.149): a side panel from a deal's page or the
 // client page, in five steps. 1 Who (the people we know, the admin, the parts each is asked),
 // 2 What it covers (a saved start, general, areas, agents; Reggie's suggestion when there is one),
 // 3 The questions (the preview's guide: known, to confirm, to ask; drop, reword, add, ask later;

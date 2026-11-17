@@ -2921,7 +2921,7 @@ export const messageTranslation = pgTable(
 // ── Knowledge base ───────────────────────────────────────────────────────────────────────────────
 
 /** `voice_sample` (migration 0025): a message in a person's own voice, for writing like them. */
-// §1.126 (0066): `about`, confirmed facts about the client's business, filed when the scope is
+// §1.149 (0066): `about`, confirmed facts about the client's business, filed when the scope is
 // signed (docs/cases-plan.md §4.7), apart from FAQs and policies.
 export const KNOWLEDGE_ENTRY_KINDS = ["faq", "policy", "voice_sample", "about"] as const;
 export const KNOWLEDGE_ENTRY_STATUSES = ["active", "archived"] as const;
@@ -3624,7 +3624,7 @@ export const NOTIFICATION_KINDS = [
   "issue_update",
 ] as const;
 /**
- * §1.126 (0066): the onboarding emails, sent through this outbox as their own kinds (stream EMAIL;
+ * §1.149 (0066): the onboarding emails, sent through this outbox as their own kinds (stream EMAIL;
  * docs/cases-plan.md §4.4). Rendered at send from the intake and its person, never from `counts`.
  * The check allows them before core's notification kinds name them, so the previous Worker keeps
  * working and the next wave's (reminder, scope ready, what happens next) need no migration.
@@ -3693,7 +3693,7 @@ export const notification = pgTable(
     userId: uuid("user_id").references(() => appUser.id),
     contactId: uuid("contact_id"),
     channel: text("channel").$type<(typeof NOTIFICATION_CHANNELS)[number]>().notNull(),
-    // §1.126: the onboarding emails' kinds too (core ONBOARDING_NOTIFICATION_KINDS); a type only.
+    // §1.149: the onboarding emails' kinds too (core ONBOARDING_NOTIFICATION_KINDS); a type only.
     kind: text("kind").$type<(typeof NOTIFICATION_KINDS_ALLOWED)[number]>().notNull(),
     /** e.g. `items_waiting:<user>:<hour>`: the same key on the same channel is sent once. */
     dedupeKey: text("dedupe_key").notNull(),
@@ -5245,7 +5245,7 @@ export const deal = pgTable(
     replyTag: text("reply_tag"),
     dedupeKey: text("dedupe_key"),
     /**
-     * §1.126 (0066): the company's client file, before and after set-up. A lost deal keeps it and a
+     * §1.149 (0066): the company's client file, before and after set-up. A lost deal keeps it and a
      * later deal reuses it. Cleared if the file goes (a purged client's).
      */
     clientFileId: uuid("client_file_id").references((): AnyPgColumn => clientFile.id, {
@@ -5436,7 +5436,7 @@ export const playLog = pgTable(
   ],
 );
 
-// ── Onboarding v1 (docs/plan.md §1.126; docs/cases-plan.md §4–§5; migration 0066) ──────────────────
+// ── Onboarding v1 (docs/plan.md §1.149; docs/cases-plan.md §4–§5; migration 0066) ──────────────────
 
 export const CLIENT_FILE_STATUSES = ["prospect", "client", "lost"] as const;
 export const FACT_SECTIONS = [
@@ -5787,13 +5787,13 @@ export const intakeEvent = pgTable(
 );
 
 /**
- * Onboarding's operator-only tables tied to a client (§1.126): an operator session reads only the
+ * Onboarding's operator-only tables tied to a client (§1.149): an operator session reads only the
  * files about clients it serves or about none (prospects), and a fact only with its file. A
  * client's session never sees a row. `sales_start` is global and in OPERATOR_ONLY_TABLES.
  */
 export const CLIENT_FILE_TABLES = ["client_file", "client_fact"] as const;
 
-/** Onboarding's tenant tables (§1.126), in TENANT_TABLES too. */
+/** Onboarding's tenant tables (§1.149), in TENANT_TABLES too. */
 export const INTAKE_TABLES = [
   "intake",
   "intake_person",
@@ -5915,7 +5915,7 @@ export const TENANT_TABLES = [
   "issue",
   "issue_event",
   "client_ask",
-  // 0066: a client's intake, its people, answers, scope and log (docs/plan.md §1.126).
+  // 0066: a client's intake, its people, answers, scope and log (docs/plan.md §1.149).
   "intake",
   "intake_person",
   "intake_answer",
@@ -5948,6 +5948,6 @@ export const OPERATOR_ONLY_TABLES = [
   "browser_site_version",
   "saved_view",
   "connector_setting",
-  // 0066: saved starts for Sign up now and Invite (docs/plan.md §1.126).
+  // 0066: saved starts for Sign up now and Invite (docs/plan.md §1.149).
   "sales_start",
 ] as const;

@@ -1,4 +1,4 @@
-// Onboarding's emails and the welcome page (docs/plan.md §1.126; docs/cases-plan.md §4.4), stream
+// Onboarding's emails and the welcome page (docs/plan.md §1.149; docs/cases-plan.md §4.4), stream
 // EMAIL: the invite, a colleague asked and a few more questions queued in the caller's
 // transaction and sent by the notification pass from `<Lead> at Mezonas <hello@…>` with Reply-To
 // the lead, once per person (no Resend: skipped, and logged); an invite sent later waits. The
@@ -76,7 +76,7 @@ function depsWith(mailer: Mailer): NotifyDeps {
   };
 }
 
-describe.skipIf(!h)("onboarding emails and the welcome page (§1.126)", () => {
+describe.skipIf(!h)("onboarding emails and the welcome page (§1.149)", () => {
   const H = h as ApiHarness;
   let intakeId: string;
   /** The client admin, invited by their own address. */

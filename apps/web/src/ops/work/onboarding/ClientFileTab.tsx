@@ -1,4 +1,4 @@
-// The client page's File tab (`/ops/clients/:clientId/file`; docs/plan.md §1.126): the client's
+// The client page's File tab (`/ops/clients/:clientId/file`; docs/plan.md §1.149): the client's
 // file, what we know about them by section. Invite is beside the client's name on every tab (the
 // frame). A client made before files existed starts its file here.
 import { clientFileRoutes } from "@countersign/core";

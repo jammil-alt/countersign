@@ -1,4 +1,4 @@
-// The welcome link (docs/cases-plan.md §4.4; docs/plan.md §1.126): `app.mezonas.com/start/<token>`,
+// The welcome link (docs/cases-plan.md §4.4; docs/plan.md §1.149): `app.mezonas.com/start/<token>`,
 // a signed link over the client, the intake, the person and the expiry (core `WelcomeLinkToken`),
 // seen without sign-in. Signed like the form link (../forms/link.ts) under its own label
 // (`mezonas-welcome-link`), so no other link opens it and it opens nothing else. Never a way in on

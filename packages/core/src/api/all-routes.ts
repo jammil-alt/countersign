@@ -10,7 +10,7 @@ import { inviteRoutes } from "./invite";
 import { routes } from "./routes";
 
 /**
- * docs/plan.md §1.125: the Dev queue's routes, and §1.126: onboarding v1's (the client file,
+ * docs/plan.md §1.125: the Dev queue's routes, and §1.149: onboarding v1's (the client file,
  * starts, Invite and Sign up now, the intake, the welcome page), are served beside the registry.
  * Their screens load lazily (the back office, Getting started, the welcome page), so their schemas,
  * the guide's included, stay out of the first load.

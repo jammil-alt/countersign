@@ -1,4 +1,4 @@
-// A client's intake (docs/cases-plan.md §4.2, §4.5; docs/plan.md §1.126): the client's own record
+// A client's intake (docs/cases-plan.md §4.2, §4.5; docs/plan.md §1.149): the client's own record
 // of what we asked and what they said (tenant tables, forced RLS). It holds only `theirs` facts,
 // copied into the guide when sent; answers and its log are insert only, the latest answer to a
 // field wins. Sloan's conversation about it is a `thread` with `subject_type = 'intake'`.

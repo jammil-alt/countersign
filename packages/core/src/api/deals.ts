@@ -147,7 +147,7 @@ export const DealDetail = z.object({
     agreedFrom: z.string().nullable(),
     signedCopy: z.object({ name: z.string() }).nullable(),
     people: z.array(DealPersonView),
-    /** §1.126: the company's client file (made from the company when the deal had none). */
+    /** §1.149: the company's client file (made from the company when the deal had none). */
     fileId: z.string().nullable(),
   }),
   /** Newest first. */
@@ -194,7 +194,7 @@ export const NewDeal = z.strictObject({
   nextStep: z.string().trim().max(300).optional(),
   nextDueOn: Day.optional(),
   origin: DealOrigin.optional(),
-  /** §1.126: the company's client file; omitted: the client's, or one made from the company. */
+  /** §1.149: the company's client file; omitted: the client's, or one made from the company. */
   fileId: Id.optional(),
 });
 export type NewDeal = z.infer<typeof NewDeal>;

@@ -99,7 +99,7 @@ export function HomeScreen() {
   const first = session.user.name?.trim().split(/\s+/)[0];
   const part = partOfDay(now, tz);
   const greeting = first ? t(`table.greeting.${part}`, { name: first }) : t(`table.hello.${part}`);
-  // §1.126.2: while an intake is open and no agent is live, Getting started is the client's home.
+  // §1.149.2: while an intake is open and no agent is live, Getting started is the client's home.
   // DECISION: asked only once the table shows no live agent, so Home's calls don't go up for
   // anyone with an agent at work (gate 2); the ask loads with OpenIntakeRedirect, out of the
   // first load, and a failed ask leaves Home as it is.

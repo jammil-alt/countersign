@@ -1,4 +1,4 @@
-// The intake's routes (docs/plan.md §1.126; docs/cases-plan.md §4.4, §4.5): the back office reads a
+// The intake's routes (docs/plan.md §1.149; docs/cases-plan.md §4.4, §4.5): the back office reads a
 // client's intake (and a build's Requirements panel reads its card from it); the client's people
 // read and answer theirs on Getting started; the public welcome page opens from the signed link.
 // Request and response schemas; stream INTAKE mounts the ops and portal handlers, stream EMAIL

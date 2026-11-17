@@ -1,4 +1,4 @@
-// The onboarding emails (docs/cases-plan.md §4.4; docs/plan.md §1.126): the invite, a colleague
+// The onboarding emails (docs/cases-plan.md §4.4; docs/plan.md §1.149): the invite, a colleague
 // asked, a few more questions. Each is written to the notifications outbox (§1.37) in the caller's
 // transaction as its own kind (`intake_invite`, `intake_colleague`, `intake_more_questions`;
 // migration 0066), once per person and email (the dedupe key), and sent after the commit by the
@@ -519,7 +519,7 @@ const UNSENT_WORDS: Record<OnboardingEmailKind, string> = {
 /**
  * An onboarding email the pass skipped or gave up on: a to-do on the lead's Your call (every
  * operator's when the intake names no lead), due now, once per email. The person was told nothing,
- * and the sign-in provider sent nothing either (§1.126, `brandedEmailCanGo`).
+ * and the sign-in provider sent nothing either (§1.149, `brandedEmailCanGo`).
  */
 export async function leaveUnsentTodo(
   db: Db,

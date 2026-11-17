@@ -107,7 +107,7 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
         returnTo: c.req.query("return_to") ?? null,
         // `retry=1`: the callback sent the browser back here once after a failure (below).
         restart: c.req.query("retry") === "1",
-        // §1.126: the welcome page's Google, Microsoft or email button, with the invited address.
+        // §1.149: the welcome page's Google, Microsoft or email button, with the invited address.
         method: parseSignInMethod(c.req.query("method")),
         loginHint: c.req.query("login_hint") ?? null,
       },

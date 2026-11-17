@@ -1,4 +1,4 @@
-// The guide (docs/cases-plan.md §4.2 step 3, O2; docs/plan.md §1.126.2): sections in covers'
+// The guide (docs/cases-plan.md §4.2 step 3, O2; docs/plan.md §1.149.2): sections in covers'
 // order, a shared question asked once, fields filled from `theirs` facts (known, to confirm, to
 // ask), the operator's edits, the totals and progress; a template's form read into a card; a
 // pack's area section from its manifest; answers checked and redacted; the portal's view.

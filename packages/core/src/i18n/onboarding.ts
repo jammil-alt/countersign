@@ -1,4 +1,4 @@
-// Onboarding (docs/cases-plan.md §4.4; docs/plan.md §1.126): the words of the emails a lead sends
+// Onboarding (docs/cases-plan.md §4.4; docs/plan.md §1.149): the words of the emails a lead sends
 // a client's people (the invite, a colleague asked, a few more questions) and of the welcome page
 // their link opens, in each language. The platform writes them, never a model; the lead's own note
 // and names are filled in as they are. Marked for a fluent speaker's review, as every

@@ -293,6 +293,16 @@ export interface ExternalActionStore {
    * caller's lease has run out (a crash), and then `retaken` says an earlier try may have written.
    */
   claim(tenantId: string, actionId: string): Promise<ActionClaim>;
+  /**
+   * Review of audit 3.8: the actions of this run on this connection already done, oldest first,
+   * so a run's second change to a record is not taken for a stale one. Absent: none are known,
+   * and the stale-write check compares with the proposal alone.
+   */
+  doneInRun?(
+    tenantId: string,
+    runId: string,
+    connectionId: string,
+  ): Promise<ExternalActionRecord[]>;
   /** Audit 3.2: records the write of an `executing` action; any other is returned as it is. */
   complete(
     tenantId: string,

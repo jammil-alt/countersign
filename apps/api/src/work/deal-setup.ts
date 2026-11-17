@@ -4,7 +4,7 @@
 // through `invokeRoute` (its roles, scope, checks and audit row, marked as the deal's), the client
 // through `opsCreateClient`, the exact path Reggie's `client_create` takes, then `opsStartBuild`
 // per agent. Slow routes (mountLong): no transaction is held across the routes they call.
-// §1.126: the create names this deal, so the client's one Sales hook (../onboarding/account-deal.ts)
+// §1.149: the create names this deal, so the client's one Sales hook (../onboarding/account-deal.ts)
 // moves it to Set up the account and links its file, and nothing here logs that twice.
 
 import { type DealKind, routes } from "@countersign/core";
