@@ -26,11 +26,12 @@ import {
   R2ObjectStore,
   type StripeClient,
 } from "@countersign/connectors";
-import { type Role, type RouteSpec, routeFamily } from "@countersign/core";
+import { assignedUserMayUse, type Role, type RouteSpec, routeFamily } from "@countersign/core";
 import {
   closeDb,
   createDb,
   type Db,
+  membership,
   ScopeError,
   type Tx,
   withOperator,
@@ -39,6 +40,7 @@ import {
 } from "@countersign/db";
 import { createOpenAITranscriber, type LlmTransport, type Transcriber } from "@countersign/llm";
 import { captureException } from "@sentry/cloudflare";
+import { and, eq } from "drizzle-orm";
 import type { Context, Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import { z } from "zod";
@@ -361,6 +363,12 @@ export interface HandlerCtx<R extends RouteSpec> extends PublicCtx<R> {
   /** The clients this request may touch: one for the portal, those served for the back office. */
   tenantIds: readonly string[];
   operator: boolean;
+  /**
+   * docs/plan.md §1.122: the client agents a portal client user is limited to; null for every
+   * agent (always null for client admins and operators). Routes that name an agent, a run or an
+   * item check it (`apps/api/src/assigned.ts`).
+   */
+  agents: readonly string[] | null;
   /** Runs after the transaction commits, before the response (e.g. resuming a waiting run). */
   afterCommit(task: () => Promise<unknown>): void;
   /** Runs after the response (e.g. dispatching emitted events). */
@@ -622,6 +630,47 @@ export function contentDisposition(name: string, kind: "inline" | "attachment" =
   return `${kind}; filename="${ascii}"; filename*=UTF-8''${utf8}`;
 }
 
+/**
+ * docs/plan.md §1.122: the agents a request is limited to (null: every agent), read from the
+ * person's membership in the request's transaction, refusing a route a limited client user may not
+ * use (core's `ASSIGNED_USER_ROUTES`). Only a portal client user is ever limited.
+ */
+export async function agentScope(
+  spec: Pick<RouteSpec, "method" | "path">,
+  tx: Tx,
+  ctx: Pick<Scope, "role" | "operator" | "tenantIds"> & { session: Session },
+): Promise<readonly string[] | null> {
+  if (ctx.operator || ctx.role !== "client_user") return null;
+  const tenantId = ctx.tenantIds[0];
+  if (!tenantId) return null;
+  const [row] = await tx
+    .select({ agentIds: membership.agentIds })
+    .from(membership)
+    .where(and(eq(membership.tenantId, tenantId), eq(membership.userId, ctx.session.user.id)));
+  const agents = row?.agentIds ?? null;
+  if (agents !== null && !assignedUserMayUse(spec)) {
+    throw new HttpError(403, "not_assigned", "this isn't part of the agents you work on");
+  }
+  return agents;
+}
+
+/** The handler with `agents` filled in (and a limited user's refusal) before it runs. */
+function withAgentScope<R extends RouteSpec>(
+  spec: R,
+  handler:
+    | ((ctx: HandlerCtx<R>) => Promise<unknown>)
+    | ((ctx: LongHandlerCtx<R>) => Promise<unknown>),
+  mode: "tx" | "long",
+): (ctx: HandlerCtx<R> & LongHandlerCtx<R>) => Promise<unknown> {
+  if (mode === "long") {
+    const run = handler as (ctx: LongHandlerCtx<R>) => Promise<unknown>;
+    return async (ctx) =>
+      run({ ...ctx, agents: await ctx.inTx((scoped) => agentScope(spec, scoped.tx, ctx)) });
+  }
+  const run = handler as (ctx: HandlerCtx<R>) => Promise<unknown>;
+  return async (ctx) => run({ ...ctx, agents: await agentScope(spec, ctx.tx, ctx) });
+}
+
 function mountWith<R extends RouteSpec>(
   app: Hono<AppEnv>,
   spec: R,
@@ -633,6 +682,8 @@ function mountWith<R extends RouteSpec>(
 ): void {
   if (spec.auth !== "session") throw new Error(`${spec.path} is public: use mountPublic`);
   const family = routeFamily(spec);
+  // §1.122: every route, the MCP server's calls included, reads the request's agent scope first.
+  handler = withAgentScope(spec, handler, mode) as typeof handler;
   let handlers = mounted.get(app);
   if (!handlers) {
     handlers = new Map();
@@ -753,6 +804,8 @@ function mountWith<R extends RouteSpec>(
           operator: scope.operator,
           defer: (task) => c.get("req").deferred.push(task),
           inTx: (work) => inScope(c, scope, work),
+          // Filled in by withAgentScope before the handler runs.
+          agents: null,
           accountChanged,
           ...input,
           services,
@@ -769,6 +822,7 @@ function mountWith<R extends RouteSpec>(
             c,
             session,
             ...scoped,
+            agents: null,
             accountChanged,
             ...input,
             services,
@@ -804,6 +858,7 @@ function mountWith<R extends RouteSpec>(
               c,
               session,
               ...scopedFor(c, scope, tx, after),
+              agents: null,
               accountChanged,
               ...input,
               services,
@@ -927,7 +982,15 @@ export async function invokeRoute<R extends RouteSpec>(
     const output = await inScope(c, scope, async (scoped) => {
       // No cookie here: the MCP server reads the account on each call (docs/plan.md §1.90).
       const accountChanged = () => undefined;
-      const out = await handler({ c, session, ...scoped, accountChanged, ...input, services });
+      const out = await handler({
+        c,
+        session,
+        ...scoped,
+        agents: null,
+        accountChanged,
+        ...input,
+        services,
+      });
       await auditInTx(scoped.tx, c, entry("ok", 200));
       return out;
     });

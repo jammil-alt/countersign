@@ -72,6 +72,7 @@ describe.skipIf(!h)("onboarding", () => {
           role: "client_admin",
           signedIn: null,
           canSign: true,
+          agentIds: null,
         },
         // The dev sign-in sends nothing: the user is in its list at once.
         email: { status: "not_sent", reason: "dev_sign_in" },

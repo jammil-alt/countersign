@@ -8,6 +8,7 @@ import { kpiBounds, routes } from "@countersign/core";
 import { agent } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import type { Hono } from "hono";
+import { ensureSeesAgent } from "../assigned";
 import { creditsOutView, setCreditsOut } from "../billing/credits-out";
 import { type AppEnv, mount, notFound } from "../http";
 import { computeKpis } from "../kpi/compute";
@@ -15,8 +16,10 @@ import { liveClientView, readerLocale, serviceView } from "../kpi/view";
 import { tenantRow } from "../notify/people";
 
 export function clientViewRoutes(app: Hono<AppEnv>): void {
-  mount(app, routes.portalServiceView, async ({ tx, tenantIds, params, session }) => {
+  mount(app, routes.portalServiceView, async ({ tx, tenantIds, params, session, agents }) => {
     const tenantId = tenantIds[0] as string;
+    // §1.122: an agent off a limited client user's list is "not found", as another client's.
+    ensureSeesAgent(agents, params.id);
     const [a] = await tx
       .select()
       .from(agent)

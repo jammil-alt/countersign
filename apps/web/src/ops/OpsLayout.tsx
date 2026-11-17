@@ -283,6 +283,8 @@ function OpsFrame({ children }: { children: ReactNode }) {
                 label="Security"
                 testId="ops-nav-security"
               />
+              {/* §1.122: our own people, the operators. */}
+              <SidebarLink to={OPS_PATHS.users} icon="team" label="Users" testId="ops-nav-users" />
             </SidebarSection>
           </nav>
         }

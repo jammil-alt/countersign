@@ -492,12 +492,25 @@ function People({
             });
             onChanged();
           }}
+          // §1.122: a client person's role, signing and agents, changed in place.
+          agents={settings.agents ?? []}
+          onAccess={async (m, value) => {
+            await api.call(apiRoutes.opsUpdateMember, {
+              params: { id: clientId, userId: m.userId },
+              body:
+                value.role === "client_admin"
+                  ? { role: value.role }
+                  : { role: value.role, canSign: value.canSign, agentIds: value.agentIds },
+            });
+            onChanged();
+          }}
         />
         {settings.client.sandbox ? null : (
           <>
             <InviteForm
               surface="ops"
               testId="ops-client-invite"
+              agents={settings.agents ?? []}
               onInvite={async (body) => {
                 const result = await api.call(apiRoutes.opsInvite, {
                   params: { id: clientId },

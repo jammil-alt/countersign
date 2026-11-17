@@ -56,6 +56,7 @@ import {
   sql,
 } from "drizzle-orm";
 import type { Hono } from "hono";
+import { ensureSeesAgent } from "../assigned";
 import { type AppEnv, HttpError, mount, notFound } from "../http";
 import {
   agentKpisNow,
@@ -1085,8 +1086,10 @@ export function usageRouteHandlers(app: Hono<AppEnv>): void {
     });
   });
 
-  mount(app, routes.portalService, async ({ tx, tenantIds, params, services, session }) => {
+  mount(app, routes.portalService, async ({ tx, tenantIds, params, services, session, agents }) => {
     const tenantId = tenantIds[0] as string;
+    // §1.122: an agent off a limited client user's list is "not found", as another client's.
+    ensureSeesAgent(agents, params.id);
     // audit-plan 6.6: the agent with what it is doing now and one projection of its live bundle
     // (its client view and whether it reads documents), never the whole bundle; then the rest
     // asked together.

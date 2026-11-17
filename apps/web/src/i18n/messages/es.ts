@@ -2983,4 +2983,25 @@ export const es: Messages = {
     "Este enlace venció. Vuelva a pedírselo a Claude para obtener uno nuevo.",
   "connectClaude.unknown":
     "Este enlace no corresponde a ninguna conexión de Claude suya. Vuelva a pedírselo a Claude para obtener uno nuevo.",
+  // ── Access per person (docs/plan.md §1.122) ──
+  "access.edit": "Acceso",
+  "access.title": "Qué puede hacer {name}",
+  "access.canSign": "Aprueba cambios",
+  "access.canSignHelp": "Desactivado: ve el trabajo de sus agentes y no aprueba nada.",
+  "access.agents": "Agentes con los que trabaja",
+  "access.allAgents": "Todos los agentes",
+  "access.someAgents": "Solo los agentes que elija",
+  "access.noAgents": "Todavía no hay agentes para elegir.",
+  "access.pickOne": "Elija al menos un agente, o todos los agentes.",
+  "access.adminSeesAll": "Los administradores trabajan con todos los agentes y aprueban cambios.",
+  "access.seesAll": "Trabaja con todos los agentes.",
+  "access.sees": "Trabaja con {agents}.",
+  "access.seesNone": "Todavía no trabaja con ningún agente.",
+  "access.save": "Guardar",
+  "access.cancel": "Cancelar",
+  "access.saved": "Guardado. Se aplica en menos de 5 minutos.",
+  "access.problem": "No pudimos guardarlo. Inténtelo de nuevo.",
+  "access.problem.lastAdmin": "Su empresa necesita al menos un administrador.",
+  "access.limitedHelp":
+    "Los usuarios ven solo los agentes que les asigne, con sus ejecuciones y sus tareas.",
 };

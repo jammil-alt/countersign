@@ -21,7 +21,7 @@ import { PortalTeamApprovals } from "../../approvals/TeamApprovals";
 import type { PlainKey } from "../../i18n/catalog";
 import { useI18n } from "../../i18n/i18n";
 import { LanguageMenu } from "../../i18n/LanguageMenu";
-import { useSession } from "../../session/session";
+import { useAssignedAgents, useSession } from "../../session/session";
 import { AgentBadge } from "../../ui/badges";
 import { Loaded, Page, Section } from "../../ui/page";
 import { Badge, Button, Card, EmptyState, ErrorNotice, PageHeader } from "../../ui/primitives";
@@ -95,6 +95,12 @@ const ADMIN: readonly SettingsSection[] = [
   "texting",
 ];
 
+/**
+ * docs/plan.md §1.122: a client user limited to some agents has only their own settings and the
+ * team they work with; the business's settings are closed to them (at the API too).
+ */
+const LIMITED: readonly SettingsSection[] = ["general", "team"];
+
 /** What a client user reads on an admin's section, where the section has words of its own. */
 const ADMIN_ONLY: Partial<Record<SettingsSection, PlainKey>> = {
   exports: "exports.adminOnly",
@@ -107,7 +113,8 @@ export function PortalSettingsScreen({ section = "general" }: { section?: Settin
   const session = useSession();
   const role = session.tenants.find((x) => x.id === session.activeTenantId)?.role;
   const isAdmin = role === "client_admin";
-  const sections = isAdmin ? ADMIN : EVERYONE;
+  const limited = useAssignedAgents() !== null;
+  const sections = isAdmin ? ADMIN : limited ? LIMITED : EVERYONE;
 
   return (
     <Page testId="portal-settings">
@@ -133,7 +140,7 @@ export function PortalSettingsScreen({ section = "general" }: { section?: Settin
           {!sections.includes(section) ? (
             <EmptyState>{t(ADMIN_ONLY[section] ?? "settings.adminOnly")}</EmptyState>
           ) : (
-            <Body section={section} isAdmin={isAdmin} />
+            <Body section={section} isAdmin={isAdmin} limited={limited} />
           )}
         </div>
       </div>
@@ -141,7 +148,15 @@ export function PortalSettingsScreen({ section = "general" }: { section?: Settin
   );
 }
 
-function Body({ section, isAdmin }: { section: SettingsSection; isAdmin: boolean }) {
+function Body({
+  section,
+  isAdmin,
+  limited,
+}: {
+  section: SettingsSection;
+  isAdmin: boolean;
+  limited: boolean;
+}) {
   const { t } = useI18n();
   const title = t(SECTION_WORDS[section]);
   switch (section) {
@@ -153,7 +168,7 @@ function Body({ section, isAdmin }: { section: SettingsSection; isAdmin: boolean
             <p className="text-sm text-ink-muted">{t("settingsPage.languageBody")}</p>
             <LanguageMenu />
           </Card>
-          <SloanCard />
+          {limited ? null : <SloanCard />}
         </Part>
       );
     case "approvals":

@@ -2981,4 +2981,25 @@ export const ptBR: Messages = {
   "connectClaude.expired": "Este link expirou. Peça de novo ao Claude para receber um novo.",
   "connectClaude.unknown":
     "Este link não corresponde a nenhuma conexão do Claude sua. Peça de novo ao Claude para receber um novo.",
+  // ── Access per person (docs/plan.md §1.122) ──
+  "access.edit": "Acesso",
+  "access.title": "O que {name} pode fazer",
+  "access.canSign": "Aprova mudanças",
+  "access.canSignHelp": "Desligado: vê o trabalho dos seus agentes e não aprova nada.",
+  "access.agents": "Agentes com que trabalha",
+  "access.allAgents": "Todos os agentes",
+  "access.someAgents": "Só os agentes que eu escolher",
+  "access.noAgents": "Ainda não há agentes para escolher.",
+  "access.pickOne": "Escolha pelo menos um agente, ou todos os agentes.",
+  "access.adminSeesAll": "Admins trabalham com todos os agentes e aprovam mudanças.",
+  "access.seesAll": "Trabalha com todos os agentes.",
+  "access.sees": "Trabalha com {agents}.",
+  "access.seesNone": "Ainda não trabalha com nenhum agente.",
+  "access.save": "Salvar",
+  "access.cancel": "Cancelar",
+  "access.saved": "Salvo. Vale em até 5 minutos.",
+  "access.problem": "Não conseguimos salvar. Tente de novo.",
+  "access.problem.lastAdmin": "Sua empresa precisa de pelo menos um admin.",
+  "access.limitedHelp":
+    "Usuários veem só os agentes que você der a eles, com suas execuções e tarefas.",
 };

@@ -3046,4 +3046,25 @@ export const de: Messages = {
     "Dieser Link ist abgelaufen. Fragen Sie Claude erneut, um einen neuen zu erhalten.",
   "connectClaude.unknown":
     "Dieser Link passt zu keiner Ihrer Claude-Verbindungen. Fragen Sie Claude erneut, um einen neuen zu erhalten.",
+  // ── Access per person (docs/plan.md §1.122) ──
+  "access.edit": "Zugriff",
+  "access.title": "Was {name} tun kann",
+  "access.canSign": "Gibt Änderungen frei",
+  "access.canSignHelp": "Aus: sieht die Arbeit der eigenen Agenten und gibt nichts frei.",
+  "access.agents": "Agenten, mit denen die Person arbeitet",
+  "access.allAgents": "Alle Agenten",
+  "access.someAgents": "Nur die Agenten, die ich auswähle",
+  "access.noAgents": "Es gibt noch keine Agenten zur Auswahl.",
+  "access.pickOne": "Wählen Sie mindestens einen Agenten oder alle Agenten.",
+  "access.adminSeesAll": "Admins arbeiten mit allen Agenten und geben Änderungen frei.",
+  "access.seesAll": "Arbeitet mit allen Agenten.",
+  "access.sees": "Arbeitet mit {agents}.",
+  "access.seesNone": "Arbeitet noch mit keinem Agenten.",
+  "access.save": "Speichern",
+  "access.cancel": "Abbrechen",
+  "access.saved": "Gespeichert. Es gilt innerhalb von 5 Minuten.",
+  "access.problem": "Das konnten wir nicht speichern. Versuchen Sie es erneut.",
+  "access.problem.lastAdmin": "Ihr Unternehmen braucht mindestens einen Admin.",
+  "access.limitedHelp":
+    "Benutzer sehen nur die Agenten, die Sie ihnen geben, mit deren Läufen und Aufgaben.",
 };
