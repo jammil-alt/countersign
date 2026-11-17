@@ -5,7 +5,7 @@ import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type ClientFixture, insertClient, insertOperatorRows } from "./fixtures.test-helper";
 import { deleteOrder, PurgeRefused, purgeClient } from "./purge";
-import { TENANT_TABLES } from "./schema";
+import { deal, dealActivity, dealPerson, playLog, TENANT_TABLES, todo } from "./schema";
 import { createTestDatabase, databaseAvailable, type TestDatabase } from "./testing";
 
 const online = await databaseAvailable();
@@ -44,6 +44,23 @@ describe.skipIf(!online)("purgeClient", () => {
     A = await insertClient(t.db, "A");
     B = await insertClient(t.db, "B");
     await insertOperatorRows(t.db);
+    // §1.123: the operator's deal, to-do and play log about A go with A; a deal's people and
+    // activity with their deal.
+    const [d] = await t.db
+      .insert(deal)
+      .values({ kind: "expansion", clientId: A.tenantId, title: "More", stage: "spotted" })
+      .returning({ id: deal.id });
+    await t.db.insert(dealPerson).values({ dealId: d?.id ?? "", name: "Pat Lee" });
+    await t.db.insert(dealActivity).values({ dealId: d?.id ?? "", kind: "note", actor: "system" });
+    await t.db.insert(todo).values({ clientId: A.tenantId, owner: "operator", title: "Call" });
+    await t.db.insert(playLog).values({
+      clientId: A.tenantId,
+      flow: "grow",
+      stage: "spotted",
+      play: "pursue",
+      level: "draft",
+      outcome: "drafted",
+    });
   });
   afterAll(async () => {
     await t?.drop();
@@ -82,6 +99,20 @@ describe.skipIf(!online)("purgeClient", () => {
       else expect(left, table).toBe(0);
       expect(await count(table, B.tenantId), `${table} of B`).toBe(beforeB[table]);
     }
+    for (const table of ["deal", "todo", "play_log"]) {
+      const [left] = [
+        ...(await t.db.execute<{ n: number }>(
+          sql.raw(`select count(*)::int as n from ${table} where client_id = '${A.tenantId}'`),
+        )),
+      ];
+      expect(left?.n, table).toBe(0);
+    }
+    const [people] = [
+      ...(await t.db.execute<{ n: number }>(
+        sql`select (select count(*) from deal_person)::int + (select count(*) from deal_activity)::int as n`,
+      )),
+    ];
+    expect(people?.n).toBe(0);
     const [tenantRow] = [
       ...(await t.db.execute(sql`select 1 from tenant where id = ${A.tenantId}`)),
     ];

@@ -362,6 +362,29 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
       status: "open",
       dueAt: new Date(Date.now() + 86_400_000),
     });
+  // §1.123 (0061): an issue with its thread and first event, and an idea the client asked for, on
+  // a thread of its own. Plain SQL, and only where the tables exist, like the form above.
+  const [work] = await db.$client<{ ok: boolean }[]>`
+    select to_regclass('public.issue') is not null as ok`;
+  if (work?.ok) {
+    const [it] = await db.$client<{ id: string }[]>`
+      insert into thread (tenant_id, subject_type, title) values (${tenantId}, 'issue', 'Request #1')
+      returning id`;
+    const [is] = await db.$client<{ id: string }[]>`
+      insert into issue (tenant_id, number, title, agent_id, source, raised_by, thread_id)
+      values (${tenantId}, 1, 'Invoices stopped matching', ${a.id}, 'portal', ${u.id}, ${it?.id ?? ""})
+      returning id`;
+    await db.$client`
+      insert into issue_event (tenant_id, issue_id, kind, to_value, actor, user_id)
+      values (${tenantId}, ${is?.id ?? ""}, 'created', 'reported', 'client', ${u.id})`;
+    const [at] = await db.$client<{ id: string }[]>`
+      insert into thread (tenant_id, subject_type, title) values (${tenantId}, 'client_ask', 'Idea')
+      returning id`;
+    await db.$client`
+      insert into client_ask (tenant_id, title, text, source, raised_by, thread_id)
+      values (${tenantId}, 'Weekly summary by email', 'Could we get the summary on Mondays?',
+              'portal', ${u.id}, ${at?.id ?? ""})`;
+  }
   await db.insert(accessRelease).values({
     tenantId,
     connectionId: c.id,
