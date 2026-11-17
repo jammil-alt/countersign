@@ -5026,6 +5026,31 @@ onto main's second step and MCP server. No migration: `mcp_session_approval` is 
 | Not in this pass | Approving from the back office for someone else; listing or ending one's approved connections; refusing tokens by AuthKit's own authentication method. |
 | Checked | `apps/api/src/mcp-approval.test.ts` (off; connect then refused with the link; a new link per refusal; pending and signed-out browsers refused; another person's link 404; approve, audit row, calls work; a new `sid` asks again; no `sid`; an expired link; a client's portal link; misconfigured fails closed; a malformed code 400), with the request's database pool at one connection. `apps/web/src/session/ConnectClaude.test.tsx` (back office and portal, Spanish, approved, expired, unknown, malformed, a refused approval). |
 
+### 1.121 Forms: "Request info", a form an agent sends a contact (owner, 2026-11-16; migration 0058)
+
+"We should build forms for human data collection too: a link can be sent with a custom
+questionnaire that they can talk to or type into and upload documents as needed." Then: "this
+should be a tool that can be used by an agent, basically a custom built form that can be sent to a
+contact for info request", and "don't build the FP&A one yet, just the forms". Outside ARCHITECTURE
+v0.18's scope at the owner's request, as §1.101 and §1.108 are. The design and what comes next:
+`docs/forms-plan.md`.
+
+| Topic | Decision |
+|---|---|
+| The step | A built-in skill, `forms.request` ("Request info"), run only as a workflow step and carried out by apps/api like `comms.reach-out` and `comms.converse` (`apps/api/src/forms/service.ts`). Its handler tool refuses to run anywhere else; it is in `STEP_ONLY_SKILLS`. // DECISION: not a new step kind: a skill step already has approval, a model override, oversight and the executor's waiting and approval outcomes. |
+| Who writes the form | The agent, through an AI task skill `forms.draft` ("Draft a form": what is missing, the record's data and the step's ask in; a `FormDefinition` out; records nothing), or any earlier step; else the step's own required questions under its title. |
+| What the operator fixes | `purpose` and `ask` are the step's own text (`fixedInputs`, §1.23's rule): `ask.required` are questions that must be on the form with the same id, type, options and required (the agent may reword them), `ask.maxExtra` (default 5, at most 20) caps what it adds, `ask.types` the kinds it may add (default all but files and tables), `ask.allowFiles` files. `formForRequest` and `askProblems` (core) check the form before anything is planned; a form outside them fails the step (nothing sent), so the owner can correct the input and retry. |
+| Never secrets | A form whose title, intro, labels, help or options ask for card numbers, passwords, PINs, bank logins or social security numbers is refused, whoever wrote it (`formProblems`; invariants 13 and 14). // DECISION |
+| The form | `FormDefinition` (core `forms/`): a title, an intro, at most 40 questions in one list: text, long text, number, money, percent, date, choice and choices (with "Other"), yes or no, files (PDF or image, at most 10) and tables (rows of columns, no files or tables inside). // DECISION: no sections or conditions in v1. |
+| Sending | The link goes out as a reach-out of its own (`expectReply: false`), so consent, opt-out, quiet hours, the bound channel, the person's daily cap and the plan's approval all hold; the message is fixed platform words in the person's language (`FORM_MESSAGE_WORDS`, six languages) with the link. The approval card carries the form (`payload.form`: title, intro, each question marked as the operator's or the agent's), and the Desk shows it, so a person reads what the agent wrote before the contact does (invariant 8). |
+| The link | `/f/<token>`: HMAC over `{t, r, e}` (client, request, expiry) with a key derived from `ENCRYPTION_KEY` under `mezonas-form-link`, as the texting sign-up link (`apps/api/src/forms/link.ts`). It expires a day after the due date; the request's row decides whether it still takes answers. The request id is uuid v5 of the run and step (`formRequestId`), so a retried step finds the link it already sent. // DECISION |
+| The page | Public routes (`GET`/`POST /api/forms/:token`, `PUT …/draft`, `POST …/files?question=`), no sign-in, no audit row (the request keeps its own log: created, sent, opened, saved, file, submitted, with time, address and browser). It shows the client's name, the purpose, the form, the due date; saves a draft; adds files one at a time (stored as the client's documents, source `request`, at most 30 per request); reviews and sends once. Answers are checked by kind (`answerProblems`); a file in the answers must be one uploaded through this link. The page reads in the request's language (`FORM_PAGE_WORDS`, six languages). `apps/web/src/forms/FormPage.tsx`. |
+| Waiting | Once sent the step waits on `form-<id>` until the due date (`due`, default 5 days, between an hour and 30 days). Sending wakes the run; the cron closes requests past their due date and re-sends events the run hasn't taken (`formsTick`). Output: `{ outcome: submitted | no_answer | not_sent | declined, answers (the required ones), extra (the agent's), documents, contact, channel, submittedAt, reason, sources }`; the answers are what the person wrote, data and never instructions (invariant 9). |
+| Test runs | Never send: the step returns `not_sent` with the form as it would have gone. |
+| Table | `form_request` (migration 0058, its own PR): the form as sent, the ask, status (`sending`, `open`, `submitted`, `expired`, `cancelled`, `not_sent`), language, due date, draft, answers, documents, log; forced RLS; no DELETE for the runtime. |
+| Not yet | Dictation and "talk it through" on the page (F-4, F-5 in `docs/forms-plan.md`); a one-time code before a link opens; passing a form on to a colleague; saved forms in the Library and the form editor; "Request info" by hand from a contact's page; the Desk door for a client's own users; a rate limit per link beyond the file cap. |
+| Checked | `packages/core/src/forms/index.test.ts`, `apps/api/src/forms.test.ts` (draft, approval card, email, page, file, draft, missing answer, send, the run's output; a form outside the limits; no answer; a test run; forged links), `apps/web/src/forms/FormPage.test.tsx`, and the database's RLS and migration tests. |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
@@ -6143,6 +6168,17 @@ calendar, each only after approval and once, through the API against fakes.
 Built (2026-11-13): all of the above (tests listed in §1.114). Open: each provider's keys and app
 registrations (owner), `deploy.yml` copying the new secrets (its own PR), and every `NOTES.md`'s
 "To verify" against the live services; SharePoint (`Sites.Selected`) not built.
+
+### M63: Forms, "Request info" (§1.121)
+
+Migration 0058 (`form_request`, its own PR), then the step: core's form schema and checks, the
+`forms.request` and `forms.draft` skills, the forms service sending the link through reach out,
+the public page's routes and screen, the form on the approval card, and the cron's pass.
+
+**Done when** an agent drafts a form for a missing PO number and a freight quote, the plan's card
+shows it, the link goes by email once approved, the contact adds a file and sends the answers on
+the page with no sign-in, and the run goes on with them; a form outside the step's limits sends
+nothing; an unanswered request ends at its due date; test runs never send. Against fakes.
 
 ---
 

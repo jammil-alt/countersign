@@ -423,6 +423,11 @@ export const de: Messages = {
   "desk.edit": "Bearbeiten",
   "desk.edited": "Sie haben diese Änderung bearbeitet. Wir verwenden Ihre Fassung.",
   "desk.afterYouSign": "Nach Ihrer Freigabe", // fluent review
+  // §1.121: a form request's card
+  "desk.form.heading": "Das Formular, das sie bekommen: {title}", // fluent review
+  "desk.form.fixed": "Ihre Frage", // fluent review
+  "desk.form.added": "Vom Agenten ergänzt", // fluent review
+  "desk.form.required": "Pflicht", // fluent review
   "desk.editHint":
     "Ändern Sie, was nötig ist, und speichern Sie. Wir prüfen es erneut, bevor Sie freigeben.", // fluent review
   "desk.editSave": "Änderungen speichern",

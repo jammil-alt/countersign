@@ -92,6 +92,8 @@ describe("tool registry", () => {
       // §1.104
       "docs.record_purchase",
       "docs.totals.check",
+      // §1.121: forms, "Request info" (its handler refuses outside a workflow step)
+      "forms.request",
       "health.agents",
       "health.connections",
       "health.inbox",

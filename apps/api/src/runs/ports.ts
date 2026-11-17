@@ -26,6 +26,8 @@ import {
   // P-4
   CONVERSE_SKILL,
   DEFAULT_APPROVAL,
+  // §1.121
+  FORMS_REQUEST_SKILL,
   isPlainObject,
   type JsonObject,
   LEAD_ASSIGNEE,
@@ -66,6 +68,8 @@ import {
 import { channelFor } from "../channels/resolve";
 // P-4
 import { type ConversePort, converseState } from "../converse/service";
+// §1.121: forms, "Request info"
+import { type FormsPort, formsState } from "../forms/service";
 import { toRunResolution } from "../inbox";
 import type { NotifyDeps } from "../notify/outbox";
 import { tellUrgentNow } from "../notify/urgent";
@@ -231,6 +235,8 @@ export function agentPort(
   release?: { db: Db },
   // P-4: conversations (docs/plan.md §1.66)
   converse?: ConversePort,
+  // §1.121: forms, "Request info"
+  forms?: FormsPort,
 ): AgentPort {
   const now = () => deps.now?.() ?? new Date();
   // A call the platform makes for a step (an action step's tool, the lead's answer kept).
@@ -257,6 +263,11 @@ export function agentPort(
       if (parseSkillRef(step.skill).id === REACH_OUT_SKILL) {
         if (!reach) return { kind: "failed", error: "comms.reach-out needs the reach-out service" };
         return reach.start(request);
+      }
+      // §1.121: the built-in form request goes to the forms service, which sends through reach out.
+      if (parseSkillRef(step.skill).id === FORMS_REQUEST_SKILL) {
+        if (!forms) return { kind: "failed", error: "forms.request needs its service" };
+        return forms.start(request);
       }
       // P-4: the built-in conversation step goes to the conversation service (§1.66).
       if (parseSkillRef(step.skill).id === CONVERSE_SKILL) {
@@ -408,6 +419,8 @@ export function agentPort(
         if (!release) return true;
         return releaseWaitDone(release.db, request.run.tenantId, waiting, now());
       }
+      // §1.121: a form request's state wraps its reach-out's while the link is sending.
+      if (forms && formsState(request.wait.state)) return forms.waitDone(request);
       // P-4
       if (converse && converseState(request.wait.state)) return converse.waitDone(request);
       if (!reach) return true;
@@ -433,6 +446,8 @@ export function agentPort(
           ? port.runSkill({ ...again, step, approval: step.approval ?? DEFAULT_APPROVAL })
           : port.runAction({ ...again, step, approval: step.approval });
       }
+      // §1.121
+      if (forms && formsState(request.wait.state)) return forms.afterWait(request);
       // P-4
       if (converse && converseState(request.wait.state)) return converse.afterWait(request);
       if (!reach) return { kind: "failed", error: "nothing to wait for" };
@@ -441,6 +456,8 @@ export function agentPort(
 
     async resume(request) {
       const { run, step, pending, resolution } = request;
+      // §1.121: a form request's link plan (its state wraps the reach-out's).
+      if (forms && formsState(pending.state)) return forms.resume(request);
       // P-4: a conversation's approvals and hand-over first: its state also names a reach-out.
       if (converse && converseState(pending.state)) return converse.resume(request);
       if (reach && reachOutState(pending.state)) return reach.resume(request);

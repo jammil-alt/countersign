@@ -43,6 +43,8 @@ export * from "./api/excel";
 export * from "./api/exports";
 export * from "./api/feedback";
 // v0.14 W4-E: Google Chat
+// docs/plan.md §1.121: forms, "Request info"
+export * from "./api/forms";
 export * from "./api/gchat";
 // v0.14 W4-D
 export * from "./api/gsheets";
@@ -161,11 +163,14 @@ export * from "./directory/search";
 export * from "./directory/voice-samples";
 export * from "./documents/extraction";
 export * from "./duration";
+// docs/plan.md §1.121: forms, "Request info"
+export * from "./forms";
 // v0.19: area owners (ARCHITECTURE §10.15)
 export * from "./help/guide";
 // v0.12 W2-E
 export * from "./holidays/us";
 export * from "./i18n/desk";
+export * from "./i18n/forms";
 export * from "./i18n/gmail-test";
 export * from "./i18n/lifecycle";
 export * from "./i18n/locale";
