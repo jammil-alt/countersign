@@ -14,6 +14,7 @@ import { useI18n } from "../i18n/i18n";
 import { LanguageMenu } from "../i18n/LanguageMenu";
 import { displayName, userInitial, useSession, useSessionState } from "../session/session";
 import { Logo, LogoMark, PRODUCT_NAME } from "../ui/brand";
+import { ErrorBoundary } from "../ui/ErrorBoundary";
 import { Icon, type IconName } from "../ui/icons";
 import { Count, cx } from "../ui/primitives";
 import { HeaderSwitcherProvider } from "./HeaderSwitcher";
@@ -223,7 +224,10 @@ export function AppShell({
           </span>
         ) : null}
         <main className="ui-main">
-          <HeaderSwitcherProvider switcher={switcher ?? null}>{children}</HeaderSwitcherProvider>
+          <HeaderSwitcherProvider switcher={switcher ?? null}>
+            {/* A page that throws shows a notice here; the frame stays. A new address clears it. */}
+            <ErrorBoundary resetKey={pathname}>{children}</ErrorBoundary>
+          </HeaderSwitcherProvider>
         </main>
       </div>
     </div>

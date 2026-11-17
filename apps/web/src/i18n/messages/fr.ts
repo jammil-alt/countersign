@@ -54,6 +54,8 @@ export const fr: Messages = {
   "errorPage.forbidden.title": "Vous n'avez pas accès à cette page.",
   "errorPage.failure":
     "Un problème est survenu au chargement de cette page. Réessayez dans un instant.",
+  "errorPage.crash":
+    "Un problème est survenu à l'affichage de cette page. Réessayez ou ouvrez une autre page.",
   "errorPage.back.home": "Aller à l'accueil",
   "errorPage.back.runs": "Aller aux exécutions",
   "errorPage.back.records": "Aller aux enregistrements",

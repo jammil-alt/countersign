@@ -51,6 +51,7 @@ import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
 import { BeforeAfter } from "../../ui/activity";
 import { AgentBadge } from "../../ui/badges";
+import { ErrorBoundary } from "../../ui/ErrorBoundary";
 import { Progress } from "../../ui/motion";
 import { Loaded, Page, PageGrid, Section } from "../../ui/page";
 import { Badge, Button, Card, EmptyState, ErrorNotice, PageHeader, Tag } from "../../ui/primitives";
@@ -895,7 +896,10 @@ function Timeline({
         </div>
       ) : null}
       <StepList steps={items} />
-      {panel}
+      {/* A step whose panel can't be shown leaves the run's page working. */}
+      <ErrorBoundary resetKey={stepId} inline testId="ops-step-panel-crash">
+        {panel}
+      </ErrorBoundary>
     </Card>
   );
 }

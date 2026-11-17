@@ -52,6 +52,8 @@ export const it: Messages = {
   "errorPage.connection.line": "Collegalo in Account, poi torna su questa pagina.",
   "errorPage.forbidden.title": "Non hai accesso a questa pagina.",
   "errorPage.failure": "Qualcosa è andato storto nel caricare questa pagina. Riprova tra poco.",
+  "errorPage.crash":
+    "Qualcosa è andato storto nel mostrare questa pagina. Riprova o vai a un'altra pagina.",
   "errorPage.back.home": "Vai alla home",
   "errorPage.back.runs": "Vai a Esecuzioni",
   "errorPage.back.records": "Vai a Record",
