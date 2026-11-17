@@ -143,6 +143,24 @@ describe("qbo.purchase.create", () => {
     ).toContain("(77)");
   });
 
+  it("books a second charge of the same card, day and amount when the first is another booking's", async () => {
+    const s = await setup();
+    s.qbo.put("Purchase", {
+      Id: "78",
+      SyncToken: "0",
+      AccountRef: { value: CARD },
+      PaymentType: "CreditCard",
+      TxnDate: "2026-11-03",
+      TotalAmt: 48.1,
+      PrivateNote: `Glue and blades ${referenceMark("bk-0190f0c7")}`,
+      Line: [],
+    });
+    await captureBefore(s.connector, BANKING_TOOLS.purchaseCreate, charge, s.propose());
+    const out = await executeWrite(s.connector, BANKING_TOOLS.purchaseCreate, charge, s.ctx());
+    expect(out.output).toMatchObject({ alreadyDone: false });
+    expect((out.output as { id: string }).id).not.toBe("78");
+  });
+
   it("refuses lines that don't add up, item lines, an account that isn't a card, and an unknown account", async () => {
     const s = await setup();
     const try_ = (over: object) =>
