@@ -17,8 +17,10 @@ import { type ConnectionContext, type Connector, defineConnector } from "../conn
 import { GOOGLE_AUTH_URL, GOOGLE_TOKEN_URL } from "../gmail/index";
 import { type FetchLike, formEncode, globalFetch, timeoutSignal } from "../http";
 import {
+  attentionReasonOf,
   OAuthTokens,
   ReconnectRequiredError,
+  refreshRefused,
   SignInRefusedError,
   type TokenRefresher,
   tokenManager,
@@ -163,7 +165,8 @@ export function createGscOauthConnector(options: GscOauthOptions = {}): SearchCo
         client_secret: c.secret,
       });
       if ("error" in answer) {
-        throw new ReconnectRequiredError(`Google refused the refresh: ${answer.error}`);
+        // invalid_grant: revoked, or expired (after 7 days while the app is in Testing).
+        throw refreshRefused("Google", answer.error);
       }
       return {
         ...tokens,
@@ -211,11 +214,18 @@ export function createGscOauthConnector(options: GscOauthOptions = {}): SearchCo
       token = await tokens.accessToken();
     } catch (error) {
       if (error instanceof ReconnectRequiredError) {
-        throw new SearchImportError("Google ended the sign-in: connect Search Console again");
+        throw new SearchImportError(
+          attentionReasonOf(error) === "refresh_failing"
+            ? "we can't reach Search Console right now and are looking into it"
+            : "Google ended the sign-in: connect Search Console again",
+        );
       }
       throw error;
     }
-    return readGscProperty(property, token, span, doFetch());
+    const read = await readGscProperty(property, token, span, doFetch());
+    // The read went through: access works (clears a record of failing renewals).
+    await tokens.worked();
+    return read;
   }
 
   const connector: Connector = defineConnector({
@@ -228,6 +238,8 @@ export function createGscOauthConnector(options: GscOauthOptions = {}): SearchCo
     entities: [SEARCH_ENTITY.queryPage, SEARCH_ENTITY.page],
     tools: [],
     isConfigured: () => configured,
+    // The property read is this connection's account id: signing in again may choose another.
+    accountMayChange: true,
 
     async authorize(req) {
       const c = client();

@@ -25,6 +25,7 @@ import {
   defineWriteTool,
   type ToolContext,
   UnconfirmedWriteError,
+  writeNotMade,
 } from "../connector";
 import { type FetchLike, globalFetch, timeoutSignal } from "../http";
 import {
@@ -33,17 +34,25 @@ import {
   MICROSOFT_SIGN_IN_SCOPES,
   MicrosoftApiError,
   MicrosoftCredentials,
+  microsoftAccountIds,
   microsoftSignIn,
 } from "../microsoft/identity";
-import { ReconnectRequiredError, tokenManager } from "../oauth/tokens";
+import {
+  ReconnectRequiredError,
+  type TokenManager,
+  TokenRefreshError,
+  tokenManager,
+} from "../oauth/tokens";
 import {
   EmailBlockedError,
   EmailSendInput,
   EmailSendOutput,
   type EmailServices,
-  taggedReplyTo,
+  refusalReason,
+  sendRefusedStatus,
 } from "../resend/index";
 import { sha256Bytes, toBase64, toHex, utf8 } from "../runtime";
+import { reachReplyTo } from "../upload/forwarding";
 
 export const OUTLOOK_CONNECTOR_ID = "outlook";
 export const OUTLOOK_SEND_TOOL = "outlook.send";
@@ -131,7 +140,7 @@ async function senderOf(ctx: ToolContext): Promise<string> {
 
 async function replyToFor(services: EmailServices, tag: string | undefined) {
   const forwarding = services.replyAddress ? await services.replyAddress() : null;
-  return taggedReplyTo(forwarding, tag);
+  return reachReplyTo(forwarding, tag);
 }
 
 /** Our reference for an action's send: on the message as `X-Mezonas-Ref`, and the output's `id`. */
@@ -196,25 +205,39 @@ export function createOutlookConnector(options: OutlookOptions = {}): Connector 
   });
   const refresher = signIn.refresher;
 
-  /** Graph `sendMail`, with one refresh and retry if the access token is refused. */
-  async function send(ctx: ConnectionContext, body: JsonObject): Promise<void> {
-    const tokens = tokenManager({ credentials: ctx.credentials, refresher, now: ctx.now });
-    const res = await tokens.withAccessToken(
-      (token) =>
-        doFetch()(`${GRAPH_API}/me/sendMail`, {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${token}`,
-            "content-type": "application/json",
-            accept: "application/json",
-          },
-          body: JSON.stringify(body),
-          redirect: "manual",
-          signal: timeoutSignal(30_000),
-        }),
-      (r) => r.status === 401,
-    );
-    if (res.status === 401) throw new ReconnectRequiredError("Microsoft refused the access token");
+  /**
+   * Graph `sendMail`, with one refresh and retry if the access token is refused. An error with
+   * `notWritten` means Graph answered and sent nothing (`sendRefusedStatus`, or a refresh after a
+   * 401 that failed); any other may have come after the email went out.
+   */
+  async function send(
+    ctx: ConnectionContext,
+    body: JsonObject,
+    tokens: TokenManager = tokenManager({ credentials: ctx.credentials, refresher, now: ctx.now }),
+  ): Promise<void> {
+    const res = await tokens
+      .withAccessToken(
+        (token) =>
+          doFetch()(`${GRAPH_API}/me/sendMail`, {
+            method: "POST",
+            headers: {
+              authorization: `Bearer ${token}`,
+              "content-type": "application/json",
+              accept: "application/json",
+            },
+            body: JSON.stringify(body),
+            redirect: "manual",
+            signal: timeoutSignal(30_000),
+          }),
+        (r) => r.status === 401,
+      )
+      .catch((error: unknown) => {
+        // The refresh after a 401 failed: Graph refused the send, so nothing went out.
+        if (error instanceof ReconnectRequiredError || error instanceof TokenRefreshError) {
+          throw Object.assign(error, { notWritten: true as const });
+        }
+        throw error;
+      });
     if (res.status === 202 || res.ok) return;
     let msg: unknown;
     try {
@@ -222,10 +245,15 @@ export function createOutlookConnector(options: OutlookOptions = {}): Connector 
     } catch {
       msg = undefined;
     }
-    throw new MicrosoftApiError(
+    // DECISION: a 401 right after a refresh that worked is not a dead grant, so the connection
+    // stays connected; the send fails as refused, and a later try may get through.
+    const error = new MicrosoftApiError(
       res.status,
-      `Outlook refused the email (${res.status}): ${typeof msg === "string" ? msg : "no reason given"}`,
+      res.status === 401
+        ? "Microsoft refused our access just after we renewed it; we'll keep trying"
+        : `Outlook refused the email (${res.status}): ${typeof msg === "string" ? msg : "no reason given"}`,
     );
+    throw sendRefusedStatus(res.status) ? Object.assign(error, { notWritten: true }) : error;
   }
 
   return defineConnector({
@@ -251,7 +279,11 @@ export function createOutlookConnector(options: OutlookOptions = {}): Connector 
       return {
         externalAccountId: account.address,
         credentials: credentials as unknown as JsonObject,
-        config: { address: account.address, scopes: ["Mail.Send"] },
+        config: {
+          address: account.address,
+          scopes: ["Mail.Send"],
+          accountIds: microsoftAccountIds(account),
+        },
       };
     },
 
@@ -306,7 +338,7 @@ export function createOutlookConnector(options: OutlookOptions = {}): Connector 
           // with no record is never sent again: the action fails as unconfirmed and the operator
           // checks the mailbox (UnconfirmedWriteError), exactly as gmail.send (plan §1.31).
           const started = await services.attemptFor?.(ctx.idempotencyKey);
-          if (started) {
+          if (started && !started.refused) {
             throw new UnconfirmedWriteError(
               `The email to ${started.contactName} may have been sent from Outlook`,
               `we started it at ${started.startedAt.toISOString()} and have no record of it, and we can't read the mailbox to check`,
@@ -338,6 +370,11 @@ export function createOutlookConnector(options: OutlookOptions = {}): Connector 
             ref,
             ...(files.length ? { attachments: files } : {}),
           });
+          // The sign-in is refreshed before the attempt is recorded: a refresh that fails leaves
+          // no started send behind.
+          const tokens = tokenManager({ credentials: ctx.credentials, refresher, now: ctx.now });
+          await tokens.accessToken();
+          const attempt = started ? (started.attempt ?? 1) + 1 : 1;
           await services.startAttempt?.({
             idempotencyKey: ctx.idempotencyKey,
             connectionId: ctx.connection.id,
@@ -347,8 +384,22 @@ export function createOutlookConnector(options: OutlookOptions = {}): Connector 
             from,
             subject: input.subject,
             startedAt: ctx.now(),
+            attempt,
           });
-          await send(ctx, body);
+          try {
+            await send(ctx, body, tokens);
+          } catch (error) {
+            // Graph answered and sent nothing: the try is refused, so a re-run may send it.
+            if (writeNotMade(error)) {
+              await services.refuseAttempt?.({
+                idempotencyKey: ctx.idempotencyKey,
+                attempt,
+                reason: refusalReason(error),
+                at: ctx.now(),
+              });
+            }
+            throw error;
+          }
           const output: OutlookSendOutput = {
             id: ref,
             to: input.to,

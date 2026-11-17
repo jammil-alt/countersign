@@ -115,7 +115,7 @@ export type AdapterChoice =
 
 /**
  * `AUTH_PROVIDER` picks the adapter (default: workos when WORKOS_CLIENT_ID is set, else dev).
- * A misconfigured WorkOS never falls back to dev, and dev never runs in production.
+ * A misconfigured WorkOS never falls back to dev, and dev runs only where ENVIRONMENT is development.
  */
 export function chooseAdapter(
   env: Bindings,
@@ -153,7 +153,7 @@ export function chooseAdapter(
   } catch {
     return {
       ok: false,
-      refusal: refuse("adapter_disabled", "the dev sign-in cannot be used in production"),
+      refusal: refuse("adapter_disabled", "the dev sign-in can only be used in development"),
     };
   }
 }

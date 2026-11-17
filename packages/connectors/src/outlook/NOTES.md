@@ -37,8 +37,9 @@ account) before a client connects, and the connector and fake fixed where they d
 - The message: Graph JSON, `POST https://graph.microsoft.com/v1.0/me/sendMail` with
   `{message: {subject, body: {contentType: "Text", content}, toRecipients, replyTo?,
   internetMessageHeaders: [{name: "X-Mezonas-Ref", value}]}, saveToSentItems: true}`. Line breaks in
-  the subject become spaces. `Reply-To` is the client's forwarding address tagged `+<reach-out id>`
-  (none while the client has no forwarding address). Graph sends as the signed-in mailbox.
+  the subject become spaces. `Reply-To` is the client's reply address
+  `r-<client id>+<reach-out tag>`, never the forwarding address itself (none when the email answers
+  no reach-out or the client has no forwarding address). Graph sends as the signed-in mailbox.
 - Sent once, exactly as `gmail.send` (plan §1.31): Graph takes no idempotency key and `Mail.Send`
   can't read Sent Items, so the send is recorded as started (`raw_record` `EmailAttempt`, one per
   key) before Graph is called. A re-run returns the recorded email; a started send with no record

@@ -11,9 +11,10 @@ import { memoryCredentials } from "../credentials-accessor";
 import { formDecode } from "../http";
 import { captureBefore, executeWrite } from "../invoke";
 import { noopLogger } from "../logger";
-import { ReconnectRequiredError, SignInRefusedError } from "../oauth/tokens";
+import { ReconnectRequiredError, SignInRefusedError, TokenRefreshError } from "../oauth/tokens";
 import type { EmailSendAttempt, EmailServices } from "../resend/index";
 import { fromBase64, fromUtf8, toBase64Url, utf8 } from "../runtime";
+import { jsonResponse } from "../testing";
 import { FAKE_GOOGLE, fakeGoogle } from "./fake";
 import {
   createGmailConnector,
@@ -58,10 +59,20 @@ function services(opts: { agreed?: boolean; forwarding?: string | null } = {}) {
       return sent.get(key) ?? null;
     },
     async startAttempt(a) {
-      if (!attempts.has(a.idempotencyKey)) attempts.set(a.idempotencyKey, a);
+      // The first try per key stands; a later one only after the newest was refused.
+      const newest = attempts.get(a.idempotencyKey);
+      if (!newest || (newest.refused && (a.attempt ?? 1) > (newest.attempt ?? 1))) {
+        attempts.set(a.idempotencyKey, a);
+      }
     },
     async attemptFor(key) {
       return attempts.get(key) ?? null;
+    },
+    async refuseAttempt({ idempotencyKey, attempt }) {
+      const newest = attempts.get(idempotencyKey);
+      if (newest && (newest.attempt ?? 1) === attempt) {
+        attempts.set(idempotencyKey, { ...newest, refused: true });
+      }
     },
     async replyAddress() {
       return opts.forwarding === undefined ? FORWARD : opts.forwarding;
@@ -396,6 +407,67 @@ describe("gmail.send", () => {
       /Gmail refused the email \(400\)/,
     );
     expect(recorded).toHaveLength(0);
+  });
+
+  it("records no started send when the sign-in can't be refreshed, so a later try sends", async () => {
+    const { connector, google, ctx, attempts } = await setup();
+    const stale = { ...ctx.credentials.current(), expiresAt: NOW.toISOString() };
+    const credentials = memoryCredentials(stale as typeof stale & { accessToken: string });
+    // Google's token endpoint has an incident: not the client's grant.
+    const down = createGmailConnector({
+      ...FAKE_GOOGLE,
+      fetch: async (url, init) =>
+        url === GOOGLE_TOKEN_URL
+          ? jsonResponse(503, { error: "server_error" })
+          : google.fetch(url, init),
+    });
+    const error = await executeWrite(down, GMAIL_SEND_TOOL, SPANISH, { ...ctx, credentials }).catch(
+      (e) => e,
+    );
+    expect(error).toBeInstanceOf(TokenRefreshError);
+    expect(attempts.size).toBe(0);
+    await executeWrite(connector, GMAIL_SEND_TOOL, SPANISH, { ...ctx, credentials });
+    expect(google.sent).toHaveLength(1);
+  });
+
+  it("tries again a send Gmail refused, and never one that may have gone out", async () => {
+    const { connector, google, ctx, attempts } = await setup();
+    // A rate limit: Gmail answered and sent nothing.
+    google.failSends(1, 429);
+    await expect(executeWrite(connector, GMAIL_SEND_TOOL, SPANISH, ctx)).rejects.toMatchObject({
+      status: 429,
+      notWritten: true,
+    });
+    expect(attempts.get(ctx.idempotencyKey)).toMatchObject({ attempt: 1, refused: true });
+    await executeWrite(connector, GMAIL_SEND_TOOL, SPANISH, ctx);
+    expect(google.sent).toHaveLength(1);
+    expect(attempts.get(ctx.idempotencyKey)).toMatchObject({ attempt: 2 });
+
+    // A 5xx: it may have gone out, so a re-run stops for a person.
+    const other = { ...ctx, idempotencyKey: "0192f7a0-run:reach:reach:9" };
+    google.failSends(1, 500);
+    await expect(
+      executeWrite(connector, GMAIL_SEND_TOOL, SPANISH, other),
+    ).rejects.not.toMatchObject({ notWritten: true });
+    await expect(executeWrite(connector, GMAIL_SEND_TOOL, SPANISH, other)).rejects.toBeInstanceOf(
+      UnconfirmedWriteError,
+    );
+    expect(google.sent).toHaveLength(1);
+  });
+
+  it("keeps the connection when Gmail refuses a token it has just refreshed", async () => {
+    const { google, ctx, attempts } = await setup();
+    const refusing = createGmailConnector({
+      ...FAKE_GOOGLE,
+      fetch: async (url, init) =>
+        url.includes("/messages/send")
+          ? jsonResponse(401, { error: { message: "Invalid Credentials" } })
+          : google.fetch(url, init),
+    });
+    const error = await executeWrite(refusing, GMAIL_SEND_TOOL, SPANISH, ctx).catch((e) => e);
+    expect(error).not.toBeInstanceOf(ReconnectRequiredError);
+    expect(error).toMatchObject({ status: 401, notWritten: true });
+    expect(attempts.get(ctx.idempotencyKey)).toMatchObject({ refused: true });
   });
 });
 

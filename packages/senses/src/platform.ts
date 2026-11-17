@@ -242,7 +242,7 @@ export const PLATFORM_EVENTS = {
   },
   "connection.needs_attention": {
     description:
-      "A connection needs a person: a sign-in expired or was revoked, a sync failed, a website login stopped, or a code alert.",
+      "A connection needs a person: a sign-in expired or was revoked, a sync failed, renewing access kept failing for a day, a website login stopped, or a code alert.",
     subjectType: "connection",
     payload: ConnectionNeedsAttentionPayload,
     sample: {

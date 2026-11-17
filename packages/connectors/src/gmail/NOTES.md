@@ -29,8 +29,9 @@ mailbox before a client connects, and the connector and fake fixed where they di
   revoke that fails for another reason doesn't stop the disconnect (the platform's rule for every
   connector).
 - `gmail.send`: external, verb `create`, behind approval by default. It builds the message itself
-  (`mime.ts`): `From` the connected address, `To` the contact, `Reply-To` the client's forwarding
-  address tagged `+<reach-out id>` (none if the client has no forwarding address yet), the subject
+  (`mime.ts`): `From` the connected address, `To` the contact, `Reply-To` the client's reply
+  address `r-<client id>+<reach-out tag>` (never the forwarding address itself; none if the email
+  answers no reach-out or the client has no forwarding address yet, `upload/forwarding.ts`), the subject
   as RFC 2047 encoded words when it isn't plain ASCII, `Date`, our own `Message-ID`
   (`<idempotency key>.mezonas@<sender's domain>`), `text/plain; charset=UTF-8`, body in base64.
   Header values can't carry line breaks; addresses and the Message-ID are checked.

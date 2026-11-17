@@ -11,10 +11,11 @@ import { memoryCredentials } from "../credentials-accessor";
 import { formDecode } from "../http";
 import { captureBefore, executeWrite } from "../invoke";
 import { noopLogger } from "../logger";
-import { ReconnectRequiredError, SignInRefusedError } from "../oauth/tokens";
+import { ReconnectRequiredError, SignInRefusedError, TokenRefreshError } from "../oauth/tokens";
 import { connectionDefaults } from "../permissions";
 import type { EmailSendAttempt, EmailServices } from "../resend/index";
 import { toBase64Url, utf8 } from "../runtime";
+import { jsonResponse } from "../testing";
 import { FAKE_MICROSOFT, fakeMicrosoft, MICROSOFT_CONSUMER_TENANT } from "./fake";
 import {
   createOutlookConnector,
@@ -67,10 +68,20 @@ function services(opts: { agreed?: boolean; forwarding?: string | null } = {}) {
       return sent.get(key) ?? null;
     },
     async startAttempt(a) {
-      if (!attempts.has(a.idempotencyKey)) attempts.set(a.idempotencyKey, a);
+      // The first try per key stands; a later one only after the newest was refused.
+      const newest = attempts.get(a.idempotencyKey);
+      if (!newest || (newest.refused && (a.attempt ?? 1) > (newest.attempt ?? 1))) {
+        attempts.set(a.idempotencyKey, a);
+      }
     },
     async attemptFor(key) {
       return attempts.get(key) ?? null;
+    },
+    async refuseAttempt({ idempotencyKey, attempt }) {
+      const newest = attempts.get(idempotencyKey);
+      if (newest && (newest.attempt ?? 1) === attempt) {
+        attempts.set(idempotencyKey, { ...newest, refused: true });
+      }
     },
     async replyAddress() {
       return opts.forwarding === undefined ? FORWARD : opts.forwarding;
@@ -149,7 +160,11 @@ describe("outlook sign-in", () => {
   it("keeps the address from the ID token and the tokens, with the code sent to the token endpoint", async () => {
     const { grant, ms } = await signIn();
     expect(grant.externalAccountId).toBe("pat.lee@shop.example");
-    expect(grant.config).toEqual({ address: "pat.lee@shop.example", scopes: ["Mail.Send"] });
+    expect(grant.config).toEqual({
+      address: "pat.lee@shop.example",
+      scopes: ["Mail.Send"],
+      accountIds: [expect.stringMatching(/^ms:[^:]+:oid-pat\.lee@shop\.example$/)],
+    });
     expect(grant.credentials).toMatchObject({
       address: "pat.lee@shop.example",
       accessToken: ms.issued().accessTokens[0],
@@ -362,6 +377,49 @@ describe("outlook.send", () => {
     ).rejects.toBeInstanceOf(UnconfirmedWriteError);
     expect(other.ms.sent).toHaveLength(0);
     expect(other.recorded).toHaveLength(0);
+  });
+
+  it("records no started send when the sign-in can't be refreshed, so a later try sends", async () => {
+    const { connector, ms, ctx, credentials, attempts } = await setup();
+    await credentials.set({ ...(credentials.current() ?? {}), expiresAt: NOW.toISOString() });
+    // A wrong or rotated client secret: Microsoft answers invalid_client, not the client's grant.
+    const down = createOutlookConnector({
+      ...FAKE_MICROSOFT,
+      fetch: async (url, init) =>
+        url === MICROSOFT_TOKEN_URL
+          ? jsonResponse(401, { error: "invalid_client", error_codes: [7000215] })
+          : ms.fetch(url, init),
+    });
+    const error = await executeWrite(down, OUTLOOK_SEND_TOOL, SPANISH, ctx).catch((e) => e);
+    expect(error).toBeInstanceOf(TokenRefreshError);
+    expect(attempts.size).toBe(0);
+    await executeWrite(connector, OUTLOOK_SEND_TOOL, SPANISH, ctx);
+    expect(ms.sent).toHaveLength(1);
+  });
+
+  it("tries again a send Graph refused, and keeps the connection after a 401 past a refresh", async () => {
+    const { connector, ms, ctx, attempts } = await setup();
+    ms.failSends(1, 429);
+    await expect(executeWrite(connector, OUTLOOK_SEND_TOOL, SPANISH, ctx)).rejects.toMatchObject({
+      status: 429,
+      notWritten: true,
+    });
+    expect(attempts.get(ctx.idempotencyKey)).toMatchObject({ attempt: 1, refused: true });
+    await executeWrite(connector, OUTLOOK_SEND_TOOL, SPANISH, ctx);
+    expect(ms.sent).toHaveLength(1);
+
+    const refusing = createOutlookConnector({
+      ...FAKE_MICROSOFT,
+      fetch: async (url, init) =>
+        url.endsWith("/me/sendMail")
+          ? jsonResponse(401, { error: { code: "InvalidAuthenticationToken" } })
+          : ms.fetch(url, init),
+    });
+    const other = { ...ctx, idempotencyKey: "0192f7a0-run:reach:reach:9" };
+    const error = await executeWrite(refusing, OUTLOOK_SEND_TOOL, SPANISH, other).catch((e) => e);
+    expect(error).not.toBeInstanceOf(ReconnectRequiredError);
+    expect(error).toMatchObject({ status: 401, notWritten: true });
+    expect(attempts.get(other.idempotencyKey)).toMatchObject({ refused: true });
   });
 
   it("checks the contact in code before Microsoft is called; no reply-to without a forwarding address", async () => {

@@ -699,6 +699,8 @@ describe.skipIf(!h)("a buyer that works by email, end to end", () => {
   const replyEmail = (from: string, to: string, text: string, pdf?: Uint8Array) => {
     const boundary = "b0undary";
     const parts = [
+      // Cloudflare's verdict on top: SPF passed for the envelope sender's domain.
+      `Authentication-Results: mx.cloudflare.net; spf=pass smtp.mailfrom=${from}`,
       `From: ${from}`,
       `To: ${to}`,
       "Subject: Re: Request for quote",
@@ -784,6 +786,7 @@ describe.skipIf(!h)("a buyer that works by email, end to end", () => {
       const hex = type.slice("reachout-".length);
       const id = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
       const [row] = await H.t.db.select().from(reachOut).where(eq(reachOut.id, id));
+      // The earlier form (forwarding address + id in hex) still reaches the reach-out.
       const replyTo = forwarding.replace("@", `+${hex}@`);
       if (row?.contactId === ids.keystoneRep) {
         await deliver(
@@ -1041,7 +1044,9 @@ describe.skipIf(!h)("a buyer that works by email, end to end", () => {
       expect(m.subject).toBe("Request for quote from Client A: 2 items");
       expect(m.text).toContain(`1. ${BB}: 12 sheets`);
       expect(m.attachments.map((a) => a.mimeType)).toEqual(["application/pdf"]);
-      expect(m.replyTo[0]).toContain(forwarding.split("@")[0]);
+      // The reply address, never the forwarding address a vendor could drop invoices into.
+      expect(m.replyTo[0]).toMatch(/^r-[a-z2-7]{26}\+[a-z2-7]{34}@/);
+      expect(m.replyTo[0]).not.toContain(forwarding.split("@")[0]);
     }
     // The RFQs as they ended: Keystone and Northline in, Cedar Ridge expired.
     const rows = await H.t.db

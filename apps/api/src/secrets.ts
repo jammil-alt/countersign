@@ -4,11 +4,13 @@
 // and written inside the request's transaction. Responses never carry them except where a route
 // exists to show the client its own signing secret (the webhook setup).
 
+import { accessRestoredIn } from "@countersign/agents";
 import {
   CredentialCipher,
   type CredentialsAccessor,
   credentialKeysFromEnv,
   encryptedCredentials,
+  saveCredentialsIf,
   tenantKeysIn,
   type VaultCipher,
 } from "@countersign/connectors";
@@ -49,7 +51,7 @@ export async function connectionCredentials(
 ): Promise<CredentialsAccessor> {
   const cipher = await vaultFor(tx, env);
   const where = and(eq(connection.id, row.id), eq(connection.tenantId, row.tenantId));
-  return encryptedCredentials({
+  const accessor = encryptedCredentials({
     cipher,
     binding: { tenantId: row.tenantId, connectionId: row.id },
     load: async () => {
@@ -65,5 +67,12 @@ export async function connectionCredentials(
         .set({ credentialsEncrypted: envelope as Record<string, unknown> })
         .where(where);
     },
+    saveIf: (envelope, expected) =>
+      saveCredentialsIf(tx, { tenantId: row.tenantId, connectionId: row.id }, envelope, expected),
   });
+  // A call works again: an open `refresh_failing` issue on the connection closes.
+  accessor.accessRestored = async () => {
+    await accessRestoredIn(tx, row.tenantId, row.id);
+  };
+  return accessor;
 }

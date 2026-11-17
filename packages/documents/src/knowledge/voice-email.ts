@@ -12,10 +12,9 @@ import {
   parseReplyEmail,
   sameAddress,
   senderAllowed,
-  trustedFromHeader,
   UPLOAD_CONNECTOR_ID,
 } from "@countersign/connectors";
-import { voiceTagged } from "@countersign/core";
+import { authenticatedSenders, voiceTagged } from "@countersign/core";
 import { connection, type Db, withTenant } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import { addVoiceSample, voicePerson, voicePersonByEmail } from "./voice-samples";
@@ -34,7 +33,13 @@ export type VoiceEmailOutcome =
   | {
       status: "dropped";
       tenantId: string | null;
-      reason: "unknown_address" | "sender_not_allowed" | "too_large" | "unreadable" | "no_person";
+      reason:
+        | "unknown_address"
+        | "sender_not_allowed"
+        | "sender_unverified"
+        | "too_large"
+        | "unreadable"
+        | "no_person";
     };
 
 /** Whether this message is for a `+voice` address on our domain (else it is ordinary mail). */
@@ -45,7 +50,7 @@ export function isVoiceSampleAddress(to: string, domain: string): boolean {
 
 /**
  * Receives one `+voice` message. Whose voice it is: the client's own user with the sender's
- * address (the envelope sender, or the From header when its domain passed DMARC), else the
+ * address (the envelope sender when SPF passed for it, or the From header when DMARC passed), else the
  * client's first client admin. Never the forwarded message's own headers, which anyone can write.
  */
 // DECISION: a sender who is on the allowed list but is not one of the client's users (e.g. a
@@ -89,11 +94,21 @@ export async function receiveVoiceSampleEmail(
     } catch {
       return drop("unreadable");
     }
-    const fromHeader = trustedFromHeader(parsed.from, parsed.dmarcPassFrom)
-      ? [parsed.from as string]
-      : [];
-    const senders = [message.from.toLowerCase(), ...fromHeader];
-    if (!senderAllowed(forwarding.allowedSenders, senders)) return drop("sender_not_allowed");
+    // Proven senders only: the envelope under SPF, the From header under DMARC (@countersign/core).
+    const senders = authenticatedSenders({
+      envelopeFrom: message.from,
+      from: parsed.from,
+      auth: parsed.auth,
+    });
+    if (!senderAllowed(forwarding.allowedSenders, senders)) {
+      // On the list but not proven reads differently from not on the list (forwarding.ts).
+      const claimed = [message.from, ...(parsed.from ? [parsed.from] : [])];
+      return drop(
+        senderAllowed(forwarding.allowedSenders, claimed)
+          ? "sender_unverified"
+          : "sender_not_allowed",
+      );
+    }
 
     let person = null;
     for (const s of senders) {

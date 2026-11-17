@@ -121,10 +121,46 @@ describe("choosePath", () => {
     expect(a.rows[0]).toMatchObject({ action: "unsure", choice: null });
     const unsure = new FakeModel([finish({ path: "unsure", reason: "Can't tell." })]);
     expect((await choosePath(deps(unsure), memoryStore().store, choose())).path).toBeNull();
-    const failed = new FakeModel([]);
+    const words = new FakeModel([{ text: "Reorder, I think." }]);
     const c = memoryStore();
-    expect((await choosePath(deps(failed), c.store, choose())).path).toBeNull();
-    expect(c.rows[0]?.note).toBe("The agent couldn't be asked.");
+    expect((await choosePath(deps(words), c.store, choose())).path).toBeNull();
+    expect(c.rows[0]).toMatchObject({
+      action: "unsure",
+      note: "The agent gave no answer that held.",
+    });
+  });
+
+  it("asks the default models without forcing a tool, naming `finish` in the instructions", async () => {
+    for (const id of [DEFAULT_MODELS.reasoning, "claude-opus-5-5"]) {
+      const model = new FakeModel([finish({ path: "quote", reason: "New item." })]);
+      const d = deps(model);
+      (d.ports.store as { loadAgentVersion: unknown }).loadAgentVersion = async () => ({
+        bundle: { definition: { ...DEFINITION, model: { id, maxTokens: 4096 } } },
+      });
+      expect((await choosePath(d, memoryStore().store, choose())).path).toBe("quote");
+      const req = model.requests[0];
+      expect(req?.tool_choice).toEqual({ type: "auto", disable_parallel_tool_use: true });
+      expect(req?.system).toContain("calling the `finish` tool exactly once");
+    }
+  });
+
+  it("says it failed, never taking a path, when the model call fails or its answer is cut off", async () => {
+    const failed = new FakeModel([{ error: new Error("overloaded") }]);
+    const a = memoryStore();
+    expect(await choosePath(deps(failed), a.store, choose())).toEqual({
+      path: null,
+      by: "Pia",
+      failed: "the agent couldn't be asked: overloaded",
+    });
+    expect(a.rows).toHaveLength(0);
+    const cut = new FakeModel([
+      { toolUse: { name: "finish", input: { path: "reorder" } }, cutOff: true },
+    ]);
+    const b = memoryStore();
+    const out = await choosePath(deps(cut), b.store, choose());
+    expect(out.path).toBeNull();
+    expect(out.failed).toMatch(/cut off at max_tokens/);
+    expect(b.rows).toHaveLength(0);
   });
 
   it("decides once, and asks nothing when the owner's budget is spent", async () => {
@@ -170,5 +206,20 @@ describe("judgePass", () => {
     const { store, rows } = memoryStore();
     expect((await judgePass(deps(model), store, judge)).done).toBeNull();
     expect(rows[0]?.action).toBe("unsure");
+  });
+
+  it("says it failed, never ending the repeat, when the model call fails or its answer is cut off", async () => {
+    const failed = new FakeModel([{ error: new Error("overloaded") }]);
+    const a = memoryStore();
+    const out = await judgePass(deps(failed), a.store, judge);
+    expect(out).toMatchObject({ done: null, failed: expect.stringMatching(/overloaded/) });
+    expect(a.rows).toHaveLength(0);
+    const cut = new FakeModel([
+      { toolUse: { name: "finish", input: { done: true, reason: "ok" } }, cutOff: true },
+    ]);
+    const b = memoryStore();
+    const cutOut = await judgePass(deps(cut), b.store, judge);
+    expect(cutOut).toMatchObject({ done: null, failed: expect.stringMatching(/max_tokens/) });
+    expect(b.rows).toHaveLength(0);
   });
 });

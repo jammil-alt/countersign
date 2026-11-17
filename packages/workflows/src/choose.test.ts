@@ -3,7 +3,7 @@
 // The port is a fake here; packages/agents' runtime answers it in apps/api.
 import type { processes } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { executeWorkflow } from "./executor";
+import { executeWorkflow, resumePoint } from "./executor";
 import { FakeStepRunner } from "./fake-runner";
 import { Harness, WRITE_TOOL } from "./fakes.test-helper";
 import type { ChoicePort, ChoiceRequest, JudgeRequest } from "./ports";
@@ -231,5 +231,101 @@ describe("a repeat the agent says is done", () => {
     expect(result.status).toBe("succeeded");
     expect(h.agentCalls).toHaveLength(1);
     expect(h.row("rep")).toMatchObject({ output: { passes: 1, done: false } });
+  });
+});
+
+// A choice the agent couldn't make (its model call failed, or its answer was cut off) fails the
+// step: the run fails there, with the reason, its row is failed, and a retry starts there.
+describe("a choice the agent couldn't make", () => {
+  const failing = (): ChoicePort => ({
+    async choose() {
+      return { path: null, by: "Pia", failed: "the agent couldn't be asked: overloaded" };
+    },
+    async judge() {
+      return { done: null, by: "Pia", failed: "the answer was cut off at max_tokens" };
+    },
+  });
+
+  it("fails an if at that step, never taking otherwise", async () => {
+    const h = new Harness();
+    const runner = new FakeStepRunner();
+    const result = await executeWorkflow(
+      runner,
+      h.context({ catalog: CATALOG, choice: failing() }),
+      proc([read("first"), agentIf()]),
+      { total: 500 },
+    );
+    expect(result).toMatchObject({
+      status: "failed",
+      nodeId: "how",
+      reason: "How to buy: the agent couldn't be asked: overloaded",
+      errorKey: expect.stringMatching(/^if:/),
+    });
+    expect(ran(h)).toEqual(["first"]);
+    expect(h.row("how")).toMatchObject({
+      status: "failed",
+      error: "How to buy: the agent couldn't be asked: overloaded",
+    });
+    // A retry starts at the if, reusing what ran before it.
+    const failedAt = result.status === "failed" ? (result.nodeId ?? null) : null;
+    expect(resumePoint(proc([read("first"), agentIf()]), failedAt)).toBe("how");
+  });
+
+  const repeatThenRead = proc([
+    {
+      id: "rep",
+      kind: "repeat",
+      name: "Draft the RFQ",
+      steps: [read("draft")],
+      until: { agent: { goal: "Every line has a date." } },
+      maxTimes: 3,
+      onLimit: "proceed",
+    },
+    read("after"),
+  ]);
+
+  it("fails a repeat at that step, never ending it as if done", async () => {
+    const h = new Harness();
+    const result = await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({ catalog: CATALOG, choice: failing() }),
+      repeatThenRead,
+      {},
+    );
+    expect(result).toMatchObject({
+      status: "failed",
+      nodeId: "rep",
+      reason: "Draft the RFQ: the answer was cut off at max_tokens",
+      errorKey: expect.stringMatching(/^repeat:/),
+    });
+    expect(ran(h)).toEqual(["rep:r1:draft"]);
+    expect(h.row("rep")).toMatchObject({
+      status: "failed",
+      error: "Draft the RFQ: the answer was cut off at max_tokens",
+    });
+    expect(resumePoint(repeatThenRead, "rep")).toBe("rep");
+  });
+
+  it("fails the step when the port throws, after at most the step's own tries", async () => {
+    const h = new Harness();
+    let calls = 0;
+    const throwing: ChoicePort = {
+      async choose() {
+        calls += 1;
+        throw new Error("store unavailable");
+      },
+      async judge() {
+        throw new Error("store unavailable");
+      },
+    };
+    const result = await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({ catalog: CATALOG, choice: throwing }),
+      proc([agentIf()]),
+      { total: 500 },
+    );
+    expect(result).toMatchObject({ status: "failed", nodeId: "how" });
+    expect(h.row("how")).toMatchObject({ status: "failed" });
+    expect(calls).toBe(1);
   });
 });

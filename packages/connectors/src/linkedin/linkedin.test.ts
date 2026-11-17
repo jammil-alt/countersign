@@ -139,6 +139,8 @@ describe("linkedin sign-in", () => {
       ],
       accountName: "Mezonas, Twelve Thirty-Four",
       scopes: ["w_organization_social", "r_organization_admin"],
+      // Every page names the account, so another order or another page still matches.
+      accountIds: ["urn:li:organization:2414183", "urn:li:organization:5550001"],
     });
     expect(grant.credentials).toMatchObject({
       accessToken: expect.stringMatching(/^li-access-/),

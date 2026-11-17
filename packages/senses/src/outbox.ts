@@ -13,7 +13,7 @@
 
 import { isUuid, once, type PlatformEventType } from "@countersign/core";
 import { event, type Tx } from "@countersign/db";
-import { and, asc, eq, gte, inArray, isNull, lt, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNotNull, isNull, lt, type SQL, sql } from "drizzle-orm";
 import type { PlatformEventPayloads } from "./platform";
 import { type EventTypeRegistry, platformRegistry } from "./registry";
 
@@ -272,4 +272,48 @@ export async function recordDispatchFailure(
     .returning({ id: event.id, attempts: event.dispatchAttempts, setAsideAt: event.setAsideAt });
   if (!row) return null;
   return { id: row.id, attempts: row.attempts, setAside: row.setAsideAt !== null };
+}
+
+/** The most set-aside events one retry gives back. */
+export const RETRY_SET_ASIDE_MAX = 100;
+
+/**
+ * Gives set-aside events back to the sweep (audit 4.6): clears the mark, the count and the error,
+ * oldest set aside first, at most `limit` (and only `ids`, when given). The sweep dispatches them
+ * within a minute; their runs' ids come from the event ids, so one that ran already starts nothing.
+ * Returns the ids given back.
+ */
+export async function retrySetAside(
+  tx: Tx,
+  options: { ids?: readonly string[]; limit?: number } = {},
+): Promise<string[]> {
+  const limit = options.limit ?? RETRY_SET_ASIDE_MAX;
+  if (!Number.isInteger(limit) || limit < 1 || limit > RETRY_SET_ASIDE_MAX) {
+    throw new Error(`limit must be 1 to ${RETRY_SET_ASIDE_MAX}`);
+  }
+  const conds: SQL[] = [isNotNull(event.setAsideAt), isNull(event.dispatchedAt)];
+  if (options.ids !== undefined) {
+    if (options.ids.length === 0) return [];
+    for (const id of options.ids) if (!isUuid(id)) throw new Error(`not an event id: ${id}`);
+    conds.push(inArray(event.id, [...new Set(options.ids)]));
+  }
+  const picked = await tx
+    .select({ id: event.id })
+    .from(event)
+    .where(and(...conds))
+    .orderBy(asc(event.setAsideAt), asc(event.id))
+    .limit(limit)
+    .for("update", { skipLocked: true });
+  if (picked.length === 0) return [];
+  const rows = await tx
+    .update(event)
+    .set({ setAsideAt: null, dispatchAttempts: 0, dispatchError: null })
+    .where(
+      inArray(
+        event.id,
+        picked.map((p) => p.id),
+      ),
+    )
+    .returning({ id: event.id });
+  return rows.map((r) => r.id);
 }

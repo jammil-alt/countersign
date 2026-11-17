@@ -8,13 +8,13 @@ import {
   countForwarded,
   forwardingOf,
   MAX_FORWARDED_BYTES,
+  matchingSender,
   parseForwardedEmail,
   parseForwardingAddress,
   sameAddress,
-  senderAllowed,
-  trustedFromHeader,
   UPLOAD_CONNECTOR_ID,
 } from "@countersign/connectors";
+import { authenticatedSenders, bytesMatchType } from "@countersign/core";
 import { connection, type Db, withTenant } from "@countersign/db";
 import type { EventRow } from "@countersign/senses";
 import { and, eq } from "drizzle-orm";
@@ -41,10 +41,17 @@ export type ForwardingOutcome =
     }
   | { status: "dropped"; tenantId: string | null; reason: DropReason };
 
+// DECISION: at most 20 documents from one forwarded message, as from one email to an agent
+// (triggers/inbound-email.ts): the first 20 in the message are kept, the rest are listed as
+// skipped and counted on each kept document's `meta.email.skippedAttachments`.
+export const FORWARDED_DOCUMENTS_MAX = 20;
+
 export type DropReason =
   | "not_our_domain"
   | "unknown_address"
   | "sender_not_allowed"
+  // On the list by envelope or From, but Cloudflare's header doesn't prove it (no SPF or DMARC).
+  | "sender_unverified"
   | "too_large"
   | "unreadable";
 
@@ -90,26 +97,60 @@ export async function receiveForwardedEmail(
     } catch {
       return drop("unreadable");
     }
-    // The envelope sender always counts; the From header only when its domain passed DMARC.
-    const fromHeader = trustedFromHeader(parsed.headers.from, parsed.headers.dmarcPassFrom)
-      ? [parsed.headers.from as string]
-      : [];
-    const senders = [message.from, ...fromHeader];
-    if (!senderAllowed(forwarding.allowedSenders, senders)) return drop("sender_not_allowed");
+    // The envelope sender counts only when SPF passed for its domain, the From header only when
+    // DMARC passed for its domain, both per Cloudflare's own header (@countersign/core).
+    const senders = authenticatedSenders({
+      envelopeFrom: message.from,
+      from: parsed.headers.from,
+      auth: parsed.headers.auth,
+    });
+    const matched = matchingSender(forwarding.allowedSenders, senders);
+    if (!matched) {
+      // DECISION: a sender who is on the list but not proven is told apart from one who isn't on
+      // it, so the client sees why (`forwarding.drop.sender_unverified`).
+      const claimed = [message.from, ...(parsed.headers.from ? [parsed.headers.from] : [])];
+      return drop(
+        matchingSender(forwarding.allowedSenders, claimed)
+          ? "sender_unverified"
+          : "sender_not_allowed",
+      );
+    }
 
+    // Each attachment's bytes must be what its type says; at most FORWARDED_DOCUMENTS_MAX kept.
+    const skipped = parsed.skipped.map((s) => ({ filename: s.filename, reason: s.reason }));
+    const kept: typeof parsed.attachments = [];
+    for (const a of parsed.attachments) {
+      if (!bytesMatchType(a.bytes, a.mimeType)) {
+        skipped.push({ filename: a.filename, reason: "the file is not what its type says" });
+      } else if (kept.length >= FORWARDED_DOCUMENTS_MAX) {
+        skipped.push({
+          filename: a.filename,
+          reason: `more than ${FORWARDED_DOCUMENTS_MAX} attachments`,
+        });
+      } else {
+        kept.push(a);
+      }
+    }
     const meta = {
       email: {
+        // As the message says, for display; `authenticated` says whether anyone proved it.
         from: parsed.headers.from ?? message.from.toLowerCase(),
         envelopeFrom: message.from.toLowerCase(),
         to: message.to.toLowerCase(),
         subject: parsed.headers.subject,
         date: parsed.headers.date,
         messageId: parsed.headers.messageId,
+        authenticated: senders.length > 0,
+        // The proven address that is on the client's list.
+        authenticatedAs: matched,
+        ...(skipped.length > parsed.skipped.length
+          ? { skippedAttachments: skipped.length - parsed.skipped.length }
+          : {}),
       },
     };
     const documents: { id: string; created: boolean; filename: string }[] = [];
     const events: EventRow[] = [];
-    for (const a of parsed.attachments) {
+    for (const a of kept) {
       const stored = await storeDocument(tx, deps.content, {
         tenantId,
         source: "email",
@@ -127,7 +168,7 @@ export async function receiveForwardedEmail(
       status: "accepted",
       tenantId,
       documents,
-      skipped: parsed.skipped.map((s) => ({ filename: s.filename, reason: s.reason })),
+      skipped,
       events,
     };
   });

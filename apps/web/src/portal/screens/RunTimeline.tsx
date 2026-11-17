@@ -28,6 +28,7 @@ import { usePoll } from "../../runs/usePoll";
 import { writeLine } from "../../runs/write";
 import { ActivityRow } from "../../ui/activity";
 import { AgentBadge } from "../../ui/badges";
+import { ErrorBoundary } from "../../ui/ErrorBoundary";
 import { Loaded, Page, PageGrid } from "../../ui/page";
 import {
   Badge,
@@ -455,14 +456,16 @@ function RunBody({
       </Card>
 
       {open ? (
-        <PortalStepPanel
-          key={open.id}
-          step={open}
-          index={openIndex + 1}
-          count={data.steps.length}
-          data={data}
-          onClose={closeStep}
-        />
+        // A step whose panel can't be shown leaves the run's page working.
+        <ErrorBoundary key={open.id} part="step-panel">
+          <PortalStepPanel
+            step={open}
+            index={openIndex + 1}
+            count={data.steps.length}
+            data={data}
+            onClose={closeStep}
+          />
+        </ErrorBoundary>
       ) : null}
 
       <WaitingChanges items={waiting} />

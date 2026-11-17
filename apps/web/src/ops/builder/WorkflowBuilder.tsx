@@ -46,6 +46,8 @@ import { Link, useNavigate } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionDetail } from "../../api/routes";
 import { useApi } from "../../api/useApi";
+import { builderDraftKey } from "../../session/drafts";
+import { useOptionalSession } from "../../session/session";
 import { HeaderSwitcher } from "../../shell/HeaderSwitcher";
 import { AgentBadge } from "../../ui/badges";
 import { Icon } from "../../ui/icons";
@@ -332,10 +334,11 @@ function BuilderBar({
 // ── The rolling draft (docs/plan.md §1.2 "Workflow model") ──────────────────────────────────────
 
 // DECISION: versions are immutable rows, so the editor session's rolling draft is kept in this
-// browser (per agent and the version it was opened on), saved after 2 s of idle editing; it becomes
-// a version only when the operator saves, test-runs or publishes. History gets one version per
-// deliberate save instead of one per pause, and a reload or a crash loses nothing.
-const DRAFT_PREFIX = "countersign:builder:";
+// browser (per person, agent and the version it was opened on), saved after 2 s of idle editing;
+// it becomes a version only when the operator saves, test-runs or publishes. History gets one
+// version per deliberate save instead of one per pause, and a reload or a crash loses nothing.
+// The key names the signed-in person (../../session/drafts.ts) and sign-out removes every draft;
+// with no one signed in (a part rendered on its own) nothing is kept.
 const IDLE_MS = 2000;
 
 interface StoredDraft {
@@ -344,19 +347,21 @@ interface StoredDraft {
   bundle: unknown;
 }
 
-function readDraft(agentId: string): StoredDraft | null {
+function readDraft(key: string | null): StoredDraft | null {
+  if (!key) return null;
   try {
-    const raw = window.localStorage.getItem(`${DRAFT_PREFIX}${agentId}`);
+    const raw = window.localStorage.getItem(key);
     return raw ? (JSON.parse(raw) as StoredDraft) : null;
   } catch {
     return null;
   }
 }
 
-function writeDraft(agentId: string, draft: StoredDraft | null) {
+function writeDraft(key: string | null, draft: StoredDraft | null) {
+  if (!key) return;
   try {
-    if (draft) window.localStorage.setItem(`${DRAFT_PREFIX}${agentId}`, JSON.stringify(draft));
-    else window.localStorage.removeItem(`${DRAFT_PREFIX}${agentId}`);
+    if (draft) window.localStorage.setItem(key, JSON.stringify(draft));
+    else window.localStorage.removeItem(key);
   } catch {
     // Storage may be full or blocked; the builder works without it.
   }
@@ -364,12 +369,12 @@ function writeDraft(agentId: string, draft: StoredDraft | null) {
 
 /** The draft kept on this device, read as processes; null when it is the version it opened. */
 function restoredDraft(
-  agentId: string,
+  key: string | null,
   from: VersionDetail,
   start: ProcessAgentBundle,
   ctx: TypingContext,
 ) {
-  const stored = readDraft(agentId);
+  const stored = readDraft(key);
   if (!stored || stored.from !== from.id) return null;
   const parsed = AnyAgentBundleSchema.safeParse(stored.bundle);
   if (!parsed.success) return null;
@@ -411,7 +416,10 @@ function BuilderBody(
     () => (props.template ? readProcessBundle(props.template, ctx) : null),
     [props.template, ctx],
   );
-  const [restored] = useState(() => restoredDraft(agent.id, from, start, ctx));
+  // The rolling draft's key: this person's, for this agent; null with no one signed in.
+  const owner = useOptionalSession()?.user.id ?? null;
+  const draftKey = owner ? builderDraftKey(owner, agent.id) : null;
+  const [restored] = useState(() => restoredDraft(draftKey, from, start, ctx));
   const [history, setHistory] = useState<History>(() => startHistory(restored?.bundle ?? start));
   const bundle = history.present;
   const [saved, setSaved] = useState<Saved>(() => ({
@@ -917,7 +925,7 @@ function BuilderBody(
         },
       });
       // The builder's draft is kept on this device now, so nothing is lost by going to the skill.
-      if (dirty) writeDraft(agent.id, { from: saved.id, at: Date.now(), bundle });
+      if (dirty) writeDraft(draftKey, { from: saved.id, at: Date.now(), bundle });
       navigate(`/ops/skills/new?session=${id}`);
     } finally {
       setDraftingSkill(false);
@@ -926,14 +934,14 @@ function BuilderBody(
 
   // ── The rolling draft ──
   useEffect(() => {
-    if (!dirty) return;
+    if (!dirty || !draftKey) return;
     const t = window.setTimeout(() => {
       const at = Date.now();
-      writeDraft(agent.id, { from: saved.id, at, bundle });
+      writeDraft(draftKey, { from: saved.id, at, bundle });
       setDraftAt(at);
     }, IDLE_MS);
     return () => window.clearTimeout(t);
-  }, [agent.id, bundle, dirty, saved.id]);
+  }, [draftKey, bundle, dirty, saved.id]);
 
   // ── Undo / redo keys ──
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -1008,7 +1016,7 @@ function BuilderBody(
         canon: snapshotCanon,
       };
       setSaved(next);
-      writeDraft(agent.id, null);
+      writeDraft(draftKey, null);
       setDraftAt(null);
       props.onChanged();
       return next;
@@ -1016,7 +1024,7 @@ function BuilderBody(
     if (isCode(res.error, "no_op")) {
       const next = { ...saved, canon: snapshotCanon };
       setSaved(next);
-      writeDraft(agent.id, null);
+      writeDraft(draftKey, null);
       setDraftAt(null);
       action.clear();
       return next;
@@ -1280,7 +1288,7 @@ function BuilderBody(
                     className="text-sm underline"
                     onClick={() => {
                       setHistory(startHistory(start));
-                      writeDraft(agent.id, null);
+                      writeDraft(draftKey, null);
                       setDraftAt(null);
                       setNotice(null);
                     }}

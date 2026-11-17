@@ -52,6 +52,8 @@ export const es: Messages = {
   "errorPage.connection.line": "Conéctela en Cuentas y vuelva a esta página.",
   "errorPage.forbidden.title": "No tiene acceso a esta página.",
   "errorPage.failure": "Algo falló al cargar esta página. Inténtelo de nuevo en un momento.",
+  "errorPage.crash": "Algo falló al mostrar esta página. Inténtelo de nuevo o vaya a otra página.",
+  "errorPage.crashPart": "No pudimos mostrar esta parte. Inténtelo de nuevo o vaya a otra página.",
   "errorPage.back.home": "Ir al inicio",
   "errorPage.back.runs": "Ir a Ejecuciones",
   "errorPage.back.records": "Ir a Registros",
@@ -101,6 +103,12 @@ export const es: Messages = {
   "error.contact_exists": "Alguien del directorio ya tiene ese correo o ese número.",
   "error.rate_limited": "Espere un minuto e inténtelo de nuevo.",
   "error.no_address": "No sabemos la dirección de esta cuenta. Vuelva a conectarla.",
+  "error.different_account":
+    "Esta es una cuenta distinta de la que está conectada aquí. Desconéctela primero y luego conecte la otra.",
+  "error.different_company":
+    "Sus libros aquí vienen de otra empresa de QuickBooks. Pídanos que cambiemos la empresa.",
+  "error.sync_running":
+    "Estamos leyendo los libros de esta empresa ahora mismo. Inténtelo de nuevo en unos minutos.",
   "error.invalid_hours":
     "No se puede guardar este horario. Indique el horario de al menos un día y que cada ausencia dure menos de un año.",
   "error.sends_form":
@@ -425,6 +433,7 @@ export const es: Messages = {
   "desk.worksheet.title": "Hoja de trabajo",
   "desk.worksheet.how": "Cómo llegó {agent} hasta aquí",
   "desk.worksheet.yourSign": "Su aprobación",
+  "desk.worksheet.earlierChange": "Abrir el cambio anterior",
   "desk.team.title": "Quién aprueba qué",
   "desk.team.undo": "Margen para deshacer",
   "desk.team.undoOff": "Desactivado",
@@ -907,6 +916,9 @@ export const es: Messages = {
   "forwarding.sendersHelp": "Uno por línea. Un dominio (suproveedor.com) incluye a todos en él.",
   "forwarding.edit": "Editar quién puede reenviar",
   "forwarding.drop.sender_not_allowed": "el remitente no está en su lista",
+  "forwarding.drop.sender_unverified":
+    "el remitente está en su lista, pero no pudimos confirmar que lo envió",
+  "forwarding.drop.auto_reply": "era una respuesta automática, como un aviso de ausencia",
   "forwarding.drop.unknown_address": "se envió a una dirección antigua o equivocada",
   "forwarding.drop.too_large": "pesaba más de 25 MB",
   "forwarding.drop.unreadable": "no se pudo leer el mensaje",
@@ -1421,6 +1433,7 @@ export const es: Messages = {
   "contacts.status.failed": "fallido",
   "contacts.status.read": "leído",
   "contacts.status.received": "recibido",
+  "contacts.status.unverified": "recibido, remitente sin confirmar",
   "contacts.status.replied": "respondido",
   "contacts.status.not_sent": "no enviado",
   "contacts.status.no_reply": "sin respuesta",

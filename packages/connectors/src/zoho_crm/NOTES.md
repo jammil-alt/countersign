@@ -15,7 +15,7 @@ against the live docs and a Zoho sandbox org before a client connects.
 | API calls go to `api_domain` with `Authorization: Zoho-oauthtoken <token>` | Checked |
 | Refresh at the same DC's accounts server with `grant_type=refresh_token`; the answer has no new refresh token (they don't rotate); recent docs say it also returns `api_domain` | Checked; we keep the old refresh token and update the API domain if one comes back |
 | Each DC may have its own client secret | Checked; `clientSecrets` (by accounts server) supported in code, not wired to env yet |
-| Errors come back as HTTP 200 with `{"error": "invalid_code"}` (reused or wrong-DC code, revoked refresh token) | Checked for `invalid_code`; treated as "reconnect" on refresh |
+| Errors come back as HTTP 200 with `{"error": "invalid_code"}` (reused or wrong-DC code, revoked refresh token) | Checked for `invalid_code`; treated as "reconnect" on refresh (any other error, e.g. `invalid_client` or too many refreshes, is retried) |
 | Revoke: `POST <accounts-server>/oauth/v2/token/revoke?token=<refresh token>` | **UNCHECKED** |
 | DC list: accounts.zoho.com / .eu / .in / .com.au / .jp / .ca / .com.cn / .sa / .uk, API domains `www.zohoapis.<same>` | **UNCHECKED** (third-party note says the published list is shorter than the live one; `accounts.zoho.com/oauth/serverinfo` lists them). Unknown servers are refused, never contacted |
 
@@ -36,7 +36,7 @@ notes created through a record's related list need `notes.CREATE`.
 
 | Use | Endpoint | Status |
 |---|---|---|
-| Org id | `GET /crm/v8/org` → `{org:[{id, company_name, …}]}` | **UNCHECKED** shape |
+| Org id | `GET /crm/v8/org` → `{org:[{id, company_name, …}]}` | **UNCHECKED** shape, and that it answers only the organization the token works in (we take the first as the connection's account and keep every id in `config.accountIds`, so a sign-in again matches whatever the order) |
 | Search | `GET /crm/v8/{module}/search?criteria=…|email=…|phone=…|word=…&page&per_page` → `{data, info:{more_records}}` | Path checked (community scripts); one of criteria/email/phone/word per call (criteria wins), criteria up to 10 conditions of `equals`/`starts_with`: checked. **UNCHECKED**: `per_page` max 200, 204 when nothing matches |
 | Get | `GET /crm/v8/{module}/{id}` → `{data:[record]}` | **UNCHECKED** (v8 may require `fields` on list calls, not on get by id) |
 | Create | `POST /crm/v8/{module}` `{data:[{…}]}` → `{data:[{code, status, details:{id, Modified_Time}}]}` | **UNCHECKED** shape (as in v2–v7) |

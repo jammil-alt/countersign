@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { AnthropicError } from "./anthropic";
 import {
   createLlmClient,
   type LlmCallRecord,
@@ -161,6 +162,30 @@ describe("callTool", () => {
     ).rejects.toMatchObject({ code: "no_tool_call" });
   });
 
+  it("throws max_tokens, not the input, when the call was cut off at max_tokens", async () => {
+    const { llm } = setup({
+      toolUse: { name: "record_verdict", input: { same: true, confidence: 0.9, reason: "s" } },
+      cutOff: true,
+    });
+    const error = await llm
+      .callTool({ messages: [{ role: "user", content: "A vs B" }], tool })
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(LlmToolError);
+    expect((error as LlmToolError).code).toBe("max_tokens");
+    expect((error as Error).message).toMatch(/cut off at max_tokens/);
+  });
+
+  it("asks the default models for the tool without forcing it", async () => {
+    for (const model of ["claude-sonnet-5-5", "claude-opus-5-5"]) {
+      const { llm } = setup({
+        toolUse: { name: "record_verdict", input: { same: true, confidence: 1, reason: "r" } },
+      });
+      await expect(
+        llm.callTool({ model, messages: [{ role: "user", content: "A vs B" }], tool }),
+      ).resolves.toMatchObject({ value: { same: true } });
+    }
+  });
+
   it("throws refusal on a refusal stop", async () => {
     const { llm } = setup({ refusal: true });
     await expect(
@@ -214,6 +239,33 @@ describe("unpriced models", () => {
     await llm.message({ model: "claude-unknown-1", messages: [{ role: "user", content: "hi" }] });
     expect(records[0]?.costUsd).not.toBeNull();
     expect(records[1]?.costUsd).toBeNull();
+  });
+});
+
+describe("FakeModel", () => {
+  it("refuses a forced tool choice on the models that always think, as the API does", async () => {
+    for (const model of ["claude-sonnet-5-5", "claude-opus-5-5"]) {
+      for (const tool_choice of [{ type: "tool", name: "t" }, { type: "any" }] as const) {
+        const { llm } = setup({ text: "never sent" });
+        const error = await llm
+          .message({ model, messages: [{ role: "user", content: "hi" }], tool_choice })
+          .catch((e: unknown) => e);
+        expect(error).toBeInstanceOf(AnthropicError);
+        expect((error as AnthropicError).status).toBe(400);
+      }
+    }
+    // Other models, and auto, are answered.
+    const { llm } = setup({ text: "a" }, { text: "b" });
+    await llm.message({
+      model: "claude-haiku-5-5",
+      messages: [{ role: "user", content: "hi" }],
+      tool_choice: { type: "tool", name: "t" },
+    });
+    await llm.message({
+      model: "claude-sonnet-5-5",
+      messages: [{ role: "user", content: "hi" }],
+      tool_choice: { type: "auto", disable_parallel_tool_use: true },
+    });
   });
 });
 

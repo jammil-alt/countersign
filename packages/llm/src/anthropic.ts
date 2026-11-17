@@ -345,7 +345,8 @@ export class MessageAccumulator {
 
 // DECISION: tool input that does not parse (only possible when the answer was cut off at
 // max_tokens mid-call) is read as `{}`. The SDK parsed the partial JSON leniently; either way the
-// input is incomplete, and callers validate it (callTool's Zod schema, a tool's input schema).
+// input is incomplete, and the message's stop_reason is `max_tokens`: no caller runs or accepts a
+// call from such an answer (callTool and `answerToolCall` in ./client.ts, the agent runtime).
 function parseToolInput(json: string): unknown {
   if (json === "") return {};
   try {

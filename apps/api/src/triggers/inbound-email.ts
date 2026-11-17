@@ -4,9 +4,11 @@
 // agents by its command name; the whole address must be the one we compute for that client, so a
 // forged address (another client's label, an agent it doesn't have) is dropped.
 //
-// The sender counts only by a From address whose domain passed DMARC (an unauthenticated From is
-// anyone). A sender one of the agent's email message triggers takes: the message's own words are
-// kept as a raw record `InboundMessage` on the upload connection (4,000 characters, quoted history
+// The sender counts only by a From address whose domain passed DMARC, as Cloudflare's own header
+// says (`readAuthentication`, @countersign/core; an unauthenticated From is anyone). An auto-reply
+// or bounce starts nothing; mail a system wrote is read as usual but never answered automatically.
+// A sender one of the agent's email message triggers takes: the message's own words are kept as a
+// raw record `InboundMessage` on the upload connection (4,000 characters, quoted history
 // cut, card numbers redacted; read by agents only through `inbound.get`), its PDF and image
 // attachments as documents, and `inbound.message` is emitted. Anyone else: nothing is stored; a
 // polite fixed reply (only with DMARC pass) and a note to the lead.
@@ -130,11 +132,18 @@ export async function receiveAgentEmail(
     let headers: Awaited<ReturnType<typeof parseForwardedEmail>>;
     let reply: Awaited<ReturnType<typeof parseReplyEmail>>;
     try {
-      headers = await parseForwardedEmail(message.raw);
+      headers = await parseForwardedEmail(message.raw, { envelopeFrom: message.from });
       reply = await parseReplyEmail(message.raw);
     } catch {
       return dropped("unreadable");
     }
+    // DECISION: an auto-reply or a bounce (`emailAutomation`) starts nothing and is never answered;
+    // it is dropped like mail to an agent with no inbox. Mail a system wrote (an ERP's invoice, a
+    // ticket system, a list) may start a trigger from a sender it takes, as any mail does, but gets
+    // no automatic reply (no polite reply, no confirmation), so two machines can't write to each
+    // other.
+    if (headers.headers.automatic === "auto_reply") return dropped("automatic");
+    const answerable = headers.headers.automatic === null;
     const agentName = bundle.definition.identity.name;
     const locale = await tenantLocale(tx, tenantId);
     // The From header names the sender only when its domain passed DMARC.
@@ -157,7 +166,9 @@ export async function receiveAgentEmail(
         registry: deps.registry,
         collect: events,
       });
-      const polite = strangerReply({ channel: "email", agentName, locale, to: proven, key });
+      const polite = answerable
+        ? strangerReply({ channel: "email", agentName, locale, to: proven, key })
+        : null;
       return {
         status: "refused",
         tenantId,
@@ -194,6 +205,9 @@ export async function receiveAgentEmail(
         subject: headers.headers.subject,
         date: headers.headers.date,
         messageId: headers.headers.messageId,
+        // Whether Cloudflare's header proved the From address (DMARC for its domain).
+        authenticated: proven !== null,
+        authenticatedAs: proven,
         agentId: found.agentId,
       },
     };
@@ -260,7 +274,7 @@ export async function receiveAgentEmail(
     if (ev) events.push(ev);
     const confirm = accepting.find((t) => t.on.reply)?.on.reply?.confirm;
     const replies: InboundReply[] = [];
-    if (confirm && proven) {
+    if (confirm && proven && answerable) {
       const r = confirmReply({ channel: "email", confirm, agentName, locale, to: proven, key });
       if (r) replies.push(r);
     }

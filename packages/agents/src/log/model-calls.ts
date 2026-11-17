@@ -8,7 +8,8 @@
 
 import type { ObjectStore } from "@countersign/connectors";
 import { Decimal, type ModelCallAction, redactCardNumbersDeep, uuidv7 } from "@countersign/core";
-import { type Db, modelCall, withTenant } from "@countersign/db";
+import { type Db, modelCall, stepRun, withTenant } from "@countersign/db";
+import { and, eq, sql } from "drizzle-orm";
 
 /** One model call of a run's step, as the runtime saw it. */
 export interface ModelCallInput {
@@ -36,6 +37,12 @@ export interface ModelCallInput {
 
 export interface ModelCallPort {
   record(tenantId: string, call: ModelCallInput): Promise<void>;
+  /**
+   * Audit 3.1, follow-up 2: the agent's own turns (`agent_turn`) recorded on a step's row since
+   * the row last finished: what the platform's earlier tries of the step's current work spent
+   * (a try that stopped never finished the row). Absent: each try counts from zero.
+   */
+  agentTurns?(tenantId: string, stepRunId: string): Promise<{ calls: number; costUsd: string }>;
 }
 
 /** `tenants/<client id>/model-calls/<id>.json`: under the client's prefix (invariant 1). */
@@ -112,6 +119,29 @@ export function dbModelCalls(
       } catch (error) {
         console.error(`model call ${id}: the body was not stored`, error);
       }
+    },
+    agentTurns(tenantId, stepRunId) {
+      return withTenant(db, tenantId, async (tx) => {
+        const [row] = await tx
+          .select({
+            calls: sql<number>`count(*)::int`,
+            costUsd: sql<string>`coalesce(sum(${modelCall.costUsd}), 0)::text`,
+          })
+          .from(modelCall)
+          .innerJoin(
+            stepRun,
+            and(eq(stepRun.id, modelCall.stepRunId), eq(stepRun.tenantId, modelCall.tenantId)),
+          )
+          .where(
+            and(
+              eq(modelCall.tenantId, tenantId),
+              eq(modelCall.stepRunId, stepRunId),
+              eq(modelCall.action, "agent_turn"),
+              sql`(${stepRun.finishedAt} is null or ${modelCall.createdAt} > ${stepRun.finishedAt})`,
+            ),
+          );
+        return { calls: row?.calls ?? 0, costUsd: row?.costUsd ?? "0" };
+      });
     },
   };
 }

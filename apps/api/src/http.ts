@@ -53,6 +53,7 @@ import type { McpDeps } from "./mcp/routes";
 import { reportHandled } from "./observability/report";
 import { type Platform, platformFor } from "./platform";
 import type { QboSyncInstances } from "./qbo/instances";
+import { isJsonContentType, originExempt } from "./request-origin";
 import { workerTransport } from "./runs/execute";
 import { type RunInstances, workflowInstances } from "./runs/instances";
 import { secondFactorPolicy, secondFactorSetupOf } from "./second-factor";
@@ -387,6 +388,12 @@ async function parseInput<R extends RouteSpec>(c: AppContext, spec: R) {
   const query = spec.query ? spec.query.parse(c.req.query()) : undefined;
   let body: unknown;
   if (spec.body) {
+    // DECISION: a JSON body must say so on every route the origin check covers
+    // (./request-origin.ts): a browser sends text, form and multipart bodies to another origin
+    // without asking first, never JSON. Exempt paths (providers' webhooks) keep what they send.
+    if (!originExempt(c.req.path) && !isJsonContentType(c.req.header("content-type"))) {
+      throw new HttpError(415, "invalid_request", "the body must be JSON (application/json)");
+    }
     let raw: unknown;
     try {
       raw = await c.req.json();

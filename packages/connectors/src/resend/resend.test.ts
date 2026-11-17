@@ -105,6 +105,57 @@ describe("resend connector", () => {
     expect(recorded).toHaveLength(1);
   });
 
+  it("waits out Resend's rate limit and sends once, with a timeout and no redirects", async () => {
+    const resend = fakeResend();
+    const key = await createSendingKey(resend.fetch, FAKE_RESEND_MAIN.apiKey, {
+      name: "client",
+      domainId: null,
+    });
+    const waits: number[] = [];
+    const connector = createResendConnector({
+      fetch: resend.fetch,
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
+    });
+    const { s, recorded } = services(true);
+    const w = {
+      tenantId: CONN.tenantId,
+      connection: CONN,
+      credentials: memoryCredentials({ apiKey: key }),
+      logger: noopLogger,
+      now: () => new Date("2026-11-04T15:00:00.000Z"),
+      services: { email: s },
+      idempotencyKey: "run:reach:reach:7",
+    };
+    const input = { to: "pat@shop.example", subject: "Friday", text: "Can you confirm Friday?" };
+    // Another client's agent sent in the same second: Resend answers 429 twice.
+    resend.rateLimited = 2;
+    await executeWrite(connector, EMAIL_SEND_TOOL, input, w);
+    expect(waits).toEqual([1000, 1000]);
+    expect(resend.emails).toHaveLength(1);
+    expect(recorded).toHaveLength(1);
+    expect(resend.requests.every((r) => r.redirect === "manual" && r.signal)).toBe(true);
+
+    // Still over the limit after the retries: the send fails as not sent, never as unconfirmed.
+    resend.rateLimited = 10;
+    const error = await executeWrite(connector, EMAIL_SEND_TOOL, input, {
+      ...w,
+      idempotencyKey: "run:reach:reach:8",
+    }).catch((e) => e);
+    expect(error).toMatchObject({ status: 429, notWritten: true });
+    expect(resend.emails).toHaveLength(1);
+
+    // A 5xx may have been sent: it is not marked as not sent.
+    resend.rateLimited = 0;
+    resend.failSends = 1;
+    const failed = await executeWrite(connector, EMAIL_SEND_TOOL, input, {
+      ...w,
+      idempotencyKey: "run:reach:reach:9",
+    }).catch((e) => e);
+    expect(failed).toMatchObject({ status: 500, notWritten: false });
+  });
+
   it("refuses a contact without email consent, before Resend is called", async () => {
     const resend = fakeResend();
     const connector = createResendConnector({ fetch: resend.fetch });

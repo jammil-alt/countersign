@@ -1,5 +1,5 @@
 // The dev adapter (plan §1.1 "Auth provider"): local work and e2e tests sign in as a seeded user
-// by email, with no WorkOS. It must never run in production, so it refuses to be created there
+// by email, with no WorkOS. It runs only in development, so it refuses to be created anywhere else
 // and refuses every request if it somehow is.
 
 import { compactAccount, cookieFits, expandAccount } from "./account";
@@ -34,10 +34,21 @@ export function isProduction(env: RuntimeEnv): boolean {
   return said(env.NODE_ENV) || said(env.ENVIRONMENT);
 }
 
+/**
+ * Whether the dev sign-in may run here: only where `ENVIRONMENT` says development (wrangler.jsonc's
+ * local vars, and the tests), and never where anything says production.
+ */
+// DECISION (audit, 2026-11-17): allowed by name, not refused by name, so an environment whose
+// block forgets `ENVIRONMENT` or `AUTH_PROVIDER` (wrangler does not inherit vars) gets no sign-in
+// at all (503) rather than this one.
+export function devSignInAllowed(env: RuntimeEnv): boolean {
+  return env.ENVIRONMENT?.trim().toLowerCase() === "development" && !isProduction(env);
+}
+
 export class DevAdapterRefusedError extends Error {
   override name = "DevAdapterRefusedError";
   constructor() {
-    super("the dev auth adapter cannot be used in production");
+    super("the dev auth adapter can only be used in development");
   }
 }
 
@@ -54,14 +65,14 @@ export function createDevAdapter(options: {
   readonly env: RuntimeEnv;
 }): DevAdapter {
   const { directory, env } = options;
-  if (isProduction(env)) throw new DevAdapterRefusedError();
+  if (!devSignInAllowed(env)) throw new DevAdapterRefusedError();
   const clearAccount = () => clearCookie(DEV_ACCOUNT_COOKIE, { secure: false });
 
   return {
     kind: "dev",
     async identify(request) {
-      if (isProduction(env)) {
-        return refuse("adapter_disabled", "the dev auth adapter cannot be used in production");
+      if (!devSignInAllowed(env)) {
+        return refuse("adapter_disabled", "the dev auth adapter can only be used in development");
       }
       const raw = request.headers.get(DEV_USER_HEADER) ?? requestCookie(request, DEV_USER_COOKIE);
       const email = raw ? safeDecode(raw).trim().toLowerCase() : "";

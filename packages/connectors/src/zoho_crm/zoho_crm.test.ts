@@ -125,6 +125,7 @@ describe("zoho_crm connector", () => {
         dataCenter: "eu",
         apiDomain: "https://www.zohoapis.eu",
         orgName: "Harbor Millwork",
+        accountIds: ["20087654321"],
       },
     });
     expect(JSON.stringify(done.credentials)).not.toContain(ZOHO_FIXTURES.tokenCode.refresh_token);

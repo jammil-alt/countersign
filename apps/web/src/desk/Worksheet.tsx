@@ -2,6 +2,7 @@
 // the run's steps as the client timeline shows them (`GET /api/runs/:id`), then the person's own
 // step, "Your sign", with why it needs them in the API's words (`payload.whyApproval`).
 import { DESK_WORDS, type Locale } from "@countersign/core";
+import { Link } from "react-router-dom";
 import { apiRoutes } from "../api/routes";
 import { useApi } from "../api/useApi";
 import { useI18n } from "../i18n/i18n";
@@ -54,11 +55,26 @@ export function DeskWorksheet({ item, agent }: { item: DeskItem; agent: string |
       ...(s.finishedAt || s.startedAt ? { time: fmt.time(s.finishedAt ?? s.startedAt) } : {}),
     }));
   if (open && needOf(item) === "sign") {
+    // Review 2, item 2: a retry's change signed because of an earlier one: open that one first.
+    const related = whyOf(item)?.related;
     steps.push({
       key: "your-sign",
       title: t("desk.worksheet.yourSign"),
       ...(why.length > 0 ? { detail: why.join(" ") } : {}),
       state: "waiting",
+      ...(related?.runId
+        ? {
+            children: (
+              <Link
+                to={`/runs/${related.runId}`}
+                className="mz-receipt"
+                data-testid="desk-earlier-change"
+              >
+                {t("desk.worksheet.earlierChange")}
+              </Link>
+            ),
+          }
+        : {}),
     });
   }
   if (steps.length === 0) return null;

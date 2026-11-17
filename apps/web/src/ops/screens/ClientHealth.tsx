@@ -141,6 +141,8 @@ export function ClientHealthSection({
         ) : null}
       </Card>
 
+      <SetAsideEvents clientId={clientId} />
+
       {/* Findings: what the supervisor found that needs a person. None open: nothing to show. */}
       {data.findings.length > 0 ? (
         <div className="flex flex-col gap-3" data-testid="ops-client-findings">
@@ -157,6 +159,64 @@ export function ClientHealthSection({
         </p>
       ) : null}
     </Section>
+  );
+}
+
+/**
+ * Audit 4.6: the client's events set aside after failing to dispatch (docs/operations.md §5), and
+ * giving them back to the dispatcher once the cause is fixed. None: nothing shown.
+ */
+function SetAsideEvents({ clientId }: { clientId: string }) {
+  const client = useApiClient();
+  const { data, reload } = useApi(apiRoutes.opsSetAsideEvents, { params: { id: clientId } });
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<unknown>(null);
+  if (!data || data.count === 0) return null;
+
+  async function retry() {
+    setBusy(true);
+    setProblem(null);
+    try {
+      await client.call(apiRoutes.opsRetrySetAsideEvents, { params: { id: clientId }, body: {} });
+      reload();
+    } catch (e) {
+      setProblem(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card className="flex flex-col gap-3 p-5" testId="ops-client-set-aside">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span className="flex flex-wrap items-center gap-2">
+          <Badge tone="risk">Set aside</Badge>
+          <span className="text-ink" data-testid="ops-client-set-aside-count">
+            {`${data.count} ${data.count === 1 ? "event" : "events"} failed to dispatch five times${data.oldest ? `, the oldest from ${shortTime(data.oldest)}` : ""}.`}
+          </span>
+        </span>
+        <Button
+          variant="secondary"
+          disabled={busy}
+          onClick={() => void retry()}
+          data-testid="ops-client-set-aside-retry"
+        >
+          Give them back
+        </Button>
+      </div>
+      <p className="text-sm text-ink-muted">
+        Fix the cause first: each one's error is below. Given back, they are dispatched again, up to
+        100 at a time, and start their runs once per event.
+      </p>
+      <ul className="flex flex-col gap-1 text-sm">
+        {data.events.slice(0, 5).map((e) => (
+          <li key={e.id} className="break-words text-ink">
+            {`${e.type}, ${shortTime(e.createdAt)}: ${e.error ?? "no error kept"}`}
+          </li>
+        ))}
+      </ul>
+      {problem ? <ErrorNotice error={problem} /> : null}
+    </Card>
   );
 }
 

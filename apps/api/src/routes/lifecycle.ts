@@ -16,8 +16,15 @@ import {
   resumeAll,
   serviceControl,
 } from "../lifecycle/pause";
-import { runForms, runNow, runOnEvent } from "../lifecycle/runs";
+import {
+  missedWhilePaused,
+  runForms,
+  runMissedEvents,
+  runNow,
+  runOnEvent,
+} from "../lifecycle/runs";
 import { goLiveView, moveStage, type StageActor, setTrialMinimums } from "../lifecycle/stages";
+import { startAfterCommit } from "../runs/reconcile";
 
 /** A client agent of a client this operator serves. */
 async function clientAgentInScope(ctx: Pick<HandlerCtx<never>, "tx" | "tenantIds">, id: string) {
@@ -78,9 +85,38 @@ export function lifecycleRoutes(app: Hono<AppEnv>): void {
       userId: ctx.session.user.id,
     });
     ctx.afterCommit(async () => {
-      for (const r of requests) await ctx.services.instances.start(r);
+      for (const r of requests) await startAfterCommit(ctx.services, r);
     });
     return { runs: requests.map((r) => ({ runId: r.runId, workflow: r.workflowSlug })) };
+  });
+
+  // Audit 4.2: what came in while the agent was paused (none of it started by itself).
+  mount(app, routes.opsMissedEvents, async (ctx) => {
+    const row = await clientAgentInScope(ctx, ctx.params.id);
+    const missed = await missedWhilePaused(ctx.tx, row);
+    return {
+      missed: missed
+        ? {
+            count: missed.events.length,
+            from: missed.from.toISOString(),
+            to: missed.to.toISOString(),
+            more: missed.more,
+          }
+        : null,
+    };
+  });
+
+  mount(app, routes.opsRunMissedEvents, async (ctx) => {
+    const row = await clientAgentInScope(ctx, ctx.params.id);
+    const { requests, left } = await runMissedEvents(ctx.tx, {
+      tenantId: row.tenantId as string,
+      agentId: row.id,
+      userId: ctx.session.user.id,
+    });
+    ctx.afterCommit(async () => {
+      for (const r of requests) await startAfterCommit(ctx.services, r);
+    });
+    return { runs: requests.map((r) => ({ runId: r.runId, workflow: r.workflowSlug })), left };
   });
 
   // ── The client admin: pause and resume ───────────────────────────────────────────────────────
@@ -109,7 +145,9 @@ export function lifecycleRoutes(app: Hono<AppEnv>): void {
       side: "client",
       by: session.user.id,
     });
-    return { service: serviceControl(row) };
+    // Audit 4.2: counted, never started: whoever paused it had a reason.
+    const missed = await missedWhilePaused(tx, row);
+    return { service: serviceControl(row), missedEvents: missed?.events.length ?? 0 };
   });
 
   mount(app, routes.portalPauseAll, async ({ tx, tenantIds, body, session }) => {
@@ -123,8 +161,19 @@ export function lifecycleRoutes(app: Hono<AppEnv>): void {
   });
 
   mount(app, routes.portalResumeAll, async ({ tx, tenantIds, session }) => {
-    const rows = await resumeAll(tx, { tenantId: tenantIds[0] as string, by: session.user.id });
-    return { services: rows.map(serviceControl) };
+    const tenantId = tenantIds[0] as string;
+    const paused = new Set(
+      (await controllableAgents(tx, tenantId))
+        .filter((a) => a.runStatus === "paused")
+        .map((a) => a.id),
+    );
+    const rows = await resumeAll(tx, { tenantId, by: session.user.id });
+    let missedEvents = 0;
+    for (const row of rows) {
+      if (!paused.has(row.id) || row.runStatus !== "active") continue;
+      missedEvents += (await missedWhilePaused(tx, row))?.events.length ?? 0;
+    }
+    return { services: rows.map(serviceControl), missedEvents };
   });
 
   // ── Run now ──────────────────────────────────────────────────────────────────────────────────
@@ -145,7 +194,7 @@ export function lifecycleRoutes(app: Hono<AppEnv>): void {
       userId: ctx.session.user.id,
       role: ctx.role,
     });
-    ctx.afterCommit(() => ctx.services.instances.start(request));
+    ctx.afterCommit(() => startAfterCommit(ctx.services, request));
     return { runId: request.runId };
   });
 }

@@ -15,8 +15,10 @@ export {
   type EventRow,
   emit,
   markDispatched,
+  RETRY_SET_ASIDE_MAX,
   recordDispatchFailure,
   releaseDispatched,
+  retrySetAside,
   type UndispatchedOptions,
   undispatched,
 } from "./outbox";

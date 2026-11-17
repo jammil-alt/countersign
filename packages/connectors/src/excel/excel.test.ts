@@ -192,7 +192,13 @@ describe("excel sign-in", () => {
   it("keeps the account and its directory, and no workbooks: a reconnect keeps the picked list", async () => {
     const { grant, excel } = await signIn();
     expect(grant.externalAccountId).toBe(PAT);
-    expect(grant.config).toEqual({ address: PAT, tid: TID, scopes: ["Files.ReadWrite"] });
+    expect(grant.config).toEqual({
+      address: PAT,
+      tid: TID,
+      scopes: ["Files.ReadWrite"],
+      // The account's object id stays when its address is renamed.
+      accountIds: [`ms:${TID}:oid-${PAT}`],
+    });
     expect(grant.credentials).toMatchObject({
       address: PAT,
       accessToken: excel.issued().accessTokens[0],

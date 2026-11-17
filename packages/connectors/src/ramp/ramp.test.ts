@@ -12,10 +12,10 @@ import { formDecode, parseUrl } from "../http";
 import { captureBefore, executeWrite, runReadTool } from "../invoke";
 import { memoryLogger } from "../logger";
 import { beginAuthorization, completeAuthorization } from "../oauth/flow";
-import { ReconnectRequiredError } from "../oauth/tokens";
+import { ReconnectRequiredError, TokenRefreshError } from "../oauth/tokens";
 import { connectionLevel } from "../permissions";
 import { ConnectorRegistry } from "../registry";
-import { FAKE_RAMP, fakeRamp } from "../testing";
+import { FAKE_RAMP, fakeRamp, jsonResponse } from "../testing";
 import {
   createRampConnector,
   RAMP_SCOPES,
@@ -376,6 +376,31 @@ describe("ramp connector", () => {
     await expect(runReadTool(connector, RAMP_TOOLS.users, {}, c)).rejects.toBeInstanceOf(
       ReconnectRequiredError,
     );
+  });
+
+  it("keeps the grant for our keys, and still asks for a reconnect when Ramp's refusal can't be read", async () => {
+    const ramp = fakeRamp();
+    const { credentials } = await signedIn(ramp);
+    const tokenAnswer = (status: number, body: unknown) =>
+      createRampConnector({
+        clientId: FAKE_RAMP.clientId,
+        clientSecret: FAKE_RAMP.clientSecret,
+        fetch: async (url, init) =>
+          url.endsWith("/developer/v1/token") ? jsonResponse(status, body) : ramp.fetch(url, init),
+      });
+    const refused = async (status: number, body: unknown) => {
+      const { c } = ctx(credentials);
+      ramp.expireAccessTokens();
+      return runReadTool(tokenAnswer(status, body), RAMP_TOOLS.users, {}, c).catch((e) => e);
+    };
+    expect(await refused(401, { error: "invalid_client" })).toBeInstanceOf(TokenRefreshError);
+    expect(
+      await refused(400, { error_v2: { error_code: "RATE_LIMITED", message: "slow down" } }),
+    ).toBeInstanceOf(TokenRefreshError);
+    expect(await refused(400, { error_v2: { error_code: "invalid_grant" } })).toBeInstanceOf(
+      ReconnectRequiredError,
+    );
+    expect(await refused(400, "not json")).toBeInstanceOf(ReconnectRequiredError);
   });
 
   it("marks rate limits retryable and revokes the grant on disconnect", async () => {

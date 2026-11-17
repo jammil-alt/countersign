@@ -23,7 +23,13 @@ import {
   fakeResend,
   fakeTwilio,
 } from "@countersign/connectors/testing";
-import { addDays, uuidv7, weeklySchedule, weekStartOf } from "@countersign/core";
+import {
+  addDays,
+  NOTIFICATION_REASONS,
+  uuidv7,
+  weeklySchedule,
+  weekStartOf,
+} from "@countersign/core";
 import {
   agent,
   connection,
@@ -55,7 +61,8 @@ import {
   testBundle,
   user,
 } from "./api.test-helper";
-import { notifyDepsFromEnv, notifyPass, notifyTick } from "./notify/tick";
+import { CLAIM_LEASE_MS, claimReason, type NotifyDeps } from "./notify/outbox";
+import { notifyDepsFromEnv, notifyPass, notifyTick, sendNow } from "./notify/tick";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
@@ -288,6 +295,87 @@ describe.skipIf(!h)("notifications, the Table and the Weekly Table", () => {
       expect(texts.at(-1)?.body).toBe(`Mezonas: 1 item waits for you in Mezonas. ${ORIGIN}/inbox`);
       expect(texts.at(-1)?.from).toBe("+15125550101");
       expect(emailsTo(admin("a"))).toHaveLength(1);
+    });
+
+    // Audit 4.3: rows are claimed before they are sent and settled one by one after.
+    const queue = async (channel: "email" | "sms", reason: string | null = null) => {
+      const [row] = await H.t.db
+        .insert(notification)
+        .values({
+          tenantId: A(),
+          userId: H.A.admin,
+          channel,
+          kind: "items_waiting",
+          dedupeKey: `claim-test:${uuidv7()}`,
+          link: `${ORIGIN}/inbox`,
+          counts: { items: 1 },
+          reason,
+          createdAt: at(2, "11:00"),
+        })
+        .returning();
+      return row?.id as string;
+    };
+    const rowOf = async (id: string) =>
+      (await H.t.db.select().from(notification).where(eq(notification.id, id)))[0];
+    /** The real senders, slowed down and counted. */
+    function slowDeps() {
+      const d = deps();
+      const sends = { email: [] as string[], sms: 0 };
+      const slow = () => new Promise((r) => setTimeout(r, 50));
+      const out: NotifyDeps = {
+        ...d,
+        mailer: {
+          isConfigured: true,
+          async send(m) {
+            sends.email.push(m.idempotencyKey);
+            await slow();
+            return d.mailer.send(m);
+          },
+        },
+        texter: {
+          from: (tx, tenantId) => d.texter.from(tx, tenantId),
+          async send(tx, tenantId, m) {
+            sends.sms += 1;
+            await slow();
+            return d.texter.send(tx, tenantId, m);
+          },
+        },
+      };
+      return { deps: out, sends };
+    }
+
+    it("two passes at once send each row once", async () => {
+      const email = await queue("email");
+      const sms = await queue("sms");
+      const { deps: slowed, sends } = slowDeps();
+      const now = at(2, "12:00");
+      await Promise.all([sendNow(H.db, slowed, A(), now), sendNow(H.db, slowed, A(), now)]);
+      expect(sends.email).toEqual([email]);
+      expect(sends.sms).toBe(1);
+      expect((await rowOf(email))?.status).toBe("sent");
+      expect((await rowOf(sms))?.status).toBe("sent");
+    });
+
+    it("a text whose pass stopped after sending is never sent again; an email is, by its key", async () => {
+      const now = at(2, "13:00");
+      const lapsed = claimReason(new Date(now.getTime() - CLAIM_LEASE_MS - 60_000), null);
+      const fresh = claimReason(new Date(now.getTime() - 2 * 60_000), null);
+      const lostText = await queue("sms", lapsed);
+      const lostEmail = await queue("email", lapsed);
+      const busyText = await queue("sms", fresh);
+      const { deps: counted, sends } = slowDeps();
+      await sendNow(H.db, counted, A(), now);
+      // The text may have gone: failed for a person to look at, not sent twice.
+      expect(sends.sms).toBe(0);
+      expect(await rowOf(lostText)).toMatchObject({
+        status: "failed",
+        reason: NOTIFICATION_REASONS.unconfirmed,
+      });
+      // The email goes again under the same idempotency key, which Resend sends once.
+      expect(sends.email).toEqual([lostEmail]);
+      expect((await rowOf(lostEmail))?.status).toBe("sent");
+      // A claim still in its lease belongs to the pass that holds it.
+      expect(await rowOf(busyText)).toMatchObject({ status: "queued", reason: fresh });
     });
   });
 

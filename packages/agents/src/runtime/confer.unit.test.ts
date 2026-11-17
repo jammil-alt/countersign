@@ -78,6 +78,25 @@ describe("conferAi", () => {
     expect((await conferAi(deps(none), request())).verdict).toBe("unsure");
   });
 
+  it("never reads a verdict cut off at max_tokens: it is unsure, and says why", async () => {
+    const cut = new FakeModel([
+      { toolUse: { name: "finish", input: { verdict: "agree", note: "They" } }, cutOff: true },
+    ]);
+    const out = await conferAi(deps(cut), request());
+    expect(out.verdict).toBe("unsure");
+    expect(out.note).toMatch(/cut off at max_tokens/);
+  });
+
+  it("asks without forcing a tool, naming `finish` in the instructions", async () => {
+    const model = new FakeModel([finish({ verdict: "agree", note: "Fine." })]);
+    await conferAi(deps(model), request());
+    expect(model.requests[0]?.tool_choice).toEqual({
+      type: "auto",
+      disable_parallel_tool_use: true,
+    });
+    expect(String(model.requests[0]?.system)).toContain("calling the `finish` tool exactly once");
+  });
+
   it("records its model call on the step as a check (§1.115)", async () => {
     const d = deps(new FakeModel([finish({ verdict: "agree", note: "They add up." })]));
     const calls = capture(d);

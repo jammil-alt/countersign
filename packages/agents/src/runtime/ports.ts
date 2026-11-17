@@ -283,16 +283,18 @@ export interface ExternalActionStore {
    * Moves `approved` → `executing` and returns the action, or returns it as it is (done, failed,
    * executing, proposed, rejected) for the caller to decide. An approved action whose inbox item is
    * still inside its undo window (`deliver_after` in the future) is not claimed (v0.12 W1-D).
+   * Audit 3.2: only one caller claims it; an `executing` action is claimed again only once its
+   * caller's lease has run out (a crash), and then `retaken` says an earlier try may have written.
    */
-  claim(
-    tenantId: string,
-    actionId: string,
-  ): Promise<{ action: ExternalActionRecord; claimed: boolean }>;
+  claim(tenantId: string, actionId: string): Promise<ActionClaim>;
+  /** Audit 3.2: records the write of an `executing` action; any other is returned as it is. */
   complete(
     tenantId: string,
     actionId: string,
     // R5: `after`, the record as the write left it, where the store keeps it (`keepsAfter`).
     result: { output: unknown; before: unknown; after?: unknown },
+    /** Follow-up 4: the claim it was executed under (`ActionClaim.claim`): only then is it done. */
+    options?: { claim?: string | null },
   ): Promise<ExternalActionRecord>;
   /**
    * R5: whether `complete` keeps the after state. Only then does a write read its record again
@@ -310,15 +312,32 @@ export interface ExternalActionStore {
     input: ProposeUndoInput,
   ): Promise<{ action: ExternalActionRecord; created: boolean }>;
   /**
-   * Marks the action failed. With `inbox`, an item for a person to look at is opened in the same
-   * transaction (a write that may have happened: UnconfirmedWriteError).
+   * Marks an `executing` action failed (audit 3.2: any other is returned as it is, nothing
+   * opened). With `inbox`, an item for a person to look at is opened in the same transaction (a
+   * write that may have happened: UnconfirmedWriteError).
    */
   fail(
     tenantId: string,
     actionId: string,
     error: unknown,
-    options?: { inbox?: FailureInboxItem },
+    /** Follow-up 4: `claim`, the claim it was executed under: only then does it fail. */
+    options?: { inbox?: FailureInboxItem; claim?: string | null },
   ): Promise<ExternalActionRecord>;
+}
+
+/** What `claim` found (ExternalActionStore.claim). */
+export interface ActionClaim {
+  action: ExternalActionRecord;
+  claimed: boolean;
+  /** Audit 3.2: it was `executing` and its lease had run out: an earlier try may have written. */
+  retaken?: boolean;
+  /**
+   * Follow-up 4: the claim's own token (its `executed_at`, as stored), for `complete` and `fail`.
+   * Absent: a store that keeps no claim time (the row is then fenced on its status only).
+   */
+  claim?: string | null;
+  /** Follow-up 1: not claimed, another caller's: when its lease runs out (ISO), by the database. */
+  leaseEndsAt?: string | null;
 }
 
 /** An inbox item opened with a failed action, for the operator to check what happened. */
@@ -370,7 +389,11 @@ export interface ReleasePort {
 export interface ConnectionAttentionPort {
   needsAttention(
     tenantId: string,
-    input: { connectionId: string; reason: "signin_expired" | "sync_failed"; detail: string },
+    input: {
+      connectionId: string;
+      reason: "signin_expired" | "sync_failed" | "refresh_failing";
+      detail: string;
+    },
   ): Promise<void>;
 }
 

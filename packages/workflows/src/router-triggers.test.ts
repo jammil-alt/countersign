@@ -3,7 +3,13 @@
 
 import { type AgentBundle, AgentBundle as BundleSchema } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { dueSchedules, type RoutableAgent, requestRun, routeEvent } from "./router";
+import {
+  dueSchedules,
+  eventTypesRouted,
+  type RoutableAgent,
+  requestRun,
+  routeEvent,
+} from "./router";
 
 const CLIENT_A = "0192f7a0-0000-7000-8000-00000000c00a";
 const CLIENT_B = "0192f7a0-0000-7000-8000-00000000c00b";
@@ -247,5 +253,32 @@ describe("moreTriggers", () => {
       triggerId: "hand",
       type: "manual",
     });
+  });
+});
+
+describe("eventTypesRouted (audit 4.2)", () => {
+  it("names every event type the router could start the agent on, and nothing for a paused one", () => {
+    const a = agent({
+      liveBundle: multi("all", [
+        { id: "e", on: { type: "event", event: "document.received" } },
+        { id: "w", on: { type: "webhook", hookId: HOOK } },
+        { id: "m", on: { type: "message", channels: ["email"], from: {} } },
+        { id: "h", on: { type: "handoff", from: { agent: "intake" } } },
+        { id: "s", on: { type: "schedule", cron: "0 9 * * *", tz: "UTC" } },
+      ]),
+    });
+    expect(eventTypesRouted(a).sort()).toEqual([
+      "account.request_passed",
+      "document.received",
+      "inbound.message",
+      "run.succeeded",
+      "thread.message_posted",
+      "webhook.received",
+    ]);
+    expect(eventTypesRouted({ ...a, runStatus: "paused" })).toEqual([]);
+    const onlyEvent = agent({
+      liveBundle: multi("one", [{ id: "e", on: { type: "event", event: "purchase.created" } }]),
+    });
+    expect(eventTypesRouted(onlyEvent)).toEqual(["purchase.created"]);
   });
 });

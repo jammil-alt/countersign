@@ -6,7 +6,7 @@ import { routes } from "@countersign/core";
 import type { Db } from "@countersign/db";
 import { Hono } from "hono";
 import { sloanTick } from "./account/sloan";
-import { summarizeQuietConversations } from "./account/summaries";
+import { SUMMARY_CALL_TIMEOUT_MS, summaryPass } from "./account/summaries";
 import { bankfeedCron } from "./bankfeed/sync";
 import { billingTick } from "./billing/jobs";
 import { raiseCodeAlerts } from "./codes/alerts";
@@ -14,6 +14,7 @@ import { codesFor } from "./codes/client";
 import { purgeRetiredFiles } from "./compliance/retention";
 import { CAPTURE_CRON_MINUTE, captureCronTick } from "./conversations/cron";
 import { captureDepsFor, captureJobsFor } from "./conversations/start";
+import { readingSweep } from "./documents/sweep";
 import type { Bindings } from "./env";
 // §1.121: forms, "Request info"
 import { formsTick } from "./forms/service";
@@ -41,6 +42,8 @@ import type { RegisteredPack } from "./packs";
 // v0.12 W3-B
 import { rampCron } from "./ramp/poll";
 import { reachOutTick } from "./reach/service";
+import { readyRoutes } from "./ready";
+import { requestOrigin } from "./request-origin";
 import { a2pRoutes } from "./routes/a2p";
 import { accessRoutes } from "./routes/access";
 // v0.12 W2-D: Sloan, the account agent
@@ -153,14 +156,17 @@ import { webhookSetupRoutes } from "./routes/webhook-setup";
 import { whatsappMetaRoutes } from "./routes/whatsapp-meta";
 // v0.14 W4-B
 import { zohoRoutes } from "./routes/zoho";
-import { cronTick, dispatchByIds, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
+import { cronTick, dispatchByIds, senseEmitter, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
 import {
   credentialsFor,
   forClient,
   reachDepsFor,
   runDepsFromEnv,
   runtimeFor,
+  workerTransport,
 } from "./runs/execute";
+import { reconcileRuns } from "./runs/reconcile";
+import { staleWritesTick } from "./runs/stale-writes";
 // M45: Search Console and Bing, nightly (docs/plan.md §1.75).
 import { searchSyncTick } from "./search-sync";
 import { securityHeaders } from "./security-headers";
@@ -180,11 +186,16 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // The MCP server (/mcp) and its OAuth metadata get the same headers (docs/plan.md §1.35).
   app.use("/mcp", securityHeaders);
   app.use("/.well-known/*", securityHeaders);
+  // State-changing requests come from the app's own pages (./request-origin.ts), checked before
+  // the phone app's header is read as a cookie.
+  app.use("/api/*", requestOrigin);
   // Liveness needs nothing: no database, no session.
   app.get(routes.health.path, (c) => c.json(routes.health.response.parse({ ok: true })));
   // §1.116: the phone app's session header, read as the session cookie (before anything reads it).
   app.use("/api/*", mobileSession);
   app.use("/api/*", requestState(deps));
+  // Readiness reaches the database through the request's client, so it comes after requestState.
+  readyRoutes(app);
   sessionRoutes(app);
   // §1.100
   secondFactorRoutes(app);
@@ -358,8 +369,6 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
         healthTick: async (tenantId, at, timeZone) => {
           const run = forClient(runDepsFromEnv(env, { db, platform, instances }), tenantId);
           await platformHealthTick({ db, runtime: runtimeFor(run) }, tenantId, at, timeZone);
-          // v0.19: each person's quiet conversations summarized for next time (§10.15).
-          await summarizeQuietConversations({ db, transport: run.transport }, tenantId, at);
         },
       },
       scheduledTime,
@@ -441,7 +450,11 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     }
     if (scheduledTime.getUTCMinutes() === USAGE_SWEEP_MINUTE) {
       // v0.12 W2-G: `origin` for the credits notifications the pass queues.
-      await billingTick({ db, stripe: stripeFor(deps, env), origin: originOf(env) }, scheduledTime);
+      // A failure is reported; the vault, retention and pack passes below still run.
+      await billingTick(
+        { db, stripe: stripeFor(deps, env), origin: originOf(env) },
+        scheduledTime,
+      ).catch((error: unknown) => reportHandled("billing tick failed", error, { job: "billing" }));
       // Client data keys: re-wrap after a master key rotation, move v1 envelopes to v2. A failure
       // here waits for the next hour; it never holds up the next tick.
       await vaultTick(db, env).catch((error: unknown) =>
@@ -458,6 +471,42 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     await packNightly(db, platform.packs, scheduledTime).catch((error: unknown) =>
       reportHandled("pack nightly tick failed", error, { job: "pack_nightly" }),
     );
+    // Audit 3.2: writes left executing that no run will take over go to the operator's review.
+    await staleWritesTick(db, scheduledTime, senseEmitter(platform.events)).catch(
+      (error: unknown) => reportHandled("stale writes tick failed", error, { job: "stale_writes" }),
+    );
+    // Last, after every other pass, so their slower work never holds the others up:
+    // every 10 minutes, runs that never started are started or failed, runs whose instance ended
+    // without finishing them are failed (runs/reconcile.ts);
+    await reconcileRuns({ db, instances }, scheduledTime).catch((error: unknown) =>
+      reportHandled("run reconciler failed", error, { job: "reconcile" }),
+    );
+    // every 5 minutes, documents whose reading on arrival was cut off are read again, within a
+    // time budget (documents/sweep.ts).
+    await readingSweep({ db, env, deps }, scheduledTime).catch((error: unknown) =>
+      reportHandled("reading sweep failed", error, { job: "reading_sweep" }),
+    );
+    // and last of all, the only pass that calls a model every minute: each person's quiet
+    // conversations summarized for next time (v0.19, §10.15). Audit 4.1: within a budget, each
+    // call with its own time limit and never retried, so a slow model holds up no other pass.
+    const runBase = runDepsFromEnv(env, { db, platform, instances });
+    const summaryTransport = workerTransport(env, {
+      timeoutMs: SUMMARY_CALL_TIMEOUT_MS,
+      maxRetries: 0,
+    });
+    await summaryPass(
+      {
+        db,
+        transportFor: (tenantId) =>
+          forClient({ ...runBase, transport: summaryTransport }, tenantId).transport,
+        report: (tenantId, error) =>
+          reportHandled(`summaries for client ${tenantId} failed`, error, {
+            job: "summaries",
+            client: tenantId,
+          }),
+      },
+      new Date(Math.floor(scheduledTime.getTime() / 60_000) * 60_000),
+    ).catch((error: unknown) => reportHandled("summaries failed", error, { job: "summaries" }));
   } finally {
     await close();
   }

@@ -15,6 +15,7 @@ import { type DeskEntry, entriesOf, leadOf } from "../../desk/model";
 import { useI18n } from "../../i18n/i18n";
 import { usePoll } from "../../runs/usePoll";
 import { useSession } from "../../session/session";
+import { ErrorBoundary } from "../../ui/ErrorBoundary";
 import { Select } from "../../ui/forms";
 import { Page } from "../../ui/page";
 import { buttonClass, Card, EmptyState, ErrorNotice, PageHeader } from "../../ui/primitives";
@@ -328,7 +329,10 @@ export function PortalInboxScreen() {
 
         <div ref={detailRef} className="flex min-w-0 flex-col gap-5">
           {selected ? (
-            <DeskDetail key={selected.key} entry={selected} canSign={canSign} onChanged={changed} />
+            // One card that can't be shown leaves the list and the other cards working.
+            <ErrorBoundary key={selected.key} part="desk-card">
+              <DeskDetail entry={selected} canSign={canSign} onChanged={changed} />
+            </ErrorBoundary>
           ) : state.data && shown.length > 0 ? (
             <EmptyState>{t("desk.pick")}</EmptyState>
           ) : null}

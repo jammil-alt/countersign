@@ -129,6 +129,7 @@ describe("outlook_calendar sign-in", () => {
       calendarId: fake.calendarId,
       calendarName: "Calendar",
       scopes: [CALENDARS_READWRITE],
+      accountIds: [expect.stringMatching(/^ms:[^:]+:oid-pat\.lee@shop\.example$/)],
     });
     expect(grant.credentials).toMatchObject({
       address: "pat.lee@shop.example",

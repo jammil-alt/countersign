@@ -5,6 +5,7 @@
 // and quiet hours stopping a send in code; usage counted; nothing crosses clients. An automatic text
 // retried after a crash resumes; one Twilio took but we never recorded is found, not sent again.
 
+import { EXECUTING_LEASE_MINUTES } from "@countersign/agents";
 import {
   createTwilioConnector,
   type FetchLike,
@@ -606,7 +607,13 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
     const leftExecuting = (id: string) =>
       H.t.db
         .update(externalAction)
-        .set({ status: "executing", error: null, result: null })
+        // Audit 3.2: claimed longer ago than the lease, so a retry takes it over.
+        .set({
+          status: "executing",
+          error: null,
+          result: null,
+          executedAt: new Date(Date.now() - (EXECUTING_LEASE_MINUTES + 1) * 60_000),
+        })
         .where(eq(externalAction.id, id));
     const optOut = async (out: boolean) => {
       const res = out
@@ -653,6 +660,37 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
       expect(await actionOf(refused.runId)).toBeUndefined();
       expect(twilio.sends()).toHaveLength(sends + 1);
       await optOut(false);
+    });
+
+    it("a step retried while its first try's claim holds waits for it to run out, then sends once", async () => {
+      const params = await started();
+      const sends = twilio.sends().length;
+      expect(await runIt(params)).toEqual({ status: "succeeded" });
+      const action = await actionOf(params.runId);
+      const id = action?.id ?? "";
+      // The Worker stopped mid-send just now: the claim is fresh.
+      await H.t.db
+        .update(externalAction)
+        .set({ status: "executing", error: null, result: null, executedAt: new Date() })
+        .where(eq(externalAction.id, id));
+      const waits: string[] = [];
+      const step = new FakeWorkflowStep(async (_name, type) => {
+        waits.push(type);
+        // The wait is a durable sleep until the lease's end: time passes.
+        await H.t.db
+          .update(externalAction)
+          .set({ executedAt: new Date(Date.now() - (EXECUTING_LEASE_MINUTES + 1) * 60_000) })
+          .where(eq(externalAction.id, id));
+        throw Object.assign(new Error("Execution timed out after 1ms"), {
+          name: "WorkflowTimeoutError",
+        });
+      });
+      expect(await executeRun(deps(), params, cloudflareStepRunner(step))).toEqual({
+        status: "succeeded",
+      });
+      expect(waits).toEqual([`lease-${id.replace(/-/g, "")}`]);
+      expect(twilio.sends()).toHaveLength(sends + 1);
+      expect(await actionOf(params.runId)).toMatchObject({ status: "done", error: null });
     });
 
     it("adopts the one message Twilio took before a crash instead of sending again", async () => {

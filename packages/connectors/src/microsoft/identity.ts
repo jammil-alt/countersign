@@ -22,6 +22,7 @@ import {
 import {
   OAuthTokens,
   ReconnectRequiredError,
+  refreshRefused,
   SignInRefusedError,
   type TokenRefresher,
   tokenManager,
@@ -75,6 +76,7 @@ const IdTokenClaims = z.looseObject({
   aud: z.string(),
   exp: z.number(),
   tid: z.string().min(1),
+  oid: z.string().min(1).max(100).optional(),
   email: z.string().optional(),
   preferred_username: z.string().optional(),
 });
@@ -97,6 +99,16 @@ export function looksLikeAddress(value: string): boolean {
 export interface MicrosoftAccount {
   address: string;
   tid: string;
+  /** The account's object id in its directory: it stays when the address is renamed. */
+  oid?: string;
+}
+
+/**
+ * The connection's `config.accountIds` for a Microsoft account (the platform compares them when
+ * the account signs in again): its directory and object id, which a rename of the address keeps.
+ */
+export function microsoftAccountIds(account: MicrosoftAccount): string[] {
+  return account.oid ? [`ms:${account.tid}:${account.oid}`] : [];
 }
 
 /**
@@ -131,7 +143,9 @@ export function microsoftIdTokenAccount(
   }
   for (const candidate of [claims.email, claims.preferred_username]) {
     const v = candidate?.trim().toLowerCase();
-    if (v && looksLikeAddress(v)) return { address: v, tid: claims.tid };
+    if (v && looksLikeAddress(v)) {
+      return { address: v, tid: claims.tid, ...(claims.oid ? { oid: claims.oid } : {}) };
+    }
   }
   throw new SignInRefusedError("Microsoft didn't say which mailbox signed in");
 }
@@ -329,8 +343,9 @@ export function microsoftSignIn(
         scope: scopes.join(" "),
       });
       if ("error" in answer) {
-        // invalid_grant: revoked, expired, or the password changed.
-        throw new ReconnectRequiredError(`Microsoft refused the refresh: ${answer.error}`);
+        // invalid_grant: revoked, expired, or the password changed; interaction_required: the
+        // tenant's policy wants the person to sign in again (MFA, conditional access).
+        throw refreshRefused("Microsoft", answer.error, ["invalid_grant", "interaction_required"]);
       }
       // Microsoft rotates refresh tokens: the new one is kept (tokenManager persists it).
       return {
@@ -461,7 +476,19 @@ export function microsoftSignIn(
         const res = await tokens.withAccessToken(
           (token) => once(token, method, path, body, timeoutMs),
           (r) => r.status === 401,
+          { write: method.toUpperCase() !== "GET" },
         );
+        // DECISION: a 401 right after a refresh that worked is not a dead grant: the connection
+        // stays connected and a later try may get through (a lasting one is raised after a day).
+        // A token straight from a sign-in (`graphWith`) refused is still a reconnect.
+        if (res.status === 401) {
+          throw new MicrosoftApiError(
+            401,
+            `Microsoft refused our access to ${spec.provider} just after we renewed it; we'll keep trying`,
+            "unauthorized",
+            true,
+          );
+        }
         return finish(res, opts?.accept);
       };
     },

@@ -7,6 +7,7 @@
 
 import { TESTKIT_QUERY_TOOL, TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import {
+  FINDING_SUBJECT,
   findingFingerprint,
   HealthSummary,
   type JsonObject,
@@ -37,7 +38,7 @@ import type { RuntimeDeps, StepContext } from "../runtime/context";
 import { ASK_BUDGET, askAgent, runAgent, toolName } from "../runtime/run-agent";
 import { SUPERVISOR_SKILLS } from "../tools/supervisor";
 import type { FindingInput } from "../tools/types";
-import { dbConnectionAttention } from "./connection-attention";
+import { accessRestored, dbConnectionAttention } from "./connection-attention";
 import {
   ALERT_SKILL,
   type Client,
@@ -643,5 +644,76 @@ describe.skipIf(!harness)("supervisor", () => {
     // A's session can't mark B's connection.
     await port.needsAttention(h.A.tenantId, { ...input, connectionId: h.B.connectionId });
     expect(await events()).toBe(before + 1);
+  });
+
+  it("raises failing renewals once without disconnecting, and closes them when a call works", async () => {
+    const [conn] = await h.t.db
+      .insert(connection)
+      .values({ tenantId: h.A.tenantId, connector: "testkit", status: "connected" })
+      .returning();
+    const id = conn?.id ?? "";
+    const port = dbConnectionAttention(h.db, {
+      emit: async (tx, tenantId, e) => {
+        await emit(tx, {
+          tenantId,
+          type: e.type,
+          subjectType: e.subjectType,
+          subjectId: e.subjectId,
+          payload: e.payload as Record<string, unknown>,
+        });
+      },
+    });
+    const raisedEvents = () =>
+      h.t.db.$count(
+        event,
+        and(
+          eq(event.tenantId, h.A.tenantId),
+          eq(event.type, "connection.needs_attention"),
+          eq(event.subjectId, id),
+        ),
+      );
+    const kinds = async () =>
+      (
+        await h.t.db
+          .select()
+          .from(connectionChange)
+          .where(eq(connectionChange.connectionId, id))
+          .orderBy(connectionChange.createdAt)
+      ).map((x) => (x.change as { kind?: string }).kind);
+    const statusOf = async () =>
+      (await h.t.db.select().from(connection).where(eq(connection.id, id)))[0]?.status;
+    const input = {
+      connectionId: id,
+      reason: "refresh_failing" as const,
+      detail: "we haven't been able to renew our access to this tool for a day",
+    };
+    await port.needsAttention(h.A.tenantId, input);
+    await port.needsAttention(h.A.tenantId, input);
+    expect(await statusOf()).toBe("connected");
+    expect(await raisedEvents()).toBe(1);
+    expect(await kinds()).toEqual(["needs_attention"]);
+    const fingerprint = findingFingerprint({ kind: "connection_access", connectionId: id });
+    await h.t.db.insert(inboxItem).values({
+      tenantId: h.A.tenantId,
+      kind: "review",
+      subjectType: FINDING_SUBJECT,
+      subjectId: id,
+      assigneeRole: "client_admin",
+      title: "We can't reach Testkit",
+      payload: { fingerprint },
+    });
+    // A call works again: closed, its finding resolved; a second success changes nothing.
+    expect(await accessRestored(h.db, h.A.tenantId, id)).toBe(true);
+    expect(await accessRestored(h.db, h.A.tenantId, id)).toBe(false);
+    expect(await kinds()).toEqual(["needs_attention", "access_restored"]);
+    const [item] = await h.t.db
+      .select()
+      .from(inboxItem)
+      .where(sql`${inboxItem.payload}->>'fingerprint' = ${fingerprint}`);
+    expect(item?.status).toBe("resolved");
+    // Failing again later opens a new issue.
+    await port.needsAttention(h.A.tenantId, input);
+    expect(await raisedEvents()).toBe(2);
+    expect(await statusOf()).toBe("connected");
   });
 });

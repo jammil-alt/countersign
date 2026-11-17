@@ -18,6 +18,7 @@ import {
   markDispatched,
   recordDispatchFailure,
   releaseDispatched,
+  retrySetAside,
   undispatched,
 } from "./outbox";
 import { EventPayloadError, EventTypeRegistry, UnknownEventTypeError } from "./registry";
@@ -357,5 +358,13 @@ describe.skipIf(!online)("senses outbox", () => {
     ).not.toContain(row.id);
     // RLS: B's session can't touch A's event.
     expect(await asClient(B, (tx) => recordDispatchFailure(tx, row.id, "no"))).toBeNull();
+    // An operator's retry gives it back to the sweep with its count cleared; B's can't.
+    expect(await asClient(B, (tx) => retrySetAside(tx))).not.toContain(row.id);
+    expect(await asClient(A, (tx) => retrySetAside(tx, { ids: [row.id] }))).toEqual([row.id]);
+    [now] = await t.db.select().from(event).where(eq(event.id, row.id));
+    expect(now).toMatchObject({ setAsideAt: null, dispatchAttempts: 0, dispatchError: null });
+    expect((await sweep()).map((e) => e.id)).toContain(row.id);
+    // Nothing set aside: nothing to give back.
+    expect(await asClient(A, (tx) => retrySetAside(tx, { ids: [row.id] }))).toEqual([]);
   });
 });

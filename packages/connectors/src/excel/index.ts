@@ -41,9 +41,10 @@ import {
   graphScope,
   MICROSOFT_SIGN_IN_SCOPES,
   MicrosoftApiError,
+  microsoftAccountIds,
   microsoftSignIn,
 } from "../microsoft/identity";
-import { ReconnectRequiredError } from "../oauth/tokens";
+import { ReconnectRequiredError, TokenRefreshError } from "../oauth/tokens";
 import {
   EXCEL_MAX_CELL_LENGTH,
   EXCEL_MAX_ROW,
@@ -553,8 +554,10 @@ const AppendAttempt = z.looseObject({
 
 /** The reason Graph turned a write down without making it, or null when it may have made it. */
 function refusedReason(error: unknown): string | null {
-  // A 401 after one refresh, or a refresh refused: the request never reached the workbook.
+  // A 401 after one refresh, or a refresh refused or failed before this call reached Graph:
+  // the request never reached the workbook.
   if (error instanceof ReconnectRequiredError) return "unauthorized";
+  if (error instanceof TokenRefreshError && error.notWritten) return "refresh_failed";
   // 4xx (429 included): Graph answered and wrote nothing. 5xx and no answer: it may have.
   if (error instanceof MicrosoftApiError && error.status < 500) {
     return error.code ?? String(error.status);
@@ -697,7 +700,12 @@ export function createExcelConnector(options: ExcelOptions = {}): ExcelConnector
       return {
         externalAccountId: account.address,
         credentials: credentials as unknown as JsonObject,
-        config: { address: account.address, tid: account.tid, scopes: [EXCEL_GRAPH_SCOPE] },
+        config: {
+          address: account.address,
+          tid: account.tid,
+          scopes: [EXCEL_GRAPH_SCOPE],
+          accountIds: microsoftAccountIds(account),
+        },
       };
     },
 

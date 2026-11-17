@@ -60,4 +60,72 @@ describe("the go-live panel", () => {
     await user.selectOptions(screen.getByTestId("agent-stage-select"), "bench");
     expect(screen.getByTestId("agent-stage-move")).toBeEnabled();
   });
+
+  it("offers to run what came in while it was paused, never on its own", async () => {
+    let left = 3;
+    const api = fakeApi({
+      [`GET /api/ops/agents/${AGENT.id}/go-live`]: () => ({ goLive: { ...TRIAL, stage: "live" } }),
+      [`GET /api/ops/clients/${AGENT.tenantId}/events`]: () => ({ events: [] }),
+      [`GET /api/ops/agents/${AGENT.id}/missed-events`]: () => ({
+        missed: {
+          count: left,
+          from: "2026-11-06T17:00:00.000Z",
+          to: "2026-11-09T08:00:00.000Z",
+          more: false,
+        },
+      }),
+      [`POST /api/ops/agents/${AGENT.id}/missed-events/run`]: () => {
+        left = 0;
+        return {
+          runs: [1, 2, 3].map((n) => ({
+            runId: `00000000-0000-4000-8000-00000000r00${n}`,
+            workflow: "main",
+          })),
+          left: 0,
+        };
+      },
+    });
+    render(
+      <ApiProvider client={api.client}>
+        <MemoryRouter>
+          <GoLivePanel agent={AGENT} liveBundle={FORK_BUNDLE} onChanged={() => {}} />
+        </MemoryRouter>
+      </ApiProvider>,
+    );
+    expect(await screen.findByTestId("agent-missed-events-count")).toHaveTextContent(
+      "3 events came in while it was paused",
+    );
+    expect(api.calls).not.toContain(`POST /api/ops/agents/${AGENT.id}/missed-events/run`);
+    await userEvent.setup().click(screen.getByTestId("agent-missed-events-run"));
+    expect(await screen.findByTestId("agent-missed-events-started")).toHaveTextContent(
+      "Started 3 runs.",
+    );
+    expect(screen.queryByTestId("agent-missed-events-count")).toBeNull();
+  });
+
+  it("says there may be more even when none of those read would start it", async () => {
+    const api = fakeApi({
+      [`GET /api/ops/agents/${AGENT.id}/go-live`]: () => ({ goLive: { ...TRIAL, stage: "live" } }),
+      [`GET /api/ops/clients/${AGENT.tenantId}/events`]: () => ({ events: [] }),
+      [`GET /api/ops/agents/${AGENT.id}/missed-events`]: () => ({
+        missed: {
+          count: 0,
+          from: "2026-11-06T17:00:00.000Z",
+          to: "2026-11-09T08:00:00.000Z",
+          more: true,
+        },
+      }),
+    });
+    render(
+      <ApiProvider client={api.client}>
+        <MemoryRouter>
+          <GoLivePanel agent={AGENT} liveBundle={FORK_BUNDLE} onChanged={() => {}} />
+        </MemoryRouter>
+      </ApiProvider>,
+    );
+    expect(await screen.findByTestId("agent-missed-events-more")).toHaveTextContent(
+      "than one look reads",
+    );
+    expect(screen.queryByTestId("agent-missed-events-run")).toBeNull();
+  });
 });

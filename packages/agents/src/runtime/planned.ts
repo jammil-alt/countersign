@@ -197,6 +197,10 @@ async function finish(
       return { status: "refused", reason: "rejected" };
     case "awaiting_approval":
       return { status: "failed", error: "an attempt inside an approved plan waits for approval" };
+    case "busy":
+      // Audit 3.2: an earlier try claimed it; this one never sends it too. The caller leaves the
+      // attempt for a later tick (follow-up 7), when the claim is done or has run out.
+      return { status: "busy", actionId, leaseEndsAt: r.leaseEndsAt };
   }
 }
 
@@ -276,7 +280,10 @@ export async function composeReachMessage(
       },
     ],
     tool: { name: "message", description: "The message to send.", schema: Composed },
-    maxTokens: 600,
+    // DECISION: 2048, room for the model's thinking (which counts against max_tokens on the
+    // default models) before a short message; an answer cut off at the ceiling is an error
+    // (callTool), never a message sent.
+    maxTokens: 2048,
     label: `reach-out:${step.stepId}`,
   });
   return r.value.text.slice(0, input.maxChars);

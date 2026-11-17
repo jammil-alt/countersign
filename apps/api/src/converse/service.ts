@@ -18,6 +18,7 @@ import {
   converseMaxChars,
   converseTurn,
 } from "@countersign/agents";
+import { newReplyTag } from "@countersign/connectors";
 import {
   type AnyAgentBundle,
   CONVERSE_CHANNEL_WORDS,
@@ -1268,7 +1269,7 @@ export function conversePort(deps: ConverseDeps): ConversePort {
           .returning();
         if (!row) return null;
         // Replies by email find the conversation by its first message's tag.
-        const tagged: ConversePlan = { ...plan, replyTag: row.id.replace(/-/g, "") };
+        const tagged: ConversePlan = { ...plan, replyTag: newReplyTag(row.id) };
         await tx
           .update(reachOut)
           .set({ plan: json(tagged) })

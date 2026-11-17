@@ -114,8 +114,11 @@ export interface StepWait {
   timeout: Duration;
   /** Whatever the port needs to look it up again (e.g. the reach-out's id). */
   state?: unknown;
-  /** What it waits for, for the timeline: a reply (default) or a person's release code. */
-  reason?: "reply" | "release";
+  /**
+   * What it waits for, for the timeline: a reply (default), a person's release code, or (follow-up
+   * 1) a change an earlier try started, until it may be taken over.
+   */
+  reason?: "reply" | "release" | "change";
 }
 
 export interface WaitRequest {
@@ -155,6 +158,11 @@ export interface SkillStepRequest {
    * corrected input (run oversight) uses `${nodeId}:o${seq}`, so the gate decides it afresh.
    */
   keyNode?: string;
+  /**
+   * Follow-up 2: the platform's retry of this durable work (an earlier try stopped), so the
+   * agent's budgets go on from what those tries spent. Absent: the work's first try.
+   */
+  retried?: boolean;
   // R3 (docs/plan.md §1.86): a v4 skill step's customization of its Library skill.
   /**
    * What the step changes about its skill (`processes.customizeSkill`): the runtime applies the
@@ -361,6 +369,12 @@ export interface InboxPort {
   resolution(inboxItemId: string): Promise<InboxResolution | null>;
   /** The step gave up waiting: mark the item expired. */
   expire(inboxItemId: string): Promise<void>;
+  /**
+   * Audit 3.7: for an item that is resolved, the seconds left in its undo window (0 once it has
+   * passed, or when it has none); null for an item that isn't resolved. Asked when the wait ran
+   * out, so a yes given inside the window is waited out rather than lost. Absent: not asked.
+   */
+  heldFor?(inboxItemId: string): Promise<number | null>;
   /**
    * The run has taken the item's resolution (from its event or the check before waiting), so
    * nothing needs to re-send it (docs/plan.md §1.5 "Approval resume"). Idempotent.
@@ -581,11 +595,23 @@ export interface JudgeRequest {
  * Where the agent chooses. Each answer is recorded by the port (an `oversight_decision` row) and
  * returned once; the executor calls it inside a durable step, so a replay never asks again.
  */
+// DECISION: a choice the agent couldn't make (its model call failed, or its answer was cut off at
+// max_tokens) comes back as `failed` with the reason, not as a throw: the answer is stored by the
+// durable step like any other, so the engine never retries the same paid call, a replay asks
+// nothing again, and the executor fails the step with that reason (never "unsure").
 export interface ChoicePort {
-  /** A path id the request allowed, or null when unsure (or no answer held). */
-  choose(request: ChoiceRequest): Promise<{ path: string | null; by: string }>;
-  /** Done or not, or null when no answer held (the repeat ends at its limit). */
-  judge(request: JudgeRequest): Promise<{ done: boolean | null; feedback?: string; by: string }>;
+  /**
+   * A path id the request allowed, or null when unsure (or no answer held). `failed`: the agent
+   * couldn't be asked, and why; the step fails.
+   */
+  choose(request: ChoiceRequest): Promise<{ path: string | null; by: string; failed?: string }>;
+  /**
+   * Done or not, or null when no answer held (the repeat ends at its limit). `failed`: the agent
+   * couldn't be asked, and why; the step fails.
+   */
+  judge(
+    request: JudgeRequest,
+  ): Promise<{ done: boolean | null; feedback?: string; by: string; failed?: string }>;
 }
 
 // Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)"): the owner's check on every step, recorded.

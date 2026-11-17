@@ -56,6 +56,10 @@ export const de: Messages = {
   "errorPage.forbidden.title": "Sie haben keinen Zugriff auf diese Seite.",
   "errorPage.failure":
     "Beim Laden dieser Seite ist etwas schiefgegangen. Versuchen Sie es gleich noch einmal.",
+  "errorPage.crash":
+    "Beim Anzeigen dieser Seite ist etwas schiefgegangen. Bitte versuchen Sie es noch einmal oder öffnen Sie eine andere Seite.",
+  "errorPage.crashPart":
+    "Dieser Teil konnte nicht angezeigt werden. Bitte versuchen Sie es noch einmal oder öffnen Sie eine andere Seite.",
   "errorPage.back.home": "Zur Startseite",
   "errorPage.back.runs": "Zu den Abläufen",
   "errorPage.back.records": "Zu den Einträgen",
@@ -105,6 +109,12 @@ export const de: Messages = {
   "error.contact_exists": "Jemand im Verzeichnis hat diese E-Mail-Adresse oder Nummer schon.",
   "error.rate_limited": "Warten Sie eine Minute und versuchen Sie es erneut.",
   "error.no_address": "Wir kennen die Adresse dieses Kontos nicht. Verbinden Sie es erneut.",
+  "error.different_account":
+    "Das ist ein anderes Konto als das hier verbundene. Trennen Sie es zuerst, dann verbinden Sie das andere.",
+  "error.different_company":
+    "Ihre Bücher hier kommen aus einem anderen QuickBooks-Unternehmen. Bitten Sie uns, das Unternehmen zu wechseln.",
+  "error.sync_running":
+    "Wir lesen gerade die Bücher dieses Unternehmens. Versuchen Sie es in ein paar Minuten erneut.",
   "error.invalid_hours":
     "Diese Zeiten können nicht gespeichert werden. Geben Sie mindestens einem Tag Öffnungszeiten und halten Sie jede Abwesenheit unter einem Jahr.",
   "error.sends_form":
@@ -451,6 +461,7 @@ export const de: Messages = {
   "desk.worksheet.title": "Arbeitsblatt",
   "desk.worksheet.how": "Wie {agent} hierher kam",
   "desk.worksheet.yourSign": "Ihre Freigabe", // fluent review
+  "desk.worksheet.earlierChange": "Frühere Änderung öffnen",
   "desk.team.title": "Wer was freigibt", // fluent review
   "desk.team.undo": "Zeit zum Rückgängigmachen",
   "desk.team.undoOff": "Aus",
@@ -944,6 +955,9 @@ export const de: Messages = {
     "Eine pro Zeile. Eine Domain (ihrlieferant.de) gilt für alle Adressen dort.",
   "forwarding.edit": "Bearbeiten, wer weiterleiten darf",
   "forwarding.drop.sender_not_allowed": "der Absender steht nicht auf Ihrer Liste",
+  "forwarding.drop.sender_unverified":
+    "der Absender steht auf Ihrer Liste, aber wir konnten nicht bestätigen, dass sie von ihm kam",
+  "forwarding.drop.auto_reply": "es war eine automatische Antwort, etwa eine Abwesenheitsnotiz",
   "forwarding.drop.unknown_address": "sie ging an eine alte oder falsche Adresse",
   "forwarding.drop.too_large": "sie war größer als 25 MB",
   "forwarding.drop.unreadable": "die Nachricht war nicht lesbar",
@@ -1463,6 +1477,7 @@ export const de: Messages = {
   "contacts.status.failed": "fehlgeschlagen",
   "contacts.status.read": "gelesen",
   "contacts.status.received": "empfangen",
+  "contacts.status.unverified": "empfangen, Absender nicht bestätigt",
   "contacts.status.replied": "beantwortet",
   "contacts.status.not_sent": "nicht gesendet",
   "contacts.status.no_reply": "keine Antwort",

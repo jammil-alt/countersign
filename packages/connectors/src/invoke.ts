@@ -191,3 +191,14 @@ export function standInOutput(connector: Connector, toolId: string, input: unkno
   const parsed = parse(handler.input, input, "invalid_input", toolId);
   return parse(handler.output, handler.testOutput(parsed), "invalid_output", toolId);
 }
+
+/**
+ * A write's input as its tool reads it (its Zod input, defaults filled in), as `captureBefore`
+ * stores it on the proposal. Nothing is read or written. Throws ToolCallError when it doesn't
+ * parse.
+ */
+export function parseWriteInput(connector: Connector, toolId: string, input: unknown): unknown {
+  const { handler } = lookup(connector, toolId);
+  if (handler.kind !== "write") throw new ToolCallError("not_a_write", toolId, "tool only reads");
+  return parse(handler.input, input, "invalid_input", toolId);
+}
