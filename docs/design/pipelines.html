@@ -701,7 +701,10 @@ const state = {
   tab: "you", done: new Set(), focus: 0, act: "all",
   view: {}, filter: {}, q: {}, sort: {}, callKind: "all", callQ: "",
 };
-const route = () => (location.hash.replace(/^#\/?/, "") || "call").split("/");
+// Route parts come from the address bar: keep only ids made of letters, digits and dashes, so
+// nothing from the hash ever reaches innerHTML as markup.
+const safePart = (p) => (/^[A-Za-z0-9-]{1,60}$/.test(p) ? p : "");
+const route = () => (location.hash.replace(/^#\/?/, "") || "call").split("/").map((p) => safePart(p.replace(/[^A-Za-z0-9-]/g, "")));
 const card = (id) => CARDS.find((c) => c.id === id);
 const yours = () => TODOS.filter((t) => !state.done.has(t.id));
 const sectionOf = (pipe) => PIPES[pipe].section;
