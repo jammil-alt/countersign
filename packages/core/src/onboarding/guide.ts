@@ -530,12 +530,17 @@ function fillFromFacts(sections: GuideSection[], facts: readonly GuideFact[]): v
   }
 }
 
+/** Dashes off both ends without a regular expression (CodeQL: no backtracking on long runs). */
+function trimDashes(v: string): string {
+  let start = 0;
+  let end = v.length;
+  while (start < end && v[start] === "-") start++;
+  while (end > start && v[end - 1] === "-") end--;
+  return v.slice(start, end);
+}
+
 const slug = (text: string): string =>
-  text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60) || "question";
+  trimDashes(text.toLowerCase().replace(/[^a-z0-9]+/g, "-")).slice(0, 60) || "question";
 
 /** The operator's edits that would ask for a secret (refused: cases-plan §4.5). */
 export function guideEditProblems(edits: GuideEditsInput | undefined): string[] {

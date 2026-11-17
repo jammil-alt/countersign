@@ -190,7 +190,9 @@ function blockText(block: BrandedBlock): string {
 export function renderBrandedEmail(input: BrandedEmailInput): RenderedEmail {
   const words = ONBOARDING_WORDS[input.locale];
   const subject = oneLine(input.subject).slice(0, 200);
-  const origin = emailSafeUrl(input.origin).replace(/\/+$/, "");
+  let origin = emailSafeUrl(input.origin);
+  // Trailing slashes off without a regular expression (CodeQL: no backtracking on long runs).
+  while (origin.endsWith("/")) origin = origin.slice(0, -1);
   const logo = escapeEmailHtml(`${origin}${EMAIL_LOGO_PATH}`);
   const name = oneLine(input.from.name);
   const role = input.from.role ? oneLine(input.from.role) : null;

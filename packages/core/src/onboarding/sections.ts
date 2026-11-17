@@ -155,12 +155,17 @@ export interface TemplateCard {
   form: readonly Pick<SetupField, "id" | "label" | "kind" | "hint" | "dropped">[];
 }
 
+/** Strips `ch` from both ends without a regular expression (CodeQL: no backtracking on long runs). */
+function trimChar(v: string, ch: string): string {
+  let start = 0;
+  let end = v.length;
+  while (start < end && v[start] === ch) start++;
+  while (end > start && v[end - 1] === ch) end--;
+  return v.slice(start, end);
+}
+
 const keyPart = (v: string): string =>
-  v
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40) || "x";
+  trimChar(v.toLowerCase().replace(/[^a-z0-9_-]+/g, "-"), "-").slice(0, 40) || "x";
 
 /**
  * A template's card: a Connect field per tool it needs (shared with any other card that needs the
