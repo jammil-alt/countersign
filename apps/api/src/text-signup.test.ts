@@ -13,9 +13,9 @@ import {
   fakeResend,
   fakeTwilio,
 } from "@countersign/connectors/testing";
-import { a2pKeywordsOf, textSignupTerms } from "@countersign/core";
+import { a2pKeywordsOf, TEXT_SIGNUP_LINK_HOURLY_MAX, textSignupTerms } from "@countersign/core";
 import { contact, contactChange, tenant, withTenant } from "@countersign/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { type ApiHarness, admin, createApiHarness, OPERATOR, user } from "./api.test-helper";
 import { sendTextInvitations, signTextSignup } from "./messaging/signup";
@@ -28,10 +28,23 @@ const ORIGIN = "https://app.mezonas.test";
 const twilio = fakeTwilio();
 const resend = fakeResend();
 const emails: { from: string; to: string[]; subject: string; text: string; html?: string }[] = [];
-const fetch: FetchLike = (url, init) => {
+/** Holds or fails outgoing texts, for when the confirmation goes. */
+const sending: { hold: Promise<void> | null; fail: boolean } = { hold: null, fail: false };
+const fetch: FetchLike = async (url, init) => {
   if (url.startsWith(RESEND_API)) {
     if (init?.body && url.endsWith("/emails")) emails.push(JSON.parse(init.body));
     return resend.fetch(url, init);
+  }
+  if (init?.method === "POST" && url.endsWith("/Messages.json")) {
+    if (sending.hold) await sending.hold;
+    if (sending.fail) {
+      return {
+        status: 500,
+        ok: false,
+        headers: { get: () => null },
+        text: async () => JSON.stringify({ code: 20500, message: "failed" }),
+      };
+    }
   }
   return twilio.fetch(url, init);
 };
@@ -58,7 +71,11 @@ const h = await createApiHarness({
 afterAll(() => h?.close());
 
 const tokenIn = (url: string) => url.slice(url.indexOf("/texts/") + "/texts/".length);
-const textsTo = (to: string) => [...twilio.messages.values()].filter((m) => m.to === to);
+/** The texts sent to a number, once the work after each response is done. */
+const textsTo = async (to: string) => {
+  await h?.settle();
+  return [...twilio.messages.values()].filter((m) => m.to === to);
+};
 
 describe.skipIf(!h)("signing up for texts", () => {
   const H = h as ApiHarness;
@@ -120,6 +137,7 @@ describe.skipIf(!h)("signing up for texts", () => {
         kind: "link",
         name: null,
         phone: null,
+        number: "+15125550101",
         terms,
         wordingVersion: 1,
         state: "open",
@@ -175,7 +193,7 @@ describe.skipIf(!h)("signing up for texts", () => {
       });
 
       // The confirmation, from the client's number, in the registered words.
-      const sent = textsTo(PHONE);
+      const sent = await textsTo(PHONE);
       expect(sent.map((m) => m.body)).toEqual([a2pKeywordsOf("Client A").optInMessage]);
       expect(sent[0]?.from).toBe("+15125550101");
 
@@ -219,6 +237,160 @@ describe.skipIf(!h)("signing up for texts", () => {
       // A link signed for client B with A's key is no link for B.
       const signed = await signTextSignup(H.env, { k: "l", t: B(), n: "x".repeat(22) });
       expect((await view(signed)).status).toBe(404);
+    });
+
+    it("texts a number that signed up once, and answers a repeat the same way", async () => {
+      const token = tokenIn(
+        j((await H.call(admin("a"), "GET", "/api/texting/signup-link")).json).url,
+      );
+      const PHONE = "+15125550191";
+      for (let i = 0; i < 4; i++) {
+        const res = await submit(token, { name: "Repeat Person", phone: PHONE });
+        expect(res.status).toBe(200);
+        expect(j(res.json)).toEqual({ confirmation: "sent" });
+      }
+      expect(await textsTo(PHONE)).toHaveLength(1);
+      const [row] = await H.t.db
+        .select()
+        .from(contact)
+        .where(and(eq(contact.tenantId, A()), eq(contact.phone, PHONE)));
+      const kinds = (await logOf(row?.id as string)).map(
+        (l) => (l.change as { kind: string }).kind,
+      );
+      // One sign-up; each repeat is only counted toward the link's hourly limit.
+      expect(kinds.filter((k) => k === "opt_in")).toHaveLength(1);
+      expect(kinds.filter((k) => k === "text_signup_skipped")).toHaveLength(3);
+    });
+
+    it("never lifts an opt-out, and answers as a sign-up does: only a START from that number lifts it", async () => {
+      const token = tokenIn(
+        j((await H.call(admin("a"), "GET", "/api/texting/signup-link")).json).url,
+      );
+      // The page tells everyone how to start texts again.
+      expect(j((await view(token)).json).number).toBe("+15125550101");
+      const PHONE = "+15125550187";
+      const OUT = await newContact(admin("a"), { name: "Opted Out", phone: PHONE });
+      await H.call(admin("a"), "POST", `/api/contacts/${OUT}/consent`, { action: "opt_out" });
+      const res = await submit(token, { name: "Someone", phone: PHONE });
+      // The same answer as a sign-up: the link doesn't say who opted out.
+      expect(res.status).toBe(200);
+      expect(j(res.json)).toEqual({ confirmation: "sent" });
+      const [row] = await H.t.db.select().from(contact).where(eq(contact.id, OUT));
+      expect(row?.optedOutAt).not.toBeNull();
+      expect(row?.consent ?? {}).not.toHaveProperty("sms");
+      expect(row?.name).toBe("Opted Out");
+      expect(await textsTo(PHONE)).toHaveLength(0);
+      // Counted toward the link's hourly limit, and nothing else.
+      const changes = (await logOf(OUT)).map((l) => l.change as Record<string, unknown>);
+      expect(changes.at(-1)).toEqual({
+        kind: "text_signup_skipped",
+        via: "link",
+        reason: "opted_out",
+      });
+      expect(changes.some((c) => c.kind === "opt_in")).toBe(false);
+    });
+
+    it("treats a number that opted out on WhatsApp as opted out", async () => {
+      const token = tokenIn(
+        j((await H.call(admin("a"), "GET", "/api/texting/signup-link")).json).url,
+      );
+      const NUM = "+15125550166";
+      const [wa] = await H.t.db
+        .insert(contact)
+        .values({
+          tenantId: A(),
+          name: "WhatsApp Person",
+          whatsapp: NUM,
+          optedOutAt: new Date(),
+          optOutSource: "keyword:STOP",
+        })
+        .returning();
+      const res = await submit(token, { name: "Someone Else", phone: NUM });
+      expect(res.status).toBe(200);
+      expect(j(res.json)).toEqual({ confirmation: "sent" });
+      expect(await textsTo(NUM)).toHaveLength(0);
+      const same = await H.t.db
+        .select()
+        .from(contact)
+        .where(and(eq(contact.tenantId, A()), eq(contact.phone, NUM)));
+      expect(same).toEqual([]);
+      const changes = (await logOf(wa?.id as string)).map((l) => l.change);
+      expect(changes).toEqual([{ kind: "text_signup_skipped", via: "link", reason: "opted_out" }]);
+    });
+
+    it("answers before the confirmation goes, and the same when it fails", async () => {
+      const token = tokenIn(
+        j((await H.call(admin("a"), "GET", "/api/texting/signup-link")).json).url,
+      );
+      let release = () => {};
+      sending.hold = new Promise<void>((r) => {
+        release = r;
+      });
+      const HELD = "+15125550192";
+      const res = await Promise.race([
+        submit(token, { name: "Held Text", phone: HELD }),
+        new Promise<null>((r) => setTimeout(() => r(null), 3000)),
+      ]);
+      release();
+      sending.hold = null;
+      expect(res?.status).toBe(200);
+      expect(j(res?.json)).toEqual({ confirmation: "sent" });
+      await H.settle();
+      expect(await textsTo(HELD)).toHaveLength(1);
+
+      // A confirmation that fails to send answers the same.
+      sending.fail = true;
+      const FAILS = "+15125550193";
+      const failed = await submit(token, { name: "Failed Text", phone: FAILS });
+      await H.settle();
+      sending.fail = false;
+      expect(failed.status).toBe(200);
+      expect(j(failed.json)).toEqual({ confirmation: "sent" });
+      expect(await textsTo(FAILS)).toHaveLength(0);
+    });
+
+    it("holds the hourly limit when many submit at once", async () => {
+      const token = tokenIn(
+        j((await H.call(admin("a"), "GET", "/api/texting/signup-link")).json).url,
+      );
+      // Three left in this hour.
+      const counted = () =>
+        H.t.db
+          .select({ n: sql<number>`count(*)::int` })
+          .from(contactChange)
+          .where(
+            and(
+              eq(contactChange.tenantId, A()),
+              gt(contactChange.createdAt, new Date(Date.now() - 60 * 60 * 1000)),
+              sql`${contactChange.change}->>'via' = 'link'`,
+              inArray(sql`${contactChange.change}->>'kind'`, ["opt_in", "text_signup_skipped"]),
+            ),
+          )
+          .then((r) => r[0]?.n ?? 0);
+      const [anyone] = await H.t.db
+        .select()
+        .from(contact)
+        .where(eq(contact.tenantId, A()))
+        .limit(1);
+      const fill = TEXT_SIGNUP_LINK_HOURLY_MAX - 3 - (await counted());
+      expect(fill).toBeGreaterThan(0);
+      await H.t.db.insert(contactChange).values(
+        Array.from({ length: fill }, () => ({
+          tenantId: A(),
+          contactId: anyone?.id as string,
+          actorId: null,
+          change: { kind: "opt_in", via: "link" },
+        })),
+      );
+      const numbers = Array.from({ length: 12 }, (_, i) => `+1512556${String(i).padStart(4, "0")}`);
+      const res = await Promise.all(
+        numbers.map((phone) => submit(token, { name: "Burst", phone })),
+      );
+      expect(res.filter((r) => r.status === 200)).toHaveLength(3);
+      expect(res.filter((r) => r.status === 429)).toHaveLength(9);
+      let texts = 0;
+      for (const n of numbers) texts += (await textsTo(n)).length;
+      expect(texts).toBe(3);
     });
 
     it("waits after too many sign-ups in an hour", async () => {
@@ -295,13 +467,104 @@ describe.skipIf(!h)("signing up for texts", () => {
       expect(row?.consent).toMatchObject({
         sms: { basis: "express", source: "accepted the texting invitation" },
       });
-      expect(textsTo("+15125550182")).toHaveLength(1);
+      expect(await textsTo("+15125550182")).toHaveLength(1);
       expect(j((await view(token)).json).state).toBe("signed_up");
       expect(j((await invite(admin("a"), [PAT])).json).skipped).toEqual([
         { id: PAT, reason: "signed_up" },
       ]);
       const kinds = (await logOf(PAT)).map((l) => (l.change as { kind: string }).kind);
       expect(kinds).toEqual(expect.arrayContaining(["text_invite", "edited", "opt_in"]));
+    });
+
+    it("takes US and Canadian numbers only, and signs up once per invitation", async () => {
+      const SAM = await newContact(admin("a"), { name: "Sam Diaz", email: "sam@vendor.example" });
+      expect(j((await invite(admin("a"), [SAM])).json).sent).toEqual([
+        { id: SAM, reminder: false },
+      ]);
+      const link = /Choose to get texts: (\S+)/.exec(
+        lastEmailTo("sam@vendor.example")?.text ?? "",
+      )?.[1];
+      const token = tokenIn(link as string);
+      // The same number rules as the client's link.
+      const abroad = await submit(token, { phone: "+442071838750" });
+      expect(abroad.status).toBe(422);
+      expect(j(abroad.json).error.code).toBe("invalid_phone");
+      expect(await textsTo("+442071838750")).toHaveLength(0);
+
+      // Two presses at once: one sign-up and one text.
+      const both = await Promise.all([
+        submit(token, { phone: "+15125550184" }),
+        submit(token, { phone: "+15125550185" }),
+      ]);
+      expect(both.map((r) => r.status).sort()).toEqual([200, 409]);
+      expect((await textsTo("+15125550184")).length + (await textsTo("+15125550185")).length).toBe(
+        1,
+      );
+
+      // Used: the link signs up no one else and sends nothing more.
+      const again = await submit(token, { phone: "+15125550186" });
+      expect(again.status).toBe(409);
+      expect(j(again.json).error.code).toBe("used");
+      expect(await textsTo("+15125550186")).toHaveLength(0);
+      const optIns = (await logOf(SAM)).filter(
+        (l) => (l.change as { kind: string }).kind === "opt_in",
+      );
+      expect(optIns).toHaveLength(1);
+    });
+
+    it("never lifts an opt-out made after the invitation", async () => {
+      const PHONE = "+15125550188";
+      const ROB = await newContact(admin("a"), {
+        name: "Rob Lane",
+        email: "rob@vendor.example",
+        phone: PHONE,
+      });
+      await invite(admin("a"), [ROB]);
+      const link = /Choose to get texts: (\S+)/.exec(
+        lastEmailTo("rob@vendor.example")?.text ?? "",
+      )?.[1];
+      await H.call(admin("a"), "POST", `/api/contacts/${ROB}/consent`, { action: "opt_out" });
+      for (const phone of [PHONE, "+15125550189"]) {
+        const res = await submit(tokenIn(link as string), { phone });
+        expect(res.status, phone).toBe(409);
+        expect(j(res.json).error.code).toBe("opted_out");
+        expect(await textsTo(phone)).toHaveLength(0);
+      }
+      const [row] = await H.t.db.select().from(contact).where(eq(contact.id, ROB));
+      expect(row?.optedOutAt).not.toBeNull();
+      expect(row?.phone).toBe(PHONE);
+    });
+
+    it("answers another contact's opted-out number as a sign-up, and that uses the invitation", async () => {
+      const NUM = "+15125550167";
+      await H.t.db.insert(contact).values({
+        tenantId: A(),
+        name: "WhatsApp Only",
+        whatsapp: NUM,
+        optedOutAt: new Date(),
+        optOutSource: "keyword:STOP",
+      });
+      const KAI = await newContact(admin("a"), { name: "Kai Moss", email: "kai@vendor.example" });
+      await invite(admin("a"), [KAI]);
+      const link = /Choose to get texts: (\S+)/.exec(
+        lastEmailTo("kai@vendor.example")?.text ?? "",
+      )?.[1];
+      const token = tokenIn(link as string);
+      // The same answer as a sign-up: the invitation doesn't say who opted out.
+      const res = await submit(token, { phone: NUM });
+      expect(res.status).toBe(200);
+      expect(j(res.json)).toEqual({ confirmation: "sent" });
+      expect(await textsTo(NUM)).toHaveLength(0);
+      const [row] = await H.t.db.select().from(contact).where(eq(contact.id, KAI));
+      expect(row?.phone).toBeNull();
+      expect(row?.consent ?? {}).not.toHaveProperty("sms");
+      // It used the invitation: no more answers from it, whatever number is typed.
+      for (const phone of [NUM, "+15125550168"]) {
+        const again = await submit(token, { phone });
+        expect(again.status, phone).toBe(409);
+        expect(j(again.json).error.code).toBe("used");
+      }
+      expect(await textsTo("+15125550168")).toHaveLength(0);
     });
 
     it("sends one reminder after three days, then no more", async () => {

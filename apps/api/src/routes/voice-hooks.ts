@@ -53,10 +53,11 @@ import {
   type TranscriptPayload,
   threadCallLine,
 } from "../calls/store";
+import { clientModels } from "../compliance/models";
 import { type AppEnv, errorResponse, HttpError } from "../http";
 import { connectorServicesFor } from "../messaging/services";
 import { dispatchEvents, senseEmitter } from "../runs/dispatch";
-import { credentialsFor, workerTransport } from "../runs/execute";
+import { credentialsFor } from "../runs/execute";
 import { voiceDepsFor } from "./twilio-voice";
 
 const TOOL_BODY_MAX = 16 * 1024;
@@ -218,8 +219,8 @@ export function voiceHookRoutes(app: Hono<AppEnv>): void {
         ports,
         tools: services.platform.tools,
         catalog: services.platform.catalog,
-        // Reads only: the gate calls no model here.
-        transport: workerTransport(services.env),
+        // Reads only: the gate calls no model here; held to the client's HIPAA mode all the same.
+        transport: clientModels(services, { clients: [tenantId], read: services.db }),
         ...(services.env.ENCRYPTION_KEY
           ? { credentials: credentialsFor(services.db, credentialKeysFromEnv(services.env)) }
           : {}),

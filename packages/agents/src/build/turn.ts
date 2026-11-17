@@ -36,7 +36,7 @@ import {
   type ModelId,
 } from "@countersign/llm";
 import { z } from "zod";
-import { BuilderError, catalogBriefBlock, totalCost } from "../builder/builder";
+import { BuilderError, catalogBriefBlock, modelUnavailable, totalCost } from "../builder/builder";
 import type { BuilderContext } from "../builder/context";
 
 export const BUILD_TURN_TOOL = "submit_build_turn";
@@ -377,7 +377,7 @@ function cleanAnswer(phase: BuildPhase, answer: BuildTurnAnswer): BuildTurnAnswe
   return out;
 }
 
-function asBuilderError(error: unknown): BuilderError {
+function asBuilderError(error: unknown): Error {
   if (error instanceof BuilderError) return error;
   if (error instanceof LlmToolError) {
     return new BuilderError(
@@ -388,10 +388,7 @@ function asBuilderError(error: unknown): BuilderError {
       },
     );
   }
-  return new BuilderError(
-    "model_unavailable",
-    error instanceof Error ? error.message : String(error),
-  );
+  return modelUnavailable(error);
 }
 
 // ── POC: test cases from the plan ───────────────────────────────────────────────────────────────
