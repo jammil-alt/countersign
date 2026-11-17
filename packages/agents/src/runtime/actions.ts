@@ -250,6 +250,9 @@ export async function executeAction(
         sending: () => {
           sending = true;
         },
+        // Audit 3.8: refused if the record moved since it was proposed, except on a takeover,
+        // whose earlier try may have moved it (the connector's retry check decides then).
+        recheck: !retaken,
       },
     );
   } catch (error) {

@@ -1,6 +1,12 @@
-import { renderSummary, type ToolSpec } from "@countersign/core";
+import { isPlainObject, renderSummary, type ToolSpec } from "@countersign/core";
 import type { z } from "zod";
-import type { Connector, ToolContext, ToolHandler, WriteContext } from "./connector";
+import {
+  type Connector,
+  NotWrittenError,
+  type ToolContext,
+  type ToolHandler,
+  type WriteContext,
+} from "./connector";
 import { childLogger } from "./logger";
 import { connectionLevel } from "./permissions";
 
@@ -143,6 +149,57 @@ export async function captureBefore(
   };
 }
 
+// ── Audit 3.8: the platform's stale-write check ─────────────────────────────────────────────
+
+/**
+ * The top-level fields of a before state that mark a record's version: QuickBooks' sync token,
+ * Podio's revision, HubSpot's, Odoo's and the testkit's updated time, BILL's, Zoho's modified
+ * time, an etag. When the before state the approver saw has one, it must still be the same.
+ */
+// DECISION: by field name, top level only, so no connector needs a change: a tool whose before
+// state has none of these (a create, a sheet's cells, a message) is left to its own checks.
+// `version` is not one (a browser script's version means the script's, which its tool checks).
+export const RECORD_VERSION_FIELDS = [
+  "syncToken",
+  "revision",
+  "updatedAt",
+  "updatedTime",
+  "modifiedTime",
+  "etag",
+] as const;
+
+/** Fields that name the record a before state is of: a different one is not a stale one. */
+const RECORD_ID_FIELDS = ["id", "itemId", "recordId"] as const;
+
+const marker = (v: unknown): v is string | number =>
+  (typeof v === "string" && v.length > 0) || (typeof v === "number" && Number.isFinite(v));
+
+/**
+ * The version field that moved between the before state proposed and the one read now, or null
+ * when they can't be compared (no marker on both, or not the same record) or nothing moved.
+ * A marker the write's input carries itself (`syncToken`, or `expectedUpdatedAt` for
+ * `updatedAt`) is left to the tool, which checks it against the record.
+ */
+export function recordChangedSince(
+  proposed: unknown,
+  current: unknown,
+  input?: unknown,
+): string | null {
+  if (!isPlainObject(proposed) || !isPlainObject(current)) return null;
+  for (const k of RECORD_ID_FIELDS) {
+    if (marker(proposed[k]) && marker(current[k]) && proposed[k] !== current[k]) return null;
+  }
+  const given = isPlainObject(input) ? input : {};
+  for (const k of RECORD_VERSION_FIELDS) {
+    const expected = `expected${k.charAt(0).toUpperCase()}${k.slice(1)}`;
+    if (given[k] !== undefined || given[expected] !== undefined) continue;
+    const was = proposed[k];
+    const now = current[k];
+    if (marker(was) && marker(now) && String(was) !== String(now)) return k;
+  }
+  return null;
+}
+
 /**
  * Executes an approved write once. The caller (the agents' external actions) has the
  * `external_action` row, runs this inside a step keyed by its idempotency key, and stores the
@@ -157,8 +214,11 @@ export async function executeWrite(
   /**
    * Wave 5 review: told right before the handler runs, so the caller knows that an error after it
    * may come after the provider took the write (before it: checks, input, the before read).
+   * Audit 3.8: `recheck: false` skips the stale-write check, for a try that takes over one that
+   * may have written (the record then moved because of it; the connector's own retry check
+   * decides).
    */
-  hooks: { sending?: () => void } = {},
+  hooks: { sending?: () => void; recheck?: boolean } = {},
 ): Promise<WriteResult> {
   const { spec, handler } = lookup(connector, toolId);
   if (handler.kind !== "write") throw new ToolCallError("not_a_write", toolId, "tool only reads");
@@ -172,6 +232,14 @@ export async function executeWrite(
     "invalid_before",
     toolId,
   );
+  // Audit 3.8: the record the approver saw must be the one written over. Nothing is sent.
+  const moved =
+    hooks.recheck === false ? null : recordChangedSince(ctx.proposedBefore, before, parsed);
+  if (moved) {
+    throw new NotWrittenError(
+      `${toolId}: the record changed since this change was proposed (its ${moved} moved); nothing was written. Propose it again from what is there now.`,
+    );
+  }
   hooks.sending?.();
   const raw = await handler.run(parsed, logged, before);
   const output = parse(handler.output, raw, "invalid_output", toolId);
