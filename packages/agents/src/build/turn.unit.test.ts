@@ -83,6 +83,29 @@ describe("buildTurn", () => {
     expect(out.answer.proposal?.action).toEqual({ do: "close_item", itemId: "w9", state: "done" });
   });
 
+  // QA on staging (2026-11-17, MEZONAS-API-4): a fit-gap sent as text that wasn't valid JSON.
+  it("asks once more with what was wrong when the answer fails the schema", async () => {
+    const model = new FakeModel([
+      { toolUse: { name: BUILD_TURN_TOOL, input: { text: "Here.", fitgap: "{rows: [oops" } } },
+      {
+        toolUse: {
+          name: BUILD_TURN_TOOL,
+          input: {
+            text: "One we do as is.",
+            fitgap: { rows: [{ id: "r", need: "Read invoices", verdict: "native", how: "x" }] },
+          },
+        },
+      },
+    ]);
+    const out = await buildTurn(
+      { ...base, phase: "fitgap", words: null },
+      { llm: createLlmClient({ transport: model }) },
+    );
+    expect(out.answer.fitgap?.rows.map((r) => r.id)).toEqual(["r"]);
+    expect(lastUser(model.requests[1])).toContain("did not match the tool's schema");
+    expect(out.calls).toHaveLength(2);
+  });
+
   it("fills the brief in intake, and drops a fit-gap it wasn't asked for", async () => {
     const model = new FakeModel([
       {
@@ -107,9 +130,16 @@ describe("buildTurn", () => {
     expect(out.answer.chips).toEqual(["A shared mailbox", "Uploads"]);
     expect(out.answer.brief?.goal?.text).toBe("Check invoices against contracts");
     expect(out.answer.fitgap).toBeUndefined();
-    // Intake reads no catalog; the build's state rides with the operator's words.
+    // Owner (2026-11-17): intake reads the catalog too, in short and cached, first in the system
+    // prompt; the build's state rides with the operator's words.
     const req = model.requests[0];
     expect(lastUser(req)).not.toContain("<catalog>");
+    const system = req?.system as { text: string; cache_control?: unknown }[];
+    expect(system[0]?.text).toContain("<catalog>");
+    expect(system[0]?.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    // In short: what a part does and its fields by name, never its full schema.
+    expect(system[0]?.text).not.toContain('"properties"');
+    expect(system[1]?.text).toContain("Phase: intake");
     expect(lastUser(req)).toContain("Harbor Millwork");
     expect(lastUser(req)).toContain("I want an agent");
     expect(JSON.stringify(req?.system)).toContain("Phase: intake");
@@ -160,7 +190,7 @@ describe("buildTurn", () => {
       { title: "Connect QuickBooks", kind: "precondition", owner: "client" },
     ]);
     const req = model.requests[0];
-    expect(lastUser(req)).toContain("<catalog>");
+    expect(JSON.stringify(req?.system)).toContain("<catalog>");
     expect(lastUser(req)).toContain("Check it against the catalog");
     expect(req?.messages.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
     // A build for one client asks for what needs to be true.

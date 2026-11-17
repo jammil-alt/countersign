@@ -246,3 +246,12 @@ export function displayName(user: SessionResponse["user"]): string {
 export function userInitial(user: SessionResponse["user"]): string {
   return (displayName(user)[0] ?? "?").toUpperCase();
 }
+
+/**
+ * docs/plan.md §1.122: the agents a client user is limited to in the active client (the portal
+ * shows only them, their runs and their items, and none of the business's settings); null for
+ * every agent, and always null for client admins and operators.
+ */
+export function useAssignedAgents(): readonly string[] | null {
+  return useOptionalSession()?.assignedAgents ?? null;
+}

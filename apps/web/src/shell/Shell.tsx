@@ -66,7 +66,8 @@ export function AppShell({
   /** Where this is, for the tab's text: "Back office", or the client's name in the portal. */
   place: string | null;
   context: ReactNode;
-  search: { placeholder: string; run: SearchRun; ask?: SearchAsk };
+  /** None for a client user limited to some agents (docs/plan.md §1.122): search is closed to them. */
+  search: { placeholder: string; run: SearchRun; ask?: SearchAsk } | null;
   desk: ShellDesk;
   sidebar: ReactNode;
   /** Pinned to the sidebar's foot (the portal's Sloan card and lead). */
@@ -131,7 +132,9 @@ export function AppShell({
         <span aria-hidden className="ui-topbar__sep" />
         <div className="ui-topbar__context">{context}</div>
         <div className="ui-topbar__search">
-          <SearchBox placeholder={search.placeholder} run={search.run} ask={search.ask} />
+          {search ? (
+            <SearchBox placeholder={search.placeholder} run={search.run} ask={search.ask} />
+          ) : null}
         </div>
         {topAction}
         {deskInHeader ? (

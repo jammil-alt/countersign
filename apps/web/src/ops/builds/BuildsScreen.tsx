@@ -45,7 +45,7 @@ export function BuildsScreen() {
         title="Builds"
         subtitle={
           list.data
-            ? `${plural(builds.length, "build")}. ${plural(items.length, "open item")}${whoHas ? `: ${whoHas}` : ""}.`
+            ? `${plural(builds.length, "build")}. ${plural(items.length, "open issue")}${whoHas ? `: ${whoHas}` : ""}.`
             : "Every new agent and skill, from intake to go-live."
         }
         actions={
@@ -98,7 +98,7 @@ export function BuildsScreen() {
                     </span>
                     <span className="flex flex-wrap gap-1.5">
                       {b.openItems > 0 ? (
-                        <Badge tone="warning">{plural(b.openItems, "open item")}</Badge>
+                        <Badge tone="warning">{plural(b.openItems, "open issue")}</Badge>
                       ) : (
                         <Badge tone="positive">Nothing open</Badge>
                       )}
@@ -116,8 +116,8 @@ export function BuildsScreen() {
       {list.data && list.data.items.length > 0 ? (
         <Card
           titleAbove
-          title="Open items across builds"
-          meta={plural(list.data.items.length, "open item")}
+          title="Issues across builds"
+          meta={plural(list.data.items.length, "open issue")}
           testId="builds-items"
         >
           <div className="overflow-x-auto">

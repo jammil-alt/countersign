@@ -213,6 +213,10 @@ export const ProposalDecision = z.object({
   before: BuildItemState.nullable().optional(),
   /** What was done, in words ("Changed: …"), shown under the proposal. */
   result: z.string().optional(),
+  /** A draft edit made but the issue it was for still open. */
+  unresolved: z.boolean().optional(),
+  /** A draft edit's changes to the steps, one line each. */
+  changes: z.array(z.string()).optional(),
   /** A draft edit: the Builder session and turn that made it, its changes and the saved version. */
   edit: z
     .object({
@@ -283,6 +287,10 @@ function messageView(r: MessageRow, decided: ProposalDecision | null = null): Bu
             action: proposal.data.action,
             state: proposal.data.state,
             ...(proposal.data.result ? { result: proposal.data.result } : {}),
+            ...(decided?.decision === "agreed" && decided.unresolved ? { unresolved: true } : {}),
+            ...(decided?.decision === "agreed" && decided.changes?.length
+              ? { changes: decided.changes }
+              : {}),
             ...(proposal.data.state === "agreed" &&
             (proposalUndo(proposal.data.action, proposal.data.before ?? null) || editUndo)
               ? { undo: true }

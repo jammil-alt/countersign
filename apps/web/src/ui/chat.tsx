@@ -250,6 +250,17 @@ export function Thinking({
  * does: the message count, the words pending). `roomy` is the portal's reading size.
  */
 /** The nearest box around `el` that scrolls on its own, or null when only the page does. */
+/** A form field outside the log has the focus: the page isn't the log's to scroll now. */
+function typingElsewhere(log: HTMLElement | null): boolean {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement) || active === document.body) return false;
+  const field =
+    active.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(active.tagName);
+  if (!field) return false;
+  const region = log?.closest("section") ?? log?.parentElement ?? null;
+  return !region?.contains(active);
+}
+
 function scrollBox(el: HTMLElement | null): HTMLElement | null {
   for (let at = el?.parentElement ?? null; at && at !== document.body; at = at.parentElement) {
     const y = getComputedStyle(at).overflowY;
@@ -274,9 +285,18 @@ export function ChatLog({
   // own (the Builds page's conversation) scrolls that box only, never the page under it.
   // biome-ignore lint/correctness/useExhaustiveDependencies: scroll when the conversation grows.
   useEffect(() => {
-    const box = scrollBox(end.current);
-    if (box) box.scrollTop = box.scrollHeight;
-    else end.current?.scrollIntoView?.({ block: "end" });
+    const at = end.current;
+    // A log in a box of its own scrolls that box only, overflowing yet or not (QA, 2026-11-17: a
+    // short conversation fell through to scrolling the page, moving the panel under a click).
+    const own = at?.closest<HTMLElement>("[data-chat-scroll]") ?? null;
+    const box = own ?? scrollBox(at);
+    if (box) {
+      box.scrollTop = box.scrollHeight;
+      return;
+    }
+    // Never move the page under someone typing somewhere else on it.
+    if (typingElsewhere(at)) return;
+    at?.scrollIntoView?.({ block: "end" });
   }, [follow]);
   return (
     <div className={cx("ui-chat", roomy && "ui-chat--roomy")} data-testid={testId}>

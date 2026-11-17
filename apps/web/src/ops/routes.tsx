@@ -84,6 +84,7 @@ import { OpsRunAuditScreen } from "./screens/RunAuditQueue";
 import { OpsRunsScreen } from "./screens/Runs";
 import { OpsRunScreen } from "./screens/RunView";
 import { OpsUsageScreen } from "./screens/Usage";
+import { OpsUsersScreen } from "./screens/Users";
 // §1.102: Security and compliance
 import {
   SecurityClientScreen,
@@ -238,6 +239,8 @@ export const opsRoutes = (
     <Route path="audit" element={<Redirect to="/ops/security/audit" />} />
     {/* §1.102 Security and compliance: our controls, vendors, policies and routines, each
         client's standing (with a summary for its IT team) and the audit log, a tab each. */}
+    {/* §1.122: the operators who serve your clients (invite, give clients, remove). */}
+    <Route path="users" element={<OpsUsersScreen />} />
     <Route path="security" element={<SecurityOverviewScreen />} />
     <Route path="security/controls" element={<SecurityControlsScreen />} />
     <Route path="security/vendors" element={<SecurityVendorsScreen />} />

@@ -1300,18 +1300,23 @@ be disabled, as in `db:purge-client`.
 
 ## 1.3 People: joining and leaving (access control)
 
-**Joining.** An operator: Actions → **Add operator**, on each environment ("The first operator"
-above). A client's person: invited from the client's People (back office) or Team (portal, the
-client admin).
+**Joining.** The first operator of an environment: Actions → **Add operator** ("The first
+operator" above). After that, an operator invites another from the back office's **Users**
+(`/ops/users`): they serve every client the inviting operator serves, and "Give all my clients"
+adds the ones they lack (`docs/plan.md` §1.122). A client's person: invited from the client's People
+(back office) or Team (portal, the client admin), as an admin or a user; a user can be limited to
+some of the client's agents.
 
 **A client's person leaves** from the client's People (back office) or Team (portal, the client
 admin): Remove, then confirm. Their access ends within 5 minutes (an open session keeps what its
 cookie carries for that long, `docs/plan.md` §1.93), their open items go to the client admin, and
-the audit log has the request. Their user stays, so they can be invited again. A change of role is a
-removal and a new invite.
+the audit log has the request. Their user stays, so they can be invited again. A change of role,
+of whether they approve, or of which agents they work on is made in place: Access on their row.
 
 **An operator leaves: the same day** (the policy allows one business day,
-`docs/policies/information-security.md` §3). Note each step's date:
+`docs/policies/information-security.md` §3). Remove on their row of the back office's **Users**
+takes them off the clients you serve at once; the workflow below takes every client. Note each
+step's date:
 1. Mezonas, on production and on staging: Actions → **Remove operator** (`remove-operator.yml`),
    once per environment, with their email. By hand instead, as `cs_owner`:
    `DIRECT_DATABASE_URL=<cs_owner url> pnpm --filter @countersign/db run db:remove-operator <email> "<your name>"`.

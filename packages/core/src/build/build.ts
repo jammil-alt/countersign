@@ -205,19 +205,23 @@ export type NeedsTrue = z.infer<typeof NeedsTrue>;
 // ── The client intake form (a template's) ───────────────────────────────────────────────────────
 
 /**
- * What we get from each client to set up their copy of a template: a tool to connect, a pack to
- * switch on, an answer (a value such as a tolerance or an address) or a file (contracts, a list).
+ * What we get from each client to set up their copy of a template: a tool they connect, an answer
+ * (a value such as a tolerance or an address) or a file (contracts, a list). Only what the client
+ * gives us: our own setup (switching on a pack) is ours to do, never asked of them.
  * A template has no client yet, so these are a form that travels with the build, not open items.
  */
 // DECISION (owner, 2026-11-16): a template's "what needs to be true" is its client intake form,
 // kept on the build (in its fit-gap record, no migration); a build for one client keeps open items.
-export const SETUP_KINDS = ["connect", "pack", "answer", "file"] as const;
+// DECISION (owner, 2026-11-17): "no set up should be in here from that side": the form holds only
+// what the client gives us. "Switch on a pack" is gone; a pack the template needs is a configure
+// row of the fit-gap, done by us when we set up the client's copy. Stored pack fields are dropped
+// when read (`readFitGap`).
+export const SETUP_KINDS = ["connect", "answer", "file"] as const;
 export const SetupKind = z.enum(SETUP_KINDS);
 export type SetupKind = z.infer<typeof SetupKind>;
 
 export const SETUP_WORDS: Record<SetupKind, string> = {
   connect: "Connect a tool",
-  pack: "Switch on a pack",
   answer: "Answer",
   file: "File",
 };
@@ -232,7 +236,7 @@ export const SetupFieldDraft = z.object({
     .max(200)
     .describe("What we ask the client, as a question or a short label"),
   kind: SetupKind.describe(
-    "connect (a tool they connect, by name), pack (a pack switched on for them), answer (a value: a tolerance, an address, a person), file (contracts, a vendor list)",
+    "connect (a tool they connect, by name), answer (a value: a tolerance, an address, a person), file (contracts, a vendor list)",
   ),
   hint: z
     .string()
@@ -263,8 +267,23 @@ export const FitGap = z.object({
 });
 export type FitGap = z.infer<typeof FitGap>;
 
+/**
+ * A stored fit-gap without the intake form's old "Switch on a pack" fields (owner, 2026-11-17):
+ * they are ours to do, not the client's, and a kind the form no longer has would fail the whole
+ * record's parse and lose the rest of it.
+ */
+function withoutPackFields(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null) return raw;
+  const setup = (raw as { setup?: unknown }).setup;
+  if (!Array.isArray(setup)) return raw;
+  return {
+    ...raw,
+    setup: setup.filter((f) => (f as { kind?: unknown } | null)?.kind !== "pack"),
+  };
+}
+
 export function readFitGap(raw: unknown): FitGap {
-  const parsed = FitGap.safeParse(raw ?? {});
+  const parsed = FitGap.safeParse(withoutPackFields(raw ?? {}));
   return parsed.success ? parsed.data : { rows: [], needsTrue: [], setup: [] };
 }
 
@@ -707,3 +726,79 @@ export function proposalUndo(
   }
   return null;
 }
+
+// ── What a back-office build has to settle (owner, 2026-11-17) ──────────────────────────────────
+
+/**
+ * The questions most back-office builds have to settle before they're built, whatever the area.
+ * The Builder works through them in intake, and a reviewer checks a brief against them before it
+ * is confirmed. From the QA runs on staging: the vendor onboarding build missed a client with no
+ * accounting system, a contract that arrives weeks later, scanned contracts, where the item list
+ * lives and the W-9 check; each is a case of one of these.
+ */
+// DECISION (owner, 2026-11-17): one checklist for every area to start; a pack's own (purchasing,
+// bookkeeping) can add to it later. Questions, not answers: what applies is the Builder's to judge.
+export const BUILD_CHECKLIST = [
+  {
+    id: "source",
+    question:
+      "Where does each input come from, and what if a client doesn't have that system (no ERP or accounting tool, a different one)?",
+  },
+  {
+    id: "timing",
+    question:
+      "What if an input arrives late, out of order, or never (a contract weeks after the form, a statement missing)? How does a late one find what it belongs to?",
+  },
+  {
+    id: "format",
+    question:
+      "What do the documents really look like: scanned or photographed, tables or exhibits, several in one file, other languages?",
+  },
+  {
+    id: "matching",
+    question:
+      "How is each record matched to the right vendor, customer or account when names, numbers or emails differ or are missing?",
+  },
+  {
+    id: "duplicates",
+    question: "What if the same input comes twice, or the agent runs twice on it?",
+  },
+  {
+    id: "thresholds",
+    question:
+      "Which amounts, tolerances, windows and dates differ by client, and what are the defaults?",
+  },
+  {
+    id: "approvals",
+    question:
+      "Who approves which writes, by role or amount, and what happens when nobody answers in time?",
+  },
+  {
+    id: "schedule",
+    question: "When does it run: time zone, business days, holidays, month-end?",
+  },
+  {
+    id: "contact",
+    question:
+      "Who does it contact, from which mailbox or number, and have they agreed to hear from the client that way?",
+  },
+  {
+    id: "sensitive",
+    question:
+      "Does it handle tax ids, bank details or other sensitive data? It may check them, never store or repeat them.",
+  },
+  {
+    id: "exceptions",
+    question:
+      "What does it do with what it can't handle (no match, missing data, an error), and who gets it?",
+  },
+  {
+    id: "afterwards",
+    question:
+      "Where do its results live afterwards, and what else reads them (another agent, invoice matching, a report)?",
+  },
+  {
+    id: "volume",
+    question: "How many a day or month, and at the busiest time?",
+  },
+] as const satisfies readonly { id: string; question: string }[];

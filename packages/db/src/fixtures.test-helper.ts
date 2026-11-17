@@ -175,7 +175,11 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     .values({ email: `user${n}-${tenantId}@example.com`, name: `User ${n}` })
     .returning();
   if (!u) throw new Error("no user");
-  await db.insert(membership).values({ tenantId, userId: u.id, role: "client_admin" });
+  // Named columns only: migration tests run this on a database from before later membership
+  // columns (0059's `agent_ids`), and Drizzle's insert names every column in the schema.
+  await db.execute(
+    sql`insert into ${membership} (tenant_id, user_id, role) values (${tenantId}, ${u.id}, 'client_admin')`,
+  );
 
   const [c] = await db.insert(connection).values({ tenantId, connector: "test" }).returning();
   if (!c) throw new Error("no connection");

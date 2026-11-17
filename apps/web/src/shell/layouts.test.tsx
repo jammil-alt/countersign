@@ -144,6 +144,8 @@ describe("back office layout", () => {
       "Marketing",
       // §1.102: our controls, vendors, policies, clients' standing and the audit log.
       "Security",
+      // §1.122: our own people, the operators.
+      "Users",
       // Feedback, the audit queue (wave 6) and requests are tabs of Utilities;
       // website logins are in the Library (R8).
       "Utilities",
@@ -397,6 +399,8 @@ describe("portal layout", () => {
       ["portal-nav-runs", "/runs"],
       ["portal-nav-accounts", "/accounts"],
       ["portal-nav-contacts", "/contacts"],
+      // §1.122: the admin's team management.
+      ["portal-nav-team", "/settings/team"],
       ["portal-nav-settings", "/settings"],
     ]);
     expect(within(nav).getByTestId("portal-nav-home")).toHaveAttribute("aria-current", "page");

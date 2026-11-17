@@ -18,7 +18,7 @@ import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
 import { shortTime } from "../../runs/format";
 import { usePoll } from "../../runs/usePoll";
-import { useSession } from "../../session/session";
+import { useAssignedAgents, useSession } from "../../session/session";
 import { ActivityRow } from "../../ui/activity";
 import { AgentBadge, PersonBadge } from "../../ui/badges";
 import { Delta, hasRuns, KpiStrip, Sparkline, StatTile } from "../../ui/figures";
@@ -67,13 +67,21 @@ export function HomeScreen() {
   // Each section waits only for its own answer.
   const table = useApi(apiRoutes.portalTable);
   const overview = useApi(apiRoutes.portalOverview);
+  // docs/plan.md §1.122: a client user limited to some agents sees their agents and what waits on
+  // them; the business's figures, tools, weekly summary and quick actions are not theirs.
+  const limited = useAssignedAgents() !== null;
   // Each agent's tools are the connections it is granted; the cards go without them until this
   // answers, or if it fails.
-  const access = useApi(apiRoutes.portalAccess, {
-    // The vault is never stored (docs/audit-plan.md 1.2).
-    cache: "none",
-  });
-  const weekly = useApi(apiRoutes.portalWeekly, { query: {} });
+  const access = useApi(
+    apiRoutes.portalAccess,
+    limited
+      ? null
+      : {
+          // The vault is never stored (docs/audit-plan.md 1.2).
+          cache: "none",
+        },
+  );
+  const weekly = useApi(apiRoutes.portalWeekly, limited ? null : { query: {} });
   usePoll(table.reload, true, INBOX_COUNT_POLL_MS, table.loading);
   const data = table.data;
   // DECISION (lead, speed run): Home does not ask for the Inbox once it has settled (1.6): it
@@ -97,17 +105,19 @@ export function HomeScreen() {
         title={greeting}
         // The week's figures are the strip below: no line repeats them here.
         actions={
-          <Link
-            to={PORTAL_PATHS.upload}
-            className={buttonClass("secondary")}
-            data-testid="home-add-documents"
-          >
-            {t("home.addDocuments")}
-          </Link>
+          limited ? undefined : (
+            <Link
+              to={PORTAL_PATHS.upload}
+              className={buttonClass("secondary")}
+              data-testid="home-add-documents"
+            >
+              {t("home.addDocuments")}
+            </Link>
+          )
         }
       />
       {data ? (
-        data.services.length > 0 ? (
+        data.services.length > 0 && !limited ? (
           <HomeFigures data={data} />
         ) : null
       ) : table.error ? null : (
@@ -130,7 +140,7 @@ export function HomeScreen() {
               {data.recent.length > 0 ? <Latest recent={data.recent} /> : null}
               {/* v0.19 (§10.15 "Home"): what else we could do, and the quick actions. */}
               {data.ideas.length > 0 ? <Ideas ideas={data.ideas} /> : null}
-              <QuickActions />
+              {limited ? null : <QuickActions />}
             </>
           ) : table.error ? null : (
             <Skeleton>
@@ -145,7 +155,7 @@ export function HomeScreen() {
             {(d) => <Agents services={d.services} access={access.data} />}
           </Loaded>
         </Section>
-        {data?.lead?.message ? <LeadNote lead={data.lead} /> : null}
+        {data?.lead?.message && !limited ? <LeadNote lead={data.lead} /> : null}
         {sent ? <WeeklyCard table={sent} /> : null}
       </PageGrid>
     </Page>

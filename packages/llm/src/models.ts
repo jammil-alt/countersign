@@ -17,17 +17,27 @@ export const MODELS = {
 
 export type ModelId = string;
 
+/** How hard the Builder thinks (`output_config.effort`): Opus 5.5's default is medium. */
+export const BUILDER_EFFORT = "high" as const;
+
 /** What each kind of work runs on unless a definition says otherwise. */
 export const DEFAULT_MODELS = {
-  /** Extraction, agent reasoning, the Builder. */
+  /** Extraction and agent reasoning. */
   reasoning: MODELS.sonnet,
   extraction: MODELS.sonnet,
-  builder: MODELS.sonnet,
+  /**
+   * The Builder: every step of a build and the workflow's Builder. Opus at high effort
+   * (`BUILDER_EFFORT`): a back office's agent is built rarely and has to be right, so a slower,
+   * more thorough Builder is worth it (owner, 2026-11-17).
+   */
+  // DECISION (owner, 2026-11-17): "getting this right upfront is a much better option". Opus 5.5
+  // for the Builder everywhere; the test cases (apps/api/src/evals) judge a change of model.
+  builder: MODELS.opus,
   /** Reggie, the operator's account agent (docs/plan.md §1.101). */
   reggie: MODELS.sonnet,
   /** High-volume classification and adjudication (e.g. item matching). */
   classification: MODELS.haiku,
-  /** Optional, for the Builder on complex requests. */
+  /** The judge of the Builder's test cases (apps/api/src/evals). */
   builderComplex: MODELS.opus,
   /**
    * §1.77: `web.search` and `web.fetch`, one search or fetch through the vendor's server-side

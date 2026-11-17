@@ -11,14 +11,21 @@
 // The client admin removes someone from the list (never themselves or Mezonas), after a
 // confirmation: their access ends within 5 minutes, and what waited on them comes to the admins
 // (docs/security.md §2).
-import type { Member, processes, TeamMember } from "@countersign/core";
+//
+// docs/plan.md §1.122: the client admin also changes each person's access in place (Access on
+// their row): their role, whether they approve, and which agents they work on (all, or only some).
+// A user limited to some agents sees only those agents, their runs and the items for them.
+import type { AssignableAgent, Member, processes, TeamMember } from "@countersign/core";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { PersonHoursEditor, PersonHoursLine } from "../../hours/HoursParts";
 import { useI18n } from "../../i18n/i18n";
-import { InviteForm, RemoveButton, RemoveConfirm, ROLE_LABEL } from "../../people/People";
+import { AccessEditor } from "../../people/AccessLazy";
+import { type AccessChoice, agentsLine } from "../../people/access-core";
+import { InviteForm } from "../../people/Members";
+import { RemoveButton, RemoveConfirm, ROLE_LABEL } from "../../people/People";
 import { useSession } from "../../session/session";
 import { PersonBadge } from "../../ui/badges";
 import { Icon } from "../../ui/icons";
@@ -35,6 +42,14 @@ interface Row {
   invited: boolean;
   canSign: boolean;
   signs: string[];
+  /** §1.122: the agents they work on; null for every agent (unknown outside the admin's list). */
+  agentIds?: string[] | null;
+}
+
+/** How the admin changes one person's access, and the agents to choose from. */
+interface RowAccess {
+  agents: readonly AssignableAgent[];
+  save: (value: AccessChoice) => Promise<void>;
 }
 
 /** A person's hours on their row, and how to save them (null: not shown). */
@@ -60,6 +75,7 @@ export function teamRows(users: Member[] | null, team: TeamMember[]): Row[] {
       invited: u.signedIn === false,
       canSign: m?.canSign ?? u.canSign ?? true,
       signs: m?.signs ?? [],
+      agentIds: u.agentIds ?? null,
     };
   });
 }
@@ -170,6 +186,29 @@ function AdminTeam({ team }: { team: ReturnType<typeof useApi<typeof apiRoutes.p
           <TeamList
             rows={teamRows(data.users, team.data?.members ?? [])}
             {...(hoursOf ? { hoursOf } : {})}
+            agents={data.agents ?? []}
+            accessOf={(r) =>
+              r.role === "operator" || r.userId === session.user.id
+                ? null
+                : {
+                    agents: data.agents ?? [],
+                    save: async (value) => {
+                      await api.call(apiRoutes.portalUpdateUser, {
+                        params: { id: r.userId },
+                        body:
+                          value.role === "client_admin"
+                            ? { role: value.role }
+                            : {
+                                role: value.role,
+                                canSign: value.canSign,
+                                agentIds: value.agentIds,
+                              },
+                      });
+                      users.reload();
+                      team.reload();
+                    },
+                  }
+            }
             removable={(r) => r.role !== "operator" && r.userId !== session.user.id}
             onRemove={async (r) => {
               await api.call(apiRoutes.portalRemoveUser, { params: { id: r.userId } });
@@ -184,6 +223,7 @@ function AdminTeam({ team }: { team: ReturnType<typeof useApi<typeof apiRoutes.p
         <InviteForm
           surface="portal"
           testId="portal-invite"
+          agents={users.data?.agents ?? []}
           onInvite={async (body) => {
             const result = await api.call(apiRoutes.portalInvite, { body });
             users.reload();
@@ -209,12 +249,18 @@ function AdminTeam({ team }: { team: ReturnType<typeof useApi<typeof apiRoutes.p
 function TeamList({
   rows,
   hoursOf,
+  agents,
+  accessOf,
   removable,
   onRemove,
 }: {
   rows: Row[];
   /** Each person's hours, where this reader may see them. */
   hoursOf?: (userId: string) => RowHours | null;
+  /** §1.122: the client's agents, to name each user's (the admin's list only). */
+  agents?: readonly AssignableAgent[];
+  /** §1.122: how the admin changes a person's access (none for themselves or Mezonas). */
+  accessOf?: (row: Row) => RowAccess | null;
   /** The client admin's: whom they may remove (never themselves or Mezonas). */
   removable?: (row: Row) => boolean;
   onRemove?: (row: Row) => Promise<void>;
@@ -234,6 +280,8 @@ function TeamList({
             key={r.userId}
             row={r}
             hours={hoursOf?.(r.userId) ?? null}
+            agents={agents ?? null}
+            access={accessOf?.(r) ?? null}
             remove={onRemove && removable?.(r) ? () => onRemove(r) : null}
           />
         ))}
@@ -245,15 +293,20 @@ function TeamList({
 function TeamRow({
   row: r,
   hours,
+  agents,
+  access,
   remove,
 }: {
   row: Row;
   hours: RowHours | null;
+  agents: readonly AssignableAgent[] | null;
+  access: RowAccess | null;
   remove: (() => Promise<void>) | null;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [editing, setEditing] = useState(false);
   return (
     <li
       data-testid={`portal-team-${r.email}`}
@@ -266,6 +319,11 @@ function TeamRow({
             <p className="truncate font-medium text-ink">{r.name ?? r.email}</p>
             {r.name ? <p className="truncate text-sm text-ink-muted">{r.email}</p> : null}
             <div className="mt-1 flex flex-col gap-0.5 text-sm text-ink-muted">
+              {r.role === "client_user" && agents ? (
+                <p data-testid={`portal-team-${r.email}-agents`}>
+                  {agentsLine(r.agentIds, agents, t)}
+                </p>
+              ) : null}
               {!r.canSign ? (
                 <p>{t("teamPage.viewer")}</p>
               ) : r.signs.length > 0 ? (
@@ -294,11 +352,38 @@ function TeamRow({
               <Icon name={open ? "chevron-down" : "chevron-right"} size={16} />
             </Button>
           ) : null}
+          {access && !editing ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-expanded={editing}
+              onClick={() => setEditing(true)}
+              data-testid={`portal-team-${r.email}-access-toggle`}
+            >
+              {t("access.edit")}
+            </Button>
+          ) : null}
           {remove && !removing ? (
             <RemoveButton testId={`portal-team-${r.email}`} onClick={() => setRemoving(true)} />
           ) : null}
         </span>
       </div>
+      {access && editing ? (
+        <div className="mt-4">
+          <AccessEditor
+            name={r.name ?? r.email}
+            initial={{
+              role: r.role === "client_admin" ? "client_admin" : "client_user",
+              canSign: r.canSign,
+              agentIds: r.role === "client_user" ? (r.agentIds ?? null) : null,
+            }}
+            agents={access.agents}
+            onSave={access.save}
+            onDone={() => setEditing(false)}
+            testId={`portal-team-${r.email}-access`}
+          />
+        </div>
+      ) : null}
       {remove && removing ? (
         <div className="mt-4">
           <RemoveConfirm
