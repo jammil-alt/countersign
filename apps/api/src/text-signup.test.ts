@@ -221,6 +221,29 @@ describe.skipIf(!h)("signing up for texts", () => {
       expect((await view(signed)).status).toBe(404);
     });
 
+    it("texts a number that signed up once, and answers a repeat the same way", async () => {
+      const token = tokenIn(
+        j((await H.call(admin("a"), "GET", "/api/texting/signup-link")).json).url,
+      );
+      const PHONE = "+15125550191";
+      for (let i = 0; i < 4; i++) {
+        const res = await submit(token, { name: "Repeat Person", phone: PHONE });
+        expect(res.status).toBe(200);
+        expect(j(res.json)).toEqual({ confirmation: "sent" });
+      }
+      expect(textsTo(PHONE)).toHaveLength(1);
+      const [row] = await H.t.db
+        .select()
+        .from(contact)
+        .where(and(eq(contact.tenantId, A()), eq(contact.phone, PHONE)));
+      const kinds = (await logOf(row?.id as string)).map(
+        (l) => (l.change as { kind: string }).kind,
+      );
+      // One sign-up; each repeat is only counted toward the link's hourly limit.
+      expect(kinds.filter((k) => k === "opt_in")).toHaveLength(1);
+      expect(kinds.filter((k) => k === "text_signup_skipped")).toHaveLength(3);
+    });
+
     it("never lifts an opt-out: only a START from that number does", async () => {
       const token = tokenIn(
         j((await H.call(admin("a"), "GET", "/api/texting/signup-link")).json).url,

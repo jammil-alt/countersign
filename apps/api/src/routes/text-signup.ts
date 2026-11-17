@@ -49,6 +49,11 @@ export function textSignupRoutes(app: Hono<AppEnv>): void {
     try {
       await withTenant(services.db, done.tenantId, async (tx) => {
         if (!(await texter.from(tx, done.tenantId))) return;
+        // Nothing was signed up: answered as a sign-up is, with no text.
+        if (!done.send) {
+          confirmation = "sent";
+          return;
+        }
         await texter.send(tx, done.tenantId, {
           to: done.phone,
           body: textSignupConfirmation(done.client),

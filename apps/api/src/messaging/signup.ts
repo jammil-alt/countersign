@@ -266,6 +266,8 @@ export interface TextSignupDone {
   tenantId: string;
   client: string;
   phone: string;
+  /** False when nothing was signed up (a repeat on the client's link): no confirmation text. */
+  send: boolean;
 }
 
 /**
@@ -315,9 +317,9 @@ export async function submitTextSignup(
     let row: ContactRow;
     if (payload.k === "l") {
       if (linkKeyOf(t) !== payload.n) throw gone();
-      // DECISION: the client's link takes at most TEXT_SIGNUP_LINK_HOURLY_MAX sign-ups an hour: a
-      // public form that sends a text is what SMS pumping looks for. An invitation is tied to one
-      // person and signs up once (below).
+      // DECISION: the client's link takes at most TEXT_SIGNUP_LINK_HOURLY_MAX submits an hour,
+      // sign-ups and skipped ones alike: a public form that sends a text is what SMS pumping
+      // looks for. An invitation is tied to one person and signs up once (below).
       const name = body.name?.trim();
       if (!name) throw new HttpError(422, "invalid_name", "Enter your name.");
       const [recent] = await tx
@@ -327,7 +329,7 @@ export async function submitTextSignup(
           and(
             eq(contactChange.tenantId, payload.t),
             gt(contactChange.createdAt, new Date(now.getTime() - 60 * 60 * 1000)),
-            sql`${contactChange.change}->>'kind' = 'opt_in'`,
+            sql`${contactChange.change}->>'kind' in ('opt_in', 'text_signup_skipped')`,
             sql`${contactChange.change}->>'via' = 'link'`,
           ),
         );
@@ -338,6 +340,17 @@ export async function submitTextSignup(
         .select()
         .from(contact)
         .where(and(eq(contact.tenantId, payload.t), eq(contact.phone, phone)));
+      // DECISION: a number that already signed up is answered as a sign-up is, with nothing
+      // changed and no text sent, so the link can't text one number again and again. Only a log
+      // line is written, which counts toward the hourly limit above.
+      if (found && signedUp(found)) {
+        await logContactChange(tx, payload.t, found.id, null, {
+          kind: "text_signup_skipped",
+          via: "link",
+          reason: "signed_up",
+        });
+        return { tenantId: payload.t, client: t.name, phone, send: false };
+      }
       row =
         found ??
         (await createContact(tx, payload.t, { name, phone }, null, now, {
@@ -392,7 +405,7 @@ export async function submitTextSignup(
         now,
       );
     }
-    return { tenantId: payload.t, client: t.name, phone };
+    return { tenantId: payload.t, client: t.name, phone, send: true };
   });
 }
 
