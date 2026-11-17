@@ -10,7 +10,8 @@ export const SEARCH_LIMIT_DEFAULT = 5;
 export const SEARCH_LIMIT_MAX = 20;
 export const SEARCH_QUERY_MAX = 500;
 
-export type KnowledgeHitKind = "faq" | "policy" | "document" | "memory";
+// §1.125 (0064): `about`, confirmed facts about the client's business (filed at the scope's signing).
+export type KnowledgeHitKind = "faq" | "policy" | "about" | "document" | "memory";
 
 export interface KnowledgeHit {
   kind: KnowledgeHitKind;

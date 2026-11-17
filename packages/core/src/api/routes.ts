@@ -37,6 +37,8 @@ import { buildRoutes } from "./build";
 // v0.12 W3-A: the Builder as a conversation
 import { builderRoutes } from "./builder";
 import { callRoutes } from "./calls";
+// docs/plan.md §1.125: onboarding v1
+import { clientFileRoutes, startRoutes } from "./client-files";
 // v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export
 import { clientViewRoutes } from "./client-view";
 // v0.12 W2-F: the command center, search and plain-words questions
@@ -64,6 +66,8 @@ import { gchatRoutes } from "./gchat";
 import { gsheetsRoutes } from "./gsheets";
 // R4: business hours, person hours and channels
 import { hoursRoutes } from "./hours";
+import { opsIntakeRoutes, portalIntakeRoutes, welcomeRoutes } from "./intake";
+import { inviteRoutes } from "./invite";
 import { knowledgeRoutes } from "./knowledge";
 import { languageRoutes, SessionLanguage } from "./language";
 import { ledgerRoutes } from "./ledger";
@@ -2503,5 +2507,12 @@ export const routes = {
   ...todoRoutes,
   // docs/plan.md §1.124.4: Reggie and Autopilot
   ...autopilotRoutes,
+  // docs/plan.md §1.125: onboarding v1
+  ...clientFileRoutes,
+  ...startRoutes,
+  ...inviteRoutes,
+  ...opsIntakeRoutes,
+  ...portalIntakeRoutes,
+  ...welcomeRoutes,
 } as const;
 export type Routes = typeof routes;

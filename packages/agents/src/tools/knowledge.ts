@@ -17,7 +17,8 @@ export const KnowledgeSearchInput = z.object({
 });
 
 const KnowledgeResult = z.object({
-  kind: z.enum(["faq", "policy", "document", "memory"]),
+  // §1.125 (0064): `about`, confirmed facts about the client's business.
+  kind: z.enum(["faq", "policy", "about", "document", "memory"]),
   /** The FAQ or policy, document or memory note. */
   id: z.string(),
   title: z.string(),
