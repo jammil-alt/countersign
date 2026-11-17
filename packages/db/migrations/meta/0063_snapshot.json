@@ -1,6 +1,6 @@
 {
-  "id": "621f5b69-fafc-401d-8a58-7fc5099682a5",
-  "prevId": "05829d90-189a-4dda-93e5-aee0e5d05c20",
+  "id": "22888cb1-517e-4964-bd40-da86b38b733d",
+  "prevId": "621f5b69-fafc-401d-8a58-7fc5099682a5",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -13823,6 +13823,312 @@
         "person_device_revoked_check": {
           "name": "person_device_revoked_check",
           "value": "\"person_device\".\"revoked_at\" is null or (\"person_device\".\"push_token\" is null and \"person_device\".\"public_key\" is null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.play_log": {
+      "name": "play_log",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "flow": {
+          "name": "flow",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stage": {
+          "name": "stage",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "play": {
+          "name": "play",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "level": {
+          "name": "level",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "edited": {
+          "name": "edited",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "about_kind": {
+          "name": "about_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "about_id": {
+          "name": "about_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "summary": {
+          "name": "summary",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "internal": {
+          "name": "internal",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "flagged_at": {
+          "name": "flagged_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "flagged_by": {
+          "name": "flagged_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "flag_note": {
+          "name": "flag_note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "play_log_created_idx": {
+          "name": "play_log_created_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "play_log_play_idx": {
+          "name": "play_log_play_idx",
+          "columns": [
+            {
+              "expression": "flow",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "play",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "play_log_client_id_tenant_id_fk": {
+          "name": "play_log_client_id_tenant_id_fk",
+          "tableFrom": "play_log",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "play_log_flagged_by_app_user_id_fk": {
+          "name": "play_log_flagged_by_app_user_id_fk",
+          "tableFrom": "play_log",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "flagged_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "play_log_flow_check": {
+          "name": "play_log_flow_check",
+          "value": "\"play_log\".\"flow\" in ('new', 'grow', 'issues', 'builds', 'enh', 'questions')"
+        },
+        "play_log_level_check": {
+          "name": "play_log_level_check",
+          "value": "\"play_log\".\"level\" in ('off', 'draft', 'send')"
+        },
+        "play_log_outcome_check": {
+          "name": "play_log_outcome_check",
+          "value": "\"play_log\".\"outcome\" in ('drafted', 'sent', 'done', 'skipped', 'refused')"
+        },
+        "play_log_about_kind_check": {
+          "name": "play_log_about_kind_check",
+          "value": "\"play_log\".\"about_kind\" is null or \"play_log\".\"about_kind\" in ('issue', 'client_ask', 'enhancement', 'build', 'deal', 'question', 'run', 'client')"
+        },
+        "play_log_about_check": {
+          "name": "play_log_about_check",
+          "value": "(\"play_log\".\"about_kind\" is null) = (\"play_log\".\"about_id\" is null)"
+        },
+        "play_log_summary_check": {
+          "name": "play_log_summary_check",
+          "value": "char_length(\"play_log\".\"summary\") <= 300"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.play_setting": {
+      "name": "play_setting",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "flow": {
+          "name": "flow",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stage": {
+          "name": "stage",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "play": {
+          "name": "play",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "level": {
+          "name": "level",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "updated_by": {
+          "name": "updated_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "play_setting_updated_by_app_user_id_fk": {
+          "name": "play_setting_updated_by_app_user_id_fk",
+          "tableFrom": "play_setting",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "updated_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "play_setting_key": {
+          "name": "play_setting_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "flow",
+            "stage",
+            "play"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "play_setting_flow_check": {
+          "name": "play_setting_flow_check",
+          "value": "\"play_setting\".\"flow\" in ('new', 'grow', 'issues', 'builds', 'enh', 'questions')"
+        },
+        "play_setting_level_check": {
+          "name": "play_setting_level_check",
+          "value": "\"play_setting\".\"level\" in ('off', 'draft', 'send')"
         }
       },
       "isRLSEnabled": false

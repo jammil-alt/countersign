@@ -366,7 +366,7 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
       status: "open",
       dueAt: new Date(Date.now() + 86_400_000),
     });
-  // §1.123 (0061): an issue with its thread and first event, and an idea the client asked for, on
+  // §1.124 (0060): an issue with its thread and first event, and an idea the client asked for, on
   // a thread of its own. Plain SQL, and only where the tables exist, like the form above.
   const [work] = await db.$client<{ ok: boolean }[]>`
     select to_regclass('public.issue') is not null as ok`;

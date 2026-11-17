@@ -1,4 +1,4 @@
--- Back office work, Build (docs/plan.md §1.123, docs/cases-plan.md): a client's issues (numbered
+-- Back office work, Build (docs/plan.md §1.124, docs/cases-plan.md): a client's issues (numbered
 -- per client, each with its thread), their history and the client's asks; the operator's
 -- enhancements; an agent's safety hold; a build's promised date, path, origin and requirements;
 -- and the `issue_update` notification. New tables or columns only, so the previous Worker keeps
@@ -171,7 +171,7 @@ ALTER TABLE "build" ADD CONSTRAINT "build_status_line_check" CHECK (char_length(
 ALTER TABLE "notification" ADD CONSTRAINT "notification_kind_check" CHECK ("notification"."kind" in ('items_waiting', 'weekly_table', 'reconnect', 'credits', 'lead_message', 'signoff', 'issue_update'));
 --> statement-breakpoint
 
-COMMENT ON COLUMN agent.hold IS 'Safety hold (docs/plan.md §1.123): operational, never in a version; set only on client agents (enforced in code).';
+COMMENT ON COLUMN agent.hold IS 'Safety hold (docs/plan.md §1.124): operational, never in a version; set only on client agents (enforced in code).';
 --> statement-breakpoint
 -- An issue and an ask change in place; an issue's history is kept as written. Nothing is deleted.
 GRANT SELECT, INSERT, UPDATE ON issue TO cs_runtime;

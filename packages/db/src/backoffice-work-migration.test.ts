@@ -1,4 +1,4 @@
-// Back office work (migrations 0061–0064, docs/plan.md §1.123) as the Worker's role sees it. A
+// Back office work (migrations 0060–0063, docs/plan.md §1.124) as the Worker's role sees it. A
 // client's issues, their events and its asks are its own: forced row-level security, and one
 // client's session never reads another's. Enhancements, to-dos, deals (with their people and
 // activity) and the Autopilot tables are the operator's: a client's session reads none of them,

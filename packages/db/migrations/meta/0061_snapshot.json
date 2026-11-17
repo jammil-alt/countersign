@@ -1,6 +1,6 @@
 {
-  "id": "acee5586-81f3-4d1e-875b-587285cb0e58",
-  "prevId": "740c151f-479b-4fea-a85d-744c4e8c9a85",
+  "id": "05829d90-189a-4dda-93e5-aee0e5d05c20",
+  "prevId": "acee5586-81f3-4d1e-875b-587285cb0e58",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -16921,6 +16921,359 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.todo": {
+      "name": "todo",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "client_id": {
+          "name": "client_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "owner": {
+          "name": "owner",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "detail": {
+          "name": "detail",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "why": {
+          "name": "why",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "due_at": {
+          "name": "due_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "about_kind": {
+          "name": "about_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "about_id": {
+          "name": "about_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "state": {
+          "name": "state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'open'"
+        },
+        "snoozed_until": {
+          "name": "snoozed_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'operator'"
+        },
+        "play_key": {
+          "name": "play_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "read": {
+          "name": "read",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sure": {
+          "name": "sure",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "plan": {
+          "name": "plan",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "draft": {
+          "name": "draft",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "options": {
+          "name": "options",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "primary_action": {
+          "name": "primary_action",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "desk_item_id": {
+          "name": "desk_item_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "dedupe_key": {
+          "name": "dedupe_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "done_at": {
+          "name": "done_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "done_by": {
+          "name": "done_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "todo_dedupe_key": {
+          "name": "todo_dedupe_key",
+          "columns": [
+            {
+              "expression": "dedupe_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"todo\".\"dedupe_key\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "todo_state_idx": {
+          "name": "todo_state_idx",
+          "columns": [
+            {
+              "expression": "state",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "owner",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "due_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "todo_client_idx": {
+          "name": "todo_client_idx",
+          "columns": [
+            {
+              "expression": "client_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "state",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "todo_about_idx": {
+          "name": "todo_about_idx",
+          "columns": [
+            {
+              "expression": "about_kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "about_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "todo_client_id_tenant_id_fk": {
+          "name": "todo_client_id_tenant_id_fk",
+          "tableFrom": "todo",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "client_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "todo_owner_user_id_app_user_id_fk": {
+          "name": "todo_owner_user_id_app_user_id_fk",
+          "tableFrom": "todo",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "owner_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "todo_done_by_app_user_id_fk": {
+          "name": "todo_done_by_app_user_id_fk",
+          "tableFrom": "todo",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "done_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "todo_created_by_app_user_id_fk": {
+          "name": "todo_created_by_app_user_id_fk",
+          "tableFrom": "todo",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "todo_owner_check": {
+          "name": "todo_owner_check",
+          "value": "\"todo\".\"owner\" in ('operator', 'reggie', 'client')"
+        },
+        "todo_title_check": {
+          "name": "todo_title_check",
+          "value": "char_length(\"todo\".\"title\") between 1 and 300"
+        },
+        "todo_detail_check": {
+          "name": "todo_detail_check",
+          "value": "char_length(\"todo\".\"detail\") <= 4000"
+        },
+        "todo_why_check": {
+          "name": "todo_why_check",
+          "value": "\"todo\".\"why\" is null or char_length(\"todo\".\"why\") <= 300"
+        },
+        "todo_about_kind_check": {
+          "name": "todo_about_kind_check",
+          "value": "\"todo\".\"about_kind\" is null or \"todo\".\"about_kind\" in ('issue', 'client_ask', 'enhancement', 'build', 'deal', 'question', 'run', 'client')"
+        },
+        "todo_about_check": {
+          "name": "todo_about_check",
+          "value": "(\"todo\".\"about_kind\" is null) = (\"todo\".\"about_id\" is null)"
+        },
+        "todo_state_check": {
+          "name": "todo_state_check",
+          "value": "\"todo\".\"state\" in ('open', 'done', 'snoozed', 'dropped')"
+        },
+        "todo_source_check": {
+          "name": "todo_source_check",
+          "value": "\"todo\".\"source\" in ('operator', 'reggie', 'play', 'question', 'email', 'system')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.tool_call": {
