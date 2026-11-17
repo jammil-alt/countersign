@@ -33,7 +33,7 @@ import { contact, contactChange, type Db, type Tx, tenant, withTenant } from "@c
 import { and, eq, gt, gte, inArray, sql } from "drizzle-orm";
 import type { Bindings } from "../env";
 import { HttpError } from "../http";
-import type { Mailer } from "../notify/mailer";
+import { type Mailer, twilioTexter } from "../notify/mailer";
 import { isProductionEnv } from "../platform";
 import {
   type ContactRow,
@@ -184,6 +184,24 @@ function signedUp(row: ContactRow): boolean {
   return !row.optedOutAt && hasConsent((row.consent ?? {}) as ContactConsent, "sms");
 }
 
+/**
+ * Refuses a sign-up for someone who opted out. Typing a number on the page proves nothing about
+ * owning it, so the page never lifts an opt-out: a START texted from the number does
+ * (`applyKeyword`), and the answer says so.
+ */
+// DECISION: refused in words rather than accepted quietly: the person who owns the number needs
+// to know how to start texts again. The page then tells whoever typed the number that it opted
+// out of this one client's texts, and nothing more.
+async function refuseOptedOut(tx: Tx, t: TenantRow, row: ContactRow): Promise<void> {
+  if (!row.optedOutAt) return;
+  const number = await twilioTexter({ secrets: {} }).from(tx, t.id);
+  throw new HttpError(
+    409,
+    "opted_out",
+    `This number opted out of texts from ${t.name}. To get them again, text START to ${number ?? `${t.name}'s number`} from this phone.`,
+  );
+}
+
 /** What `contact_change` says about texting invitations for these contacts. */
 async function inviteHistory(
   tx: Tx,
@@ -326,6 +344,7 @@ export async function submitTextSignup(
           source: "text_signup",
           log: { via: "link" },
         }));
+      await refuseOptedOut(tx, t, row);
       row = await recordTextSignup(tx, row, { source: TEXT_SIGNUP_SOURCES.link, evidence }, now);
     } else {
       // The person's row, locked: two presses at once sign up once.
@@ -335,6 +354,7 @@ export async function submitTextSignup(
         .where(and(eq(contact.id, payload.c), eq(contact.tenantId, payload.t)))
         .for("update");
       if (!found) throw gone();
+      await refuseOptedOut(tx, t, found);
       // DECISION: an invitation signs up once, so it sends at most one confirmation text. "Used"
       // is a sign-up through an invitation logged since this one was sent (its expiry less
       // TEXT_INVITE_DAYS): no table or token id is needed.
