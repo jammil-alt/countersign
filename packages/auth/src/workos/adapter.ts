@@ -13,7 +13,13 @@ import {
   type ProvisionRefusalReason,
   refuse,
 } from "../types";
-import { createWorkOS, type WorkOSAuthentication, type WorkOSClient, WorkOSError } from "./client";
+import {
+  createWorkOS,
+  type WorkOSAuthentication,
+  type WorkOSClient,
+  WorkOSError,
+  type WorkOSProvider,
+} from "./client";
 import type { WorkOSConfig } from "./config";
 import { isMobileSignIn } from "./mobile";
 import {
@@ -66,6 +72,28 @@ export interface SecondFactorPolicy {
   remembered?(input: { request: Request; userId: string; now: Date }): Promise<boolean>;
 }
 
+/** §1.125: how the welcome page starts a sign-in: Google, Microsoft or AuthKit's email. */
+export const SIGN_IN_METHODS = ["google", "microsoft", "email"] as const;
+export type SignInMethod = (typeof SIGN_IN_METHODS)[number];
+
+export function parseSignInMethod(value: string | null | undefined): SignInMethod | null {
+  return (SIGN_IN_METHODS as readonly string[]).includes(value ?? "")
+    ? (value as SignInMethod)
+    : null;
+}
+
+const SIGN_IN_PROVIDERS: Record<SignInMethod, WorkOSProvider> = {
+  google: "GoogleOAuth",
+  microsoft: "MicrosoftOAuth",
+  email: "authkit",
+};
+
+/** A login hint only when it is one plain address (no spaces, one `@`, at most 320 characters). */
+export function signInHint(value: string | null | undefined): string | null {
+  const v = value?.trim().toLowerCase() ?? "";
+  return v.length <= 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? v : null;
+}
+
 /** Sign-ins whose own provider does the second factor: a company's SSO. */
 // DECISION (docs/plan.md §1.100): only SSO is exempt. Google and Microsoft sign-ins are not: we
 // can't see whether that account has a second factor of its own.
@@ -104,12 +132,33 @@ export interface WorkOSAdapter extends AuthAdapter {
    * `restart`: the callback started this sign-in again after a failure, so it won't again.
    */
   signIn(
-    input: { returnTo?: string | null; restart?: boolean },
+    input: {
+      returnTo?: string | null;
+      restart?: boolean;
+      /**
+       * §1.125: the welcome page's buttons: Google's or Microsoft's own sign-in, or AuthKit's
+       * email sign-in (the default), with the invited address filled in.
+       */
+      method?: SignInMethod | null;
+      loginHint?: string | null;
+    },
     now: Date,
   ): Promise<Redirect | AuthRefusal>;
   /** Finish sign-in on the callback request (`?code=&state=`). */
   callback(request: Request, now: Date): Promise<Redirect | CallbackRefusal>;
   signOut(request: Request): Promise<Redirect>;
+  /**
+   * §1.125's fallback, unused until WorkOS is checked (packages/auth/NOTES.md): a WorkOS
+   * invitation whose accept link sits behind our welcome page, for when AuthKit won't let an
+   * address sign up without one. With WorkOS's invitation email turned off it sends nothing.
+   * Never throws: a failure is `failed` with WorkOS's code.
+   */
+  invitationLink(
+    email: string,
+  ): Promise<
+    | { status: "made"; invitationId: string; acceptUrl: string | null }
+    | { status: "failed"; reason: string }
+  >;
   /**
    * §1.100: the second step was passed. Reseals a pending session as `done`; refuses one that is
    * not pending (done, exempt, expired or another person's).
@@ -250,7 +299,7 @@ export function createWorkOSAdapter(options: {
       };
     },
 
-    async signIn({ returnTo, restart }, nowDate) {
+    async signIn({ returnTo, restart, method, loginHint }, nowDate) {
       const path = safeReturnTo(returnTo, config.appOrigin);
       if (path === null) return refuse("forbidden", "return_to must be a path on this site");
       const nonce = restart ? restartNonce(randomToken()) : randomToken();
@@ -258,9 +307,17 @@ export function createWorkOSAdapter(options: {
         { n: nonce, r: path, exp: epochSec(nowDate) + STATE_MAX_AGE_SEC },
         password,
       );
+      // A hint only fills a field in: who signs in is still checked at the callback (and the
+      // welcome page checks the address against the invite).
+      const hint = signInHint(loginHint);
       return {
         ok: true,
-        redirectTo: workos.authorizationUrl({ redirectUri, state: nonce }),
+        redirectTo: workos.authorizationUrl({
+          redirectUri,
+          state: nonce,
+          ...(method ? { provider: SIGN_IN_PROVIDERS[method] } : {}),
+          ...(hint ? { loginHint: hint } : {}),
+        }),
         setCookies: [stateCookie(sealed)],
       };
     },
@@ -371,6 +428,19 @@ export function createWorkOSAdapter(options: {
         return { status: "sent", invitationId: id } as const;
       } catch (error) {
         // Only the code travels on (WorkOS messages can echo the address back).
+        const reason =
+          error instanceof WorkOSError
+            ? (error.code ?? (error.status === null ? "unreachable" : `http_${error.status}`))
+            : "unknown";
+        return { status: "failed", reason } as const;
+      }
+    },
+
+    async invitationLink(email) {
+      try {
+        const { id, acceptUrl } = await workos.sendInvitation(email.trim().toLowerCase());
+        return { status: "made", invitationId: id, acceptUrl } as const;
+      } catch (error) {
         const reason =
           error instanceof WorkOSError
             ? (error.code ?? (error.status === null ? "unreachable" : `http_${error.status}`))

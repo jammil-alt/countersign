@@ -37,6 +37,10 @@ const TextSignupScreen = lazy(() =>
 const FormPageScreen = lazy(() =>
   import("./forms/FormPage").then((m) => ({ default: m.FormPageScreen })),
 );
+// §1.125: the welcome page an invite's link opens, before sign-in: its own chunk.
+const WelcomeScreen = lazy(() =>
+  import("./onboarding/Welcome").then((m) => ({ default: m.WelcomeScreen })),
+);
 
 export function AppRoutes() {
   return (
@@ -66,6 +70,15 @@ export function AppRoutes() {
         element={
           <Suspense fallback={<StillFrame />}>
             <FormPageScreen />
+          </Suspense>
+        }
+      />
+      {/* docs/plan.md §1.125: an invite's welcome page; sign-in starts here. */}
+      <Route
+        path="/start/:token"
+        element={
+          <Suspense fallback={<StillFrame />}>
+            <WelcomeScreen />
           </Suspense>
         }
       />
