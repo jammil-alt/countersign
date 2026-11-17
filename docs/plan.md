@@ -5201,7 +5201,7 @@ decisions are written by stage 0; this table is the Reggie stream's only.
 | Review fixes (2026-11-17) | A critical issue given its agent by a later read holds that agent, as the issue route does. // DECISION: "Sort this" mail from a member of several clients is a to-do in each of them (`client_id` set), and a stray reply on a client's deal is that client's, so only their operators read it; only mail tied to no client has no client. |
 | Not yet | Reggie's tools for to-dos (with Your call's routes); outbound email for asks; chasing missing connections; documents nobody picked up as a signal; the site's "Get started" form. |
 
-### 1.125 Onboarding v1: the client file, starts, Invite and Sign up now, the intake (owner, 2026-11-17; migration 0064; M69)
+### 1.125 Onboarding v1: the client file, starts, Invite and Sign up now, the intake (owner, 2026-11-17; migration 0066; M69)
 
 `docs/cases-plan.md` §4–§5, steps O1–O3, with Sales' "stages are a record, not a gate" and "every
 account is in Sales" (§3.1). Outside ARCHITECTURE's v1 scope at the owner's request, as §1.124 is.
@@ -5221,7 +5221,7 @@ wave's; the foundation leaves room for them and builds none of them.
 | 12 | The default start | Get to the point. Sloan's talk-it-through is a choice, and either way can switch to the other. // DECISION in `onboarding/starts.ts` |
 | 13 | Our notes | Operator only, always: never shown to the client, Sloan or their agents (invariant 11). What an agent should know becomes a `theirs` fact the client confirms, or a rule on the agent. New facts start `ours`. // DECISION in `onboarding/facts.ts` |
 | 14 | A lost prospect | Its file is kept 12 months after the deal is lost, then deleted; a lost lead we had invited has its account retired at Lost. Retiring stays §1.35's typed confirm, so Lost on a New account deal that has a client leaves the operator a to-do, "Retire Acme's account", due that day, once per deal (`apps/api/src/routes/deals.ts`, // DECISION). The retention job is later (not this wave). |
-| 15 | The scope | Signed by the client admin before we build (next wave, O5); `intake_scope` is in 0064 for it. |
+| 15 | The scope | Signed by the client admin before we build (next wave, O5); `intake_scope` is in 0066 for it. |
 | 16 | Calls | The operator's own debriefs first (typed, voice typing or an uploaded transcript); no call recording. |
 | 17 | Reminders | Drafted for the operator to send (Autopilot `draft`); next wave. |
 | 18 | Seeded starts | General only, one per area, one per template, and "Just the account" (no intake, the welcome email only). |
@@ -5230,7 +5230,7 @@ wave's; the foundation leaves room for them and builds none of them.
 
 | Topic | Decision |
 |---|---|
-| Migration 0064 | Additive only. `client_file` and `client_fact` operator-only as `deal` is (RLS: `app_is_operator()` and, where a file names a client, one the session serves; a fact only with its file); `sales_start` operator-only and global (in `OPERATOR_ONLY_TABLES`); `deal.client_file_id` (nullable, `on delete set null`); the tenant tables `intake`, `intake_person`, `intake_answer`, `intake_scope`, `intake_event` with forced RLS on `app.tenant_ids`; `knowledge_entry.kind` gains `about`; `notification.kind` gains the onboarding emails' kinds (`intake_invite`, `intake_colleague`, `intake_more_questions`, and next wave's `intake_reminder`, `intake_scope_ready`, `intake_next`) ahead of core naming them, so the next wave needs no migration. |
+| Migration 0066 | Additive only. `client_file` and `client_fact` operator-only as `deal` is (RLS: `app_is_operator()` and, where a file names a client, one the session serves; a fact only with its file); `sales_start` operator-only and global (in `OPERATOR_ONLY_TABLES`); `deal.client_file_id` (nullable, `on delete set null`); the tenant tables `intake`, `intake_person`, `intake_answer`, `intake_scope`, `intake_event` with forced RLS on `app.tenant_ids`; `knowledge_entry.kind` gains `about`; `notification.kind` gains the onboarding emails' kinds (`intake_invite`, `intake_colleague`, `intake_more_questions`, and next wave's `intake_reminder`, `intake_scope_ready`, `intake_next`) ahead of core naming them, so the next wave needs no migration. |
 | History | Facts, answers and the intake's log are insert only (no UPDATE grant). A correction is a new fact naming the one it replaces; a fact is replaced at most once (a unique index), so the current facts are a list, never a tree (core `currentFacts`). A scope version is insert only but for its signature: a column grant on `signed_by` and `signed_at`, never the body. Nothing is deleted by the Worker; a purged client's file and facts go with it (`deal.client_file_id` is cleared). |
 | No foreign keys into the operator's tables | `intake.deal_id` and `intake.file_id` are plain ids: a client's row never points into an operator-only table. |
 | Starts | Seeded in code by stream SALES, not by the migration: the areas and templates are the running platform's. Each seeded start has a `seed_key` (`general`, `area:<area>`, `template:<slug>`, `account`), so seeding runs once each; `seeded = (seed_key is not null)`. Archived, never deleted. "Just the account" is a start that covers nothing, so Sign up now always names a start. |
@@ -5337,7 +5337,7 @@ joining them decided, and everything any stream left open.
 | Left open (EMAIL) | Every WorkOS item in `packages/auth/NOTES.md` (sign-up without an invitation, `login_hint`, the two providers, branding); if sign-up needs an invitation, `WorkOSAdapter.invitationLink` still has to be wired into `runInvite` and the welcome page. Delivered and bounced (Resend's webhooks). The lead's photo (initials until leads have one). Notification emails onto the branded layout. Owner steps: Resend's `mezonas.com` and `hello@`, WorkOS sign-in and branding, a test invite to a real inbox (`docs/open.md`). |
 | Left open (INTAKE) | "Different process" goes to an ask and the intake's log, not yet into the client file (Reggie filing facts, next wave). Pack and template questions show in English as written; core's are in the six languages. Files on a card upload through `/api/uploads?for=chat`. |
 | Left open (SCREENS) | Skipped stages are read from the stage line's words ("Skipped …"), as `DealActivityView` has no meta: if a `skipped` field is added to it, switch `skippedStages()` and `isSkippedLine()` in `apps/web/src/ops/work/onboarding/timeline.ts`. The deal page's old "Set up the account" card (`opsDealSetup`) is still there beside Invite and Sign up now: the owner's call whether to retire it. Reggie's suggestion of what to cover and his drafted note fill slots that show only when given. |
-| Next wave | O4 (talk it through with Sloan), O5 (the scope, signing, facts into the knowledge base, the fit-gap hand-off, "What we see in QuickBooks"), reminders and the remaining emails (their notification kinds are in 0064 and are skipped `unsupported` until then), Reggie filing facts and suggesting covers, O6 (voice). Nothing here blocks them: the intake's statuses, `intake_scope`, the `about` knowledge kind and the kinds are in place. |
+| Next wave | O4 (talk it through with Sloan), O5 (the scope, signing, facts into the knowledge base, the fit-gap hand-off, "What we see in QuickBooks"), reminders and the remaining emails (their notification kinds are in 0066 and are skipped `unsupported` until then), Reggie filing facts and suggesting covers, O6 (voice). Nothing here blocks them: the intake's statuses, `intake_scope`, the `about` knowledge kind and the kinds are in place. |
 
 ## 2. Package layering
 
@@ -6517,7 +6517,7 @@ fakes.
 
 ### M69: Onboarding v1: the client file, starts, Invite and Sign up now, the intake (§1.125)
 
-Migration 0064 on its own commit (the client file and its facts, starts, the deal's file, the
+Migration 0066 on its own commit (the client file and its facts, starts, the deal's file, the
 intake and its people, answers, scope and log, the knowledge base's `about`, the onboarding
 emails' notification kinds), with forced RLS and its test; core's contract (facts, starts, covers,
 the guide, the intake, the routes) and the seams; then four streams, SALES, EMAIL, INTAKE and

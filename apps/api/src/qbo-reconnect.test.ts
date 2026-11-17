@@ -113,12 +113,17 @@ describe.skipIf(!h)("signing in to QuickBooks again", () => {
       .where(eq(connection.id, connectionId));
     const other = await signIn("code-3", OTHER_REALM);
     expect(other.status, JSON.stringify(other.json)).toBe(200);
-    const r = await row();
+    // Read once the sign-in's background work is done: before that, whether the sync it starts
+    // has taken over the old claim yet depends on timing.
     await H.settle();
+    const r = await row();
     expect(r).toMatchObject({ status: "connected", externalAccountId: OTHER_REALM });
-    // Its sync starts over for the new company.
+    // Its sync starts over for the new company, and that sync holds the claim now (the old one
+    // was stale).
     expect(r?.syncCursor).not.toHaveProperty("phase");
-    expect(r?.syncCursor).toMatchObject({ running: { instanceId: "qbo-x" } });
+    const running = (r?.syncCursor as { running?: { instanceId?: string } } | null)?.running;
+    expect(running?.instanceId).toMatch(/^qbo-/);
+    expect(running?.instanceId).not.toBe("qbo-x");
   });
 
   it("drops a page read from the first company before the switch", async () => {

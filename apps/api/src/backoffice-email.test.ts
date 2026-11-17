@@ -228,7 +228,7 @@ describe.skipIf(!h)("the back office's email", () => {
     const sent = resend.emails.at(-1);
     expect(sent?.to).toEqual(["jo@acme-widgets.example"]);
     expect(sent?.reply_to).toMatch(
-      new RegExp(`^hello\\+d[a-z2-7]{16}@${DOMAIN.replace(/\./g, "\\.")}$`),
+      new RegExp(`^hello\\+d[a-z2-7]{16}@${DOMAIN.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
     );
     expect(j(res.json).activity.map((a: { kind: string }) => a.kind)).toContain("email_out");
     // Clients never send a deal's email.

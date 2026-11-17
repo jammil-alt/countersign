@@ -77,6 +77,27 @@ describe.skipIf(!online)("addOperator", () => {
     expect(await memberships(first.userId)).toHaveLength(3);
   });
 
+  it("audits each add: the user, the clients, whether it was new and who ran it", async () => {
+    const r = await addOperator(t.db, { email: "audited@mezonas.test", by: "someone, run 7" });
+    await addOperator(t.db, { email: "audited@mezonas.test" });
+    const tenantIds = (await t.db.select({ id: tenant.id }).from(tenant)).map((x) => x.id);
+    const rows = await withOperator(t.db, tenantIds, (tx) =>
+      tx.select().from(auditEvent).where(eq(auditEvent.action, "operator.add")),
+    );
+    const mine = rows.filter((x) => (x.target as { user?: string }).user === r.userId);
+    expect(mine).toEqual([
+      expect.objectContaining({
+        actorKind: "system",
+        outcome: "ok",
+        tenantId: null,
+        target: { user: r.userId, clients: "3", created: "true", by: "someone, run 7" },
+      }),
+      expect.objectContaining({
+        target: { user: r.userId, clients: "3", created: "false" },
+      }),
+    ]);
+  });
+
   it("refuses to make a client user an operator, and rejects a non-address", async () => {
     await expect(addOperator(t.db, { email: "admin@demo-client.example.com" })).rejects.toThrow(
       /client_admin of a client/,
@@ -85,7 +106,7 @@ describe.skipIf(!online)("addOperator", () => {
   });
 
   it("removes an operator from every client, lets go of their items and leads, and audits it", async () => {
-    // The tests above leave first@ (Mezonas), owner@ (all three) and the seed's operator.
+    // The tests above leave first@ (Mezonas), owner@ and audited@ (all three) and the seed's operator.
     const leaver = await addOperator(t.db, { email: "leaver@mezonas.test" });
     expect(await memberships(leaver.userId)).toHaveLength(3);
     const tenantIds = (await t.db.select({ id: tenant.id }).from(tenant)).map((r) => r.id);
@@ -161,6 +182,7 @@ describe.skipIf(!online)("addOperator", () => {
 
   it("never removes the last operator", async () => {
     await removeOperator(t.db, { email: "first@mezonas.test" });
+    await removeOperator(t.db, { email: "audited@mezonas.test" });
     await removeOperator(t.db, { email: "operator@example.com" });
     await expect(removeOperator(t.db, { email: "owner@mezonas.test" })).rejects.toThrow(
       /last operator/,

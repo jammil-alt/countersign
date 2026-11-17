@@ -104,6 +104,47 @@ export function BookingsReview({
                       <span className="text-ink-muted">{` · ${txn.booking.reason}`}</span>
                     ) : null}
                   </p>
+                  {txn.openItem ? (
+                    <p className="text-sm text-ink" data-testid="bookings-review-open-item">
+                      {t(
+                        txn.openItem.paid
+                          ? txn.openItem.kind === "bill"
+                            ? "bookkeeping.review.openBillPaid"
+                            : "bookkeeping.review.openInvoicePaid"
+                          : txn.openItem.kind === "bill"
+                            ? "bookkeeping.review.openBill"
+                            : "bookkeeping.review.openInvoice",
+                        {
+                          what: [
+                            txn.openItem.name,
+                            txn.openItem.docNumber ? `#${txn.openItem.docNumber}` : null,
+                            fmt.money(txn.openItem.balance, txn.openItem.currency),
+                            txn.openItem.date ? dayLabel(txn.openItem.date, intl) : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · "),
+                        },
+                      )}
+                    </p>
+                  ) : null}
+                  {txn.resent ? (
+                    <p className="text-sm text-ink" data-testid="bookings-review-resent">
+                      {t("bookkeeping.review.resent")}
+                    </p>
+                  ) : null}
+                  {txn.pairedWith ? (
+                    <p className="text-sm text-ink" data-testid="bookings-review-paired">
+                      {t("bookkeeping.review.pairHeld", {
+                        what: [
+                          dayLabel(txn.pairedWith.date, intl),
+                          `${txn.pairedWith.direction === "in" ? "+" : "−"}${fmt.money(txn.pairedWith.amount, txn.pairedWith.currency)}`,
+                          txn.pairedWith.account,
+                        ]
+                          .filter(Boolean)
+                          .join(" · "),
+                      })}
+                    </p>
+                  ) : null}
                 </div>
                 <Badge
                   tone={decidable ? "warning" : STATUS_TONE[txn.status]}

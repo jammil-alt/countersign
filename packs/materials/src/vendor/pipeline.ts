@@ -32,6 +32,7 @@ import {
   vendor,
   withTenant,
 } from "@countersign/db";
+import { lineArithmetic } from "@countersign/documents";
 import { emit } from "@countersign/senses";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { type ParsedLine, parseLine, parseNormalized, withCompleteness } from "../catalog/keys";
@@ -50,19 +51,28 @@ import {
   type CatalogItemRow,
   createItem,
   findCandidates,
+  identifyingSku,
   latestMatch,
   learnAlias,
   liveItem,
   recordMatch,
+  skuContradicts,
+  taughtCode,
+  wordsDiffer,
 } from "../catalog/store";
 import { materialsEventRegistry } from "../events";
-import { convertLine, readUom, withoutPackaging } from "../pricing/uom";
+import { convertLine, PACKAGING_UOMS, readUom, unitWord, withoutPackaging } from "../pricing/uom";
 import { type Category, catalogItem, priceObservation, vendorItem } from "../schema";
 import { EMBEDDING_TEMPLATE, embeddingText, stripTerms } from "./embedding-text";
 import {
+  adoptWord,
   cleanSku,
+  contradictsSize,
   createVendorItem,
+  isOlderItem,
+  lineOf,
   priceForVendorItem,
+  recordedWord,
   recordLastPrice,
   resolveVendorItem,
   similarMasterItems,
@@ -403,7 +413,9 @@ export async function lookupBySku(
   for (const l of doc.lines) {
     const normalized = normalize(l.rawDescription, { abbreviations });
     const parsed = parseNormalized(normalized);
-    const sku = cleanSku(l.sku);
+    // A special-order or short code is no SKU (`identifyingSku`): the line's words decide it.
+    const sku = identifyingSku(cleanSku(l.sku), l.lineNo);
+    const taughtSku = sku ? null : taughtCode(l.sku, l.lineNo);
     const base = {
       docLineId: l.id,
       lineNo: l.lineNo,
@@ -413,6 +425,10 @@ export async function lookupBySku(
       missing: parsed.missing,
       candidates: [],
     };
+    // DECISION (audit 7.10): a SKU (the vendor item's or an alias's) never outvotes the line's own
+    // words: when they state a key attribute differently from the item's, the line stays open
+    // (Semantic match, then Register item's checks and a person).
+    let differ: string | null = null;
     const decided = async (
       catalogItemId: string,
       vendorItemId: string | null,
@@ -420,6 +436,10 @@ export async function lookupBySku(
     ) => {
       const item = await liveItem(tx, tenantId, catalogItemId);
       if (!item) return false;
+      if (via !== "wording") {
+        differ = await skuContradicts(tx, tenantId, parsed, item);
+        if (differ) return false;
+      }
       lines.push({
         ...base,
         decision: "matched",
@@ -434,11 +454,14 @@ export async function lookupBySku(
     };
     const bySku = sku ? await vendorItemBySku(tx, tenantId, input.vendorId, sku) : null;
     if (bySku && (await decided(bySku.catalogItemId, bySku.id, "sku"))) continue;
-    const alias = await vendorAlias(tx, tenantId, {
-      vendorId: input.vendorId,
-      sku,
-      descriptionHash: await descriptionHash(normalized),
-    });
+    const alias = differ
+      ? null
+      : await vendorAlias(tx, tenantId, {
+          vendorId: input.vendorId,
+          sku,
+          taughtSku,
+          descriptionHash: await descriptionHash(normalized),
+        });
     if (
       alias &&
       (await decided(
@@ -456,7 +479,7 @@ export async function lookupBySku(
       catalogItemName: null,
       method: null,
       confidence: 0,
-      hinge: parsed.missing[0] ?? null,
+      hinge: differ ?? parsed.missing[0] ?? null,
     });
   }
   return {
@@ -793,6 +816,8 @@ export interface RegisteredLine {
   recorded: boolean;
   /** Why the line has no price recorded (no conversion rule, no quantity). */
   priceSkipped: string | null;
+  /** Why the line is filed under no vendor item, when it isn't (a person may register it). */
+  note: string | null;
 }
 
 export interface NeedsPerson {
@@ -910,7 +935,8 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
     const d = decisions.get(line.lineNo);
     if (!d) continue;
     const normalized = lineText(line.rawDescription, abbreviations);
-    const sku = cleanSku(line.sku);
+    // A special-order or short code is no SKU: not a vendor item's, not an alias (audit 7.10).
+    const sku = identifyingSku(cleanSku(line.sku), line.lineNo);
     const hash = await descriptionHash(normalized);
     const prior = await latestMatch(tx, tenantId, line.id);
     const base: RegisteredLine = {
@@ -924,6 +950,7 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
       observationId: null,
       recorded: false,
       priceSkipped: null,
+      note: null,
     };
     const askPerson = (reason: string, candidates = d.candidates) => {
       result.needsPerson.push({
@@ -1020,6 +1047,8 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
       catalogItemId: item.id,
       sku,
       vendorUom,
+      unitRaw: line.uomRaw,
+      lineText: line.rawDescription,
       hintId: hints.get(line.lineNo) ?? null,
     });
     if (vi && vi.catalogItemId !== item.id) {
@@ -1047,14 +1076,30 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
       vi = await updateVendorItem(tx, tenantId, vi.id, { catalogItemId: item.id });
       result.changedVendorItemIds.push(vi.id);
     }
+    // A box or case item made before words were kept takes the word it was found in.
+    if (vi && PACKAGING_UOMS.has(vendorUom))
+      vi = await adoptWord(tx, tenantId, vi, unitWord(line.uomRaw));
     // The vendor's unit and how many standard units it is (invariant 7: no rule, no std price):
     // the line's own words over the master item's specs, never the master item's pack size, else
     // the vendor item's own conversion for that unit (`convertLine`).
     const lineAttributes = parseLine(line.rawDescription).attributes;
-    const conv = convertLine(line.uomRaw, item.standardUom, lineAttributes, item.attributes, vi);
+    const conv = convertLine(
+      line.uomRaw,
+      item.standardUom,
+      { text: line.rawDescription, attributes: lineAttributes },
+      item.attributes,
+      vi,
+    );
     let createdVendorItem = false;
+    // The vendor item the line is filed under; none when a new one can't be made for its word
+    // (the vendor's one item without a SKU in that unit is another box or case).
+    let filed: VendorItemRow | null = vi;
+    let filedNote: string | null = null;
     if (!vi) {
-      const pack = lineAttributes.pack_size;
+      const words = lineOf(line.uomRaw, line.rawDescription);
+      const packaged = PACKAGING_UOMS.has(vendorUom);
+      // A box, case or pail's size is the one the line states for its unit (`statedPack`).
+      const pack = packaged ? words.pack.size : lineAttributes.pack_size;
       const made = await createVendorItem(
         tx,
         tenantId,
@@ -1066,15 +1111,40 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
           // The pack is the vendor's (vendor_item.pack_size), as the line states it.
           ...(pack ? { packSize: `${pack} per ${vendorUom}` } : {}),
           vendorUom,
+          unitWord: unitWord(line.uomRaw),
           stdPerVendorUom: conv.ok ? toNumeric(conv.factor) : null,
         },
         by,
       );
-      vi = made.item;
       createdVendorItem = made.created;
-      if (made.created) result.vendorItemIds.push(vi.id);
+      if (made.created) result.vendorItemIds.push(made.item.id);
+      const word = unitWord(line.uomRaw);
+      // The vendor's item of another size than the line states is not its (`contradictsSize`).
+      const otherSize =
+        !made.created &&
+        packaged &&
+        (recordedWord(made.item) ?? word) === word &&
+        contradictsSize(made.item, words);
+      filed =
+        made.created || !packaged || (recordedWord(made.item) === word && !otherSize)
+          ? made.item
+          : null;
+      const stated = words.pack.sizes.map((x) => `${x} a ${word ?? "unit"}`);
+      if (!filed && otherSize) {
+        filedNote = `filed under no vendor item: this line states ${stated.join(", ")}, and the vendor's item ${made.item.sku ? `with this SKU` : "without a SKU in this unit"} holds ${dec(made.item.stdPerVendorUom ?? "0").toString()}; give the line its own SKU or correct its pack size to register it`;
+      } else if (!filed && isOlderItem(made.item)) {
+        // An older item (`effectiveWord`): the line didn't state its pack size.
+        const size = made.item.stdPerVendorUom
+          ? `its pack size of ${dec(made.item.stdPerVendorUom).toString()}`
+          : "its pack size (none is recorded)";
+        filedNote = `filed under no vendor item: the vendor's item without a SKU in this unit was recorded before its unit's word was kept, so it takes only a line that states ${size}, and this line states ${stated.length > 0 ? stated.join(", ") : "none"}; give the line its SKU or its pack size to register it`;
+      } else if (!filed) {
+        filedNote = `filed under no vendor item: the vendor's item ${made.item.sku ? "with this SKU" : "without a SKU in this unit"} is another ${recordedWord(made.item) ?? "pack"}, not this ${word ?? "unit"}; give the line its SKU to register it`;
+      }
     } else if (vi.stdPerVendorUom === null && conv.ok && (vi.vendorUom ?? "") === vendorUom) {
-      vi = await updateVendorItem(tx, tenantId, vi.id, { stdPerVendorUom: toNumeric(conv.factor) });
+      filed = await updateVendorItem(tx, tenantId, vi.id, {
+        stdPerVendorUom: toNumeric(conv.factor),
+      });
     }
     const matchId = await recordMatch(tx, tenantId, {
       docLineId: line.id,
@@ -1088,25 +1158,33 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
     });
     await learnAlias(tx, tenantId, {
       vendorId: input.vendorId,
-      vendorSku: sku,
+      // A person's decision keeps the line's code whatever it is (`learnAlias`).
+      vendorSku: human ? (sku ?? taughtCode(line.sku, line.lineNo)) : sku,
       descriptionHash: hash,
       normalizedDescription: normalized,
       catalogItemId: item.id,
       source: human ? "human" : "auto",
-      vendorItemId: vi.id,
+      vendorItemId: filed?.id ?? null,
+      skuFits: wordsDiffer(parseNormalized(normalized), item) === null,
     });
     // The price: in the vendor's unit always; per standard unit only with a conversion.
     let observationId: string | null = null;
     let priceSkipped: string | null = null;
     const qty = dec(line.qty);
     const discounted = line.discount !== null && dec(line.discount).greaterThan(0);
-    const unitRaw = qty.greaterThan(0)
-      ? discounted
-        ? dec(line.extPrice).dividedBy(qty)
-        : dec(line.unitPrice)
-      : null;
+    // A line that doesn't add up is not priced (`lineArithmetic`, as `priceLines`); a price per
+    // hundred or thousand is per unit once divided.
+    const arithmetic = lineArithmetic(line);
+    const unitRaw =
+      qty.greaterThan(0) && !arithmetic.problem
+        ? discounted
+          ? dec(line.extPrice).dividedBy(qty)
+          : dec(line.unitPrice).dividedBy(arithmetic.per)
+        : null;
     if (!unitRaw) {
-      priceSkipped = "no quantity";
+      priceSkipped = arithmetic.problem
+        ? `its quantity times its unit price isn't its amount (${arithmetic.problem}); not recorded until the reading is corrected`
+        : "no quantity";
     } else {
       const unitStd = conv.ok ? unitRaw.dividedBy(conv.factor) : null;
       if (conv.ok && unitStd) {
@@ -1116,7 +1194,7 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
             tenantId,
             catalogItemId: item.id,
             vendorId: input.vendorId,
-            vendorItemId: vi.id,
+            vendorItemId: filed?.id ?? null,
             observedOn: doc.observedOn,
             unitPriceStd: toNumeric(unitStd),
             qtyStd: toNumeric(qty.times(conv.factor)),
@@ -1131,6 +1209,7 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
               factor: conv.factor.toString(),
               conversion: conv.rule,
               ...(conv.assumed ? { uomAssumed: true } : {}),
+              ...(arithmetic.per !== 1 ? { pricedPer: arithmetic.per } : {}),
             },
           })
           .onConflictDoNothing()
@@ -1154,11 +1233,11 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
             },
             { registry, testRun: input.testRun },
           );
-        } else {
+        } else if (filed) {
           // Recorded before (by the price step): it now says which vendor item it was.
           const [existing] = await tx
             .update(priceObservation)
-            .set({ vendorItemId: vi.id })
+            .set({ vendorItemId: filed.id })
             .where(
               and(
                 eq(priceObservation.tenantId, tenantId),
@@ -1175,14 +1254,16 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
       // The last price is in the vendor item's own unit (a vendor item found by SKU may be priced
       // in another unit than this line's): reached from the line's unit or per standard unit,
       // else left as it was (invariant 7).
-      const last = priceForVendorItem(vi, {
-        price: toNumeric(unitRaw),
-        unit: vendorUom,
-        priceStd: unitStd ? toNumeric(unitStd) : null,
-        standardUom: item.standardUom,
-      });
-      if (last) {
-        await recordLastPrice(tx, tenantId, vi.id, {
+      const last = filed
+        ? priceForVendorItem(filed, {
+            price: toNumeric(unitRaw),
+            unit: vendorUom,
+            priceStd: unitStd ? toNumeric(unitStd) : null,
+            standardUom: item.standardUom,
+          })
+        : null;
+      if (filed && last) {
+        await recordLastPrice(tx, tenantId, filed.id, {
           price: last.price,
           priceStd: last.priceStd,
           on: doc.observedOn,
@@ -1213,7 +1294,8 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
       ...base,
       decision,
       catalogItemId: item.id,
-      vendorItemId: vi.id,
+      vendorItemId: filed?.id ?? null,
+      note: filedNote,
       createdItem,
       createdVendorItem,
       observationId,

@@ -10,8 +10,8 @@ import { AppProviders } from "../../App";
 import { createI18n, EN } from "../../i18n/i18n";
 import { InboxCard } from "../../inbox/InboxCard";
 import { CLIENT_SESSION, fakeApi, OPERATOR_SESSION } from "../../test/fixtures";
+import { OpsPacksScreen } from "../opsScreens";
 import { packReportPath, packReportsFor } from "../registry";
-import { OpsPacksScreen } from "../screens";
 import { CatalogView, PriceWatchView } from "./Reports";
 
 const CLIENT = "00000000-0000-4000-8000-00000000a002";

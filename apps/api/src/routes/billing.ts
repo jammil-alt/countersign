@@ -80,6 +80,7 @@ import {
   tenantBilling,
   usageMeasures,
 } from "../billing/ledger";
+import { readTextLimited } from "../body";
 import {
   type AppContext,
   type AppEnv,
@@ -889,13 +890,9 @@ export function billingRouteHandlers(app: Hono<AppEnv>): void {
       if (!secret) {
         throw new HttpError(503, "billing_not_configured", "Stripe's webhook secret is not set");
       }
-      const declared = Number(c.req.header("content-length") ?? "0");
-      if (declared > STRIPE_WEBHOOK_MAX_BYTES) {
-        throw new HttpError(413, "too_large", "Stripe events are smaller than this");
-      }
       // The signature covers the body exactly as sent: read it as text, parse after.
-      const payload = await c.req.text();
-      if (payload.length > STRIPE_WEBHOOK_MAX_BYTES) {
+      const payload = await readTextLimited(c.req.raw, STRIPE_WEBHOOK_MAX_BYTES);
+      if (payload === null) {
         throw new HttpError(413, "too_large", "Stripe events are smaller than this");
       }
       const verified = await verifyStripeSignature({

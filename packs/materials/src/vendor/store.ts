@@ -6,7 +6,9 @@
 import { dec, toNumeric } from "@countersign/core";
 import { type Tx, vendor } from "@countersign/db";
 import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, type SQL, sql } from "drizzle-orm";
-import { liveItem } from "../catalog/store";
+import { parseLine } from "../catalog/keys";
+import { identifyingSku, liveItem } from "../catalog/store";
+import { PACKAGING_UOMS, readUom, type StatedPack, statedPack, unitWord } from "../pricing/uom";
 import {
   type Category,
   catalogItem,
@@ -104,11 +106,18 @@ export interface AliasHit {
 export async function vendorAlias(
   tx: Tx,
   tenantId: string,
-  key: { vendorId: string; sku: string | null; descriptionHash: string },
+  key: {
+    vendorId: string;
+    sku: string | null;
+    descriptionHash: string;
+    /** The line's code when it is no SKU (`identifyingSku`): only a person's alias for it counts. */
+    taughtSku?: string | null | undefined;
+  },
 ): Promise<AliasHit | null> {
-  const lookups: { via: "sku" | "description"; sku: string; hash: string }[] = [];
-  if (key.sku) lookups.push({ via: "sku", sku: key.sku, hash: "" });
-  lookups.push({ via: "description", sku: "", hash: key.descriptionHash });
+  const lookups: { via: "sku" | "description"; sku: string; hash: string; human: boolean }[] = [];
+  if (key.sku) lookups.push({ via: "sku", sku: key.sku, hash: "", human: false });
+  else if (key.taughtSku) lookups.push({ via: "sku", sku: key.taughtSku, hash: "", human: true });
+  lookups.push({ via: "description", sku: "", hash: key.descriptionHash, human: false });
   for (const l of lookups) {
     // The same expressions as the unique index (0032), so the lookup uses it.
     const [hit] = await tx
@@ -124,6 +133,7 @@ export async function vendorAlias(
           eq(itemAlias.vendorId, key.vendorId),
           sql`coalesce(${itemAlias.vendorSku}, '') = ${l.sku}`,
           sql`coalesce(${itemAlias.descriptionHash}, '') = ${l.hash}`,
+          ...(l.human ? [eq(itemAlias.source, "human")] : []),
         ),
       )
       .limit(1);
@@ -141,6 +151,121 @@ export async function vendorAlias(
 }
 
 /**
+ * The vendor item whose conversion converts a line in `unitRaw` that names no SKU (a quote's line,
+ * an invoice line without one): the vendor's one active item for the master item in that unit;
+ * for a box, case or pail, the one recorded in that very word (`ext.unitWord`). Null when there
+ * is none or more than one: the unit then has no known size (invariant 7).
+ */
+// DECISION (review of fix/materials, finding 3): a box of 100 and a case of 1000 are both a
+// `pack`, so a packaging unit takes a vendor item's conversion only when exactly one vendor item
+// was recorded in the same word; an item recorded before the word was kept converts only a line
+// that states its very pack size (`effectiveWord`).
+export async function vendorItemForUnit(
+  tx: Tx,
+  tenantId: string,
+  key: {
+    vendorId: string;
+    catalogItemId: string;
+    unitRaw: string | null;
+    /** The line's own words (a pack size it states, `packsIn`). */
+    lineText?: string | null | undefined;
+  },
+): Promise<VendorItemRow | null> {
+  const unit = key.unitRaw?.trim()
+    ? (readUom(key.unitRaw) ?? key.unitRaw.trim().toLowerCase())
+    : null;
+  const inUnit = (await vendorItemsFor(tx, tenantId, key.vendorId, key.catalogItemId)).filter(
+    (v) => v.status === "active" && (v.vendorUom ?? "") === (unit ?? ""),
+  );
+  if (unit === null || !PACKAGING_UOMS.has(unit))
+    return inUnit.length === 1 ? (inUnit[0] ?? null) : null;
+  return inWord(inUnit, lineOf(key.unitRaw, key.lineText));
+}
+
+/** A line as a box, case or pail vendor item is told from it: its unit's word and its size. */
+export interface LineWords {
+  word: string | null;
+  /** The pack size it states for its own unit, as conversion reads it (`statedPack`). */
+  pack: StatedPack;
+}
+export const lineOf = (
+  unitRaw: string | null | undefined,
+  text: string | null | undefined,
+): LineWords => ({
+  word: unitWord(unitRaw),
+  pack: statedPack(unitRaw, text, text ? parseLine(text).attributes.pack_size : undefined),
+});
+
+/**
+ * Whether a line states a size for its unit that isn't the vendor item's `stdPerVendorUom` (a
+ * box of 100 and a line stating 50/BX): the line is then not that item, by word or SKU.
+ */
+// DECISION (fifth review of fix/materials, finding 2): a recorded word or a SKU names the item,
+// but not a different size of it: a line's stated size that contradicts the item's keeps it off
+// the item (no last price for a box of 100 from a box of 50).
+export const contradictsSize = (v: VendorItemRow, line: LineWords): boolean =>
+  v.stdPerVendorUom !== null && line.pack.sizes.some((x) => !sameSize(v, x));
+
+/** The word a vendor item was recorded in (`ext.unitWord`), if any. */
+export const recordedWord = (v: Pick<VendorItemRow, "ext">): string | null => {
+  const w = (v.ext as { unitWord?: unknown } | null)?.unitWord;
+  return typeof w === "string" ? w : null;
+};
+
+/**
+ * An older vendor item: a box, case or pail without a SKU, recorded before its word was kept
+ * (`ext.unitWord`). Every one made before the word existed is one.
+ */
+export const isOlderItem = (v: VendorItemRow): boolean =>
+  !v.sku && recordedWord(v) === null && v.vendorUom !== null && PACKAGING_UOMS.has(v.vendorUom);
+
+/** Whether `size` (a line's or row's stated pack size) is an older item's `stdPerVendorUom`. */
+export const sameSize = (v: VendorItemRow, size: string | null | undefined): boolean =>
+  v.stdPerVendorUom !== null && size != null && dec(size).equals(dec(v.stdPerVendorUom));
+
+/**
+ * The word a box, case or pail vendor item is in, for a line: the one recorded (`ext.unitWord`).
+ * For an older item (`isOlderItem`), the line's own word only when the one pack size the line
+ * states for its unit (`statedPack`) is the item's `stdPerVendorUom`. Null when the line states
+ * a size that isn't the item's (`contradictsSize`), or otherwise: the line is then not that
+ * item, and its price isn't converted by it.
+ */
+// DECISION (fourth review of fix/materials): one strict rule, no reading of an older item's word.
+// An older item is a box, case or pail vendor item without a SKU and without `ext.unitWord`
+// (every one made before the word was kept). It takes a line, a quote's line or a price list's
+// row only when that line or row states a pack size equal to the item's `stdPerVendorUom` (an
+// exact decimal compare); the conversion is then right whatever its word, and Register item
+// records the line's word on it (`adoptWord`). Otherwise the line goes under no vendor item, with
+// a note. The item's own name, description or pack size and the lines already filed under it
+// are never read: any of them may be wrong. Price lists follow it in ./import.ts.
+export function effectiveWord(v: VendorItemRow, line: LineWords): string | null {
+  if (contradictsSize(v, line)) return null;
+  const recorded = recordedWord(v);
+  if (recorded !== null || v.sku) return recorded;
+  if (line.word === null || line.pack.size === null) return null;
+  return sameSize(v, line.pack.size) ? line.word : null;
+}
+
+/** The one vendor item among `items` (all in one packaging unit) in `word`; null for none or two. */
+function inWord(items: readonly VendorItemRow[], line: LineWords): VendorItemRow | null {
+  const word = line.word;
+  if (word === null) return null;
+  const fits = items.filter((v) => effectiveWord(v, line) === word);
+  return fits.length === 1 ? (fits[0] ?? null) : null;
+}
+
+/** Records the word an older vendor item was found in (`effectiveWord`), once. */
+export async function adoptWord(
+  tx: Tx,
+  tenantId: string,
+  v: VendorItemRow,
+  word: string | null,
+): Promise<VendorItemRow> {
+  if (word === null || v.sku || recordedWord(v) !== null || !v.vendorUom) return v;
+  return updateVendorItem(tx, tenantId, v.id, { vendorUom: v.vendorUom, unitWord: word });
+}
+
+/**
  * The vendor item a decided line is: its SKU's, else the one the semantic match named, else the
  * vendor's item for that master item in the line's unit, else its only one. Null: a new one.
  */
@@ -154,20 +279,45 @@ export async function resolveVendorItem(
     catalogItemId: string;
     sku: string | null;
     vendorUom: string | null;
+    /** The unit as the line wrote it: tells a box from a case (`unitWord`). */
+    unitRaw?: string | null | undefined;
+    /** The line's own words (a pack size it states, `packsIn`). */
+    lineText?: string | null | undefined;
     hintId?: string | null | undefined;
   },
 ): Promise<VendorItemRow | null> {
+  const packaging = key.vendorUom !== null && PACKAGING_UOMS.has(key.vendorUom);
+  const line = lineOf(key.unitRaw, key.lineText);
+  const word = line.word;
   if (key.sku) {
     const bySku = await vendorItemBySku(tx, tenantId, key.vendorId, key.sku);
+    // The SKU's box, case or pail, in the line's unit, of another size than the line states, is
+    // not this line's (`contradictsSize`): none, and Register item says why.
+    // DECISION (sixth review of fix/materials, K1): nor is the SKU's box a case line's, as for
+    // a price list's row by SKU (./import.ts `anotherPack`).
+    const otherWord = bySku ? recordedWord(bySku) : null;
+    if (
+      bySku &&
+      packaging &&
+      bySku.vendorUom === key.vendorUom &&
+      (contradictsSize(bySku, line) || (otherWord !== null && otherWord !== word))
+    ) {
+      return null;
+    }
     if (bySku) return bySku;
   }
   if (key.hintId) {
     const hinted = await vendorItemById(tx, tenantId, key.hintId);
+    // DECISION (third review of fix/materials, finding 1): the semantic match's hint names the
+    // product, not its packaging: it is taken only in the line's unit, and for a box, case or
+    // pail only in the line's word; otherwise the line is looked up as if unhinted.
     if (
       hinted &&
       hinted.vendorId === key.vendorId &&
       hinted.catalogItemId === key.catalogItemId &&
-      (!key.sku || !hinted.sku)
+      (!key.sku || !hinted.sku) &&
+      (hinted.vendorUom ?? "") === (key.vendorUom ?? "") &&
+      (!packaging || effectiveWord(hinted, line) === word)
     ) {
       return hinted;
     }
@@ -177,8 +327,18 @@ export async function resolveVendorItem(
     (v) => !key.sku || !v.sku,
   );
   const sameUnit = pair.filter((v) => (v.vendorUom ?? "") === (key.vendorUom ?? ""));
+  // DECISION (second review of fix/materials, H1): a box, case or pail is the vendor item
+  // recorded in that very word, and only when exactly one is (as `vendorItemForUnit`): a case
+  // line is never filed under, priced by, or sized from the vendor's box. None: a new one.
+  if (packaging) return inWord(sameUnit, line);
   if (sameUnit.length > 0) return sameUnit[0] ?? null;
-  if (pair.length === 1 && !key.vendorUom) return pair[0] ?? null;
+  // DECISION (fifth review of fix/materials, finding 4): a line with no unit (a QuickBooks bill
+  // line) is never the vendor's only item when that is a box, case or pail: its price is per the
+  // item's standard unit, not per pack.
+  const only = pair.length === 1 ? pair[0] : undefined;
+  if (only && !key.vendorUom && !(only.vendorUom && PACKAGING_UOMS.has(only.vendorUom))) {
+    return only;
+  }
   return null;
 }
 
@@ -198,6 +358,8 @@ export interface VendorItemFields {
   currency?: string | undefined;
   // §1.104: the contract the list price is the agreed price of (with a list price only).
   contractId?: string | null | undefined;
+  /** The unit as the vendor wrote it, finer than `vendorUom` (`unitWord`): kept in `ext`. */
+  unitWord?: string | null | undefined;
   // §1.104 (0052): the client's tolerance on the agreed price (an amount, a percent).
   priceToleranceAmount?: string | null | undefined;
   priceTolerancePct?: string | null | undefined;
@@ -215,7 +377,8 @@ export async function createVendorItem(
   f: VendorItemFields,
   by: VendorItemCreator,
 ): Promise<{ item: VendorItemRow; created: boolean }> {
-  const sku = cleanSku(f.sku);
+  // A code that names no item (`identifyingSku`) is no vendor item's SKU (review, finding 5).
+  const sku = identifyingSku(f.sku);
   const [row] = await tx
     .insert(vendorItem)
     .values({
@@ -236,6 +399,7 @@ export async function createVendorItem(
       priceToleranceAmount: f.priceToleranceAmount ?? null,
       priceTolerancePct: f.priceTolerancePct ?? null,
       currency: f.currency ?? "USD",
+      ...(f.unitWord ? { ext: { unitWord: f.unitWord } } : {}),
       ...("agentVersionId" in by
         ? { createdByAgentVersionId: by.agentVersionId || null }
         : { createdByUserId: by.userId }),
@@ -275,7 +439,7 @@ export async function updateVendorItem(
     updatedAt: new Date(),
   };
   if (f.catalogItemId !== undefined) set.catalogItemId = f.catalogItemId;
-  if (f.sku !== undefined) set.sku = cleanSku(f.sku);
+  if (f.sku !== undefined) set.sku = identifyingSku(f.sku);
   if (f.name !== undefined) set.name = f.name.slice(0, 500);
   if (f.description !== undefined) set.description = f.description;
   if (f.packSize !== undefined) set.packSize = f.packSize;
@@ -307,6 +471,14 @@ export async function updateVendorItem(
   ].filter((c) => c !== null);
   if (changes.length > 0) {
     set.ext = sql`case when ${sql.join(changes, sql` or `)} then ${vendorItem.ext} - 'embedding' else ${vendorItem.ext} end`;
+  }
+  // DECISION (second review, M3): the word a unit was written in follows the unit: set with it,
+  // and cleared when a unit is set without one, so a box corrected to a case never converts a box.
+  if (f.vendorUom !== undefined) {
+    const ext = set.ext ?? sql`${vendorItem.ext}`;
+    set.ext = f.unitWord
+      ? sql`(${ext}) || ${JSON.stringify({ unitWord: f.unitWord })}::jsonb`
+      : sql`(${ext}) - 'unitWord'`;
   }
   const [row] = await tx
     .update(vendorItem)
@@ -494,13 +666,26 @@ export async function recordLeadTime(
 // the staying item's one for the same vendor and unit (`vendor_item_no_sku_key`) is folded into
 // it: its aliases and prices name the staying one, which takes its last price when newer, and it
 // is discontinued where it was (no DELETE grant; `ext.foldedInto` says where it went).
+// DECISION (fifth review of fix/materials, finding 3): only the same pack folds: the same size
+// per unit (a box or case's known) and no two different recorded words (`samePack`). A box beside
+// the staying case can't move (`vendor_item_no_sku_key` allows one per unit) and isn't folded:
+// it stays on the merged item, discontinued with `ext.notFoldedInto`, keeping its own prices and
+// observations; its aliases keep only the master item. A per-pack price never crosses sizes.
 export async function moveVendorItemsOnMerge(
   tx: Tx,
   tenantId: string,
   fromIds: readonly string[],
   intoId: string,
-): Promise<{ moved: string[]; folded: { id: string; into: string }[] }> {
-  const out = { moved: [] as string[], folded: [] as { id: string; into: string }[] };
+): Promise<{
+  moved: string[];
+  folded: { id: string; into: string }[];
+  kept: { id: string; besides: string }[];
+}> {
+  const out = {
+    moved: [] as string[],
+    folded: [] as { id: string; into: string }[],
+    kept: [] as { id: string; besides: string }[],
+  };
   if (fromIds.length === 0) return out;
   const rows = await tx
     .select()
@@ -523,6 +708,28 @@ export async function moveVendorItemsOnMerge(
               (s.vendorUom ?? "") === (r.vendorUom ?? ""),
           )
         : undefined;
+    if (twin && !samePack(twin, r)) {
+      // Another pack (a box beside the case): left where it was, discontinued, with its own
+      // prices; its aliases name the master item only, never the twin.
+      await tx
+        .update(itemAlias)
+        .set({ vendorItemId: null, updatedAt: new Date() })
+        .where(and(eq(itemAlias.tenantId, tenantId), eq(itemAlias.vendorItemId, r.id)));
+      await tx
+        .update(vendorItem)
+        .set({
+          status: "discontinued",
+          preferred: false,
+          updatedAt: new Date(),
+          ext: sql`${vendorItem.ext} || ${JSON.stringify({
+            notFoldedInto: twin.id,
+            notFoldedBecause: "another pack size or word than the vendor's item that stays",
+          })}::jsonb`,
+        })
+        .where(and(eq(vendorItem.id, r.id), eq(vendorItem.tenantId, tenantId)));
+      out.kept.push({ id: r.id, besides: twin.id });
+      continue;
+    }
     if (twin) {
       await tx
         .update(itemAlias)
@@ -571,6 +778,20 @@ export async function moveVendorItemsOnMerge(
     out.moved.push(r.id);
   }
   return out;
+}
+
+/** Whether two vendor items in one unit are the same pack: one size, and no two recorded words. */
+function samePack(a: VendorItemRow, b: VendorItemRow): boolean {
+  const sa = a.stdPerVendorUom;
+  const sb = b.stdPerVendorUom;
+  const packed = a.vendorUom !== null && PACKAGING_UOMS.has(a.vendorUom);
+  // A unit that is no pack holds one of itself when no size is recorded (as before this check).
+  if (!packed) return dec(sa ?? "1").equals(dec(sb ?? "1"));
+  if (sa === null || sb === null) return false;
+  if (!dec(sa).equals(dec(sb))) return false;
+  const wa = recordedWord(a);
+  const wb = recordedWord(b);
+  return wa === null || wb === null || wa === wb;
 }
 
 /** Marks a vendor item the client's first choice for its master item; the others lose it. */

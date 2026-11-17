@@ -74,6 +74,13 @@ export const SessionPayload = z.object({
    */
   mf: SecondFactorState.optional(),
   mfx: z.int().optional(),
+  /** §1.100: when the second step was passed (seconds); absent when it never was in this session. */
+  mft: z.int().optional(),
+  /**
+   * §1.116: a session handed to the phone app (`mobileHandoff`): removing one of the person's
+   * phones ends it (apps/api `phoneSessionEnded`).
+   */
+  ph: z.literal(true).optional(),
   /**
    * The account as last read (`compactAccount`), checked by `expandAccount` when used: a shape we
    * no longer read is a read, never a signed-out session.

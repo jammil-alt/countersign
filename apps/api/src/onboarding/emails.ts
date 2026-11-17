@@ -1,7 +1,7 @@
 // The onboarding emails (docs/cases-plan.md §4.4; docs/plan.md §1.125): the invite, a colleague
 // asked, a few more questions. Each is written to the notifications outbox (§1.37) in the caller's
 // transaction as its own kind (`intake_invite`, `intake_colleague`, `intake_more_questions`;
-// migration 0064), once per person and email (the dedupe key), and sent after the commit by the
+// migration 0066), once per person and email (the dedupe key), and sent after the commit by the
 // notification pass: rendered then in the person's language from the intake and its person (core
 // `renderInviteEmail`…), from `<Lead> at Mezonas <hello@…>` with Reply-To the lead's own address,
 // through the mailer with the row's id as the idempotency key; `skipped` without Resend, as today.

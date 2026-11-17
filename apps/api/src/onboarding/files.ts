@@ -1,5 +1,5 @@
 // The client file (docs/cases-plan.md §4.1; docs/plan.md §1.125): reading and writing files and
-// their facts in an operator's transaction. Both tables are operator-only (migration 0064): row-level
+// their facts in an operator's transaction. Both tables are operator-only (migration 0066): row-level
 // security keeps a file that names a client to operators serving it, and a fact to its file; every
 // query here says the same (invariant 1). Facts are only added: a correction is a new fact naming
 // the one it replaces, at most once. Nothing here ever reaches a client's session (invariant 11).

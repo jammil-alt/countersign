@@ -1,7 +1,8 @@
 // P-9: quotes compared, as a table (docs/plan.md §1.71): a row per line asked, a column per vendor
 // with its price per unit and what the line would cost, and each vendor's total. The comparison is
-// the pack's, made in code (one unit, one currency); the best offer on a line is in bold. Shared by
-// the request page and the vendor choice card.
+// the pack's, made in code (one unit, one currency); the best offer on a line is in bold. An offer
+// that isn't compared shows no line total, only why (the pack's note); a line that isn't compared
+// says why under its description. Shared by the request page and the vendor choice card.
 import type { CSSProperties } from "react";
 import { useI18n } from "../../i18n/i18n";
 import type { Comparison } from "./types";
@@ -27,7 +28,14 @@ export function CompareTable({ comparison }: { comparison: Comparison }) {
           <tbody>
             {comparison.lines.map((l) => (
               <tr key={l.requestLineId} data-testid="materials-compare-row">
-                <td>{l.description}</td>
+                <td>
+                  {l.description}
+                  {l.note ? (
+                    <div className="text-sm text-ink-muted" data-testid="materials-compare-note">
+                      {l.note}
+                    </div>
+                  ) : null}
+                </td>
                 <td className="n">{[fmt.figure(l.qty), l.unit].filter(Boolean).join(" ")}</td>
                 {vendors.map((v) => {
                   const o = l.offers.find((x) => x.quoteRequestId === v.quoteRequestId);
@@ -42,13 +50,23 @@ export function CompareTable({ comparison }: { comparison: Comparison }) {
                               o.unitPrice
                                 ? `${fmt.unitPrice(o.unitPrice, o.currency)}${o.unit ? ` / ${o.unit}` : ""}`
                                 : null,
-                              o.lineTotal ? fmt.money(o.lineTotal, o.currency) : null,
+                              o.comparable && o.lineTotal
+                                ? fmt.money(o.lineTotal, o.currency)
+                                : null,
                               o.leadTimeDays !== null
                                 ? t("materials.request.lead", { count: o.leadTimeDays })
                                 : null,
                             ]
                               .filter(Boolean)
                               .join(" · ")}
+                      {o?.available && o.note ? (
+                        <div
+                          className="text-sm text-ink-muted"
+                          data-testid="materials-compare-offer-note"
+                        >
+                          {o.note}
+                        </div>
+                      ) : null}
                     </td>
                   );
                 })}

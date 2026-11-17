@@ -177,7 +177,7 @@ call and Reggie with Autopilot are built on two stacked PRs, neither merged: the
 owner to try it on staging and say when to merge. Decisions: `docs/plan.md` §1.124 (M64–M68); what
 each stream left open is in its "Not yet" row in §1.124.1–§1.124.4.
 
-Onboarding's first part (steps O1–O3, `docs/plan.md` §1.125, M69, migration 0064) is built on
+Onboarding's first part (steps O1–O3, `docs/plan.md` §1.125, M69, migration 0066) is built on
 top of it, on its own branch, not merged: a client file of what we know about each prospect and
 client; **Invite** from the lead record (a general, area or agents intake, filled from the file's
 `theirs` facts) and **Sign up now** from a saved start, both logged as a deal at the right stage

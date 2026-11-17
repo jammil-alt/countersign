@@ -89,7 +89,7 @@ export const KnowledgeMemoryNote = z.object({
 export type KnowledgeMemoryNote = z.infer<typeof KnowledgeMemoryNote>;
 
 export const KnowledgeHit = z.object({
-  // §1.125 (0064): `about`, confirmed facts about the client's business.
+  // §1.125 (0066): `about`, confirmed facts about the client's business.
   kind: z.enum(["faq", "policy", "about", "document", "memory"]),
   id: z.string(),
   title: z.string(),

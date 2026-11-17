@@ -5,13 +5,20 @@
 // attach it to an email or a QuickBooks purchase order. It writes nothing to a client's tool.
 
 import type { ContentStore } from "@countersign/connectors";
-import { dec, formatAmount, toNumeric } from "@countersign/core";
+import { Decimal, dec, formatAmount, toNumeric } from "@countersign/core";
 import { type Db, document, type Tx, tenant, vendor, withTenant } from "@countersign/db";
 import { countPages } from "@countersign/documents";
 import { and, eq } from "drizzle-orm";
 import { PageSizes, PDFDocument, type PDFFont, type PDFPage, rgb, StandardFonts } from "pdf-lib";
+import { unitKey } from "../pricing/uom";
 import { quoteLines, quoteRow, vendorAliases } from "./quotes";
-import { type PurchasingContext, PurchasingError, requestLines, requestRow } from "./requests";
+import {
+  clientDay,
+  type PurchasingContext,
+  PurchasingError,
+  requestLines,
+  requestRow,
+} from "./requests";
 
 // The design system's ink, muted ink, slate and border (packages/design-system/tokens.css).
 const INK = rgb(0x1a / 255, 0x1f / 255, 0x26 / 255);
@@ -60,6 +67,10 @@ function winAnsi(font: PDFFont, text: string): string {
   }
   return out;
 }
+
+/** Cents, half up (as QuickBooks rounds an amount). */
+export const cents = (v: string | Decimal): string =>
+  dec(v).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toFixed(2);
 
 function moneyText(amount: string, currency: string): string {
   return currency === "USD" ? `$${formatAmount(amount)}` : `${currency} ${formatAmount(amount)}`;
@@ -254,17 +265,31 @@ export async function poContent(
   const lines: PoLine[] = [];
   const ids: string[] = [];
   let total = dec("0");
-  for (const { row } of asked) {
+  for (const { row, item } of asked) {
     // P-9: a split order holds only its vendor's share of the lines.
     if (input.requestLineIds && !input.requestLineIds.includes(row.id)) continue;
     const ql = quoted.find((x) => x.purchaseRequestLineId === row.id);
     if (!ql?.available || ql.unitPrice === null) continue;
+    // DECISION (second review, M1): with no quantity of its own, the vendor's line orders the
+    // quantity asked only in the unit asked; in another unit a person says how many first.
+    // A box and a case are two units (`unitKey`); a line asked with no unit is in its item's
+    // standard unit, and with no item in whatever unit the vendor quotes.
+    const askedUnit = unitKey(row.unit) ?? unitKey(item?.standardUom ?? null);
+    const sameUnit = askedUnit === null || unitKey(ql.unit) === askedUnit;
+    if (ql.qty === null && !sameUnit) {
+      throw new PurchasingError(
+        "invalid",
+        `line ${row.lineNo}: the vendor quoted per ${ql.unit} without saying how many; set the quantity to order`,
+      );
+    }
     const qty = ql.qty ?? row.qty;
     // P-9 (0036): a line nobody has said how many of is never ordered.
     if (qty === null) {
       throw new PurchasingError("invalid", `line ${row.lineNo} has no quantity yet`);
     }
-    const amount = dec(ql.unitPrice).times(qty);
+    // DECISION: each line's amount is rounded half up to cents and the total is their sum, as
+    // QuickBooks computes a purchase order (`poQboLines`), so the PDF and the books agree.
+    const amount = dec(cents(dec(ql.unitPrice).times(qty)));
     total = total.plus(amount);
     ids.push(ql.id);
     lines.push({
@@ -296,7 +321,8 @@ export async function poContent(
       reference,
       clientName: client?.name ?? "",
       vendorName: v?.name ?? "Vendor",
-      date: (q.receivedAt ?? q.updatedAt).toISOString().slice(0, 10),
+      // The client's own day the quote came in (its time zone), not the UTC day.
+      date: await clientDay(tx, ctx.tenantId, q.receivedAt ?? q.updatedAt),
       neededBy: r.neededBy,
       fulfillment: r.fulfillment,
       deliverTo: r.deliverTo,
@@ -506,14 +532,14 @@ export async function rfqDocument(
       reference,
       clientName: client?.name ?? "",
       vendorName: v?.name ?? "A vendor",
-      date: q.createdAt.toISOString().slice(0, 10),
+      date: await clientDay(tx, ctx.tenantId, q.createdAt),
       neededBy: r.neededBy,
       fulfillment: r.fulfillment,
       deliverTo: r.deliverTo,
       currency: q.currency,
       lines,
       total: "0",
-      notes: `Please reply with your price per unit, the unit, the lead time and whether you have each item${q.dueAt ? `, by ${q.dueAt.toISOString().slice(0, 10)}` : ""}.`,
+      notes: `Please reply with your price per unit, the unit, the lead time and whether you have each item${q.dueAt ? `, by ${await clientDay(tx, ctx.tenantId, q.dueAt)}` : ""}.`,
     };
     return {
       content: c,

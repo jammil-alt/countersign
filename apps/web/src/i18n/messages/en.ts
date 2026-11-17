@@ -101,6 +101,7 @@ export const en = {
   "error.not_importable": "The directory imports from Zoho CRM or Podio.",
   "error.contact_exists": "Someone in the directory already has that email address or number.",
   "error.rate_limited": "Wait a minute and try again.",
+  "error.daily_limit": "You've reached today's limit for this. Try again tomorrow.",
   "error.no_address": "We don't know this account's address. Connect it again.",
   "error.different_account":
     "This is a different account from the one connected here. Disconnect it first, then connect the other one.",
@@ -2671,6 +2672,18 @@ export const en = {
   "bookkeeping.review.loading": "Loading the transactions…",
   "bookkeeping.review.suggested": "We suggest {account}",
   "bookkeeping.review.noSuggestion": "No suggestion yet",
+  "bookkeeping.review.openBill":
+    "Is this the payment of an open bill: {what}? If so, apply it to the bill in QuickBooks, then leave this out.",
+  "bookkeeping.review.openInvoice":
+    "Is this the payment of an open invoice: {what}? If so, apply it to the invoice in QuickBooks, then leave this out.",
+  "bookkeeping.review.openBillPaid":
+    "QuickBooks shows this bill paid: {what}. If this is that payment, leave it out.",
+  "bookkeeping.review.openInvoicePaid":
+    "QuickBooks shows this invoice paid: {what}. If this is that payment, leave it out.",
+  "bookkeeping.review.pairHeld":
+    "Bank transaction {what}: may be the other side of a transfer that wasn't written or was left out. Decide the two together.",
+  "bookkeeping.review.resent":
+    "The bank sent this again after removing an earlier copy. Decide it here: nothing is booked for it until you do.",
   "bookkeeping.review.approve": "Approve",
   "bookkeeping.review.account": "Account for {payee}",
   "bookkeeping.review.why": "Why, in a few words (optional)",
@@ -2691,6 +2704,8 @@ export const en = {
   "bookkeeping.recon.loading": "Loading the reconciliation…",
   "bookkeeping.recon.difference": "Difference",
   "bookkeeping.recon.unexplainedBy": "{amount} isn't explained",
+  "bookkeeping.recon.startGap":
+    "The opening balances differ by {amount}, and nothing carried from the last sign-off explains it. Add what was outstanding at the start of the period, such as a check written before it that cleared during it.",
   "bookkeeping.recon.asOf": "As of {day}",
   "bookkeeping.recon.outcome.balanced": "Balanced",
   "bookkeeping.recon.outcome.explained": "Explained",
@@ -2920,6 +2935,11 @@ export const en = {
     "Claude is asking to use Mezonas as you. It first asked at {time}. Approve it only if you just connected Claude yourself.",
   "connectClaude.lasts":
     "This link works until {time}. Once approved, it lasts until that Claude sign-in ends, 12 hours at most.",
+  "connectClaude.requested":
+    "Claude gave you this link at {time}. If you didn't ask Claude for it just now, don't approve it.",
+  "connectClaude.confirm": "The code Claude showed you",
+  "connectClaude.confirmHint":
+    "Claude shows a 6-digit code with this link. Type the one your own Claude shows you, never one someone else sends you.",
   "connectClaude.approve": "Approve",
   "connectClaude.approving": "Approving…",
   "connectClaude.approved":

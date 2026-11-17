@@ -9,6 +9,8 @@ import { alert, docExtraction, docLine, document, type Tx, vendor } from "@count
 import { and, asc, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { latestMatch } from "./catalog/store";
 import { PACK_ID } from "./ids";
+import { alertCurrency, atStakeOf } from "./pricing/money";
+import { fromLatestReading } from "./pricing/record";
 import { daysBefore } from "./pricing/rules";
 import { catalogItem, itemAlias, priceObservation } from "./schema";
 
@@ -100,6 +102,8 @@ export interface PriceWatchRow {
   standardUom: string;
   vendorId: string;
   vendor: string;
+  /** The currency of the row's prices: a vendor billing in two has a row in each. */
+  currency: string;
   lastPrice: string;
   lastOn: string;
   previousPrice: string | null;
@@ -120,6 +124,8 @@ export interface PriceWatchAlert {
   title: string;
   body: string;
   dollarImpact: string | null;
+  /** The currency of its dollar impact (US dollars for an alert that names none). */
+  currency: string;
   createdAt: string;
   catalogItemId: string | null;
   vendorId: string | null;
@@ -131,7 +137,16 @@ export interface PriceWatch {
   asOf: string;
   rows: PriceWatchRow[];
   alerts: PriceWatchAlert[];
-  totals: { items: number; vendors: number; openAlerts: number; dollarImpact: string };
+  totals: {
+    items: number;
+    vendors: number;
+    openAlerts: number;
+    /** At stake in `currency`: the currency most open alerts are in (US dollars on a tie). */
+    dollarImpact: string;
+    currency: string;
+    /** At stake in each currency, never added across them. */
+    atStake: { currency: string; amount: string }[];
+  };
 }
 
 // DECISION: Price watch reads the last 400 days of prices (enough for a 90-day series and the
@@ -154,7 +169,14 @@ export async function priceWatch(
     .from(priceObservation)
     .innerJoin(catalogItem, eq(catalogItem.id, priceObservation.catalogItemId))
     .innerJoin(vendor, eq(vendor.id, priceObservation.vendorId))
-    .where(and(eq(priceObservation.tenantId, tenantId), gte(priceObservation.observedOn, since)))
+    .where(
+      and(
+        eq(priceObservation.tenantId, tenantId),
+        gte(priceObservation.observedOn, since),
+        // A document read again counts once: its latest reading's prices only.
+        fromLatestReading(),
+      ),
+    )
     .orderBy(asc(priceObservation.observedOn), asc(priceObservation.createdAt));
   const alerts = await tx
     .select()
@@ -174,7 +196,8 @@ export async function priceWatch(
 
   const groups = new Map<string, typeof rows>();
   for (const r of rows) {
-    const key = `${r.o.catalogItemId}:${r.o.vendorId}`;
+    // Per currency too: a change is never a CAD price against a USD one.
+    const key = `${r.o.catalogItemId}:${r.o.vendorId}:${r.o.currency}`;
     groups.set(key, [...(groups.get(key) ?? []), r]);
   }
   const window = daysBefore(input.today, 90);
@@ -199,6 +222,7 @@ export async function priceWatch(
       standardUom: last.o.standardUom,
       vendorId: last.o.vendorId,
       vendor: last.vendor,
+      currency: last.o.currency,
       lastPrice: last.o.unitPriceStd,
       lastOn: last.o.observedOn,
       previousPrice: prev?.o.unitPriceStd ?? null,
@@ -234,6 +258,7 @@ export async function priceWatch(
         title: a.title,
         body: a.body,
         dollarImpact: a.dollarImpact,
+        currency: alertCurrency(a),
         createdAt: a.createdAt.toISOString(),
         catalogItemId: typeof facts.catalogItemId === "string" ? facts.catalogItemId : null,
         vendorId: typeof facts.vendorId === "string" ? facts.vendorId : null,
@@ -245,13 +270,7 @@ export async function priceWatch(
       items: new Set(out.map((r) => r.catalogItemId)).size,
       vendors: new Set(out.map((r) => r.vendorId)).size,
       openAlerts: open.length,
-      // §1.104: at stake is money to claim back; a saving (a negative impact) doesn't net it out.
-      dollarImpact: toNumeric(
-        open.reduce(
-          (s, a) => (dec(a.dollarImpact ?? "0").greaterThan(0) ? s.plus(a.dollarImpact ?? "0") : s),
-          dec("0"),
-        ),
-      ),
+      ...atStakeOf(open),
     },
   };
 }
@@ -291,7 +310,7 @@ export async function catalogReport(tx: Tx, tenantId: string): Promise<{ items: 
       lastOn: sql<string>`max(${priceObservation.observedOn})::text`,
     })
     .from(priceObservation)
-    .where(eq(priceObservation.tenantId, tenantId))
+    .where(and(eq(priceObservation.tenantId, tenantId), fromLatestReading()))
     .groupBy(priceObservation.catalogItemId);
   const lastPrices = await tx
     .selectDistinctOn([priceObservation.catalogItemId], {
@@ -299,7 +318,7 @@ export async function catalogReport(tx: Tx, tenantId: string): Promise<{ items: 
       price: priceObservation.unitPriceStd,
     })
     .from(priceObservation)
-    .where(eq(priceObservation.tenantId, tenantId))
+    .where(and(eq(priceObservation.tenantId, tenantId), fromLatestReading()))
     .orderBy(
       priceObservation.catalogItemId,
       desc(priceObservation.observedOn),
@@ -344,6 +363,7 @@ export function priceWatchCsv(report: PriceWatch): string {
       "Category",
       "Unit",
       "Vendor",
+      "Currency",
       "Last price",
       "Last purchased",
       "Price before",
@@ -357,6 +377,7 @@ export function priceWatchCsv(report: PriceWatch): string {
       r.category,
       r.standardUom,
       r.vendor,
+      r.currency,
       r.lastPrice,
       r.lastOn,
       r.previousPrice,

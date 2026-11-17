@@ -824,6 +824,7 @@ export const quoteCompare = defineTool({
         missing: z.array(z.string()),
         unavailable: z.array(z.string()),
         note: z.string().nullable(),
+        compared: z.boolean(),
       }),
     ),
     vendors: z.array(
@@ -1162,7 +1163,8 @@ export const poQboLinesTool = defineTool({
         (typeof setting === "string" && /^[0-9]{1,20}$/.test(setting.trim())
           ? setting.trim()
           : null),
-      txnDate: input.txnDate ?? today(),
+      // The client's own today when the step gives none (`poQboLines`), not the UTC day.
+      txnDate: input.txnDate,
     });
   },
 });

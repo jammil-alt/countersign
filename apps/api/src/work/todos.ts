@@ -58,6 +58,11 @@ export function todoOpen(now: Date): SQL {
   ) as SQL;
 }
 
+/** A Dev queue request on the Feedback page's Dev queue tab (docs/plan.md §1.125). */
+export function devQueueHref(id: string): string {
+  return `/ops/utilities/feedback?tab=dev-queue&request=${encodeURIComponent(id)}`;
+}
+
 export function aboutHref(kind: string, id: string): string | null {
   switch (kind) {
     case "issue":
@@ -72,6 +77,8 @@ export function aboutHref(kind: string, id: string): string | null {
       return `/ops/runs/${id}`;
     case "client":
       return `/ops/clients/${id}`;
+    case "code_request":
+      return devQueueHref(id);
     default:
       return null;
   }

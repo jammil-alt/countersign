@@ -4,13 +4,15 @@
 // as one order per vendor, and the back office's bill-price import paging to the end and safe to
 // run again. Client B never reaches client A's rows (invariant 1).
 
-import { closeDb, createDb, type Db, vendor } from "@countersign/db";
+import { isoToday } from "@countersign/core";
+import { closeDb, createDb, type Db, tenant, vendor, withTenant } from "@countersign/db";
 import { createTestDatabase, databaseAvailable, type TestDatabase } from "@countersign/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { importBillPrices, MATERIALS_ACTIONS } from "../api";
 import { insertShop, type ShopFixture } from "../testing.test-helper";
 import { type PackTool, packToolContext } from "../tools";
+import { poContent } from "./po";
 import { cents } from "./qbo";
 import {
   poQboLinesTool,
@@ -188,6 +190,118 @@ describe.skipIf(!online)("QuickBooks pieces of the buyer (database)", () => {
     ).toBe("44");
     expect(await fails(poQboLinesTool, input, B)).toMatch(/not found/);
     settings.qbo_account_id = undefined;
+  });
+
+  it("rounds each line to cents before the total, the same on the PDF and in QuickBooks", async () => {
+    settings.qbo_account_id = "33";
+    const r = await call(requestCreate, {
+      channel: "email",
+      lines: [
+        { description: "#8 X 1-1/4 WOOD SCREW", qty: "250", unit: "EA" },
+        { description: "#8 X 1-5/8 WOOD SCREW", qty: "250", unit: "EA" },
+      ],
+    });
+    const ids = r.request.lines.map((l: J) => l.id);
+    const rfq = await call(quoteCreate, { requestId: r.request.id, vendorIds: [v.keystone] });
+    const quoteId = rfq.quotes[0].id;
+    await call(quoteMarkSent, { quoteRequestId: quoteId, sentVia: "email" });
+    await call(quoteRecord, {
+      quoteRequestId: quoteId,
+      lines: ids.map((id: string) => ({ requestLineId: id, unitPrice: "0.1275", unit: "EA" })),
+    });
+    // 250 × 0.1275 = 31.875 → 31.88 a line; 63.76 in all (not 63.75, the rounded sum).
+    const out = await call(poQboLinesTool, {
+      requestId: r.request.id,
+      quoteRequestId: quoteId,
+      txnDate: "2026-11-08",
+    });
+    expect(out.order.expectedTotal).toBe("63.76");
+    const pdf = await withTenant(db, A.tenantId, (tx) =>
+      poContent(tx, { tenantId: A.tenantId } as never, {
+        requestId: r.request.id,
+        quoteRequestId: quoteId,
+      }),
+    );
+    expect(pdf.content.lines.map((l) => l.amount)).toEqual(["31.8800", "31.8800"]);
+    expect(pdf.content.total).toBe("63.7600");
+    settings.qbo_account_id = undefined;
+  });
+
+  it("never orders the asked number in the vendor's own unit when it gave no quantity", async () => {
+    settings.qbo_account_id = "33";
+    const r = await call(requestCreate, {
+      channel: "email",
+      lines: [{ description: "#8 X 1-5/8 WOOD SCREW", qty: "500", unit: "EA" }],
+    });
+    const rfq = await call(quoteCreate, { requestId: r.request.id, vendorIds: [v.keystone] });
+    const quoteId = rfq.quotes[0].id;
+    await call(quoteMarkSent, { quoteRequestId: quoteId, sentVia: "email" });
+    const rec = await call(quoteRecord, {
+      quoteRequestId: quoteId,
+      lines: [{ requestLineId: r.request.lines[0].id, unitPrice: "9.00", unit: "BX" }],
+    });
+    // Per box, size unknown, no quantity: not 500 boxes.
+    expect(rec.lines[0].qty).toBeNull();
+    expect(
+      await fails(poQboLinesTool, {
+        requestId: r.request.id,
+        quoteRequestId: quoteId,
+        txnDate: "2026-11-08",
+      }),
+    ).toMatch(/quoted per BX without saying how many/);
+    // 5 boxes asked, quoted per case with no quantity: a case is not a box; no order of 5 cases.
+    const boxes = await call(requestCreate, {
+      channel: "email",
+      lines: [{ description: "#8 X 2 WOOD SCREW 100/BX", qty: "5", unit: "BX" }],
+    });
+    const rfq2 = await call(quoteCreate, { requestId: boxes.request.id, vendorIds: [v.keystone] });
+    const q2 = rfq2.quotes[0].id;
+    await call(quoteMarkSent, { quoteRequestId: q2, sentVia: "email" });
+    const rec2 = await call(quoteRecord, {
+      quoteRequestId: q2,
+      lines: [{ requestLineId: boxes.request.lines[0].id, unitPrice: "80.00", unit: "CS" }],
+    });
+    expect(rec2.lines[0].qty).toBeNull();
+    expect(
+      await fails(poQboLinesTool, { requestId: boxes.request.id, quoteRequestId: q2 }),
+    ).toMatch(/quoted per CS without saying how many/);
+    settings.qbo_account_id = undefined;
+  });
+
+  it("dates the order on the client's own day, not the UTC one", async () => {
+    settings.qbo_account_id = "33";
+    await t.db
+      .update(tenant)
+      .set({ timezone: "America/Los_Angeles" })
+      .where(eq(tenant.id, A.tenantId));
+    try {
+      const r = await call(requestCreate, {
+        channel: "email",
+        lines: [{ description: "3/4 BB/BB BALTIC BIRCH 5X5", qty: "2", unit: "sheets" }],
+      });
+      const rfq = await call(quoteCreate, { requestId: r.request.id, vendorIds: [v.keystone] });
+      const quoteId = rfq.quotes[0].id;
+      await call(quoteMarkSent, { quoteRequestId: quoteId, sentVia: "email" });
+      // 18:30 in Los Angeles on November 30 is December 1 in UTC.
+      await call(quoteRecord, {
+        quoteRequestId: quoteId,
+        receivedAt: "2026-12-01T02:30:00Z",
+        lines: [{ requestLineId: r.request.lines[0].id, unitPrice: "60.00", unit: "SHT" }],
+      });
+      const pdf = await withTenant(db, A.tenantId, (tx) =>
+        poContent(tx, { tenantId: A.tenantId } as never, {
+          requestId: r.request.id,
+          quoteRequestId: quoteId,
+        }),
+      );
+      expect(pdf.content.date).toBe("2026-11-30");
+      const before = isoToday(new Date(), "America/Los_Angeles");
+      const out = await call(poQboLinesTool, { requestId: r.request.id, quoteRequestId: quoteId });
+      expect([before, isoToday(new Date(), "America/Los_Angeles")]).toContain(out.order.txnDate);
+    } finally {
+      await t.db.update(tenant).set({ timezone: "UTC" }).where(eq(tenant.id, A.tenantId));
+      settings.qbo_account_id = undefined;
+    }
   });
 
   it("orders a split as one QuickBooks order per vendor, each quote once", async () => {

@@ -66,10 +66,11 @@ export function addressLabel(name: string): string {
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
+    // Each run of anything else is one "-", so trimming one at either end is enough (and linear).
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
+    .replace(/^-|-$/g, "")
     .slice(0, 16)
-    .replace(/-+$/g, "");
+    .replace(/-$/, "");
   return slug || "client";
 }
 

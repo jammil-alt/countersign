@@ -30,6 +30,7 @@ import {
   type Services,
   transcriberFor,
 } from "../http";
+import { claimMetered } from "../metered";
 
 /** The recording, refused unless a type a browser records and a size voice typing takes. */
 async function readRecording(c: AppContext): Promise<{ audio: Uint8Array; type: string }> {
@@ -118,6 +119,19 @@ export function voiceRoutes(app: Hono<AppEnv>): void {
       browser: parseAcceptLanguage(ctx.c.req.header("accept-language")),
     });
     const t = transcriberOf(ctx.services);
-    return writeOut(t, await readRecording(ctx.c), locale.slice(0, 2));
+    const recording = await readRecording(ctx.c);
+    // Audit 5.9: each person's recordings are limited per minute and per day (../metered.ts).
+    // DECISION: claimed once the recording is known to be one we would send (the client covered,
+    // voice typing set up, the recording's type and size right) and just before it goes to
+    // OpenAI, so only a recording that is sent uses the allowance.
+    await ctx.inTx((scoped) =>
+      claimMetered(scoped.tx, ctx.c, {
+        kind: "transcribe",
+        tenantId: clientId,
+        session: ctx.session,
+        role: ctx.role,
+      }),
+    );
+    return writeOut(t, recording, locale.slice(0, 2));
   });
 }

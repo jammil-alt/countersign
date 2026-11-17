@@ -248,7 +248,7 @@ export interface RecordedReading {
 
 /** One thing `knowledge.search` found: an FAQ, policy, document or memory note. */
 export interface KnowledgeHitForTool {
-  // §1.125 (0064): `about`, confirmed facts about the client's business.
+  // §1.125 (0066): `about`, confirmed facts about the client's business.
   kind: "faq" | "policy" | "about" | "document" | "memory";
   id: string;
   title: string;

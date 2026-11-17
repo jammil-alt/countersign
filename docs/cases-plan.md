@@ -7,7 +7,7 @@ and the code on top of it (PR #383, `claude/ops-work-szb740`): Build, Sales, You
 with Autopilot and `support@`/`hello@` email, all against fakes. The decisions are `docs/plan.md`
 §1.124 (the §8 questions it answered are recorded there), the milestones M64–M68. Onboarding (§4)
 is built on top of it in steps O1 to O6 (§7). **O1–O3 are built** in one PR (`docs/plan.md` §1.125
-and §1.125.1–§1.125.5, M69, migration 0064), with Sales' "stages are a record, not a gate" and
+and §1.125.1–§1.125.5, M69, migration 0066), with Sales' "stages are a record, not a gate" and
 "every account is in Sales" (§3.1) and the owner's defaults for §8's questions 9–18. **Next**: O4
 (talk it through with Sloan), O5 (the scope, signing, facts into the knowledge base, the fit-gap
 hand-off, the reminders and the remaining emails), Reggie filing facts (A1's part for

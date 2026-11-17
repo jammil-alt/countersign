@@ -1,4 +1,4 @@
-// Onboarding v1 (migration 0064, docs/plan.md §1.125) as the Worker's role sees it. A client file,
+// Onboarding v1 (migration 0066, docs/plan.md §1.125) as the Worker's role sees it. A client file,
 // its facts and the saved starts are the operator's: a client's session reads none of them, and an
 // operator sees only files about the clients it serves or about none (prospects), and a fact only
 // with its file. A client's intake, its people, answers, scope and log are its own: forced RLS, and

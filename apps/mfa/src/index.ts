@@ -20,6 +20,36 @@ export { Codes } from "./service";
 
 const IDENTITY_ID = /^[a-z2-7]{12}$/;
 
+/** Twilio's inbound text forms are a few kilobytes; nothing larger is read (audit 6.5). */
+const SMS_MAX_BYTES = 64 * 1024;
+
+/**
+ * The body as text, never read past `limit` (null when it is longer): the declared length first,
+ * then the count while reading.
+ */
+// DECISION: a copy of apps/api's `readBodyLimited` (src/body.ts): this service imports
+// @countersign/core only and shares no code at runtime with apps/api.
+async function readTextLimited(req: Request, limit: number): Promise<string | null> {
+  const declared = Number(req.headers.get("content-length") ?? "");
+  if (Number.isFinite(declared) && declared > limit) return null;
+  const reader = req.body?.getReader();
+  if (!reader) return "";
+  const decoder = new TextDecoder();
+  let text = "";
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > limit) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+  return text + decoder.decode();
+}
+
 export const app = new Hono<{ Bindings: CodesEnv }>();
 
 app.get("/health", (c) => c.json({ ok: true }));
@@ -34,9 +64,10 @@ app.post("/twilio/sms/:identityId", async (c) => {
   const origin = c.env.MFA_ORIGIN?.replace(/\/+$/, "");
   if (!token || !origin) return c.text("not configured", 503);
   const identityId = c.req.param("identityId");
-  const body = await c.req.parseBody();
+  const text = await readTextLimited(c.req.raw, SMS_MAX_BYTES);
+  if (text === null) return c.text("too large", 413);
   const params: Record<string, string> = {};
-  for (const [k, v] of Object.entries(body)) if (typeof v === "string") params[k] = v;
+  for (const [k, v] of new URLSearchParams(text)) params[k] = v;
   const url = new URL(c.req.url);
   const valid = await verifyTwilioSignature({
     authToken: token,

@@ -7,6 +7,8 @@ import { type Db, vendor, withTenant } from "@countersign/db";
 import { EMBED_BATCH_MAX, EMBEDDING_DIMENSIONS } from "@countersign/llm";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
+import { identifyingSku } from "../catalog/store";
+import { unitWord } from "../pricing/uom";
 import { catalogItem, VENDOR_ITEM_STATUSES, vendorItem } from "../schema";
 import { Answer, Checked, LookedUp, Open } from "../split";
 import { defineTool, type PackTool, type PackToolContext } from "../tools";
@@ -367,6 +369,8 @@ const RegisteredOut = z.object({
   observationId: z.string().nullable(),
   recorded: z.boolean(),
   priceSkipped: z.string().nullable(),
+  /** Why the line is filed under no vendor item, when it isn't. */
+  note: z.string().nullable(),
 });
 
 const NeedsPersonOut = z.object({
@@ -614,7 +618,15 @@ function saveVendorItem(
       if (m.merged)
         throw new VendorItemError("conflict", "that catalog item was merged into another");
     }
-    const sku = input.sku === undefined ? undefined : cleanSku(input.sku);
+    const sku = input.sku === undefined ? undefined : identifyingSku(cleanSku(input.sku));
+    // A code that names no item is refused, not dropped: dropped, every save would make
+    // another vendor item without a SKU (second review, L1).
+    if (input.sku?.trim() && !sku) {
+      throw new VendorItemError(
+        "bad_input",
+        `"${input.sku.trim().slice(0, 40)}" can't be a SKU (too short, or a code like SPO or MISC): leave it out`,
+      );
+    }
     const existing = input.id
       ? await vendorItemById(tx, ctx.tenantId, input.id)
       : sku
@@ -627,7 +639,11 @@ function saveVendorItem(
     }
     const { id: _id, vendorId: _vendorId, ...fields } = input;
     if (existing) {
-      const item = await updateVendorItem(tx, ctx.tenantId, existing.id, { ...fields, sku });
+      const item = await updateVendorItem(tx, ctx.tenantId, existing.id, {
+        ...fields,
+        sku,
+        ...(input.vendorUom !== undefined ? { unitWord: unitWord(input.vendorUom) } : {}),
+      });
       return { item: vendorItemView(item), created: false, sources: [item.id] };
     }
     if (!input.catalogItemId || !input.name) {
@@ -638,6 +654,7 @@ function saveVendorItem(
       ctx.tenantId,
       {
         ...fields,
+        unitWord: unitWord(input.vendorUom),
         vendorId: input.vendorId,
         catalogItemId: input.catalogItemId,
         name: input.name,

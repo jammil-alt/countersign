@@ -124,6 +124,27 @@ describe("qbo.purchase.create", () => {
     ).toContain("already in QuickBooks");
   });
 
+  it("finds a write made for an earlier booking of the same bank transaction (one reference for all)", async () => {
+    const s = await setup();
+    const first = await executeWrite(s.connector, BANKING_TOOLS.purchaseCreate, charge, s.ctx());
+    const id = (first.output as { id: string }).id;
+    // Booked again with other lines after a write nobody recorded: the same reference.
+    const again = {
+      ...charge,
+      lines: [{ accountId: "84", amount: "48.10", description: "Glue" }],
+    };
+    expect(
+      await refusal(captureBefore(s.connector, BANKING_TOOLS.purchaseCreate, again, s.propose())),
+    ).toContain("already in QuickBooks");
+    const out = await executeWrite(
+      s.connector,
+      BANKING_TOOLS.purchaseCreate,
+      again,
+      s.ctx("run-2:step-1:0"),
+    );
+    expect(out.output).toMatchObject({ id, alreadyDone: true });
+  });
+
   it("refuses a purchase someone already entered for the same card, day and amount", async () => {
     const s = await setup();
     s.qbo.put("Purchase", {
@@ -141,6 +162,24 @@ describe("qbo.purchase.create", () => {
     expect(
       await refusal(executeWrite(s.connector, BANKING_TOOLS.purchaseCreate, charge, s.ctx())),
     ).toContain("(77)");
+  });
+
+  it("books a second charge of the same card, day and amount when the first is another booking's", async () => {
+    const s = await setup();
+    s.qbo.put("Purchase", {
+      Id: "78",
+      SyncToken: "0",
+      AccountRef: { value: CARD },
+      PaymentType: "CreditCard",
+      TxnDate: "2026-11-03",
+      TotalAmt: 48.1,
+      PrivateNote: `Glue and blades ${referenceMark("bk-0190f0c7")}`,
+      Line: [],
+    });
+    await captureBefore(s.connector, BANKING_TOOLS.purchaseCreate, charge, s.propose());
+    const out = await executeWrite(s.connector, BANKING_TOOLS.purchaseCreate, charge, s.ctx());
+    expect(out.output).toMatchObject({ alreadyDone: false });
+    expect((out.output as { id: string }).id).not.toBe("78");
   });
 
   it("refuses lines that don't add up, item lines, an account that isn't a card, and an unknown account", async () => {

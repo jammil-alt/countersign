@@ -36,9 +36,15 @@ export const FIRST_CLIENT = { name: "Mezonas", timezone: "America/Chicago" } as 
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/**
+ * Invites an operator (above). One `operator.add` audit row records each run, as `operator.remove`
+ * does: the user, how many clients they now serve, whether the invite is new, and who ran it.
+ */
+// DECISION: `by` is optional, as for removeOperator; the script fills it from the workflow's run
+// (GITHUB_ACTOR and GITHUB_RUN_ID) when no BY is set, so the workflow needs no change.
 export async function addOperator(
   db: Db,
-  input: { readonly email: string; readonly name?: string | null },
+  input: { readonly email: string; readonly name?: string | null; readonly by?: string | null },
 ): Promise<AddOperatorResult> {
   const email = input.email.trim().toLowerCase();
   if (!EMAIL.test(email)) throw new Error(`not an email address: ${JSON.stringify(input.email)}`);
@@ -87,6 +93,19 @@ export async function addOperator(
         )
         .onConflictDoNothing();
     }
+    await tx.insert(auditEvent).values({
+      tenantId: null,
+      actorKind: "system",
+      action: "operator.add",
+      outcome: "ok",
+      target: {
+        user: row.id,
+        clients: String(tenantIds.length),
+        created: String(inserted.length > 0),
+        ...(firstClientId ? { createdClient: firstClientId } : {}),
+        ...(input.by ? { by: input.by.slice(0, 200) } : {}),
+      },
+    });
     return {
       userId: row.id,
       created: inserted.length > 0,
