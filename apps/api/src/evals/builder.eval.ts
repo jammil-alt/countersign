@@ -12,7 +12,7 @@
 //   BUILDER_EVAL_CASES=reminders-fitgap  BUILDER_EVAL_MODEL=claude-opus-5-5  BUILDER_EVAL_REPORT=out.md
 
 import { writeFileSync } from "node:fs";
-import { buildTurn } from "@countersign/agents";
+import { buildTurn, reviewBrief } from "@countersign/agents";
 import {
   anthropicTransport,
   createLlmClient,
@@ -70,10 +70,35 @@ describe.skipIf(!key)("the Builder's test cases", () => {
     it(c.id, { timeout: 15 * 60_000 }, async () => {
       let out: Awaited<ReturnType<typeof buildTurn>>;
       try {
-        out = await buildTurn(
-          { ...c.input, ctx },
-          { llm, ...(builderModel ? { model: builderModel } : {}) },
-        );
+        if (c.runs === "review") {
+          const r = await reviewBrief(
+            {
+              title: c.input.title,
+              kind: c.input.kind,
+              clientName: c.input.clientName,
+              brief: c.input.brief,
+              otherWork: c.input.otherWork ?? [],
+              issues: [],
+              ctx,
+            },
+            { llm, ...(builderModel ? { model: builderModel } : {}) },
+          );
+          // Its concerns, read as the conversation would show them.
+          out = {
+            answer: {
+              text: r.concerns.map((x, i) => `${i + 1}. ${x.title} ${x.detail}`).join("\n"),
+              chips: [],
+              items: [],
+            },
+            calls: r.calls,
+            costUsd: r.costUsd,
+          };
+        } else {
+          out = await buildTurn(
+            { ...c.input, ctx },
+            { llm, ...(builderModel ? { model: builderModel } : {}) },
+          );
+        }
       } catch (error) {
         results.push({
           c,

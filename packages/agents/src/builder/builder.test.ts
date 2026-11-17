@@ -251,7 +251,9 @@ describe("draftAgent", () => {
     expect(JSON.stringify(req?.system)).toContain("Each workflow is a process");
     expect(req?.tools?.[0]).toMatchObject({ name: "submit_draft" });
     expect(JSON.stringify(req?.tools?.[0])).toContain("triggers");
-    expect(req?.model).toBe("claude-sonnet-5-5");
+    // Owner (2026-11-17): the Builder is Opus 5.5 at high effort.
+    expect(req?.model).toBe("claude-opus-5-5");
+    expect(req?.output_config).toEqual({ effort: "high" });
   });
 
   it("lists what the client hasn't connected as gaps", async () => {

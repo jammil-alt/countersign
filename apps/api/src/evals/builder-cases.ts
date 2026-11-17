@@ -15,6 +15,8 @@ export interface BuilderCase {
   points: { id: string; text: string }[];
   /** The answer as the judge reads it. */
   render(answer: BuildTurnAnswer): string;
+  /** "review": the brief's second look (`reviewBrief`) instead of a Builder turn. */
+  runs?: "turn" | "review";
 }
 
 const confirmed = (text: string) => ({ text, state: "confirmed" as const });
@@ -120,6 +122,19 @@ const vendorIntake: BuilderCase = {
   render,
 };
 
+// The brief's second look (owner, 2026-11-17): what the intake missed in run 1, caught before the
+// fit-gap by a reviewer that didn't write the brief.
+const vendorReview: BuilderCase = {
+  id: "vendor-review",
+  title: "Vendor onboarding: the brief's second look",
+  situation:
+    "The vendor onboarding brief is about to be confirmed. A reviewer reads it against a checklist of what back-office builds have to settle, and lists the questions it doesn't settle yet.",
+  runs: "review",
+  input: vendorIntake.input,
+  points: vendorIntake.points.filter((p) => p.id !== "one-question"),
+  render: (a) => a.text,
+};
+
 const vendorOverlap: BuilderCase = {
   id: "vendor-overlap",
   title: "Vendor onboarding: notices work that already exists",
@@ -127,6 +142,10 @@ const vendorOverlap: BuilderCase = {
     "Same build. Another agent, AP Invoice Review, already has an open item 'Separate vendor management flow for unmatched or new vendors'. A good answer notices the overlap before a second build starts. (This needs the assistant to be shown other agents and their open items.)",
   input: {
     ...vendorIntake.input,
+    otherWork: [
+      "Build “AP Invoice Review” (client test): open issues “Separate vendor management flow for unmatched or new vendors”, “Tolerance for freight lines”",
+      "Build “Monthly bank reconciliation” (draft)",
+    ],
     words: "Anything we already have that this overlaps with?",
   },
   points: [
@@ -301,6 +320,7 @@ const honestEdit: BuilderCase = {
 
 export const BUILDER_CASES: BuilderCase[] = [
   vendorIntake,
+  vendorReview,
   vendorOverlap,
   reconFitgap,
   remindersFitgap,
@@ -318,7 +338,9 @@ export function styleProblems(c: BuilderCase, a: BuildTurnAnswer): string[] {
   if (codes) out.push(`codes in the reply: ${[...new Set(codes)].join(", ")}`);
   if (/\(row [\w-]+\)|\brow [a-z]+-[a-z-]+/.test(text)) out.push("a row id in the reply");
   const questions = (text.match(/\?/g) ?? []).length;
-  if (c.input.phase === "intake" && questions > 2) out.push(`${questions} questions in one turn`);
+  if (c.input.phase === "intake" && c.runs !== "review" && questions > 2) {
+    out.push(`${questions} questions in one turn`);
+  }
   for (const r of a.fitgap?.rows ?? []) {
     const inHow = r.how.match(toolId);
     if (inHow) out.push(`ids in "how" of "${r.need}": ${[...new Set(inHow)].join(", ")}`);

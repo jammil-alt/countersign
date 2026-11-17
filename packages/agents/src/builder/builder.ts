@@ -13,6 +13,7 @@ import {
   type ValidationError,
 } from "@countersign/core";
 import {
+  BUILDER_EFFORT,
   type CallToolInput,
   DEFAULT_MODELS,
   type LlmCallRecord,
@@ -21,7 +22,7 @@ import {
   type ModelId,
 } from "@countersign/llm";
 import { z } from "zod";
-import { type BuilderContext, catalogForPrompt } from "./context";
+import { type BuilderContext, catalogBriefForPrompt, catalogForPrompt } from "./context";
 import { guardBundle } from "./guards";
 
 // ── Answers ──────────────────────────────────────────────────────────────────────────────────────
@@ -109,6 +110,11 @@ Rules:
 
 export function catalogBlock(ctx: BuilderContext): string {
   return `<catalog>\n${JSON.stringify(catalogForPrompt(ctx))}\n</catalog>`;
+}
+
+/** The catalog in short (`catalogBriefForPrompt`): what each part does, its fields by name. */
+export function catalogBriefBlock(ctx: BuilderContext): string {
+  return `<catalog>\n${JSON.stringify(catalogBriefForPrompt(ctx))}\n</catalog>`;
 }
 
 /**
@@ -224,6 +230,7 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
         messages,
         tool: { name: input.toolName, description: input.toolDescription, schema: input.schema },
         maxTokens: BUILDER_ANSWER_TOKENS,
+        effort: BUILDER_EFFORT,
         label: input.label,
         ...(options.signal ? { signal: options.signal } : {}),
       });
