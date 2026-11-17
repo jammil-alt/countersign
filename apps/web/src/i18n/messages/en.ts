@@ -101,6 +101,7 @@ export const en = {
   "error.not_importable": "The directory imports from Zoho CRM or Podio.",
   "error.contact_exists": "Someone in the directory already has that email address or number.",
   "error.rate_limited": "Wait a minute and try again.",
+  "error.daily_limit": "You've reached today's limit for this. Try again tomorrow.",
   "error.no_address": "We don't know this account's address. Connect it again.",
   "error.different_account":
     "This is a different account from the one connected here. Disconnect it first, then connect the other one.",

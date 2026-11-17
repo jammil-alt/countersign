@@ -108,6 +108,7 @@ export const fr: Messages = {
   "error.not_importable": "L'annuaire importe depuis Zoho CRM ou Podio.",
   "error.contact_exists": "Quelqu'un dans l'annuaire a déjà cette adresse e-mail ou ce numéro.",
   "error.rate_limited": "Attendez une minute et réessayez.",
+  "error.daily_limit": "Vous avez atteint la limite du jour pour ceci. Réessayez demain.",
   "error.no_address": "Nous ne connaissons pas l'adresse de ce compte. Connectez-le à nouveau.",
   "error.different_account":
     "Ce compte n'est pas celui qui est connecté ici. Déconnectez-le d'abord, puis connectez l'autre.",

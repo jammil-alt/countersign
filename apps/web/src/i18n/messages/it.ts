@@ -106,6 +106,7 @@ export const it: Messages = {
   "error.not_importable": "La rubrica importa da Zoho CRM o Podio.",
   "error.contact_exists": "Qualcuno nella rubrica ha già questo indirizzo email o numero.",
   "error.rate_limited": "Attendi un minuto e riprova.",
+  "error.daily_limit": "Hai raggiunto il limite di oggi per questo. Riprova domani.",
   "error.no_address": "Non conosciamo l'indirizzo di questo account. Collegalo di nuovo.",
   "error.different_account":
     "Questo account è diverso da quello collegato qui. Scollegalo prima, poi collega l'altro.",

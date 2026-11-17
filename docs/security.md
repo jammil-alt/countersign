@@ -91,7 +91,8 @@ branches.
 
 - `audit_event` records **who read or changed what, when and from where**:
   - every request to a session route, reads included;
-  - every back-office or portal read made through the MCP connector;
+  - every tool call made through the MCP connector, and each back-office or portal read or write
+    it makes, and each sign-in to it refused with a token (up to a per-IP limit);
   - every sign-in, refused sign-in and sign-out;
   - system actions such as file purges.
 - Each row holds the person, their role, the client, the action, the outcome, the ids involved,
@@ -162,6 +163,11 @@ branches.
   app's own session header are exempt; a body sent to a session route must be JSON.
 - **Rate limiting** (Cloudflare): 50 requests per 10 seconds per IP on `/api/*`, webhooks
   excluded. The MCP connector has its own limit of 120 calls a minute per operator.
+  `/mcp` is not under `/api/*`, so the Cloudflare rule doesn't cover it: a request there with no
+  token is answered and not recorded, and refused sign-ins are recorded only up to 120 a minute
+  per IP (`MCP_RATE_LIMIT`, key `ip:<address>`).
+  Plain-words questions and voice typing in the portal, which each call a paid model, are
+  limited per person and client to 10 a minute and 200 a day (`apps/api/src/metered.ts`).
 - **Writes to clients' tools** need approval by default, run once each, and record their before
   state (invariant 8). Delete is off.
 - **Webhooks** from Twilio, Stripe, QuickBooks and ElevenLabs are signature-checked.

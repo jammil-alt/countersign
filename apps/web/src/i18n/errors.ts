@@ -54,6 +54,8 @@ const CODE_KEYS: Record<string, PlainKey> = {
   not_importable: "error.not_importable",
   contact_exists: "error.contact_exists",
   rate_limited: "error.rate_limited",
+  // Audit 5.9: a person's questions or voice typing past the day's allowance.
+  daily_limit: "error.daily_limit",
   no_address: "error.no_address",
   // A sign-in to another account than the connection's (audit 2.2).
   different_account: "error.different_account",

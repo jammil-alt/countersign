@@ -1077,10 +1077,12 @@ If connecting fails:
 
 To cut a connector off: remove the person's memberships (takes effect on the next call),
 or end their sessions in WorkOS (tokens last as long as AuthKit's access-token lifetime, a few
-minutes by default; nothing here refreshes them). Every tool call is a log line
-`{"event":"mcp.tool_call",…}` in Workers Logs, with the person, `audience` (`ops` or `client`),
-the tool, its arguments (never a confirm token) and the outcome; each read is also a row in the
-audit log (`mcp GET /api/…`).
+minutes by default; nothing here refreshes them). Every tool call is a row in the audit log
+(`mcp.tool_call <tool>`), with the person, the client it named, `audience` (`ops` or `client`),
+the arguments that are ids (never a confirm token or free text) and the outcome; each read or
+write it makes is also a row (`mcp GET /api/…`, or `mcp tool <tool>` where no route answers it),
+and a refused sign-in (a bad token, no Mezonas account or client; not a request with no token,
+and at most 120 a minute per IP) is `mcp.sign_in`.
 
 Locally the MCP server is off (`WORKOS_AUTHKIT_DOMAIN` is empty in `wrangler.jsonc`); the tests in
 `apps/api/src/mcp.test.ts` run it against a fake AuthKit.
@@ -1337,7 +1339,7 @@ be disabled, as in `db:purge-client`.
 ## 1.3 People: joining and leaving (access control)
 
 **Joining.** The first operator of an environment: Actions → **Add operator** ("The first
-operator" above). After that, an operator invites another from the back office's **Users**
+operator" above); each run leaves an `operator.add` audit row naming the run. After that, an operator invites another from the back office's **Users**
 (`/ops/users`): they serve every client the inviting operator serves, and "Give all my clients"
 adds the ones they lack (`docs/plan.md` §1.122). A client's person: invited from the client's People
 (back office) or Team (portal, the client admin), as an admin or a user; a user can be limited to
