@@ -20,6 +20,7 @@ import {
   sloanAddress,
   sloanReplySubject,
   sloanTextBody,
+  trimTrailingSlashes,
   userLanguage,
 } from "@countersign/core";
 import { appUser, type Db, message, type Tx, tenant, thread, withTenant } from "@countersign/db";
@@ -67,7 +68,7 @@ function str(v: unknown): string | null {
 
 /** The person's portal link to this conversation with Sloan. */
 export function sloanThreadLink(origin: string, threadId: string): string {
-  return `${origin.replace(/\/+$/, "")}/sloan/${threadId}`;
+  return `${trimTrailingSlashes(origin)}/sloan/${threadId}`;
 }
 
 /** Sends Sloan's answer `messageId` (in `threadId`) back by email or text, when it came that way. */
