@@ -146,7 +146,7 @@ describe("Sloan", () => {
     );
     await userEvent.type(within(panel).getByTestId("portal-sloan-input"), "Pause Cole");
     await userEvent.click(within(panel).getByTestId("portal-sloan-send"));
-    expect(posts).toEqual([{ id: LATEST, body: { text: "Pause Cole" } }]);
+    expect(posts).toEqual([{ id: LATEST, body: { text: "Pause Cole", documents: [] } }]);
     // The page under it stays where it was.
     expect(screen.getByTestId("where")).toHaveTextContent(/^\/$/);
     // The full page is one link away, on the same conversation.
