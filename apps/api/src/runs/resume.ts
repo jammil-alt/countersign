@@ -12,7 +12,7 @@
 
 import { type Db, inboxItem, run, withTenant } from "@countersign/db";
 import { inboxEventType } from "@countersign/workflows";
-import { and, eq, gt, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm";
 // R7
 import { conversationEventOfItem, itemWakePayload } from "../converse/wake";
 import { toRunResolution } from "../inbox";
@@ -69,7 +69,9 @@ export async function redeliverResolutions(
             ),
             lte(inboxItem.deliverAfter, sql`now()`),
           ),
-          gt(inboxItem.resolvedAt, new Date(now.getTime() - REDELIVER_WINDOW_MS)),
+          // The window counts from when delivery was due: the resolution, or the end of an
+          // undo window or a safety hold (releaseHold moves `deliver_after` to the release).
+          sql`greatest(${inboxItem.resolvedAt}, ${inboxItem.deliverAfter}) > ${new Date(now.getTime() - REDELIVER_WINDOW_MS).toISOString()}::timestamptz`,
           inArray(run.status, [...GOING]),
           // docs/plan.md §1.123: a held agent's approvals wait for the release (an undo window's
           // included); a rejection still reaches its run.

@@ -286,6 +286,47 @@ describe.skipIf(!h)("Your call", () => {
     expect(byTitle.get("Void the 14 duplicates")?.owner).toBe("client");
   });
 
+  it("Decide on Reggie's urgency to-do sets the chosen urgency through the issue's route", async () => {
+    const made = await ok<IssueDetail>("POST", "/api/ops/issues", {
+      clientId: H.A.tenantId,
+      title: "Report runs late",
+      text: "The Monday report came at noon.",
+      urgency: "high",
+    });
+    const issueId = made.issue.id;
+    const t = await seed({
+      title: "Confirm the urgency of Client A: normal",
+      owner: "operator",
+      clientId: H.A.tenantId,
+      about: { kind: "issue", id: issueId },
+      source: "play",
+      playKey: "set_urgency",
+      options: [
+        { label: "Make it normal", value: "normal" },
+        { label: "Keep it high", value: "high" },
+      ],
+      primaryAction: { label: "Decide", kind: "decide", ref: { issueId } },
+    });
+    const view = (await list(`?about=issue:${issueId}`)).items.find((i) => i.id === t.id);
+    expect(view?.options).toEqual(["Make it normal", "Keep it high"]);
+    const acted = await ok<TodoActResult>("POST", `/api/ops/todos/${t.id}/act`, { option: 0 });
+    expect(acted.todo.state).toBe("done");
+    const after = await ok<IssueDetail>("GET", `/api/ops/issues/${issueId}`);
+    expect(after.issue.urgency).toBe("normal");
+    // An option that isn't there is refused.
+    const again = await seed({
+      title: "Confirm again",
+      owner: "operator",
+      clientId: H.A.tenantId,
+      about: { kind: "issue", id: issueId },
+      options: [{ label: "Make it low", value: "low" }],
+      primaryAction: { label: "Decide", kind: "decide", ref: { issueId } },
+    });
+    expect(
+      (await H.call(OPERATOR, "POST", `/api/ops/todos/${again.id}/act`, { option: 3 })).status,
+    ).toBe(422);
+  });
+
   it("Do it sends a deal email through the deal's route, and a refusal leaves the to-do open", async () => {
     const t = await seed({
       title: "First reply to Ridgeline",

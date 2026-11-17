@@ -12,13 +12,14 @@ import {
   agent,
   agentVersion,
   externalAction,
+  inboxItem,
   issue,
   issueEvent,
   reachOut,
   type Tx,
   tenant,
 } from "@countersign/db";
-import { and, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { HttpError, notFound } from "../http";
 import { addTodo, inOperatorTx } from "./todos-store";
 
@@ -129,6 +130,21 @@ export async function releaseHold(
     .update(agent)
     .set({ hold: null })
     .where(and(eq(agent.id, a.id), eq(agent.tenantId, a.tenantId)));
+  // What was approved while held waited for this release (runs/resume.ts); its delivery is due
+  // from now, so a hold longer than the redelivery window doesn't strand it. An undo window still
+  // open keeps its end.
+  await tx
+    .update(inboxItem)
+    .set({ deliverAfter: sql`greatest(${inboxItem.deliverAfter}, now())` })
+    .where(
+      and(
+        eq(inboxItem.tenantId, a.tenantId),
+        eq(inboxItem.agentId, a.id),
+        eq(inboxItem.status, "resolved"),
+        isNotNull(inboxItem.runId),
+        isNull(inboxItem.runReceivedAt),
+      ),
+    );
   if (was.issueId) {
     const [iss] = await tx
       .select({ id: issue.id })

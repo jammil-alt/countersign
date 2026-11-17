@@ -338,6 +338,24 @@ describe.skipIf(!h)("Reggie on the back office's work", () => {
       expect(released.status, JSON.stringify(released.json)).toBe(200);
     });
 
+    it("holds the agent when an already critical issue is given its agent by a later read", async () => {
+      const agentId = await clientAgent("bookkeeper-critical-later");
+      const id = await raise("Invoices are being posted to the wrong customer.");
+      await only(id);
+      // An earlier read (or the operator) made it critical, naming no agent.
+      await H.t.db.update(issue).set({ urgency: "critical" }).where(eq(issue.id, id));
+      model.push(readTurn({ ...baseRead, urgency: "critical", agentId }));
+      await pass();
+      const row = await issueRow(id);
+      expect(row).toMatchObject({ urgency: "critical", agentId });
+      const [a] = await H.t.db.select().from(agent).where(eq(agent.id, agentId));
+      expect(j(a?.hold)).toMatchObject({ issueId: id, by: "reggie" });
+      const released = await H.call(OPERATOR, "POST", `/api/ops/agents/${agentId}/release`, {
+        reason: "Fixed",
+      });
+      expect(released.status, JSON.stringify(released.json)).toBe(200);
+    });
+
     it("sends the first reply as the client's lead once that play is set to send", async () => {
       const [op] = await H.t.db.select().from(tenant).where(eq(tenant.id, A()));
       await H.t.db

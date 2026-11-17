@@ -399,33 +399,39 @@ async function actOnRead(
         });
       }
     }
-    if (critical && agentId) {
-      const hold = await placeHold(tx, {
-        agentId,
-        issueId: row.id,
-        by: "reggie",
-        userId: null,
-        reason: `Critical issue #${row.number}: ${row.title}`.slice(0, 500),
-        tenantIds: [tenantId],
-        now,
-      });
-      await auditInTx(tx, null, {
-        tenantId,
-        actorKind: "system",
-        actorRole: "reggie",
-        action: "agent.hold",
-        outcome: "ok",
-        target: { agent: agentId, issue: row.id, at: hold.at },
-      });
-      await logPlay(tx, {
-        ...base,
-        play: "safety_hold",
-        level: "send",
-        outcome: "done",
-        internal: true,
-        summary: `Held the agent on #${row.number}`,
-      });
-    }
+  }
+
+  // A critical issue about an agent holds it, whether the urgency or the agent is what changed
+  // in this read (as opsUpdateIssue does): critical then agent-assigned holds too.
+  const madeCritical = read.urgency === "critical" && row.urgency !== "critical";
+  const criticalNow = madeCritical || row.urgency === "critical";
+  const assigned = agentId !== row.agentId;
+  if (agentId && (madeCritical || (criticalNow && assigned))) {
+    const hold = await placeHold(tx, {
+      agentId,
+      issueId: row.id,
+      by: "reggie",
+      userId: null,
+      reason: `Critical issue #${row.number}: ${row.title}`.slice(0, 500),
+      tenantIds: [tenantId],
+      now,
+    });
+    await auditInTx(tx, null, {
+      tenantId,
+      actorKind: "system",
+      actorRole: "reggie",
+      action: "agent.hold",
+      outcome: "ok",
+      target: { agent: agentId, issue: row.id, at: hold.at },
+    });
+    await logPlay(tx, {
+      ...base,
+      play: "safety_hold",
+      level: "send",
+      outcome: "done",
+      internal: true,
+      summary: `Held the agent on #${row.number}`,
+    });
   }
 
   // Find the cause: set when Reggie is sure and the play is on; else the read carries it.

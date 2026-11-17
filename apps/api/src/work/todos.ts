@@ -90,7 +90,9 @@ const textOf = (v: unknown): string | null =>
     ? v
     : v && typeof v === "object" && typeof (v as { text?: unknown }).text === "string"
       ? (v as { text: string }).text
-      : null;
+      : v && typeof v === "object" && typeof (v as { label?: unknown }).label === "string"
+        ? (v as { label: string }).label
+        : null;
 
 const strings = (v: unknown): string[] =>
   Array.isArray(v) ? v.map(textOf).filter((s): s is string => !!s) : [];

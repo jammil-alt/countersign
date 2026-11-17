@@ -23,6 +23,7 @@ import { type AppEnv, auditActor, ensureClient, HttpError, mount, notFound } fro
 import {
   askViews,
   createAsk,
+  declineAsks,
   enhancementDetail,
   groupAsk,
   readAsk,
@@ -354,7 +355,7 @@ export function workRouteHandlers(app: Hono<AppEnv>): void {
 
   // Deciding is the operator's: do it, later, no, or sell it (Sales picks it up from the link the
   // page shows: /ops/sales/grow?from=enhancement:<id>).
-  mount(app, routes.opsDecideEnhancement, async ({ tx, tenantIds, params, body }) => {
+  mount(app, routes.opsDecideEnhancement, async ({ tx, tenantIds, params, body, session }) => {
     const e = await readEnhancement(tx, params.id, true);
     if (e.stage === "shipped") throw new HttpError(409, "shipped", "this enhancement has shipped");
     if (body.decision === "no" && !body.note) {
@@ -371,6 +372,10 @@ export function workRouteHandlers(app: Hono<AppEnv>): void {
         stageAt: now,
       })
       .where(eq(enhancement.id, e.id));
+    // "No" is told to the clients who asked, with its note, and their asks close.
+    if (body.decision === "no" && body.note) {
+      await declineAsks(tx, e, { note: body.note, userId: session.user.id, tenantIds });
+    }
     return enhancementDetail(tx, await readEnhancement(tx, e.id), tenantIds);
   });
 

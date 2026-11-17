@@ -4,8 +4,8 @@
 // outside, the back office). Found by the notification pass like the lead thread's messages.
 
 import { dedupeKeys, notificationPath } from "@countersign/core";
-import { clientAsk, issue, message, type Tx } from "@countersign/db";
-import { and, eq, gte, inArray } from "drizzle-orm";
+import { clientAsk, issue, message, type Tx, thread } from "@countersign/db";
+import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import type { Candidate } from "../notify/outbox";
 import { candidatesFor } from "../notify/outbox";
 import type { NotifyPerson, TenantRow } from "../notify/people";
@@ -27,6 +27,7 @@ export async function issueUpdateCandidates(
       threadId: message.threadId,
       senderId: message.senderId,
       senderType: message.senderType,
+      createdAt: message.createdAt,
     })
     .from(message)
     .where(
@@ -51,8 +52,10 @@ export async function issueUpdateCandidates(
         threadId: issue.threadId,
         raisedBy: issue.raisedBy,
         source: issue.source,
+        adoptedAt: thread.createdAt,
       })
       .from(issue)
+      .innerJoin(thread, and(eq(thread.id, issue.threadId), eq(thread.tenantId, issue.tenantId)))
       .where(and(eq(issue.tenantId, t.id), inArray(issue.threadId, threads)))),
     ...(await tx
       .select({
@@ -60,6 +63,7 @@ export async function issueUpdateCandidates(
         threadId: clientAsk.threadId,
         raisedBy: clientAsk.raisedBy,
         source: clientAsk.source,
+        adoptedAt: sql<Date | null>`null`,
       })
       .from(clientAsk)
       .where(and(eq(clientAsk.tenantId, t.id), inArray(clientAsk.threadId, threads)))),
@@ -70,6 +74,10 @@ export async function issueUpdateCandidates(
     if (!s) continue;
     // §1.123.4: an issue that came by email is answered by email (backoffice/outbound-email.ts).
     if (s.source === "email") continue;
+    // An adopted change request (work/legacy.ts) brings its old messages, its resolution note
+    // among them, onto a thread made in the same transaction: they are history the client was
+    // told about then, not news.
+    if (s.source === "legacy_request" && s.adoptedAt && m.createdAt <= s.adoptedAt) continue;
     const raiser = s.raisedBy ? clientPeople.find((p) => p.userId === s.raisedBy) : undefined;
     const to = raiser ? [raiser] : clientPeople.filter((p) => p.role === "client_admin");
     for (const p of to) {

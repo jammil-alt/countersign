@@ -102,12 +102,17 @@ async function clientMembers(tx: Tx, emails: readonly string[]) {
     );
 }
 
-/** "Sort this": mail nobody could place, for the operator, with its text as data. */
+/**
+ * "Sort this": mail nobody could place, for the operator, with its text as data. When the mail
+ * is about one of a few clients (a sender who is a member of more than one, a reply on a client's
+ * deal from someone not on it), each of those clients gets its own to-do with `client_id` set, so
+ * only the operators who serve that client read it (invariant 1). Only mail tied to no client at
+ * all is a to-do with no client.
+ */
 async function sortThis(
   db: Db,
   input: {
-    tenantIds: string[];
-    clientId: string | null;
+    clientIds: string[];
     from: string;
     to: string;
     parsed: ReplyEmail;
@@ -115,26 +120,30 @@ async function sortThis(
   },
 ): Promise<BackOfficeOutcome> {
   const key = `email:${input.parsed.messageId ?? `${input.from}:${input.parsed.subject ?? ""}:${input.parsed.text.slice(0, 80)}`}`;
-  await withOperator(db, input.clientId ? [input.clientId] : [], (tx) =>
-    addTodo(tx, {
-      title: `Sort this: email from ${input.from}`.slice(0, 300),
-      owner: "operator",
-      clientId: input.clientId,
-      source: "email",
-      why: input.why,
-      detail: [
-        `To: ${input.to}`,
-        `Subject: ${input.parsed.subject ?? "(none)"}`,
-        "",
-        input.parsed.text,
-      ]
-        .join("\n")
-        .slice(0, 4000),
-      dueAt: new Date(Date.now() + 4 * 60 * 60 * 1000),
-      dedupeKey: key.slice(0, 500),
-    }),
-  );
-  return done("sort", input.clientId, null);
+  const detail = [
+    `To: ${input.to}`,
+    `Subject: ${input.parsed.subject ?? "(none)"}`,
+    "",
+    input.parsed.text,
+  ]
+    .join("\n")
+    .slice(0, 4000);
+  const each: (string | null)[] = input.clientIds.length ? [...new Set(input.clientIds)] : [null];
+  for (const clientId of each) {
+    await withOperator(db, clientId ? [clientId] : [], (tx) =>
+      addTodo(tx, {
+        title: `Sort this: email from ${input.from}`.slice(0, 300),
+        owner: "operator",
+        clientId,
+        source: "email",
+        why: input.why,
+        detail,
+        dueAt: new Date(Date.now() + 4 * 60 * 60 * 1000),
+        dedupeKey: (each.length > 1 ? `${key}:${clientId}` : key).slice(0, 500),
+      }),
+    );
+  }
+  return done("sort", each.length === 1 ? (each[0] ?? null) : null, null);
 }
 
 /** A member's PDFs and images, as the client's documents (as forwarded mail keeps them). */
@@ -282,8 +291,7 @@ export async function receiveBackOfficeEmail(
       });
       if (landed) return done(landed.kind, tenantId, landed.id);
       return sortThis(db, {
-        tenantIds: [tenantId],
-        clientId: tenantId,
+        clientIds: [tenantId],
         from: sender,
         to: mail.to,
         parsed,
@@ -296,7 +304,7 @@ export async function receiveBackOfficeEmail(
         if (!d) return null;
         const people = await tx.select().from(dealPerson).where(eq(dealPerson.dealId, d.id));
         const person = people.find((p) => p.email && from.includes(p.email.toLowerCase()));
-        if (!person) return null;
+        if (!person) return { d, matched: false as const };
         // Lead attachments are dropped and logged without content (DECISION below).
         await addActivity(tx, d.id, {
           kind: "email_in",
@@ -311,13 +319,22 @@ export async function receiveBackOfficeEmail(
           },
         });
         await tx.update(deal).set({ waitingOn: "operator" }).where(eq(deal.id, d.id));
-        return d;
+        return { d, matched: true as const };
       });
-      if (landed) return done("deal_reply", landed.clientId, landed.id);
+      if (landed?.matched) return done("deal_reply", landed.d.clientId, landed.d.id);
+      // A reply on an expansion deal from someone not on it is still about that client.
+      if (landed?.d.clientId) {
+        return sortThis(db, {
+          clientIds: [landed.d.clientId],
+          from: sender,
+          to: mail.to,
+          parsed,
+          why: "A reply on a deal from someone who isn't on it.",
+        });
+      }
     }
     return sortThis(db, {
-      tenantIds: [],
-      clientId: null,
+      clientIds: [],
       from: sender,
       to: mail.to,
       parsed,
@@ -438,9 +455,10 @@ export async function receiveBackOfficeEmail(
     });
     return done("lead", null, id);
   }
+  // DECISION: a sender who is a member of more than one client gets a to-do in each of their
+  // clients, so the email is read only by operators who serve one of them (invariant 1).
   return sortThis(db, {
-    tenantIds: clients,
-    clientId: null,
+    clientIds: clients,
     from: sender,
     to: mail.to,
     parsed,

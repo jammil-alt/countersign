@@ -11,6 +11,7 @@ import {
   type RouteSpec,
   routes,
   type TodoAboutKind,
+  WorkUrgency,
 } from "@countersign/core";
 import {
   build,
@@ -26,6 +27,7 @@ import {
   tenant,
   todo,
 } from "@countersign/db";
+import { leadThread, postMessage } from "@countersign/threads";
 import { and, eq, gte, inArray, isNull, or, type SQL } from "drizzle-orm";
 import type { Hono } from "hono";
 import {
@@ -39,6 +41,7 @@ import {
 } from "../http";
 import { clientActivity } from "../work/activity";
 import { clientWork } from "../work/client-work";
+import { logPlay } from "../work/play-log";
 import { aboutHref, todoList, todoScope, todoViews } from "../work/todos";
 import { addTodo, type TodoRow } from "../work/todos-store";
 import { sendDealEmail } from "./autopilot";
@@ -166,6 +169,19 @@ const refOf = (row: TodoRow): Record<string, string> =>
     string,
     string
   >;
+
+/** A decide to-do's option: `{label, value}` as plays make them, or a word that is both. */
+const optionOf = (v: unknown): { label: string; value: string } | null => {
+  if (typeof v === "string") return { label: v, value: v };
+  if (v && typeof v === "object") {
+    const o = v as { label?: unknown; value?: unknown; text?: unknown };
+    const value = typeof o.value === "string" ? o.value : null;
+    const label =
+      typeof o.label === "string" ? o.label : typeof o.text === "string" ? o.text : value;
+    if (value && label) return { label, value };
+  }
+  return null;
+};
 
 /** A route by name, when its stream has added it (B2's deal email); else null. */
 const startOfToday = (now: Date) =>
@@ -326,6 +342,41 @@ export function todoRoutes(app: Hono<AppEnv>): void {
           // invokeRoute can't run, so its sending is called directly, as this operator.
           await sendDealEmail(ctx, ref.dealId, { subject: draft?.subject ?? row.title, text });
           href = aboutHref("deal", ref.dealId);
+        } else if (ref.buildId && row.clientId) {
+          // A build's requirements chase (backoffice/tick.ts at draft): the reminder goes to the
+          // client's lead conversation from this operator, as /todos/:id/remind does, and counts
+          // on the chase play's record.
+          const buildId = ref.buildId;
+          const clientId = row.clientId;
+          await ctx.inTx(async (s) => {
+            const [b] = await s.tx
+              .select({ id: build.id, title: build.title })
+              .from(build)
+              .where(and(eq(build.id, buildId), eq(build.clientId, clientId)));
+            if (!b) throw notFound("build");
+            const th = await leadThread(s.tx, clientId);
+            await postMessage(s.tx, {
+              tenantId: clientId,
+              thread: th,
+              senderType: "user",
+              senderId: ctx.session.user.id,
+              kind: "text",
+              body: { text },
+              sources: [],
+              audience: "client",
+            });
+            await logPlay(s.tx, {
+              clientId,
+              flow: "builds",
+              stage: "requirements",
+              play: "chase_requirements",
+              level: "draft",
+              outcome: "sent",
+              about: { kind: "build", id: b.id },
+              summary: `Chased the requirements for ${b.title}`,
+            });
+          });
+          href = aboutHref("build", buildId);
         } else {
           throw new HttpError(409, "no_target", "this reply has nowhere to go");
         }
@@ -369,10 +420,15 @@ export function todoRoutes(app: Hono<AppEnv>): void {
         break;
       }
       case "decide": {
-        const choices = (ref.choices ?? "").split(",").filter(Boolean);
+        // The choices are the to-do's options, as Reggie's plays make them ({label, value}) or
+        // as plain words (the word is its own value), in the order Your call shows them.
+        const options = (Array.isArray(row.options) ? row.options : []).map(optionOf);
         const at = ctx.body.option ?? 0;
-        const choice = choices[at];
-        if (!choice) throw new HttpError(422, "no_option", "choose one of the options");
+        const picked = options[at];
+        const choice = picked?.value;
+        if (!picked || !choice) {
+          throw new HttpError(422, "no_option", "choose one of the options");
+        }
         if (row.aboutKind === "enhancement" && row.aboutId) {
           await call(routes.opsDecideEnhancement, {
             params: { id: row.aboutId },
@@ -380,8 +436,7 @@ export function todoRoutes(app: Hono<AppEnv>): void {
           });
         } else if (row.aboutKind === "deal" && row.aboutId) {
           if (["won", "lost", "not_now", "no"].includes(choice)) {
-            const options = Array.isArray(row.options) ? row.options : [];
-            const words = typeof options[at] === "string" ? (options[at] as string) : choice;
+            const words = picked.label;
             await call(routes.opsDealOutcome, {
               params: { id: row.aboutId },
               body: { outcome: choice as "won", ...(choice === "no" ? { reason: words } : {}) },
@@ -392,6 +447,15 @@ export function todoRoutes(app: Hono<AppEnv>): void {
               body: { stage: choice as "pitch" },
             });
           }
+        } else if (row.aboutKind === "issue" && row.aboutId) {
+          // Reggie's "Confirm the urgency": the issue's own route, which keeps its history
+          // and places a safety hold when it becomes critical.
+          const urgency = WorkUrgency.safeParse(choice);
+          if (!urgency.success) throw new HttpError(422, "no_option", "choose one of the options");
+          await call(routes.opsUpdateIssue, {
+            params: { id: row.aboutId },
+            body: { urgency: urgency.data, reason: `Decided on Your call: ${picked.label}` },
+          });
         } else {
           throw new HttpError(409, "no_target", "this decision has nowhere to go");
         }

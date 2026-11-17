@@ -222,6 +222,44 @@ export async function groupAsk(tx: Tx, ask: AskRow, e: EnhancementRow): Promise<
  */
 // DECISION: the note is sent as written, in the operator's words; translating it into each
 // client's language is left to the conversation's own translation (§1.69), so English here.
+/**
+ * An enhancement decided "no": each grouped ask of the clients served hears why, on its own
+ * conversation, and is closed (the portal shows it as closed). The enhancement keeps its stage.
+ */
+export async function declineAsks(
+  tx: Tx,
+  e: EnhancementRow,
+  input: { note: string; userId: string; tenantIds: readonly string[] },
+): Promise<number> {
+  if (input.tenantIds.length === 0) return 0;
+  const asks = await tx
+    .select()
+    .from(clientAsk)
+    .where(
+      and(
+        eq(clientAsk.enhancementId, e.id),
+        inArray(clientAsk.tenantId, [...input.tenantIds]),
+        inArray(clientAsk.status, ["open", "grouped"]),
+      ),
+    );
+  const now = new Date();
+  for (const a of asks) {
+    await postOnThread(tx, {
+      tenantId: a.tenantId,
+      threadId: a.threadId,
+      senderType: "user",
+      senderId: input.userId,
+      text: input.note,
+      audience: "client",
+    });
+    await tx
+      .update(clientAsk)
+      .set({ status: "closed", closedAt: now })
+      .where(and(eq(clientAsk.id, a.id), eq(clientAsk.tenantId, a.tenantId)));
+  }
+  return asks.length;
+}
+
 export async function tellAsks(
   tx: Tx,
   e: EnhancementRow,

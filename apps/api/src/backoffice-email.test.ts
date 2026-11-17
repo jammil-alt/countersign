@@ -12,6 +12,7 @@ import {
   dealActivity,
   dealPerson,
   issue,
+  membership,
   message,
   thread,
   todo,
@@ -20,7 +21,7 @@ import {
 import { DEFAULT_FIXTURE_DIR } from "@countersign/llm/node";
 import { and, eq, like } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
-import { admin, createApiHarness, OPERATOR, testBundle } from "./api.test-helper";
+import { admin, createApiHarness, OPERATOR, OTHER_OPERATOR, testBundle } from "./api.test-helper";
 import { receiveBackOfficeEmail } from "./backoffice/inbound-email";
 import { backOfficeAddress, parseTag, sendIssueEmails } from "./backoffice/outbound-email";
 import { questionsFor } from "./backoffice/questions";
@@ -289,6 +290,39 @@ describe.skipIf(!h)("the back office's email", () => {
     const sorted = (await sortTodos()).find((t) => t.title.includes("stranger@nowhere.example"));
     expect(sorted).toMatchObject({ owner: "operator", clientId: null, source: "email" });
     expect(sorted?.detail).toContain("Who are you?");
+
+    // A member of two clients: a to-do in each, so only their operators read the email.
+    const [aAdmin] = await H.t.db
+      .select()
+      .from(appUser)
+      .where(eq(appUser.email, admin("a")));
+    await H.t.db
+      .insert(membership)
+      .values({ tenantId: H.B.tenantId, userId: aAdmin?.id as string, role: "client_user" });
+    try {
+      await deliver(
+        admin("a"),
+        `support@${DOMAIN}`,
+        mime({
+          from: admin("a"),
+          to: `support@${DOMAIN}`,
+          subject: "Payroll",
+          text: "The payroll export is short a week.",
+          id: "s-2",
+        }),
+      );
+    } finally {
+      await H.t.db
+        .delete(membership)
+        .where(
+          and(eq(membership.tenantId, H.B.tenantId), eq(membership.userId, aAdmin?.id as string)),
+        );
+    }
+    const both = (await sortTodos()).filter((t) => t.detail.includes("payroll export"));
+    expect(both.map((t) => t.clientId).sort()).toEqual([H.A.tenantId, H.B.tenantId].sort());
+    const theirs = await H.call(OTHER_OPERATOR, "GET", "/api/ops/todos");
+    expect(JSON.stringify(theirs.json)).not.toContain("payroll export");
+
     const other = await receiveBackOfficeEmail(
       H.db,
       { from: "x@y.example", to: `acme-abcdefgh@${DOMAIN}`, raw: new Uint8Array() },
@@ -376,6 +410,23 @@ describe.skipIf(!h)("the back office's email", () => {
       .where(and(eq(deal.clientId, H.B.tenantId), eq(deal.stage, "spotted")));
     expect(spotted).toHaveLength(1);
     expect(spotted[0]).toMatchObject({ kind: "expansion", source: "reggie" });
+    // Your call shows its options, and Decide with the first ("Pursue") moves the deal on.
+    const [pursue] = await H.t.db
+      .select()
+      .from(todo)
+      .where(and(eq(todo.aboutKind, "deal"), eq(todo.aboutId, spotted[0]?.id as string)));
+    const listed = await H.call(OPERATOR, "GET", `/api/ops/todos?about=deal:${spotted[0]?.id}`);
+    expect(j(listed.json).items[0]?.options).toEqual(["Pursue", "Not now"]);
+    const decided = await H.call(OPERATOR, "POST", `/api/ops/todos/${pursue?.id}/act`, {
+      option: 0,
+    });
+    expect(decided.status, JSON.stringify(decided.json)).toBe(200);
+    expect(j(decided.json).todo.state).toBe("done");
+    const [moved] = await H.t.db
+      .select()
+      .from(deal)
+      .where(eq(deal.id, spotted[0]?.id as string));
+    expect(moved?.stage).toBe("pitch");
   });
 
   it("chases a requirements request as a to-do at draft, once a day", async () => {
@@ -408,5 +459,11 @@ describe.skipIf(!h)("the back office's email", () => {
     const [chase] = await H.t.db.select().from(todo).where(eq(todo.playKey, "chase_requirements"));
     expect(chase).toMatchObject({ owner: "operator", aboutId: buildId });
     expect(j(chase?.draft).text).toContain("3 of 4 answers");
+    // Send on Your call posts the chase in the client's lead conversation and closes it.
+    const sent = await H.call(OPERATOR, "POST", `/api/ops/todos/${chase?.id}/act`, {});
+    expect(sent.status, JSON.stringify(sent.json)).toBe(200);
+    expect(j(sent.json)).toMatchObject({ done: "Sent.", href: `/ops/builds/${buildId}` });
+    const posted = await H.t.db.select().from(message).where(eq(message.tenantId, A()));
+    expect(posted.some((m) => j(m.body).text?.includes("3 of 4 answers"))).toBe(true);
   });
 });

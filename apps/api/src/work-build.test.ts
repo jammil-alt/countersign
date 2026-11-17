@@ -8,12 +8,14 @@
 import { FORBIDDEN_PORTAL_FIELD } from "@countersign/core";
 import {
   agent,
+  agentVersion,
   build,
   clientAsk,
   feedback,
   inboxItem,
   issue,
   notification,
+  run,
   todo,
   withOperator,
 } from "@countersign/db";
@@ -32,6 +34,8 @@ import { OPS_TOOLS } from "./mcp/ops-tools";
 import { clientPeople, tenantRow } from "./notify/people";
 import { REGGIE_TOOLS } from "./reggie/tools";
 import { raiseLegacyRequest } from "./routes/requests";
+import type { RunInstances } from "./runs/instances";
+import { redeliverResolutions } from "./runs/resume";
 import { adoptLegacyFor } from "./work/legacy";
 import { issueUpdateCandidates } from "./work/notify-issue";
 
@@ -300,6 +304,63 @@ describe.skipIf(!h)("Build", () => {
     expect(events).toEqual(["created", "hold", "release"]);
   });
 
+  it("delivers an approval held longer than a day once the hold is released", async () => {
+    const held = await clientAgent(H.A.tenantId, "clerk-redeliver");
+    const [v] = await H.t.db
+      .select({ id: agentVersion.id })
+      .from(agentVersion)
+      .where(eq(agentVersion.agentId, held));
+    const [r] = await H.t.db
+      .insert(run)
+      .values({
+        tenantId: H.A.tenantId,
+        agentId: held,
+        agentVersionId: v?.id as string,
+        workflowSlug: "main",
+        mode: "live",
+        status: "waiting",
+      })
+      .returning();
+    const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    const [item] = await H.t.db
+      .insert(inboxItem)
+      .values({
+        tenantId: H.A.tenantId,
+        kind: "approval",
+        agentId: held,
+        runId: r?.id,
+        assigneeRole: "client_admin",
+        title: "Post it?",
+        status: "resolved",
+        resolution: { approved: true },
+        resolvedAt: twoDaysAgo,
+        deliverAfter: new Date(twoDaysAgo.getTime() + 60_000),
+      })
+      .returning();
+    const made = await call(OPERATOR, "POST", "/api/ops/issues", {
+      clientId: H.A.tenantId,
+      title: "Posting to the wrong period",
+      urgency: "critical",
+      agentId: held,
+    });
+    expect(made.status).toBe(200);
+    const sent: string[] = [];
+    const instances = {
+      sendEvent: async (runId: string) => {
+        sent.push(runId);
+      },
+    } as unknown as RunInstances;
+    await redeliverResolutions({ db: H.db, instances }, H.A.tenantId, new Date());
+    expect(sent).not.toContain(r?.id);
+    const released = await call(OPERATOR, "POST", `/api/ops/agents/${held}/release`, {
+      reason: "Fixed",
+    });
+    expect(released.status).toBe(200);
+    await redeliverResolutions({ db: H.db, instances }, H.A.tenantId, new Date());
+    expect(sent).toContain(r?.id);
+    void item;
+  });
+
   it("holds on a change to critical, and not on high", async () => {
     const made = await call(OPERATOR, "POST", "/api/ops/issues", {
       clientId: H.A.tenantId,
@@ -410,6 +471,60 @@ describe.skipIf(!h)("Build", () => {
     // The old row is left as it was.
     const [still] = await H.t.db.select().from(inboxItem).where(eq(inboxItem.id, legacy.id));
     expect(still?.status).toBe("open");
+  });
+
+  it("adopts a resolved change request without telling the client again", async () => {
+    const bAdmin = (
+      await H.t.db.query.appUser.findFirst({ where: (u, { eq: e }) => e(u.email, admin("b")) })
+    )?.id as string;
+    const legacy = await withOperator(H.t.db, [H.B.tenantId], (tx) =>
+      raiseLegacyRequest(tx, H.B.tenantId, { text: "Rename the vendor", raisedBy: bAdmin }),
+    );
+    const resolvedAt = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    await H.t.db
+      .update(inboxItem)
+      .set({
+        status: "resolved",
+        resolution: { note: "Renamed it for you." },
+        resolvedBy: H.operator,
+        resolvedAt,
+      })
+      .where(eq(inboxItem.id, legacy.id));
+    await withOperator(H.t.db, [H.B.tenantId], (tx) => adoptLegacyFor(tx, H.B.tenantId));
+    const [adopted] = await H.t.db.select().from(issue).where(eq(issue.legacyItemId, legacy.id));
+    expect(adopted?.stage).toBe("closed");
+    const candidates = await withOperator(H.t.db, [H.B.tenantId], async (tx) => {
+      const t = await tenantRow(tx, H.B.tenantId);
+      if (!t) throw new Error("no tenant");
+      return issueUpdateCandidates(tx, t, await clientPeople(tx, t), new Date());
+    });
+    expect(candidates.filter((c) => c.path === `/requests/${adopted?.id}`)).toEqual([]);
+  });
+
+  it("tells the clients who asked when an enhancement is decided no, and closes their asks", async () => {
+    const idea = await call(admin("a"), "POST", "/api/requests", {
+      text: "A dark mode for the Desk printout",
+      kind: "idea",
+    });
+    expect(idea.status).toBe(200);
+    const askId = (j(idea.json).item as Json).id as string;
+    const grouped = await call(OPERATOR, "POST", `/api/ops/asks/${askId}/group`, {
+      newEnhancement: { title: "Dark printouts" },
+    });
+    const enh = j(grouped.json).enhancement as Json;
+    const decided = await call(OPERATOR, "POST", `/api/ops/enhancements/${enh.id}/decide`, {
+      decision: "no",
+      note: "Not something we'll build.",
+    });
+    expect(decided.status, JSON.stringify(decided.json)).toBe(200);
+    const [ask] = await H.t.db.select().from(clientAsk).where(eq(clientAsk.id, askId));
+    expect(ask?.status).toBe("closed");
+    expect(ask?.closedAt).not.toBeNull();
+    const portal = await call(admin("a"), "GET", `/api/issues/${askId}`);
+    expect(j(portal.json).request).toMatchObject({ kind: "idea", state: "closed" });
+    expect((j(portal.json).messages as Json[]).map((m) => m.text)).toContain(
+      "Not something we'll build.",
+    );
   });
 
   it("makes an idea an ask, groups it, decides it and tells the client when it ships", async () => {
