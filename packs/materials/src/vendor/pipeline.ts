@@ -60,7 +60,7 @@ import {
   wordsDiffer,
 } from "../catalog/store";
 import { materialsEventRegistry } from "../events";
-import { convertLine, readUom, unitWord, withoutPackaging } from "../pricing/uom";
+import { convertLine, PACKAGING_UOMS, readUom, unitWord, withoutPackaging } from "../pricing/uom";
 import { type Category, catalogItem, priceObservation, vendorItem } from "../schema";
 import { EMBEDDING_TEMPLATE, embeddingText, stripTerms } from "./embedding-text";
 import {
@@ -1038,6 +1038,7 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
       catalogItemId: item.id,
       sku,
       vendorUom,
+      unitRaw: line.uomRaw,
       hintId: hints.get(line.lineNo) ?? null,
     });
     if (vi && vi.catalogItemId !== item.id) {
@@ -1071,6 +1072,9 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
     const lineAttributes = parseLine(line.rawDescription).attributes;
     const conv = convertLine(line.uomRaw, item.standardUom, lineAttributes, item.attributes, vi);
     let createdVendorItem = false;
+    // The vendor item the line is filed under; none when a new one can't be made for its word
+    // (the vendor's one item without a SKU in that unit is another box or case).
+    let filed: VendorItemRow | null = vi;
     if (!vi) {
       const pack = lineAttributes.pack_size;
       const made = await createVendorItem(
@@ -1089,11 +1093,19 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
         },
         by,
       );
-      vi = made.item;
       createdVendorItem = made.created;
-      if (made.created) result.vendorItemIds.push(vi.id);
+      if (made.created) result.vendorItemIds.push(made.item.id);
+      const word = unitWord(line.uomRaw);
+      filed =
+        made.created ||
+        !PACKAGING_UOMS.has(vendorUom) ||
+        (made.item.ext as { unitWord?: unknown } | null)?.unitWord === word
+          ? made.item
+          : null;
     } else if (vi.stdPerVendorUom === null && conv.ok && (vi.vendorUom ?? "") === vendorUom) {
-      vi = await updateVendorItem(tx, tenantId, vi.id, { stdPerVendorUom: toNumeric(conv.factor) });
+      filed = await updateVendorItem(tx, tenantId, vi.id, {
+        stdPerVendorUom: toNumeric(conv.factor),
+      });
     }
     const matchId = await recordMatch(tx, tenantId, {
       docLineId: line.id,
@@ -1113,7 +1125,7 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
       normalizedDescription: normalized,
       catalogItemId: item.id,
       source: human ? "human" : "auto",
-      vendorItemId: vi.id,
+      vendorItemId: filed?.id ?? null,
       skuFits: wordsDiffer(parseNormalized(normalized), item) === null,
     });
     // The price: in the vendor's unit always; per standard unit only with a conversion.
@@ -1143,7 +1155,7 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
             tenantId,
             catalogItemId: item.id,
             vendorId: input.vendorId,
-            vendorItemId: vi.id,
+            vendorItemId: filed?.id ?? null,
             observedOn: doc.observedOn,
             unitPriceStd: toNumeric(unitStd),
             qtyStd: toNumeric(qty.times(conv.factor)),
@@ -1158,6 +1170,7 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
               factor: conv.factor.toString(),
               conversion: conv.rule,
               ...(conv.assumed ? { uomAssumed: true } : {}),
+              ...(arithmetic.per !== 1 ? { pricedPer: arithmetic.per } : {}),
             },
           })
           .onConflictDoNothing()
@@ -1181,11 +1194,11 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
             },
             { registry, testRun: input.testRun },
           );
-        } else {
+        } else if (filed) {
           // Recorded before (by the price step): it now says which vendor item it was.
           const [existing] = await tx
             .update(priceObservation)
-            .set({ vendorItemId: vi.id })
+            .set({ vendorItemId: filed.id })
             .where(
               and(
                 eq(priceObservation.tenantId, tenantId),
@@ -1202,14 +1215,16 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
       // The last price is in the vendor item's own unit (a vendor item found by SKU may be priced
       // in another unit than this line's): reached from the line's unit or per standard unit,
       // else left as it was (invariant 7).
-      const last = priceForVendorItem(vi, {
-        price: toNumeric(unitRaw),
-        unit: vendorUom,
-        priceStd: unitStd ? toNumeric(unitStd) : null,
-        standardUom: item.standardUom,
-      });
-      if (last) {
-        await recordLastPrice(tx, tenantId, vi.id, {
+      const last = filed
+        ? priceForVendorItem(filed, {
+            price: toNumeric(unitRaw),
+            unit: vendorUom,
+            priceStd: unitStd ? toNumeric(unitStd) : null,
+            standardUom: item.standardUom,
+          })
+        : null;
+      if (filed && last) {
+        await recordLastPrice(tx, tenantId, filed.id, {
           price: last.price,
           priceStd: last.priceStd,
           on: doc.observedOn,
@@ -1240,7 +1255,7 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
       ...base,
       decision,
       catalogItemId: item.id,
-      vendorItemId: vi.id,
+      vendorItemId: filed?.id ?? null,
       createdItem,
       createdVendorItem,
       observationId,

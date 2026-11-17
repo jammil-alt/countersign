@@ -274,6 +274,7 @@ export async function priceLines(
       catalogItemId: item.id,
       sku,
       vendorUom,
+      unitRaw: l.uomRaw,
     });
     const vi = found && found.catalogItemId === item.id ? found : null;
     // The conversion is the vendor item's that the line's SKU names; without one, the vendor's one

@@ -763,6 +763,7 @@ async function quoteToVendorItem(
     catalogItemId: q.item.id,
     sku: null,
     vendorUom: unit,
+    unitRaw: q.unit,
   });
   if (vi?.status !== "active") return;
   const last = priceForVendorItem(vi, {

@@ -192,6 +192,8 @@ export async function resolveVendorItem(
     catalogItemId: string;
     sku: string | null;
     vendorUom: string | null;
+    /** The unit as the line wrote it: tells a box from a case (`unitWord`). */
+    unitRaw?: string | null | undefined;
     hintId?: string | null | undefined;
   },
 ): Promise<VendorItemRow | null> {
@@ -215,6 +217,16 @@ export async function resolveVendorItem(
     (v) => !key.sku || !v.sku,
   );
   const sameUnit = pair.filter((v) => (v.vendorUom ?? "") === (key.vendorUom ?? ""));
+  // DECISION (second review of fix/materials, H1): a box, case or pail is the vendor item
+  // recorded in that very word, and only when exactly one is (as `vendorItemForUnit`): a case
+  // line is never filed under, priced by, or sized from the vendor's box. None: a new one.
+  if (key.vendorUom !== null && PACKAGING_UOMS.has(key.vendorUom)) {
+    const word = unitWord(key.unitRaw);
+    const fits = sameUnit.filter(
+      (v) => word !== null && (v.ext as { unitWord?: unknown } | null)?.unitWord === word,
+    );
+    return fits.length === 1 ? (fits[0] ?? null) : null;
+  }
   if (sameUnit.length > 0) return sameUnit[0] ?? null;
   if (pair.length === 1 && !key.vendorUom) return pair[0] ?? null;
   return null;

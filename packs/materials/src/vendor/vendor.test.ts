@@ -12,6 +12,7 @@ import { parseLine } from "../catalog/keys";
 import { mergeItems } from "../catalog/merge";
 import { descriptionHash, normalize } from "../catalog/normalize";
 import { openLines } from "../catalog/split";
+import { loadPricedDocument, priceLines } from "../pricing/record";
 import { backfillFromBillsTool } from "../purchasing/tools";
 import { catalogItem, itemAlias, priceObservation, vendorItem } from "../schema";
 import { insertShop, type ShopFixture } from "../testing.test-helper";
@@ -678,6 +679,133 @@ describe.skipIf(!online)("the vendor catalog's tools", () => {
       candidates: [],
     };
   };
+
+  it("files a case line under the case, never the vendor's box: Register item, prices, last price", async () => {
+    const shop = await insertShop(t.db, "Millwork R");
+    const cedarR = await shop.vendor("Cedar Ridge Supply");
+    const text = "#8 X 1-1/4 WOOD SCREW";
+    const screws = await item(shop, text);
+    const [box] = await t.db
+      .insert(vendorItem)
+      .values({
+        tenantId: shop.tenantId,
+        vendorId: cedarR,
+        catalogItemId: screws,
+        sku: "CRL-S100",
+        name: "#8 SCREW 100/BX",
+        vendorUom: "pack",
+        stdPerVendorUom: "100",
+        ext: { unitWord: "box" },
+        lastPrice: "9.0000",
+        lastPriceStd: "0.0900",
+        lastPriceOn: "2026-10-01",
+      })
+      .returning();
+    const register = (documentId: string, catalogItemId: string, vendorId: string) =>
+      registerLines(t.db, {
+        tenantId: shop.tenantId,
+        agentVersionId: shop.agentVersionId,
+        documentId,
+        vendorId,
+        lines: [decided(1, text, { decision: "matched", catalogItemId })],
+        testRun: false,
+      });
+    // A case with no SKU and no size stated: its own new vendor item, no price per screw, and
+    // the box keeps its price.
+    const first = await shop.invoiceDoc(
+      cedarR,
+      [{ description: text, qty: "2", uom: "CS", unitPrice: "85.00" }],
+      { date: "2026-11-03" },
+    );
+    const r = await register(first.documentId, screws, cedarR);
+    expect(r.lines[0]).toMatchObject({ createdVendorItem: true, observationId: null });
+    expect(r.lines[0]?.vendorItemId).not.toBe(box?.id);
+    expect(r.lines[0]?.priceSkipped).toMatch(/no conversion rule/);
+    const [boxAfter] = await t.db
+      .select()
+      .from(vendorItem)
+      .where(eq(vendorItem.id, box?.id ?? ""));
+    expect(boxAfter).toMatchObject({ lastPrice: "9.0000", stdPerVendorUom: "100.0000" });
+    const [kase] = await t.db
+      .select()
+      .from(vendorItem)
+      .where(eq(vendorItem.id, r.lines[0]?.vendorItemId ?? ""));
+    expect(kase).toMatchObject({
+      vendorUom: "pack",
+      lastPrice: "85.0000",
+      ext: { unitWord: "case" },
+    });
+
+    // With a box and a case of 1000 on file: the case line is the case's, at 0.085 a screw.
+    const two = await shop.vendor("Cedar Two");
+    const other = await item(shop, "#10 X 2 WOOD SCREW");
+    const [box2, case2] = await t.db
+      .insert(vendorItem)
+      .values([
+        {
+          tenantId: shop.tenantId,
+          vendorId: two,
+          catalogItemId: other,
+          sku: "CT-B100",
+          name: "BOX",
+          vendorUom: "pack",
+          stdPerVendorUom: "100",
+          ext: { unitWord: "box" },
+          lastPrice: "9.0000",
+          lastPriceOn: "2026-10-20",
+        },
+        {
+          tenantId: shop.tenantId,
+          vendorId: two,
+          catalogItemId: other,
+          sku: "CT-C1000",
+          name: "CASE",
+          vendorUom: "pack",
+          stdPerVendorUom: "1000",
+          ext: { unitWord: "case" },
+          lastPrice: "80.0000",
+          lastPriceOn: "2026-10-01",
+        },
+      ])
+      .returning();
+    const second = await shop.invoiceDoc(
+      two,
+      [{ description: "#10 X 2 WOOD SCREW", qty: "2", uom: "CS", unitPrice: "85.00" }],
+      { date: "2026-11-03" },
+    );
+    const r2 = await registerLines(t.db, {
+      tenantId: shop.tenantId,
+      agentVersionId: shop.agentVersionId,
+      documentId: second.documentId,
+      vendorId: two,
+      lines: [decided(1, "#10 X 2 WOOD SCREW", { decision: "matched", catalogItemId: other })],
+      testRun: false,
+    });
+    expect(r2.lines[0]?.vendorItemId).toBe(case2?.id);
+    const [obs] = await t.db
+      .select()
+      .from(priceObservation)
+      .where(eq(priceObservation.id, r2.lines[0]?.observationId ?? ""));
+    expect(obs).toMatchObject({
+      unitPriceStd: "0.0850",
+      qtyStd: "2000.0000",
+      vendorItemId: case2?.id,
+    });
+    const byId = async (id: string | undefined) =>
+      (
+        await t.db
+          .select()
+          .from(vendorItem)
+          .where(eq(vendorItem.id, id ?? ""))
+      )[0];
+    expect((await byId(box2?.id))?.lastPrice).toBe("9.0000");
+    expect((await byId(case2?.id))?.lastPrice).toBe("85.0000");
+    const priced = await withTenant(t.db, shop.tenantId, async (tx) =>
+      priceLines(tx, shop.tenantId, await loadPricedDocument(tx, shop.tenantId, second.documentId)),
+    );
+    expect(priced.lines[0]?.unitPriceStd).toBe("0.0850");
+    expect(priced.drafts[0]?.vendorItem?.id).toBe(case2?.id);
+  });
 
   it("matches a vendor only on what the agent's match_on names, and refuses a word it doesn't know", async () => {
     const run = (input: Record<string, unknown>, settings: Record<string, unknown>) =>
