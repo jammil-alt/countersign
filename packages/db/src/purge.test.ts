@@ -44,7 +44,7 @@ describe.skipIf(!online)("purgeClient", () => {
     A = await insertClient(t.db, "A");
     B = await insertClient(t.db, "B");
     await insertOperatorRows(t.db);
-    // §1.123: the operator's deal, to-do and play log about A go with A; a deal's people and
+    // §1.124: the operator's deal, to-do and play log about A go with A; a deal's people and
     // activity with their deal.
     const [d] = await t.db
       .insert(deal)

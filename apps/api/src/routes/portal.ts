@@ -729,7 +729,8 @@ export async function portalRunView(
       description: platform.tools.get(a.tool)?.spec.description ?? a.tool,
       display: changeDisplay(platform, a.tool),
       status: a.status,
-      executedAt: iso(a.executedAt),
+      // Follow-up 9: the time a change was made; one not done (claimed, failed) shows none.
+      executedAt: a.status === "done" ? iso(a.executedAt) : null,
       stepRunId: a.stepRunId,
       before: clientStepData(a.before) ?? null,
       input: clientStepData(a.editedInput ?? a.input) ?? null,

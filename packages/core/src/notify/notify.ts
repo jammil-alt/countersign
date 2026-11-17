@@ -40,6 +40,11 @@ export const NOTIFICATION_REASONS = {
   turnedOff: "turned_off",
   /** A send failed and will be tried again (`send_failed:<n>`), or failed for good. */
   sendFailed: "send_failed",
+  /**
+   * Audit 4.3: a text or phone notification whose pass stopped between the send and recording
+   * it: it may have gone, and is not sent again (failed, for a person to look at).
+   */
+  unconfirmed: "send_unconfirmed",
 } as const;
 
 /** A failed send is retried twice, then marked `failed` (ARCHITECTURE §11.3). */

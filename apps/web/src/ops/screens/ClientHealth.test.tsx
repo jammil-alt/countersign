@@ -123,4 +123,44 @@ describe("the client's health in the back office", () => {
       "9 live runs in a day, 2 failed",
     );
   });
+
+  it("shows events set aside after failing to dispatch and gives them back", async () => {
+    let left = 2;
+    const api = fakeApi({
+      [`GET /api/ops/clients/${CLIENT}/health`]: () => ({
+        supervisor: { ...SUPERVISOR, runStatus: "active" },
+        summary: null,
+        findings: [],
+      }),
+      [`GET /api/ops/clients/${CLIENT}/events/set-aside`]: () => ({
+        count: left,
+        oldest: "2026-11-04T09:00:00.000Z",
+        events:
+          left === 0
+            ? []
+            : [
+                {
+                  id: "00000000-0000-4000-8000-0000000e0001",
+                  type: "document.extracted",
+                  createdAt: "2026-11-04T09:00:00.000Z",
+                  setAsideAt: "2026-11-04T09:05:00.000Z",
+                  attempts: 5,
+                  error: "TypeError: bad payload",
+                },
+              ],
+      }),
+      [`POST /api/ops/clients/${CLIENT}/events/set-aside/retry`]: () => {
+        left = 0;
+        return { retried: 2 };
+      },
+    });
+    renderSection(api);
+    expect(await screen.findByTestId("ops-client-set-aside-count")).toHaveTextContent(
+      "2 events failed to dispatch five times",
+    );
+    expect(screen.getByText(/TypeError: bad payload/)).toBeVisible();
+    await userEvent.click(screen.getByTestId("ops-client-set-aside-retry"));
+    await waitFor(() => expect(screen.queryByTestId("ops-client-set-aside")).toBeNull());
+    expect(api.calls).toContain(`POST /api/ops/clients/${CLIENT}/events/set-aside/retry`);
+  });
 });

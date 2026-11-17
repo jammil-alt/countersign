@@ -32,6 +32,7 @@ import {
 } from "./api.test-helper";
 import { handleEmail } from "./email";
 import { defaultDeps } from "./http";
+import { dbEmailServices } from "./reach/email";
 import { reachOutTick } from "./reach/service";
 import { credentialsFor, executeRun, reachDepsFor } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
@@ -411,11 +412,15 @@ describe.skipIf(!h)("Gmail, send only, through the API", () => {
       expect(signatureOf(mail.text)[1]).toContain("mezonas.com");
       const replyTo = mail.replyTo[0] ?? "";
       const [local, domain] = forwarding.split("@");
-      expect(replyTo).toMatch(new RegExp(`^${local}\\+[0-9a-f]{32}@${domain}$`));
+      // The client's reply address, not the forwarding address.
+      expect(replyTo).toMatch(new RegExp(`^r-[a-z2-7]{26}\\+[a-z2-7]{34}@${domain}$`));
+      expect(replyTo).not.toContain(local);
 
       // María answers from her own address; someone else writing to the tagged address doesn't count.
       const raw = new TextEncoder().encode(
         [
+          // Cloudflare's verdict on top: SPF passed for María's domain.
+          `Authentication-Results: mx.cloudflare.net; spf=pass smtp.mailfrom=${MARIA}`,
           `From: María Núñez <${MARIA}>`,
           `To: ${replyTo}`,
           "Subject: Re: Entrega del viernes",
@@ -548,6 +553,83 @@ describe.skipIf(!h)("Gmail, send only, through the API", () => {
       j(list.json).connections.find((c: { connector: string }) => c.connector === "gmail")
         .connection.status,
     ).toBe("error");
+  });
+
+  it("saves refreshed tokens only over the ones the refresh started from", async () => {
+    const ref = {
+      id: gmailConn,
+      tenantId: A(),
+      connector: "gmail",
+      status: "connected" as const,
+      externalAccountId: MAILBOX,
+      config: {},
+      permissions: {},
+    };
+    const open = () => credentialsFor(H.db, { current: ENCRYPTION_KEY })(ref);
+    const a = open();
+    const b = open();
+    const start = (await a.get()) as Record<string, unknown>;
+    await b.get();
+    const from = start.refreshToken;
+    const swap = (refreshToken: string) => (stored: Record<string, unknown> | null) =>
+      stored?.refreshToken === from ? { ...stored, refreshToken } : null;
+    // a writes first; b, which read the same tokens, sees a's and writes nothing.
+    expect(await a.update?.(swap("rt-from-a"))).toMatchObject({ refreshToken: "rt-from-a" });
+    expect(await b.update?.(swap("rt-from-b"))).toMatchObject({ refreshToken: "rt-from-a" });
+    expect(await open().get()).toMatchObject({ refreshToken: "rt-from-a" });
+    // Put the grant's own token back for the tests that follow.
+    await a.set(start as never);
+  });
+
+  it("keeps each try of a send: a refused one may be followed by the next, never a started one", async () => {
+    const services = dbEmailServices(H.t.db, {
+      id: gmailConn,
+      tenantId: A(),
+      connector: "gmail",
+      status: "connected",
+      externalAccountId: MAILBOX,
+      config: {},
+      permissions: {},
+    });
+    const key = "run-tries:reach:0";
+    const base = {
+      idempotencyKey: key,
+      connectionId: gmailConn,
+      contactId: maria,
+      contactName: "María Núñez",
+      to: MARIA,
+      from: MAILBOX,
+      subject: "Entrega",
+      startedAt: new Date("2026-11-05T15:00:00Z"),
+    };
+    expect(await services.attemptFor?.(key)).toBeNull();
+    // A try recorded the way it was before tries were numbered still stands.
+    await services.startAttempt?.(base);
+    expect(await services.attemptFor?.(key)).toMatchObject({ attempt: 1, refused: false });
+    await services.refuseAttempt?.({
+      idempotencyKey: key,
+      attempt: 1,
+      reason: "HTTP_429",
+      at: base.startedAt,
+    });
+    expect(await services.attemptFor?.(key)).toMatchObject({ attempt: 1, refused: true });
+    await services.startAttempt?.({ ...base, attempt: 2 });
+    // A second start of the same try keeps the first.
+    await services.startAttempt?.({ ...base, attempt: 2, subject: "other" });
+    expect(await services.attemptFor?.(key)).toMatchObject({
+      attempt: 2,
+      refused: false,
+      subject: "Entrega",
+    });
+    const rows = await H.t.db
+      .select({ type: rawRecord.entityType, version: rawRecord.externalVersion })
+      .from(rawRecord)
+      .where(and(eq(rawRecord.connectionId, gmailConn), eq(rawRecord.externalId, key)));
+    expect(rows.map((r) => `${r.type}:${r.version}`).sort()).toEqual([
+      "EmailAttempt:2",
+      "EmailAttempt:null",
+      "EmailAttemptRefused:null",
+    ]);
   });
 
   it("revokes the grant at Google when the person disconnects; only they or the admin may", async () => {

@@ -139,7 +139,7 @@ then one pass of its "To verify" list against the real service.
 
 | Area | Connector | What the owner needs to do |
 |---|---|---|
-| Accounting | QuickBooks (`qbo`) | Sandbox: §1 P3. Production: Intuit's app review and security questionnaire, production keys. 13 doc checks and 8 sandbox checks in `NOTES.md`. |
+| Accounting | QuickBooks (`qbo`) | Sandbox: §1 P3. Production: Intuit's app review and security questionnaire, production keys. 13 doc checks and 8 sandbox checks in `NOTES.md`. Known risk: after a long gap, deletions of an entity with 1,000 or more changes since the last sync can be missed (CDC cuts them off and queries can't see them); the sync reports "qbo CDC cap: deletions may be missed" when it happens. |
 | Email | Gmail (`gmail`, send only) | Google verification (S4). |
 | Email | Resend (`resend`) | Account, `RESEND_API_KEY`, fallback sending domain (§1 P2). |
 | Email | Outlook (`outlook`, send only) | Entra app, publisher verification, `OUTLOOK_CLIENT_ID`/`SECRET`. |
@@ -209,7 +209,7 @@ the back office.
 Merged unfinished on purpose (owner, 2026-11-15), in three PRs: migration 0056, the sign-in
 handoff, then the phones, push, signing and `apps/mobile`. Built and tested against fakes; nothing
 has run on a phone or against Expo yet. Off until the steps below: no app build exists, and phone
-notifications stay off until `MOBILE_PUSH=on`. To finish it:
+sign-in stays off until `MOBILE_SIGNIN=on` and phone notifications until `MOBILE_PUSH=on`. To finish it:
 
 | # | Step | Notes |
 |---|---|---|
@@ -217,9 +217,10 @@ notifications stay off until `MOBILE_PUSH=on`. To finish it:
 | M2 | **An Expo account**, then in `apps/mobile`: `npx eas-cli login`, `npx eas-cli init` (makes the project; put its id in `EAS_PROJECT_ID` for builds, or in `app.config.ts`'s env). | Push tokens need the project id; without it the app skips notifications and still signs. |
 | M3 | **iPhone**: the Apple Developer Program (organisation account, $99 a year, D-U-N-S for Twelve Thirty-Four), then `npx eas-cli build --profile development --platform ios` and let EAS make the certificates and the push key (APNs). Register your phone with `npx eas-cli device:create` first. | Bundle id `com.mezonas.app`. Approving the developer account can take a day or more: start it first. |
 | M4 | **Android**: `npx eas-cli build --profile development --platform android` installs from a link. For push, a Firebase project: its `google-services.json` as the EAS file variable `GOOGLE_SERVICES_JSON`, and its FCM v1 service-account key uploaded with `npx eas-cli credentials`. Account steps: `apps/mobile/README.md`, "Accounts". The Play Console ($25 once) only for the store. | Package `com.mezonas.app`. |
-| M5 | **Try it on staging**: set `MOBILE_PUSH=on` on staging's Worker (`wrangler secret put` or a variable; `deploy.yml` doesn't copy it yet), sign in from the app (WorkOS in the system browser, then the second step's code if it is on there), set up the phone (notifications, Face ID), make a Desk item on the Sandbox (any approval), and check: the notification arrives within 5 minutes with a count only, tapping opens the Desk, signing asks for Face ID, the audit log has `inbox.device_signed`, Undo works within 60 seconds, removing the phone in Settings stops its notifications. | Nothing in WorkOS changes: the sign-in returns to `/api/mobile/handoff` on our own origin. |
+| M5 | **Try it on staging**: set `MOBILE_SIGNIN=on` and `MOBILE_PUSH=on` on staging's Worker with `wrangler secret put` (a dashboard variable is erased by the next deploy; `deploy.yml` copies neither yet), sign in from the app (WorkOS in the system browser, then the second step's code if it is on there), set up the phone (notifications, Face ID), make a Desk item on the Sandbox (any approval), and check: the notification arrives within 5 minutes with a count only, tapping opens the Desk, signing asks for Face ID, the audit log has `inbox.device_signed`, Undo works within 60 seconds, removing the phone in Settings stops its notifications. | Nothing in WorkOS changes: the sign-in returns to `/api/mobile/handoff` on our own origin. |
 | M6 | Expo's **enhanced push security** on, and `MOBILE_PUSH` and `EXPO_ACCESS_TOKEN` copied by `deploy.yml` (a small PR of its own), before production's `MOBILE_PUSH=on`. | Until then anyone holding a phone's token could send it a notification through Expo. |
-| M7 | Owner decisions: a longer session for an unlocked registered phone (today 30 idle minutes, as the browser, and the second step's code at each sign-in); whether a remembered browser may let a phone sign-in skip the code (today never); whether operators get the app; the phone app as a second-step method ("2FA in an app"); the store listing (name, screenshots, privacy answers); TestFlight testers. | `docs/plan.md` §1.116 "Not in this pass". |
+| M7 | Owner decisions: a longer session for an unlocked registered phone (today 30 idle minutes, as the browser, and the second step's code at each sign-in); whether a remembered browser may let a phone sign-in skip the code (today never); whether operators get the app (today refused at the handoff); the phone app as a second-step method ("2FA in an app"); the store listing (name, screenshots, privacy answers); TestFlight testers. | `docs/plan.md` §1.116 "Not in this pass". |
+| M8 | Before production's `MOBILE_SIGNIN=on`: a page in the browser that asks the person to confirm before the handoff sends the session to the app, and the app's return on a universal link (iOS) and an app link (Android) instead of the `mezonas://` scheme, so only our app can receive the code. | Audit, 2026-11-17. The code is already useless without the app's PKCE verifier. |
 
 ### Sign-in codes and the Claude connector (owner, 2026-11-10)
 

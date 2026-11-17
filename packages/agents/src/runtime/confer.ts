@@ -7,12 +7,16 @@
 
 import { Decimal, type Locale, type ModelChoice } from "@countersign/core";
 import {
+  ANSWER_TOOL_CHOICE,
+  answerToolCall,
+  answerToolInstruction,
   createLlmClient,
   DEFAULT_MODELS,
   type LlmCallRecord,
+  type LlmCallResult,
   type LlmExchange,
-  type LlmMessage,
   type LlmRequest,
+  LlmToolError,
   MODELS,
 } from "@countersign/llm";
 import { z } from "zod";
@@ -132,13 +136,13 @@ export async function conferAi(deps: RuntimeDeps, req: ConferAiInput): Promise<C
     );
   };
   const llm = createLlmClient({ transport: deps.transport, onCall });
-  let response: LlmMessage;
+  let result: LlmCallResult;
   try {
-    ({ message: response } = await llm.message(
+    result = await llm.message(
       {
         model: model.id,
-        max_tokens: model.maxTokens ?? 1024,
-        system,
+        max_tokens: model.maxTokens ?? 4096,
+        system: `${system}\n\n${answerToolInstruction(FINISH)}`,
         messages,
         tools: [
           {
@@ -159,18 +163,24 @@ export async function conferAi(deps: RuntimeDeps, req: ConferAiInput): Promise<C
             } as never,
           },
         ],
-        tool_choice: { type: "tool", name: FINISH },
+        tool_choice: ANSWER_TOOL_CHOICE,
       },
       { label: req.nodeId },
-    ));
+    );
   } catch (error) {
     return { verdict: "unsure", note: `The check couldn't run: ${String(error).slice(0, 200)}` };
   }
-  const use = response.content.find(
-    (b): b is Extract<LlmMessage["content"][number], { type: "tool_use" }> =>
-      b.type === "tool_use" && b.name === FINISH,
-  );
-  const parsed = Answer.safeParse(use?.input);
+  let input: unknown;
+  try {
+    input = answerToolCall(result, FINISH).input;
+  } catch (error) {
+    if (!(error instanceof LlmToolError)) throw error;
+    // A cut-off answer is never read: its verdict may be incomplete.
+    if (error.code === "max_tokens") {
+      return { verdict: "unsure", note: `The check couldn't run: ${error.message}` };
+    }
+  }
+  const parsed = Answer.safeParse(input);
   if (!parsed.success) return { verdict: "unsure", note: "The check gave no clear answer." };
   return { verdict: parsed.data.verdict, note: parsed.data.note.slice(0, NOTE_MAX) };
 }

@@ -42,6 +42,11 @@ export interface Secrets {
    * is copied by deploy.yml yet: set them by hand (docs/operations.md, "The phone app").
    */
   MOBILE_PUSH?: string;
+  /**
+   * §1.116: the phone app's sign-in routes (`/api/mobile/sign-in`, `/handoff`, `/session`): `on`,
+   * else they answer 404 (the default) until an app is in the stores. Set by hand, as MOBILE_PUSH.
+   */
+  MOBILE_SIGNIN?: string;
   EXPO_ACCESS_TOKEN?: string;
   /** Mezonas' own Resend account: makes each client's sending domain and key (docs/plan.md §1.25). */
   RESEND_API_KEY?: string;

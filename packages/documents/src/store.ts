@@ -19,7 +19,9 @@ export class DocumentError extends Error {
       | "not_found"
       | "not_extractable"
       // Skill model (2026-11-10): a "Read document" skill's answer that doesn't fit the reading.
-      | "invalid_reading",
+      | "invalid_reading"
+      // A reading on arrival skipped: the document is read already, or someone else is reading it.
+      | "not_due",
     message: string,
   ) {
     super(message);

@@ -26,7 +26,8 @@ message through Email Routing can tell.
 2. **Genuine message.** From a mailbox on a domain with DMARC at `p=reject` or `p=quarantine` that
    passes SPF and DKIM (for example a Google Workspace domain), send any message to that address. In
    the code service's Workers logs, `email.received` must show `spf`, `dkim` and `dmarc` all `true`.
-   If not, Cloudflare's header differs from what `src/email.ts` reads: stop and fix the parser first.
+   If not, Cloudflare's header differs from what `readAuthentication` (`packages/core/src/email/`)
+   reads: stop and fix the parser first.
 3. **Forged message.** Send a message whose From is on a domain that fails DMARC for this sender
    (for example From `someone@<a domain with p=reject that you don't send for>`, sent through any
    other mail server), and put this header at the very top of the message yourself:
@@ -50,7 +51,7 @@ message through Email Routing can tell.
 |---|---|
 | Email Routing can route a whole subdomain (`agents.mezonas.com`, `agents.staging.mezonas.com`) to a Worker with a catch-all rule, and the Worker sees the original recipient in `message.to`. | `handleEmail` reads the identity from `message.to` (`agent-<id>@<domain>`). |
 | Cloudflare adds its authentication verdicts as a header **above** every header the sender wrote, before the Worker sees `message.raw`. The topmost `Authentication-Results` or `ARC-Authentication-Results` header is Cloudflare's. **Until this is checked (above), `EMAIL_CODES` stays `off`.** | `readAuthentication` reads only the topmost of those two headers. If Cloudflare adds neither, the topmost one could be the sender's own (forged): every message would then need to fail, which is what happens unless the forged header also uses Cloudflare's authserv-id. Confirm with a real message. |
-| That header's authserv-id is `mx.cloudflare.net` (the same assumption as apps/api's forwarding, `packages/connectors/src/upload/forwarding.ts`). | `TRUSTED_AUTHSERV_ID` in `src/email.ts`. Any other id means "not authenticated". |
+| That header's authserv-id is `mx.cloudflare.net` (the same assumption as apps/api's forwarding and replies, `packages/connectors/src/upload/NOTES.md`). | `TRUSTED_AUTHSERV_ID` in `packages/core/src/email/authentication.ts`, whose `readAuthentication` both services use. Any other id means "not authenticated". |
 | The header carries `spf=pass`, `dkim=pass` and `dmarc=pass … header.from=<domain>` in RFC 8601 form; `ARC-Authentication-Results` starts with `i=<n>;`. | All three must pass, and DMARC's `header.from` must be the From address's domain. |
 | Email Routing hands messages up to 25 MiB to a Worker (`rawSize`). | Larger messages are dropped unread. |
 | Dropping a message (not calling `setReject` or `forward`) is silent for the sender. | We never bounce: a bounce would tell a guesser which addresses exist. |

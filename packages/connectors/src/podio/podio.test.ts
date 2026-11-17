@@ -6,9 +6,9 @@ import { memoryCredentials } from "../credentials-accessor";
 import { captureBefore, executeWrite, runReadTool } from "../invoke";
 import { memoryLogger } from "../logger";
 import { beginAuthorization, completeAuthorization } from "../oauth/flow";
-import { ReconnectRequiredError } from "../oauth/tokens";
+import { ReconnectRequiredError, TokenRefreshError } from "../oauth/tokens";
 import { ConnectorRegistry } from "../registry";
-import { fakePodio, PODIO_FIXTURES } from "../testing";
+import { fakePodio, jsonResponse, PODIO_FIXTURES } from "../testing";
 import { mapPodioField, podioFieldValues } from "./fields";
 import { createPodioConnector, mapPodioItem, PODIO_TOOLS, PodioApiError } from "./index";
 
@@ -388,5 +388,23 @@ describe("podio connector", () => {
     ).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(PodioApiError);
     expect(err).toMatchObject({ status: 420, retryable: true });
+  });
+
+  it("keeps the grant for our keys, and still asks for a reconnect when the refusal can't be read", async () => {
+    const podio = fakePodio({ acceptAccessTokens: [] });
+    const refused = async (status: number, body: unknown) => {
+      const connector = createPodioConnector(
+        options(async (url, init) =>
+          url === "https://api.podio.com/oauth/token"
+            ? jsonResponse(status, body)
+            : podio.fetch(url, init),
+        ),
+      );
+      const { c } = ctx(creds());
+      return runReadTool(connector, PODIO_TOOLS.get, { itemId: ITEM }, c).catch((e) => e);
+    };
+    expect(await refused(401, { error: "invalid_client" })).toBeInstanceOf(TokenRefreshError);
+    expect(await refused(400, { error: "invalid_grant" })).toBeInstanceOf(ReconnectRequiredError);
+    expect(await refused(400, "")).toBeInstanceOf(ReconnectRequiredError);
   });
 });

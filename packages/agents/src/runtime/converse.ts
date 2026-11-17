@@ -27,11 +27,15 @@ import {
   type ModelChoice,
 } from "@countersign/core";
 import {
+  ANSWER_TOOL_CHOICE,
+  answerToolCall,
+  answerToolInstruction,
   createLlmClient,
   type LlmCallRecord,
+  type LlmCallResult,
   type LlmExchange,
-  type LlmMessage,
   type LlmRequest,
+  LlmToolError,
 } from "@countersign/llm";
 import type { RuntimeDeps } from "./context";
 import { checkAgainst } from "./json-schema";
@@ -214,13 +218,13 @@ export async function converseTurn(
     tokensOut,
   });
   const llm = createLlmClient({ transport: deps.transport, onCall });
-  let response: LlmMessage;
+  let result: LlmCallResult;
   try {
-    ({ message: response } = await llm.message(
+    result = await llm.message(
       {
         model: model.id,
         max_tokens: model.maxTokens,
-        system,
+        system: `${system}\n\n${answerToolInstruction(CONVERSE_TURN_TOOL)}`,
         messages,
         tools: [
           {
@@ -234,18 +238,22 @@ export async function converseTurn(
             input_schema: converseTurnSchema(req.result) as never,
           },
         ],
-        tool_choice: { type: "tool", name: CONVERSE_TURN_TOOL },
+        tool_choice: ANSWER_TOOL_CHOICE,
       },
       { label: `${req.key}:converse:${req.turn}` },
-    ));
+    );
   } catch (error) {
     return { ok: false, error: `turn ${req.turn}: ${errorText(error)}`, ...usage() };
   }
-  const use = response.content.find(
-    (b): b is Extract<LlmMessage["content"][number], { type: "tool_use" }> =>
-      b.type === "tool_use" && b.name === CONVERSE_TURN_TOOL,
-  );
-  if (!use) return { ok: false, error: `turn ${req.turn}: no answer`, ...usage() };
+  let use: { input: unknown };
+  try {
+    use = answerToolCall(result, CONVERSE_TURN_TOOL);
+  } catch (error) {
+    if (!(error instanceof LlmToolError)) throw error;
+    // A cut-off turn is never sent or used: its message may be incomplete.
+    const why = error.code === "max_tokens" ? error.message : "no answer";
+    return { ok: false, error: `turn ${req.turn}: ${why}`, ...usage() };
+  }
   const parsed = ConverseAnswerSchema.safeParse(compact(use.input));
   if (!parsed.success) {
     return { ok: false, error: `turn ${req.turn}: the answer doesn't fit`, ...usage() };

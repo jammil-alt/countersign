@@ -54,6 +54,9 @@ export const fr: Messages = {
   "errorPage.forbidden.title": "Vous n'avez pas accès à cette page.",
   "errorPage.failure":
     "Un problème est survenu au chargement de cette page. Réessayez dans un instant.",
+  "errorPage.crash":
+    "Un problème est survenu à l'affichage de cette page. Réessayez ou ouvrez une autre page.",
+  "errorPage.crashPart": "Cette partie n'a pas pu s'afficher. Réessayez ou ouvrez une autre page.",
   "errorPage.back.home": "Aller à l'accueil",
   "errorPage.back.runs": "Aller aux exécutions",
   "errorPage.back.records": "Aller aux enregistrements",
@@ -102,6 +105,12 @@ export const fr: Messages = {
   "error.contact_exists": "Quelqu'un dans l'annuaire a déjà cette adresse e-mail ou ce numéro.",
   "error.rate_limited": "Attendez une minute et réessayez.",
   "error.no_address": "Nous ne connaissons pas l'adresse de ce compte. Connectez-le à nouveau.",
+  "error.different_account":
+    "Ce compte n'est pas celui qui est connecté ici. Déconnectez-le d'abord, puis connectez l'autre.",
+  "error.different_company":
+    "Votre comptabilité ici vient d'une autre entreprise QuickBooks. Demandez-nous de changer d'entreprise.",
+  "error.sync_running":
+    "Nous lisons la comptabilité de cette entreprise en ce moment. Réessayez dans quelques minutes.",
   "error.invalid_hours":
     "Ces horaires ne peuvent pas être enregistrés. Indiquez les horaires d'au moins un jour, et gardez chaque absence sous un an.",
   "error.sends_form":
@@ -439,6 +448,7 @@ export const fr: Messages = {
   "desk.worksheet.title": "Feuille de travail",
   "desk.worksheet.how": "Comment {agent} en est arrivé là",
   "desk.worksheet.yourSign": "Votre approbation",
+  "desk.worksheet.earlierChange": "Ouvrir le changement précédent",
   "desk.team.title": "Qui approuve quoi",
   "desk.team.undo": "Délai d'annulation",
   "desk.team.undoOff": "Désactivé",
@@ -926,6 +936,9 @@ export const fr: Messages = {
     "Un par ligne. Un domaine (votrefournisseur.com) couvre tout le monde chez lui.",
   "forwarding.edit": "Modifier qui peut transférer",
   "forwarding.drop.sender_not_allowed": "l'expéditeur n'est pas dans votre liste",
+  "forwarding.drop.sender_unverified":
+    "l'expéditeur est dans votre liste, mais nous n'avons pas pu confirmer qu'il venait de lui",
+  "forwarding.drop.auto_reply": "c'était une réponse automatique, comme un message d'absence",
   "forwarding.drop.unknown_address": "il a été envoyé à une adresse ancienne ou erronée",
   "forwarding.drop.too_large": "il dépassait 25 Mo",
   "forwarding.drop.unreadable": "le message était illisible",
@@ -1445,6 +1458,7 @@ export const fr: Messages = {
   "contacts.status.failed": "échec",
   "contacts.status.read": "lu",
   "contacts.status.received": "reçu",
+  "contacts.status.unverified": "reçu, expéditeur non confirmé",
   "contacts.status.replied": "a répondu",
   "contacts.status.not_sent": "non envoyé",
   "contacts.status.no_reply": "pas de réponse",

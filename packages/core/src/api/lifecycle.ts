@@ -157,6 +157,40 @@ export const lifecycleRoutes = {
       runs: z.array(z.object({ runId: z.string(), workflow: z.string() })),
     }),
   }),
+  // Audit 4.2: what came in while the agent was paused, and running it by hand.
+  opsMissedEvents: defineRoute({
+    method: "GET",
+    path: "/api/ops/agents/:id/missed-events",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "The events of a client agent's last pause (within 30 days) that its live version would have started on and hasn't: how many, and the pause's start and end",
+    params: IdParams,
+    response: z.object({
+      missed: z
+        .object({
+          count: z.number().int(),
+          from: z.string(),
+          to: z.string(),
+          /** More events came in than were read: the count may be low. */
+          more: z.boolean(),
+        })
+        .nullable(),
+    }),
+  }),
+  opsRunMissedEvents: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/missed-events/run",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Start live runs of a client agent on the events its last pause held back, oldest first, up to 50 a call; each runs once per event, as a past event does",
+    params: IdParams,
+    response: z.object({
+      runs: z.array(z.object({ runId: z.string(), workflow: z.string() })),
+      left: z.number().int(),
+    }),
+  }),
   portalServiceControls: defineRoute({
     method: "GET",
     path: "/api/controls",
@@ -180,9 +214,10 @@ export const lifecycleRoutes = {
     path: "/api/services/:id/resume",
     auth: "session",
     roles: CLIENT_ADMIN,
-    summary: "Resume a service you paused (a pause we made is ours to lift)",
+    summary:
+      "Resume a service you paused (a pause we made is ours to lift); `missedEvents` counts what came in while it was paused that it would have started on (none start by themselves)",
     params: IdParams,
-    response: z.object({ service: ServiceControl }),
+    response: z.object({ service: ServiceControl, missedEvents: z.number().int() }),
   }),
   portalPauseAll: defineRoute({
     method: "POST",
@@ -198,8 +233,9 @@ export const lifecycleRoutes = {
     path: "/api/services/resume-all",
     auth: "session",
     roles: CLIENT_ADMIN,
-    summary: "Resume every service you paused",
-    response: z.object({ services: z.array(ServiceControl) }),
+    summary:
+      "Resume every service you paused; `missedEvents` counts what came in while they were paused that they would have started on (none start by themselves)",
+    response: z.object({ services: z.array(ServiceControl), missedEvents: z.number().int() }),
   }),
   portalRunForms: defineRoute({
     method: "GET",

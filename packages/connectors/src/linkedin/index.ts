@@ -23,6 +23,7 @@ import { type FetchLike, formEncode, globalFetch, timeoutSignal } from "../http"
 import {
   OAuthTokens,
   ReconnectRequiredError,
+  refreshRefused,
   SignInRefusedError,
   type TokenRefresher,
   tokenManager,
@@ -238,7 +239,9 @@ export function createLinkedInConnector(options: LinkedInOptions = {}): Connecto
         client_secret: c.secret,
       });
       if ("error" in answer) {
-        throw new ReconnectRequiredError(`LinkedIn refused the refresh: ${answer.error}`);
+        // UNCHECKED (NOTES.md): LinkedIn documents `invalid_request` for a refresh token that is
+        // invalid, expired or revoked; `invalid_grant` is seen too.
+        throw refreshRefused("LinkedIn", answer.error, ["invalid_grant", "invalid_request"]);
       }
       return {
         ...tokens,
@@ -374,7 +377,12 @@ export function createLinkedInConnector(options: LinkedInOptions = {}): Connecto
         // The first page names the account on the Connections card.
         externalAccountId: `urn:li:organization:${pages[0]?.id}`,
         credentials: credentials as unknown as JsonObject,
-        config: config as unknown as JsonObject,
+        // Every page the person administers names the same account: LinkedIn's order of them
+        // isn't promised, and pages come and go, so a sign-in again matches on any of them.
+        config: {
+          ...config,
+          accountIds: pages.map((p) => `urn:li:organization:${p.id}`).sort(),
+        } as unknown as JsonObject,
       };
     },
 
@@ -507,7 +515,14 @@ export function createLinkedInConnector(options: LinkedInOptions = {}): Connecto
               reason: String(res.status),
               at: ctx.now(),
             });
-            if (res.status === 401) throw new ReconnectRequiredError("LinkedIn refused the token");
+            // DECISION: a 401 right after a refresh that worked is not a dead grant (the try is
+            // refused above, so a later one may post); a lasting one is raised after a day.
+            if (res.status === 401) {
+              throw new LinkedInApiError(
+                401,
+                "LinkedIn refused our access just after we renewed it; we'll keep trying",
+              );
+            }
             const answer = (await readJson(res)) as { message?: unknown } | null;
             const why = typeof answer?.message === "string" ? answer.message.slice(0, 300) : "";
             throw new LinkedInApiError(

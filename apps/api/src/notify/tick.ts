@@ -35,21 +35,20 @@ export async function notifyPass(
   tenantId: string,
   now: Date,
 ): Promise<SendSummary | null> {
-  return withTenant(db, tenantId, async (tx) => {
+  const live = await withTenant(db, tenantId, async (tx) => {
     const t = await tenantRow(tx, tenantId);
-    if (!t || t.retiredAt) return null;
+    if (!t || t.retiredAt) return false;
     const people = await clientPeople(tx, t);
     await enqueue(tx, t.id, deps.origin, await scanCandidates(tx, t, people, now), now);
-    return sendQueued(tx, deps, t, now);
+    return true;
   });
+  // Audit 4.3: sent after the candidates commit, each row claimed, sent and settled on its own.
+  return live ? sendQueued(db, deps, tenantId, now) : null;
 }
 
 /** Sends one client's queue now (e.g. after the operator's reminder). */
 export async function sendNow(db: Db, deps: NotifyDeps, tenantId: string, now: Date) {
-  return withTenant(db, tenantId, async (tx) => {
-    const t = await tenantRow(tx, tenantId);
-    return t && !t.retiredAt ? sendQueued(tx, deps, t, now) : null;
-  });
+  return sendQueued(db, deps, tenantId, now);
 }
 
 /** The minute cron's call: the Weekly Table for every client, and the pass every 5 minutes. */

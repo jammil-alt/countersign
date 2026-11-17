@@ -2309,7 +2309,8 @@ use the answer like any typed output.
 **Turns.** Each turn is one model call on the agent (agent-mode work: its instructions, memory notes
 and the client's language; the step's `model` overrides the agent's). The model sees a platform
 preamble, the goal and the brief as instructions; the transcript and the record's data arrive in a
-tool-result block, never as instructions (invariant 9). It answers through one forced tool, `turn`:
+tool-result block, never as instructions (invariant 9). It answers by calling one tool, `turn`,
+named in its instructions (no forced tool choice):
 
 | Answer | Effect |
 |---|---|
@@ -2945,6 +2946,9 @@ confer's) keep their wording, so recorded fixtures still replay; they are never 
   the owner's `maxCostUsd` per run (reviews and choices together); over it, nothing is asked or
   recorded, and the answer is `unsure` (an `if`) or the limit (a `repeat`).
   A choice is not an intervention: it doesn't count against `maxPerRun`.
+- **A call that fails** (the provider's error, or an answer cut off at max_tokens) is not `unsure`:
+  the step fails with the reason, no path is taken and no decision is recorded, and a retry of the
+  run starts at that step.
 - **Durable and recorded.** Each choice is `step.do('${nodeId}:choose')` (a `repeat`'s check as above),
   so a replay finds the same answer. Each is an `oversight_decision` row (cause `choose` or `until`;
   action `choose`, `unsure`, `done` or `again`; the path id in `choice`) with `agent_version_id`, the

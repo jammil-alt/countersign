@@ -54,9 +54,19 @@ function harness(held: boolean, mode: "live" | "test" = "live") {
           failed.push(error);
           return { id: "act1", status: "failed" };
         },
-        claim: async () => {
-          throw new Error("a held write is never claimed");
-        },
+        // The hold is checked once this caller holds the action (as the release is), so a write
+        // another caller is making is never failed from here.
+        claim: async () => ({
+          action: {
+            id: "act1",
+            status: "executing",
+            runId: "r1",
+            tool: TESTKIT_UPDATE_TOOL,
+            connectionId: "c1",
+          },
+          claimed: true,
+          retaken: false,
+        }),
         propose: async (_t: string, p: (typeof proposed)[number]) => {
           proposed.push(p);
           return { action: { id: "act1", status: p.status, inboxItemId: "in1", before: null } };
@@ -99,7 +109,7 @@ describe("the safety hold in the gate", () => {
     expect(h.proposed[0]?.status).toBe("approved");
   });
 
-  it("fails an approved write of a held agent closed, before it is claimed", async () => {
+  it("fails an approved write of a held agent closed, before anything is sent", async () => {
     const h = harness(true);
     const out = await executeAction(h.deps, { tenantId: "t1", actionId: "act1" });
     expect(out.status).toBe("failed");

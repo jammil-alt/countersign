@@ -65,9 +65,12 @@ dashboard.
    `staging` from `main`.
 3. On each branch, with SQL: `cs_runtime` (NOLOGIN) and `cs_worker` (LOGIN, member of `cs_runtime` only).
    `cs_worker` is never created through Neon's console or API: Neon-managed roles join `neon_superuser`
-   and would skip row-level security. Each run gives it a new random password per branch, which exists
-   only inside the job and in Hyperdrive.
-4. Hyperdrive `mezonas-db` (→ Neon `main` as `cs_worker`) and `mezonas-db-staging` (→ `staging`).
+   and would skip row-level security. A new Hyperdrive config gets a new random password, which exists
+   only inside the job and in Hyperdrive; an existing one keeps its password unless the run has
+   **rotate_password** ticked (staging is changed before `main`).
+4. Hyperdrive `mezonas-db` (→ Neon `main` as `cs_worker`) and `mezonas-db-staging` (→ `staging`),
+   with query caching off: the client scope is a transaction setting the cache can't see. The job
+   waits for the `production` environment's approval.
 5. R2 buckets `mezonas` and `mezonas-staging`.
 
 After the first run: save the project id from the run summary as the repository **variable**
@@ -108,6 +111,9 @@ After the first run: save the project id from the run summary as the repository 
    - Check: the portal's Connections page shows the client's address; mail from an allowed sender with
      a PDF shows up under Recent documents as "Forwarded"; the Worker logs `forwarded email dropped:
      <reason>` for the rest. Messages over 25 MB are dropped (Email Routing's limit).
+   - Check the sender assumptions in `packages/connectors/src/upload/NOTES.md` with real mail on
+     staging (a genuine message, one with a forged authentication header, one with a spoofed
+     envelope sender) before a real client relies on forwarding or emailed replies.
 4. **The code service** (Access phase 2, `apps/mfa`; ARCHITECTURE §6.9). See the checklist under
    "The code service" below.
 5. **WorkOS**: Mezonas' own staging and production environments; redirect URIs
@@ -312,8 +318,8 @@ Done by the owner (2026-11-05):
   uses the same redirect URIs: the forwarder sends a signed back-office state to
   `/ops/connections/qbo/callback`. No new redirect URI is needed at Intuit, Google, Zoho, Podio, Ramp or HubSpot.
 - Webhook endpoint `https://staging.mezonas.com/api/connections/qbo/webhook`, subscribed to Account,
-  Bill, Item, Purchase and Vendor. Intuit has no webhook for Attachable: attachments arrive by CDC
-  (every 15 minutes, and on any webhook).
+  Bill, Item, Purchase and Vendor. Intuit has no webhook for Attachable: attachments arrive with a sync
+  (every 15 minutes, and on any webhook) whose CDC names them, read a few files a step.
 - Sandbox company: realm `9341458640918607` (QBO Plus, US).
 - GitHub staging secrets `QBO_CLIENT_ID`, `QBO_CLIENT_SECRET`, `QBO_WEBHOOK_VERIFIER`.
 
@@ -342,6 +348,30 @@ Still to do:
    in `wrangler.jsonc`, a commit or a message. Without it the webhook answers 503. Check after a
    deploy: an unsigned POST answers 401 (`curl -sS -X POST <url> -d '{}'`); Intuit's "Send test
    notification", if offered, answers 200 and shows as "qbo webhook received" in the Worker's logs.
+7. **Changing a client's QuickBooks company.** A sign-in to another company (another realm) is
+   taken only while nothing holds the first company's ids: no `raw_record` or `external_action`
+   rows for the connection, and no `vendor`, `organization` or `contact` in the client with
+   `external_refs ->> 'qbo'` (a wrong sandbox company, or the Sandbox client trying another one);
+   and not while a sync of it is running (409 `sync_running`, "try again in a few minutes"). After
+   that the portal says
+   "Your books here come from another QuickBooks company" (409 `different_company`), whether the
+   connection is connected or disconnected, because the client's transactions and vendors are keyed
+   by QuickBooks' per-company ids. Changing it then **needs the owner**: it rewrites client records
+   by hand, and `raw_record` is immutable history (invariant 3), so it is never deleted. What the
+   first company left, all in that client (`withTenant`): `transaction` and `transaction_line` with
+   `connector = 'qbo'` (documents and runs point at them), `receivable` and `ledger_account` /
+   `ledger_dimension` rows of the connection, `external_refs ->> 'qbo'` on `vendor` (the sync and
+   the purchasing agent's new vendors write it), `organization` and `contact`, the connection's
+   `external_action` rows (writes made in the first company: history, kept as they are), and the
+   connection's `raw_record` rows. With the owner's decision, either start a new client for the
+   other company (nothing to clear), or keep the client: disconnect, take the old company's ids out
+   of `transaction.external_id` (for example prefix them) and move the `qbo` key of `external_refs`
+   on `vendor`, `organization` and `contact` to another key (for example `qbo_<old realm>`), so the
+   new company's ids can't land on them, and leave `raw_record` and `external_action` as they are. Then add a new `connection`
+   row for `qbo` in the client (status `pending`, the old row's `permissions`): a sign-in lands on
+   the newest one, which has no records or writes of its own, so the other company is taken, and its sync and ledger
+   start empty. Move the agents' bindings to it in the back office, and record what was done in the
+   client's notes.
 
 ### Google (Gmail, send only, M10)
 
@@ -380,7 +410,7 @@ CASA):
 - **A demo video** (unlisted, on YouTube): the consent screen in English with the client id visible
   in the address bar, a person connecting Gmail from the portal's Connections page, an agent's
   reach-out email waiting for approval in the inbox, approving it, the email arriving from that
-  mailbox, the reply coming back through the forwarding address, and disconnecting (which revokes
+  mailbox, the reply coming back through the client's reply address, and disconnecting (which revokes
   the grant).
 - **The scope's reason**, for `gmail.send`: "A person at a client business connects their Gmail so
   that agents can send the emails that person's team has approved (for example asking a vendor for a
@@ -877,6 +907,7 @@ WorkOS values below. Each PR's checks pass before it merges.
    check, applies every migration to Neon `main`, deploys the code service and the app, and runs
    `scripts/smoke.sh https://app.mezonas.com`.
 2. Check from outside: `curl -sS https://app.mezonas.com/api/health` answers 200;
+   `curl -sS https://app.mezonas.com/api/ready` answers 200 with `"db":"ok"` and the tag's commit;
    `curl -sS -X POST https://app.mezonas.com/api/connections/qbo/webhook -d '{}'` answers 401
    (once `QBO_WEBHOOK_VERIFIER` is set; 503 before).
 3. **Email Routing** (Cloudflare → `mezonas.com` → Email → Email Routing; one catch-all for the
@@ -893,15 +924,17 @@ WorkOS values below. Each PR's checks pass before it merges.
 5. **The platform templates** (the seed never runs on production): signed in to the back office,
    open the browser's console and run, once:
    ```js
-   for (const [slug, version] of [["bill-clerk", 1], ["builder", 1], ["coordinator", 1],
-     ["document-clerk", 1], ["supervisor", 3]]) {
+   for (const slug of ["bill-clerk", "builder", "coordinator", "document-clerk", "supervisor"]) {
      const r = await fetch(`/api/ops/platform-templates/${slug}/install`, { method: "POST",
-       headers: { "content-type": "application/json" }, body: JSON.stringify({ version }) });
-     console.log(slug, r.status);
+       headers: { "content-type": "application/json" }, body: "{}" });
+     console.log(slug, r.status, (await r.json()).version?.version);
    }
    ```
-   Each answers 200 (and 200 again if run twice). Pack templates (the Bookkeeper) install
-   themselves when a pack is switched on.
+   With no version named, each installs its newest seeded version (today bill-clerk 3, builder 2,
+   coordinator 2, document-clerk 2, supervisor 6). Each answers 200 (and 200 again if run twice,
+   changing nothing). Naming a seeded version older than one the template already holds answers
+   409 `older_version`: an install never goes back; a rollback in the back office does. Pack
+   templates (the Bookkeeper) install themselves when a pack is switched on.
 6. **Clients:** finish the Mezonas client from step 4 (`### Mezonas, our own client` below: its
    internal flag, approvals, packs) and create the first real client; switch on their packs; build or fork their agents as on staging.
 
@@ -970,9 +1003,12 @@ It talks to the API of the environment it was built for (`EXPO_PUBLIC_API_ORIGIN
   the second step on, a phone sign-in always asks for the code (a remembered browser doesn't
   count), and the sign-in's audit row says `app: phone`.
 - Not usable until the store accounts exist and a build is made (`docs/open.md`, "The phone app"):
-  until then nothing calls these routes and no push is sent.
-- Phone notifications go through Expo's push service, off unless `MOBILE_PUSH=on` (a Worker
-  variable); `EXPO_ACCESS_TOKEN` (a Worker secret) once Expo's enhanced push security is on.
+  the three sign-in routes (`/api/mobile/sign-in`, `/api/mobile/handoff`, `/api/mobile/session`)
+  answer 404 unless `MOBILE_SIGNIN=on` (set by hand with `wrangler secret put`: a dashboard variable is
+  erased by the next `wrangler deploy`), and no
+  push is sent. Operators are refused at the handoff: the app is for a client's people.
+- Phone notifications go through Expo's push service, off unless `MOBILE_PUSH=on` (set with
+  `wrangler secret put`, as above); `EXPO_ACCESS_TOKEN` (a Worker secret) once Expo's enhanced push security is on.
   `deploy.yml` copies neither yet: set them by hand (`wrangler secret put`) until it does. Expo is a
   processor: HIPAA clients get no phone notifications until `expo_push` is in `BAA_PROCESSORS`.
 - Builds: `cd apps/mobile && npx eas-cli build --profile preview --platform all`; store releases
@@ -1363,22 +1399,28 @@ step's date:
   Actions version updates monthly, one grouped pull request each, majors included. Turn on Dependabot alerts and security updates, and
   secret scanning with push protection, in the repository's Settings → Code security.
 - **`bootstrap.yml`**: by hand only; creates or updates the Neon project, branches and roles, Hyperdrive
-  configs and R2 buckets (§1). Safe to re-run; each run rotates `cs_worker`'s passwords.
+  configs and R2 buckets (§1). Safe to re-run; it rotates `cs_worker`'s passwords only when asked.
+  Waits for the `production` environment's approval, as do **Add operator** and **Remove operator**
+  when their target is production.
 - **`deploy.yml`**: on push to `main` (staging) or a `v*` tag (production): the full check, then
   migrates the target's Neon branch as `cs_owner`, deploys the code service (`apps/mfa`) and its
   secrets, then the browser service (`apps/browser`), builds `apps/web` and runs `wrangler deploy`
   for apps/api (whose `CODES` and `BROWSER` bindings need both deployed first). Its `site` job builds `apps/site` and deploys `mezonas-site`, from
   `main` only. After the Worker deploys, **`scripts/smoke.sh`** checks the app from the outside
-  (`/api/health` answers, the page and its script load, `/api/session` refuses with a JSON 401),
-  retrying for 2 minutes; a failure marks the deploy failed. Run it by hand against either
-  environment: `scripts/smoke.sh https://staging.mezonas.com`.
+  (`/api/health` answers; `/api/ready` answers 200 with `"db":"ok"`, which it does only when the
+  Worker's own database connection, Hyperdrive as `cs_worker`, answers `select now()` within 3 s,
+  a query Hyperdrive never caches; the page and its script load; `/api/session` refuses with a JSON 401), retrying for 2 minutes; a
+  failure marks the deploy failed. Given a commit (a second argument, or `EXPECTED_SHA`), it also
+  checks that `/api/ready`'s `sha` (the Worker's `DEPLOYED_SHA`) is that commit; without one it
+  skips that comparison. Run it by hand against either environment:
+  `scripts/smoke.sh https://staging.mezonas.com [commit]`.
 - **The screen sweep** (`checks.yml`'s `sweep` job, `apps/web/e2e/route-sweep.mjs`): beside the
   tests, on the seeded database, the built app runs on `wrangler dev` with the dev sign-in and real
   Chromium opens every screen of the back office (as the operator) and the portal (as the Demo
   client's admin). It starts from each route without parameters and follows the links the screens
   show, one page per route, so new screens are swept without editing it. A page fails on a crash
-  (an empty `#root`), a page error, a console error, an `/api` answer of 500 or more, or a link to
-  "Not found". It clicks and submits nothing. Routes no seeded link reaches (a run, a document) are
+  (an empty `#root`, or an error boundary's fallback on the page), a page error, a console error,
+  an `/api` answer of 500 or more, or a link to "Not found". It clicks and submits nothing. Routes no seeded link reaches (a run, a document) are
   listed as a note, not a failure; they are covered once the seed has such rows. It runs in light
   and dark at desktop width and in dark at phone width (390×844), where a page that scrolls
   sideways also fails. Then **the walkthroughs** (`apps/web/e2e/walkthroughs.mjs`) click through the
@@ -1402,6 +1444,10 @@ step's date:
   code that needs it. Migrations must therefore keep the previous Worker working (add, then use;
   stop using, then drop).
 - Never edit a migration that has reached `staging` or `main`. Add a new one.
+- Deploy note (audit 4.3, accepted): the notification outbox claims a row before it sends it
+  (`reason` = `sending:…`). In the minute or two of a deploy, a Worker from before the claim may run
+  its notification pass beside a new one; it ignores claims, so a text or phone notification can
+  go twice, rarely, once. Email can't: Resend's idempotency key makes the second send the same one.
 
 ## 4. Backups and restore
 
@@ -1421,7 +1467,11 @@ Set Neon's history retention to at least 7 days on the production project.
 An event that fails to dispatch five times (its own routing throws: bad data or a bug in a trigger,
 not an engine outage) is set aside so it can't hold up its client's other events (`docs/plan.md` §1.112). Each one is
 reported to Sentry as "an event was set aside after failing to dispatch", tagged with the client
-and the event. To see them, as `cs_owner`:
+and the event. They are also a daily health finding (`events_set_aside`, by event type, with the
+count and the oldest; the ops MCP server's `ops_health` reads it too), and the client's page in
+the back office lists them under Health with **Give them back**
+(`POST /api/ops/clients/:id/events/set-aside/retry`, operator only, audited, at most 100 a call,
+the ones named in `eventIds` or the oldest set aside first). To see them in SQL, as `cs_owner`:
 
 ```sql
 select id, tenant_id, type, created_at, dispatch_attempts, dispatch_error, set_aside_at
@@ -1429,8 +1479,8 @@ from event where set_aside_at is not null order by set_aside_at desc;
 ```
 
 Fix the cause first (`dispatch_error` and the Sentry events for that event id say what failed),
-then give it back to the sweep, which dispatches it within a minute. Starting its runs again is safe:
-run ids come from the event id.
+then give it back with the back office's button, or by hand to the sweep, which dispatches it
+within a minute. Starting its runs again is safe: run ids come from the event id.
 
 ```sql
 update event set set_aside_at = null, dispatch_attempts = 0, dispatch_error = null

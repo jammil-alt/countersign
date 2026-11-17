@@ -1,7 +1,7 @@
 // The platform's own health (docs/plan.md §1.61): what went wrong in clients' work that is not an
 // exception, so Sentry never saw it. Failed live runs and failed writes to clients' tools, grouped
-// by their error key (§1.40), every hour; runs stuck before a step, approvals the run never took
-// and broken connections, once a day. Each group goes to Sentry as one issue per error key, with
+// by their error key (§1.40), every hour; runs stuck before a step, approvals the run never took,
+// broken connections and events set aside after failing to dispatch, once a day. Each group goes to Sentry as one issue per error key, with
 // the client and a few record ids as tags and extras, never a client's text; the ops MCP server's
 // `ops_health` tool reads the same findings on demand.
 //
@@ -12,6 +12,7 @@ import { errorGroupKey, runErrorKey } from "@countersign/core";
 import {
   connection,
   type Db,
+  event,
   externalAction,
   inboxItem,
   run,
@@ -21,6 +22,7 @@ import {
 } from "@countersign/db";
 import { captureMessage } from "@sentry/cloudflare";
 import { and, gte, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
+import { waitsOnPerson } from "../runs/run-wait";
 import { reportHandled } from "./report";
 
 export const HEALTH_KINDS = [
@@ -29,6 +31,8 @@ export const HEALTH_KINDS = [
   "run_stuck",
   "delivery_stuck",
   "connection_broken",
+  // Audit 4.6: events whose dispatch failed DISPATCH_ATTEMPTS times, left for a person.
+  "events_set_aside",
 ] as const;
 export type HealthKind = (typeof HEALTH_KINDS)[number];
 
@@ -42,10 +46,15 @@ export interface HealthFinding {
   ids: string[];
   /** A write whose outcome is unknown (the tool may or may not have made the change). */
   unconfirmed?: true;
+  /** `events_set_aside`: when the oldest of them was emitted. */
+  oldest?: string;
 }
 
 const SAMPLE_IDS = 5;
-/** A run still queued or running this long after it was created has stopped moving. */
+/**
+ * A run still queued or running this long after it last moved (created, or a step started or
+ * ended), and not waiting on a person, has stopped moving.
+ */
 export const STUCK_RUN_MS = 2 * 60 * 60 * 1000;
 /** An approval the run has not taken this long after it was signed (the cron re-sends each minute). */
 export const STUCK_DELIVERY_MS = 30 * 60 * 1000;
@@ -148,6 +157,12 @@ export async function healthFindings(
 
   if (!w.states) return findings;
 
+  // A run waiting on a person (an open inbox item, or a step waiting on an answer such as a
+  // reach-out's reply) has its own deadline: it is not stuck. The rest are stuck once nothing has
+  // moved for STUCK_RUN_MS: not since they were created, nor since their last step started or
+  // ended (a long run that keeps moving is not stuck).
+  // DECISION: "last activity" is the run's newest step_run start or finish (or its creation),
+  // read through step_run's (run_id, node_id) index; no new column.
   const stuckRuns = await tx
     .select({ id: run.id, tenantId: run.tenantId, status: run.status, slug: run.workflowSlug })
     .from(run)
@@ -156,6 +171,9 @@ export async function healthFindings(
         inArray(run.tenantId, ids),
         inArray(run.status, ["queued", "running"]),
         lt(run.createdAt, new Date(w.now.getTime() - STUCK_RUN_MS)),
+        sql`not ${waitsOnPerson}`,
+        sql`not exists (select 1 from step_run ws where ws.run_id = "run"."id" and ws.tenant_id = "run"."tenant_id" and ws.status = 'waiting')`,
+        sql`coalesce((select max(greatest(s.started_at, s.finished_at)) from step_run s where s.run_id = "run"."id" and s.tenant_id = "run"."tenant_id"), "run"."created_at") < ${new Date(w.now.getTime() - STUCK_RUN_MS).toISOString()}::timestamptz`,
       ),
     )
     .orderBy(sql`${run.createdAt} desc`);
@@ -220,6 +238,33 @@ export async function healthFindings(
       "connection_broken",
     ),
   );
+
+  // Audit 4.6: events set aside after failing to dispatch, by type: how many, and the oldest.
+  const setAside = await tx
+    .select({
+      tenantId: event.tenantId,
+      type: event.type,
+      count: sql<number>`count(*)::int`,
+      oldest: sql<string>`min(${event.createdAt})`,
+      ids: sql<
+        string[]
+      >`(array_agg(${event.id} order by ${event.setAsideAt} desc))[1:${sql.raw(String(SAMPLE_IDS))}]`,
+    })
+    .from(event)
+    .where(
+      and(inArray(event.tenantId, ids), isNotNull(event.setAsideAt), isNull(event.dispatchedAt)),
+    )
+    .groupBy(event.tenantId, event.type);
+  for (const g of setAside) {
+    findings.push({
+      kind: "events_set_aside",
+      tenantId: g.tenantId,
+      key: g.type,
+      count: g.count,
+      ids: g.ids,
+      oldest: new Date(g.oldest).toISOString(),
+    });
+  }
   return findings;
 }
 
@@ -229,6 +274,7 @@ const TITLES: Record<HealthKind, string> = {
   run_stuck: "Runs stopped before finishing",
   delivery_stuck: "Signed items not taken by their run",
   connection_broken: "Connections need attention",
+  events_set_aside: "Events set aside after failing to dispatch",
 };
 
 /** One Sentry event per finding: grouped by kind and key across clients, the client as a tag. */
@@ -246,7 +292,7 @@ export function reportFinding(f: HealthFinding): void {
       client: f.tenantId,
       ...(f.unconfirmed ? { unconfirmed: "yes" } : {}),
     },
-    extra: { count: f.count, ids: f.ids },
+    extra: { count: f.count, ids: f.ids, ...(f.oldest ? { oldest: f.oldest } : {}) },
   });
 }
 

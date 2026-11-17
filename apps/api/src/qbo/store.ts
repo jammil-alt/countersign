@@ -62,6 +62,11 @@ export interface StorePageInput {
   cursor: JsonObject;
   initial: boolean;
   now: Date;
+  /**
+   * The company the page was read from (the connection's account when its step began). A page
+   * whose connection has since been signed in to another company is dropped (`dropped`).
+   */
+  externalAccountId?: string | null;
 }
 
 export interface StorePageResult {
@@ -73,6 +78,8 @@ export interface StorePageResult {
   documents: number;
   /** Events for dispatch after commit. */
   events: EventRow[];
+  /** Nothing was stored: the connection was signed in to another company meanwhile. */
+  dropped?: boolean;
 }
 
 /** Which of these records this connection already has (same entity, id and version). */
@@ -122,6 +129,16 @@ export async function storeQboPage(
     documents: 0,
     events: [],
   };
+  if (input.externalAccountId !== undefined) {
+    // Audit 2.2 review: the connection row is locked for the page, as a sign-in locks it, so a
+    // page read from one company never lands on a connection now on another.
+    const [now] = await tx
+      .select({ account: connection.externalAccountId })
+      .from(connection)
+      .where(and(eq(connection.id, connectionId), eq(connection.tenantId, tenantId)))
+      .for("update");
+    if (!now || now.account !== input.externalAccountId) return { ...out, dropped: true };
+  }
   const news = async (e: Parameters<typeof emit>[1]) => {
     if (input.initial) return;
     const row = await emit(tx, e);
@@ -234,6 +251,42 @@ export async function storeQboPage(
     .set({ syncCursor: cursorKeepingClaim(input.cursor, input.now), lastSyncAt: input.now })
     .where(and(eq(connection.id, connectionId), eq(connection.tenantId, tenantId)));
   return out;
+}
+
+/**
+ * The file of an attachment stored earlier without it (the daily try of a file that failed to
+ * download): stored as a document and linked, as a page would have.
+ */
+export async function storeQboAttachmentFile(
+  tx: Tx,
+  content: ContentStore,
+  input: {
+    tenantId: string;
+    connectionId: string;
+    record: RawRecordInput;
+    file: DownloadedFile;
+    initial: boolean;
+    now: Date;
+  },
+): Promise<{ documents: number; events: EventRow[] }> {
+  const out: StorePageResult = {
+    stored: 0,
+    transactions: { created: 0, updated: 0 },
+    receivables: { created: 0, updated: 0 },
+    documents: 0,
+    events: [],
+  };
+  const page: StorePageInput = {
+    tenantId: input.tenantId,
+    connectionId: input.connectionId,
+    records: [input.record],
+    files: new Map([[input.record.externalId, input.file]]),
+    cursor: {},
+    initial: input.initial,
+    now: input.now,
+  };
+  if (await storeAttachment(tx, content, page, input.record, input.file, out)) out.documents += 1;
+  return { documents: out.documents, events: out.events };
 }
 
 /** A record QuickBooks deleted: its raw versions are flagged, a transaction is marked deleted. */

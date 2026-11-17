@@ -3,6 +3,7 @@
 // change as a row (docs/plan.md §1.81) and starts a sync for each company (it never processes the
 // change inline), and the sync reads the changes through CDC.
 
+import { QBO_SYNCED_ENTITIES } from "@countersign/core";
 import { z } from "zod";
 import { constantTimeEqual } from "../http";
 import { hmacKey, subtle, toBase64, utf8 } from "../runtime";
@@ -65,6 +66,42 @@ const CloudEvents = z
   )
   .max(1000);
 
+/**
+ * Intuit's entity names that its webhooks may name, beyond the ones we sync: a CloudEvents type
+ * spells them in lower case (`qbo.vendorcredit.created.v1`), so the name is looked up here.
+ */
+const QBO_WEBHOOK_ENTITIES = [
+  ...QBO_SYNCED_ENTITIES,
+  "BillPayment",
+  "Budget",
+  "CreditMemo",
+  "Currency",
+  "Deposit",
+  "Employee",
+  "Estimate",
+  "JournalCode",
+  "JournalEntry",
+  "PaymentMethod",
+  "Preferences",
+  "PurchaseOrder",
+  "RefundReceipt",
+  "SalesReceipt",
+  "TaxAgency",
+  "Term",
+  "TimeActivity",
+  "Transfer",
+] as const;
+const BY_LOWER_CASE = new Map<string, string>(
+  QBO_WEBHOOK_ENTITIES.map((e) => [e.toLowerCase(), e]),
+);
+
+/** A CloudEvents type's entity (`vendorcredit`) → Intuit's name (`VendorCredit`). */
+// DECISION: a name we don't know keeps its first letter upper-cased, as before: it is kept as a
+// change but starts no sync, and the cron still reads the company.
+export function qboCloudEntityName(name: string): string {
+  return BY_LOWER_CASE.get(name.toLowerCase()) ?? name.charAt(0).toUpperCase() + name.slice(1);
+}
+
 /** Which companies a notification names, with the entity types that changed in each. */
 // DECISION: both payload shapes are read: the classic `eventNotifications` and the CloudEvents
 // array Intuit announced moving webhooks to (NOTES.md: which one the app gets is to be checked).
@@ -90,7 +127,7 @@ export function parseQboWebhook(body: unknown): { realmId: string; entities: str
       if (!e.intuitaccountid) continue;
       // `qbo.bill.created.v1` → Bill
       const name = e.type?.split(".")[1];
-      add(e.intuitaccountid, name ? name.charAt(0).toUpperCase() + name.slice(1) : undefined);
+      add(e.intuitaccountid, name ? qboCloudEntityName(name) : undefined);
     }
   }
   return [...byRealm.entries()].map(([realmId, entities]) => ({
@@ -172,7 +209,7 @@ export function parseQboWebhookChanges(body: unknown): QboWebhookChange[] | null
     if (!e.intuitaccountid || !e.intuitentityid || !name || !operation) continue;
     add({
       realmId: e.intuitaccountid,
-      entity: name.charAt(0).toUpperCase() + name.slice(1),
+      entity: qboCloudEntityName(name),
       id: e.intuitentityid,
       operation,
       lastUpdated: when(e.time),

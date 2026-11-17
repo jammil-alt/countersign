@@ -23,7 +23,9 @@ test page before a client connects, and fix the connector and the fake where the
   account. Every REST call sends `LinkedIn-Version: 202510` and `X-Restli-Protocol-Version: 2.0.0`.
 - Credentials (vault, the client's own key): the access token, its expiry, the refresh token and
   its expiry when LinkedIn gives one, the scopes. A 401 or an expired token refreshes once
-  (`grant_type=refresh_token`); a refused refresh asks the client to connect again.
+  (`grant_type=refresh_token`); a refresh refused with `invalid_grant` or `invalid_request`
+  (LinkedIn's documented code for a refresh token that is invalid, expired or revoked; UNCHECKED)
+  asks the client to connect again, and any other refusal is retried later.
 - `linkedin.post`: external, verb `create`, entity `post`, **always signed** (`approval: 'always'`,
   §1.73): it waits for a person whatever the matrix, step or mode. Input `{text, page?}`: plain
   text, 1–3,000 characters; `page` is one of the connection's pages, and may be left out when there

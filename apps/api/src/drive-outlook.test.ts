@@ -294,7 +294,11 @@ describe.skipIf(!h)("Google Drive and Outlook through the API", () => {
       });
       outlookConn = conn.id;
       const [row] = await H.t.db.select().from(connection).where(eq(connection.id, outlookConn));
-      expect(row?.config).toEqual({ address: "pat.lee@acme.example", scopes: ["Mail.Send"] });
+      expect(row?.config).toEqual({
+        address: "pat.lee@acme.example",
+        scopes: ["Mail.Send"],
+        accountIds: [expect.stringMatching(/^ms:[^:]+:oid-pat\.lee@acme\.example$/)],
+      });
       expect(row?.permissions).toMatchObject({ create: "approval", delete: "off" });
 
       // A grant that could read mail is refused, and nothing is kept.

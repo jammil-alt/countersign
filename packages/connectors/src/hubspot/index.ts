@@ -18,6 +18,7 @@ import { type FetchLike, formEncode, globalFetch, timeoutSignal } from "../http"
 import {
   OAuthTokens,
   ReconnectRequiredError,
+  refreshRefused,
   type TokenRefresher,
   tokenManager,
 } from "../oauth/tokens";
@@ -271,7 +272,14 @@ export function createHubspotConnector(options: HubspotOptions = {}): Connector 
       if (!r.ok) {
         if (r.status === 400 || r.status === 401) {
           // BAD_REFRESH_TOKEN / invalid_grant: the app was uninstalled or the token revoked.
-          throw new ReconnectRequiredError(`HubSpot refused the refresh: ${r.error}`);
+          // BAD_CLIENT_ID and the like are our keys: not the client's to fix.
+          // UNCHECKED shape: a 400 or 401 we can't read still asks for a reconnect, as before.
+          throw refreshRefused(
+            "HubSpot",
+            r.error,
+            ["BAD_REFRESH_TOKEN", "invalid_grant"],
+            "reconnect",
+          );
         }
         throw new HubspotApiError(
           r.status,
@@ -313,10 +321,20 @@ export function createHubspotConnector(options: HubspotOptions = {}): Connector 
           signal: timeoutSignal(20_000),
         }),
       (r) => r.status === 401,
+      { write: method !== "GET" },
     );
     if (res.status === 204) return null;
     const json = parseJson(await res.text());
-    if (res.status === 401) throw new ReconnectRequiredError("HubSpot refused the access token");
+    // DECISION: a 401 right after a refresh that worked is not a dead grant: the connection stays
+    // connected and a later try may get through (tokenManager raises a lasting one after a day).
+    if (res.status === 401) {
+      throw new HubspotApiError(
+        401,
+        "unauthorized",
+        "HubSpot refused our access just after we renewed it; we'll keep trying",
+        true,
+      );
+    }
     if (!res.ok) {
       const e = (json ?? {}) as { category?: unknown; message?: unknown };
       const code = typeof e.category === "string" ? e.category : `HTTP_${res.status}`;

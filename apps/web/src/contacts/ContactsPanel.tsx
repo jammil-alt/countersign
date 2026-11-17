@@ -60,6 +60,7 @@ const STATUS_KEY: Record<string, PlainKey> = {
   failed: "contacts.status.failed",
   read: "contacts.status.read",
   received: "contacts.status.received",
+  unverified: "contacts.status.unverified",
   replied: "contacts.status.replied",
   not_sent: "contacts.status.not_sent",
   no_reply: "contacts.status.no_reply",

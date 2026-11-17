@@ -39,11 +39,24 @@ export type ActionOutcome =
   | { status: "done"; action: ExternalActionRecord; output: unknown; summary?: string | undefined }
   | { status: "failed"; action: ExternalActionRecord; error: string }
   | { status: "awaiting_approval"; action: ExternalActionRecord }
-  | { status: "rejected"; action: ExternalActionRecord };
+  | { status: "rejected"; action: ExternalActionRecord }
+  /**
+   * Audit 3.2: another caller claimed it (a second press, a double click, a step retried after a
+   * try that stopped mid-write). Nothing was sent by this call; the write may have happened or may
+   * still happen. `leaseEndsAt` (ISO, by the database's clock): when that claim runs out and it may
+   * be taken over; null when unknown.
+   */
+  | { status: "busy"; action: ExternalActionRecord; leaseEndsAt: string | null };
 
 function message(error: unknown): string {
   return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 }
+
+/**
+ * Said of a change another caller claimed (`busy`), for callers that show it. Follow-up 1c: the
+ * first try may have stopped, so it never says the change is being made now.
+ */
+export const ACTION_BUSY = "this change was started and may have been made";
 
 /**
  * Runs an approved action through its connector and records the result and the before state.
@@ -51,13 +64,17 @@ function message(error: unknown): string {
  * - `done` / `failed` actions return what was recorded: a retried step never writes twice.
  * - `proposed` / `rejected` actions never execute.
  * - Actions of test runs never execute (ARCHITECTURE §10.4).
- * - An action left `executing` by a crash is run again with the same idempotency key; connectors
+ * - Only the caller that claims the action executes it; one another caller is executing is
+ *   `busy` (audit 3.2). An action left `executing` by a crash is claimed again once its lease has
+ *   run out (EXECUTING_LEASE_MINUTES) and run again with the same idempotency key; connectors
  *   must make writes idempotent by that key (the testkit does; QBO takes it as its request id).
+ *   Any failure then goes to the operator: the earlier try may have written.
  * - A connector that can't tell whether such a write happened (UnconfirmedWriteError) never writes
  *   again: the action fails with its reason and the operator gets a `review` item to check it.
  */
 // DECISION: crash recovery re-runs an `executing` action with its key rather than failing it, so a
-// Workflow retry after a lost response completes the write instead of stranding it.
+// retry after a lost response completes the write instead of stranding it; only once its lease
+// has run out, so two live callers never both send it (audit 3.2).
 export async function executeAction(
   deps: RuntimeDeps,
   input: {
@@ -79,42 +96,15 @@ export async function executeAction(
       throw new AgentsError("test_run", "test runs never execute external actions");
     }
   }
-  // Human release holds at execution too (docs/plan.md §1.26): an approved write runs only under a
-  // live release for its agent, connection and run. An approval is not a release, and nothing here
-  // asks for one: without it the write fails.
-  // DECISION: the check is made before the action is claimed, so a refused write never starts.
-  // docs/plan.md §1.123: the safety hold, as a backstop. Approving a held agent's items is refused
-  // and their redelivery waits (apps/api), so a write reaches here held only when the hold came
-  // between its approval and its execution: it fails closed, never written.
-  if ((found.status === "approved" || found.status === "executing") && found.runId) {
-    const owner = await store.run(input.tenantId, found.runId);
-    if (
-      owner &&
-      owner.mode !== "test" &&
-      store.agentHold &&
-      (await store.agentHold(input.tenantId, owner.agentId))
-    ) {
-      const message = "the agent is on a safety hold";
-      const failed = await actions.fail(input.tenantId, found.id, {
-        message,
-        held: true,
-        notWritten: true,
-      });
-      return { status: "failed", action: failed, error: message };
-    }
-  }
-  if (found.status === "approved" || found.status === "executing") {
-    const refused = await releaseRefusal(deps, input.tenantId, found, input.runId);
-    if (refused) {
-      const failed = await actions.fail(input.tenantId, found.id, {
-        message: refused,
-        release: true,
-        notWritten: true,
-      });
-      return { status: "failed", action: failed, error: refused };
-    }
-  }
-  const { action, claimed } = await actions.claim(input.tenantId, input.actionId);
+  const {
+    action,
+    claimed,
+    retaken,
+    claim,
+    leaseEndsAt = null,
+  } = await actions.claim(input.tenantId, input.actionId);
+  // Follow-up 4: `complete` and `fail` change the row only under this caller's claim.
+  const fence = claim === undefined ? {} : { claim };
   if (!claimed) {
     switch (action.status) {
       case "done":
@@ -134,35 +124,16 @@ export async function executeAction(
         // told once the window has passed, and an undo before then puts it back to proposed.
         return { status: "awaiting_approval", action };
       case "executing":
-        break;
+        // Audit 3.2: another caller holds it; this one never sends it too.
+        return { status: "busy", action, leaseEndsAt };
     }
   }
-  const tool = deps.tools.get(action.tool);
-  if (tool?.kind !== "connector") {
-    const failed = await actions.fail(input.tenantId, action.id, {
-      message: `unknown tool ${action.tool}`,
-      notWritten: true,
-    });
-    return { status: "failed", action: failed, error: `unknown tool ${action.tool}` };
-  }
-  const conn = await store.connection(input.tenantId, action.connectionId);
-  if (!conn) {
-    const failed = await actions.fail(input.tenantId, action.id, {
-      message: "connection not found",
-      notWritten: true,
-    });
-    return { status: "failed", action: failed, error: "connection not found" };
-  }
-  // v0.14 W4-A: a shared id runs through the connector of the connection it was proposed on.
-  const own = deps.tools.forConnector(action.tool, conn.connector);
-  if (own?.kind !== "connector") {
-    const message = `${action.tool} isn't supplied by the ${conn.connector} connection`;
-    const failed = await actions.fail(input.tenantId, action.id, { message, notWritten: true });
-    return { status: "failed", action: failed, error: message };
-  }
-  // Wave 5 review: whether the handler was reached. An error before it (the connector's checks,
-  // the input, the before read) wrote nothing; one after it may come after the provider took it.
-  let sending = false;
+  // A failure is recorded only on the execution under way (`fail` leaves a write another caller
+  // finished as it is), so what the row says is what the caller is told.
+  const failedAs = (row: ExternalActionRecord, error: string): ActionOutcome =>
+    row.status === "done"
+      ? { status: "done", action: row, output: row.result }
+      : { status: "failed", action: row, error };
   // A write that may have happened goes to the operator, not to a retry: the action fails with the
   // reason, marked `unconfirmed`, and a `review` item opens with it, in one transaction.
   const unconfirmed = async (error: UnconfirmedWriteError): Promise<ActionOutcome> => {
@@ -172,6 +143,7 @@ export async function executeAction(
       action.id,
       { message: error.message, unconfirmed: true, ...error.details },
       {
+        ...fence,
         inbox: {
           title: error.title,
           agentId: owner?.agentId ?? null,
@@ -185,8 +157,57 @@ export async function executeAction(
         },
       },
     );
-    return { status: "failed", action: failed, error: error.message };
+    return failedAs(failed, error.message);
   };
+  // Nothing was sent by this try. A first try of the same action may have written all the same
+  // when this one took it over (`retaken`): then the operator checks it, never `notWritten`.
+  // DECISION (audit 3.2): a taken-over execution that can't go on is an unconfirmed write (the
+  // operator's review item), not a failure known to have written nothing.
+  const notSent = async (reason: string, extra: JsonObject = {}): Promise<ActionOutcome> => {
+    if (retaken) {
+      return unconfirmed(
+        new UnconfirmedWriteError(
+          `The change through ${action.tool} may have been made`,
+          `an earlier try was stopped while making it, and this one couldn't go on (${reason})`,
+        ),
+      );
+    }
+    const failed = await actions.fail(
+      input.tenantId,
+      action.id,
+      { message: reason, ...extra, notWritten: true },
+      fence,
+    );
+    return failedAs(failed, reason);
+  };
+  // Human release holds at execution too (docs/plan.md §1.26): an approved write runs only under a
+  // live release for its agent, connection and run. An approval is not a release, and nothing here
+  // asks for one: without it the write fails.
+  // DECISION: the check is made before anything is sent, once this caller holds the action, so a
+  // refused write never starts and a write another caller is making is never failed from here.
+  // docs/plan.md §1.124: the safety hold, as a backstop. Approving a held agent's items is refused
+  // and their redelivery waits (apps/api), so a write reaches here held only when the hold came
+  // between its approval and its execution: it fails closed, never written.
+  if (action.runId && store.agentHold) {
+    const owner = await store.run(input.tenantId, action.runId);
+    if (owner && owner.mode !== "test" && (await store.agentHold(input.tenantId, owner.agentId))) {
+      return notSent("the agent is on a safety hold", { held: true });
+    }
+  }
+  const refused = await releaseRefusal(deps, input.tenantId, action, input.runId);
+  if (refused) return notSent(refused, { release: true });
+  const tool = deps.tools.get(action.tool);
+  if (tool?.kind !== "connector") return notSent(`unknown tool ${action.tool}`);
+  const conn = await store.connection(input.tenantId, action.connectionId);
+  if (!conn) return notSent("connection not found");
+  // v0.14 W4-A: a shared id runs through the connector of the connection it was proposed on.
+  const own = deps.tools.forConnector(action.tool, conn.connector);
+  if (own?.kind !== "connector") {
+    return notSent(`${action.tool} isn't supplied by the ${conn.connector} connection`);
+  }
+  // Wave 5 review: whether the handler was reached. An error before it (the connector's checks,
+  // the input, the before read) wrote nothing; one after it may come after the provider took it.
+  let sending = false;
   let written: WriteResult;
   try {
     // v0.12 W1-D: the signer's edit, when there is one, is what is written; `input` stays the
@@ -225,24 +246,41 @@ export async function executeAction(
     // DECISION (wave 5 review): `notWritten` only where nothing was written for sure: the handler
     // was never reached, or the connector said the provider turned it down (`NotWrittenError`).
     // Any other failure may have come after the provider took it, so a step never goes on past
-    // it (`onError: continue`, the executor asks `stepWrites`).
-    const notWritten = !sending || writeNotMade(error);
-    const failed = await actions.fail(input.tenantId, action.id, {
-      message: message(error),
-      ...(notWritten ? { notWritten: true } : {}),
-    });
-    return { status: "failed", action: failed, error: message(error) };
+    // it (`onError: continue`, the executor asks `stepWrites`). A taken-over execution goes to
+    // the operator whatever this try did (`notSent`): the earlier try may have written.
+    if (retaken || !sending || writeNotMade(error)) return notSent(message(error));
+    const failed = await actions.fail(
+      input.tenantId,
+      action.id,
+      { message: message(error) },
+      fence,
+    );
+    return failedAs(failed, message(error));
   }
   try {
     // R5: the record as this write left it, for an undo to check that nobody changed it since.
     const after = actions.keepsAfter
       ? await readAfter(deps, input.tenantId, own, conn, action)
       : undefined;
-    const done = await actions.complete(input.tenantId, action.id, {
-      output: written.output,
-      before: written.before,
-      ...(after === undefined ? {} : { after }),
-    });
+    const done = await actions.complete(
+      input.tenantId,
+      action.id,
+      {
+        output: written.output,
+        before: written.before,
+        ...(after === undefined ? {} : { after }),
+      },
+      fence,
+    );
+    // Follow-up 4: done only when the row says so. Another caller took it over meanwhile (this
+    // caller's lease ran out): the write was made here, and the row is that caller's to record.
+    if (done.status !== "done") {
+      return {
+        status: "failed",
+        action: done,
+        error: `The change through ${action.tool} was made, but another try took it over before it was recorded; check before trying again`,
+      };
+    }
     return { status: "done", action: done, output: written.output, summary: written.summary };
   } catch (error) {
     // DECISION (wave 5 review): the write was made but couldn't be recorded: never `failed` as if
@@ -715,6 +753,16 @@ async function finishUndo(
       return { status: "done", original, undo: out.action, output: out.output };
     case "failed":
       return { status: "failed", original, undo: out.action, error: out.error };
+    case "busy":
+      // Audit 3.2: a second press while the first's undo is claimed: nothing sent twice, and the
+      // offer stays open (a press once it is done reads the first undo's outcome; one that never
+      // finishes goes to the operator, follow-up 1b).
+      return {
+        status: "refused",
+        original,
+        code: "not_done",
+        reason: "we already started putting this change back; check again in a few minutes",
+      };
     default:
       // An undo is recorded approved; anything else is not ours to run.
       return {

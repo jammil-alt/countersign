@@ -185,6 +185,20 @@ describe("the owner reviews v4 steps", () => {
     });
   });
 
+  it("never acts on a decision cut off at max_tokens", async () => {
+    const model = new FakeModel([
+      {
+        toolUse: { name: "finish", input: { action: "retry_with", input: { id: "rec-1" } } },
+        cutOff: true,
+      },
+    ]);
+    const { s, records } = store();
+    const verdict = await overseeStep(deps(model), s, request(fix));
+    expect(verdict).toMatchObject({ action: "none" });
+    expect((verdict as { reason: string }).reason).toMatch(/cut off at max_tokens/);
+    expect(records).toHaveLength(0);
+  });
+
   it("records its model call on the step as oversight (§1.115)", async () => {
     const d = deps(new FakeModel([finish({ action: "retry", note: "Try again.", sources: [] })]));
     const calls = capture(d);

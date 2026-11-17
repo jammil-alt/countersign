@@ -1,6 +1,10 @@
 // Connections that need a person, as the runtime finds them (docs/plan.md §1.28).
 
-import { type ConnectionRef, ReconnectRequiredError } from "@countersign/connectors";
+import {
+  attentionReasonOf,
+  type ConnectionRef,
+  ReconnectRequiredError,
+} from "@countersign/connectors";
 import type { RuntimeDeps } from "./context";
 
 /**
@@ -21,7 +25,8 @@ export async function noteReconnect(
   try {
     await deps.ports.attention.needsAttention(tenantId, {
       connectionId: conn.id,
-      reason: "signin_expired",
+      // `refresh_failing` when renewing access has failed for a day (AccessFailingError).
+      reason: attentionReasonOf(error),
       detail: (error as Error).message,
     });
   } catch (e) {

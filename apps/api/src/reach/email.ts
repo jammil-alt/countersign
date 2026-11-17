@@ -22,7 +22,7 @@ import {
   rawRecord,
   withTenant,
 } from "@countersign/db";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   contactThread,
   getContact,
@@ -33,6 +33,13 @@ import {
 export const EMAIL_MESSAGE_ENTITY = "EmailMessage";
 /** A send started and not yet known to be done (Gmail takes no idempotency key). */
 export const EMAIL_ATTEMPT_ENTITY = "EmailAttempt";
+/** A started send the provider refused: it answered and sent nothing, so it may be tried again. */
+export const EMAIL_ATTEMPT_REFUSED_ENTITY = "EmailAttemptRefused";
+
+// DECISION: the first try keeps the record it always had (external version null), so a send
+// started before tries were numbered still stands; try n > 1 has version "n", and a refusal of
+// try n is its own record with version "n". Records are only ever added (raw_record is immutable).
+const attemptVersion = (attempt: number) => (attempt === 1 ? null : String(attempt));
 
 const BLOCK_WORDS = {
   opted_out: "this contact opted out of messages",
@@ -60,7 +67,10 @@ export function dbEmailServices(db: Db, connection: ConnectionRef): EmailService
 
     startAttempt(a) {
       return withTenant(db, tenantId, async (tx) => {
-        // Once per key (the raw record's external id): a second start keeps the first.
+        // Once per key and try (the raw record's external id and version): a second start keeps
+        // the first.
+        const attempt = a.attempt ?? 1;
+        const { refused: _refused, ...rest } = a;
         await tx
           .insert(rawRecord)
           .values({
@@ -69,8 +79,8 @@ export function dbEmailServices(db: Db, connection: ConnectionRef): EmailService
             connector: connection.connector,
             entityType: EMAIL_ATTEMPT_ENTITY,
             externalId: a.idempotencyKey,
-            externalVersion: null,
-            payload: { ...a, startedAt: a.startedAt.toISOString() },
+            externalVersion: attemptVersion(attempt),
+            payload: { ...rest, attempt, startedAt: a.startedAt.toISOString() },
             syncedAt: a.startedAt,
           })
           .onConflictDoNothing();
@@ -79,21 +89,55 @@ export function dbEmailServices(db: Db, connection: ConnectionRef): EmailService
 
     attemptFor(idempotencyKey) {
       return withTenant(db, tenantId, async (tx) => {
-        const [row] = await tx
-          .select({ payload: rawRecord.payload })
+        const rows = await tx
+          .select({
+            entityType: rawRecord.entityType,
+            version: rawRecord.externalVersion,
+            payload: rawRecord.payload,
+          })
           .from(rawRecord)
           .where(
             and(
               eq(rawRecord.tenantId, tenantId),
               eq(rawRecord.connectionId, connection.id),
-              eq(rawRecord.entityType, EMAIL_ATTEMPT_ENTITY),
+              inArray(rawRecord.entityType, [EMAIL_ATTEMPT_ENTITY, EMAIL_ATTEMPT_REFUSED_ENTITY]),
               eq(rawRecord.externalId, idempotencyKey),
             ),
-          )
-          .limit(1);
-        if (!row) return null;
-        const p = row.payload as Omit<EmailSendAttempt, "startedAt"> & { startedAt: string };
-        return { ...p, startedAt: new Date(p.startedAt) };
+          );
+        const tryOf = (version: string | null) => (version === null ? 1 : Number(version));
+        const newest = rows
+          .filter((r) => r.entityType === EMAIL_ATTEMPT_ENTITY)
+          .sort((x, y) => tryOf(y.version) - tryOf(x.version))[0];
+        if (!newest) return null;
+        const attempt = tryOf(newest.version);
+        const refused = rows.some(
+          (r) => r.entityType === EMAIL_ATTEMPT_REFUSED_ENTITY && tryOf(r.version) === attempt,
+        );
+        const p = newest.payload as Omit<EmailSendAttempt, "startedAt"> & { startedAt: string };
+        return { ...p, startedAt: new Date(p.startedAt), attempt, refused };
+      });
+    },
+
+    refuseAttempt({ idempotencyKey, attempt, reason, at }) {
+      return withTenant(db, tenantId, async (tx) => {
+        await tx
+          .insert(rawRecord)
+          .values({
+            tenantId,
+            connectionId: connection.id,
+            connector: connection.connector,
+            entityType: EMAIL_ATTEMPT_REFUSED_ENTITY,
+            externalId: idempotencyKey,
+            externalVersion: attemptVersion(attempt),
+            payload: {
+              idempotencyKey,
+              attempt,
+              reason: reason.slice(0, 200),
+              at: at.toISOString(),
+            },
+            syncedAt: at,
+          })
+          .onConflictDoNothing();
       });
     },
 

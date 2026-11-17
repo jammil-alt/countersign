@@ -47,6 +47,7 @@ const h = await createApiHarness({
     APP_ORIGIN: "https://staging.mezonas.test",
     TWILIO_VERIFY_SERVICE_SID: "VA00000000000000000000000000000002",
     ENCRYPTION_KEY: "mobile-signin-test-key-0123456789abcdef",
+    MOBILE_SIGNIN: "on",
   },
   workos,
   codeVerifier: verifier,
@@ -223,6 +224,13 @@ describe.skipIf(!h)("signing in from the phone app with the second step on", () 
     expect(me.status, JSON.stringify(me.json)).toBe(200);
     expect(me.json.user.id).toBe(H.B.admin);
     expect(me.headers.get("set-cookie")).toBeNull();
+
+    // The header is not a cookie: a change sent with it is not held to the browser's origin check.
+    const push = await request(null, "PUT", "/api/settings/my-push", {
+      headers: { [MOBILE_SESSION_HEADER]: r.json.session, origin: "https://elsewhere.example" },
+      body: { on: true, every: "now", showClient: false },
+    });
+    expect(push.status, JSON.stringify(push.json)).toBe(200);
   });
 
   it("lets an SSO sign-in through without the code, as in a browser", async () => {
@@ -233,6 +241,48 @@ describe.skipIf(!h)("signing in from the phone app with the second step on", () 
     );
     const r = await request(b, "GET", "/api/mobile/handoff");
     expect(r.location?.startsWith("mezonas://signed-in?code=")).toBe(true);
+  });
+
+  it("refuses an operator at the handoff: no code, and the browser keeps its session", async () => {
+    await asWorkOSUser(H.operator);
+    const off = { TWILIO_VERIFY_SERVICE_SID: "" };
+    const b = new Browser();
+    expect(await signInFrom(b, `/api/mobile/sign-in?challenge=${CHALLENGE}`, off)).toBe(
+      "/api/mobile/handoff",
+    );
+    const r = await request(b, "GET", "/api/mobile/handoff", { env: off });
+    expect(r.status).toBe(302);
+    expect(r.location).toBe("mezonas://signed-in?error=operator");
+    expect(b.jar.has("__Host-cs_mobile")).toBe(false);
+    expect(b.jar.has("__Host-cs_session")).toBe(true);
+  });
+
+  it("answers 404 on all three routes unless MOBILE_SIGNIN is on", async () => {
+    await asWorkOSUser(H.B.admin);
+    const off = { TWILIO_VERIFY_SERVICE_SID: "" };
+    const b = new Browser();
+    await signInFrom(b, `/api/mobile/sign-in?challenge=${CHALLENGE}`, off);
+    for (const value of [undefined, "", "off", "yes"]) {
+      const env = { ...off, MOBILE_SIGNIN: value } as Partial<Bindings>;
+      const start = await request(
+        new Browser(),
+        "GET",
+        `/api/mobile/sign-in?challenge=${CHALLENGE}`,
+        {
+          env,
+        },
+      );
+      expect([start.status, start.json?.error?.code]).toEqual([404, "not_found"]);
+      const handoff = await request(b, "GET", "/api/mobile/handoff", { env });
+      expect([handoff.status, handoff.location]).toEqual([404, null]);
+      // The browser's sign-in is untouched.
+      expect(b.jar.has("__Host-cs_session")).toBe(true);
+      const redeem = await request(null, "POST", "/api/mobile/session", {
+        env,
+        body: { code: "c", verifier: VERIFIER },
+      });
+      expect([redeem.status, redeem.json?.error?.code]).toEqual([404, "not_found"]);
+    }
   });
 
   it("is exempt while the step is off", async () => {

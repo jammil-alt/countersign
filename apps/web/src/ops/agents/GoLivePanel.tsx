@@ -1,7 +1,7 @@
 // A client agent's go-live stage (ARCHITECTURE §10.9; docs/plan.md §1.36): where it is (bench,
 // trial, sign-off, live), the trial's days and runs against its minimums, the client's sign-off,
-// skips and rejections; the operator moves it with a reason, changes the trial's minimums, and runs
-// it live on one of the client's past events. Minimal by design: the owner's redesign replaces it.
+// skips and rejections; the operator moves it with a reason, changes the trial's minimums, runs
+// it live on one of the client's past events, and (audit 4.2) on what came in while it was paused. Minimal by design: the owner's redesign replaces it.
 import type { AgentStage, AnyAgentBundle } from "@countersign/core";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -226,9 +226,66 @@ export function GoLivePanel({
       ) : null}
 
       {stage !== "bench" && agent.runStatus === "active" ? (
-        <PastEventRun agent={agent} liveBundle={liveBundle} />
+        <>
+          <MissedWhilePaused agent={agent} />
+          <PastEventRun agent={agent} liveBundle={liveBundle} />
+        </>
       ) : null}
     </Card>
+  );
+}
+
+/**
+ * Audit 4.2: what came in while the agent was paused that it would have started on. Nothing of it
+ * started by itself; the operator runs it here, as past events, once each.
+ */
+function MissedWhilePaused({ agent }: { agent: AgentSummary }) {
+  const state = useApi(apiRoutes.opsMissedEvents, { params: { id: agent.id } });
+  const action = useAction();
+  const [started, setStarted] = useState<number | null>(null);
+  const missed = state.data?.missed;
+  if (!missed || (missed.count === 0 && !missed.more && started === null)) return null;
+
+  async function runThem() {
+    const res = await action.call(apiRoutes.opsRunMissedEvents, { params: { id: agent.id } });
+    if (res.ok) {
+      setStarted(res.data.runs.length);
+      state.reload();
+    }
+  }
+
+  return (
+    <div className="mt-5 border-t border-line pt-4" data-testid="agent-missed-events">
+      {missed.count > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-ink" data-testid="agent-missed-events-count">
+            {`${plural(missed.count, "event")}${missed.more ? " or more" : ""} came in while it was paused (${day(missed.from)} to ${day(missed.to)}) that it would have started on. None started by itself.`}
+          </p>
+          <Button
+            variant="secondary"
+            data-testid="agent-missed-events-run"
+            disabled={action.busy}
+            onClick={runThem}
+          >
+            {action.busy ? "Starting…" : "Run them now"}
+          </Button>
+        </div>
+      ) : missed.more ? (
+        <p className="text-ink" data-testid="agent-missed-events-more">
+          {`More events of the kinds it starts on came in while it was paused (${day(missed.from)} to ${day(missed.to)}) than one look reads, and none of those read would start it. Run any that matter below, one at a time.`}
+        </p>
+      ) : null}
+      {started !== null ? (
+        <p className="mt-2 text-sm text-ink" data-testid="agent-missed-events-started">
+          {`Started ${plural(started, "run")}. Each event runs once, and its changes wait for approval as in any live run.`}
+        </p>
+      ) : null}
+      {action.error ? (
+        <div className="mt-3">
+          <Notice tone="warning">{errorText(action.error)}</Notice>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

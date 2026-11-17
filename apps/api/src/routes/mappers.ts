@@ -174,7 +174,8 @@ export function opsAction(a: ActionRow, platform: Registries) {
     inboxItemId: a.inboxItemId,
     approvedBy: a.approvedBy,
     approvedAt: iso(a.approvedAt),
-    executedAt: iso(a.executedAt),
+    // Follow-up 9: the time a change was made; one not done (claimed, failed) shows none.
+    executedAt: a.status === "done" ? iso(a.executedAt) : null,
     // v0.12 W1-D: the signer's edit before signing; `input` stays the agent's (both show).
     editedInput: a.editedInput ?? null,
     editedBy: a.editedBy,

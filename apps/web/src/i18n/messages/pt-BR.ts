@@ -52,6 +52,10 @@ export const ptBR: Messages = {
   "errorPage.connection.line": "Conecte em Contas e depois volte a esta página.",
   "errorPage.forbidden.title": "Você não tem acesso a esta página.",
   "errorPage.failure": "Algo deu errado ao carregar esta página. Tente de novo em instantes.",
+  "errorPage.crash":
+    "Algo deu errado ao mostrar esta página. Tente de novo ou vá para outra página.",
+  "errorPage.crashPart":
+    "Não foi possível mostrar esta parte. Tente de novo ou vá para outra página.",
   "errorPage.back.home": "Ir para o início",
   "errorPage.back.runs": "Ir para Execuções",
   "errorPage.back.records": "Ir para Registros",
@@ -100,6 +104,12 @@ export const ptBR: Messages = {
   "error.contact_exists": "Alguém no diretório já tem esse e-mail ou esse número.",
   "error.rate_limited": "Aguarde um minuto e tente de novo.",
   "error.no_address": "Não sabemos o endereço desta conta. Conecte-a de novo.",
+  "error.different_account":
+    "Esta conta é diferente da que está conectada aqui. Desconecte-a primeiro e depois conecte a outra.",
+  "error.different_company":
+    "Seus livros aqui vêm de outra empresa do QuickBooks. Peça para nós trocarmos a empresa.",
+  "error.sync_running":
+    "Estamos lendo os livros desta empresa agora. Tente de novo em alguns minutos.",
   "error.invalid_hours":
     "Não é possível salvar esses horários. Informe o horário de pelo menos um dia e mantenha cada ausência abaixo de um ano.",
   "error.sends_form":
@@ -425,6 +435,7 @@ export const ptBR: Messages = {
   "desk.worksheet.title": "Folha de trabalho",
   "desk.worksheet.how": "Como {agent} chegou aqui",
   "desk.worksheet.yourSign": "Sua aprovação",
+  "desk.worksheet.earlierChange": "Abrir a mudança anterior",
   "desk.team.title": "Quem aprova o quê",
   "desk.team.undo": "Prazo para desfazer",
   "desk.team.undoOff": "Desligado",
@@ -909,6 +920,9 @@ export const ptBR: Messages = {
     "Um por linha. Um domínio (seufornecedor.com.br) cobre todos que usam esse domínio.",
   "forwarding.edit": "Editar quem pode encaminhar",
   "forwarding.drop.sender_not_allowed": "o remetente não está na sua lista",
+  "forwarding.drop.sender_unverified":
+    "o remetente está na sua lista, mas não conseguimos confirmar que foi ele quem enviou",
+  "forwarding.drop.auto_reply": "era uma resposta automática, como um aviso de ausência",
   "forwarding.drop.unknown_address": "foi enviado para um endereço antigo ou errado",
   "forwarding.drop.too_large": "tinha mais de 25 MB",
   "forwarding.drop.unreadable": "não foi possível ler a mensagem",
@@ -1421,6 +1435,7 @@ export const ptBR: Messages = {
   "contacts.status.failed": "falhou",
   "contacts.status.read": "lido",
   "contacts.status.received": "recebido",
+  "contacts.status.unverified": "recebido, remetente não confirmado",
   "contacts.status.replied": "respondeu",
   "contacts.status.not_sent": "não enviado",
   "contacts.status.no_reply": "sem resposta",

@@ -16,8 +16,13 @@ import {
   uuidv7,
 } from "@countersign/core";
 import { agent, agentChange, agentVersion, event, run, type Tx } from "@countersign/db";
-import { type RoutableAgent, type RunRequest, routeEvent } from "@countersign/workflows";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import {
+  eventTypesRouted,
+  type RoutableAgent,
+  type RunRequest,
+  routeEvent,
+} from "@countersign/workflows";
+import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { HttpError, notFound } from "../http";
 import { withCanSign } from "../inbox";
 import { createRunRow } from "../runs/dispatch";
@@ -145,6 +150,178 @@ export async function runOnEvent(
     },
   });
   return requests;
+}
+
+// ── Audit 4.2: events that came in while the agent was paused ──────────────────────────────────
+
+/** How far back a pause's events are looked for. */
+export const MISSED_LOOK_BACK_MS = 30 * 24 * 60 * 60_000;
+/**
+ * The most events of a pause read at once: of the types the agent's triggers listen to, not yet
+ * run, oldest first; `more` says when there were others (running these brings the rest up).
+ */
+export const MISSED_SCAN_MAX = 2000;
+/** The most of them one "run them now" starts. */
+export const MISSED_RUN_MAX = 50;
+
+/** Whether an `agent_change` paused the agent, resumed it, or neither. */
+function pauseEdge(change: unknown): "pause" | "resume" | null {
+  const c = (change ?? {}) as { kind?: unknown; before?: unknown; after?: unknown };
+  if (c.kind === "pause") return "pause";
+  if (c.kind === "resume") return "resume";
+  if (c.kind === "run_status" && c.after === "paused") return "pause";
+  if (c.kind === "run_status" && c.before === "paused" && c.after === "active") return "resume";
+  return null;
+}
+
+/**
+ * The agent's last pause that has ended: from its pause to its resume, as `agent_change` records
+ * them (the client's or the operator's pause, the cron's resume at a pause's end, Activate).
+ */
+export async function lastPause(
+  tx: Tx,
+  row: AgentRow,
+  now: Date,
+): Promise<{ from: Date; to: Date } | null> {
+  if (row.runStatus !== "active") return null;
+  const changes = await tx
+    .select({ change: agentChange.change, at: agentChange.createdAt })
+    .from(agentChange)
+    .where(
+      and(
+        eq(agentChange.tenantId, row.tenantId as string),
+        eq(agentChange.agentId, row.id),
+        gte(agentChange.createdAt, new Date(now.getTime() - MISSED_LOOK_BACK_MS)),
+      ),
+    )
+    .orderBy(desc(agentChange.createdAt), desc(agentChange.id));
+  let to: Date | null = null;
+  for (const c of changes) {
+    const edge = pauseEdge(c.change);
+    if (!to) {
+      if (edge === "resume") to = c.at;
+      else if (edge === "pause") return null;
+      continue;
+    }
+    if (edge === "pause") return { from: c.at, to };
+  }
+  // Resumed in the look-back, paused before it: the look-back's start.
+  return to ? { from: new Date(now.getTime() - MISSED_LOOK_BACK_MS), to } : null;
+}
+
+export interface MissedEvents {
+  from: Date;
+  to: Date;
+  /** Events of the pause that would have started this agent, and haven't: oldest first. */
+  events: (typeof event.$inferSelect)[];
+  /** More events came in during the pause than were read (MISSED_SCAN_MAX). */
+  more: boolean;
+}
+
+/**
+ * The events that came in during the agent's last pause (within MISSED_LOOK_BACK_MS) that its
+ * live version's triggers match, by the router's own matching, and that started no run of it.
+ * Never a test run's event. Null when the agent doesn't run live now or had no pause.
+ */
+// DECISION (audit 4.2): they are only counted and offered, never started on resume: whoever paused
+// it had a reason. "Run them now" is the past-event path (`runOnEvent`) for each, so run ids are
+// the router's and running them twice starts nothing.
+export async function missedWhilePaused(
+  tx: Tx,
+  row: AgentRow,
+  now = new Date(),
+): Promise<MissedEvents | null> {
+  if (!RUNNING_STAGES.has(stageOf(row) ?? "") || row.runStatus !== "active") return null;
+  const tenantId = row.tenantId as string;
+  const pause = await lastPause(tx, row, now);
+  if (!pause) return null;
+  const agentAsRouted = routable(row, await liveBundleOf(tx, row));
+  // Only the types the router could start it on, and only events that started no run of it and
+  // aren't a test run's: read in SQL, so the ones already run never use up the read limit.
+  const types = eventTypesRouted(agentAsRouted);
+  if (types.length === 0) return { from: pause.from, to: pause.to, events: [], more: false };
+  const rows = await tx
+    .select()
+    .from(event)
+    .where(
+      and(
+        eq(event.tenantId, tenantId),
+        inArray(event.type, types),
+        gte(event.createdAt, pause.from),
+        lte(event.createdAt, pause.to),
+        sql`not exists (select 1 from ${run} r where r.tenant_id = ${event.tenantId} and r.agent_id = ${row.id} and r.trigger->>'eventId' = ${event.id}::text)`,
+        sql`not exists (select 1 from ${run} t where t.tenant_id = ${event.tenantId} and t.mode = 'test' and t.id::text = ${event.payload}->>'runId')`,
+      ),
+    )
+    .orderBy(asc(event.createdAt), asc(event.id))
+    .limit(MISSED_SCAN_MAX + 1);
+  const more = rows.length > MISSED_SCAN_MAX;
+  const scanned = rows.slice(0, MISSED_SCAN_MAX);
+  const candidates: { e: (typeof scanned)[number]; runIds: string[] }[] = [];
+  for (const e of scanned) {
+    const { runs } = await routeEvent(
+      { id: e.id, tenantId: e.tenantId, type: e.type, payload: e.payload },
+      [agentAsRouted],
+    );
+    if (runs.length > 0) candidates.push({ e, runIds: runs.map((r) => r.runId) });
+  }
+  // A run whose trigger names no event id (a webhook's deduplicated run): checked by its id.
+  const allIds = candidates.flatMap((c) => c.runIds);
+  const ran = new Set<string>();
+  for (let i = 0; i < allIds.length; i += 500) {
+    const existing = await tx
+      .select({ id: run.id })
+      .from(run)
+      .where(and(eq(run.tenantId, tenantId), inArray(run.id, allIds.slice(i, i + 500))));
+    for (const r of existing) ran.add(r.id);
+  }
+  return {
+    from: pause.from,
+    to: pause.to,
+    events: candidates.filter((c) => c.runIds.some((id) => !ran.has(id))).map((c) => c.e),
+    more,
+  };
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  const e = error as { code?: unknown; cause?: { code?: unknown } } | null;
+  return (e?.code ?? e?.cause?.code) === "23505";
+}
+
+/**
+ * "Run them now": the live runs of the agent on the events its last pause held back, oldest
+ * first, at most MISSED_RUN_MAX, each through the past-event path in its own savepoint (an event
+ * that already started it, or no longer matches, is passed over). Start the instances after the
+ * commit. `left` is how many are still waiting after these.
+ */
+export async function runMissedEvents(
+  tx: Tx,
+  input: { tenantId: string; agentId: string; userId: string; now?: Date },
+): Promise<{ requests: RunRequest[]; left: number }> {
+  const row = await clientAgent(tx, input.tenantId, input.agentId);
+  ensureRunsLive(row);
+  const missed = await missedWhilePaused(tx, row, input.now);
+  const events = missed?.events ?? [];
+  const requests: RunRequest[] = [];
+  for (const e of events.slice(0, MISSED_RUN_MAX)) {
+    try {
+      requests.push(
+        ...(await tx.transaction((sp) =>
+          runOnEvent(sp, {
+            tenantId: input.tenantId,
+            agentId: input.agentId,
+            eventId: e.id,
+            userId: input.userId,
+          }),
+        )),
+      );
+    } catch (error) {
+      // Already run, or no longer matching: passed over. A unique violation is another request
+      // starting the same run at the same moment (two clicks): it is that request's to start.
+      if (!(error instanceof HttpError) && !isUniqueViolation(error)) throw error;
+    }
+  }
+  return { requests, left: Math.max(0, events.length - MISSED_RUN_MAX) };
 }
 
 /**

@@ -116,10 +116,20 @@ function emailServices() {
       return sent.get(key) ?? null;
     },
     async startAttempt(a) {
-      if (!attempts.has(a.idempotencyKey)) attempts.set(a.idempotencyKey, a);
+      // The first try per key stands; a later one only after the newest was refused.
+      const newest = attempts.get(a.idempotencyKey);
+      if (!newest || (newest.refused && (a.attempt ?? 1) > (newest.attempt ?? 1))) {
+        attempts.set(a.idempotencyKey, a);
+      }
     },
     async attemptFor(key) {
       return attempts.get(key) ?? null;
+    },
+    async refuseAttempt({ idempotencyKey, attempt }) {
+      const newest = attempts.get(idempotencyKey);
+      if (newest && (newest.attempt ?? 1) === attempt) {
+        attempts.set(idempotencyKey, { ...newest, refused: true });
+      }
     },
     async replyAddress() {
       return "shop-abc-secret@in.mezonas.test";

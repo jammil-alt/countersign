@@ -4,64 +4,20 @@
 // authentication header; a header lower down was written by whoever sent the message and is never
 // read. What we assumed about Cloudflare's headers is in NOTES.md, "To verify".
 
+import {
+  type EmailAuthentication,
+  readAuthentication,
+  TRUSTED_AUTHSERV_ID,
+} from "@countersign/core";
 import PostalMime from "postal-mime";
 
 /** Cloudflare Email Routing's limit for a message handed to a Worker; larger ones are not read. */
 export const MAX_EMAIL_BYTES = 25 * 1024 * 1024;
 
-// DECISION: the authserv-id Cloudflare Email Routing writes in its authentication headers. A
-// topmost header with any other authserv-id is not Cloudflare's, so the message is unauthenticated.
-export const TRUSTED_AUTHSERV_ID = "mx.cloudflare.net";
-
-export interface EmailAuthentication {
-  /** Which header was read (`authentication-results` or `arc-authentication-results`), or null. */
-  header: string | null;
-  spf: boolean;
-  dkim: boolean;
-  dmarc: boolean;
-  /** The From domain DMARC passed for (`header.from`), lower case. */
-  dmarcFrom: string | null;
-}
-
-const NONE: EmailAuthentication = {
-  header: null,
-  spf: false,
-  dkim: false,
-  dmarc: false,
-  dmarcFrom: null,
-};
-
-/**
- * Reads the receiving server's verdicts from the topmost `Authentication-Results` or
- * `ARC-Authentication-Results` header (whichever comes first: the receiving server prepends its
- * own above everything the sender wrote). It must carry Cloudflare's authserv-id.
- */
-export function readAuthentication(
-  headers: readonly { key: string; value: string }[],
-): EmailAuthentication {
-  const top = headers.find(
-    (h) => h.key === "authentication-results" || h.key === "arc-authentication-results",
-  );
-  if (!top) return NONE;
-  // Comments `( … )` can hold anything, including "dmarc=pass": drop them first.
-  let text = top.value.replace(/\([^()]*\)/g, " ").trim();
-  // ARC-Authentication-Results starts with its instance: `i=1; mx.cloudflare.net; …`.
-  if (top.key === "arc-authentication-results") text = text.replace(/^\s*i\s*=\s*\d+\s*;/i, "");
-  const [authserv, ...clauses] = text.split(";").map((c) => c.trim());
-  const id = (authserv ?? "").split(/\s+/)[0]?.toLowerCase() ?? "";
-  if (id !== TRUSTED_AUTHSERV_ID) return { ...NONE, header: top.key };
-  const verdict = (method: string) =>
-    clauses.some((c) => new RegExp(`^${method}\\s*=\\s*pass(\\s|$)`, "i").test(c));
-  const dmarcClause = clauses.find((c) => /^dmarc\s*=\s*pass(\s|$)/i.test(c));
-  const dmarcFrom = dmarcClause?.match(/header\.from\s*=\s*([A-Za-z0-9.-]+)/)?.[1]?.toLowerCase();
-  return {
-    header: top.key,
-    spf: verdict("spf"),
-    dkim: verdict("dkim"),
-    dmarc: verdict("dmarc"),
-    dmarcFrom: dmarcFrom ?? null,
-  };
-}
+// The receiving server's verdicts are read by the platform's one reader (@countersign/core,
+// `readAuthentication`: the topmost header, Cloudflare's authserv-id, comments and quoted strings
+// handled), the same one apps/api's forwarding, reply and release paths use.
+export { type EmailAuthentication, readAuthentication, TRUSTED_AUTHSERV_ID };
 
 /** Whether a From address may be believed: SPF, DKIM and DMARC passed, DMARC for its own domain. */
 export function authenticated(from: string | null, auth: EmailAuthentication): boolean {

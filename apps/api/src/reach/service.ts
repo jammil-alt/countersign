@@ -15,6 +15,7 @@ import {
   runPlannedAction,
   type StepContext,
 } from "@countersign/agents";
+import { newReplyTag } from "@countersign/connectors";
 import {
   type AgentMode,
   type AnyAgentBundle,
@@ -502,10 +503,6 @@ async function contactLoad(
   };
 }
 
-function hexId(id: string): string {
-  return id.replace(/-/g, "");
-}
-
 function truncateData(value: unknown): JsonObject {
   const s = JSON.stringify(value ?? null);
   if (s.length <= 8000) return { value: JSON.parse(s) };
@@ -964,7 +961,8 @@ export function reachPort(deps: ReachDeps): ReachPort {
           throw error;
         }
         if (!row) throw new Error("reach_out insert returned nothing");
-        const replyTag = hexId(row.id);
+        // The reply address's tag: the id and a secret of its own (upload/forwarding.ts).
+        const replyTag = newReplyTag(row.id);
         stored.replyTag = replyTag;
         await tx
           .update(reachOut)
@@ -1357,6 +1355,20 @@ export async function attemptFrom(
       input,
       idempotencyKey: `${row.runId}:${row.nodeId}:reach:${index}`,
     });
+    // Follow-up 7: an earlier try claimed this send and may still be making it. Nothing is
+    // recorded and no other channel is tried: a later tick sends it once the claim is done (it
+    // reads as done) or has run out (it is taken over under the same key).
+    if (r.status === "busy") {
+      const end = r.leaseEndsAt ? new Date(r.leaseEndsAt) : null;
+      const later = new Date(Math.max(t.getTime() + 60_000, end ? end.getTime() + 5_000 : 0));
+      await withTenant(db, tenantId, (tx) =>
+        tx
+          .update(reachOut)
+          .set({ nextAttemptAt: later })
+          .where(and(eq(reachOut.id, row.id), eq(reachOut.tenantId, tenantId))),
+      );
+      return sentNow;
+    }
     if (r.status !== "done") {
       await failed(r.status === "refused" ? r.reason : r.status === "failed" ? r.error : r.status);
       continue;

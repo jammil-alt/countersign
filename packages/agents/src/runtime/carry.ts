@@ -9,8 +9,15 @@
 
 import { carryDecision, hashJson, isPlainObject, type WriteDecision } from "@countersign/core";
 import { executeAction } from "./actions";
-import type { ToolOutcome } from "./call-tool";
-import { asJsonObject, idempotencyKey, type RuntimeDeps, type StepContext } from "./context";
+import { recordedChange, type ToolOutcome } from "./call-tool";
+import {
+  asJsonObject,
+  idempotencyKey,
+  nextIdempotencyKey,
+  type RuntimeDeps,
+  type StepContext,
+  signAllWrites,
+} from "./context";
 
 /** Said of a carried write that failed after it may have reached the provider. */
 export const MAY_HAVE_HAPPENED = " (the change may have happened: check before trying again)";
@@ -18,6 +25,11 @@ export const MAY_HAVE_HAPPENED = " (the change may have happened: check before t
 /** Whether a failed action's error says nothing was written (`notWritten`, `executeAction`). */
 function notWritten(error: unknown): boolean {
   return isPlainObject(error) && error.notWritten === true;
+}
+
+/** The run in a run's write key (`<run>:<step>:<index>`). */
+function runOfKey(key: string): string | null {
+  return key.split(":")[0] || null;
 }
 
 /** A carried write's outcome, or null to propose it as any other. Live retries only. */
@@ -36,14 +48,41 @@ export async function carryApproval(
   if (candidates.length === 0) return null;
   const hash = await hashJson(asJsonObject(input));
   const now = deps.now?.() ?? new Date();
+  // Follow-up 3: this call's own position in the step (`<run>:<step>:<index>`, before it is taken).
+  const position = nextIdempotencyKey(step).slice(`${step.runId}:`.length);
+  const same = new Set<string>();
   for (const c of candidates) {
-    if (c.tool !== toolId || (await hashJson(c.input)) !== hash) continue;
+    if (c.tool === toolId && (await hashJson(c.input)) === hash) same.add(c.id);
+  }
+  // Review 2, item 3: a write the run retried may have made (`unconfirmed`: a connector couldn't
+  // tell, or the stale-write sweep turned it over) is never proposed again as new: whatever the
+  // gate says, a person signs it, told to check the earlier one first.
+  // DECISION: matched by its input, or by its place in the step when the input differs.
+  const maybeMade = candidates.find(
+    (c) =>
+      c.tool === toolId &&
+      c.status === "failed" &&
+      isPlainObject(c.error) &&
+      c.error.unconfirmed === true &&
+      (same.has(c.id) || c.idempotencyKey.endsWith(`:${position}`)),
+  );
+  if (maybeMade) {
+    signAllWrites(step, {
+      code: "retry_unconfirmed",
+      actionId: maybeMade.id,
+      runId: runOfKey(maybeMade.idempotencyKey),
+    });
+  }
+  for (const c of candidates) {
+    if (!same.has(c.id)) continue;
     const carry = carryDecision(c, now);
     if (carry === "propose") continue;
     // DECISION: a write the system approved (the automatic path, no signer) is carried only while
     // the gate would still run it without asking; a client who tightened its matrix since is asked
     // (docs/plan.md M17). A person's signature stands while the gate allows the write at all.
-    if (carry === "execute" && c.approvedBy === null && decision !== "run") continue;
+    // Follow-up 3: nor after a call of this try that didn't match the step's change.
+    const unsignedOk = decision === "run" && step.signAllWrites !== true;
+    if (carry === "execute" && c.approvedBy === null && !unsignedOk) continue;
     const carried = { retryOf };
     if (carry === "done") {
       // The key this write would have taken, so later writes of the step keep their own (a
@@ -74,9 +113,32 @@ export async function carryApproval(
           error: notWritten(r.action.error) ? r.error : `${r.error}${MAY_HAVE_HAPPENED}`,
           actionId: c.id,
         };
+      case "busy":
+        // Audit 3.2: an earlier try claimed it: never sent twice; the step waits for that claim's
+        // lease and runs again (follow-up 1).
+        return { status: "busy", actionId: c.id, leaseEndsAt: r.leaseEndsAt };
       default:
         return { status: "refused", reason: `the carried change is ${r.action.status}` };
     }
+  }
+  // DECISION (follow-up 3, the lead's): a change the run retried made at this call's position with
+  // another input is not proposed again blindly: the model is told it (as data) and the key moves
+  // on, as a retried step is (call-tool's `resumeProposed`). Writes after it wait for a person.
+  const made = candidates.find(
+    (c) => c.tool === toolId && c.status === "done" && c.idempotencyKey.endsWith(`:${position}`),
+  );
+  if (made) {
+    idempotencyKey(step);
+    signAllWrites(step, {
+      code: "retry_reworded",
+      actionId: made.id,
+      runId: runOfKey(made.idempotencyKey),
+    });
+    return {
+      status: "recorded",
+      actionId: made.id,
+      change: recordedChange(made),
+    };
   }
   return null;
 }

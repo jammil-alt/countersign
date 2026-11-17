@@ -6,9 +6,9 @@
 
 import { TESTKIT_QUERY_TOOL, TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import { bundleHash } from "@countersign/core";
-import { agent, agentVersion, connection, run, stepRun } from "@countersign/db";
+import { agent, agentVersion, connection, event, run, stepRun } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
@@ -321,5 +321,46 @@ describe.skipIf(!h)("hand-off steps in apps/api", () => {
     expect(startedFrom(p.runId)).toEqual([]);
     const hand = (await rowsOf(p.runId)).find((r) => r.nodeId === "hand");
     expect(hand?.summary).toBe("Price checker isn't started, so the hand-off didn't run");
+  });
+
+  it("emits the run's end once when its finish runs again after it committed", async () => {
+    const endsOf = (runId: string) =>
+      H.t.db
+        .select({ type: event.type })
+        .from(event)
+        .where(
+          and(eq(event.subjectId, runId), inArray(event.type, ["run.succeeded", "run.failed"])),
+        );
+    // The engine runs the finish step again (its result was lost after the commit).
+    const twice = async (p: RunParams) => {
+      const step = new FakeWorkflowStep();
+      const first = await executeRun(deps(), p, cloudflareStepRunner(step));
+      step.results.delete("run:finish");
+      expect(await executeRun(deps(), p, cloudflareStepRunner(step))).toEqual(first);
+      return first;
+    };
+    const ok = params({ agentId: ids.checker, agentVersionId: ids.checkerVersion });
+    expect(await twice(ok)).toEqual({ status: "succeeded" });
+    expect(await endsOf(ok.runId)).toEqual([{ type: "run.succeeded" }]);
+
+    await H.t.db.update(agent).set({ runStatus: "paused" }).where(eq(agent.id, ids.checker));
+    const failing = params();
+    expect(await twice(failing)).toMatchObject({ status: "failed" });
+    expect(await endsOf(failing.runId)).toEqual([{ type: "run.failed" }]);
+  });
+
+  it("a finish landing after the run was cancelled leaves it cancelled, with no event", async () => {
+    const p = params({ agentId: ids.checker, agentVersionId: ids.checkerVersion });
+    const step = new FakeWorkflowStep();
+    expect(await executeRun(deps(), p, cloudflareStepRunner(step))).toEqual({
+      status: "succeeded",
+    });
+    await H.t.db.delete(event).where(eq(event.subjectId, p.runId));
+    await H.t.db.update(run).set({ status: "cancelled" }).where(eq(run.id, p.runId));
+    step.results.delete("run:finish");
+    await executeRun(deps(), p, cloudflareStepRunner(step));
+    const [row] = await H.t.db.select().from(run).where(eq(run.id, p.runId));
+    expect(row?.status).toBe("cancelled");
+    expect(await H.t.db.select().from(event).where(eq(event.subjectId, p.runId))).toEqual([]);
   });
 });

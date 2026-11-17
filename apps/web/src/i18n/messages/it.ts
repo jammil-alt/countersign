@@ -52,6 +52,10 @@ export const it: Messages = {
   "errorPage.connection.line": "Collegalo in Account, poi torna su questa pagina.",
   "errorPage.forbidden.title": "Non hai accesso a questa pagina.",
   "errorPage.failure": "Qualcosa è andato storto nel caricare questa pagina. Riprova tra poco.",
+  "errorPage.crash":
+    "Qualcosa è andato storto nel mostrare questa pagina. Riprova o vai a un'altra pagina.",
+  "errorPage.crashPart":
+    "Non è stato possibile mostrare questa parte. Riprova o vai a un'altra pagina.",
   "errorPage.back.home": "Vai alla home",
   "errorPage.back.runs": "Vai a Esecuzioni",
   "errorPage.back.records": "Vai a Record",
@@ -100,6 +104,12 @@ export const it: Messages = {
   "error.contact_exists": "Qualcuno nella rubrica ha già questo indirizzo email o numero.",
   "error.rate_limited": "Attendi un minuto e riprova.",
   "error.no_address": "Non conosciamo l'indirizzo di questo account. Collegalo di nuovo.",
+  "error.different_account":
+    "Questo account è diverso da quello collegato qui. Scollegalo prima, poi collega l'altro.",
+  "error.different_company":
+    "La tua contabilità qui viene da un'altra azienda QuickBooks. Chiedici di cambiare azienda.",
+  "error.sync_running":
+    "Stiamo leggendo la contabilità di questa azienda proprio ora. Riprova tra qualche minuto.",
   "error.invalid_hours":
     "Questi orari non possono essere salvati. Indica l'orario di almeno un giorno e tieni ogni assenza sotto un anno.",
   "error.sends_form":
@@ -429,6 +439,7 @@ export const it: Messages = {
   "desk.worksheet.title": "Foglio di lavoro",
   "desk.worksheet.how": "Come ci è arrivato {agent}",
   "desk.worksheet.yourSign": "La tua approvazione",
+  "desk.worksheet.earlierChange": "Apri la modifica precedente",
   "desk.team.title": "Chi approva cosa",
   "desk.team.undo": "Tempo per annullare",
   "desk.team.undoOff": "Disattivato",
@@ -914,6 +925,9 @@ export const it: Messages = {
     "Uno per riga. Un dominio (tuofornitore.it) vale per tutti i suoi indirizzi.",
   "forwarding.edit": "Modifica chi può inoltrare",
   "forwarding.drop.sender_not_allowed": "il mittente non è nel tuo elenco",
+  "forwarding.drop.sender_unverified":
+    "il mittente è nel tuo elenco, ma non abbiamo potuto confermare che l'abbia inviato lui",
+  "forwarding.drop.auto_reply": "era una risposta automatica, come un avviso di assenza",
   "forwarding.drop.unknown_address": "è stato inviato a un indirizzo vecchio o sbagliato",
   "forwarding.drop.too_large": "superava i 25 MB",
   "forwarding.drop.unreadable": "non è stato possibile leggere il messaggio",
@@ -1429,6 +1443,7 @@ export const it: Messages = {
   "contacts.status.failed": "non riuscito",
   "contacts.status.read": "letto",
   "contacts.status.received": "ricevuto",
+  "contacts.status.unverified": "ricevuto, mittente non confermato",
   "contacts.status.replied": "ha risposto",
   "contacts.status.not_sent": "non inviato",
   "contacts.status.no_reply": "nessuna risposta",

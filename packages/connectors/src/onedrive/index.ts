@@ -38,6 +38,7 @@ import {
   type GraphCall,
   MicrosoftApiError,
   type MicrosoftAppOptions,
+  microsoftAccountIds,
   microsoftSignIn,
 } from "../microsoft/identity";
 import { ReconnectRequiredError } from "../oauth/tokens";
@@ -341,7 +342,7 @@ export function createOnedriveConnector(options: OnedriveOptions = {}): Connecto
       return {
         externalAccountId: account.address,
         credentials: credentials as unknown as JsonObject,
-        config: config as unknown as JsonObject,
+        config: { ...config, accountIds: microsoftAccountIds(account) } as unknown as JsonObject,
       };
     },
 

@@ -16,8 +16,10 @@ and fake where they differ.
   match replies by the `+tag` in the reply-to address first, and the sender's address second, so
   matching doesn't depend on this.
 - The answer's shape: `{ "id": "..." }`.
-- Rate limits (2 requests a second by default?) and the errors for a bad `from`, an unverified
-  domain, or a key restricted to another domain (we assume 403).
+- Rate limits (2 requests a second by default?, for the whole team, so every client shares it) and
+  the errors for a bad `from`, an unverified domain, or a key restricted to another domain (we
+  assume 403). A 429 is retried up to three times after `Retry-After` (at most 5 s) or 1, 2, 4 s;
+  still refused, the send fails as not sent (any 4xx but 408 and 409 is "nothing sent").
 
 ## Attachments (P-3, docs/plan.md §1.65)
 

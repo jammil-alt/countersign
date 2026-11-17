@@ -101,4 +101,19 @@ describe("explainWrite", () => {
     expect(readWhyApproval(JSON.parse(JSON.stringify(why)))).toEqual(why);
     expect(readWhyApproval({ reasons: ["because"] })).toBeNull();
   });
+
+  it("names a retry's earlier change when it is why a write that would run waits", () => {
+    const why = explainWrite({
+      verb: "update",
+      matrix: { update: "auto" },
+      stepApproval: "not_required",
+      agentMode: "act",
+      retry: { code: "retry_reworded", actionId: "a1", runId: "r1" },
+    });
+    expect(why).toMatchObject({
+      reasons: ["retry_reworded"],
+      related: { actionId: "a1", runId: "r1" },
+    });
+    expect(readWhyApproval(JSON.parse(JSON.stringify(why)))).toEqual(why);
+  });
 });

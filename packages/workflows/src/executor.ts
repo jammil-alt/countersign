@@ -395,6 +395,40 @@ function checkpointKey(name: string, stepId: string): string {
 // approved (its onReject applies). An unanswered approval must never turn into a write.
 export const DEFAULT_APPROVAL_TIMEOUT: Duration = "7 days";
 
+/** Follow-up 6: how many undo windows a run waits out after its approval's time ran out. */
+const HOLD_ROUNDS = 3;
+
+/**
+ * The most items one for each takes (audit 4.4). Each item's steps are durable steps of the run's
+ * one instance, which the engine caps; a longer list fails at the step's start, before any item.
+ */
+// DECISION: 200, the audit's figure: a for each of a few steps stays well inside the engine's
+// steps per instance, and a client's batch larger than that is a sign to split the work.
+export const FOR_EACH_MAX_ITEMS = 200;
+
+/**
+ * The most a step's output may hold, serialized (audit 4.4). It is part of the step's durable
+ * result, which the engine keeps up to 1 MiB: a larger one fails the step on its own row, with its
+ * size, rather than the run's instance on the engine's limit.
+ */
+export const STEP_OUTPUT_MAX_BYTES = 900 * 1024;
+
+/** A value's size as JSON in UTF-8, without TextEncoder (this package has no DOM or Node types). */
+export function jsonBytes(value: unknown): number {
+  const json = JSON.stringify(value ?? null) ?? "null";
+  let n = 0;
+  for (let i = 0; i < json.length; i++) {
+    const c = json.charCodeAt(i);
+    if (c < 0x80) n += 1;
+    else if (c < 0x800) n += 2;
+    else if (c >= 0xd800 && c <= 0xdbff) {
+      n += 4;
+      i++;
+    } else n += 3;
+  }
+  return n;
+}
+
 // DECISION (R3): a skill that needs help asks the lead, who has one business day to answer; no
 // answer stops the run (owner, 2026-11-10: "ask the lead").
 const HELP_DEADLINE: processes.Deadline = {
@@ -1053,6 +1087,14 @@ class Executor {
       outcome.kind === "approval" && this.testRun
         ? { kind: "done", output: outcome.output ?? null, notWritten: true }
         : outcome;
+    // Audit 4.4: an output too large to hand on fails the step on its one row, saying why.
+    if (done.kind === "done") {
+      const bytes = jsonBytes(done.output);
+      if (bytes > STEP_OUTPUT_MAX_BYTES) {
+        const error = `its output is ${Math.ceil(bytes / 1024)} KiB, over the ${STEP_OUTPUT_MAX_BYTES / 1024} KiB a step may hand on`;
+        return this.settle(step, stepRunId, { kind: "failed", error }, rejected, extra);
+      }
+    }
     // P-6: a person who ended the step (a live conversation) turned it down (§1.68).
     const turnedDown = rejected || (done.kind === "done" && done.declined === true);
     let update: StepRunUpdate;
@@ -1089,7 +1131,13 @@ class Executor {
       case "waiting":
         update = {
           status: "waiting",
-          summary: `${stepStateLabel(step, false)}: ${done.wait.reason === "release" ? this.words.waitingForRelease : "waiting for a reply"}`,
+          summary: `${stepStateLabel(step, false)}: ${
+            done.wait.reason === "release"
+              ? this.words.waitingForRelease
+              : done.wait.reason === "change"
+                ? "checking a change it started"
+                : "waiting for a reply"
+          }`,
         };
         break;
       case "escalated":
@@ -1641,6 +1689,8 @@ class Executor {
           ...(frame.automation ? { automation: frame.automation } : {}),
           // v0.13 W2-I
           ...(keyNode ? { keyNode } : {}),
+          // Follow-up 2: a platform retry of this attempt (its budgets go on from the earlier try).
+          ...((tried?.attempt ?? 1) > 1 ? { retried: true } : {}),
         };
         const outcome: StepOutcome =
           refused !== undefined
@@ -2060,6 +2110,37 @@ class Executor {
         await this.ctx.inbox.expire(inboxItemId);
         return null;
       });
+      // Audit 3.7: an item answered before the deadline is not expired (only open items are), and
+      // its answer may still be inside its undo window, where `resolution` doesn't give it yet.
+      // DECISION: the answer stands: the run waits out the rest of the window and takes it, as
+      // the card shows it. An undo inside the window opens the item again, and it expires then.
+      // DECISION (follow-up 6): a person may undo and sign again inside the hold, so the window
+      // is waited out again, up to HOLD_ROUNDS times; after that the item expires as before.
+      // DECISION (follow-up 5, the lead's): a run that passed `:expire` before these steps were
+      // deployed runs them on its replay, so one whose item was signed inside its window may now
+      // take that yes where its stored `:resume` said no. Accepted: the window is narrow (runs
+      // whose approval timed out across the deploy) and the old outcome was the bug.
+      const heldFor = this.ctx.inbox.heldFor;
+      if (!heldFor) return null;
+      for (let round = 1; round <= HOLD_ROUNDS; round++) {
+        // The first round keeps the names the first release of this used, for runs in flight.
+        const at = round === 1 ? base : `${base}:hold${round}`;
+        const held = await this.runner.do(`${at}:held`, () =>
+          heldFor.call(this.ctx.inbox, inboxItemId),
+        );
+        if (held === null) return null;
+        // A second more than the database said, so the window has surely passed when it is read.
+        if (held > 0) await this.runner.sleep(`${at}:hold`, `${Math.ceil(held) + 1} seconds`);
+        const late = await this.runner.do(`${at}:late`, () =>
+          this.ctx.inbox.resolution(inboxItemId),
+        );
+        if (late) return received(InboxResolution.parse(late));
+        // Undone inside the window: open again. Expired, unless it was signed again meanwhile.
+        await this.runner.do(`${at}:expire-late`, async () => {
+          await this.ctx.inbox.expire(inboxItemId);
+          return null;
+        });
+      }
       return null;
     }
   }
@@ -3004,18 +3085,25 @@ class Executor {
     let by = "";
     let unsure = false;
     if (allowed.length > 1) {
-      const answer = await this.runner.do(`${name}:choose`, async () => {
-        if (!this.ctx.choice) return { path: null, by: "" };
-        return this.ctx.choice.choose({
-          run,
-          nodeId: name,
-          stepRunId: opened.stepRunId,
-          stepId: step.id,
-          stepName: step.name,
-          paths: allowed.map((p) => ({ id: p.id, name: p.name, describe: p.describe ?? "" })),
-          data: step.show ? resolveTemplate(step.show, frame.scope) : choiceData(frame.scope),
-        });
-      });
+      // Retried as skill and action steps are, not on the platform's defaults.
+      const answer = await this.runner.do(
+        `${name}:choose`,
+        async (): Promise<{ path: string | null; by: string; failed?: string }> => {
+          if (!this.ctx.choice) return { path: null, by: "" };
+          return this.ctx.choice.choose({
+            run,
+            nodeId: name,
+            stepRunId: opened.stepRunId,
+            stepId: step.id,
+            stepName: step.name,
+            paths: allowed.map((p) => ({ id: p.id, name: p.name, describe: p.describe ?? "" })),
+            data: step.show ? resolveTemplate(step.show, frame.scope) : choiceData(frame.scope),
+          });
+        },
+        this.ctx.stepConfig,
+      );
+      // The agent couldn't be asked: the step fails, with the reason; no path is taken.
+      if (answer.failed) await this.choiceFailed(step, name, opened.stepRunId, answer.failed);
       by = answer.by;
       picked = allowed.find((p) => p.id === answer.path);
       unsure = picked === undefined;
@@ -3072,22 +3160,68 @@ class Executor {
     this.record(frame, step, output);
   }
 
+  /** An agent's choice that couldn't be made: its step's row fails with the reason, and the run. */
+  async choiceFailed(
+    step: processes.Step,
+    name: string,
+    stepRunId: string,
+    failed: string,
+  ): Promise<never> {
+    const reason = `${clientLabel(asLabelled(step))}: ${failed}`;
+    await this.runner.do(`${name}:failed`, async () => {
+      await this.ctx.log.update(stepRunId, {
+        status: "failed",
+        error: reason,
+        summary: `${stepStateLabel(asLabelled(step), false)}: ${this.words.failed}`,
+      });
+      return null;
+    });
+    throw new RunEnd({
+      status: "failed",
+      reason,
+      nodeId: name,
+      errorKey: this.errorKeyOf(step, failed),
+    });
+  }
+
   async forEach(step: processes.ForEachStep, name: string, frame: Frame): Promise<void> {
     const { run, log } = this.ctx;
     const items = resolveTemplate(step.over, frame.scope);
     if (!Array.isArray(items)) {
       throw new Error(`for_each ${step.id}: "${step.over}" is not a list`);
     }
-    const { stepRunId } = await this.runner.do(name, async () => {
+    // Audit 4.4: a list over the cap fails the step at its start, before any item runs. The check
+    // is inside the step's first durable call, so a run already past it (in flight) goes on.
+    const tooMany =
+      items.length > FOR_EACH_MAX_ITEMS
+        ? `${clientLabel(asLabelled(step))}: ${items.length} items, over the ${FOR_EACH_MAX_ITEMS} one for each may take`
+        : null;
+    const { stepRunId, refused } = await this.runner.do(name, async () => {
       const id = await log.start({
         runId: run.id,
         nodeId: name,
         nodeType: "for_each",
         input: { count: items.length },
       });
+      if (tooMany) {
+        await log.update(id, {
+          status: "failed",
+          error: tooMany,
+          summary: `${stepStateLabel(asLabelled(step), false)}: ${this.words.failed}`,
+        });
+        return { stepRunId: id, refused: tooMany };
+      }
       await log.update(id, { status: "running" });
-      return { stepRunId: id };
+      return { stepRunId: id, refused: null as string | null };
     });
+    if (refused) {
+      throw new RunEnd({
+        status: "failed",
+        reason: refused,
+        nodeId: name,
+        errorKey: this.errorKeyOf(step, refused),
+      });
+    }
 
     let ended: RunEnd | undefined;
     // Wave 5: with `onError: continue`, an item whose steps failed (a failure they reported) doesn't
@@ -3202,7 +3336,7 @@ class Executor {
         const until = step.until;
         const verdict = await this.runner.do(
           `${name}:r${pass}:until`,
-          async (): Promise<{ done: boolean | null; feedback?: string }> => {
+          async (): Promise<{ done: boolean | null; feedback?: string; failed?: string }> => {
             if ("rules" in until) return { done: evaluateRules(until.rules, scope) };
             // M61: the agent says. No port, or no answer that held: the repeat ends at its limit.
             if (!this.ctx.choice) return { done: null };
@@ -3222,9 +3356,21 @@ class Executor {
             return {
               done: answer.done,
               ...(answer.feedback ? { feedback: answer.feedback } : {}),
+              ...(answer.failed ? { failed: answer.failed } : {}),
             };
           },
+          // Retried as skill and action steps are, not on the platform's defaults.
+          "rules" in step.until ? undefined : this.ctx.stepConfig,
         );
+        // The agent couldn't be asked: the repeat fails, with the reason (below, as `ended`).
+        if (verdict.failed) {
+          throw new RunEnd({
+            status: "failed",
+            reason: `${label}: ${verdict.failed}`,
+            nodeId: name,
+            errorKey: this.errorKeyOf(step, verdict.failed),
+          });
+        }
         if (verdict.done === true) {
           done = true;
           break;
@@ -3245,10 +3391,16 @@ class Executor {
     for (const [id, entry] of Object.entries(previous ?? {})) last[id] = entry.output;
     const output = { passes, done, last };
     const stops = !ended && !done && step.onLimit === "stop";
+    // The repeat's own failure (its agent couldn't be asked) is kept on its row.
+    const ownFailure =
+      ended?.result.status === "failed" && ended.result.nodeId === name
+        ? ended.result.reason
+        : null;
     await this.runner.do(`${name}:done`, async () => {
       await log.update(stepRunId, {
         status: stops || ended?.result.status === "failed" ? "failed" : "succeeded",
         output: { passes, done },
+        ...(ownFailure ? { error: ownFailure } : {}),
         ...(ended ? {} : { summary: `${label}: ${this.words.rounds(passes, done)}` }),
       });
       return null;

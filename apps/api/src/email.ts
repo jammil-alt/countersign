@@ -66,8 +66,8 @@ export async function handleEmail(
       await wakeRelease(deps.instances(env), release.wake);
       return { status: "dropped", tenantId: release.tenantId, reason: "unknown_address" };
     }
-    // A reply to a reach-out email (its tagged reply-to address) ends that reach-out; it is not
-    // forwarded mail.
+    // A reply to a reach-out email (its reply address `r-<client>+<tag>`, or the forwarding address
+    // with a tag for reach-outs sent before) ends that reach-out; it is never forwarded mail.
     const reply = await receiveReachOutReply(
       db,
       { from: message.from, to: message.to, raw },
@@ -76,8 +76,9 @@ export async function handleEmail(
     );
     if (reply) {
       await wakeAll(deps.instances(env), reply.woken);
-      // P-7: the reply's words, translated beside it where the client has it on (§1.69).
-      const translate = reply.woken.length > 0;
+      // P-7: the reply's words, translated beside it where the client has it on (§1.69); a late
+      // reply's too, kept in the thread.
+      const translate = reply.woken.length > 0 || reply.keptOnly;
       // P-3: then dispatched and read in the background, like forwarded mail.
       if (reply.events.length > 0 || reply.fresh.length > 0 || translate) {
         const services = { db, env, deps } as Pick<Services, "db" | "env" | "deps">;

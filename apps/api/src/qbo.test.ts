@@ -12,6 +12,7 @@ import {
   generateEncryptionKey,
   QBO_TOOLS,
   qboWebhookSignature,
+  TokenRefreshError,
 } from "@countersign/connectors";
 import {
   FAKE_QBO_CLIENT,
@@ -19,10 +20,17 @@ import {
   fakeQbo,
   QBO_FIXTURES,
 } from "@countersign/connectors/testing";
-import { AgentBundle, type AgentBundleInput } from "@countersign/core";
+import {
+  AgentBundle,
+  type AgentBundleInput,
+  FINDING_SUBJECT,
+  FINGERPRINT_KEY,
+  findingFingerprint,
+} from "@countersign/core";
 import {
   agent,
   connection,
+  connectionChange,
   document,
   event,
   externalAction,
@@ -1018,6 +1026,89 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
       id: connectionId,
       tenantId: H.A.tenantId,
     } as never).get();
+    expect(opened).toMatchObject({ refreshToken: qbo.refreshToken });
+  });
+
+  it("keeps the connection connected through a day of failed renewals, raises it once, and closes it when access works", async () => {
+    // In the past, so the sync's cursor never runs ahead of the tests after this one.
+    const t0 = new Date(Date.now() - 30 * 3600_000);
+    const syncAt = async (hours: number) => {
+      await forgetClaims();
+      return runQboSync(
+        { ...syncDeps(), now: () => new Date(t0.getTime() + hours * 3600_000) },
+        { tenantId: H.A.tenantId, connectionId, reason: "operator" },
+        inline,
+      );
+    };
+    const statusOf = async () =>
+      (await H.t.db.select().from(connection).where(eq(connection.id, connectionId)))[0]?.status;
+    const attention = () =>
+      H.t.db
+        .select()
+        .from(connectionChange)
+        .where(
+          and(
+            eq(connectionChange.connectionId, connectionId),
+            sql`${connectionChange.change}->>'kind' in ('needs_attention', 'access_restored')`,
+          ),
+        )
+        .orderBy(asc(connectionChange.createdAt));
+    qbo.expireAccessTokens();
+    qbo.failRefreshes({ status: 503, body: { error: "temporarily_unavailable" } });
+    // Under a day of failures (every few hours): the step fails as a retryable error, and the
+    // connection is left as it is.
+    for (const hours of [0, 5, 10, 15, 20]) {
+      await expect(syncAt(hours)).rejects.toBeInstanceOf(TokenRefreshError);
+    }
+    expect(await statusOf()).toBe("connected");
+    expect(await attention()).toEqual([]);
+    // A day without a break: raised for a person, with its own reason; still connected, so the
+    // next sync tries again and nobody is asked to sign in again.
+    const raised = await syncAt(24);
+    expect(raised.skipped).toBe("we can't reach QuickBooks right now and are looking into it");
+    expect(await statusOf()).toBe("connected");
+    expect((await attention()).map((c) => c.change)).toEqual([
+      expect.objectContaining({
+        kind: "needs_attention",
+        reason: "refresh_failing",
+        before: "connected",
+        after: "connected",
+      }),
+    ]);
+    expect(JSON.stringify(await attention())).not.toContain("temporarily_unavailable");
+    // Raised once while open.
+    await syncAt(25);
+    expect(await attention()).toHaveLength(1);
+    // The finding the supervisor opens for it, as the client admin's item.
+    const fingerprint = findingFingerprint({ kind: "connection_access", connectionId });
+    await H.t.db.insert(inboxItem).values({
+      tenantId: H.A.tenantId,
+      kind: "review",
+      subjectType: FINDING_SUBJECT,
+      subjectId: connectionId,
+      assigneeRole: "client_admin",
+      title: "We can't reach QuickBooks",
+      payload: { [FINGERPRINT_KEY]: fingerprint },
+    });
+    // Intuit answers again: the sync works, the issue closes and its finding is resolved.
+    qbo.failRefreshes(null);
+    const back = await syncAt(26);
+    expect(back.skipped).toBeUndefined();
+    expect(await statusOf()).toBe("connected");
+    expect((await attention()).map((c) => c.change.kind)).toEqual([
+      "needs_attention",
+      "access_restored",
+    ]);
+    const [item] = await H.t.db
+      .select()
+      .from(inboxItem)
+      .where(sql`${inboxItem.payload}->>'fingerprint' = ${fingerprint}`);
+    expect(item?.status).toBe("resolved");
+    const opened = await credentialsFor(H.db, { current: ENCRYPTION_KEY })({
+      id: connectionId,
+      tenantId: H.A.tenantId,
+    } as never).get();
+    expect(opened).not.toHaveProperty("accessFailingSince");
     expect(opened).toMatchObject({ refreshToken: qbo.refreshToken });
   });
 

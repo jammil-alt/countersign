@@ -52,6 +52,8 @@ export const en = {
   "errorPage.connection.line": "Connect it in Accounts, then come back to this page.",
   "errorPage.forbidden.title": "You don't have access to this page.",
   "errorPage.failure": "Something went wrong loading this page. Try again in a moment.",
+  "errorPage.crash": "Something went wrong showing this page. Try again, or go to another page.",
+  "errorPage.crashPart": "This part couldn't be shown. Try again, or go to another page.",
   "errorPage.back.home": "Go home",
   "errorPage.back.runs": "Go to Runs",
   "errorPage.back.records": "Go to Records",
@@ -97,6 +99,11 @@ export const en = {
   "error.contact_exists": "Someone in the directory already has that email address or number.",
   "error.rate_limited": "Wait a minute and try again.",
   "error.no_address": "We don't know this account's address. Connect it again.",
+  "error.different_account":
+    "This is a different account from the one connected here. Disconnect it first, then connect the other one.",
+  "error.different_company":
+    "Your books here come from another QuickBooks company. Ask us to change the company.",
+  "error.sync_running": "We're reading this company's books right now. Try again in a few minutes.",
   "error.invalid_hours":
     "These hours can't be saved. Give at least one day its hours, and keep each time away under a year.",
   "error.sends_form":
@@ -413,6 +420,7 @@ export const en = {
   "desk.worksheet.title": "Worksheet",
   "desk.worksheet.how": "How {agent} got here",
   "desk.worksheet.yourSign": "Your approval",
+  "desk.worksheet.earlierChange": "Open the earlier change",
   "desk.team.title": "Who approves what",
   "desk.team.undo": "Undo window",
   "desk.team.undoOff": "Off",
@@ -880,6 +888,9 @@ export const en = {
   "forwarding.sendersHelp": "One per line. A domain (yourvendor.com) covers everyone at it.",
   "forwarding.edit": "Edit who may forward",
   "forwarding.drop.sender_not_allowed": "the sender isn't on your list",
+  "forwarding.drop.sender_unverified":
+    "the sender is on your list, but we couldn't confirm it came from them",
+  "forwarding.drop.auto_reply": "it was an automatic reply, such as an out-of-office",
   "forwarding.drop.unknown_address": "it was sent to an old or wrong address",
   "forwarding.drop.too_large": "it was over 25 MB",
   "forwarding.drop.unreadable": "the message couldn't be read",
@@ -1381,6 +1392,7 @@ export const en = {
   "contacts.status.failed": "failed",
   "contacts.status.read": "read",
   "contacts.status.received": "received",
+  "contacts.status.unverified": "received, sender not confirmed",
   "contacts.status.replied": "replied",
   "contacts.status.not_sent": "not sent",
   "contacts.status.no_reply": "no reply",

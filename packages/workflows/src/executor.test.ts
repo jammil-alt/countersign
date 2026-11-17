@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { executeWorkflow, pool } from "./executor";
+import {
+  executeWorkflow,
+  FOR_EACH_MAX_ITEMS,
+  jsonBytes,
+  pool,
+  STEP_OUTPUT_MAX_BYTES,
+} from "./executor";
 import { FakeStepRunner } from "./fake-runner";
 import { Harness, RUN, SKILL, WRITE_TOOL, wf } from "./fakes.test-helper";
 import { inboxEventType } from "./runner";
@@ -220,6 +226,121 @@ describe("skill and action steps", () => {
     expect(runner.calls.find((c) => c.kind === "wait")).toMatchObject({ timeout: "1 hour" });
     expect(h.items.get(item)?.expired).toBe(true);
     expect(h.items.get(item)?.received).toBe(0);
+    expect(h.resumeCalls[0]?.resolution.approved).toBe(false);
+  });
+
+  it("waits out a yes given inside its undo window when the approval's time runs out", async () => {
+    const h = new Harness();
+    const item = h.approvalItem();
+    h.handlers.write = () => ({ kind: "approval", pending: { inboxItemId: item } });
+    // Signed before the deadline, still inside its undo window when the wait ran out.
+    let held = true;
+    const runner = new FakeStepRunner({ onWait: "timeout" });
+    const sleep = runner.sleep.bind(runner);
+    runner.sleep = async (name, duration) => {
+      await sleep(name, duration);
+      held = false;
+    };
+    const result = await executeWorkflow(
+      runner,
+      h.context({
+        inbox: {
+          ...h.inbox,
+          resolution: async () => (held ? null : { approved: true, by: "user-1" }),
+          heldFor: async () => (held ? 30 : 0),
+        },
+      }),
+      wf([action({ approval: { timeout: "1 hour" } })]),
+      { what: "x" },
+    );
+    expect(result).toMatchObject({ status: "succeeded" });
+    expect(runner.calls.find((c) => c.kind === "sleep")).toMatchObject({
+      duration: "31 seconds",
+    });
+    expect(h.resumeCalls[0]?.resolution).toMatchObject({ approved: true, by: "user-1" });
+  });
+
+  it("waits out a second window when a yes is taken back and given again inside the first", async () => {
+    const h = new Harness();
+    const item = h.approvalItem();
+    h.handlers.write = () => ({ kind: "approval", pending: { inboxItemId: item } });
+    // Undone and signed again during the first hold: a new window, then the yes stands.
+    let sleeps = 0;
+    const runner = new FakeStepRunner({ onWait: "timeout" });
+    const sleep = runner.sleep.bind(runner);
+    runner.sleep = async (name, duration) => {
+      await sleep(name, duration);
+      sleeps += 1;
+    };
+    const result = await executeWorkflow(
+      runner,
+      h.context({
+        inbox: {
+          ...h.inbox,
+          resolution: async () => (sleeps >= 2 ? { approved: true, by: "user-1" } : null),
+          heldFor: async () => (sleeps >= 2 ? 0 : 30),
+        },
+      }),
+      wf([action({ approval: { timeout: "1 hour" } })]),
+      { what: "x" },
+    );
+    expect(result).toMatchObject({ status: "succeeded" });
+    expect(sleeps).toBe(2);
+    expect(h.resumeCalls[0]?.resolution).toMatchObject({ approved: true, by: "user-1" });
+  });
+
+  it("tells a skill step's work when it is the platform's retry of it", async () => {
+    const h = new Harness();
+    let tries = 0;
+    h.handlers.s = () => {
+      tries += 1;
+      if (tries === 1) throw new Error("the Worker stopped");
+      return { kind: "done", output: { ok: true } };
+    };
+    const result = await executeWorkflow(
+      new FakeStepRunner(),
+      h.context({ stepConfig: { retries: { limit: 2, delay: "1 second" } } }),
+      wf([{ id: "s", kind: "skill", name: "Check", skill: SKILL.id, input: {} }]),
+      {},
+    );
+    expect(result).toMatchObject({ status: "succeeded" });
+    expect(h.agentCalls.map((c) => (c as { retried?: boolean }).retried)).toEqual([
+      undefined,
+      true,
+    ]);
+  });
+
+  it("ends as not approved when a yes inside its undo window is taken back", async () => {
+    const h = new Harness();
+    const item = h.approvalItem();
+    h.handlers.write = () => ({ kind: "approval", pending: { inboxItemId: item } });
+    // Undone inside the window: the item is open again once it has passed.
+    let resolved = true;
+    const runner = new FakeStepRunner({ onWait: "timeout" });
+    const sleep = runner.sleep.bind(runner);
+    runner.sleep = async (name, duration) => {
+      await sleep(name, duration);
+      resolved = false;
+    };
+    let expired = 0;
+    const result = await executeWorkflow(
+      runner,
+      h.context({
+        inbox: {
+          ...h.inbox,
+          resolution: async () => null,
+          heldFor: async () => (resolved ? 30 : null),
+          expire: async () => {
+            expired += 1;
+          },
+        },
+      }),
+      wf([action({ approval: { timeout: "1 hour" } })]),
+      { what: "x" },
+    );
+    expect(result).toMatchObject({ status: "cancelled", reason: "rejected" });
+    // Once at the deadline (it was answered then) and again once it was open again.
+    expect(expired).toBe(2);
     expect(h.resumeCalls[0]?.resolution.approved).toBe(false);
   });
 
@@ -600,7 +721,77 @@ describe("forks", () => {
   });
 });
 
+describe("a step's output size (audit 4.4)", () => {
+  it("measures JSON in UTF-8 bytes", () => {
+    // `{"a":"` 6, é 2, € 3, 😀 4, `"}` 2.
+    expect(jsonBytes({ a: "é€😀" })).toBe(17);
+  });
+
+  it("fails a step whose output is too large to hand on, on its one row, saying why", async () => {
+    const h = new Harness();
+    h.handlers.read = () => ({ kind: "done", output: { text: "x".repeat(STEP_OUTPUT_MAX_BYTES) } });
+    const runner = new FakeStepRunner();
+    const result = await executeWorkflow(
+      runner,
+      h.context({ catalog: { skills: { [SKILL.id]: SKILL }, tools: {} } }),
+      wf([{ id: "read", kind: "skill", name: "Read", skill: SKILL.id, input: {} }]),
+      {},
+    );
+    expect(result).toMatchObject({ status: "failed", nodeId: "read" });
+    expect(result.reason).toMatch(/^its output is 901 KiB, over the 900 KiB a step may hand on/);
+    const rows = [...h.rows.values()].filter((r) => r.nodeId.startsWith("read"));
+    expect(rows.map((r) => r.status)).toEqual(["failed"]);
+  });
+});
+
 describe("for_each", () => {
+  const each = {
+    id: "each",
+    kind: "for_each",
+    name: "Each line",
+    over: "{{trigger.lines}}",
+    steps: [{ id: "line", kind: "skill", name: "Line", skill: "x.y", input: { i: "{{index}}" } }],
+  };
+
+  it("fails at its start, before any item, on a list over the cap", async () => {
+    const h = new Harness();
+    const lines = Array.from({ length: FOR_EACH_MAX_ITEMS + 1 }, (_, i) => i);
+    const result = await executeWorkflow(new FakeStepRunner(), h.context(), wf([each]), { lines });
+    expect(result).toMatchObject({
+      status: "failed",
+      reason: `Each line: ${FOR_EACH_MAX_ITEMS + 1} items, over the ${FOR_EACH_MAX_ITEMS} one for each may take`,
+      nodeId: "each",
+    });
+    expect(h.agentCalls).toHaveLength(0);
+    expect(h.row("each")).toMatchObject({ status: "failed", input: { count: lines.length } });
+  });
+
+  it("takes a list at the cap, and a run already past its start goes on (in flight)", async () => {
+    const h = new Harness();
+    const atCap = Array.from({ length: FOR_EACH_MAX_ITEMS }, (_, i) => i);
+    expect(
+      (await executeWorkflow(new FakeStepRunner(), h.context(), wf([each]), { lines: atCap }))
+        .status,
+    ).toBe("succeeded");
+    // A run whose loop started before the cap: its stored start has no refusal, so it goes on.
+    const inFlight = new Harness();
+    const runner = new FakeStepRunner();
+    const started = await runner.do("each", async () => ({
+      stepRunId: await inFlight.context().log.start({
+        runId: RUN.id,
+        nodeId: "each",
+        nodeType: "for_each",
+        input: { count: 250 },
+      }),
+    }));
+    expect(started.stepRunId).toBeTruthy();
+    runner.replay();
+    const lines = Array.from({ length: 250 }, (_, i) => i);
+    const result = await executeWorkflow(runner, inFlight.context(), wf([each]), { lines });
+    expect(result.status).toBe("succeeded");
+    expect(inFlight.agentCalls).toHaveLength(250);
+  });
+
   it("runs each item with bounded concurrency under stepId:index:childId names", async () => {
     const h = new Harness();
     let running = 0;

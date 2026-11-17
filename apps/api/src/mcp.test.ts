@@ -97,6 +97,19 @@ const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 9, 8, 7, 6, 0xff, 0xd9]);
 
 describe.skipIf(!h)("MCP server", () => {
   const H = h as ApiHarness;
+  /**
+   * The tests' own setup through the API, signed in with the dev sign-in, which runs only where
+   * ENVIRONMENT says development; the MCP server under test keeps saying staging.
+   */
+  const asDev: ApiHarness["call"] = async (...args) => {
+    const env = H.env as { ENVIRONMENT?: string };
+    env.ENVIRONMENT = "development";
+    try {
+      return await H.call(...args);
+    } finally {
+      env.ENVIRONMENT = "staging";
+    }
+  };
   let opToken = "";
   let otherToken = "";
   let nextId = 1;
@@ -228,28 +241,28 @@ describe.skipIf(!h)("MCP server", () => {
       .where(eq(feedback.id, a.id));
 
     // A run in client A: a template forked to A, bound, published, and a test run started.
-    await H.call(admin("a"), "POST", "/api/connections/testkit/authorize");
-    const tpl = await H.call(OPERATOR, "POST", "/api/ops/templates", {
+    await asDev(admin("a"), "POST", "/api/connections/testkit/authorize");
+    const tpl = await asDev(OPERATOR, "POST", "/api/ops/templates", {
       slug: "records-clerk",
       bundle: testBundle(),
     });
     const tid = j(tpl.json).agent.id;
-    await H.call(
+    await asDev(
       OPERATOR,
       "POST",
       `/api/ops/agents/${tid}/versions/${j(tpl.json).version.id}/publish`,
     );
-    const fork = await H.call(OPERATOR, "POST", `/api/ops/templates/${tid}/fork`, {
+    const fork = await asDev(OPERATOR, "POST", `/api/ops/templates/${tid}/fork`, {
       clientId: H.A.tenantId,
       serviceName: "Record keeping",
     });
     const agentId = j(fork.json).agent.id;
     const v1 = j(fork.json).version.id;
-    await H.call(OPERATOR, "PATCH", `/api/ops/agents/${agentId}/operation`, {
+    await asDev(OPERATOR, "PATCH", `/api/ops/agents/${agentId}/operation`, {
       bindings: { testkit: H.A.connectionId },
     });
-    await H.call(OPERATOR, "POST", `/api/ops/agents/${agentId}/versions/${v1}/publish`);
-    const test = await H.call(
+    await asDev(OPERATOR, "POST", `/api/ops/agents/${agentId}/versions/${v1}/publish`);
+    const test = await asDev(
       OPERATOR,
       "POST",
       `/api/ops/agents/${agentId}/versions/${v1}/test-run`,
@@ -624,7 +637,7 @@ describe.skipIf(!h)("MCP server", () => {
         report: "sites",
       });
       expect(off.text).toMatch(/^not_found: /);
-      await H.call(OPERATOR, "POST", `/api/ops/clients/${H.B.tenantId}/packs/marketing/enable`);
+      await asDev(OPERATOR, "POST", `/api/ops/clients/${H.B.tenantId}/packs/marketing/enable`);
       const sites = await tool(opToken, "marketing_report", {
         client: H.B.tenantId,
         report: "sites",
@@ -782,7 +795,7 @@ describe.skipIf(!h)("MCP server", () => {
       expect(used.objects).toHaveLength(1);
 
       // The same token again: used. Even after the item is reopened.
-      await H.call(OPERATOR, "POST", `/api/ops/feedback/${ids.feedbackA}/reopen`);
+      await asDev(OPERATOR, "POST", `/api/ops/feedback/${ids.feedbackA}/reopen`);
       const replay = await tool(opToken, "feedback_resolve", {
         id: ids.feedbackA,
         note: "Fixed in PR #101",
@@ -863,7 +876,7 @@ describe.skipIf(!h)("MCP server", () => {
     });
 
     it("won't preview feedback that is already resolved", async () => {
-      await H.call(OPERATOR, "POST", `/api/ops/feedback/${ids.feedbackOps}/resolve`, {});
+      await asDev(OPERATOR, "POST", `/api/ops/feedback/${ids.feedbackOps}/resolve`, {});
       const out = await tool(opToken, "feedback_resolve", { id: ids.feedbackOps });
       expect(out.text).toMatch(/^already_resolved/);
     });

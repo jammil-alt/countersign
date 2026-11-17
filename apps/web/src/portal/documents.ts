@@ -72,6 +72,8 @@ export function bytes(n: number, { fmt }: Pick<I18n, "fmt"> = EN): string {
 
 const DROP_REASON: Record<string, PlainKey> = {
   sender_not_allowed: "forwarding.drop.sender_not_allowed",
+  sender_unverified: "forwarding.drop.sender_unverified",
+  auto_reply: "forwarding.drop.auto_reply",
   unknown_address: "forwarding.drop.unknown_address",
   too_large: "forwarding.drop.too_large",
   unreadable: "forwarding.drop.unreadable",

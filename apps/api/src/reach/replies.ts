@@ -7,15 +7,19 @@
 
 import {
   type ContentStore,
+  countForwarded,
   forwardingOf,
   parseForwardedEmail,
   parseForwardingAddress,
+  parseReplyAddress,
   parseReplyEmail,
   type ReplyEmail,
+  replyTagReachOutId,
   sameAddress,
   UPLOAD_CONNECTOR_ID,
 } from "@countersign/connectors";
 import {
+  authenticatedSenders,
   bytesMatchType,
   isConverseSubject,
   REPLY_DOCUMENTS_MAX,
@@ -37,7 +41,7 @@ import {
 } from "@countersign/db";
 import { DocumentError, storeDocument } from "@countersign/documents";
 import type { EventRow } from "@countersign/senses";
-import { and, desc, eq, ne } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 // R7
 import { conversationEventOfSubject, sendWithConversation } from "../converse/wake";
 import { type ContactRow, contactThread, type ThreadMessageBody } from "../messaging/contacts";
@@ -69,7 +73,14 @@ async function openFor(tx: Tx, tenantId: string, contactId: string): Promise<Rea
     .limit(20);
 }
 
-async function replyLine(tx: Tx, row: ReachOutRow, who: ContactRow, reply: ReachReply) {
+async function replyLine(
+  tx: Tx,
+  row: ReachOutRow,
+  who: ContactRow,
+  reply: ReachReply,
+  // Mail kept without answering is shown as received (or unverified), not as the answer.
+  status: "replied" | "received" | "unverified" = "replied",
+) {
   const threadId = await contactThread(tx, who);
   const body: ThreadMessageBody = {
     direction: "in",
@@ -77,7 +88,7 @@ async function replyLine(tx: Tx, row: ReachOutRow, who: ContactRow, reply: Reach
     text: reply.text || "Replied",
     sid: "",
     rawRecordId: reply.rawRecordId ?? "",
-    status: "replied",
+    status,
     reachOut: {
       id: row.id,
       runId: row.runId,
@@ -251,11 +262,44 @@ export async function forwardingAddress(tx: Tx, tenantId: string): Promise<strin
   return conn ? (forwardingOf(conn).address ?? null) : null;
 }
 
+/** Where an email reply was sent: the reply address, or the forwarding address with a tag. */
+type ReplyTarget =
+  | { form: "reply"; tenantId: string; tag: string | null }
+  | { form: "forwarding"; tenantId: string; tag: string; bare: string };
+
+function replyTarget(to: string, domain: string): ReplyTarget | null {
+  const reply = parseReplyAddress(to, domain);
+  if (reply) return { form: "reply", ...reply };
+  // Reach-outs sent before reply addresses: `<forwarding address>+<id in hex>`.
+  const plus = /^([^@+]+)\+([a-z0-9]{6,40})@(.+)$/.exec(to);
+  if (!plus) return null;
+  const target = parseForwardingAddress(to, domain);
+  if (!target) return null;
+  return {
+    form: "forwarding",
+    tenantId: target.tenantId,
+    tag: plus[2] as string,
+    bare: `${plus[1]}@${plus[3]}`,
+  };
+}
+
+/** Constant-time equality of two reply tags. */
+function sameTag(a: string, b: string): boolean {
+  let diff = a.length ^ b.length;
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    diff |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  }
+  return diff === 0;
+}
+
 /**
- * An email to `<client forwarding address>+<tag>`: a reply to a reach-out email. Matched when the
- * tag names an open reach-out of that client and the sender is its contact (the envelope sender, or
- * the From header when DMARC passed). Returns null when it isn't one (the caller then treats it as
- * forwarded mail).
+ * An email to a reply address (`r-<client>+<tag>`, or `<client forwarding address>+<tag>` for
+ * reach-outs sent before reply addresses): a reply to a reach-out email. It ends the open reach-out
+ * the tag names when the sender is its contact, proven by Cloudflare's own header (the From header
+ * under DMARC, the envelope sender under SPF). Automatic mail (an out-of-office, a bounce) answers
+ * nothing. Mail from the contact that can't answer (late, unproven, a system's) is kept in their
+ * thread without waking anything (`keptOnly`). Returns null
+ * when it isn't one (the caller then treats it as forwarded mail); a reply address is never that.
  */
 export async function receiveReachOutReply(
   db: Db,
@@ -273,67 +317,150 @@ export async function receiveReachOutReply(
   // P-3: `document.received` for the reply's new documents, and their ids to read.
   events: EventRow[];
   fresh: string[];
+  /** Kept in the contact's thread without answering (late, unverified or a system's): no wake. */
+  keptOnly: boolean;
 } | null> {
   const to = mail.to.trim().toLowerCase();
-  const plus = /^([^@+]+)\+([a-z0-9]{6,40})@(.+)$/.exec(to);
-  if (!plus) return null;
-  const target = parseForwardingAddress(to, options.domain);
+  const target = replyTarget(to, options.domain);
   if (!target) return null;
-  const tag = plus[2] as string;
-  const bare = `${plus[1]}@${plus[3]}`;
-  const parsed = await parseReplyEmail(mail.raw).catch(() => null);
-  if (!parsed) return null;
-  const filed: { events: EventRow[]; fresh: string[] } = { events: [], fresh: [] };
+  const handled = () => ({
+    tenantId: target.tenantId,
+    woken: [] as Wake[],
+    events: [] as EventRow[],
+    fresh: [] as string[],
+    keptOnly: false,
+  });
+  const reachOutId = target.tag ? replyTagReachOutId(target.tag) : null;
+  const parsed = await parseReplyEmail(mail.raw, { envelopeFrom: mail.from }).catch(() => null);
+  if (!parsed) return target.form === "reply" ? handled() : null;
+  const filed: { events: EventRow[]; fresh: string[]; keptOnly: boolean } = {
+    events: [],
+    fresh: [],
+    keptOnly: false,
+  };
   const woken = await withTenant(db, target.tenantId, async (tx) => {
-    const stored = await options.forwardingAddress(tx, target.tenantId);
-    if (!stored || !sameAddress(stored, bare)) return null;
-    if (!/^[0-9a-f]{32}$/.test(tag)) return null;
-    const id = `${tag.slice(0, 8)}-${tag.slice(8, 12)}-${tag.slice(12, 16)}-${tag.slice(16, 20)}-${tag.slice(20)}`;
-    let [row] = await tx
+    if (target.form === "forwarding") {
+      const stored = await options.forwardingAddress(tx, target.tenantId);
+      if (!stored || !sameAddress(stored, target.bare)) return null;
+      if (!/^[0-9a-f]{32}$/.test(target.tag)) return null;
+    }
+    if (!reachOutId) return [];
+    const [tagged] = await tx
       .select()
       .from(reachOut)
-      .where(
-        and(
-          eq(reachOut.id, id),
-          eq(reachOut.tenantId, target.tenantId),
-          ne(reachOut.status, "ended"),
-        ),
-      );
+      .where(and(eq(reachOut.id, reachOutId), eq(reachOut.tenantId, target.tenantId)));
+    if (!tagged) return [];
+    // The reply address's tag must be the one this reach-out sent (its id alone is not enough).
+    if (target.form === "reply") {
+      const sent = (tagged.plan as { replyTag?: unknown } | null)?.replyTag;
+      if (typeof sent !== "string" || !sameTag(sent, target.tag as string)) return [];
+    }
+    let row: ReachOutRow | undefined = tagged.status !== "ended" ? tagged : undefined;
     // P-9: an email conversation's later messages carry its first message's tag (§1.66), so a
     // reply to any of them goes to the conversation's message waiting now (docs/plan.md §1.71).
-    if (!row) {
-      const [tagged] = await tx
-        .select({ subject: reachOut.subject, contactId: reachOut.contactId })
+    if (!row && tagged.subject.startsWith("converse:")) {
+      [row] = await tx
+        .select()
         .from(reachOut)
-        .where(and(eq(reachOut.id, id), eq(reachOut.tenantId, target.tenantId)));
-      if (tagged?.subject.startsWith("converse:")) {
-        [row] = await tx
-          .select()
-          .from(reachOut)
-          .where(
-            and(
-              eq(reachOut.tenantId, target.tenantId),
-              eq(reachOut.contactId, tagged.contactId),
-              eq(reachOut.subject, tagged.subject),
-              eq(reachOut.status, "open"),
-            ),
-          )
-          .orderBy(desc(reachOut.createdAt))
-          .limit(1);
-      }
+        .where(
+          and(
+            eq(reachOut.tenantId, target.tenantId),
+            eq(reachOut.contactId, tagged.contactId),
+            eq(reachOut.subject, tagged.subject),
+            eq(reachOut.status, "open"),
+          ),
+        )
+        .orderBy(desc(reachOut.createdAt))
+        .limit(1);
     }
-    if (!row) return [];
+    const about = row ?? tagged;
     const [who] = await tx
       .select()
       .from(contact)
-      .where(and(eq(contact.id, row.contactId), eq(contact.tenantId, target.tenantId)));
-    const senders = [mail.from.toLowerCase()];
-    if (parsed.from && parsed.dmarcPassFrom && parsed.from.endsWith(`@${parsed.dmarcPassFrom}`)) {
-      senders.push(parsed.from);
+      .where(and(eq(contact.id, about.contactId), eq(contact.tenantId, target.tenantId)));
+    const senders = authenticatedSenders({
+      envelopeFrom: mail.from,
+      from: parsed.from,
+      auth: parsed.auth,
+    });
+    const email = who?.email?.toLowerCase() ?? null;
+    const proven = !!email && senders.includes(email);
+    // The contact's address on the envelope or in From, without proof (no DMARC, SPF not passing).
+    const claimed = !!email && (mail.from.trim().toLowerCase() === email || parsed.from === email);
+    // DECISION: only mail from the contact's own address is theirs; anyone else writing to the
+    // tagged address is dropped (a log line without content), so a stranger can't answer for them.
+    if (!who || !email || (!proven && !claimed)) {
+      console.log("email to a reply address not from its contact; dropped", {
+        tenantId: target.tenantId,
+        reachOutId: about.id,
+      });
+      return [];
     }
-    // DECISION: only the contact's own address counts as their reply; anyone else writing to the
-    // tagged address is dropped, so a stranger can't answer for them.
-    if (!who?.email || !senders.includes(who.email.toLowerCase())) return [];
+    // The same message again (Email Routing retries, a resend): kept once, answers once.
+    if (
+      parsed.messageId &&
+      (await replyAlreadyKept(tx, target.tenantId, parsed.messageId, proven))
+    ) {
+      return [];
+    }
+    // DECISION: an auto-reply or bounce (an out-of-office: `emailAutomation`) never answers a
+    // reach-out, which stays open for the person's own reply and the cron's re-sends. It leaves a
+    // log line without content and is counted on the client's inbound mail, nothing else.
+    if (parsed.automatic === "auto_reply") {
+      console.log("automatic reply to a reply address ignored", {
+        tenantId: target.tenantId,
+        reachOutId: about.id,
+      });
+      const upload = await uploadConnection(tx, target.tenantId);
+      if (upload) {
+        await countForwarded(tx, upload, { accepted: false, reason: "auto_reply" }, options.now);
+      }
+      return [];
+    }
+    // DECISION: three kinds of mail from the contact are kept but answer nothing and wake nothing
+    // (a raw record, its PDFs and images as quiet documents, a "received" line in the contact's
+    // thread on the reach-out), so a person sees them and nothing is lost:
+    // - `late`: the reach-out had ended (an earlier reply, the timeout or the cron);
+    // - `unverified`: from the contact's address, but not proven by Cloudflare's header (shown
+    //   as unverified, never taken as their answer);
+    // - `machine`: written by a system (a quoting or ticket system), which would otherwise answer
+    //   every message of a conversation.
+    const keepOnly = !proven
+      ? "unverified"
+      : !row
+        ? "late"
+        : parsed.automatic === "machine"
+          ? "machine"
+          : null;
+    if (keepOnly) {
+      const kept = await keepEmailReply(tx, {
+        tenantId: target.tenantId,
+        row: about,
+        mail,
+        parsed,
+        content: options.content,
+        now: options.now,
+        keepOnly,
+        authenticatedAs: proven ? email : null,
+      });
+      await replyLine(
+        tx,
+        about,
+        who,
+        {
+          channel: "email",
+          text: redactCardNumbers(parsed.text),
+          untrusted: true,
+          rawRecordId: kept.rawRecordId,
+          at: options.now.toISOString(),
+          documents: kept.documents,
+        },
+        proven ? "received" : "unverified",
+      );
+      filed.keptOnly = true;
+      return [];
+    }
+    if (!row) return [];
     // P-3: the reply is a raw record (its origin), and its PDFs and images documents of this
     // client, in this transaction: a second delivery finds the reach-out ended and keeps nothing.
     const kept = await keepEmailReply(tx, {
@@ -343,6 +470,7 @@ export async function receiveReachOutReply(
       parsed,
       content: options.content,
       now: options.now,
+      authenticatedAs: email,
     });
     const w = await recordReply(
       tx,
@@ -382,6 +510,52 @@ class ReplyTaken extends Error {
 }
 
 /**
+ * Whether this client already kept an email reply with this Message-ID (any reach-out), as proven
+ * or as unverified as this one: an unproven copy never stands in for the proven message.
+ */
+async function replyAlreadyKept(
+  tx: Tx,
+  tenantId: string,
+  messageId: string,
+  proven: boolean,
+): Promise<boolean> {
+  // Replies are kept on the upload connection: (connection, entity) is its unique key's prefix.
+  const upload = await uploadConnection(tx, tenantId);
+  if (!upload) return false;
+  const [seen] = await tx
+    .select({ id: rawRecord.id })
+    .from(rawRecord)
+    .where(
+      and(
+        eq(rawRecord.tenantId, tenantId),
+        eq(rawRecord.connectionId, upload.id),
+        eq(rawRecord.entityType, REACH_REPLY_EMAIL_ENTITY),
+        sql`${rawRecord.payload}->>'messageId' = ${messageId}`,
+        proven
+          ? sql`(${rawRecord.payload}->>'unverified') is null`
+          : sql`${rawRecord.payload}->>'unverified' = 'true'`,
+      ),
+    )
+    .limit(1);
+  return !!seen;
+}
+
+async function uploadConnection(tx: Tx, tenantId: string) {
+  const [upload] = await tx
+    .select({ id: connection.id, tenantId: connection.tenantId })
+    .from(connection)
+    .where(and(eq(connection.tenantId, tenantId), eq(connection.connector, UPLOAD_CONNECTOR_ID)))
+    .orderBy(connection.createdAt)
+    .limit(1);
+  return upload ?? null;
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
  * Keeps an email reply: a raw record (headers, the reply's own words, what each attachment
  * became) and its PDFs and images as documents of this client (`source: email`, the raw record as
  * their origin), at most REPLY_DOCUMENTS_MAX. Checks as for forwarded mail and capture: the type
@@ -397,6 +571,10 @@ async function keepEmailReply(
     parsed: ReplyEmail;
     content: ContentStore | undefined;
     now: Date;
+    /** Kept without answering: under its own key, documents quiet (`meta.via: late_reply`). */
+    keepOnly?: "late" | "unverified" | "machine";
+    /** The sender's address Cloudflare's header proved (the contact's); null when unproven. */
+    authenticatedAs: string | null;
   },
 ): Promise<{
   rawRecordId: string | null;
@@ -421,6 +599,11 @@ async function keepEmailReply(
     fresh: [] as string[],
   };
   if (!upload) return out;
+  let externalId = input.row.id;
+  if (input.keepOnly) {
+    const messageKey = input.parsed.messageId?.slice(0, 300) || (await sha256Hex(input.mail.raw));
+    externalId = `${input.row.id}:${messageKey}`;
+  }
   const rawRecordId = uuidv7();
   const files = await parseForwardedEmail(input.mail.raw).catch(() => null);
   const attachments: Record<string, unknown>[] = [];
@@ -467,14 +650,20 @@ async function keepEmailReply(
             to: input.mail.to.toLowerCase(),
             subject: input.parsed.subject,
             messageId: input.parsed.messageId,
+            // Whether Cloudflare's header proved the contact's address.
+            authenticated: input.authenticatedAs !== null,
+            authenticatedAs: input.authenticatedAs,
           },
           rawRecordId,
           reachOutId: input.row.id,
           reachOutReply: true,
+          // Kept without answering: nobody asked for it, so nothing reads it or starts on it.
+          ...(input.keepOnly ? { via: "late_reply" } : {}),
         },
+        ...(input.keepOnly ? { announce: false } : {}),
       });
       if (!out.documents.includes(stored.document.id)) out.documents.push(stored.document.id);
-      if (stored.created) out.fresh.push(stored.document.id);
+      if (stored.created && !input.keepOnly) out.fresh.push(stored.document.id);
       if (stored.event) out.events.push(stored.event);
       attachments.push({
         contentType: a.mimeType,
@@ -495,12 +684,14 @@ async function keepEmailReply(
       connectionId: upload.id,
       connector: UPLOAD_CONNECTOR_ID,
       entityType: REACH_REPLY_EMAIL_ENTITY,
-      externalId: input.row.id,
+      externalId,
       externalVersion: null,
       payload: {
         direction: "in",
         channel: "email",
         reachOutId: input.row.id,
+        ...(input.keepOnly ? { keptOnly: input.keepOnly } : {}),
+        ...(input.authenticatedAs === null ? { unverified: true } : {}),
         from: input.parsed.from ?? input.mail.from.toLowerCase(),
         subject: input.parsed.subject,
         messageId: input.parsed.messageId,

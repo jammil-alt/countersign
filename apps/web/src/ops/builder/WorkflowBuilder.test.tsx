@@ -12,14 +12,18 @@ import {
   nodeIds,
   type PermissionMatrix,
   processes,
+  type SessionResponse,
 } from "@countersign/core";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentSummary, VersionDetail } from "../../api/routes";
 import { ApiProvider } from "../../api/useApi";
-import { fakeApi, Reply } from "../../test/fixtures";
+import { BUILDER_DRAFT_PREFIX, builderDraftKey } from "../../session/drafts";
+import { SessionProvider, useOptionalSession } from "../../session/session";
+import { fakeApi, OPERATOR_SESSION, Reply } from "../../test/fixtures";
 import { typingContext } from "./catalog";
 import { readProcessBundle } from "./model";
 import WorkflowBuilder from "./WorkflowBuilder";
@@ -339,6 +343,8 @@ interface Setup {
   routes?: Parameters<typeof fakeApi>[0];
   /** §1.108: the Steps tab's list view. */
   view?: "canvas" | "steps";
+  /** Who is signed in; the builder then shows only once the session has answered, as in the app. */
+  session?: SessionResponse;
 }
 
 function setup(options: Setup = {}) {
@@ -350,6 +356,7 @@ function setup(options: Setup = {}) {
   };
   const api = fakeApi({
     ...options.routes,
+    ...(options.session ? { "GET /api/session": () => options.session } : {}),
     [`GET /api/ops/agents/${AGENT_ID}/builder-catalog`]: () => options.catalog ?? CATALOG,
     "GET /api/ops/catalog/events": () => EVENTS,
     ...(options.people
@@ -417,13 +424,25 @@ function setup(options: Setup = {}) {
       />
     );
   }
+  function SignedIn({ children }: { children: ReactNode }) {
+    return useOptionalSession() ? children : null;
+  }
+  const routes = (
+    <Routes>
+      <Route path={`${BASE}/workflows/:workflow`} element={<Page />} />
+      <Route path="/ops/runs/:id" element={<p>The run page</p>} />
+    </Routes>
+  );
   render(
     <ApiProvider client={api.client}>
       <MemoryRouter initialEntries={[`${BASE}/workflows/new-bill`]}>
-        <Routes>
-          <Route path={`${BASE}/workflows/:workflow`} element={<Page />} />
-          <Route path="/ops/runs/:id" element={<p>The run page</p>} />
-        </Routes>
+        {options.session ? (
+          <SessionProvider>
+            <SignedIn>{routes}</SignedIn>
+          </SessionProvider>
+        ) : (
+          routes
+        )}
       </MemoryRouter>
     </ApiProvider>,
   );
@@ -489,6 +508,11 @@ afterEach(() => {
 
 async function ready() {
   return screen.findByTestId("builder-canvas");
+}
+
+/** The builder's draft keys in this browser's localStorage. */
+function builderKeys(): string[] {
+  return Object.keys(window.localStorage).filter((k) => k.startsWith(BUILDER_DRAFT_PREFIX));
 }
 
 /** Picks a step up by its handle, presses the arrows, and drops it. */
@@ -1234,7 +1258,7 @@ describe("WorkflowBuilder", () => {
   });
 
   it("keeps the session's rolling draft on this device and restores it", async () => {
-    const first = setup();
+    const first = setup({ session: OPERATOR_SESSION });
     await ready();
     const user = userEvent.setup();
     await user.click(screen.getByTestId("builder-step-read-select"));
@@ -1248,15 +1272,44 @@ describe("WorkflowBuilder", () => {
     );
     // Nothing became a version: that waits for Save draft, Test run or Publish.
     expect(first.sent).toHaveLength(0);
+    // Kept under this person's key for this agent, and no other.
+    expect(builderKeys()).toEqual([builderDraftKey(OPERATOR_SESSION.user.id, AGENT_ID)]);
 
     cleanup();
-    setup();
+    setup({ session: OPERATOR_SESSION });
     await ready();
     expect(screen.getByTestId("builder-notice")).toHaveTextContent(/Restored your unsaved changes/);
     expect(rootOrder()).toEqual(["find", "confidence", "update"]);
     await user.click(screen.getByTestId("builder-discard-draft"));
     expect(rootOrder()).toEqual(["find", "read", "confidence", "update"]);
     expect(screen.queryByTestId("builder-unsaved")).toBeNull();
+  });
+
+  it("never shows one person's draft to another, and keeps none with no one signed in", async () => {
+    setup({ session: OPERATOR_SESSION });
+    await ready();
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("builder-step-read-select"));
+    await user.click(screen.getByTestId("builder-inspector-delete"));
+    await waitFor(() => expect(builderKeys()).toHaveLength(1), { timeout: 3500 });
+
+    cleanup();
+    const other = { ...OPERATOR_SESSION, user: { ...OPERATOR_SESSION.user, id: "someone-else" } };
+    setup({ session: other });
+    await ready();
+    expect(document.body).not.toHaveTextContent(/Restored your unsaved changes/);
+    expect(rootOrder()).toEqual(["find", "read", "confidence", "update"]);
+
+    cleanup();
+    window.localStorage.clear();
+    setup();
+    await ready();
+    await user.click(screen.getByTestId("builder-step-read-select"));
+    await user.click(screen.getByTestId("builder-inspector-delete"));
+    expect(screen.getByTestId("builder-draft-status")).toHaveTextContent("Unsaved changes");
+    await new Promise((r) => setTimeout(r, 2200));
+    expect(builderKeys()).toEqual([]);
+    expect(screen.getByTestId("builder-draft-status")).toHaveTextContent("Unsaved changes");
   });
 
   it("treats the API's no-op answer as saved", async () => {

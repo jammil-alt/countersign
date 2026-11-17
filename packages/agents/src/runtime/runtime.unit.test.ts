@@ -1,6 +1,7 @@
 // Pieces of the runtime that need no database: registries, approver resolution, schema checks.
 
 import {
+  AccessFailingError,
   type ConnectionRef,
   ConnectorRegistry,
   createTestkitConnector,
@@ -356,15 +357,17 @@ describe("human release outside the gate: approved writes and reach-out attempts
     const blocked = deps(false);
     const out = await executeAction(blocked.d, { tenantId: "t1", actionId: "act1" });
     expect(out.status).toBe("failed");
-    expect(blocked.seen.claimed).toBe(0);
-    expect(blocked.seen.failed).toMatchObject([{ release: true }]);
+    // Audit 3.2: refused once this caller holds it (so a write another caller is making is never
+    // failed from here), before anything is sent: nothing was written.
+    expect(blocked.seen.claimed).toBe(1);
+    expect(blocked.seen.failed).toMatchObject([{ release: true, notWritten: true }]);
     expect(blocked.seen.covers).toMatchObject([{ agentId: "a1", runId: "r1" }]);
     // No port: refused too, never asked.
     const none = deps(null);
     expect((await executeAction(none.d, { tenantId: "t1", actionId: "act1" })).status).toBe(
       "failed",
     );
-    expect(none.seen.claimed).toBe(0);
+    expect(none.seen.failed).toMatchObject([{ release: true, notWritten: true }]);
     // Released: it goes on to claim and write.
     const ok = deps(true);
     await executeAction(ok.d, { tenantId: "t1", actionId: "act1" }).catch(() => null);
@@ -410,6 +413,16 @@ describe("noteReconnect", () => {
     expect(marked).toEqual([
       ["t1", { connectionId: "c1", reason: "signin_expired", detail: "Zoho refused the refresh" }],
     ]);
+    // Renewing access failing for a day: raised with its own reason, in plain words.
+    marked.length = 0;
+    await noteReconnect(
+      deps,
+      "t1",
+      conn,
+      new AccessFailingError("2026-11-04T10:00:00.000Z", "invalid_client"),
+    );
+    expect(marked).toMatchObject([["t1", { connectionId: "c1", reason: "refresh_failing" }]]);
+    expect(JSON.stringify(marked)).not.toContain("invalid_client");
     // Without the port (a call's tools) nothing happens, and nothing throws.
     await noteReconnect({ ports: {} } as RuntimeDeps, "t1", conn, new ReconnectRequiredError());
   });

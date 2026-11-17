@@ -8,8 +8,13 @@ import {
   documentMimeType,
   forwardingAddress,
   newForwardingSecret,
+  newReplyTag,
   normalizeSender,
   parseForwardingAddress,
+  parseReplyAddress,
+  reachReplyTo,
+  replyBaseFor,
+  replyTagReachOutId,
   sameAddress,
   senderAllowed,
   trustedFromHeader,
@@ -99,21 +104,44 @@ describe("documentMimeType", () => {
 
 describe("DMARC on the From header", () => {
   it("reads the From domain that passed from the receiving server's Authentication-Results", () => {
+    const top = (value: string) => [{ key: "authentication-results", value }];
     expect(
       dmarcPassDomain(
-        "mx.cloudflare.net; dkim=pass header.d=keystone.example; spf=pass smtp.mailfrom=x@y.example; dmarc=pass (p=reject) header.from=Keystone.example",
+        top(
+          "mx.cloudflare.net; dkim=pass header.d=keystone.example; spf=pass smtp.mailfrom=x@y.example; dmarc=pass (p=reject) header.from=Keystone.example",
+        ),
       ),
     ).toBe("keystone.example");
     expect(
-      dmarcPassDomain("mx.cloudflare.net; dmarc=fail header.from=keystone.example"),
+      dmarcPassDomain(top("mx.cloudflare.net; dmarc=fail header.from=keystone.example")),
     ).toBeNull();
     expect(
-      dmarcPassDomain("mx.cloudflare.net; dmarc=none header.from=keystone.example"),
+      dmarcPassDomain(top("mx.cloudflare.net; dmarc=none header.from=keystone.example")),
     ).toBeNull();
     expect(
-      dmarcPassDomain("mx.cloudflare.net; spf=pass (dmarc=pass header.from=x.example)"),
+      dmarcPassDomain(top("mx.cloudflare.net; spf=pass (dmarc=pass header.from=x.example)")),
     ).toBeNull();
-    expect(dmarcPassDomain(null)).toBeNull();
+    // Another server's header on top, a forged one lower down, a quoted `;`: none passes.
+    expect(
+      dmarcPassDomain(top("mx.other.example; dmarc=pass header.from=keystone.example")),
+    ).toBeNull();
+    expect(
+      dmarcPassDomain([
+        {
+          key: "arc-authentication-results",
+          value: "i=1; mx.cloudflare.net; dmarc=fail header.from=keystone.example",
+        },
+        ...top("mx.cloudflare.net; dmarc=pass header.from=keystone.example"),
+      ]),
+    ).toBeNull();
+    expect(
+      dmarcPassDomain(
+        top(
+          'mx.cloudflare.net; spf=pass smtp.mailfrom="a;dmarc=pass header.from=keystone.example"@x.example',
+        ),
+      ),
+    ).toBeNull();
+    expect(dmarcPassDomain([])).toBeNull();
   });
 
   it("trusts a From address only on the exact domain that passed", () => {
@@ -122,5 +150,43 @@ describe("DMARC on the From header", () => {
     expect(trustedFromHeader("billing@mail.keystone.example", "keystone.example")).toBe(false);
     expect(trustedFromHeader("billing@keystone.example", null)).toBe(false);
     expect(trustedFromHeader(null, "keystone.example")).toBe(false);
+  });
+});
+
+describe("reply addresses", () => {
+  const REACH = "0192f7a0-5678-7abc-8def-0123456789ab";
+  const forwarding = forwardingAddress({
+    tenantId: TENANT,
+    clientName: "Hollis Millwork",
+    secret: "abcdefgh",
+    domain: "in.mezonas.test",
+  });
+
+  it("tags replies with the reach-out and a secret of their own, never the forwarding secret", () => {
+    const tag = newReplyTag(REACH);
+    expect(tag).toMatch(/^[a-z2-7]{34}$/);
+    expect(newReplyTag(REACH)).not.toBe(tag);
+    expect(replyTagReachOutId(tag)).toBe(REACH);
+    // An earlier tag: the id in hex.
+    expect(replyTagReachOutId(REACH.replace(/-/g, ""))).toBe(REACH);
+    expect(replyTagReachOutId("short")).toBeNull();
+
+    const replyTo = reachReplyTo(forwarding, tag) as string;
+    expect(replyTo).not.toContain("abcdefgh");
+    expect(replyTo.split("@")[0]?.length).toBeLessThanOrEqual(64);
+    expect(replyTo.startsWith(`${replyBaseFor(forwarding)?.split("@")[0]}+`)).toBe(true);
+    expect(parseReplyAddress(replyTo, "in.mezonas.test")).toEqual({ tenantId: TENANT, tag });
+    // The reply form is no forwarding address, and a forwarding address no reply address.
+    expect(parseForwardingAddress(replyTo, "in.mezonas.test")).toBeNull();
+    expect(parseReplyAddress(forwarding, "in.mezonas.test")).toBeNull();
+    expect(parseReplyAddress(replyTo, "elsewhere.example")).toBeNull();
+  });
+
+  it("gives an untagged email no Reply-To, and reads a reply address without a tag as untagged", () => {
+    expect(reachReplyTo(forwarding, undefined)).toBeNull();
+    expect(reachReplyTo(null, "abcdef")).toBeNull();
+    const base = replyBaseFor(forwarding) as string;
+    expect(parseReplyAddress(base, "in.mezonas.test")).toEqual({ tenantId: TENANT, tag: null });
+    expect(parseReplyAddress(base.replace("@", "+not-a-tag@"), "in.mezonas.test")?.tag).toBeNull();
   });
 });

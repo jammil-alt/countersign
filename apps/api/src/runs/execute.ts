@@ -3,6 +3,7 @@
 // ports, records how it ended on `run`, rolls usage up, and dispatches the events it emitted.
 
 import {
+  accessRestored,
   // R3: an AI reviewer's check, and conversation steps (docs/plan.md §1.86).
   conferAi,
   conversationRunner,
@@ -28,6 +29,7 @@ import {
   globalFetch,
   type ObjectStore,
   R2ObjectStore,
+  saveCredentialsIf,
   tenantKeysInDb,
   type UrlSigner,
 } from "@countersign/connectors";
@@ -178,16 +180,18 @@ export interface RunDeps {
 // missing key, so a run without a model still runs its tool-mode skills and actions.
 export function workerTransport(
   env: Pick<Bindings, "ANTHROPIC_API_KEY" | "OPENAI_API_KEY" | "XAI_API_KEY" | "GEMINI_API_KEY">,
+  /** Audit 4.1: the cron's own calls pass a short time limit and no retries. */
+  http: { timeoutMs?: number; maxRetries?: number } = {},
 ): LlmTransport {
   const anthropicKey = env.ANTHROPIC_API_KEY?.trim();
   const openaiKey = env.OPENAI_API_KEY?.trim();
   const xaiKey = env.XAI_API_KEY?.trim();
   const geminiKey = env.GEMINI_API_KEY?.trim();
   return routingTransport({
-    ...(anthropicKey ? { anthropic: anthropicTransport({ apiKey: anthropicKey }) } : {}),
-    ...(openaiKey ? { openai: openaiTransport({ apiKey: openaiKey }) } : {}),
-    ...(xaiKey ? { xai: xaiTransport({ apiKey: xaiKey }) } : {}),
-    ...(geminiKey ? { google: geminiTransport({ apiKey: geminiKey }) } : {}),
+    ...(anthropicKey ? { anthropic: anthropicTransport({ apiKey: anthropicKey, ...http }) } : {}),
+    ...(openaiKey ? { openai: openaiTransport({ apiKey: openaiKey, ...http }) } : {}),
+    ...(xaiKey ? { xai: xaiTransport({ apiKey: xaiKey, ...http }) } : {}),
+    ...(geminiKey ? { google: geminiTransport({ apiKey: geminiKey, ...http }) } : {}),
   });
 }
 
@@ -223,12 +227,31 @@ export function credentialsFor(
               .set({ credentialsEncrypted: envelope as Record<string, unknown> })
               .where(and(eq(connection.id, conn.id), eq(connection.tenantId, conn.tenantId)));
           }),
+        saveIf: (envelope, expected) =>
+          withTenant(db, conn.tenantId, (tx) =>
+            saveCredentialsIf(
+              tx,
+              { tenantId: conn.tenantId, connectionId: conn.id },
+              envelope,
+              expected,
+            ),
+          ),
       });
       return inner;
     };
     return {
       get: async () => (await open()).get(),
       set: async (value) => (await open()).set(value),
+      // E1: the refresh's compare-and-swap (tokenManager).
+      update: async (decide) => {
+        const update = (await open()).update;
+        if (!update) throw new Error("the credentials can't be swapped");
+        return update(decide);
+      },
+      // A call works again: an open `refresh_failing` issue on the connection closes.
+      accessRestored: async () => {
+        await accessRestored(db, conn.tenantId, conn.id);
+      },
     };
   };
 }
@@ -504,7 +527,9 @@ export async function executeRun(
       await withTenant(db, info.tenantId, async (tx) => {
         const [exists] = await tx.select({ id: run.id }).from(run).where(eq(run.id, info.id));
         if (!exists) return;
-        await finishRun(tx, {
+        // Audit 4.5: the events below are emitted only by the finish that ended the run, so a
+        // finish step the engine runs again after it committed emits nothing twice.
+        const ended = await finishRun(tx, {
           tenantId: info.tenantId,
           runId: info.id,
           status: result.status,
@@ -527,7 +552,7 @@ export async function executeRun(
         await queueFinishedRun(tx, info);
         // `run.failed` (docs/plan.md §1.28), in the transaction that records the failure, so it
         // exists exactly when the run is failed. A test run emits nothing (ARCHITECTURE §10.4).
-        if (result.status === "failed") {
+        if (ended && result.status === "failed") {
           const row = await emit(
             tx,
             {
@@ -552,7 +577,7 @@ export async function executeRun(
         }
         // v0.12 W2-E: `run.succeeded`, with what the workflow hands off, in the same transaction
         // (docs/plan.md §1.48). Live runs only: a test run starts nothing (ARCHITECTURE §10.4).
-        if (result.status === "succeeded" && info.mode === "live" && loaded.ok) {
+        if (ended && result.status === "succeeded" && info.mode === "live" && loaded.ok) {
           const row = await emit(
             tx,
             {

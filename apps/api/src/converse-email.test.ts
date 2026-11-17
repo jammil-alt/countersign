@@ -1,11 +1,15 @@
 // P-9 (docs/plan.md §1.71): `comms.converse` by email, through the API against a fake Gmail and a
 // FakeModel (nothing live). Until now every conversation test used WhatsApp. A three-turn
 // clarification of a purchase request: the conversation is approved once, each message goes from
-// the client's Gmail with a tagged Reply-To of the forwarding address, the person's email replies
+// the client's Gmail with a tagged Reply-To (the client's reply address), the person's email replies
 // come back through the Worker's email handler to the right message, their words stay data, and
 // the confirmed result is the step's typed output. The portal shows no model or cost.
 
-import { createGmailConnector, generateEncryptionKey } from "@countersign/connectors";
+import {
+  createGmailConnector,
+  generateEncryptionKey,
+  replyTagReachOutId,
+} from "@countersign/connectors";
 import { FAKE_GOOGLE, fakeGoogle, readSentEmail } from "@countersign/connectors/testing";
 import { AgentBundle, type AgentBundleInput } from "@countersign/core";
 import { agent, externalAction, stepRun } from "@countersign/db";
@@ -141,6 +145,8 @@ describe.skipIf(!h)("a conversation by email", () => {
   async function replyTo(to: string, text: string) {
     const raw = new TextEncoder().encode(
       [
+        // Cloudflare's verdict on top: SPF passed for the envelope sender's domain.
+        `Authentication-Results: mx.cloudflare.net; spf=pass smtp.mailfrom=${DANA}`,
         `From: Dana Floor <${DANA}>`,
         `To: ${to}`,
         "Subject: Re: Your request",
@@ -262,10 +268,22 @@ describe.skipIf(!h)("a conversation by email", () => {
         expect(sent.to).toEqual([DANA]);
         // Every message of the conversation carries its first message's tag: a reply to any of
         // them reaches the message waiting now.
-        const first = google.sent.length === 1 ? hex : firstTag;
-        firstTag = first;
-        const tagged = forwarding.replace("@", `+${first}@`);
+        // The reply address (never the forwarding address) names the first message.
+        if (google.sent.length === 1) {
+          firstTag = sent.replyTo[0] as string;
+          expect(firstTag).toMatch(/^r-[a-z2-7]{26}\+[a-z2-7]{34}@/);
+          expect(firstTag).not.toContain(forwarding.split("@")[0]);
+          expect(replyTagReachOutId(firstTag.split("+")[1]?.split("@")[0] ?? "")).toBe(
+            `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`,
+          );
+        }
+        const tagged = firstTag;
         expect(sent.replyTo).toEqual([tagged]);
+        if (google.sent.length > 1) {
+          // The first answer delivered again (same Message-ID) answers nothing now.
+          await replyTo(tagged, "12 sheets of 3/4 birch ply, by Dec 1 please");
+          expect(woke()).toBeUndefined();
+        }
         await replyTo(
           tagged,
           google.sent.length === 1 ? "12 sheets of 3/4 birch ply, by Dec 1 please" : INJECTED,

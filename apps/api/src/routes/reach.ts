@@ -21,6 +21,7 @@ import {
   globalFetch,
   RESEND_CONNECTOR_ID,
   ResendConfig,
+  replyBaseFor,
   verifyDomain,
 } from "@countersign/connectors";
 import {
@@ -137,7 +138,8 @@ async function emailSetup(
             checkedAt: config.checkedAt,
           }
         : null,
-    replyTo: await forwardingAddress(tx, tenantId),
+    // Replies come back to the client's reply addresses, never the forwarding address itself.
+    replyTo: replyBaseFor(await forwardingAddress(tx, tenantId)),
   };
 }
 

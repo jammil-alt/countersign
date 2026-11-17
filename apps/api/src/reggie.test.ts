@@ -248,6 +248,20 @@ describe.skipIf(!h)("Reggie", () => {
     expect(row?.meta).toMatchObject({ stopped: true, model: expect.any(String) });
   });
 
+  it("runs nothing from an answer cut off at max_tokens, and keeps no unanswered call", async () => {
+    const id = await start(OPERATOR, A());
+    model.push({ toolUse: { name: "client_review", input: { client: A() } }, cutOff: true });
+    const before = model.requests.length;
+    const res = j((await ask(OPERATOR, id, "How is Client A doing?")).json);
+    expect(model.requests.length - before).toBe(1);
+    expect(res.messages.at(-1).text).toBe("My answer was cut off. Ask me again with less at once.");
+    // The next turn's history holds no call without its result.
+    model.push(say("Fine."));
+    await ask(OPERATOR, id, "And now?");
+    const sent = JSON.stringify(model.requests.at(-1)?.messages);
+    expect(sent).not.toContain("tool_use");
+  });
+
   it("lists the operator's conversations, newest first", async () => {
     const list = j((await H.call(OPERATOR, "GET", "/api/ops/reggie/conversations")).json).items;
     expect(list.length).toBeGreaterThan(2);

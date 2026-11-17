@@ -322,11 +322,11 @@ export const REGGIE_TABLES = ["reggie_conversation", "reggie_message", "reggie_a
 export const BUILD_KINDS = ["agent", "skill"] as const;
 export const BUILD_PHASES = ["intake", "fitgap", "draft", "poc", "client_test", "qa"] as const;
 export const BUILD_STATUSES = ["open", "live", "stopped"] as const;
-/** §1.123: how a build makes its agent; a fork of a template skips the build phases. */
+/** §1.124: how a build makes its agent; a fork of a template skips the build phases. */
 export const BUILD_PATHS = ["new", "template"] as const;
-/** §1.123: what a build or a deal came from. */
+/** §1.124: what a build or a deal came from. */
 export const WORK_ORIGIN_KINDS = ["deal", "ask", "enhancement", "issue"] as const;
-/** §1.123: whose move an item of back office work waits on. */
+/** §1.124: whose move an item of back office work waits on. */
 export const WORK_WAITING_ON = ["operator", "reggie", "client"] as const;
 
 /**
@@ -363,7 +363,7 @@ export const build = pgTable(
       .defaultNow()
       .$onUpdate(() => new Date()),
     phaseAt: ts("phase_at").notNull().defaultNow(),
-    // docs/plan.md §1.123 (migration 0061): the build as back office work.
+    // docs/plan.md §1.124 (migration 0060): the build as back office work.
     // DECISION: builds get a promised date (owner, 2026-11-17); moving it is the operator's.
     promisedOn: date("promised_on"),
     /** `new`: built through the phases; `template`: forked from `template_id` for the client. */
@@ -770,7 +770,7 @@ export const agent = pgTable(
      */
     area: text("area").$type<OwnerArea>(),
     /**
-     * A safety hold (docs/plan.md §1.123, migration 0061): while set, the agent's writes and sends
+     * A safety hold (docs/plan.md §1.124, migration 0060): while set, the agent's writes and sends
      * wait for a person. Operational, never in a version; set only on client agents (enforced in
      * code). Null when not held.
      */
@@ -868,7 +868,7 @@ export interface AgentStageState {
 
 /** `agent.pause` (ARCHITECTURE §5.5): one side's pause; `all` pauses every agent of the client. */
 /**
- * A client agent's safety hold (docs/plan.md §1.123): the issue it is held for, who placed it and
+ * A client agent's safety hold (docs/plan.md §1.124): the issue it is held for, who placed it and
  * why. Core's `AgentHold` schema validates it; this is its stored shape.
  */
 export interface AgentHold {
@@ -4603,10 +4603,10 @@ export const runAuditMark = pgTable(
   ],
 );
 
-// ── Back office work (docs/plan.md §1.123) ───────────────────────────────────────────────────────
+// ── Back office work (docs/plan.md §1.124) ───────────────────────────────────────────────────────
 // Sales, Build, Your call and Autopilot (docs/cases-plan.md): a client's issues and asks (tenant
-// tables, migration 0061), and the operator's enhancements, to-dos, deals and plays (operator-only
-// tables, migrations 0061–0064). Builds gain their promised date and origin above.
+// tables, migration 0060), and the operator's enhancements, to-dos, deals and plays (operator-only
+// tables, migrations 0060–0063). Builds gain their promised date and origin above.
 
 export const ISSUE_URGENCIES = ["critical", "high", "normal", "low"] as const;
 export const ISSUE_STAGES = ["reported", "cause", "fix", "verify", "closed"] as const;
@@ -4629,7 +4629,7 @@ export const ISSUE_SOURCES = [
  * (`subject_type='issue'`). `reggie_read` is Reggie's read of it (core `ReggieRead`) and never
  * reaches a portal response. Updated in place; never deleted.
  */
-// DECISION: numbers are per client, with no cross-client count (§1.123).
+// DECISION: numbers are per client, with no cross-client count (§1.124).
 export const issue = pgTable(
   "issue",
   {
@@ -4903,7 +4903,7 @@ export const TODO_STATES = ["open", "done", "snoozed", "dropped"] as const;
 export const TODO_SOURCES = ["operator", "reggie", "play", "question", "email", "system"] as const;
 
 /**
- * One thing to do in the back office (Your call, migration 0062): the operator's, Reggie's or the
+ * One thing to do in the back office (Your call, migration 0061): the operator's, Reggie's or the
  * client's, about a client or none, with Reggie's read, plan and draft when it made it, and the
  * one action that does it (`primary_action`). Made once per `dedupe_key`. Updated in place; never
  * deleted (dropped instead).
@@ -4982,7 +4982,7 @@ export const DEAL_OUTCOMES = ["open", "won", "lost", "not_now", "no"] as const;
 export const DEAL_SOURCES = ["site_form", "email", "referral", "ops", "reggie"] as const;
 
 /**
- * A deal (Sales, migration 0063): a new account (a company, later a client) or more for a client
+ * A deal (Sales, migration 0062): a new account (a company, later a client) or more for a client
  * (expansion), with its stage, value a month, what was agreed and the signed copy. Money is
  * numeric(14,4) with its currency (invariant 6). Updated in place; never deleted.
  */
@@ -5145,7 +5145,7 @@ export const PLAY_LEVELS = ["off", "draft", "send"] as const;
 export const PLAY_OUTCOMES = ["drafted", "sent", "done", "skipped", "refused"] as const;
 
 /**
- * How far Reggie goes with one play at one stage of a flow (Autopilot, migration 0064): off, draft
+ * How far Reggie goes with one play at one stage of a flow (Autopilot, migration 0063): off, draft
  * for a person, or send and tell. Operator only and global; one row per play.
  */
 // DECISION: no row means `draft`, a code default (core `DEFAULT_PLAY_LEVEL`), so a new play never
@@ -5215,7 +5215,7 @@ export const playLog = pgTable(
 );
 
 /**
- * The back office work's operator-only tables (§1.123): an operator session reads only rows about
+ * The back office work's operator-only tables (§1.124): an operator session reads only rows about
  * the clients it serves or no client; a client's session never sees a row. Not in
  * OPERATOR_ONLY_TABLES, whose policies are `app_is_operator()` alone.
  */
@@ -5323,7 +5323,7 @@ export const TENANT_TABLES = [
   "area_owner_version",
   // 0058: forms, "Request info" (docs/plan.md §1.121).
   "form_request",
-  // 0061: a client's issues, their history and its asks (docs/plan.md §1.123).
+  // 0060: a client's issues, their history and its asks (docs/plan.md §1.124).
   "issue",
   "issue_event",
   "client_ask",

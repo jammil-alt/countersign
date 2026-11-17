@@ -43,6 +43,10 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       person: "The person it reaches asked to see changes first.",
       always: "A change like this one is always signed by a person.",
       held: "It is on a safety hold while we fix a problem we found.",
+      retry_reworded:
+        "We already made a similar change in this step; check it isn't the same before signing.",
+      retry_unconfirmed:
+        "An earlier try of this change may have gone through; check your tool before signing.",
     },
     stage: {
       trial: "The agent is in its trial: every change needs approval.",
@@ -78,6 +82,10 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       person: "La persona a la que llega pidió ver los cambios antes.",
       always: "Un cambio como este siempre lo firma una persona.",
       held: "Está en una pausa de seguridad mientras arreglamos un problema que encontramos.",
+      retry_reworded:
+        "Ya hicimos un cambio parecido en este paso; compruebe que no es el mismo antes de aprobar.",
+      retry_unconfirmed:
+        "Un intento anterior de este cambio puede haberse hecho; revise su herramienta antes de aprobar.",
     },
     stage: {
       trial: "El agente está en su prueba: cada cambio necesita aprobación.",
@@ -113,6 +121,10 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       person: "La personne concernée a demandé à voir les changements avant.",
       always: "Un changement comme celui-ci est toujours signé par une personne.",
       held: "Il est en pause de sécurité le temps que nous corrigions un problème trouvé.",
+      retry_reworded:
+        "Nous avons déjà fait un changement semblable à cette étape ; vérifiez que ce n'est pas le même avant d'approuver.",
+      retry_unconfirmed:
+        "Un essai précédent de ce changement a peut-être abouti ; vérifiez votre outil avant d'approuver.",
     },
     stage: {
       trial: "L'agent est en période d'essai : chaque changement demande une approbation.",
@@ -149,6 +161,10 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       person: "A pessoa que recebe pediu para ver as mudanças antes.",
       always: "Uma mudança como esta é sempre assinada por uma pessoa.",
       held: "Está em uma pausa de segurança enquanto corrigimos um problema que encontramos.",
+      retry_reworded:
+        "Já fizemos uma mudança parecida nesta etapa; confira se não é a mesma antes de aprovar.",
+      retry_unconfirmed:
+        "Uma tentativa anterior desta mudança pode ter sido feita; confira sua ferramenta antes de aprovar.",
     },
     stage: {
       trial: "O agente está em teste: cada mudança precisa de aprovação.",
@@ -184,6 +200,10 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       person: "La persona interessata ha chiesto di vedere prima le modifiche.",
       always: "Una modifica come questa la firma sempre una persona.",
       held: "È in pausa di sicurezza mentre risolviamo un problema che abbiamo trovato.",
+      retry_reworded:
+        "Abbiamo già fatto una modifica simile in questo passaggio; controlli che non sia la stessa prima di approvare.",
+      retry_unconfirmed:
+        "Un tentativo precedente di questa modifica potrebbe essere andato a buon fine; controlli il suo strumento prima di approvare.",
     },
     stage: {
       trial: "L'agente è in prova: ogni modifica richiede un'approvazione.",
@@ -220,6 +240,10 @@ export const DESK_WORDS: Record<Locale, DeskWords> = {
       person: "Die betroffene Person möchte Änderungen vorher sehen.",
       always: "Eine Änderung wie diese unterschreibt immer ein Mensch.",
       held: "Er ist angehalten, während wir ein gefundenes Problem beheben.",
+      retry_reworded:
+        "Wir haben in diesem Schritt schon eine ähnliche Änderung gemacht; prüfen Sie vor der Freigabe, dass es nicht dieselbe ist.",
+      retry_unconfirmed:
+        "Ein früherer Versuch dieser Änderung ist vielleicht schon durchgegangen; prüfen Sie Ihr Tool vor der Freigabe.",
     },
     stage: {
       trial: "Der Agent ist in der Probephase: Jede Änderung braucht eine Freigabe.",

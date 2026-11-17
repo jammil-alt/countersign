@@ -289,4 +289,27 @@ describe("an AI skill in a run", () => {
     expect(result).toMatchObject({ status: "failed" });
     expect(result.status === "failed" && result.error).toMatch(/set Currency/);
   });
+
+  it("fails, running nothing, when the answer was cut off at max_tokens mid-call", async () => {
+    const { deps, steps } = setUp([
+      { skill: READ.id, settings: {}, parameters: { currency: "USD" } },
+    ]);
+    const model = new FakeModel([
+      { toolUse: { name: "finish", input: { total: "12.00" } }, cutOff: true },
+    ]);
+    const result = await runAgent(deps(model, new Date("2026-11-10T12:00:00Z")), {
+      tenantId: TENANT,
+      agentVersionId: "v1",
+      skill: READ.id,
+      input: {},
+      runId: "r1",
+      stepId: "read",
+    });
+    expect(result).toMatchObject({ status: "failed" });
+    expect(result.status === "failed" && result.error).toMatch(
+      /cut off at max_tokens .* while calling finish/,
+    );
+    expect(steps.at(-1)?.status).toBe("failed");
+    expect(model.requests).toHaveLength(1);
+  });
 });
