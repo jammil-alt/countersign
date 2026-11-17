@@ -304,6 +304,28 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
   };
 }
 
+/**
+ * The area owner's signature under a message sent outside the client ("Pia, purchasing agent for
+ * Acme" and "Powered by mezonas.com"; ARCHITECTURE v0.19 §10.15), and under it, on a first text,
+ * the opt-out line (docs/plan.md §1.97).
+ */
+const SIGNED = /\n\n([^\n]+(?:\n[^\n]*mezonas\.com)?)(?:\n([^\n]*\bSTOP\b[^\n]*))?$/u;
+
+/** A message sent outside the client without its signature, so a test can compare what the agent wrote. */
+export function unsigned(text: string | null | undefined): string | undefined {
+  return text?.replace(SIGNED, "");
+}
+
+/** The signature lines the sent message ends with, for a test that checks them. */
+export function signatureOf(text: string | null | undefined): string[] {
+  return text?.match(SIGNED)?.[1]?.split("\n") ?? [];
+}
+
+/** The opt-out line a signed first text ends with (§1.97), or null when it has none. */
+export function optOutOf(text: string | null | undefined): string | null {
+  return text?.match(SIGNED)?.[2] ?? null;
+}
+
 export const OPERATOR = "operator@example.com";
 export const OTHER_OPERATOR = "other-operator@example.com";
 /**

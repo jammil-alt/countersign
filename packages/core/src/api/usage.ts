@@ -137,6 +137,107 @@ export const UsageReport = z.object({
 });
 export type UsageReport = z.infer<typeof UsageReport>;
 
+// ── Back office: tokens by client, agent, model and action ───────────────────────────────────────
+// Owner, 2026-11-06, kept 2026-11-16 (docs/plan.md §1.115): every token an agent uses, Sloan's
+// included, tallied per client and kept by model, by agent and by action, for the back office.
+
+/**
+ * What a model call was for (`model_call.action`, migration 0055): an agent's own turn in a step
+ * (Sloan's conversation included), the run's oversight review, a reach-out's message, a tool's own
+ * call (a document read, a web search, a translation in a step), a portal question answered for
+ * the client's account agent (Sloan), a turn of a conversation step, an AI check of a step (the
+ * second check), and the agent choosing a path or ending a repeat.
+ */
+// DECISION: main's model calls since 2026-11-06 that the original list didn't know each get their
+// own action rather than `agent_turn`, so the tally shows what they cost: a conversation step's
+// turns (`conversation`, §1.66), the AI's second check (`check`, §1.86) and the agent's choice of a
+// path or a repeat's end (`choice`, §1.99). A translation or web search in a step is a tool's own
+// call (`tool_call`), as a document read is.
+export const MODEL_CALL_ACTIONS = [
+  "agent_turn",
+  "oversight",
+  "reach_out",
+  "tool_call",
+  "question",
+  "conversation",
+  "check",
+  "choice",
+] as const;
+export type ModelCallAction = (typeof MODEL_CALL_ACTIONS)[number];
+
+/**
+ * The actions a token report counts: every model call's, and the client's own model use no agent
+ * asked for, which has no `model_call` row: `background_read` (uploads and forwarded mail, from
+ * `doc_extraction`) and `background_translation` (the background job and a person's own text,
+ * from `message_translation`).
+ */
+export const TOKEN_ACTIONS = [
+  ...MODEL_CALL_ACTIONS,
+  "background_read",
+  "background_translation",
+] as const;
+export type TokenAction = (typeof TOKEN_ACTIONS)[number];
+
+/** The back office's word for each action. */
+export const TOKEN_ACTION_LABELS: Record<TokenAction, string> = {
+  agent_turn: "Agent work",
+  oversight: "Oversight review",
+  reach_out: "Reach-out message",
+  tool_call: "Tool's own call",
+  question: "Portal question",
+  conversation: "Conversation turn",
+  check: "Second check",
+  choice: "Path choice",
+  background_read: "Background reading",
+  background_translation: "Background translation",
+};
+
+/** Model calls and their tokens (input counts cache reads and writes) and cost. */
+export const TokenFigures = z.object({
+  calls: z.number().int(),
+  tokensIn: z.number().int(),
+  tokensOut: z.number().int(),
+  costUsd: UsdAmount,
+});
+export type TokenFigures = z.infer<typeof TokenFigures>;
+
+const TokenClient = z.object({ id: z.string(), name: z.string() });
+/** A client agent; `account` marks the client's account agent (Sloan). */
+const TokenAgent = z.object({
+  id: z.string(),
+  slug: z.string(),
+  name: z.string(),
+  account: z.boolean(),
+});
+
+export const TokenRow = z.object({
+  client: TokenClient,
+  /** Null for the client's own background use, which no agent made. */
+  agent: TokenAgent.nullable(),
+  /** `anthropic` | `openai` | `xai` | `google` (core's `modelProvider`). */
+  provider: z.string(),
+  model: z.string(),
+  action: z.enum(TOKEN_ACTIONS),
+  ...TokenFigures.shape,
+});
+export type TokenRow = z.infer<typeof TokenRow>;
+
+export const TokenReport = z.object({
+  from: IsoDay,
+  to: IsoDay,
+  total: TokenFigures,
+  /** Per client, agent, model and action: the finest grain. Highest cost first. */
+  rows: z.array(TokenRow),
+  /** The account-level tally: per client. */
+  byClient: z.array(TokenClient.extend(TokenFigures.shape)),
+  byAgent: z.array(
+    z.object({ client: TokenClient, agent: TokenAgent.nullable(), ...TokenFigures.shape }),
+  ),
+  byModel: z.array(z.object({ provider: z.string(), model: z.string(), ...TokenFigures.shape })),
+  byAction: z.array(z.object({ action: z.enum(TOKEN_ACTIONS), ...TokenFigures.shape })),
+});
+export type TokenReport = z.infer<typeof TokenReport>;
+
 // ── Small charts (both sides) ────────────────────────────────────────────────────────────────────
 
 /** How many days the small run charts (sparklines) cover, on both sides. */
@@ -278,6 +379,22 @@ export const usageRoutes = {
       template: Id.optional(),
     }),
     response: UsageReport,
+  }),
+  opsUsageTokens: defineRoute({
+    method: "GET",
+    path: "/api/ops/usage/tokens",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Model calls, tokens and cost per client, agent (Sloan included), model and action (default: this month)",
+    query: Range.extend({
+      client: Id.optional(),
+      agent: Id.optional(),
+      template: Id.optional(),
+      model: z.string().min(1).max(200).optional(),
+      action: z.enum(TOKEN_ACTIONS).optional(),
+    }),
+    response: TokenReport,
   }),
   portalActivityReport: defineRoute({
     method: "GET",

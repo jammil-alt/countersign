@@ -42,6 +42,7 @@ import {
   OpsPacksScreen,
 } from "../packs/screens";
 import { OpsRecordScreen } from "../records/RecordScreens";
+import { ConnectClaudeScreen } from "../session/ConnectClaude";
 import { Redirect } from "../shell/Redirect";
 import { Placeholder } from "../ui/primitives";
 import { NewClientAgentScreen } from "./agents/NewClientAgentScreen";
@@ -286,6 +287,8 @@ export const opsRoutes = (
 
     {/* An address a provider sends the browser back to: it never moves. */}
     <Route path="connections/:connector/callback" element={<OpsOAuthCallbackScreen />} />
+    {/* §1.120: the link Claude gives an operator to approve its connection; it never moves. */}
+    <Route path="connect-claude/:code" element={<ConnectClaudeScreen />} />
 
     {/* Old addresses → their new homes */}
     <Route path="templates" element={<Redirect to="/ops/lab" />} />

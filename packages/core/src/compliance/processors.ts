@@ -50,6 +50,9 @@ export const PROCESSORS = [
   "hackernews",
   // §1.87: BILL (Bill.com), accounts payable, on Mezonas' developer key.
   "billcom",
+  // §1.116: phone notifications through Expo's push service (on to Apple's and Google's): a device
+  // token, "Mezonas" or the business's name, and a count. HIPAA mode sends none until covered.
+  "expo_push",
 ] as const;
 export type Processor = (typeof PROCESSORS)[number];
 
@@ -74,6 +77,8 @@ export const PROCESSOR_NAMES: Record<Processor, string> = {
   hackernews: "Hacker News (Algolia and Firebase)",
   // §1.87
   billcom: "BILL",
+  // §1.116
+  expo_push: "Expo (push notifications)",
 };
 
 /** `BAA_PROCESSORS`: comma- or space-separated processor ids; unknown words are ignored. */

@@ -3,6 +3,7 @@
 import { processes } from "@countersign/core";
 import { FakeModel } from "@countersign/llm";
 import { describe, expect, it } from "vitest";
+import type { ModelCallInput } from "../log/model-calls";
 import type { RuntimeDeps } from "./context";
 import {
   type ConversationEnded,
@@ -384,10 +385,16 @@ describe("converseTurn", () => {
     const model = new FakeModel([
       { toolUse: { name: "turn", input: { action: "ask", message: "Is Friday good?" } } },
     ]);
-    const r = await converseTurn(runtime(model).d, {
+    const { d } = runtime(model);
+    // §1.115: the turn is its step's model call, a conversation's.
+    const calls: ModelCallInput[] = [];
+    (d.ports as { modelCalls?: unknown }).modelCalls = {
+      record: async (_tenantId: string, call: ModelCallInput) => void calls.push(call),
+    };
+    const r = await converseTurn(d, {
       tenantId: "t1",
       runId: RUN,
-      stepRunId: "sr1",
+      stepRunId: "0195f1a2-0000-7000-8000-0000000000b2",
       agentVersionId: "v1",
       key: "talk",
       turn: 1,
@@ -412,5 +419,6 @@ describe("converseTurn", () => {
       "## This conversation\nYou are writing to Pat Lee by text, for Acme.\nGoal: Confirm Friday.\nThe first message: Ask about Friday.",
     );
     expect(system).not.toContain("It is over");
+    expect(calls).toEqual([expect.objectContaining({ action: "conversation" })]);
   });
 });

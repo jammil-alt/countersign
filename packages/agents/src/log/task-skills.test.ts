@@ -241,8 +241,8 @@ describe.skipIf(!harness)("task skills and a model per step", () => {
     const rows = await h.client(h.A, (tx) =>
       tx.select().from(modelCall).where(eq(modelCall.runId, r.id)),
     );
-    expect(rows.map((m) => [m.model, m.provider, m.stepRunId])).toEqual([
-      ["claude-haiku-5-5", "anthropic", result.stepRunId],
+    expect(rows.map((m) => [m.model, m.provider, m.stepRunId, m.action])).toEqual([
+      ["claude-haiku-5-5", "anthropic", result.stepRunId, "agent_turn"],
     ]);
     expect(rows[0]?.agentVersionId).toBe(a.versionId);
   });

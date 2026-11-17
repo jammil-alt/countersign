@@ -121,6 +121,9 @@ describe("the first text", () => {
     expect(withIntroduction("Ready. Text STOP to end.", { client })).toBe(
       "Rivera Supply: Ready. Text STOP to end.",
     );
+    // §1.117: under an area owner's signature, which names the client, on a line of its own.
+    const signed = "Ready.\n\nPia, purchasing agent for Rivera Supply\nPowered by mezonas.com";
+    expect(withIntroduction(signed, { client })).toBe(`${signed}\nReply STOP to opt out.`);
   });
 
   it("writes the opt-out line in the contact's language, keeping the word STOP", () => {

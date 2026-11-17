@@ -25,6 +25,7 @@ import {
   type CredentialsAccessor,
   credentialKeysFromEnv,
   encryptedCredentials,
+  globalFetch,
   type ObjectStore,
   R2ObjectStore,
   tenantKeysInDb,
@@ -44,6 +45,7 @@ import {
   type Locale,
   // v0.13 W2-I
   type OversightSettings,
+  type PinnedAreaOwner,
   type Processor,
   parseCoveredProcessors,
   processes,
@@ -52,6 +54,7 @@ import {
   resolveTemplate,
   reusedStepOf,
   runErrorKey,
+  runOwnerOf,
   type StoredStepLike,
   shortRunId,
 } from "@countersign/core";
@@ -103,8 +106,10 @@ import { hoursFor } from "../hours/hours";
 import { connectorServicesFor } from "../messaging/services";
 import { mailerFromEnv, texterFromEnv } from "../notify/mailer";
 import { type NotifyDeps, originOf } from "../notify/outbox";
+import { pusherFromEnv } from "../notify/push";
 // v0.13 W2-I
-import { choicePort, oversightPort } from "../oversight/port";
+import { choicePort, oversightPort, type RunAreaOwner } from "../oversight/port";
+import { areaOfAgent, ensureAreaOwner } from "../owners/store";
 import type { Platform } from "../platform";
 import { dbDocumentServices } from "../qbo/documents";
 import { dbSyncedRecords } from "../qbo/receivables";
@@ -245,7 +250,12 @@ export function runDepsFromEnv(
     // §1.77: off unless the owner sets MARKETING_RESEARCH=on (docs/marketing-plan.md §11.5).
     webResearch: researchOn(env),
     // Wave 2c: the outbox's own senders, for an urgent notice's person (notify/urgent.ts).
-    notify: { mailer: mailerFromEnv(env), texter: texterFromEnv(env), origin: originOf(env) },
+    notify: {
+      mailer: mailerFromEnv(env),
+      texter: texterFromEnv(env),
+      pusher: pusherFromEnv(env, globalFetch()),
+      origin: originOf(env),
+    },
   };
 }
 
@@ -280,6 +290,8 @@ type Loaded =
       oversight?: OversightSettings;
       // R6: the owner's cheap watch on every step's result (v4 processes only).
       watch?: boolean;
+      // v0.19: the area owner pinned at the run's start (ARCHITECTURE §10.15).
+      owner?: RunAreaOwner;
     }
   | { ok: false; reason: string; cancelled?: true };
 
@@ -453,6 +465,11 @@ export async function executeRun(
       const workflows = (v?.bundle.workflows ?? []) as AnyBundleWorkflow[];
       const wf = workflows.find((w) => w.slug === info.workflowSlug);
       if (!wf) return { ok: false, reason: `no workflow ${info.workflowSlug} in that version` };
+      // v0.19 (ARCHITECTURE §10.15): the process's area owner, created the first time a process
+      // in its area runs, pinned on the run so a replay is watched by the same version.
+      const owned = v?.bundle
+        ? await pinOwner(tx, info, v.bundle as AnyAgentBundle, deps.platform.catalog)
+        : null;
       const [client] = await tx
         .select({ timeZone: tenant.timezone })
         .from(tenant)
@@ -467,8 +484,9 @@ export async function executeRun(
         resume: await resumeOf(tx, params, wf.workflow),
         // v0.12 W2-B
         automations: await automationsOf(tx, info.tenantId, wf.workflow),
-        // v0.13 W2-I; R6: the owner's settings and watch, from the version as pinned.
-        ...ownerSettingsOf(v?.bundle),
+        // v0.13 W2-I; R6: the owner's settings and watch, from the version as pinned. v0.19:
+        // with the area owner's say merged in (`runOwnerOf`).
+        ...ownerSettingsOf(v?.bundle, owned),
       };
     }),
   );
@@ -612,7 +630,7 @@ export async function executeRun(
     // v0.13 W2-I: run oversight; the executor asks only for steps whose failures are reviewed.
     // R6: the agent's owner, with its watch on a v4 process.
     oversight: {
-      port: oversightPort(runtime, db, info, loaded.oversight),
+      port: oversightPort(runtime, db, info, loaded.oversight, loaded.owner),
       settings: loaded.oversight,
       ...(history ? { watch: { history } } : {}),
     },
@@ -667,13 +685,39 @@ export async function executeRun(
  */
 // DECISION (R6): read from the pinned version inside the run's load step, so a replay oversees with
 // the same settings; the watch's history is a durable step of its own, for v4 runs only.
-function ownerSettingsOf(bundle: unknown): { oversight?: OversightSettings; watch?: boolean } {
+function ownerSettingsOf(
+  bundle: unknown,
+  pinned: PinnedAreaOwner | null,
+): { oversight?: OversightSettings; watch?: boolean; owner?: RunAreaOwner } {
   if (!bundle) return {};
-  const owner = processes.ownerOfBundle(bundle as AnyAgentBundle);
+  const owner = runOwnerOf(bundle as AnyAgentBundle, pinned ?? undefined);
   return {
     ...(owner.settings ? { oversight: owner.settings } : {}),
     ...(owner.watch ? { watch: true } : {}),
+    ...(owner.area ? { owner: owner.area } : {}),
   };
+}
+
+/**
+ * v0.19: the run's area owner. Its area is the agent row's, else the bundle's declared one, else
+ * its skills' one area pack, else `general`; the owner is created if the client has none yet, and
+ * its live version is written on the run row.
+ */
+async function pinOwner(
+  tx: Tx,
+  info: RunInfo,
+  bundle: AnyAgentBundle,
+  catalog: { get(id: string): { requiresPacks: string[] } | undefined },
+): Promise<PinnedAreaOwner> {
+  const area = await areaOfAgent(tx, info.tenantId, info.agentId, bundle.definition, (id) =>
+    catalog.get(id),
+  );
+  const owner = await ensureAreaOwner(tx, info.tenantId, area);
+  await tx
+    .update(run)
+    .set({ ownerVersionId: owner.versionId })
+    .where(and(eq(run.id, info.id), eq(run.tenantId, info.tenantId)));
+  return owner;
 }
 
 // ── v0.12 W2-E: what a successful run hands off (ARCHITECTURE §10.8; docs/plan.md §1.48) ───────

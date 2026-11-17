@@ -7,7 +7,13 @@
 import type { ContentStore } from "@countersign/connectors";
 import { lazy, lazyObject, type ToolSpec } from "@countersign/core";
 import { type Db, docExtraction, docLine, withTenant } from "@countersign/db";
-import { createLlmClient, type LlmClient, type LlmTransport } from "@countersign/llm";
+import {
+  createLlmClient,
+  type LlmCallRecord,
+  type LlmClient,
+  type LlmExchange,
+  type LlmTransport,
+} from "@countersign/llm";
 import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { compareKeys, parseNormalized } from "./catalog/keys";
@@ -57,6 +63,11 @@ export interface ToolContextSource {
   recordUsage?:
     | ((usage: { costUsd: string; tokensIn: number; tokensOut: number }) => Promise<void>)
     | undefined;
+  /**
+   * §1.115: records a model call the tool made as the step's `model_call` (action `tool_call`),
+   * so its tokens count by model and action with every other call's.
+   */
+  recordModelCall?: ((record: LlmCallRecord, exchange: LlmExchange) => Promise<void>) | undefined;
   // P-5
   content?: ContentStore | null | undefined;
 }
@@ -66,14 +77,18 @@ export function packToolContext(source: ToolContextSource): PackToolContext {
   const llm = source.transport
     ? createLlmClient({
         transport: source.transport,
-        onCall: async (r) => {
+        onCall: async (r, exchange) => {
           await source.recordUsage?.({
             costUsd: r.costUsd ?? "0",
             tokensIn: r.usage.inputTokens + r.usage.cacheWriteTokens + r.usage.cacheReadTokens,
             tokensOut: r.usage.outputTokens,
           });
+          await source.recordModelCall?.(r, exchange);
         },
         // §1.88: an embedding's cost goes on the step like a model call's (input tokens only).
+        // DECISION (§1.115): it keeps no `model_call` row: there is no message request and answer
+        // to store, only vectors. Its tokens and cost stay on the step, and the token report
+        // leaves them out (a few cents a month at the embedding model's price).
         onEmbed: async (r) => {
           await source.recordUsage?.({
             costUsd: r.costUsd ?? "0",

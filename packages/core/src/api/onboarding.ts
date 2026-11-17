@@ -70,6 +70,19 @@ export type InviteEmail = z.infer<typeof InviteEmail>;
 export const InviteResult = z.object({ member: Member, email: InviteEmail });
 export type InviteResult = z.infer<typeof InviteResult>;
 
+/**
+ * Removing someone from a client (de-provisioning, docs/security.md §2): their membership goes now,
+ * and their access within 5 minutes, since an open session carries memberships in its sealed
+ * cookie for up to 5 minutes (docs/plan.md §1.93). Open items assigned to them by name go to the
+ * client admin.
+ */
+export const RemoveMemberResult = z.object({
+  removed: z.object({ userId: z.string(), email: z.string() }),
+  /** Open inbox items that named them, now the client admin's. */
+  reassigned: z.int(),
+});
+export type RemoveMemberResult = z.infer<typeof RemoveMemberResult>;
+
 /** The client's notification switches (each person also picks their own channels: api/notify.ts). */
 export const NotificationSettings = z.object({
   /** Email people when something waits on them in the inbox. */
@@ -235,6 +248,15 @@ export const onboardingRoutes = {
     body: InviteBody,
     response: InviteResult,
   }),
+  opsRemoveMember: defineRoute({
+    method: "DELETE",
+    path: "/api/ops/clients/:id/members/:userId",
+    auth: "session",
+    roles: OPS,
+    summary: "Remove a client admin or user from a client; they lose access within 5 minutes",
+    params: z.object({ id: Id, userId: Id }),
+    response: RemoveMemberResult,
+  }),
   // DECISION: inviting from the directory has its own routes (one per surface) that read the
   // contact, check `canInviteContact` and then run the same invite as the email form; the existing
   // invite routes keep their body as it is.
@@ -274,6 +296,15 @@ export const onboardingRoutes = {
     summary: "Invite someone from your business to the portal",
     body: InviteBody,
     response: InviteResult,
+  }),
+  portalRemoveUser: defineRoute({
+    method: "DELETE",
+    path: "/api/users/:id",
+    auth: "session",
+    roles: ADMIN,
+    summary: "Remove someone from your business's portal; they lose access within 5 minutes",
+    params: IdParams,
+    response: RemoveMemberResult,
   }),
   portalSettings: defineRoute({
     method: "GET",

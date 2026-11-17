@@ -1,12 +1,13 @@
 // Inviting an operator from the "Add operator" workflow: an unclaimed app_user row plus an operator
 // membership in every client; an empty environment gets its first client (Mezonas); twice is the
-// same as once; a client user is never promoted.
+// same as once; a client user is never promoted. Removing one (`db:remove-operator`): every operator
+// membership, their named items and leads let go, one audit row, never the last operator.
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withOperator } from "./client";
-import { addOperator } from "./operators";
-import { appUser, membership, tenant } from "./schema";
+import { addOperator, removeOperator } from "./operators";
+import { appUser, auditEvent, inboxItem, membership, tenant } from "./schema";
 import { seed } from "./seed";
 import { createTestDatabase, databaseAvailable, type TestDatabase } from "./testing";
 
@@ -81,5 +82,94 @@ describe.skipIf(!online)("addOperator", () => {
       /client_admin of a client/,
     );
     await expect(addOperator(t.db, { email: "not an email" })).rejects.toThrow(/not an email/);
+  });
+
+  it("removes an operator from every client, lets go of their items and leads, and audits it", async () => {
+    // The tests above leave first@ (Mezonas), owner@ (all three) and the seed's operator.
+    const leaver = await addOperator(t.db, { email: "leaver@mezonas.test" });
+    expect(await memberships(leaver.userId)).toHaveLength(3);
+    const tenantIds = (await t.db.select({ id: tenant.id }).from(tenant)).map((r) => r.id);
+    const led = tenantIds[0] as string;
+    const [item, done] = await withOperator(t.db, tenantIds, async (tx) => {
+      await tx
+        .update(tenant)
+        .set({
+          settings: sql`jsonb_set(${tenant.settings}, '{lead}'::text[], jsonb_build_object('userId', ${leaver.userId}::text))`,
+        })
+        .where(eq(tenant.id, led));
+      return tx
+        .insert(inboxItem)
+        .values([
+          {
+            tenantId: led,
+            kind: "request",
+            title: "Lead check",
+            assigneeRole: "operator",
+            assigneeUserId: leaver.userId,
+          },
+          {
+            tenantId: led,
+            kind: "request",
+            title: "Done already",
+            assigneeRole: "operator",
+            assigneeUserId: leaver.userId,
+            status: "resolved",
+          },
+        ])
+        .returning({ id: inboxItem.id });
+    });
+
+    const r = await removeOperator(t.db, { email: " Leaver@Mezonas.test ", by: "run 42" });
+    expect(r).toEqual({ userId: leaver.userId, clients: 3, reassigned: 1, leads: 1 });
+    expect(await memberships(leaver.userId)).toEqual([]);
+    // The user stays: history and the audit log name them.
+    const [row] = await t.db.select().from(appUser).where(eq(appUser.id, leaver.userId));
+    expect(row?.email).toBe("leaver@mezonas.test");
+    const after = await withOperator(t.db, tenantIds, async (tx) => ({
+      items: await tx
+        .select({ id: inboxItem.id, role: inboxItem.assigneeRole, user: inboxItem.assigneeUserId })
+        .from(inboxItem)
+        .where(eq(inboxItem.assigneeRole, "operator")),
+      client: (await tx.select().from(tenant).where(eq(tenant.id, led)))[0],
+      audit: await tx.select().from(auditEvent).where(eq(auditEvent.action, "operator.remove")),
+    }));
+    expect(after.items).toEqual(
+      expect.arrayContaining([
+        { id: item?.id, role: "operator", user: null },
+        // A resolved item keeps who answered it.
+        { id: done?.id, role: "operator", user: leaver.userId },
+      ]),
+    );
+    expect(after.client?.settings).toMatchObject({ lead: null });
+    expect(after.audit).toEqual([
+      expect.objectContaining({
+        actorKind: "system",
+        outcome: "ok",
+        tenantId: null,
+        target: { user: leaver.userId, clients: "3", reassigned: "1", leads: "1", by: "run 42" },
+      }),
+    ]);
+
+    await expect(removeOperator(t.db, { email: "leaver@mezonas.test" })).rejects.toThrow(
+      /not an operator/,
+    );
+    await expect(removeOperator(t.db, { email: "nobody@mezonas.test" })).rejects.toThrow(/no user/);
+    await expect(removeOperator(t.db, { email: "admin@demo-client.example.com" })).rejects.toThrow(
+      /not an operator/,
+    );
+  });
+
+  it("never removes the last operator", async () => {
+    await removeOperator(t.db, { email: "first@mezonas.test" });
+    await removeOperator(t.db, { email: "operator@example.com" });
+    await expect(removeOperator(t.db, { email: "owner@mezonas.test" })).rejects.toThrow(
+      /last operator/,
+    );
+    const tenantIds = (await t.db.select({ id: tenant.id }).from(tenant)).map((r) => r.id);
+    const [owner] = await t.db
+      .select()
+      .from(appUser)
+      .where(eq(appUser.email, "owner@mezonas.test"));
+    expect(await memberships(owner?.id ?? "")).toHaveLength(tenantIds.length);
   });
 });

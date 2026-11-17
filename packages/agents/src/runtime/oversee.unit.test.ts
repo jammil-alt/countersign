@@ -17,6 +17,7 @@ import {
 } from "@countersign/core";
 import { FakeModel, type LlmRequest } from "@countersign/llm";
 import { describe, expect, it } from "vitest";
+import type { ModelCallInput } from "../log/model-calls";
 import { SkillCatalog } from "../registry/skills";
 import { ToolRegistry } from "../registry/tools";
 import { PLATFORM_TOOLS } from "../tools/platform";
@@ -87,6 +88,15 @@ function deps(model: FakeModel): RuntimeDeps {
       log: { addUsage: async () => {} },
     },
   } as unknown as RuntimeDeps;
+}
+
+/** §1.115: the model calls a deps records, to read their action. */
+function capture(d: RuntimeDeps): ModelCallInput[] {
+  const calls: ModelCallInput[] = [];
+  (d.ports as { modelCalls?: unknown }).modelCalls = {
+    record: async (_tenantId: string, call: ModelCallInput) => void calls.push(call),
+  };
+  return calls;
 }
 
 function store(actions: { id: string; status: string; error: unknown }[] = []) {
@@ -173,6 +183,21 @@ describe("the owner reviews v4 steps", () => {
       action: "retry_with",
       inputAfter: { id: "rec-1", amount: "1.00" },
     });
+  });
+
+  it("records its model call on the step as oversight (§1.115)", async () => {
+    const d = deps(new FakeModel([finish({ action: "retry", note: "Try again.", sources: [] })]));
+    const calls = capture(d);
+    const { s } = store();
+    await overseeStep(
+      d,
+      s,
+      request(fix, {
+        runId: "0195f1a2-0000-7000-8000-0000000000b1",
+        stepRunId: "0195f1a2-0000-7000-8000-0000000000b2",
+      }),
+    );
+    expect(calls).toEqual([expect.objectContaining({ action: "oversight", agentVersionId: "v1" })]);
   });
 
   it("stops a v4 write whose change reached the client's tool, without asking the model", async () => {

@@ -10,9 +10,11 @@
 //
 // Every /mcp request: a bearer token AuthKit issued for this resource (401 with a challenge naming
 // the metadata otherwise) → the app_user whose WorkOS id is its subject → an operator or a client
-// membership (403 otherwise) → the per-person rate limit (429) → JSON-RPC. An operator's tools read
-// as the back office does, scoped to the clients they serve (withOperator); a client's as the
-// portal does, for exactly one client of theirs per call (withTenant, invariant 1).
+// membership (403 otherwise) → the per-person rate limit (429) → JSON-RPC; while our second step of
+// signing in is on, each tool call also needs this AuthKit session approved (./approval.ts, §1.120).
+// An operator's tools read as the back office does, scoped to the clients they serve
+// (withOperator); a client's as the portal does, for exactly one client of theirs per call
+// (withTenant, invariant 1).
 
 import {
   bearerChallenge,
@@ -28,8 +30,9 @@ import { eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { authDirectory } from "../auth";
 import type { Bindings } from "../env";
-import { type AppContext, type AppDeps, type AppEnv, requestState } from "../http";
+import { type AppContext, type AppDeps, type AppEnv, HttpError, requestState } from "../http";
 import { reportHandled, reportProblem } from "../observability/report";
+import { claudeConnectionGate } from "./approval";
 import { logAuditSink, loggedArgs, type McpAuditSink } from "./audit";
 import {
   type AuthorizationServer,
@@ -125,7 +128,7 @@ const metadataResponse = (body: unknown) =>
   });
 
 type Authenticated =
-  | { ok: true; session: Session; audience: McpAudience }
+  | { ok: true; session: Session; audience: McpAudience; sessionId: string | null }
   | { ok: false; response: Response };
 
 async function authenticate(
@@ -198,9 +201,12 @@ async function authenticate(
   // DECISION: an operator gets the back office's tools, even where they also hold a client role
   // (the back office already reaches every client they serve); anyone else with a client role
   // gets the portal's. Membership is read on every call, so a removed person loses access at once.
-  if (built.session.isOperator) return { ok: true, session: built.session, audience: "ops" };
+  const sessionId = verified.sessionId;
+  if (built.session.isOperator) {
+    return { ok: true, session: built.session, audience: "ops", sessionId };
+  }
   if (clientMemberships(built.session).length > 0) {
-    return { ok: true, session: built.session, audience: "client" };
+    return { ok: true, session: built.session, audience: "client", sessionId };
   }
   return forbidden("this account is not a member of any business on Mezonas");
 }
@@ -268,6 +274,25 @@ export function mcpRoutes(app: Hono<AppEnv>, deps: AppDeps): void {
     const objects = services.deps.objects(c.env);
     const audit = mcp.audit(c.env);
     const { audience } = auth;
+    const appOrigin = config.resource.slice(0, -MCP_PATH.length);
+    // The second step (docs/plan.md §1.120): asked once per HTTP request, at its first tool call.
+    // DECISION: initialize and tools/list answer without it (they show no one's data), so Claude
+    // connects and the refusal reaches the person as a tool error, link and all, which a refused
+    // connection would not.
+    let gate: ReturnType<typeof claudeConnectionGate> | null = null;
+    const approved = () => {
+      gate ??= claudeConnectionGate({
+        db: services.db,
+        env: c.env,
+        deps: services.deps,
+        userId: session.user.id,
+        sessionId: auth.sessionId,
+        approvePage: (code) =>
+          `${appOrigin}${audience === "ops" ? "/ops" : ""}/connect-claude/${code}`,
+        now: mcp.now(),
+      });
+      return gate;
+    };
     /** Runs a tool, turns a failure into a tool error, and writes the audit line. */
     async function called<Ctx extends { audit: OpsToolCtx["audit"] }>(
       tool: Tool<Ctx>,
@@ -278,6 +303,8 @@ export function mcpRoutes(app: Hono<AppEnv>, deps: AppDeps): void {
       let result: ToolResult;
       let code: string | undefined;
       try {
+        const allowed = await approved();
+        if (!allowed.ok) throw new HttpError(403, allowed.code, allowed.message);
         const args = tool.input.parse(raw) as Record<string, unknown>;
         result = await tool.run(ctx, args);
       } catch (error) {

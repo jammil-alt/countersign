@@ -1,12 +1,13 @@
 // v0.12 W1-E: model calls (ARCHITECTURE §10.10; docs/plan.md §1.40). After each model call of a
 // run's step (the agent loop, a reach-out's message, a document read by `docs.extract`), the
-// runtime hands this port the request, the answer, usage and timing. The writer
-// below records a `model_call` row (provider, model, tokens, cost, duration, stop reason) in the
+// runtime hands this port the request, the answer, usage and timing, and what the call was for
+// (§1.115). The writer below records a `model_call` row (provider, model, action, tokens, cost,
+// duration, stop reason) in the
 // client's own transaction, then stores the request and answer, card numbers redacted (§16), in
 // object storage under the client's prefix. The back office reads them; the portal never does.
 
 import type { ObjectStore } from "@countersign/connectors";
-import { Decimal, redactCardNumbersDeep, uuidv7 } from "@countersign/core";
+import { Decimal, type ModelCallAction, redactCardNumbersDeep, uuidv7 } from "@countersign/core";
 import { type Db, modelCall, withTenant } from "@countersign/db";
 
 /** One model call of a run's step, as the runtime saw it. */
@@ -14,6 +15,8 @@ export interface ModelCallInput {
   runId: string;
   stepRunId: string;
   agentVersionId: string | null;
+  /** What the call was for (migration 0055, docs/plan.md §1.115). */
+  action: ModelCallAction;
   /** `anthropic` | `openai` | `xai` | `google` (core's `modelProvider`). */
   provider: string;
   model: string;
@@ -87,6 +90,7 @@ export function dbModelCalls(
           agentVersionId: call.agentVersionId,
           provider: call.provider,
           model: call.model,
+          action: call.action,
           tokensIn: call.tokensIn,
           tokensOut: call.tokensOut,
           // numeric(14,4): rounded up to a ten-thousandth, so a call never shows as free.

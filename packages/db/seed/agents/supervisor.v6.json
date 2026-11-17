@@ -1,0 +1,66 @@
+{
+  "extends": 5,
+  "definition": {
+    "skills": [
+      {
+        "skill": "account.chat",
+        "settings": {}
+      }
+    ],
+    "extraTools": []
+  },
+  "workflows": [
+    {
+      "slug": "chat",
+      "name": "When someone writes to Sloan",
+      "workflow": {
+        "schemaVersion": 4,
+        "triggers": [
+          {
+            "id": "trg-chat",
+            "on": {
+              "type": "event",
+              "event": "thread.message_posted",
+              "filter": {
+                "match": "all",
+                "rules": [
+                  {
+                    "field": "{{trigger.subjectType}}",
+                    "op": "=",
+                    "value": "account"
+                  },
+                  {
+                    "field": "{{trigger.senderType}}",
+                    "op": "=",
+                    "value": "user"
+                  },
+                  {
+                    "field": "{{trigger.audience}}",
+                    "op": "=",
+                    "value": "client"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "steps": [
+          {
+            "id": "answer",
+            "name": "Answer the message",
+            "client": {
+              "visible": true,
+              "label": "Answered you"
+            },
+            "kind": "skill",
+            "skill": "account.chat",
+            "input": {
+              "threadId": "{{trigger.threadId}}",
+              "messageId": "{{trigger.messageId}}"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

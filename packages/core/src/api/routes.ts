@@ -4,6 +4,8 @@ import { ConverseOpsView, ConversePortalView } from "../converse";
 import { DESK_ITEM_FIELDS } from "../desk/item";
 import { Locale } from "../i18n/locale";
 import { isUuid } from "../ids";
+// §1.116: the phone app
+import { DeviceSignature } from "../mobile/mobile";
 // Wave 6: the run audit (the owner's check on every step, the audit queue, the export)
 import { OwnerCheckView } from "../oversight/check";
 import { STEP_KINDS } from "../process/schema";
@@ -64,12 +66,15 @@ import { libraryRoutes } from "./library";
 // v0.12 W1-A: go-live stages and client controls
 import { GoLive, lifecycleRoutes } from "./lifecycle";
 import { messagingRoutes } from "./messaging";
+// §1.116: the phone app
+import { mobileRoutes } from "./mobile";
 import { modelRoutes } from "./models";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
 import { notifyRoutes } from "./notify";
 import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
 // v0.13 W2-I: run oversight
 import { OversightDecisionView, oversightRoutes } from "./oversight";
+import { ownerRoutes } from "./owners";
 import { packRoutes } from "./packs";
 // v0.12 W1-G: people (autonomy).
 import { peopleRoutes, voiceSampleRoutes } from "./people";
@@ -214,6 +219,8 @@ export const ResolveBody = z.strictObject({
   decision: z.enum(["approve", "reject"]).optional(),
   answer: z.unknown().optional(),
   note: Note.optional(),
+  /** §1.116: signed on a registered phone with Face ID or a fingerprint (checked, then recorded). */
+  deviceSignature: DeviceSignature.optional(),
 });
 
 // ── Back office shapes ───────────────────────────────────────────────────────────────────────────
@@ -1952,6 +1959,10 @@ export const opsRoutes = {
     response: BuilderOutcome.extend({
       version: VersionSummary,
       diff: BundleDiff,
+      /** v0.19 (§10.15): the draft's class by code: `never` loosens or widens. */
+      changeClass: z
+        .object({ class: z.enum(["none", "process", "never"]), reasons: z.array(z.string()) })
+        .optional(),
     }),
   }),
   opsDiscardAgent: defineRoute({
@@ -2334,6 +2345,8 @@ export const routes = {
   ...lifecycleRoutes,
   // v0.12 W1-B: notifications, the Table and the Weekly Table
   ...notifyRoutes,
+  // §1.116: the phone app
+  ...mobileRoutes,
   ...tableRoutes,
   // v0.12 W1-D: the Desk
   ...deskRoutes,
@@ -2357,6 +2370,8 @@ export const routes = {
   ...modelRoutes,
   // v0.13 W2-I: run oversight decisions for the agent lab.
   ...oversightRoutes,
+  // v0.19: area owners (ARCHITECTURE §10.15)
+  ...ownerRoutes,
   // v0.12 W3-A: the Builder as a conversation.
   ...builderRoutes,
   // v0.14 W4-E: Google Chat

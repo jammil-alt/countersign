@@ -91,6 +91,9 @@ type View =
   | { kind: "recovery" }
   | { kind: "saved"; codes: string[] };
 
+/** A full page load (an object, so a test can watch it: jsdom can't navigate). */
+export const fullPageLoad = { to: (url: string) => window.location.replace(url) };
+
 export function SecondStepScreen() {
   const { t } = useI18n();
   const api = useApiClient();
@@ -103,6 +106,12 @@ export function SecondStepScreen() {
   const [view, setView] = useState<View | null>(null);
 
   async function finish() {
+    // §1.116: a sign-in for the phone app goes on to the API's handoff, a full page load (not one
+    // of the app's pages), which hands the session to the phone.
+    if (returnTo === apiRoutes.mobileHandoff.path) {
+      fullPageLoad.to(returnTo);
+      return;
+    }
     const next = await refresh();
     const home = next.status === "signed_in" ? homeFor(next.session) : "/";
     navigate(safeReturnTo(returnTo, home), { replace: true });

@@ -13,6 +13,8 @@ import {
   agentVersion,
   alert,
   appUser,
+  areaOwner,
+  areaOwnerVersion,
   auditEvent,
   automation,
   automationVersion,
@@ -49,16 +51,15 @@ import {
   memoryNote,
   message,
   messageTranslation,
-  modelCall,
   notification,
   organization,
   organizationChange,
   ownerCheck,
+  personDevice,
   qboWebhookEvent,
   rawRecord,
   reachOut,
   receivable,
-  run,
   runAudit,
   runAuditMark,
   savedView,
@@ -144,6 +145,9 @@ export interface ClientFixture {
   builderTurnId: string;
   conversationId: string;
   translationId: string;
+  /** 0057: the Purchasing owner and its live version ("" on a schema before 0057). */
+  ownerId: string;
+  ownerVersionId: string;
 }
 
 /** A shared automation's definition, as core's `Automation` (W2-B) will check it. */
@@ -205,10 +209,11 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     })
     .returning();
 
-  const [a] = await db
-    .insert(agent)
-    .values({ tenantId, kind: "client", slug: "test-agent", name: "Test agent" })
-    .returning();
+  // Plain SQL for the tables later migrations add columns to (agent, run, memory_note), so a
+  // migration test can build this fixture on the schema before its migration (0057 onwards).
+  const [a] = await db.$client<{ id: string }[]>`
+    insert into agent (tenant_id, kind, slug, name) values (${tenantId}, 'client', 'test-agent',
+      'Test agent') returning id`;
   if (!a) throw new Error("no agent");
   const [av] = await db
     .insert(agentVersion)
@@ -235,10 +240,9 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     wrappedKey: { v: 1, alg: "A256GCM", kid: "0000000000000000", iv: "aXY=", ct: "Y3Q=" },
   });
 
-  const [r] = await db
-    .insert(run)
-    .values({ tenantId, agentId: a.id, agentVersionId: av.id, workflowSlug: "wf" })
-    .returning();
+  const [r] = await db.$client<{ id: string }[]>`
+    insert into run (tenant_id, agent_id, agent_version_id, workflow_slug)
+    values (${tenantId}, ${a.id}, ${av.id}, 'wf') returning id`;
   if (!r) throw new Error("no run");
   const [sr] = await db
     .insert(stepRun)
@@ -282,9 +286,9 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     .values({ tenantId, threadId: th.id, senderType: "system", body: { text: "hi" } })
     .returning();
   if (!m) throw new Error("no message");
-  await db
-    .insert(memoryNote)
-    .values({ tenantId, agentId: a.id, note: "remember", sourceMessageId: m.id });
+  await db.$client`
+    insert into memory_note (tenant_id, agent_id, note, source_message_id)
+    values (${tenantId}, ${a.id}, 'remember', ${m.id})`;
   await db.insert(usageDaily).values({ tenantId, day: "2026-11-03", agentId: a.id, runs: 1 });
   await db.insert(usagePlatformDaily).values({
     tenantId,
@@ -295,23 +299,16 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     costUsd: "0.0123",
   });
   await db.insert(threadRead).values({ tenantId, threadId: th.id, userId: u.id });
-  const [mc] = await db
-    .insert(modelCall)
-    .values({
-      tenantId,
-      runId: r.id,
-      stepRunId: sr.id,
-      agentVersionId: av.id,
-      provider: "anthropic",
-      model: "claude-opus-5-5",
-      tokensIn: 100,
-      tokensOut: 20,
-      costUsd: "0.0040",
-      durationMs: 900,
-      stopReason: "end_turn",
-      bodyKey: `tenants/${tenantId}/model-calls/${sr.id}.json`,
-    })
-    .returning();
+  // 0055: its columns named, not drizzle's whole list (which has `action`), so a client seeded on
+  // a database migrated only to an earlier migration gets this row too.
+  const [mc] = [
+    ...(await db.execute<{ id: string }>(sql`
+      insert into model_call (tenant_id, run_id, step_run_id, agent_version_id, provider, model,
+                              tokens_in, tokens_out, cost_usd, duration_ms, stop_reason, body_key)
+      values (${tenantId}, ${r.id}, ${sr.id}, ${av.id}, 'anthropic', 'claude-opus-5-5', 100, 20,
+              0.0040, 900, 'end_turn', ${`tenants/${tenantId}/model-calls/${sr.id}.json`})
+      returning id`)),
+  ];
   if (!mc) throw new Error("no model call");
   const [nt] = await db
     .insert(notification)
@@ -802,6 +799,19 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     markedBy: u.id,
     inboxItemId: ii.id,
   });
+  // §1.116: the person's phone, once migration 0056 is there (a migration test may fill a
+  // database migrated only up to an earlier one).
+  const [phones] = await db.$client<{ present: boolean }[]>`
+    select to_regclass('public.person_device') is not null as present`;
+  if (phones?.present)
+    await db.insert(personDevice).values({
+      tenantId,
+      userId: u.id,
+      name: "Phone",
+      platform: "ios",
+      pushToken: "ExponentPushToken[fixture]",
+      publicKey: { kty: "EC", crv: "P-256", x: "A".repeat(43), y: "B".repeat(43) },
+    });
   await db.insert(ledgerAccountNote).values({
     tenantId,
     ledgerAccountId: la.id,
@@ -819,7 +829,41 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     httpStatus: 200,
   });
 
+  // 0057 (ARCHITECTURE v0.19 §10.15): the client's Purchasing owner, its first version, a note of
+  // its own and a person's summary; only on a schema that has them.
+  let ownerId = "";
+  let ownerVersionId = "";
+  const [has] = await db.$client<{ ok: boolean }[]>`
+    select to_regclass('public.area_owner') is not null as ok`;
+  if (has?.ok) {
+    const [o] = await db
+      .insert(areaOwner)
+      .values({ tenantId, area: "purchasing", name: "Pia" })
+      .returning();
+    if (!o) throw new Error("no owner");
+    const [ov] = await db
+      .insert(areaOwnerVersion)
+      .values({
+        tenantId,
+        ownerId: o.id,
+        version: 1,
+        definition: { model: { id: "claude-sonnet-5-5", maxTokens: 4096 }, notes: "" },
+        authorType: "system",
+      })
+      .returning();
+    if (!ov) throw new Error("no owner version");
+    await db.update(areaOwner).set({ liveVersionId: ov.id }).where(eq(areaOwner.id, o.id));
+    await db.insert(memoryNote).values([
+      { tenantId, ownerId: o.id, note: "Freight under $20 needs no question" },
+      { tenantId, agentId: a.id, scope: "person", personId: u.id, note: "Asked about a bill" },
+    ]);
+    ownerId = o.id;
+    ownerVersionId = ov.id;
+  }
+
   return {
+    ownerId,
+    ownerVersionId,
     tenantId,
     userId: u.id,
     connectionId: c.id,
