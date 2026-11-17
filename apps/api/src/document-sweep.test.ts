@@ -147,6 +147,23 @@ describe.skipIf(!h)("the reading sweep", () => {
     expect(await eventsOf(id, "document.extracted")).toHaveLength(0);
   });
 
+  it("never reads the attachments of a reply kept without answering", async () => {
+    const id = await uploadUnread(
+      "late-quote.pdf",
+      "application/pdf",
+      new Uint8Array([...invoice("northline-20418.pdf"), 8]),
+    );
+    // As receiveReachOutReply stores a late, unverified or system-mail reply's attachments.
+    await H.t.db
+      .update(document)
+      .set({ source: "email", meta: { via: "late_reply" } })
+      .where(eq(document.id, id));
+    await backdate(id, 11 * MIN);
+    expect(await sweep()).toEqual(none);
+    expect((await docOf(id))?.status).toBe("stored");
+    expect(await eventsOf(id, "document.extracted")).toHaveLength(0);
+  });
+
   it("a claim a later pass took over is void: the document is read once, by the holder", async () => {
     const id = await uploadUnread(
       "cedar-ridge-7731.png",

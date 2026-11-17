@@ -402,6 +402,8 @@ describe.skipIf(!h)("attachments both ways through the API", () => {
       const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
       const raw = new TextEncoder().encode(
         [
+          // Cloudflare's verdict on top: SPF passed for the envelope sender's domain.
+          "Authentication-Results: mx.cloudflare.net; spf=pass smtp.mailfrom=sam@vendor.example",
           "From: Sam Roe <sam@vendor.example>",
           `To: ${replyTo}`,
           "Subject: Re: Purchase order",

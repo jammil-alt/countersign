@@ -126,14 +126,28 @@ export function extensionFor(contentType: string): string {
   return DOCUMENT_TYPES.get(t)?.ext ?? OTHER_TYPES.get(t) ?? "bin";
 }
 
+const PDF_HEADER = [0x25, 0x50, 0x44, 0x46, 0x2d]; // %PDF-
+
+function hasPdfHeader(bytes: Uint8Array): boolean {
+  const end = Math.min(bytes.length, 1024) - PDF_HEADER.length;
+  for (let i = 0; i <= end; i++) {
+    if (PDF_HEADER.every((b, j) => bytes[i + j] === b)) return true;
+  }
+  return false;
+}
+
 /**
- * Whether the bytes start as their declared type does. PDFs and images are checked by their magic
- * bytes; the other types on the `all` list are taken as declared (they are stored, never read).
+ * Whether the bytes start as their declared type does. PDFs (`%PDF-` within the first 1024
+ * bytes) and images are checked by their magic bytes; the other types on the `all` list are taken
+ * as declared (they are stored, never read).
  */
 export function bytesMatchType(bytes: Uint8Array, contentType: string): boolean {
   const t = normalizeContentType(contentType);
   const known = DOCUMENT_TYPES.get(t);
   if (!known) return OTHER_TYPES.has(t);
+  // DECISION: a PDF's `%PDF-` may follow other bytes within the first 1024 (the PDF spec allows
+  // it, and readers accept it), so it is looked for there, not only at the start.
+  if (t === "application/pdf") return hasPdfHeader(bytes);
   const starts = known.magic.some((m) => m.every((b, i) => bytes[i] === b));
   if (!starts) return false;
   if (t === "image/webp") {

@@ -926,6 +926,9 @@ export const fr: Messages = {
     "Un par ligne. Un domaine (votrefournisseur.com) couvre tout le monde chez lui.",
   "forwarding.edit": "Modifier qui peut transférer",
   "forwarding.drop.sender_not_allowed": "l'expéditeur n'est pas dans votre liste",
+  "forwarding.drop.sender_unverified":
+    "l'expéditeur est dans votre liste, mais nous n'avons pas pu confirmer qu'il venait de lui",
+  "forwarding.drop.auto_reply": "c'était une réponse automatique, comme un message d'absence",
   "forwarding.drop.unknown_address": "il a été envoyé à une adresse ancienne ou erronée",
   "forwarding.drop.too_large": "il dépassait 25 Mo",
   "forwarding.drop.unreadable": "le message était illisible",
@@ -1445,6 +1448,7 @@ export const fr: Messages = {
   "contacts.status.failed": "échec",
   "contacts.status.read": "lu",
   "contacts.status.received": "reçu",
+  "contacts.status.unverified": "reçu, expéditeur non confirmé",
   "contacts.status.replied": "a répondu",
   "contacts.status.not_sent": "non envoyé",
   "contacts.status.no_reply": "pas de réponse",

@@ -909,6 +909,9 @@ export const ptBR: Messages = {
     "Um por linha. Um domínio (seufornecedor.com.br) cobre todos que usam esse domínio.",
   "forwarding.edit": "Editar quem pode encaminhar",
   "forwarding.drop.sender_not_allowed": "o remetente não está na sua lista",
+  "forwarding.drop.sender_unverified":
+    "o remetente está na sua lista, mas não conseguimos confirmar que foi ele quem enviou",
+  "forwarding.drop.auto_reply": "era uma resposta automática, como um aviso de ausência",
   "forwarding.drop.unknown_address": "foi enviado para um endereço antigo ou errado",
   "forwarding.drop.too_large": "tinha mais de 25 MB",
   "forwarding.drop.unreadable": "não foi possível ler a mensagem",
@@ -1421,6 +1424,7 @@ export const ptBR: Messages = {
   "contacts.status.failed": "falhou",
   "contacts.status.read": "lido",
   "contacts.status.received": "recebido",
+  "contacts.status.unverified": "recebido, remetente não confirmado",
   "contacts.status.replied": "respondeu",
   "contacts.status.not_sent": "não enviado",
   "contacts.status.no_reply": "sem resposta",

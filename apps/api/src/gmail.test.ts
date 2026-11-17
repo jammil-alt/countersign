@@ -411,11 +411,15 @@ describe.skipIf(!h)("Gmail, send only, through the API", () => {
       expect(signatureOf(mail.text)[1]).toContain("mezonas.com");
       const replyTo = mail.replyTo[0] ?? "";
       const [local, domain] = forwarding.split("@");
-      expect(replyTo).toMatch(new RegExp(`^${local}\\+[0-9a-f]{32}@${domain}$`));
+      // The client's reply address, not the forwarding address.
+      expect(replyTo).toMatch(new RegExp(`^r-[a-z2-7]{26}\\+[a-z2-7]{34}@${domain}$`));
+      expect(replyTo).not.toContain(local);
 
       // María answers from her own address; someone else writing to the tagged address doesn't count.
       const raw = new TextEncoder().encode(
         [
+          // Cloudflare's verdict on top: SPF passed for María's domain.
+          `Authentication-Results: mx.cloudflare.net; spf=pass smtp.mailfrom=${MARIA}`,
           `From: María Núñez <${MARIA}>`,
           `To: ${replyTo}`,
           "Subject: Re: Entrega del viernes",

@@ -183,6 +183,8 @@ describe.skipIf(!h)("people", () => {
       const to = address.replace("@", "+voice@");
       const raw = new TextEncoder().encode(
         [
+          // Cloudflare's verdict on top: SPF passed for the envelope sender's domain.
+          "Authentication-Results: mx.cloudflare.net; spf=pass smtp.mailfrom=admin@a.example.com",
           "From: Client admin <admin@a.example.com>",
           `To: ${to}`,
           "Subject: How I write texts",

@@ -79,6 +79,9 @@ describe("capture", () => {
     expect(bytesMatchType(png, "image/png")).toBe(true);
     expect(bytesMatchType(png, "application/pdf")).toBe(false);
     expect(bytesMatchType(ascii("%PDF-1.7"), "application/pdf")).toBe(true);
+    // A PDF may carry bytes before its header, within the first 1024.
+    expect(bytesMatchType(ascii(`${"x".repeat(600)}%PDF-1.4`), "application/pdf")).toBe(true);
+    expect(bytesMatchType(ascii(`${"x".repeat(1020)}%PDF-1.4`), "application/pdf")).toBe(false);
     expect(bytesMatchType(ascii("<html>"), "image/jpeg")).toBe(false);
     const webp = ascii("RIFF\0\0\0\0WEBPVP8 ");
     expect(bytesMatchType(webp, "image/webp")).toBe(true);

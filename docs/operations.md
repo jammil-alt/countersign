@@ -111,6 +111,9 @@ After the first run: save the project id from the run summary as the repository 
    - Check: the portal's Connections page shows the client's address; mail from an allowed sender with
      a PDF shows up under Recent documents as "Forwarded"; the Worker logs `forwarded email dropped:
      <reason>` for the rest. Messages over 25 MB are dropped (Email Routing's limit).
+   - Check the sender assumptions in `packages/connectors/src/upload/NOTES.md` with real mail on
+     staging (a genuine message, one with a forged authentication header, one with a spoofed
+     envelope sender) before a real client relies on forwarding or emailed replies.
 4. **The code service** (Access phase 2, `apps/mfa`; ARCHITECTURE §6.9). See the checklist under
    "The code service" below.
 5. **WorkOS**: Mezonas' own staging and production environments; redirect URIs
@@ -383,7 +386,7 @@ CASA):
 - **A demo video** (unlisted, on YouTube): the consent screen in English with the client id visible
   in the address bar, a person connecting Gmail from the portal's Connections page, an agent's
   reach-out email waiting for approval in the inbox, approving it, the email arriving from that
-  mailbox, the reply coming back through the forwarding address, and disconnecting (which revokes
+  mailbox, the reply coming back through the client's reply address, and disconnecting (which revokes
   the grant).
 - **The scope's reason**, for `gmail.send`: "A person at a client business connects their Gmail so
   that agents can send the emails that person's team has approved (for example asking a vendor for a

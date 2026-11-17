@@ -285,8 +285,10 @@ export async function claimUnreadDocuments(
         // reading, and reading it again here would start its runs twice.
         sql`not exists (select 1 from doc_extraction x where x.document_id = "document"."id" and x.tenant_id = "document"."tenant_id")`,
         // DECISION (§1.110): a file attached to a conversation is kept unread on purpose; it is
-        // read only when Sloan or Reggie passes it to one agent. The sweep never reads it.
-        sql`coalesce(${document.meta}->>'via', '') <> 'chat'`,
+        // read only when Sloan or Reggie passes it to one agent. Attachments of a reply kept
+        // without answering (late, unverified or system mail) are kept quiet the same way, so
+        // they never start an agent as if they were invoices. The sweep reads neither.
+        sql`coalesce(${document.meta}->>'via', '') not in ('chat', 'late_reply')`,
         ...(input.where ? [input.where] : []),
       ),
     )
