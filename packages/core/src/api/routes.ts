@@ -39,6 +39,8 @@ import { builderRoutes } from "./builder";
 import { callRoutes } from "./calls";
 // v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export
 import { clientViewRoutes } from "./client-view";
+// docs/plan.md §1.125: the Dev queue
+import { codeRequestRoutes } from "./code-requests";
 // v0.12 W2-F: the command center, search and plain-words questions
 import { commandCenterRoutes } from "./command-center";
 import { complianceRoutes } from "./compliance";
@@ -2383,6 +2385,7 @@ export const routes = {
   ...opsRoutes,
   ...portalRoutes,
   ...feedbackRoutes,
+  ...codeRequestRoutes,
   ...complianceRoutes,
   ...exportRoutes,
   ...onboardingRoutes,

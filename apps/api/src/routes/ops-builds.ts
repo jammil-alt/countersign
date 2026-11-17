@@ -26,6 +26,8 @@ import {
   BuildProposal as BuildProposalSchema,
   buildHasSetupForm,
   buildIssues,
+  CODE_REQUEST_STATUS_WORDS,
+  dqNumber,
   FIT_WORDS,
   type FitGap,
   type FitRow,
@@ -53,11 +55,13 @@ import {
   buildEvent,
   buildItem,
   buildMessage,
+  codeRequest,
+  codeRequestLink,
   skillVersion,
   type Tx,
 } from "@countersign/db";
 import { createLlmClient, type LlmTransport } from "@countersign/llm";
-import { and, asc, eq, inArray, like } from "drizzle-orm";
+import { and, asc, eq, inArray, like, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import {
   addEvent,
@@ -75,6 +79,8 @@ import {
   summaries,
   withDecisions,
 } from "../build/store";
+import { acceptRequest, type DqCtx, fileRequest, linkToRequest } from "../dev-queue/service";
+import { settleShipped } from "../dev-queue/ship";
 import {
   type AppContext,
   type AppEnv,
@@ -381,6 +387,9 @@ async function turn(
       ...(row.phase === "draft" || row.phase === "poc"
         ? await draftOutline({ tx: scoped.tx, services: ctx.services, now }, row)
         : []),
+      // docs/plan.md §1.125: what this build waits on in the Dev queue, and what is open there,
+      // so a second build links to the first build's request instead of filing again.
+      ...(await devQueueFacts(scoped.tx, row.id)),
     ];
     // Owner (2026-11-17): the catalog in every phase, and the other work the operator can see.
     const bctx = await builderContext({ ...scoped, services: ctx.services }, row.clientId);
@@ -713,6 +722,20 @@ function fitProposal(p: BuildProposal, d: BuildDetail, phase: BuildPhase): Build
         (d.build.kind === "agent" ? !!d.draft?.versionId : !!d.draft?.sessionId)
         ? p
         : null;
+    // docs/plan.md §1.125: a gap's two buckets, and the Dev queue's link and approval.
+    case "file_code_request":
+    case "link_code_request":
+    case "draft_skill": {
+      if (phase !== "fitgap" && phase !== "draft" && phase !== "poc") return null;
+      if (!a.itemId) return p;
+      const item = itemOf(a.itemId);
+      if (!item || !itemOpen(item.state) || item.kind !== "gap") return null;
+      // A gap already waiting on a request, or with its skill build, is settled that way.
+      if (item.ref.codeRequestId || (a.do === "draft_skill" && item.ref.buildId)) return null;
+      return { ...p, action: { ...a, itemId: item.id } };
+    }
+    case "approve_code_request":
+      return p;
   }
 }
 
@@ -836,7 +859,235 @@ async function runAction(ctx: LongCtx, id: string, a: BuildAction): Promise<void
       return;
     case "edit_draft":
       throw new Error("a draft edit is made by applyEdit");
+    case "file_code_request":
+    case "link_code_request":
+    case "approve_code_request":
+    case "draft_skill":
+      throw new Error("a Dev queue proposal is made by runDevQueueAction");
   }
+}
+
+/** The Dev queue's moves as this build's operator (docs/plan.md §1.125). */
+function dqCtx(ctx: LongCtx, actor: "operator" | "builder"): DqCtx {
+  return {
+    services: ctx.services,
+    inTx: ctx.inTx,
+    userId: ctx.session.user.id,
+    actor,
+    now,
+  };
+}
+
+type DevQueueAction = Extract<
+  BuildAction,
+  { do: "file_code_request" | "link_code_request" | "approve_code_request" | "draft_skill" }
+>;
+
+function isDevQueueAction(a: BuildAction): a is DevQueueAction {
+  return (
+    a.do === "file_code_request" ||
+    a.do === "link_code_request" ||
+    a.do === "approve_code_request" ||
+    a.do === "draft_skill"
+  );
+}
+
+/**
+ * Makes an agreed Dev queue proposal: files the request (the reuse check runs; an open request
+ * for the same capability comes back as a link to propose instead), links to one, approves one
+ * (the same guarded move as the request page's Accept), or starts a skill build for a gap that
+ * catalog parts can make (bucket A). Returns what the Builder says next, and a follow-up proposal.
+ */
+async function runDevQueueAction(
+  ctx: LongCtx,
+  id: string,
+  a: DevQueueAction,
+): Promise<{ text: string; proposal?: BuildProposal; about?: string }> {
+  switch (a.do) {
+    case "file_code_request": {
+      const r = a.request;
+      const link = {
+        buildId: id,
+        ...(a.workflowId ? { workflowId: a.workflowId } : {}),
+        ...(a.stepId ? { stepId: a.stepId } : {}),
+        ...(a.itemId ? { issueId: a.itemId } : {}),
+      };
+      const filed = await fileRequest(dqCtx(ctx, "builder"), {
+        title: r.title,
+        kind: r.kind,
+        spec: {
+          summary: r.summary,
+          inputs: r.inputs,
+          outputs: r.outputs,
+          rules: r.rules,
+          acceptance: r.acceptance,
+          parts: [r.part],
+          packages: [],
+        },
+        openQuestions: r.questions.map((q) => ({ ...q, answer: null })),
+        decision: r.decision,
+        decisionReason: r.decisionReason,
+        otherUses: r.otherUses,
+        considered: r.considered,
+        link,
+        createdBy: "builder",
+      });
+      if (filed.duplicate) {
+        const d = filed.duplicate;
+        return {
+          text: `This looks like ${d.ref}: ${d.title}. I'd link this step to it rather than file it twice.`,
+          proposal: {
+            summary: `Link this step to ${d.ref}`,
+            action: {
+              do: "link_code_request",
+              requestId: d.id,
+              ref: d.ref,
+              ...(a.itemId ? { itemId: a.itemId } : {}),
+              ...(a.stepId ? { stepId: a.stepId } : {}),
+              ...(a.workflowId ? { workflowId: a.workflowId } : {}),
+            },
+          },
+        };
+      }
+      const q = filed.request as NonNullable<typeof filed.request>;
+      const flag = q.coveredBy
+        ? ` The reuse check thinks “${q.coveredBy.name}” may already do it, so it's suggested as exists: look at that first.`
+        : "";
+      const reasons = q.moves.accept.allowed
+        ? ""
+        : ` Before it can be approved: ${q.moves.accept.reason}`;
+      return {
+        text: `Filed ${q.ref}: ${q.title}. It's in triage in the Dev queue, owned by Mezonas engineering.${flag}${reasons} The draft's problem on this step holds the move to the POC test until it ships; open questions and other gaps don't.`,
+        ...(q.moves.accept.allowed
+          ? {
+              proposal: {
+                summary: `Approve ${q.ref}: ${q.title}`.slice(0, 300),
+                action: { do: "approve_code_request", requestId: q.id, ref: q.ref },
+              },
+            }
+          : {}),
+      };
+    }
+    case "link_code_request": {
+      const q = await linkToRequest(
+        dqCtx(ctx, "builder"),
+        a.requestId,
+        {
+          buildId: id,
+          ...(a.workflowId ? { workflowId: a.workflowId } : {}),
+          ...(a.stepId ? { stepId: a.stepId } : {}),
+          ...(a.itemId ? { issueId: a.itemId } : {}),
+        },
+        true,
+      );
+      return { text: `Linked to ${q.ref}. The step waits on it, and I'll say here when it ships.` };
+    }
+    case "approve_code_request": {
+      const q = await acceptRequest(dqCtx(ctx, "operator"), a.requestId);
+      return { text: `${q.ref} approved: ${q.title}. Building it next.` };
+    }
+    case "draft_skill":
+      return draftSkill(ctx, id, a);
+  }
+}
+
+/**
+ * Bucket A (docs/plan.md §1.125): a gap catalog parts can fill as a skill (rules or an AI step over
+ * existing tools) is drafted in the same flow, as a skill build of its own: its brief filled from
+ * the step's need, its draft the skill Builder's, its tests the test bench's. The gap item names it
+ * (`ref.buildId`) and is the Builder's while it runs.
+ */
+// DECISION: the skill build starts with its brief filled and stays in intake for the operator's
+// Confirm, so its own review, fit-gap, draft and test bench run as any skill build's do; nothing
+// is queued and nothing deploys.
+async function draftSkill(
+  ctx: LongCtx,
+  id: string,
+  a: Extract<BuildAction, { do: "draft_skill" }>,
+): Promise<{ text: string }> {
+  const parent = await ctx.inTx((scoped) => readBuild(scoped.tx, id, true));
+  const started = await call(ctx, routes.opsStartBuild, {
+    body: {
+      kind: "skill",
+      title: a.title,
+      ...(parent.clientId ? { clientId: parent.clientId } : {}),
+    },
+  });
+  const skillBuild = started.build.id;
+  const field = (text: string) => ({ text: clip(text, 1000), state: "assumed" as const });
+  await call(ctx, routes.opsUpdateBuild, {
+    params: { id: skillBuild },
+    body: {
+      brief: {
+        goal: field(a.goal),
+        trigger: field(`Called as a step of the build “${parent.title}”.`),
+        dataIn: field(a.dataIn),
+        dataOut: field(a.dataOut),
+        ...(a.rules ? { rules: field(a.rules) } : {}),
+      },
+    },
+  });
+  await ctx.inTx(async (scoped) => {
+    const made = await readBuild(scoped.tx, skillBuild, true);
+    await addMessage(scoped.tx, made, {
+      role: "builder",
+      text: `I filled this brief from a step of “${parent.title}” that catalog parts can do as a skill. Check it and confirm; then I'll draft the skill and we test it on the test bench before it goes back there.`,
+      meta: {},
+    });
+    if (a.itemId) {
+      await scoped.tx
+        .update(buildItem)
+        .set({
+          owner: "builder",
+          state: "in_progress",
+          ref: sql`${buildItem.ref} || ${JSON.stringify({ buildId: skillBuild })}::jsonb`,
+        })
+        .where(and(eq(buildItem.id, a.itemId), eq(buildItem.buildId, id)));
+    }
+  });
+  return {
+    text: `I started the skill build “${a.title}” with its brief filled from this step. Confirm its brief there; it drafts the skill and tests it on the test bench, then it comes back to this step.`,
+  };
+}
+
+/** The Dev queue as the Builder sees it from a build: what it waits on, and what is open. */
+async function devQueueFacts(tx: Tx, buildId: string): Promise<string[]> {
+  const mine = await tx
+    .select({
+      id: codeRequest.id,
+      number: codeRequest.number,
+      title: codeRequest.title,
+      status: codeRequest.status,
+      stepId: codeRequestLink.stepId,
+    })
+    .from(codeRequestLink)
+    .innerJoin(codeRequest, eq(codeRequest.id, codeRequestLink.requestId))
+    .where(eq(codeRequestLink.buildId, buildId));
+  const open = await tx
+    .select({
+      id: codeRequest.id,
+      number: codeRequest.number,
+      title: codeRequest.title,
+      status: codeRequest.status,
+    })
+    .from(codeRequest)
+    .where(inArray(codeRequest.status, ["triage", "accepted", "in_progress"]))
+    .orderBy(asc(codeRequest.number))
+    .limit(30);
+  const words = (s: string) =>
+    CODE_REQUEST_STATUS_WORDS[s as keyof typeof CODE_REQUEST_STATUS_WORDS] ?? s;
+  return [
+    ...mine.map(
+      (r) =>
+        `This build waits on ${dqNumber(r.number)} (${words(r.status)}, request id ${r.id})${r.stepId ? ` for step ${r.stepId}` : ""}: ${r.title}`,
+    ),
+    ...open
+      .filter((r) => !mine.some((m) => m.id === r.id))
+      .map(
+        (r) =>
+          `Open in the Dev queue: ${dqNumber(r.number)} (${words(r.status)}, request id ${r.id}): ${r.title}`,
+      ),
+  ];
 }
 
 const clip = (text: string, max: number) =>
@@ -1188,6 +1439,17 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
       await record("declined");
       return detailOf(ctx, id);
     }
+    // docs/plan.md §1.125: filing, linking, approving a request, or starting a skill build.
+    if (isDevQueueAction(p.action)) {
+      if (decide !== "agree") throw new HttpError(409, "no_undo", "this change has no undo here");
+      const out = await runDevQueueAction(lc, id, p.action);
+      await record("agreed", { result: clip(out.text, 1000) });
+      await say(out.text, {
+        ...(about ? { about } : {}),
+        ...(out.proposal ? { proposal: { ...out.proposal, state: "proposed" } } : {}),
+      });
+      return detailOf(ctx, id);
+    }
     let changed: string[] = [];
     if (p.action.do === "edit_draft") {
       // Owner (2026-11-17): the draft changes in the build's conversation, made by the workflow's
@@ -1229,6 +1491,18 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
           return detailOf(ctx, id);
         }
         changed = [said];
+        // A part a request shipped, put in its step: the gap item closes once the step validates.
+        const settled = await ctx.inTx(async (scoped) =>
+          settleShipped(
+            scoped.tx,
+            ctx.services.platform,
+            await readBuild(scoped.tx, id, true),
+            now(),
+          ),
+        );
+        if (settled.length > 0) {
+          changed.push(`That settles ${settled.map((t) => `“${t}”`).join(", ")}, so I closed it.`);
+        }
       } else {
         if (!found.edit || found.edit.changeIds.length === 0) {
           throw new HttpError(409, "no_undo", "this change has no undo here");

@@ -30,6 +30,7 @@ export * from "./api/builder";
 export * from "./api/calls";
 // v0.12 W2-G: KPIs and the client view, credits, the client's audit export
 export * from "./api/client-view";
+export * from "./api/code-requests";
 // v0.12 W2-F: the command center, search and plain-words questions
 export * from "./api/command-center";
 export * from "./api/compliance";
@@ -136,6 +137,7 @@ export * from "./billing";
 export * from "./browser/script";
 export * from "./browser/site";
 export * from "./build/build";
+export * from "./build/code-requests";
 export * from "./build/issues";
 export * from "./bundle/client-specific";
 export * from "./bundle/diff";

@@ -25,6 +25,7 @@ import { AgentStage } from "../lifecycle/stage";
 import { WorkBuildStage, WorkWaitingOn } from "../work/pipelines";
 import { RequirementsRequest } from "../work/requirements";
 import { Standing } from "../work/standing";
+import { StepCodeRequest } from "./code-requests";
 import { defineRoute } from "./contract";
 
 const Id = z.string().refine((v) => isUuid(v), "not an id");
@@ -112,6 +113,9 @@ export const BuildItemRef = z.object({
   actionId: z.string().optional(),
   /** A skill's build made for this one. */
   buildId: z.string().optional(),
+  /** The Dev queue's request it waits on (docs/plan.md §1.125), and its number (DQ-012). */
+  codeRequestId: z.string().optional(),
+  codeRequestRef: z.string().optional(),
 });
 
 export const BuildItemView = z.object({
@@ -254,6 +258,8 @@ export const BuildDetail = z.object({
   clientTest: BuildClientTestView.nullable(),
   qaChecks: z.array(QaCheck),
   events: z.array(BuildEventView),
+  /** docs/plan.md §1.125: the steps that require code, with their Dev queue request's status. */
+  codeRequests: z.array(StepCodeRequest).optional(),
 });
 export type BuildDetail = z.infer<typeof BuildDetail>;
 

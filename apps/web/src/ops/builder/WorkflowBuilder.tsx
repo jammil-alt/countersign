@@ -407,6 +407,8 @@ function BuilderBody(
 ) {
   const { agent, from, data, base } = props;
   const navigate = useNavigate();
+  // docs/plan.md §1.125: steps that require code, with their request's status in the Dev queue.
+  const codeRequests = useApi(apiRoutes.opsAgentCodeRequests, { params: { id: agent.id } });
   const ctx = useMemo(() => typingContext(data), [data]);
   // The version as the builder edits it: v3 workflows read as processes, every id kept. It is the
   // starting point, not an edit: nothing is unsaved until the operator changes something.
@@ -1491,7 +1493,14 @@ function BuilderBody(
 
               {workflow && props.view === "steps" ? (
                 <StepsList
-                  rows={stepRows({ workflow, errors: workflowErrors, left: leftItems, labels })}
+                  rows={stepRows({
+                    workflow,
+                    errors: workflowErrors,
+                    left: leftItems,
+                    labels,
+                    requests: codeRequests.data?.steps ?? [],
+                    slug,
+                  })}
                   selectedId={selection?.type === "step" ? selection.id : null}
                   onSelect={(id) => {
                     setSelection({ type: "step", id });
