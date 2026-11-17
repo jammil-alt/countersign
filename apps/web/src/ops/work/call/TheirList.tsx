@@ -77,7 +77,7 @@ export function TheirList({
       </p>
       {error ? <ErrorNotice error={error} /> : null}
       <div className="dt" data-testid={`call-${who}`}>
-        <div className="dt-wrap">
+        <div className="dt-wrap overflow-x-auto">
           <table className="dt-ana">
             <thead>
               <tr>

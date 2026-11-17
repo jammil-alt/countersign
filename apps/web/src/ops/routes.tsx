@@ -40,7 +40,7 @@ import {
   OpsClientRequestsScreen,
   OpsClientVendorCatalogScreen,
   OpsPacksScreen,
-} from "../packs/screens";
+} from "../packs/opsScreens";
 import { OpsRecordScreen } from "../records/RecordScreens";
 import { ConnectClaudeScreen } from "../session/ConnectClaude";
 import { Redirect } from "../shell/Redirect";
