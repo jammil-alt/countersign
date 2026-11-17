@@ -279,8 +279,9 @@ describe.skipIf(!h)("Build", () => {
     const path = `/api/ops/agents/${clerk}/release`;
     expect((await call(admin("a"), "POST", path, { reason: "fixed" })).status).toBe(403);
     expect((await call(OTHER_OPERATOR, "POST", path, { reason: "fixed" })).status).toBe(404);
+    // Reggie may read holds and propose placing one (§1.123.4); nothing of its or the MCP's releases.
     for (const tool of [...REGGIE_TOOLS, ...OPS_TOOLS]) {
-      expect(tool.name).not.toMatch(/release|hold/);
+      expect(tool.name).not.toMatch(/release|unhold|rollback/);
     }
     const released = await call(OPERATOR, "POST", path, { reason: "Rolled back to v6" });
     expect(released.status).toBe(200);
