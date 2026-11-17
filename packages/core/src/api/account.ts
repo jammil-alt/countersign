@@ -15,8 +15,11 @@ const PlatformSlug = z
   .max(64);
 
 export const InstallPlatformTemplateBody = z.strictObject({
-  /** The seeded version (`<slug>.v<version>.json`). */
-  version: z.number().int().min(1).max(1000),
+  /**
+   * The seeded version (`<slug>.v<version>.json`); left out, the newest one. One older than a
+   * seeded version the template already holds is refused (409).
+   */
+  version: z.number().int().min(1).max(1000).optional(),
 });
 
 export const InstalledPlatformTemplate = z.object({
@@ -59,7 +62,7 @@ export const accountRoutes = {
     auth: "session",
     roles: OPS,
     summary:
-      "Install a seeded platform template version and make it the template's live version (idempotent by bundle hash; clients' forks move only by a reviewed update)",
+      "Install a seeded platform template version (the newest when none is named) and make it the template's live version; idempotent by bundle hash, never older than a seeded version it holds; clients' forks move only by a reviewed update",
     params: z.object({ slug: PlatformSlug }),
     body: InstallPlatformTemplateBody,
     response: InstalledPlatformTemplate,

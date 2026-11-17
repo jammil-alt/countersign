@@ -91,6 +91,18 @@ export async function installPlatformTemplate(
     throw new HttpError(409, "not_a_template", `${input.slug} is not a template`);
   }
 
+  if (existing) {
+    // A seeded version older than one the template already holds would be published over it.
+    const newest = await newestSeededHeld(tx, input.slug, existing.id);
+    if (newest !== null && input.version < newest) {
+      throw new HttpError(
+        409,
+        "older_version",
+        `${input.slug} already has seeded v${newest}; v${input.version} is older and is not installed over it`,
+      );
+    }
+  }
+
   let templateId = existing?.id;
   let created = false;
   if (!templateId) {
@@ -148,6 +160,28 @@ export async function installPlatformTemplate(
     ctx: input.platform.ctx,
   });
   return result(input.slug, templateId, await getVersion(tx, live.id), true);
+}
+
+/**
+ * The newest seeded version whose bundle the template holds (any status), or null when it holds
+ * none of them (only versions the operator built).
+ */
+// DECISION: compared with the newest seeded version the template has ever held, not only its live
+// one, so a template whose live version is an operator's edit of seeded v6 still refuses v3. Going
+// back is a rollback in the back office, which keeps the history; an install never goes back.
+async function newestSeededHeld(tx: Tx, slug: string, templateId: string): Promise<number | null> {
+  const rows = await tx
+    .select({ hash: agentVersion.bundleHash })
+    .from(agentVersion)
+    .where(eq(agentVersion.agentId, templateId));
+  const held = new Set(rows.map((r) => r.hash));
+  const versions = Object.hasOwn(SEEDED, slug) ? SEEDED[slug] : undefined;
+  let newest: number | null = null;
+  for (const n of Object.keys(versions ?? {}).map(Number)) {
+    if (newest !== null && n <= newest) continue;
+    if (held.has(await bundleHash(parseVersionBundle(seeded(slug, n))))) newest = n;
+  }
+  return newest;
 }
 
 function result(
