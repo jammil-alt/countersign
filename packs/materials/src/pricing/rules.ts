@@ -62,6 +62,14 @@ export interface Observation {
   qtyStd: string;
   standardUom: StandardUom;
   docLineId: string | null;
+  /** ISO 4217; USD when not given. Prices are compared only within one currency. */
+  currency?: string | undefined;
+  /**
+   * The line stated no unit (or came from a QuickBooks bill line, which has none), so the price was
+   * taken to be per the standard unit: kept in the vendor's own history, never compared across
+   * vendors.
+   */
+  uomAssumed?: boolean | undefined;
 }
 
 export interface AlertDraft {
@@ -92,7 +100,12 @@ const UNIT_WORD: Record<StandardUom, string> = {
   quart: "quart",
 };
 
-const usd = (v: Decimal | string) => `$${formatAmount(v)}`;
+/** An observation's currency (USD when not stated). */
+export const currencyOf = (o: Pick<Observation, "currency">): string => o.currency ?? "USD";
+
+/** An amount in its currency: `$12.50` in US dollars, `CAD 12.50` in any other. */
+export const moneyIn = (v: Decimal | string, currency: string): string =>
+  currency === "USD" ? `$${formatAmount(v)}` : `${currency} ${formatAmount(v)}`;
 const pct = (v: Decimal) => `${v.abs().toDecimalPlaces(1).toString()}%`;
 const per = (o: Observation) =>
   o.standardUom === "each" ? "each" : `a ${UNIT_WORD[o.standardUom]}`;
@@ -114,7 +127,11 @@ function sorted(obs: readonly Observation[]): Observation[] {
   return [...obs].sort((a, b) => a.observedOn.localeCompare(b.observedOn));
 }
 
-/** Same item, same vendor, same unit, on or before the current observation's day (not it). */
+/**
+ * Same item, same vendor, same unit and currency, on or before the current observation's day
+ * (not it).
+ */
+// DECISION (audit 7.9): prices in two currencies are never compared (no exchange rate is kept).
 function sameVendorBefore(current: Observation, history: readonly Observation[]): Observation[] {
   return sorted(
     history.filter(
@@ -123,6 +140,7 @@ function sameVendorBefore(current: Observation, history: readonly Observation[])
         o.catalogItemId === current.catalogItemId &&
         o.vendorId === current.vendorId &&
         o.standardUom === current.standardUom &&
+        currencyOf(o) === currencyOf(current) &&
         o.observedOn <= current.observedOn,
     ),
   );
@@ -153,13 +171,14 @@ export function priceJump(
   if (!c.greaterThan(settings.priceChangePct)) return null;
   const perUnit = dec(current.unitPriceStd).minus(last.unitPriceStd);
   const qty = trailingQty(current, history);
+  const cur = currencyOf(current);
   return {
     kind: "price_jump",
     severity: c.greaterThan(settings.priceChangePct.times(3)) ? "critical" : "warning",
     catalogItemId: current.catalogItemId,
     vendorId: current.vendorId,
     title: `${names.item} up ${pct(c)} at ${names.vendor(current.vendorId)}`,
-    body: `${usd(current.unitPriceStd)} ${per(current)} on ${current.observedOn}, up from ${usd(last.unitPriceStd)} on ${last.observedOn}. About ${usd(perUnit.times(qty))} more over the last 90 days' quantity.`,
+    body: `${moneyIn(current.unitPriceStd, cur)} ${per(current)} on ${current.observedOn}, up from ${moneyIn(last.unitPriceStd, cur)} on ${last.observedOn}. About ${moneyIn(perUnit.times(qty), cur)} more over the last 90 days' quantity.`,
     evidence: evidence(current, last),
     dollarImpact: impact(perUnit, qty),
     facts: {
@@ -168,6 +187,7 @@ export function priceJump(
       changePct: c.toDecimalPlaces(2).toString(),
       thresholdPct: settings.priceChangePct.toString(),
       standardUom: current.standardUom,
+      currency: cur,
     },
   };
 }
@@ -190,13 +210,14 @@ export function priceVsAverage(
   if (!c.greaterThan(settings.priceChangePct)) return null;
   const perUnit = dec(current.unitPriceStd).minus(avg);
   const qty = trailingQty(current, history);
+  const cur = currencyOf(current);
   return {
     kind: "price_vs_avg",
     severity: "warning",
     catalogItemId: current.catalogItemId,
     vendorId: current.vendorId,
     title: `${names.item} ${pct(c)} over its 90-day average at ${names.vendor(current.vendorId)}`,
-    body: `${usd(current.unitPriceStd)} ${per(current)} against an average of ${usd(avg)} over ${window.length} earlier purchases.`,
+    body: `${moneyIn(current.unitPriceStd, cur)} ${per(current)} against an average of ${moneyIn(avg, cur)} over ${window.length} earlier purchases.`,
     evidence: evidence(current, ...window),
     dollarImpact: impact(perUnit, qty),
     facts: {
@@ -206,6 +227,7 @@ export function priceVsAverage(
       observations: window.length,
       thresholdPct: settings.priceChangePct.toString(),
       standardUom: current.standardUom,
+      currency: cur,
     },
   };
 }
@@ -219,6 +241,10 @@ export function vendorSpread(
   settings: PriceSettings,
   names: Names,
 ): AlertDraft | null {
+  // DECISION (audit 7.9): a price whose unit was assumed is never compared across vendors, and
+  // another vendor's price counts only in the same currency.
+  if (current.uomAssumed) return null;
+  const cur = currencyOf(current);
   const month = current.observedOn.slice(0, 7);
   const latestByVendor = new Map<string, Observation>();
   for (const o of sorted(history)) {
@@ -226,6 +252,8 @@ export function vendorSpread(
       o.catalogItemId !== current.catalogItemId ||
       o.vendorId === current.vendorId ||
       o.standardUom !== current.standardUom ||
+      o.uomAssumed ||
+      currencyOf(o) !== cur ||
       o.observedOn.slice(0, 7) !== month ||
       o.observedOn > current.observedOn
     ) {
@@ -248,7 +276,7 @@ export function vendorSpread(
     catalogItemId: current.catalogItemId,
     vendorId: current.vendorId,
     title: `${names.item} ${pct(c)} cheaper at ${other}`,
-    body: `${names.vendor(current.vendorId)} charged ${usd(current.unitPriceStd)} ${per(current)}; ${other} charged ${usd(cheapest.unitPriceStd)} on ${cheapest.observedOn}.`,
+    body: `${names.vendor(current.vendorId)} charged ${moneyIn(current.unitPriceStd, cur)} ${per(current)}; ${other} charged ${moneyIn(cheapest.unitPriceStd, cur)} on ${cheapest.observedOn}.`,
     evidence: evidence(current, cheapest),
     dollarImpact: impact(perUnit, dec(current.qtyStd)),
     facts: {
@@ -258,6 +286,7 @@ export function vendorSpread(
       spreadPct: c.toDecimalPlaces(2).toString(),
       thresholdPct: settings.vendorSpreadPct.toString(),
       standardUom: current.standardUom,
+      currency: cur,
     },
   };
 }
@@ -288,13 +317,14 @@ export function priceCreep(
   if (!c.greaterThan(settings.creepPct)) return null;
   const perUnit = dec(current.unitPriceStd).minus(first.unitPriceStd);
   const qty = trailingQty(current, history);
+  const cur = currencyOf(current);
   return {
     kind: "price_creep",
     severity: "warning",
     catalogItemId: current.catalogItemId,
     vendorId: current.vendorId,
     title: `${names.item} crept up ${pct(c)} at ${names.vendor(current.vendorId)}`,
-    body: `${usd(first.unitPriceStd)} ${per(current)} on ${first.observedOn} to ${usd(current.unitPriceStd)} on ${current.observedOn}, in ${series.length - 1} small steps.`,
+    body: `${moneyIn(first.unitPriceStd, cur)} ${per(current)} on ${first.observedOn} to ${moneyIn(current.unitPriceStd, cur)} on ${current.observedOn}, in ${series.length - 1} small steps.`,
     evidence: evidence(...series),
     dollarImpact: impact(perUnit, qty),
     facts: {
@@ -304,6 +334,7 @@ export function priceCreep(
       steps: series.length - 1,
       thresholdPct: settings.creepPct.toString(),
       standardUom: current.standardUom,
+      currency: cur,
     },
   };
 }
@@ -335,11 +366,17 @@ export function outlier(
   _settings: PriceSettings,
   names: Names,
 ): AlertDraft | null {
+  // Every vendor's prices: those with an assumed unit or in another currency are left out
+  // (audit 7.9), and an assumed one is not judged.
+  if (current.uomAssumed) return null;
+  const cur = currencyOf(current);
   const past = history.filter(
     (o) =>
       o.id !== current.id &&
       o.catalogItemId === current.catalogItemId &&
       o.standardUom === current.standardUom &&
+      !o.uomAssumed &&
+      currencyOf(o) === cur &&
       o.observedOn <= current.observedOn,
   );
   const priceMads = madDistance(
@@ -360,7 +397,7 @@ export function outlier(
     catalogItemId: current.catalogItemId,
     vendorId: current.vendorId,
     title: `Unusual ${what} for ${names.item} from ${names.vendor(current.vendorId)}`,
-    body: `${current.qtyStd} at ${usd(current.unitPriceStd)} ${per(current)} is far from the ${past.length} earlier purchases of this item.`,
+    body: `${current.qtyStd} at ${moneyIn(current.unitPriceStd, cur)} ${per(current)} is far from the ${past.length} earlier purchases of this item.`,
     evidence: evidence(current, ...past.slice(-5)),
     dollarImpact: null,
     facts: {
@@ -370,6 +407,7 @@ export function outlier(
       qtyMads: qtyMads?.toDecimalPlaces(2).toString() ?? null,
       history: past.length,
       standardUom: current.standardUom,
+      currency: cur,
     },
   };
 }
@@ -414,6 +452,8 @@ export function newFees(input: {
   priorFeeTypes: readonly string[];
   priorInvoices: number;
   evidence: string[];
+  /** The invoice's currency, for the words (USD when not given). */
+  currency?: string | undefined;
 }): AlertDraft[] {
   if (input.priorInvoices === 0) return [];
   const seen = new Set(input.priorFeeTypes.map(feeType));
@@ -428,7 +468,7 @@ export function newFees(input: {
       catalogItemId: null,
       vendorId: input.vendorId,
       title: `New fee from ${input.vendorName}: ${fee.label}`,
-      body: `${usd(fee.amount)} for "${fee.label}", which none of their ${input.priorInvoices} earlier invoices had.`,
+      body: `${moneyIn(fee.amount, input.currency ?? "USD")} for "${fee.label}", which none of their ${input.priorInvoices} earlier invoices had.`,
       evidence: input.evidence,
       dollarImpact: toNumeric(fee.amount),
       facts: { label: fee.label, feeType: type, amount: toNumeric(fee.amount) },

@@ -4,7 +4,16 @@
 // repeat finds the open alert, a new fee, test runs write nothing, and each client's history and
 // alerts stay its own (invariant 1).
 
-import { alert, closeDb, createDb, type Db, event } from "@countersign/db";
+import {
+  alert,
+  closeDb,
+  createDb,
+  type Db,
+  docExtraction,
+  docLine,
+  event,
+  withTenant,
+} from "@countersign/db";
 import { createTestDatabase, databaseAvailable, type TestDatabase } from "@countersign/db/testing";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -17,6 +26,7 @@ import {
   type ShopFixture,
 } from "../testing.test-helper";
 import { checkPrices } from "./check";
+import { compareVendors, priceHistory } from "./history";
 import { recordPrices } from "./record";
 import { priceSettingsFrom } from "./rules";
 
@@ -230,6 +240,109 @@ describe.skipIf(!online)("prices and alerts (database)", () => {
     const eventsNow = await t.db.select({ n: sql<number>`count(*)::int` }).from(event);
     expect(eventsNow[0]?.n).toBe(eventsAfterMatch[0]?.n);
     expect(before.events[0]?.n).toBeLessThanOrEqual(eventsNow[0]?.n ?? 0);
+  });
+
+  it("counts a document read again once: its latest reading's prices only", async () => {
+    const C = await insertShop(t.db, "Millwork C");
+    const settings = priceSettingsFrom({ price_change_pct: 5 });
+    await matchedInvoice(
+      C,
+      "Northline Plywood",
+      [{ description: BB, qty: "10", uom: "SHT", unitPrice: "1.25" }],
+      { date: "2026-09-01" },
+    ).then((d) => recordPrices(db, ctx(C), { documentId: d.documentId }));
+    // Read as 7.25, recorded; then read again as 1.25 (the earlier reading and its price stay).
+    const misread = await matchedInvoice(
+      C,
+      "Northline Plywood",
+      [{ description: BB, qty: "10", uom: "SHT", unitPrice: "7.25" }],
+      { date: "2026-09-15" },
+    );
+    await recordPrices(db, ctx(C), { documentId: misread.documentId });
+    const [reread] = await t.db
+      .insert(docExtraction)
+      .values({
+        tenantId: C.tenantId,
+        documentId: misread.documentId,
+        model: "test-model",
+        header: { vendorName: "Vendor", invoiceDate: "2026-09-15" },
+        subtotal: "12.5",
+        total: "12.5",
+        linesSum: "12.5",
+        totalsMatch: true,
+        createdAt: new Date(Date.now() + 60_000),
+      })
+      .returning();
+    const [line] = await t.db
+      .insert(docLine)
+      .values({
+        tenantId: C.tenantId,
+        extractionId: reread?.id as string,
+        lineNo: 1,
+        rawDescription: BB,
+        qty: "10",
+        uomRaw: "SHT",
+        unitPrice: "1.25",
+        extPrice: "12.50",
+      })
+      .returning();
+    await matchLine(
+      { db },
+      { tenantId: C.tenantId, agentVersionId: C.agentVersionId, docLineId: line?.id as string },
+    );
+    await recordPrices(db, ctx(C), { documentId: misread.documentId });
+    expect(await observations(C.tenantId)).toHaveLength(3);
+
+    // Another vendor's line with no unit: its price is taken per sheet, so it is never compared.
+    const assumed = await matchedInvoice(
+      C,
+      "Keystone Lumber",
+      [{ description: BB, qty: "10", unitPrice: "1.00" }],
+      { date: "2026-10-01" },
+    );
+    await recordPrices(db, ctx(C), { documentId: assumed.documentId });
+    // A real rise to 1.40: 12% over the last price (1.25), and over the 90-day average (1.25).
+    const rise = await matchedInvoice(
+      C,
+      "Northline Plywood",
+      [{ description: BB, qty: "10", uom: "SHT", unitPrice: "1.40" }],
+      { date: "2026-10-01" },
+    );
+    await recordPrices(db, ctx(C), { documentId: rise.documentId });
+    const r = await checkPrices(db, ctx(C), { documentId: rise.documentId, settings });
+    const jump = r.alerts.find((a) => a.kind === "price_jump");
+    // 0.15 a sheet more × 30 sheets bought in 90 days (not 40: the misread line is not a purchase).
+    expect(jump?.dollarImpact).toBe("4.5000");
+    expect(jump?.evidence).not.toContain(misread.lineIds[0]);
+    expect(r.alerts.some((a) => a.kind === "vendor_spread")).toBe(false);
+    expect(r.alerts.find((a) => a.kind === "price_vs_avg")?.body).toBe(
+      "$1.40 a sheet against an average of $1.25 over 2 earlier purchases.",
+    );
+
+    const read = await withTenant(db, C.tenantId, async (tx) => {
+      const itemId = (await observations(C.tenantId))[0]?.catalogItemId as string;
+      return {
+        history: await priceHistory(tx, C.tenantId, { catalogItemId: itemId, today: "2026-10-02" }),
+        vendors: await compareVendors(tx, C.tenantId, {
+          catalogItemId: itemId,
+          today: "2026-10-02",
+        }),
+      };
+    });
+    expect(read.history.map((o) => [o.unitPriceStd, o.uomAssumed])).toEqual([
+      ["1.2500", false],
+      ["1.2500", false],
+      ["1.0000", true],
+      ["1.4000", false],
+    ]);
+    expect(read.vendors.vendors).toHaveLength(1);
+    expect(read.vendors.vendors[0]).toMatchObject({
+      lastPrice: "1.4000",
+      averagePrice: "1.3000",
+      purchases: 3,
+      qtyStd: "30.0000",
+      currency: "USD",
+    });
   });
 
   it("keeps each client's prices and alerts its own", async () => {

@@ -4,7 +4,9 @@
 // on-time one, a split needs to save enough, and every answer carries its sources.
 
 import { describe, expect, it } from "vitest";
+import type { CatalogItemRow } from "../catalog/store";
 import { type CompareLine, type CompareOfferInput, compareOffers } from "./compare";
+import { standardPrice } from "./quotes";
 
 const REQ = "req-1";
 const sheet = (id: string, lineNo: number, qty: string): CompareLine => ({
@@ -126,7 +128,7 @@ describe("compareOffers", () => {
   it("compares offers in the same unit when the line has no catalog item", () => {
     const unmatched: CompareLine = {
       ...sheet("l1", 1, "2.0000"),
-      unit: "box",
+      unit: "bundle",
       catalogItemId: null,
       standardUom: null,
       qtyStd: null,
@@ -135,11 +137,90 @@ describe("compareOffers", () => {
       ...base,
       lines: [unmatched],
       offers: [
-        offer("q-a", "l1", { unit: "box", unitPrice: "40.0000", qty: "2.0000" }),
-        offer("q-b", "l1", { unit: "BX", unitPrice: "38.5000", qty: "2.0000" }),
+        offer("q-a", "l1", { unit: "bundle", unitPrice: "40.0000", qty: "2.0000" }),
+        offer("q-b", "l1", { unit: "BUNDLE", unitPrice: "38.5000", qty: "2.0000" }),
       ],
     });
-    expect(c.lines[0]?.best).toMatchObject({ vendorId: "v-b", per: "pack", cost: "77.0000" });
+    expect(c.lines[0]?.best).toMatchObject({ vendorId: "v-b", per: "bundle", cost: "77.0000" });
+  });
+
+  it("never ranks boxes, cases or pails with no known pack size, even in the same word", () => {
+    // Screws in each; A sells a case of 12 boxes at 240.00 (20.00 a box), B a box at 22.00.
+    // Neither converts to each, and "a pack" isn't one size: nothing is compared.
+    const screws: CompareLine = {
+      ...sheet("l1", 1, "10.0000"),
+      unit: "BX",
+      standardUom: "each",
+      qtyStd: null,
+    };
+    const c = compareOffers({
+      ...base,
+      lines: [screws],
+      offers: [
+        offer("q-a", "l1", { unit: "CS", unitPrice: "240.0000", qty: "10.0000" }),
+        offer("q-b", "l1", { unit: "BX", unitPrice: "22.0000", qty: "10.0000" }),
+      ],
+    });
+    const line = c.lines[0];
+    expect(line?.best).toBeNull();
+    expect(line?.offers.every((o) => !o.comparable)).toBe(true);
+    expect(line?.offers.find((o) => o.vendorId === "v-a")?.note).toBe(
+      "quoted per CS with no known pack size, so it can't be compared",
+    );
+    expect(line?.note).toBe(
+      "Not compared: no vendor's box, case or container converts to each with a known pack size.",
+    );
+    expect(c.vendors.every((v) => !v.complete && v.linesPriced === 0)).toBe(true);
+    expect(c.suggestion.kind).toBe("none");
+    // The same word from both (BX and BOX) is still not one size.
+    const same = compareOffers({
+      ...base,
+      lines: [screws],
+      offers: [
+        offer("q-a", "l1", { unit: "BOX", unitPrice: "15.0000", qty: "10.0000" }),
+        offer("q-b", "l1", { unit: "BX", unitPrice: "9.0000", qty: "10.0000" }),
+      ],
+    });
+    expect(same.lines[0]?.best).toBeNull();
+    expect(same.suggestion.kind).toBe("none");
+  });
+
+  it("costs a line on the quantity asked, and a vendor quoting less is not complete", () => {
+    const bundles: CompareLine = {
+      ...sheet("l1", 1, "100.0000"),
+      unit: "bundle",
+      catalogItemId: null,
+      standardUom: null,
+      qtyStd: null,
+    };
+    const c = compareOffers({
+      ...base,
+      lines: [bundles],
+      offers: [
+        offer("q-a", "l1", { unit: "bundle", unitPrice: "2.0000", qty: "100.0000" }),
+        // Half the quantity at a higher price: 125.00 on its face, 250.00 for what was asked.
+        offer("q-b", "l1", { unit: "bundle", unitPrice: "2.5000", qty: "50.0000" }),
+      ],
+    });
+    const short = c.lines[0]?.offers.find((o) => o.vendorId === "v-b");
+    expect(short).toMatchObject({ comparable: false, cost: "250.0000" });
+    expect(short?.note).toBe("quoted 50 of the 100 asked");
+    expect(c.vendors.map((v) => [v.vendorName, v.total, v.complete])).toEqual([
+      ["Atlas Panel", "200.0000", true],
+      ["Birch Supply", "0.0000", false],
+    ]);
+    expect(c.suggestion).toMatchObject({ kind: "single", vendorId: "v-a", total: "200.0000" });
+    // A standard-unit offer for less than asked is short as well.
+    const std100 = compareOffers({
+      ...base,
+      lines: [sheet("l1", 1, "100.0000")],
+      offers: [
+        offer("q-a", "l1", std("1.0000", { qty: "100.0000" })),
+        offer("q-b", "l1", std("0.9000", { qty: "50.0000" })),
+      ],
+    });
+    expect(std100.lines[0]?.best?.vendorId).toBe("v-a");
+    expect(std100.vendors.find((v) => v.vendorId === "v-b")?.complete).toBe(false);
   });
 
   it("never compares across currencies", () => {
@@ -238,5 +319,38 @@ describe("compareOffers", () => {
   it("says so when no quote is in", () => {
     const c = compareOffers({ ...base, quotes: [], lines: [sheet("l1", 1, "1")], offers: [] });
     expect(c.suggestion).toMatchObject({ kind: "none", reasons: ["No quotes are in yet."] });
+  });
+});
+
+describe("standardPrice", () => {
+  // A master item is vendor-neutral: the pack size it was first seen with is one vendor's box.
+  const screws = {
+    id: "item-screws",
+    standardUom: "each",
+    attributes: { kind: "screw", pack_size: "100" },
+  } as unknown as CatalogItemRow;
+  const asked = { description: "#8 X 1-1/4 WOOD SCREW" };
+
+  it("never converts a vendor's box with the master item's pack size", () => {
+    // B's box of 50 at 9.00 is 0.18 each, not 0.09.
+    const r = standardPrice(screws, { unit: "BX", unitPrice: "9.00", description: null }, asked);
+    expect(r).toMatchObject({ unitPriceStd: null, standardUom: null });
+    expect(r.conversion).toMatch(/no conversion rule from pack to each/);
+  });
+
+  it("converts a box through the vendor's own words or its vendor item", () => {
+    const own = standardPrice(
+      screws,
+      { unit: "BX", unitPrice: "9.00", description: "#8 X 1-1/4 WOOD SCREW 50/BX" },
+      asked,
+    );
+    expect(own).toMatchObject({ unitPriceStd: "0.1800", standardUom: "each" });
+    const viaItem = standardPrice(
+      screws,
+      { unit: "BX", unitPrice: "9.00", description: null },
+      asked,
+      { vendorUom: "pack", stdPerVendorUom: "50" },
+    );
+    expect(viaItem).toMatchObject({ unitPriceStd: "0.1800", standardUom: "each" });
   });
 });

@@ -245,6 +245,70 @@ describe("the contract rules", () => {
     expect(run(false)).toEqual([]);
   });
 
+  it("adds up one item's variances on an invoice before the one alert stands (audit 7.11)", () => {
+    // $2.00 a sheet over on 10 sheets, then on 200: $420.00 at stake, not the first line's $20.00.
+    const sheet = { ...BUNDLE, vendorUom: "sheet", price: "60.0000" };
+    const r = checkContract({
+      vendorId: "v1",
+      vendorName: "Northline",
+      contracts: [C],
+      agreedFor: () => sheet,
+      hasPrices: () => true,
+      invoice: INVOICE,
+      lines: [
+        obs({ id: "o1", docLineId: "l1", unitPriceStd: "62.0000", qtyStd: "10.0000" }),
+        obs({ id: "o2", docLineId: "l2", unitPriceStd: "62.0000", qtyStd: "200.0000" }),
+      ],
+      names: () => names,
+    });
+    const above = r.alerts.filter((a) => a.kind === "above_contract");
+    expect(above).toHaveLength(1);
+    expect(above[0]).toMatchObject({
+      dollarImpact: "420.0000",
+      facts: { lines: 2, qtyStd: "210.0000" },
+    });
+    expect(above[0]?.evidence).toEqual(expect.arrayContaining(["o1", "l1", "o2", "l2"]));
+    expect(above[0]?.body).toBe(
+      '2 lines at $62.00 against $60.00 agreed in "2027 supply agreement": $420.00 more on this invoice.',
+    );
+  });
+
+  it("lists a line whose agreed price can't be converted, or is in another currency, as unchecked", () => {
+    const noRule = checkContract({
+      vendorId: "v1",
+      vendorName: "Northline",
+      contracts: [C],
+      agreedFor: () => ({ ...BUNDLE, stdPerVendorUom: null }),
+      hasPrices: () => true,
+      invoice: INVOICE,
+      lines: [obs()],
+      names: () => names,
+    });
+    expect(noRule.alerts.filter((a) => a.catalogItemId)).toEqual([]);
+    expect(noRule.unchecked).toEqual([
+      {
+        observationId: "o1",
+        docLineId: "l1",
+        catalogItemId: "item-bb",
+        reason: "its agreed price is per bundle, with no conversion to sheet",
+      },
+    ]);
+    const cad = checkContract({
+      vendorId: "v1",
+      vendorName: "Northline",
+      contracts: [{ ...C, currency: "CAD" }],
+      agreedFor: () => BUNDLE,
+      hasPrices: () => true,
+      invoice: INVOICE,
+      lines: [obs()],
+      names: () => names,
+    });
+    expect(cad.alerts.filter((a) => a.catalogItemId)).toEqual([]);
+    expect(cad.unchecked.map((u) => u.reason)).toEqual([
+      "the contract's prices are in CAD and the invoice is in USD",
+    ]);
+  });
+
   it("keys one open alert per item, per standing term, and per invoice's freight", () => {
     const [freight] = termsMismatch({
       vendorId: "v1",

@@ -285,6 +285,35 @@ describe.skipIf(!online)("the vendor catalog's tools", () => {
     );
   });
 
+  it("never lets a SKU outvote the line's words, nor takes a special-order code as one", async () => {
+    await t.db.insert(vendorItem).values([
+      {
+        tenantId: A.tenantId,
+        vendorId: cedar,
+        catalogItemId: baltic,
+        sku: "CRL-BB34",
+        name: "BALTIC BIRCH 3/4 5X5",
+      },
+      // Kept before codes like this were refused as SKUs.
+      { tenantId: A.tenantId, vendorId: cedar, catalogItemId: baltic, sku: "SPO", name: "SPO" },
+    ]);
+    const { documentId } = await A.invoiceDoc(cedar, [
+      { description: 'BALTIC BIRCH PLYWOOD 3/4" 5X5 BB/BB', sku: "crl-bb34", qty: "2" },
+      { description: 'BALTIC BIRCH PLYWOOD 1/2" 5X5 BB/BB', sku: "CRL-BB34", qty: "2" },
+      { description: "WALNUT 4/4 FAS", sku: "SPO", qty: "40", uom: "BF" },
+    ]);
+    const r = (await vendorItemsLookup.run({ documentId, vendorId: cedar }, ctxA)) as {
+      lines: { lineNo: number; decision: string; hinge: string | null }[];
+      known: { lineNo: number; via: string }[];
+    };
+    expect(r.known.map((k) => [k.lineNo, k.via])).toEqual([[1, "sku"]]);
+    expect(r.lines.map((l) => [l.lineNo, l.decision, l.hinge])).toEqual([
+      [1, "matched", null],
+      [2, "open", "thickness"],
+      [3, "open", null],
+    ]);
+  });
+
   it("writes nothing in a test run's Register item, and answers what it would have", async () => {
     const { documentId } = await A.invoiceDoc(cedar, [
       { description: "CHERRY 4/4 FAS", qty: "50", uom: "BF", unitPrice: "8.40" },

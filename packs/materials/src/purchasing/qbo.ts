@@ -5,11 +5,11 @@
 // `vendor.external_refs.qbo`; `poQboLines` turns the chosen quote into `qbo.purchaseorder.create`'s
 // input: the QuickBooks vendor, one account line per quoted line, amounts rounded to cents.
 
-import { Decimal, dec } from "@countersign/core";
+import { dec } from "@countersign/core";
 import { type Db, type Tx, vendor, withTenant } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import { vendorContacts } from "./contacts";
-import { poContent } from "./po";
+import { cents, clientDay, poContent } from "./po";
 import { type PurchasingContext, PurchasingError } from "./requests";
 
 /** A QuickBooks vendor as `qbo.vendor.query` lists it. */
@@ -130,9 +130,8 @@ export interface QboPoInput {
   lines: { accountId: string; description: string; amount: string }[];
 }
 
-/** Cents, half up (as QuickBooks rounds an amount). */
-export const cents = (v: string): string =>
-  dec(v).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toFixed(2);
+// The one rounding rule for a purchase order's amounts, shared with its PDF (./po.ts).
+export { cents };
 
 // DECISION: a purchase order's lines go to QuickBooks as account lines on the one expense account
 // set for the client agent (skill setting `qbo_account_id`, or the step's `accountId`): catalog
@@ -147,7 +146,8 @@ export async function poQboLines(
     accountId: string | null;
     reference?: string | undefined;
     requestLineIds?: readonly string[] | undefined;
-    txnDate: string;
+    /** yyyy-mm-dd; the client's own today (its time zone) when not given. */
+    txnDate?: string | undefined;
   },
 ): Promise<{
   order: QboPoInput;
@@ -173,6 +173,7 @@ export async function poQboLines(
       );
     }
     const c = made.content;
+    const txnDate = input.txnDate ?? (await clientDay(tx, ctx.tenantId, new Date()));
     const lines = c.lines.map((l) => ({
       accountId,
       description:
@@ -186,8 +187,8 @@ export async function poQboLines(
     const order: QboPoInput = {
       vendorId: qboVendorId,
       docNumber: c.reference.slice(0, 21),
-      txnDate: input.txnDate,
-      ...(c.neededBy && c.neededBy >= input.txnDate ? { dueDate: c.neededBy } : {}),
+      txnDate,
+      ...(c.neededBy && c.neededBy >= txnDate ? { dueDate: c.neededBy } : {}),
       currency: c.currency,
       expectedTotal: total,
       memo: `Purchase request ${input.requestId.slice(0, 8)}, quote from ${c.vendorName}`,

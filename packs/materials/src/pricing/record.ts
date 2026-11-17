@@ -17,9 +17,9 @@ import {
 } from "@countersign/db";
 import { vendorForDocument } from "@countersign/documents";
 import { emit } from "@countersign/senses";
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { parseLine } from "../catalog/keys";
-import { latestMatch, liveItem } from "../catalog/store";
+import { identifyingSku, latestMatch, liveItem } from "../catalog/store";
 import { materialsEventRegistry } from "../events";
 import { priceObservation } from "../schema";
 import {
@@ -31,6 +31,27 @@ import {
 } from "../vendor/store";
 import type { Observation } from "./rules";
 import { convertLine, readUom } from "./uom";
+
+/**
+ * A price observation from a document line is history only while that line is in its document's
+ * latest reading (the newest `doc_extraction`, as `loadPricedDocument` picks it). A document read
+ * again keeps its earlier reading's lines and their observations (invariant 3: never updated or
+ * deleted), so every reader of price history leaves those out with this condition. A price from a
+ * QuickBooks bill line (no document line) always counts.
+ */
+// DECISION (audit 7.9): superseded readings are left out in the queries, not deleted.
+export function fromLatestReading(): SQL {
+  return sql`(${priceObservation.docLineId} is null or not exists (
+    select 1
+    from ${docLine} as po_line
+    join ${docExtraction} as po_read on po_read.id = po_line.extraction_id
+    join ${docExtraction} as po_newer
+      on po_newer.tenant_id = po_read.tenant_id
+     and po_newer.document_id = po_read.document_id
+     and (po_newer.created_at, po_newer.id) > (po_read.created_at, po_read.id)
+    where po_line.id = ${priceObservation.docLineId}
+      and po_line.tenant_id = ${priceObservation.tenantId}))`;
+}
 
 export class PricingError extends Error {
   override name = "PricingError";
@@ -230,7 +251,7 @@ export async function priceLines(
       continue;
     }
     const withItem = { ...base, catalogItemId: item.id, catalogItemName: item.canonicalName };
-    const sku = cleanSku(l.vendorSku);
+    const sku = identifyingSku(cleanSku(l.vendorSku));
     const vendorUom = l.uomRaw?.trim()
       ? (readUom(l.uomRaw) ?? l.uomRaw.trim().toLowerCase())
       : item.standardUom;
@@ -285,6 +306,8 @@ export async function priceLines(
       qtyStd: toNumeric(qtyStd),
       standardUom: item.standardUom,
       docLineId: l.id,
+      currency: doc.currency,
+      ...(conv.assumed ? { uomAssumed: true } : {}),
       line,
       ext: {
         uomRaw: l.uomRaw,
@@ -341,6 +364,8 @@ export async function recordPrices(
               eq(priceObservation.tenantId, ctx.tenantId),
               eq(priceObservation.catalogItemId, d.catalogItemId),
               eq(priceObservation.vendorId, d.vendorId),
+              eq(priceObservation.currency, doc.currency),
+              fromLatestReading(),
             ),
           )
           .orderBy(desc(priceObservation.observedOn), desc(priceObservation.createdAt))

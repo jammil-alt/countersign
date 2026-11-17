@@ -92,6 +92,8 @@ export interface InvoiceOptions {
   header?: Record<string, unknown>;
   /** §1.104: no purchase behind it yet (an invoice from email, no accounting tool). */
   unlinked?: boolean;
+  /** The reading's currency (USD when not given). */
+  currency?: string;
 }
 
 let counter = 0;
@@ -188,6 +190,7 @@ export async function insertShop(db: Db, name: string): Promise<ShopFixture> {
             ...(options.date ? { invoiceDate: options.date } : {}),
             ...options.header,
           },
+          ...(options.currency ? { currency: options.currency } : {}),
           freight: options.freight ?? "0",
           surcharges: options.surcharges ?? [],
           subtotal: "100",

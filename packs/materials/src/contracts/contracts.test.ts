@@ -240,6 +240,52 @@ describe.skipIf(!online)("vendor contracts (database)", () => {
     expect(none).toMatchObject({ hasApEmail: false, apEmail: null });
   });
 
+  it("adds up one item's lines on an invoice, and lists what it couldn't check (audit 7.11)", async () => {
+    // $2.50 over on 10 sheets and on 200: $525.00 at stake, not the first line's $25.00.
+    const two = await matchedInvoice(
+      A,
+      [
+        { description: BB, qty: "10", uom: "SHT", unitPrice: "62.50" },
+        { description: BB, qty: "200", uom: "SHT", unitPrice: "62.50" },
+      ],
+      { date: "2027-03-01", header: { invoiceNumber: "20601" } },
+    );
+    await recordPrices(db, pricing(A), { documentId: two.documentId });
+    const r = await checkPrices(db, pricing(A), {
+      documentId: two.documentId,
+      settings: priceSettingsFrom({}),
+    });
+    const above = r.alerts.filter((a) => a.kind === "above_contract");
+    expect(above).toHaveLength(1);
+    expect(above[0]?.dollarImpact).toBe("525.0000");
+    const notes = (await invoiceReview.run(
+      { documentId: two.documentId, findings: r.alerts },
+      tools(A),
+    )) as Record<string, unknown>;
+    expect(String(notes.subject)).toContain("$525.00 at stake");
+
+    // An invoice in another currency than the contract: its prices aren't compared, and say so.
+    const cad = await matchedInvoice(
+      A,
+      [{ description: BB, qty: "10", uom: "SHT", unitPrice: "80.00" }],
+      { date: "2027-03-05", header: { invoiceNumber: "20602" }, currency: "CAD" },
+    );
+    await recordPrices(db, pricing(A), { documentId: cad.documentId });
+    const c = await checkPrices(db, pricing(A), {
+      documentId: cad.documentId,
+      settings: priceSettingsFrom({}),
+    });
+    expect(c.alerts.filter((a) => a.catalogItemId !== null)).toEqual([]);
+    const review = (await invoiceReview.run(
+      { documentId: cad.documentId, findings: c.alerts },
+      tools(A),
+    )) as Record<string, unknown>;
+    expect(review.unchecked).toBe(1);
+    expect(String(review.body)).toContain(
+      `- Line 1, "${BB}": not checked against the contract: the contract's prices are in USD and the invoice is in CAD`,
+    );
+  });
+
   it("says when no contract holds on the invoice's date, and checks nothing against it", async () => {
     const doc = await matchedInvoice(
       A,

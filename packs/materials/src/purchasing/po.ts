@@ -5,7 +5,7 @@
 // attach it to an email or a QuickBooks purchase order. It writes nothing to a client's tool.
 
 import type { ContentStore } from "@countersign/connectors";
-import { dec, formatAmount, toNumeric } from "@countersign/core";
+import { Decimal, dec, formatAmount, isoToday, toNumeric } from "@countersign/core";
 import { type Db, document, type Tx, tenant, vendor, withTenant } from "@countersign/db";
 import { countPages } from "@countersign/documents";
 import { and, eq } from "drizzle-orm";
@@ -59,6 +59,20 @@ function winAnsi(font: PDFFont, text: string): string {
     }
   }
   return out;
+}
+
+/** Cents, half up (as QuickBooks rounds an amount). */
+export const cents = (v: string | Decimal): string =>
+  dec(v).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toFixed(2);
+
+/** A client's own day for a moment, from its time zone (`tenant.timezone`; UTC when unknown). */
+export async function clientDay(tx: Tx, tenantId: string, at: Date): Promise<string> {
+  const [row] = await tx
+    .select({ timezone: tenant.timezone })
+    .from(tenant)
+    .where(eq(tenant.id, tenantId))
+    .limit(1);
+  return isoToday(at, row?.timezone);
 }
 
 function moneyText(amount: string, currency: string): string {
@@ -264,7 +278,9 @@ export async function poContent(
     if (qty === null) {
       throw new PurchasingError("invalid", `line ${row.lineNo} has no quantity yet`);
     }
-    const amount = dec(ql.unitPrice).times(qty);
+    // DECISION: each line's amount is rounded half up to cents and the total is their sum, as
+    // QuickBooks computes a purchase order (`poQboLines`), so the PDF and the books agree.
+    const amount = dec(cents(dec(ql.unitPrice).times(qty)));
     total = total.plus(amount);
     ids.push(ql.id);
     lines.push({
@@ -296,7 +312,8 @@ export async function poContent(
       reference,
       clientName: client?.name ?? "",
       vendorName: v?.name ?? "Vendor",
-      date: (q.receivedAt ?? q.updatedAt).toISOString().slice(0, 10),
+      // The client's own day the quote came in (its time zone), not the UTC day.
+      date: await clientDay(tx, ctx.tenantId, q.receivedAt ?? q.updatedAt),
       neededBy: r.neededBy,
       fulfillment: r.fulfillment,
       deliverTo: r.deliverTo,
@@ -506,14 +523,14 @@ export async function rfqDocument(
       reference,
       clientName: client?.name ?? "",
       vendorName: v?.name ?? "A vendor",
-      date: q.createdAt.toISOString().slice(0, 10),
+      date: await clientDay(tx, ctx.tenantId, q.createdAt),
       neededBy: r.neededBy,
       fulfillment: r.fulfillment,
       deliverTo: r.deliverTo,
       currency: q.currency,
       lines,
       total: "0",
-      notes: `Please reply with your price per unit, the unit, the lead time and whether you have each item${q.dueAt ? `, by ${q.dueAt.toISOString().slice(0, 10)}` : ""}.`,
+      notes: `Please reply with your price per unit, the unit, the lead time and whether you have each item${q.dueAt ? `, by ${await clientDay(tx, ctx.tenantId, q.dueAt)}` : ""}.`,
     };
     return {
       content: c,

@@ -50,10 +50,13 @@ import {
   type CatalogItemRow,
   createItem,
   findCandidates,
+  identifyingSku,
   latestMatch,
   learnAlias,
   liveItem,
   recordMatch,
+  skuContradicts,
+  wordsDiffer,
 } from "../catalog/store";
 import { materialsEventRegistry } from "../events";
 import { convertLine, readUom, withoutPackaging } from "../pricing/uom";
@@ -403,7 +406,8 @@ export async function lookupBySku(
   for (const l of doc.lines) {
     const normalized = normalize(l.rawDescription, { abbreviations });
     const parsed = parseNormalized(normalized);
-    const sku = cleanSku(l.sku);
+    // A special-order or short code is no SKU (`identifyingSku`): the line's words decide it.
+    const sku = identifyingSku(cleanSku(l.sku));
     const base = {
       docLineId: l.id,
       lineNo: l.lineNo,
@@ -413,6 +417,10 @@ export async function lookupBySku(
       missing: parsed.missing,
       candidates: [],
     };
+    // DECISION (audit 7.10): a SKU (the vendor item's or an alias's) never outvotes the line's own
+    // words: when they state a key attribute differently from the item's, the line stays open
+    // (Semantic match, then Register item's checks and a person).
+    let differ: string | null = null;
     const decided = async (
       catalogItemId: string,
       vendorItemId: string | null,
@@ -420,6 +428,10 @@ export async function lookupBySku(
     ) => {
       const item = await liveItem(tx, tenantId, catalogItemId);
       if (!item) return false;
+      if (via !== "wording") {
+        differ = await skuContradicts(tx, tenantId, parsed, item);
+        if (differ) return false;
+      }
       lines.push({
         ...base,
         decision: "matched",
@@ -434,11 +446,13 @@ export async function lookupBySku(
     };
     const bySku = sku ? await vendorItemBySku(tx, tenantId, input.vendorId, sku) : null;
     if (bySku && (await decided(bySku.catalogItemId, bySku.id, "sku"))) continue;
-    const alias = await vendorAlias(tx, tenantId, {
-      vendorId: input.vendorId,
-      sku,
-      descriptionHash: await descriptionHash(normalized),
-    });
+    const alias = differ
+      ? null
+      : await vendorAlias(tx, tenantId, {
+          vendorId: input.vendorId,
+          sku,
+          descriptionHash: await descriptionHash(normalized),
+        });
     if (
       alias &&
       (await decided(
@@ -456,7 +470,7 @@ export async function lookupBySku(
       catalogItemName: null,
       method: null,
       confidence: 0,
-      hinge: parsed.missing[0] ?? null,
+      hinge: differ ?? parsed.missing[0] ?? null,
     });
   }
   return {
@@ -910,7 +924,8 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
     const d = decisions.get(line.lineNo);
     if (!d) continue;
     const normalized = lineText(line.rawDescription, abbreviations);
-    const sku = cleanSku(line.sku);
+    // A special-order or short code is no SKU: not a vendor item's, not an alias (audit 7.10).
+    const sku = identifyingSku(cleanSku(line.sku));
     const hash = await descriptionHash(normalized);
     const prior = await latestMatch(tx, tenantId, line.id);
     const base: RegisteredLine = {
@@ -1094,6 +1109,7 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
       catalogItemId: item.id,
       source: human ? "human" : "auto",
       vendorItemId: vi.id,
+      skuFits: wordsDiffer(parseNormalized(normalized), item) === null,
     });
     // The price: in the vendor's unit always; per standard unit only with a conversion.
     let observationId: string | null = null;

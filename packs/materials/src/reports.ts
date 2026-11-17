@@ -9,6 +9,7 @@ import { alert, docExtraction, docLine, document, type Tx, vendor } from "@count
 import { and, asc, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
 import { latestMatch } from "./catalog/store";
 import { PACK_ID } from "./ids";
+import { fromLatestReading } from "./pricing/record";
 import { daysBefore } from "./pricing/rules";
 import { catalogItem, itemAlias, priceObservation } from "./schema";
 
@@ -154,7 +155,14 @@ export async function priceWatch(
     .from(priceObservation)
     .innerJoin(catalogItem, eq(catalogItem.id, priceObservation.catalogItemId))
     .innerJoin(vendor, eq(vendor.id, priceObservation.vendorId))
-    .where(and(eq(priceObservation.tenantId, tenantId), gte(priceObservation.observedOn, since)))
+    .where(
+      and(
+        eq(priceObservation.tenantId, tenantId),
+        gte(priceObservation.observedOn, since),
+        // A document read again counts once: its latest reading's prices only.
+        fromLatestReading(),
+      ),
+    )
     .orderBy(asc(priceObservation.observedOn), asc(priceObservation.createdAt));
   const alerts = await tx
     .select()
@@ -291,7 +299,7 @@ export async function catalogReport(tx: Tx, tenantId: string): Promise<{ items: 
       lastOn: sql<string>`max(${priceObservation.observedOn})::text`,
     })
     .from(priceObservation)
-    .where(eq(priceObservation.tenantId, tenantId))
+    .where(and(eq(priceObservation.tenantId, tenantId), fromLatestReading()))
     .groupBy(priceObservation.catalogItemId);
   const lastPrices = await tx
     .selectDistinctOn([priceObservation.catalogItemId], {
@@ -299,7 +307,7 @@ export async function catalogReport(tx: Tx, tenantId: string): Promise<{ items: 
       price: priceObservation.unitPriceStd,
     })
     .from(priceObservation)
-    .where(eq(priceObservation.tenantId, tenantId))
+    .where(and(eq(priceObservation.tenantId, tenantId), fromLatestReading()))
     .orderBy(
       priceObservation.catalogItemId,
       desc(priceObservation.observedOn),

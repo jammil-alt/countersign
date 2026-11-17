@@ -7,6 +7,7 @@ import { dec, toNumeric } from "@countersign/core";
 import { type Tx, vendor } from "@countersign/db";
 import { and, asc, desc, eq, gte, isNull, lte } from "drizzle-orm";
 import { liveItem } from "../catalog/store";
+import { fromLatestReading } from "../pricing/record";
 import { daysBefore } from "../pricing/rules";
 import { type Category, catalogItem, itemAlias, priceObservation } from "../schema";
 
@@ -69,6 +70,8 @@ export async function vendorsForItems(
           eq(priceObservation.standardUom, item.standardUom),
           gte(priceObservation.observedOn, since),
           lte(priceObservation.observedOn, input.today),
+          // A document read again counts once: its latest reading's prices only.
+          fromLatestReading(),
         ),
       )
       .orderBy(desc(priceObservation.observedOn), desc(priceObservation.createdAt))
@@ -177,6 +180,7 @@ export async function frequentItems(
     lte(priceObservation.observedOn, input.to),
     eq(priceObservation.standardUom, catalogItem.standardUom),
     isNull(catalogItem.mergedIntoId),
+    fromLatestReading(),
   ];
   if (input.category) filters.push(eq(catalogItem.category, input.category));
   const rows = await tx

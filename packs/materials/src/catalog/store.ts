@@ -12,7 +12,7 @@ import {
   type MatchDecision,
   type MatchMethod,
 } from "../schema";
-import { canonicalName, keySignature, type ParsedLine, statedKeys } from "./keys";
+import { canonicalName, keySignature, type ParsedLine, scorePair, statedKeys } from "./keys";
 import type { Attributes } from "./parsers";
 
 export type CatalogItemRow = typeof catalogItem.$inferSelect;
@@ -83,6 +83,84 @@ export async function liveItem(
     current = row.mergedIntoId;
   }
   return null;
+}
+
+// Codes yards print where an item has no SKU of its own (special orders, miscellany, non-stock),
+// with spaces and punctuation taken out.
+const GENERIC_SKUS: ReadonlySet<string> = new Set([
+  "SPO",
+  "SO",
+  "SPECIAL",
+  "SPECIALORDER",
+  "SPORDER",
+  "MISC",
+  "MISCELLANEOUS",
+  "NS",
+  "NONSTOCK",
+  "NA",
+  "NONE",
+  "TBD",
+  "OTHER",
+  "CUSTOM",
+  "ITEM",
+  "SKU",
+  "NOSKU",
+]);
+
+/**
+ * A vendor's code for a line, when it can name one item: trimmed and uppercased, else null.
+ * Shorter than four characters (three when it mixes letters and digits, as `W44`), a number
+ * shorter than five digits (often a line number read as the SKU), or a generic code (`SPO`,
+ * `MISC`, `N/A`, `SPECIAL ORDER`, `SPO2`...) names nothing.
+ */
+// DECISION (audit 7.10): such a code is never looked up or learned as a SKU alias, and never kept
+// as a vendor item's SKU; the line is matched by its words.
+export function identifyingSku(raw: string | null | undefined): string | null {
+  const sku = raw?.trim().toUpperCase() ?? "";
+  const bare = sku.replace(/[^A-Z0-9]/g, "");
+  const mixed = /[A-Z]/.test(bare) && /\d/.test(bare);
+  if (bare.length < (mixed ? 3 : 4) || sku.length > 100) return null;
+  if (/^\d+$/.test(bare) && bare.length < 5) return null;
+  if (GENERIC_SKUS.has(bare)) return null;
+  if (/^(?:SPO|SPECIAL|SPECIALORDER|MISC|NONSTOCK|NS)\d{1,3}$/.test(bare)) return null;
+  return sku;
+}
+
+/**
+ * The first key attribute a line's own words state differently from an item's, or null. A SKU
+ * alias never outvotes the line's words (the hard rule, ARCHITECTURE §12.3 step 7).
+ */
+export function wordsDiffer(
+  parsed: { category: CatalogItemRow["category"]; attributes: Record<string, string> },
+  item: Pick<CatalogItemRow, "category" | "attributes">,
+): string | null {
+  // Words the parsers can't place in a category state nothing to differ on.
+  if (parsed.category === "other") return null;
+  const s = scorePair(parsed, {
+    category: item.category,
+    attributes: item.attributes as Record<string, string>,
+  });
+  return s.comparison.differ[0] ?? null;
+}
+
+/**
+ * The key attribute a SKU's item and the line it is seen on state differently, or null: as
+ * `wordsDiffer`, except that the words of an item a person merged into it count as its own (a
+ * merge may join items the parsers read differently).
+ */
+export async function skuContradicts(
+  tx: Tx,
+  tenantId: string,
+  parsed: { category: CatalogItemRow["category"]; attributes: Record<string, string> },
+  item: CatalogItemRow,
+): Promise<string | null> {
+  const differ = wordsDiffer(parsed, item);
+  if (!differ) return null;
+  const merged = await tx
+    .select({ category: catalogItem.category, attributes: catalogItem.attributes })
+    .from(catalogItem)
+    .where(and(eq(catalogItem.tenantId, tenantId), eq(catalogItem.mergedIntoId, item.id)));
+  return merged.some((m) => wordsDiffer(parsed, m) === null) ? null : differ;
 }
 
 /** Step 2: the vendor's SKU alias, then its description alias. */
@@ -262,10 +340,18 @@ export async function learnAlias(
     source: "auto" | "human";
     /** §1.88: the vendor item the wording names, when known (0047). */
     vendorItemId?: string | null | undefined;
+    /**
+     * False when the line's own key attributes differ from the item's: its SKU is then not
+     * learned (the wording still is, for the person who decided it).
+     */
+    skuFits?: boolean | undefined;
   },
 ): Promise<void> {
+  // DECISION (audit 7.10): a SKU is learned only when it can name one item (`identifyingSku`) and
+  // the line it was seen on agrees with the item on every key attribute both state.
+  const sku = alias.skuFits === false ? null : identifyingSku(alias.vendorSku);
   const rows: { sku: string | null; hash: string | null }[] = [
-    ...(alias.vendorSku ? [{ sku: alias.vendorSku, hash: null }] : []),
+    ...(sku ? [{ sku, hash: null }] : []),
     { sku: null, hash: alias.descriptionHash },
   ];
   const vendorItemId = alias.vendorItemId ?? null;

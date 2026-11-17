@@ -1,9 +1,11 @@
 // Comparing quotes (docs/plan.md §1.67, `materials.quote.compare`): deterministic, never a model.
 // Per request line, the offers compare in the catalog item's standard unit; an offer whose unit has
 // no conversion rule compares only with offers in the very same unit (invariant 7: never across
-// units without a rule), and never across currencies. Then a total per vendor, the lines each
-// vendor left out or can't supply, lead times against the needed-by date, and a suggestion (one
-// vendor, or a split) with its reasons and the records behind it (invariant 10).
+// units without a rule), never when that unit is a box, case or pail (one vendor's box is not
+// another's), and never across currencies. Each offer is costed on the quantity asked; one for
+// less is short. Then a total per vendor, the lines each vendor left out or can't supply, lead
+// times against the needed-by date, and a suggestion (one vendor, or a split) with its reasons and
+// the records behind it (invariant 10).
 
 import { type Decimal, dec, formatAmount, toNumeric } from "@countersign/core";
 import { type Db, type Tx, vendor, withTenant } from "@countersign/db";
@@ -138,7 +140,20 @@ interface Basis {
   std: boolean;
   price: string;
   per: string;
+  /** Per box, case or pail with no known pack size: a unit of its own, never compared. */
+  packaged?: boolean;
 }
+
+/**
+ * Units that are a vendor's packaging (a box, a case, a pail): two vendors' boxes are not one size,
+ * so a price per one compares only once it converts to the standard unit through a known pack size
+ * (the vendor's own words or its vendor item's conversion, `standardPrice`).
+ */
+const PACKAGING_UNITS: ReadonlySet<string> = new Set(["pack", "container"]);
+
+/** A unit as compared: its one spelling when known, else its words; null when none is given. */
+const unitKey = (raw: string | null): string | null =>
+  raw?.trim() ? (readUom(raw) ?? raw.trim().toLowerCase()) : null;
 
 function basisOf(o: CompareOfferInput, line: CompareLine): Basis | null {
   if (!o.available || o.unitPrice === null) return null;
@@ -178,6 +193,7 @@ export function compareOffers(input: {
     const bases = new Map<string, Basis>();
     const missing: string[] = [];
     const unavailable: string[] = [];
+    let shortCount = 0;
     for (const q of quotes) {
       const o = input.offers.find((x) => x.quoteRequestId === q.id && x.requestLineId === line.id);
       if (!o) {
@@ -187,15 +203,29 @@ export function compareOffers(input: {
       sources.add(o.id);
       if (!o.available) unavailable.push(q.vendorId);
       const basis = basisOf(o, line);
-      if (basis) bases.set(o.id, basis);
-      // DECISION: an offer's cost for the line as asked is its standard-unit price times the
-      // asked quantity in standard units; otherwise its price times the quantity quoted.
+      // DECISION (audit 7.8): a price per box, case or pail that doesn't convert to the standard
+      // unit is never compared, not even with another vendor's in the same word: a box of 50 is
+      // not a box of 100.
+      const packaged = basis !== null && !basis.std && PACKAGING_UNITS.has(basis.per);
+      // DECISION (audit 7.8): an offer is costed on the quantity asked, never on the quantity the
+      // vendor quoted: its standard-unit price times the asked quantity in standard units, else
+      // its price times the asked quantity when it is in the unit asked; else it has no cost as
+      // asked. A vendor quoting less than asked in the unit asked is short: shown, not compared,
+      // and its quote isn't complete. A line asked with no unit is for the unit the vendor quotes.
+      const sameUnit = unitKey(line.unit) === null || unitKey(o.unit) === unitKey(line.unit);
       const cost =
         basis?.std && line.qtyStd !== null
           ? toNumeric(dec(basis.price).times(line.qtyStd))
-          : o.unitPrice !== null && o.qty !== null && o.available
-            ? toNumeric(dec(o.unitPrice).times(o.qty))
+          : basis && !packaged && sameUnit
+            ? toNumeric(dec(basis.std ? (o.unitPrice as string) : basis.price).times(line.qty))
             : null;
+      const short = basis !== null && sameUnit && o.qty !== null && dec(o.qty).lessThan(line.qty);
+      if (basis && packaged) {
+        bases.set(o.id, { ...basis, key: `${basis.key}|${o.id}`, packaged: true });
+      } else if (basis && !short) {
+        bases.set(o.id, basis);
+      }
+      if (short) shortCount++;
       offers.push({
         quoteRequestId: q.id,
         quoteLineId: o.id,
@@ -210,7 +240,15 @@ export function compareOffers(input: {
         leadTimeDays: o.leadTimeDays,
         available: o.available,
         comparable: false,
-        note: o.available ? (o.unitPrice === null ? "no price" : null) : "not available",
+        note: !o.available
+          ? "not available"
+          : o.unitPrice === null
+            ? "no price"
+            : packaged
+              ? `quoted per ${o.unit?.trim() || "pack"} with no known pack size, so it can't be compared`
+              : short
+                ? `quoted ${dec(o.qty as string).toString()} of the ${dec(line.qty).toString()} asked`
+                : null,
       });
     }
     // The basis the line compares in: its standard unit when any offer converts to it, else the
@@ -218,10 +256,10 @@ export function compareOffers(input: {
     // unit or currency are set aside with the reason.
     // DECISION: when two standard-unit currencies tie, or no offer converts and the units differ,
     // the line isn't compared at all: nothing decides between them without a rule.
-    const counts = new Map<string, { n: number; std: boolean }>();
+    const counts = new Map<string, { n: number; std: boolean; packaged: boolean }>();
     for (const b of bases.values()) {
-      const c = counts.get(b.key) ?? { n: 0, std: b.std };
-      counts.set(b.key, { n: c.n + 1, std: b.std });
+      const c = counts.get(b.key) ?? { n: 0, std: b.std, packaged: b.packaged === true };
+      counts.set(b.key, { ...c, n: c.n + 1 });
     }
     const ranked = [...counts.entries()].sort(
       (a, b) => Number(b[1].std) - Number(a[1].std) || b[1].n - a[1].n || a[0].localeCompare(b[0]),
@@ -229,13 +267,15 @@ export function compareOffers(input: {
     const [first, second] = ranked;
     const primary =
       first &&
+      !first[1].packaged &&
       (ranked.length === 1 || (first[1].std && !(second?.[1].std && second[1].n === first[1].n)))
         ? first[0]
         : null;
+    const allPackaged = ranked.length > 0 && ranked.every(([, c]) => c.packaged);
     let note: string | null = null;
     for (const offer of offers) {
       const b = bases.get(offer.quoteLineId);
-      if (!b) continue;
+      if (!b || b.packaged) continue;
       if (b.key === primary) offer.comparable = true;
       else if (primary !== null) {
         const [cur, per] = primary.split("|");
@@ -248,9 +288,13 @@ export function compareOffers(input: {
           "vendors quoted this line in different units or currencies with no rule between them";
       }
     }
-    if (primary === null && ranked.length > 1) {
+    if (primary === null && allPackaged) {
+      note = `Not compared: no vendor's box, case or container converts to ${line.standardUom ?? "the unit asked"} with a known pack size.`;
+    } else if (primary === null && ranked.length > 1) {
       note =
         "Not compared: the vendors quoted this line in different units or currencies with no conversion rule.";
+    } else if (ranked.length === 0 && shortCount > 0) {
+      note = "No vendor quoted the whole quantity asked.";
     } else if (ranked.length === 0 && offers.length > 0) {
       note = "No vendor gave a price for this line.";
     } else if (offers.length === 0) {
