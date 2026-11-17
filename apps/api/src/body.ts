@@ -39,3 +39,31 @@ export async function readTextLimited(req: Request, limit: number): Promise<stri
   const bytes = await readBodyLimited(req, limit);
   return bytes ? new TextDecoder().decode(bytes) : null;
 }
+
+/**
+ * The body as a stream that fails once more than `limit` bytes have passed, so a parser reading it
+ * (a multipart form) holds no second copy; null when the declared length is already over. `over`
+ * says whether the stream failed for its size.
+ */
+export function readableLimited(
+  req: Request,
+  limit: number,
+): { body: ReadableStream<Uint8Array>; over: () => boolean } | null {
+  const declared = Number(req.headers.get("content-length") ?? "");
+  if (Number.isFinite(declared) && declared > limit) return null;
+  let size = 0;
+  let over = false;
+  const counted = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      size += chunk.byteLength;
+      if (size > limit) {
+        over = true;
+        controller.error(new Error("the body is too large"));
+        return;
+      }
+      controller.enqueue(chunk);
+    },
+  });
+  const source = req.body ?? new ReadableStream<Uint8Array>({ start: (c) => c.close() });
+  return { body: source.pipeThrough(counted), over: () => over };
+}

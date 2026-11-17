@@ -23,7 +23,7 @@ import { and, eq, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
 import { requestOrigin } from "../audit";
-import { readBodyLimited } from "../body";
+import { readableLimited } from "../body";
 import { verifyFormLink } from "../forms/link";
 import { type FormRequestRow, wakeForm } from "../forms/service";
 import { type AppEnv, HttpError, mountPublic, type Services, waitUntil } from "../http";
@@ -186,15 +186,18 @@ export function formRoutes(app: Hono<AppEnv>): void {
 
   mountPublic(app, routes.formFile, async ({ c, query, services }) => {
     const ref = await requestFor(services, tokenOf(c));
-    // The file's own limit, and room for the multipart framing around it.
-    const bytesIn = await readBodyLimited(c.req.raw, MAX_DOCUMENT_BYTES + 64 * 1024);
-    if (!bytesIn) throw new HttpError(413, "too_large", "That file is too large.");
+    // The file's own limit, and room for the multipart framing around it. The body streams into
+    // the form parser through the count, so it is never held twice.
+    const tooLarge = () => new HttpError(413, "too_large", "That file is too large.");
+    const limited = readableLimited(c.req.raw, MAX_DOCUMENT_BYTES + 64 * 1024);
+    if (!limited) throw tooLarge();
     let form: FormData;
     try {
-      form = await new Response(bytesIn, {
+      form = await new Response(limited.body, {
         headers: { "content-type": c.req.header("content-type") ?? "" },
       }).formData();
     } catch {
+      if (limited.over()) throw tooLarge();
       throw new HttpError(400, "invalid_request", "send the file as multipart/form-data");
     }
     const file = form.get("file");
