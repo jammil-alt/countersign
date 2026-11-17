@@ -2,11 +2,13 @@
 // Worker and in Node tests (with a test database and in-memory Workflow instances).
 
 import { credentialKeysFromEnv, globalFetch } from "@countersign/connectors";
-import { routes } from "@countersign/core";
+import { parseCoveredProcessors, routes } from "@countersign/core";
 import type { Db } from "@countersign/db";
 import { Hono } from "hono";
 import { sloanTick } from "./account/sloan";
 import { SUMMARY_CALL_TIMEOUT_MS, summaryPass } from "./account/summaries";
+// §1.124 back office work: Reggie's pass, email, chases, questions and spotting
+import { backOfficeTick } from "./backoffice/tick";
 import { bankfeedCron } from "./bankfeed/sync";
 import { billingTick } from "./billing/jobs";
 import { raiseCodeAlerts } from "./codes/alerts";
@@ -32,6 +34,7 @@ import { lifecycleTick } from "./lifecycle/cron";
 import { mcpRoutes } from "./mcp/routes";
 // P-8: US texting registration
 import { a2pCronTick } from "./messaging/a2p";
+import { mailerFromEnv } from "./notify/mailer";
 // v0.12 W2-G
 import { originOf } from "./notify/outbox";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
@@ -50,6 +53,8 @@ import { accessRoutes } from "./routes/access";
 import { accountRoutes } from "./routes/account";
 import { approverRuleRoutes } from "./routes/approver-rules";
 import { auditExportRoutes } from "./routes/audit-export";
+// §1.124 back office work: Reggie and Autopilot
+import { autopilotRoutes } from "./routes/autopilot";
 // v0.12 bankfeed
 import { bankfeedRoutes } from "./routes/bankfeed";
 import { billingRouteHandlers } from "./routes/billing";
@@ -66,6 +71,8 @@ import { connectionRoutes } from "./routes/connections";
 import { contactRoutes } from "./routes/contacts";
 // v0.14 capture: WhatsApp conversations and their capture
 import { conversationRouteHandlers } from "./routes/conversations";
+// §1.124 back office work: Sales
+import { dealRoutes } from "./routes/deals";
 import { deskRoutes } from "./routes/desk";
 import { directoryRoutes } from "./routes/directory";
 import { documentRoutes } from "./routes/documents";
@@ -119,6 +126,7 @@ import { packPreviewRoutes } from "./routes/pack-preview";
 // P-1: packs (docs/plan.md §1.63).
 import { packRouteHandlers } from "./routes/packs";
 import { portalRouteHandlers } from "./routes/portal";
+import { portalIssueRouteHandlers } from "./routes/portal-issues";
 import { qboCronTick, qboRoutes, qboSyncFor } from "./routes/qbo";
 import { reachRoutes } from "./routes/reach";
 import { recordRouteHandlers } from "./routes/records";
@@ -143,6 +151,8 @@ import { testbenchRoutes } from "./routes/testbench";
 import { textSignupRoutes } from "./routes/text-signup";
 // v0.12 W1-C
 import { threadRouteHandlers } from "./routes/threads";
+// §1.124.3 back office work: Your call
+import { todoRoutes } from "./routes/todos";
 // P-7: message translation
 import { translationRoutes } from "./routes/translation";
 // v0.12 W2-E
@@ -154,6 +164,8 @@ import { voiceRoutes } from "./routes/voice";
 import { voiceHookRoutes } from "./routes/voice-hooks";
 import { webhookSetupRoutes } from "./routes/webhook-setup";
 import { whatsappMetaRoutes } from "./routes/whatsapp-meta";
+// §1.124 back office work
+import { workRouteHandlers } from "./routes/work";
 // v0.14 W4-B
 import { zohoRoutes } from "./routes/zoho";
 import { cronTick, dispatchByIds, senseEmitter, USAGE_SWEEP_MINUTE } from "./runs/dispatch";
@@ -178,6 +190,7 @@ import {
 // R5: the undo a late no is offered (docs/plan.md §9)
 import { undoRouteHandlers } from "./undo/routes";
 import { vaultTick } from "./vault/upkeep";
+import { adoptLegacy } from "./work/legacy";
 import { zohoCronTick } from "./zoho/sync";
 
 export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
@@ -254,6 +267,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   reggieRoutes(app);
   // docs/plan.md §1.108: builds, from intake to go-live
   opsBuildRoutes(app);
+  // §1.124 back office work
+  dealRoutes(app);
   // docs/plan.md §1.109: voice typing
   voiceRoutes(app);
   directoryRoutes(app);
@@ -329,6 +344,11 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   channelRoutes(app);
   // R8: the Library's banks (docs/plan.md §1.86)
   libraryRoutes(app);
+  // §1.124 back office work
+  workRouteHandlers(app);
+  portalIssueRouteHandlers(app);
+  todoRoutes(app);
+  autopilotRoutes(app);
   // The back office's MCP server (/mcp and its .well-known metadata), after every route it reads.
   mcpRoutes(app, deps);
   app.all("/api/*", (c) => c.json({ error: { code: "not_found", message: "no such route" } }, 404));
@@ -375,6 +395,24 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
     );
     // v0.12 W1-A: pauses whose end passed resume (every minute); trials that met their minimums
     // move to signoff (hourly, at the usage sweep's minute).
+    // §1.124 back office work: change requests and Feedback raised before Build, adopted hourly.
+    await adoptLegacy(db, scheduledTime).catch((error: unknown) =>
+      reportHandled("adopting requests failed", error, { job: "work_adopt" }),
+    );
+    // §1.124 back office work: Reggie reads new issues (every minute), emails go, chases, questions
+    // (hourly) and expansion spotting (nightly).
+    await backOfficeTick(
+      {
+        db,
+        transport: deps.llm?.(env) ?? workerTransport(env),
+        mailer: mailerFromEnv(env, deps.fetch?.(env)),
+        domain: env.EMAIL_FORWARDING_DOMAIN,
+        covered: parseCoveredProcessors(env.BAA_PROCESSORS),
+      },
+      scheduledTime,
+    ).catch((error: unknown) =>
+      reportHandled("back office tick failed", error, { job: "backoffice" }),
+    );
     await lifecycleTick(db, scheduledTime).catch((error: unknown) =>
       reportHandled("lifecycle tick failed", error, { job: "lifecycle" }),
     );

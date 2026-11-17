@@ -41,6 +41,16 @@ export interface Session {
    * without a cookie (the MCP server's bearer token, tests), which the step does not apply to.
    */
   readonly secondFactor?: SecondFactorState;
+  /**
+   * §1.116: a session the phone app holds (signed in through `/api/mobile/session`), with when
+   * it signed in (seconds). Absent for a browser's session.
+   */
+  readonly phone?: { readonly signedInAt: number };
+  /**
+   * When this session last proved who it is (seconds): its sign-in, or its second step if passed
+   * later. Absent for a session built without a cookie.
+   */
+  readonly provedAt?: number;
 }
 
 export type RefusalCode =
@@ -103,6 +113,10 @@ export type Identification =
       readonly setCookies: readonly string[];
       /** §1.100: where this sign-in is with its second step; absent means it does not apply. */
       readonly secondFactor?: SecondFactorState;
+      /** §1.116: a phone app's session, with when it signed in (seconds). */
+      readonly phone?: { readonly signedInAt: number };
+      /** When the session last proved who it is: its sign-in or its second step (seconds). */
+      readonly provedAt?: number;
       /**
        * The account the sealed cookie carries for this user, fresh or not (`accountFresh`
        * decides); absent when it carries none (docs/plan.md §1.93).

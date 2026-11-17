@@ -80,8 +80,9 @@ export function isMobileSignIn(request: Request): boolean {
 }
 
 /**
- * A session as the phone gets it: open, past the second step, within its 12 hours, and without
- * the account the cookie carries (§1.93; the phone reads it again on its first request).
+ * A session as the phone gets it: open, past the second step, within its 12 hours, marked as a
+ * phone session (`ph`), and without the account the cookie carries (§1.93; the phone reads it
+ * again on its first request).
  */
 async function forThePhone(
   sealed: string,
@@ -93,8 +94,9 @@ async function forThePhone(
   // DECISION (§1.116 with §1.100): a pending second step is never handed to the phone, whatever
   // the route in front of this already checked.
   if (opened.mf === "pending") return "pending";
-  if (opened.acct === undefined) return { sealed, payload: opened };
-  const { acct: _carried, ...payload } = opened;
+  // §1.116: marked as the phone's, so removing a phone ends it; sealed again without the account.
+  const { acct: _carried, ...rest } = opened;
+  const payload: SessionPayload = { ...rest, ph: true };
   return { sealed: await sealSession(payload, password), payload };
 }
 

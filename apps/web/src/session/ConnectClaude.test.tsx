@@ -15,10 +15,14 @@ function connection(over: Partial<ClaudeConnection> = {}): ClaudeConnection {
   return {
     status: "waiting",
     startedAt: "2026-11-16T14:05:00.000Z",
+    requestedAt: "2026-11-16T14:05:00.000Z",
     expiresAt: "2026-11-16T14:35:00.000Z",
     ...over,
   };
 }
+
+/** The bodies sent to Approve. */
+const sent: unknown[] = [];
 
 function renderWith(
   get: () => unknown,
@@ -28,7 +32,18 @@ function renderWith(
   const api = fakeApi({
     "GET /api/session": () => opts.session ?? OPERATOR_SESSION,
     [`GET /api/auth/claude-connections/${CODE}`]: get,
-    ...(approve ? { [`POST /api/auth/claude-connections/${CODE}/approve`]: approve } : {}),
+    ...(approve
+      ? {
+          [`POST /api/auth/claude-connections/${CODE}/approve`]: ({
+            init,
+          }: {
+            init: RequestInit;
+          }) => {
+            sent.push(JSON.parse(String(init.body)));
+            return approve();
+          },
+        }
+      : {}),
   });
   render(
     <MemoryRouter initialEntries={[opts.path ?? `/ops/connect-claude/${CODE}`]}>
@@ -56,12 +71,23 @@ describe("approving a Claude connection", () => {
     expect(waiting).toHaveTextContent("Claude is asking to use Mezonas as you. It first asked at");
     expect(waiting).toHaveTextContent("Approve it only if you just connected Claude yourself.");
     expect(waiting).toHaveTextContent("This link works until");
+    expect(screen.getByTestId("connect-claude-requested")).toHaveTextContent(
+      "Claude gave you this link at",
+    );
     expect(screen.getByTestId("connect-claude-card")).toHaveTextContent("Waiting for you");
-    await userEvent.click(within(waiting).getByTestId("connect-claude-approve"));
+    // Not one click: the code Claude showed comes first.
+    const approve = within(waiting).getByTestId("connect-claude-approve");
+    expect(approve).toBeDisabled();
+    await userEvent.type(screen.getByTestId("connect-claude-confirm"), "123 45");
+    expect(approve).toBeDisabled();
+    await userEvent.type(screen.getByTestId("connect-claude-confirm"), "6");
+    sent.length = 0;
+    await userEvent.click(approve);
     expect(await screen.findByTestId("connect-claude-approved")).toHaveTextContent(
       "Approved. Claude can use Mezonas as you until",
     );
     expect(api.calls).toContain(`POST /api/auth/claude-connections/${CODE}/approve`);
+    expect(sent).toEqual([{ confirm: "123456" }]);
     expect(screen.queryByTestId("connect-claude-approve")).toBeNull();
   });
 
@@ -73,6 +99,7 @@ describe("approving a Claude connection", () => {
     );
     await screen.findByTestId("connect-claude-waiting", {}, { timeout: 10_000 });
     expect(screen.getByTestId("shell-portal")).toBeInTheDocument();
+    await userEvent.type(screen.getByTestId("connect-claude-confirm"), "654321");
     await userEvent.click(screen.getByTestId("connect-claude-approve"));
     await screen.findByTestId("connect-claude-approved");
     expect(api.calls).toContain(`POST /api/auth/claude-connections/${CODE}/approve`);
@@ -85,6 +112,7 @@ describe("approving a Claude connection", () => {
     });
     const waiting = await screen.findByTestId("connect-claude-waiting", {}, { timeout: 10_000 });
     expect(waiting).toHaveTextContent("Claude pide usar Mezonas en su nombre.");
+    expect(waiting).toHaveTextContent("El código que le mostró Claude");
     expect(within(waiting).getByTestId("connect-claude-approve")).toHaveTextContent("Aprobar");
   });
 
@@ -131,9 +159,11 @@ describe("approving a Claude connection", () => {
       () => connection(),
       () => new Reply(409, { error: { code: "expired", message: "this link has expired" } }),
     );
-    await userEvent.click(
-      await screen.findByTestId("connect-claude-approve", {}, { timeout: 10_000 }),
+    await userEvent.type(
+      await screen.findByTestId("connect-claude-confirm", {}, { timeout: 10_000 }),
+      "123456",
     );
+    await userEvent.click(screen.getByTestId("connect-claude-approve"));
     expect(await screen.findByRole("alert")).toHaveTextContent("this link has expired");
   });
 });

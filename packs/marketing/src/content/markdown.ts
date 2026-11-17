@@ -258,16 +258,55 @@ export function renderMarkdown(source: string): Rendered {
   return { html: sanitized.html, removed: sanitized.removed, headings, links, topHeadings };
 }
 
-/** The words of rendered HTML, for counting and for the claims lint. */
-export const textOf = (html: string): string =>
-  html
-    // Inline tags join their words to the text around them; block tags separate.
-    .replace(/<\/?(?:a|strong|em|b|i|u|s|code|sup|sub|small|span)\b[^>]*>/g, "")
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\s+/g, " ")
-    .trim();
+const ENTITIES: Record<string, string> = {
+  "&amp;": "&",
+  "&lt;": "<",
+  "&gt;": ">",
+  "&quot;": '"',
+  "&#39;": "'",
+};
+
+const INLINE = new Set([
+  "a",
+  "strong",
+  "em",
+  "b",
+  "i",
+  "u",
+  "s",
+  "code",
+  "sup",
+  "sub",
+  "small",
+  "span",
+]);
+
+/**
+ * The words of rendered HTML, for counting and for the claims lint. The result is plain text, never
+ * put back into HTML.
+ */
+export const textOf = (html: string): string => {
+  // Tags out by hand, not by regex: everything from a `<` to the next `>` goes (to the end if none),
+  // so no `<` from markup is left, however tags are split or nested, in one linear pass.
+  // Inline tags join their words to the text around them; block tags separate.
+  let text = "";
+  for (let i = 0; i < html.length; ) {
+    const open = html.indexOf("<", i);
+    if (open < 0) {
+      text += html.slice(i);
+      break;
+    }
+    text += html.slice(i, open);
+    const close = html.indexOf(">", open + 1);
+    const name = /^\/?([a-z0-9]+)/i.exec(html.slice(open + 1, open + 20))?.[1]?.toLowerCase();
+    if (!name || !INLINE.has(name)) text += " ";
+    i = close < 0 ? html.length : close + 1;
+  }
+  return (
+    text
+      // One pass, so `&amp;lt;` reads `&lt;` and is not unescaped twice.
+      .replace(/&(?:amp|lt|gt|quot|#39);/g, (entity) => ENTITIES[entity] ?? entity)
+      .replace(/\s+/g, " ")
+      .trim()
+  );
+};

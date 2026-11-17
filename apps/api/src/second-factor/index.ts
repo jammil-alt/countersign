@@ -32,13 +32,14 @@ import {
 import {
   auditEvent,
   type Db,
+  type Tx,
   userFactor,
   userMemberships,
   userRecoveryCode,
   withOperator,
   withUser,
 } from "@countersign/db";
-import { and, count, eq, gte, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, count, eq, gt, gte, inArray, isNotNull, isNull, max, sql } from "drizzle-orm";
 import type { Bindings } from "../env";
 import { reportProblem } from "../observability/report";
 
@@ -210,41 +211,94 @@ export async function useRecoveryCode(
 
 // ── Limits ───────────────────────────────────────────────────────────────────────────────────────
 
+export const overLimit = (n: number) => n >= SECOND_FACTOR_MAX_ATTEMPTS;
+
 /**
- * Wrong codes (`session.second_factor` refused) or sends (`session.second_factor_send`) by this
- * person in the last 15 minutes, from the audit log.
+ * Claims one code send (a text or WhatsApp message) for this person before it goes out: false
+ * once SECOND_FACTOR_MAX_ATTEMPTS were sent in the last 15 minutes. As `claimAttempt`, under a
+ * per-person advisory lock of its own, and the send's row (`row`) commits before the message is
+ * sent; a failure to write it throws.
  */
-// DECISION: counted from audit rows as §1.100 says. Those rows have no client, which only an
-// operator scope reads, so this one count runs in an operator scope over no clients: it sees
-// client-less rows only, filtered to this person's own actions.
-export async function recentCount(
+export async function claimSend(
   db: Db,
   userId: string,
-  what: "wrong_code" | "send",
-  now: Date,
-): Promise<number> {
-  const since = new Date(now.getTime() - SECOND_FACTOR_WINDOW_SEC * 1000);
-  const [row] = await withOperator(db, [], (tx) =>
-    tx
+  row: (tx: Tx) => Promise<void>,
+): Promise<boolean> {
+  return withOperator(db, [], async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`second-factor-send:${userId}`}, 0))`,
+    );
+    const [sent] = await tx
       .select({ n: count() })
       .from(auditEvent)
       .where(
         and(
           eq(auditEvent.actorUserId, userId),
-          gte(auditEvent.createdAt, since),
-          what === "send"
-            ? eq(auditEvent.action, "session.second_factor_send")
-            : and(
-                eq(auditEvent.action, "session.second_factor"),
-                eq(auditEvent.outcome, "refused"),
-              ),
+          eq(auditEvent.action, "session.second_factor_send"),
+          gte(
+            auditEvent.createdAt,
+            sql`now() - ${`${SECOND_FACTOR_WINDOW_SEC} seconds`}::interval`,
+          ),
         ),
-      ),
-  );
-  return row?.n ?? 0;
+      );
+    if (overLimit(sent?.n ?? 0)) return false;
+    await row(tx);
+    return true;
+  });
 }
 
-export const overLimit = (n: number) => n >= SECOND_FACTOR_MAX_ATTEMPTS;
+/** The audit row each code tried leaves, written before the code is checked. */
+export const ATTEMPT_ACTION = "session.second_factor_attempt";
+
+/**
+ * Claims one try of a code (a method's or a recovery code) for this person before it is checked
+ * (audit 5.4): false once SECOND_FACTOR_MAX_ATTEMPTS were tried in the last 15 minutes since the
+ * person last passed the step. Under a per-person advisory lock, the count and the claim are one
+ * step, so tries sent at once can't all read the same count; the claim commits before the code is
+ * checked, so a try is counted whatever happens next. A failure to write throws: no try without
+ * its row.
+ */
+// DECISION: an append-only audit row per try, not a counter column (none fits on user_factor or
+// app_user without a migration). Tries are counted, not wrong codes: a wrong code's own row is
+// written after the check and could be missed; a pass resets the count, as before a passed sign-in
+// never counted against the next.
+export async function claimAttempt(
+  db: Db,
+  userId: string,
+  row: (tx: Tx) => Promise<void>,
+): Promise<boolean> {
+  return withOperator(db, [], async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`second-factor:${userId}`}, 0))`,
+    );
+    const windowStart = sql`now() - ${`${SECOND_FACTOR_WINDOW_SEC} seconds`}::interval`;
+    const [passed] = await tx
+      .select({ at: max(auditEvent.createdAt) })
+      .from(auditEvent)
+      .where(
+        and(
+          eq(auditEvent.actorUserId, userId),
+          eq(auditEvent.action, "session.second_factor"),
+          eq(auditEvent.outcome, "ok"),
+          gte(auditEvent.createdAt, windowStart),
+        ),
+      );
+    const [tried] = await tx
+      .select({ n: count() })
+      .from(auditEvent)
+      .where(
+        and(
+          eq(auditEvent.actorUserId, userId),
+          eq(auditEvent.action, ATTEMPT_ACTION),
+          gte(auditEvent.createdAt, windowStart),
+          ...(passed?.at ? [gt(auditEvent.createdAt, passed.at)] : []),
+        ),
+      );
+    if (overLimit(tried?.n ?? 0)) return false;
+    await row(tx);
+    return true;
+  });
+}
 
 // ── Remember this browser ────────────────────────────────────────────────────────────────────────
 
