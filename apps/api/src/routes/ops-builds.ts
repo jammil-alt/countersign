@@ -4,7 +4,13 @@
 // those routes as the operator through `invokeRoute` (its roles, scope, checks and audit row,
 // marked as the build's), and the build is saved in short operator-scoped transactions.
 
-import { BuilderError, buildTurn, latestVersion, makeTestCases } from "@countersign/agents";
+import {
+  BuilderError,
+  buildTurn,
+  latestVersion,
+  makeTestCases,
+  reviewBrief,
+} from "@countersign/agents";
 import {
   BRIEF_FIELDS,
   BRIEF_LABELS,
@@ -27,6 +33,7 @@ import {
   mergeFitGap,
   nextPhase,
   operatorFitGap,
+  PHASE_WORDS,
   ProposalState,
   phaseIndex,
   proposalUndo,
@@ -38,7 +45,7 @@ import {
   SETUP_WORDS,
   testCaseProblems,
 } from "@countersign/core";
-import { build, buildItem, buildMessage, skillVersion, type Tx } from "@countersign/db";
+import { build, buildEvent, buildItem, buildMessage, skillVersion, type Tx } from "@countersign/db";
 import { createLlmClient, type LlmTransport } from "@countersign/llm";
 import { and, asc, eq } from "drizzle-orm";
 import type { Hono } from "hono";
@@ -194,7 +201,12 @@ function changeLines(answer: Awaited<ReturnType<typeof buildTurn>>["answer"]): s
   const out: string[] = [];
   if (answer.brief) {
     for (const key of BRIEF_FIELDS) {
-      if (answer.brief[key]) out.push(`Brief: ${BRIEF_LABELS[key].toLowerCase()}`);
+      const f = answer.brief[key];
+      if (!f) continue;
+      // QA (2026-11-17): a field the turn left open read as filled ("+ Brief: done well means").
+      const state =
+        f.state === "open" ? " (still open)" : f.state === "assumed" ? " (assumed)" : "";
+      out.push(`Brief: ${BRIEF_LABELS[key].toLowerCase()}${state}`);
     }
   }
   if (answer.fitgap) {
@@ -345,12 +357,23 @@ async function turn(
         ? await draftOutline({ tx: scoped.tx, services: ctx.services, now }, row)
         : []),
     ];
-    const bctx =
-      row.phase === "fitgap" || row.phase === "poc"
-        ? await builderContext({ ...scoped, services: ctx.services }, row.clientId)
-        : null;
+    // Owner (2026-11-17): the catalog in every phase, and the other work the operator can see.
+    const bctx = await builderContext({ ...scoped, services: ctx.services }, row.clientId);
+    const otherWork = await otherWorkLines(scoped.tx, row);
     const client = detail.build.client?.name ?? null;
-    return { row, history, facts, bctx, client, said, detail, issues, focused, thread };
+    return {
+      row,
+      history,
+      facts,
+      bctx,
+      otherWork,
+      client,
+      said,
+      detail,
+      issues,
+      focused,
+      thread,
+    };
   });
   const { row } = prep;
   let result: Awaited<ReturnType<typeof buildTurn>>;
@@ -370,6 +393,7 @@ async function turn(
         history: prep.history,
         words: prep.said,
         ctx: prep.bctx,
+        otherWork: prep.otherWork,
       },
       { llm: createLlmClient({ transport: transport(ctx.services) }) },
     );
@@ -455,6 +479,130 @@ const StoredProposal = BuildProposalSchema.extend({
   state: ProposalState,
   before: BuildItemState.nullable().optional(),
 });
+
+/** A short, stable fingerprint of a brief: which one was reviewed. */
+function briefHash(brief: Brief): string {
+  const text = JSON.stringify(BRIEF_FIELDS.map((k) => [k, brief[k]?.state, brief[k]?.text]));
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+
+/**
+ * The review before a brief is confirmed (`reviewBrief`): once per brief as it reads. Concerns
+ * become open questions and the Builder lists them; the build stays in intake (true). Already
+ * reviewed, nothing found, or a review that couldn't run: the move goes on (false).
+ */
+async function reviewHolds(ctx: LongCtx, row: BuildRow): Promise<boolean> {
+  const brief = readBrief(row.brief);
+  const hash = briefHash(brief);
+  const prep = await ctx.inTx(async (scoped) => {
+    const events = await scoped.tx
+      .select({ payload: buildEvent.payload })
+      .from(buildEvent)
+      .where(and(eq(buildEvent.buildId, row.id), eq(buildEvent.kind, "record")));
+    const reviewed = events.some(
+      (e) => (e.payload as { review?: { brief?: unknown } } | null)?.review?.brief === hash,
+    );
+    if (reviewed) return null;
+    const detail = await detailIn(scoped, ctx.services, row);
+    return {
+      issues: buildIssues(detail)
+        .filter((i) => i.open)
+        .map((i) => i.title),
+      otherWork: await otherWorkLines(scoped.tx, row),
+      bctx: await builderContext({ ...scoped, services: ctx.services }, row.clientId),
+      client: detail.build.client?.name ?? null,
+    };
+  });
+  if (!prep) return false;
+  let concerns: Awaited<ReturnType<typeof reviewBrief>>["concerns"];
+  try {
+    concerns = (
+      await reviewBrief(
+        {
+          title: row.title,
+          kind: row.kind,
+          clientName: prep.client,
+          brief,
+          otherWork: prep.otherWork,
+          issues: prep.issues,
+          ctx: prep.bctx,
+        },
+        { llm: createLlmClient({ transport: transport(ctx.services) }) },
+      )
+    ).concerns;
+  } catch (error) {
+    // A review that couldn't run doesn't hold the build: it says so and goes on.
+    reportHandled("a brief's review failed", error, { kind: "build", build: row.id });
+    await ctx.inTx(async (scoped) => {
+      await addMessage(scoped.tx, await readBuild(scoped.tx, row.id, true), {
+        role: "builder",
+        text: "I couldn't give the brief its second look just now, so it goes on as it is.",
+      });
+    });
+    return false;
+  }
+  await ctx.inTx(async (scoped) => {
+    const fresh = await readBuild(scoped.tx, row.id, true);
+    await addEvent(scoped.tx, fresh, {
+      kind: "record",
+      payload: { review: { brief: hash, concerns: concerns.length } },
+      userId: ctx.session.user.id,
+    });
+    if (concerns.length === 0) return;
+    await addItems(
+      scoped.tx,
+      fresh,
+      concerns.map((c, i) => ({
+        title: c.title,
+        detail: c.detail,
+        kind: "question" as const,
+        owner: "operator" as const,
+        phase: "intake" as const,
+        key: `review:${hash}:${c.checklist ?? i}`,
+      })),
+      ctx.session.user.id,
+    );
+    const n = concerns.length;
+    await addMessage(scoped.tx, fresh, {
+      role: "builder",
+      text: `Before you confirm, I gave the brief a second look. ${n === 1 ? "One thing it doesn't settle yet" : `${n} things it doesn't settle yet`}: ${concerns
+        .map((c, i) => `${i + 1}. ${c.title}`)
+        .join(
+          " ",
+        )} They're in the issues. Answer them here, or press "Confirm the brief" again to go on with them open.`,
+      meta: { chips: ["Take the first one"] },
+    });
+  });
+  return concerns.length > 0;
+}
+
+/** At most this many lines of other work go with a turn. */
+const OTHER_WORK_MAX = 40;
+
+/**
+ * Other builds the operator can see (RLS scopes them to the clients they serve), each with its
+ * phase, and their open issues: so the Builder can name work this one overlaps (QA, 2026-11-16:
+ * AP Invoice Review already had an open item for a vendor management flow).
+ */
+async function otherWorkLines(tx: Tx, row: BuildRow): Promise<string[]> {
+  const others = (await listBuilds(tx, { status: "open" })).filter((b) => b.id !== row.id);
+  if (others.length === 0) return [];
+  const items = await openItemsAcross(tx, others);
+  const lines: string[] = [];
+  for (const b of others) {
+    const open = items.filter((i) => i.buildId === b.id).map((i) => `“${i.title}”`);
+    lines.push(
+      `Build “${b.title}” (${PHASE_WORDS[b.phase].label.toLowerCase()})${open.length ? `: open issues ${open.slice(0, 6).join(", ")}` : ""}`,
+    );
+    if (lines.length >= OTHER_WORK_MAX) break;
+  }
+  return lines;
+}
 
 /** Messages of an issue's thread sent with a turn about it. */
 const THREAD_MAX = 12;
@@ -553,7 +701,7 @@ async function applyEdit(ctx: LongCtx, id: string, a: EditAction, summary: strin
     throw new HttpError(
       503,
       "edit_failed",
-      "The workflow's Builder couldn't make the change just now, so the draft is as it was. Press Agree to try again.",
+      "I couldn't make the change just now, so the draft is as it was. Press Agree to try again.",
     );
   }
   const changes = turn.changes.filter((c) => !c.undoes).map((c) => ({ id: c.id, label: c.label }));
@@ -627,10 +775,37 @@ async function runAction(ctx: LongCtx, id: string, a: BuildAction): Promise<void
 const clip = (text: string, max: number) =>
   text.length > max ? `${text.slice(0, max - 1)}…` : text;
 
+/** The first `n` sentences of a reply, for a one-line account of what was done. */
+function firstSentences(text: string, n: number): string {
+  // A sentence ends at . ! or ? followed by a space or the end, so "15.00" stays whole.
+  const parts = text.trim().split(/(?<=[.!?])\s+/);
+  return clip(parts.slice(0, n).join(" ").trim() || text.trim(), 600);
+}
+
+/**
+ * The issue an agreed draft edit was for, if it is still open after it: the issue the
+ * conversation was on, else a problem still on the step the edit named.
+ */
+function stillOpen(d: BuildDetail, about: string | null, stepId: string | null): BuildIssue | null {
+  const issues = buildIssues(d);
+  // An open item can't be checked this way (only closing it settles it): the draft's problems,
+  // failing tests and checks can, since they're read from the draft.
+  const onIt = about
+    ? issues.find((i) => i.key === about && i.open && i.source !== "item")
+    : undefined;
+  if (onIt) return onIt;
+  if (!stepId) return null;
+  const problem = d.draft?.problems.find((p) => p.stepId === stepId);
+  return problem ? (issues.find((i) => i.key === `problem:${problem.key}`) ?? null) : null;
+}
+
 /** What the conversation says after an agreed change, and the next open issue to take. */
 function doneText(summary: string, next: BuildIssue | undefined, changed: string[] = []): string {
-  const what = changed.length > 0 ? ` Changed: ${changed.join("; ")}.` : "";
-  const done = `Done: ${summary.replace(/[.\s]+$/, "")}.${what}`;
+  // A draft edit says what it changed in the Builder's words; anything else, what was agreed.
+  const done =
+    changed.length > 0
+      ? `Changed the draft: ${changed.join(" ")}`
+      : `Done: ${summary.replace(/[.\s]+$/, "")}.`;
   return next
     ? `${done} Next open issue: “${next.title}”. Shall we take it?`
     : `${done} That was the last open issue.`;
@@ -697,6 +872,10 @@ async function move(
     return r;
   });
   const forward = phaseIndex(row.kind, to) > phaseIndex(row.kind, row.phase);
+  // 1b. Owner (2026-11-17): a brief gets a second look before it is confirmed. What it doesn't
+  //     settle becomes open questions and the build stays in intake; confirming the same brief
+  //     again goes on with them open.
+  if (forward && row.phase === "intake" && (await reviewHolds(ctx, row))) return;
   // 2. What the move makes, outside any transaction.
   const made = forward && to === "draft" ? await makeDraft(ctx, row) : {};
   // 3. The move, its record and the items it leaves.
@@ -888,6 +1067,12 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
     });
     const { p, about } = found;
     // The operator's decision, as their message in the conversation.
+    // The Builder's own message after a decision.
+    const say = (text: string, meta: Record<string, unknown>) =>
+      ctx.inTx(async (scoped) => {
+        const fresh = await readBuild(scoped.tx, id, true);
+        await addMessage(scoped.tx, fresh, { role: "builder", text: clip(text, 3000), meta });
+      });
     const record = (
       decision: "agreed" | "unchanged" | "declined" | "undone",
       extra: Record<string, unknown> = {},
@@ -910,24 +1095,26 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
       // Builder (its guards, its labelled changes) and saved as a draft version; undo is its own.
       if (decide === "agree") {
         const edit = await applyEdit(lc, id, p.action, p.summary);
+        const said = firstSentences(edit.text, 2);
         if (edit.changes.length === 0) {
-          await record("unchanged", { result: clip(`Nothing changed: ${edit.text}`, 500) });
-          await ctx.inTx(async (scoped) => {
-            const fresh = await readBuild(scoped.tx, id, true);
-            await addMessage(scoped.tx, fresh, {
-              role: "builder",
-              text: clip(
-                `The draft didn't change. The workflow's Builder said: ${edit.text}`,
-                3000,
-              ),
-              meta: about ? { about } : {},
-            });
-          });
+          await record("unchanged", { result: clip(`Nothing changed: ${said}`, 500) });
+          await say(`I tried, and the draft didn't change: ${said}`, about ? { about } : {});
           return detailOf(ctx, id);
         }
-        changed = edit.changes.map((c) => c.label);
+        // QA on staging (2026-11-17): "Done: Build the filter skill" was said when only a step's
+        // description had changed and the step was still missing. What an edit did is checked
+        // against the build after it, never taken from the proposal's own words.
+        const left = await ctx.inTx(async (scoped) =>
+          stillOpen(
+            await detailIn(scoped, ctx.services, await readBuild(scoped.tx, id, true)),
+            about,
+            p.action.do === "edit_draft" ? (p.action.stepId ?? null) : null,
+          ),
+        );
         await record("agreed", {
-          result: clip(`Changed: ${changed.join("; ")}`, 1000),
+          result: clip(left ? `Changed, still open: ${said}` : `Changed: ${said}`, 1000),
+          changes: edit.changes.map((c) => clip(c.label, 300)).slice(0, 20),
+          ...(left ? { unresolved: true } : {}),
           edit: {
             sessionId: edit.sessionId,
             turnId: edit.turnId,
@@ -935,6 +1122,14 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
             versionId: edit.versionId,
           },
         });
+        if (left) {
+          await say(
+            `I changed the draft, but it isn't fixed: “${left.title}” is still open${left.detail ? ` (${left.detail})` : ""}. What I changed: ${said}`,
+            { ...(about ? { about } : {}), chips: ["What would fix it?"] },
+          );
+          return detailOf(ctx, id);
+        }
+        changed = [said];
       } else {
         if (!found.edit || found.edit.changeIds.length === 0) {
           throw new HttpError(409, "no_undo", "this change has no undo here");
@@ -955,6 +1150,16 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
       const fresh = await readBuild(scoped.tx, id, true);
       const issues = buildIssues(await detailIn(scoped, ctx.services, fresh));
       const next = issues.find((i) => i.open && i.key !== about);
+      const item = issues.find((i) => i.key === about && i.source === "item" && i.open);
+      if (decide === "agree" && changed.length > 0 && item) {
+        // A draft edit for an open item: whether it settles the item is the operator's to say.
+        await addMessage(scoped.tx, fresh, {
+          role: "builder",
+          text: `Changed the draft: ${changed.join(" ")} “${item.title}” stays open until you close it. Does this settle it?`,
+          meta: { about: item.key, chips: ["Yes, close it", "Not yet"] },
+        });
+        return;
+      }
       const text =
         decide === "agree"
           ? doneText(p.summary, next, changed)

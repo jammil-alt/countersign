@@ -71,6 +71,67 @@ export function schemaFields(schema: JsonSchema | undefined): string[] {
   return props ? Object.keys(props) : [];
 }
 
+/**
+ * A schema's fields in one line, for the catalog's short form: `items, keep?, groupBy?`. Required
+ * fields bare, optional ones with "?"; nested shapes are left to the full catalog.
+ */
+export function fieldLine(schema: unknown): string {
+  const s = schema as { properties?: Record<string, unknown>; required?: string[] } | undefined;
+  const props = s?.properties ? Object.keys(s.properties) : [];
+  if (props.length === 0) return "";
+  const required = new Set(s?.required ?? []);
+  return props.map((p) => (required.has(p) ? p : `${p}?`)).join(", ");
+}
+
+/**
+ * The catalog in short, for the Builder's reasoning (intake, fit-gap, the build's conversation):
+ * what each part is for and the names of what goes in and comes out, without the full JSON Schemas.
+ * QA on staging (2026-11-17): the full catalog was about 110,000 tokens, three quarters of it tool
+ * schemas, and a part's one-line limits got lost in it ("Reshape data" read as able to group). The
+ * draft, which wires real inputs, still reads the full catalog (`catalogForPrompt`).
+ */
+export function catalogBriefForPrompt(ctx: BuilderContext): Record<string, unknown> {
+  return {
+    skills: ctx.skills.map((s) => ({
+      id: s.ref,
+      name: s.definition.name,
+      description: s.definition.description,
+      category: s.definition.category,
+      in: fieldLine(s.definition.input),
+      out: fieldLine(s.definition.output),
+      ...(s.definition.settings.length
+        ? { settings: s.definition.settings.map((x) => x.label).join(", ") }
+        : {}),
+      ...(s.definition.requiresConnectors.length
+        ? { needsConnectors: s.definition.requiresConnectors }
+        : {}),
+      ...(s.definition.requiresPacks.length ? { needsPacks: s.definition.requiresPacks } : {}),
+    })),
+    tools: ctx.tools.map((t) => ({
+      id: t.id,
+      description: t.description,
+      writes: t.sideEffect === "external",
+      ...(t.connector ? { connector: t.connector } : {}),
+      in: fieldLine(t.input),
+      out: fieldLine(t.output),
+    })),
+    connectors: ctx.connectors,
+    packs: ctx.packs,
+    events: ctx.events.map((e) => ({ type: e.type, description: e.description })),
+    templates: ctx.templates.map((t) => ({ name: t.name, mission: t.mission })),
+    ...(ctx.client ? { client: ctx.client } : {}),
+    ...(ctx.automations
+      ? {
+          automations: ctx.automations.map((a) => ({
+            ref: a.ref,
+            name: a.name,
+            description: a.description,
+          })),
+        }
+      : {}),
+  };
+}
+
 /** The catalog as the model reads it: compact JSON, nothing it may not use. */
 export function catalogForPrompt(ctx: BuilderContext): Record<string, unknown> {
   return {

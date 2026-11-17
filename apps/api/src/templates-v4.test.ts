@@ -198,6 +198,8 @@ describe("R2: the skills the latest seeds and templates name", () => {
         .map((s) => s.id)
         .sort(),
     ).toEqual([
+      // Filter, group and total a list (2026-11-17): a built-in code skill, not a wrapper.
+      "data.group-list",
       // Reshape data (2026-11-11): a built-in code skill, not a wrapper.
       "data.reshape",
       "docs.check-bill",

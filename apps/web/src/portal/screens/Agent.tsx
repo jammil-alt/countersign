@@ -26,7 +26,7 @@ import { PortalPeopleList } from "../../people/PeoplePanel";
 import { shortTime } from "../../runs/format";
 import { subjectTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
-import { useSession } from "../../session/session";
+import { useAssignedAgents, useSession } from "../../session/session";
 import { HeaderSwitcher } from "../../shell/HeaderSwitcher";
 import { ActivityRow } from "../../ui/activity";
 import { AgentBadge } from "../../ui/badges";
@@ -75,10 +75,14 @@ export type AgentTab = "overview" | "runs" | "settings";
  * agent (its name, what it does, its state), and every call that needs only the agent's id starts
  * here together (docs/audit-plan.md 1.4, 1.5). Each part waits only for its own answer.
  */
-export function AgentScreen({ tab = "overview" }: { tab?: AgentTab }) {
+export function AgentScreen({ tab: asked = "overview" }: { tab?: AgentTab }) {
   const { id = "" } = useParams();
   const { t } = useI18n();
   const isAdmin = useIsAdmin();
+  // docs/plan.md §1.122: a client user limited to some agents works on them (overview, runs, Run
+  // now, their items); the agent's settings and the business's documents are not theirs.
+  const limited = useAssignedAgents() !== null;
+  const tab: AgentTab = limited && asked === "settings" ? "overview" : asked;
   const known = useKnownAgent(id);
   const detail = useApi(apiRoutes.portalService, { params: { id } });
   // What it is doing now and its stage come from Home's route; its controls are the client admin's.
@@ -168,7 +172,9 @@ export function AgentScreen({ tab = "overview" }: { tab?: AgentTab }) {
         items={[
           { to: PORTAL_PATHS.agent(id), label: t("agent.tab.overview"), end: true },
           { to: PORTAL_PATHS.agentRuns(id), label: t("agent.tab.runs") },
-          { to: PORTAL_PATHS.agentSettings(id), label: t("agent.tab.settings") },
+          ...(limited
+            ? []
+            : [{ to: PORTAL_PATHS.agentSettings(id), label: t("agent.tab.settings") }]),
         ]}
       />
       {detail.error && !detail.data ? (
@@ -200,7 +206,7 @@ export function AgentScreen({ tab = "overview" }: { tab?: AgentTab }) {
           {detail.data ? (
             <>
               <OwnView id={id} detail={detail.data} />
-              {detail.data.readsDocuments ? <Documents isAdmin={isAdmin} /> : null}
+              {detail.data.readsDocuments && !limited ? <Documents isAdmin={isAdmin} /> : null}
             </>
           ) : null}
         </PageGrid>

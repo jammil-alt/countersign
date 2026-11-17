@@ -26,6 +26,16 @@ export type InvitableRole = z.infer<typeof InvitableRole>;
 
 export const INVITE_EMAIL_MAX = 320;
 
+/** At most this many agents on one person's list (a client has far fewer). */
+export const MEMBER_AGENTS_MAX = 200;
+
+/**
+ * Which of the client's agents a client user may see and work on (docs/plan.md §1.122): null for
+ * every agent (as before), or a list of client agent ids. Only a client user is ever limited.
+ */
+export const MemberAgents = z.array(Id).max(MEMBER_AGENTS_MAX).nullable();
+export type MemberAgents = z.infer<typeof MemberAgents>;
+
 export const InviteBody = z.strictObject({
   email: z.string().trim().toLowerCase().max(INVITE_EMAIL_MAX).email(),
   name: z.string().trim().max(200).optional(),
@@ -33,6 +43,8 @@ export const InviteBody = z.strictObject({
   // v0.12 W1-D: "can sign" (default yes). A client user who can't is a viewer; a client admin
   // always signs (ARCHITECTURE §4).
   canSign: z.boolean().optional(),
+  /** §1.122: the agents a client user may see (omitted or null: every agent). */
+  agentIds: MemberAgents.optional(),
 });
 export type InviteBody = z.infer<typeof InviteBody>;
 
@@ -43,6 +55,7 @@ export type InviteBody = z.infer<typeof InviteBody>;
 export const ContactInviteBody = z.strictObject({
   role: InvitableRole,
   canSign: z.boolean().optional(),
+  agentIds: MemberAgents.optional(),
 });
 export type ContactInviteBody = z.infer<typeof ContactInviteBody>;
 
@@ -56,8 +69,28 @@ export const Member = z.object({
   signedIn: z.boolean().nullable(),
   /** v0.12 W1-D: false for a viewer, who signs nothing (`membership.can_sign`). */
   canSign: z.boolean().optional(),
+  /** §1.122: the agents a client user is limited to; null (or absent) for every agent. */
+  agentIds: MemberAgents.optional(),
 });
 export type Member = z.infer<typeof Member>;
+
+/**
+ * Changing a client person's access in place (§1.122): their role, whether they sign, and which
+ * agents they see. Omitted fields stay as they are. A client admin always signs and sees every
+ * agent, so making someone an admin clears their list.
+ */
+export const MemberAccessBody = z
+  .strictObject({
+    role: InvitableRole.optional(),
+    canSign: z.boolean().optional(),
+    agentIds: MemberAgents.optional(),
+  })
+  .refine((b) => Object.keys(b).length > 0, "nothing to change");
+export type MemberAccessBody = z.infer<typeof MemberAccessBody>;
+
+/** A client agent a person can be given (the Team screen's choices). */
+export const AssignableAgent = z.object({ id: z.string(), name: z.string() });
+export type AssignableAgent = z.infer<typeof AssignableAgent>;
 
 /** The invitation email: sent, not needed, or failed (the invite itself stands either way). */
 export const InviteEmail = z.object({
@@ -131,6 +164,8 @@ export const OpsClientSettings = z.object({
   notifications: NotificationSettings,
   /** Everyone in the client: its people and the operators who serve it. */
   members: z.array(Member),
+  /** §1.122: the client's agents, for choosing which a client user sees. */
+  agents: z.array(AssignableAgent).optional(),
 });
 export type OpsClientSettings = z.infer<typeof OpsClientSettings>;
 
@@ -280,13 +315,37 @@ export const onboardingRoutes = {
     body: ContactInviteBody,
     response: InviteResult,
   }),
+  opsUpdateMember: defineRoute({
+    method: "PATCH",
+    path: "/api/ops/clients/:id/members/:userId",
+    auth: "session",
+    roles: OPS,
+    summary: "Change a client person's role, whether they sign, and which agents they see",
+    params: z.object({ id: Id, userId: Id }),
+    body: MemberAccessBody,
+    response: z.object({ member: Member }),
+  }),
   portalUsers: defineRoute({
     method: "GET",
     path: "/api/users",
     auth: "session",
     roles: ADMIN,
-    summary: "The people in your business who use the portal",
-    response: z.object({ users: z.array(Member) }),
+    summary: "The people in your business who use the portal, and the agents you can give them",
+    response: z.object({
+      users: z.array(Member),
+      /** §1.122: the client's agents, for choosing which a client user sees. */
+      agents: z.array(AssignableAgent).optional(),
+    }),
+  }),
+  portalUpdateUser: defineRoute({
+    method: "PATCH",
+    path: "/api/users/:id",
+    auth: "session",
+    roles: ADMIN,
+    summary: "Change someone's role, whether they approve, and which agents they see",
+    params: IdParams,
+    body: MemberAccessBody,
+    response: z.object({ member: Member }),
   }),
   portalInvite: defineRoute({
     method: "POST",

@@ -10,6 +10,7 @@ import {
   DIRECTORY_SKILLS,
   DOCS_SKILLS,
   FORMS_SKILL_DEFS,
+  GROUP_LIST_SKILLS,
   INBOUND_SKILLS,
   KNOWLEDGE_SKILLS,
   LEDGER_SKILLS,
@@ -178,6 +179,8 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
       ...TRANSLATE_SKILLS,
       // Reshape data (2026-11-11): data.reshape, the built-in deterministic mapping step.
       ...RESHAPE_SKILLS,
+      // Filter, group and total a list (2026-11-17): data.group-list, deterministic.
+      ...GROUP_LIST_SKILLS,
       ...SUPERVISOR_SKILLS,
       // v0.12 W2-D: Sloan's conversation (account.chat)
       ...ACCOUNT_SKILLS,

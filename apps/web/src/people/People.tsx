@@ -8,18 +8,17 @@ import {
   type ContactInviteBody,
   canInviteContact,
   type InvitableRole,
-  type InviteBody,
   type InviteResult,
   isOwnPerson,
   type Member,
 } from "@countersign/core";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { isApiError } from "../api/client";
 import type { PlainKey } from "../i18n/catalog";
 import { EN, type I18n, useI18n } from "../i18n/i18n";
-import { Field, Select, TextInput } from "../ui/forms";
+import { Field, Select } from "../ui/forms";
 import { Icon } from "../ui/icons";
-import { Badge, Button, buttonClass, Card, cx, EmptyState, Tag } from "../ui/primitives";
+import { Badge, Button, buttonClass, cx } from "../ui/primitives";
 
 export const ROLE_LABEL: Record<Member["role"], PlainKey> = {
   client_admin: "people.role.client_admin",
@@ -142,180 +141,6 @@ export function RemoveConfirm({
         </button>
       </div>
     </div>
-  );
-}
-
-export function MemberList({
-  members,
-  testId,
-  action,
-  onRemove,
-}: {
-  members: Member[];
-  testId: string;
-  /** The back office's own control for a person (§1.100: reset their sign-in); none in the portal. */
-  action?: (member: Member) => ReactNode;
-  /** Remove a client admin or user (never an operator: `db:remove-operator` does that). */
-  onRemove?: (member: Member) => Promise<void>;
-}) {
-  const { t } = useI18n();
-  if (members.length === 0) return <EmptyState>{t("people.none")}</EmptyState>;
-  return (
-    <Card className="overflow-hidden" testId={testId}>
-      <ul>
-        {members.map((m) => (
-          <MemberRow
-            key={m.userId}
-            member={m}
-            testId={`${testId}-${m.email}`}
-            action={action}
-            onRemove={onRemove && m.role !== "operator" ? () => onRemove(m) : undefined}
-          />
-        ))}
-      </ul>
-    </Card>
-  );
-}
-
-function MemberRow({
-  member: m,
-  testId,
-  action,
-  onRemove,
-}: {
-  member: Member;
-  testId: string;
-  action: ((member: Member) => ReactNode) | undefined;
-  onRemove: (() => Promise<void>) | undefined;
-}) {
-  const { t } = useI18n();
-  const [removing, setRemoving] = useState(false);
-  return (
-    <li
-      data-testid={testId}
-      className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3 last:border-b-0"
-    >
-      <span className="min-w-0">
-        <span className="block font-medium text-ink">{m.name ?? m.email}</span>
-        {m.name ? <span className="block text-sm text-ink-muted">{m.email}</span> : null}
-      </span>
-      <span className="flex shrink-0 items-center gap-2">
-        {m.signedIn === false ? <Badge>{t("people.invited")}</Badge> : null}
-        <Tag tone={m.role === "operator" ? "person" : "neutral"}>{t(ROLE_LABEL[m.role])}</Tag>
-        {onRemove && !removing ? (
-          <RemoveButton testId={testId} onClick={() => setRemoving(true)} />
-        ) : null}
-      </span>
-      {action ? <div className="w-full">{action(m)}</div> : null}
-      {onRemove && removing ? (
-        <div className="w-full">
-          <RemoveConfirm
-            name={m.name ?? m.email}
-            testId={testId}
-            onRemove={onRemove}
-            onCancel={() => setRemoving(false)}
-          />
-        </div>
-      ) : null}
-    </li>
-  );
-}
-
-/** Email, name and role; `onInvite` sends it and answers the result. */
-export function InviteForm({
-  surface,
-  onInvite,
-  testId,
-}: {
-  surface: "ops" | "portal";
-  onInvite(body: InviteBody): Promise<InviteResult>;
-  testId: string;
-}) {
-  const [email, setEmail] = useState("");
-  const [name, setName] = useState("");
-  const [role, setRole] = useState<InvitableRole>("client_user");
-  const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<string | null>(null);
-  const [done, setDone] = useState<string | null>(null);
-  const i18n = useI18n();
-  const { t } = i18n;
-
-  async function submit() {
-    if (!email.trim()) {
-      setProblem(t("people.problem.noEmail"));
-      return;
-    }
-    setBusy(true);
-    setProblem(null);
-    setDone(null);
-    try {
-      const result = await onInvite({
-        email: email.trim(),
-        role,
-        ...(name.trim() ? { name: name.trim() } : {}),
-      });
-      setDone(inviteMessage(result, i18n));
-      setEmail("");
-      setName("");
-    } catch (error) {
-      setProblem(inviteProblem(error, surface, i18n));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Card className="mt-3 p-5" testId={testId}>
-      <form
-        className="flex flex-wrap items-end gap-3"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void submit();
-        }}
-      >
-        <Field
-          label={t("people.email")}
-          error={problem ?? undefined}
-          className="min-w-64 flex-1"
-          testId={`${testId}-email`}
-        >
-          <TextInput
-            type="email"
-            autoComplete="off"
-            data-testid={`${testId}-email`}
-            value={email}
-            invalid={!!problem}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </Field>
-        <Field label={t("people.name")} className="min-w-48 flex-1">
-          <TextInput
-            data-testid={`${testId}-name`}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </Field>
-        <Field label={t("people.role")} className="w-40">
-          <Select
-            data-testid={`${testId}-role`}
-            value={role}
-            onChange={(e) => setRole(e.target.value as InvitableRole)}
-          >
-            <option value="client_user">{t("people.role.client_user")}</option>
-            <option value="client_admin">{t("people.role.client_admin")}</option>
-          </Select>
-        </Field>
-        <Button type="submit" variant="primary" disabled={busy} data-testid={`${testId}-send`}>
-          {t("people.invite")}
-        </Button>
-      </form>
-      <p className="mt-3 text-sm text-ink-muted">{t("people.rolesHelp")}</p>
-      {done ? (
-        <p role="status" className="mt-2 text-sm text-ink" data-testid={`${testId}-done`}>
-          {done}
-        </p>
-      ) : null}
-    </Card>
   );
 }
 

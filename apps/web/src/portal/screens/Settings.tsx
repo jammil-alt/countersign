@@ -13,7 +13,7 @@
 // Exports, Conversations (WhatsApp capture) and Voice samples. Never what the work cost us
 // (invariant 11).
 import type { MyNotifications, NotificationSettings, OnCreditsOut } from "@countersign/core";
-import { type ReactNode, useEffect, useState } from "react";
+import { lazy, type ReactNode, Suspense, useEffect, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { type ApiState, useApi, useApiClient } from "../../api/useApi";
@@ -21,10 +21,18 @@ import { PortalTeamApprovals } from "../../approvals/TeamApprovals";
 import type { PlainKey } from "../../i18n/catalog";
 import { useI18n } from "../../i18n/i18n";
 import { LanguageMenu } from "../../i18n/LanguageMenu";
-import { useSession } from "../../session/session";
+import { useAssignedAgents, useSession } from "../../session/session";
 import { AgentBadge } from "../../ui/badges";
 import { Loaded, Page, Section } from "../../ui/page";
-import { Badge, Button, Card, EmptyState, ErrorNotice, PageHeader } from "../../ui/primitives";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  ErrorNotice,
+  Loading,
+  PageHeader,
+} from "../../ui/primitives";
 import { PORTAL_PATHS } from "../paths";
 import { PortalApproverRules } from "./ApproverRules";
 import { PortalBillingScreen } from "./Billing";
@@ -32,10 +40,15 @@ import { PortalBusinessHours } from "./BusinessHours";
 import { PortalChannels } from "./Channels";
 import { PortalConversationsScreen } from "./Conversations";
 import { PortalExportsScreen } from "./Exports";
-import { PortalTeamScreen } from "./Team";
 // P-8
 import { PortalTextingRegistration } from "./TextingRegistration";
 import { VoiceSamples } from "./VoiceSamples";
+
+// The Team section loads when it is opened (docs/plan.md §1.122): it holds the access editor and
+// the invite form, and the web app's first load has a budget (scripts/web-size.mjs).
+const PortalTeamScreen = lazy(() =>
+  import("./Team").then((m) => ({ default: m.PortalTeamScreen })),
+);
 
 export type SettingsSection =
   | "general"
@@ -95,6 +108,12 @@ const ADMIN: readonly SettingsSection[] = [
   "texting",
 ];
 
+/**
+ * docs/plan.md §1.122: a client user limited to some agents has only their own settings and the
+ * team they work with; the business's settings are closed to them (at the API too).
+ */
+const LIMITED: readonly SettingsSection[] = ["general", "team"];
+
 /** What a client user reads on an admin's section, where the section has words of its own. */
 const ADMIN_ONLY: Partial<Record<SettingsSection, PlainKey>> = {
   exports: "exports.adminOnly",
@@ -107,7 +126,8 @@ export function PortalSettingsScreen({ section = "general" }: { section?: Settin
   const session = useSession();
   const role = session.tenants.find((x) => x.id === session.activeTenantId)?.role;
   const isAdmin = role === "client_admin";
-  const sections = isAdmin ? ADMIN : EVERYONE;
+  const limited = useAssignedAgents() !== null;
+  const sections = isAdmin ? ADMIN : limited ? LIMITED : EVERYONE;
 
   return (
     <Page testId="portal-settings">
@@ -133,7 +153,7 @@ export function PortalSettingsScreen({ section = "general" }: { section?: Settin
           {!sections.includes(section) ? (
             <EmptyState>{t(ADMIN_ONLY[section] ?? "settings.adminOnly")}</EmptyState>
           ) : (
-            <Body section={section} isAdmin={isAdmin} />
+            <Body section={section} isAdmin={isAdmin} limited={limited} />
           )}
         </div>
       </div>
@@ -141,7 +161,15 @@ export function PortalSettingsScreen({ section = "general" }: { section?: Settin
   );
 }
 
-function Body({ section, isAdmin }: { section: SettingsSection; isAdmin: boolean }) {
+function Body({
+  section,
+  isAdmin,
+  limited,
+}: {
+  section: SettingsSection;
+  isAdmin: boolean;
+  limited: boolean;
+}) {
   const { t } = useI18n();
   const title = t(SECTION_WORDS[section]);
   switch (section) {
@@ -153,7 +181,7 @@ function Body({ section, isAdmin }: { section: SettingsSection; isAdmin: boolean
             <p className="text-sm text-ink-muted">{t("settingsPage.languageBody")}</p>
             <LanguageMenu />
           </Card>
-          <SloanCard />
+          {limited ? null : <SloanCard />}
         </Part>
       );
     case "approvals":
@@ -173,7 +201,9 @@ function Body({ section, isAdmin }: { section: SettingsSection; isAdmin: boolean
     case "team":
       return (
         <Part title={title}>
-          <PortalTeamScreen embedded />
+          <Suspense fallback={<Loading />}>
+            <PortalTeamScreen embedded />
+          </Suspense>
         </Part>
       );
     case "hours":

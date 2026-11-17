@@ -139,7 +139,9 @@ export async function suggestReshape(
   let answer: ReshapeSuggestAnswer;
   try {
     const res = await options.llm.callTool({
-      model: options.model ?? DEFAULT_MODELS.builder,
+      // DECISION (2026-11-17): the Builder moved to Opus; this suggestion (how fields map, checked
+      // by the validator) stays on the reasoning model, as its recorded answers are.
+      model: options.model ?? DEFAULT_MODELS.reasoning,
       system: RESHAPE_SUGGEST_RULES,
       messages: [{ role: "user", content: reshapeSuggestPrompt(request) }],
       tool: {

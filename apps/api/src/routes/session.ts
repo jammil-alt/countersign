@@ -3,9 +3,10 @@
 
 import { getSession, toSessionResponse } from "@countersign/auth";
 import { isOperatorRole, routes } from "@countersign/core";
-import { appUser, userMemberships } from "@countersign/db";
+import { appUser, userMemberships, withTenant } from "@countersign/db";
 import { asc } from "drizzle-orm";
 import type { Hono } from "hono";
+import { assignedAgents } from "../assigned";
 import { auditAlone } from "../audit";
 import { authDirectory } from "../auth";
 import {
@@ -53,8 +54,22 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
       );
       // v0.12 W1-C: the active client's lead, by name.
       const lead = await sessionLead(services.db, result.session.activeTenantId);
+      // §1.122: the agents a client user is limited to in the active client (the portal shows
+      // only them); null for everyone else.
+      const active = result.session.activeTenantId;
+      const assigned =
+        active && result.session.activeRole === "client_user"
+          ? await withTenant(services.db, active, (tx) =>
+              assignedAgents(tx, active, result.session.user.id),
+            )
+          : null;
       return c.json(
-        routes.session.response.parse({ ...toSessionResponse(result.session), language, lead }),
+        routes.session.response.parse({
+          ...toSessionResponse(result.session),
+          language,
+          lead,
+          assignedAgents: assigned ? [...assigned] : null,
+        }),
       );
     } catch (error) {
       return errorResponse(c, error);

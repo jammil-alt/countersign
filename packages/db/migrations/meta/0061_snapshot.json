@@ -1,6 +1,6 @@
 {
   "id": "acee5586-81f3-4d1e-875b-587285cb0e58",
-  "prevId": "dab1ed39-e2b7-4161-8d74-ebf6ed143f72",
+  "prevId": "740c151f-479b-4fea-a85d-744c4e8c9a85",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -10775,6 +10775,12 @@
         "hours": {
           "name": "hours",
           "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "agent_ids": {
+          "name": "agent_ids",
+          "type": "uuid[]",
           "primaryKey": false,
           "notNull": false
         }

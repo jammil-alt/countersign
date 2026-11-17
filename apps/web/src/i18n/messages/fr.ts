@@ -3040,4 +3040,26 @@ export const fr: Messages = {
   "connectClaude.expired": "Ce lien a expiré. Redemandez à Claude pour en obtenir un nouveau.",
   "connectClaude.unknown":
     "Ce lien ne correspond à aucune de vos connexions Claude. Redemandez à Claude pour en obtenir un nouveau.",
+  // ── Access per person (docs/plan.md §1.122) ──
+  "access.edit": "Accès",
+  "access.title": "Ce que {name} peut faire",
+  "access.canSign": "Approuve les changements",
+  "access.canSignHelp": "Désactivé : voit le travail de ses agents et n'approuve rien.",
+  "access.agents": "Agents avec lesquels la personne travaille",
+  "access.allAgents": "Tous les agents",
+  "access.someAgents": "Seulement les agents que je choisis",
+  "access.noAgents": "Il n'y a pas encore d'agents à choisir.",
+  "access.pickOne": "Choisissez au moins un agent, ou tous les agents.",
+  "access.adminSeesAll":
+    "Les admins travaillent avec tous les agents et approuvent les changements.",
+  "access.seesAll": "Travaille avec tous les agents.",
+  "access.sees": "Travaille avec {agents}.",
+  "access.seesNone": "Ne travaille encore avec aucun agent.",
+  "access.save": "Enregistrer",
+  "access.cancel": "Annuler",
+  "access.saved": "Enregistré. Cela s'applique d'ici 5 minutes.",
+  "access.problem": "Nous n'avons pas pu l'enregistrer. Réessayez.",
+  "access.problem.lastAdmin": "Votre entreprise a besoin d'au moins un admin.",
+  "access.limitedHelp":
+    "Les utilisateurs ne voient que les agents que vous leur donnez, avec leurs exécutions et leurs tâches.",
 };

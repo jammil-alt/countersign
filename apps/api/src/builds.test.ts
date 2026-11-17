@@ -12,6 +12,13 @@ import { desc, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { admin, createApiHarness, OPERATOR, OTHER_OPERATOR } from "./api.test-helper";
 
+// What reaches Sentry (a no-op here otherwise): a Builder failure must (QA on staging, 2026-11-17).
+const sentry = vi.hoisted(() => ({ captureException: vi.fn() }));
+vi.mock("@sentry/cloudflare", async (real) => ({
+  ...(await real<object>()),
+  captureException: sentry.captureException,
+}));
+
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
   vi.spyOn(console, level).mockImplementation(() => {});
 }
@@ -22,6 +29,11 @@ afterAll(() => h?.close());
 
 const turnAnswer = (input: Record<string, unknown>) => ({
   toolUse: { name: "submit_build_turn", input: { chips: [], items: [], ...input } },
+});
+
+/** The brief's second look before the fit-gap (owner, 2026-11-17): nothing found, by default. */
+const reviewed = (concerns: { title: string; detail: string; checklist?: string }[] = []) => ({
+  toolUse: { name: "submit_review", input: { concerns } },
 });
 
 type Draft = { workflows: { workflow: { steps: Record<string, unknown>[] } }[] };
@@ -166,6 +178,7 @@ describe.skipIf(!h)("builds", () => {
 
     // Into fit-gap: the open field is a question; the Builder writes the fit-gap.
     expect((await call("POST", `/api/ops/builds/${id}/phase`, { to: "draft" })).status).toBe(409);
+    model.push(reviewed());
     model.push(
       turnAnswer({
         text: "Two we do as is, one we'd build, one we can't.",
@@ -602,6 +615,193 @@ describe.skipIf(!h)("builds", () => {
     expect(b.items.find((i) => i.id === w9)?.state).toBe("open");
   });
 
+  // QA on staging (2026-11-17): after agreeing to "build the filter skill", it said "Done" when
+  // only the step's wording had changed and the step was still missing.
+  it("never says a draft edit is done when the issue it was for is still open", async () => {
+    let b = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Past-due reminders" });
+    const id = b.build.id;
+    model.push(
+      turnAnswer({
+        text: "Got it.",
+        brief: {
+          goal: { text: "Remind customers of past-due invoices", state: "confirmed" },
+          trigger: { text: "Mondays at 8am", state: "confirmed" },
+          dataIn: { text: "Open invoices", state: "confirmed" },
+          dataOut: { text: "Reminder emails", state: "confirmed" },
+        },
+      }),
+    );
+    await ok("POST", `/api/ops/builds/${id}/turns`, { text: "Weekly past-due reminders." });
+    model.push(reviewed());
+    model.push(
+      turnAnswer({
+        text: "One to figure out.",
+        fitgap: {
+          rows: [
+            { id: "group", need: "Group invoices by customer", verdict: "figure_out", how: "x" },
+          ],
+        },
+      }),
+    );
+    await ok("POST", `/api/ops/builds/${id}/phase`, { to: "fitgap" });
+    const withMissing = draftAnswer();
+    const flow = withMissing.toolUse.input.bundle.workflows[0]?.workflow as { steps: unknown[] };
+    flow.steps.unshift({
+      id: "group",
+      kind: "missing",
+      name: "Group invoices by customer",
+      need: "No skill groups a list by customer.",
+      fill: "skill",
+    });
+    model.push(withMissing);
+    b = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "draft" });
+    const missing = b.draft?.problems.find((p) => p.code === "missing_step");
+    expect(missing).toBeTruthy();
+    const key = `problem:${missing?.key}`;
+
+    model.push(
+      turnAnswer({
+        text: "I'd build the grouping on that step.",
+        about: key,
+        proposal: {
+          summary: "Build the filter and group skill",
+          action: {
+            do: "edit_draft",
+            request: "On “Group invoices by customer”, group the open invoices by customer.",
+            ...(missing?.stepId ? { stepId: missing.stepId } : {}),
+          },
+        },
+      }),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "Build it.", about: key });
+    const proposed = b.messages.at(-1);
+    // The workflow's Builder can only reword the step: the catalog has nothing that groups.
+    model.push(
+      editsDraft("I reworded the step to say what it must do.", (d) => {
+        const step = d.workflows[0]?.workflow.steps[0] as { need?: string } | undefined;
+        if (step)
+          step.need = "Needs a skill that groups open invoices by customer and totals them.";
+      }),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/messages/${proposed?.id}/proposal`, {
+      decide: "agree",
+    });
+    const decided = b.messages.find((m) => m.id === proposed?.id)?.proposal;
+    expect(decided).toMatchObject({ state: "agreed", unresolved: true });
+    expect(decided?.result).toMatch(/^Changed, still open: /);
+    const said = b.messages.at(-1);
+    expect(said?.text).toContain("it isn't fixed");
+    expect(said?.text).not.toMatch(/^Done/);
+    expect(said?.about).toBe(key);
+    expect(said?.chips).toEqual(["What would fix it?"]);
+  });
+
+  // Owner (2026-11-17): a brief gets a second look before it's confirmed.
+  it("reviews a brief before it's confirmed, and goes on when it's confirmed again", async () => {
+    let b = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Vendor onboarding" });
+    const id = b.build.id;
+    model.push(
+      turnAnswer({
+        text: "Got it.",
+        brief: {
+          goal: { text: "Set up new vendors", state: "confirmed" },
+          trigger: { text: "A vendor's form arrives", state: "confirmed" },
+          dataIn: { text: "The form and the contract", state: "confirmed" },
+          dataOut: { text: "The vendor in QuickBooks", state: "confirmed" },
+        },
+      }),
+    );
+    await ok("POST", `/api/ops/builds/${id}/turns`, { text: "Onboard new vendors." });
+    model.push(
+      reviewed([
+        {
+          title: "Where does the vendor go for a client with no accounting system?",
+          detail: "Some clients run on spreadsheets.",
+          checklist: "source",
+        },
+      ]),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "fitgap" });
+    expect(b.build.phase).toBe("intake");
+    expect(b.items.map((i) => [i.title, i.kind, i.owner])).toContainEqual([
+      "Where does the vendor go for a client with no accounting system?",
+      "question",
+      "operator",
+    ]);
+    expect(b.messages.at(-1)?.text).toContain("Before you confirm, I gave the brief a second look");
+    // The reviewer read the checklist and the catalog, in short.
+    const review = model.requests.at(-1);
+    expect(JSON.stringify(review?.system)).toContain("no ERP or accounting tool");
+    expect(JSON.stringify(review?.system)).toContain("<catalog>");
+
+    // The same brief, confirmed again: no second review, on to the fit-gap.
+    const asked = model.requests.length;
+    model.push(
+      turnAnswer({
+        text: "One we do as is.",
+        fitgap: { rows: [{ id: "r", need: "x", verdict: "native", how: "y" }] },
+      }),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "fitgap" });
+    expect(b.build.phase).toBe("fitgap");
+    expect(model.requests).toHaveLength(asked + 1);
+  });
+
+  // QA on staging (2026-11-17): a 17-step draft was cut off twice; the banner said "max_tokens"
+  // and "submit_draft", nothing said whether trying again would help, and Sentry had nothing.
+  it("says a draft that can't be finished in plain words, and reports it", async () => {
+    let b = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Monthly reconciliation" });
+    const id = b.build.id;
+    model.push(
+      turnAnswer({
+        text: "Got it.",
+        brief: {
+          goal: { text: "Reconcile each account monthly", state: "confirmed" },
+          trigger: { text: "Month end", state: "confirmed" },
+          dataIn: { text: "Bank lines and the statement", state: "confirmed" },
+          dataOut: { text: "A reconciliation report", state: "open" },
+        },
+      }),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "Monthly bank reconciliation." });
+    // A field the turn left open says so in the change tags.
+    expect(b.messages.at(-1)?.changes).toContain("Brief: data out (still open)");
+    model.push(reviewed());
+    model.push(
+      turnAnswer({
+        text: "One we do as is.",
+        fitgap: { rows: [{ id: "lines", need: "Read bank lines", verdict: "native", how: "x" }] },
+      }),
+    );
+    await ok("POST", `/api/ops/builds/${id}/phase`, { to: "fitgap" });
+    const cut = () => ({
+      message: fakeMessage(
+        "claude-sonnet-5-5",
+        [{ type: "tool_use", id: "toolu_cut", name: "submit_draft", input: {} }] as never,
+        "max_tokens",
+      ),
+    });
+    model.push(cut(), cut());
+    sentry.captureException.mockClear();
+    const res = await call("POST", `/api/ops/builds/${id}/phase`, { to: "draft" });
+    expect(res.status).toBe(422);
+    const error = (res.json as unknown as { error: { code: string; message: string } }).error;
+    expect(error.code).toBe("builder_failed");
+    expect(error.message).toContain("too long to finish, even as a smaller first draft");
+    expect(error.message).not.toMatch(/max_tokens|submit_draft/);
+    // The smaller draft was asked for before giving up, with the higher limit.
+    expect(model.requests.at(-2)?.max_tokens).toBe(64_000);
+    expect(JSON.stringify(model.requests.at(-1)?.messages)).toContain("the main path only");
+    expect(sentry.captureException).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        tags: expect.objectContaining({ kind: "builder", failure: "max_tokens" }),
+      }),
+    );
+    b = await ok("GET", `/api/ops/builds/${id}`);
+    expect(b.build.phase).toBe("fitgap");
+  });
+
   // Owner (2026-11-17): the draft changes in the build's conversation, agreed and undoable.
   it("changes the draft from the conversation when agreed, and undoes it", async () => {
     let b = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Draft edits" });
@@ -618,6 +818,7 @@ describe.skipIf(!h)("builds", () => {
       }),
     );
     await ok("POST", `/api/ops/builds/${id}/turns`, { text: "An agent that fixes records." });
+    model.push(reviewed());
     model.push(
       turnAnswer({
         text: "One we do as is.",
@@ -674,7 +875,7 @@ describe.skipIf(!h)("builds", () => {
     const agreed = b.messages.find((m) => m.id === proposed?.id)?.proposal;
     expect(agreed).toMatchObject({ state: "agreed", undo: true });
     expect(agreed?.result).toMatch(/^Changed: /);
-    expect(b.messages.at(-1)?.text).toContain("Changed: ");
+    expect(b.messages.at(-1)?.text).toContain("Changed the draft: Set the amount to 15.00.");
     let saved = await versions();
     expect(saved.map((v) => v.version)).toEqual([2, 1]);
     expect(JSON.stringify(saved[0]?.bundle)).toContain('"15.00"');
@@ -770,8 +971,16 @@ describe.skipIf(!h)("builds", () => {
     expect(b.messages.at(-1)?.chips).toEqual(["Add the volume"]);
 
     // Opening the fit-gap fails: the conversation says why in plain words; nothing changes.
-    model.push(turnAnswer({ text: "Here it is.", fitgap: "not a fit-gap" }));
+    // Asked again once with what was wrong (MEZONAS-API-4), then said in the conversation.
+    model.push(reviewed());
+    model.push(
+      turnAnswer({ text: "Here it is.", fitgap: "not a fit-gap" }),
+      turnAnswer({ text: "Here it is.", fitgap: "still not a fit-gap" }),
+    );
     b = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "fitgap" });
+    expect(JSON.stringify(model.requests.at(-1)?.messages)).toContain(
+      "did not match the tool's schema",
+    );
     expect(b.build.phase).toBe("fitgap");
     expect(b.build.fitgap.rows).toEqual([]);
     const opened = b.messages.at(-1);

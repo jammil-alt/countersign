@@ -3,12 +3,16 @@
 // gate's reasons on Confirm, a done phase looked at again and gone back to with a reason, and open
 // items whose state changes.
 import type { BuildDetail } from "@countersign/core";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
 import { fakeApi, OPERATOR_SESSION, Reply } from "../../test/fixtures";
+
+// The back office's code loads on demand; the first test in a file would wait for it inside
+// Testing Library's 5 s, which a busy CI runner can pass (2026-11-17). Loaded once, up front.
+await import("../OpsApp");
 
 const ID = "00000000-0000-4000-8000-0000000b0001";
 const ITEM = "00000000-0000-4000-8000-0000000b0101";
@@ -168,7 +172,7 @@ describe("Builds", () => {
     expect(within(fit).getByTestId(`builds-card-${ID}`)).toHaveTextContent(
       "Invoice intake reviewer",
     );
-    expect(within(fit).getByTestId(`builds-card-${ID}`)).toHaveTextContent("1 open item");
+    expect(within(fit).getByTestId(`builds-card-${ID}`)).toHaveTextContent("1 open issue");
     expect(screen.getByTestId("builds-items")).toHaveTextContent("How many: still open");
     // Who has each item, in words; gold says it waits on you.
     const row = screen.getByTestId(`builds-item-${ITEM}`);
@@ -515,6 +519,74 @@ describe("Builds", () => {
   });
 
   // Owner (2026-11-17): the draft changes from the build's conversation.
+  // QA on staging (2026-11-17): an edit that didn't fix its issue read as "Done"; Confirm did
+  // nothing while a brief change was unsaved.
+  it("marks an edit that left its issue open, and confirms an unsaved brief by saving it", async () => {
+    const PROPOSAL = "00000000-0000-4000-8000-0000000b0302";
+    const base = detail();
+    const message = {
+      id: PROPOSAL,
+      phase: "draft",
+      role: "builder",
+      text: "I changed the draft, but it isn't fixed.",
+      chips: [],
+      changes: [],
+      proposal: {
+        summary: "Build the filter and group skill",
+        action: { do: "edit_draft", request: "On “Group”, group the invoices by customer." },
+        state: "agreed",
+        unresolved: true,
+        result: "Changed, still open: I reworded the step.",
+        changes: ["~ step group · need"],
+      },
+      createdAt: at,
+    } as unknown as BuildDetail["messages"][number];
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: () => ({ ...base, messages: [...base.messages, message] }),
+    });
+    renderAt(`/ops/builds/${ID}`, api);
+    const view = await screen.findByTestId("build-view");
+    expect(within(view).getByTestId("build-proposal-state")).toHaveTextContent(
+      "Changed, still open",
+    );
+    expect(within(view).getByTestId("build-proposal-changes")).toHaveTextContent(
+      "What changed in the steps",
+    );
+    cleanup();
+
+    const intake = detail({
+      build: { ...detail().build, phase: "intake" },
+      phases: detail().phases.map((p) => ({
+        ...p,
+        state: p.phase === "intake" ? ("current" as const) : ("todo" as const),
+      })),
+      gate: { next: "fitgap", reasons: [] },
+    });
+    const calls: string[] = [];
+    const api2 = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: () => intake,
+      [`PATCH /api/ops/builds/${ID}`]: ({ init }) => {
+        calls.push(`save ${JSON.stringify(JSON.parse(String(init.body)).brief.goal)}`);
+        return intake;
+      },
+      [`POST /api/ops/builds/${ID}/phase`]: () => {
+        calls.push("move");
+        return intake;
+      },
+    });
+    renderAt(`/ops/builds/${ID}`, api2);
+    const view2 = await screen.findByTestId("build-view");
+    const goal = within(view2).getByTestId("build-brief-goal");
+    await userEvent.type(goal, " monthly");
+    expect(within(view2).getByTestId("build-confirm-brief")).toBeEnabled();
+    await userEvent.click(within(view2).getByTestId("build-confirm-brief"));
+    await waitFor(() => expect(calls).toHaveLength(2));
+    expect(calls[0]).toContain("monthly");
+    expect(calls[1]).toBe("move");
+  });
+
   it("says what a draft edit asks for, then what it changed, with Undo", async () => {
     const PROPOSAL = "00000000-0000-4000-8000-0000000b0301";
     const editing = {
@@ -561,7 +633,7 @@ describe("Builds", () => {
     renderAt(`/ops/builds/${ID}`, api);
     const view = await screen.findByTestId("build-view");
     expect(within(view).getByTestId("build-proposal-request")).toHaveTextContent(
-      "The workflow's Builder makes it: On “Pay”, take the amount from the invoice total.",
+      "The change to the draft: On “Pay”, take the amount from the invoice total.",
     );
     await userEvent.click(within(view).getByTestId("build-proposal-agree"));
     await waitFor(() => expect(decided).toEqual([{ decide: "agree" }]));
@@ -570,6 +642,35 @@ describe("Builds", () => {
     );
     expect(within(view).queryByTestId("build-proposal-request")).toBeNull();
     expect(within(view).getByTestId("build-proposal-undo")).toBeInTheDocument();
+  });
+
+  // QA on staging (2026-11-17): a draft that couldn't be made left only a banner of internals.
+  it("offers to try a failed draft again, in plain words", async () => {
+    const moves: unknown[] = [];
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: () => detail(),
+      [`POST /api/ops/builds/${ID}/phase`]: ({ init }) => {
+        moves.push(JSON.parse(String(init.body)));
+        return moves.length === 1
+          ? new Reply(422, {
+              error: {
+                code: "builder_failed",
+                message:
+                  "The Builder's answer was too long to finish, even as a smaller first draft, so nothing changed.",
+              },
+            })
+          : detail();
+      },
+    });
+    renderAt(`/ops/builds/${ID}`, api);
+    const view = await screen.findByTestId("build-view");
+    await userEvent.click(within(view).getByTestId("build-agree"));
+    const notice = await within(view).findByTestId("build-error");
+    expect(notice).toHaveTextContent("too long to finish");
+    await userEvent.click(within(notice).getByTestId("build-error-retry"));
+    await waitFor(() => expect(moves).toEqual([{ to: "draft" }, { to: "draft" }]));
+    await waitFor(() => expect(within(view).queryByTestId("build-error")).toBeNull());
   });
 
   it("filters the fit-gap by verdict and changes one only with a reason", async () => {
@@ -609,7 +710,7 @@ describe("Builds", () => {
     expect(within(fit).queryByLabelText("Verdict: Read invoice PDFs")).toBeNull();
     expect(within(fit).getByTestId("build-fit-read-verdict")).toHaveTextContent("Native");
     expect(within(fit).getByTestId("build-fit-tiers-item")).toHaveTextContent(
-      "Becomes an open item for Builder",
+      "Becomes an issue for Builder",
     );
 
     // A count shows which rows it counts.
@@ -624,6 +725,9 @@ describe("Builds", () => {
 
     // Less work is a challenge to the Builder, with why.
     await userEvent.click(within(fit).getByTestId("build-fit-tiers-change"));
+    // QA (2026-11-17): nothing is proposed until a verdict is picked.
+    expect(within(fit).getByTestId("build-fit-tiers-to")).toHaveValue("");
+    expect(within(fit).getByTestId("build-fit-tiers-send")).toBeDisabled();
     await userEvent.selectOptions(within(fit).getByTestId("build-fit-tiers-to"), "native");
     const send = within(fit).getByTestId("build-fit-tiers-send");
     expect(send).toHaveTextContent("Ask the Builder");

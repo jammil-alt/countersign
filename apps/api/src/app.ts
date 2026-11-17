@@ -91,6 +91,7 @@ import { messagingSetupRoutes } from "./routes/messaging-setup";
 import { mobileRoutes, mobileSession } from "./routes/mobile";
 import { notifyRouteHandlers } from "./routes/notify";
 import { onboardingRouteHandlers } from "./routes/onboarding";
+import { operatorRouteHandlers } from "./routes/operators";
 import { opsAgentRoutes } from "./routes/ops-agents";
 // v0.12 W2-B: automations
 import { opsAutomationRoutes } from "./routes/ops-automations";
@@ -226,6 +227,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   documentRoutes(app);
   feedbackRouteHandlers(app);
   onboardingRouteHandlers(app);
+  operatorRouteHandlers(app);
   requestRouteHandlers(app);
   languageRouteHandlers(app);
   usageRouteHandlers(app);

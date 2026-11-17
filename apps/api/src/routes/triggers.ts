@@ -4,6 +4,7 @@
 import { getAgent } from "@countersign/agents";
 import { type AgentTriggers, type PortalTrigger, routes } from "@countersign/core";
 import type { Hono } from "hono";
+import { ensureSeesAgent } from "../assigned";
 import { type AppEnv, HttpError, mount, notFound } from "../http";
 import { agentTriggers } from "../triggers/list";
 
@@ -28,6 +29,8 @@ export function triggerRouteHandlers(app: Hono<AppEnv>): void {
 export function portalTriggerRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.portalAgentTriggers, async (ctx) => {
     const tenantId = ctx.tenantIds[0] as string;
+    // §1.122: an agent off a limited client user's list is "not found".
+    ensureSeesAgent(ctx.agents, ctx.params.id);
     const row = await getAgent(ctx.tx, ctx.params.id).catch(() => null);
     if (!row || row.tenantId !== tenantId || row.kind !== "client" || row.testCopy) {
       throw notFound("service");

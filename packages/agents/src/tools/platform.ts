@@ -12,6 +12,8 @@ import { DIRECTORY_TOOLS } from "./directory";
 import { DOCS_TOOLS } from "./docs";
 // §1.121: forms, "Request info"
 import { formsRequestTool } from "./forms";
+// Reshape data (2026-11-11)
+import { groupListTool } from "./group-list";
 import { HEALTH_TOOLS } from "./health";
 // v0.12 W2-E
 import { INBOUND_TOOLS } from "./inbound";
@@ -19,7 +21,6 @@ import { KNOWLEDGE_TOOLS } from "./knowledge";
 import { LEDGER_TOOLS } from "./ledger";
 import { memoryScope } from "./memory-scope";
 import { reachOutTool } from "./reach";
-// Reshape data (2026-11-11)
 import { reshapeTool } from "./reshape";
 import { SUPERVISOR_TOOLS } from "./supervisor";
 import { THREADS_TOOLS } from "./threads";
@@ -125,4 +126,6 @@ export const PLATFORM_TOOLS: readonly InternalTool[] = [
   ...WEB_TOOLS,
   // Reshape data (2026-11-11): its pure handler.
   reshapeTool,
+  // Filter, group and total a list (2026-11-17): its pure handler.
+  groupListTool,
 ];

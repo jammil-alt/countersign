@@ -11419,6 +11419,12 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
+        },
+        "agent_ids": {
+          "name": "agent_ids",
+          "type": "uuid[]",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {

@@ -74,6 +74,7 @@ import { modelRoutes } from "./models";
 // v0.12 W1-B: notifications, the Table and the Weekly Table
 import { notifyRoutes } from "./notify";
 import { ExternalApprover, InviteBody, InviteResult, onboardingRoutes } from "./onboarding";
+import { operatorRoutes } from "./operators";
 // v0.13 W2-I: run oversight
 import { OversightDecisionView, oversightRoutes } from "./oversight";
 import { ownerRoutes } from "./owners";
@@ -155,6 +156,11 @@ export const SessionResponse = SessionBase.extend({
   language: SessionLanguage,
   // v0.12 W1-C: the active client's lead, by name ("Message Ana"); null when none is set.
   lead: PortalLead.nullable().optional(),
+  /**
+   * §1.122: in the active client, the agents a client user is limited to (the portal shows only
+   * them and their runs and items); null or absent for every agent.
+   */
+  assignedAgents: z.array(z.string()).nullable().optional(),
 });
 export type SessionResponse = z.infer<typeof SessionResponse>;
 
@@ -2310,6 +2316,8 @@ export const routes = {
   ...complianceRoutes,
   ...exportRoutes,
   ...onboardingRoutes,
+  // docs/plan.md §1.122: the back office's Users screen
+  ...operatorRoutes,
   ...requestRoutes,
   ...languageRoutes,
   ...usageRoutes,
