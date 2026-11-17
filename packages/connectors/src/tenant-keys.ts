@@ -124,11 +124,14 @@ export async function reencryptClientCredentials(
     const binding = { tenantId: input.tenantId, connectionId: row.id };
     try {
       const next = await input.vault.reencrypt(row.c, binding);
-      await tx
-        .update(connection)
-        .set({ credentialsEncrypted: next as Record<string, unknown> })
-        .where(and(eq(connection.id, row.id), eq(connection.tenantId, input.tenantId)));
-      reencrypted += 1;
+      // Only over the envelope just read: a refresh saved meanwhile is newer, and is already v2.
+      const saved = await saveCredentialsIf(
+        tx,
+        { tenantId: input.tenantId, connectionId: row.id },
+        next,
+        row.c,
+      );
+      if (saved) reencrypted += 1;
     } catch (error) {
       if (!(error instanceof CredentialError)) throw error;
       failed += 1;
