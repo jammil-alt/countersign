@@ -2,6 +2,7 @@ import { routes } from "@countersign/core";
 import { act, render, renderHook, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { BUILDER_DRAFT_PREFIX, builderDraftKey } from "../session/drafts";
 import {
   SESSION_SCOPE_KEY,
   SessionProvider,
@@ -448,6 +449,36 @@ describe("the store and the session", () => {
     await new Promise((r) => setTimeout(r, 50));
     expect(api.calls.slice(asked)).toEqual(["POST /api/auth/sign-out"]);
     expect(store?.size).toBe(0);
+  });
+
+  it("removes the builder's drafts from this browser on sign-out, and nothing else", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "POST /api/auth/sign-out": () => ({ ok: true, redirectTo: null }),
+    });
+    function Gate() {
+      const { state } = useSessionState();
+      return <p data-testid="status">{state.status}</p>;
+    }
+    render(
+      <ApiProvider client={api.client}>
+        <SessionProvider>
+          <Gate />
+          <Controls />
+        </SessionProvider>
+      </ApiProvider>,
+    );
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("signed_in"));
+    const mine = builderDraftKey(OPERATOR_SESSION.user.id, "agent-1");
+    const legacy = `${BUILDER_DRAFT_PREFIX}agent-2`;
+    for (const key of [mine, legacy, "mezonas.builder.panel"]) localStorage.setItem(key, "{}");
+    act(() => screen.getByTestId("sign-out").click());
+    await waitFor(() => expect(screen.getByTestId("status")).toHaveTextContent("signed_out"));
+    expect(localStorage.getItem(mine)).toBeNull();
+    expect(localStorage.getItem(legacy)).toBeNull();
+    // A layout preference is not client data: it stays.
+    expect(localStorage.getItem("mezonas.builder.panel")).toBe("{}");
+    localStorage.clear();
   });
 
   it("forgets everything when another tab finds someone else signed in", async () => {
