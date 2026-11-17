@@ -1,1 +1,5 @@
 10049	IGNORE	(Non-storable content: the API answers no-store on purpose, CHG-5)
+10055	IGNORE	(CSP style-src 'unsafe-inline': React's style attributes need it; scripts stay 'self' only, apps/web/public/_headers)
+90004	IGNORE	(Site isolation: COOP and CORP are set; no COEP, as Plaid's and Google's frames and scripts send no CORP and require-corp would block them, apps/web/public/_headers)
+10027	IGNORE	(Suspicious comments: words like "user" or "admin" in the minified bundle's library code, not secrets)
+10109	IGNORE	(Modern web application: informational, the app is a single-page React app)
