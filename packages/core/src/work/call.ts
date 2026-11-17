@@ -20,6 +20,8 @@ export const TODO_ABOUT_VALUES = [
   "question",
   "run",
   "client",
+  // docs/plan.md §1.125: a Dev queue request's notice (accepted, shipped).
+  "code_request",
 ] as const;
 export const TodoAboutKind = z.enum(TODO_ABOUT_VALUES);
 export type TodoAboutKind = z.infer<typeof TodoAboutKind>;
@@ -65,6 +67,7 @@ export function callKindOf(
     case "client_ask":
       return "issues";
     case "build":
+    case "code_request":
       return "builds";
     case "deal":
       return "sales";
@@ -102,6 +105,8 @@ export function todoTag(
       return "Run held for review";
     case "client":
       return "Client";
+    case "code_request":
+      return "Dev queue";
     default:
       return "To-do";
   }
