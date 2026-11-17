@@ -40,7 +40,7 @@ const twilio = fakeTwilio();
 /** Mail sent through Resend. */
 const mail: Record<string, unknown>[] = [];
 const fetch: FetchLike = async (url, init) => {
-  if (String(url).includes("resend.com")) {
+  if (new URL(String(url)).hostname === "api.resend.com") {
     mail.push(JSON.parse(String((init as { body?: unknown })?.body ?? "{}")));
     return new Response(JSON.stringify({ id: `re_${mail.length}` }), {
       status: 200,
