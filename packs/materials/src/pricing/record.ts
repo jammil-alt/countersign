@@ -15,7 +15,7 @@ import {
   vendor,
   withTenant,
 } from "@countersign/db";
-import { vendorForDocument } from "@countersign/documents";
+import { lineArithmetic, vendorForDocument } from "@countersign/documents";
 import { emit } from "@countersign/senses";
 import { and, asc, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { parseLine } from "../catalog/keys";
@@ -302,10 +302,23 @@ export async function priceLines(
       out.push({ ...withItem, skipped: "no quantity" });
       continue;
     }
+    // DECISION (audit 7.9): a line whose quantity times unit price isn't its amount (a misread
+    // price) is kept out of price history until its reading is corrected (`lineArithmetic`); a
+    // price printed per hundred or per thousand is per unit once divided.
+    const arithmetic = lineArithmetic(l);
+    if (arithmetic.problem) {
+      out.push({
+        ...withItem,
+        skipped: `its quantity times its unit price isn't its amount (${arithmetic.problem}); not recorded until the reading is corrected`,
+      });
+      continue;
+    }
     // DECISION: a line with a discount is priced at what was paid (its amount over its quantity);
     // otherwise at its printed unit price.
     const discounted = l.discount !== null && dec(l.discount).greaterThan(0);
-    const unitRaw = discounted ? dec(l.extPrice).dividedBy(qty) : dec(l.unitPrice);
+    const unitRaw = discounted
+      ? dec(l.extPrice).dividedBy(qty)
+      : dec(l.unitPrice).dividedBy(arithmetic.per);
     const qtyStd = qty.times(conv.factor);
     const unitStd = unitRaw.dividedBy(conv.factor);
     const share = linesTotal.isZero() ? dec("0") : extras.times(l.extPrice).dividedBy(linesTotal);
@@ -336,6 +349,7 @@ export async function priceLines(
         factor: conv.factor.toString(),
         conversion: conv.rule,
         ...(conv.assumed ? { uomAssumed: true } : {}),
+        ...(arithmetic.per !== 1 ? { pricedPer: arithmetic.per } : {}),
         landedUnitPriceStd: toNumeric(landed),
         freightShare: toNumeric(share),
       },

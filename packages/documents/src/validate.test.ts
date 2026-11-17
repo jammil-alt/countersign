@@ -1,6 +1,6 @@
 import type { InvoiceExtraction } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { validateTotals } from "./validate";
+import { lineArithmetic, validateTotals } from "./validate";
 
 const line = (extPrice: string) => ({ extPrice }) as unknown as InvoiceExtraction["lines"][number];
 
@@ -23,7 +23,13 @@ function totals(
 describe("validateTotals", () => {
   it("passes exact totals and sums lines in decimals", () => {
     const r = totals(["0.10", "0.20"], "0.30");
-    expect(r).toEqual({ ok: true, linesSum: "0.3000", problems: [], lineProblems: [] });
+    expect(r).toEqual({
+      ok: true,
+      linesSum: "0.3000",
+      problems: [],
+      lineProblems: [],
+      lineNotes: [],
+    });
   });
 
   it("allows lines off by 2 cents on a small subtotal (the floor), not 3", () => {
@@ -52,7 +58,7 @@ describe("validateTotals", () => {
     expect(totals(["-50.00", "-25.00"], "-75.00").ok).toBe(true);
   });
 
-  it("checks each line's quantity times unit price against its amount, to the cent", () => {
+  it("notes a line whose quantity times unit price isn't its amount, and only such a line", () => {
     const full = (lines: Partial<InvoiceExtraction["lines"][number]>[]) => {
       const ls = lines.map(
         (l, i) =>
@@ -74,28 +80,42 @@ describe("validateTotals", () => {
         total: sum,
       });
     };
-    // 12.50 misread as 1.25, with the amount right: the totals add up, the line doesn't.
+    // 12.50 misread as 1.25, with the amount right: the totals add up, the line doesn't. The line
+    // is noted; the document's totals still pass (no review for every client's invoice).
     const misread = full([
       { qty: "12", unitPrice: "1.25", extPrice: "150.00" },
       { qty: "3", unitPrice: "20.00", extPrice: "60.00" },
     ]);
-    expect(misread.ok).toBe(false);
-    expect(misread.problems).toEqual([
+    expect(misread).toMatchObject({ ok: true, problems: [], lineProblems: [1] });
+    expect(misread.lineNotes).toEqual([
       "Line 1: 12 at 1.25 comes to 15.00, but its amount is 150.00.",
     ]);
-    expect(misread.lineProblems).toEqual([1]);
+    const fits = (l: Partial<InvoiceExtraction["lines"][number]>) =>
+      full([l]).lineProblems.length === 0;
     // A unit price printed to the cent: 250 at 0.13 is 32.50, but 0.1275 was billed (31.88).
-    expect(full([{ qty: "250", unitPrice: "0.13", extPrice: "31.88" }]).ok).toBe(true);
+    expect(fits({ qty: "250", unitPrice: "0.13", extPrice: "31.88" })).toBe(true);
     // Rounding (the amount to the cent, the unit price to its printed places) passes; more doesn't.
-    expect(full([{ qty: "3", unitPrice: "0.3333", extPrice: "1.00" }]).ok).toBe(true);
-    expect(full([{ qty: "2", unitPrice: "10.00", extPrice: "20.02" }]).ok).toBe(true);
-    expect(full([{ qty: "2", unitPrice: "10.00", extPrice: "20.05" }]).ok).toBe(false);
-    // Credits, and lines with a printed discount (paid what the amount says), pass.
-    expect(full([{ qty: "-2", unitPrice: "10.00", extPrice: "-20.00" }]).ok).toBe(true);
-    expect(full([{ qty: "10", unitPrice: "10.00", extPrice: "90.00", discount: "10.00" }]).ok).toBe(
+    expect(fits({ qty: "3", unitPrice: "0.3333", extPrice: "1.00" })).toBe(true);
+    expect(fits({ qty: "2", unitPrice: "10.00", extPrice: "20.02" })).toBe(true);
+    expect(fits({ qty: "2", unitPrice: "10.00", extPrice: "20.05" })).toBe(false);
+    // Credits: a negative quantity, or a positive quantity with a negative amount.
+    expect(fits({ qty: "-2", unitPrice: "10.00", extPrice: "-20.00" })).toBe(true);
+    expect(fits({ qty: "2", unitPrice: "10.00", extPrice: "-20.00" })).toBe(true);
+    // A printed discount (paid what the amount says), and an amount-only fee read as 1 at 0.
+    expect(fits({ qty: "10", unitPrice: "10.00", extPrice: "90.00", discount: "10.00" })).toBe(
       true,
     );
+    expect(fits({ qty: "1", unitPrice: "0", extPrice: "45.00" })).toBe(true);
+    // Priced per thousand (M) and per hundred (C).
+    expect(fits({ qty: "1240", unitPrice: "1850.00", extPrice: "2294.00" })).toBe(true);
+    expect(fits({ qty: "500", unitPrice: "12.50", extPrice: "62.50" })).toBe(true);
+    expect(lineArithmetic({ qty: "1240", unitPrice: "1850.00", extPrice: "2294.00" }).per).toBe(
+      1000,
+    );
+    expect(lineArithmetic({ qty: "500", unitPrice: "12.50", extPrice: "62.50" }).per).toBe(100);
+    // A quantity printed rounded: 2.5 sheets at 40.00 billed for 2.47 (98.80).
+    expect(fits({ qty: "2.5", unitPrice: "40.00", extPrice: "98.80" })).toBe(true);
     // A line with no quantity (a note) isn't checked.
-    expect(full([{ qty: "0", unitPrice: "0", extPrice: "5.00" }]).ok).toBe(true);
+    expect(fits({ qty: "0", unitPrice: "0", extPrice: "5.00" })).toBe(true);
   });
 });

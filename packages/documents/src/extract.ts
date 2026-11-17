@@ -590,7 +590,9 @@ export async function writeReading(tx: Tx, input: WriteReadingInput): Promise<Wr
       total: toNumeric(x.total),
       linesSum: check.linesSum,
       totalsMatch: check.ok,
-      problems: check.problems,
+      // A line whose own arithmetic doesn't add up is noted with the reading (never a review on
+      // its own); pricing keeps it out of price history (`lineArithmetic`).
+      problems: [...check.problems, ...check.lineNotes],
       confidence: x.confidence.toFixed(3),
       // v0.12 W1-H: what the reading cost, written once with the row (ARCHITECTURE §13). A
       // background reading's (no agent version) is the client's usage (usage_platform_daily);

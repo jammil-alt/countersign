@@ -1897,7 +1897,7 @@ export const docExtraction = pgTable(
     total: money("total").notNull(),
     linesSum: money("lines_sum").notNull(),
     totalsMatch: boolean("totals_match").notNull(),
-    /** What validateTotals found, in words, when the totals do not match. */
+    /** What validateTotals found, in words: totals that do not match, and lines whose own arithmetic doesn't add up (noted only). */
     problems: json<string[]>("problems").notNull().default([]),
     /** The model's overall confidence, 0–1. */
     confidence: numeric("confidence", { precision: 4, scale: 3 }),

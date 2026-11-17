@@ -47,6 +47,8 @@ export interface InvoiceLine {
   qty?: string;
   uom?: string | null;
   unitPrice?: string;
+  /** The line's amount as read; quantity × unit price when not given. */
+  extPrice?: string;
 }
 
 export interface ShopFixture {
@@ -213,7 +215,8 @@ export async function insertShop(db: Db, name: string): Promise<ShopFixture> {
             qty: line.qty ?? "1",
             uomRaw: line.uom ?? null,
             unitPrice: line.unitPrice ?? "10",
-            extPrice: String(Number(line.unitPrice ?? "10") * Number(line.qty ?? "1")),
+            extPrice:
+              line.extPrice ?? String(Number(line.unitPrice ?? "10") * Number(line.qty ?? "1")),
           })
           .returning();
         if (!dl) throw new Error("no doc line");

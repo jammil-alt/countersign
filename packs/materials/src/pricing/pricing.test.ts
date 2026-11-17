@@ -377,6 +377,32 @@ describe.skipIf(!online)("prices and alerts (database)", () => {
     });
   });
 
+  it("keeps a line that doesn't add up out of price history, and reads a price per thousand", async () => {
+    const D = await insertShop(t.db, "Millwork D");
+    const doc = await matchedInvoice(
+      D,
+      "Keystone Lumber",
+      [
+        // 12.50 misread as 1.25; the amount was read right.
+        { description: BB, qty: "12", uom: "SHT", unitPrice: "1.25", extPrice: "150.00" },
+        // 1,240 board feet at 1,850.00 per thousand: 2,294.00.
+        {
+          description: "4/4 RED OAK FAS",
+          qty: "1240",
+          uom: "BF",
+          unitPrice: "1850.00",
+          extPrice: "2294.00",
+        },
+      ],
+      { date: "2026-10-05" },
+    );
+    const r = await recordPrices(db, ctx(D), { documentId: doc.documentId });
+    expect(r).toMatchObject({ recorded: 1, skipped: 1 });
+    expect(r.lines[0]?.skipped).toMatch(/^its quantity times its unit price isn't its amount/);
+    expect(r.lines[1]).toMatchObject({ unitPriceStd: "1.8500", qtyStd: "1240.0000" });
+    expect(await observations(D.tenantId)).toHaveLength(1);
+  });
+
   it("keeps each client's prices and alerts its own", async () => {
     const doc = await matchedInvoice(
       B,

@@ -32,6 +32,7 @@ import {
   vendor,
   withTenant,
 } from "@countersign/db";
+import { lineArithmetic } from "@countersign/documents";
 import { emit } from "@countersign/senses";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { type ParsedLine, parseLine, parseNormalized, withCompleteness } from "../catalog/keys";
@@ -1117,13 +1118,19 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
     let priceSkipped: string | null = null;
     const qty = dec(line.qty);
     const discounted = line.discount !== null && dec(line.discount).greaterThan(0);
-    const unitRaw = qty.greaterThan(0)
-      ? discounted
-        ? dec(line.extPrice).dividedBy(qty)
-        : dec(line.unitPrice)
-      : null;
+    // A line that doesn't add up is not priced (`lineArithmetic`, as `priceLines`); a price per
+    // hundred or thousand is per unit once divided.
+    const arithmetic = lineArithmetic(line);
+    const unitRaw =
+      qty.greaterThan(0) && !arithmetic.problem
+        ? discounted
+          ? dec(line.extPrice).dividedBy(qty)
+          : dec(line.unitPrice).dividedBy(arithmetic.per)
+        : null;
     if (!unitRaw) {
-      priceSkipped = "no quantity";
+      priceSkipped = arithmetic.problem
+        ? `its quantity times its unit price isn't its amount (${arithmetic.problem}); not recorded until the reading is corrected`
+        : "no quantity";
     } else {
       const unitStd = conv.ok ? unitRaw.dividedBy(conv.factor) : null;
       if (conv.ok && unitStd) {
