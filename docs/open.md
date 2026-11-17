@@ -168,7 +168,7 @@ then one pass of its "To verify" list against the real service.
 
 ## 4. Everything else
 
-### Back office work: Sales, onboarding and Build (built 2026-11-17, not merged; onboarding in progress)
+### Back office work: Sales, onboarding and Build (built 2026-11-17, not merged; onboarding O1–O3 built)
 
 One to-do list (Your call), Sales (new accounts and expansion), onboarding and Build (issues, agent
 builds and enhancements in one work order), with Reggie doing most of the work. Build, Sales, Your
@@ -177,11 +177,25 @@ call and Reggie with Autopilot are built on two stacked PRs, neither merged: the
 owner to try it on staging and say when to merge. Decisions: `docs/plan.md` §1.124 (M64–M68); what
 each stream left open is in its "Not yet" row in §1.124.1–§1.124.4.
 
-Onboarding is being built on top of it: a client file of what we know about each prospect and
-client; **Invite** from the lead record (a general, area or agents intake, filled from the file) and
-**Sign up now** for someone ready to start, both logged as a deal at the right stage; branded emails
-and a welcome page; Getting started in the portal (get to the point, or talk it through with Sloan;
-tools connected as it goes); a signed scope that moves each agent's build past its requirements.
+Onboarding's first part (steps O1–O3, `docs/plan.md` §1.125, M69, migration 0064) is built on
+top of it, on its own branch, not merged: a client file of what we know about each prospect and
+client; **Invite** from the lead record (a general, area or agents intake, filled from the file's
+`theirs` facts) and **Sign up now** from a saved start, both logged as a deal at the right stage
+(stages are a record, every account is in Sales); the branded invite from the lead at `hello@`
+and the welcome page with sign-in by the invited address; **Getting started** in the portal (get to
+the point: cards, "We think", Connect, Ask someone else, Different process in mind?); the build's
+Requirements request reading its card. All against fakes. What it still needs:
+
+- Code, next wave (`docs/cases-plan.md` §7): talk it through with Sloan (O4); the scope, signing,
+  facts into the knowledge base and builds into fit-gap (O5); Reggie filing facts and suggesting
+  what to cover; reminders and the remaining emails; voice (O6).
+- Code, smaller: delivered and bounced from Resend's webhooks; "Just the account" still sends
+  WorkOS's own invitation rather than a branded welcome-only email; a client file's documents (no
+  storage yet); pack and template questions shown in English; the retention job for lost
+  prospects. The full list: `docs/plan.md` §1.125.5.
+- The owner's call: whether the deal page's old "Set up the account" card stays now that Invite
+  does the set-up.
+
 The plan, its steps (B1–O6) and the owner's open questions: `docs/cases-plan.md`. The screens:
 `docs/design/pipelines.html` and `docs/design/workflows.html` (onboarding not drawn yet).
 

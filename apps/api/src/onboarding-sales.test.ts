@@ -6,15 +6,13 @@
 // and Sign up now: the preview changes nothing, the send makes the client, invites its people,
 // opens the intake with only `theirs` facts, the builds and the deal's to-dos, then the emails.
 //
-// The guide's sections and builder (stream INTAKE) and the emails (stream EMAIL) are stood in for
-// here, so these tests read only what Sales does with them.
+// The guide (stream INTAKE) and the emails (stream EMAIL) are the real ones: their own tests are
+// intake.test.ts and welcome.test.ts.
 
 import type {
-  BuildGuideInput,
   ClientFileDetail,
   ClientFileSummary,
   DealDetail,
-  Guide,
   InvitePreview,
   InviteSent,
   SalesStartView,
@@ -29,6 +27,7 @@ import {
   intakeEvent,
   intakePerson,
   membership,
+  notification,
   tenant,
   todo,
 } from "@countersign/db";
@@ -47,124 +46,6 @@ import {
 for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error"] as const)) {
   vi.spyOn(console, level).mockImplementation(() => {});
 }
-
-// ── Stand-ins for the other streams ──────────────────────────────────────────────────────────────
-
-const seen = vi.hoisted(() => ({ facts: [] as unknown[][], emails: [] as unknown[] }));
-
-vi.mock("@countersign/core", async (importOriginal) => {
-  const real = await importOriginal<typeof import("@countersign/core")>();
-  /** A guide with one field per source field; the facts given fill the first as "We think". */
-  const buildGuide = (input: BuildGuideInput): Guide => {
-    seen.facts.push([...input.facts]);
-    const sources = [input.general, ...input.areas, ...input.agents].filter(
-      (s): s is NonNullable<typeof s> => !!s,
-    );
-    const sections = sources.map((s) => {
-      const key =
-        s.kind === "general"
-          ? "general"
-          : s.kind === "area"
-            ? `area:${s.area}`
-            : `agent:${s.templateId}`;
-      return {
-        key,
-        kind: s.kind,
-        area: s.area ?? null,
-        templateId: s.templateId ?? null,
-        title: s.title,
-        intro: s.intro ?? "",
-        fields: s.fields.map((f, n) => {
-          const fact = n === 0 && key === "general" ? input.facts[0] : undefined;
-          return {
-            key: f.key,
-            sectionKey: key,
-            alsoIn: [],
-            label: f.label,
-            kind: f.kind,
-            hint: f.hint ?? "",
-            requiredToStart: false,
-            state: fact ? ("to_confirm" as const) : ("to_ask" as const),
-            weThink: fact ? { value: fact.text, text: fact.text, factIds: [fact.id] } : null,
-            fileSection: null,
-            connector: null,
-            origin: "core" as const,
-          };
-        }),
-      };
-    });
-    const n = sections.reduce((k, s) => k + s.fields.length, 0);
-    return {
-      version: 1,
-      sections,
-      totals: {
-        known: 0,
-        toConfirm: input.facts.length ? 1 : 0,
-        toAsk: n,
-        later: 0,
-        tools: 0,
-        minutes: 15,
-      },
-    };
-  };
-  const renderInviteEmail = (i: { client: string; to: { name: string }; note: string }) => ({
-    subject: `Getting started with ${i.client}`,
-    text: `Hi ${i.to.name}. ${i.note}`,
-    html: `<p>${i.note}</p>`,
-  });
-  return { ...real, buildGuide, renderInviteEmail };
-});
-
-vi.mock("./onboarding/guide-sources", () => ({
-  guideSources: async (
-    _tx: unknown,
-    _s: unknown,
-    covers: { general: boolean; areas: string[]; templateIds: string[] },
-  ) => ({
-    general: covers.general
-      ? {
-          kind: "general",
-          title: "Your business",
-          intro: "",
-          fields: [
-            { key: "general.approver", label: "Who approves bills?", kind: "text", hint: "" },
-          ],
-        }
-      : null,
-    areas: covers.areas.map((area) => ({
-      kind: "area",
-      area,
-      title: area,
-      intro: "",
-      fields: [{ key: `${area}.volume`, label: "How many a month?", kind: "number", hint: "" }],
-    })),
-    agents: covers.templateIds.map((templateId) => ({
-      kind: "agent",
-      templateId,
-      title: "Agent",
-      intro: "",
-      fields: [
-        {
-          key: `agent.${templateId.slice(0, 8)}.tool`,
-          label: "Connect QuickBooks",
-          kind: "tool",
-          hint: "",
-        },
-      ],
-    })),
-  }),
-}));
-
-vi.mock("./onboarding/emails", async (importOriginal) => {
-  const real = await importOriginal<typeof import("./onboarding/emails")>();
-  return {
-    ...real,
-    sendOnboardingEmail: async (_deps: unknown, email: { sendAt?: Date | null }) => {
-      seen.emails.push(email);
-      return { notificationId: null, status: email.sendAt ? "scheduled" : "queued" };
-    },
-  };
-});
 
 const h = await createApiHarness();
 afterAll(() => h?.close());
@@ -519,7 +400,6 @@ describe.skipIf(!h)("Sales' onboarding", () => {
       startId: vendor.id,
       agreedMrr: "1500",
     };
-    seen.facts.length = 0;
     const preview = await ok<InvitePreview>("POST", "/api/ops/onboarding/sign-up/preview", body);
     expect(preview.problems).toEqual([]);
     expect(preview.confirm).toEqual([
@@ -545,12 +425,11 @@ describe.skipIf(!h)("Sales' onboarding", () => {
     ]);
     expect(preview.welcome).toMatchObject({ client: "Acme Supplies", email: body.person.email });
     // Only `theirs` facts reach the guide; our note never does.
-    expect(seen.facts.at(-1)).toMatchObject([{ text: "Dana runs accounts payable" }]);
+    expect(JSON.stringify(preview.intake?.guide)).toContain("Dana runs accounts payable");
     expect(JSON.stringify(preview)).not.toContain("Price sensitive");
     // The preview changed nothing.
     expect(await H.t.db.select().from(tenant).where(eq(tenant.name, "Acme Supplies"))).toEqual([]);
 
-    seen.emails.length = 0;
     const sent = await ok<InviteSent>("POST", "/api/ops/onboarding/sign-up", body);
     expect(sent).toMatchObject({ fileId: file.file.id, buildIds: [expect.any(String)] });
     expect(sent.agentIds).toHaveLength(1);
@@ -580,10 +459,16 @@ describe.skipIf(!h)("Sales' onboarding", () => {
       .where(eq(intakePerson.intakeId, row?.id as string));
     expect(people).toMatchObject([{ email: body.person.email, isAdmin: true, sections: null }]);
     expect(people[0]?.userId).toBe(sent.people[0]?.userId);
-    expect(seen.emails).toMatchObject([
-      { kind: "invite", tenantId: sent.clientId, intakeId: row?.id, personId: people[0]?.id },
+    const queued = await H.t.db
+      .select()
+      .from(notification)
+      .where(eq(notification.tenantId, sent.clientId));
+    expect(queued.filter((n) => n.kind === "intake_invite")).toMatchObject([
+      { channel: "email", dedupeKey: expect.stringContaining(people[0]?.id as string) },
     ]);
-    expect(sent.emails).toEqual([{ to: body.person.email, status: "queued" }]);
+    // No Resend in this harness: the row is written skipped and the intake logs it once (the
+    // email's own record, onboarding-flow.test.ts sends one).
+    expect(sent.emails).toEqual([{ to: body.person.email, status: "skipped" }]);
     const events = await H.t.db
       .select()
       .from(intakeEvent)

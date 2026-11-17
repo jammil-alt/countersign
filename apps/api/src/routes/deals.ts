@@ -42,7 +42,7 @@ import {
   salesToday,
   summariesOf,
 } from "../work/deals";
-import { closeTodosAbout } from "../work/todos-store";
+import { addTodo, closeTodosAbout } from "../work/todos-store";
 
 /** Closed deals stay on the lists (the Done filter, this month's wins) for this long. */
 const CLOSED_SHOWN_DAYS = 90;
@@ -408,6 +408,30 @@ export function dealRoutes(app: Hono<AppEnv>): void {
     });
     const closed = await readDeal(tx, tenantIds, row.id);
     if (checkBackOn) await addCheckBack(tx, closed, checkBackOn, session.user.id);
+    // DECISION (cases-plan §8 q14, docs/plan.md §1.125): a lost lead we had already made an
+    // account for (Invite or Sign up now, before the deal was won) has its account retired at
+    // Lost. Retiring stays a person's typed confirm (§1.35's Retire), so Lost leaves the operator
+    // a to-do for it, due today, once per deal.
+    if (body.outcome === "lost" && row.kind === "new" && row.clientId) {
+      const [client] = await tx
+        .select({ name: tenant.name, retiredAt: tenant.retiredAt })
+        .from(tenant)
+        .where(eq(tenant.id, row.clientId));
+      if (client && !client.retiredAt) {
+        await addTodo(tx, {
+          clientId: row.clientId,
+          owner: "operator",
+          ownerUserId: session.user.id,
+          title: `Retire ${client.name}'s account`,
+          why: "The deal was lost after we made their account.",
+          dueAt: new Date(`${salesToday(now)}T23:59:59Z`),
+          about: { kind: "deal", id: row.id },
+          source: "system",
+          dedupeKey: `deal:${row.id}:retire`,
+          createdBy: session.user.id,
+        });
+      }
+    }
     return dealDetail(tx, closed, salesToday());
   });
 

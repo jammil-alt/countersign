@@ -142,14 +142,18 @@ describe.skipIf(!h)("onboarding emails and the welcome page (§1.125)", () => {
 
   it("uses the design system's colours (tokens.json) in the layout", () => {
     const tokens = JSON.parse(
-      readFileSync(new URL("../../../packages/design-system/tokens.json", import.meta.url).pathname, "utf8"),
+      readFileSync(
+        new URL("../../../packages/design-system/tokens.json", import.meta.url).pathname,
+        "utf8",
+      ),
     ) as { color: { tokens: { name: string; value: { light: string; dark: string } }[] } };
     for (const [name, value] of Object.entries(EMAIL_THEME)) {
       expect(tokens.color.tokens.find((t) => t.name === name)?.value, name).toEqual(value);
     }
     // The logo the layout links to is hosted with the app.
     expect(
-      readFileSync(new URL("../../web/public/email/mezonas-icon.png", import.meta.url).pathname).length,
+      readFileSync(new URL("../../web/public/email/mezonas-icon.png", import.meta.url).pathname)
+        .length,
     ).toBeGreaterThan(1000);
   });
 

@@ -54,7 +54,6 @@ import {
   deal,
   dealPerson,
   intake,
-  intakeEvent,
   intakePerson,
   membershipsOfUser,
   type Tx,
@@ -72,6 +71,7 @@ import {
   type LongHandlerCtx,
   type Services,
 } from "../http";
+import { notifyDepsFromEnv, sendNow } from "../notify/tick";
 import { reportHandled } from "../observability/report";
 import { inviteToClient } from "../routes/onboarding";
 import { openBuilds, servingToo } from "../work/deal-setup";
@@ -734,6 +734,7 @@ export async function runInvite(run: InviteRun, draft: InviteDraft): Promise<Inv
     }
 
     let intakeId: string | null = null;
+    let anyQueued = false;
     const emails: InviteSent["emails"] = [];
     if (plan.hasIntake && plan.guide) {
       const sendAt = draft.sendAt ? new Date(draft.sendAt) : null;
@@ -777,18 +778,25 @@ export async function runInvite(run: InviteRun, draft: InviteDraft): Promise<Inv
           email: p.email,
           isAdmin: p.isAdmin,
         });
-        await tx.insert(intakeEvent).values({
-          tenantId: client,
-          intakeId: made.id,
-          kind: sendAt ? "scheduled" : "sent",
-          personId: person.id,
-          meta: { via, ...(sendAt ? { sendAt: sendAt.toISOString() } : {}) },
-        });
+        // The email's own record on the intake (`scheduled`, or `sent` once it goes or can't) is
+        // written by sendOnboardingEmail and the notification pass, once each.
         const queued = await sendOnboardingEmail(
           { tx, env: services.env },
           { kind: "invite", tenantId: client, intakeId: made.id, personId: person.id, sendAt },
         );
         emails.push({ to: p.email, status: queued.status });
+        if (queued.status === "queued") anyQueued = true;
+      }
+      // Sent at once after the commit; a later "Send at" waits for the pass.
+      if (anyQueued) {
+        s.afterCommit(() =>
+          sendNow(
+            services.db,
+            notifyDepsFromEnv(services.env, services.deps.fetch?.(services.env)),
+            client,
+            new Date(),
+          ),
+        );
       }
     } else {
       for (const p of plan.people) {

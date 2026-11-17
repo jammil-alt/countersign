@@ -1,13 +1,18 @@
 # Back office work: Sales, onboarding and Build (design and plan, agreed 2026-11-17)
 
-**Status (2026-11-17): Build, Sales, Your call and Reggie are built; onboarding is in progress.**
+**Status (2026-11-17): Build, Sales, Your call and Reggie are built; onboarding O1–O3 are built.**
 The owner asked for the back office work built on 2026-11-17. It is on two stacked PRs, not merged
 until the owner says so: the migrations (0060–0063, PR #380, `claude/ops-work-migrations-szb740`)
 and the code on top of it (PR #383, `claude/ops-work-szb740`): Build, Sales, Your call, and Reggie
 with Autopilot and `support@`/`hello@` email, all against fakes. The decisions are `docs/plan.md`
 §1.124 (the §8 questions it answered are recorded there), the milestones M64–M68. Onboarding (§4)
-is being built on top of it, in steps O1 to O6 (§7): O1–O3 first (`docs/plan.md` §1.125, M69, migration 0064). The text below is the plan as agreed; its
-"nothing here is built" is history for everything but onboarding.
+is built on top of it in steps O1 to O6 (§7). **O1–O3 are built** in one PR (`docs/plan.md` §1.125
+and §1.125.1–§1.125.5, M69, migration 0064), with Sales' "stages are a record, not a gate" and
+"every account is in Sales" (§3.1) and the owner's defaults for §8's questions 9–18. **Next**: O4
+(talk it through with Sloan), O5 (the scope, signing, facts into the knowledge base, the fit-gap
+hand-off, the reminders and the remaining emails), Reggie filing facts (A1's part for
+onboarding), W1's reply threading, then O6 (voice). The text below is the plan as agreed; its
+"nothing here is built" is history for everything but O4–O6.
 
 The owner wants one place in the back office to bring clients in, sell them more, and build and
 fix what they need, with Reggie doing most of the work so one person can run many clients'
@@ -422,14 +427,14 @@ Each step ends green and goes to staging. Migrations in their own PRs.
 | T1 | `todo`; Your call (yours, Reggie's, the clients', done today) and the client page's to-dos and activity. | Every item that needs a person is on one list with a due date. |
 | S1 | `client_file`, `client_fact`, `deal`, `deal_person`, `deal_activity`, `start` (migration PR); RLS and contract tests (no client route returns a fact; an `ours` fact never leaves the operator side). | A client session can't read a file, a fact or a deal. |
 | S2 | Sales section: lists, boards with stage totals, the deal page; the prospect's page and the client file tab (facts by hand); stages as a record (skip forward, to-dos for what's missing); a deal logged for every client made elsewhere. | A deal goes from lead to first agent live on staging, and one made by New client shows up at Set up the account. |
-| O1 | Branded email layout, the invite email in six languages, the welcome page and its sign-in, the WorkOS one-email check. Owner steps: Resend domain and `hello@`; WorkOS branding. | A test invite to a real inbox shows one branded email, the welcome page and a branded sign-in, in light and dark mail clients. |
-| O2 | `intake`, `intake_answer`, `intake_scope` (migration PR); the guide from general, areas and agents, merged and filled from the file (core). | A guide for general, Purchasing and one agent asks "who approves" once and skips what the file has confirmed. |
-| O3 | **Invite** and **Sign up now** (with starts), opening builds at Requirements request; **Get to the point** (cards, "We think", Connect, "Different process in mind?", "Ask someone else"); the build's Requirements panel reading its card. | From a lead record on staging the owner invites a test admin, who answers the cards and connects the QuickBooks sandbox in about fifteen minutes; Sign up now does the same in one confirm and the deal lands at Set up the account. |
-| O4 | **Talk it through**: Sloan's intake workflow (platform template v3), proposals into fields, going wider, switching both ways. Recorded fixtures; a nudge in an answer changes nothing. | A test client finishes the same intake by chat and voice typing; every field shows its source and their confirmation. |
-| O5 | After the intake: proposed agents and Add to the intake; the scope and signing; facts into the knowledge base; builds into fit-gap with briefs; the tool profile; reminders and the remaining emails. | A general intake on staging leads to proposed agents, a signed scope and builds in fit-gap, with nothing asked twice. |
+| O1 (built, §1.125) | Branded email layout, the invite email in six languages, the welcome page and its sign-in, the WorkOS one-email check. Owner steps: Resend domain and `hello@`; WorkOS branding. | A test invite to a real inbox shows one branded email, the welcome page and a branded sign-in, in light and dark mail clients. |
+| O2 (built, §1.125.2) | `intake`, `intake_answer`, `intake_scope` (migration PR); the guide from general, areas and agents, merged and filled from the file (core). | A guide for general, Purchasing and one agent asks "who approves" once and skips what the file has confirmed. |
+| O3 (built, §1.125.1–§1.125.5) | **Invite** and **Sign up now** (with starts), opening builds at Requirements request; **Get to the point** (cards, "We think", Connect, "Different process in mind?", "Ask someone else"); the build's Requirements panel reading its card. | From a lead record on staging the owner invites a test admin, who answers the cards and connects the QuickBooks sandbox in about fifteen minutes; Sign up now does the same in one confirm and the deal lands at Set up the account. |
+| O4 (next) | **Talk it through**: Sloan's intake workflow (platform template v3), proposals into fields, going wider, switching both ways. Recorded fixtures; a nudge in an answer changes nothing. | A test client finishes the same intake by chat and voice typing; every field shows its source and their confirmation. |
+| O5 (next) | After the intake: proposed agents and Add to the intake; the scope and signing; facts into the knowledge base; builds into fit-gap with briefs; the tool profile; reminders and the remaining emails. | A general intake on staging leads to proposed agents, a signed scope and builds in fit-gap, with nothing asked twice. |
 | A1 | Reggie's tools, the read-gather-draft pass (including filing facts from a debrief, document or website), and Autopilot with every play at `draft`. | Each new issue shows a read and a draft within a minute; a pasted call debrief becomes facts the owner ticks; nothing is sent without a person. |
 | W1 | Inbound email (`support@`, `hello@`), reply threading and outbound; then the site's "Get started" form, opening a lead. | An email from a client's person opens an issue; a reply to an invite lands on its deal. |
-| O6 | Live voice and phone for the intake (ElevenLabs, §1.23), with the compliance entry. | A spoken intake fills the same fields as a typed one. |
+| O6 (next, after W1) | Live voice and phone for the intake (ElevenLabs, §1.23), with the compliance entry. | A spoken intake fills the same fields as a typed one. |
 
 Order: Build first (B1–B5: it gives clients a way to talk to us and fixes one-way requests), then
 the to-do list (T1), then Sales with the client file (S1–S2), then onboarding (O1–O5, which needs

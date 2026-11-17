@@ -301,7 +301,7 @@ export async function prepareOnboardingEmail(
     row.kind !== "intake_more_questions"
   ) {
     // The reminder, "Your scope is ready" and "What happens next" are next wave's.
-    return skip("not_built");
+    return skip("unsupported");
   }
   const personId = intakePersonOfKey(row.dedupeKey);
   const [person] = personId

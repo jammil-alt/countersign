@@ -23,7 +23,7 @@ export type NotificationKind = z.infer<typeof NotificationKind>;
  * §1.125: the onboarding emails, written to the same outbox (migration 0064 allows them) but
  * rendered at send from the intake and its person (`apps/api/src/onboarding/emails.ts`), never
  * from `counts`, and never by `renderNotification`. This wave sends the first three; the rest are
- * next wave's (a row of theirs is skipped `not_built` until then).
+ * next wave's (a row of theirs is skipped `unsupported` until then).
  */
 export const ONBOARDING_NOTIFICATION_KINDS = [
   "intake_invite",

@@ -1,6 +1,7 @@
 // Onboarding v1's contract (docs/plan.md §1.125): the client file's facts, what an intake covers,
 // the guide's field values, the route bodies' rules, and the portal's views carrying nothing of
 // ours. The guide itself is tested in guide.test.ts and the emails in email/onboarding.test.ts.
+
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { clientFileRoutes, startRoutes } from "../api/client-files";
@@ -169,4 +170,3 @@ describe("the onboarding routes", () => {
     expect(WelcomeLinkToken.safeParse({ t: T1, i: T2, e: 1 }).success).toBe(false);
   });
 });
-

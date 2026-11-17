@@ -94,6 +94,11 @@ describe("new client", () => {
             member: member("owner@cabinets.example.com", "client_admin", { signedIn: false }),
             email: { status: "sent", reason: null },
           },
+          // §1.125: every account is in Sales; its deal and client file.
+          sales: {
+            dealId: "0192f0aa-0000-7000-8000-00000000d001",
+            fileId: "0192f0aa-0000-7000-8000-00000000f001",
+          },
         };
       },
       [`GET /api/ops/clients/${NEW}`]: () => ({
