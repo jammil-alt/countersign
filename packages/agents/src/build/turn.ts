@@ -121,7 +121,7 @@ const PHASE_RULES: Record<BuildPhase, string> = {
 - While a field is open, ask about it before anything else. Ask the operator to confirm only when goal, trigger, data in and data out are filled and you have asked about every open field once: then say what you heard in two or three sentences and ask them to check the brief and press "Confirm the brief" under it. Fields still open then become open items when the brief is confirmed: don't add items for them.
 - You can't confirm the brief or move the build on: only the operator's button does. Never offer a chip that confirms or moves on, and never say the brief is confirmed.`,
   fitgap: `Phase: fit-gap. Check every need in the brief against the catalog and answer with the whole "fitgap".
-- One row per need: native (a skill, tool, connector or pack in the catalog does it as is; name it in "how"), configure (it exists but needs a connection, a setting or a pack switched on), build (a new skill or automation from catalog parts; the Builder can draft it), figure_out (needs something the catalog lacks: a connector, a tool, a data source), not_possible (against Mezonas' rules: moving money, signing in to a bank, payment or email account, deleting records, storing card numbers, or a client's credentials seen by us).
+- One row per need: native (a skill, tool, connector or pack in the catalog does it as is; name it in "how"), configure (it exists but needs a connection, a setting or a pack switched on), build (a new automation or steps put together from catalog parts that can each do their part, by their descriptions; the Builder can draft it), figure_out (needs something the catalog lacks: a connector, a tool, a data source, or a skill for logic no catalog part does, such as grouping a list by customer), not_possible (against Mezonas' rules: moving money, signing in to a bank, payment or email account, deleting records, storing card numbers, or a client's credentials seen by us).
 - Don't add open items for rows, for what needs to be true or for the intake form: the API makes them when the direction is agreed.
 - Keep a row the operator dropped as dropped. Keep each row's id when you rewrite it. Say the counts in one sentence, then what needs to be true.
 - Write "how" for a business owner: what does it, in plain words, naming tools, skills and connectors by their names ("the QuickBooks account register"), never their ids ("qbo.account.register").
@@ -155,7 +155,10 @@ Issues: everything left to settle is listed under "Issues", each with its key. T
 - Set "about" to the key of the issue your answer is about. When the operator is on one ("Talking about"), stay on it unless they move on. When they name one in words ("the W-9 one", "go back to the first thing", "the failing test"), find it in the list, settle on it and say which one you mean. A done or put-off issue is still listed: they may want to go back to it.
 - When the operator asks what the issues are, name the open ones briefly, the ones holding the next move first, and ask which to start with. When they ask you to walk them through, take the first open one: say what it is, why it matters and what you'd do, then propose it.
 - To settle an issue, propose one change in "proposal": close_item (done or put off) or reopen_item for an item, run_tests, accept_check with a reason, go_back to an earlier phase with what to redo there, or edit_draft (draft and POC test only).
-- edit_draft changes the draft's steps or settings. The workflow's Builder makes the change from your "request", so write it as a precise instruction: the step by its name, what to change, and what it should be ("On “Pay the bill”, take the amount from the invoice total"). Give the step's id in "stepId" when it is about one step. One change per proposal; the operator can undo it. Nothing changes until the operator agrees, so say it as a proposal ("I'd close this as done"), never as done. Propose only what the issue needs and only when it fits: close an item only once it is settled (the operator said so, or the facts show it).
+- edit_draft changes the draft's steps or settings with what the catalog already has. You make the change from your "request", so write it as a precise instruction: the step by its name, what to change, and what it should be ("On “Pay the bill”, take the amount from the invoice total"). Give the step's id in "stepId" when it is about one step. One change per proposal; the operator can undo it.
+- edit_draft can't create a skill, a tool or a connector. A missing step needs one of those: say so plainly, say what it must do (its input, its output, what it decides), and add an open item for engineering with that; don't propose an edit for it.
+- Judge what a catalog part can do by its description and its input and output, never by its name. If the description doesn't say it can (filter, group, total, send to a new kind of contact), it can't.
+- Never say something is done, built or fixed unless the facts show it ("What we know now", the issues). After a change, check: if the issue it was for is still listed as open, say it isn't fixed yet and why. Nothing changes until the operator agrees, so say it as a proposal ("I'd close this as done"), never as done. Propose only what the issue needs and only when it fits: close an item only once it is settled (the operator said so, or the facts show it).
 - To go deeper on an issue, explain it plainly: where it comes from, what it affects, and the options. Then stop and let the operator choose.`;
 
 export interface BuildTurnInput {
@@ -276,24 +279,41 @@ export async function buildTurn(
     else merged.push({ ...m });
   }
   const calls: LlmCallRecord[] = [];
-  try {
-    const res = await options.llm.callTool({
-      model: options.model ?? DEFAULT_MODELS.builder,
-      system,
-      messages: merged,
-      tool: {
-        name: BUILD_TURN_TOOL,
-        description: "Your answer in the build's conversation, and what it changes",
-        schema: BuildTurnAnswer,
-      },
-      maxTokens: BUILD_TURN_TOKENS[input.phase] ?? BUILD_TURN_TOKENS_DEFAULT,
-      label: "build",
-      ...(options.signal ? { signal: options.signal } : {}),
-    });
-    calls.push(res.record);
-    return { answer: cleanAnswer(input.phase, res.value), calls, costUsd: totalCost(calls) };
-  } catch (error) {
-    throw asBuilderError(error);
+  // QA on staging (2026-11-17, MEZONAS-API-4): a fit-gap sent as text that wasn't even valid JSON
+  // couldn't be repaired in code; asked again with what was wrong, it came right. Once, here.
+  let repairs = 1;
+  for (;;) {
+    try {
+      const res = await options.llm.callTool({
+        model: options.model ?? DEFAULT_MODELS.builder,
+        system,
+        messages: merged,
+        tool: {
+          name: BUILD_TURN_TOOL,
+          description: "Your answer in the build's conversation, and what it changes",
+          schema: BuildTurnAnswer,
+        },
+        maxTokens: BUILD_TURN_TOKENS[input.phase] ?? BUILD_TURN_TOKENS_DEFAULT,
+        label: "build",
+        ...(options.signal ? { signal: options.signal } : {}),
+      });
+      calls.push(res.record);
+      return { answer: cleanAnswer(input.phase, res.value), calls, costUsd: totalCost(calls) };
+    } catch (error) {
+      if (error instanceof LlmToolError && error.code === "invalid_input" && repairs > 0) {
+        repairs -= 1;
+        calls.push(error.result.record);
+        merged.push(
+          { role: "assistant", content: JSON.stringify(error.input ?? null).slice(0, 20_000) },
+          {
+            role: "user",
+            content: `That answer did not match the tool's schema:\n${error.message}\n\nAnswer again with the whole answer. Send objects and lists as JSON objects and lists, never as text.`,
+          },
+        );
+        continue;
+      }
+      throw asBuilderError(error);
+    }
   }
 }
 

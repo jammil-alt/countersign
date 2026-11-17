@@ -558,7 +558,7 @@ async function applyEdit(ctx: LongCtx, id: string, a: EditAction, summary: strin
     throw new HttpError(
       503,
       "edit_failed",
-      "The workflow's Builder couldn't make the change just now, so the draft is as it was. Press Agree to try again.",
+      "I couldn't make the change just now, so the draft is as it was. Press Agree to try again.",
     );
   }
   const changes = turn.changes.filter((c) => !c.undoes).map((c) => ({ id: c.id, label: c.label }));
@@ -632,10 +632,37 @@ async function runAction(ctx: LongCtx, id: string, a: BuildAction): Promise<void
 const clip = (text: string, max: number) =>
   text.length > max ? `${text.slice(0, max - 1)}…` : text;
 
+/** The first `n` sentences of a reply, for a one-line account of what was done. */
+function firstSentences(text: string, n: number): string {
+  // A sentence ends at . ! or ? followed by a space or the end, so "15.00" stays whole.
+  const parts = text.trim().split(/(?<=[.!?])\s+/);
+  return clip(parts.slice(0, n).join(" ").trim() || text.trim(), 600);
+}
+
+/**
+ * The issue an agreed draft edit was for, if it is still open after it: the issue the
+ * conversation was on, else a problem still on the step the edit named.
+ */
+function stillOpen(d: BuildDetail, about: string | null, stepId: string | null): BuildIssue | null {
+  const issues = buildIssues(d);
+  // An open item can't be checked this way (only closing it settles it): the draft's problems,
+  // failing tests and checks can, since they're read from the draft.
+  const onIt = about
+    ? issues.find((i) => i.key === about && i.open && i.source !== "item")
+    : undefined;
+  if (onIt) return onIt;
+  if (!stepId) return null;
+  const problem = d.draft?.problems.find((p) => p.stepId === stepId);
+  return problem ? (issues.find((i) => i.key === `problem:${problem.key}`) ?? null) : null;
+}
+
 /** What the conversation says after an agreed change, and the next open issue to take. */
 function doneText(summary: string, next: BuildIssue | undefined, changed: string[] = []): string {
-  const what = changed.length > 0 ? ` Changed: ${changed.join("; ")}.` : "";
-  const done = `Done: ${summary.replace(/[.\s]+$/, "")}.${what}`;
+  // A draft edit says what it changed in the Builder's words; anything else, what was agreed.
+  const done =
+    changed.length > 0
+      ? `Changed the draft: ${changed.join(" ")}`
+      : `Done: ${summary.replace(/[.\s]+$/, "")}.`;
   return next
     ? `${done} Next open issue: “${next.title}”. Shall we take it?`
     : `${done} That was the last open issue.`;
@@ -893,6 +920,12 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
     });
     const { p, about } = found;
     // The operator's decision, as their message in the conversation.
+    // The Builder's own message after a decision.
+    const say = (text: string, meta: Record<string, unknown>) =>
+      ctx.inTx(async (scoped) => {
+        const fresh = await readBuild(scoped.tx, id, true);
+        await addMessage(scoped.tx, fresh, { role: "builder", text: clip(text, 3000), meta });
+      });
     const record = (
       decision: "agreed" | "unchanged" | "declined" | "undone",
       extra: Record<string, unknown> = {},
@@ -915,24 +948,26 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
       // Builder (its guards, its labelled changes) and saved as a draft version; undo is its own.
       if (decide === "agree") {
         const edit = await applyEdit(lc, id, p.action, p.summary);
+        const said = firstSentences(edit.text, 2);
         if (edit.changes.length === 0) {
-          await record("unchanged", { result: clip(`Nothing changed: ${edit.text}`, 500) });
-          await ctx.inTx(async (scoped) => {
-            const fresh = await readBuild(scoped.tx, id, true);
-            await addMessage(scoped.tx, fresh, {
-              role: "builder",
-              text: clip(
-                `The draft didn't change. The workflow's Builder said: ${edit.text}`,
-                3000,
-              ),
-              meta: about ? { about } : {},
-            });
-          });
+          await record("unchanged", { result: clip(`Nothing changed: ${said}`, 500) });
+          await say(`I tried, and the draft didn't change: ${said}`, about ? { about } : {});
           return detailOf(ctx, id);
         }
-        changed = edit.changes.map((c) => c.label);
+        // QA on staging (2026-11-17): "Done: Build the filter skill" was said when only a step's
+        // description had changed and the step was still missing. What an edit did is checked
+        // against the build after it, never taken from the proposal's own words.
+        const left = await ctx.inTx(async (scoped) =>
+          stillOpen(
+            await detailIn(scoped, ctx.services, await readBuild(scoped.tx, id, true)),
+            about,
+            p.action.do === "edit_draft" ? (p.action.stepId ?? null) : null,
+          ),
+        );
         await record("agreed", {
-          result: clip(`Changed: ${changed.join("; ")}`, 1000),
+          result: clip(left ? `Changed, still open: ${said}` : `Changed: ${said}`, 1000),
+          changes: edit.changes.map((c) => clip(c.label, 300)).slice(0, 20),
+          ...(left ? { unresolved: true } : {}),
           edit: {
             sessionId: edit.sessionId,
             turnId: edit.turnId,
@@ -940,6 +975,14 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
             versionId: edit.versionId,
           },
         });
+        if (left) {
+          await say(
+            `I changed the draft, but it isn't fixed: “${left.title}” is still open${left.detail ? ` (${left.detail})` : ""}. What I changed: ${said}`,
+            { ...(about ? { about } : {}), chips: ["What would fix it?"] },
+          );
+          return detailOf(ctx, id);
+        }
+        changed = [said];
       } else {
         if (!found.edit || found.edit.changeIds.length === 0) {
           throw new HttpError(409, "no_undo", "this change has no undo here");
@@ -960,6 +1003,16 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
       const fresh = await readBuild(scoped.tx, id, true);
       const issues = buildIssues(await detailIn(scoped, ctx.services, fresh));
       const next = issues.find((i) => i.open && i.key !== about);
+      const item = issues.find((i) => i.key === about && i.source === "item" && i.open);
+      if (decide === "agree" && changed.length > 0 && item) {
+        // A draft edit for an open item: whether it settles the item is the operator's to say.
+        await addMessage(scoped.tx, fresh, {
+          role: "builder",
+          text: `Changed the draft: ${changed.join(" ")} “${item.title}” stays open until you close it. Does this settle it?`,
+          meta: { about: item.key, chips: ["Yes, close it", "Not yet"] },
+        });
+        return;
+      }
       const text =
         decide === "agree"
           ? doneText(p.summary, next, changed)

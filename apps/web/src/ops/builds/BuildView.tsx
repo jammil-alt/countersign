@@ -817,11 +817,18 @@ function IntakePanel({ detail, current, busy, act }: PanelProps) {
             <Next
               label="Confirm the brief"
               detail={detail}
-              busy={isBusy(busy) || dirty}
+              busy={isBusy(busy)}
               testId="build-confirm-brief"
-              onClick={() =>
-                void act(apiRoutes.opsMoveBuild, { params: { id }, body: { to: "fitgap" } })
-              }
+              // QA (2026-11-17): with a change not saved the button did nothing, and nothing said
+              // why. Confirming saves the brief as it reads on screen first.
+              onClick={async () => {
+                if (
+                  dirty &&
+                  !(await act(apiRoutes.opsUpdateBuild, { params: { id }, body: { brief } }))
+                )
+                  return;
+                void act(apiRoutes.opsMoveBuild, { params: { id }, body: { to: "fitgap" } });
+              }}
             />
           </div>
         ) : null
@@ -1072,11 +1079,17 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
           <Next
             label="Agree the direction and draft it"
             detail={detail}
-            busy={isBusy(busy) || dirty}
+            busy={isBusy(busy)}
             testId="build-agree"
-            onClick={() =>
-              void act(apiRoutes.opsMoveBuild, { params: { id }, body: { to: "draft" } })
-            }
+            // Agreeing saves the fit-gap as it reads on screen first (as Confirm the brief does).
+            onClick={async () => {
+              if (
+                dirty &&
+                !(await act(apiRoutes.opsUpdateBuild, { params: { id }, body: { fitgap } }))
+              )
+                return;
+              void act(apiRoutes.opsMoveBuild, { params: { id }, body: { to: "draft" } });
+            }}
           />
         </div>
       ) : null}

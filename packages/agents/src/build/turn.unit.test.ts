@@ -83,6 +83,29 @@ describe("buildTurn", () => {
     expect(out.answer.proposal?.action).toEqual({ do: "close_item", itemId: "w9", state: "done" });
   });
 
+  // QA on staging (2026-11-17, MEZONAS-API-4): a fit-gap sent as text that wasn't valid JSON.
+  it("asks once more with what was wrong when the answer fails the schema", async () => {
+    const model = new FakeModel([
+      { toolUse: { name: BUILD_TURN_TOOL, input: { text: "Here.", fitgap: "{rows: [oops" } } },
+      {
+        toolUse: {
+          name: BUILD_TURN_TOOL,
+          input: {
+            text: "One we do as is.",
+            fitgap: { rows: [{ id: "r", need: "Read invoices", verdict: "native", how: "x" }] },
+          },
+        },
+      },
+    ]);
+    const out = await buildTurn(
+      { ...base, phase: "fitgap", words: null },
+      { llm: createLlmClient({ transport: model }) },
+    );
+    expect(out.answer.fitgap?.rows.map((r) => r.id)).toEqual(["r"]);
+    expect(lastUser(model.requests[1])).toContain("did not match the tool's schema");
+    expect(out.calls).toHaveLength(2);
+  });
+
   it("fills the brief in intake, and drops a fit-gap it wasn't asked for", async () => {
     const model = new FakeModel([
       {

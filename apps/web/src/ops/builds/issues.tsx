@@ -41,13 +41,23 @@ export function ProposalCard({
       </p>
       {proposal.action.do === "edit_draft" && proposal.state === "proposed" ? (
         <p className="text-xs text-ink-muted" data-testid="build-proposal-request">
-          The workflow's Builder makes it: {proposal.action.request}
+          The change to the draft: {proposal.action.request}
         </p>
       ) : null}
       {proposal.result && proposal.state !== "proposed" ? (
         <p className="text-xs text-ink" data-testid="build-proposal-result">
           {proposal.result}
         </p>
+      ) : null}
+      {proposal.changes?.length ? (
+        <details className="text-xs text-ink-muted" data-testid="build-proposal-changes">
+          <summary className="cursor-pointer">What changed in the steps</summary>
+          <ul className="mt-1 flex flex-col gap-0.5 font-mono">
+            {proposal.changes.map((c) => (
+              <li key={c}>{c}</li>
+            ))}
+          </ul>
+        </details>
       ) : null}
       <div className="flex flex-wrap items-center gap-2">
         {proposal.state === "proposed" && live ? (
@@ -71,6 +81,11 @@ export function ProposalCard({
               Not this
             </Button>
           </>
+        ) : proposal.state === "agreed" && proposal.unresolved ? (
+          // QA (2026-11-17): a change that didn't fix its issue never reads as done.
+          <Badge tone="warning" testId="build-proposal-state">
+            Changed, still open
+          </Badge>
         ) : (
           <Badge tone={words.tone} testId="build-proposal-state">
             {words.word}

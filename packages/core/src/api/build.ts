@@ -75,6 +75,10 @@ export const BuildMessageView = z.object({
     result: z.string().optional(),
     /** Offered while agreed and its opposite is exact (an item's state). */
     undo: z.boolean().optional(),
+    /** Agreed and made, but the issue it was for is still open (a draft edit that didn't fix it). */
+    unresolved: z.boolean().optional(),
+    /** A draft edit's changes to the steps, one line each, for "What changed". */
+    changes: z.array(z.string()).optional(),
   }).optional(),
   createdAt: z.string(),
 });

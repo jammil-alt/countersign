@@ -3,7 +3,7 @@
 // gate's reasons on Confirm, a done phase looked at again and gone back to with a reason, and open
 // items whose state changes.
 import type { BuildDetail } from "@countersign/core";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
@@ -515,6 +515,74 @@ describe("Builds", () => {
   });
 
   // Owner (2026-11-17): the draft changes from the build's conversation.
+  // QA on staging (2026-11-17): an edit that didn't fix its issue read as "Done"; Confirm did
+  // nothing while a brief change was unsaved.
+  it("marks an edit that left its issue open, and confirms an unsaved brief by saving it", async () => {
+    const PROPOSAL = "00000000-0000-4000-8000-0000000b0302";
+    const base = detail();
+    const message = {
+      id: PROPOSAL,
+      phase: "draft",
+      role: "builder",
+      text: "I changed the draft, but it isn't fixed.",
+      chips: [],
+      changes: [],
+      proposal: {
+        summary: "Build the filter and group skill",
+        action: { do: "edit_draft", request: "On “Group”, group the invoices by customer." },
+        state: "agreed",
+        unresolved: true,
+        result: "Changed, still open: I reworded the step.",
+        changes: ["~ step group · need"],
+      },
+      createdAt: at,
+    } as unknown as BuildDetail["messages"][number];
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: () => ({ ...base, messages: [...base.messages, message] }),
+    });
+    renderAt(`/ops/builds/${ID}`, api);
+    const view = await screen.findByTestId("build-view");
+    expect(within(view).getByTestId("build-proposal-state")).toHaveTextContent(
+      "Changed, still open",
+    );
+    expect(within(view).getByTestId("build-proposal-changes")).toHaveTextContent(
+      "What changed in the steps",
+    );
+    cleanup();
+
+    const intake = detail({
+      build: { ...detail().build, phase: "intake" },
+      phases: detail().phases.map((p) => ({
+        ...p,
+        state: p.phase === "intake" ? ("current" as const) : ("todo" as const),
+      })),
+      gate: { next: "fitgap", reasons: [] },
+    });
+    const calls: string[] = [];
+    const api2 = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: () => intake,
+      [`PATCH /api/ops/builds/${ID}`]: ({ init }) => {
+        calls.push(`save ${JSON.stringify(JSON.parse(String(init.body)).brief.goal)}`);
+        return intake;
+      },
+      [`POST /api/ops/builds/${ID}/phase`]: () => {
+        calls.push("move");
+        return intake;
+      },
+    });
+    renderAt(`/ops/builds/${ID}`, api2);
+    const view2 = await screen.findByTestId("build-view");
+    const goal = within(view2).getByTestId("build-brief-goal");
+    await userEvent.type(goal, " monthly");
+    expect(within(view2).getByTestId("build-confirm-brief")).toBeEnabled();
+    await userEvent.click(within(view2).getByTestId("build-confirm-brief"));
+    await waitFor(() => expect(calls).toHaveLength(2));
+    expect(calls[0]).toContain("monthly");
+    expect(calls[1]).toBe("move");
+  });
+
   it("says what a draft edit asks for, then what it changed, with Undo", async () => {
     const PROPOSAL = "00000000-0000-4000-8000-0000000b0301";
     const editing = {
@@ -561,7 +629,7 @@ describe("Builds", () => {
     renderAt(`/ops/builds/${ID}`, api);
     const view = await screen.findByTestId("build-view");
     expect(within(view).getByTestId("build-proposal-request")).toHaveTextContent(
-      "The workflow's Builder makes it: On “Pay”, take the amount from the invoice total.",
+      "The change to the draft: On “Pay”, take the amount from the invoice total.",
     );
     await userEvent.click(within(view).getByTestId("build-proposal-agree"));
     await waitFor(() => expect(decided).toEqual([{ decide: "agree" }]));
