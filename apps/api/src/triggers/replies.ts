@@ -1,10 +1,11 @@
 // What the platform says back to a message sent to an agent (ARCHITECTURE §10.8; docs/plan.md
 // §1.48 "Senders"): `reply.confirm` to a sender a trigger takes, and the polite fixed reply to one
-// it doesn't (by email only when the From domain passed DMARC; texts from the same number, at most
-// once a day per sender and never to an automated sender: ./inbound-text.ts), with a note to the
-// lead in the client's lead thread. These are fixed words, behind no approval: they go only to the
-// sender, on the channel the message came in on, and say only that it was received or can't be
-// taken. Nothing from the message is echoed.
+// it doesn't (by email only when the From domain passed DMARC; texts from the same number), with a
+// note to the lead in the client's lead thread. Texts never go to an automated sender, and go at
+// most once a day per sender for the polite reply and five times for confirmations
+// (./inbound-text.ts). These are fixed words, behind no approval: they go only to the sender, on
+// the channel the message came in on, and say only that it was received or can't be taken.
+// Nothing from the message is echoed.
 //
 // Replies are sent after the inbound transaction commits (best effort, once): email through
 // Mezonas' own mail (as notifications send), texts through the client's subaccount, as release
