@@ -1,0 +1,355 @@
+name: Deploy the app
+
+# The app's deploy job in one place (reusable), called by deploy.yml (main → staging, a `v*` tag or a
+# manual run → production) and by quick-deploy.yml (any branch → staging, by hand). It migrates the
+# target's Neon branch as cs_owner, deploys the code service (apps/mfa, Worker mezonas-codes) and
+# its secrets, then the browser service (apps/browser, Worker mezonas-browser), then `wrangler
+# deploy` from apps/api, whose `CODES` and `BROWSER` service bindings need both to exist; then the
+# smoke test, which checks the commit just deployed is the one live.
+#
+# No concurrency group here: the callers hold `deploy-<target>` (a group held by a caller and
+# again by its own called job would wait on itself). Never call this without it.
+
+on:
+  workflow_call:
+    inputs:
+      target:
+        description: "`staging` or `production`."
+        type: string
+        required: true
+      ref:
+        description: The commit to deploy, for a quick deploy (staging only). Empty deploys the caller's own commit.
+        type: string
+        default: ""
+      branch:
+        description: The branch a quick deploy came from, for the job summary.
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # GitHub environments "staging" and "production" hold the Worker's per-environment secrets
+    # (WORKOS_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY, XAI_API_KEY, GEMINI_API_KEY); repository
+    # secrets stay available too.
+    environment: ${{ inputs.target }}
+    env:
+      TARGET: ${{ inputs.target }}
+      QUICK_REF: ${{ inputs.ref }}
+      QUICK_BRANCH: ${{ inputs.branch }}
+      WORKOS_API_KEY: ${{ secrets.WORKOS_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      # xAI's (Grok) and Google's (Gemini) models; each provider stays off until its key is set.
+      XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      # Texts, calls, email and billing (plan §1.19–§1.25). Each is copied only when set, so a
+      # provider stays off on an environment until its key exists.
+      TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
+      TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+      ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+      ELEVENLABS_WEBHOOK_SECRET: ${{ secrets.ELEVENLABS_WEBHOOK_SECRET }}
+      RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+      # The code service's own Twilio subaccount (plan §1.26), not the clients' messaging account.
+      MFA_TWILIO_ACCOUNT_SID: ${{ secrets.MFA_TWILIO_ACCOUNT_SID }}
+      MFA_TWILIO_AUTH_TOKEN: ${{ secrets.MFA_TWILIO_AUTH_TOKEN }}
+      # Zoho CRM and Podio (plan §1.9): each connector stays "Not available yet" until its keys exist.
+      ZOHO_CLIENT_ID: ${{ secrets.ZOHO_CLIENT_ID }}
+      ZOHO_CLIENT_SECRET: ${{ secrets.ZOHO_CLIENT_SECRET }}
+      PODIO_CLIENT_ID: ${{ secrets.PODIO_CLIENT_ID }}
+      PODIO_CLIENT_SECRET: ${{ secrets.PODIO_CLIENT_SECRET }}
+      # Gmail send-only (M10) and QuickBooks Online (M9): each stays off until its keys exist.
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      QBO_CLIENT_ID: ${{ secrets.QBO_CLIENT_ID }}
+      QBO_CLIENT_SECRET: ${{ secrets.QBO_CLIENT_SECRET }}
+      QBO_WEBHOOK_VERIFIER: ${{ secrets.QBO_WEBHOOK_VERIFIER }}
+      # New connectors (plan §1.52): Outlook, Ramp, HubSpot and the Plaid bank and card feed. Each
+      # stays "Not available yet" until its keys exist. Drive uses GOOGLE_* above.
+      OUTLOOK_CLIENT_ID: ${{ secrets.OUTLOOK_CLIENT_ID }}
+      OUTLOOK_CLIENT_SECRET: ${{ secrets.OUTLOOK_CLIENT_SECRET }}
+      RAMP_CLIENT_ID: ${{ secrets.RAMP_CLIENT_ID }}
+      RAMP_CLIENT_SECRET: ${{ secrets.RAMP_CLIENT_SECRET }}
+      HUBSPOT_CLIENT_ID: ${{ secrets.HUBSPOT_CLIENT_ID }}
+      HUBSPOT_CLIENT_SECRET: ${{ secrets.HUBSPOT_CLIENT_SECRET }}
+      PLAID_CLIENT_ID: ${{ secrets.PLAID_CLIENT_ID }}
+      PLAID_SECRET: ${{ secrets.PLAID_SECRET }}
+      # BILL (plan §1.87): our developer key for the environment BILL_ENV names. Without it BILL's
+      # tools refuse; clients' own BILL logins are in the vault, never here.
+      BILL_DEV_KEY: ${{ secrets.BILL_DEV_KEY }}
+      # Wave 4 (plan §1.52, §1.56, §1.60): Slack, Google Sheets' picker (public values) and the
+      # Google Chat app. Each stays "Not available yet" until its keys exist.
+      SLACK_CLIENT_ID: ${{ secrets.SLACK_CLIENT_ID }}
+      SLACK_CLIENT_SECRET: ${{ secrets.SLACK_CLIENT_SECRET }}
+      GOOGLE_PICKER_API_KEY: ${{ secrets.GOOGLE_PICKER_API_KEY }}
+      GOOGLE_PROJECT_NUMBER: ${{ secrets.GOOGLE_PROJECT_NUMBER }}
+      GOOGLE_CHAT_SERVICE_ACCOUNT: ${{ secrets.GOOGLE_CHAT_SERVICE_ACCOUNT }}
+      GOOGLE_CHAT_PROJECT_NUMBER: ${{ secrets.GOOGLE_CHAT_PROJECT_NUMBER }}
+      # WhatsApp through Meta (plan §1.57): the Meta app, its webhook verify token and the Embedded
+      # Signup configuration. "Not available yet" until they exist.
+      META_APP_ID: ${{ secrets.META_APP_ID }}
+      META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+      META_WEBHOOK_VERIFY_TOKEN: ${{ secrets.META_WEBHOOK_VERIFY_TOKEN }}
+      META_CONFIG_ID: ${{ secrets.META_CONFIG_ID }}
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      # A quick deploy is staging only: production deploys only main's tested commits (deploy.yml).
+      - name: Staging only for a quick deploy
+        if: inputs.ref != '' && inputs.target != 'staging'
+        run: |
+          echo "::error::A quick deploy goes to staging only, never to $TARGET."
+          exit 1
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      # The commit actually deployed: the caller's for deploy.yml, the branch's for a quick deploy.
+      # It is the Worker's DEPLOYED_SHA (/api/ready names it), Sentry's release and the smoke
+      # test's expected commit.
+      - name: Which commit
+        run: echo "SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Ready to deploy?
+        id: ready
+        run: |
+          missing=()
+          for name in NEON_API_KEY NEON_PROJECT_ID CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            [ -n "${!name}" ] || missing+=("$name")
+          done
+          [ -f apps/api/wrangler.jsonc ] || missing+=("apps/api/wrangler.jsonc")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Deploy skipped, missing: ${missing[*]}. See docs/operations.md."
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (third-party: pinned to a commit)
+        if: steps.ready.outputs.ready == 'true'
+
+      - uses: actions/setup-node@v7
+        if: steps.ready.outputs.ready == 'true'
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - if: steps.ready.outputs.ready == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Migrate the target's Neon branch
+        if: steps.ready.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          branch=$([ "$TARGET" = production ] && echo main || echo staging)
+          url=$(npx --yes neonctl@4.22.0 connection-string "$branch" \
+            --project-id "$NEON_PROJECT_ID" --role-name cs_owner --database-name countersign)
+          echo "::add-mask::$url"
+          # No --if-present, and --fail-if-no-match: a renamed script or package must fail the deploy, not
+          # skip the migration.
+          DIRECT_DATABASE_URL="$url" pnpm --filter @countersign/db --fail-if-no-match run db:migrate
+
+      # The code service (apps/mfa, ARCHITECTURE §6.9) first: apps/api's `CODES` service binding
+      # points at it. Its own Worker, Durable Objects and secrets; never apps/api's.
+      - name: Deploy the code service
+        if: steps.ready.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          env_flag=$([ "$TARGET" = production ] && echo '--env=production' || echo '--env=staging')
+          pnpm --filter @countersign/mfa exec wrangler deploy "$env_flag"
+
+      - name: Code service secrets
+        if: steps.ready.outputs.ready == 'true'
+        working-directory: apps/mfa
+        run: |
+          set -euo pipefail
+          env_name=$([ "$TARGET" = production ] && echo production || echo staging)
+          put() { printf '%s' "$2" | pnpm exec wrangler secret put "$1" --env "$env_name" > /dev/null; echo "set $1"; }
+          # The codes Twilio subaccount: copied on every deploy when set, so a rotated token takes
+          # effect. Unset: adding a phone number answers not_configured and inbound texts are refused.
+          for name in MFA_TWILIO_ACCOUNT_SID MFA_TWILIO_AUTH_TOKEN; do
+            if [ -n "${!name:-}" ]; then put "$name" "${!name}"; fi
+          done
+          # Generated once inside Cloudflare and never shown or stored anywhere else, as ENCRYPTION_KEY
+          # is for apps/api. If the list of existing secrets can't be read, this step fails (set -e)
+          # rather than risk replacing MFA_ENCRYPTION_KEY, which would make every stored
+          # authenticator secret unreadable.
+          existing=$(pnpm exec wrangler secret list --env "$env_name" --format json | jq -r '.[].name')
+          if grep -qx MFA_ENCRYPTION_KEY <<<"$existing"; then
+            echo "MFA_ENCRYPTION_KEY already set"
+          else
+            value=$(openssl rand -base64 32)
+            echo "::add-mask::$value"
+            put MFA_ENCRYPTION_KEY "$value"
+          fi
+
+      # The browser service (apps/browser, docs/plan.md §1.26) before apps/api too: apps/api's
+      # `BROWSER` service binding points at it. Browser Run and Playwright only; no secrets.
+      - name: Deploy the browser service
+        if: steps.ready.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          env_flag=$([ "$TARGET" = production ] && echo '--env=production' || echo '--env=staging')
+          pnpm --filter @countersign/browser exec wrangler deploy "$env_flag"
+
+      # Error tracking (apps/web/src/observability.ts): the browser's Sentry DSN and the commit as
+      # its release. The DSN is not a secret (it ships in the page); a repository variable or a
+      # secret both work. Unset leaves Sentry off in the browser.
+      - name: Build the web app
+        if: steps.ready.outputs.ready == 'true'
+        env:
+          VITE_SENTRY_DSN: ${{ vars.SENTRY_DSN_WEB || secrets.SENTRY_DSN_WEB }}
+          VITE_SENTRY_RELEASE: ${{ env.SHA }}
+          SENTRY_SOURCEMAPS: ${{ secrets.SENTRY_AUTH_TOKEN != '' && '1' || '' }}
+        # No --if-present, and --fail-if-no-match, as for db:migrate: a renamed script or package must fail
+        # here, not leave the Worker to deploy without the app it serves.
+        run: pnpm --filter @countersign/web --fail-if-no-match run build
+
+      # Readable browser stack traces in Sentry: upload the web build's source maps for this
+      # release, then delete them so they are never served. A notice or a warning, never a failure.
+      - name: Web source maps to Sentry
+        if: steps.ready.outputs.ready == 'true'
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG || 'twelve-thirty-four-consulting' }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT_WEB || 'mezonas-web' }}
+        run: |
+          set -euo pipefail
+          if [ -n "$SENTRY_AUTH_TOKEN" ] && ls apps/web/dist/assets/*.map > /dev/null 2>&1; then
+            npx --yes @sentry/cli@3.6.2 sourcemaps inject apps/web/dist/assets
+            npx --yes @sentry/cli@3.6.2 sourcemaps upload --release "$SHA" apps/web/dist/assets \
+              || echo "::warning::Web source maps were not uploaded to Sentry; browser errors will show minified stack traces"
+          else
+            echo "::notice::No SENTRY_AUTH_TOKEN or no source maps: web source maps not uploaded"
+          fi
+          find apps/web/dist -name '*.map' -delete
+
+      # Always an explicit environment: the top level of wrangler.jsonc is local development (dev
+      # sign-in) and must never be deployed.
+      #
+      # `--var` adds plain-text vars to the ones in wrangler.jsonc: the Worker's Sentry DSN (unset
+      # leaves Sentry off; apps/api/src/observability/sentry.ts) and the commit, Sentry's release.
+      # `--outdir dist --upload-source-maps` keeps the deployed bundle and its map in apps/api/dist
+      # for the next step, and gives Cloudflare the map.
+      - name: Deploy the Worker
+        if: steps.ready.outputs.ready == 'true'
+        env:
+          SENTRY_DSN_API: ${{ vars.SENTRY_DSN_API || secrets.SENTRY_DSN_API }}
+          # Our own Resend sending domain until a client's is verified (not secrets: repository or
+          # environment variables). Unset: email waits for a client domain.
+          RESEND_FALLBACK_DOMAIN: ${{ vars.RESEND_FALLBACK_DOMAIN }}
+          RESEND_FALLBACK_DOMAIN_ID: ${{ vars.RESEND_FALLBACK_DOMAIN_ID }}
+        run: |
+          set -euo pipefail
+          env_flag=$([ "$TARGET" = production ] && echo '--env=production' || echo '--env=staging')
+          args=("$env_flag" --var "DEPLOYED_SHA:$SHA" --outdir dist --upload-source-maps)
+          [ -z "$SENTRY_DSN_API" ] || args+=(--var "SENTRY_DSN:$SENTRY_DSN_API")
+          [ -z "$RESEND_FALLBACK_DOMAIN" ] || args+=(--var "RESEND_FALLBACK_DOMAIN:$RESEND_FALLBACK_DOMAIN")
+          [ -z "$RESEND_FALLBACK_DOMAIN_ID" ] || args+=(--var "RESEND_FALLBACK_DOMAIN_ID:$RESEND_FALLBACK_DOMAIN_ID")
+          pnpm --filter @countersign/api exec wrangler deploy "${args[@]}"
+
+      # Readable Worker stack traces in Sentry: the deployed bundle's map, for this release.
+      - name: Worker source maps to Sentry
+        if: steps.ready.outputs.ready == 'true'
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG || 'twelve-thirty-four-consulting' }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT_API || 'mezonas-api' }}
+        run: |
+          set -euo pipefail
+          if [ -n "$SENTRY_AUTH_TOKEN" ] && [ -f apps/api/dist/worker.js.map ]; then
+            npx --yes @sentry/cli@3.6.2 sourcemaps upload --release "$SHA" \
+              --strip-prefix 'apps/api/dist/..' apps/api/dist \
+              || echo "::warning::Worker source maps were not uploaded to Sentry; API errors will show bundled stack traces"
+          else
+            echo "::notice::No SENTRY_AUTH_TOKEN or no Worker source map: Worker source maps not uploaded"
+          fi
+
+      - name: Worker secrets
+        if: steps.ready.outputs.ready == 'true'
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          env_name=$([ "$TARGET" = production ] && echo production || echo staging)
+          put() { printf '%s' "$2" | pnpm exec wrangler secret put "$1" --env "$env_name" > /dev/null; echo "set $1"; }
+          # Copied from the GitHub environment's secrets on every deploy, so a rotated key takes effect.
+          if [ -n "${WORKOS_API_KEY:-}" ]; then put WORKOS_API_KEY "$WORKOS_API_KEY"; fi
+          if [ -n "${ANTHROPIC_API_KEY:-}" ]; then put ANTHROPIC_API_KEY "$ANTHROPIC_API_KEY"; fi
+          if [ -n "${OPENAI_API_KEY:-}" ]; then put OPENAI_API_KEY "$OPENAI_API_KEY"; fi
+          if [ -n "${XAI_API_KEY:-}" ]; then put XAI_API_KEY "$XAI_API_KEY"; fi
+          if [ -n "${GEMINI_API_KEY:-}" ]; then put GEMINI_API_KEY "$GEMINI_API_KEY"; fi
+          for name in TWILIO_ACCOUNT_SID TWILIO_AUTH_TOKEN ELEVENLABS_API_KEY ELEVENLABS_WEBHOOK_SECRET \
+            RESEND_API_KEY STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET \
+            ZOHO_CLIENT_ID ZOHO_CLIENT_SECRET PODIO_CLIENT_ID PODIO_CLIENT_SECRET \
+            GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET QBO_CLIENT_ID QBO_CLIENT_SECRET QBO_WEBHOOK_VERIFIER \
+            OUTLOOK_CLIENT_ID OUTLOOK_CLIENT_SECRET RAMP_CLIENT_ID RAMP_CLIENT_SECRET \
+            HUBSPOT_CLIENT_ID HUBSPOT_CLIENT_SECRET PLAID_CLIENT_ID PLAID_SECRET BILL_DEV_KEY \
+            SLACK_CLIENT_ID SLACK_CLIENT_SECRET GOOGLE_PICKER_API_KEY GOOGLE_PROJECT_NUMBER \
+            GOOGLE_CHAT_SERVICE_ACCOUNT GOOGLE_CHAT_PROJECT_NUMBER \
+            META_APP_ID META_APP_SECRET META_WEBHOOK_VERIFY_TOKEN META_CONFIG_ID; do
+            if [ -n "${!name:-}" ]; then put "$name" "${!name}"; fi
+          done
+          # Generated once inside Cloudflare and never shown or stored anywhere else. If the list of
+          # existing secrets can't be read, this step fails (set -e) rather than risk replacing
+          # ENCRYPTION_KEY, which would make stored connection credentials unreadable.
+          existing=$(pnpm exec wrangler secret list --env "$env_name" --format json | jq -r '.[].name')
+          # OAUTH_STATE_SECRET signs OAuth sign-ins in progress (Zoho, Podio); replacing it only breaks
+          # sign-ins that are under way.
+          for name in ENCRYPTION_KEY WORKOS_COOKIE_PASSWORD OAUTH_STATE_SECRET; do
+            if grep -qx "$name" <<<"$existing"; then echo "$name already set"; continue; fi
+            case "$name" in
+              ENCRYPTION_KEY) value=$(openssl rand -base64 32) ;;
+              OAUTH_STATE_SECRET) value=$(openssl rand -base64 48) ;;
+              *) value=$(openssl rand -hex 32) ;;
+            esac
+            echo "::add-mask::$value"
+            put "$name" "$value"
+          done
+
+      # The deployed app works from the outside (scripts/smoke.sh): the Worker answers, it reaches
+      # its database, /api/ready names the commit just deployed, the page and its script load, the
+      # API refuses without a session. Retries for 2 minutes while the new version spreads; a
+      # failure here marks the deploy failed (the release is in Sentry).
+      - name: Smoke test
+        if: steps.ready.outputs.ready == 'true'
+        run: |
+          set -euo pipefail
+          host=$([ "$TARGET" = production ] && echo app.mezonas.com || echo staging.mezonas.com)
+          scripts/smoke.sh "https://$host" "$SHA"
+
+      # What's live, in the run's summary: which branch and commit the target now runs.
+      - name: What's live
+        if: always() && steps.ready.outputs.ready == 'true'
+        env:
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          host=$([ "$TARGET" = production ] && echo app.mezonas.com || echo staging.mezonas.com)
+          from=${QUICK_BRANCH:-$GITHUB_REF_NAME}
+          {
+            if [ "$JOB_STATUS" = success ]; then
+              echo "### $TARGET runs \`$from\` at \`$SHA\`"
+              echo
+              echo "https://$host/api/ready names this commit; the smoke test passed."
+            else
+              echo "### The deploy of \`$from\` at \`$SHA\` to $TARGET failed"
+              echo
+              echo "$TARGET may still run the commit before it, or this one if it stopped after the Worker."
+              echo "https://$host/api/ready names the commit it runs."
+            fi
+            if [ -n "$QUICK_REF" ]; then
+              echo
+              echo "A quick deploy: lint, layering and typecheck only, no tests and no screen sweep."
+              echo "Staging keeps this branch until the next deploy from main (a merge to main, or"
+              echo "Actions → Deploy → staging) puts staging back to main, or another quick deploy replaces it."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
