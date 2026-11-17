@@ -144,18 +144,22 @@ describe("choosePath", () => {
     }
   });
 
-  it("fails, never taking a path, when the model call fails or its answer is cut off", async () => {
+  it("says it failed, never taking a path, when the model call fails or its answer is cut off", async () => {
     const failed = new FakeModel([{ error: new Error("overloaded") }]);
     const a = memoryStore();
-    await expect(choosePath(deps(failed), a.store, choose())).rejects.toThrow(
-      "the agent couldn't be asked: overloaded",
-    );
+    expect(await choosePath(deps(failed), a.store, choose())).toEqual({
+      path: null,
+      by: "Pia",
+      failed: "the agent couldn't be asked: overloaded",
+    });
     expect(a.rows).toHaveLength(0);
     const cut = new FakeModel([
       { toolUse: { name: "finish", input: { path: "reorder" } }, cutOff: true },
     ]);
     const b = memoryStore();
-    await expect(choosePath(deps(cut), b.store, choose())).rejects.toThrow(/cut off at max_tokens/);
+    const out = await choosePath(deps(cut), b.store, choose());
+    expect(out.path).toBeNull();
+    expect(out.failed).toMatch(/cut off at max_tokens/);
     expect(b.rows).toHaveLength(0);
   });
 
@@ -204,16 +208,18 @@ describe("judgePass", () => {
     expect(rows[0]?.action).toBe("unsure");
   });
 
-  it("fails, never ending the repeat, when the model call fails or its answer is cut off", async () => {
+  it("says it failed, never ending the repeat, when the model call fails or its answer is cut off", async () => {
     const failed = new FakeModel([{ error: new Error("overloaded") }]);
     const a = memoryStore();
-    await expect(judgePass(deps(failed), a.store, judge)).rejects.toThrow(/overloaded/);
+    const out = await judgePass(deps(failed), a.store, judge);
+    expect(out).toMatchObject({ done: null, failed: expect.stringMatching(/overloaded/) });
     expect(a.rows).toHaveLength(0);
     const cut = new FakeModel([
       { toolUse: { name: "finish", input: { done: true, reason: "ok" } }, cutOff: true },
     ]);
     const b = memoryStore();
-    await expect(judgePass(deps(cut), b.store, judge)).rejects.toThrow(/cut off at max_tokens/);
+    const cutOut = await judgePass(deps(cut), b.store, judge);
+    expect(cutOut).toMatchObject({ done: null, failed: expect.stringMatching(/max_tokens/) });
     expect(b.rows).toHaveLength(0);
   });
 });

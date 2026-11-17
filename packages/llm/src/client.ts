@@ -380,8 +380,8 @@ export function createLlmClient(options: LlmClientOptions): LlmClient {
         ...(input.signal ? { signal: input.signal } : {}),
       },
     );
-    const { message: response } = result;
-    // Refusal, a cut-off answer and a missing call all throw here (answerToolCall).
+    // Refusal, a cut-off answer (even one holding the call) and a missing call all throw here
+    // (answerToolCall), so a call that fails the schema below was finished: invalid input.
     const call = answerToolCall(result, tool.name);
     let parsed = tool.schema.safeParse(call.input);
     if (!parsed.success) {
@@ -392,14 +392,9 @@ export function createLlmClient(options: LlmClientOptions): LlmClient {
       }
     }
     if (!parsed.success) {
-      // A call cut off at max_tokens reaches us as partial or empty input (anthropic.ts reads
-      // unparseable input as `{}`): say it was cut off, not which field happened to be missing.
-      const cut = response.stop_reason === "max_tokens";
       throw new LlmToolError(
-        cut ? "max_tokens" : "invalid_input",
-        cut
-          ? `the answer was cut off at max_tokens partway through ${tool.name}`
-          : `${tool.name} input failed validation: ${z.prettifyError(parsed.error)}`,
+        "invalid_input",
+        `${tool.name} input failed validation: ${z.prettifyError(parsed.error)}`,
         { toolName: tool.name, result, input: call.input, issues: parsed.error.issues },
       );
     }

@@ -118,20 +118,16 @@ function clip(value: unknown): string {
 
 type Usage = { cost: Decimal; tokensIn: number; tokensOut: number };
 
-/** The choice couldn't be made: the model call failed or its answer was cut off. */
-export class ChoiceError extends Error {
-  override name = "ChoiceError";
-}
-
 /**
- * One `finish` call with the run's data as a tool result: its input, or undefined when the model
- * answered without one that can be read (no call, or it declined).
+ * One `finish` call with the run's data as a tool result: its input (undefined when the model
+ * answered without one that can be read: no call, or it declined), or why it failed.
  */
 // DECISION: a failed model call (the provider's error, a time-out) or an answer cut off at
-// max_tokens throws a ChoiceError and records no choice, so the step fails as any step whose model
-// call fails: the run fails at it, visibly, with the cause, and can be retried from it. Neither is
-// the agent being unsure, so neither takes "Otherwise" (or asks a person) in its place. An answer
-// that holds no usable `finish` is unsure, as before.
+// max_tokens is `failed` and records no choice; the executor fails the step with the reason (the
+// ChoicePort's DECISION), as any step whose model call fails: the run fails at it, visibly, and
+// can be retried from it. Neither is the agent being unsure, so neither takes "Otherwise" (or asks
+// a person) in its place. An answer that holds no usable `finish` is unsure, as before. The call's
+// cost is the step's and the run's either way (`addUsage`).
 async function ask(
   deps: RuntimeDeps,
   req: { run: ChoiceRun; stepRunId: string; label: string },
@@ -140,7 +136,7 @@ async function ask(
   data: unknown,
   finish: Record<string, unknown>,
   usage: Usage,
-): Promise<unknown> {
+): Promise<{ input: unknown } | { failed: string }> {
   const { tenantId } = req.run;
   type MessageParam = LlmRequest["messages"][number];
   const messages: MessageParam[] = [
@@ -203,17 +199,16 @@ async function ask(
       { label: req.label },
     );
   } catch (error) {
-    throw new ChoiceError(
-      `the agent couldn't be asked: ${error instanceof Error ? error.message : String(error)}`,
-      { cause: error },
-    );
+    return {
+      failed: `the agent couldn't be asked: ${error instanceof Error ? error.message : String(error)}`,
+    };
   }
   try {
-    return answerToolCall(result, FINISH).input;
+    return { input: answerToolCall(result, FINISH).input };
   } catch (error) {
     if (!(error instanceof LlmToolError)) throw error;
-    if (error.code === "max_tokens") throw new ChoiceError(error.message, { cause: error });
-    return undefined;
+    if (error.code === "max_tokens") return { failed: error.message };
+    return { input: undefined };
   }
 }
 
@@ -238,14 +233,14 @@ async function spent(store: ChoiceStore, run: ChoiceRun, settings?: OversightSet
 }
 
 /**
- * An `if`'s path, chosen by the agent: an allowed path's id, or null when unsure. Throws a
- * ChoiceError when the agent couldn't be asked (the step fails).
+ * An `if`'s path, chosen by the agent: an allowed path's id, or null when unsure. `failed` when
+ * the agent couldn't be asked (the step fails).
  */
 export async function choosePath(
   deps: RuntimeDeps,
   store: ChoiceStore,
   req: ChoosePathInput,
-): Promise<{ path: string | null; by: string }> {
+): Promise<{ path: string | null; by: string; failed?: string }> {
   const me = await owner(deps, req.run, req.settings);
   const key = { runId: req.run.id, nodeId: req.nodeId, seq: 1 };
   const found = await store.existingChoice(req.run.tenantId, key);
@@ -263,7 +258,7 @@ export async function choosePath(
     `## The paths\n${paths}`,
   ].join("\n\n");
   const usage: Usage = { cost: new Decimal(0), tokensIn: 0, tokensOut: 0 };
-  const answer = await ask(
+  const asked = await ask(
     deps,
     { run: req.run, stepRunId: req.stepRunId, label: `${req.nodeId}:choose` },
     me.model,
@@ -272,6 +267,8 @@ export async function choosePath(
     processes.pathChoiceFinishSchema(allowed),
     usage,
   );
+  if ("failed" in asked) return { path: null, by: me.name, failed: asked.failed };
+  const answer = asked.input;
   const picked = processes.pickedPath(answer, allowed);
   await store.recordChoice(req.run.tenantId, {
     ...key,
@@ -291,14 +288,14 @@ export async function choosePath(
 }
 
 /**
- * A repeat's pass, judged by the agent: done or not, or null when no answer held. Throws a
- * ChoiceError when the agent couldn't be asked (the step fails).
+ * A repeat's pass, judged by the agent: done or not, or null when no answer held. `failed` when
+ * the agent couldn't be asked (the step fails).
  */
 export async function judgePass(
   deps: RuntimeDeps,
   store: ChoiceStore,
   req: JudgePassInput,
-): Promise<{ done: boolean | null; feedback?: string; by: string }> {
+): Promise<{ done: boolean | null; feedback?: string; by: string; failed?: string }> {
   const me = await owner(deps, req.run, req.settings);
   const key = { runId: req.run.id, nodeId: req.nodeId, seq: req.pass };
   const found = await store.existingChoice(req.run.tenantId, key);
@@ -314,7 +311,7 @@ export async function judgePass(
     `## The goal\n${req.goal}`,
   ].join("\n\n");
   const usage: Usage = { cost: new Decimal(0), tokensIn: 0, tokensOut: 0 };
-  const answer = await ask(
+  const asked = await ask(
     deps,
     { run: req.run, stepRunId: req.stepRunId, label: `${req.nodeId}:r${req.pass}:until` },
     me.model,
@@ -323,6 +320,8 @@ export async function judgePass(
     processes.PASS_VERDICT_FINISH_SCHEMA,
     usage,
   );
+  if ("failed" in asked) return { done: null, by: me.name, failed: asked.failed };
+  const answer = asked.input;
   const parsed = processes.PassVerdictAnswer.safeParse(answer);
   const verdict = parsed.success ? parsed.data : null;
   await store.recordChoice(req.run.tenantId, {
