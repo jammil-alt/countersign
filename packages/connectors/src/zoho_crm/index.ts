@@ -583,6 +583,10 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
         config: {
           dataCenter: params.location ?? parseUrl(accountsServer)?.hostname ?? "us",
           apiDomain: answer.api_domain,
+          // UNCHECKED (NOTES.md): Zoho's `/crm/v2/org` answers the organization the token works
+          // in (one, in what we know of it). Should it list several, every one names the same
+          // account and Zoho's order isn't promised, so a sign-in again matches on any of them.
+          accountIds: org.data.org.map((o) => String(o.id)).sort(),
           ...(first.company_name ? { orgName: first.company_name } : {}),
         },
       };

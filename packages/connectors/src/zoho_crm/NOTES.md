@@ -36,7 +36,7 @@ notes created through a record's related list need `notes.CREATE`.
 
 | Use | Endpoint | Status |
 |---|---|---|
-| Org id | `GET /crm/v8/org` → `{org:[{id, company_name, …}]}` | **UNCHECKED** shape |
+| Org id | `GET /crm/v8/org` → `{org:[{id, company_name, …}]}` | **UNCHECKED** shape, and that it answers only the organization the token works in (we take the first as the connection's account and keep every id in `config.accountIds`, so a sign-in again matches whatever the order) |
 | Search | `GET /crm/v8/{module}/search?criteria=…|email=…|phone=…|word=…&page&per_page` → `{data, info:{more_records}}` | Path checked (community scripts); one of criteria/email/phone/word per call (criteria wins), criteria up to 10 conditions of `equals`/`starts_with`: checked. **UNCHECKED**: `per_page` max 200, 204 when nothing matches |
 | Get | `GET /crm/v8/{module}/{id}` → `{data:[record]}` | **UNCHECKED** (v8 may require `fields` on list calls, not on get by id) |
 | Create | `POST /crm/v8/{module}` `{data:[{…}]}` → `{data:[{code, status, details:{id, Modified_Time}}]}` | **UNCHECKED** shape (as in v2–v7) |

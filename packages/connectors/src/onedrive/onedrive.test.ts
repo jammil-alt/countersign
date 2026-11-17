@@ -164,6 +164,7 @@ describe("onedrive sign-in", () => {
       folderName: "Mezonas",
       folderUrl: `https://onedrive.example/${drive.appRoot()}`,
       scopes: [ONEDRIVE_GRAPH_SCOPE],
+      accountIds: [expect.stringMatching(/^ms:[^:]+:oid-pat\.lee@shop\.example$/)],
     });
     expect(grant.credentials).toMatchObject({
       address: "pat.lee@shop.example",

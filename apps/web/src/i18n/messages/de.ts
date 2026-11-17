@@ -109,6 +109,12 @@ export const de: Messages = {
   "error.contact_exists": "Jemand im Verzeichnis hat diese E-Mail-Adresse oder Nummer schon.",
   "error.rate_limited": "Warten Sie eine Minute und versuchen Sie es erneut.",
   "error.no_address": "Wir kennen die Adresse dieses Kontos nicht. Verbinden Sie es erneut.",
+  "error.different_account":
+    "Das ist ein anderes Konto als das hier verbundene. Trennen Sie es zuerst, dann verbinden Sie das andere.",
+  "error.different_company":
+    "Ihre Bücher hier kommen aus einem anderen QuickBooks-Unternehmen. Bitten Sie uns, das Unternehmen zu wechseln.",
+  "error.sync_running":
+    "Wir lesen gerade die Bücher dieses Unternehmens. Versuchen Sie es in ein paar Minuten erneut.",
   "error.invalid_hours":
     "Diese Zeiten können nicht gespeichert werden. Geben Sie mindestens einem Tag Öffnungszeiten und halten Sie jede Abwesenheit unter einem Jahr.",
   "error.sends_form":

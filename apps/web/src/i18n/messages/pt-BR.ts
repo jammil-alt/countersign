@@ -104,6 +104,12 @@ export const ptBR: Messages = {
   "error.contact_exists": "Alguém no diretório já tem esse e-mail ou esse número.",
   "error.rate_limited": "Aguarde um minuto e tente de novo.",
   "error.no_address": "Não sabemos o endereço desta conta. Conecte-a de novo.",
+  "error.different_account":
+    "Esta conta é diferente da que está conectada aqui. Desconecte-a primeiro e depois conecte a outra.",
+  "error.different_company":
+    "Seus livros aqui vêm de outra empresa do QuickBooks. Peça para nós trocarmos a empresa.",
+  "error.sync_running":
+    "Estamos lendo os livros desta empresa agora. Tente de novo em alguns minutos.",
   "error.invalid_hours":
     "Não é possível salvar esses horários. Informe o horário de pelo menos um dia e mantenha cada ausência abaixo de um ano.",
   "error.sends_form":

@@ -99,6 +99,11 @@ export const en = {
   "error.contact_exists": "Someone in the directory already has that email address or number.",
   "error.rate_limited": "Wait a minute and try again.",
   "error.no_address": "We don't know this account's address. Connect it again.",
+  "error.different_account":
+    "This is a different account from the one connected here. Disconnect it first, then connect the other one.",
+  "error.different_company":
+    "Your books here come from another QuickBooks company. Ask us to change the company.",
+  "error.sync_running": "We're reading this company's books right now. Try again in a few minutes.",
   "error.invalid_hours":
     "These hours can't be saved. Give at least one day its hours, and keep each time away under a year.",
   "error.sends_form":

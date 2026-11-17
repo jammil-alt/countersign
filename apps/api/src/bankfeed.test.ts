@@ -318,6 +318,37 @@ describe.skipIf(!h)("bank and card feeds through the API", () => {
     ).toBe(404);
   });
 
+  it("signs a bank whose item is gone at Plaid in again through a new Link, as a new item", async () => {
+    // Plaid forgot the item (ITEM_NOT_FOUND): the sync put the connection in error.
+    const gone = plaid.items.get(itemId);
+    if (!gone) throw new Error("no item");
+    gone.removed = true;
+    await H.t.db.update(connection).set({ status: "error" }).where(eq(connection.id, connId));
+    const start = await call(
+      admin("a"),
+      "POST",
+      `/api/connections/bankfeed/authorize?connection=${connId}`,
+    );
+    expect(start.status, JSON.stringify(start.json)).toBe(200);
+    const { link } = j(start.json);
+    // Not update mode: the item is gone, so Link makes a new one.
+    expect(plaid.linkTokens.get(link.token)).toMatchObject({ products: ["transactions"] });
+    const publicToken = plaid.issuePublicToken();
+    publicTokens.push(publicToken);
+    const done = await call(admin("a"), "POST", "/api/connections/bankfeed/callback", {
+      params: { public_token: publicToken, state: link.state },
+    });
+    expect(done.status, JSON.stringify(done.json)).toBe(200);
+    const fresh = plaid.itemOf(publicToken)?.itemId ?? "";
+    expect(fresh).not.toBe(itemId);
+    expect(j(done.json).connection.connection).toMatchObject({
+      id: connId,
+      status: "connected",
+      externalAccountId: fresh,
+    });
+    itemId = fresh;
+  });
+
   it("never shows the operator (or anyone) a token", async () => {
     for (const path of [`/api/ops/clients/${A()}/connections`, `/api/ops/clients/${A()}`]) {
       const res = await call(OPERATOR, "GET", path);

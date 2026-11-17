@@ -238,6 +238,8 @@ export function createGscOauthConnector(options: GscOauthOptions = {}): SearchCo
     entities: [SEARCH_ENTITY.queryPage, SEARCH_ENTITY.page],
     tools: [],
     isConfigured: () => configured,
+    // The property read is this connection's account id: signing in again may choose another.
+    accountMayChange: true,
 
     async authorize(req) {
       const c = client();
