@@ -1,13 +1,15 @@
 name: Checks
 
-# The whole gate in one place, so a pull request and a merge to main run exactly the same thing.
+# The whole gate in one place, so a pull request and a deploy run the same jobs.
 # Called by ci.yml and deploy.yml (callers pass `secrets: inherit`).
 #
 # Two jobs side by side: `static` (lint, layering, typecheck) and `test` (the database and the tests).
 # Pull requests test only what they touch (`scope: affected`): the changed packages and every package
 # that depends on them (pnpm's `...[base]` filter), or everything when a shared file changed (the
 # root package.json, the lockfile, tsconfig, scripts, fixtures, workflows); a change to docs and
-# Markdown alone runs no tests. Pushes to main and deploys always run everything.
+# Markdown alone runs no tests. Deploys run everything, except that a staging deploy of a merge
+# whose pull request's CI already passed `check` and `sweep` runs `static` alone (`tests: false`,
+# deploy.yml's `tested` job). Production always runs everything.
 #
 # The database: a Postgres 16 + pgvector service container (the same image as docker-compose.yml),
 # set up with Neon's roles by scripts/setup-postgres.sh, which also applies every migration from
@@ -30,6 +32,10 @@ on:
         description: The branch a pull request merges into, for `affected`.
         type: string
         default: main
+      tests:
+        description: "`false` skips `check` (the tests) and `sweep` (every screen) and runs `static` alone: deploy.yml, for a staging deploy whose pull request's CI already passed both."
+        type: boolean
+        default: true
 
 # The jobs only read the repository; nothing here writes to GitHub.
 permissions:
@@ -69,6 +75,7 @@ jobs:
       - run: pnpm size:web
 
   check:
+    if: inputs.tests
     runs-on: ubuntu-latest
     # A full run takes about 8 minutes (2026-11-08); the limit leaves room for a slow runner.
     timeout-minutes: 30
@@ -176,6 +183,7 @@ jobs:
   # and the portal opened and checked for a crash, a page error, a console error or an /api 5xx.
   # Skipped for docs-only pull requests.
   sweep:
+    if: inputs.tests
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
