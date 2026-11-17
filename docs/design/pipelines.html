@@ -1042,7 +1042,7 @@ function boardHeads(sec, tab, cards) {
   return `<div class="mz-board__heads" style="--stages:${ss.length}" data-heads>${ss.map((s) => {
     const cs = cards.filter((c) => c.stage === s.id);
     const totals = sec === "sales"
-      ? `<span><b>${cs.length}</b> deal${cs.length === 1 ? "" : "s"}</span><span><b>${cs.reduce((n, c) => n + c.agents, 0)}</b> agents</span><span><b>${money(cs.reduce((n, c) => n + c.mrr, 0))}</b>/mo</span>`
+      ? `<span><b>${cs.length}</b> deal${cs.length === 1 ? "" : "s"}</span><span><b>${cs.reduce((n, c) => n + c.agents, 0)}</b> agent${cs.reduce((n, c) => n + c.agents, 0) === 1 ? "" : "s"}</span><span><b>${money(cs.reduce((n, c) => n + c.mrr, 0))}</b>/mo</span>`
       : `<span><b>${cs.filter((c) => c.st === "you").length}</b> need you</span><span><b>${cs.filter(isLate).length}</b> late</span>`;
     return `<div class="mz-stagehead"><div class="mz-stagehead__name"><span>${esc(s.name)}</span><span>${cs.length}</span></div><div class="mz-stagehead__totals">${totals}</div></div>`;
   }).join("")}</div>`;
