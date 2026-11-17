@@ -84,6 +84,8 @@ export const fr: Messages = {
   "error.no_op": "Rien à changer : c'est déjà le cas.",
   "error.already_resolved": "Quelqu'un a déjà répondu.",
   "error.expired": "Ceci a expiré.",
+  "error.changed": "Cet élément a changé depuis que vous l'avez ouvert ; regardez-le à nouveau.",
+  "error.run_ended": "Cette exécution est terminée ; rien ne sera fait avec cet élément.",
   "error.not_assignee": "Ceci attend quelqu'un d'autre.",
   "error.not_connected": "Cet outil n'est pas connecté.",
   "error.not_available": "Ce n'est pas encore disponible.",

@@ -90,6 +90,28 @@ describe("carried approvals", () => {
     }
   });
 
+  it("asks again for a write signed after its run had ended; one started since keeps its rules", () => {
+    expect(
+      carryDecision(
+        { status: "approved", approvedAt: signed(1), error: null, signedAfterRunEnded: true },
+        now,
+      ),
+    ).toBe("propose");
+    // Already claimed once: it may have been sent, so it is settled as any carried write.
+    expect(
+      carryDecision(
+        { status: "executing", approvedAt: signed(1), error: null, signedAfterRunEnded: true },
+        now,
+      ),
+    ).toBe("execute");
+    expect(
+      carryDecision(
+        { status: "done", approvedAt: signed(1), error: null, signedAfterRunEnded: true },
+        now,
+      ),
+    ).toBe("done");
+  });
+
   it("asks again for a failed write its run went on past (onError: continue)", () => {
     expect(
       carryDecision({ status: "failed", approvedAt: signed(1), error: null, carriedOn: true }, now),

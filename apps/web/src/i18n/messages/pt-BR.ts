@@ -83,6 +83,8 @@ export const ptBR: Messages = {
   "error.no_op": "Nada a mudar: já está assim.",
   "error.already_resolved": "Alguém já respondeu a isto.",
   "error.expired": "Isto expirou.",
+  "error.changed": "Este item mudou desde que você o abriu; olhe de novo.",
+  "error.run_ended": "Esta execução terminou; nada será feito com este item.",
   "error.not_assignee": "Isto aguarda outra pessoa.",
   "error.not_connected": "Essa ferramenta não está conectada.",
   "error.not_available": "Isso ainda não está disponível.",

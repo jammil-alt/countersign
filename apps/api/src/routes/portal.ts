@@ -24,6 +24,7 @@ import {
   connectorShown,
   findNodeStep,
   isPlainObject,
+  itemFingerprint,
   LEAD_ASSIGNEE,
   leadCheckLabel,
   type PermissionEntity,
@@ -151,6 +152,16 @@ async function serviceRefs(tx: Tx, rows: InboxRow[]) {
       ),
     );
   return new Map(agents.map((a) => [a.id, { id: a.id, name: serviceName(a) }]));
+}
+
+/**
+ * Audit 3.4: the fingerprint of an item as the portal shows it (`itemFingerprint` of the parsed
+ * response item), the one the web and the phone compute from what they were sent.
+ */
+export async function shownFingerprint(tx: Tx, row: InboxRow, platform: Platform) {
+  const [raw] = await portalItems(tx, [row], platform);
+  if (!raw) throw notFound("inbox item");
+  return itemFingerprint(PortalInboxItem.parse(raw));
 }
 
 export async function portalItems(tx: Tx, rows: InboxRow[], platform: Platform) {
@@ -921,6 +932,18 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
   mount(app, routes.portalResolveInbox, async (ctx) => {
     const { tx, tenantIds, role, session, params, body, services } = ctx;
     const tenantId = tenantIds[0] as string;
+    // Audit 3.4: an answer names the item as the person saw it: its fingerprint, or a phone's
+    // signature (which carries one).
+    // DECISION (audit 3.4): required, with no grace for older clients: the phone app has no store
+    // build yet, and a browser tab from before is told to reload.
+    if (!body.fingerprint && !body.deviceSignature) {
+      throw new HttpError(
+        400,
+        "fingerprint_required",
+        "This page is out of date; reload it and look again",
+      );
+    }
+    // Locked, so what is compared with what the person saw is what is then answered.
     const [visible] = await tx
       .select()
       .from(inboxItem)
@@ -930,7 +953,8 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
           eq(inboxItem.tenantId, tenantId),
           portalInboxFilter(role, session.user.id),
         ),
-      );
+      )
+      .for("update");
     if (!visible) throw notFound("inbox item");
     // §1.116: signed on a phone: checked against the item as the portal shows it, before anything
     // changes, and written to the audit log with the phone and what it signed.
@@ -975,6 +999,14 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
       collect,
       // R5: a late no is offered an undo when its write's tool says how.
       tools: services.platform.tools,
+      ...(body.fingerprint
+        ? {
+            seen: {
+              fingerprint: body.fingerprint,
+              of: (row: InboxRow) => shownFingerprint(tx, row, services.platform),
+            },
+          }
+        : {}),
     });
     // R7: and a conversation's own event beside it, for a v4 conversation step.
     if (outcome.resume || outcome.conversation) {

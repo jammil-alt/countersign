@@ -8,8 +8,10 @@ import {
   mayResolve,
   type ProceededWrite,
   proceededWriteTx,
+  RUN_ENDED_MESSAGE,
   resolveExternalActionTx,
   resolveLateAnswerTx,
+  runEndedTx,
   type ToolRegistry,
 } from "@countersign/agents";
 import type { JsonObject, ResolveBody } from "@countersign/core";
@@ -56,7 +58,16 @@ export interface ResolveInput {
    * `undo`). Absent: a late no is recorded and the lead told, but no undo is offered.
    */
   tools?: Pick<ToolRegistry, "get">;
+  /**
+   * Audit 3.4: the item as the person saw it (`fingerprint`, from the request) and how the portal
+   * shows the locked item now (`of`): an answer to an item that changed since is refused (409
+   * `changed`) before anything is recorded. The portal's routes set it; the back office's don't.
+   */
+  seen?: { fingerprint: string; of: (item: InboxRow) => Promise<string> };
 }
+
+/** Said when an item changed between the person opening it and answering it (audit 3.4). */
+export const CHANGED_MESSAGE = "This card changed since you opened it; look again";
 
 export interface ResolveOutcome {
   item: InboxRow;
@@ -133,6 +144,11 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
     );
   }
   const item = await lockItem(tx, input.tenantId, input.itemId);
+  // Audit 3.4: the answer is to the item the person saw, compared under the item's lock (an edit
+  // takes the same lock), so another person's edit in between is never signed by this answer.
+  if (input.seen && (await input.seen.of(item)) !== input.seen.fingerprint) {
+    throw new HttpError(409, "changed", CHANGED_MESSAGE);
+  }
   // A request for a code is resolved only by its code (docs/plan.md §1.26), never by a click.
   refuseGenericResolve(item);
   const { decision, answer, note } = input.body;
@@ -150,6 +166,15 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
   // run. Checked before `expired`: an item the deadline passed may still be answered late.
   const proceeded = await proceededWriteTx(tx, input.tenantId, item);
   if (proceeded) return resolveLate(tx, input, item, proceeded);
+  // Audit 3.3: a change's card whose run has ended is never signed: nothing would execute it.
+  if (
+    item.kind === "external_action" &&
+    item.status !== "resolved" &&
+    item.runId &&
+    (await runEndedTx(tx, input.tenantId, item.runId))
+  ) {
+    throw new HttpError(409, "run_ended", RUN_ENDED_MESSAGE);
+  }
   if (item.status === "expired") {
     throw new HttpError(409, "expired", "this item expired: the run stopped waiting for it");
   }

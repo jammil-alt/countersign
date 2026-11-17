@@ -31,6 +31,7 @@ import {
   connection,
   createDb,
   type Db,
+  inboxItem,
   membership,
   skill,
   skillVersion,
@@ -47,9 +48,11 @@ import type { BrowserDeps } from "./browser/services";
 import type { Bindings } from "./env";
 import type { ExportJobs } from "./exports/instances";
 import type { AppEnv } from "./http";
+import type { InboxRow } from "./inbox";
 import type { McpDeps } from "./mcp/routes";
 import { createPlatform, type Platform } from "./platform";
 import type { QboSyncInstances } from "./qbo/instances";
+import { shownFingerprint } from "./routes/portal";
 import { MemoryInstances } from "./runs/instances";
 import type { CloudflareStepConfig, WorkflowStepLike } from "./runs/step-runner";
 import type { TestSuiteJobs } from "./testbench/instances";
@@ -242,6 +245,35 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
     AUTH_PROVIDER: "dev",
     ...options.env,
   } as unknown as Bindings;
+  /** The fingerprint of an item as the portal shows it now (`shownFingerprint`). */
+  const seenNow = async (id: string): Promise<string | null> => {
+    const [row] = await t.db.select().from(inboxItem).where(eq(inboxItem.id, id));
+    if (!row) return null;
+    return shownFingerprint(
+      t.db as unknown as Parameters<typeof shownFingerprint>[0],
+      row as InboxRow,
+      platform,
+    );
+  };
+  const withFingerprints = async (path: string, body: unknown): Promise<unknown> => {
+    if (!body || typeof body !== "object" || Array.isArray(body)) return body;
+    const b = body as Record<string, unknown>;
+    const one = /^\/api\/inbox\/([0-9a-f-]{36})\/resolve$/.exec(path);
+    if (one?.[1] && b.fingerprint === undefined && b.deviceSignature === undefined) {
+      const fp = await seenNow(one[1]);
+      return fp ? { ...b, fingerprint: fp } : body;
+    }
+    if (path === "/api/inbox/batch/resolve" && b.fingerprints === undefined) {
+      const ids = [b.approve, b.reject].flatMap((l) => (Array.isArray(l) ? l : []));
+      const fingerprints: Record<string, string> = {};
+      for (const id of ids) {
+        const fp = typeof id === "string" ? await seenNow(id) : null;
+        if (fp) fingerprints[id as string] = fp;
+      }
+      return { ...b, fingerprints };
+    }
+    return body;
+  };
   const pending: Promise<unknown>[] = [];
   const executionCtx = {
     waitUntil: (p: Promise<unknown>) => void pending.push(p),
@@ -267,7 +299,12 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
     async settle() {
       while (pending.length > 0) await Promise.all(pending.splice(0));
     },
-    async call(email, method, path, body, headers = {}) {
+    async call(email, method, path, body, rawHeaders = {}) {
+      // Audit 3.4: the portal's answers carry the fingerprint of the item as the person saw it.
+      // A test that doesn't send one answers what the portal shows now (as the web would), unless
+      // it sends `AS_SENT` to have its body go exactly as written.
+      const { [AS_SENT]: asSent, ...headers } = rawHeaders;
+      if (method === "POST" && !asSent) body = await withFingerprints(path, body);
       const res = await app.request(
         path,
         {
@@ -325,6 +362,12 @@ export function signatureOf(text: string | null | undefined): string[] {
 export function optOutOf(text: string | null | undefined): string | null {
   return text?.match(SIGNED)?.[2] ?? null;
 }
+
+/**
+ * A header for `ApiHarness.call` (never sent): the body goes exactly as written, with no
+ * fingerprint added to a portal answer that lacks one (audit 3.4).
+ */
+export const AS_SENT = "x-test-as-sent";
 
 export const OPERATOR = "operator@example.com";
 export const OTHER_OPERATOR = "other-operator@example.com";

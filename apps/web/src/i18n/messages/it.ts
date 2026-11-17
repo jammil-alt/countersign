@@ -83,6 +83,8 @@ export const it: Messages = {
   "error.no_op": "Niente da cambiare: è già così.",
   "error.already_resolved": "Qualcuno ha già risposto.",
   "error.expired": "È scaduto.",
+  "error.changed": "Questa voce è cambiata da quando l'hai aperta; guardala di nuovo.",
+  "error.run_ended": "Questa esecuzione è terminata; non verrà fatto nulla con questa voce.",
   "error.not_assignee": "Questo aspetta un'altra persona.",
   "error.not_connected": "Questo strumento non è collegato.",
   "error.not_available": "Non è ancora disponibile.",

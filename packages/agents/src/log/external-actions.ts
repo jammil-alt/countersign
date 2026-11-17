@@ -12,7 +12,7 @@ import {
   type Tx,
   withTenant,
 } from "@countersign/db";
-import { and, asc, eq, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, ne, or, sql } from "drizzle-orm";
 import { AgentsError, notFound } from "../errors";
 import type { ExternalActionRecord, ExternalActionStore } from "../runtime/ports";
 
@@ -394,7 +394,103 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
         return toRecord(row);
       });
     },
+
+    refuse(tenantId, actionId, error) {
+      return withTenant(db, tenantId, async (tx) => {
+        // Audit 3.5: only a change not yet claimed is refused; one claimed meanwhile is left to
+        // its caller (it may have been sent), and returned as it is.
+        const [row] = await tx
+          .update(externalAction)
+          .set({ status: "rejected", error: error as Record<string, unknown> })
+          .where(
+            and(
+              eq(externalAction.id, actionId),
+              eq(externalAction.tenantId, tenantId),
+              eq(externalAction.status, "approved"),
+            ),
+          )
+          .returning();
+        return row ? toRecord(row) : current(tx, tenantId, actionId);
+      });
+    },
   };
+}
+
+// ── Audit 3.3: a run that has ended signs nothing more ───────────────────────────────────────────
+
+/** Run statuses after which nothing a person signs is done for the run. */
+const ENDED_RUN = ["succeeded", "failed", "cancelled"] as const;
+
+/** Said when a card of a run that has ended is answered. */
+export const RUN_ENDED_MESSAGE = "This run has ended; nothing will be done with this card";
+
+/** Whether this run has ended (succeeded, failed or cancelled). */
+export async function runEndedTx(tx: Tx, tenantId: string, runId: string): Promise<boolean> {
+  const [r] = await tx
+    .select({ status: run.status })
+    .from(run)
+    .where(and(eq(run.id, runId), eq(run.tenantId, tenantId)));
+  return r !== undefined && (ENDED_RUN as readonly string[]).includes(r.status);
+}
+
+/**
+ * Closes the approvals of a run that has just ended, in the caller's transaction (its finish, its
+ * cancel, the reconciler's fail): its open approval cards expire and its changes waiting on a card
+ * are rejected with `error`. With `items: "all"` (cancel, the reconciler), every open item of the
+ * run expires and every change still proposed is rejected, a test run's included. A change
+ * already approved (signed while the run went, or gone ahead with nobody's answer) is left as it
+ * is; a late answer to it is still recorded (`proceededWriteTx` reads an expired item too).
+ */
+// DECISION (audit 3.3): a run's own finish leaves a test run's would-be writes (proposed, with no
+// card) as they are: nobody can sign them, and the test run's record shows them as proposed.
+// DECISION (audit 3.3): cards first, in id order, then changes: the order a resolve locks them in
+// (item, then its change), so a resolve and a run's end never wait on each other in a cycle.
+export async function closeRunApprovalsTx(
+  tx: Tx,
+  tenantId: string,
+  runId: string,
+  error: { code: string; message: string },
+  options: { items?: "approvals" | "all" } = {},
+): Promise<void> {
+  const open = await tx
+    .select({ id: inboxItem.id })
+    .from(inboxItem)
+    .where(
+      and(
+        eq(inboxItem.tenantId, tenantId),
+        eq(inboxItem.runId, runId),
+        eq(inboxItem.status, "open"),
+        options.items === "all" ? undefined : eq(inboxItem.kind, "external_action"),
+      ),
+    )
+    .orderBy(asc(inboxItem.id))
+    .for("update");
+  if (open.length > 0) {
+    await tx
+      .update(inboxItem)
+      .set({ status: "expired" })
+      .where(
+        and(
+          eq(inboxItem.tenantId, tenantId),
+          inArray(
+            inboxItem.id,
+            open.map((i) => i.id),
+          ),
+          eq(inboxItem.status, "open"),
+        ),
+      );
+  }
+  await tx
+    .update(externalAction)
+    .set({ status: "rejected", error })
+    .where(
+      and(
+        eq(externalAction.runId, runId),
+        eq(externalAction.tenantId, tenantId),
+        eq(externalAction.status, "proposed"),
+        options.items === "all" ? undefined : isNotNull(externalAction.inboxItemId),
+      ),
+    );
 }
 
 // ── Follow-up 1b: writes left executing that nothing will take over ──────────────────────────────
@@ -817,8 +913,16 @@ export async function resolveExternalActionTx(
     throw new AgentsError("invalid_state", `this change was already ${action.status}`);
   }
   if (action.runId) {
-    const [r] = await tx.select({ mode: run.mode }).from(run).where(eq(run.id, action.runId));
+    const [r] = await tx
+      .select({ mode: run.mode, status: run.status })
+      .from(run)
+      .where(eq(run.id, action.runId));
     if (r?.mode === "test") throw new AgentsError("test_run", "test runs never execute changes");
+    // Audit 3.3: nothing executes a change signed for a run that has ended (a retry proposes it
+    // afresh), so a signature is never recorded for one.
+    if (r && (ENDED_RUN as readonly string[]).includes(r.status)) {
+      throw new AgentsError("run_ended", RUN_ENDED_MESSAGE);
+    }
   }
   if (!mayResolve(item, input.by)) {
     throw new AgentsError("not_assignee", "this approval is assigned to someone else");

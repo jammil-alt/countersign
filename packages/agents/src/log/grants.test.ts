@@ -12,16 +12,18 @@ import {
   TESTKIT_UPDATE_TOOL,
 } from "@countersign/connectors";
 import { REVOKED_GRANT } from "@countersign/core";
-import { agent, agentChange, agentGrant, connection } from "@countersign/db";
+import { agent, agentChange, agentGrant, connection, externalAction } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { createTemplate, fork, publish, updateOperational } from "../registry/agents";
 import { grantOf, setGrant } from "../registry/grants";
 import { ToolRegistry } from "../registry/tools";
+import { executeAction } from "../runtime/actions";
 import { callTool } from "../runtime/call-tool";
 import type { StepContext } from "../runtime/context";
 import { PLATFORM_TOOLS } from "../tools/platform";
+import { resolveExternalAction } from "./external-actions";
 import { type Client, createHarness, type Harness, makeBundle } from "./harness.test-helper";
 import { createRun } from "./run-log";
 
@@ -143,6 +145,74 @@ describe.skipIf(!harness)("grants at the gate", () => {
     await grant(REVOKED_GRANT, "client");
     expect((await callTool(h.deps(), s, query)).status).toBe("refused");
     await grant({});
+  });
+
+  /** A change waiting on its card, then signed by the client admin. */
+  async function signedCard() {
+    await grant({});
+    await h.setPermissions(h.A, { update: "approval" });
+    const out = await callTool(h.deps(), await step(h.A), update);
+    if (out.status !== "awaiting_approval") throw new Error(out.status);
+    await resolveExternalAction(h.db, {
+      tenantId: h.A.tenantId,
+      inboxItemId: out.inboxItemId ?? "",
+      decision: "approve",
+      by: { userId: h.A.adminId, role: "client_admin" },
+    });
+    return out.actionId;
+  }
+  const actionRow = async (id: string) =>
+    (
+      await h.client(h.A, (tx) => tx.select().from(externalAction).where(eq(externalAction.id, id)))
+    )[0];
+
+  it("a grant revoked while a card waits: the signed change is refused as it is made, and nothing is sent", async () => {
+    const actionId = await signedCard();
+    await grant(REVOKED_GRANT, "client");
+    const writes = h.backend.writes.length;
+    const out = await executeAction(h.deps(), { tenantId: h.A.tenantId, actionId });
+    expect(out.status).toBe("failed");
+    expect(out.status === "failed" && out.error).toContain("off for this change");
+    expect(await actionRow(actionId)).toMatchObject({
+      status: "rejected",
+      error: { code: "gate_refused", notWritten: true },
+    });
+    // Asked again (a retried step), it says the same, and still sends nothing.
+    const again = await executeAction(h.deps(), { tenantId: h.A.tenantId, actionId });
+    expect(again).toMatchObject({ status: "failed", error: out.status === "failed" && out.error });
+    expect(h.backend.writes.length).toBe(writes);
+    await grant({});
+    await h.setPermissions(h.A, {});
+  });
+
+  it("a tool dropped from the grant's subset while a card waits: refused as it is made", async () => {
+    const actionId = await signedCard();
+    await grant({ tools: [TESTKIT_QUERY_TOOL] });
+    const writes = h.backend.writes.length;
+    const out = await executeAction(h.deps(), { tenantId: h.A.tenantId, actionId });
+    expect(out.status).toBe("failed");
+    expect((await actionRow(actionId))?.status).toBe("rejected");
+    expect(h.backend.writes.length).toBe(writes);
+    await grant({});
+    await h.setPermissions(h.A, {});
+  });
+
+  it("a change already claimed is settled, not refused, when the grant was revoked since", async () => {
+    const actionId = await signedCard();
+    // An earlier try claimed it and stopped; its lease has run out.
+    await h.client(h.A, (tx) =>
+      tx
+        .update(externalAction)
+        .set({ status: "executing", executedAt: new Date(Date.now() - 60 * 60_000) })
+        .where(eq(externalAction.id, actionId)),
+    );
+    await grant(REVOKED_GRANT, "client");
+    const writes = h.backend.writes.length;
+    const out = await executeAction(h.deps(), { tenantId: h.A.tenantId, actionId });
+    expect(out.status).toBe("done");
+    expect(h.backend.writes.length).toBe(writes + 1);
+    await grant({});
+    await h.setPermissions(h.A, {});
   });
 
   it("logs each change with before and after, and writes nothing for no change", async () => {

@@ -87,6 +87,9 @@ export const de: Messages = {
   "error.no_op": "Nichts zu ändern: Es ist schon so eingestellt.",
   "error.already_resolved": "Jemand hat das schon beantwortet.",
   "error.expired": "Das ist abgelaufen.",
+  "error.changed":
+    "Dieser Eintrag hat sich geändert, seit Sie ihn geöffnet haben; sehen Sie ihn sich noch einmal an.",
+  "error.run_ended": "Dieser Ablauf ist beendet; mit diesem Eintrag geschieht nichts mehr.",
   "error.not_assignee": "Das wartet auf jemand anderen.",
   "error.not_connected": "Dieses Tool ist nicht verbunden.",
   "error.not_available": "Das ist noch nicht verfügbar.",

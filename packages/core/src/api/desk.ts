@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { UndoSeconds } from "../desk/rules";
 import { isUuid } from "../ids";
+import { ItemFingerprint } from "../mobile/mobile";
 import { defineRoute } from "./contract";
 
 // The Desk (ARCHITECTURE §11.1, §4, §14; docs/plan.md §1.39): snooze, edit before signing, sign a
@@ -43,6 +44,11 @@ export const BatchResolveBody = z
     approve: z.array(Id).max(BATCH_MAX).default([]),
     reject: z.array(Id).max(BATCH_MAX).default([]),
     note: z.string().max(2000).optional(),
+    /**
+     * Audit 3.4: each named item as the person saw it (`itemFingerprint`), by id. An item that
+     * changed since refuses the whole batch (409 `changed`).
+     */
+    fingerprints: z.record(Id, ItemFingerprint),
   })
   .refine((b) => b.approve.length + b.reject.length > 0, {
     message: "name at least one item",
@@ -55,6 +61,10 @@ export const BatchResolveBody = z
   .refine((b) => new Set([...b.approve, ...b.reject]).size === b.approve.length + b.reject.length, {
     message: "an item is named twice",
     path: ["approve"],
+  })
+  .refine((b) => [...b.approve, ...b.reject].every((id) => b.fingerprints[id] !== undefined), {
+    message: "send what you saw of every item",
+    path: ["fingerprints"],
   });
 export type BatchResolveBody = z.input<typeof BatchResolveBody>;
 

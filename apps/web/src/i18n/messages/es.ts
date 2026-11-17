@@ -81,6 +81,8 @@ export const es: Messages = {
   "error.no_op": "No hay nada que cambiar: ya está así.",
   "error.already_resolved": "Alguien ya respondió a esto.",
   "error.expired": "Esto ha vencido.",
+  "error.changed": "Este elemento cambió desde que lo abrió; vuelva a mirarlo.",
+  "error.run_ended": "Esta ejecución terminó; no se hará nada con este elemento.",
   "error.not_assignee": "Esto espera a otra persona.",
   "error.not_connected": "Esa herramienta no está conectada.",
   "error.not_available": "Eso aún no está disponible.",

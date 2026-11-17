@@ -20,6 +20,9 @@ const CODE_KEYS: Record<string, PlainKey> = {
   no_op: "error.no_op",
   already_resolved: "error.already_resolved",
   expired: "error.expired",
+  // Audit 3.4 and 3.3: an answer to a card that changed since it was opened, or whose run ended.
+  changed: "error.changed",
+  run_ended: "error.run_ended",
   not_assignee: "error.not_assignee",
   not_connected: "error.not_connected",
   not_available: "error.not_available",

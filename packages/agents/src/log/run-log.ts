@@ -16,6 +16,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { AgentsError, notFound } from "../errors";
 import type { RunLog } from "../runtime/ports";
 import type { RunMode } from "../tools/types";
+import { closeRunApprovalsTx } from "./external-actions";
 import { rollupUsageForRun } from "./usage";
 
 type RunStatus = (typeof run.$inferSelect)["status"];
@@ -87,7 +88,9 @@ export async function createRun(tx: Tx, input: CreateRunInput): Promise<typeof r
 /**
  * Records the run's status. Returns whether this call ended it: the run was not yet succeeded,
  * failed or cancelled and now is (audit 4.5: a finish step retried after it committed ends
- * nothing, so its events are emitted once). An ended run is never ended again.
+ * nothing, so its events are emitted once). An ended run is never ended again. The call that ends
+ * it also closes its approvals (audit 3.3, `closeRunApprovalsTx`): nobody signs for a run that is
+ * over.
  */
 export async function finishRun(
   tx: Tx,
@@ -114,7 +117,14 @@ export async function finishRun(
       ...(input.error === undefined ? {} : { error: input.error as Record<string, unknown> }),
     })
     .where(and(eq(run.id, input.runId), eq(run.tenantId, input.tenantId)));
-  return terminal && !isTerminal(before.status);
+  const ended = terminal && !isTerminal(before.status);
+  if (ended) {
+    await closeRunApprovalsTx(tx, input.tenantId, input.runId, {
+      code: "run_ended",
+      message: `the run ${input.status === "succeeded" ? "finished" : input.status} before this change was signed`,
+    });
+  }
+  return ended;
 }
 
 /** `run.workflow_slug` of an ask's test run (`agents.ask`): it runs no workflow. */

@@ -503,6 +503,8 @@ export async function resolveBatch(
     visible: (ids: string[]) => Promise<Set<string>>;
     registry: EventTypeRegistry;
     collect: EventRow[];
+    /** Audit 3.4: the fingerprint of an item as the portal shows it now (`shownFingerprint`). */
+    shown: (item: InboxRow) => Promise<string>;
   },
 ): Promise<ResolveOutcome[]> {
   const approve = input.body.approve ?? [];
@@ -535,6 +537,8 @@ export async function resolveBatch(
         },
         registry: input.registry,
         collect: input.collect,
+        // Audit 3.4: each item as the person saw it (the body's schema requires one for each).
+        seen: { fingerprint: input.body.fingerprints[id] ?? "", of: input.shown },
       }),
     );
   }
