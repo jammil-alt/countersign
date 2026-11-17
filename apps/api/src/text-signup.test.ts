@@ -441,7 +441,7 @@ describe.skipIf(!h)("signing up for texts", () => {
       expect(row?.phone).toBe(PHONE);
     });
 
-    it("refuses a number that opted out on WhatsApp", async () => {
+    it("answers another contact's opted-out number as a sign-up, and that uses the invitation", async () => {
       const NUM = "+15125550167";
       await H.t.db.insert(contact).values({
         tenantId: A(),
@@ -455,13 +455,22 @@ describe.skipIf(!h)("signing up for texts", () => {
       const link = /Choose to get texts: (\S+)/.exec(
         lastEmailTo("kai@vendor.example")?.text ?? "",
       )?.[1];
-      const res = await submit(tokenIn(link as string), { phone: NUM });
-      expect(res.status).toBe(409);
-      expect(j(res.json).error.code).toBe("opted_out");
+      const token = tokenIn(link as string);
+      // The same answer as a sign-up: the invitation doesn't say who opted out.
+      const res = await submit(token, { phone: NUM });
+      expect(res.status).toBe(200);
+      expect(j(res.json)).toEqual({ confirmation: "sent" });
       expect(textsTo(NUM)).toHaveLength(0);
       const [row] = await H.t.db.select().from(contact).where(eq(contact.id, KAI));
       expect(row?.phone).toBeNull();
       expect(row?.consent ?? {}).not.toHaveProperty("sms");
+      // It used the invitation: no more answers from it, whatever number is typed.
+      for (const phone of [NUM, "+15125550168"]) {
+        const again = await submit(token, { phone });
+        expect(again.status, phone).toBe(409);
+        expect(j(again.json).error.code).toBe("used");
+      }
+      expect(textsTo("+15125550168")).toHaveLength(0);
     });
 
     it("sends one reminder after three days, then no more", async () => {

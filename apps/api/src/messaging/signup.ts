@@ -395,14 +395,10 @@ export async function submitTextSignup(
         .where(and(eq(contact.id, payload.c), eq(contact.tenantId, payload.t)))
         .for("update");
       if (!found) throw gone();
-      await refuseOptedOut(
-        tx,
-        t,
-        found.optedOutAt ? found : await optedOutOn(tx, payload.t, phone),
-      );
       // DECISION: an invitation signs up once, so it sends at most one confirmation text. "Used"
-      // is a sign-up through an invitation logged since this one was sent (its expiry less
-      // TEXT_INVITE_DAYS): no table or token id is needed.
+      // is a sign-up (or a skipped one, below) through an invitation logged since this one was
+      // sent (its expiry less TEXT_INVITE_DAYS): no table or token id is needed. Checked first, so
+      // a used invitation answers the same whatever number is typed.
       const sentAt = new Date((payload.e - TEXT_INVITE_DAYS * 24 * 60 * 60) * 1000);
       const [used] = await tx
         .select({ n: sql<number>`count(*)::int` })
@@ -412,7 +408,7 @@ export async function submitTextSignup(
             eq(contactChange.tenantId, payload.t),
             eq(contactChange.contactId, found.id),
             gte(contactChange.createdAt, sentAt),
-            sql`${contactChange.change}->>'kind' = 'opt_in'`,
+            sql`${contactChange.change}->>'kind' in ('opt_in', 'text_signup_skipped')`,
             sql`${contactChange.change}->>'via' = 'invitation'`,
           ),
         );
@@ -422,6 +418,19 @@ export async function submitTextSignup(
           "used",
           "This invitation has already been used. To change your number, ask the business.",
         );
+      }
+      // The invited person's own opt-out: told how to start texts again.
+      await refuseOptedOut(tx, t, found);
+      // DECISION: another contact's opted-out number is answered as a sign-up is, with nothing
+      // changed or sent, and uses the invitation: an invitation can be forwarded, and it must not
+      // tell who opted out either.
+      if (await optedOutOn(tx, payload.t, phone)) {
+        await logContactChange(tx, payload.t, found.id, null, {
+          kind: "text_signup_skipped",
+          via: "invitation",
+          reason: "opted_out",
+        });
+        return { tenantId: payload.t, client: t.name, phone, send: false };
       }
       row = found;
       if (row.phone !== phone) {
