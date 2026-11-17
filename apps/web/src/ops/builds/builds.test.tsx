@@ -10,6 +10,10 @@ import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
 import { fakeApi, OPERATOR_SESSION, Reply } from "../../test/fixtures";
 
+// The back office's code loads on demand; the first test in a file would wait for it inside
+// Testing Library's 5 s, which a busy CI runner can pass (2026-11-17). Loaded once, up front.
+await import("../OpsApp");
+
 const ID = "00000000-0000-4000-8000-0000000b0001";
 const ITEM = "00000000-0000-4000-8000-0000000b0101";
 const at = "2026-11-15T10:00:00.000Z";

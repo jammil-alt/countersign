@@ -600,7 +600,8 @@ describe("the agent page", () => {
     });
     renderAt(`/agents/${SVC}/access`, api);
     const contacts = await screen.findByTestId("agent-contacts");
-    expect(contacts).toHaveTextContent("Who Pia contacts");
+    // The heading names the agent once its name has loaded (a separate call): wait for it.
+    await waitFor(() => expect(contacts).toHaveTextContent("Who Pia contacts"));
     expect(await within(contacts).findByTestId(`people-${SVC}`)).toBeInTheDocument();
     expect(within(contacts).queryByText("Cole")).toBeNull();
   });
