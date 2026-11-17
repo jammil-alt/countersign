@@ -5,7 +5,16 @@ import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type ClientFixture, insertClient, insertOperatorRows } from "./fixtures.test-helper";
 import { deleteOrder, PurgeRefused, purgeClient } from "./purge";
-import { deal, dealActivity, dealPerson, playLog, TENANT_TABLES, todo } from "./schema";
+import {
+  clientFact,
+  clientFile,
+  deal,
+  dealActivity,
+  dealPerson,
+  playLog,
+  TENANT_TABLES,
+  todo,
+} from "./schema";
 import { createTestDatabase, databaseAvailable, type TestDatabase } from "./testing";
 
 const online = await databaseAvailable();
@@ -51,6 +60,22 @@ describe.skipIf(!online)("purgeClient", () => {
       .values({ kind: "expansion", clientId: A.tenantId, title: "More", stage: "spotted" })
       .returning({ id: deal.id });
     await t.db.insert(dealPerson).values({ dealId: d?.id ?? "", name: "Pat Lee" });
+    // §1.125: A's client file and its facts go with A, and the deal that points at it.
+    const [f] = await t.db
+      .insert(clientFile)
+      .values({ name: "A", clientId: A.tenantId, status: "client" })
+      .returning({ id: clientFile.id });
+    await t.db.insert(clientFact).values({
+      fileId: f?.id ?? "",
+      section: "notes",
+      text: "Price sensitive",
+      sourceKind: "note",
+      actor: "operator",
+    });
+    await t.db
+      .update(deal)
+      .set({ clientFileId: f?.id ?? "" })
+      .where(sql`${deal.id} = ${d?.id ?? ""}`);
     await t.db.insert(dealActivity).values({ dealId: d?.id ?? "", kind: "note", actor: "system" });
     await t.db.insert(todo).values({ clientId: A.tenantId, owner: "operator", title: "Call" });
     await t.db.insert(playLog).values({
@@ -99,7 +124,7 @@ describe.skipIf(!online)("purgeClient", () => {
       else expect(left, table).toBe(0);
       expect(await count(table, B.tenantId), `${table} of B`).toBe(beforeB[table]);
     }
-    for (const table of ["deal", "todo", "play_log"]) {
+    for (const table of ["deal", "todo", "play_log", "client_file"]) {
       const [left] = [
         ...(await t.db.execute<{ n: number }>(
           sql.raw(`select count(*)::int as n from ${table} where client_id = '${A.tenantId}'`),
@@ -113,6 +138,10 @@ describe.skipIf(!online)("purgeClient", () => {
       )),
     ];
     expect(people?.n).toBe(0);
+    const [facts] = [
+      ...(await t.db.execute<{ n: number }>(sql`select count(*)::int as n from client_fact`)),
+    ];
+    expect(facts?.n).toBe(0);
     const [tenantRow] = [
       ...(await t.db.execute(sql`select 1 from tenant where id = ${A.tenantId}`)),
     ];
