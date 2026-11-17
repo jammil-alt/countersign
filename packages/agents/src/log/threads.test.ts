@@ -100,7 +100,16 @@ describe.skipIf(!h)("threads tools", () => {
       trigger: {
         type: "event",
         eventType: "thread.message_posted",
-        payload: { threadId: accountThreadId },
+        // The person who wrote: Sloan reads for them (the portal's rules for a client user).
+        payload: {
+          threadId: accountThreadId,
+          subjectType: "account",
+          subjectId: null,
+          messageId: "0192f7a0-0000-7000-8000-00000000e201",
+          senderType: "user",
+          senderId: H.A.userId,
+          audience: "client",
+        },
       },
     });
   });
