@@ -17,7 +17,7 @@ import { useEffect, useState } from "react";
 import { Link, Navigate, useLocation } from "react-router-dom";
 import { PortalScriptsCard } from "../../accounts/scripts";
 import { AgentsLine, LoginEditor, VaultCard, VaultDetails } from "../../accounts/vault";
-import type { ResponseOf } from "../../api/client";
+import type { ApiClient, ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { accessLabel, ConnectorMark, connectionStatusLabel } from "../../connections/ConnectorMark";
@@ -118,6 +118,32 @@ export function VaultRedirect() {
   return <Navigate to={{ pathname: PORTAL_PATHS.accounts, search, hash: "#vault" }} replace />;
 }
 
+/**
+ * Connects a tool the way this page does: the provider's own sign-in, Meta's signup page or Plaid
+ * Link. Getting started's Connect cards (docs/plan.md §1.125.2) use it too, so there is one flow.
+ */
+export async function startConnect(api: ApiClient, connector: string): Promise<void> {
+  // v0.14 W4-A: Meta's Embedded Signup runs on a page of its own (Meta's SDK is allowed only
+  // there), loaded as a document.
+  if (connector === "whatsapp_meta") {
+    window.location.assign(WHATSAPP_META_SIGNUP_PATH);
+    return;
+  }
+  const res = await api.call(apiRoutes.portalAuthorize, { params: { connector } });
+  // An OAuth connector answers where the provider's sign-in starts.
+  if (res.redirectUrl) window.location.assign(res.redirectUrl);
+  // v0.12 bankfeed: Plaid Link opens here; its result goes to the callback.
+  if (res.link?.provider === "plaid") {
+    const done = await openPlaidLink(res.link);
+    if (done) {
+      await api.call(apiRoutes.portalAuthorizeCallback, {
+        params: { connector },
+        body: { params: { public_token: done.publicToken, state: done.state } },
+      });
+    }
+  }
+}
+
 export function AccountsScreen() {
   const api = useApiClient();
   const { t } = useI18n();
@@ -153,27 +179,7 @@ export function AccountsScreen() {
     }
   }
 
-  async function connect(c: Offered) {
-    // v0.14 W4-A: Meta's Embedded Signup runs on a page of its own (Meta's SDK is allowed only
-    // there), loaded as a document.
-    if (c.connector === "whatsapp_meta") {
-      window.location.assign(WHATSAPP_META_SIGNUP_PATH);
-      return;
-    }
-    const res = await api.call(apiRoutes.portalAuthorize, { params: { connector: c.connector } });
-    // An OAuth connector answers where the provider's sign-in starts.
-    if (res.redirectUrl) window.location.assign(res.redirectUrl);
-    // v0.12 bankfeed: Plaid Link opens here; its result goes to the callback.
-    if (res.link?.provider === "plaid") {
-      const done = await openPlaidLink(res.link);
-      if (done) {
-        await api.call(apiRoutes.portalAuthorizeCallback, {
-          params: { connector: c.connector },
-          body: { params: { public_token: done.publicToken, state: done.state } },
-        });
-      }
-    }
-  }
+  const connect = (c: Offered) => startConnect(api, c.connector);
 
   const tools =
     connections.data?.connections.filter(

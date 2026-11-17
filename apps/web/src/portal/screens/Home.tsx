@@ -10,7 +10,7 @@
 // summary). Never a bundle, an instruction, a prompt or a cost (invariant 11).
 import type { PortalAccessView, PortalFinding, TableView } from "@countersign/core";
 import { type FormEvent, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient, useApiStore } from "../../api/useApi";
@@ -95,9 +95,15 @@ export function HomeScreen() {
   const first = session.user.name?.trim().split(/\s+/)[0];
   const part = partOfDay(now, tz);
   const greeting = first ? t(`table.greeting.${part}`, { name: first }) : t(`table.hello.${part}`);
+  // §1.125.2: while an intake is open and no agent is live, Getting started is the client's home.
+  // DECISION: asked only once the table shows no live agent, so Home's calls don't go up for
+  // anyone with an agent at work (gate 2); a failed ask leaves Home as it is.
+  const noneLive = data !== undefined && !data.services.some((s) => s.stage === "live");
+  const intake = useApi(apiRoutes.portalCurrentIntake, noneLive ? {} : null);
   const findings = overview.data?.health?.findings ?? [];
   const sent = weekly.data?.table ?? null;
 
+  if (intake.data?.intake) return <Navigate to={PORTAL_PATHS.start} replace />;
   return (
     <Page testId="portal-home">
       <PageHeader

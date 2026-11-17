@@ -1,7 +1,6 @@
 // Onboarding v1's contract (docs/plan.md §1.125): the client file's facts, what an intake covers,
 // the guide's field values, the route bodies' rules, and the portal's views carrying nothing of
-// ours. The guide's building and the emails are other streams' (stubs here, which throw).
-
+// ours. The guide itself is tested in guide.test.ts and the emails in email/onboarding.test.ts.
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { clientFileRoutes, startRoutes } from "../api/client-files";
@@ -15,16 +14,12 @@ import {
 import { InviteDraft, inviteRoutes, SignUpNowDraft } from "../api/invite";
 import { routes } from "../api/routes";
 import {
-  buildGuide,
   Covers,
   coversAnything,
   currentFacts,
   fieldValueSchema,
   GUIDE_FIELD_KINDS,
-  guideProgress,
-  guideTotals,
   INTAKE_AREAS,
-  mergeFields,
   NewClientFact,
   sectionKeysOf,
   theirFacts,
@@ -175,23 +170,3 @@ describe("the onboarding routes", () => {
   });
 });
 
-describe("the other streams' seams", () => {
-  it("throw until built", () => {
-    const covers = { general: true, areas: [], templateIds: [] };
-    expect(() => buildGuide({ covers, general: null, areas: [], agents: [], facts: [] })).toThrow(
-      /stream INTAKE/,
-    );
-    expect(() => mergeFields([])).toThrow(/stream INTAKE/);
-    expect(() => guideTotals([])).toThrow(/stream INTAKE/);
-    expect(() =>
-      guideProgress(
-        {
-          version: 1,
-          sections: [],
-          totals: { known: 0, toConfirm: 0, toAsk: 0, later: 0, tools: 0, minutes: 0 },
-        },
-        [],
-      ),
-    ).toThrow(/stream INTAKE/);
-  });
-});
