@@ -15,7 +15,7 @@ Mezonas is the product name and the name of every public resource; `countersign`
 
 | | Staging | Production |
 |---|---|---|
-| Deployed by | every push to `main` (`deploy.yml`); any branch by hand (Actions → Quick deploy to staging) | a `v*` tag, or Actions → Deploy → production |
+| Deployed by | every push to `main` (`deploy.yml`); a branch by hand (Actions → Quick deploy to staging) | a `v*` tag, or Actions → Deploy → production |
 | Address | `https://staging.mezonas.com` | `https://app.mezonas.com` |
 | Worker | `mezonas-staging` (`wrangler deploy --env=staging`) | `mezonas` (`--env=production`) |
 | Neon project / branch | `mezonas` / `staging` | `mezonas` / `main` |
@@ -1431,24 +1431,26 @@ step's date:
   is on `main` and stops before migrating if it isn't. Run it by hand against either environment:
   `scripts/smoke.sh https://staging.mezonas.com [commit]`. The run's summary says which branch
   and commit the target now runs.
-- **Quick deploy to staging** (`quick-deploy.yml`, by hand): any branch on staging without
+- **Quick deploy to staging** (`quick-deploy.yml`, by hand): a branch on staging without
   merging it, in about 5–6 minutes, to try a fix there. Actions → **Quick deploy to staging** →
-  Run workflow, leave "Use workflow from" on `main`, type the branch in "Branch to deploy", Run.
-  It checks lint, layering (`lint:deps`) and typecheck only, no tests and no sweep, then runs
-  `deploy-app.yml` to staging (never production), smoke test included, and its summary says which
-  branch and commit staging runs.
-  - **Refused:** a run started from any branch but `main` (the checks and the refusal are
-    `main`'s, so a branch can't loosen them); anything but a branch of this repository (no tag,
-    commit or pull request ref, so never a fork's code); and a branch that adds, changes or removes a
-    migration `main` doesn't have (`packages/db/migrations/*.sql`, `packages/db/migrations/meta`,
-    compared with `origin/main`). A migration applied to staging can't be taken back, and one that
-    reached staging may never be edited (§3), so it would be frozen before review. Migrations
-    reach staging by merging; to quick-deploy the rest of a branch first, move its migration to a
-    pull request of its own and merge that.
-  - **No cache written.** The run starts from `main`, so any cache it saved would be `main`'s,
-    restored by production deploys and `main`'s checks, while the branch's unreviewed code runs.
-    Its jobs and `deploy-app.yml` restore the pnpm store read only (`actions/cache/restore`) and
-    save nothing (CodeQL, 2026-11-17).
+  Run workflow → "Use workflow from": the branch → Run. The branch needs the workflow file, so a
+  branch from before it reached `main` merges `main` first. It checks lint, layering
+  (`lint:deps`) and typecheck only, no tests and no sweep, then runs `deploy-app.yml` to staging
+  (never production), smoke test included, and its summary says which branch and commit staging
+  runs.
+  - **It runs in the branch's own context, never `main`'s** (CodeQL, 2026-11-17). The branch's
+    unreviewed code runs in it, and code running in `main`'s context can write `main`'s Actions
+    cache, which production deploys restore from. Run from the branch, anything it writes stays
+    in that branch's cache.
+  - **Refused:** a run from a tag, and a branch that adds, changes or removes a migration `main`
+    doesn't have (`packages/db/migrations/*.sql`, `packages/db/migrations/meta`, compared with
+    `origin/main`). A migration applied to staging can't be taken back, and one that reached
+    staging may never be edited (§3), so it would be frozen before review. Migrations reach
+    staging by merging; to quick-deploy the rest of a branch first, move its migration to a pull
+    request of its own and merge that. The refusal is the branch's own copy of the workflow, so
+    it guards against mistakes, not against someone who edits it out. The gate for that is the
+    `staging` environment's rules (Settings → Environments), as it is for Deploy run by hand from
+    a branch. If `staging` allows only `main` to deploy, quick deploys are refused there too.
   - **One staging deploy at a time:** its deploy job holds `deploy.yml`'s `deploy-staging` group
     and is never cancelled (a cancelled deploy could stop between the migration and the Worker).
     Its checks run beside a deploy in progress; only the deploy waits. GitHub keeps one waiting

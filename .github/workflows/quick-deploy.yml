@@ -1,31 +1,32 @@
 name: Quick deploy to staging
 
-# By hand: puts any branch on staging without merging it, to try a fix there in about five minutes.
-# Actions → Quick deploy to staging → Run workflow, leave "Use workflow from" on main, and type the
-# branch in "Branch to deploy".
+# By hand: puts a branch on staging without merging it, to try a fix there in about five minutes.
+# Actions → Quick deploy to staging → Run workflow → "Use workflow from": the branch → Run.
+# The branch needs this file, so a branch from before it reached main merges main first.
 #
 # Before the deploy: lint, layering (lint:deps) and typecheck only. No tests and no screen sweep:
 # those run on the pull request (ci.yml) and before production (deploy.yml). Then the same deploy
 # job as deploy.yml (deploy-app.yml), to staging only, smoke test included.
 #
+# It runs in the branch's own context, never main's (CodeQL, 2026-11-17): the branch's unreviewed
+# code runs here, and code run in main's context can write main's Actions cache, which production
+# deploys restore from. Run from the branch, anything it writes stays in that branch's cache.
+#
 # Refused:
-# - a run from any branch but main: this file, the migration check below and deploy-app.yml are
-#   main's, so a branch can't loosen them for its own deploy;
+# - a run from a tag: branches only;
 # - a branch that adds, changes or removes a migration main doesn't have
 #   (packages/db/migrations/*.sql, packages/db/migrations/meta). A migration applied to staging
 #   can't be taken back, and one that reached staging may never be edited (CLAUDE.md), so it would
 #   be frozen before review. Migrations reach staging by merging to main.
+# This is the branch's copy of the file, so these refusals guard against mistakes, not against
+# someone who edits them out; the staging environment's own rules (GitHub → Settings →
+# Environments) are the gate for that, as they are for Deploy run by hand from a branch.
 #
 # Staging keeps the branch until the next deploy from main (any merge to main) puts it back, or
 # another quick deploy replaces it (docs/operations.md §2, "Quick deploy to staging").
 
 on:
   workflow_dispatch:
-    inputs:
-      ref:
-        description: Branch to deploy (staging only; leave "Use workflow from" on main)
-        type: string
-        required: true
 
 permissions:
   contents: read
@@ -35,50 +36,26 @@ jobs:
     name: Migrations, lint, layering, typecheck
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    outputs:
-      sha: ${{ steps.which.outputs.sha }}
-    env:
-      BRANCH: ${{ inputs.ref }}
     steps:
-      - name: From main only
-        if: github.ref != 'refs/heads/main'
+      - name: A branch, not a tag
+        if: ${{ !startsWith(github.ref, 'refs/heads/') }}
         env:
-          RUN_FROM: ${{ github.ref_name }}
+          RUN_FROM: ${{ github.ref }}
         run: |
-          echo "::error::Run this from main (\"Use workflow from: main\", not $RUN_FROM) and type the branch in \"Branch to deploy\"."
+          echo "::error::Run this from a branch (\"Use workflow from\"), not $RUN_FROM."
           exit 1
-
-      # A branch of this repository only, never a tag, a commit or a pull request's ref (a fork's
-      # `refs/pull/N/head` would put an outsider's code on staging). Its commit now is the one
-      # checked and deployed, even if the branch moves meanwhile.
-      - name: Which commit
-        id: which
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          if [[ ! $BRANCH =~ ^[A-Za-z0-9._/-]+$ || $BRANCH == *..* || $BRANCH == refs/* ]]; then
-            echo "::error::'$BRANCH' is not a branch name. Type the branch, e.g. claude/fix-desk."
-            exit 1
-          fi
-          sha=$(gh api "repos/$REPO/git/ref/heads/$BRANCH" --jq .object.sha) || {
-            echo "::error::No branch '$BRANCH' in $REPO."
-            exit 1
-          }
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "Deploying $BRANCH at $sha to staging."
 
       # The whole history, to compare the branch's migrations with main's.
       - uses: actions/checkout@v7
         with:
-          ref: ${{ steps.which.outputs.sha }}
           fetch-depth: 0
 
       # The branch's own changes since it left main (three dots, so main's later migrations don't
       # count), kept only where the file still differs from main's (so a branch that merged main,
       # or carries a migration main already has, passes).
       - name: No migration main doesn't have
+        env:
+          BRANCH: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
@@ -89,7 +66,7 @@ jobs:
             git diff --quiet origin/main HEAD -- "$file" || found+=("$file")
           done < <(git diff --no-renames --name-only origin/main...HEAD -- "${paths[@]}")
           if [ ${#found[@]} -eq 0 ]; then
-            echo "No migration differs from main's."
+            echo "No migration differs from main's. Deploying $BRANCH at $GITHUB_SHA to staging."
             exit 0
           fi
           message="$BRANCH adds or changes migrations main doesn't have: ${found[*]}. A migration applied to staging can't be taken back, and one that reached staging may never be edited (CLAUDE.md), so a quick deploy would freeze it before review. Mark the pull request ready, let its CI pass and merge it: main's deploy migrates staging. To quick-deploy the rest first, move the migration to its own pull request and merge that."
@@ -99,23 +76,10 @@ jobs:
 
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (third-party: pinned to a commit)
 
-      # The pnpm store from cache, read only. This run starts from main, so a cache it saved would
-      # be main's, restored by production's deploys and main's checks; the branch's unreviewed code
-      # (an install script, a lint plugin) runs here and must never write one. Same key and path
-      # as setup-node's `cache: pnpm`, so main's entries are found; a miss only installs slower.
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
-
-      - name: The pnpm store's path
-        id: store
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/cache/restore@v6
-        with:
-          path: ${{ steps.store.outputs.path }}
-          key: node-cache-${{ runner.os }}-x64-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: node-cache-${{ runner.os }}-x64-pnpm-
+          cache: pnpm
 
       - run: pnpm install --frozen-lockfile
 
@@ -127,7 +91,7 @@ jobs:
 
   # deploy.yml's staging group: one staging deploy at a time, never cancelled, since a cancelled
   # deploy could stop between the migration and the Worker. Only this job waits for it; the
-  # checks above run beside a deploy in progress.
+  # checks above run beside a deploy in progress. It deploys this run's commit, the one checked.
   deploy:
     needs: check
     concurrency:
@@ -137,5 +101,4 @@ jobs:
     secrets: inherit
     with:
       target: staging
-      ref: ${{ needs.check.outputs.sha }}
-      branch: ${{ inputs.ref }}
+      quick: true

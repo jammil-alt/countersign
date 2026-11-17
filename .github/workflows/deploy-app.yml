@@ -1,7 +1,7 @@
 name: Deploy the app
 
 # The app's deploy job in one place (reusable), called by deploy.yml (main → staging, a `v*` tag or a
-# manual run → production) and by quick-deploy.yml (any branch → staging, by hand). It migrates the
+# manual run → production) and by quick-deploy.yml (a branch → staging, by hand). It migrates the
 # target's Neon branch as cs_owner, deploys the code service (apps/mfa, Worker mezonas-codes) and
 # its secrets, then the browser service (apps/browser, Worker mezonas-browser), then `wrangler
 # deploy` from apps/api, whose `CODES` and `BROWSER` service bindings need both to exist; then the
@@ -17,14 +17,10 @@ on:
         description: "`staging` or `production`."
         type: string
         required: true
-      ref:
-        description: The commit to deploy, for a quick deploy (staging only). Empty deploys the caller's own commit.
-        type: string
-        default: ""
-      branch:
-        description: The branch a quick deploy came from, for the job summary.
-        type: string
-        default: ""
+      quick:
+        description: A quick deploy (quick-deploy.yml) of a branch's commit, unmerged and untested; staging only.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -39,8 +35,7 @@ jobs:
     environment: ${{ inputs.target }}
     env:
       TARGET: ${{ inputs.target }}
-      QUICK_REF: ${{ inputs.ref }}
-      QUICK_BRANCH: ${{ inputs.branch }}
+      QUICK: ${{ inputs.quick }}
       WORKOS_API_KEY: ${{ secrets.WORKOS_API_KEY }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -104,18 +99,16 @@ jobs:
     steps:
       # A quick deploy is staging only: production deploys only main's tested commits (deploy.yml).
       - name: Staging only for a quick deploy
-        if: inputs.ref != '' && inputs.target != 'staging'
+        if: inputs.quick && inputs.target != 'staging'
         run: |
           echo "::error::A quick deploy goes to staging only, never to $TARGET."
           exit 1
 
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.ref || github.sha }}
 
-      # The commit actually deployed: the caller's for deploy.yml, the branch's for a quick deploy.
-      # It is the Worker's DEPLOYED_SHA (/api/ready names it), Sentry's release and the smoke
-      # test's expected commit.
+      # The commit deployed, the caller's own (main's, a tag's, or a quick deploy's branch's): the
+      # Worker's DEPLOYED_SHA (/api/ready names it), Sentry's release and the smoke test's
+      # expected commit.
       - name: Which commit
         run: echo "SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
 
@@ -149,25 +142,11 @@ jobs:
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (third-party: pinned to a commit)
         if: steps.ready.outputs.ready == 'true'
 
-      # The pnpm store from cache, read only: a quick deploy runs a branch's unreviewed code in
-      # main's cache scope, which production's deploys restore from, so this job never saves one
-      # (checks.yml's jobs do). Same key and path as setup-node's `cache: pnpm`.
       - uses: actions/setup-node@v7
         if: steps.ready.outputs.ready == 'true'
         with:
           node-version-file: .nvmrc
-
-      - name: The pnpm store's path
-        id: store
-        if: steps.ready.outputs.ready == 'true'
-        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
-
-      - uses: actions/cache/restore@v6
-        if: steps.ready.outputs.ready == 'true'
-        with:
-          path: ${{ steps.store.outputs.path }}
-          key: node-cache-${{ runner.os }}-x64-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: node-cache-${{ runner.os }}-x64-pnpm-
+          cache: pnpm
 
       - if: steps.ready.outputs.ready == 'true'
         run: pnpm install --frozen-lockfile
@@ -360,7 +339,7 @@ jobs:
         run: |
           set -euo pipefail
           host=$([ "$TARGET" = production ] && echo app.mezonas.com || echo staging.mezonas.com)
-          from=${QUICK_BRANCH:-$GITHUB_REF_NAME}
+          from=$GITHUB_REF_NAME
           {
             if [ "$JOB_STATUS" = success ]; then
               echo "### $TARGET runs \`$from\` at \`$SHA\`"
@@ -372,7 +351,7 @@ jobs:
               echo "$TARGET may still run the commit before it, or this one if it stopped after the Worker."
               echo "https://$host/api/ready names the commit it runs."
             fi
-            if [ -n "$QUICK_REF" ]; then
+            if [ "$QUICK" = true ]; then
               echo
               echo "A quick deploy: lint, layering and typecheck only, no tests and no screen sweep."
               echo "Staging keeps this branch until the next deploy from main (a merge to main, or"
