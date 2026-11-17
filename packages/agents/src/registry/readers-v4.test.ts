@@ -8,6 +8,7 @@ import {
   type AnyAgentBundle,
   classifyChange,
   cloneJson,
+  evaluateRules,
   holdsProcess,
   type ProcessAgentBundle,
   processes,
@@ -17,6 +18,7 @@ import {
 import type { Tx } from "@countersign/db";
 import { knownModelIds } from "@countersign/llm";
 import { afterAll, describe, expect, it } from "vitest";
+import type { AgentsError } from "../errors";
 import {
   createHarness,
   type Harness,
@@ -37,7 +39,9 @@ import {
 } from "./agents";
 import { createAutomation, publishAutomation } from "./automations";
 import {
+  createPromotionDraft,
   createUpdateDraft,
+  type PromotionProblem,
   previewPromotion,
   stripForPromotion,
   UNSET_CONTACT_ROLE,
@@ -444,12 +448,14 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
       processOf(x).triggers.push(hook(email));
     });
     expect(await validate(client)).toEqual([]);
-    // No base value: the rule can never match (fewer runs start, the path is never taken).
-    const out = stripForPromotion(client, makeBundle(), {});
-    const never = { field: "{{trigger.name}}", op: "in", value: [] };
-    const path = stepOf(out, "route");
-    if (path.kind !== "if") throw new Error("fixture");
-    expect(path.paths[0]?.when.rules).toEqual([never]);
+    // No base value: the filter's rule can never match (fewer runs start). A path's rule is never
+    // rewritten to stand: it is reported, and promotion and copy refuse it (below).
+    const problems: PromotionProblem[] = [];
+    const out = stripForPromotion(client, makeBundle(), {}, problems);
+    expect(problems).toEqual([
+      expect.objectContaining({ stepId: "route", pathId: "big", field: "paths.0.when" }),
+    ]);
+    expect(problems[0]?.message).toMatch(/"Big vendor".*"Route"/);
     const filter = processOf(out).triggers.find((t) => t.id === "trg-hook")?.on;
     expect(filter?.type === "webhook" && filter.filter?.rules).toEqual([
       { field: "{{trigger.data.from}}", op: "in", value: [] },
@@ -469,10 +475,134 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
       processOf(x).steps.push(route("Acme"));
       processOf(x).triggers.push(hook("orders"));
     });
-    const kept = stripForPromotion(client, base, {});
+    const none: PromotionProblem[] = [];
+    const kept = stripForPromotion(client, base, {}, none);
     const keptPath = stepOf(kept, "route");
     if (keptPath.kind !== "if") throw new Error("fixture");
     expect(keptPath.paths[0]?.when).toEqual(rules("{{trigger.name}}", "=", "Acme"));
+    expect(none).toEqual([]);
+  });
+
+  it("stops a repeat whose condition names the client's records after its first pass", async () => {
+    const id = uuidv7();
+    const again = (value: unknown) =>
+      ({
+        id: "again",
+        name: "Look again",
+        kind: "repeat",
+        until: { rules: rules("{{trigger.id}}", "=", value) },
+        maxTimes: 10,
+        onLimit: "proceed",
+        steps: [
+          {
+            id: "again-look",
+            name: "Look",
+            kind: "skill",
+            skill: "test.lookup",
+            input: { name: "{{trigger.name}}" },
+          },
+        ],
+      }) as processes.Step;
+    const client = v4Bundle(h, (x) => {
+      processOf(x).steps.push(again(id));
+    });
+    expect(await validate(client)).toEqual([]);
+    const out = stripForPromotion(client, makeBundle(), {});
+    const r = stepOf(out, "again");
+    if (r.kind !== "repeat") throw new Error("fixture");
+    // A field equal to itself holds always: the body runs once.
+    expect(r.until).toEqual({ rules: rules("{{trigger.id}}", "=", "{{trigger.id}}") });
+    if (!("rules" in r.until)) throw new Error("fixture");
+    expect(evaluateRules(r.until.rules, { trigger: { id: "anything" } })).toBe(true);
+    expect(JSON.stringify(out)).not.toContain(id);
+    expect(await validate(out)).toEqual([]);
+    const base = v4Bundle(h, (x) => {
+      processOf(x).steps.push(again("done"));
+    });
+    const kept = stepOf(stripForPromotion(client, base, {}), "again");
+    if (kept.kind !== "repeat") throw new Error("fixture");
+    expect(kept.until).toEqual({ rules: rules("{{trigger.id}}", "=", "done") });
+  });
+
+  it("refuses to promote or copy a path whose rule names the client's records, naming it", async () => {
+    const record = uuidv7();
+    const route = (value: unknown) =>
+      ({
+        id: "risky",
+        name: "Risky vendor?",
+        kind: "if",
+        paths: [
+          {
+            id: "risky-yes",
+            name: "Risky",
+            when: rules("{{trigger.id}}", "in", value),
+            steps: [
+              {
+                id: "risky-ok",
+                name: "Sign off",
+                kind: "person",
+                mode: "approve",
+                assignee: "client_admin",
+                title: "OK?",
+                payload: {},
+                channel: "inbox",
+                onReject: "stop",
+                deadline: { after: "1 day", hours: "clock", ifNoAnswer: "stop" },
+              },
+            ],
+          },
+        ],
+        otherwise: { id: "risky-no", steps: [] },
+      }) as processes.Step;
+    const made = await h.ops(async (tx) => {
+      const { agent: tpl } = await createTemplate(tx, { slug: "v4-paths", bundle: makeBundle() });
+      const t2 = await createVersion(tx, { agentId: tpl.id, bundle: v4Bundle(h) });
+      const live = await publish(tx, { agentId: tpl.id, versionId: t2.id, ctx: h.ctx });
+      const forked = await fork(tx, {
+        tenantId: h.A.tenantId,
+        slug: "v4-paths",
+        templateVersionId: live.id,
+      });
+      await bind(tx, forked.agent.id);
+      const edited = cloneJson(forked.version.bundle);
+      processOf(edited).steps.push(route([record]));
+      const c2 = await createVersion(tx, { agentId: forked.agent.id, bundle: edited });
+      await publish(tx, { agentId: forked.agent.id, versionId: c2.id, ctx: h.ctx });
+      return { tpl, forked };
+    });
+    const refusal = (e: unknown) => e as AgentsError;
+    const promoted = await h
+      .ops((tx) => createPromotionDraft(tx, { agentId: made.forked.agent.id, ctx: h.ctx }))
+      .catch(refusal);
+    // Refused as a draft that doesn't validate, naming the step and the path.
+    const named = {
+      code: "invalid_bundle",
+      details: [
+        expect.objectContaining({
+          code: "client_specific_rule",
+          stepId: "risky",
+          field: "paths.0.when",
+        }),
+      ],
+    };
+    expect(promoted).toMatchObject(named);
+    expect((promoted as AgentsError).message).toMatch(/"Risky".*"Risky vendor\?"/);
+    const copied = await h
+      .ops((tx) =>
+        copyClientAgent(tx, {
+          tenantId: h.B.tenantId,
+          slug: "v4-paths-copy",
+          sourceAgentId: made.forked.agent.id,
+          ctx: h.ctx,
+        }),
+      )
+      .catch(refusal);
+    expect(copied).toMatchObject(named);
+    // The preview says which path, for the operator to set.
+    const preview = await h.ops((tx) =>
+      previewPromotion(tx, { agentId: made.forked.agent.id, ctx: h.ctx }),
+    );
+    expect(preview.problems).toHaveLength(1);
   });
 
   it("keeps a message trigger that names only contacts valid: the client admin may start it", async () => {
@@ -510,6 +640,13 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
       } as never;
       const w = stepOf(x, UPDATE_STEP);
       if (w.kind !== "write") throw new Error("fixture");
+      // A part number shaped like a phone number is data, not a number to call.
+      w.input = {
+        ...w.input,
+        sku: "400-100-2000",
+        phone: "(555) 123-4569",
+        mobile: "+1 555 123 4570",
+      };
       w.checks = {
         confer: {
           with: [
@@ -527,6 +664,10 @@ describe.skipIf(!harness)("readers of a published v4 version", () => {
     for (const literal of [vendor, account, "555-123-4567", "(555) 123-4568", "pat@acme.example"]) {
       expect(text).not.toContain(literal);
     }
+    const written = stepOf(out, UPDATE_STEP) as processes.Step & { input: Record<string, unknown> };
+    expect(written.input.sku).toBe("400-100-2000");
+    expect(written.input.phone).toBeUndefined();
+    expect(written.input.mobile).toBeUndefined();
     // Step ids and {{refs}} stay.
     expect(text).toContain("{{trigger.id}}");
     expect(processes.nodeIds(processOf(out))).toEqual(processes.nodeIds(processOf(client)));

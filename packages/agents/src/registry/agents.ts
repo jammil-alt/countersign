@@ -56,7 +56,7 @@ import {
 // Hand off (owner, 2026-11-11): only functions cross this cycle too.
 import { handoffAgents, holdsHandoff } from "./handoff";
 // lineage imports this module too; only functions cross, so the cycle is safe at load time.
-import { stripForPromotion } from "./lineage";
+import { type PromotionProblem, refuseProblems, stripForPromotion } from "./lineage";
 import { type SkillCatalog, skillContext, snapshotSharedSkills } from "./skills";
 import type { ToolRegistry } from "./tools";
 
@@ -848,7 +848,10 @@ export async function copyClientAgent(
     bundle: sv.bundle,
     catalog: input.ctx.catalog,
   });
-  const bundle = stripForPromotion(sv.bundle, base, skills);
+  // Review of 5.10: a path choosing by the source client's records is refused, never guessed.
+  const problems: PromotionProblem[] = [];
+  const bundle = stripForPromotion(sv.bundle, base, skills, problems);
+  refuseProblems(problems);
   const row = await insertClientAgent(
     tx,
     { ...input, role: source.role, templateId: source.linked ? source.templateId : null },

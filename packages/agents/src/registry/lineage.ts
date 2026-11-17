@@ -11,6 +11,7 @@
 import {
   type AnyAgentBundle,
   type AnyStep,
+  canonicalJson,
   cloneJson,
   eachBundleStep,
   holdsProcess,
@@ -244,10 +245,16 @@ export function holdsRecordId(value: unknown): boolean {
 }
 
 const EMAIL_IN_TEXT = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
-// E.164 (+15551230000), and a number as people write it: 555-123-4567, (555) 123-4567,
-// 555.123.4567, +1 555 123 4567.
-const PHONE_IN_TEXT =
-  /\+[1-9]\d{7,14}(?!\d)|(?<![\w.-])(?:\+?\d{1,3}[\s.-]?)?(?:\(\d{3}\)\s?|\d{3}[\s.-])\d{3}[\s.-]\d{4}(?![\w-])/g;
+// Review of 5.10: a phone number in E.164 (+15551230000), or written with its area code in
+// brackets ((555) 123-4567) or after a leading 1 (+1 555 123 4567, 1-555-123-4567), anywhere;
+// a plain 555-123-4567 only in free text, since an input's 400-100-2000 is a part or account
+// number as often as a phone number.
+const PHONE =
+  /\+[1-9]\d{7,14}(?!\d)|(?<!\w)(?:\+?1[\s.-]?)?\(\d{3}\)\s?\d{3}[\s.-]\d{4}(?![\w-])|(?<![\w+])\+?1[\s.-]\d{3}[\s.-]\d{3}[\s.-]\d{4}(?![\w-])/g;
+const PHONE_IN_TEXT = new RegExp(
+  `${PHONE.source}|(?<![\\w.-])\\d{3}[\\s.-]\\d{3}[\\s.-]\\d{4}(?![\\w-])`,
+  "g",
+);
 const REF = /\{\{[^{}]*\}\}/g;
 
 /**
@@ -260,7 +267,7 @@ export function holdsClientLiteral(value: unknown): boolean {
     return (
       UUID_IN_TEXT.test(text) ||
       new RegExp(EMAIL_IN_TEXT.source).test(text) ||
-      new RegExp(PHONE_IN_TEXT.source).test(text)
+      new RegExp(PHONE.source).test(text)
     );
   }
   if (Array.isArray(value)) return value.some(holdsClientLiteral);
@@ -320,6 +327,8 @@ const rulesHoldLiteral = (r: RulesLike) => r.rules.some((x) => holdsClientLitera
 
 /** A rule that never holds: its field in an empty list. */
 const neverRule = (field: unknown) => ({ field, op: "in", value: [] });
+/** A rule that always holds: its field equal to itself. */
+const alwaysRule = (field: unknown) => ({ field, op: "=", value: field });
 
 /**
  * A person named by user or contact id, email address or phone number (one client's), rather than
@@ -348,22 +357,53 @@ const CHECK_KEYS = new Set(["checks", "approvals", "notify"]);
 // Review of 5.10 (invariant 8): rules that name the client's records never loosen anything.
 // - A check's condition (`checks.*.when`, an approval override's, a notice's, a reviewer's) is
 //   dropped, so the check applies on every run; a condition only ever narrows a check.
-// - Any other rule set (an if path's `when`, a trigger's `filter`, a repeat's `until`) takes the
-//   base's where the base has its own, else each rule naming a record becomes one that never
-//   holds (its field in an empty list).
-// DECISION: never-holding rather than dropped: a trigger then starts fewer runs, never more, and
-// a path is taken less; dropping a rule from an `all` set would widen it. The draft still
-// validates, and the operator sees the change in the promotion's diff.
-function scrubPeople(node: unknown, base: unknown, inCheck = false): void {
+// - An if path's `when` takes the base's where the base has that path; else it is never
+//   rewritten to stand (a path that never holds sends every run past a sign-off it holds): it is
+//   reported (`PromotionProblem`), and promotion and copy refuse until the operator sets it.
+// - A repeat's `until` takes the base's, else one that always holds: the body runs once.
+// - A trigger's `filter` takes the base's, else each rule naming a record becomes one that never
+//   holds (its field in an empty list). Rules are a flat `all` or `any` of positive comparisons
+//   (no negation, no nesting), so a rule that never holds only ever makes the filter hold on
+//   fewer deliveries: the trigger starts fewer runs, never more.
+// DECISION: a path is refused rather than guessed (taken always, or never): either could skip
+// what the operator built into one branch; only the operator can say which records it means.
+
+/** A path whose rule names one client's records, with no template value to take its place. */
+export interface PromotionProblem {
+  stepId: string;
+  pathId: string;
+  /** Where in the step, as a validation error names it (`paths.0.when`). */
+  field: string;
+  message: string;
+}
+
+interface ScrubScope {
+  inCheck: boolean;
+  /** The step being scrubbed and what it holds that can't be carried. */
+  step?: { id: string; name: string } | undefined;
+  problems?: PromotionProblem[] | undefined;
+  /** The index of the path being scrubbed in its step's `paths`. */
+  pathIndex?: number | undefined;
+}
+
+/** The base's item of the same id in a list of identified items (paths, approvers by index). */
+function baseItem(base: unknown, item: unknown, i: number): unknown {
+  if (!Array.isArray(base)) return undefined;
+  if (isPlainObject(item) && typeof item.id === "string") {
+    return base.find((b) => isPlainObject(b) && b.id === item.id);
+  }
+  return base[i];
+}
+
+function scrubPeople(node: unknown, base: unknown, scope: ScrubScope = { inCheck: false }): void {
   if (Array.isArray(node)) {
-    for (const [i, v] of node.entries()) {
-      scrubPeople(v, Array.isArray(base) ? base[i] : undefined, inCheck);
-    }
+    for (const [i, v] of node.entries()) scrubPeople(v, baseItem(base, v, i), scope);
     return;
   }
   if (!isPlainObject(node)) return;
   const b = isPlainObject(base) ? base : undefined;
   const from = (key: string) => (b && Object.hasOwn(b, key) ? cloneJson(b[key]) : undefined);
+  const inCheck = scope.inCheck;
   for (const key of Object.keys(node)) {
     const value = node[key];
     if (key === "steps") continue;
@@ -373,15 +413,38 @@ function scrubPeople(node: unknown, base: unknown, inCheck = false): void {
       continue;
     }
     if (BAG_KEYS.has(key)) continue;
+    if (key === "paths" && Array.isArray(value)) {
+      for (const [i, p] of value.entries()) {
+        scrubPeople(p, baseItem(b?.paths, p, i), { ...scope, pathIndex: i });
+      }
+      continue;
+    }
     if (isRules(value) && rulesHoldLiteral(value)) {
       if (inCheck && key === "when") {
         delete node[key];
         continue;
       }
       const kept = from(key);
+      if (isRules(kept) && !rulesHoldLiteral(kept)) {
+        node[key] = kept;
+        continue;
+      }
+      const isPath =
+        key === "when" && typeof node.id === "string" && Array.isArray(node.steps) && scope.step;
+      if (isPath && scope.step) {
+        const field = `paths.${scope.pathIndex ?? 0}.when`;
+        scope.problems?.push({
+          stepId: scope.step.id,
+          pathId: node.id as string,
+          field,
+          message: `the path "${String(node.name ?? node.id)}" of the step "${scope.step.name}" chooses by one client's records: set its rule in the template before promoting or copying it`,
+        });
+      }
+      // A repeat's condition (`until.rules`): one that always holds (a field equal to itself; an
+      // empty rule list doesn't validate), so the body runs once.
       node[key] =
-        isRules(kept) && !rulesHoldLiteral(kept)
-          ? kept
+        key === "rules"
+          ? { match: "all", rules: [alwaysRule(value.rules[0]?.field)] }
           : {
               ...value,
               rules: value.rules.map((r) => (holdsClientLiteral(r.value) ? neverRule(r.field) : r)),
@@ -415,7 +478,7 @@ function scrubPeople(node: unknown, base: unknown, inCheck = false): void {
           const kept = from(key);
           const roles = value.filter((v) => !namesPerson(v));
           node[key] = Array.isArray(kept) ? kept : roles.length ? roles : [DEFAULT_WHO];
-        } else scrubPeople(value, b?.[key]);
+        } else scrubPeople(value, b?.[key], scope);
         continue;
       case "tell":
         if (Array.isArray(value) && value.some(namesPerson)) {
@@ -452,10 +515,10 @@ function scrubPeople(node: unknown, base: unknown, inCheck = false): void {
           const kept = from(key);
           node[key] =
             typeof kept === "string" && !holdsClientLiteral(kept) ? kept : UNSET_CONTACT_ROLE;
-        } else scrubPeople(value, b?.[key], inCheck);
+        } else scrubPeople(value, b?.[key], scope);
         continue;
       default:
-        scrubPeople(value, b?.[key], inCheck || CHECK_KEYS.has(key));
+        scrubPeople(value, b?.[key], { ...scope, inCheck: inCheck || CHECK_KEYS.has(key) });
     }
   }
 }
@@ -471,7 +534,9 @@ function redactAddresses(node: unknown, freeText = false): unknown {
       .split(/(\{\{[^{}]*\}\})/)
       .map((part, i) => {
         if (i % 2 === 1) return part;
-        const out = part.replace(EMAIL_IN_TEXT, REDACTED).replace(PHONE_IN_TEXT, REDACTED);
+        const out = part
+          .replace(EMAIL_IN_TEXT, REDACTED)
+          .replace(freeText ? PHONE_IN_TEXT : PHONE, REDACTED);
         return freeText ? out.replace(uuids, REDACTED) : out;
       })
       .join("");
@@ -538,6 +603,8 @@ export function stripForPromotion<B extends AnyAgentBundle>(
   /** The base template version's bundle; null (no template) drops every such value. */
   base: AnyAgentBundle | null,
   skills: Record<string, Pick<SkillDefinition, "settings">>,
+  /** Review of 5.10: what can't be carried (a path choosing by records), for the caller to refuse. */
+  problems?: PromotionProblem[],
 ): B {
   // Same rule as core's stripClientSpecificSettings, but the base's value is kept where it has one.
   const out = cloneJson(client);
@@ -579,7 +646,11 @@ export function stripForPromotion<B extends AnyAgentBundle>(
       scrub(s[field] as Bag | undefined, bag?.[field] as Bag | undefined, new Set());
     }
     // Invariant 11: approvers, assignees, people told and contacts are the client's own.
-    scrubPeople(step, b);
+    scrubPeople(step, b, {
+      inCheck: false,
+      step: { id: step.id, name: step.name },
+      problems,
+    });
   });
   // DECISION: a skill's parameter values are set per agent (core's skill model), so the client's
   // never travel: the base template's values are kept, or none (a parameter without a default
@@ -612,6 +683,39 @@ export function stripForPromotion<B extends AnyAgentBundle>(
   return redactAddresses(out) as B;
 }
 
+/** The `when` of a path of a step, or undefined when the bundle has no such path. */
+function pathWhen(bundle: AnyAgentBundle, p: Pick<PromotionProblem, "stepId" | "pathId">): unknown {
+  let found: unknown;
+  eachBundleStep(bundle, (step) => {
+    if (step.id !== p.stepId) return;
+    const paths = (step as { paths?: unknown }).paths;
+    if (!Array.isArray(paths)) return;
+    const path = paths.find((x) => isPlainObject(x) && x.id === p.pathId);
+    if (isPlainObject(path)) found = path.when;
+  });
+  return found;
+}
+
+const deepEqualJson = (a: unknown, b: unknown) => canonicalJson(a) === canonicalJson(b);
+
+/**
+ * Review of 5.10: refuses a promotion or a copy that would carry a path choosing by one client's
+ * records, as a draft that doesn't validate (`invalid_bundle`), each naming its step and path.
+ */
+export function refuseProblems(problems: readonly PromotionProblem[]): void {
+  if (problems.length === 0) return;
+  throw new AgentsError(
+    "invalid_bundle",
+    problems.map((p) => p.message).join("; "),
+    problems.map((p) => ({
+      stepId: p.stepId,
+      field: p.field,
+      code: "client_specific_rule",
+      message: p.message,
+    })),
+  );
+}
+
 export interface PromotionPreview extends MergePreview {
   /** The client version promoted (before stripping). */
   client: AgentVersionRow;
@@ -619,6 +723,8 @@ export interface PromotionPreview extends MergePreview {
   stripped: AnyAgentBundle;
   /** The "theirs" side merged: `stripped` with only the selected changes (all when none given). */
   selected: AnyAgentBundle;
+  /** Review of 5.10: paths that choose by the client's records; a draft holding one is refused. */
+  problems: PromotionProblem[];
 }
 
 /**
@@ -650,7 +756,8 @@ export async function previewPromotion(
     bundle: client.bundle,
     catalog: input.ctx.catalog,
   });
-  const stripped = stripForPromotion(client.bundle, base.bundle, skills);
+  const problems: PromotionProblem[] = [];
+  const stripped = stripForPromotion(client.bundle, base.bundle, skills, problems);
   // R9: a client version and a template version may be v3 and v4 apiece.
   const read = lineageReadOptions(input.ctx);
   const selected = input.changes
@@ -658,7 +765,7 @@ export async function previewPromotion(
     : stripped;
   const result = mergeBundles(base.bundle, ours.bundle, selected, input.resolutions ?? [], read);
   // The "theirs" side is the stripped client bundle; report it against the client version row.
-  return { base, ours, theirs: client, client, stripped, selected, result };
+  return { base, ours, theirs: client, client, stripped, selected, result, problems };
 }
 
 /** Saves a promotion as a template draft (author_type 'promote'). */
@@ -676,6 +783,14 @@ export async function createPromotionDraft(
   },
 ): Promise<{ version: AgentVersionRow; preview: PromotionPreview }> {
   const preview = await previewPromotion(tx, input);
+  refuseProblems(
+    preview.problems.filter(
+      (p) =>
+        // Only a path the draft takes as the scrub left it (a change not selected leaves it out).
+        pathWhen(preview.result.bundle, p) !== undefined &&
+        deepEqualJson(pathWhen(preview.result.bundle, p), pathWhen(preview.stripped, p)),
+    ),
+  );
   await requireMergeable(tx, null, preview.result, input.ctx);
   const version = await createVersion(tx, {
     agentId: preview.ours.agentId,
