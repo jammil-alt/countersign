@@ -48,20 +48,32 @@ jobs:
           echo "::error::Run this from main (\"Use workflow from: main\", not $RUN_FROM) and type the branch in \"Branch to deploy\"."
           exit 1
 
+      # A branch of this repository only, never a tag, a commit or a pull request's ref (a fork's
+      # `refs/pull/N/head` would put an outsider's code on staging). Its commit now is the one
+      # checked and deployed, even if the branch moves meanwhile.
+      - name: Which commit
+        id: which
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [[ ! $BRANCH =~ ^[A-Za-z0-9._/-]+$ || $BRANCH == *..* || $BRANCH == refs/* ]]; then
+            echo "::error::'$BRANCH' is not a branch name. Type the branch, e.g. claude/fix-desk."
+            exit 1
+          fi
+          sha=$(gh api "repos/$REPO/git/ref/heads/$BRANCH" --jq .object.sha) || {
+            echo "::error::No branch '$BRANCH' in $REPO."
+            exit 1
+          }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Deploying $BRANCH at $sha to staging."
+
       # The whole history, to compare the branch's migrations with main's.
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ steps.which.outputs.sha }}
           fetch-depth: 0
-
-      # The commit checked here is the one deployed, even if the branch moves meanwhile.
-      - name: Which commit
-        id: which
-        run: |
-          set -euo pipefail
-          sha=$(git rev-parse HEAD)
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "Deploying $BRANCH at $sha to staging."
 
       # The branch's own changes since it left main (three dots, so main's later migrations don't
       # count), kept only where the file still differs from main's (so a branch that merged main,
@@ -87,10 +99,23 @@ jobs:
 
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (third-party: pinned to a commit)
 
+      # The pnpm store from cache, read only. This run starts from main, so a cache it saved would
+      # be main's, restored by production's deploys and main's checks; the branch's unreviewed code
+      # (an install script, a lint plugin) runs here and must never write one. Same key and path
+      # as setup-node's `cache: pnpm`, so main's entries are found; a miss only installs slower.
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
-          cache: pnpm
+
+      - name: The pnpm store's path
+        id: store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache/restore@v6
+        with:
+          path: ${{ steps.store.outputs.path }}
+          key: node-cache-${{ runner.os }}-x64-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: node-cache-${{ runner.os }}-x64-pnpm-
 
       - run: pnpm install --frozen-lockfile
 

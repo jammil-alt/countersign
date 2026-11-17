@@ -1438,12 +1438,17 @@ step's date:
   `deploy-app.yml` to staging (never production), smoke test included, and its summary says which
   branch and commit staging runs.
   - **Refused:** a run started from any branch but `main` (the checks and the refusal are
-    `main`'s, so a branch can't loosen them), and a branch that adds, changes or removes a
+    `main`'s, so a branch can't loosen them); anything but a branch of this repository (no tag,
+    commit or pull request ref, so never a fork's code); and a branch that adds, changes or removes a
     migration `main` doesn't have (`packages/db/migrations/*.sql`, `packages/db/migrations/meta`,
     compared with `origin/main`). A migration applied to staging can't be taken back, and one that
     reached staging may never be edited (§3), so it would be frozen before review. Migrations
     reach staging by merging; to quick-deploy the rest of a branch first, move its migration to a
     pull request of its own and merge that.
+  - **No cache written.** The run starts from `main`, so any cache it saved would be `main`'s,
+    restored by production deploys and `main`'s checks, while the branch's unreviewed code runs.
+    Its jobs and `deploy-app.yml` restore the pnpm store read only (`actions/cache/restore`) and
+    save nothing (CodeQL, 2026-11-17).
   - **One staging deploy at a time:** its deploy job holds `deploy.yml`'s `deploy-staging` group
     and is never cancelled (a cancelled deploy could stop between the migration and the Worker).
     Its checks run beside a deploy in progress; only the deploy waits. GitHub keeps one waiting

@@ -149,11 +149,25 @@ jobs:
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (third-party: pinned to a commit)
         if: steps.ready.outputs.ready == 'true'
 
+      # The pnpm store from cache, read only: a quick deploy runs a branch's unreviewed code in
+      # main's cache scope, which production's deploys restore from, so this job never saves one
+      # (checks.yml's jobs do). Same key and path as setup-node's `cache: pnpm`.
       - uses: actions/setup-node@v7
         if: steps.ready.outputs.ready == 'true'
         with:
           node-version-file: .nvmrc
-          cache: pnpm
+
+      - name: The pnpm store's path
+        id: store
+        if: steps.ready.outputs.ready == 'true'
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache/restore@v6
+        if: steps.ready.outputs.ready == 'true'
+        with:
+          path: ${{ steps.store.outputs.path }}
+          key: node-cache-${{ runner.os }}-x64-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: node-cache-${{ runner.os }}-x64-pnpm-
 
       - if: steps.ready.outputs.ready == 'true'
         run: pnpm install --frozen-lockfile
