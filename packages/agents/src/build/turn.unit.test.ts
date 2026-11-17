@@ -32,7 +32,8 @@ const base: BuildTurnInput = {
   brief: {},
   fitgap: { rows: [], needsTrue: [], setup: [] },
   testPlan: { datasets: [] },
-  items: [],
+  issues: [],
+  focus: null,
   facts: [],
   history: [],
   words: "I want an agent that reviews vendor invoices against their contracts.",
@@ -45,6 +46,43 @@ function lastUser(req: LlmRequest | undefined): string {
 }
 
 describe("buildTurn", () => {
+  it("sees the issues and the thread it is on, and answers about one with a proposal", async () => {
+    const model = new FakeModel([
+      {
+        toolUse: {
+          name: BUILD_TURN_TOOL,
+          input: {
+            text: "The W-9 check is settled by the vendor form step. I'd close it as done.",
+            about: "item:w9",
+            proposal: {
+              summary: "Close “Check the W-9” as done",
+              action: { do: "close_item", itemId: "w9", state: "done" },
+            },
+          },
+        },
+      },
+    ]);
+    const out = await buildTurn(
+      {
+        ...base,
+        phase: "draft",
+        issues: ["[item:w9] Open item (Open, operator): Check the W-9"],
+        focus: {
+          line: "[item:w9] Open item (Open, operator): Check the W-9",
+          thread: [{ role: "operator", text: "Where does the tax id get checked?" }],
+        },
+        words: "Is that one done now?",
+      },
+      { llm: createLlmClient({ transport: model }) },
+    );
+    const sent = lastUser(model.requests[0]);
+    expect(sent).toContain("Issues:\n- [item:w9]");
+    expect(sent).toContain("Talking about: [item:w9]");
+    expect(sent).toContain("Operator: Where does the tax id get checked?");
+    expect(out.answer.about).toBe("item:w9");
+    expect(out.answer.proposal?.action).toEqual({ do: "close_item", itemId: "w9", state: "done" });
+  });
+
   it("fills the brief in intake, and drops a fit-gap it wasn't asked for", async () => {
     const model = new FakeModel([
       {

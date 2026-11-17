@@ -124,6 +124,7 @@ export * from "./billing";
 export * from "./browser/script";
 export * from "./browser/site";
 export * from "./build/build";
+export * from "./build/issues";
 export * from "./bundle/client-specific";
 export * from "./bundle/diff";
 export {
