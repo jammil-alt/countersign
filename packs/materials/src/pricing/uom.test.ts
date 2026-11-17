@@ -91,6 +91,21 @@ describe("statedPack", () => {
     expect(statedPack("BX", `${text} 100CT`, "100").size).toBe("100");
     expect(statedPack("CS", `${text} 100/BX`, "100")).toMatchObject({ size: null, sizes: [] });
     expect(statedPack("EA", `${text} 100/BX`, "100").size).toBeNull();
+    // Any doubt is no size: a count beside a nested pack, a case smaller than its box.
+    expect(statedPack("CS", `${text} 100CT 10 BX/CS`, "100")).toMatchObject({
+      size: null,
+      sizes: [],
+    });
+    expect(statedPack("BX", `${text} 100PK 10 PK/BX`, "100")).toMatchObject({
+      size: null,
+      sizes: [],
+    });
+    expect(statedPack("BX", `${text} 100CT 10 BX`, "100")).toMatchObject({ size: null, sizes: [] });
+    expect(statedPack("CS", `${text} 100/BX 10/CS`, "100")).toMatchObject({
+      size: null,
+      sizes: [],
+    });
+    expect(statedPack("PK", `${text} 100PK`, "100").size).toBe("100");
   });
 
   it("converts by that size, else as a line with no pack size does", () => {

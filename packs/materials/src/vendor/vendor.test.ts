@@ -1581,6 +1581,84 @@ describe.skipIf(!online)("the vendor catalog's tools", () => {
     expect((await vendorItemRow(skuId))?.listPrice).toBe("9.5000");
   });
 
+  it("holds a line whose wording leaves its own pack's size in doubt, or whose SKU is another pack", async () => {
+    const shop = await insertShop(t.db, "Millwork K");
+    const text = "#8 X 1-1/4 WOOD SCREW";
+    const screws = await item(shop, text);
+    const held = async (name: string, line: InvoiceLine) => {
+      const v = await shop.vendor(name);
+      const r = await registerOne(shop, v, screws, line, "2026-11-05");
+      return { line: r.lines[0], made: await vendorItemRow(r.lines[0]?.vendorItemId ?? "") };
+    };
+    // K4, K5: a count beside a nested pack is no size for the line's unit.
+    for (const [name, line] of [
+      [
+        "Count Case Supply",
+        { description: `${text} 100CT 10 BX/CS`, qty: "1", uom: "CS", unitPrice: "80.00" },
+      ],
+      [
+        "Count Box Supply",
+        { description: `${text} 100PK 10 PK/BX`, qty: "1", uom: "BX", unitPrice: "90.00" },
+      ],
+      // K2: ten to a case beside a box of 100 is ten boxes, not a case of ten.
+      [
+        "Ten Case Supply",
+        { description: `${text} 100/BX 10/CS`, qty: "1", uom: "CS", unitPrice: "80.00" },
+      ],
+    ] as const) {
+      const r = await held(name, line);
+      expect(r.line?.observationId).toBeNull();
+      expect(r.made?.stdPerVendorUom ?? null).toBeNull();
+    }
+    // K2 on a case recorded at 1000: the agreeing vendor item converts it.
+    const v2 = await shop.vendor("Recorded Case Supply");
+    const kase = await registerOne(
+      shop,
+      v2,
+      screws,
+      { description: `${text} 1000/CS`, qty: "1", uom: "CS", unitPrice: "80.00" },
+      "2026-11-01",
+    );
+    const k2 = await registerOne(
+      shop,
+      v2,
+      screws,
+      { description: `${text} 100/BX 10/CS`, qty: "1", uom: "CS", unitPrice: "82.00" },
+      "2026-11-05",
+    );
+    expect(k2.lines[0]?.vendorItemId).toBe(kase.lines[0]?.vendorItemId);
+    const [obs] = await t.db
+      .select()
+      .from(priceObservation)
+      .where(eq(priceObservation.id, k2.lines[0]?.observationId ?? ""));
+    expect(obs?.unitPriceStd).toBe("0.0820");
+    // K1: a case line with the SKU of the vendor's box of 100 is not the box.
+    const v1 = await shop.vendor("Box SKU Supply");
+    const box = await registerOne(
+      shop,
+      v1,
+      screws,
+      { description: `${text} 100/BX`, sku: "FS-8114", qty: "1", uom: "BX", unitPrice: "9.00" },
+      "2026-11-01",
+    );
+    const boxId = box.lines[0]?.vendorItemId ?? "";
+    const k1 = await registerOne(
+      shop,
+      v1,
+      screws,
+      { description: text, sku: "FS-8114", qty: "1", uom: "CS", unitPrice: "80.00" },
+      "2026-11-05",
+    );
+    expect(k1.lines[0]?.vendorItemId).toBeNull();
+    expect(k1.lines[0]?.observationId).toBeNull();
+    expect(k1.lines[0]?.note).toMatch(/with this SKU is another box, not this case/);
+    expect(await vendorItemRow(boxId)).toMatchObject({
+      lastPrice: "9.0000",
+      stdPerVendorUom: "100.0000",
+      ext: { unitWord: "box" },
+    });
+  });
+
   it("never folds a box into the case on a merge: each keeps its own prices", async () => {
     const shop = await insertShop(t.db, "Millwork Y");
     const v = await shop.vendor("Merge Pack Supply");
@@ -1819,6 +1897,8 @@ describe.skipIf(!online)("the vendor catalog's tools", () => {
         catalogItemId: from,
         name: "MAPLE 4/4",
         vendorUom: "board_foot",
+        // One board foot a unit, as the item that stays has none: the same unit, so it folds.
+        stdPerVendorUom: "1",
         lastPrice: "5.5000",
         lastPriceOn: "2026-11-01",
         lastPriceSource: "invoice",

@@ -293,7 +293,15 @@ export async function resolveVendorItem(
     const bySku = await vendorItemBySku(tx, tenantId, key.vendorId, key.sku);
     // The SKU's box, case or pail, in the line's unit, of another size than the line states, is
     // not this line's (`contradictsSize`): none, and Register item says why.
-    if (bySku && packaging && bySku.vendorUom === key.vendorUom && contradictsSize(bySku, line)) {
+    // DECISION (sixth review of fix/materials, K1): nor is the SKU's box a case line's, as for
+    // a price list's row by SKU (./import.ts `anotherPack`).
+    const otherWord = bySku ? recordedWord(bySku) : null;
+    if (
+      bySku &&
+      packaging &&
+      bySku.vendorUom === key.vendorUom &&
+      (contradictsSize(bySku, line) || (otherWord !== null && otherWord !== word))
+    ) {
       return null;
     }
     if (bySku) return bySku;
@@ -777,7 +785,9 @@ function samePack(a: VendorItemRow, b: VendorItemRow): boolean {
   const sa = a.stdPerVendorUom;
   const sb = b.stdPerVendorUom;
   const packed = a.vendorUom !== null && PACKAGING_UOMS.has(a.vendorUom);
-  if (sa === null || sb === null) return !packed && sa === sb;
+  // A unit that is no pack holds one of itself when no size is recorded (as before this check).
+  if (!packed) return dec(sa ?? "1").equals(dec(sb ?? "1"));
+  if (sa === null || sb === null) return false;
   if (!dec(sa).equals(dec(sb))) return false;
   const wa = recordedWord(a);
   const wb = recordedWord(b);

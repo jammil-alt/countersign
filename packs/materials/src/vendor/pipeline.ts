@@ -1139,7 +1139,7 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
           : "its pack size (none is recorded)";
         filedNote = `filed under no vendor item: the vendor's item without a SKU in this unit was recorded before its unit's word was kept, so it takes only a line that states ${size}, and this line states ${stated.length > 0 ? stated.join(", ") : "none"}; give the line its SKU or its pack size to register it`;
       } else if (!filed) {
-        filedNote = `filed under no vendor item: the vendor's item without a SKU in this unit is another ${recordedWord(made.item) ?? "pack"}, not this ${word ?? "unit"}; give the line its SKU to register it`;
+        filedNote = `filed under no vendor item: the vendor's item ${made.item.sku ? "with this SKU" : "without a SKU in this unit"} is another ${recordedWord(made.item) ?? "pack"}, not this ${word ?? "unit"}; give the line its SKU to register it`;
       }
     } else if (vi.stdPerVendorUom === null && conv.ok && (vi.vendorUom ?? "") === vendorUom) {
       filed = await updateVendorItem(tx, tenantId, vi.id, {

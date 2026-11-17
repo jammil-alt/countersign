@@ -163,17 +163,43 @@ export interface StatedPack {
   size: string | null;
 }
 
+// The parser's count forms (catalog/parsers.ts: `100PK`, `100PC`, `100CT`).
+const PARSER_COUNT = /(?:^|\s)\d+(?:PK|PC|PCS|CT)(?=\s|$)/g;
+// A pack word beside a number, either way round: `10 BX`, `BX 10`, `10/CS`, `BOX OF 4`.
+const PACK_NEAR_NUMBER = new RegExp(
+  `\\d\\s*(?:\\/|PER|OF)?\\s*(?:${PACKAGING_TOKENS})(?![A-Z])|(?<![A-Z])(?:${PACKAGING_TOKENS})\\s*(?:\\/|OF|-)?\\s*\\d`,
+);
+
+// The order packs usually nest in, inner first: a box holds packs, a case holds boxes.
+const NESTING: Readonly<Record<string, number>> = { pack: 1, box: 2, carton: 3, case: 4 };
+
+/**
+ * Whether a pack of `size` in `word` sits with one of `otherSize` in `otherWord` without doubt:
+ * the outer one (`NESTING`) strictly bigger. A word outside that order sits with no other size.
+ */
+function nests(word: string, size: string, otherWord: string, otherSize: string): boolean {
+  const a = NESTING[word];
+  const b = NESTING[otherWord];
+  if (a === undefined || b === undefined) return false;
+  return a > b ? dec(size).greaterThan(otherSize) : dec(size).lessThan(otherSize);
+}
+
 /**
  * The pack size a line states for its own unit, read one way for matching and for converting:
  * for a box, case or pail, the sizes `packsIn` reads in the unit's own word (`100/BX` for a box
- * line, never the `1000/CS` beside it); when the text states no pack in any word, the parser's
- * pack size (`100CT`); else none. Sizes that disagree give no size. Other units state none.
+ * line, never the `1000/CS` beside it); when the text names no pack beside a number anywhere,
+ * the parser's pack size (`100CT`); else none. Any doubt gives no size: sizes that disagree, or
+ * a size beside another pack's that doesn't nest in it (`100/BX 10/CS`: a case smaller than its
+ * box, `NESTING`). Other units state none.
  */
 // DECISION (fifth review of fix/materials, finding 1): matching (`effectiveWord`) and every
 // conversion (`convertLine`) read a line's pack size here, so a line is never filed under a box
 // of 100 and converted at the case's 1000 beside it. The parser's first X/N (`pack_size`) counts
 // only when the text names no pack in any word, since it may be another pack's. No usable size:
 // the line converts as a line without one does (the vendor item's conversion, else none).
+// DECISION (sixth review of fix/materials): invoices word packs in endless ways, so this reads a
+// size only when the text leaves no doubt, and otherwise reads none: the line is then converted
+// by a vendor item that agrees with it, or held for a person. It never guesses.
 export function statedPack(
   uomRaw: string | null | undefined,
   text: string | null | undefined,
@@ -184,12 +210,24 @@ export function statedPack(
   if (word === null || unit === null || !PACKAGING_UOMS.has(unit)) {
     return { word, sizes: [], size: null };
   }
+  const none: StatedPack = { word, sizes: [], size: null };
   const packs = packsIn(text);
-  const own = packs.filter((p) => p.word === word).map((p) => p.size);
-  const parsed = parsedPackSize && Number(parsedPackSize) > 0 ? [parsedPackSize] : [];
-  const raw = own.length > 0 ? own : packs.length === 0 ? parsed : [];
-  const sizes = [...new Set(raw.map((x) => dec(x).toString()))];
-  return { word, sizes, size: sizes.length === 1 ? (sizes[0] ?? null) : null };
+  const own = [...new Set(packs.filter((p) => p.word === word).map((p) => dec(p.size).toString()))];
+  if (own.length > 0) {
+    // A case of 10 beside a box of 100 is ten boxes, not ten: no size.
+    const others = packs.filter((p) => p.word !== word);
+    if (own.some((x) => others.some((o) => !nests(word, x, o.word, o.size)))) return none;
+    return { word, sizes: own, size: own.length === 1 ? (own[0] ?? null) : null };
+  }
+  // The parser's own reading (`100CT`, `100PK`) aside, a pack beside a number anywhere may be
+  // what its number counts (`100CT 10 BX/CS`): no size.
+  const rest = (text ?? "").toUpperCase().slice(0, 500).replace(PARSER_COUNT, " ");
+  if (packs.length > 0 || PACK_NEAR_NUMBER.test(rest) || new RegExp(NESTED_PACK).test(rest)) {
+    return none;
+  }
+  if (!parsedPackSize || !(Number(parsedPackSize) > 0)) return none;
+  const size = dec(parsedPackSize).toString();
+  return { word, sizes: [size], size };
 }
 
 /**
