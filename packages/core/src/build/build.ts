@@ -205,19 +205,23 @@ export type NeedsTrue = z.infer<typeof NeedsTrue>;
 // ── The client intake form (a template's) ───────────────────────────────────────────────────────
 
 /**
- * What we get from each client to set up their copy of a template: a tool to connect, a pack to
- * switch on, an answer (a value such as a tolerance or an address) or a file (contracts, a list).
+ * What we get from each client to set up their copy of a template: a tool they connect, an answer
+ * (a value such as a tolerance or an address) or a file (contracts, a list). Only what the client
+ * gives us: our own setup (switching on a pack) is ours to do, never asked of them.
  * A template has no client yet, so these are a form that travels with the build, not open items.
  */
 // DECISION (owner, 2026-11-16): a template's "what needs to be true" is its client intake form,
 // kept on the build (in its fit-gap record, no migration); a build for one client keeps open items.
-export const SETUP_KINDS = ["connect", "pack", "answer", "file"] as const;
+// DECISION (owner, 2026-11-17): "no set up should be in here from that side": the form holds only
+// what the client gives us. "Switch on a pack" is gone; a pack the template needs is a configure
+// row of the fit-gap, done by us when we set up the client's copy. Stored pack fields are dropped
+// when read (`readFitGap`).
+export const SETUP_KINDS = ["connect", "answer", "file"] as const;
 export const SetupKind = z.enum(SETUP_KINDS);
 export type SetupKind = z.infer<typeof SetupKind>;
 
 export const SETUP_WORDS: Record<SetupKind, string> = {
   connect: "Connect a tool",
-  pack: "Switch on a pack",
   answer: "Answer",
   file: "File",
 };
@@ -232,7 +236,7 @@ export const SetupFieldDraft = z.object({
     .max(200)
     .describe("What we ask the client, as a question or a short label"),
   kind: SetupKind.describe(
-    "connect (a tool they connect, by name), pack (a pack switched on for them), answer (a value: a tolerance, an address, a person), file (contracts, a vendor list)",
+    "connect (a tool they connect, by name), answer (a value: a tolerance, an address, a person), file (contracts, a vendor list)",
   ),
   hint: z
     .string()
@@ -263,8 +267,23 @@ export const FitGap = z.object({
 });
 export type FitGap = z.infer<typeof FitGap>;
 
+/**
+ * A stored fit-gap without the intake form's old "Switch on a pack" fields (owner, 2026-11-17):
+ * they are ours to do, not the client's, and a kind the form no longer has would fail the whole
+ * record's parse and lose the rest of it.
+ */
+function withoutPackFields(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null) return raw;
+  const setup = (raw as { setup?: unknown }).setup;
+  if (!Array.isArray(setup)) return raw;
+  return {
+    ...raw,
+    setup: setup.filter((f) => (f as { kind?: unknown } | null)?.kind !== "pack"),
+  };
+}
+
 export function readFitGap(raw: unknown): FitGap {
-  const parsed = FitGap.safeParse(raw ?? {});
+  const parsed = FitGap.safeParse(withoutPackFields(raw ?? {}));
   return parsed.success ? parsed.data : { rows: [], needsTrue: [], setup: [] };
 }
 
