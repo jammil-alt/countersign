@@ -369,11 +369,22 @@ describe("tokenManager", () => {
         ReconnectRequiredError,
       );
     }
-    for (const code of ["invalid_client", "BAD_CLIENT_ID", "unauthorized_client"]) {
+    for (const code of [
+      "invalid_client",
+      "BAD_CLIENT_ID",
+      "unauthorized_client",
+      // A refresh body we built wrong (a bad deploy) must not disconnect every client.
+      "invalid_request",
+      "invalid_scope",
+    ]) {
       expect(refreshRefused("HubSpot", code, DEAD_GRANT_CODES, "reconnect")).toBeInstanceOf(
         TokenRefreshError,
       );
     }
+    // A provider that documents one of those for a dead grant still names it (LinkedIn).
+    expect(
+      refreshRefused("LinkedIn", "invalid_request", ["invalid_grant", "invalid_request"]),
+    ).toBeInstanceOf(ReconnectRequiredError);
     // Client-facing words carry no provider code.
     expect(refreshRefused("Intuit", "invalid_client").message).not.toMatch(/invalid_client/);
     expect(refreshRefused("Intuit", "invalid_grant").message).not.toMatch(/invalid_grant/);
@@ -448,18 +459,45 @@ describe("tokenManager", () => {
       accessFailingSince: t0.toISOString(),
       accessFailingCode: "invalid_client",
     });
-    // Later failures keep the first time.
-    await expect(call(12)).rejects.toBeInstanceOf(TokenRefreshError);
-    expect(credentials.current()).toMatchObject({ accessFailingSince: t0.toISOString() });
+    // Later failures, a few hours apart, keep the first time.
+    await expect(call(5)).rejects.toBeInstanceOf(TokenRefreshError);
+    expect(credentials.current()).toMatchObject({
+      accessFailingSince: t0.toISOString(),
+      accessFailingLast: at(5).toISOString(),
+    });
     // Fixed within the day: the record goes, and a later failure starts the clock again.
     failing = false;
-    await call(20);
+    await call(10);
     expect(credentials.current()).not.toHaveProperty("accessFailingSince");
     failing = true;
     await credentials.set({ ...(credentials.current() ?? {}), expiresAt: at(30).toISOString() });
-    await expect(call(30)).rejects.toBeInstanceOf(TokenRefreshError);
-    await expect(call(53)).rejects.toBeInstanceOf(TokenRefreshError);
+    for (const h of [30, 35, 40, 45, 50]) {
+      await expect(call(h)).rejects.toBeInstanceOf(TokenRefreshError);
+    }
     await expect(call(54)).rejects.toBeInstanceOf(AccessFailingError);
+  });
+
+  it("starts the clock again when failures are hours apart, so one old blip doesn't raise a later one", async () => {
+    const down: TokenRefresher = {
+      async refresh() {
+        throw new TokenRefreshError("temporarily_unavailable", "not renewed");
+      },
+    };
+    const credentials = memoryCredentials(tokens({ expiresAt: t0.toISOString() }));
+    const at = (h: number) => new Date(t0.getTime() + h * 3600_000);
+    const call = (h: number) =>
+      tokenManager({ credentials, refresher: down, now: () => at(h) }).accessToken();
+    // One blip on day 0, no calls for a week, one blip on day 7: not a day of failing.
+    await expect(call(0)).rejects.toBeInstanceOf(TokenRefreshError);
+    await expect(call(7 * 24)).rejects.toBeInstanceOf(TokenRefreshError);
+    expect(credentials.current()).toMatchObject({ accessFailingSince: at(7 * 24).toISOString() });
+    // A record from before `accessFailingLast` existed counts its start as its latest.
+    await credentials.set({
+      ...(tokens({ expiresAt: t0.toISOString() }) as JsonObject),
+      accessFailingSince: at(0).toISOString(),
+    });
+    await expect(call(30)).rejects.toBeInstanceOf(TokenRefreshError);
+    expect(credentials.current()).toMatchObject({ accessFailingSince: at(30).toISOString() });
   });
 
   it("asks for a reconnect when there is nothing to refresh with", async () => {

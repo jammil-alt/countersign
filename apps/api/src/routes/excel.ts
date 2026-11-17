@@ -5,6 +5,7 @@
 // that picked it. The connection's tokens never leave the Worker.
 
 import {
+  attentionReasonOf,
   EXCEL_CONNECTOR_ID,
   type ExcelConfig,
   excelConfigOf,
@@ -115,6 +116,13 @@ function microsoftFailed(error: unknown): never {
     throw new HttpError(422, "workbook_not_available", error.message);
   }
   if (error instanceof ReconnectRequiredError) {
+    if (attentionReasonOf(error) === "refresh_failing") {
+      throw new HttpError(
+        503,
+        "not_reachable",
+        "we can't reach Excel right now and are looking into it",
+      );
+    }
     throw new HttpError(
       409,
       "not_connected",

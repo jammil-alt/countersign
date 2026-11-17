@@ -3,6 +3,7 @@
 // ports, records how it ended on `run`, rolls usage up, and dispatches the events it emitted.
 
 import {
+  accessRestored,
   // R3: an AI reviewer's check, and conversation steps (docs/plan.md §1.86).
   conferAi,
   conversationRunner,
@@ -244,6 +245,10 @@ export function credentialsFor(
         const update = (await open()).update;
         if (!update) throw new Error("the credentials can't be swapped");
         return update(decide);
+      },
+      // A call works again: an open `refresh_failing` issue on the connection closes.
+      accessRestored: async () => {
+        await accessRestored(db, conn.tenantId, conn.id);
       },
     };
   };

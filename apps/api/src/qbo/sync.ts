@@ -7,6 +7,7 @@
 import { dbConnectionAttention } from "@countersign/agents";
 import {
   type AttachmentRef,
+  attentionReasonOf,
   type ConnectionRef,
   type ContentStore,
   type CredentialsAccessor,
@@ -115,17 +116,24 @@ export async function qboSyncStep(
     );
   } catch (error) {
     if (error instanceof ReconnectRequiredError) {
-      // The client must sign in again: the connection needs attention (both surfaces show it).
+      // The client must sign in again (`signin_expired`), or renewing our access has failed for a
+      // day (`refresh_failing`: the connection stays connected and the next sync tries again):
+      // the connection needs attention (both surfaces show it).
       // v0.12 W1-H: its event is dispatched after the step, with the pages'.
+      const reason = attentionReasonOf(error);
       const collect: EventRow[] = [];
       const emit = senseEmitter(deps.platform.events, { collect });
       await dbConnectionAttention(deps.db, { emit }).needsAttention(tenantId, {
         connectionId,
-        reason: "signin_expired",
+        reason,
         detail: error.message,
       });
       return {
-        ...skip("the client needs to sign in to QuickBooks again"),
+        ...skip(
+          reason === "refresh_failing"
+            ? "we can't reach QuickBooks right now and are looking into it"
+            : "the client needs to sign in to QuickBooks again",
+        ),
         eventIds: collect.map((e) => e.id),
         events: collect,
       };

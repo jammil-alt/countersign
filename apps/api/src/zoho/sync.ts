@@ -117,7 +117,9 @@ export async function zohoSyncStep(
   } catch (error) {
     if (error instanceof ReconnectRequiredError) {
       return skip(
-        "the client needs to sign in to Zoho again",
+        attentionReasonOf(error) === "refresh_failing"
+          ? "we can't reach Zoho right now and are looking into it"
+          : "the client needs to sign in to Zoho again",
         await needsSignIn(deps, tenantId, connectionId, error),
       );
     }

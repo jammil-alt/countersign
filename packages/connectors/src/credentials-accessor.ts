@@ -23,6 +23,11 @@ export interface CredentialsAccessor {
    * Optional: without it, tokenManager reads and writes with `get` and `set`.
    */
   update?(decide: (stored: JsonObject | null) => JsonObject | null): Promise<JsonObject | null>;
+  /**
+   * A call works again after renewing access had been failing (tokenManager): the platform
+   * closes an open `refresh_failing` issue on the connection. Optional and best effort.
+   */
+  accessRestored?(): Promise<void>;
 }
 
 /** Tries of `update` before it gives up (each one lost to another writer). */

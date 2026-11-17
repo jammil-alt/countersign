@@ -17,6 +17,7 @@ import { type ConnectionContext, type Connector, defineConnector } from "../conn
 import { GOOGLE_AUTH_URL, GOOGLE_TOKEN_URL } from "../gmail/index";
 import { type FetchLike, formEncode, globalFetch, timeoutSignal } from "../http";
 import {
+  attentionReasonOf,
   OAuthTokens,
   ReconnectRequiredError,
   refreshRefused,
@@ -213,7 +214,11 @@ export function createGscOauthConnector(options: GscOauthOptions = {}): SearchCo
       token = await tokens.accessToken();
     } catch (error) {
       if (error instanceof ReconnectRequiredError) {
-        throw new SearchImportError("Google ended the sign-in: connect Search Console again");
+        throw new SearchImportError(
+          attentionReasonOf(error) === "refresh_failing"
+            ? "we can't reach Search Console right now and are looking into it"
+            : "Google ended the sign-in: connect Search Console again",
+        );
       }
       throw error;
     }

@@ -69,6 +69,9 @@ export const ACCESS_FAILING_ATTENTION_MS = 24 * 60 * 60 * 1000;
  * needs a person (reason `refresh_failing`, not `signin_expired`). A ReconnectRequiredError, so
  * every caller that raises a connection for a person raises this one too.
  */
+// DECISION: kept a ReconnectRequiredError subclass, and `refresh_failing` is special-cased where
+// it lands: `dbConnectionAttention` keeps the connection `connected` (no `error`, so syncs go on
+// and no "sign in again" email), and every caller's words check `attentionReasonOf` first.
 export class AccessFailingError extends ReconnectRequiredError {
   readonly attentionReason = "refresh_failing" as const;
   notWritten = true;
@@ -100,6 +103,10 @@ export const DEAD_GRANT_CODES: readonly string[] = ["invalid_grant"];
 export const NOT_THE_CLIENTS_CODES: readonly string[] = [
   "invalid_client",
   "unauthorized_client",
+  // A refresh request we built wrong (a bad deploy), never the client's grant. A provider that
+  // uses one of these for a dead grant names it in its `deadCodes` (LinkedIn: invalid_request).
+  "invalid_request",
+  "invalid_scope",
   "unsupported_grant_type",
   "server_error",
   "temporarily_unavailable",
@@ -123,6 +130,10 @@ export const NOT_THE_CLIENTS_CODES: readonly string[] = [
 // DECISION: only the codes that mean the refresh token is dead disconnect a client. A wrong or
 // rotated client secret, or a provider incident that answers OAuth errors, would otherwise mark
 // every client's connection `error`, and only a fresh sign-in by each client sets it back.
+// `otherwise: "reconnect"` (HubSpot, Ramp, Podio: unchecked token errors) keeps how those three
+// treated any 400/401 before. Now that a lasting failure is raised after a day without setting
+// `error` (AccessFailingError, `refresh_failing`), they could move to `retry` once their real
+// token errors are seen.
 export function refreshRefused(
   provider: string,
   error: unknown,
@@ -193,7 +204,14 @@ export function reachedProvider(credentials: CredentialsAccessor): boolean {
 
 /** Fields kept with the tokens while renewing access keeps failing (cleared once a call works). */
 const FAILING_SINCE = "accessFailingSince";
+const FAILING_LAST = "accessFailingLast";
 const FAILING_CODE = "accessFailingCode";
+
+/**
+ * Failures further apart than this are not one run of failures: the next one starts the clock
+ * again (a blip a week after another, with no calls between, is not a day of failing).
+ */
+export const ACCESS_FAILING_BREAK_MS = 6 * 60 * 60 * 1000;
 
 export interface TokenManager {
   /** A valid access token, refreshing (and persisting) first when it is about to expire. */
@@ -295,9 +313,9 @@ export function tokenManager(opts: {
    * AccessFailingError once it has gone on for `ACCESS_FAILING_ATTENTION_MS`. Best effort: a
    * failure to record leaves the error as it was.
    */
-  // DECISION: the start of the failures is kept with the connection's own encrypted credentials
-  // (no new column, and no read beyond what a refresh already does); a fresh sign-in replaces
-  // them, and a call the provider takes clears it (`working`).
+  // DECISION: the start and the latest of the failures are kept with the connection's own
+  // encrypted credentials (no new column); a fresh sign-in replaces them, a call the provider
+  // takes clears them (`working`), and a gap over `ACCESS_FAILING_BREAK_MS` starts a new run.
   async function failing(error: unknown): Promise<unknown> {
     const code =
       (error as { code?: unknown } | null)?.code ?? (error as Error | null)?.name ?? "error";
@@ -306,11 +324,22 @@ export function tokenManager(opts: {
     const update = opts.credentials.update?.bind(opts.credentials);
     if (update) {
       try {
-        const after = await update((stored) =>
-          stored === null || typeof stored[FAILING_SINCE] === "string"
-            ? null
-            : { ...stored, [FAILING_SINCE]: now().toISOString(), [FAILING_CODE]: label },
-        );
+        const at = now();
+        const after = await update((stored) => {
+          if (stored === null) return null;
+          const since = stored[FAILING_SINCE];
+          const last = stored[FAILING_LAST] ?? since;
+          const unbroken =
+            typeof since === "string" &&
+            typeof last === "string" &&
+            at.getTime() - Date.parse(last) <= ACCESS_FAILING_BREAK_MS;
+          return {
+            ...stored,
+            [FAILING_SINCE]: unbroken ? since : at.toISOString(),
+            [FAILING_LAST]: at.toISOString(),
+            [FAILING_CODE]: label,
+          };
+        });
         const since = after?.[FAILING_SINCE];
         if (
           typeof since === "string" &&
@@ -333,11 +362,20 @@ export function tokenManager(opts: {
     const update = opts.credentials.update?.bind(opts.credentials);
     const cached = await opts.credentials.get().catch(() => null);
     if (!update || !cached || cached[FAILING_SINCE] === undefined) return;
-    await update((stored) => {
+    const cleared = await update((stored) => {
       if (!stored || stored[FAILING_SINCE] === undefined) return null;
-      const { [FAILING_SINCE]: _since, [FAILING_CODE]: _code, ...rest } = stored;
+      const {
+        [FAILING_SINCE]: _since,
+        [FAILING_LAST]: _last,
+        [FAILING_CODE]: _code,
+        ...rest
+      } = stored;
       return rest as JsonObject;
-    }).catch(() => undefined);
+    })
+      .then(() => true)
+      .catch(() => false);
+    // An issue raised for it (`refresh_failing`) closes; best effort.
+    if (cleared) await opts.credentials.accessRestored?.().catch(() => undefined);
   }
 
   /** The stored tokens once their refresh token is no longer `spent`, or null if it stays. */

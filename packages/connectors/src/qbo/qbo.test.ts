@@ -423,6 +423,7 @@ describe("qbo connector: manifest and sign-in", () => {
     expect(store.current()).toEqual({
       ...before,
       accessFailingSince: NOW.toISOString(),
+      accessFailingLast: NOW.toISOString(),
       accessFailingCode: "invalid_client",
     });
     // With the right keys again, the same grant still works, and the record of failing is gone.
@@ -444,14 +445,13 @@ describe("qbo connector: manifest and sign-in", () => {
     });
     s.qbo.expireAccessTokens();
     const at = (when: Date) => ({ ...ctx(), now: () => when });
-    // Failing for 23 hours: still retryable, the connection is left as it is.
-    await expect(runReadTool(wrongKeys, QBO_TOOLS.itemQuery, {}, at(clock))).rejects.toBeInstanceOf(
-      TokenRefreshError,
-    );
-    clock = new Date(NOW.getTime() + 23 * 3600_000);
-    await expect(runReadTool(wrongKeys, QBO_TOOLS.itemQuery, {}, at(clock))).rejects.toBeInstanceOf(
-      TokenRefreshError,
-    );
+    // Failing every few hours for 20 hours: still retryable, the connection is left as it is.
+    for (const h of [0, 5, 10, 15, 20]) {
+      clock = new Date(NOW.getTime() + h * 3600_000);
+      await expect(
+        runReadTool(wrongKeys, QBO_TOOLS.itemQuery, {}, at(clock)),
+      ).rejects.toBeInstanceOf(TokenRefreshError);
+    }
     // A day without a break: a person is asked to look, with its own reason.
     clock = new Date(NOW.getTime() + 24 * 3600_000);
     const raised = await runReadTool(wrongKeys, QBO_TOOLS.itemQuery, {}, at(clock)).catch((e) => e);
@@ -478,11 +478,14 @@ describe("qbo connector: manifest and sign-in", () => {
       now: () => clock,
     });
     const at = () => ({ ...ctx(), now: () => clock });
-    await expect(runReadTool(refusing, QBO_TOOLS.itemQuery, {}, at())).rejects.toMatchObject({
-      status: 401,
-      retryable: true,
-    });
-    clock = new Date(NOW.getTime() + 25 * 3600_000);
+    for (const h of [0, 6, 12, 18]) {
+      clock = new Date(NOW.getTime() + h * 3600_000);
+      await expect(runReadTool(refusing, QBO_TOOLS.itemQuery, {}, at())).rejects.toMatchObject({
+        status: 401,
+        retryable: true,
+      });
+    }
+    clock = new Date(NOW.getTime() + 24 * 3600_000);
     const raised = await runReadTool(refusing, QBO_TOOLS.itemQuery, {}, at()).catch((e) => e);
     expect(attentionReasonOf(raised)).toBe("refresh_failing");
   });

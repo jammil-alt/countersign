@@ -6,6 +6,7 @@
 // values Google restricts by origin; the connection's tokens never leave the Worker.
 
 import {
+  attentionReasonOf,
   GSHEETS_CONNECTOR_ID,
   gsheetsConfigOf,
   isFileId,
@@ -133,6 +134,13 @@ async function setSheets(
         throw new HttpError(422, "sheet_not_available", error.message);
       }
       if (error instanceof ReconnectRequiredError) {
+        if (attentionReasonOf(error) === "refresh_failing") {
+          throw new HttpError(
+            503,
+            "not_reachable",
+            "we can't reach Google Sheets right now and are looking into it",
+          );
+        }
         throw new HttpError(
           409,
           "not_connected",
