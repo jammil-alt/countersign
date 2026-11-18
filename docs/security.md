@@ -81,7 +81,7 @@ branches.
   - A client's person: Remove, from the client's People (operator) or the portal's Team (client
     admin; never themselves or an operator). Their open items go to the client admin, and approver
     rules naming them already fall to the client admin. The request's audit row names whom.
-  - An operator: `db:remove-operator`, as `cs_owner`: every operator membership, one
+  - An operator: Actions → Remove operator (`db:remove-operator` as `cs_owner`, inside the job): every operator membership, one
     `operator.remove` audit row, never the last operator. Their open items go to the other
     operators, and a client they led has no lead until one is set. The rest of the day's steps are
     in `docs/operations.md`, "People: joining and leaving".
@@ -227,6 +227,11 @@ branches.
 - Neon keeps **7 days** of point-in-time history on the production project. A restore is tested
   every quarter (`docs/operations.md` §4).
 - Original documents in R2 are written once and never changed.
+- **No person holds the database owner's password** (2026-11-18). Migrations, adding and
+  removing operators and purging a retired client run as GitHub Actions workflows that fetch
+  `cs_owner`'s connection inside the job; production's wait for approval. By hand only as
+  break-glass, recorded the same day, with the password reset afterwards (`docs/operations.md`,
+  "Break-glass database access").
 
 ## 9. When a client leaves (in PR #84)
 
@@ -235,7 +240,9 @@ branches.
    - its agents are retired, and no run starts;
    - its tools are disconnected, with grants revoked at the provider and credentials deleted.
 2. **30 days later**, the hourly cron deletes its files from R2.
-3. **The owner then purges its rows** with `db:purge-client`. The audit log keeps its ids.
+3. **The owner then purges its rows** with Actions → Purge client (`purge-client.yml`), which
+   waits for the production environment's approval and asks for the client's name again. The
+   audit log keeps its ids.
 4. **Data at other vendors** (Twilio, ElevenLabs, Resend, Stripe) is closed by hand from the
    checklist in `docs/operations.md` §1.2.
 

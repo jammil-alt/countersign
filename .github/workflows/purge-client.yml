@@ -1,0 +1,81 @@
+name: Purge client
+
+# By hand, from Actions → Purge client: the last step of a client leaving (docs/operations.md,
+# "Retiring a client"; docs/security.md §9; plan §1.35). Deletes every row of one retired client
+# but its audit log. It can't be undone. Refuses when the name typed isn't the client's, before the
+# client has been retired 30 days, and before the hourly sweep has deleted its files
+# (packages/db/src/purge.ts). It briefly locks each table: run it at a quiet hour.
+#
+# cs_owner's connection is fetched from Neon's API inside the job and masked, so no person holds
+# it (docs/operations.md, "Break-glass database access"). The client's name is masked too: the log
+# never carries it.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Environment
+        type: choice
+        options: [staging, production]
+        default: production
+      client_id:
+        description: The client's id (the back office shows it on the client's Settings page)
+        type: string
+        required: true
+      client_name:
+        description: The client's name, typed again
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: purge-client-${{ inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  purge-client:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Production waits for the production environment's approval, like a production deploy.
+    environment: ${{ inputs.target }}
+    env:
+      TARGET: ${{ inputs.target }}
+      CLIENT_ID: ${{ inputs.client_id }}
+      CLIENT_NAME: ${{ inputs.client_name }}
+      BY: "${{ github.actor }}, run ${{ github.run_id }}"
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+      NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+    steps:
+      - name: Mask the client's name
+        run: |
+          name=$(printf '%s' "$CLIENT_NAME" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+          [ -n "$name" ] || { echo "::error::Type the client's name"; exit 1; }
+          echo "::add-mask::$name"
+          echo "::add-mask::$CLIENT_NAME"
+      - uses: actions/checkout@v7
+      - name: Ready?
+        run: |
+          [ -n "$NEON_API_KEY" ] || { echo "::error::NEON_API_KEY secret is missing"; exit 1; }
+          [ -n "$NEON_PROJECT_ID" ] || { echo "::error::NEON_PROJECT_ID variable is missing"; exit 1; }
+          [[ "$CLIENT_ID" =~ ^[0-9a-fA-F-]{36}$ ]] || { echo "::error::client_id is not an id"; exit 1; }
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1 (third-party: pinned to a commit)
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Purge
+        run: |
+          set -euo pipefail
+          branch=$([ "$TARGET" = production ] && echo main || echo staging)
+          url=$(npx --yes neonctl@4.22.0 connection-string "$branch" \
+            --project-id "$NEON_PROJECT_ID" --role-name cs_owner --database-name countersign)
+          echo "::add-mask::$url"
+          export DIRECT_DATABASE_URL="$url"
+          pnpm --filter @countersign/db run db:purge-client -- "$CLIENT_ID" "$CLIENT_NAME"
+          {
+            echo "Purged client $CLIENT_ID on $TARGET (by $BY)."
+            echo "Its audit rows stay. Neon's point-in-time history holds the deleted rows until its window passes."
+          } >> "$GITHUB_STEP_SUMMARY"
