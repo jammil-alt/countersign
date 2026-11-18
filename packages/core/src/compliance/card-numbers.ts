@@ -30,12 +30,28 @@ function looksLikeCard(digits: string): boolean {
   return luhnValid(digits);
 }
 
-export function redactCardNumbers(text: string): string {
-  if (!/\d{4}/.test(text) && !/\d[ -]\d/.test(text)) return text;
+/** A UUID (any version), as the platform's ids are written. */
+const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
+function redactRun(text: string): string {
   return text.replace(CANDIDATE, (match) => {
     const digits = match.replace(/[ -]/g, "");
     return looksLikeCard(digits) ? `[card ending ${digits.slice(-4)}]` : match;
   });
+}
+
+export function redactCardNumbers(text: string): string {
+  if (!/\d{4}/.test(text) && !/\d[ -]\d/.test(text)) return text;
+  // DECISION: ids are never cards. A UUID's dashed groups can hold 13 or more digits in a row
+  // ("c766-7791-9840-102d") that pass Luhn about one time in ten, which mangled record ids; the
+  // text between ids is still checked.
+  let out = "";
+  let last = 0;
+  for (const m of text.matchAll(UUID)) {
+    out += redactRun(text.slice(last, m.index)) + m[0];
+    last = m.index + m[0].length;
+  }
+  return out + redactRun(text.slice(last));
 }
 
 /** Every string in a JSON value, redacted; other values as they are. */

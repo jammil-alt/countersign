@@ -915,9 +915,10 @@ WorkOS values below. Each PR's checks pass before it merges.
      `QBO_WEBHOOK_VERIFIER` (Intuit), `PLAID_CLIENT_ID`, `PLAID_SECRET` (Plaid), then a redeploy
      (Actions → Deploy → production). Until then QuickBooks and bank feeds show "Not available
      yet" in production.
-   - Not yet: `TWILIO_VERIFY_SERVICE_SID` (our own second step). Leave it out of
-     `env.production.vars` until the second step's screens are on `main` and it has been checked
-     on staging (the sign-in codes section below).
+   - `TWILIO_VERIFY_SERVICE_SID` (our own second step) is in `env.production.vars` since
+     2026-11-18, with the key in the production environment's secrets: the release turns sign-in
+     codes on, so everyone signs in once more and sets up a method. Check it on staging first
+     (the sign-in codes section below), then turn WorkOS multi-factor off after the release.
 
 **The release:**
 1. Tag `v0.1.0` on `main` (or Actions → Deploy → production) and approve it. It runs the full
