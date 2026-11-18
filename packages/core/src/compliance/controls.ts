@@ -231,7 +231,7 @@ export const CONTROLS: readonly Control[] = [
     statement:
       "Every sign-in needs a second factor after the password: WorkOS's multi-factor (an authenticator app) today, and our own second step (an app, a text or WhatsApp, 10 one-time recovery codes, a browser remembered for 30 days) once it is switched on. Sign-ins through a company's own SSO use its second factor. Staff use passkeys or hardware keys on the systems that hold client data.",
     status: "partial",
-    gap: "Staff second factors on Cloudflare, Sentry and GitHub (a passkey) are not on yet (2026-11-14). Every sign-in to Mezonas has one: WorkOS's multi-factor is required (owner, 2026-11-16), and our own second step switches on with Twilio Verify (docs/open.md A2).",
+    gap: "Staff second factors on Cloudflare and Sentry are not on yet; GitHub's is (an authenticator app and GitHub Mobile, 2026-11-18), with a passkey to add. Every sign-in to Mezonas has one: WorkOS's multi-factor is required (owner, 2026-11-16), and our own second step switches on with Twilio Verify (docs/open.md A2).",
     tier: "all",
     evidence: [
       { kind: "setting", ref: "WorkOS: multi-factor required", note: "docs/open.md A1" },

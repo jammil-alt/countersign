@@ -9,8 +9,11 @@ in the register (`packages/core/src/compliance/controls.ts`), shown at `/ops/sec
 (`docs/plan.md` §1.102).
 
 **2026-11-16:** WorkOS multi-factor is on and required for every sign-in (owner; `docs/open.md` A1).
-Our own second step (plan §1.100) is built and switches on with Twilio Verify (A2). Staff accounts
-on Cloudflare, Sentry and GitHub (a passkey) have no second factor yet.
+Our own second step (plan §1.100) is built and switches on with Twilio Verify (A2).
+
+**2026-11-18:** staff second factors, one console at a time (§10). GitHub: two-factor on (an
+authenticator app and GitHub Mobile), a passkey next; only the owner's account can reach the
+repository. Cloudflare and Sentry: not yet.
 
 Status, 2026-11-06:
 - The settings outside the code are all in place (table below).
@@ -254,6 +257,9 @@ finding each setting.
 | Cloudflare, `mezonas.com` | Encryption mode, Cloudflare HSTS | Unchanged: Full (automatic); off, since the app sends HSTS |
 | GitHub, `countersign` | Dependency graph, Dependabot alerts and security updates, secret scanning, push protection | On |
 | GitHub, `countersign` | CodeQL Default setup | Off (we run `codeql.yml`) |
+| GitHub, account `jammil-alt` | Two-factor (Settings → Password and authentication) | On: authenticator app and GitHub Mobile; recovery codes saved; no password (signs in by email or Google); passkey: not yet (checked 2026-11-18) |
+| GitHub, `countersign` | Collaborators | `jammil-alt` only, admin (checked 2026-11-18) |
+| GitHub, `countersign` | Environment `production` (Settings → Environments) | Required reviewer `jammil-alt`; self-review allowed (one person). Deployment from `main` only, so `v*` tags still to add; "Allow administrators to bypass" ticked, to turn off (checked 2026-11-18) |
 | GitHub, `countersign` | Ruleset "Protect main" | PR required; `checks / check`, `checks / static`, `analyze`; no force push or delete; admin bypass |
 | Neon, `mezonas` (Launch) | History window (Settings → Postgres) | 7 days (was 1) |
 | Cloudflare, account | Security Center → Security Insights | On, scanned every 7 days (Free plan); first full scan 2026-11-14 (plan §1.102, control CHG-8). Findings for Mezonas: the account's only member has no second factor; Access policies on `datum.mezonas.com/v1` and `dev.datum.mezonas.com/v1` flagged as too broad; no DMARC on `in.` and `agents.mezonas.com` (receive only), `p=none` on `mail.mezonas.com`; no security.txt. Bot Fight Mode left off on purpose: on Free it can't spare webhooks. Reviewed every quarter |
