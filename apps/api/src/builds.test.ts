@@ -302,10 +302,11 @@ describe.skipIf(!h)("builds", () => {
     // A template's intake form survives the Builder's rewrites: the challenges above rewrote
     // the fit-gap without one, and the form stayed.
     expect(b.build.fitgap.setup.map((f) => f.id)).toEqual(["conn", "tol"]);
-    // The operator drops the portal row and edits the form's fields; agreeing drafts it.
+    // The operator makes the portal row a known risk (happy path first) and edits the form's
+    // fields; agreeing drafts it.
     const fitgap = {
       ...b.build.fitgap,
-      rows: b.build.fitgap.rows.map((r) => (r.id === "portal" ? { ...r, dropped: true } : r)),
+      rows: b.build.fitgap.rows.map((r) => (r.id === "portal" ? { ...r, later: true } : r)),
       setup: [
         { id: "conn", label: "Connect the testkit", kind: "connect", hint: "It writes there" },
         { id: "tol", label: "Your price tolerance", kind: "answer", hint: "Within 2%" },
@@ -322,17 +323,21 @@ describe.skipIf(!h)("builds", () => {
     expect(b.build.phase).toBe("draft");
     expect(b.build.agentId).toBeTruthy();
     expect(b.draft).toMatchObject({ version: 1, live: false, problems: [] });
-    // The fit-gap's build row is an open item; the dropped row isn't, and a template's intake
-    // form makes no items: there is no client yet.
-    expect(b.items.map((i) => [i.title, i.owner])).toEqual([
-      ["How many: still open", "operator"],
-      ["Volume tiers", "builder"],
+    // The fit-gap's build row is an open item; the known risk is one put off from the start,
+    // and a template's intake form makes no items: there is no client yet.
+    expect(b.items.map((i) => [i.title, i.owner, i.state])).toEqual([
+      ["How many: still open", "operator", "open"],
+      ["Volume tiers", "builder", "open"],
+      ["Read a vendor portal", "engineering", "deferred"],
     ]);
-    // The Builder drew its description from the brief and the fit-gap.
+    // The Builder drew its description from the brief and the fit-gap: the normal case to
+    // draft, the known risk named so it is left out.
     const sent = JSON.stringify(model.requests.at(-1)?.messages);
     expect(sent).toContain("Keep records right");
     expect(sent).toContain("Volume tiers");
     expect(sent).not.toContain("Read a vendor portal (");
+    expect(sent).toContain("Known risks, not built in this version");
+    expect(sent).toContain("- Read a vendor portal");
     expect(sent).toContain("Your price tolerance (Answer)");
 
     // POC: the Builder plans the data, makes the cases; the gate waits for them to pass.
@@ -395,12 +400,11 @@ describe.skipIf(!h)("builds", () => {
     });
     b = await ok("GET", `/api/ops/builds/${id}`);
     expect(b.poc?.passed).toBe(true);
-    // Open items hold the move into the client test.
-    expect(b.gate.reasons).toEqual(["2 open items are not done or put off."]);
+    // Happy path first: open items don't hold the move into the client test (they hold QA).
+    expect(b.gate.reasons).toEqual([]);
     for (const item of b.items) {
       b = await ok("PATCH", `/api/ops/builds/${id}/items/${item.id}`, { state: "deferred" });
     }
-    expect(b.gate.reasons).toEqual([]);
 
     // Client test: published, forked into A, its trial started (or an open item says why not).
     expect((await call("POST", `/api/ops/builds/${id}/phase`, { to: "client_test" })).status).toBe(

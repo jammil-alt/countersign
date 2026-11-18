@@ -129,6 +129,7 @@ const STATEMENT: DraftBuild = {
         verdict: "native",
         how: "The Read document skill reads a statement's lines, dates and balance.",
         dropped: false,
+        later: false,
       },
       {
         id: "open-bills",
@@ -136,6 +137,7 @@ const STATEMENT: DraftBuild = {
         verdict: "native",
         how: "QuickBooks bill query, by vendor.",
         dropped: false,
+        later: false,
       },
       {
         id: "compare",
@@ -143,6 +145,7 @@ const STATEMENT: DraftBuild = {
         verdict: "build",
         how: "A new skill: pair each line with a bill by number, then amount and date, within the tolerance.",
         dropped: false,
+        later: false,
       },
       {
         id: "ask-vendor",
@@ -150,6 +153,7 @@ const STATEMENT: DraftBuild = {
         verdict: "figure_out",
         how: "Sending from the client's own mailbox to a vendor needs the Gmail connection's send scope per client; engineering to confirm.",
         dropped: false,
+        later: false,
       },
       {
         id: "review",
@@ -157,6 +161,7 @@ const STATEMENT: DraftBuild = {
         verdict: "native",
         how: "A person step for the client's admin, in the portal inbox.",
         dropped: false,
+        later: false,
       },
       {
         id: "pay",
@@ -164,6 +169,7 @@ const STATEMENT: DraftBuild = {
         verdict: "not_possible",
         how: "Payments are out of scope for agents.",
         dropped: true,
+        later: false,
       },
     ],
     needsTrue: [],
@@ -362,6 +368,7 @@ function deliveryTickets(clientId: string): DraftBuild {
           verdict: "native",
           how: "The Read document skill reads the ticket's lines and quantities.",
           dropped: false,
+          later: false,
         },
         {
           id: "match-po",
@@ -369,6 +376,7 @@ function deliveryTickets(clientId: string): DraftBuild {
           verdict: "build",
           how: "A skill on the Materials pack's purchase orders: find the order by number or vendor and date, then pair the lines.",
           dropped: false,
+          later: false,
         },
         {
           id: "tell",
@@ -376,6 +384,7 @@ function deliveryTickets(clientId: string): DraftBuild {
           verdict: "native",
           how: "A notify step to the client's admin; Marcus by text once he has opted in.",
           dropped: false,
+          later: false,
         },
       ],
       needsTrue: [
@@ -525,6 +534,7 @@ function receiptChaser(clientId: string): DraftBuild {
           verdict: "native",
           how: "The Find support tool looks for the document behind a transaction and links it.",
           dropped: false,
+          later: false,
         },
         {
           id: "ask",
@@ -532,6 +542,7 @@ function receiptChaser(clientId: string): DraftBuild {
           verdict: "native",
           how: "A person step with a deadline and a reminder.",
           dropped: false,
+          later: false,
         },
       ],
       needsTrue: [{ id: "uploads", text: "Uploads are connected", done: true }],
