@@ -57,6 +57,11 @@ export const SecondFactorStatus = z.object({
   /** No verified method yet: this sign-in sets one up. */
   setupNeeded: z.boolean(),
   recoveryCodesLeft: z.int(),
+  /**
+   * How many of the person's phones can approve this sign-in (docs/plan.md §1.154): set up to
+   * sign, in a client they belong to. Zero for operators and while the step is off.
+   */
+  phones: z.int(),
 });
 export type SecondFactorStatus = z.infer<typeof SecondFactorStatus>;
 

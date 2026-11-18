@@ -50,6 +50,8 @@ const CODE_KEYS: Record<string, PlainKey> = {
   code_service_failed: "error.code_service_failed",
   second_factor_unavailable: "error.second_factor_unavailable",
   not_pending: "error.not_pending",
+  // §1.154
+  no_phone: "error.no_phone",
   already_set_up: "error.already_set_up",
   method_not_allowed: "error.method_not_allowed",
   connector_failed: "error.connector_failed",

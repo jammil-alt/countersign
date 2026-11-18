@@ -85,6 +85,7 @@ export * from "./api/oversight";
 export * from "./api/owners";
 export * from "./api/packs";
 export * from "./api/people";
+export * from "./api/phone-approval";
 export * from "./api/qbo";
 export * from "./api/reach";
 export * from "./api/records";

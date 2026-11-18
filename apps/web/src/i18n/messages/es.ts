@@ -3013,6 +3013,17 @@ export const es: Messages = {
     "¿Perdió su teléfono y sus códigos de recuperación? Pida a su administrador o a su contacto en Mezonas que restablezca su inicio de sesión.",
   "secondStep.signOut": "Cerrar sesión",
   "secondStep.failed": "No funcionó. Inténtelo de nuevo.",
+  "secondStep.phoneApprove.title": "Apruebe en su teléfono",
+  "secondStep.phoneApprove.intro": "Abra Mezonas en su teléfono y toque este número.",
+  "secondStep.phoneApprove.number": "El número que debe tocar en su teléfono",
+  "secondStep.phoneApprove.waiting": "Esperando a su teléfono.",
+  "secondStep.phoneApprove.denied":
+    "Este inicio de sesión se rechazó en su teléfono. Si no fue usted, cambie su contraseña.",
+  "secondStep.phoneApprove.expired": "Su teléfono no respondió a tiempo.",
+  "secondStep.phoneApprove.again": "Preguntar de nuevo a mi teléfono",
+  "secondStep.phoneApprove.useCode": "Usar un código",
+  "secondStep.phoneApprove.instead": "Aprobar en mi teléfono",
+  "error.no_phone": "Ningún teléfono puede aprobar este inicio de sesión. Use un código.",
   // §1.120: approving a Claude connection (the MCP server) from the browser.
   "connectClaude.title": "Conectar Claude",
   "connectClaude.subtitle": "Claude puede usar Mezonas en su nombre cuando usted lo apruebe aquí.",

@@ -3029,6 +3029,17 @@ export const it: Messages = {
     "Ha perso telefono e codici di recupero? Chieda al suo amministratore o al suo referente Mezonas di reimpostare l'accesso.",
   "secondStep.signOut": "Esci",
   "secondStep.failed": "Non ha funzionato. Riprovi.",
+  "secondStep.phoneApprove.title": "Approvi sul telefono",
+  "secondStep.phoneApprove.intro": "Apra Mezonas sul telefono e tocchi questo numero.",
+  "secondStep.phoneApprove.number": "Il numero da toccare sul telefono",
+  "secondStep.phoneApprove.waiting": "In attesa del telefono.",
+  "secondStep.phoneApprove.denied":
+    "Questo accesso è stato rifiutato sul telefono. Se non è stato lei, cambi la password.",
+  "secondStep.phoneApprove.expired": "Il telefono non ha risposto in tempo.",
+  "secondStep.phoneApprove.again": "Chiedere di nuovo al telefono",
+  "secondStep.phoneApprove.useCode": "Usare un codice",
+  "secondStep.phoneApprove.instead": "Approvare sul telefono",
+  "error.no_phone": "Nessun telefono può approvare questo accesso. Usi un codice.",
   // §1.120: approving a Claude connection (the MCP server) from the browser.
   "connectClaude.title": "Collega Claude",
   "connectClaude.subtitle": "Claude può usare Mezonas a Suo nome dopo che Lei lo approva qui.",

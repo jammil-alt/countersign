@@ -2931,6 +2931,17 @@ export const en = {
     "Lost your phone and your recovery codes? Ask your admin or your Mezonas lead to reset your sign-in.",
   "secondStep.signOut": "Sign out",
   "secondStep.failed": "That didn't work. Try again.",
+  "secondStep.phoneApprove.title": "Approve on your phone",
+  "secondStep.phoneApprove.intro": "Open Mezonas on your phone and tap this number.",
+  "secondStep.phoneApprove.number": "The number to tap on your phone",
+  "secondStep.phoneApprove.waiting": "Waiting for your phone.",
+  "secondStep.phoneApprove.denied":
+    "This sign-in was turned down on your phone. If that wasn't you, change your password.",
+  "secondStep.phoneApprove.expired": "Your phone didn't answer in time.",
+  "secondStep.phoneApprove.again": "Ask my phone again",
+  "secondStep.phoneApprove.useCode": "Use a code instead",
+  "secondStep.phoneApprove.instead": "Approve on my phone instead",
+  "error.no_phone": "No phone can approve this sign-in. Use a code instead.",
   // §1.120: approving a Claude connection (the MCP server) from the browser.
   "connectClaude.title": "Connect Claude",
   "connectClaude.subtitle": "Claude can use Mezonas as you once you approve it here.",

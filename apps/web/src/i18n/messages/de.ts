@@ -3080,6 +3080,18 @@ export const de: Messages = {
     "Telefon und Wiederherstellungscodes verloren? Bitten Sie Ihre Administration oder Ihre Ansprechperson bei Mezonas, Ihre Anmeldung zurückzusetzen.",
   "secondStep.signOut": "Abmelden",
   "secondStep.failed": "Das hat nicht funktioniert. Versuchen Sie es erneut.",
+  "secondStep.phoneApprove.title": "Auf dem Telefon bestätigen",
+  "secondStep.phoneApprove.intro":
+    "Öffnen Sie Mezonas auf Ihrem Telefon und tippen Sie auf diese Zahl.",
+  "secondStep.phoneApprove.number": "Die Zahl, auf die Sie auf Ihrem Telefon tippen",
+  "secondStep.phoneApprove.waiting": "Wir warten auf Ihr Telefon.",
+  "secondStep.phoneApprove.denied":
+    "Diese Anmeldung wurde auf Ihrem Telefon abgelehnt. Wenn Sie das nicht waren, ändern Sie Ihr Passwort.",
+  "secondStep.phoneApprove.expired": "Ihr Telefon hat nicht rechtzeitig geantwortet.",
+  "secondStep.phoneApprove.again": "Telefon erneut fragen",
+  "secondStep.phoneApprove.useCode": "Stattdessen einen Code verwenden",
+  "secondStep.phoneApprove.instead": "Stattdessen auf dem Telefon bestätigen",
+  "error.no_phone": "Kein Telefon kann diese Anmeldung bestätigen. Verwenden Sie einen Code.",
   // §1.120: approving a Claude connection (the MCP server) from the browser.
   "connectClaude.title": "Claude verbinden",
   "connectClaude.subtitle":
