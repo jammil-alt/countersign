@@ -13,7 +13,8 @@ import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { SafeAreaProvider } from "react-native-safe-area-context";
-import { pathForNotification } from "../src/notifications/links";
+import { isSignInApproval, pathForNotification } from "../src/notifications/links";
+import { SignInApprovalScreen } from "../src/screens/SignInApproval";
 import { UnlockScreen } from "../src/screens/Unlock";
 import { AppProvider, useApp } from "../src/state/app";
 import { DeskProvider } from "../src/state/desk";
@@ -57,22 +58,31 @@ export default function Root() {
 }
 
 function Shell() {
-  const { locked, status } = useApp();
+  const { locked, status, approving, setApproving } = useApp();
   const p = usePalette();
 
-  // Tapping a notification opens the page it names (the Desk for items waiting).
+  // Tapping a notification opens the page it names (the Desk for items waiting). A sign-in
+  // waiting on this phone (§1.154) opens its screen, signed in or not.
   useEffect(() => {
-    if (FIXTURES || status !== "signedIn") return;
-    const open = (data: unknown) => router.navigate(pathForNotification(data));
+    if (FIXTURES || status === "loading") return;
+    const open = (data: unknown) => {
+      if (isSignInApproval(data)) {
+        setApproving(true);
+        return;
+      }
+      if (status === "signedIn") router.navigate(pathForNotification(data));
+    };
     const last = Notifications.getLastNotificationResponse();
     if (last) open(last.notification.request.content.data);
     const sub = Notifications.addNotificationResponseReceivedListener((r) =>
       open(r.notification.request.content.data),
     );
     return () => sub.remove();
-  }, [status]);
+  }, [status, setApproving]);
 
   if (status === "loading") return null;
+  // §1.154: over everything, the lock included: the screen asks for Face ID itself.
+  if (approving) return <SignInApprovalScreen onDone={() => setApproving(false)} />;
   if (locked) return <UnlockScreen />;
   return (
     <>

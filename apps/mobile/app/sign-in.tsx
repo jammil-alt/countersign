@@ -19,7 +19,7 @@ const REFUSALS: Record<string, string> = {
 };
 
 export default function SignIn() {
-  const { api, signedIn, devSignedIn } = useApp();
+  const { api, signedIn, devSignedIn, deviceId, userId, setApproving } = useApp();
   const p = usePalette();
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -75,6 +75,15 @@ export default function SignIn() {
       </View>
       <View style={{ gap: space["3"] }}>
         <Button tall label="Sign in" busy={busy} onPress={() => void start()} testID="sign-in" />
+        {/* §1.154: a phone set up before still approves a sign-in on the computer. */}
+        {deviceId && userId ? (
+          <Button
+            kind="secondary"
+            label="Approve a sign-in on your computer"
+            onPress={() => setApproving(true)}
+            testID="approve-sign-in"
+          />
+        ) : null}
         {__DEV__ ? (
           <View
             style={{

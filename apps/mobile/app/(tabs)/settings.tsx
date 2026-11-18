@@ -33,7 +33,7 @@ interface Mine {
 }
 
 export default function Settings() {
-  const { api, me, signOut } = useApp();
+  const { api, me, signOut, deviceId, setApproving } = useApp();
   const [push, setPush] = useState<Push | null>(null);
   const [mine, setMine] = useState<Mine | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
@@ -169,6 +169,9 @@ export default function Settings() {
         </Section>
 
         <Card>
+          {deviceId ? (
+            <LinkRow label="Approve a sign-in" onPress={() => setApproving(true)} />
+          ) : null}
           <LinkRow label="Sign-in and phones" onPress={() => router.push("/devices")} last />
         </Card>
 

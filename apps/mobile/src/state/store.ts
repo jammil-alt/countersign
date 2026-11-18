@@ -10,6 +10,7 @@ const KEY = {
   session: "mz.session",
   dev: "mz.devUser",
   device: "mz.deviceId",
+  user: "mz.userId",
   setup: "mz.setupDone",
   signing: "mz.signingKey",
 } as const;
@@ -75,12 +76,20 @@ export const loadDevUser = () => get(KEY.dev);
 export const saveDeviceId = (id: string) => set(KEY.device, id);
 export const loadDeviceId = () => get(KEY.device);
 
+/**
+ * §1.154: the person this phone is set up for. Kept beside the device id when a session ends, so
+ * the phone can still approve a sign-in while signed out; gone with the device.
+ */
+export const saveUserId = (id: string) => set(KEY.user, id);
+export const loadUserId = () => get(KEY.user);
+
 export const markSetupDone = () => set(KEY.setup, "1");
 export const setupDone = async () => (await get(KEY.setup)) === "1";
 
 /** Forget this phone: its device id, its key and its setup (signing out of Mezonas on it). */
 export async function forgetDevice(): Promise<void> {
   await remove(KEY.device);
+  await remove(KEY.user);
   await remove(KEY.setup);
   if (!FIXTURES) await SecureStore.deleteItemAsync(KEY.signing, { requireAuthentication: true });
   else memory.delete(KEY.signing);
