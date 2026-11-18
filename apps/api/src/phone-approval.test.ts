@@ -34,7 +34,12 @@ async function phoneKey() {
   ])) as CryptoKeyPair;
   const jwk = (await crypto.subtle.exportKey("jwk", pair.publicKey)) as JsonWebKey;
   return {
-    publicKey: { kty: "EC", crv: "P-256", x: jwk.x as string, y: jwk.y as string },
+    publicKey: {
+      kty: "EC" as const,
+      crv: "P-256" as const,
+      x: jwk.x as string,
+      y: jwk.y as string,
+    },
     sign: async (text: string) =>
       b64url(
         await crypto.subtle.sign(
