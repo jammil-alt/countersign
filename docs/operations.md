@@ -1347,9 +1347,11 @@ disconnected. Then:
    - its Sentry events, if any name it.
 2. 30 days later, the hourly cron deletes its files (`tenants/<id>/` in R2) and records
    `client.purge_files` in the audit log.
-3. Then the owner purges its rows, as `cs_owner`:
-   `DIRECT_DATABASE_URL=<cs_owner url> pnpm --filter @countersign/db run db:purge-client -- <client id>`.
-   It refuses to run until the 30 days have passed and step 2 is done. It briefly locks each table, so run it at a
+3. Then the owner purges its rows: Actions → **Purge client** (`purge-client.yml`), with the
+   environment, the client's id and its name typed again. Production waits for the `production`
+   environment's approval; the job gets `cs_owner`'s connection from Neon inside itself, so no
+   person holds it, and the log never carries the client's name.
+   It refuses when the name doesn't match, until the 30 days have passed, and until step 2 is done. It briefly locks each table, so run it at a
    quiet hour. Builds for the client go with it; a template's build tested at it stays, no
    longer tested there. Reggie's conversations about the client go with their messages and every
    change proposed in them, including any for another client (an action can't outlive its
@@ -1415,8 +1417,7 @@ of whether they approve, or of which agents they work on is made in place: Acces
 takes them off the clients you serve at once; the workflow below takes every client. Note each
 step's date:
 1. Mezonas, on production and on staging: Actions → **Remove operator** (`remove-operator.yml`),
-   once per environment, with their email. By hand instead, as `cs_owner`:
-   `DIRECT_DATABASE_URL=<cs_owner url> pnpm --filter @countersign/db run db:remove-operator <email> "<your name>"`.
+   once per environment, with their email. Never by hand, except as break-glass (below).
    Every operator membership goes: the back office refuses them within 5 minutes and the Ops MCP
    connector on its next call. Their open items by name go to the other operators, a client they led
    has no lead until you set one, and the audit log records `operator.remove`. It refuses the last
@@ -1428,6 +1429,22 @@ step's date:
    Stripe, Twilio, Resend, ElevenLabs, the model providers' consoles, the domain registrar.
 5. Any key they could read: rotate it (§1, "Worker secrets"). There should be none: keys live in
    GitHub secrets and Workers, never with people.
+
+### Break-glass database access
+
+No person holds a `cs_owner` connection string (owner, 2026-11-18). Everything that needs it runs
+as a GitHub Actions workflow that fetches it from Neon's API inside the job and masks it: deploys
+(migrations), **Add operator**, **Remove operator**, **Purge client** and **Bootstrap cloud**.
+Production's runs wait for the `production` environment's approval. Reads go through the back
+office and its audit log.
+
+Break-glass is the only exception: GitHub Actions is down, or something can't wait for a
+workflow. Then, and only the security officer:
+1. Neon → the project → `main` → Connect, role `cs_owner`. Use it from your own machine only.
+2. Note what you ran, why and when in an issue labelled `break-glass`, the same day.
+3. Afterwards, reset `cs_owner`'s password (Neon → Roles → `cs_owner` → Reset password). Nothing
+   stores it: every workflow fetches a fresh connection string, and the app uses `cs_worker`
+   through Hyperdrive. Delete any copy left in a shell history or `.env` file.
 
 ## 2. What CI does
 
@@ -1584,7 +1601,8 @@ and the event. They are also a daily health finding (`events_set_aside`, by even
 count and the oldest; the ops MCP server's `ops_health` reads it too), and the client's page in
 the back office lists them under Health with **Give them back**
 (`POST /api/ops/clients/:id/events/set-aside/retry`, operator only, audited, at most 100 a call,
-the ones named in `eventIds` or the oldest set aside first). To see them in SQL, as `cs_owner`:
+the ones named in `eventIds` or the oldest set aside first). Use the button. The SQL below is
+for break-glass only (§1.3, "Break-glass database access"), as `cs_owner`:
 
 ```sql
 select id, tenant_id, type, created_at, dispatch_attempts, dispatch_error, set_aside_at

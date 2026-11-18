@@ -102,6 +102,18 @@ describe.skipIf(!online)("purgeClient", () => {
       ][0]?.n ?? 0,
     );
 
+  it("refuses when the name typed again isn't the client's, without saying the real one", async () => {
+    const refused = purgeClient(t.db, A.tenantId, { confirmName: "B", force: true });
+    await expect(refused).rejects.toBeInstanceOf(PurgeRefused);
+    await expect(refused).rejects.toThrow(/^the name typed doesn't match this client's name$/);
+    const [still] = [
+      ...(await t.db.execute<{ n: string }>(
+        sql`select count(*) as n from tenant where id = ${A.tenantId}`,
+      )),
+    ];
+    expect(Number(still?.n)).toBe(1);
+  });
+
   it("refuses a client that isn't retired, retired too recently, or whose files remain", async () => {
     await expect(purgeClient(t.db, A.tenantId)).rejects.toBeInstanceOf(PurgeRefused);
     await t.db.execute(sql`update tenant set retired_at = now() where id = ${A.tenantId}`);
@@ -118,7 +130,7 @@ describe.skipIf(!online)("purgeClient", () => {
     const beforeB = Object.fromEntries(
       await Promise.all(TENANT_TABLES.map(async (tb) => [tb, await count(tb, B.tenantId)])),
     );
-    const report = await purgeClient(t.db, A.tenantId);
+    const report = await purgeClient(t.db, A.tenantId, { confirmName: " a " });
     expect(report.name).toBe("A");
     for (const table of TENANT_TABLES) {
       const left = await count(table, A.tenantId);
