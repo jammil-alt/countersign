@@ -231,7 +231,7 @@ export const CONTROLS: readonly Control[] = [
     statement:
       "Every sign-in needs a second factor after the password: WorkOS's multi-factor (an authenticator app) today, and our own second step (an app, a text or WhatsApp, 10 one-time recovery codes, a browser remembered for 30 days) once it is switched on. Sign-ins through a company's own SSO use its second factor. Staff use passkeys or hardware keys on the systems that hold client data.",
     status: "partial",
-    gap: "Sentry's staff second factor is not on yet. GitHub (an authenticator app and GitHub Mobile, a passkey to add), Google (passkeys) and Cloudflare (security keys, required for every member) are, 2026-11-18. Every sign-in to Mezonas has one: WorkOS's multi-factor is required (owner, 2026-11-16), and our own second step switches on with Twilio Verify (docs/open.md A2).",
+    gap: "Our own second step (docs/open.md A2) is not switched on yet, and the WorkOS dashboard offers an authenticator app, not a passkey. Every staff account has a second factor, required by each organization that can (2026-11-18, docs/security.md §10); WorkOS multi-factor is required for every sign-in to Mezonas (owner, 2026-11-16).",
     tier: "all",
     evidence: [
       { kind: "setting", ref: "WorkOS: multi-factor required", note: "docs/open.md A1" },
@@ -689,10 +689,9 @@ export const CONTROLS: readonly Control[] = [
     area: "continuity",
     title: "A restore tested every quarter",
     statement: "Every quarter we restore from the database's history and record the result.",
-    status: "partial",
-    gap: "The routine is in docs/operations.md §4; its record is kept outside the product.",
+    status: "in_place",
     tier: "all",
-    evidence: [{ kind: "record", ref: "docs/operations.md §4" }],
+    evidence: [{ kind: "record", ref: "docs/operations.md §4", note: "first: 2026-11-18" }],
     maps: { soc2: ["A1.3"], hipaa: ["164.308(a)(7)(ii)(B)", "164.308(a)(7)(ii)(D)"] },
     routines: ["restore-test"],
   },

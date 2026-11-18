@@ -11,13 +11,13 @@ in the register (`packages/core/src/compliance/controls.ts`), shown at `/ops/sec
 **2026-11-16:** WorkOS multi-factor is on and required for every sign-in (owner; `docs/open.md` A1).
 Our own second step (plan §1.100) is built and switches on with Twilio Verify (A2).
 
-**2026-11-18:** staff second factors, one console at a time (§10). GitHub: two-factor on (an
-authenticator app and GitHub Mobile), a passkey next; only the owner's account can reach the
-repository. Google (the owner's Workspace account): 2-Step Verification with two passkeys, the
-Google prompt, an authenticator app and backup codes. GitHub, Cloudflare, Neon, Sentry, Stripe and
-WorkOS sign in through it, so it guards them too, unless a console also allows a password (checked
-per console next). Cloudflare: two-factor on (two security keys, an authenticator app, backup
-codes) and required for every member of the account. Sentry's own second factor: not yet.
+**2026-11-18:** every staff account on the systems that hold client data or change production has
+a second factor, and each organization that offers it requires one (§10): Google (Workspace,
+enforced for the organization), GitHub, Cloudflare (required for every member), Neon (required for
+the organization), Sentry (required), WorkOS, Stripe and 1Password. Passkeys or security keys on
+all of them but WorkOS, which offers an authenticator app only. Production's database owner
+password was reset and no person holds it (§8); a restore was tested (§8); production is
+monitored from outside, with a public status page (§10).
 
 Status, 2026-11-06:
 - The settings outside the code are all in place (table below).
@@ -232,7 +232,8 @@ branches.
 ## 8. Backups and recovery
 
 - Neon keeps **7 days** of point-in-time history on the production project. A restore is tested
-  every quarter (`docs/operations.md` §4).
+  every quarter (`docs/operations.md` §4); the first on 2026-11-18, with the restored copy's counts
+  equal to production's.
 - Original documents in R2 are written once and never changed.
 - **No person holds the database owner's password** (2026-11-18). Migrations, adding and
   removing operators and purging a retired client run as GitHub Actions workflows that fetch
@@ -269,14 +270,26 @@ finding each setting.
 | GitHub, `countersign` | Dependency graph, Dependabot alerts and security updates, secret scanning, push protection | On |
 | GitHub, `countersign` | CodeQL Default setup | Off (we run `codeql.yml`) |
 | Google Workspace, the owner's account | 2-Step Verification (myaccount.google.com → Security) | On: two passkeys (1Password, iCloud Keychain), Google prompt on one phone, authenticator app, 10 backup codes saved; recovery phone and email set. Signs in to GitHub, Cloudflare, Neon, Sentry, Stripe and WorkOS (checked 2026-11-18) |
-| Cloudflare, the owner's login | Two-factor (My Profile → Authentication) | On: two security keys (Touch ID on the Mac; 1Password), an authenticator app, email codes, backup codes saved. Signs in with Google; the password Cloudflare had set was reset to one kept in 1Password (checked 2026-11-18) |
+| Google Workspace, organization | 2-Step Verification enforcement (admin.google.com → Security → 2-Step Verification) | On (was off), 2026-11-18 |
+| Cloudflare, the owner's login | Two-factor (My Profile → Authentication) | On: two security keys (Touch ID on the Mac; 1Password), an authenticator app, backup codes saved; email codes removed. Signs in with Google; the password Cloudflare had set was reset to one kept in 1Password (checked 2026-11-18) |
 | Cloudflare, account (holds `mezonas.com`) | Require two-factor for all members (Manage Account → Members) | On (was off). One member, Super Administrator. The account also holds `plenarylabs.app`, `simonswork.app` and `twelvethirty-4.com`: shared with Plenary Labs, not separate (2026-11-18) |
-| GitHub, account `jammil-alt` | Two-factor (Settings → Password and authentication) | On: authenticator app and GitHub Mobile; recovery codes saved; no password (signs in by email or Google); passkey: not yet (checked 2026-11-18) |
+| GitHub, account `jammil-alt` | Two-factor (Settings → Password and authentication) | On: two passkeys, an authenticator app and GitHub Mobile; recovery codes saved; no password (signs in by email or Google) (checked 2026-11-18) |
 | GitHub, `countersign` | Collaborators | `jammil-alt` only, admin (checked 2026-11-18) |
-| GitHub, `countersign` | Environment `production` (Settings → Environments) | Required reviewer `jammil-alt`; self-review allowed (one person). Deployment from `main` only, so `v*` tags still to add; "Allow administrators to bypass" ticked, to turn off (checked 2026-11-18) |
+| GitHub, `countersign` | Environment `production` (Settings → Environments) | Required reviewer `jammil-alt`; self-review allowed (one person); deployment from `main` and `v*` tags; administrators can't bypass (checked 2026-11-18) |
 | GitHub, `countersign` | Ruleset "Protect main" | PR required; `checks / check`, `checks / static`, `analyze`; no force push or delete; admin bypass |
 | Neon, `mezonas` (Launch) | History window (Settings → Postgres) | 7 days (was 1) |
 | Cloudflare, account | Security Center → Security Insights | On, scanned every 7 days (Free plan); first full scan 2026-11-14 (plan §1.102, control CHG-8). Findings for Mezonas: the account's only member has no second factor (fixed 2026-11-18; clears on the next scan); Access policies on `datum.mezonas.com/v1` and `dev.datum.mezonas.com/v1` flagged as too broad; no DMARC on `in.` and `agents.mezonas.com` (receive only), `p=none` on `mail.mezonas.com`; no security.txt. Bot Fight Mode left off on purpose: on Free it can't spare webhooks. Reviewed every quarter |
+| Neon, the owner's account | Two-factor (account menu → Settings) | On: authenticator app (was off). Signs in with Google; no password (2026-11-18) |
+| Neon, organization "Jammil" (holds `mezonas`, and Datum's and other projects) | Require two-factor; auto-add new users | Required (was not); auto-add off (was on). One member, Admin (2026-11-18) |
+| Neon, `mezonas` | Branch protection | `main` protected (was not) (2026-11-18) |
+| Neon, `mezonas`, branch `main` | `cs_owner`'s password | Reset 2026-11-18 12:25 ET and not kept by anyone; workflows fetch it inside the job (§8, `docs/operations.md` "Break-glass database access") |
+| Neon, API keys | Who can reach the project | GitHub's `NEON_API_KEY` is the owner's personal key (`mezonas-github`), which reaches every project: to replace with an organization key scoped to `mezonas` (2026-11-18) |
+| Sentry, the owner's account | Two-factor (User settings → Security) | On: authenticator app, Touch ID, recovery codes (was off). Signs in with Google (2026-11-18) |
+| Sentry, organization | Require Two-Factor Authentication | On (was off). One member, Owner (2026-11-18) |
+| WorkOS dashboard | The owner's MFA; team | On: authenticator app (was off; no passkey offered). The team is named "Plenary Labs"; one member, Admin; team MFA requirement off (2026-11-18) |
+| Stripe | The owner's two-step | Authenticator app and two passkeys. Signs in with Google, no password. Team: one member, Owner; team requirement off. Checked in the test-mode sandbox only; the second account not opened (2026-11-18) |
+| 1Password, company account | Staff credentials and recovery codes | Set up 2026-11-18 (the owner's word, not checked by Claude in Chrome): Mezonas logins, passkeys and recovery codes kept there, in vaults only the owner opens |
+| Better Stack (free) | Uptime and status page | Monitor on `https://app.mezonas.com/api/health` every 3 minutes, email alerts; public status page at `https://status.mezonas.com` (CNAME `status` → `statuspage.betteruptime.com`, DNS only, on `mezonas.com`). It reaches only the public health route: no client data (2026-11-18) |
 | Sentry, organization | Security & Privacy | Data Scrubber, default scrubbers and "Prevent Storing of IP Addresses" on and enforced on `mezonas-api` and `mezonas-web`; sensitive fields email, cookie, session, prompt, completion, utterance, transcript (checked 2026-11-14). "Require Two-Factor Authentication" off: Sentry refuses it until the owner's own account has a second factor |
 | Sentry, `mezonas-api` and `mezonas-web` | Alerts | "Production errors to the security officer": a new or regressed issue in `environment:production`, email to the owner, at most every 30 minutes (#6345968, #6345969; 2026-11-14). The default "high priority issues" alert stays, all environments. Developer plan: one user, events kept 30 days |
 
