@@ -31,6 +31,12 @@ export interface Secrets {
   TWILIO_ACCOUNT_SID?: string;
   /** §1.100: Twilio Verify's service (`VA…`) for sign-in codes; empty: the second step is off. */
   TWILIO_VERIFY_SERVICE_SID?: string;
+  /**
+   * §1.100: an API key (`SK…`) of the Twilio subaccount that holds the Verify service, and its
+   * secret. Unset: Verify is reached with the main account's keys above.
+   */
+  TWILIO_VERIFY_API_KEY_SID?: string;
+  TWILIO_VERIFY_API_KEY_SECRET?: string;
   TWILIO_AUTH_TOKEN?: string;
   /** Mezonas' own ElevenLabs account: the voice agents on calls (docs/plan.md §1.23). */
   ELEVENLABS_API_KEY?: string;

@@ -26,5 +26,8 @@ staging, before turning the step on in production.
       identity (length, characters) are assumed to accept it.
 - [ ] **WhatsApp** needs a WhatsApp sender attached to the Verify service; without one, sends on
       that channel fail and the page says so.
+- [ ] **API key auth.** We call Verify with a Standard API key of the subaccount that holds the
+      service (`SK…` as the user, its secret as the password; Verify's URLs carry no account SID).
+      A 401 / 20003 on the first send means the key is from another account.
 - [ ] **Rate limits and fraud guard**: Twilio's own limits apply on top of ours (5 sends and 5 wrong
       codes per person per 15 minutes). Turn on Verify Fraud Guard for SMS.
