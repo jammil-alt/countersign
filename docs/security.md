@@ -277,7 +277,7 @@ in `docs/hipaa-plan.md`.
 | Cloudflare | All traffic; Workers, R2 files, Email Routing, Browser Run | `cloudflare` |
 | Neon | The database | `neon` |
 | WorkOS | Users' names, emails and sign-ins | `workos` |
-| Anthropic | What agents read and write, and documents to extract | `anthropic` |
+| Anthropic | What agents read and write, and documents to extract (the API); and what operators look up through the Ops MCP connector in Claude (claude.ai, `docs/hipaa-plan.md` T1) | `anthropic` |
 | OpenAI | The same, for agents set to `openai:` models; the vendor catalog's embeddings; voice typing's recordings (written out, never kept) | `openai` |
 | xAI | The same, for agents set to `xai:` models (Grok) | `xai` |
 | Google (Gemini API) | The same, for agents set to `google:` models (Gemini); not the client's own Google account | `google` |
