@@ -220,14 +220,15 @@ export function deleteOrder(parents: Map<string, Set<string>>): string[] {
 }
 
 /**
- * Deletes everything of one retired client. Refuses unless it was retired at least
+ * Deletes everything of one retired client. Refuses when `confirmName` is given and isn't the
+ * client's name (case and surrounding spaces aside). Refuses unless it was retired at least
  * PURGE_AFTER_DAYS ago and its files are gone (`settings.purge.files_deleted_at`, set by the
  * Worker's hourly sweep), unless `force` (tests, or a client whose files were removed by hand).
  */
 export async function purgeClient(
   db: Db,
   tenantId: string,
-  options: { now?: Date; force?: boolean } = {},
+  options: { now?: Date; force?: boolean; confirmName?: string } = {},
 ): Promise<PurgeReport> {
   const now = options.now ?? new Date();
   return db.transaction(async (tx) => {
@@ -236,6 +237,14 @@ export async function purgeClient(
         select name, retired_at, settings from tenant where id = ${tenantId} for update`)),
     ];
     if (!t) throw new PurgeRefused(`no client ${tenantId}`);
+    // The client's name typed again, as Retire client asks (apps/api/src/routes/compliance.ts).
+    // The refusal doesn't say the real name: a workflow's log shouldn't carry it.
+    if (
+      options.confirmName !== undefined &&
+      options.confirmName.trim().toLowerCase() !== t.name.trim().toLowerCase()
+    ) {
+      throw new PurgeRefused("the name typed doesn't match this client's name");
+    }
     if (!t.retired_at) throw new PurgeRefused(`${t.name} is not retired`);
     const due = new Date(new Date(t.retired_at).getTime() + PURGE_AFTER_DAYS * 86_400_000);
     if (!options.force) {
