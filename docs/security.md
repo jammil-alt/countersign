@@ -13,7 +13,10 @@ Our own second step (plan §1.100) is built and switches on with Twilio Verify (
 
 **2026-11-18:** staff second factors, one console at a time (§10). GitHub: two-factor on (an
 authenticator app and GitHub Mobile), a passkey next; only the owner's account can reach the
-repository. Cloudflare and Sentry: not yet.
+repository. Google (the owner's Workspace account): 2-Step Verification with two passkeys, the
+Google prompt, an authenticator app and backup codes. GitHub, Cloudflare, Neon, Sentry, Stripe and
+WorkOS sign in through it, so it guards them too, unless a console also allows a password (checked
+per console next). Cloudflare and Sentry's own second factors: not yet.
 
 Status, 2026-11-06:
 - The settings outside the code are all in place (table below).
@@ -257,6 +260,7 @@ finding each setting.
 | Cloudflare, `mezonas.com` | Encryption mode, Cloudflare HSTS | Unchanged: Full (automatic); off, since the app sends HSTS |
 | GitHub, `countersign` | Dependency graph, Dependabot alerts and security updates, secret scanning, push protection | On |
 | GitHub, `countersign` | CodeQL Default setup | Off (we run `codeql.yml`) |
+| Google Workspace, the owner's account | 2-Step Verification (myaccount.google.com → Security) | On: two passkeys (1Password, iCloud Keychain), Google prompt on one phone, authenticator app, 10 backup codes saved; recovery phone and email set. Signs in to GitHub, Cloudflare, Neon, Sentry, Stripe and WorkOS (checked 2026-11-18) |
 | GitHub, account `jammil-alt` | Two-factor (Settings → Password and authentication) | On: authenticator app and GitHub Mobile; recovery codes saved; no password (signs in by email or Google); passkey: not yet (checked 2026-11-18) |
 | GitHub, `countersign` | Collaborators | `jammil-alt` only, admin (checked 2026-11-18) |
 | GitHub, `countersign` | Environment `production` (Settings → Environments) | Required reviewer `jammil-alt`; self-review allowed (one person). Deployment from `main` only, so `v*` tags still to add; "Allow administrators to bypass" ticked, to turn off (checked 2026-11-18) |
