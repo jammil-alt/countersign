@@ -7,19 +7,22 @@
 // or a number to text or WhatsApp a code to), enter the code, then save the 10 recovery codes,
 // shown once. Later sign-ins: the code from the method (a text or WhatsApp code is sent on
 // request), or a recovery code instead. "Remember this browser for 30 days" skips the step on
-// this browser after. The routes are the API's own (packages/core `secondFactorRoutes`); this page
+// this browser after. A client user whose phone app is set up to sign is asked on the phone first
+// (§1.154): the page shows a number, the phone picks it. The routes are the API's own (packages/core `secondFactorRoutes`); this page
 // only asks and shows, every check is on the server.
 //
 // DECISION (§1.100): no QR code yet. The authenticator app's key is shown to type (every app
 // takes one), with a link that opens the app directly on a phone; the QR image waits on adding a
 // QR library to the web app.
 import {
+  PHONE_APPROVAL_POLL_MS,
+  type PhoneApprovalStarted,
   RECOVERY_CODE_COUNT,
   type SecondFactorKind,
   type SecondFactorMethodView,
   type SecondFactorStatus,
 } from "@countersign/core";
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { apiRoutes } from "../api/routes";
 import { useApiClient } from "../api/useApi";
@@ -89,6 +92,7 @@ type View =
   | { kind: "phone-setup"; method: "sms" | "whatsapp" }
   | { kind: "code"; method: SecondFactorKind; phoneHint: string | null; sent: boolean }
   | { kind: "recovery" }
+  | { kind: "phone" }
   | { kind: "saved"; codes: string[] };
 
 /** A full page load (an object, so a test can watch it: jsdom can't navigate). */
@@ -192,6 +196,15 @@ export function SecondStepScreen() {
                 : () => setView({ kind: "recovery" })
             }
             onPassed={(codes) => (codes ? setView({ kind: "saved", codes }) : void finish())}
+            onPhone={
+              status.phones > 0 && !status.setupNeeded ? () => setView({ kind: "phone" }) : null
+            }
+          />
+        ) : view.kind === "phone" ? (
+          <PhoneApproval
+            onPassed={() => void finish()}
+            onCode={() => setView(codeView(status))}
+            onRecovery={status.recoveryCodesLeft === 0 ? null : () => setView({ kind: "recovery" })}
           />
         ) : view.kind === "recovery" ? (
           <UseRecovery onBack={() => setView(firstView(status))} onPassed={() => void finish()} />
@@ -208,8 +221,17 @@ function verified(status: SecondFactorStatus): SecondFactorMethodView[] {
   return status.methods.filter((m) => m.verified && status.allowed.includes(m.kind));
 }
 
-/** Where the page starts: choose a method to set up, or enter a code from one already set up. */
+/**
+ * Where the page starts: choose a method to set up, the phone app when one can approve (§1.154),
+ * or a code from a method already set up.
+ */
 function firstView(status: SecondFactorStatus): View {
+  if (!status.setupNeeded && status.phones > 0) return { kind: "phone" };
+  return codeView(status);
+}
+
+/** A code from the person's first method (the authenticator app first), or setting one up. */
+function codeView(status: SecondFactorStatus): View {
   const methods = verified(status);
   const first = methods.find((m) => m.kind === "totp") ?? methods[0];
   if (status.setupNeeded || !first) return { kind: "choose" };
@@ -414,6 +436,7 @@ function EnterCode({
   onOther,
   onRecovery,
   onPassed,
+  onPhone,
 }: {
   method: SecondFactorKind;
   phoneHint: string | null;
@@ -423,6 +446,8 @@ function EnterCode({
   onOther: (m: SecondFactorMethodView) => void;
   onRecovery: (() => void) | null;
   onPassed: (codes: string[] | null) => void;
+  /** §1.154: back to approving on the phone app, when a phone can. */
+  onPhone: (() => void) | null;
 }) {
   const i18n = useI18n();
   const { t } = i18n;
@@ -514,6 +539,16 @@ function EnterCode({
           ))}
         </div>
       ) : null}
+      {onPhone ? (
+        <button
+          type="button"
+          className="text-left text-sm text-link hover:underline"
+          onClick={onPhone}
+          data-testid="second-step-use-phone"
+        >
+          {t("secondStep.phoneApprove.instead")}
+        </button>
+      ) : null}
       {onRecovery ? (
         <button
           type="button"
@@ -530,6 +565,141 @@ function EnterCode({
 }
 
 /** The code and "remember this browser"; finishes the sign-in (and a setup) on the server. */
+/**
+ * §1.154: the sign-in waits on the person's phone. The page asks once, shows the number to tap,
+ * and asks the API every 2 seconds whether the phone has answered; approved, the API has passed
+ * the step. The key that ties the request to this page stays in memory, never in storage.
+ */
+function PhoneApproval({
+  onPassed,
+  onCode,
+  onRecovery,
+}: {
+  onPassed: () => void;
+  onCode: () => void;
+  onRecovery: (() => void) | null;
+}) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const api = useApiClient();
+  const [asked, setAsked] = useState<PhoneApprovalStarted | null>(null);
+  const [state, setState] = useState<"asking" | "pending" | "denied" | "expired">("asking");
+  const [error, setError] = useState<unknown>(null);
+  const [remember, setRemember] = useState(false);
+  const rememberRef = useRef(remember);
+  rememberRef.current = remember;
+  const [round, setRound] = useState(0);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: asks again only when `round` changes.
+  useEffect(() => {
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    setState("asking");
+    setError(null);
+    setAsked(null);
+    async function check(started: PhoneApprovalStarted) {
+      try {
+        const res = await api.call(apiRoutes.secondFactorPhoneCheck, {
+          body: { id: started.id, key: started.key, remember: rememberRef.current },
+        });
+        if (!live) return;
+        if (res.status === "approved") {
+          onPassed();
+          return;
+        }
+        setState(res.status);
+        if (res.status === "pending")
+          timer = setTimeout(() => void check(started), PHONE_APPROVAL_POLL_MS);
+      } catch (err) {
+        if (live) setError(err);
+      }
+    }
+    api
+      .call(apiRoutes.secondFactorPhone, { body: {} })
+      .then((started) => {
+        if (!live) return;
+        setAsked(started);
+        setState("pending");
+        timer = setTimeout(() => void check(started), PHONE_APPROVAL_POLL_MS);
+      })
+      .catch((err) => {
+        if (live) setError(err);
+      });
+    return () => {
+      live = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [round]);
+
+  return (
+    <div className="flex flex-col gap-4" data-testid="second-step-phone" data-state={state}>
+      <h1 className="type-heading text-ink">{t("secondStep.phoneApprove.title")}</h1>
+      {error ? (
+        <p className="ds-error text-sm">{errorText(error, i18n)}</p>
+      ) : state === "denied" ? (
+        <p className="ds-error text-sm" role="status">
+          {t("secondStep.phoneApprove.denied")}
+        </p>
+      ) : state === "expired" ? (
+        <p className="text-ink" role="status">
+          {t("secondStep.phoneApprove.expired")}
+        </p>
+      ) : asked ? (
+        <>
+          <p className="text-ink">{t("secondStep.phoneApprove.intro")}</p>
+          <p className="type-display text-center text-ink tabular-nums">
+            <span className="sr-only">{t("secondStep.phoneApprove.number")}: </span>
+            <span data-testid="second-step-phone-number">{asked.number}</span>
+          </p>
+          <p className="text-sm text-ink-muted" role="status">
+            {t("secondStep.phoneApprove.waiting")}
+          </p>
+          <label className="flex items-center gap-3 text-sm text-ink">
+            <input
+              type="checkbox"
+              className="size-4 shrink-0 accent-slate"
+              checked={remember}
+              onChange={(e) => setRemember(e.target.checked)}
+              data-testid="second-step-remember"
+            />
+            {t("secondStep.remember")}
+          </label>
+        </>
+      ) : (
+        <Loading />
+      )}
+      {state === "denied" || state === "expired" || error ? (
+        <Button
+          variant="primary"
+          onClick={() => setRound((r) => r + 1)}
+          data-testid="second-step-phone-again"
+        >
+          {t("secondStep.phoneApprove.again")}
+        </Button>
+      ) : null}
+      <button
+        type="button"
+        className="text-left text-sm text-link hover:underline"
+        onClick={onCode}
+        data-testid="second-step-use-code"
+      >
+        {t("secondStep.phoneApprove.useCode")}
+      </button>
+      {onRecovery ? (
+        <button
+          type="button"
+          className="text-left text-sm text-link hover:underline"
+          onClick={onRecovery}
+          data-testid="second-step-use-recovery"
+        >
+          {t("secondStep.useRecovery")}
+        </button>
+      ) : null}
+      <p className="text-sm text-ink-muted">{t("secondStep.lost")}</p>
+    </div>
+  );
+}
+
 function CodeForm({
   method,
   setup,

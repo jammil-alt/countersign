@@ -1,7 +1,8 @@
 // The sign-in's second step (docs/plan.md §1.100): an operator sets up an authenticator app and
 // saves recovery codes; a client signs in with a texted code, gets a wrong code first, then
 // passes; a recovery code instead; the app sends a pending session to the step, and the page goes
-// back where the person was going; numbers and return addresses are checked.
+// back where the person was going; numbers and return addresses are checked; approving on the
+// phone app (§1.154) comes first when a phone can, with a code a click away.
 import type { SecondFactorStatus } from "@countersign/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -19,6 +20,7 @@ const pending = (over: Partial<SecondFactorStatus> = {}): SecondFactorStatus => 
   methods: [],
   setupNeeded: true,
   recoveryCodesLeft: 0,
+  phones: 0,
   ...over,
 });
 
@@ -230,5 +232,85 @@ describe("the step's helpers", () => {
     expect(safeReturnTo("https://evil.example", "/")).toBe("/");
     expect(safeReturnTo("/sign-in/second-step", "/")).toBe("/");
     expect(safeReturnTo(null, "/")).toBe("/");
+  });
+
+  describe("approving on the phone (§1.154)", () => {
+    const withPhone = () =>
+      pending({
+        setupNeeded: false,
+        recoveryCodesLeft: 8,
+        methods: [{ kind: "sms", phoneHint: "•••• 4567", verified: true }],
+        phones: 1,
+      });
+    const STARTED = {
+      id: "0190a1b2-0000-7000-8000-0000000000aa",
+      key: "k".repeat(43),
+      number: 47,
+      expiresAt: "2026-11-18T12:02:00.000Z",
+      phones: 1,
+    };
+
+    it("shows the number, waits on the phone, then goes on", async () => {
+      let passed = false;
+      let checks = 0;
+      const bodies: unknown[] = [];
+      renderAt("/sign-in/second-step?return_to=%2Finbox", {
+        "GET /api/session": () => (passed ? CLIENT_SESSION : REQUIRED),
+        "GET /api/auth/second-factor": () => withPhone(),
+        "POST /api/auth/second-factor/phone": () => STARTED,
+        "POST /api/auth/second-factor/phone/check": async ({ init }) => {
+          bodies.push(JSON.parse(String(init?.body)));
+          checks += 1;
+          if (checks < 2) return { status: "pending", passed: null };
+          passed = true;
+          return {
+            status: "approved",
+            passed: { ok: true, recoveryCodes: null, recoveryCodesLeft: 8 },
+          };
+        },
+      });
+      expect(await screen.findByTestId("second-step")).toHaveAttribute("data-view", "phone");
+      expect(await screen.findByTestId("second-step-phone-number")).toHaveTextContent("47");
+      await userEvent.click(screen.getByTestId("second-step-remember"));
+      await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent(/^\/inbox$/), {
+        timeout: 8000,
+      });
+      expect(bodies.at(-1)).toEqual({ id: STARTED.id, key: STARTED.key, remember: true });
+    }, 15_000);
+
+    it("says when the phone turned it down, asks again, and offers a code instead", async () => {
+      let asks = 0;
+      renderAt("/sign-in/second-step?return_to=%2Finbox", {
+        "GET /api/session": () => REQUIRED,
+        "GET /api/auth/second-factor": () => withPhone(),
+        "POST /api/auth/second-factor/phone": () => {
+          asks += 1;
+          return STARTED;
+        },
+        "POST /api/auth/second-factor/phone/check": () => ({ status: "denied", passed: null }),
+      });
+      await waitFor(
+        () =>
+          expect(screen.getByTestId("second-step-phone")).toHaveAttribute("data-state", "denied"),
+        { timeout: 5000 },
+      );
+      expect(screen.getByText(/turned down on your phone/)).toBeInTheDocument();
+      await userEvent.click(screen.getByTestId("second-step-phone-again"));
+      await waitFor(() => expect(asks).toBe(2));
+      await userEvent.click(screen.getByTestId("second-step-use-code"));
+      expect(screen.getByTestId("second-step")).toHaveAttribute("data-view", "code");
+      // And back to the phone from the code.
+      await userEvent.click(screen.getByTestId("second-step-use-phone"));
+      expect(screen.getByTestId("second-step")).toHaveAttribute("data-view", "phone");
+    }, 15_000);
+
+    it("starts on a code when no phone can approve", async () => {
+      renderAt("/sign-in/second-step?return_to=%2Finbox", {
+        "GET /api/session": () => REQUIRED,
+        "GET /api/auth/second-factor": () => ({ ...withPhone(), phones: 0 }),
+      });
+      expect(await screen.findByTestId("second-step")).toHaveAttribute("data-view", "code");
+      expect(screen.queryByTestId("second-step-use-phone")).toBeNull();
+    });
   });
 });

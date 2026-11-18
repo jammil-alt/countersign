@@ -42,6 +42,7 @@ import {
 import { and, count, eq, gt, gte, inArray, isNotNull, isNull, max, sql } from "drizzle-orm";
 import type { Bindings } from "../env";
 import { reportProblem } from "../observability/report";
+import { signingPhones } from "./phone";
 
 /** What the step is built from; tests pass a code service in memory (AppDeps.codeVerifier). */
 export interface SecondFactorConfig {
@@ -345,8 +346,10 @@ export async function rememberedBrowser(
         ),
       ),
   );
-  if (!factor) return false;
-  return (await allowedKinds(db, userId)).includes(factor.kind);
+  if (factor) return (await allowedKinds(db, userId)).includes(factor.kind);
+  // §1.154: a browser passed with the phone app names that phone: remembered while it is still
+  // the person's and set up to sign (never for an operator: signingPhones has none).
+  return (await signingPhones(db, userId, { deviceId: device.fid })).length > 0;
 }
 
 /** What the WorkOS adapter is given: whether the step is on, and the remembered-browser check. */

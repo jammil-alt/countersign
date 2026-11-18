@@ -3013,6 +3013,17 @@ export const ptBR: Messages = {
     "Perdeu o celular e os códigos de recuperação? Peça ao seu administrador ou ao seu contato na Mezonas para redefinir seu acesso.",
   "secondStep.signOut": "Sair",
   "secondStep.failed": "Não deu certo. Tente de novo.",
+  "secondStep.phoneApprove.title": "Aprove no seu celular",
+  "secondStep.phoneApprove.intro": "Abra o Mezonas no seu celular e toque neste número.",
+  "secondStep.phoneApprove.number": "O número para tocar no seu celular",
+  "secondStep.phoneApprove.waiting": "Esperando o seu celular.",
+  "secondStep.phoneApprove.denied":
+    "Este acesso foi recusado no seu celular. Se não foi você, troque sua senha.",
+  "secondStep.phoneApprove.expired": "Seu celular não respondeu a tempo.",
+  "secondStep.phoneApprove.again": "Perguntar de novo ao celular",
+  "secondStep.phoneApprove.useCode": "Usar um código",
+  "secondStep.phoneApprove.instead": "Aprovar no celular",
+  "error.no_phone": "Nenhum celular pode aprovar este acesso. Use um código.",
   // §1.120: approving a Claude connection (the MCP server) from the browser.
   "connectClaude.title": "Conectar o Claude",
   "connectClaude.subtitle":

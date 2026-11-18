@@ -143,6 +143,7 @@ import { runAuditRouteHandlers } from "./routes/run-audit";
 import { runControlRoutes } from "./routes/run-controls";
 import { claudeConnectionRoutes, secondFactorRoutes } from "./routes/second-factor";
 import { sessionRoutes } from "./routes/session";
+import { signInApprovalRoutes } from "./routes/sign-in-approvals";
 // v0.14 W4-C: the Slack channel picker
 import { slackRoutes } from "./routes/slack";
 // §1.150: Sloan by email and text
@@ -244,6 +245,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   secondFactorRoutes(app);
   // §1.116: the phone app
   mobileRoutes(app);
+  // §1.154: approving a sign-in on the phone
+  signInApprovalRoutes(app);
   claudeConnectionRoutes(app);
   opsClientRoutes(app);
   opsAgentRoutes(app);

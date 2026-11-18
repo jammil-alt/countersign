@@ -87,6 +87,7 @@ import { ownerRoutes } from "./owners";
 import { packRoutes } from "./packs";
 // v0.12 W1-G: people (autonomy).
 import { peopleRoutes, voiceSampleRoutes } from "./people";
+import { phoneApprovalRoutes } from "./phone-approval";
 import { qboRoutes } from "./qbo";
 import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
@@ -2523,6 +2524,7 @@ export const routes = {
   ...a2pRoutes,
   // §1.100: a second factor by authenticator app, text or WhatsApp.
   ...secondFactorRoutes,
+  ...phoneApprovalRoutes,
   // R4: business hours, person hours and channels (docs/plan.md §1.86).
   ...hoursRoutes,
   // R8: the Library (docs/plan.md §1.86).

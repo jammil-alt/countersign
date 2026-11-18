@@ -1013,7 +1013,7 @@ lost their phone uses a recovery code; otherwise an operator resets their method
 which also forgets every browser they had remembered. Every step is in the audit log:
 `session.second_factor_setup`, `session.second_factor` (ok or refused, with the method),
 `session.second_factor_send`, `session.recovery_codes`, `session.second_factor_reset`,
-`mcp.approve` (a Claude connection approved), and the sign-in row's `second_factor` (`pending`, `exempt` or `remembered`).
+`mcp.approve` (a Claude connection approved), `session.phone_approval` (a sign-in asked of, approved or denied on the phone app, `docs/plan.md` §1.154), and the sign-in row's `second_factor` (`pending`, `exempt` or `remembered`).
 
 ### The phone app (`docs/plan.md` §1.116)
 

@@ -12,7 +12,8 @@ import {
   type Session,
   type WorkOSAdapter,
 } from "@countersign/auth";
-import { routes, type SecondFactorKind } from "@countersign/core";
+import { globalFetch } from "@countersign/connectors";
+import { parseCoveredProcessors, routes, type SecondFactorKind } from "@countersign/core";
 import { membership, userFactor, userRecoveryCode, withUser } from "@countersign/db";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import type { Hono } from "hono";
@@ -27,6 +28,7 @@ import {
   findConnection,
 } from "../mcp/approval";
 import { PHONE_ENDED_MESSAGE, phoneEndedForPerson } from "../mobile/phone-session";
+import { pusherFromEnv } from "../notify/push";
 import {
   ATTEMPT_ACTION,
   allowedKinds,
@@ -40,6 +42,14 @@ import {
   secondFactorSetupOf,
   useRecoveryCode,
 } from "../second-factor";
+import {
+  browserInWords,
+  checkApproval,
+  placeOf,
+  pushApproval,
+  signingPhones,
+  startApproval,
+} from "../second-factor/phone";
 
 function sendCookies(c: AppContext, cookies: readonly string[]) {
   for (const cookie of cookies) c.header("Set-Cookie", cookie, { append: true });
@@ -142,6 +152,67 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
         .map((f) => ({ kind: f.kind, phoneHint: phoneHint(f.phone), verified: !!f.verifiedAt })),
       setupNeeded: enabled && usable.length === 0,
       recoveryCodesLeft: enabled ? await recoveryCodesLeft(services.db, userId) : 0,
+      // §1.154: only once a code method is set up (a phone signs in through the step itself).
+      phones: enabled && usable.length > 0 ? (await signingPhones(services.db, userId)).length : 0,
+    };
+  });
+
+  // §1.154: ask the person's phone to approve this sign-in.
+  mountPublic(app, routes.secondFactorPhone, async ({ c, services }) => {
+    const { session } = await pending(c);
+    const userId = session.user.id;
+    const db = services.db;
+    const phones = await signingPhones(db, userId);
+    if (phones.length === 0) {
+      throw new HttpError(409, "no_phone", "no phone can approve this sign-in: use a code");
+    }
+    // A request is a send: the same 5 in 15 minutes as texts, so a stolen password can't spam a phone.
+    await sendOnce(c, session, "phone");
+    const now = new Date();
+    const { row, key } = await startApproval(db, {
+      userId,
+      browser: browserInWords(c.req.header("user-agent")),
+      place: placeOf(c.req.raw),
+      now,
+    });
+    await auditAlone(
+      db,
+      c,
+      entry(session, "session.phone_approval", "ok", 200, { approval: row.id, step: "requested" }),
+    );
+    await pushApproval(
+      pusherFromEnv(services.env, services.deps.fetch?.(services.env) ?? globalFetch()),
+      phones,
+      { approvalId: row.id, covered: parseCoveredProcessors(services.env.BAA_PROCESSORS) },
+    );
+    return {
+      id: row.id,
+      key,
+      number: row.number,
+      expiresAt: row.expiresAt.toISOString(),
+      phones: phones.length,
+    };
+  });
+
+  // §1.154: whether the phone answered; approved, the step is passed here.
+  mountPublic(app, routes.secondFactorPhoneCheck, async ({ c, body, services }) => {
+    const { session, config, workos, current } = await pending(c);
+    const userId = session.user.id;
+    const db = services.db;
+    const now = new Date();
+    const checked = await checkApproval(db, { userId, id: body.id, key: body.key, now });
+    if (checked.status !== "approved") return { status: checked.status, passed: null };
+    // The phone may have been removed between its answer and this check.
+    const still = await signingPhones(db, userId, { deviceId: checked.deviceId });
+    if (still.length === 0) return { status: "expired" as const, passed: null };
+    await pass(c, workos, current, session, config, checked.deviceId, body.remember, now, "phone");
+    return {
+      status: "approved" as const,
+      passed: {
+        ok: true as const,
+        recoveryCodes: null,
+        recoveryCodesLeft: await recoveryCodesLeft(db, userId),
+      },
     };
   });
 

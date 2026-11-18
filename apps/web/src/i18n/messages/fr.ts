@@ -3062,6 +3062,17 @@ export const fr: Messages = {
     "Téléphone et codes de récupération perdus ? Demandez à votre administrateur ou à votre contact Mezonas de réinitialiser votre connexion.",
   "secondStep.signOut": "Se déconnecter",
   "secondStep.failed": "Cela n'a pas fonctionné. Réessayez.",
+  "secondStep.phoneApprove.title": "Approuvez sur votre téléphone",
+  "secondStep.phoneApprove.intro": "Ouvrez Mezonas sur votre téléphone et touchez ce nombre.",
+  "secondStep.phoneApprove.number": "Le nombre à toucher sur votre téléphone",
+  "secondStep.phoneApprove.waiting": "En attente de votre téléphone.",
+  "secondStep.phoneApprove.denied":
+    "Cette connexion a été refusée sur votre téléphone. Si ce n'était pas vous, changez votre mot de passe.",
+  "secondStep.phoneApprove.expired": "Votre téléphone n'a pas répondu à temps.",
+  "secondStep.phoneApprove.again": "Redemander à mon téléphone",
+  "secondStep.phoneApprove.useCode": "Utiliser un code",
+  "secondStep.phoneApprove.instead": "Approuver sur mon téléphone",
+  "error.no_phone": "Aucun téléphone ne peut approuver cette connexion. Utilisez un code.",
   // §1.120: approving a Claude connection (the MCP server) from the browser.
   "connectClaude.title": "Connecter Claude",
   "connectClaude.subtitle":
