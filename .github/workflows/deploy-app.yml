@@ -46,6 +46,10 @@ jobs:
       # provider stays off on an environment until its key exists.
       TWILIO_ACCOUNT_SID: ${{ secrets.TWILIO_ACCOUNT_SID }}
       TWILIO_AUTH_TOKEN: ${{ secrets.TWILIO_AUTH_TOKEN }}
+      # Sign-in codes (plan §1.100): an API key of the Twilio subaccount that holds the Verify
+      # service, so the sign-in step never uses the main account's keys.
+      TWILIO_VERIFY_API_KEY_SID: ${{ secrets.TWILIO_VERIFY_API_KEY_SID }}
+      TWILIO_VERIFY_API_KEY_SECRET: ${{ secrets.TWILIO_VERIFY_API_KEY_SECRET }}
       ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
       ELEVENLABS_WEBHOOK_SECRET: ${{ secrets.ELEVENLABS_WEBHOOK_SECRET }}
       RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
@@ -292,7 +296,8 @@ jobs:
           if [ -n "${OPENAI_API_KEY:-}" ]; then put OPENAI_API_KEY "$OPENAI_API_KEY"; fi
           if [ -n "${XAI_API_KEY:-}" ]; then put XAI_API_KEY "$XAI_API_KEY"; fi
           if [ -n "${GEMINI_API_KEY:-}" ]; then put GEMINI_API_KEY "$GEMINI_API_KEY"; fi
-          for name in TWILIO_ACCOUNT_SID TWILIO_AUTH_TOKEN ELEVENLABS_API_KEY ELEVENLABS_WEBHOOK_SECRET \
+          for name in TWILIO_ACCOUNT_SID TWILIO_AUTH_TOKEN TWILIO_VERIFY_API_KEY_SID TWILIO_VERIFY_API_KEY_SECRET \
+            ELEVENLABS_API_KEY ELEVENLABS_WEBHOOK_SECRET \
             RESEND_API_KEY STRIPE_SECRET_KEY STRIPE_WEBHOOK_SECRET \
             ZOHO_CLIENT_ID ZOHO_CLIENT_SECRET PODIO_CLIENT_ID PODIO_CLIENT_SECRET \
             GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET QBO_CLIENT_ID QBO_CLIENT_SECRET QBO_WEBHOOK_VERIFIER \
