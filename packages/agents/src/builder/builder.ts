@@ -117,6 +117,7 @@ Rules:
 - New agents review their own failed steps: definition.oversight is {"review": "failures"}.
 - A skill step may set "model" ({"id": one of the catalog's models}) when its job needs a different model from its skill's or the agent's (a long document on a stronger one, a simple read on a fast one); leave it out otherwise.
 - Agent kind is "functional". Give each step, if path, otherwise branch and trigger a short id, unique in the bundle.
+- Happy path first: draft the normal case so it runs end to end. What the description lists as known risks is not built in this version: add no steps and no missing steps for them. Where the normal case can't go on (no match, more than one, something it can't read), hand it to a person with a person step, or stop with a note; never a missing step for an exception. A threshold the description doesn't give starts strict, so more goes to a person.
 - Prefer a template that already does the job: name it in "startFromTemplate" (drafts only).
 - Write names, summaries and gaps in plain words, short sentences, sentence case; no hype, no exclamation marks.`;
 

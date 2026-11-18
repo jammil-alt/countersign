@@ -65,6 +65,7 @@ function detail(over: Partial<BuildDetail> = {}): BuildDetail {
             verdict: "native",
             how: "Read the invoice",
             dropped: false,
+            later: false,
           },
           {
             id: "pay",
@@ -72,6 +73,7 @@ function detail(over: Partial<BuildDetail> = {}): BuildDetail {
             verdict: "not_possible",
             how: "Agents never move money",
             dropped: false,
+            later: false,
           },
         ],
         needsTrue: [{ id: "qbo", text: "The client connects QuickBooks", done: false }],
@@ -781,6 +783,7 @@ describe("Builds", () => {
                 verdict: "build",
                 how: "A new skill",
                 dropped: false,
+                later: false,
               },
             ],
           },
@@ -838,6 +841,19 @@ describe("Builds", () => {
     await userEvent.click(within(fit).getByTestId("build-fit-read-change"));
     await userEvent.selectOptions(within(fit).getByTestId("build-fit-read-to"), "figure_out");
     expect(within(fit).getByTestId("build-fit-read-send")).toHaveTextContent("Change it");
+    await userEvent.click(within(fit).getByTestId("build-fit-read-change"));
+
+    // Happy path first (owner, 2026-11-17): a row can be left for later as a known risk, which
+    // a person handles until it shows up in runs.
+    expect(within(fit).queryByTestId("build-fit-risks")).toBeNull();
+    await userEvent.selectOptions(within(fit).getByTestId("build-fit-tiers-scope"), "Known risk");
+    expect(within(fit).getByTestId("build-fit-tiers-risk")).toHaveTextContent(
+      "Until it shows up in runs, a person handles it.",
+    );
+    expect(within(fit).getByTestId("build-fit-tiers-item")).toHaveTextContent(
+      "Put off as an issue when you agree the direction",
+    );
+    expect(within(fit).getByTestId("build-fit-risks")).toHaveTextContent("1 known risk");
   });
 
   it("keeps a template's client intake form on the build", async () => {

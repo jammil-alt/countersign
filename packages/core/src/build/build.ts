@@ -187,6 +187,12 @@ export const FitRowDraft = z.object({
     .max(500)
     .describe("How: the platform part that does it, what to configure or build, or why not"),
   dropped: z.boolean().default(false).describe("Taken out of scope by the operator"),
+  later: z
+    .boolean()
+    .default(false)
+    .describe(
+      "A known risk: an exception or rare case the first version doesn't build (several in one file, another currency, a late or duplicate input). Until it shows up in runs it goes to a person",
+    ),
 });
 
 export const FitRow = FitRowDraft.extend({
@@ -194,6 +200,31 @@ export const FitRow = FitRowDraft.extend({
   challenge: FitChallenge.nullish(),
 });
 export type FitRow = z.infer<typeof FitRow>;
+
+/**
+ * Happy path first (owner, 2026-11-17): the first version builds the normal case. A row is on it
+ * (`main`), a known risk left for later (`later`: it goes to a person until it shows up in runs),
+ * or out of scope (`out`).
+ */
+export const FIT_SCOPES = ["main", "later", "out"] as const;
+export type FitScope = (typeof FIT_SCOPES)[number];
+
+export const FIT_SCOPE_WORDS: Record<FitScope, string> = {
+  main: "First version",
+  later: "Known risk",
+  out: "Out of scope",
+};
+
+export function fitScope(r: Pick<FitRow, "dropped" | "later">): FitScope {
+  return r.dropped ? "out" : r.later ? "later" : "main";
+}
+
+export function withFitScope<R extends Pick<FitRow, "dropped" | "later">>(
+  row: R,
+  scope: FitScope,
+): R {
+  return { ...row, dropped: scope === "out", later: scope === "later" };
+}
 
 export const NeedsTrue = z.object({
   id: ShortId,
@@ -371,9 +402,12 @@ export function mergeFitGap(before: FitGap, after: FitGapDraft): FitGap {
     const base: FitRow = { ...r, override: null, challenge: null };
     if (!p) return base;
     const dropped = p.dropped || r.dropped;
-    if (p.challenge) return { ...base, dropped };
-    if (p.override) return { ...base, dropped, verdict: p.verdict, override: p.override };
-    return { ...base, dropped };
+    // DECISION (owner, 2026-11-17): a row's place (first version or known risk) is set by the
+    // Builder when the row is new and by the operator after that; a rewrite keeps it.
+    const later = p.later;
+    if (p.challenge) return { ...base, dropped, later };
+    if (p.override) return { ...base, dropped, later, verdict: p.verdict, override: p.override };
+    return { ...base, dropped, later };
   });
   const ids = new Set(rows.map((r) => r.id));
   for (const p of before.rows) {
@@ -425,7 +459,11 @@ export function operatorFitGap(
   return {
     ok: true,
     fitgap: {
-      rows: stored.rows.map((s) => ({ ...s, dropped: byId.get(s.id)?.dropped ?? s.dropped })),
+      rows: stored.rows.map((s) => ({
+        ...s,
+        dropped: byId.get(s.id)?.dropped ?? s.dropped,
+        later: byId.get(s.id)?.later ?? s.later,
+      })),
       needsTrue: sent.needsTrue,
       setup: sent.setup.map((f) => {
         const s = stored.setup.find((x) => x.id === f.id);
@@ -587,8 +625,11 @@ export interface GateFacts {
 
 /**
  * Why the build can't move on from its phase (empty: it can). Moving back needs no gate. Open
- * items carry over from phase to phase; they hold the move into the client test and the go-live.
+ * items carry over from phase to phase; they hold only the go-live.
  */
+// DECISION (owner, 2026-11-17, happy path first): open items no longer hold the POC test. A
+// question such as a tolerance is answered by what the POC shows, so it can't be a reason not to
+// run one; the client's trial signs every write, and QA still needs every item done or put off.
 export function gateReasons(f: GateFacts): string[] {
   const out: string[] = [];
   switch (f.phase) {
@@ -600,8 +641,8 @@ export function gateReasons(f: GateFacts): string[] {
       }
       break;
     case "fitgap":
-      if (f.fitgap.rows.filter((r) => !r.dropped).length === 0) {
-        out.push("The fit-gap has no rows in scope.");
+      if (f.fitgap.rows.filter((r) => !r.dropped && !r.later).length === 0) {
+        out.push("The fit-gap has nothing in the first version.");
       }
       {
         const asked = f.fitgap.rows.filter((r) => !r.dropped && r.challenge).length;
@@ -626,7 +667,6 @@ export function gateReasons(f: GateFacts): string[] {
       break;
     case "poc":
       if (!f.poc.passed) out.push(f.poc.detail);
-      if (f.openItems > 0) out.push(openWords(f.openItems));
       break;
     case "client_test":
       if (!f.trialDone) out.push("The client's trial isn't done yet.");

@@ -359,6 +359,8 @@ export interface NewItem {
   ref?: Record<string, string> | undefined;
   /** Made from something (a fit-gap row, a case, a write): made once. */
   key?: string | null | undefined;
+  /** Default open; a known risk starts put off. */
+  state?: BuildItemRow["state"] | undefined;
 }
 
 /** Adds items; one whose key the build already has is left as it is. */
@@ -382,6 +384,8 @@ export async function addItems(
         stepId: i.stepId ?? null,
         ref: i.ref ?? {},
         key: i.key ?? null,
+        state: i.state ?? "open",
+        resolvedAt: i.state && !itemOpen(i.state) ? new Date() : null,
         createdBy: userId,
       })
       .onConflictDoNothing()
