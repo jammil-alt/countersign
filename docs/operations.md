@@ -972,8 +972,8 @@ run again, e.g. after new clients exist: it never adds a second first client.
 
 After WorkOS checks the password, Mezonas asks for a code itself: an authenticator app (operators:
 only this), a text or WhatsApp. A browser that passed can be remembered for 30 days. Codes are
-checked by **Twilio Verify** on Mezonas' own Twilio account; we never hold a code or an
-authenticator secret. People who sign in through their company's SSO are not asked.
+checked by **Twilio Verify** in a Twilio subaccount of its own (one per environment, under
+Mezonas' account; never a client's subaccount); we never hold a code or an authenticator secret. People who sign in through their company's SSO are not asked.
 
 **Off until `TWILIO_VERIFY_SERVICE_SID` is set** (a var under the environment's `vars` in
 `apps/api/wrangler.jsonc`; left out of the file until it has a value). The Claude connector
@@ -986,13 +986,19 @@ its routes answer 503.
 
 To turn it on for an environment (staging first):
 
-1. Twilio Console → Verify → Services → **Create** "Mezonas" (staging: "Mezonas staging"). Under
-   TOTP, set the **Issuer** to the same name (it is what the authenticator app shows). For
-   WhatsApp codes, attach a WhatsApp sender. Turn on **Fraud Guard** for SMS.
-2. `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN` (already used for numbers) and `ENCRYPTION_KEY`
-   (recovery codes are HMACs under it) must be set in the environment.
-3. Add `"TWILIO_VERIFY_SERVICE_SID": "VA…"` under the environment's `vars`; merge (staging) or
-   release (production).
+1. Twilio Console → Subaccounts → **Create** "Mezonas sign-in" (staging: "Mezonas sign-in
+   staging"). Switch to it, then Verify → Services → **Create** "Mezonas" (staging: "Mezonas
+   staging"). Under TOTP, set the **Issuer** to the same name (it is what the authenticator app
+   shows). For WhatsApp codes, attach a WhatsApp sender. Turn on **Fraud Guard** for SMS.
+2. In that subaccount, Account → API keys → **Create** a Standard key. In GitHub → Settings →
+   Environments → the environment, add its SID (`SK…`) as `TWILIO_VERIFY_API_KEY_SID` and its
+   secret as `TWILIO_VERIFY_API_KEY_SECRET`, then redeploy (Actions → Deploy) so the Worker has
+   them. Never use `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` for this: they are the main
+   account's and make clients' subaccounts. `ENCRYPTION_KEY` (recovery codes are HMACs under it)
+   is already set by the first deploy.
+3. Only then add `"TWILIO_VERIFY_SERVICE_SID": "VA…"` under the environment's `vars`; merge
+   (staging) or release (production). With the service set and the key missing, every sign-in
+   waits on a step that cannot pass.
 4. Sign in once with a password: you're asked to set up a method. Check the items in
    `packages/connectors/src/twilio/VERIFY_NOTES.md` as you go.
 5. Connect Claude to the environment's `/mcp` and ask it something ("whoami in Mezonas staging"):
