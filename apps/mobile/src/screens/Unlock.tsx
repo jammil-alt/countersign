@@ -9,7 +9,7 @@ import { Button, Note, Screen, Text } from "../ui/kit";
 import { Mark } from "../ui/Mark";
 
 export function UnlockScreen() {
-  const { unlock, signOut, me } = useApp();
+  const { unlock, signOut, me, deviceId, userId, setApproving } = useApp();
   const p = usePalette();
   const [failed, setFailed] = useState(false);
 
@@ -60,6 +60,14 @@ export function UnlockScreen() {
           icon={<Icon name="faceId" color={p.onSlate} />}
           onPress={() => void unlock().then((ok) => setFailed(!ok))}
         />
+        {deviceId && userId ? (
+          <Button
+            kind="secondary"
+            label="Approve a sign-in"
+            onPress={() => setApproving(true)}
+            testID="approve-sign-in"
+          />
+        ) : null}
         <Button kind="ghost" label="Not you? Sign out" onPress={() => void signOut()} />
       </View>
     </Screen>

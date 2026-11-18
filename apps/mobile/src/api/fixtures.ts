@@ -313,6 +313,24 @@ export async function fixtureFetch(input: string, init: RequestInit): Promise<Re
     });
   }
   if (/^\/api\/threads\/[^/]+\/read$/.test(path)) return json({ ok: true });
+  // §1.154: one sign-in waiting, for screenshots of the approval screen.
+  if (path === "/api/mobile/sign-in-approvals" && method === "POST") {
+    return json({
+      approvals: [
+        {
+          id: "0190a1b2-0000-7000-8000-00000000c001",
+          browser: "Chrome on macOS",
+          place: "Austin, US",
+          createdAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 120_000).toISOString(),
+          choices: [23, 47, 81],
+        },
+      ],
+    });
+  }
+  if (path.startsWith("/api/mobile/sign-in-approvals/") && method === "POST") {
+    return json({ status: "approved" });
+  }
   if (path === "/api/auth/sign-out") return json({ ok: true, redirectTo: null });
   return json({ error: { code: "not_found", message: `no fixture for ${method} ${path}` } }, 404);
 }
