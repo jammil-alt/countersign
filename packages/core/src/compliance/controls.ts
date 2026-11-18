@@ -199,7 +199,7 @@ export const CONTROLS: readonly Control[] = [
     statement:
       "Full-disk encryption, a screen lock of 5 minutes or less, current updates and no shared users. No client data on personal devices or accounts.",
     status: "partial",
-    gap: "The policy requires it; devices are not yet checked and recorded.",
+    gap: "Checked by hand and recorded (the owner's laptop, 2026-11-18, docs/security.md §10); not yet under device management or endpoint protection (by 2026-12-04).",
     tier: "all",
     evidence: [{ kind: "policy", ref: ISP, note: "§4" }],
     maps: { soc2: ["CC6.8"], hipaa: ["164.310(b)", "164.310(c)", "164.310(d)(1)"] },

@@ -17,7 +17,8 @@ enforced for the organization), GitHub, Cloudflare (required for every member), 
 the organization), Sentry (required), WorkOS, Stripe and 1Password. Passkeys or security keys on
 all of them but WorkOS, which offers an authenticator app only. Production's database owner
 password was reset and no person holds it (§8); a restore was tested (§8); production is
-monitored from outside, with a public status page (§10).
+monitored from outside, with a public status page (§10). The owner's laptop is encrypted, locks
+at once, updates itself and has one user (§10), checked by hand until device management.
 
 Status, 2026-11-06:
 - The settings outside the code are all in place (table below).
@@ -289,6 +290,7 @@ finding each setting.
 | WorkOS dashboard | The owner's MFA; team | On: authenticator app (was off; no passkey offered). The team is named "Plenary Labs"; one member, Admin; team MFA requirement off (2026-11-18) |
 | Stripe | The owner's two-step | Authenticator app and two passkeys. Signs in with Google, no password. Team: one member, Owner; team requirement off. Checked in the test-mode sandbox only; the second account not opened (2026-11-18) |
 | 1Password, company account | Staff credentials and recovery codes | Set up 2026-11-18 (the owner's word, not checked by Claude in Chrome): Mezonas logins, passkeys and recovery codes kept there, in vaults only the owner opens |
+| The owner's MacBook Pro (macOS 26.6.2) | Device settings (policy §4) | FileVault on, recovery key in 1Password; screen lock immediate; firewall on; automatic macOS updates on; Find My Mac on; one user account. Checked by hand with `fdesetup`, `socketfilterfw`, `sysadminctl` and `dscl` (2026-11-18); not yet under device management |
 | Better Stack (free) | Uptime and status page | Monitor on `https://app.mezonas.com/api/health` every 3 minutes, email alerts; public status page at `https://status.mezonas.com` (CNAME `status` → `statuspage.betteruptime.com`, DNS only, on `mezonas.com`). It reaches only the public health route: no client data (2026-11-18) |
 | Sentry, organization | Security & Privacy | Data Scrubber, default scrubbers and "Prevent Storing of IP Addresses" on and enforced on `mezonas-api` and `mezonas-web`; sensitive fields email, cookie, session, prompt, completion, utterance, transcript (checked 2026-11-14). "Require Two-Factor Authentication" off: Sentry refuses it until the owner's own account has a second factor |
 | Sentry, `mezonas-api` and `mezonas-web` | Alerts | "Production errors to the security officer": a new or regressed issue in `environment:production`, email to the owner, at most every 30 minutes (#6345968, #6345969; 2026-11-14). The default "high priority issues" alert stays, all environments. Developer plan: one user, events kept 30 days |
