@@ -29,8 +29,6 @@ export interface Secrets {
   QBO_WEBHOOK_VERIFIER?: string;
   /** Mezonas' own Twilio account: it makes each client's subaccount (docs/plan.md §1.22). */
   TWILIO_ACCOUNT_SID?: string;
-  /** §1.100: Twilio Verify's service (`VA…`) for sign-in codes; empty: the second step is off. */
-  TWILIO_VERIFY_SERVICE_SID?: string;
   /**
    * §1.100: an API key (`SK…`) of the Twilio subaccount that holds the Verify service, and its
    * secret. Unset: Verify is reached with the main account's keys above.
@@ -142,6 +140,11 @@ export interface Secrets {
 /** Vars are read as plain strings: deployments set values the generated literals don't know. */
 export interface Vars {
   ENVIRONMENT?: string;
+  /**
+   * §1.100: Twilio Verify's service (`VA…`) for sign-in codes, a var per environment in
+   * wrangler.jsonc; empty: the second step is off.
+   */
+  TWILIO_VERIFY_SERVICE_SID?: string;
   AUTH_PROVIDER?: string;
   WORKOS_CLIENT_ID?: string;
   /**
