@@ -4,7 +4,10 @@
 // client-only agents or all of them, as cards or a list, with a status filter and a search that
 // reads plain words ("behind", "failing", a client's name). Each opens its own full page, where its
 // workflow, client copies, test bench and Assign to a client live (../agents, ./TemplateParts).
-import type { LabResponse, LabTemplate } from "@countersign/core";
+// Owner (2026-11-17): "make the builder board and new item as the New Template in the agent lab".
+// New starts a build (a template, a client agent or a skill, ../builds/NewBuild), and Drafts is the
+// board: the builds in progress by phase, then any draft that has no build.
+import type { BuildSummary, LabResponse, LabTemplate } from "@countersign/core";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
@@ -13,9 +16,11 @@ import { AgentBadge } from "../../ui/badges";
 import { Clamp } from "../../ui/Clamp";
 import { TextInput } from "../../ui/forms";
 import { Loaded, Page } from "../../ui/page";
-import { buttonClass, Card, cx, EmptyState, PageHeader, Tag } from "../../ui/primitives";
+import { Button, Card, cx, EmptyState, PageHeader, Tag } from "../../ui/primitives";
 import { type ChipState, StatusChip } from "../../ui/status";
 import { plural, Select } from "../agents/ui";
+import { BuildsBoard, buildKindLine } from "../builds/BuildsBoard";
+import { isNewKind, NewBuild, type NewKind } from "../builds/NewBuild";
 import { TableCard } from "../screens/business";
 import { rememberLabQuery } from "./back";
 import { handOver } from "./TemplateParts";
@@ -77,7 +82,12 @@ function fromTemplate(t: LabTemplate, kind: "templates" | "drafts", role: string
   };
 }
 
-function items(data: LabResponse, roles: Map<string, string | null>): Item[] {
+function items(
+  data: LabResponse,
+  roles: Map<string, string | null>,
+  building: ReadonlySet<string>,
+): Item[] {
+  // An agent with an open build shows as that build, on the Drafts board.
   return [
     ...data.published.map((t) => fromTemplate(t, "templates", roles.get(t.agent.id) ?? null)),
     ...data.drafts.map((t) => fromTemplate(t, "drafts", roles.get(t.agent.id) ?? null)),
@@ -97,7 +107,14 @@ function items(data: LabResponse, roles: Map<string, string | null>): Item[] {
         to: `/ops/clients/${client.id}/agents/${agent.slug}`,
       }),
     ),
-  ];
+  ].filter((i) => !building.has(i.id));
+}
+
+/** A build matches the search when every word is in its title or what it is. */
+function buildMatches(b: BuildSummary, q: string): boolean {
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const hay = `${b.title} ${buildKindLine(b)} build draft`.toLowerCase();
+  return words.every((w) => hay.includes(w));
 }
 
 const hasChanges = (i: Item) => i.latest !== null && i.latest !== i.live;
@@ -185,6 +202,8 @@ function useLabView(): [View, (v: View) => void] {
 
 export function LabScreen() {
   const lab = useApi(apiRoutes.opsLab);
+  // The builds in progress: the Drafts tab's board.
+  const builds = useApi(apiRoutes.opsBuilds, { query: { status: "open" } });
   // Each template's role and status; discarded drafts too, so they can be found and restored.
   const templates = useApi(apiRoutes.opsTemplates, { query: { include: "discarded" } });
   const [params, setParams] = useSearchParams();
@@ -195,6 +214,8 @@ export function LabScreen() {
     ? (statusParam as Status)
     : "any";
   const q = params.get("q") ?? "";
+  const newParam = params.get("new");
+  const starting: NewKind | null = isNewKind(newParam) ? newParam : null;
   const [view, setView] = useLabView();
   // What "All agents" returns to is the view shown, not the address as typed: a tab or status the
   // lab doesn't know (QA: `?status=%00`) falls back above and isn't remembered.
@@ -206,7 +227,7 @@ export function LabScreen() {
   const remembered = shown.toString();
   useEffect(() => rememberLabQuery(remembered), [remembered]);
 
-  function set(next: { tab?: Tab; status?: Status; q?: string }) {
+  function set(next: { tab?: Tab; status?: Status; q?: string; new?: NewKind | "" }) {
     const p = new URLSearchParams(params);
     for (const [k, v] of Object.entries(next)) {
       if (v === undefined) continue;
@@ -221,6 +242,11 @@ export function LabScreen() {
     [templates.data],
   );
   const discarded = (templates.data?.templates ?? []).filter((t) => t.status === "disabled");
+  const open = builds.data?.builds ?? [];
+  const building = useMemo(
+    () => new Set((builds.data?.builds ?? []).flatMap((b) => (b.agentId ? [b.agentId] : []))),
+    [builds.data],
+  );
 
   return (
     <Page testId="ops-lab">
@@ -228,23 +254,36 @@ export function LabScreen() {
         title="Agent lab"
         subtitle="Build an agent for one client, then turn it into a template the next client starts from."
         actions={
-          <Link to="/ops/templates/new" className={buttonClass("primary")} data-testid="lab-new">
-            New template
-          </Link>
+          <Button
+            variant="primary"
+            data-testid="lab-new"
+            onClick={() => set(starting ? { new: "" } : { tab: "drafts", new: "template" })}
+          >
+            New
+          </Button>
         }
       />
+      {starting ? (
+        <div className="mb-4">
+          <NewBuild key={starting} initial={starting} onCancel={() => set({ new: "" })} />
+        </div>
+      ) : null}
       <Loaded state={lab}>
         {(data) => {
-          const all = items(data, roles);
+          const all = items(data, roles, building);
           const inTab = tab === "all" ? all : all.filter((i) => i.kind === tab);
           const shown = inTab.filter((i) => matchesStatus(i, status) && matchesSearch(i, q));
           const filtered = status !== "any" || q.trim() !== "";
+          // A build has no clients, behind or tests yet: a status filter leaves the board out.
+          const board =
+            tab === "drafts" && status === "any" ? open.filter((b) => buildMatches(b, q)) : [];
           return (
             <div className="flex flex-col gap-4">
               <div className="flex flex-wrap items-center gap-3">
                 <LabTabs
                   data={data}
-                  total={all.length}
+                  drafts={all.filter((i) => i.kind === "drafts").length + open.length}
+                  total={all.length + open.length}
                   tab={tab}
                   onChoose={(t) => set({ tab: t })}
                 />
@@ -293,7 +332,20 @@ export function LabScreen() {
                 </fieldset>
               </div>
 
-              {shown.length === 0 ? (
+              {board.length > 0 ? (
+                <section className="flex flex-col gap-2" aria-label="Builds in progress">
+                  <h2 className="type-subheading text-ink">
+                    In progress <span className="text-ink-muted">· {board.length}</span>
+                  </h2>
+                  <BuildsBoard builds={board} />
+                </section>
+              ) : null}
+              {tab === "drafts" && board.length > 0 && shown.length > 0 ? (
+                <h2 className="type-subheading text-ink">
+                  Drafts without a build <span className="text-ink-muted">· {shown.length}</span>
+                </h2>
+              ) : null}
+              {board.length > 0 && shown.length === 0 ? null : shown.length === 0 ? (
                 filtered ? (
                   <EmptyState
                     icon="search"
@@ -317,7 +369,7 @@ export function LabScreen() {
                     }
                     line={
                       tab === "drafts"
-                        ? "A new template starts as a draft until its first publish."
+                        ? "New starts a build: a template, a client agent or a skill. It shows here until it goes live."
                         : tab === "client"
                           ? "Every client agent comes from a template."
                           : "Publish a draft, or promote a client agent's changes into one."
@@ -325,7 +377,10 @@ export function LabScreen() {
                     action={
                       tab === "client"
                         ? undefined
-                        : { label: "New template", to: "/ops/templates/new" }
+                        : {
+                            label: "New template",
+                            onClick: () => set({ tab: "drafts", new: "template" }),
+                          }
                     }
                   />
                 )
@@ -352,18 +407,21 @@ export function LabScreen() {
 
 function LabTabs({
   data,
+  drafts,
   total,
   tab,
   onChoose,
 }: {
   data: LabResponse;
+  /** Drafts and builds in progress. */
+  drafts: number;
   total: number;
   tab: Tab;
   onChoose(tab: Tab): void;
 }) {
   const tabs: { id: Tab; label: string }[] = [
     { id: "templates", label: `Templates · ${data.published.length}` },
-    { id: "drafts", label: `Drafts · ${data.drafts.length}` },
+    { id: "drafts", label: `Drafts · ${drafts}` },
     { id: "client", label: `Client-only · ${data.clientOnly.length}` },
     { id: "all", label: `All · ${total}` },
   ];

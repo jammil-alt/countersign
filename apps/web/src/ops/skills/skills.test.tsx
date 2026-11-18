@@ -549,9 +549,9 @@ describe("new skill, with the Builder", () => {
     // What the Builder is, and where the steps after a skill are built.
     const what = screen.getByTestId("new-skill-what");
     expect(what).toHaveTextContent("A skill is one step");
-    expect(within(what).getByRole("link", { name: "Builds" })).toHaveAttribute(
+    expect(within(what).getByRole("link", { name: "the Agent lab's drafts" })).toHaveAttribute(
       "href",
-      "/ops/builds",
+      "/ops/lab?tab=drafts",
     );
     await user.click(screen.getByTestId("new-skill-edit"));
     await waitFor(() => expect(saves).toEqual([SESSION_ID]));

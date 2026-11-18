@@ -5771,6 +5771,21 @@ choose.
 | Checked | `packages/core/src/build/build.test.ts` (scopes, merges, gates), `apps/api/src/builds.test.ts` (a known risk drafted out and put off; the POC gate), `apps/web/src/ops/builds/builds.test.tsx` (the In column). |
 
 
+### 1.152 The Builder board is the Agent lab's Drafts; New starts a build (owner, 2026-11-17)
+
+"Make the builder board and new item as the New Template in the agent lab... they do the same thing
+now... Board is essentially the drafts section of the lab." The Agent lab's "New template" made a
+draft directly (a Builder conversation or a blank workflow), with no brief, fit-gap or tests; the
+Builder board's "New build" started the phased build (§1.108). Two ways to the same draft, one of
+them skipping the build's checks. Work → Build → New item is not this: it files an issue and stays.
+
+| Topic | Decision |
+|---|---|
+| New | The lab's **New** opens the build form: **Template** (an agent for every client), **Client agent** (one client, which it asks for) or **Skill** (shared, or one client's). Each starts a build (`opsStartBuild`) and opens its page. The old direct path (a template drafted by conversation or blank, with no build) is gone; a client's own **New agent** page (fork a template, or draft by conversation) is unchanged. `/ops/templates/new` redirects to the lab with the form open on Template (`?tab=drafts&new=template`). // DECISION |
+| Drafts | The Drafts tab is the board: **In progress**, the open builds in phase columns (intake to QA), a card each with what holds it; then **Drafts without a build** (template drafts made before this). An agent with an open build shows only as its build, in every tab, so nothing is listed twice; the tab's count is both. The search matches a build's title and kind; a status filter (clients behind, tests failing…) leaves the board out, since a build has none of those yet. `/ops/builds` redirects to Drafts; a build's own page stays at `/ops/builds/:id`. // DECISION |
+| What the board had, and where it went | Phase columns: Drafts. New build: the lab's New. The "Issues across builds" table is dropped: Your call lists the build items we own, and Work → Build's Agent builds tab lists the builds with what holds each. The links to the board (Work → Build's button, an agent page's Build tab with no open build, the new-skill page, a build's breadcrumb, the Library's New template) point at the lab. // DECISION |
+| Not yet | The skills library's New skill (`/ops/skills/new`) still drafts a skill by conversation with no build; making it start a skill build is a separate change. |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

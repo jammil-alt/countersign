@@ -380,8 +380,8 @@ function SkillConversation({ sessionId }: { sessionId: string }) {
             The Builder drafts the skill and its tests from what you tell it. A skill is one step:
             it does one job when an agent's workflow reaches it. Waiting for replies, reading them
             and updating a task are the steps after it, built in the agent's workflow in{" "}
-            <Link to={OPS_PATHS.builds} className="font-medium text-slate hover:underline">
-              Builds
+            <Link to={OPS_PATHS.labDrafts} className="font-medium text-slate hover:underline">
+              the Agent lab's drafts
             </Link>
             .
           </p>

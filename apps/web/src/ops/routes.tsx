@@ -46,8 +46,8 @@ import { ConnectClaudeScreen } from "../session/ConnectClaude";
 import { Redirect } from "../shell/Redirect";
 import { Placeholder } from "../ui/primitives";
 import { NewClientAgentScreen } from "./agents/NewClientAgentScreen";
-import { NewTemplateScreen, TemplatePage } from "./agents/TemplateScreens";
-import { BuildScreen, BuildsScreen } from "./builds/BuildsScreen";
+import { TemplatePage } from "./agents/TemplateScreens";
+import { BuildScreen } from "./builds/BuildsScreen";
 import { ClientAgentsScreen } from "./client/ClientAgents";
 import { ClientLayout } from "./client/ClientFrame";
 import { OpsClientLedgerScreen } from "./client/ClientLedger";
@@ -123,7 +123,8 @@ export const opsRoutes = (
     <Route path="agents/:id/workflow" element={<OpsAgentRedirect tab="workflow" />} />
     <Route path="agents/:id/merge" element={<MergeScreen />} />
     {/* O5 New agent, by conversation with the Builder (UI-2c) */}
-    <Route path="templates/new" element={<NewTemplateScreen />} />
+    {/* Owner (2026-11-17): a new template starts as a build, from the Agent lab's New. */}
+    <Route path="templates/new" element={<Redirect to="/ops/lab?tab=drafts&new=template" />} />
     <Route path="clients/:clientId/agents/new" element={<NewClientAgentScreen />} />
     {/* Back-office agent page (UI-2b), with O6 Workflow builder and O7 Triggers as tabs (UI-2c) */}
     <Route path="clients/:clientId/agents/:slug/*" element={<AgentPage />} />
@@ -151,7 +152,8 @@ export const opsRoutes = (
     <Route path="reggie" element={<ReggieScreen />} />
     <Route path="reggie/:id" element={<ReggieScreen />} />
     {/* docs/plan.md §1.108: builds, from intake to go-live */}
-    <Route path="builds" element={<BuildsScreen />} />
+    {/* Owner (2026-11-17): the Builder board is the Agent lab's Drafts tab. */}
+    <Route path="builds" element={<Redirect to="/ops/lab?tab=drafts" />} />
     <Route path="builds/:id" element={<BuildScreen />} />
     <Route path="clients" element={<ClientsScreen />} />
     <Route path="clients/new" element={<NewClientScreen />} />

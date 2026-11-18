@@ -958,7 +958,7 @@ export async function listBuilds(
   },
 ): Promise<BuildRow[]> {
   const where = [
-    // docs/plan.md §1.124: the Builder board keeps new agents; template builds are Build's.
+    // docs/plan.md §1.124: the Agent lab's Drafts (the old Builder board) keeps new agents; template builds are Build's.
     ...(q.path && q.path !== "all" ? [eq(build.path, q.path)] : []),
     q.status ? eq(build.status, q.status) : ne(build.status, "stopped"),
     ...(q.agent ? [sql`(${build.agentId} = ${q.agent} or ${build.testAgentId} = ${q.agent})`] : []),
