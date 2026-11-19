@@ -19,6 +19,8 @@ import type { ResolvedSkill } from "../registry/skills";
 import type { AccountPort } from "../tools/account";
 // v0.12 W2-E
 import type { InboundPort } from "../tools/inbound";
+// B3 (docs/builder-plan.md §8, tier 3)
+import type { ManualsPort } from "../tools/manual";
 import type { ThreadsPort } from "../tools/threads";
 // P-7
 import type { TranslationPort } from "../tools/translate";
@@ -439,6 +441,8 @@ export interface RuntimePorts {
   documents?: DocumentsPort;
   /** The client's knowledge base for `knowledge.search`; absent: that tool fails with a reason. */
   knowledge?: KnowledgePort;
+  /** B3: the client's agents' manuals for `manual.read`; absent: that tool fails with a reason. */
+  manuals?: ManualsPort;
   /** The client's directory for `directory.*`; absent: those tools fail with a reason. */
   directory?: DirectoryPort;
   /** B-2: the client's ledger for `ledger.*`; absent: those tools fail with a reason. */

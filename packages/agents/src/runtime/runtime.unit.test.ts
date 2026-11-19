@@ -108,6 +108,8 @@ describe("tool registry", () => {
       // B-2 (docs/plan.md §1.79)
       "ledger.accounts.list",
       "ledger.dimensions.list",
+      // B3 (docs/builder-plan.md §8, tier 3): another agent's manual
+      "manual.read",
       "memory.write",
       "supervisor.check",
       "supervisor.report",

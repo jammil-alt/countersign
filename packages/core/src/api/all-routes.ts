@@ -7,6 +7,7 @@ import { clientFileRoutes, startRoutes } from "./client-files";
 import { codeRequestRoutes } from "./code-requests";
 import { opsIntakeRoutes, portalIntakeRoutes, welcomeRoutes } from "./intake";
 import { inviteRoutes } from "./invite";
+import { manualRoutes } from "./manual";
 import { routes } from "./routes";
 
 /**
@@ -24,4 +25,7 @@ export const allRoutes = {
   ...opsIntakeRoutes,
   ...portalIntakeRoutes,
   ...welcomeRoutes,
+  // docs/builder-plan.md §5 (B3): the agent manual; its tabs load lazily, and its view's schema
+  // with them.
+  ...manualRoutes,
 } as const;

@@ -71,6 +71,7 @@ export * from "./api/ledger";
 export * from "./api/library";
 // v0.12 W1-A: go-live stages and client controls
 export * from "./api/lifecycle";
+export * from "./api/manual";
 export * from "./api/messaging";
 // §1.116: the phone app
 export * from "./api/mobile";
@@ -238,6 +239,8 @@ export * from "./lazy";
 export * from "./ledger/schemas";
 export * from "./lifecycle/pause";
 export * from "./lifecycle/stage";
+// docs/builder-plan.md §5 (B3): the agent manual
+export * from "./manual/manual";
 export * from "./mappers/qbo";
 export * from "./mappers/upload";
 // P-8: US texting registration

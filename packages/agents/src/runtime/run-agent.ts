@@ -51,6 +51,8 @@ import {
   resolveSkillSettings,
   type SkillDefinition,
   skillTools,
+  UNDISCUSSED_NOTE,
+  undiscussedFor,
 } from "@countersign/core";
 import {
   createLlmClient,
@@ -845,10 +847,23 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
   // asks it to read them; the documents a skill names stay attached before it, as data.
   // DECISION: one read already made (`read_task_input`), as the oversight and choice calls hand
   // over the run, so the request needs no new message kind and the model may read it again.
+  // B3 (docs/builder-plan.md §5): the decisions that shape this step and nobody has discussed
+  // yet, from the agent's manual, go in its notes as data with the line asking it to say when its
+  // result rests on one; the approval card names them by code (./call-tool.ts).
+  const undiscussed = undiscussedFor(definition, input.stepId);
+  const notDiscussed =
+    undiscussed.length > 0
+      ? { undiscussed: { note: UNDISCUSSED_NOTE, decisions: undiscussed.map((d) => d.what) } }
+      : {};
   const taskData = JSON.stringify(
     isTask
-      ? { input: checkedInput.value, ...learned }
-      : { input: checkedInput.value, memory: memory.map((m) => m.note), ...learned },
+      ? { input: checkedInput.value, ...learned, ...notDiscussed }
+      : {
+          input: checkedInput.value,
+          memory: memory.map((m) => m.note),
+          ...learned,
+          ...notDiscussed,
+        },
     null,
     2,
   );

@@ -28,6 +28,8 @@ import { z } from "zod";
 import type { AccountPort } from "./account";
 // v0.12 W2-E
 import type { InboundPort } from "./inbound";
+// B3 (docs/builder-plan.md §8, tier 3)
+import type { ManualsPort } from "./manual";
 import type { ThreadsPort } from "./threads";
 // P-7
 import type { TranslationPort } from "./translate";
@@ -64,6 +66,8 @@ export interface ToolInvocation {
   packServices?: Readonly<Record<string, unknown>> | undefined;
   /** The client's knowledge base (`knowledge.search`); absent where nothing provides it. */
   knowledge?: KnowledgePort | undefined;
+  /** B3: the client's agents' manuals (`manual.read`); absent where nothing provides them. */
+  manuals?: ManualsPort | undefined;
   /** The client's directory (`directory.*`); absent where nothing provides it. */
   directory?: DirectoryPort | undefined;
   /** B-2: the client's ledger (`ledger.*`); absent where nothing provides it. */

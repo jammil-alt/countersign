@@ -1,17 +1,19 @@
 // `/agents/:id`: one agent as the client sees it (docs/ui-plan.md C2, Review 1). The header holds
 // its name, its state, its go-live stage and Pause (the client admin); this month's figures sit
-// under it, above the tabs, so every tab opens on them. Three tabs:
+// under it, above the tabs, so every tab opens on them. Four tabs:
 // - Overview: two columns. Its recent runs on the left, then its own view (a slot for
 //   per-template or per-pack screens, ../../agents/views.ts) and upload and documents for an agent
 //   that reads them; on the right what waits on you from it (action items), then "Run now" when it
 //   has a form.
 // - Runs (`/agents/:id/runs`): its runs, the Runs list filtered to it.
+// - Manual (`/agents/:id/manual`, B3): what it does, how it works, its decisions, who decides
+//   what, its known risks, what we set up and what it learned; read only, made by code.
 // - Agent settings (`/agents/:id/settings`; `/access` lands here): what it does and its jobs, when
 //   it runs, how to reach it, what it may do in each of your tools (read-only; the client admin
 //   tightens on Accounts) and who it contacts (the client admin chooses).
 // Never the agent's bundle, instructions, prompts or cost (invariant 11).
 import type { DayRuns, PortalAccessView, RunForm, ServiceControl } from "@countersign/core";
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type FormEvent, lazy, type ReactNode, Suspense, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { type AgentViewKey, defaultReports, viewsFor } from "../../agents/views";
 import type { ResponseOf } from "../../api/client";
@@ -68,7 +70,10 @@ import { DropZone, Forwarding, RecentDocuments } from "./Upload";
 
 const RUN_POLL_MS = 5_000;
 
-export type AgentTab = "overview" | "runs" | "settings";
+// B3: the Manual tab is its own chunk (with its route's schema), fetched when it opens.
+const AgentManual = lazy(() => import("./AgentManual").then((m) => ({ default: m.AgentManual })));
+
+export type AgentTab = "overview" | "runs" | "manual" | "settings";
 
 /**
  * The page: its header and tabs draw at once from what the frame's overview already says of the
@@ -172,6 +177,8 @@ export function AgentScreen({ tab: asked = "overview" }: { tab?: AgentTab }) {
         items={[
           { to: PORTAL_PATHS.agent(id), label: t("agent.tab.overview"), end: true },
           { to: PORTAL_PATHS.agentRuns(id), label: t("agent.tab.runs") },
+          // docs/builder-plan.md §5 (B3): the agent's manual, read only, for everyone who sees it.
+          { to: PORTAL_PATHS.agentManual(id), label: t("agent.tab.manual") },
           ...(limited
             ? []
             : [{ to: PORTAL_PATHS.agentSettings(id), label: t("agent.tab.settings") }]),
@@ -182,6 +189,10 @@ export function AgentScreen({ tab: asked = "overview" }: { tab?: AgentTab }) {
         <Loaded state={detail}>{() => null}</Loaded>
       ) : tab === "runs" ? (
         <AgentRuns id={id} />
+      ) : tab === "manual" ? (
+        <Suspense fallback={<SkeletonRows rows={6} columns={1} />}>
+          <AgentManual id={id} isAdmin={isAdmin} />
+        </Suspense>
       ) : tab === "settings" ? (
         <AgentSettings
           id={id}

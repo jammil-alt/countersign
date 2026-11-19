@@ -14,6 +14,7 @@ import {
   reviewBrief,
 } from "@countersign/agents";
 import {
+  AnyAgentBundle,
   BRIEF_FIELDS,
   BRIEF_LABELS,
   type Brief,
@@ -69,6 +70,7 @@ import {
 import { createLlmClient, DEFAULT_MODELS, type LlmTransport } from "@countersign/llm";
 import { and, asc, eq, inArray, like, sql } from "drizzle-orm";
 import type { Hono } from "hono";
+import { withBuildManual } from "../build/manual";
 import {
   addEvent,
   addItems,
@@ -1259,6 +1261,43 @@ async function makeDraft(
   return { set: { sessionId: started.session.id }, decisions: [] };
 }
 
+/**
+ * Writes the agent's manual into the draft (docs/builder-plan.md §5): one new version through the
+ * back office's own save, as the operator, when the manual it writes differs from the one there.
+ * A skill build has none. A failure is reported and never holds the move.
+ */
+// DECISION: written on the moves into the draft and the POC test only, never per turn, so a
+// conversation doesn't add a version each time the Builder records a decision; the manual is
+// written again on the next move.
+async function writeManual(ctx: LongCtx, id: string): Promise<void> {
+  const next = await ctx.inTx(async (scoped) => {
+    const r = await readBuild(scoped.tx, id);
+    if (r.kind !== "agent" || !r.agentId) return null;
+    const latest = await latestVersion(scoped.tx, r.agentId);
+    if (!latest) return null;
+    const parsed = AnyAgentBundle.safeParse(latest.bundle);
+    if (!parsed.success) return null;
+    const bundle = withBuildManual(await detailIn(scoped, ctx.services, r), parsed.data);
+    return bundle ? { agentId: r.agentId, versionId: latest.id, bundle } : null;
+  });
+  if (!next) return;
+  try {
+    await call(ctx, routes.opsSaveVersion, {
+      params: { id: next.agentId },
+      body: {
+        bundle: next.bundle,
+        parentVersionId: next.versionId,
+        changeNote: "The manual, written from the build",
+      },
+    });
+  } catch (error) {
+    reportHandled("writing an agent's manual from its build failed", error, {
+      kind: "build",
+      build: id,
+    });
+  }
+}
+
 async function move(
   ctx: LongCtx,
   id: string,
@@ -1347,6 +1386,9 @@ async function move(
       });
     }
   });
+  // 3b. docs/builder-plan.md §5: the agent's manual, written into the draft from the brief, the
+  //     decisions and the known risks when it is drafted and when it goes to the POC test.
+  if (forward && (to === "draft" || to === "poc")) await writeManual(ctx, id);
   // 4. The Builder opens the phases it has work in.
   if (forward && (to === "fitgap" || to === "poc")) await turn(ctx, id, null);
   if (forward && to === "draft") {

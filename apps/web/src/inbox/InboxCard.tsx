@@ -28,6 +28,7 @@ import { ChangeTables } from "./ChangePanel";
 import { changeHeading, connectorName, connectorOf, fieldLabel, formatValue } from "./change";
 import { LateAnswer } from "./LateAnswer";
 import { LATE_KEYS } from "./late";
+import { UndiscussedLines } from "./Undiscussed";
 
 export type ResolveInput = z.input<typeof ResolveBody>;
 
@@ -89,6 +90,8 @@ const PLUMBING = new Set([
   "before",
   "stepId",
   "onReject",
+  // B3: shown as its own lines (UndiscussedLines).
+  "undiscussed",
   "actionId",
   "escalated",
   "nodeId",
@@ -418,6 +421,8 @@ export function InboxCard({
             names={item.display?.names}
           />
           <SentAs before={item.payload.before} />
+          {/* B3: the decisions its step rests on that nobody has discussed yet. */}
+          <UndiscussedLines payload={item.payload} />
         </>
       ) : ReviewCard ? (
         <ReviewCard

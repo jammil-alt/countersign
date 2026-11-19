@@ -372,6 +372,8 @@ export const it: Messages = {
     "Il primo SMS a una persona, e il primo dopo 30 giorni, riporta il vostro nome e finisce con come disiscriversi. Lo aggiungiamo noi.",
   "inbox.findingDone": "Fatto",
   "inbox.signAndUpdate": "Approva e aggiorna {tool}",
+  // B3: a change that rests on a decision nobody has discussed
+  "inbox.undiscussed": "Si basa su una decisione che nessuno ha ancora discusso: {what}", // fluent review
   // ── Your Desk (UI-1b) ──
   "desk.title": "In arrivo", // fluent review
   "desk.subtitle": "Quello che i tuoi agenti ti chiedono, e quello che hanno fatto.", // fluent review
@@ -2279,6 +2281,35 @@ export const it: Messages = {
   "agent.tab.overview": "Panoramica",
   "agent.tab.runs": "Esecuzioni",
   "agent.tab.settings": "Impostazioni dell’agente",
+  // B3: the agent manual (docs/builder-plan.md §5)
+  "agent.tab.manual": "Manuale", // fluent review
+  "manual.whatItDoes": "Cosa fa", // fluent review
+  "manual.howItWorks": "Come funziona", // fluent review
+  "manual.decisions": "Decisioni", // fluent review
+  "manual.decisionPoints": "Dove decide una persona", // fluent review
+  "manual.knownRisks": "Rischi noti", // fluent review
+  "manual.setup": "Cosa abbiamo impostato con te", // fluent review
+  "manual.learned": "Cosa ha imparato", // fluent review
+  "manual.reads": "Cosa legge", // fluent review
+  "manual.notWritten":
+    "Non abbiamo ancora scritto il manuale di questo agente. Come funziona è letto dai suoi passaggi.", // fluent review
+  "manual.nothingYet": "Ancora niente.", // fluent review
+  "manual.notAnswered": "Ancora senza risposta", // fluent review
+  "manual.highRisk": "Rischio alto", // fluent review
+  "manual.learnedHidden": "Cosa ha imparato lo vede il tuo amministratore.", // fluent review
+  "manual.ask": "Chiedi su questo", // fluent review
+  "manual.askText": "Sul manuale di {agent}: “{line}” ", // fluent review
+  "manual.startsAt": "Parte da {value}", // fluent review
+  "manual.onStep": "Passaggio: {step}", // fluent review
+  "manual.who": "Chi: {who}", // fluent review
+  "manual.byWhen": "Entro {when}", // fluent review
+  "manual.kind.assumption": "Ipotesi", // fluent review
+  "manual.kind.decision_point": "Punto di decisione", // fluent review
+  "manual.kind.client_setup": "Impostato con te", // fluent review
+  "manual.status.never_discussed": "Mai discusso", // fluent review
+  "manual.status.discussed": "Discusso", // fluent review
+  "manual.status.confirmed": "Confermato", // fluent review
+  "manual.status.changed": "Modificato", // fluent review
   "agent.about": "Cosa fa {name}",
   "agent.aboutNone": "Non abbiamo ancora scritto una descrizione di {name}.",
   "agent.status": "Stato",

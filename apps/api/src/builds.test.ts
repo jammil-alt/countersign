@@ -322,7 +322,7 @@ describe.skipIf(!h)("builds", () => {
     b = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "draft" });
     expect(b.build.phase).toBe("draft");
     expect(b.build.agentId).toBeTruthy();
-    expect(b.draft).toMatchObject({ version: 1, live: false, problems: [] });
+    expect(b.draft).toMatchObject({ version: 2, live: false, problems: [] });
     // The fit-gap's build row is an open item; the known risk is one put off from the start,
     // and a template's intake form makes no items: there is no client yet.
     expect(b.items.map((i) => [i.title, i.owner, i.state])).toEqual([
@@ -910,12 +910,13 @@ describe.skipIf(!h)("builds", () => {
       });
     });
     b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "The amount is wrong." });
-    const step = /Draft v1 step \[([^\]]+)\] Update the record \(write\)/.exec(lastUserText());
+    const step = /Draft v2 step \[([^\]]+)\] Update the record \(write\)/.exec(lastUserText());
     expect(step).not.toBeNull();
     const proposed = b.messages.at(-1);
     expect(proposed?.proposal).toMatchObject({ state: "proposed", action: { do: "edit_draft" } });
 
-    // Agreed: the workflow's Builder makes it (about that step) and it is saved as v2.
+    // Agreed: the workflow's Builder makes it (about that step) and it is saved as v3 (v2 is
+    // the manual the build wrote into the draft).
     model.push(
       editsDraft("Set the amount to 15.00.", (d) => {
         setAmount(d, "15.00");
@@ -932,16 +933,16 @@ describe.skipIf(!h)("builds", () => {
     expect(agreed?.result).toMatch(/^Changed: /);
     expect(b.messages.at(-1)?.text).toContain("Changed the draft: Set the amount to 15.00.");
     let saved = await versions();
-    expect(saved.map((v) => v.version)).toEqual([2, 1]);
+    expect(saved.map((v) => v.version)).toEqual([3, 2, 1]);
     expect(JSON.stringify(saved[0]?.bundle)).toContain('"15.00"');
-    expect(b.draft?.version).toBe(2);
+    expect(b.draft?.version).toBe(3);
 
     // Undo puts the step back, as a new version: history is never rewritten.
     b = await ok("POST", `/api/ops/builds/${id}/messages/${proposed?.id}/proposal`, {
       decide: "undo",
     });
     saved = await versions();
-    expect(saved.map((v) => v.version)).toEqual([3, 2, 1]);
+    expect(saved.map((v) => v.version)).toEqual([4, 3, 2, 1]);
     expect(JSON.stringify(saved[0]?.bundle)).toContain('"12.00"');
     expect(JSON.stringify(saved[0]?.bundle)).not.toContain('"15.00"');
     expect(b.messages.find((m) => m.id === proposed?.id)?.proposal?.state).toBe("undone");
@@ -964,7 +965,7 @@ describe.skipIf(!h)("builds", () => {
     });
     expect(b.messages.find((m) => m.id === rename?.id)?.proposal?.state).toBe("unchanged");
     expect(b.messages.at(-1)?.text).toContain("It already reads well");
-    expect((await versions()).map((v) => v.version)).toEqual([3, 2, 1]);
+    expect((await versions()).map((v) => v.version)).toEqual([4, 3, 2, 1]);
 
     // An edit whose draft was saved again since (in the workflow) is not undone over that save.
     model.push(
