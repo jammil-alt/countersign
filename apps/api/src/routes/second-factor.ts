@@ -40,6 +40,7 @@ import {
   recoveryCodesLeft,
   type SecondFactorConfig,
   secondFactorSetupOf,
+  setupKinds,
   useRecoveryCode,
 } from "../second-factor";
 import {
@@ -143,12 +144,18 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
     const factors = enabled ? await factorsOf(services.db, userId) : [];
     const allowed = enabled ? await allowedKinds(services.db, userId) : [];
     const usable = factors.filter((f) => f.verifiedAt && allowed.includes(f.kind));
+    // What the page offers: what may be set up now, and any method already set up.
+    const offered = config
+      ? allowed.filter(
+          (k) => setupKinds(allowed, config).includes(k) || factors.some((f) => f.kind === k),
+        )
+      : [];
     return {
       state: session.secondFactor ?? "exempt",
       enabled,
-      allowed: [...allowed],
+      allowed: offered,
       methods: factors
-        .filter((f) => allowed.includes(f.kind))
+        .filter((f) => offered.includes(f.kind))
         .map((f) => ({ kind: f.kind, phoneHint: phoneHint(f.phone), verified: !!f.verifiedAt })),
       setupNeeded: enabled && usable.length === 0,
       recoveryCodesLeft: enabled ? await recoveryCodesLeft(services.db, userId) : 0,
@@ -221,8 +228,8 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
     const userId = session.user.id;
     const db = services.db;
     const allowed = await allowedKinds(db, userId);
-    if (!allowed.includes(body.kind)) {
-      throw new HttpError(403, "method_not_allowed", "operators use an authenticator app");
+    if (!setupKinds(allowed, config).includes(body.kind)) {
+      throw new HttpError(403, "method_not_allowed", "that method can't be set up here");
     }
     const factors = await factorsOf(db, userId);
     // DECISION (docs/plan.md §1.100): setup only while a person has no usable method; changing

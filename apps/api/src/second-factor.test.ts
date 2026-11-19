@@ -52,6 +52,7 @@ const h = await createApiHarness({
     WORKOS_COOKIE_PASSWORD: PASSWORD,
     APP_ORIGIN: "https://staging.mezonas.test",
     TWILIO_VERIFY_SERVICE_SID: "VA00000000000000000000000000000001",
+    TWILIO_VERIFY_WHATSAPP: "on",
     ENCRYPTION_KEY: "second-factor-test-key-0123456789abcdef",
   },
   workos,
@@ -401,17 +402,46 @@ describe.skipIf(!h)("the second step of signing in (§1.100)", () => {
     expect(verifier.sent.length - before).toBe(4);
   });
 
+  it("offers WhatsApp only once its sender is set up, and keeps a WhatsApp method already set up", async () => {
+    const off = { TWILIO_VERIFY_WHATSAPP: "" };
+    const b = new Browser();
+    expect(await signIn(b, H.B.user, off)).toBe("/sign-in/second-step?return_to=%2Finbox");
+    const status = await request(b, "GET", "/api/auth/second-factor", undefined, off);
+    expect(status.json.allowed).toEqual(["totp", "sms"]);
+    const refused = await request(
+      b,
+      "POST",
+      "/api/auth/second-factor/setup",
+      { kind: "whatsapp", phone: "+15557654321" },
+      off,
+    );
+    expect(refused.status).toBe(403);
+    expect(refused.json.error.code).toBe("method_not_allowed");
+    // Set up while it was on: still offered and usable with it off.
+    const on = await request(b, "POST", "/api/auth/second-factor/setup", {
+      kind: "whatsapp",
+      phone: "+15557654321",
+    });
+    expect(on.status, JSON.stringify(on.json)).toBe(200);
+    const kept = await request(b, "GET", "/api/auth/second-factor", undefined, off);
+    expect(kept.json.allowed).toEqual(["totp", "sms", "whatsapp"]);
+    expect(kept.json.methods).toEqual([
+      { kind: "whatsapp", phoneHint: "•••• 4321", verified: false },
+    ]);
+  });
+
   const operator = new Browser();
 
-  it("holds operators to an authenticator app, shown once as a link", async () => {
+  it("offers operators an authenticator app or a text, never WhatsApp", async () => {
     await signIn(operator, H.operator);
     const status = await request(operator, "GET", "/api/auth/second-factor");
-    expect(status.json.allowed).toEqual(["totp"]);
-    const sms = await request(operator, "POST", "/api/auth/second-factor/setup", {
-      kind: "sms",
+    expect(status.json.allowed).toEqual(["totp", "sms"]);
+    const whatsapp = await request(operator, "POST", "/api/auth/second-factor/setup", {
+      kind: "whatsapp",
       phone: "+15559876543",
     });
-    expect(sms.status).toBe(403);
+    expect(whatsapp.status).toBe(403);
+    expect(whatsapp.json.error.code).toBe("method_not_allowed");
     const totp = await request(operator, "POST", "/api/auth/second-factor/setup", {
       kind: "totp",
     });

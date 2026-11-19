@@ -3152,7 +3152,8 @@ export const de: Messages = {
   "secondStep.continue": "Weiter",
   "secondStep.totp.title": "Mezonas in Ihrer Authenticator-App hinzufügen",
   "secondStep.totp.step1":
-    "Fügen Sie in Ihrer App ein Konto hinzu und geben Sie diesen Schlüssel ein. Auf diesem Telefon können Sie die App direkt öffnen.",
+    "Scannen Sie diesen Code mit Ihrer Authenticator-App, oder fügen Sie ein Konto hinzu und geben Sie den Schlüssel unten ein. Auf diesem Telefon können Sie die App direkt öffnen.",
+  "secondStep.totp.qr": "QR-Code, um Mezonas zu Ihrer Authenticator-App hinzuzufügen",
   "secondStep.totp.openApp": "In meiner Authenticator-App öffnen",
   "secondStep.totp.key": "Einrichtungsschlüssel",
   "secondStep.totp.step2": "Geben Sie dann den 6-stelligen Code aus der App ein.",

@@ -11,9 +11,10 @@
 // (§1.154): the page shows a number, the phone picks it. The routes are the API's own (packages/core `secondFactorRoutes`); this page
 // only asks and shows, every check is on the server.
 //
-// DECISION (§1.100): no QR code yet. The authenticator app's key is shown to type (every app
-// takes one), with a link that opens the app directly on a phone; the QR image waits on adding a
-// QR library to the web app.
+// The authenticator app is added by scanning a QR code of its `otpauth:` link, drawn here from the
+// link (never sent anywhere); the key is still shown to type, and a link opens the app directly on
+// a phone. DECISION (owner, 2026-11-19): the QR code, with `uqr` (small, no dependencies), drawn as
+// our own SVG rectangles, dark on a white ground in both themes so every camera reads it.
 import {
   PHONE_APPROVAL_POLL_MS,
   type PhoneApprovalStarted,
@@ -24,6 +25,7 @@ import {
 } from "@countersign/core";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { encode } from "uqr";
 import { apiRoutes } from "../api/routes";
 import { useApiClient } from "../api/useApi";
 import type { PlainKey } from "../i18n/catalog";
@@ -308,6 +310,41 @@ function ChooseMethod({
   );
 }
 
+/**
+ * A QR code of `text`, as SVG: one path of dark squares on a white ground with the standard quiet
+ * zone, the same in light and dark themes (a camera reads dark on light).
+ */
+export function QrCode({ text, label }: { text: string; label: string }) {
+  const { size, path } = useMemo(() => {
+    const qr = encode(text, { ecc: "M", border: 4 });
+    let d = "";
+    qr.data.forEach((row, y) => {
+      row.forEach((dark, x) => {
+        if (dark) d += `M${x} ${y}h1v1h-1z`;
+      });
+    });
+    return { size: qr.size, path: d };
+  }, [text]);
+  return (
+    <div
+      className="self-center rounded-md border border-line p-2"
+      style={{ backgroundColor: "#fff" }}
+    >
+      <svg
+        role="img"
+        aria-label={label}
+        viewBox={`0 0 ${size} ${size}`}
+        width={200}
+        height={200}
+        shapeRendering="crispEdges"
+        data-testid="second-step-qr"
+      >
+        <path d={path} fill="#000" />
+      </svg>
+    </div>
+  );
+}
+
 function TotpSetup({
   otpauthUri,
   onPassed,
@@ -321,6 +358,7 @@ function TotpSetup({
     <div className="flex flex-col gap-4">
       <h1 className="type-heading text-ink">{t("secondStep.totp.title")}</h1>
       <p className="text-ink">{t("secondStep.totp.step1")}</p>
+      {otpauthUri ? <QrCode text={otpauthUri} label={t("secondStep.totp.qr")} /> : null}
       {secret ? (
         <div className="rounded-md border border-line p-3">
           <p className="text-sm text-ink-muted">{t("secondStep.totp.key")}</p>

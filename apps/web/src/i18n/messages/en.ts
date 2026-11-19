@@ -3001,7 +3001,8 @@ export const en = {
   "secondStep.continue": "Continue",
   "secondStep.totp.title": "Add Mezonas to your authenticator app",
   "secondStep.totp.step1":
-    "In your app, add an account and enter this key. On this phone, you can open the app directly.",
+    "Scan this code with your authenticator app, or add an account and type the key below. On this phone, you can open the app directly.",
+  "secondStep.totp.qr": "QR code to add Mezonas to your authenticator app",
   "secondStep.totp.openApp": "Open in my authenticator app",
   "secondStep.totp.key": "Setup key",
   "secondStep.totp.step2": "Then enter the 6-digit code the app shows.",
