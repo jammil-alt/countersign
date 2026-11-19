@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { GovernanceTier, KnowledgeTags } from "../governance/charter";
+import { GovernanceTier, KnowledgeTags } from "../governance/tags";
 import { isUuid } from "../ids";
 import { defineRoute } from "./contract";
 

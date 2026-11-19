@@ -6,23 +6,7 @@
 // for agents only once confirmed (`confirmedAt` on a version). No migration.
 
 import { z } from "zod";
-import { GovernanceTag } from "./policies";
-
-export const GOVERNANCE_TIERS = ["charter", "policy"] as const;
-export const GovernanceTier = z.enum(GOVERNANCE_TIERS);
-export type GovernanceTier = z.infer<typeof GovernanceTier>;
-
-/** The tags a client's policy may carry: the standard topics and the business areas. */
-export const KnowledgeTags = z
-  .array(GovernanceTag)
-  .max(GovernanceTag.options.length)
-  .transform((tags) => [...new Set(tags)].sort());
-
-export const CHARTER_TITLE = "Our charter";
-
-/** How long each part of a drafted charter may be: it is read on every model call. */
-export const CHARTER_LINE_MAX = 300;
-export const CHARTER_LIST_MAX = 6;
+import { CHARTER_LINE_MAX, CHARTER_LIST_MAX } from "./tags";
 
 const Line = z.string().trim().min(1).max(CHARTER_LINE_MAX);
 

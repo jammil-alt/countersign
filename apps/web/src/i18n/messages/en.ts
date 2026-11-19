@@ -2320,6 +2320,7 @@ export const en = {
   "settingsPage.exports": "Exports",
   "settingsPage.conversations": "Conversations",
   "settingsPage.voice": "Voice samples",
+  "settingsPage.charter": "Charter and policies",
   "settingsPage.sloanBody":
     "Sloan is your account agent. Ask it about your agents' work, or ask it to pause one: use Ask Sloan at the top, or the search box. Sloan never loosens a rule.",
   "settingsPage.sloanOpen": "Open Sloan",

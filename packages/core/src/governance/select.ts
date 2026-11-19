@@ -8,7 +8,8 @@
 // cache keeps it.
 
 import { MEZONAS_GUARDRAILS } from "./guardrails";
-import { type GovernanceTag, STANDARD_POLICIES } from "./policies";
+import { STANDARD_POLICIES } from "./policies";
+import type { GovernanceTag } from "./tags";
 
 /** What a step does, as far as governance cares; worked out by the runtime from its tools. */
 export interface StepGovernanceProfile {

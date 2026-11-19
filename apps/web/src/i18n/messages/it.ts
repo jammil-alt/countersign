@@ -2403,6 +2403,7 @@ export const it: Messages = {
   "settingsPage.exports": "Esportazioni",
   "settingsPage.conversations": "Conversazioni",
   "settingsPage.voice": "Esempi di stile",
+  "settingsPage.charter": "Carta e politiche",
   "settingsPage.sloanBody":
     "Sloan è il tuo agente di account. Chiedigli del lavoro dei tuoi agenti, o di metterne uno in pausa: usa «Chiedi a Sloan» in alto, o la ricerca. Sloan non allenta mai una regola.",
   "settingsPage.sloanOpen": "Apri Sloan",

@@ -2390,6 +2390,7 @@ export const ptBR: Messages = {
   "settingsPage.exports": "Exportações",
   "settingsPage.conversations": "Conversas",
   "settingsPage.voice": "Exemplos de estilo",
+  "settingsPage.charter": "Carta e políticas",
   "settingsPage.sloanBody":
     "Sloan é o seu agente de conta. Pergunte a ele sobre o trabalho dos seus agentes, ou peça para pausar um: use “Perguntar ao Sloan” no topo, ou a busca. Sloan nunca afrouxa uma regra.",
 

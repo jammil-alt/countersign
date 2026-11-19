@@ -32,6 +32,8 @@ export const PORTAL_PATHS = {
   billing: "/settings/billing",
   exports: "/settings/exports",
   conversations: "/settings/conversations",
+  // docs/builder-plan.md §8: the client's charter and policies, for the client admin.
+  charter: "/settings/charter",
   voice: "/settings/voice",
   // P-8: US texting registration (docs/plan.md §1.70)
   texting: "/settings/texting",

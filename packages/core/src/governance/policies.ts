@@ -4,40 +4,8 @@
 //
 // DECISION (B6, no migration): versioned TypeScript modules, as the guardrails are (./guardrails.ts).
 
-import { z } from "zod";
-import { OWNER_AREAS } from "../owners/areas";
 import type { GovernanceDocument } from "./guardrails";
-
-/** What a policy covers. A client's policies use the same tags, plus the business areas. */
-export const GOVERNANCE_TOPICS = [
-  "security",
-  "writing-into-tools",
-  "money",
-  "contacting-people",
-  "data-handling",
-  "people-and-roles",
-] as const;
-export type GovernanceTopic = (typeof GOVERNANCE_TOPICS)[number];
-
-export const GOVERNANCE_TAGS = [...GOVERNANCE_TOPICS, ...OWNER_AREAS] as const;
-export const GovernanceTag = z.enum(GOVERNANCE_TAGS);
-export type GovernanceTag = z.infer<typeof GovernanceTag>;
-
-/** Words for each tag, for the back office and the portal. */
-export const GOVERNANCE_TAG_LABELS: Record<GovernanceTag, string> = {
-  security: "Security",
-  "writing-into-tools": "Writing into tools",
-  money: "Money",
-  "contacting-people": "Contacting people",
-  "data-handling": "Data handling",
-  "people-and-roles": "People and roles",
-  purchasing: "Purchasing",
-  sales: "Sales",
-  receivables: "Receivables",
-  bookkeeping: "Bookkeeping",
-  marketing: "Marketing",
-  general: "General",
-};
+import type { GovernanceTag } from "./tags";
 
 export interface StandardPolicy extends GovernanceDocument {
   tags: readonly GovernanceTag[];

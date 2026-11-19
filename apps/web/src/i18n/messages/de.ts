@@ -2448,6 +2448,7 @@ export const de: Messages = {
   "settingsPage.exports": "Exporte",
   "settingsPage.conversations": "Unterhaltungen",
   "settingsPage.voice": "Stilbeispiele",
+  "settingsPage.charter": "Leitbild und Richtlinien",
   "settingsPage.sloanBody":
     "Sloan ist Ihr Konto-Agent. Fragen Sie ihn nach der Arbeit Ihrer Agenten, oder bitten Sie ihn, einen zu pausieren: mit „Sloan fragen“ oben oder in der Suche. Sloan lockert nie eine Regel.",
   "settingsPage.sloanOpen": "Sloan öffnen",
