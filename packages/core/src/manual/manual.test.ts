@@ -331,6 +331,12 @@ describe("the step's never-discussed decisions", () => {
       "freight stays out of the catalog",
     );
     expect(inSentence("QBO bills wait a day")).toBe("QBO bills wait a day");
+    expect(inSentence("Freight stays out. . \t\n")).toBe("freight stays out");
+    expect(inSentence("...")).toBe("");
+    // CodeQL (polynomial regex): a long run of tabs before the end is quick, not quadratic.
+    const started = Date.now();
+    expect(inSentence(`A${"\t".repeat(100_000)}b`)).toBe(`a${"\t".repeat(100_000)}b`);
+    expect(Date.now() - started).toBeLessThan(500);
   });
 });
 

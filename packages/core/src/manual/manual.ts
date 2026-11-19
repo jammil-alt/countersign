@@ -361,9 +361,19 @@ export function readUndiscussed(raw: unknown): UndiscussedDecision[] {
   return out.slice(0, UNDISCUSSED_MAX);
 }
 
+/**
+ * The text without its trailing full stops and spaces. A loop, not `/[.\s]+$/`: that pattern
+ * backtracks from every position on a long run of spaces or tabs (CodeQL, polynomial regex).
+ */
+function trimEnd(text: string): string {
+  let end = text.length;
+  while (end > 0 && (text[end - 1] === "." || /\s/.test(text[end - 1] as string))) end--;
+  return text.slice(0, end);
+}
+
 /** "freight stays out of the catalog": a decision's words as the end of a sentence. */
 export function inSentence(what: string): string {
-  const t = what.trim().replace(/[.\s]+$/, "");
+  const t = trimEnd(what.trim());
   // Keep an acronym or a name that starts it ("QBO", "AP Invoice Review").
   if (/^[A-Z][A-Z]/.test(t)) return t;
   return t.charAt(0).toLowerCase() + t.slice(1);
