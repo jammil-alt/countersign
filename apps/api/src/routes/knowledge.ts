@@ -5,6 +5,11 @@
 // read runs inside the one client's scope (invariant 1).
 //
 // The portal sees entries only: no documents index, no memory notes, nothing of an agent.
+//
+// B6 (docs/builder-plan.md §8): a policy may be the client's charter or a tagged policy (the
+// version's meta: tier, tags, who confirmed it). We draft the charter from onboarding's facts; the
+// client admin confirms it, and agents read only its latest confirmed version. What the client
+// admin writes in the portal is confirmed as they save it; what we write waits for them.
 
 import type {
   KnowledgeDocument,
@@ -12,26 +17,35 @@ import type {
   KnowledgeEntryVersion,
   KnowledgeMemoryNote,
 } from "@countersign/core";
-import { routes } from "@countersign/core";
+import { type KnowledgeEntryInput, routes } from "@countersign/core";
 import { agent, appUser, memoryNote, type Tx } from "@countersign/db";
 import {
   archiveKnowledgeEntry,
+  charterEntry,
+  confirmKnowledgeEntry,
   createKnowledgeEntry,
   editKnowledgeEntry,
   getKnowledgeEntry,
+  governanceMeta,
   type IndexedDocumentView,
   indexDocuments,
   indexedDocuments,
   type KnowledgeAuthor,
   type KnowledgeEntryView,
   KnowledgeError,
+  type KnowledgeMeta,
   knowledgeEntryVersions,
+  latestConfirmedVersion,
   listKnowledgeEntries,
+  nextMeta,
   searchKnowledge,
 } from "@countersign/documents";
+import { createLlmClient } from "@countersign/llm";
 import { and, count, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import type { Hono } from "hono";
-import { type AppEnv, ensureClient, HttpError, iso, mount, notFound } from "../http";
+import { clientModels } from "../compliance/models";
+import { type AppEnv, ensureClient, HttpError, iso, mount, mountLong, notFound } from "../http";
+import { charterFacts, draftCharter, saveCharterDraft } from "../knowledge/charter";
 
 /** Where the names come from: the operator's view shows everyone; the portal says "us" for ours. */
 type Audience = "ops" | "portal";
@@ -57,19 +71,38 @@ function author(
   return { role: a.role, name: a.id ? (people.get(a.id) ?? null) : null };
 }
 
+/** B6: a version's tier, tags and confirmation, as the API shows them. */
+function governanceOut(meta: KnowledgeMeta, people: Map<string, string | null>) {
+  const g = governanceMeta(meta);
+  return {
+    tier: g.tier,
+    tags: g.tags,
+    confirmed: g.confirmedAt
+      ? { by: g.confirmedBy ? (people.get(g.confirmedBy) ?? null) : null, at: g.confirmedAt }
+      : null,
+  };
+}
+
 async function entriesOut(
   tx: Tx,
+  tenantId: string,
   rows: KnowledgeEntryView[],
   audience: Audience,
 ): Promise<KnowledgeEntry[]> {
-  const people = await names(
-    tx,
-    rows.map((r) => r.updatedBy.id),
-  );
   // Voice samples (migration 0025) aren't FAQs or policies: they get their own list (W1-G).
   const listed = rows.filter(
     (r): r is KnowledgeEntryView & { kind: KnowledgeEntry["kind"] } => r.kind !== "voice_sample",
   );
+  // B6: the version of the charter agents read now.
+  const inUse = new Map<string, number | null>();
+  for (const r of listed) {
+    if (governanceMeta(r.meta).tier !== "charter") continue;
+    inUse.set(r.id, (await latestConfirmedVersion(tx, tenantId, r.id))?.version ?? null);
+  }
+  const people = await names(tx, [
+    ...listed.map((r) => r.updatedBy.id),
+    ...listed.map((r) => governanceMeta(r.meta).confirmedBy),
+  ]);
   return listed.map((r) => ({
     id: r.id,
     kind: r.kind,
@@ -80,11 +113,13 @@ async function entriesOut(
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
     updatedBy: author(r.updatedBy, people, audience),
+    ...governanceOut(r.meta, people),
+    ...(inUse.has(r.id) ? { inUseVersion: inUse.get(r.id) ?? null } : {}),
   }));
 }
 
-async function entryOut(tx: Tx, row: KnowledgeEntryView, audience: Audience) {
-  const [entry] = await entriesOut(tx, [row], audience);
+async function entryOut(tx: Tx, tenantId: string, row: KnowledgeEntryView, audience: Audience) {
+  const [entry] = await entriesOut(tx, tenantId, [row], audience);
   if (!entry) throw new Error("no entry");
   return { entry };
 }
@@ -116,9 +151,28 @@ async function guard<T>(work: () => Promise<T>): Promise<T> {
 }
 
 // v0.12 W1-G: a voice sample is edited through its own routes, which clean its text (§1.42).
-async function faqOrPolicy(tx: Tx, tenantId: string, entryId: string): Promise<void> {
+async function faqOrPolicy(tx: Tx, tenantId: string, entryId: string) {
   const entry = await getKnowledgeEntry(tx, tenantId, entryId);
   if (!entry || entry.kind === "voice_sample") throw notFound("entry");
+  return entry;
+}
+
+/** B6: a new entry's meta: its tier and tags; one the client admin writes is confirmed by them. */
+async function newMeta(
+  tx: Tx,
+  tenantId: string,
+  body: KnowledgeEntryInput,
+  confirm: { by: string; at: Date } | undefined,
+): Promise<KnowledgeMeta> {
+  if (body.kind !== "policy") return {};
+  // One charter per client: a second one is refused; the first is edited instead.
+  if (body.tier === "charter" && (await charterEntry(tx, tenantId))) {
+    throw new HttpError(409, "charter_exists", "This client already has a charter: edit it.");
+  }
+  return nextMeta(
+    { ...(body.tier ? { tier: body.tier } : {}) },
+    { tags: body.tags, ...(body.tier && confirm ? { confirm } : {}) },
+  );
 }
 
 async function memoryNotes(tx: Tx, tenantId: string) {
@@ -168,6 +222,7 @@ function versionsOut(
     status: v.status,
     author: author(v.author, people, "ops"),
     createdAt: iso(v.createdAt) ?? v.createdAt.toISOString(),
+    ...governanceOut(v.meta, people),
   }));
 }
 
@@ -182,7 +237,7 @@ export function knowledgeRouteHandlers(app: Hono<AppEnv>): void {
       includeArchived: query.show === "all",
     });
     return {
-      entries: await entriesOut(tx, entries, "ops"),
+      entries: await entriesOut(tx, params.id, entries, "ops"),
       documents: (await indexedDocuments(tx, params.id)).map(documentOut),
       memoryNotes: await memoryNotes(tx, params.id),
     };
@@ -192,23 +247,31 @@ export function knowledgeRouteHandlers(app: Hono<AppEnv>): void {
     const { tx, params, body, session } = ctx;
     ensureClient(ctx, params.id);
     const row = await createKnowledgeEntry(tx, params.id, {
-      ...body,
+      kind: body.kind,
+      title: body.title,
+      body: body.body,
+      // What we write is not confirmed: the client admin confirms it.
+      meta: await newMeta(tx, params.id, body, undefined),
       author: { id: session.user.id, role: "operator" },
     });
-    return entryOut(tx, row, "ops");
+    return entryOut(tx, params.id, row, "ops");
   });
 
   mount(app, routes.opsKnowledgeEdit, async (ctx) => {
     const { tx, params, body, session } = ctx;
     ensureClient(ctx, params.id);
-    await faqOrPolicy(tx, params.id, params.entryId);
+    const current = await faqOrPolicy(tx, params.id, params.entryId);
     const row = await guard(() =>
       editKnowledgeEntry(tx, params.id, params.entryId, {
-        ...body,
+        title: body.title,
+        body: body.body,
+        baseVersion: body.baseVersion,
+        // B6: our edit is never confirmed; agents keep reading the confirmed charter until then.
+        meta: nextMeta(current.meta, { tags: current.kind === "policy" ? body.tags : undefined }),
         author: { id: session.user.id, role: "operator" },
       }),
     );
-    return entryOut(tx, row, "ops");
+    return entryOut(tx, params.id, row, "ops");
   });
 
   mount(app, routes.opsKnowledgeArchive, async (ctx) => {
@@ -220,7 +283,7 @@ export function knowledgeRouteHandlers(app: Hono<AppEnv>): void {
         author: { id: session.user.id, role: "operator" },
       }),
     );
-    return entryOut(tx, row, "ops");
+    return entryOut(tx, params.id, row, "ops");
   });
 
   mount(app, routes.opsKnowledgeVersions, async (ctx) => {
@@ -229,11 +292,41 @@ export function knowledgeRouteHandlers(app: Hono<AppEnv>): void {
     const entry = await getKnowledgeEntry(tx, params.id, params.entryId);
     if (!entry) throw notFound("entry");
     const rows = await knowledgeEntryVersions(tx, params.id, params.entryId);
-    const people = await names(
-      tx,
-      rows.map((r) => r.author.id),
-    );
+    const people = await names(tx, [
+      ...rows.map((r) => r.author.id),
+      ...rows.map((r) => governanceMeta(r.meta).confirmedBy),
+    ]);
     return { versions: versionsOut(rows, people) };
+  });
+
+  // B6: the charter drafted from onboarding's facts. The model call runs between two short
+  // transactions (`mountLong`), never inside one.
+  mountLong(app, routes.opsKnowledgeCharterDraft, async (ctx) => {
+    const { params, services, session } = ctx;
+    ensureClient(ctx, params.id);
+    const facts = await ctx.inTx(({ tx }) => charterFacts(tx, params.id));
+    const llm = createLlmClient({
+      transport: clientModels(services, { clients: [params.id], read: services.db }),
+    });
+    const draft = await draftCharter(llm, facts);
+    // Our own cost, as the back office's other model calls are: logged, never the client's usage.
+    console.info(
+      JSON.stringify({
+        event: "knowledge.charter_draft",
+        model: draft.record.model,
+        costUsd: draft.record.costUsd ?? null,
+      }),
+    );
+    return ctx.inTx(async ({ tx }) => {
+      const row = await saveCharterDraft(tx, params.id, draft.body, {
+        id: session.user.id,
+        role: "operator",
+      });
+      return {
+        ...(await entryOut(tx, params.id, row, "ops")),
+        from: { facts: facts.facts.length, about: facts.about.length },
+      };
+    });
   });
 
   mount(app, routes.opsKnowledgeSearch, async (ctx) => {
@@ -258,28 +351,55 @@ export function knowledgeRouteHandlers(app: Hono<AppEnv>): void {
     const rows = await listKnowledgeEntries(tx, tenantId, {
       includeArchived: query.show === "all",
     });
-    return { entries: await entriesOut(tx, rows, "portal") };
+    return { entries: await entriesOut(tx, tenantId, rows, "portal") };
   });
 
   mount(app, routes.portalKnowledgeCreate, async ({ tx, tenantIds, body, session }) => {
     const tenantId = tenantIds[0] as string;
     const row = await createKnowledgeEntry(tx, tenantId, {
-      ...body,
+      kind: body.kind,
+      title: body.title,
+      body: body.body,
+      // The client admin's own charter or policy is confirmed as they save it.
+      meta: await newMeta(tx, tenantId, body, { by: session.user.id, at: new Date() }),
       author: { id: session.user.id, role: "client_admin" },
     });
-    return entryOut(tx, row, "portal");
+    return entryOut(tx, tenantId, row, "portal");
   });
 
   mount(app, routes.portalKnowledgeEdit, async ({ tx, tenantIds, params, body, session }) => {
     const tenantId = tenantIds[0] as string;
-    await faqOrPolicy(tx, tenantId, params.id);
+    const current = await faqOrPolicy(tx, tenantId, params.id);
+    const governed = governanceMeta(current.meta).tier !== null;
     const row = await guard(() =>
       editKnowledgeEntry(tx, tenantId, params.id, {
-        ...body,
+        title: body.title,
+        body: body.body,
+        baseVersion: body.baseVersion,
+        // DECISION (B6): the client admin's edit of their charter or a tiered policy confirms it:
+        // they wrote the words, so agents read them at once.
+        meta: nextMeta(current.meta, {
+          tags: current.kind === "policy" ? body.tags : undefined,
+          ...(governed ? { confirm: { by: session.user.id, at: new Date() } } : {}),
+        }),
         author: { id: session.user.id, role: "client_admin" },
       }),
     );
-    return entryOut(tx, row, "portal");
+    return entryOut(tx, tenantId, row, "portal");
+  });
+
+  mount(app, routes.portalKnowledgeConfirm, async ({ tx, tenantIds, params, body, session }) => {
+    const tenantId = tenantIds[0] as string;
+    const current = await faqOrPolicy(tx, tenantId, params.id);
+    if (current.kind !== "policy") throw notFound("entry");
+    const row = await guard(() =>
+      confirmKnowledgeEntry(tx, tenantId, params.id, {
+        baseVersion: body.baseVersion,
+        author: { id: session.user.id, role: "client_admin" },
+        at: new Date(),
+      }),
+    );
+    return entryOut(tx, tenantId, row, "portal");
   });
 
   mount(app, routes.portalKnowledgeArchive, async ({ tx, tenantIds, params, body, session }) => {
@@ -290,6 +410,6 @@ export function knowledgeRouteHandlers(app: Hono<AppEnv>): void {
         author: { id: session.user.id, role: "client_admin" },
       }),
     );
-    return entryOut(tx, row, "portal");
+    return entryOut(tx, tenantId, row, "portal");
   });
 }

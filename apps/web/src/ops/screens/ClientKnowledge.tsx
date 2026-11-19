@@ -7,7 +7,15 @@ import { useParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { StatusFilter } from "../../inbox/StatusFilter";
-import { type EntryActions, EntryForm, EntryList, KIND_LABEL, when } from "../../knowledge/Entries";
+import { ActionButton, CharterCard, charterOf } from "../../knowledge/Charter";
+import {
+  createInput,
+  type EntryActions,
+  EntryForm,
+  EntryList,
+  KIND_LABEL,
+  when,
+} from "../../knowledge/Entries";
 import { TextInput } from "../../ui/forms";
 import {
   Badge,
@@ -55,6 +63,9 @@ export function ClientKnowledgeScreen({ clientId }: { clientId: string }) {
   };
 
   const indexed = data?.documents.filter((d) => d.indexed).length ?? 0;
+  // B6: the client's charter has its own card; the list holds the rest.
+  const charter = data ? charterOf(data.entries) : null;
+  const rest = data?.entries.filter((e) => e.id !== charter?.id) ?? [];
   return (
     <ClientFrame
       clientId={clientId}
@@ -69,6 +80,15 @@ export function ClientKnowledgeScreen({ clientId }: { clientId: string }) {
       {data ? (
         <div className="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,1fr)_380px]">
           <div className="flex min-w-0 flex-col gap-8">
+            <section>
+              <SectionLabel>Charter</SectionLabel>
+              <p className="mb-3 text-sm text-ink-muted">
+                Who the client is, how it speaks, what matters and what it never does, in its own
+                words. Agents read it after our guardrails, before every task, once the client admin
+                confirms it.
+              </p>
+              <Charter clientId={clientId} entry={charter} actions={actions} onChanged={reload} />
+            </section>
             <section>
               <SectionLabel
                 action={
@@ -87,7 +107,7 @@ export function ClientKnowledgeScreen({ clientId }: { clientId: string }) {
                 FAQs and policies
               </SectionLabel>
               <EntryList
-                entries={data.entries}
+                entries={rest}
                 actions={actions}
                 onChanged={reload}
                 us="Mezonas"
@@ -168,7 +188,7 @@ export function ClientKnowledgeScreen({ clientId }: { clientId: string }) {
                 submitLabel="Add"
                 testId="ops-knowledge-new"
                 onSubmit={async (v) => {
-                  await actions.create(v);
+                  await actions.create(createInput(v));
                   reload();
                 }}
               />
@@ -178,6 +198,88 @@ export function ClientKnowledgeScreen({ clientId }: { clientId: string }) {
         </div>
       ) : null}
     </ClientFrame>
+  );
+}
+
+/**
+ * B6: the client's charter. We draft it from onboarding's facts (the client's own, and its
+ * "about" entries) and may edit it; either way it waits for the client admin to confirm.
+ */
+function Charter({
+  clientId,
+  entry,
+  actions,
+  onChanged,
+}: {
+  clientId: string;
+  entry: KnowledgeEntry | null;
+  actions: EntryActions;
+  onChanged: () => void;
+}) {
+  const api = useApiClient();
+  const [editing, setEditing] = useState(false);
+  if (entry && editing) {
+    return (
+      <Card className="p-5" testId="ops-knowledge-charter-editing">
+        <EntryForm
+          initial={entry}
+          submitLabel="Save"
+          testId="ops-knowledge-charter-edit"
+          onCancel={() => setEditing(false)}
+          onSubmit={async (v) => {
+            await actions.edit(entry.id, {
+              title: v.title,
+              body: v.body,
+              baseVersion: entry.version,
+            });
+            setEditing(false);
+            onChanged();
+          }}
+        />
+      </Card>
+    );
+  }
+  const draft = (
+    <ActionButton
+      variant={entry ? undefined : "primary"}
+      label={entry ? "Draft it again from onboarding" : "Draft the charter from onboarding"}
+      busyLabel="Drafting…"
+      failed="We couldn't draft it."
+      detail
+      testId="ops-knowledge-charter-draft"
+      run={async () => {
+        await api.call(apiRoutes.opsKnowledgeCharterDraft, {
+          params: { id: clientId },
+          body: {},
+        });
+        onChanged();
+      }}
+    />
+  );
+  return (
+    <CharterCard
+      entry={entry}
+      audience="ops"
+      area="ops-knowledge"
+      none="No charter yet. Draft one from what onboarding learned; the client admin confirms it."
+      actions={
+        entry ? (
+          <>
+            <Button
+              size="sm"
+              data-testid="ops-knowledge-charter-edit-open"
+              onClick={() => setEditing(true)}
+            >
+              Edit
+            </Button>
+            {draft}
+            <History clientId={clientId} entry={entry} />
+          </>
+        ) : (
+          draft
+        )
+      }
+    />
   );
 }
 

@@ -1333,6 +1333,60 @@ export const ptBR: Messages = {
   "knowledge.problem.changed":
     "Alguém mudou isso depois que você abriu. Recarregue para ver a versão mais recente e tente de novo.",
   "knowledge.problem.failed": "Não conseguimos salvar. Tente de novo.",
+  // B6 (docs/builder-plan.md §8): the charter, tags and how our agents work.
+  "knowledge.charter.section": "Sua carta de princípios",
+  "knowledge.charter.intro":
+    "Quem você é, como fala, o que importa para você e o que você nunca faz. Nossos agentes a leem antes de cada tarefa.",
+  "knowledge.charter.none":
+    "Vamos redigir sua carta de princípios com o que você nos contou no início, para você confirmar.",
+  "knowledge.charter.waiting": "Aguardando você",
+  "knowledge.charter.waitingLine":
+    "Leia, depois confirme ou edite. Nossos agentes a seguem assim que você confirmar.",
+  "knowledge.charter.inUse": "Nossos agentes seguem a versão {version} até você confirmar esta.",
+  "knowledge.charter.confirmed": "Confirmada",
+  "knowledge.charter.confirmedLine": "Confirmada por {who} em {date}",
+  "knowledge.charter.confirm": "Confirmar",
+  "knowledge.charter.confirming": "Confirmando…",
+  "knowledge.charter.problem": "Não conseguimos confirmar. Tente de novo.",
+  "knowledge.tags": "O que cobre",
+  "knowledge.tagsHint":
+    "Os agentes leem uma política quando o trabalho deles corresponde ao que ela cobre.",
+  "governance.tag.security": "Segurança",
+  "governance.tag.writing-into-tools": "Escrever nas ferramentas",
+  "governance.tag.money": "Dinheiro",
+  "governance.tag.contacting-people": "Contatar pessoas",
+  "governance.tag.data-handling": "Tratamento de dados",
+  "governance.tag.people-and-roles": "Pessoas e funções",
+  "governance.tag.purchasing": "Compras",
+  "governance.tag.sales": "Vendas",
+  "governance.tag.receivables": "Contas a receber",
+  "governance.tag.bookkeeping": "Contabilidade",
+  "governance.tag.marketing": "Marketing",
+  "governance.tag.general": "Geral",
+  "howAgentsWork.title": "Como os agentes da Mezonas trabalham",
+  "howAgentsWork.intro":
+    "As regras que todo agente segue, antes da sua carta de princípios e das suas políticas.",
+  "howAgentsWork.tools.title": "Eles trabalham só pelas suas ferramentas",
+  "howAgentsWork.tools.body":
+    "Os agentes leem e mudam dados só pelas conexões que você nos deu, dentro das permissões que você definiu.",
+  "howAgentsWork.evidence.title": "Todo número tem uma fonte",
+  "howAgentsWork.evidence.body":
+    "Um agente nunca inventa um número ou um nome. O que ele informa aponta para os registros de onde veio.",
+  "howAgentsWork.data.title": "Documentos são lidos, não obedecidos",
+  "howAgentsWork.data.body":
+    "O texto de uma fatura, de um e-mail ou de uma resposta é informação. Um agente nunca segue instruções escritas ali.",
+  "howAgentsWork.approval.title": "Você aprova as mudanças",
+  "howAgentsWork.approval.body":
+    "Mudanças nas suas ferramentas esperam a aprovação de uma pessoa. Só nós podemos afrouxar isso, e só com o seu acordo.",
+  "howAgentsWork.money.title": "Nenhum dinheiro se move sozinho",
+  "howAgentsWork.money.body":
+    "Os agentes nunca pagam, transferem ou mudam dados bancários por conta própria, e nunca entram em bancos ou contas de e-mail.",
+  "howAgentsWork.privacy.title": "Seus dados continuam seus",
+  "howAgentsWork.privacy.body":
+    "O que um agente aprende sobre o seu negócio é usado só para você, nunca para outro cliente.",
+  "howAgentsWork.yours.title": "Depois, sua carta de princípios e suas políticas",
+  "howAgentsWork.yours.body":
+    "Depois os agentes leem sua carta de princípios e suas políticas. Elas podem acrescentar regras e endurecer as nossas, nunca afrouxá-las.",
 
   // ── Contacts and consent (plan §1.22, §1.25) ──
   "contacts.title": "Contatos",

@@ -38,6 +38,18 @@ describe("route contract (static)", () => {
       if (routeFamily(r) === "portal") expect(forbiddenPortalFields(r.response)).toEqual([]);
     }
   });
+
+  // B6 (docs/builder-plan.md §8): the client's charter and policies reach the portal as the
+  // client's own words, with their tags and confirmation; never an agent's prompt or our guardrails'
+  // text, which the portal shows only as its own plain-words summary.
+  it("keeps the charter's portal routes to the client admin, with no forbidden fields", () => {
+    for (const r of [routes.portalKnowledge, routes.portalKnowledgeConfirm]) {
+      expect(routeFamily(r)).toBe("portal");
+      expect(r.roles).toEqual(["client_admin"]);
+      expect(forbiddenPortalFields(r.response)).toEqual([]);
+    }
+    expect(routes.opsKnowledgeCharterDraft.roles).toEqual(["operator"]);
+  });
 });
 
 const STATE_SECRET = "contract-state-secret-".repeat(2);
