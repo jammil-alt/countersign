@@ -1,6 +1,8 @@
 import { z } from "zod";
 // v0.12 W2-G
 import { ClientView } from "../kpi/schema";
+// B3 (docs/builder-plan.md §5): the agent manual.
+import { AgentManual } from "../manual/manual";
 import { DecimalString } from "../money";
 // v0.13 W2-I
 import { OversightSettings } from "../oversight/decision";
@@ -81,6 +83,10 @@ export const AgentDefinition = z
     // with no default, so bundles without it parse and hash as they were; absent reads from
     // `requiresPacks`, else `general` (`processArea`).
     area: OwnerArea.optional(),
+    // B3 (docs/builder-plan.md §5): the agent's manual, written by its build (what it does, its
+    // decisions, decision points and known risks). Optional with no default, so bundles without
+    // it parse and hash as they were; diffed and merged as any definition field.
+    manual: AgentManual.optional(),
   })
   .meta({ id: "AgentDefinition" });
 export type AgentDefinition = z.infer<typeof AgentDefinition>;

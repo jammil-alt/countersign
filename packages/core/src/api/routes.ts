@@ -42,6 +42,8 @@ import { callRoutes } from "./calls";
 // docs/plan.md §1.149: onboarding v1
 // v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export
 import { clientViewRoutes } from "./client-view";
+// docs/builder-plan.md §5 (B3): the agent manual
+import { manualRoutes } from "./manual";
 // v0.12 W2-F: the command center, search and plain-words questions
 import { commandCenterRoutes } from "./command-center";
 import { complianceRoutes } from "./compliance";
@@ -2485,6 +2487,8 @@ export const routes = {
   ...accountRoutes,
   // v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export
   ...clientViewRoutes,
+  // docs/builder-plan.md §5 (B3): the agent manual
+  ...manualRoutes,
   // v0.12 W2-C: the test bench, skill tests and the agent lab
   ...testbenchRoutes,
   // v0.12 W2-F: the command center, search and plain-words questions

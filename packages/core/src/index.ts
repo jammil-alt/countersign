@@ -35,6 +35,7 @@ export * from "./api/calls";
 export * from "./api/client-files";
 // v0.12 W2-G: KPIs and the client view, credits, the client's audit export
 export * from "./api/client-view";
+export * from "./api/manual";
 export * from "./api/code-requests";
 // v0.12 W2-F: the command center, search and plain-words questions
 export * from "./api/command-center";
@@ -153,6 +154,8 @@ export * from "./build/code-request-words";
 export * from "./build/code-requests";
 export * from "./build/decisions";
 export * from "./build/issues";
+// docs/builder-plan.md §5 (B3): the agent manual
+export * from "./manual/manual";
 export * from "./bundle/client-specific";
 export * from "./bundle/diff";
 export {
