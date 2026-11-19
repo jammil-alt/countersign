@@ -67,6 +67,7 @@ import { Badge, Button, Card, cx, Loading, Tag } from "../../ui/primitives";
 import { AboutLink, FocusBar, ProposalCard } from "./issues";
 import { problemAdvice, problemWhere } from "./problems";
 import { RequirementsCard } from "./RequirementsCard";
+import { TryCard } from "./TryCard";
 import {
   BRIEF_STATE_TONE,
   BRIEF_STATE_WORDS,
@@ -92,6 +93,28 @@ function retryable(error: unknown): boolean {
     error.status >= 500 ||
     ["builder_failed", "builder_unavailable", "edit_failed"].includes(error.code)
   );
+}
+
+/** How often a build whose tests are running is read again. */
+export const TESTS_POLL_MS = 5000;
+
+/**
+ * The build read again, keeping the records it had where they're the same, so a panel's unsaved
+ * edits of them (the brief, the fit-gap, the test plan) aren't reset by a refresh.
+ */
+function sameRecords(prev: BuildDetail | null, next: BuildDetail): BuildDetail {
+  if (!prev) return next;
+  const keep = <K extends "brief" | "fitgap" | "testPlan">(k: K) =>
+    JSON.stringify(prev.build[k]) === JSON.stringify(next.build[k]) ? prev.build[k] : next.build[k];
+  return {
+    ...next,
+    build: {
+      ...next.build,
+      brief: keep("brief"),
+      fitgap: keep("fitgap"),
+      testPlan: keep("testPlan"),
+    },
+  };
 }
 
 export function BuildView({ id, embedded = false }: { id: string; embedded?: boolean }) {
@@ -122,6 +145,26 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
   useEffect(() => {
     if (loaded.data) setDetail(loaded.data);
   }, [loaded.data]);
+
+  // builder-plan.md B0: while the tests (or a try) run, the build is read again every 5 seconds,
+  // and no longer once they're done. Not while an action is on its way: its answer is newer.
+  const busyNow = useRef(busy);
+  busyNow.current = busy;
+  const testsRunning =
+    detail?.poc?.latest?.status === "running" ||
+    (detail?.poc?.tries ?? []).some((t) => t.status === "running");
+  useEffect(() => {
+    if (!testsRunning) return;
+    const timer = setInterval(() => {
+      void api
+        .call(apiRoutes.opsBuild, { params: { id } })
+        .then((out) => {
+          if (!busyNow.current) setDetail((prev) => sameRecords(prev, out as BuildDetail));
+        })
+        .catch(() => undefined);
+    }, TESTS_POLL_MS);
+    return () => clearInterval(timer);
+  }, [testsRunning, api, id]);
 
   if (!detail) {
     return loaded.error ? (
@@ -467,6 +510,14 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
             current={shown === b.phase && open}
             busy={busy}
             act={act}
+            onAbout={
+              open
+                ? (title) => {
+                    setDraftText(`About “${title}”: `);
+                    box.current?.focus();
+                  }
+                : undefined
+            }
           />
           <ItemsPanel
             detail={detail}
@@ -762,6 +813,8 @@ function PhasePanel(props: {
   current: boolean;
   busy: string | null;
   act: Act;
+  /** Starts the operator's words about something in the conversation's box. */
+  onAbout?: ((title: string) => void) | undefined;
 }) {
   switch (props.phase) {
     case "intake":
@@ -1602,7 +1655,7 @@ function DraftPanel({ detail, current, busy, act }: PanelProps) {
 
 // ── 4 POC test ──────────────────────────────────────────────────────────────────────────────────
 
-function PocPanel({ detail, current, busy, act }: PanelProps) {
+function PocPanel({ detail, current, busy, act, onAbout }: PanelProps) {
   const b = detail.build;
   const id = b.id;
   const [plan, setPlan] = useState<TestPlan>(b.testPlan);
@@ -1618,6 +1671,14 @@ function PocPanel({ detail, current, busy, act }: PanelProps) {
     setPlan((p) => ({ datasets: p.datasets.map((d, j) => (j === i ? { ...d, ...patch } : d)) }));
   return (
     <div className="flex flex-col gap-5">
+      {/* builder-plan.md B1: real examples first; model-made cases stay below. */}
+      <TryCard
+        detail={detail}
+        live={current}
+        busy={isBusy(busy)}
+        act={act}
+        {...(onAbout ? { onWrong: onAbout } : {})}
+      />
       <Card
         testId="build-test-plan"
         title="Test data plan"
@@ -1673,6 +1734,7 @@ function PocPanel({ detail, current, busy, act }: PanelProps) {
                 <>
                   <Button
                     size="sm"
+                    variant="ghost"
                     disabled={isBusy(busy) || dirty}
                     onClick={() => void act(apiRoutes.opsBuildCases, { params: { id } })}
                     data-testid="build-make-cases"
@@ -1823,11 +1885,22 @@ function PocPanel({ detail, current, busy, act }: PanelProps) {
                     key={f.caseId}
                     className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-6 py-3 text-sm last:border-b-0"
                   >
-                    <span className="text-ink">
-                      {f.name}{" "}
-                      <span className="text-ink-muted">
-                        · {f.status === "fail" ? "fails" : "errored"}
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="text-ink">
+                        {f.name}{" "}
+                        <span className="text-ink-muted">
+                          · {f.status === "fail" ? "fails" : "errored"}
+                        </span>
                       </span>
+                      {/* builder-plan.md B0: why, in its words (an error, or the fields that differ). */}
+                      {f.why ? (
+                        <span
+                          className="break-words text-ink-muted"
+                          data-testid={`build-poc-why-${f.caseId}`}
+                        >
+                          {f.why}
+                        </span>
+                      ) : null}
                     </span>
                     {made ? (
                       <Badge tone="neutral">Open item</Badge>
