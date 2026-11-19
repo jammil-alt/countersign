@@ -1,5 +1,9 @@
 # Builds that work first: decisions, the agent manual and governance (agreed 2026-11-19)
 
+> **Built 2026-11-19 (B0–B6), with no migration.** The choices made where this plan left them open
+> are in `docs/plan.md` §1.155; the result is ARCHITECTURE v0.20 §10.16; what is left is in
+> `docs/open.md`, "Builds that work first".
+
 Owner, 2026-11-19: "Build something that works per the description before we start identifying all
 the permutations it could take." And: "Plan, then we build. Don't modify the flow and UI materially
 from where we are; just get it across the line." This page is the plan. It keeps the build's phases
@@ -173,15 +177,15 @@ Added:
 
 In order; each ends green.
 
-| # | What | Size |
-|---|---|---|
-| B0 | **Across the line.** Merge #433 (Agree on "run the tests"; test cases cut off). A failing case says why (its error, or the fields that differed) on the page and to the Builder. Test results refresh while a run is going. | Small, no migration |
-| B1 | **Try it on real examples.** In the POC: upload a document, run it as a test run, mark it right (kept as a case, its result the expected answer) or wrong (to the Builder). The gate counts the kept cases. A missing piece is a person step or rule in the first version. | Medium, no migration |
-| B2 | **Decisions on the build.** The Builder's `decisions` list; the high-risk check by code; the Decisions card; the client-test gate on reviewed high-risk ones. | Medium, no migration (the fit-gap record) |
-| B3 | **The agent manual.** `definition.manual`; the back-office and portal Manual tabs; the client-safe view and its contract test; never-discussed decisions in the step's notes and on the approval card. | Large, no migration (bundle JSON) |
-| B4 | **Setup checklist.** `client_setup` decisions and the intake form become the copy's checklist; Getting started shows it; answers become settings by code; stages wait on their items. | Medium, no migration |
-| B5 | **Client adjustments and feedback.** Client-adjustable settings with bounds; the portal's Settings; feedback on a manual line as a change request; changes written in the manual. | Medium |
-| B6 | **Governance tiers.** The Mezonas guardrails and standard policies as platform text; the client's charter drafted from onboarding facts and confirmed; policy tags; the runtime reads tier 1 always, tier 2 by tag, tier 3 by tool; runs record what they read. | Large, no migration |
+| # | What | Size | Status |
+|---|---|---|---|
+| B0 | **Across the line.** Merge #433 (Agree on "run the tests"; test cases cut off). A failing case says why (its error, or the fields that differed) on the page and to the Builder. Test results refresh while a run is going. | Small, no migration | Built 2026-11-19, except merging #433 (`docs/open.md` G2) |
+| B1 | **Try it on real examples.** In the POC: upload a document, run it as a test run, mark it right (kept as a case, its result the expected answer) or wrong (to the Builder). The gate counts the kept cases. A missing piece is a person step or rule in the first version. | Medium, no migration | Built 2026-11-19; a Sandbox record as the example is open (G3) |
+| B2 | **Decisions on the build.** The Builder's `decisions` list; the high-risk check by code; the Decisions card; the client-test gate on reviewed high-risk ones. | Medium, no migration (the fit-gap record) | Built 2026-11-19 |
+| B3 | **The agent manual.** `definition.manual`; the back-office and portal Manual tabs; the client-safe view and its contract test; never-discussed decisions in the step's notes and on the approval card. | Large, no migration (bundle JSON) | Built 2026-11-19; known risks' counts and deleting learned notes are open (G5) |
+| B4 | **Setup checklist.** `client_setup` decisions and the intake form become the copy's checklist; Getting started shows it; answers become settings by code; stages wait on their items. | Medium, no migration | Built 2026-11-19 |
+| B5 | **Client adjustments and feedback.** Client-adjustable settings with bounds; the portal's Settings; feedback on a manual line as a change request; changes written in the manual. | Medium | Built 2026-11-19, no migration (`definition.adjustable`); marking a step's own parameter from the back office is open (G11) |
+| B6 | **Governance tiers.** The Mezonas guardrails and standard policies as platform text; the client's charter drafted from onboarding facts and confirmed; policy tags; the runtime reads tier 1 always, tier 2 by tag, tier 3 by tool; runs record what they read. | Large, no migration | Built 2026-11-19; the other model calls and a run-level pin are open (G7, G8) |
 
 After B1 we run the expense agent (Nexonia) and the invoice intake builds again on staging, and count
 the operator's actions from New to a running trial. Target: under 15 for a flow that simple.
