@@ -160,7 +160,10 @@ describe.skipIf(!h)("the agent manual", () => {
     // The Builder's draft, then the manual written into it: one more version.
     let versions = await versionsOf(templateId);
     expect(versions).toHaveLength(2);
-    expect(versions.map((v) => v.changeNote)).toContain("The manual, written from the build");
+    // A template build writes its setup checklist in the same version (B4).
+    expect(versions.map((v) => v.changeNote)).toContain(
+      "The manual and setup checklist, written from the build",
+    );
     let latest = await latestBundle(templateId);
     const manual = latest.bundle.definition.manual as {
       whatItDoes: string;

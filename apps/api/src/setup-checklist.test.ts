@@ -245,7 +245,8 @@ describe.skipIf(!h)("the setup checklist", () => {
     expect(setup.find((i) => i.id === "write-sign-testkit-update-record")?.label).toBe(
       "Who signs changes to records in Testkit?",
     );
-    expect(latest?.changeNote).toBe("Setup checklist from the build");
+    // The build writes the agent's manual in the same version (B3).
+    expect(latest?.changeNote).toBe("The manual and setup checklist, written from the build");
     const before = latest?.version;
 
     // A decision added in the draft joins the checklist when the draft moves to the POC test.
