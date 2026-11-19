@@ -69,6 +69,7 @@ import {
 import { createLlmClient, DEFAULT_MODELS, type LlmTransport } from "@countersign/llm";
 import { and, asc, eq, inArray, like, sql } from "drizzle-orm";
 import type { Hono } from "hono";
+import { draftSetupItems, withSetupItems } from "../build/setup";
 import {
   addEvent,
   addItems,
@@ -102,7 +103,6 @@ import {
   type Services,
   toHttpError,
 } from "../http";
-import { draftSetupItems, withSetupItems } from "../build/setup";
 import { reportHandled, reportProblem } from "../observability/report";
 import { builderContext, builderHttpError } from "./ops-builder";
 
