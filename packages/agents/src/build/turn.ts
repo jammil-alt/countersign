@@ -36,7 +36,13 @@ import {
   type ModelId,
 } from "@countersign/llm";
 import { z } from "zod";
-import { BuilderError, catalogBriefBlock, modelUnavailable, totalCost } from "../builder/builder";
+import {
+  BUILDER_ANSWER_TOKENS,
+  BuilderError,
+  catalogBriefBlock,
+  modelUnavailable,
+  totalCost,
+} from "../builder/builder";
 import type { BuilderContext } from "../builder/context";
 
 export const BUILD_TURN_TOOL = "submit_build_turn";
@@ -152,7 +158,8 @@ const PHASE_RULES: Record<BuildPhase, string> = {
 - Happy path first: the goal of this phase is a draft of the normal case that runs, not one that handles every case. For a problem on an exception or a rare case (a known risk, or a branch the normal case doesn't need), propose edit_draft that hands that case to a person (a person step) or takes the branch out, before you propose a skill or a code request. Propose new work only for the normal case.`,
   poc: `Phase: POC test. Plan the synthetic data that proves the draft works before any client sees it, and answer with the whole "testPlan".
 - One dataset per kind of data the draft reads (vendors, items with prices, contracts, invoices…): how many, and the cases it must cover (clean ones, edge cases, errors the draft must catch). Default source "generate"; "upload" when the operator has real examples, "sandbox" for data the Sandbox client already has.
-- Keep counts small: enough to cover each case once or twice.`,
+- Keep counts small: enough to cover each case once or twice.
+- Happy path first: most cases are the normal case the draft builds. For each known risk (a put-off gap in the issues), at most one case, and its expected result is that it reaches a person, not that it is handled.`,
   client_test: `Phase: client test. The draft runs for a real client in its trial, every write signed by the client. Answer about the trial (runs, signed and rejected writes, the client's reasons) and add an open item for each problem the operator agrees to fix.
 - Known risks are the put-off gaps in the issues. When a rejection or a case a person handled is one of them, say so and how often, and propose reopen_item for it: that is how a known risk becomes work, once it has shown up.`,
   qa: `Phase: QA and go / no-go. Answer about the QA checklist and the client's sign-off. A failing check can be accepted with a reason (propose it, never for "Approval on for every write"), or the build sent back to a phase (propose going back, with what to redo).`,
@@ -452,7 +459,7 @@ export async function makeTestCases(
   const datasets = input.testPlan.datasets.filter((d) => d.source === "generate");
   const system = `${BUILD_RULES}
 
-You make synthetic test cases for a ${input.kind === "template" ? "template agent" : "skill"} from its test plan. The data is made up: never real people, companies, emails, phone numbers or account numbers (use example.com, 555 numbers, made-up names). Cover each dataset's cases once; at most ${BUILD_CASES_MAX} cases. Expected outputs name only the fields that matter, so a case passes on the right answer however the rest is worded.`;
+You make synthetic test cases for a ${input.kind === "template" ? "template agent" : "skill"} from its test plan. The data is made up: never real people, companies, emails, phone numbers or account numbers (use example.com, 555 numbers, made-up names). Cover each dataset's cases once; at most ${BUILD_CASES_MAX} cases, fewer is better. Keep each input short: only the fields the draft reads. Expected outputs name only the fields that matter, so a case passes on the right answer however the rest is worded.`;
   const first = `<target>\n${input.target}\n</target>\n\n<test_plan>\n${JSON.stringify({ datasets })}\n</test_plan>\n\nMake the test cases.`;
   const calls: LlmCallRecord[] = [];
   try {
@@ -465,7 +472,10 @@ You make synthetic test cases for a ${input.kind === "template" ? "template agen
         description: "The test cases, made from the plan",
         schema: BuildCasesAnswer,
       },
-      maxTokens: 16_000,
+      // DECISION (staging, 2026-11-18, Sentry MEZONAS-API-8): the draft's ceiling, not 16,000:
+      // thinking counts against the same limit, and a plan's cases were cut off mid-answer. The
+      // transport streams, so a high limit costs no timeout.
+      maxTokens: BUILDER_ANSWER_TOKENS,
       effort: BUILDER_EFFORT,
       label: "build-cases",
       ...(options.signal ? { signal: options.signal } : {}),

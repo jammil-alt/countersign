@@ -883,6 +883,33 @@ async function undoEdit(ctx: LongCtx, id: string, edit: SavedEdit, summary: stri
   });
 }
 
+/**
+ * Runs the POC's test cases on the draft's latest version (the test bench's suite run). Called by
+ * the build's Run button and by an agreed "run the tests" proposal: a slow route isn't reachable
+ * through `invokeRoute`, so the proposal calls this, not the route (Sentry MEZONAS-API-7).
+ */
+async function runBuildTests(ctx: LongCtx, id: string): Promise<void> {
+  const target = await ctx.inTx(async (scoped) => {
+    const row = await readBuild(scoped.tx, id);
+    refuseClosed(row);
+    const detail = await detailIn(scoped, ctx.services, row);
+    if (row.kind === "skill") {
+      const skillId = detail.draft?.skillId;
+      const versionId = skillId ? await latestSkillVersion(scoped.tx, skillId) : null;
+      if (!skillId || !versionId) throw new HttpError(409, "no_draft", "the skill isn't saved yet");
+      return { targetKind: "skill" as const, targetId: skillId, versionId };
+    }
+    const versionId = detail.draft?.versionId;
+    if (!detail.draft?.agentId || !versionId)
+      throw new HttpError(409, "no_draft", "there is no draft yet");
+    if (detail.poc?.mode !== "suite") {
+      throw new HttpError(409, "test_runs", "a client agent is tested with test runs on its page");
+    }
+    return { targetKind: "template" as const, targetId: detail.draft.agentId, versionId };
+  });
+  await call(ctx, routes.opsRunTests, { body: target });
+}
+
 /** Makes an agreed change through the build's own route, as the operator. */
 async function runAction(ctx: LongCtx, id: string, a: BuildAction): Promise<void> {
   switch (a.do) {
@@ -903,7 +930,7 @@ async function runAction(ctx: LongCtx, id: string, a: BuildAction): Promise<void
       await move(ctx, id, a.to, a.reason);
       return;
     case "run_tests":
-      await call(ctx, routes.opsBuildRunTests, { params: { id } });
+      await runBuildTests(ctx, id);
       return;
     case "edit_draft":
       throw new Error("a draft edit is made by applyEdit");
@@ -1715,31 +1742,7 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
   });
 
   mountLong(app, routes.opsBuildRunTests, async (ctx) => {
-    const lc = long(ctx.c, ctx.session, ctx.services, ctx.inTx);
-    const target = await ctx.inTx(async (scoped) => {
-      const row = await readBuild(scoped.tx, ctx.params.id);
-      refuseClosed(row);
-      const detail = await detailIn(scoped, ctx.services, row);
-      if (row.kind === "skill") {
-        const skillId = detail.draft?.skillId;
-        const versionId = skillId ? await latestSkillVersion(scoped.tx, skillId) : null;
-        if (!skillId || !versionId)
-          throw new HttpError(409, "no_draft", "the skill isn't saved yet");
-        return { targetKind: "skill" as const, targetId: skillId, versionId };
-      }
-      const versionId = detail.draft?.versionId;
-      if (!detail.draft?.agentId || !versionId)
-        throw new HttpError(409, "no_draft", "there is no draft yet");
-      if (detail.poc?.mode !== "suite") {
-        throw new HttpError(
-          409,
-          "test_runs",
-          "a client agent is tested with test runs on its page",
-        );
-      }
-      return { targetKind: "template" as const, targetId: detail.draft.agentId, versionId };
-    });
-    await call(lc, routes.opsRunTests, { body: target });
+    await runBuildTests(long(ctx.c, ctx.session, ctx.services, ctx.inTx), ctx.params.id);
     return detailOf(ctx, ctx.params.id);
   });
 

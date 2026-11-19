@@ -6,7 +6,7 @@
 // operator sees a client's build only when it serves the client.
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import type { BuildDetail } from "@countersign/core";
-import { agentVersion, run, testCase, testCaseResult, testSuiteRun } from "@countersign/db";
+import { agentVersion, run, tenant, testCase, testCaseResult, testSuiteRun } from "@countersign/db";
 import { FakeModel, fakeMessage, type LlmRequest } from "@countersign/llm";
 import { desc, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
@@ -379,6 +379,38 @@ describe.skipIf(!h)("builds", () => {
     expect(b.created).toBe(1);
     expect(b.poc).toMatchObject({ mode: "suite", cases: 1, required: 1, passed: false });
     expect(b.gate.reasons).toContain("The test cases haven't run yet.");
+
+    // Staging (2026-11-18, Sentry MEZONAS-API-7): the Builder proposes running them and the
+    // operator agrees; the suite starts in the Sandbox (the run route is a slow one, so the
+    // proposal calls its code directly).
+    const [b2] = await H.t.db
+      .select({ settings: tenant.settings })
+      .from(tenant)
+      .where(eq(tenant.id, H.B.tenantId));
+    await H.t.db
+      .update(tenant)
+      .set({ settings: { ...(b2?.settings as object), sandbox: true } })
+      .where(eq(tenant.id, H.B.tenantId));
+    model.push(
+      turnAnswer({
+        text: "The cases are made. I'd run them now.",
+        proposal: { summary: "Run the test cases", action: { do: "run_tests" } },
+      }),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "What's next?" });
+    const runIt = b.messages.at(-1);
+    expect(runIt?.proposal).toMatchObject({ state: "proposed", action: { do: "run_tests" } });
+    b = await ok("POST", `/api/ops/builds/${id}/messages/${runIt?.id}/proposal`, {
+      decide: "agree",
+    });
+    expect(b.messages.find((m) => m.id === runIt?.id)?.proposal).toMatchObject({
+      state: "agreed",
+    });
+    const started = await H.t.db
+      .select({ id: testSuiteRun.id })
+      .from(testSuiteRun)
+      .where(eq(testSuiteRun.targetId, b.build.agentId as string));
+    expect(started).toHaveLength(1);
 
     // The suite passes (as the test bench writes it).
     const [suite] = await H.t.db
