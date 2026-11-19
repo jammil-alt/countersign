@@ -16,6 +16,7 @@ import type { CallOptions } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { Select } from "../../ui/forms";
 import { Badge, Card, cx, Tag, type Tone } from "../../ui/primitives";
+import { useFirstRows, useFold } from "./fold";
 import { plural } from "./words";
 
 type Status = (typeof DECISION_OPERATOR_STATUSES)[number];
@@ -50,10 +51,22 @@ export function DecisionsCard({
   const editable = detail.build.status === "open";
   const high = decisions.filter((d) => d.risk === "high").length;
   const toCheck = decisions.filter(decisionUnreviewed).length;
+  // Owner (2026-11-19): a long page. Shut at first when nothing waits on a check.
+  const fold = useFold("decisions", toCheck > 0);
+  // The ones to check first, then the first few; the one the conversation is on always shows.
+  const rows = useFirstRows(
+    [...decisions.filter(decisionUnreviewed), ...decisions.filter((d) => !decisionUnreviewed(d))],
+    {
+      keep: (d) => `decision:${d.id}` === focus,
+      noun: "decisions",
+      testId: "build-decisions-more",
+    },
+  );
   return (
     <Card
       testId="build-decisions"
       title="Decisions"
+      fold={fold}
       meta={
         <span className="flex flex-wrap items-center gap-1.5" data-testid="build-decisions-meta">
           <Badge tone="neutral">{plural(decisions.length, "decision")}</Badge>
@@ -77,7 +90,7 @@ export function DecisionsCard({
               </tr>
             </thead>
             <tbody>
-              {decisions.map((d) => {
+              {rows.shown.map((d) => {
                 const key = `decision:${d.id}`;
                 const check = decisionUnreviewed(d);
                 return (
@@ -175,6 +188,7 @@ export function DecisionsCard({
               })}
             </tbody>
           </table>
+          {rows.more}
         </div>
       )}
     </Card>

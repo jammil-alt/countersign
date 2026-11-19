@@ -66,6 +66,7 @@ import { ErrorNotice } from "../../ui/ErrorState";
 import { Select, TextArea, TextInput } from "../../ui/forms";
 import { Badge, Button, Card, cx, Loading, Tag } from "../../ui/primitives";
 import { DecisionsCard } from "./decisions";
+import { useFirstRows, useFold } from "./fold";
 import { AboutLink, FocusBar, ProposalCard } from "./issues";
 import { problemAdvice, problemWhere } from "./problems";
 import { RequirementsCard } from "./RequirementsCard";
@@ -354,6 +355,8 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
           ) : null}
         </div>
       ) : null}
+
+      <WorkingStrip busy={busy} phase={b.phase} talking={!!pending} />
 
       {/* Feedback (2026-11-16): the conversation stays within the screen and scrolls on its own;
           on a wide screen the line between the two columns drags to make either wider. */}
@@ -740,6 +743,55 @@ function GoBack({
   );
 }
 
+/**
+ * While anything on the page is under way: one line that stays in sight wherever the page is
+ * scrolled (owner, 2026-11-19: the faded buttons read as stuck). Not for the first half second, so
+ * a quick save doesn't flash it.
+ */
+function WorkingStrip({
+  busy,
+  phase,
+  talking,
+}: {
+  busy: string | null;
+  phase: BuildPhase;
+  talking: boolean;
+}) {
+  const [since, setSince] = useState<number | null>(null);
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (!busy) {
+      setSince(null);
+      setShown(false);
+      return;
+    }
+    setSince(Date.now());
+    const t = setTimeout(() => setShown(true), 500);
+    return () => clearTimeout(t);
+  }, [busy]);
+  if (!busy || !shown) return null;
+  const label =
+    busy === apiRoutes.opsMoveBuild.path
+      ? NEXT_WORKING[phase]
+      : busy === apiRoutes.opsBuildTurn.path || busy === apiRoutes.opsBuildProposal.path || talking
+        ? "The Builder is working on it…"
+        : busy === apiRoutes.opsBuildCases.path
+          ? "The Builder is making the test cases…"
+          : busy === apiRoutes.opsBuildRunTests.path
+            ? "Starting the test cases…"
+            : "Saving…";
+  return (
+    <div className="ui-working-strip" data-testid="build-working">
+      <Thinking
+        badge={<AgentBadge name="Builder" size="sm" />}
+        label={label}
+        state={busy === apiRoutes.opsMoveBuild.path ? "drafting" : "tracing"}
+        since={since ?? undefined}
+      />
+    </div>
+  );
+}
+
 /** What the Builder is doing while a phase's move runs. */
 const NEXT_WORKING: Record<BuildPhase, string> = {
   intake: "The Builder is giving the brief a second look, then checking it against the catalog…",
@@ -784,7 +836,7 @@ function Next({
         <Button
           variant="primary"
           disabled={busy || reasons.length > 0}
-          aria-busy={working || undefined}
+          working={working}
           onClick={() => {
             setSince(Date.now());
             onClick();
@@ -886,6 +938,7 @@ function IntakePanel({ detail, current, busy, act }: PanelProps) {
                 <Button
                   size="sm"
                   disabled={isBusy(busy)}
+                  working={busy === apiRoutes.opsUpdateBuild.path}
                   onClick={() =>
                     void act(apiRoutes.opsUpdateBuild, { params: { id }, body: { brief } })
                   }
@@ -1042,6 +1095,7 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
               <Button
                 size="sm"
                 disabled={isBusy(busy)}
+                working={busy === apiRoutes.opsBuildTurn.path}
                 onClick={() => void act(apiRoutes.opsBuildTurn, { params: { id }, body: {} })}
                 data-testid="build-fitgap-write"
               >
@@ -1573,6 +1627,11 @@ function VerdictChange({
 function DraftPanel({ detail, current, busy, act }: PanelProps) {
   const d = detail.draft;
   const b = detail.build;
+  const problems = useFirstRows(d?.problems ?? [], {
+    first: 3,
+    noun: "problems",
+    testId: "build-draft-problems-more",
+  });
   const link =
     b.kind === "skill"
       ? d?.sessionId
@@ -1623,43 +1682,46 @@ function DraftPanel({ detail, current, busy, act }: PanelProps) {
       ) : (
         // Feedback (2026-11-16): each problem in plain words, where it is, what would fix it and
         // what that fix costs (./problems.ts).
-        <ul className="flex flex-col" data-testid="build-draft-problems">
-          {d.problems.map((p) => {
-            const advice = problemAdvice(p);
-            const where = problemWhere(p);
-            return (
-              <li
-                key={p.key}
-                data-testid="build-draft-problem"
-                className="flex flex-col gap-2 border-b border-line px-6 py-4 text-sm last:border-b-0"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex min-w-0 flex-col gap-0.5">
-                    <span className="font-medium text-ink">{advice.what}</span>
-                    {where ? <span className="text-xs text-ink-muted">{where}</span> : null}
+        <>
+          <ul className="flex flex-col" data-testid="build-draft-problems">
+            {problems.shown.map((p) => {
+              const advice = problemAdvice(p);
+              const where = problemWhere(p);
+              return (
+                <li
+                  key={p.key}
+                  data-testid="build-draft-problem"
+                  className="flex flex-col gap-2 border-b border-line px-6 py-4 text-sm last:border-b-0"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      <span className="font-medium text-ink">{advice.what}</span>
+                      {where ? <span className="text-xs text-ink-muted">{where}</span> : null}
+                    </div>
+                    <Badge tone={p.code === "missing_step" ? "warning" : "risk"}>
+                      {p.code === "missing_step" ? "Missing" : "Invalid"}
+                    </Badge>
                   </div>
-                  <Badge tone={p.code === "missing_step" ? "warning" : "risk"}>
-                    {p.code === "missing_step" ? "Missing" : "Invalid"}
-                  </Badge>
-                </div>
-                <dl className="grid gap-x-3 gap-y-1 sm:grid-cols-[110px_minmax(0,1fr)]">
-                  <dt className="text-ink-muted">To fix it</dt>
-                  <dd className="text-ink" data-testid="build-draft-problem-fix">
-                    {advice.fix}
-                  </dd>
-                  {advice.cost ? (
-                    <>
-                      <dt className="text-ink-muted">What it costs</dt>
-                      <dd className="text-ink" data-testid="build-draft-problem-cost">
-                        {advice.cost}
-                      </dd>
-                    </>
-                  ) : null}
-                </dl>
-              </li>
-            );
-          })}
-        </ul>
+                  <dl className="grid gap-x-3 gap-y-1 sm:grid-cols-[110px_minmax(0,1fr)]">
+                    <dt className="text-ink-muted">To fix it</dt>
+                    <dd className="text-ink" data-testid="build-draft-problem-fix">
+                      {advice.fix}
+                    </dd>
+                    {advice.cost ? (
+                      <>
+                        <dt className="text-ink-muted">What it costs</dt>
+                        <dd className="text-ink" data-testid="build-draft-problem-cost">
+                          {advice.cost}
+                        </dd>
+                      </>
+                    ) : null}
+                  </dl>
+                </li>
+              );
+            })}
+          </ul>
+          {problems.more}
+        </>
       )}
     </Card>
   );
@@ -1748,6 +1810,7 @@ function PocPanel({ detail, current, busy, act, onAbout }: PanelProps) {
                     size="sm"
                     variant="ghost"
                     disabled={isBusy(busy) || dirty}
+                    working={busy === apiRoutes.opsBuildCases.path}
                     onClick={() => void act(apiRoutes.opsBuildCases, { params: { id } })}
                     data-testid="build-make-cases"
                   >
@@ -1758,6 +1821,7 @@ function PocPanel({ detail, current, busy, act, onAbout }: PanelProps) {
                   <Button
                     size="sm"
                     disabled={isBusy(busy) || (poc?.cases ?? 0) === 0}
+                    working={busy === apiRoutes.opsBuildRunTests.path}
                     onClick={() => void act(apiRoutes.opsBuildRunTests, { params: { id } })}
                     data-testid="build-run-cases"
                   >
@@ -2338,6 +2402,13 @@ function ItemsPanel({
   const id = detail.build.id;
   const [title, setTitle] = useState("");
   const [owner, setOwner] = useState<BuildItemOwner>("operator");
+  const fold = useFold("issues");
+  // Open ones first, then the first few of them; the one the conversation is on always shows.
+  const rows = useFirstRows([...issues.filter((i) => i.open), ...issues.filter((i) => !i.open)], {
+    keep: (i) => i.key === focus,
+    noun: "issues",
+    testId: "build-issues-more",
+  });
   const openCount = issues.filter((i) => i.open).length;
   const closed = issues.length - openCount;
   const editable = detail.build.status === "open";
@@ -2370,6 +2441,7 @@ function ItemsPanel({
     <Card
       testId="build-items"
       title="Issues"
+      fold={fold}
       meta={
         <span className="flex flex-wrap items-center gap-1.5">
           <Badge tone={openCount > 0 ? "warning" : "positive"}>{openCount} open</Badge>
@@ -2427,6 +2499,7 @@ function ItemsPanel({
               size="sm"
               type="submit"
               disabled={isBusy(busy) || !title.trim()}
+              working={busy === apiRoutes.opsAddBuildItem.path}
               data-testid="build-item-add"
             >
               Add
@@ -2451,7 +2524,7 @@ function ItemsPanel({
               </tr>
             </thead>
             <tbody>
-              {issues.map((issue) => {
+              {rows.shown.map((issue) => {
                 const i = issue.itemId ? items.get(issue.itemId) : undefined;
                 if (!i) {
                   return (
@@ -2598,6 +2671,7 @@ function ItemsPanel({
               })}
             </tbody>
           </table>
+          {rows.more}
         </div>
       )}
     </Card>
