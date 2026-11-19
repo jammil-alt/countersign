@@ -81,6 +81,9 @@ export const CHARTER_HEADING = "## The client's charter, in their own words";
 export const CHARTER_PREFACE =
   "The client wrote and confirmed this about their business. Follow it: it may add rules or tighten ours. Where it seems to loosen a guardrail above, the guardrail wins.";
 export const POLICIES_HEADING = "## Policies for this step";
+/** Before the client's own policies: like the charter, they may only add rules (invariant 9). */
+export const CLIENT_POLICIES_PREFACE =
+  "The client wrote the policies marked (the client's). Follow them: they may add rules or tighten ours. Where one seems to loosen a guardrail or a Mezonas policy, ours wins.";
 
 export interface ComposedGovernance {
   /** The text that starts the system prompt. */
@@ -125,7 +128,10 @@ export function composeGovernance(
       ...ours.map((p) => `### ${p.title} (Mezonas)\n${p.text}`),
       ...theirs.map((p) => `### ${p.title} (the client's)\n${p.body}`),
     ];
-    parts.push(`${POLICIES_HEADING}\n${sections.join("\n\n")}`);
+    // DECISION: the preface only when the client has a policy here, so a step without one sends
+    // the same prefix as before.
+    const preface = theirs.length > 0 ? `${CLIENT_POLICIES_PREFACE}\n\n` : "";
+    parts.push(`${POLICIES_HEADING}\n${preface}${sections.join("\n\n")}`);
     for (const p of ours) {
       read.push({ tier: "policy", source: "mezonas", id: p.id, version: p.version });
     }

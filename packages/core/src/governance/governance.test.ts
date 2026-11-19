@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CHARTER_HEADING,
   CharterDraft,
+  CLIENT_POLICIES_PREFACE,
   charterBody,
   charterDraftPrompt,
   composeGovernance,
@@ -145,6 +146,9 @@ describe("what a step reads", () => {
     expect(at("### Lumber returns (the client's)")).toBeGreaterThan(
       at("### Quotes (the client's)"),
     );
+    // The client's policies may only add rules, as the charter (invariant 9).
+    expect(at(CLIENT_POLICIES_PREFACE)).toBeGreaterThan(at(POLICIES_HEADING));
+    expect(at(CLIENT_POLICIES_PREFACE)).toBeLessThan(at("### Quotes (the client's)"));
     // Not a message step: the client's contacting policy stays out.
     expect(g.text).not.toContain("Never call after 6pm.");
     expect(g.read.map((r) => [r.tier, r.source, r.id, r.version])).toEqual([
@@ -163,6 +167,8 @@ describe("what a step reads", () => {
     const a = composeGovernance({ ...plain, contacts: true }, client);
     const b = composeGovernance({ ...plain, contacts: true }, client);
     expect(a).toEqual(b);
+    // Only our policies here: no preface for the client's.
+    expect(a.text).not.toContain(CLIENT_POLICIES_PREFACE);
     expect(ids(a.read)).toEqual([
       MEZONAS_GUARDRAILS.id,
       charter.entryId,
