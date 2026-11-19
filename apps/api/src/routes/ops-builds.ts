@@ -805,9 +805,23 @@ function fitProposal(p: BuildProposal, d: BuildDetail, phase: BuildPhase): Build
     case "link_code_request":
     case "draft_skill": {
       if (phase !== "fitgap" && phase !== "draft" && phase !== "poc") return null;
-      if (!a.itemId) return p;
-      const item = itemOf(a.itemId);
-      if (!item || !itemOpen(item.state) || item.kind !== "gap") return null;
+      // A step that already has its skill build is settled that way.
+      if (
+        a.do === "draft_skill" &&
+        a.stepId &&
+        d.items.some((i) => i.stepId === a.stepId && i.ref.buildId && itemOpen(i.state))
+      ) {
+        return null;
+      }
+      const item = a.itemId ? itemOf(a.itemId) : undefined;
+      // QA on staging (2026-11-19, Sentry MEZONAS-API-9): in the draft the issues are the draft's
+      // problems, so the Builder named a `problem:` key (or no open gap) and the whole proposal
+      // was dropped: it said it had proposed the skill, and no card showed. A key that isn't an
+      // open gap is left out instead; the change makes its own gap item, as a request's link does.
+      if (!item || !itemOpen(item.state) || item.kind !== "gap") {
+        const { itemId: _, ...rest } = a;
+        return { ...p, action: rest };
+      }
       // A gap already waiting on a request, or with its skill build, is settled that way.
       if (item.ref.codeRequestId || (a.do === "draft_skill" && item.ref.buildId)) return null;
       return { ...p, action: { ...a, itemId: item.id } };
@@ -1148,6 +1162,24 @@ async function draftSkill(
           ref: sql`${buildItem.ref} || ${JSON.stringify({ buildId: skillBuild })}::jsonb`,
         })
         .where(and(eq(buildItem.id, a.itemId), eq(buildItem.buildId, id)));
+    } else {
+      // No gap named: one for the skill build, as a request's link makes one (keyed, made once).
+      await scoped.tx
+        .insert(buildItem)
+        .values({
+          buildId: parent.id,
+          phase: parent.phase,
+          kind: "gap",
+          title: clip(a.title, 300),
+          detail: `Drafted as the skill build “${clip(a.title, 200)}”.`,
+          owner: "builder",
+          state: "in_progress",
+          stepId: a.stepId ?? null,
+          ref: { buildId: skillBuild },
+          key: `skill:${skillBuild}`,
+          createdBy: ctx.session.user.id,
+        })
+        .onConflictDoNothing();
     }
   });
   return {
