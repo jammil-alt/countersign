@@ -9,6 +9,7 @@ import {
   buildPath,
   checkRouteContract,
   forbiddenPortalFields,
+  manualRoutes,
   type RouteSpec,
   routeFamily,
   routes,
@@ -55,10 +56,10 @@ describe("route contract (static)", () => {
   // never the bundle, its definition, instructions, prompts or cost (agent bundles stay on
   // /api/ops). The running route is checked in agent-manual.test.ts.
   it("keeps the agent manual's portal route to a view with no forbidden fields", () => {
-    expect(routeFamily(routes.portalAgentManual)).toBe("portal");
-    expect(routes.portalAgentManual.roles).toEqual(["client_admin", "client_user"]);
-    expect(forbiddenPortalFields(routes.portalAgentManual.response)).toEqual([]);
-    expect(routes.opsAgentManual.roles).toEqual(["operator"]);
+    expect(routeFamily(manualRoutes.portalAgentManual)).toBe("portal");
+    expect(manualRoutes.portalAgentManual.roles).toEqual(["client_admin", "client_user"]);
+    expect(forbiddenPortalFields(manualRoutes.portalAgentManual.response)).toEqual([]);
+    expect(manualRoutes.opsAgentManual.roles).toEqual(["operator"]);
   });
 });
 

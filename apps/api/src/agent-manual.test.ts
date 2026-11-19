@@ -5,7 +5,7 @@
 // instructions, prompts or cost (invariant 11), what it learned only for the client admin, and
 // nothing of another client's.
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
-import { type BuildDetail, type ManualView, routes } from "@countersign/core";
+import { type BuildDetail, type ManualView, manualRoutes } from "@countersign/core";
 import { memoryNote } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { afterAll, describe, expect, it, vi } from "vitest";
@@ -279,5 +279,5 @@ describe.skipIf(!h)("the agent manual", () => {
 });
 
 function buildPathOf(id: string): string {
-  return routes.portalAgentManual.path.replace(":id", id);
+  return manualRoutes.portalAgentManual.path.replace(":id", id);
 }

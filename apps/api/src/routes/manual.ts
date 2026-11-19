@@ -5,7 +5,7 @@
 // (invariant 11).
 
 import { getAgent, getVersion, latestVersion } from "@countersign/agents";
-import { manualView, routes } from "@countersign/core";
+import { manualRoutes, manualView } from "@countersign/core";
 import { agent, agentVersion, memoryNote, type Tx } from "@countersign/db";
 import { and, desc, eq } from "drizzle-orm";
 import type { Hono } from "hono";
@@ -36,8 +36,8 @@ async function learnedNotes(tx: Tx, a: { id: string; tenantId: string | null }) 
   return rows.map((r) => ({ id: r.id, note: r.note, at: r.createdAt.toISOString() }));
 }
 
-export function manualRoutes(app: Hono<AppEnv>): void {
-  mount(app, routes.portalAgentManual, async ({ tx, tenantIds, params, agents, role }) => {
+export function manualRouteHandlers(app: Hono<AppEnv>): void {
+  mount(app, manualRoutes.portalAgentManual, async ({ tx, tenantIds, params, agents, role }) => {
     const tenantId = tenantIds[0] as string;
     // §1.122: an agent off a limited client user's list is "not found", as another client's.
     ensureSeesAgent(agents, params.id);
@@ -63,7 +63,7 @@ export function manualRoutes(app: Hono<AppEnv>): void {
     });
   });
 
-  mount(app, routes.opsAgentManual, async ({ tx, tenantIds, params, query }) => {
+  mount(app, manualRoutes.opsAgentManual, async ({ tx, tenantIds, params, query }) => {
     const row = await getAgent(tx, params.id);
     if (row.tenantId !== null && !tenantIds.includes(row.tenantId)) throw notFound("agent");
     const v = query.version

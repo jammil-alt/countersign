@@ -3,14 +3,14 @@
 // notes for its client read live. A build writes it into the draft; it changes with the agent's
 // versions.
 
-import { apiRoutes } from "../../api/routes";
+import { manualRoutes } from "@countersign/core";
 import { useApi } from "../../api/useApi";
 import { ManualSections, OPS_MANUAL_TEXT } from "../../manual/ManualSections";
 import { Loaded } from "../../ui/page";
 import { SkeletonRows } from "../../ui/skeleton";
 
 export function OpsManualTab({ agentId, version }: { agentId: string; version: number | null }) {
-  const manual = useApi(apiRoutes.opsAgentManual, {
+  const manual = useApi(manualRoutes.opsAgentManual, {
     params: { id: agentId },
     query: version === null ? {} : { version },
   });

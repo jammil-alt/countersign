@@ -5,7 +5,7 @@
 // DECISION: "Ask about this" opens Sloan, the client's account agent, which reaches the area
 // owner of the agent's area when it needs to; a manual line is not tied to one area owner's chat.
 
-import { apiRoutes } from "../../api/routes";
+import { manualRoutes } from "@countersign/core";
 import { useApi } from "../../api/useApi";
 import { useI18n } from "../../i18n/i18n";
 import { ManualSections, type ManualText } from "../../manual/ManualSections";
@@ -15,7 +15,7 @@ import { askSloan } from "../paths";
 
 export function AgentManual({ id, isAdmin }: { id: string; isAdmin: boolean }) {
   const { t, fmt } = useI18n();
-  const manual = useApi(apiRoutes.portalAgentManual, { params: { id } });
+  const manual = useApi(manualRoutes.portalAgentManual, { params: { id } });
   const text: ManualText = {
     whatItDoes: t("manual.whatItDoes"),
     howItWorks: t("manual.howItWorks"),

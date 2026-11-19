@@ -52,7 +52,6 @@ import { ReviseTab } from "./BuilderParts";
 import { DefinitionEditor, type SaveResult } from "./DefinitionEditor";
 import { canDiscard, DiscardButton, DiscardedNotice } from "./DiscardDraft";
 import { AgentLineage, agentKindBadge } from "./Lineage";
-import { OpsManualTab } from "./ManualTab";
 import { OperationPanel, ServicePanel } from "./OperationPanel";
 import { LatestRuns, OverviewTab } from "./OverviewTab";
 import { PricePanel } from "./PricePanel";
@@ -66,6 +65,8 @@ export type AgentDetail = ResponseOf<typeof apiRoutes.opsAgent>;
 
 // The builder (with drag and drop) is its own chunk inside /ops, fetched when a workflow opens.
 const WorkflowBuilder = lazy(() => import("../builder/WorkflowBuilder"));
+// B3: the Manual tab is its own chunk (with its route's schema), fetched when it opens.
+const OpsManualTab = lazy(() => import("./ManualTab").then((m) => ({ default: m.OpsManualTab })));
 
 // An agent's own status (switched on, paused…), not a run's: "Active", never "Running", so it
 // can't be read as a run's status (the owner's decision 1).
@@ -548,7 +549,11 @@ export function AgentScreen({
           {/* docs/builder-plan.md §5 (B3): the manual of the version shown, with its notes. */}
           <Route
             path="manual"
-            element={<OpsManualTab agentId={view.id} version={shown?.version ?? null} />}
+            element={
+              <Suspense fallback={<Loading />}>
+                <OpsManualTab agentId={view.id} version={shown?.version ?? null} />
+              </Suspense>
+            }
           />
           {/* Triggers moved into the Workflow tab (its first step); the old address opens it. */}
           <Route

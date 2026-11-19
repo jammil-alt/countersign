@@ -74,8 +74,6 @@ import { ledgerRoutes } from "./ledger";
 import { libraryRoutes } from "./library";
 // v0.12 W1-A: go-live stages and client controls
 import { GoLive, lifecycleRoutes } from "./lifecycle";
-// docs/builder-plan.md §5 (B3): the agent manual
-import { manualRoutes } from "./manual";
 import { messagingRoutes } from "./messaging";
 // §1.116: the phone app
 import { mobileRoutes } from "./mobile";
@@ -2487,8 +2485,6 @@ export const routes = {
   ...accountRoutes,
   // v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export
   ...clientViewRoutes,
-  // docs/builder-plan.md §5 (B3): the agent manual
-  ...manualRoutes,
   // v0.12 W2-C: the test bench, skill tests and the agent lab
   ...testbenchRoutes,
   // v0.12 W2-F: the command center, search and plain-words questions

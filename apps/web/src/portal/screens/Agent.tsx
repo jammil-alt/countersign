@@ -13,7 +13,7 @@
 //   tightens on Accounts) and who it contacts (the client admin chooses).
 // Never the agent's bundle, instructions, prompts or cost (invariant 11).
 import type { DayRuns, PortalAccessView, RunForm, ServiceControl } from "@countersign/core";
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type FormEvent, lazy, type ReactNode, Suspense, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { type AgentViewKey, defaultReports, viewsFor } from "../../agents/views";
 import type { ResponseOf } from "../../api/client";
@@ -62,7 +62,6 @@ import { useKnownAgent, useRememberRuns } from "../known";
 import { PORTAL_PATHS } from "../paths";
 import { agentChip, runChip, runOpen } from "../status";
 import { accountAddress } from "./Accounts";
-import { AgentManual } from "./AgentManual";
 import { APPROVED, KIND_LABEL } from "./Home";
 import { runsNote } from "./Reports";
 import { TAB_WORDS as RUN_TAB_WORDS, TABS as RUN_TABS, type Tab as RunTab } from "./Runs";
@@ -70,6 +69,9 @@ import { RunTimes } from "./runsParts";
 import { DropZone, Forwarding, RecentDocuments } from "./Upload";
 
 const RUN_POLL_MS = 5_000;
+
+// B3: the Manual tab is its own chunk (with its route's schema), fetched when it opens.
+const AgentManual = lazy(() => import("./AgentManual").then((m) => ({ default: m.AgentManual })));
 
 export type AgentTab = "overview" | "runs" | "manual" | "settings";
 
@@ -188,7 +190,9 @@ export function AgentScreen({ tab: asked = "overview" }: { tab?: AgentTab }) {
       ) : tab === "runs" ? (
         <AgentRuns id={id} />
       ) : tab === "manual" ? (
-        <AgentManual id={id} isAdmin={isAdmin} />
+        <Suspense fallback={<SkeletonRows rows={6} columns={1} />}>
+          <AgentManual id={id} isAdmin={isAdmin} />
+        </Suspense>
       ) : tab === "settings" ? (
         <AgentSettings
           id={id}
