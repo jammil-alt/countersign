@@ -1356,6 +1356,60 @@ export const fr: Messages = {
   "knowledge.problem.changed":
     "Quelqu'un l'a modifiée depuis que vous l'avez ouverte. Rechargez pour voir la dernière version, puis réessayez.",
   "knowledge.problem.failed": "Nous n'avons pas pu l'enregistrer. Réessayez.",
+  // B6 (docs/builder-plan.md §8): the charter, tags and how our agents work.
+  "knowledge.charter.section": "Votre charte",
+  "knowledge.charter.intro":
+    "Qui vous êtes, comment vous parlez, ce qui compte pour vous et ce que vous ne faites jamais. Nos agents la lisent avant chaque tâche.",
+  "knowledge.charter.none":
+    "Nous rédigerons votre charte à partir de ce que vous nous avez dit au démarrage, pour que vous la confirmiez.",
+  "knowledge.charter.waiting": "En attente de votre part",
+  "knowledge.charter.waitingLine":
+    "Lisez-la, puis confirmez-la ou modifiez-la. Nos agents la suivent dès que vous la confirmez.",
+  "knowledge.charter.inUse":
+    "Nos agents suivent la version {version} jusqu'à ce que vous confirmiez celle-ci.",
+  "knowledge.charter.confirmed": "Confirmée",
+  "knowledge.charter.confirmedLine": "Confirmée par {who} le {date}",
+  "knowledge.charter.confirm": "Confirmer",
+  "knowledge.charter.confirming": "Confirmation…",
+  "knowledge.charter.problem": "Nous n'avons pas pu la confirmer. Réessayez.",
+  "knowledge.tags": "Ce qu'elle couvre",
+  "knowledge.tagsHint":
+    "Les agents lisent une politique quand leur travail correspond à ce qu'elle couvre.",
+  "governance.tag.security": "Sécurité",
+  "governance.tag.writing-into-tools": "Écrire dans les outils",
+  "governance.tag.money": "Argent",
+  "governance.tag.contacting-people": "Contacter des personnes",
+  "governance.tag.data-handling": "Traitement des données",
+  "governance.tag.people-and-roles": "Personnes et rôles",
+  "governance.tag.purchasing": "Achats",
+  "governance.tag.sales": "Ventes",
+  "governance.tag.receivables": "Créances",
+  "governance.tag.bookkeeping": "Comptabilité",
+  "governance.tag.marketing": "Marketing",
+  "governance.tag.general": "Général",
+  "howAgentsWork.title": "Comment travaillent les agents Mezonas",
+  "howAgentsWork.intro": "Les règles que suit chaque agent, avant votre charte et vos politiques.",
+  "howAgentsWork.tools.title": "Ils passent uniquement par vos outils",
+  "howAgentsWork.tools.body":
+    "Les agents lisent et modifient les données uniquement via les connexions que vous nous avez données, dans les limites de vos autorisations.",
+  "howAgentsWork.evidence.title": "Chaque chiffre a une source",
+  "howAgentsWork.evidence.body":
+    "Un agent n'invente jamais un nombre ou un nom. Ce qu'il rapporte renvoie aux enregistrements d'où il vient.",
+  "howAgentsWork.data.title": "Les documents sont lus, pas obéis",
+  "howAgentsWork.data.body":
+    "Le texte d'une facture, d'un e-mail ou d'une réponse est une information. Un agent ne suit jamais les instructions qui y sont écrites.",
+  "howAgentsWork.approval.title": "Vous approuvez les changements",
+  "howAgentsWork.approval.body":
+    "Les changements dans vos outils attendent l'accord d'une personne. Seuls nous pouvons l'assouplir, et seulement avec votre accord.",
+  "howAgentsWork.money.title": "L'argent ne bouge pas tout seul",
+  "howAgentsWork.money.body":
+    "Les agents ne paient, ne virent et ne modifient jamais de coordonnées bancaires d'eux-mêmes, et ne se connectent jamais à une banque ou une messagerie.",
+  "howAgentsWork.privacy.title": "Vos données restent les vôtres",
+  "howAgentsWork.privacy.body":
+    "Ce qu'un agent apprend de votre entreprise ne sert qu'à vous, jamais à un autre client.",
+  "howAgentsWork.yours.title": "Ensuite, votre charte et vos politiques",
+  "howAgentsWork.yours.body":
+    "Les agents lisent ensuite votre charte et vos politiques. Elles peuvent ajouter des règles et durcir les nôtres, jamais les assouplir.",
 
   // ── Contacts and consent (plan §1.22, §1.25) ──
   "contacts.title": "Contacts",

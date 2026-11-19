@@ -80,10 +80,11 @@ export const KnowledgeEntry = z.object({
   updatedAt: z.string(),
   updatedBy: Author,
   // B6: governance. A policy without a tier is read only through search, as before.
-  tier: GovernanceTier.nullable(),
-  tags: z.array(z.string()),
+  // DECISION: defaults, so an answer from before B6 (or a reader's fixture) still parses.
+  tier: GovernanceTier.nullable().default(null),
+  tags: z.array(z.string()).default([]),
   /** This version's confirmation. */
-  confirmed: Confirmed,
+  confirmed: Confirmed.default(null),
   /** The charter only: the version agents read now (the latest confirmed); null when none is. */
   inUseVersion: z.number().int().nullable().optional(),
 });
@@ -98,9 +99,9 @@ export const KnowledgeEntryVersion = z.object({
   author: Author,
   createdAt: z.string(),
   // B6
-  tier: GovernanceTier.nullable(),
-  tags: z.array(z.string()),
-  confirmed: Confirmed,
+  tier: GovernanceTier.nullable().default(null),
+  tags: z.array(z.string()).default([]),
+  confirmed: Confirmed.default(null),
 });
 export type KnowledgeEntryVersion = z.infer<typeof KnowledgeEntryVersion>;
 

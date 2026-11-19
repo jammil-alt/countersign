@@ -1378,6 +1378,60 @@ export const de: Messages = {
   "knowledge.problem.changed":
     "Jemand hat das geändert, seit Sie es geöffnet haben. Laden Sie neu, um den neuesten Stand zu sehen, und versuchen Sie es erneut.",
   "knowledge.problem.failed": "Wir konnten es nicht speichern. Versuchen Sie es erneut.",
+  // B6 (docs/builder-plan.md §8): the charter, tags and how our agents work.
+  "knowledge.charter.section": "Ihre Leitlinien",
+  "knowledge.charter.intro":
+    "Wer Sie sind, wie Sie sprechen, was Ihnen wichtig ist und was Sie nie tun. Unsere Agenten lesen sie vor jeder Aufgabe.",
+  "knowledge.charter.none":
+    "Wir entwerfen Ihre Leitlinien aus dem, was Sie uns beim Einstieg erzählt haben, und Sie bestätigen sie.",
+  "knowledge.charter.waiting": "Wartet auf Sie",
+  "knowledge.charter.waitingLine":
+    "Lesen Sie sie, dann bestätigen oder bearbeiten Sie sie. Unsere Agenten folgen ihnen, sobald Sie bestätigen.",
+  "knowledge.charter.inUse": "Unsere Agenten folgen Version {version}, bis Sie diese bestätigen.",
+  "knowledge.charter.confirmed": "Bestätigt",
+  "knowledge.charter.confirmedLine": "Bestätigt von {who} am {date}",
+  "knowledge.charter.confirm": "Bestätigen",
+  "knowledge.charter.confirming": "Wird bestätigt…",
+  "knowledge.charter.problem": "Wir konnten sie nicht bestätigen. Versuchen Sie es erneut.",
+  "knowledge.tags": "Was sie abdeckt",
+  "knowledge.tagsHint":
+    "Agenten lesen eine Richtlinie, wenn ihre Arbeit zu dem passt, was sie abdeckt.",
+  "governance.tag.security": "Sicherheit",
+  "governance.tag.writing-into-tools": "In Tools schreiben",
+  "governance.tag.money": "Geld",
+  "governance.tag.contacting-people": "Personen kontaktieren",
+  "governance.tag.data-handling": "Umgang mit Daten",
+  "governance.tag.people-and-roles": "Personen und Rollen",
+  "governance.tag.purchasing": "Einkauf",
+  "governance.tag.sales": "Vertrieb",
+  "governance.tag.receivables": "Forderungen",
+  "governance.tag.bookkeeping": "Buchhaltung",
+  "governance.tag.marketing": "Marketing",
+  "governance.tag.general": "Allgemein",
+  "howAgentsWork.title": "Wie Mezonas-Agenten arbeiten",
+  "howAgentsWork.intro":
+    "Die Regeln, denen jeder Agent folgt, vor Ihren Leitlinien und Richtlinien.",
+  "howAgentsWork.tools.title": "Sie arbeiten nur über Ihre Tools",
+  "howAgentsWork.tools.body":
+    "Agenten lesen und ändern Daten nur über die Verbindungen, die Sie uns gegeben haben, im Rahmen Ihrer Berechtigungen.",
+  "howAgentsWork.evidence.title": "Jede Zahl hat eine Quelle",
+  "howAgentsWork.evidence.body":
+    "Ein Agent erfindet nie eine Zahl oder einen Namen. Was er meldet, verweist auf die Datensätze, aus denen es stammt.",
+  "howAgentsWork.data.title": "Dokumente werden gelesen, nicht befolgt",
+  "howAgentsWork.data.body":
+    "Text in einer Rechnung, einer E-Mail oder einer Antwort ist Information. Ein Agent befolgt nie Anweisungen, die dort stehen.",
+  "howAgentsWork.approval.title": "Sie genehmigen Änderungen",
+  "howAgentsWork.approval.body":
+    "Änderungen an Ihren Tools warten auf die Genehmigung einer Person. Nur wir können das lockern, und nur mit Ihrer Zustimmung.",
+  "howAgentsWork.money.title": "Kein Geld fließt von selbst",
+  "howAgentsWork.money.body":
+    "Agenten zahlen, überweisen oder ändern Bankdaten nie selbst und melden sich nie bei Banken oder E-Mail-Konten an.",
+  "howAgentsWork.privacy.title": "Ihre Daten bleiben Ihre",
+  "howAgentsWork.privacy.body":
+    "Was ein Agent über Ihr Unternehmen lernt, wird nur für Sie genutzt, nie für einen anderen Kunden.",
+  "howAgentsWork.yours.title": "Danach Ihre Leitlinien und Richtlinien",
+  "howAgentsWork.yours.body":
+    "Dann lesen Agenten Ihre Leitlinien und Richtlinien. Diese können Regeln hinzufügen und unsere verschärfen, nie lockern.",
 
   // ── Contacts and consent (plan §1.22, §1.25) ──
   "contacts.title": "Kontakte",

@@ -1341,6 +1341,61 @@ export const it: Messages = {
   "knowledge.problem.changed":
     "Qualcuno l'ha cambiata dopo che l'hai aperta. Ricarica per vedere l'ultima versione, poi riprova.",
   "knowledge.problem.failed": "Non siamo riusciti a salvarla. Riprova.",
+  // B6 (docs/builder-plan.md §8): the charter, tags and how our agents work.
+  "knowledge.charter.section": "La tua carta",
+  "knowledge.charter.intro":
+    "Chi sei, come parli, cosa conta per te e cosa non fai mai. I nostri agenti la leggono prima di ogni attività.",
+  "knowledge.charter.none":
+    "Prepareremo una bozza della tua carta da quello che ci hai detto all'inizio, da confermare.",
+  "knowledge.charter.waiting": "In attesa di te",
+  "knowledge.charter.waitingLine":
+    "Leggila, poi confermala o modificala. I nostri agenti la seguono appena la confermi.",
+  "knowledge.charter.inUse":
+    "I nostri agenti seguono la versione {version} finché non confermi questa.",
+  "knowledge.charter.confirmed": "Confermata",
+  "knowledge.charter.confirmedLine": "Confermata da {who} il {date}",
+  "knowledge.charter.confirm": "Conferma",
+  "knowledge.charter.confirming": "Conferma in corso…",
+  "knowledge.charter.problem": "Non siamo riusciti a confermarla. Riprova.",
+  "knowledge.tags": "Cosa copre",
+  "knowledge.tagsHint":
+    "Gli agenti leggono una regola quando il loro lavoro corrisponde a ciò che copre.",
+  "governance.tag.security": "Sicurezza",
+  "governance.tag.writing-into-tools": "Scrivere negli strumenti",
+  "governance.tag.money": "Denaro",
+  "governance.tag.contacting-people": "Contattare persone",
+  "governance.tag.data-handling": "Gestione dei dati",
+  "governance.tag.people-and-roles": "Persone e ruoli",
+  "governance.tag.purchasing": "Acquisti",
+  "governance.tag.sales": "Vendite",
+  "governance.tag.receivables": "Crediti",
+  "governance.tag.bookkeeping": "Contabilità",
+  "governance.tag.marketing": "Marketing",
+  "governance.tag.general": "Generale",
+  "howAgentsWork.title": "Come lavorano gli agenti Mezonas",
+  "howAgentsWork.intro":
+    "Le regole che ogni agente segue, prima della tua carta e delle tue regole.",
+  "howAgentsWork.tools.title": "Lavorano solo con i tuoi strumenti",
+  "howAgentsWork.tools.body":
+    "Gli agenti leggono e modificano i dati solo tramite le connessioni che ci hai dato, entro i permessi che hai impostato.",
+  "howAgentsWork.evidence.title": "Ogni cifra ha una fonte",
+  "howAgentsWork.evidence.body":
+    "Un agente non inventa mai un numero o un nome. Quello che riporta rimanda ai record da cui viene.",
+  "howAgentsWork.data.title": "I documenti si leggono, non si eseguono",
+  "howAgentsWork.data.body":
+    "Il testo di una fattura, di un'email o di una risposta è un'informazione. Un agente non segue mai istruzioni scritte lì.",
+  "howAgentsWork.approval.title": "Le modifiche le approvi tu",
+  "howAgentsWork.approval.body":
+    "Le modifiche ai tuoi strumenti attendono l'approvazione di una persona. Solo noi possiamo allentarla, e solo se sei d'accordo.",
+  "howAgentsWork.money.title": "Il denaro non si muove da solo",
+  "howAgentsWork.money.body":
+    "Gli agenti non pagano, non trasferiscono e non cambiano mai i dati bancari da soli, e non accedono mai a banche o caselle email.",
+  "howAgentsWork.privacy.title": "I tuoi dati restano tuoi",
+  "howAgentsWork.privacy.body":
+    "Quello che un agente impara sulla tua attività è usato solo per te, mai per un altro cliente.",
+  "howAgentsWork.yours.title": "Poi la tua carta e le tue regole",
+  "howAgentsWork.yours.body":
+    "Poi gli agenti leggono la tua carta e le tue regole. Possono aggiungere regole e rendere più severe le nostre, mai allentarle.",
 
   // ── Contacts and consent (plan §1.22, §1.25) ──
   "contacts.title": "Contatti",
