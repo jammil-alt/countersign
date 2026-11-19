@@ -6,6 +6,7 @@
 
 import type { ManualView } from "@countersign/core";
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../App";
@@ -176,6 +177,68 @@ describe("the portal's Manual tab", () => {
   });
 });
 
+// B5 (docs/builder-plan.md §7): "This is wrong because…" on a line, and changes on the settings.
+describe("the portal's Manual tab: feedback and changes", () => {
+  it("sends 'This is wrong because…' on a decision, linked to it", async () => {
+    const api = portal(VIEW);
+    let sent: unknown = null;
+    api.on(`POST /api/services/${SVC}/manual/feedback`, ({ init }) => {
+      sent = JSON.parse(String(init.body));
+      return { request: { id: "00000000-0000-4000-8000-0000000d0001", number: 7 } };
+    });
+    const manual = await screen.findByTestId("manual");
+    const freight = within(manual).getByTestId("manual-decision-freight");
+    const u = userEvent.setup();
+    await u.click(within(freight).getByTestId("manual-wrong"));
+    const form = within(freight).getByTestId("manual-wrong-form");
+    // Nothing to send until it says why.
+    expect(within(form).getByTestId("manual-wrong-send")).toBeDisabled();
+    await u.type(within(form).getByTestId("manual-wrong-input"), "Freight is on every bill.");
+    await u.click(within(form).getByTestId("manual-wrong-send"));
+    expect(await within(freight).findByTestId("manual-wrong-sent")).toHaveTextContent(
+      "Sent to us as request #7. We'll answer there.",
+    );
+    expect(sent).toEqual({
+      section: "decision",
+      lineId: "freight",
+      line: "Freight stays out of the catalog",
+      because: "Freight is on every bill.",
+    });
+  });
+
+  it("says who changed a setting: the client's own person by name, ours as us", async () => {
+    portal({
+      ...VIEW,
+      decisions: VIEW.decisions.map((d) =>
+        d.id === "tol"
+          ? {
+              ...d,
+              status: "changed",
+              statusWords: "Changed",
+              by: "Ada",
+              at: "2026-11-19T10:00:00.000Z",
+              side: "client",
+            }
+          : {
+              ...d,
+              status: "changed",
+              statusWords: "Changed",
+              by: null,
+              at: "2026-11-18T10:00:00.000Z",
+              side: "operator",
+            },
+      ),
+    });
+    const manual = await screen.findByTestId("manual");
+    expect(within(manual).getByTestId("manual-decision-tol-by")).toHaveTextContent(
+      /^Changed by Ada on /,
+    );
+    expect(within(manual).getByTestId("manual-decision-freight-by")).toHaveTextContent(
+      /^Changed by us on /,
+    );
+  });
+});
+
 describe("the back office's Manual tab", () => {
   it("reads the version shown, and names who looked at a decision", async () => {
     const ID = "00000000-0000-4000-8000-00000000c001";
@@ -200,6 +263,8 @@ describe("the back office's Manual tab", () => {
     expect(within(manual).getByTestId("manual-decision-tol")).toHaveTextContent("Client setup");
     // No "Ask about this" in the back office: the build's conversation is where it talks.
     expect(within(manual).queryByTestId("manual-ask")).toBeNull();
+    // Nor "This is wrong": that is the client's way to tell us (B5).
+    expect(within(manual).queryByTestId("manual-wrong")).toBeNull();
   });
 });
 

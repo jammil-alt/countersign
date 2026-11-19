@@ -2355,6 +2355,31 @@ export const de: Messages = {
   "manual.status.discussed": "Besprochen", // fluent review
   "manual.status.confirmed": "Bestätigt", // fluent review
   "manual.status.changed": "Geändert", // fluent review
+  // B5 (docs/builder-plan.md §7): changes on the agent's settings, and feedback on the manual.
+  "manual.changedBy": "Geändert von {who} am {date}", // fluent review
+  "manual.changedByUs": "Von uns geändert am {date}", // fluent review
+  "manual.wrong": "Das stimmt nicht", // fluent review
+  "manual.wrongBecause": "Das stimmt nicht, weil…", // fluent review
+  "manual.wrongSend": "An uns senden", // fluent review
+  "manual.wrongSent": "Als Anfrage Nr. {number} an uns gesendet. Wir antworten dort.", // fluent review
+  "adjust.title": "Was Sie anpassen können", // fluent review
+  "adjust.help":
+    "Diese Einstellungen haben wir für {name} eingerichtet. Eine Änderung innerhalb der Grenzen oder eine strengere gilt sofort. Alles darüber hinaus kommt als Anfrage zu uns.", // fluent review
+  "adjust.adminOnly": "Ihr Admin kann diese ändern.", // fluent review
+  "adjust.between": "Zwischen {min} und {max}", // fluent review
+  "adjust.atLeast": "Mindestens {min}", // fluent review
+  "adjust.atMost": "Höchstens {max}", // fluent review
+  "adjust.tighterLower": "Niedriger ist strenger.", // fluent review
+  "adjust.tighterHigher": "Höher ist strenger.", // fluent review
+  "adjust.notSet": "Nicht festgelegt", // fluent review
+  "adjust.change": "Ändern", // fluent review
+  "adjust.other": "Etwas anderes", // fluent review
+  "adjust.otherWhat": "Was Sie möchten", // fluent review
+  "adjust.why": "Warum (optional)", // fluent review
+  "adjust.applied": "Gespeichert. {label} ist jetzt {value}.", // fluent review
+  "adjust.unchanged": "{label} ist bereits {value}.", // fluent review
+  "adjust.requested":
+    "Das geht über unsere Einrichtung hinaus, daher kam es als Anfrage Nr. {number} zu uns. Wir antworten dort.", // fluent review
   "agent.about": "Was {name} macht",
   "agent.aboutNone": "Für {name} gibt es noch keine Beschreibung.",
   "agent.status": "Status",

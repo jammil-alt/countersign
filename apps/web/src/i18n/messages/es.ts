@@ -2298,6 +2298,31 @@ export const es: Messages = {
   "manual.status.discussed": "Hablado", // fluent review
   "manual.status.confirmed": "Confirmado", // fluent review
   "manual.status.changed": "Cambiado", // fluent review
+  // B5 (docs/builder-plan.md §7): changes on the agent's settings, and feedback on the manual.
+  "manual.changedBy": "Cambiado por {who} el {date}", // fluent review
+  "manual.changedByUs": "Cambiado por nosotros el {date}", // fluent review
+  "manual.wrong": "Esto está mal", // fluent review
+  "manual.wrongBecause": "Esto está mal porque…", // fluent review
+  "manual.wrongSend": "Enviarnos", // fluent review
+  "manual.wrongSent": "Enviado como solicitud n.º {number}. Responderemos allí.", // fluent review
+  "adjust.title": "Lo que puede ajustar", // fluent review
+  "adjust.help":
+    "Configuramos esto para {name}. Un cambio dentro de los límites, o uno más estricto, se aplica de inmediato. Lo que vaya más allá nos llega como solicitud.", // fluent review
+  "adjust.adminOnly": "Su administrador puede cambiar esto.", // fluent review
+  "adjust.between": "Entre {min} y {max}", // fluent review
+  "adjust.atLeast": "Al menos {min}", // fluent review
+  "adjust.atMost": "Como máximo {max}", // fluent review
+  "adjust.tighterLower": "Más bajo es más estricto.", // fluent review
+  "adjust.tighterHigher": "Más alto es más estricto.", // fluent review
+  "adjust.notSet": "Sin definir", // fluent review
+  "adjust.change": "Cambiar", // fluent review
+  "adjust.other": "Otra cosa", // fluent review
+  "adjust.otherWhat": "Lo que desea", // fluent review
+  "adjust.why": "Por qué (opcional)", // fluent review
+  "adjust.applied": "Guardado. {label} ahora es {value}.", // fluent review
+  "adjust.unchanged": "{label} ya es {value}.", // fluent review
+  "adjust.requested":
+    "Eso va más allá de lo que configuramos, así que nos llegó como solicitud n.º {number}. Responderemos allí.", // fluent review
   "agent.about": "Qué hace {name}",
   "agent.aboutNone": "Aún no hemos escrito una descripción de {name}.",
   "agent.status": "Estado",

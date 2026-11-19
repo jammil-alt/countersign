@@ -2337,6 +2337,31 @@ export const fr: Messages = {
   "manual.status.discussed": "Discuté", // fluent review
   "manual.status.confirmed": "Confirmé", // fluent review
   "manual.status.changed": "Modifié", // fluent review
+  // B5 (docs/builder-plan.md §7): changes on the agent's settings, and feedback on the manual.
+  "manual.changedBy": "Modifié par {who} le {date}", // fluent review
+  "manual.changedByUs": "Modifié par nous le {date}", // fluent review
+  "manual.wrong": "C'est faux", // fluent review
+  "manual.wrongBecause": "C'est faux, parce que…", // fluent review
+  "manual.wrongSend": "Nous l'envoyer", // fluent review
+  "manual.wrongSent": "Envoyé comme demande n° {number}. Nous répondrons là-bas.", // fluent review
+  "adjust.title": "Ce que vous pouvez ajuster", // fluent review
+  "adjust.help":
+    "Nous les avons configurés pour {name}. Un changement dans les limites, ou plus strict, s'applique tout de suite. Au-delà, il nous arrive comme une demande.", // fluent review
+  "adjust.adminOnly": "Votre administrateur peut les modifier.", // fluent review
+  "adjust.between": "Entre {min} et {max}", // fluent review
+  "adjust.atLeast": "Au moins {min}", // fluent review
+  "adjust.atMost": "Au plus {max}", // fluent review
+  "adjust.tighterLower": "Plus bas est plus strict.", // fluent review
+  "adjust.tighterHigher": "Plus haut est plus strict.", // fluent review
+  "adjust.notSet": "Non défini", // fluent review
+  "adjust.change": "Modifier", // fluent review
+  "adjust.other": "Autre chose", // fluent review
+  "adjust.otherWhat": "Ce que vous souhaitez", // fluent review
+  "adjust.why": "Pourquoi (facultatif)", // fluent review
+  "adjust.applied": "Enregistré. {label} vaut maintenant {value}.", // fluent review
+  "adjust.unchanged": "{label} vaut déjà {value}.", // fluent review
+  "adjust.requested":
+    "Cela dépasse ce que nous avons configuré, c'est donc arrivé chez nous comme demande n° {number}. Nous répondrons là-bas.", // fluent review
   "agent.about": "Ce que fait {name}",
   "agent.aboutNone": "Nous n’avons pas encore décrit {name}.",
   "agent.status": "Statut",

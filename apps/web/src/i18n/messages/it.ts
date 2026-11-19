@@ -2310,6 +2310,31 @@ export const it: Messages = {
   "manual.status.discussed": "Discusso", // fluent review
   "manual.status.confirmed": "Confermato", // fluent review
   "manual.status.changed": "Modificato", // fluent review
+  // B5 (docs/builder-plan.md §7): changes on the agent's settings, and feedback on the manual.
+  "manual.changedBy": "Modificato da {who} il {date}", // fluent review
+  "manual.changedByUs": "Modificato da noi il {date}", // fluent review
+  "manual.wrong": "Questo è sbagliato", // fluent review
+  "manual.wrongBecause": "Questo è sbagliato perché…", // fluent review
+  "manual.wrongSend": "Inviacelo", // fluent review
+  "manual.wrongSent": "Inviato come richiesta n. {number}. Risponderemo lì.", // fluent review
+  "adjust.title": "Cosa può regolare", // fluent review
+  "adjust.help":
+    "Le abbiamo impostate per {name}. Una modifica entro i limiti, o più restrittiva, vale subito. Oltre, ci arriva come richiesta.", // fluent review
+  "adjust.adminOnly": "Il suo amministratore può modificarle.", // fluent review
+  "adjust.between": "Tra {min} e {max}", // fluent review
+  "adjust.atLeast": "Almeno {min}", // fluent review
+  "adjust.atMost": "Al massimo {max}", // fluent review
+  "adjust.tighterLower": "Più basso è più restrittivo.", // fluent review
+  "adjust.tighterHigher": "Più alto è più restrittivo.", // fluent review
+  "adjust.notSet": "Non impostato", // fluent review
+  "adjust.change": "Modifica", // fluent review
+  "adjust.other": "Altro", // fluent review
+  "adjust.otherWhat": "Cosa desidera", // fluent review
+  "adjust.why": "Perché (facoltativo)", // fluent review
+  "adjust.applied": "Salvato. {label} ora è {value}.", // fluent review
+  "adjust.unchanged": "{label} è già {value}.", // fluent review
+  "adjust.requested":
+    "Va oltre ciò che abbiamo impostato, quindi ci è arrivato come richiesta n. {number}. Risponderemo lì.", // fluent review
   "agent.about": "Cosa fa {name}",
   "agent.aboutNone": "Non abbiamo ancora scritto una descrizione di {name}.",
   "agent.status": "Stato",

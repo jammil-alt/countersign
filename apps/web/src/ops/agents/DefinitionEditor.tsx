@@ -15,6 +15,8 @@ import { type AgentSummary, apiRoutes, type VersionSummary } from "../../api/rou
 import { useApi } from "../../api/useApi";
 import { Badge, Button, Card, SectionLabel, Tag } from "../../ui/primitives";
 import { ParameterValueInput, parameterText } from "../skills/parameters";
+import { canAdjust, ParameterAdjust, ScheduleAdjustCard } from "./AdjustableFields";
+import type { AdjustDraft } from "./adjustable-form";
 import {
   APPROVER_ROLES,
   applyForm,
@@ -162,6 +164,14 @@ export function DefinitionEditor({
         errors={shown}
         kind={agent.kind}
         onChange={(next) => set("skills", next)}
+        onAdjustable={(next) => set("adjustable", next)}
+      />
+
+      <ScheduleAdjustCard
+        bundle={bundle}
+        drafts={form.adjustable ?? []}
+        errors={shown}
+        onChange={(next) => set("adjustable", next)}
       />
 
       <Card className="p-5">
@@ -452,12 +462,15 @@ function SkillsCard({
   errors,
   kind,
   onChange,
+  onAdjustable,
 }: {
   form: DefinitionForm;
   skills: readonly SkillOption[];
   errors: Record<string, string>;
   kind: AgentSummary["kind"];
   onChange(next: DefinitionForm["skills"]): void;
+  /** B5: the settings the client may adjust changed. */
+  onAdjustable(next: AdjustDraft[]): void;
 }) {
   const [adding, setAdding] = useState("");
   const listed = new Set(form.skills.map((s) => optionFor(s.skill, skills)?.id ?? s.skill));
@@ -547,6 +560,8 @@ function SkillsCard({
                   errors={errors}
                   index={i}
                   onChange={(next) => onChange(form.skills.map((s, j) => (j === i ? next : s)))}
+                  adjustable={form.adjustable ?? []}
+                  onAdjustable={onAdjustable}
                 />
               ) : null}
             </li>
@@ -597,12 +612,17 @@ function AgentSkillSection({
   errors,
   index,
   onChange,
+  adjustable,
+  onAdjustable,
 }: {
   entry: DefinitionForm["skills"][number];
   option: SkillOption;
   errors: Record<string, string>;
   index: number;
   onChange(next: DefinitionForm["skills"][number]): void;
+  /** B5: the marks of what the client may adjust. */
+  adjustable: readonly AdjustDraft[];
+  onAdjustable(next: AdjustDraft[]): void;
 }) {
   const ai = option.kind === "ai";
   const params = option.parameters ?? [];
@@ -619,30 +639,45 @@ function AgentSkillSection({
       {params.map((p) => {
         const field = `skills.${index}.parameters.${p.name}`;
         return (
-          <Field
-            key={p.name}
-            label={p.label}
-            error={errors[field]}
-            hint={
-              p.default === undefined
-                ? "The skill has no default: set it."
-                : `Empty: the skill's default, ${parameterText(p.type, p.default)}.`
-            }
-          >
-            <ParameterValueInput
-              param={p}
-              value={entry.parameters?.[p.name]}
-              testId={`${testId}-parameter-${p.name}`}
-              placeholder={p.default === undefined ? "" : parameterText(p.type, p.default)}
-              invalid={Boolean(errors[field])}
-              onChange={(v) => {
-                const parameters = { ...(entry.parameters ?? {}) };
-                if (v === undefined) delete parameters[p.name];
-                else parameters[p.name] = v;
-                onChange({ ...entry, parameters });
-              }}
-            />
-          </Field>
+          <div key={p.name} className="flex flex-col gap-2">
+            <Field
+              label={p.label}
+              error={errors[field]}
+              hint={
+                p.default === undefined
+                  ? "The skill has no default: set it."
+                  : `Empty: the skill's default, ${parameterText(p.type, p.default)}.`
+              }
+            >
+              <ParameterValueInput
+                param={p}
+                value={entry.parameters?.[p.name]}
+                testId={`${testId}-parameter-${p.name}`}
+                placeholder={p.default === undefined ? "" : parameterText(p.type, p.default)}
+                invalid={Boolean(errors[field])}
+                onChange={(v) => {
+                  const parameters = { ...(entry.parameters ?? {}) };
+                  if (v === undefined) delete parameters[p.name];
+                  else parameters[p.name] = v;
+                  onChange({ ...entry, parameters });
+                }}
+              />
+            </Field>
+            {canAdjust(p.type) ? (
+              <ParameterAdjust
+                target={{
+                  kind: "parameter",
+                  skill: option.id,
+                  parameter: p.name,
+                  type: p.type as "number" | "money" | "text" | "date",
+                }}
+                label={p.label}
+                drafts={adjustable}
+                errors={errors}
+                onChange={onAdjustable}
+              />
+            ) : null}
+          </div>
         );
       })}
       {ai ? (

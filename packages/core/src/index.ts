@@ -14,6 +14,8 @@ export * from "./account/words";
 export * from "./api/a2p";
 export * from "./api/access";
 export * from "./api/account";
+// docs/builder-plan.md §7 (B5): client adjustments and feedback on the manual
+export * from "./api/adjust";
 export * from "./api/all-routes";
 export * from "./api/approver-rules";
 export * from "./api/assigned";
@@ -111,8 +113,6 @@ export * from "./api/search";
 export * from "./api/second-factor";
 // docs/builder-plan.md §6 (B4): the setup checklist
 export * from "./api/setup";
-// docs/builder-plan.md §7 (B5): client adjustments and feedback on the manual
-export * from "./api/adjust";
 // The skill model (owner, 2026-11-10)
 export * from "./api/skill-model";
 // v0.14 W4-C: the Slack channel picker

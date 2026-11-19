@@ -2298,6 +2298,31 @@ export const ptBR: Messages = {
   "manual.status.discussed": "Discutido", // fluent review
   "manual.status.confirmed": "Confirmado", // fluent review
   "manual.status.changed": "Alterado", // fluent review
+  // B5 (docs/builder-plan.md §7): changes on the agent's settings, and feedback on the manual.
+  "manual.changedBy": "Alterado por {who} em {date}", // fluent review
+  "manual.changedByUs": "Alterado por nós em {date}", // fluent review
+  "manual.wrong": "Isto está errado", // fluent review
+  "manual.wrongBecause": "Isto está errado porque…", // fluent review
+  "manual.wrongSend": "Enviar para nós", // fluent review
+  "manual.wrongSent": "Enviado como solicitação nº {number}. Responderemos lá.", // fluent review
+  "adjust.title": "O que você pode ajustar", // fluent review
+  "adjust.help":
+    "Configuramos isto para {name}. Uma mudança dentro dos limites, ou mais rígida, vale na hora. O que passar disso chega até nós como solicitação.", // fluent review
+  "adjust.adminOnly": "Seu administrador pode alterar isto.", // fluent review
+  "adjust.between": "Entre {min} e {max}", // fluent review
+  "adjust.atLeast": "No mínimo {min}", // fluent review
+  "adjust.atMost": "No máximo {max}", // fluent review
+  "adjust.tighterLower": "Mais baixo é mais rígido.", // fluent review
+  "adjust.tighterHigher": "Mais alto é mais rígido.", // fluent review
+  "adjust.notSet": "Não definido", // fluent review
+  "adjust.change": "Alterar", // fluent review
+  "adjust.other": "Outra coisa", // fluent review
+  "adjust.otherWhat": "O que você gostaria", // fluent review
+  "adjust.why": "Por quê (opcional)", // fluent review
+  "adjust.applied": "Salvo. {label} agora é {value}.", // fluent review
+  "adjust.unchanged": "{label} já é {value}.", // fluent review
+  "adjust.requested":
+    "Isso vai além do que configuramos, então chegou até nós como solicitação nº {number}. Responderemos lá.", // fluent review
   "agent.about": "O que {name} faz",
   "agent.aboutNone": "Ainda não escrevemos uma descrição de {name}.",
   "agent.status": "Status",

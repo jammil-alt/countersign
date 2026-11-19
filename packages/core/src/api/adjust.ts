@@ -88,7 +88,7 @@ export const adjustRoutes = {
     auth: "session",
     roles: CLIENT,
     summary:
-      "\"This is wrong because…\" on a line of an agent's manual: files a request to us linked to the line (a decision by its id)",
+      '"This is wrong because…" on a line of an agent\'s manual: files a request to us linked to the line (a decision by its id)',
     params: z.object({ id: Id }),
     body: ManualFeedbackBody,
     response: z.object({ request: RequestRef }),

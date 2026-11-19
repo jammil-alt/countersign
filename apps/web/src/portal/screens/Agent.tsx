@@ -72,6 +72,10 @@ const RUN_POLL_MS = 5_000;
 
 // B3: the Manual tab is its own chunk (with its route's schema), fetched when it opens.
 const AgentManual = lazy(() => import("./AgentManual").then((m) => ({ default: m.AgentManual })));
+// B5: what the client may adjust, with its route's schema, fetched with the Settings tab.
+const AdjustSettings = lazy(() =>
+  import("./AdjustSettings").then((m) => ({ default: m.AdjustSettings })),
+);
 
 export type AgentTab = "overview" | "runs" | "manual" | "settings";
 
@@ -360,7 +364,8 @@ function AgentSettings({
   stage: string | null;
   isAdmin: boolean;
 }) {
-  const { t } = useI18n();
+  const i18n = useI18n();
+  const { t } = i18n;
   const triggers = useApi(apiRoutes.portalAgentTriggers, { params: { id } });
   // A title that names it, or its skeleton until the name is known.
   const named = (words: (name: string) => string) =>
@@ -426,6 +431,14 @@ function AgentSettings({
           }
         </Loaded>
       </Card>
+      <Suspense fallback={<SkeletonRows rows={2} columns={2} />}>
+        <AdjustSettings
+          id={id}
+          name={name}
+          isAdmin={isAdmin}
+          scheduleText={(cron) => scheduleWords(cron, i18n)}
+        />
+      </Suspense>
       <Reach id={id} name={name} />
       {isAdmin ? (
         // Headed like the cards beside it (a subheading above), not a page section.

@@ -389,9 +389,9 @@ export const ManualDecisionView = z.object({
    */
   by: z.string().nullable(),
   /** When (B5: "changed by Ada on 19 Nov"). */
-  at: z.string().nullable().default(null),
+  at: z.string().nullable().optional(),
   /** Whose `by` it is: the client's team or us; null for a build's own row. */
-  side: z.enum(["client", "operator"]).nullable().default(null),
+  side: z.enum(["client", "operator"]).nullable().optional(),
 });
 export type ManualDecisionView = z.infer<typeof ManualDecisionView>;
 
