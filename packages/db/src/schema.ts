@@ -3053,6 +3053,15 @@ export const knowledgeEntryVersion = pgTable(
 export interface KnowledgeEntryMeta {
   personUserId?: string;
   channel?: string;
+  // B6 (docs/builder-plan.md §8): governance, on a `policy` entry's version. No migration: the
+  // column is JSON. Core's `GovernanceTier` and `GovernanceTag` hold the values.
+  /** `charter`: the client's charter (one per client); `policy`: read by agents by its tags. */
+  tier?: "charter" | "policy";
+  /** The standard topics and business areas it covers. */
+  tags?: string[];
+  /** The client admin who confirmed this version (an app user id), and when (ISO). */
+  confirmedBy?: string;
+  confirmedAt?: string;
 }
 
 /**

@@ -22,6 +22,7 @@ import {
   tenant,
   withTenant,
 } from "@countersign/db";
+import { clientGovernance } from "@countersign/documents";
 import { and, desc, eq, gte, inArray, like, not, sql } from "drizzle-orm";
 import { notFound } from "../errors";
 import type {
@@ -115,8 +116,15 @@ export function dbRuntimeStore(db: Db): RuntimeStore {
           // v0.14 W4-A
           channels: row.a.channels,
           approver: row.a.approver,
+          // B6: the operator's area for the agent, for the policies a step reads.
+          area: row.a.area,
         };
       });
+    },
+
+    // B6 (docs/builder-plan.md §8): the client's confirmed charter and tagged policies.
+    governance(tenantId) {
+      return withTenant(db, tenantId, (tx) => clientGovernance(tx, tenantId));
     },
 
     resolveCustomSkill(tenantId, ref) {
