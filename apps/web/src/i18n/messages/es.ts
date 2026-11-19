@@ -2975,7 +2975,8 @@ export const es: Messages = {
   "secondStep.continue": "Continuar",
   "secondStep.totp.title": "Añada Mezonas a su app de autenticación",
   "secondStep.totp.step1":
-    "En su app, añada una cuenta e introduzca esta clave. En este teléfono puede abrir la app directamente.",
+    "Escanee este código con su app de autenticación, o añada una cuenta e introduzca la clave de abajo. En este teléfono puede abrir la app directamente.",
+  "secondStep.totp.qr": "Código QR para añadir Mezonas a su app de autenticación",
   "secondStep.totp.openApp": "Abrir en mi app de autenticación",
   "secondStep.totp.key": "Clave de configuración",
   "secondStep.totp.step2": "Después introduzca el código de 6 dígitos que muestra la app.",

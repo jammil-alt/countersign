@@ -92,6 +92,10 @@ describe("the second step", () => {
     expect(await screen.findByTestId("second-step-secret")).toHaveTextContent(
       "JBSW Y3DP EHPK 3PXP",
     );
+    // The link as a QR code to scan, drawn here.
+    const qr = screen.getByTestId("second-step-qr");
+    expect(qr).toHaveAttribute("aria-label", "QR code to add Mezonas to your authenticator app");
+    expect(qr.querySelector("path")?.getAttribute("d")).toMatch(/^M\d+ \d+h1v1h-1z/);
     expect(screen.getByTestId("second-step-open-app")).toHaveAttribute(
       "href",
       expect.stringMatching(/^otpauth:\/\/totp\//),
