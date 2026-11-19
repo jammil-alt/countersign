@@ -182,6 +182,11 @@ describe.skipIf(!h)("decisions on a build", () => {
     model.push(draftAnswer());
     b = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "draft" });
     expect(b.build.phase).toBe("draft");
+    // The drafter is told the decisions made so far, so the draft follows them.
+    const drafted = JSON.stringify(model.requests.at(-1)?.messages);
+    expect(drafted).toContain("Decisions already made");
+    expect(drafted).toContain("Freight and fees stay out of the record");
+    expect(drafted).toContain("(starts at 0%)");
     const post = b.build.fitgap.decisions.find((d) => d.id === "post");
     expect(post).toMatchObject({ kind: "decision_point", risk: "high" });
     expect(post?.stepId).toBeTruthy();

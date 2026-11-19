@@ -184,6 +184,13 @@ export function draftDescription(
     lines.push("", "What we get from each client to set it up:");
     for (const f of asked) lines.push(`- ${f.label} (${SETUP_WORDS[f.kind]})`);
   }
+  // docs/builder-plan.md §4: the decisions made so far, so the draft follows them.
+  if (fitgap.decisions.length > 0) {
+    lines.push("", "Decisions already made (follow them; a decision point is a person step):");
+    for (const d of fitgap.decisions) {
+      lines.push(`- ${d.what}${d.value ? ` (starts at ${d.value})` : ""}`);
+    }
+  }
   const text = lines.join("\n");
   return text.length > 4000 ? `${text.slice(0, 3990)}…` : text;
 }
