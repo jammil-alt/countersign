@@ -19,6 +19,8 @@ import { HEALTH_TOOLS } from "./health";
 import { INBOUND_TOOLS } from "./inbound";
 import { KNOWLEDGE_TOOLS } from "./knowledge";
 import { LEDGER_TOOLS } from "./ledger";
+// B3 (docs/builder-plan.md §8, tier 3): another agent's manual
+import { manualRead } from "./manual";
 import { memoryScope } from "./memory-scope";
 import { reachOutTool } from "./reach";
 import { reshapeTool } from "./reshape";
@@ -103,6 +105,8 @@ export const PLATFORM_TOOLS: readonly InternalTool[] = [
   memoryWrite,
   ...DOCS_TOOLS,
   ...KNOWLEDGE_TOOLS,
+  // B3 (docs/builder-plan.md §8, tier 3): another agent's manual for the same client
+  manualRead,
   ...DIRECTORY_TOOLS,
   // B-2 (docs/plan.md §1.79)
   ...LEDGER_TOOLS,

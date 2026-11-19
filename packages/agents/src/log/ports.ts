@@ -19,6 +19,8 @@ import { dbHealthPort } from "./health-port";
 import { dbInboundPort } from "./inbound-port";
 import { dbKnowledgePort } from "./knowledge-port";
 import { dbLedgerPort } from "./ledger-port";
+// B3 (docs/builder-plan.md §8, tier 3)
+import { dbManualsPort } from "./manuals-port";
 import type { ModelCallPort } from "./model-calls";
 import { dbPlatformStore } from "./platform-store";
 import { dbRunLog } from "./run-log";
@@ -63,6 +65,7 @@ export function createDbPorts(db: Db, options: DbPortsOptions = {}): RuntimePort
     actions: dbExternalActions(db, emit),
     platform: dbPlatformStore(db),
     knowledge: dbKnowledgePort(db),
+    manuals: dbManualsPort(db),
     directory: dbDirectoryPort(db),
     // B-2: the client's ledger.
     ledger: dbLedgerPort(db),
