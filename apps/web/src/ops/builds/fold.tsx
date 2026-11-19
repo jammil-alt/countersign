@@ -16,26 +16,35 @@ function readFolds(): Record<string, boolean> {
   }
 }
 
+export interface Fold {
+  open: boolean;
+  onToggle(): void;
+  /** Opens it (a jump to the section). */
+  reveal(): void;
+  testId: string;
+}
+
 /**
- * Whether a section is open: the operator's last choice for it in this browser, else `fallback`.
- * For Card's `fold`.
+ * Whether a section is open: the operator's last choice for it in this browser, else `fallback`
+ * (read on every render, so it can follow the build once it loads). For Card's `fold`.
  */
-export function useFold(
-  section: string,
-  fallback = true,
-): { open: boolean; onToggle(): void; testId: string } {
-  const [open, setOpen] = useState(() => readFolds()[section] ?? fallback);
+export function useFold(section: string, fallback = true): Fold {
+  const [chosen, setChosen] = useState<boolean | undefined>(() => readFolds()[section]);
+  const open = chosen ?? fallback;
+  const set = (next: boolean) => {
+    setChosen(next);
+    try {
+      localStorage.setItem(FOLD_KEY, JSON.stringify({ ...readFolds(), [section]: next }));
+    } catch {
+      // Folding is a convenience; it just isn't kept.
+    }
+  };
   return {
     open,
     testId: `build-fold-${section}`,
-    onToggle() {
-      const next = !open;
-      setOpen(next);
-      try {
-        localStorage.setItem(FOLD_KEY, JSON.stringify({ ...readFolds(), [section]: next }));
-      } catch {
-        // Folding is a convenience; it just isn't kept.
-      }
+    onToggle: () => set(!open),
+    reveal: () => {
+      if (!open) set(true);
     },
   };
 }

@@ -22,6 +22,7 @@ import {
   buildIssues,
   DATA_SOURCES,
   type Dataset,
+  decisionUnreviewed,
   FIT_REASON_MIN,
   FIT_SCOPE_WORDS,
   FIT_SCOPES,
@@ -64,9 +65,9 @@ import { AgentBadge } from "../../ui/badges";
 import { AgentSaid, ChatLog, Composer, Pending, Thinking, YouSaid } from "../../ui/chat";
 import { ErrorNotice } from "../../ui/ErrorState";
 import { Select, TextArea, TextInput } from "../../ui/forms";
-import { Badge, Button, Card, cx, Loading, Tag } from "../../ui/primitives";
+import { Badge, Button, Card, Count, cx, Loading, Tag } from "../../ui/primitives";
 import { DecisionsCard } from "./decisions";
-import { useFirstRows, useFold } from "./fold";
+import { type Fold, useFirstRows, useFold } from "./fold";
 import { AboutLink, FocusBar, ProposalCard } from "./issues";
 import { problemAdvice, problemWhere } from "./problems";
 import { RequirementsCard } from "./RequirementsCard";
@@ -144,6 +145,13 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
   // shows. It follows the Builder: when its answer is about an issue, the next words are too.
   const [focus, setFocus] = useState<string | null>(null);
   const [threadOnly, setThreadOnly] = useState(false);
+  // Owner (2026-11-19): a long page. Its sections fold, and the jump links open the one they go
+  // to. Decisions starts shut when nothing waits on a check.
+  const issuesFold = useFold("issues");
+  const decisionsFold = useFold(
+    "decisions",
+    (detail?.build.fitgap.decisions ?? []).some(decisionUnreviewed),
+  );
 
   useEffect(() => {
     if (loaded.data) setDetail(loaded.data);
@@ -256,6 +264,7 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
       // Not this: the box is where the operator says what they'd do instead.
       if (ok && d === "decline") box.current?.focus();
     });
+  const hasDecisions = b.phase !== "intake" || b.fitgap.decisions.length > 0;
   const shownMessages =
     threadOnly && focused
       ? detail.messages.filter((m) => m.about === focused.key)
@@ -355,8 +364,6 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
           ) : null}
         </div>
       ) : null}
-
-      <WorkingStrip busy={busy} phase={b.phase} talking={!!pending} />
 
       {/* Feedback (2026-11-16): the conversation stays within the screen and scrolls on its own;
           on a wide screen the line between the two columns drags to make either wider. */}
@@ -509,54 +516,88 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
 
         <div className="relative flex min-w-0 flex-col gap-5 xl:pl-6">
           <SplitHandle split={split} />
-          <PhasePanel
-            phase={shown}
-            detail={detail}
-            current={shown === b.phase && open}
-            busy={busy}
-            act={act}
-            onAbout={
-              open
-                ? (title) => {
-                    setDraftText(`About “${title}”: `);
-                    box.current?.focus();
-                  }
-                : undefined
-            }
-          />
-          <ItemsPanel
-            detail={detail}
-            issues={issues}
-            focus={focused?.key ?? null}
-            onTalk={open ? onIssue : undefined}
-            onWalk={
-              open
-                ? () => {
-                    offIssue();
-                    void say("Walk me through the open issues, one at a time.", null);
-                  }
-                : undefined
-            }
-            busy={busy}
-            act={act}
-            onAnswer={
-              open
-                ? (title) => {
-                    setDraftText(`About “${title}”: `);
-                    box.current?.focus();
-                  }
-                : undefined
-            }
-          />
-          {/* docs/builder-plan.md §4: the Builder's decisions, beside the issues and known risks. */}
-          {b.phase !== "intake" || b.fitgap.decisions.length > 0 ? (
-            <DecisionsCard
+          <BuildBar
+            links={[
+              {
+                id: "build-at-phase",
+                label: PHASE_WORDS[shown].label,
+              },
+              {
+                id: "build-at-issues",
+                label: "Issues",
+                count: issues.filter((i) => i.open).length,
+                fold: issuesFold,
+              },
+              ...(hasDecisions
+                ? [
+                    {
+                      id: "build-at-decisions",
+                      label: "Decisions",
+                      count: b.fitgap.decisions.filter(decisionUnreviewed).length,
+                      fold: decisionsFold,
+                    },
+                  ]
+                : []),
+            ]}
+          >
+            <WorkingStrip busy={busy} phase={b.phase} talking={!!pending} />
+          </BuildBar>
+          <div id="build-at-phase" className="ui-build-anchor flex flex-col gap-5">
+            <PhasePanel
+              phase={shown}
               detail={detail}
+              current={shown === b.phase && open}
+              busy={busy}
+              act={act}
+              onAbout={
+                open
+                  ? (title) => {
+                      setDraftText(`About “${title}”: `);
+                      box.current?.focus();
+                    }
+                  : undefined
+              }
+            />
+          </div>
+          <div id="build-at-issues" className="ui-build-anchor">
+            <ItemsPanel
+              fold={issuesFold}
+              detail={detail}
+              issues={issues}
               focus={focused?.key ?? null}
               onTalk={open ? onIssue : undefined}
-              busy={isBusy(busy)}
+              onWalk={
+                open
+                  ? () => {
+                      offIssue();
+                      void say("Walk me through the open issues, one at a time.", null);
+                    }
+                  : undefined
+              }
+              busy={busy}
               act={act}
+              onAnswer={
+                open
+                  ? (title) => {
+                      setDraftText(`About “${title}”: `);
+                      box.current?.focus();
+                    }
+                  : undefined
+              }
             />
+          </div>
+          {/* docs/builder-plan.md §4: the Builder's decisions, beside the issues and known risks. */}
+          {hasDecisions ? (
+            <div id="build-at-decisions" className="ui-build-anchor">
+              <DecisionsCard
+                fold={decisionsFold}
+                detail={detail}
+                focus={focused?.key ?? null}
+                onTalk={open ? onIssue : undefined}
+                busy={isBusy(busy)}
+                act={act}
+              />
+            </div>
           ) : null}
         </div>
       </div>
@@ -781,13 +822,56 @@ function WorkingStrip({
             ? "Starting the test cases…"
             : "Saving…";
   return (
-    <div className="ui-working-strip" data-testid="build-working">
+    <div className="ui-build-bar__working" data-testid="build-working">
       <Thinking
         badge={<AgentBadge name="Builder" size="sm" />}
         label={label}
         state={busy === apiRoutes.opsMoveBuild.path ? "drafting" : "tracing"}
         since={since ?? undefined}
       />
+    </div>
+  );
+}
+
+interface JumpLink {
+  /** The section's element id. */
+  id: string;
+  label: string;
+  /** What waits there: open issues, decisions to check. */
+  count?: number;
+  /** A folded section opens when it is jumped to. */
+  fold?: Fold;
+}
+
+/**
+ * Over the build's sections, staying in sight as the page scrolls (owner, 2026-11-19): a link to
+ * each section with what waits in it, and what the Builder is doing while it works.
+ */
+function BuildBar({ links, children }: { links: JumpLink[]; children: ReactNode }) {
+  const jump = (l: JumpLink) => {
+    l.fold?.reveal();
+    // After the section has opened, so the jump lands on its full height.
+    requestAnimationFrame(() =>
+      document.getElementById(l.id)?.scrollIntoView?.({ behavior: "smooth", block: "start" }),
+    );
+  };
+  return (
+    <div className="ui-build-bar" data-testid="build-bar">
+      <nav aria-label="Sections of the build" className="ui-build-bar__links">
+        {links.map((l) => (
+          <button
+            key={l.id}
+            type="button"
+            className="ui-build-bar__link"
+            onClick={() => jump(l)}
+            data-testid={`build-jump-${l.id.replace("build-at-", "")}`}
+          >
+            {l.label}
+            {l.count ? <Count n={l.count} tone="warning" /> : null}
+          </button>
+        ))}
+      </nav>
+      {children}
     </div>
   );
 }
@@ -2377,6 +2461,7 @@ const STATES: BuildItemState[] = ["open", "in_progress", "waiting", "done", "def
  * can be talked about in the conversation, its thread shown again, or all walked through in turn.
  */
 function ItemsPanel({
+  fold,
   detail,
   issues,
   focus,
@@ -2386,6 +2471,8 @@ function ItemsPanel({
   act,
   onAnswer,
 }: {
+  /** Folds the card (the page keeps it, so its jump link can open it). */
+  fold?: Fold | undefined;
   detail: BuildDetail;
   issues: readonly BuildIssue[];
   /** The issue the conversation is on. */
@@ -2402,7 +2489,6 @@ function ItemsPanel({
   const id = detail.build.id;
   const [title, setTitle] = useState("");
   const [owner, setOwner] = useState<BuildItemOwner>("operator");
-  const fold = useFold("issues");
   // Open ones first, then the first few of them; the one the conversation is on always shows.
   const rows = useFirstRows([...issues.filter((i) => i.open), ...issues.filter((i) => !i.open)], {
     keep: (i) => i.key === focus,

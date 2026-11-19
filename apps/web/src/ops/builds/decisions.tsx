@@ -16,7 +16,7 @@ import type { CallOptions } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { Select } from "../../ui/forms";
 import { Badge, Card, cx, Tag, type Tone } from "../../ui/primitives";
-import { useFirstRows, useFold } from "./fold";
+import { type Fold, useFirstRows } from "./fold";
 import { plural } from "./words";
 
 type Status = (typeof DECISION_OPERATOR_STATUSES)[number];
@@ -34,8 +34,11 @@ export function DecisionsCard({
   onTalk,
   busy,
   act,
+  fold,
 }: {
   detail: BuildDetail;
+  /** Folds the card (the page keeps it, so its jump link can open it). */
+  fold?: Fold | undefined;
   /** The issue the conversation is on (`decision:<id>` for a decision). */
   focus: string | null;
   /** Puts the conversation on a decision. */
@@ -51,8 +54,6 @@ export function DecisionsCard({
   const editable = detail.build.status === "open";
   const high = decisions.filter((d) => d.risk === "high").length;
   const toCheck = decisions.filter(decisionUnreviewed).length;
-  // Owner (2026-11-19): a long page. Shut at first when nothing waits on a check.
-  const fold = useFold("decisions", toCheck > 0);
   // The ones to check first, then the first few; the one the conversation is on always shows.
   const rows = useFirstRows(
     [...decisions.filter(decisionUnreviewed), ...decisions.filter((d) => !decisionUnreviewed(d))],
