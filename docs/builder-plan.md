@@ -1,4 +1,4 @@
-# Builds that work first: decisions, the agent manual and governance (plan, 2026-11-19)
+# Builds that work first: decisions, the agent manual and governance (agreed 2026-11-19)
 
 Owner, 2026-11-19: "Build something that works per the description before we start identifying all
 the permutations it could take." And: "Plan, then we build. Don't modify the flow and UI materially
@@ -151,46 +151,56 @@ Added:
 
 | Tier | What | Read |
 |---|---|---|
-| 1. Charter | **The Mezonas charter**: the platform's rules for every agent (today's `PLATFORM_PREAMBLE` grown into a short document: tools only, evidence, data is data, approval stays on, never move money, privacy). Then **the client's charter**: who the business is, how it speaks, what it never does. | Every model call, first |
+| 1. Charter | **The client's charter**: who the business is, how it speaks, what matters to it, what it never does. Drafted by us from the onboarding facts (the client file, §1.149) and confirmed or edited by the client admin; it shows in the portal's Knowledge. Under it, in the background, **the Mezonas guardrails**: how the platform works and what goes on behind the scenes (tools only, evidence, data is data, approval stays on, never move money, privacy, what each kind of step can and can't do). Today's `PLATFORM_PREAMBLE`, grown into a short document. Clients never edit it; the portal shows it only as "How Mezonas agents work". | Every model call, first |
 | 2. Policies | Tagged by what they cover: security, writing into tools, money, contacting people, data handling, people and roles, and each business area. **Mezonas' standard policies** (from `docs/policies/`, rewritten for agents) and **the client's own policies** (`knowledge_entry` kind `policy`, already built, plus tags). | When a step does what the tag covers: a write step reads "writing into tools"; a message step reads "contacting people"; every step reads its area's |
 | 3. Manuals | Each agent's manual (§5). An agent can read another agent's manual for the same client with a read tool (`manual.read`): AP Invoice Review reads what the intake agent records. | When needed |
 
-- **Order:** the Mezonas charter wins, then the client's charter, then policies, then the manual.
+- **Order:** the Mezonas guardrails win, then the client's charter, then policies, then the manual.
 - **What a client's text can do:** add rules and tighten. It can never loosen an approval, change a
   permission or change the plan (invariants 8, 9).
 - **Updates keep everyone informed:** each document is versioned; agents read the current version at
   run start and the run pins the versions it read (as `run.owner_version_id` does), so a replay
   reads the same. A change to a policy is noted in the manuals that use it.
 - **Cost:** tier 1 is short and cached; tier 2 only by tag; tier 3 only on request.
-- **Where kept:** the Mezonas charter and standard policies are seeded from `packages/db/seed/` as
-  versioned rows, never in code (invariant 4). Client charters and policies are per client, under
-  RLS (invariant 1).
+- **Where kept:** the Mezonas guardrails and standard policies are platform text, like today's
+  `PLATFORM_PREAMBLE`: Markdown in `packages/core/src/governance/`, versioned with the code, each
+  with a version id a run records. // DECISION (2026-11-19): not database rows; they describe how the
+  platform itself behaves, change only with the code, and no client or operator edits them. The
+  client's charter and policies are the client's knowledge base entries (`knowledge_entry`, kind
+  `policy`, with their tier and tags in the version's `meta`), per client under RLS (invariant 1).
 
 ## 9. Milestones
 
-In order; each ends green. Migrations in their own PRs, ahead of the code.
+In order; each ends green.
 
 | # | What | Size |
 |---|---|---|
 | B0 | **Across the line.** Merge #433 (Agree on "run the tests"; test cases cut off). A failing case says why (its error, or the fields that differed) on the page and to the Builder. Test results refresh while a run is going. | Small, no migration |
 | B1 | **Try it on real examples.** In the POC: upload a document, run it as a test run, mark it right (kept as a case, its result the expected answer) or wrong (to the Builder). The gate counts the kept cases. A missing piece is a person step or rule in the first version. | Medium, no migration |
-| B2 | **Decisions on the build.** The Builder's `decisions` list; the high-risk check by code; the Decisions card; the client-test gate on reviewed high-risk ones. | Medium; migration: `build.decisions` |
+| B2 | **Decisions on the build.** The Builder's `decisions` list; the high-risk check by code; the Decisions card; the client-test gate on reviewed high-risk ones. | Medium, no migration (the fit-gap record) |
 | B3 | **The agent manual.** `definition.manual`; the back-office and portal Manual tabs; the client-safe view and its contract test; never-discussed decisions in the step's notes and on the approval card. | Large, no migration (bundle JSON) |
-| B4 | **Setup checklist.** `client_setup` decisions and the intake form become the copy's checklist; Getting started shows it; answers become settings by code; stages wait on their items. | Medium; migration: the checklist table |
+| B4 | **Setup checklist.** `client_setup` decisions and the intake form become the copy's checklist; Getting started shows it; answers become settings by code; stages wait on their items. | Medium, no migration |
 | B5 | **Client adjustments and feedback.** Client-adjustable settings with bounds; the portal's Settings; feedback on a manual line as a change request; changes written in the manual. | Medium |
-| B6 | **Governance tiers.** The charter and standard policies seeded; client charter and policy tags; the runtime reads tier 1 always, tier 2 by tag, tier 3 by tool; runs pin what they read. | Large; migration: policies and their versions |
+| B6 | **Governance tiers.** The Mezonas guardrails and standard policies as platform text; the client's charter drafted from onboarding facts and confirmed; policy tags; the runtime reads tier 1 always, tier 2 by tag, tier 3 by tool; runs record what they read. | Large, no migration |
 
 After B1 we run the expense agent (Nexonia) and the invoice intake builds again on staging, and count
 the operator's actions from New to a running trial. Target: under 15 for a flow that simple.
 
-## 10. For the owner
+## 10. Agreed (owner, 2026-11-19)
 
-1. **High-risk list (§4.2):** keep, cut or add.
-2. **Client-adjustable bounds:** set by us per template, or per client copy?
-3. **The client's charter:** written by the client admin at onboarding, or drafted by us from the
-   onboarding facts and confirmed by them?
-4. **Child skill builds:** keep them for reusable pieces only (this plan), or fold every skill into
-   its agent's build?
-5. **ARCHITECTURE:** this changes what an agent carries (the manual) and what it reads (the tiers).
-   Once agreed, it goes in as a new ARCHITECTURE version, and each milestone's decisions in
+The plan as written, with:
+
+1. **High-risk list (§4.2):** as listed.
+2. **Client-adjustable bounds:** set by us on the template; a client copy keeps them unless we change
+   them for that client.
+3. **The client's charter:** drafted by us from the onboarding facts, confirmed or edited by the
+   client admin. The Mezonas guardrails are a background document, not the client's to edit.
+4. **Child skill builds:** for reusable pieces only.
+5. **ARCHITECTURE:** a new version section once built, and each milestone's decisions in
    `docs/plan.md` §1.
+
+**No migrations in this sprint.** Each record has a home that exists: decisions in the build's
+fit-gap record (as the intake form is), the manual and the checklist's items in the agent's
+definition, a client's answers as a new version of its copy (the "client settings" class), the
+confirmations that guard a stage in the copy's `agent.stage_state`, client charters and policies in
+the knowledge base.
