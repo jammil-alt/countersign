@@ -11,6 +11,7 @@ import {
   BuildPhase,
   BuildProposal,
   BuildStatus,
+  DecisionOperatorStatus,
   FitGap,
   FitReason,
   FitVerdict,
@@ -483,6 +484,19 @@ export const buildRoutes = {
     summary: "Change an open item: who has it, its state, its words",
     params: ItemParams,
     body: UpdateBuildItem,
+    response: BuildDetail,
+  }),
+  // docs/builder-plan.md §4: the operator marks one of the Builder's decisions discussed or
+  // confirmed (a high-risk one must be looked at before the client test).
+  opsBuildDecisionStatus: defineRoute({
+    method: "PATCH",
+    path: "/api/ops/builds/:id/decisions/:decisionId",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Mark one of the Builder's decisions discussed or confirmed, or back to never discussed",
+    params: z.object({ id: Id, decisionId: z.string().min(1).max(40) }),
+    body: z.strictObject({ status: DecisionOperatorStatus }),
     response: BuildDetail,
   }),
   opsStopBuild: defineRoute({

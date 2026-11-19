@@ -35,6 +35,7 @@ import {
   fitScope,
   ISSUE_SOURCE_WORDS,
   ITEM_STATE_WORDS,
+  issueByKey,
   itemOpen,
   OWNER_WORDS,
   PHASE_WORDS,
@@ -64,6 +65,7 @@ import { AgentSaid, ChatLog, Composer, Pending, Thinking, YouSaid } from "../../
 import { ErrorNotice } from "../../ui/ErrorState";
 import { Select, TextArea, TextInput } from "../../ui/forms";
 import { Badge, Button, Card, cx, Loading, Tag } from "../../ui/primitives";
+import { DecisionsCard } from "./decisions";
 import { AboutLink, FocusBar, ProposalCard } from "./issues";
 import { problemAdvice, problemWhere } from "./problems";
 import { RequirementsCard } from "./RequirementsCard";
@@ -137,9 +139,9 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
   const shownAt = detail.phases.findIndex((p) => p.phase === shown);
 
   const issues = buildIssues(detail);
-  const focused = focus ? (issues.find((i) => i.key === focus) ?? null) : null;
-  const issueOf = (key: string | undefined) =>
-    key ? (issues.find((i) => i.key === key) ?? null) : null;
+  // docs/builder-plan.md §4: any decision can be talked about, not only the ones that are issues.
+  const focused = focus ? issueByKey(detail, focus, issues) : null;
+  const issueOf = (key: string | undefined) => (key ? issueByKey(detail, key, issues) : null);
   const onIssue = (key: string, only = false) => {
     setFocus(key);
     setThreadOnly(only);
@@ -492,6 +494,16 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
                 : undefined
             }
           />
+          {/* docs/builder-plan.md §4: the Builder's decisions, beside the issues and known risks. */}
+          {b.phase !== "intake" || b.fitgap.decisions.length > 0 ? (
+            <DecisionsCard
+              detail={detail}
+              focus={focused?.key ?? null}
+              onTalk={open ? onIssue : undefined}
+              busy={isBusy(busy)}
+              act={act}
+            />
+          ) : null}
         </div>
       </div>
     </div>
@@ -2401,7 +2413,9 @@ function ItemsPanel({
                               ? "positive"
                               : issue.source === "rejection"
                                 ? "person"
-                                : "risk"
+                                : issue.source === "decision"
+                                  ? "warning"
+                                  : "risk"
                           }
                         >
                           {issue.state}

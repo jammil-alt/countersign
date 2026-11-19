@@ -256,6 +256,47 @@ describe("draftAgent", () => {
     expect(req?.output_config).toEqual({ effort: "high" });
   });
 
+  // docs/builder-plan.md §4: the drafter's decisions, on the saved draft's steps.
+  it("returns the decisions it made, on the steps as the server named them", async () => {
+    const ctx = context();
+    const answer = {
+      ...structuredClone(cardChargesAnswer),
+      decisions: [
+        {
+          id: "over-500",
+          what: "Only charges over $500 are checked",
+          why: "The description says so.",
+          value: "$500",
+          kind: "assumption",
+        },
+        {
+          id: "mark",
+          what: "The record is marked after a person approves",
+          why: "Writes start strict.",
+          kind: "decision_point",
+          risk: "high",
+          category: "writes",
+          stepId: "mark",
+        },
+        { id: "gone", what: "A step that isn't there", kind: "assumption", stepId: "nowhere" },
+      ],
+    };
+    const model = new FakeModel([{ toolUse: { name: "submit_draft", input: answer } }]);
+    const result = await draftAgent(
+      { description: "Flag card charges over $500 missing receipts", ctx },
+      { llm: llmWith(model), validate: validateWith(ctx), newId: counter() },
+    );
+    const mark = steps(result.bundle).find((s) => s.name === "Mark the record");
+    expect(result.decisions.map((d) => [d.id, d.stepId])).toEqual([
+      ["over-500", undefined],
+      ["mark", mark?.id],
+      ["gone", undefined],
+    ]);
+    expect(mark?.id).not.toBe("mark");
+    expect(result.decisions[1]).toMatchObject({ risk: "high", category: "writes" });
+    expect(JSON.stringify(model.requests[0]?.system)).toContain("record each decision you make");
+  });
+
   it("lists what the client hasn't connected as gaps", async () => {
     const ctx = context({ id: "c1", name: "Millwork", connections: [], packs: [] });
     const answer = structuredClone(cardChargesAnswer);
