@@ -16,8 +16,11 @@ export type SecondFactorKind = z.infer<typeof SecondFactorKind>;
 export const SecondFactorState = z.enum(["pending", "done", "exempt"]);
 export type SecondFactorState = z.infer<typeof SecondFactorState>;
 
-/** Operators reach every client, so they use an authenticator app only. */
-export const OPERATOR_SECOND_FACTOR_KINDS: readonly SecondFactorKind[] = ["totp"];
+/**
+ * Operators: an authenticator app or a text message (owner, 2026-11-19, which loosened "an
+ * authenticator app only" of 2026-11-09). No WhatsApp: operators reach every client.
+ */
+export const OPERATOR_SECOND_FACTOR_KINDS: readonly SecondFactorKind[] = ["totp", "sms"];
 export const CLIENT_SECOND_FACTOR_KINDS: readonly SecondFactorKind[] = ["totp", "sms", "whatsapp"];
 
 /** How long a sign-in may wait on the step before it must start again. */
@@ -50,7 +53,7 @@ export const SecondFactorStatus = z.object({
   state: SecondFactorState,
   /** Whether this environment runs the step at all (Twilio Verify set up). */
   enabled: z.boolean(),
-  /** The methods this person may set up (operators: an authenticator app only). */
+  /** The methods this person may set up (operators: an authenticator app or a text; WhatsApp only once its sender is set up). */
   allowed: z.array(SecondFactorKind),
   /** Their methods: a verified one is used to sign in; an unverified one is a setup in progress. */
   methods: z.array(SecondFactorMethodView),

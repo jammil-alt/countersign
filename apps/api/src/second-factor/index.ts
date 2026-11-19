@@ -51,6 +51,11 @@ export interface SecondFactorConfig {
   recoveryKeys: readonly string[];
   /** The WorkOS cookie password: it seals the remembered-browser cookie too (own purpose). */
   cookiePassword: string;
+  /**
+   * WhatsApp codes can be sent: a WhatsApp sender is attached to the Verify service and
+   * TWILIO_VERIFY_WHATSAPP is `on`. Off, nobody sets WhatsApp up (a method already set up stays).
+   */
+  whatsapp: boolean;
 }
 
 export type SecondFactorSetup =
@@ -107,16 +112,34 @@ export function secondFactorSetupOf(
       verifier,
       recoveryKeys: previous ? [key, previous] : [key],
       cookiePassword: workos.config.cookiePassword,
+      whatsapp: read(env.TWILIO_VERIFY_WHATSAPP).toLowerCase() === "on",
     },
   };
 }
 
-/** The methods a person may use: operators reach every client, so an authenticator app only. */
+/**
+ * The methods a person may use: operators an authenticator app or a text (they reach every
+ * client); client users those or WhatsApp.
+ */
 export async function allowedKinds(db: Db, userId: string): Promise<readonly SecondFactorKind[]> {
   const memberships = await userMemberships(db, userId);
   return memberships.some((m) => isOperatorRole(m.role))
     ? OPERATOR_SECOND_FACTOR_KINDS
     : CLIENT_SECOND_FACTOR_KINDS;
+}
+
+/**
+ * The methods a person may set up now: what they may use, less WhatsApp until a WhatsApp sender
+ * is attached to the Verify service (TWILIO_VERIFY_WHATSAPP), so a code is never asked for on a
+ * channel that can't send it.
+ */
+// DECISION (owner, 2026-11-19): WhatsApp is offered only once the environment says its sender is
+// set up; a method already set up stays usable, so turning it off locks nobody out.
+export function setupKinds(
+  allowed: readonly SecondFactorKind[],
+  config: Pick<SecondFactorConfig, "whatsapp">,
+): SecondFactorKind[] {
+  return allowed.filter((k) => k !== "whatsapp" || config.whatsapp);
 }
 
 export type FactorRow = typeof userFactor.$inferSelect;

@@ -145,6 +145,11 @@ export interface Vars {
    * wrangler.jsonc; empty: the second step is off.
    */
   TWILIO_VERIFY_SERVICE_SID?: string;
+  /**
+   * §1.100: `on` once a WhatsApp sender is attached to that Verify service; until then WhatsApp
+   * is not offered at setup.
+   */
+  TWILIO_VERIFY_WHATSAPP?: string;
   AUTH_PROVIDER?: string;
   WORKOS_CLIENT_ID?: string;
   /**

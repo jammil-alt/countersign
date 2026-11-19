@@ -990,7 +990,7 @@ To turn it on for an environment (staging first):
 1. Twilio Console → Subaccounts → **Create** "Mezonas sign-in" (staging: "Mezonas sign-in
    staging"). Switch to it, then Verify → Services → **Create** "Mezonas" (staging: "Mezonas
    staging"). Under TOTP, set the **Issuer** to the same name (it is what the authenticator app
-   shows). For WhatsApp codes, attach a WhatsApp sender. Turn on **Fraud Guard** for SMS.
+   shows). Turn on **Fraud Guard** for SMS. WhatsApp is not offered until step 7.
 2. In that subaccount, Account → API keys → **Create** a Standard key. In GitHub → Settings →
    Environments → the environment, add its SID (`SK…`) as `TWILIO_VERIFY_API_KEY_SID` and its
    secret as `TWILIO_VERIFY_API_KEY_SECRET`, then redeploy (Actions → Deploy) so the Worker has
@@ -1007,6 +1007,15 @@ To turn it on for an environment (staging first):
    answers. The audit log has `mcp.approve`.
 6. Then turn **WorkOS's own multi-factor off** (WorkOS → the environment → Authentication →
    Multi-factor auth), so nobody is asked twice.
+7. WhatsApp codes (optional, any time later; clients only). Verify's WhatsApp channel is off until
+   it has a sender of our own (Twilio's "Bring your own WhatsApp sender"): in the sign-in
+   subaccount, Messaging → Senders → WhatsApp senders, register a number on Mezonas' WhatsApp
+   Business Account (Meta Business verification first; a number that has never been on WhatsApp),
+   put that sender in a new Messaging Service ("Mezonas sign-in WhatsApp"), then in the Verify
+   service → WhatsApp, enter the Messaging Service's `MG…` SID and save. Send yourself a code
+   from the Verify service's test page, then add `"TWILIO_VERIFY_WHATSAPP": "on"` under the
+   environment's `vars` in `apps/api/wrangler.jsonc` (a small PR). Until then the step page
+   offers an authenticator app and a text only.
 
 Everyone signs in once more when it is turned on (sessions from before it are ended). Someone who
 lost their phone uses a recovery code; otherwise an operator resets their methods
