@@ -207,6 +207,31 @@ const STATEMENT: DraftBuild = {
         byOperator: false,
       },
     ],
+    // docs/builder-plan.md §4: the Builder's decisions for the normal case.
+    decisions: [
+      {
+        id: "tolerance",
+        what: "A line within 1.00 of its bill counts as a match",
+        why: "The brief's rule; strict, so more goes to a person.",
+        value: "1.00",
+        kind: "client_setup",
+        risk: "high",
+        category: "money",
+        status: "never_discussed",
+        by: null,
+        at: null,
+      },
+      {
+        id: "credits",
+        what: "Credits and finance charges always go to a person",
+        why: "The brief says so; the agent can't tell a valid credit from a mistake.",
+        kind: "decision_point",
+        risk: "normal",
+        status: "never_discussed",
+        by: null,
+        at: null,
+      },
+    ],
   },
   items: [
     {
@@ -392,6 +417,7 @@ function deliveryTickets(clientId: string): DraftBuild {
         { id: "materials", text: "The Materials pack is switched on", done: true },
       ],
       setup: [],
+      decisions: [],
     },
     items: [
       {
@@ -547,6 +573,7 @@ function receiptChaser(clientId: string): DraftBuild {
       ],
       needsTrue: [{ id: "uploads", text: "Uploads are connected", done: true }],
       setup: [],
+      decisions: [],
     },
     items: [],
     messages: [

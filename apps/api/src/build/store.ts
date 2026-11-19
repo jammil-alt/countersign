@@ -28,6 +28,7 @@ import {
   nextPhase,
   PHASE_WORDS,
   ProposalState,
+  parseSkillRef,
   phaseIndex,
   phasesOf,
   processes,
@@ -41,7 +42,10 @@ import {
   readQa,
   readRequirements,
   readTestPlan,
+  type SkillDefinition,
   toProcessBundle,
+  withDecisionRisk,
+  writingStepIds,
 } from "@countersign/core";
 import {
   appUser,
@@ -880,6 +884,28 @@ function qaChecks(
   return out;
 }
 
+/**
+ * The draft's steps that write to a client's tool or contact people, by the process validator's
+ * helpers over the platform's tools and built-in skills. A custom skill isn't looked up here: a
+ * decision on its step keeps the Builder's own flag.
+ */
+export function draftWritingSteps(
+  ctx: Pick<StoreCtx, "services">,
+  bundle: DraftFacts["bundle"],
+): Set<string> {
+  if (!bundle) return new Set();
+  const { platform } = ctx.services;
+  const skills: Record<string, SkillDefinition> = {};
+  for (const w of bundle.workflows) {
+    for (const { step } of processes.allSteps(w.workflow)) {
+      if (step.kind !== "skill") continue;
+      const def = platform.catalog.get(parseSkillRef(step.skill).id);
+      if (def) skills[step.skill] = def;
+    }
+  }
+  return writingStepIds(bundle, { tools: platform.tools.specs(), skills });
+}
+
 /** The build as the screen shows it. */
 export async function buildDetail(ctx: StoreCtx, row: BuildRow): Promise<BuildDetail> {
   const { tx } = ctx;
@@ -908,10 +934,16 @@ export async function buildDetail(ctx: StoreCtx, row: BuildRow): Promise<BuildDe
   );
 
   const brief = readBrief(row.brief);
-  const fitgap = readFitGap(row.fitgap);
   const testPlan = readTestPlan(row.testPlan);
   const qa = readQa(row.qa);
   const draft = await draftFacts(ctx, row);
+  // docs/builder-plan.md §4.2: a decision's risk is worked out by code from the draft as it is
+  // now (a step that writes or contacts people), on top of the Builder's flag.
+  const stored = readFitGap(row.fitgap);
+  const fitgap = {
+    ...stored,
+    decisions: withDecisionRisk(stored.decisions, draftWritingSteps(ctx, draft.bundle)),
+  };
   const poc = await pocFacts(ctx, row, draft);
   const clientTest = await clientTestFacts(ctx, row);
   const checks = qaChecks(row, draft, poc, clientTest);

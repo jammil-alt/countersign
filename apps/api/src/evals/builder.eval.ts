@@ -90,6 +90,7 @@ describe.skipIf(!key)("the Builder's test cases", () => {
               chips: [],
               items: [],
               answered: [],
+              decisions: [],
             },
             calls: r.calls,
             costUsd: r.costUsd,

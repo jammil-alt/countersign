@@ -1,5 +1,6 @@
 import { z } from "zod";
 // P-4
+import { DecisionDraft } from "../build/build";
 import { ConverseOpsView, ConversePortalView } from "../converse";
 import { DESK_ITEM_FIELDS } from "../desk/item";
 import { Locale } from "../i18n/locale";
@@ -2043,6 +2044,8 @@ export const opsRoutes = {
       startFromTemplate: z
         .object({ id: z.string(), slug: z.string(), name: z.string() })
         .nullable(),
+      /** docs/builder-plan.md §4: the decisions the Builder made to draft it, for its build. */
+      decisions: z.array(DecisionDraft).optional(),
     }),
   }),
   opsReviseAgent: defineRoute({

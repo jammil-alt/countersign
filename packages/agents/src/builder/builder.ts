@@ -8,9 +8,13 @@
 import {
   ComplianceRefusal,
   canonicalJson,
+  clampDecisions,
+  DecisionAnswer,
+  type DecisionDraft,
   dec,
   type ProcessAgentBundle,
   ProcessAgentBundle as ProcessAgentBundleSchema,
+  processes,
   type ValidationError,
 } from "@countersign/core";
 import {
@@ -63,6 +67,14 @@ export const DraftAnswer = z.object({
     .optional()
     .describe("Client agents: one or two sentences the client sees"),
   bundle: ProcessAgentBundleSchema,
+  // docs/builder-plan.md §4: what it decided to get the normal case running; its build keeps them.
+  decisions: z
+    .array(DecisionAnswer)
+    .max(30)
+    .optional()
+    .describe(
+      "The decisions you made to draft the normal case, one row each (what, why, value, kind, risk, the step it shapes)",
+    ),
 });
 export type DraftAnswer = z.infer<typeof DraftAnswer>;
 
@@ -119,6 +131,7 @@ Rules:
 - Agent kind is "functional". Give each step, if path, otherwise branch and trigger a short id, unique in the bundle.
 - Happy path first: draft the normal case so it runs end to end. What the description lists as known risks is not built in this version: add no steps and no missing steps for them. Where the normal case can't go on (no match, more than one, something it can't read), hand it to a person with a person step, or stop with a note; never a missing step for an exception. A threshold the description doesn't give starts strict, so more goes to a person.
 - Prefer a template that already does the job: name it in "startFromTemplate" (drafts only).
+- Drafts only: record each decision you make to get the normal case running in "decisions" (a threshold's starting value, what stays out, where a person decides), with the step it shapes by its id. They are part of the process; don't ask about them. Where the agent can't know, the decision is a person step (kind decision_point); a choice that differs by client is client_setup. Risk is high, with its category, for writing into a client's tool (writes), money, contacting people outside the client (contact), data leaving to a vendor of ours (vendor_data), approvals and who signs (approvals), or overwriting records (overwrite).
 - Write names, summaries and gaps in plain words, short sentences, sentence case; no hype, no exclamation marks.`;
 
 // The bundle's JSON Schema reaches the model as the answer tool's input schema (callTool).
@@ -326,6 +339,7 @@ export async function draftAgent(
     startFromTemplate: string | null;
     serviceName: string | null;
     serviceDescription: string | null;
+    decisions: DecisionDraft[];
   }
 > {
   const { ctx } = input;
@@ -373,7 +387,43 @@ ${input.description}
     startFromTemplate: template && ctx.templates.some((t) => t.slug === template) ? template : null,
     serviceName: out.answer.serviceName ?? null,
     serviceDescription: out.answer.serviceDescription ?? null,
+    decisions: decisionsOnSteps(
+      clampDecisions(out.answer.decisions ?? []),
+      out.answer.bundle,
+      out.bundle,
+    ),
   };
+}
+
+/**
+ * The drafter's decisions with the steps they shape named by the saved draft's ids: the server
+ * gives every step its id (guards' `assignIds`), so the model's id is followed to its step's name
+ * and that name to the step's new id.
+ */
+// DECISION: matched by the step's name, which the guards keep; a name used twice, or a step the
+// guards took out, leaves the decision on no step rather than on a wrong one.
+export function decisionsOnSteps(
+  decisions: readonly DecisionDraft[],
+  asked: Pick<ProcessAgentBundle, "workflows">,
+  saved: Pick<ProcessAgentBundle, "workflows">,
+): DecisionDraft[] {
+  const named = new Map<string, string>();
+  for (const w of asked.workflows) {
+    for (const { step } of processes.allSteps(w.workflow)) named.set(step.id, step.name);
+  }
+  const byName = new Map<string, string | null>();
+  for (const w of saved.workflows) {
+    for (const { step } of processes.allSteps(w.workflow)) {
+      byName.set(step.name, byName.has(step.name) ? null : step.id);
+    }
+  }
+  return decisions.map((d) => {
+    if (d.stepId === undefined) return d;
+    const { stepId, ...rest } = d;
+    const name = named.get(stepId);
+    const id = name === undefined ? undefined : byName.get(name);
+    return id ? { ...rest, stepId: id } : rest;
+  });
 }
 
 /**

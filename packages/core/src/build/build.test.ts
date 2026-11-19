@@ -26,7 +26,7 @@ const base: GateFacts = {
   kind: "agent",
   phase: "intake",
   brief: {},
-  fitgap: { rows: [], needsTrue: [], setup: [] },
+  fitgap: { rows: [], needsTrue: [], setup: [], decisions: [] },
   draft: false,
   draftErrors: 0,
   poc: { passed: false, detail: "No test has run yet." },
@@ -93,6 +93,7 @@ describe("gates", () => {
       ],
       needsTrue: [],
       setup: [],
+      decisions: [],
     };
     // Known risks alone leave nothing to draft.
     expect(gateReasons({ ...base, phase: "fitgap", fitgap })).toEqual([
@@ -106,7 +107,7 @@ describe("records", () => {
     expect(readBrief({ goal: { text: "x", state: "confirmed" }, rules: { text: 3 } })).toEqual({
       goal: { text: "x", state: "confirmed" },
     });
-    expect(readFitGap("nonsense")).toEqual({ rows: [], needsTrue: [], setup: [] });
+    expect(readFitGap("nonsense")).toEqual({ rows: [], needsTrue: [], setup: [], decisions: [] });
     expect(readTestPlan(null)).toEqual({ datasets: [] });
     expect(readQa({})).toEqual({ accepted: {}, signedBy: null, signedAt: null, decision: null });
   });
@@ -137,6 +138,7 @@ describe("verdicts", () => {
     ],
     needsTrue: [],
     setup: [],
+    decisions: [],
   };
 
   it("set more work at once and ask the Builder for less", () => {
@@ -200,7 +202,12 @@ describe("verdicts", () => {
     };
     expect(operatorFitGap(stored, native)).toMatchObject({ ok: false });
     expect(
-      operatorFitGap(stored, { rows: [row("new", "native")], needsTrue: [], setup: [] }),
+      operatorFitGap(stored, {
+        rows: [row("new", "native")],
+        needsTrue: [],
+        setup: [],
+        decisions: [],
+      }),
     ).toMatchObject({
       ok: false,
     });
@@ -242,6 +249,7 @@ describe("verdicts", () => {
         field("tol", "Price tolerance, in percent", { byOperator: true }),
         field("vol", "Invoices a month", { dropped: true }),
       ],
+      decisions: [],
     };
     const draft = (id: string, label: string) => ({ id, label, kind: "answer" as const, hint: "" });
     const merged = mergeFitGap(before, {
@@ -256,7 +264,9 @@ describe("verdicts", () => {
       ["vol", "Invoices a month", true],
     ]);
     // An answer without a form leaves it as it was.
-    expect(mergeFitGap(before, { rows: [], needsTrue: [], setup: [] }).setup).toEqual(before.setup);
+    expect(
+      mergeFitGap(before, { rows: [], needsTrue: [], setup: [], decisions: [] }).setup,
+    ).toEqual(before.setup);
     // Saving marks what the operator changed as theirs.
     const saved = operatorFitGap(before, {
       ...before,
