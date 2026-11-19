@@ -65,7 +65,10 @@ import { z } from "zod";
 import { stepRequests } from "../dev-queue/store";
 import { iso, notFound, type Services } from "../http";
 import { goLiveView } from "../lifecycle/stages";
+import { fullSuiteRun, notPendingTry } from "../testbench/partial";
 import { buildFacts, buildStageOf, buildStanding } from "../work/work-list";
+import { trySandbox, tryViews } from "./tries";
+import { failureWhy } from "./why";
 
 export type BuildRow = typeof build.$inferSelect;
 export type BuildItemRow = typeof buildItem.$inferSelect;
@@ -569,7 +572,10 @@ async function suitePoc(
   targetKind: "template" | "skill",
   targetId: string,
   versionId: string | null,
+  buildId: string,
 ): Promise<BuildPocView> {
+  // builder-plan.md B1: a try waiting to be kept isn't a case yet, and a run of some cases (a
+  // try's) isn't the latest run: both show as tries.
   const cases = await tx
     .select({ id: testCase.id, name: testCase.name, required: testCase.required })
     .from(testCase)
@@ -578,12 +584,19 @@ async function suitePoc(
         eq(testCase.targetKind, targetKind),
         eq(testCase.targetId, targetId),
         isNull(testCase.archivedAt),
+        notPendingTry(),
       ),
     );
   const [latest] = await tx
     .select()
     .from(testSuiteRun)
-    .where(and(eq(testSuiteRun.targetKind, targetKind), eq(testSuiteRun.targetId, targetId)))
+    .where(
+      and(
+        eq(testSuiteRun.targetKind, targetKind),
+        eq(testSuiteRun.targetId, targetId),
+        fullSuiteRun(),
+      ),
+    )
     .orderBy(desc(testSuiteRun.createdAt))
     .limit(1);
   const required = cases.filter((c) => c.required);
@@ -595,6 +608,7 @@ async function suitePoc(
         caseId: testCaseResult.testCaseId,
         status: testCaseResult.status,
         runId: testCaseResult.runId,
+        diff: testCaseResult.diff,
       })
       .from(testCaseResult)
       .where(eq(testCaseResult.suiteRunId, latest.id));
@@ -606,6 +620,7 @@ async function suitePoc(
         name: c.name,
         status: byCase.get(c.id)?.status ?? "error",
         runId: byCase.get(c.id)?.runId ?? null,
+        why: failureWhy(byCase.get(c.id)?.diff),
       }));
     requiredFailing = required.filter((c) => byCase.get(c.id)?.status !== "pass").length;
   }
@@ -644,6 +659,8 @@ async function suitePoc(
         }
       : null,
     failures,
+    tries: await tryViews(tx, { kind: targetKind, id: targetId }, buildId, versionId),
+    trySandbox: targetKind === "template" ? await trySandbox(tx) : null,
     testRuns: null,
     passed,
     detail,
@@ -672,6 +689,8 @@ async function testRunPoc(
     required: 0,
     latest: null,
     failures: [],
+    tries: [],
+    trySandbox: null,
     testRuns: { total: rows.length, succeeded, latestRunId: rows[0]?.id ?? null },
     passed: succeeded > 0,
     detail:
@@ -702,12 +721,12 @@ async function pocFacts(
   if (row.kind === "skill") {
     const skillId = draft.view?.skillId ?? null;
     return skillId
-      ? suitePoc(ctx.tx, "skill", skillId, await latestSkillVersion(ctx.tx, skillId))
+      ? suitePoc(ctx.tx, "skill", skillId, await latestSkillVersion(ctx.tx, skillId), row.id)
       : null;
   }
   if (!draft.agentRow) return null;
   return draft.agentRow.kind === "template"
-    ? suitePoc(ctx.tx, "template", draft.agentRow.id, draft.latestVersionId)
+    ? suitePoc(ctx.tx, "template", draft.agentRow.id, draft.latestVersionId, row.id)
     : testRunPoc(ctx.tx, draft.agentRow.id, draft.latestVersionId);
 }
 

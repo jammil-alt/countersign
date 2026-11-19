@@ -42,6 +42,7 @@ import {
 } from "../http";
 import { runDepsFromEnv } from "../runs/execute";
 import { type TestSuiteJobs, testSuiteJobs } from "../testbench/instances";
+import { notPendingTry, partialMarks } from "../testbench/partial";
 import { executeSuite, type SuiteParams } from "../testbench/suite";
 
 type Scope = Pick<HandlerCtx<never>, "tx" | "tenantIds">;
@@ -197,7 +198,7 @@ function refuseProblems(kind: TestTargetKind, fields: Parameters<typeof testCase
 }
 
 /** The Sandbox client this operator serves: where a shared template case runs. */
-async function sandboxClient(ctx: Scope): Promise<string> {
+export async function sandboxClient(ctx: Scope): Promise<string> {
   const ids = [...ctx.tenantIds];
   const [row] = ids.length
     ? await ctx.tx
@@ -336,6 +337,7 @@ export function testbenchRoutes(app: Hono<AppEnv>): void {
       // A shared case runs the template's test copy in the Sandbox; a client's, in its client.
       runTenantId = scope ?? (await sandboxClient(ctx));
     }
+    const only = body.caseIds ? [...new Set(body.caseIds)] : null;
     const cases = await tx
       .select({ id: testCase.id })
       .from(testCase)
@@ -345,9 +347,13 @@ export function testbenchRoutes(app: Hono<AppEnv>): void {
           eq(testCase.targetId, target.id),
           isNull(testCase.archivedAt),
           scope ? eq(testCase.tenantId, scope) : isNull(testCase.tenantId),
+          // DECISION (builder-plan.md B1): every case means every kept case; a try waiting to be
+          // kept runs only when named.
+          only ? inArray(testCase.id, only) : notPendingTry(),
         ),
       )
       .orderBy(asc(testCase.createdAt), asc(testCase.id));
+    if (only && cases.length !== only.length) throw notFound("test case");
     if (cases.length === 0) {
       throw new HttpError(422, "no_test_cases", "there are no test cases to run in this scope");
     }
@@ -361,6 +367,8 @@ export function testbenchRoutes(app: Hono<AppEnv>): void {
         status: "running",
         total: cases.length,
         startedBy: session.user.id,
+        // Marked from the start, so a running partial run is never read as the latest full one.
+        ...(only ? { metrics: partialMarks(cases.map((c) => c.id)) } : {}),
       })
       .returning();
     if (!suite) throw new Error("suite run insert returned nothing");
@@ -374,6 +382,7 @@ export function testbenchRoutes(app: Hono<AppEnv>): void {
       ...(skillDefinition ? { skill: skillDefinition } : {}),
       ...(runTenantId ? { runTenantId } : {}),
       actorId: session.user.id,
+      ...(only ? { partial: true } : {}),
     };
     const jobs = testSuiteJobsFor(services.deps, services.env);
     if (jobs) {

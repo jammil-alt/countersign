@@ -80,6 +80,7 @@ import {
   summaries,
   withDecisions,
 } from "../build/store";
+import { testCaseFacts } from "../build/why";
 import { clientModels, clientsRefusingModel } from "../compliance/models";
 import { acceptRequest, type DqCtx, fileRequest, linkToRequest } from "../dev-queue/service";
 import { settleShipped } from "../dev-queue/ship";
@@ -406,6 +407,8 @@ async function turn(
     const facts = [
       ...(detail.draft?.problems.map((p) => `Draft problem: ${p.title}`) ?? []),
       ...(detail.poc ? [`Tests: ${detail.poc.detail}`] : []),
+      // builder-plan.md B0, B1: why each failing case fails, and what each try did.
+      ...testCaseFacts(detail.poc),
       ...(detail.clientTest
         ? [
             `Client test at ${detail.clientTest.client.name}: stage ${detail.clientTest.stage ?? "none"}, ${detail.clientTest.writes.signed} writes signed, ${detail.clientTest.writes.rejected} rejected, ${detail.clientTest.writes.waiting} waiting.`,

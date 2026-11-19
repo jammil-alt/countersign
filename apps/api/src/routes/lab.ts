@@ -9,6 +9,7 @@ import { agent, agentVersion, type Tx, tenant, testCase, testSuiteRun } from "@c
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, mount } from "../http";
+import { fullSuiteRun, notPendingTry } from "../testbench/partial";
 import { suiteViews } from "./testbench";
 
 type AgentRow = typeof agent.$inferSelect;
@@ -87,6 +88,7 @@ export function labRoutes(app: Hono<AppEnv>): void {
                 templates.map((t) => t.id),
               ),
               isNull(testCase.archivedAt),
+              notPendingTry(),
               served.length
                 ? sql`(${testCase.tenantId} is null or ${inArray(testCase.tenantId, served)})`
                 : isNull(testCase.tenantId),
@@ -109,6 +111,7 @@ export function labRoutes(app: Hono<AppEnv>): void {
               eq(testSuiteRun.targetKind, "template"),
               inArray(testSuiteRun.versionId, [...new Set(wantVersions)]),
               isNull(testSuiteRun.tenantId),
+              fullSuiteRun(),
             ),
           )
           .orderBy(desc(testSuiteRun.createdAt))

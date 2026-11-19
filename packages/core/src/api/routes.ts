@@ -1355,8 +1355,9 @@ export const opsRoutes = {
     auth: "session",
     roles: OPS,
     summary:
-      "Upload files to the Sandbox client as the portal does (multipart, field `files`): PDFs and images become documents, a CSV of purchases becomes transactions (403 not_sandbox in any other client)",
+      "Upload files to the Sandbox client as the portal does (multipart, field `files`): PDFs and images become documents, a CSV of purchases becomes transactions; `for=try` keeps PDFs and images quiet for a build's try (403 not_sandbox in any other client)",
     params: IdParams,
+    query: z.object({ for: z.enum(["try"]).optional() }),
     response: z.object({ results: z.array(UploadResult) }),
   }),
   opsSandboxAuthorizeCallback: defineRoute({
