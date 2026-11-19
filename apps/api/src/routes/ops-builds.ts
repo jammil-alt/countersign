@@ -102,6 +102,7 @@ import {
   type Services,
   toHttpError,
 } from "../http";
+import { draftSetupItems, withSetupItems } from "../build/setup";
 import { reportHandled, reportProblem } from "../observability/report";
 import { builderContext, builderHttpError } from "./ops-builder";
 
@@ -1256,6 +1257,41 @@ async function makeDraft(
   return { set: { sessionId: started.session.id }, decisions: [] };
 }
 
+/**
+ * docs/builder-plan.md §6 (B4): a template build's draft carries its setup checklist
+ * (`definition.setup`), saved as a new draft version through the agent's own save route when it
+ * changed. A client copy forked from the template carries it to the client.
+ */
+// DECISION: only a template build (one with a client intake form) makes a checklist; a build for
+// one client keeps its open items, as its fit-gap does today. A failed save is reported and the
+// move stands: the next move to the POC test makes it again.
+async function syncDraftSetup(ctx: LongCtx, id: string): Promise<void> {
+  const target = await ctx.inTx(async (scoped) => {
+    const r = await readBuild(scoped.tx, id);
+    if (r.kind !== "agent" || !buildHasSetupForm(r) || !r.agentId) return null;
+    const latest = await latestVersion(scoped.tx, r.agentId);
+    if (!latest) return null;
+    // The decisions with their risk worked out by code, as the build shows them.
+    const detail = await detailIn(scoped, ctx.services, r);
+    const items = draftSetupItems(ctx.services, detail.build.fitgap, latest.bundle);
+    const bundle = items ? withSetupItems(latest.bundle, items) : null;
+    return bundle ? { agentId: r.agentId, versionId: latest.id, bundle } : null;
+  });
+  if (!target) return;
+  try {
+    await call(ctx, routes.opsSaveVersion, {
+      params: { id: target.agentId },
+      body: {
+        bundle: target.bundle,
+        parentVersionId: target.versionId,
+        changeNote: "Setup checklist from the build",
+      },
+    });
+  } catch (error) {
+    reportHandled("a build's setup checklist wasn't saved", error, { kind: "build", build: id });
+  }
+}
+
 async function move(
   ctx: LongCtx,
   id: string,
@@ -1344,6 +1380,9 @@ async function move(
       });
     }
   });
+  // 3b. docs/builder-plan.md §6 (B4): the template's setup checklist, from the intake form, the
+  //     client_setup decisions and the draft's writes, when the draft is made and at the POC test.
+  if (forward && (to === "draft" || to === "poc")) await syncDraftSetup(ctx, id);
   // 4. The Builder opens the phases it has work in.
   if (forward && (to === "fitgap" || to === "poc")) await turn(ctx, id, null);
   if (forward && to === "draft") {

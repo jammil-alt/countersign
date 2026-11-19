@@ -29,6 +29,7 @@ import {
   readPause,
   readStageState,
   type SignoffSummary,
+  setupHoldText,
   type SkillDefinition,
   type StageState,
   skillTools,
@@ -53,6 +54,7 @@ import { type EmitPosted, leadThread, postMessage } from "@countersign/threads";
 import { and, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 import { type AuditEntry, auditInTx } from "../audit";
 import { HttpError } from "../http";
+import { agentSetupView, setupHoldsFor } from "../setup/checklist";
 
 export type AgentRow = typeof agent.$inferSelect;
 type InboxRow = typeof inboxItem.$inferSelect;
@@ -244,6 +246,30 @@ export async function shownVersionWrites(
   }
   if (!bundle) return false;
   return bundleWrites(tx, row.tenantId, bundle, ctx);
+}
+
+/**
+ * docs/builder-plan.md §6: refuses a move while the setup checklist has items not done that guard
+ * the stage it goes to (the trial waits on the setup and trial items; sign-off and live on every
+ * item), naming them in plain words.
+ */
+// DECISION: the operator's move with a reason is held the same way: a reason skips the trial's
+// minimums, never the client's setup. The operator can record an item on the agent's page when
+// the client asks us to (who did it is kept).
+export async function refuseSetupHolds(
+  tx: Tx,
+  row: AgentRow,
+  to: AgentStage,
+  ctx: RegistryContext,
+): Promise<void> {
+  const holds = await setupHoldsFor(tx, row, to, ctx);
+  if (holds.length === 0) return;
+  throw new HttpError(
+    409,
+    "setup_not_done",
+    setupHoldText(holds),
+    holds.map((h) => ({ id: h.id, label: h.label })),
+  );
 }
 
 async function lockAgent(tx: Tx, agentId: string): Promise<AgentRow> {
@@ -469,6 +495,9 @@ export async function afterActivate(
   }
   const state = readStageState(row.stageState);
   const writes = await liveVersionWrites(tx, row, input.ctx);
+  // docs/builder-plan.md §6: starting the trial waits on the setup and trial items; going straight
+  // to live (no writes) on every item.
+  await refuseSetupHolds(tx, row, writes ? "trial" : "live", input.ctx);
   if (!writes) {
     const at = now.toISOString();
     return writeStage(tx, row, {
@@ -534,6 +563,7 @@ export async function moveStage(
   if (forward && !input.reason) {
     throw new HttpError(422, "reason_required", "say why it moves forward");
   }
+  if (forward) await refuseSetupHolds(tx, row, input.to, input.ctx);
   let extra: Partial<Pick<AgentRow, "runStatus" | "pause">> = {};
   if (from === "bench") {
     // Leaving the bench is starting it: the activation check must pass (§10.9).
@@ -663,6 +693,13 @@ export async function advanceTrials(tx: Tx, tenantId: string, now: Date): Promis
     if (!trialProgress(state.trial, runs, now).ready) continue;
     const row = await lockAgent(tx, candidate.id);
     if (row.stage !== "trial") continue;
+    // docs/builder-plan.md §6: sign-off waits on the go-live items of the setup checklist; the
+    // agent stays in trial (still signing every write) until the client has done them.
+    // DECISION: the hourly pass reads the go-live items only: the setup and trial items held the
+    // trial's start, and with no registry here a connection that needs no sign-in can't be told
+    // from one that isn't connected.
+    const holds = await setupHoldsFor(tx, row, "signoff");
+    if (holds.some((h) => h.guards === "live")) continue;
     await writeStage(tx, row, {
       to: "signoff",
       state: await arrive(tx, row, "signoff", state, null, now),
@@ -800,8 +837,10 @@ export async function goLiveView(
     };
   }
   const pause = readPause(row.pause);
+  const setup = await agentSetupView(tx, row, ctx);
   return {
     stage,
+    ...(setup ? { setup } : {}),
     writes: row.kind === "client" ? await shownVersionWrites(tx, row, ctx) : false,
     liveVersion: row.liveVersionId !== null,
     trial,
