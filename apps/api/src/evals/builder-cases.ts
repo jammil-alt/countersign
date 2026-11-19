@@ -22,7 +22,7 @@ export interface BuilderCase {
 const confirmed = (text: string) => ({ text, state: "confirmed" as const });
 
 const empty = {
-  fitgap: { rows: [], needsTrue: [], setup: [] },
+  fitgap: { rows: [], needsTrue: [], setup: [], decisions: [] },
   testPlan: { datasets: [] },
   issues: [],
   focus: null,

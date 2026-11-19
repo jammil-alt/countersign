@@ -28,13 +28,17 @@ import {
   buildIssues,
   CODE_REQUEST_STATUS_WORDS,
   ComplianceRefusal,
+  type DecisionDraft,
+  decisionUnreviewed,
   dqNumber,
   FIT_WORDS,
   type FitGap,
   type FitRow,
   fitChangeKind,
+  issueByKey,
   issueLine,
   itemOpen,
+  mergeDecisions,
   mergeFitGap,
   nextPhase,
   operatorFitGap,
@@ -48,6 +52,7 @@ import {
   readTestPlan,
   routes,
   SETUP_WORDS,
+  setDecisionStatus,
   testCaseProblems,
 } from "@countersign/core";
 import {
@@ -179,6 +184,13 @@ export function draftDescription(
     lines.push("", "What we get from each client to set it up:");
     for (const f of asked) lines.push(`- ${f.label} (${SETUP_WORDS[f.kind]})`);
   }
+  // docs/builder-plan.md §4: the decisions made so far, so the draft follows them.
+  if (fitgap.decisions.length > 0) {
+    lines.push("", "Decisions already made (follow them; a decision point is a person step):");
+    for (const d of fitgap.decisions) {
+      lines.push(`- ${d.what}${d.value ? ` (starts at ${d.value})` : ""}`);
+    }
+  }
   const text = lines.join("\n");
   return text.length > 4000 ? `${text.slice(0, 3990)}…` : text;
 }
@@ -280,6 +292,7 @@ function changeLines(answer: Awaited<ReturnType<typeof buildTurn>>["answer"]): s
     out.push(`Test plan: ${n} ${n === 1 ? "dataset" : "datasets"}`);
   }
   for (const i of answer.items) out.push(`Open item: ${i.title}`);
+  for (const d of answer.decisions) out.push(`Decision: ${d.what}`);
   return out;
 }
 
@@ -388,7 +401,8 @@ async function turn(
     const detail = await detailIn(scoped, ctx.services, row);
     const issues = buildIssues(detail);
     // An issue that isn't the build's (gone, or never was) is no focus.
-    const focused = about ? (issues.find((i) => i.key === about) ?? null) : null;
+    // docs/builder-plan.md §4: any decision can be talked about, not only the ones that are issues.
+    const focused = about ? issueByKey(detail, about, issues) : null;
     if (words && !retry) {
       await addMessage(scoped.tx, row, {
         role: "operator",
@@ -415,6 +429,10 @@ async function turn(
           ]
         : []),
       ...detail.qaChecks.map((c) => `QA ${c.label}: ${c.state} (${c.detail})`),
+      // docs/builder-plan.md §4.2: high-risk decisions nobody has looked at hold the client test.
+      ...detail.build.fitgap.decisions
+        .filter(decisionUnreviewed)
+        .map((d) => `High-risk decision not looked at yet [decision:${d.id}]: ${d.what}`),
       ...(detail.gate.reasons.length > 0
         ? [`Can't move on yet: ${detail.gate.reasons.join(" ")}`]
         : []),
@@ -454,7 +472,8 @@ async function turn(
         title: row.title,
         clientName: prep.client,
         brief: readBrief(row.brief),
-        fitgap: readFitGap(row.fitgap),
+        // The decisions with their risk worked out by code, as the build shows them.
+        fitgap: prep.detail.build.fitgap,
         testPlan: readTestPlan(row.testPlan),
         issues: prep.issues.map(issueLine),
         focus: prep.focused ? { line: issueLine(prep.focused), thread: prep.thread } : null,
@@ -504,6 +523,11 @@ async function turn(
         }
       }
       if (answer.testPlan) set.testPlan = answer.testPlan;
+      // docs/builder-plan.md §4: the Builder's new and changed decisions, onto the build's record.
+      if (answer.decisions.length > 0) {
+        const base = set.fitgap ? readFitGap(set.fitgap) : readFitGap(fresh.fitgap);
+        set.fitgap = { ...base, decisions: mergeDecisions(base.decisions, answer.decisions) };
+      }
     }
     if (Object.keys(set).length > 0) await scoped.tx.update(build).set(set).where(eq(build.id, id));
     else await scoped.tx.update(build).set({ updatedAt: now() }).where(eq(build.id, id));
@@ -516,7 +540,7 @@ async function turn(
     const answered = await closeAnswered(scoped.tx, fresh, answer.answered);
     // The issue it answered about, and its proposal, only as they fit the build as it was asked.
     const about =
-      (answer.about && prep.issues.some((i) => i.key === answer.about) ? answer.about : null) ??
+      (answer.about && issueByKey(prep.detail, answer.about, prep.issues) ? answer.about : null) ??
       prep.focused?.key ??
       null;
     const proposal = answer.proposal
@@ -1204,17 +1228,23 @@ function doneText(summary: string, next: BuildIssue | undefined, changed: string
     : `${done} That was the last open issue.`;
 }
 
-/** Makes the draft (once): the Builder's own route, as the operator. */
-async function makeDraft(ctx: LongCtx, row: BuildRow): Promise<Partial<BuildRow>> {
+/**
+ * Makes the draft (once): the Builder's own route, as the operator. With the decisions the
+ * drafter made (docs/builder-plan.md §4), which the build keeps.
+ */
+async function makeDraft(
+  ctx: LongCtx,
+  row: BuildRow,
+): Promise<{ set: Partial<BuildRow>; decisions: DecisionDraft[] }> {
   const description = draftDescription(row, readBrief(row.brief), readFitGap(row.fitgap));
   if (row.kind === "agent") {
-    if (row.agentId) return {};
+    if (row.agentId) return { set: {}, decisions: [] };
     const out = await call(ctx, routes.opsDraftAgent, {
       body: { description, name: row.title, ...(row.clientId ? { clientId: row.clientId } : {}) },
     });
-    return { agentId: out.agent.id };
+    return { set: { agentId: out.agent.id }, decisions: out.decisions ?? [] };
   }
-  if (row.sessionId) return {};
+  if (row.sessionId) return { set: {}, decisions: [] };
   const started = await call(ctx, routes.opsStartBuilderSession, {
     body: { kind: "skill", name: row.title, ...(row.clientId ? { clientId: row.clientId } : {}) },
   });
@@ -1223,7 +1253,7 @@ async function makeDraft(ctx: LongCtx, row: BuildRow): Promise<Partial<BuildRow>
     params: { id: started.session.id },
     body: { text: description },
   }).catch(() => undefined);
-  return { sessionId: started.session.id };
+  return { set: { sessionId: started.session.id }, decisions: [] };
 }
 
 async function move(
@@ -1270,15 +1300,19 @@ async function move(
   //     again goes on with them open.
   if (forward && row.phase === "intake" && (await reviewHolds(ctx, row))) return;
   // 2. What the move makes, outside any transaction.
-  const made = forward && to === "draft" ? await makeDraft(ctx, row) : {};
+  const made = forward && to === "draft" ? await makeDraft(ctx, row) : { set: {}, decisions: [] };
   // 3. The move, its record and the items it leaves.
   await ctx.inTx(async (scoped) => {
     const r = await readBuild(scoped.tx, id, true);
     const qa = readQa(r.qa);
+    const fitgap = readFitGap(r.fitgap);
     await scoped.tx
       .update(build)
       .set({
-        ...made,
+        ...made.set,
+        ...(made.decisions.length > 0
+          ? { fitgap: { ...fitgap, decisions: mergeDecisions(fitgap.decisions, made.decisions) } }
+          : {}),
         phase: to,
         phaseAt: now(),
         // Going back before QA undoes its signature and decision: QA is done again.
@@ -1990,6 +2024,39 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
       })
       .where(eq(buildItem.id, item.id));
     await ctx.tx.update(build).set({ updatedAt: now() }).where(eq(build.id, row.id));
+    return buildDetail(
+      { tx: ctx.tx, services: ctx.services, now },
+      await readBuild(ctx.tx, row.id),
+    );
+  });
+
+  // docs/builder-plan.md §4: the operator marks one of the Builder's decisions discussed or
+  // confirmed. Its words change only through the conversation (the Builder's rewrite, or a draft
+  // edit the operator agrees), so a person's look stays tied to what they looked at.
+  mount(app, routes.opsBuildDecisionStatus, async (ctx) => {
+    const row = await readBuild(ctx.tx, ctx.params.id, true);
+    refuseClosed(row);
+    const fitgap = readFitGap(row.fitgap);
+    // DECISION: who looked is kept as the operator's name (else their email), as the screen
+    // says it ("confirmed by Ada"); the build's event row keeps their user id.
+    const by = ctx.session.user.name?.trim() || ctx.session.user.email || null;
+    const decisions = setDecisionStatus(
+      fitgap.decisions,
+      ctx.params.decisionId,
+      ctx.body.status,
+      by,
+      now().toISOString(),
+    );
+    if (!decisions) throw notFound("decision");
+    await ctx.tx
+      .update(build)
+      .set({ fitgap: { ...fitgap, decisions }, updatedAt: now() })
+      .where(eq(build.id, row.id));
+    await addEvent(ctx.tx, row, {
+      kind: "record",
+      payload: { decision: { id: ctx.params.decisionId, status: ctx.body.status } },
+      userId: ctx.session.user.id,
+    });
     return buildDetail(
       { tx: ctx.tx, services: ctx.services, now },
       await readBuild(ctx.tx, row.id),

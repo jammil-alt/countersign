@@ -434,6 +434,7 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
       startFromTemplate: template
         ? { id: template.id, slug: template.slug, name: template.name }
         : null,
+      decisions: result.decisions,
     };
   });
 
