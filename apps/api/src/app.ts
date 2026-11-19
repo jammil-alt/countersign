@@ -144,7 +144,11 @@ import { releaseRoutes } from "./routes/release";
 import { requestRouteHandlers } from "./routes/requests";
 import { runAuditRouteHandlers } from "./routes/run-audit";
 import { runControlRoutes } from "./routes/run-controls";
-import { claudeConnectionRoutes, secondFactorRoutes } from "./routes/second-factor";
+import {
+  claudeConnectionRoutes,
+  secondFactorRoutes,
+  setupLinkRoutes,
+} from "./routes/second-factor";
 import { sessionRoutes } from "./routes/session";
 import { signInApprovalRoutes } from "./routes/sign-in-approvals";
 // v0.14 W4-C: the Slack channel picker
@@ -246,6 +250,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   sessionRoutes(app);
   // §1.100
   secondFactorRoutes(app);
+  // Owner, 2026-11-19: the emailed link that sets up a first method
+  setupLinkRoutes(app);
   // §1.116: the phone app
   mobileRoutes(app);
   // §1.154: approving a sign-in on the phone

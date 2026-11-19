@@ -3174,6 +3174,27 @@ export const fr: Messages = {
     "Téléphone et codes de récupération perdus ? Demandez à votre administrateur ou à votre contact Mezonas de réinitialiser votre connexion.",
   "secondStep.signOut": "Se déconnecter",
   "secondStep.failed": "Cela n'a pas fonctionné. Réessayez.",
+  "setupLink.title": "Configurez votre connexion",
+  "setupLink.intro":
+    "Ajoutez un moyen de recevoir des codes pour {email}. Vous pouvez ajouter les deux.",
+  "setupLink.setUp": "Configurer",
+  "setupLink.done": "Terminé",
+  "setupLink.back": "Retour",
+  "setupLink.backToSignIn": "Retour à la connexion",
+  "secondStep.emailLink.title": "Configurez votre connexion par e-mail",
+  "secondStep.emailLink.intro":
+    "Pour protéger votre compte, nous vous envoyons par e-mail un lien pour ajouter votre numéro de téléphone ou une application d'authentification.",
+  "secondStep.emailLink.send": "M'envoyer le lien",
+  "secondStep.emailLink.sent":
+    "Nous avons envoyé un lien à {email}. Ouvrez-le, ajoutez votre téléphone ou une application d'authentification, puis revenez ici.",
+  "secondStep.emailLink.check": "C'est fait",
+  "secondStep.emailLink.notYet": "Rien n'est encore configuré. Ouvrez d'abord le lien de l'e-mail.",
+  "secondStep.emailLink.again": "Renvoyer le lien",
+  "error.setup_by_email": "Configurez votre connexion depuis le lien envoyé par e-mail.",
+  "error.link_expired": "Ce lien a expiré. Reconnectez-vous pour en recevoir un nouveau.",
+  "error.email_unavailable":
+    "Nous ne pouvons pas envoyer d'e-mail pour le moment. Contactez votre responsable Mezonas.",
+  "error.email_failed": "Nous n'avons pas pu envoyer l'e-mail. Réessayez.",
   "secondStep.phoneApprove.title": "Approuvez sur votre téléphone",
   "secondStep.phoneApprove.intro": "Ouvrez Mezonas sur votre téléphone et touchez ce nombre.",
   "secondStep.phoneApprove.number": "Le nombre à toucher sur votre téléphone",

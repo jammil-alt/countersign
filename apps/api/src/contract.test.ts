@@ -30,8 +30,10 @@ describe("route contract (static)", () => {
   });
 
   it("lets only a person's own authenticator setup show a secret, once (§1.100)", () => {
+    // The step's own setup, and the emailed setup link's (owner, 2026-11-19).
     expect(ROUTES.filter(([, r]) => r.secretShownOnce?.length).map(([name]) => name)).toEqual([
       "secondFactorSetup",
+      "setupLinkSetup",
     ]);
   });
 

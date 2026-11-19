@@ -203,6 +203,7 @@ export * from "./email/authentication";
 // docs/plan.md §1.149: the branded layout and the onboarding emails.
 export * from "./email/layout";
 export * from "./email/onboarding";
+export * from "./email/second-factor";
 // docs/plan.md §1.121: forms, "Request info"
 export * from "./forms";
 // docs/builder-plan.md §8 (B6): governance in tiers

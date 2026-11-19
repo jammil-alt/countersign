@@ -3192,6 +3192,30 @@ export const de: Messages = {
     "Telefon und Wiederherstellungscodes verloren? Bitten Sie Ihre Administration oder Ihre Ansprechperson bei Mezonas, Ihre Anmeldung zurückzusetzen.",
   "secondStep.signOut": "Abmelden",
   "secondStep.failed": "Das hat nicht funktioniert. Versuchen Sie es erneut.",
+  "setupLink.title": "Anmeldung einrichten",
+  "setupLink.intro":
+    "Fügen Sie eine Möglichkeit hinzu, Codes für {email} zu erhalten. Sie können beide hinzufügen.",
+  "setupLink.setUp": "Einrichten",
+  "setupLink.done": "Fertig",
+  "setupLink.back": "Zurück",
+  "setupLink.backToSignIn": "Zurück zur Anmeldung",
+  "secondStep.emailLink.title": "Anmeldung per E-Mail einrichten",
+  "secondStep.emailLink.intro":
+    "Zum Schutz Ihres Kontos senden wir Ihnen per E-Mail einen Link, um Ihre Telefonnummer oder eine Authenticator-App hinzuzufügen.",
+  "secondStep.emailLink.send": "Link per E-Mail senden",
+  "secondStep.emailLink.sent":
+    "Wir haben einen Link an {email} gesendet. Öffnen Sie ihn, fügen Sie Ihr Telefon oder eine Authenticator-App hinzu und kehren Sie dann hierher zurück.",
+  "secondStep.emailLink.check": "Erledigt",
+  "secondStep.emailLink.notYet":
+    "Noch nichts eingerichtet. Öffnen Sie zuerst den Link in der E-Mail.",
+  "secondStep.emailLink.again": "Link erneut senden",
+  "error.setup_by_email":
+    "Richten Sie Ihre Anmeldung über den Link ein, den wir Ihnen per E-Mail senden.",
+  "error.link_expired":
+    "Dieser Link ist abgelaufen. Melden Sie sich erneut an, um einen neuen zu erhalten.",
+  "error.email_unavailable":
+    "Wir können gerade keine E-Mails senden. Wenden Sie sich an Ihren Mezonas-Ansprechpartner.",
+  "error.email_failed": "Wir konnten die E-Mail nicht senden. Versuchen Sie es erneut.",
   "secondStep.phoneApprove.title": "Auf dem Telefon bestätigen",
   "secondStep.phoneApprove.intro":
     "Öffnen Sie Mezonas auf Ihrem Telefon und tippen Sie auf diese Zahl.",

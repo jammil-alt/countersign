@@ -36,12 +36,12 @@ import { Button, ErrorNotice, Loading } from "../ui/primitives";
 import { SignInFrame } from "./SignIn";
 import { homeFor, safeReturnTo, useSessionState } from "./session";
 
-const METHOD_LABEL: Record<SecondFactorKind, PlainKey> = {
+export const METHOD_LABEL: Record<SecondFactorKind, PlainKey> = {
   totp: "secondStep.method.totp",
   sms: "secondStep.method.sms",
   whatsapp: "secondStep.method.whatsapp",
 };
-const METHOD_HINT: Record<SecondFactorKind, PlainKey> = {
+export const METHOD_HINT: Record<SecondFactorKind, PlainKey> = {
   totp: "secondStep.method.totpHint",
   sms: "secondStep.method.smsHint",
   whatsapp: "secondStep.method.whatsappHint",
@@ -95,6 +95,7 @@ type View =
   | { kind: "code"; method: SecondFactorKind; phoneHint: string | null; sent: boolean }
   | { kind: "recovery" }
   | { kind: "phone" }
+  | { kind: "email-link" }
   | { kind: "saved"; codes: string[] };
 
 /** A full page load (an object, so a test can watch it: jsdom can't navigate). */
@@ -202,6 +203,13 @@ export function SecondStepScreen() {
               status.phones > 0 && !status.setupNeeded ? () => setView({ kind: "phone" }) : null
             }
           />
+        ) : view.kind === "email-link" ? (
+          <EmailLink
+            onSetUp={(next) => {
+              setStatus(next);
+              setView(firstView(next));
+            }}
+          />
         ) : view.kind === "phone" ? (
           <PhoneApproval
             onPassed={() => void finish()}
@@ -234,10 +242,97 @@ function firstView(status: SecondFactorStatus): View {
 
 /** A code from the person's first method (the authenticator app first), or setting one up. */
 function codeView(status: SecondFactorStatus): View {
+  // Owner, 2026-11-19: a first method is set up from the emailed link where email can go.
+  if (status.setupNeeded && status.setupByEmail) return { kind: "email-link" };
   const methods = verified(status);
   const first = methods.find((m) => m.kind === "totp") ?? methods[0];
   if (status.setupNeeded || !first) return { kind: "choose" };
   return { kind: "code", method: first.kind, phoneHint: first.phoneHint, sent: false };
+}
+
+/**
+ * Owner, 2026-11-19: the first method is set up from a link sent to the person's sign-in address,
+ * so whoever has the password must also have the inbox. This page sends it, then asks again once
+ * the person says they set something up.
+ */
+function EmailLink({ onSetUp }: { onSetUp: (status: SecondFactorStatus) => void }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  const api = useApiClient();
+  const [sentTo, setSentTo] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+
+  async function send() {
+    setBusy(true);
+    setProblem(null);
+    try {
+      const res = await api.call(apiRoutes.secondFactorSetupLink, { body: {} });
+      setSentTo(res.emailHint);
+    } catch (err) {
+      setProblem(errorText(err, i18n));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function check() {
+    setBusy(true);
+    setProblem(null);
+    try {
+      const next = await api.call(apiRoutes.secondFactorStatus);
+      if (next.setupNeeded) setProblem(t("secondStep.emailLink.notYet"));
+      else onSetUp(next);
+    } catch (err) {
+      setProblem(errorText(err, i18n));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-4" data-testid="second-step-email-link">
+      <h1 className="type-heading text-ink">{t("secondStep.emailLink.title")}</h1>
+      {sentTo ? (
+        <p className="text-ink" role="status" data-testid="second-step-email-sent">
+          {t("secondStep.emailLink.sent", { email: sentTo })}
+        </p>
+      ) : (
+        <p className="text-ink">{t("secondStep.emailLink.intro")}</p>
+      )}
+      {problem ? <p className="ds-error text-sm">{problem}</p> : null}
+      {sentTo ? (
+        <>
+          <Button
+            variant="primary"
+            disabled={busy}
+            onClick={() => void check()}
+            data-testid="second-step-email-check"
+          >
+            {t("secondStep.emailLink.check")}
+          </Button>
+          <button
+            type="button"
+            className="text-left text-sm text-link hover:underline"
+            disabled={busy}
+            onClick={() => void send()}
+            data-testid="second-step-email-again"
+          >
+            {t("secondStep.emailLink.again")}
+          </button>
+        </>
+      ) : (
+        <Button
+          variant="primary"
+          disabled={busy}
+          onClick={() => void send()}
+          data-testid="second-step-email-send"
+        >
+          {t("secondStep.emailLink.send")}
+        </Button>
+      )}
+    </div>
+  );
 }
 
 function ChooseMethod({
@@ -901,7 +996,7 @@ function UseRecovery({ onBack, onPassed }: { onBack: () => void; onPassed: () =>
 }
 
 /** The recovery codes, once: copy, download, then on. They are never shown again. */
-function SaveRecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () => void }) {
+export function SaveRecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () => void }) {
   const { t } = useI18n();
   const text = codes.join("\n");
 

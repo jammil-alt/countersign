@@ -52,6 +52,11 @@ const CODE_KEYS: Record<string, PlainKey> = {
   not_pending: "error.not_pending",
   // §1.154
   no_phone: "error.no_phone",
+  // Owner, 2026-11-19: the emailed setup link
+  setup_by_email: "error.setup_by_email",
+  link_expired: "error.link_expired",
+  email_unavailable: "error.email_unavailable",
+  email_failed: "error.email_failed",
   already_set_up: "error.already_set_up",
   method_not_allowed: "error.method_not_allowed",
   connector_failed: "error.connector_failed",
