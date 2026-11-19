@@ -3125,6 +3125,27 @@ export const ptBR: Messages = {
     "Perdeu o celular e os códigos de recuperação? Peça ao seu administrador ou ao seu contato na Mezonas para redefinir seu acesso.",
   "secondStep.signOut": "Sair",
   "secondStep.failed": "Não deu certo. Tente de novo.",
+  "setupLink.title": "Configure seu acesso",
+  "setupLink.intro":
+    "Adicione uma forma de receber códigos para {email}. Você pode adicionar as duas.",
+  "setupLink.setUp": "Configurar",
+  "setupLink.done": "Pronto",
+  "setupLink.back": "Voltar",
+  "setupLink.backToSignIn": "Voltar para entrar",
+  "secondStep.emailLink.title": "Configure seu acesso por email",
+  "secondStep.emailLink.intro":
+    "Para proteger sua conta, enviamos por email um link para adicionar seu número de celular ou um app autenticador.",
+  "secondStep.emailLink.send": "Enviar o link",
+  "secondStep.emailLink.sent":
+    "Enviamos um link para {email}. Abra-o, adicione seu celular ou um app autenticador e volte aqui.",
+  "secondStep.emailLink.check": "Já configurei",
+  "secondStep.emailLink.notYet": "Nada configurado ainda. Abra primeiro o link do email.",
+  "secondStep.emailLink.again": "Enviar o link de novo",
+  "error.setup_by_email": "Configure seu acesso pelo link que enviamos por email.",
+  "error.link_expired": "Este link expirou. Entre de novo para receber outro.",
+  "error.email_unavailable":
+    "Não conseguimos enviar emails agora. Fale com seu responsável na Mezonas.",
+  "error.email_failed": "Não conseguimos enviar o email. Tente de novo.",
   "secondStep.phoneApprove.title": "Aprove no seu celular",
   "secondStep.phoneApprove.intro": "Abra o Mezonas no seu celular e toque neste número.",
   "secondStep.phoneApprove.number": "O número para tocar no seu celular",

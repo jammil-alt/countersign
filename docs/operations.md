@@ -1000,7 +1000,9 @@ To turn it on for an environment (staging first):
 3. Only then add `"TWILIO_VERIFY_SERVICE_SID": "VA…"` under the environment's `vars`; merge
    (staging) or release (production). With the service set and the key missing, every sign-in
    waits on a step that cannot pass.
-4. Sign in once with a password: you're asked to set up a method. Check the items in
+4. Sign in once with a password: you're asked for a setup link by email (where Resend is set up;
+   without it, the method is set up on the page). Open the link, add a number and/or an
+   authenticator app, save the recovery codes, then sign in with a code. Check the items in
    `packages/connectors/src/twilio/VERIFY_NOTES.md` as you go.
 5. Connect Claude to the environment's `/mcp` and ask it something ("whoami in Mezonas staging"):
    it answers with an approval link. Open it in the browser from step 4, approve, ask again: it

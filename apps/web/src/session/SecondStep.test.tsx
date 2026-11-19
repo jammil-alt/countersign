@@ -21,6 +21,7 @@ const pending = (over: Partial<SecondFactorStatus> = {}): SecondFactorStatus => 
   setupNeeded: true,
   recoveryCodesLeft: 0,
   phones: 0,
+  setupByEmail: false,
   ...over,
 });
 
@@ -316,5 +317,80 @@ describe("the step's helpers", () => {
       expect(await screen.findByTestId("second-step")).toHaveAttribute("data-view", "code");
       expect(screen.queryByTestId("second-step-use-phone")).toBeNull();
     });
+  });
+
+  it("sets up a first method by email where email can go, then asks for a code", async () => {
+    let checks = 0;
+    renderAt("/sign-in/second-step?return_to=%2Finbox", {
+      "GET /api/session": () => REQUIRED,
+      "GET /api/auth/second-factor": () => {
+        checks += 1;
+        // Not yet on the first check after sending, then set up.
+        return checks < 3
+          ? pending({ setupByEmail: true })
+          : pending({
+              setupByEmail: true,
+              setupNeeded: false,
+              recoveryCodesLeft: 10,
+              methods: [{ kind: "sms", phoneHint: "•••• 2222", verified: true }],
+            });
+      },
+      "POST /api/auth/second-factor/setup-link": () => ({
+        ok: true,
+        emailHint: "p•••@acme.com",
+      }),
+    });
+    expect(await screen.findByTestId("second-step")).toHaveAttribute("data-view", "email-link");
+    await userEvent.click(screen.getByTestId("second-step-email-send"));
+    expect(await screen.findByTestId("second-step-email-sent")).toHaveTextContent(
+      "We sent a link to p•••@acme.com.",
+    );
+    await userEvent.click(screen.getByTestId("second-step-email-check"));
+    expect(await screen.findByText(/Nothing is set up yet/)).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("second-step-email-check"));
+    await waitFor(() =>
+      expect(screen.getByTestId("second-step")).toHaveAttribute("data-view", "code"),
+    );
+  });
+});
+
+describe("the emailed setup link's page", () => {
+  const TOKEN = `${"a".repeat(20)}.${"b".repeat(43)}`;
+
+  it("sets up a text number, shows the recovery codes once, then goes back to sign in", async () => {
+    let verified = false;
+    const bodies: unknown[] = [];
+    renderAt(`/sign-in/setup/${TOKEN}`, {
+      [`GET /api/auth/setup-link/${TOKEN}`]: () => ({
+        emailHint: "p•••@acme.com",
+        allowed: ["totp", "sms"],
+        methods: verified ? [{ kind: "sms", phoneHint: "•••• 2222", verified: true }] : [],
+        expiresAt: "2026-11-19T12:30:00.000Z",
+      }),
+      [`POST /api/auth/setup-link/${TOKEN}/setup`]: async ({ init }) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        return { kind: "sms", otpauthUri: null, phoneHint: "•••• 2222" };
+      },
+      [`POST /api/auth/setup-link/${TOKEN}/verify`]: async ({ init }) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        verified = true;
+        return { ok: true, recoveryCodes: CODES };
+      },
+    });
+    expect(await screen.findByText(/p•••@acme.com/)).toBeInTheDocument();
+    expect(screen.queryByTestId("setup-link-back")).toBeNull();
+    await userEvent.click(screen.getByTestId("setup-link-start-sms"));
+    await userEvent.type(screen.getByTestId("setup-link-phone"), "555 111 2222");
+    await userEvent.click(screen.getByTestId("setup-link-send"));
+    await userEvent.type(await screen.findByTestId("setup-link-code"), "246810");
+    await userEvent.click(screen.getByTestId("setup-link-verify"));
+    expect(await screen.findByTestId("second-step-codes")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("second-step-saved-continue"));
+    expect(await screen.findByTestId("setup-link-done-sms")).toBeInTheDocument();
+    expect(screen.getByTestId("setup-link-back")).toHaveAttribute("href", "/");
+    expect(bodies).toEqual([
+      { kind: "sms", phone: "+15551112222" },
+      { kind: "sms", code: "246810" },
+    ]);
   });
 });
