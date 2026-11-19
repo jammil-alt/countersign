@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { GovernanceTier, KnowledgeTags } from "../governance/charter";
 import { isUuid } from "../ids";
 import { defineRoute } from "./contract";
 
@@ -19,28 +20,54 @@ export const KNOWLEDGE_SEARCH_QUERY_MAX = 500;
 export const KnowledgeEntryKind = z.enum(["faq", "policy"]);
 export type KnowledgeEntryKind = z.infer<typeof KnowledgeEntryKind>;
 
-export const KnowledgeEntryInput = z.strictObject({
-  kind: KnowledgeEntryKind,
-  title: z.string().trim().min(1).max(KNOWLEDGE_TITLE_MAX),
-  body: z.string().trim().min(1).max(KNOWLEDGE_BODY_MAX),
-});
+// B6 (docs/builder-plan.md §8): a policy may be the client's charter (`tier: "charter"`, one per
+// client) or a policy agents read by its tags (`tier: "policy"`); kept on the version's meta. An
+// FAQ has neither.
+export const KnowledgeEntryInput = z
+  .strictObject({
+    kind: KnowledgeEntryKind,
+    title: z.string().trim().min(1).max(KNOWLEDGE_TITLE_MAX),
+    body: z.string().trim().min(1).max(KNOWLEDGE_BODY_MAX),
+    tier: GovernanceTier.optional(),
+    tags: KnowledgeTags.optional(),
+  })
+  .refine((v) => v.kind === "policy" || (v.tier === undefined && v.tags === undefined), {
+    message: "only a policy has a tier or tags",
+    path: ["tier"],
+  });
 export type KnowledgeEntryInput = z.infer<typeof KnowledgeEntryInput>;
 
-/** An edit names the version it started from; a newer one on the server refuses it (409). */
+/**
+ * An edit names the version it started from; a newer one on the server refuses it (409). Tags
+ * left out keep the current version's; the tier never changes.
+ */
 export const KnowledgeEntryEdit = z.strictObject({
   title: z.string().trim().min(1).max(KNOWLEDGE_TITLE_MAX),
   body: z.string().trim().min(1).max(KNOWLEDGE_BODY_MAX),
   baseVersion: z.number().int().min(1),
+  tags: KnowledgeTags.optional(),
 });
 export type KnowledgeEntryEdit = z.infer<typeof KnowledgeEntryEdit>;
 
 export const KnowledgeEntryArchive = z.strictObject({ baseVersion: z.number().int().min(1) });
+
+/** The client admin confirms the version they read (B6): a newer one refuses it (409). */
+export const KnowledgeEntryConfirm = z.strictObject({ baseVersion: z.number().int().min(1) });
 
 const Author = z.object({
   role: z.enum(["operator", "client_admin"]),
   /** The person's name; null when unknown. */
   name: z.string().nullable(),
 });
+
+/** Who confirmed a version for the client, and when (B6); null while not confirmed. */
+const Confirmed = z
+  .object({
+    /** The client admin's name; null when unknown. */
+    by: z.string().nullable(),
+    at: z.string(),
+  })
+  .nullable();
 
 export const KnowledgeEntry = z.object({
   id: z.string(),
@@ -52,6 +79,13 @@ export const KnowledgeEntry = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   updatedBy: Author,
+  // B6: governance. A policy without a tier is read only through search, as before.
+  tier: GovernanceTier.nullable(),
+  tags: z.array(z.string()),
+  /** This version's confirmation. */
+  confirmed: Confirmed,
+  /** The charter only: the version agents read now (the latest confirmed); null when none is. */
+  inUseVersion: z.number().int().nullable().optional(),
 });
 export type KnowledgeEntry = z.infer<typeof KnowledgeEntry>;
 
@@ -63,6 +97,10 @@ export const KnowledgeEntryVersion = z.object({
   status: z.enum(["active", "archived"]),
   author: Author,
   createdAt: z.string(),
+  // B6
+  tier: GovernanceTier.nullable(),
+  tags: z.array(z.string()),
+  confirmed: Confirmed,
 });
 export type KnowledgeEntryVersion = z.infer<typeof KnowledgeEntryVersion>;
 
@@ -160,6 +198,23 @@ export const knowledgeRoutes = {
     params: ClientEntryParams,
     response: z.object({ versions: z.array(KnowledgeEntryVersion) }),
   }),
+  // B6 (docs/builder-plan.md §8, §10 question 3): we draft the client's charter from what onboarding
+  // learned (the client's own facts and its `about` entries); the client admin confirms it.
+  opsKnowledgeCharterDraft: defineRoute({
+    method: "POST",
+    path: "/api/ops/clients/:id/knowledge/charter/draft",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Draft the client's charter from its onboarding facts, saved as a new version not yet confirmed",
+    params: ClientParams,
+    body: z.strictObject({}),
+    response: z.object({
+      entry: KnowledgeEntry,
+      /** How many facts and `about` entries the draft was made from. */
+      from: z.object({ facts: z.number().int(), about: z.number().int() }),
+    }),
+  }),
   opsKnowledgeSearch: defineRoute({
     method: "GET",
     path: "/api/ops/clients/:id/knowledge/search",
@@ -200,6 +255,17 @@ export const knowledgeRoutes = {
     summary: "Change an FAQ or a policy (restores an archived one); the previous text is kept",
     params: EntryParams,
     body: KnowledgeEntryEdit,
+    response: EntryResponse,
+  }),
+  portalKnowledgeConfirm: defineRoute({
+    method: "POST",
+    path: "/api/knowledge/entries/:id/confirm",
+    auth: "session",
+    roles: CLIENT_ADMIN,
+    summary:
+      "Confirm your charter or a policy as it reads now: our agents follow your charter once you confirm it",
+    params: EntryParams,
+    body: KnowledgeEntryConfirm,
     response: EntryResponse,
   }),
   portalKnowledgeArchive: defineRoute({
