@@ -10,6 +10,8 @@ import { OwnerArea } from "../owners/areas";
 // R1 (docs/plan.md §1.86): a bundle entry may hold a v4 process.
 import { Process } from "../process/schema";
 import { PersonRole } from "../reach/rules";
+// docs/builder-plan.md §7 (B5): the settings a client may adjust, with their bounds.
+import { AdjustableSettings } from "../setup/adjustable";
 // docs/builder-plan.md §6: the setup checklist a client copy is set up by.
 import { SetupChecklist } from "../setup/item";
 import { SkillRef, Slug, ToolId } from "./common";
@@ -94,6 +96,10 @@ export const AgentDefinition = z
     // with no default, so bundles without it parse and hash as they were. Each client's progress
     // is operational (`agent.stage_state.setup`), never in a version.
     setup: SetupChecklist.optional(),
+    // docs/builder-plan.md §7 (B5): the settings the client admin may adjust in the portal, each
+    // a skill parameter or a schedule with its bounds, marked by the operator. Optional with no
+    // default, so bundles without it parse and hash as they were; a copy keeps its template's.
+    adjustable: AdjustableSettings.optional(),
   })
   .meta({ id: "AgentDefinition" });
 export type AgentDefinition = z.infer<typeof AgentDefinition>;

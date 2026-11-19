@@ -3,6 +3,7 @@
 // load (scripts/web-size.mjs). The API mounts them from their own group, and the contract and
 // access tests walk this whole list, so none of them skips a check.
 
+import { adjustRoutes } from "./adjust";
 import { clientFileRoutes, startRoutes } from "./client-files";
 import { codeRequestRoutes } from "./code-requests";
 import { opsIntakeRoutes, portalIntakeRoutes, welcomeRoutes } from "./intake";
@@ -31,4 +32,7 @@ export const allRoutes = {
   ...manualRoutes,
   // docs/builder-plan.md §6 (B4): the setup checklist (Getting started, the agent's page).
   ...setupRoutes,
+  // docs/builder-plan.md §7 (B5): client adjustments on the agent's Settings, and feedback on a
+  // line of its manual; both load with their tabs.
+  ...adjustRoutes,
 } as const;

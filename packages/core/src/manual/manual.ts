@@ -383,8 +383,15 @@ export const ManualDecisionView = z.object({
   statusWords: z.string(),
   /** The name of the step it shapes, if one. */
   step: z.string().nullable(),
-  /** Who looked at it last: the operator's name in the back office, never in the portal. */
+  /**
+   * Who looked at it or changed it last: the operator's name in the back office; in the portal
+   * only a person of the client's own (B5), never ours.
+   */
   by: z.string().nullable(),
+  /** When (B5: "changed by Ada on 19 Nov"). */
+  at: z.string().nullable().default(null),
+  /** Whose `by` it is: the client's team or us; null for a build's own row. */
+  side: z.enum(["client", "operator"]).nullable().default(null),
 });
 export type ManualDecisionView = z.infer<typeof ManualDecisionView>;
 
@@ -528,7 +535,11 @@ export function manualView(input: {
       status: d.status,
       statusWords: DECISION_STATUS_WORDS[d.status],
       step: d.stepId ? (names.get(d.stepId) ?? null) : null,
-      by: input.audience === "operator" ? d.by : null,
+      // DECISION (B5): the portal names a client's own person who changed a setting; anyone of
+      // ours stays unnamed there ("by us"), as B3 and B4 keep it.
+      by: input.audience === "operator" || d.side === "client" ? d.by : null,
+      at: d.at,
+      side: d.side ?? null,
     })),
     decisionPoints: points.map((p) => ({
       stepId: p.stepId,

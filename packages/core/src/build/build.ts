@@ -395,6 +395,10 @@ export const Decision = DecisionDraft.extend({
   /** Who looked at it last (the operator's name), and when. */
   by: z.string().nullable().default(null),
   at: z.string().nullable().default(null),
+  // B5 (docs/builder-plan.md §7): a client admin's change on the agent's settings is written here
+  // as `changed`, by them; `side` says whose `by` is. Optional with no default, so the rows a
+  // build wrote (the operator's) parse and hash as they were.
+  side: z.enum(["client", "operator"]).optional(),
 });
 export type Decision = z.infer<typeof Decision>;
 

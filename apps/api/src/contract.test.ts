@@ -5,6 +5,7 @@
 
 import { createOAuthState } from "@countersign/connectors";
 import {
+  adjustRoutes,
   allRoutes,
   buildPath,
   checkRouteContract,
@@ -60,6 +61,17 @@ describe("route contract (static)", () => {
     expect(manualRoutes.portalAgentManual.roles).toEqual(["client_admin", "client_user"]);
     expect(forbiddenPortalFields(manualRoutes.portalAgentManual.response)).toEqual([]);
     expect(manualRoutes.opsAgentManual.roles).toEqual(["operator"]);
+  });
+
+  // B5 (docs/builder-plan.md §7): what the client may adjust reaches the portal as words, bounds
+  // and values, never which skill, parameter or step they set; only the client admin changes one.
+  // The running routes are checked in client-adjust.test.ts.
+  it("keeps client adjustments and manual feedback to views with no forbidden fields", () => {
+    for (const r of Object.values(adjustRoutes)) {
+      expect(routeFamily(r)).toBe("portal");
+      expect(forbiddenPortalFields(r.response)).toEqual([]);
+    }
+    expect(adjustRoutes.portalAgentAdjust.roles).toEqual(["client_admin"]);
   });
 });
 

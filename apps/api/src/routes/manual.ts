@@ -5,12 +5,13 @@
 // (invariant 11).
 
 import { getAgent, getVersion, latestVersion } from "@countersign/agents";
-import { manualRoutes, manualView } from "@countersign/core";
+import { adjustRoutes, manualRoutes, manualView } from "@countersign/core";
 import { agent, agentVersion, memoryNote, type Tx } from "@countersign/db";
 import { and, desc, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { ensureSeesAgent } from "../assigned";
 import { type AppEnv, mount, notFound } from "../http";
+import { adjustSetting, manualFeedback, portalAdjustable } from "../setup/adjust";
 
 /** How many of the agent's notes the manual shows, newest first. */
 const LEARNED_MAX = 50;
@@ -84,4 +85,46 @@ export function manualRouteHandlers(app: Hono<AppEnv>): void {
       fallbackWhat: row.serviceDescription,
     });
   });
+
+  // ── B5 (docs/builder-plan.md §7): client adjustments and feedback on the manual ──────────────
+
+  mount(app, adjustRoutes.portalAgentAdjustable, async (ctx) => {
+    ensureSeesAgent(ctx.agents, ctx.params.id);
+    return {
+      settings: await portalAdjustable(
+        ctx.tx,
+        ctx.tenantIds[0] as string,
+        ctx.params.id,
+        ctx.services.platform.ctx,
+      ),
+    };
+  });
+
+  mount(app, adjustRoutes.portalAgentAdjust, async (ctx) => {
+    ensureSeesAgent(ctx.agents, ctx.params.id);
+    return adjustSetting(ctx.tx, {
+      tenantId: ctx.tenantIds[0] as string,
+      agentId: ctx.params.id,
+      settingId: ctx.params.settingId,
+      body: ctx.body,
+      actor: { userId: ctx.session.user.id, name: personName(ctx), side: "client" },
+      ctx: ctx.services.platform.ctx,
+    });
+  });
+
+  mount(app, adjustRoutes.portalManualFeedback, async (ctx) => {
+    ensureSeesAgent(ctx.agents, ctx.params.id);
+    const request = await manualFeedback(ctx.tx, {
+      tenantId: ctx.tenantIds[0] as string,
+      agentId: ctx.params.id,
+      body: ctx.body,
+      actor: { userId: ctx.session.user.id, name: personName(ctx), side: "client" },
+    });
+    return { request };
+  });
+}
+
+/** The person's name as the manual records who changed a setting (else their email). */
+function personName(ctx: { session: { user: { name?: string | null; email: string } } }) {
+  return ctx.session.user.name?.trim() || ctx.session.user.email || null;
 }

@@ -267,15 +267,42 @@ async function writeSetting(
   const out = applySetupSetting(bundle, setting, input.value);
   if (!out.ok) throw new HttpError(409, "setting_gone", out.reason);
   const who = input.actor.name ?? (input.actor.side === "client" ? "the client" : "us");
+  const v = await writeClientVersion(tx, {
+    row: input.row,
+    from: input.from,
+    bundle: out.bundle,
+    actor: input.actor,
+    changeNote: `Setup answer from ${who}: ${input.item.label} ${input.text}`,
+    ctx: input.ctx,
+  });
+  return v?.id ?? null;
+}
+
+/**
+ * A client copy's settings change as a new version made by code from `from` (B4's setup answers,
+ * B5's adjustments): authored as `operator` with the person's id, and published at once when
+ * `from` is the live version. Answers the new version, or null when nothing changed.
+ */
+export async function writeClientVersion(
+  tx: Tx,
+  input: {
+    row: AgentRow;
+    from: VersionRow;
+    bundle: AnyAgentBundle;
+    actor: SetupActor;
+    changeNote: string;
+    ctx: RegistryContext;
+  },
+): Promise<VersionRow | null> {
   let v: VersionRow;
   try {
     v = await createVersion(tx, {
       agentId: input.row.id,
-      bundle: out.bundle,
+      bundle: input.bundle,
       parentVersionId: input.from.id,
       authorType: "operator",
       authorId: input.actor.userId,
-      changeNote: `Setup answer from ${who}: ${input.item.label} ${input.text}`.slice(0, 500),
+      changeNote: input.changeNote.slice(0, 500),
     });
   } catch (error) {
     if (error instanceof AgentsError && error.code === "no_op") return null;
@@ -292,15 +319,15 @@ async function writeSetting(
           versionId: v.id,
           actorId: input.actor.userId,
           ctx: input.ctx,
-          // A parameter's value is the only change: every step was there before.
-          existingFrom: bundle,
+          // A setting's value is the only change: every step was there before.
+          existingFrom: input.from.bundle as AnyAgentBundle,
         }),
       );
     } catch (error) {
       if (!(error instanceof AgentsError)) throw error;
     }
   }
-  return v.id;
+  return v;
 }
 
 /** Getting started: each of the client's agents whose version carries a checklist. */
