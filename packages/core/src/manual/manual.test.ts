@@ -136,9 +136,7 @@ describe("the manual on the definition", () => {
     const withManual = edit(base, (d) => {
       d.definition.manual = AgentManual.parse({ whatItDoes: "Reads invoices." });
     });
-    expect(diffBundles(base, withManual).map((c) => c.path)).toEqual([
-      "bundle#/definition/manual",
-    ]);
+    expect(diffBundles(base, withManual).map((c) => c.path)).toEqual(["bundle#/definition/manual"]);
     const changed = edit(withManual, (d) => {
       (d.definition.manual as AgentManual).whatItDoes = "Reads invoices and receipts.";
     });
@@ -209,7 +207,12 @@ describe("how it works", () => {
 describe("decision points", () => {
   it("are the person steps, the writes waiting for approval and the decision points named", () => {
     const decisions = [
-      decision({ id: "who", what: "The admin checks new vendors", kind: "decision_point", stepId: "ask" }),
+      decision({
+        id: "who",
+        what: "The admin checks new vendors",
+        kind: "decision_point",
+        stepId: "ask",
+      }),
       decision({ id: "loose", what: "A person picks the GL account", kind: "decision_point" }),
       decision({ id: "a", what: "Not a point", stepId: "read" }),
     ];
@@ -250,9 +253,16 @@ describe("filling the manual from a build", () => {
         measure: { text: "Every line lands on the right item", state: "confirmed" },
       },
       decisions: [
-        decision({ id: "freight", what: "Freight stays out of the catalog", stepId: "post", risk: "high" }),
+        decision({
+          id: "freight",
+          what: "Freight stays out of the catalog",
+          stepId: "post",
+          risk: "high",
+        }),
       ],
-      knownRisks: [{ id: "item-1", what: "Several invoices in one file", detail: "A person splits it." }],
+      knownRisks: [
+        { id: "item-1", what: "Several invoices in one file", detail: "A person splits it." },
+      ],
       bundle: processBundle(),
     });
     expect(manual.whatItDoes).toBe(
@@ -269,7 +279,13 @@ describe("filling the manual from a build", () => {
 
   it("keeps what it does when the brief says nothing", () => {
     const before = AgentManual.parse({ whatItDoes: "Reads invoices." });
-    const manual = fillManual({ brief: {}, decisions: [], knownRisks: [], bundle: processBundle(), before });
+    const manual = fillManual({
+      brief: {},
+      decisions: [],
+      knownRisks: [],
+      bundle: processBundle(),
+      before,
+    });
     expect(manual.whatItDoes).toBe("Reads invoices.");
     expect(whatItDoesFrom({})).toBe("");
   });
@@ -279,8 +295,19 @@ describe("the step's never-discussed decisions", () => {
   const definition = {
     manual: AgentManual.parse({
       decisions: [
-        { id: "freight", what: "Freight stays out of the catalog", kind: "assumption", stepId: "post" },
-        { id: "talked", what: "Tax stays in", kind: "assumption", stepId: "post", status: "discussed" },
+        {
+          id: "freight",
+          what: "Freight stays out of the catalog",
+          kind: "assumption",
+          stepId: "post",
+        },
+        {
+          id: "talked",
+          what: "Tax stays in",
+          kind: "assumption",
+          stepId: "post",
+          status: "discussed",
+        },
         { id: "elsewhere", what: "Another step's", kind: "assumption", stepId: "read" },
       ],
     }),
@@ -300,7 +327,9 @@ describe("the step's never-discussed decisions", () => {
       { id: "a", what: "Freight stays out" },
     ]);
     expect(readUndiscussed(undefined)).toEqual([]);
-    expect(inSentence("Freight stays out of the catalog.")).toBe("freight stays out of the catalog");
+    expect(inSentence("Freight stays out of the catalog.")).toBe(
+      "freight stays out of the catalog",
+    );
     expect(inSentence("QBO bills wait a day")).toBe("QBO bills wait a day");
   });
 });
@@ -332,7 +361,12 @@ describe("the view", () => {
   const learned = [{ id: "n1", note: "Acme sends two PDFs", at: "2026-11-18T00:00:00.000Z" }];
 
   it("is made by code, with no bundle, instructions, prompts or cost", () => {
-    const view = manualView({ agent: { id: "a1", name: "Intake" }, bundle: b, learned, audience: "client" });
+    const view = manualView({
+      agent: { id: "a1", name: "Intake" },
+      bundle: b,
+      learned,
+      audience: "client",
+    });
     expect(ManualView.parse(view)).toEqual(view);
     expect(forbiddenPortalFields(ManualView)).toEqual([]);
     const text = JSON.stringify(view);
@@ -360,7 +394,12 @@ describe("the view", () => {
   });
 
   it("names who looked in the back office, and falls back when nothing is written", () => {
-    const ops = manualView({ agent: { id: "a1", name: "Intake" }, bundle: b, learned: [], audience: "operator" });
+    const ops = manualView({
+      agent: { id: "a1", name: "Intake" },
+      bundle: b,
+      learned: [],
+      audience: "operator",
+    });
     expect(ops.decisions[0]?.by).toBe("Dana Operator");
     const none = manualView({
       agent: { id: "a1", name: "Intake" },
@@ -369,7 +408,12 @@ describe("the view", () => {
       audience: "client",
       fallbackWhat: "Reads your invoices.",
     });
-    expect(none).toMatchObject({ written: false, whatItDoes: "Reads your invoices.", decisions: [], setup: [] });
+    expect(none).toMatchObject({
+      written: false,
+      whatItDoes: "Reads your invoices.",
+      decisions: [],
+      setup: [],
+    });
     expect(none.howItWorks.length).toBe(5);
   });
 
