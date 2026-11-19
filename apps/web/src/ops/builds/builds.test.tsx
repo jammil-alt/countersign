@@ -78,6 +78,7 @@ function detail(over: Partial<BuildDetail> = {}): BuildDetail {
         ],
         needsTrue: [{ id: "qbo", text: "The client connects QuickBooks", done: false }],
         setup: [],
+        decisions: [],
       },
       testPlan: { datasets: [] },
       qa: { accepted: {}, signedBy: null, signedAt: null, decision: null },
@@ -392,7 +393,7 @@ describe("Builds", () => {
   // words sent, offered no retry, and ran the move's "drafting the workflow" loop during a chat turn.
   it("says a failed turn in the conversation, retries it, and keeps a failed send's words", async () => {
     const failed = detail({
-      build: { ...detail().build, fitgap: { rows: [], needsTrue: [], setup: [] } },
+      build: { ...detail().build, fitgap: { rows: [], needsTrue: [], setup: [], decisions: [] } },
       messages: [
         detail().messages[0] as BuildDetail["messages"][number],
         {
