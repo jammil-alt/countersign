@@ -322,7 +322,9 @@ describe.skipIf(!h)("builds", () => {
     b = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "draft" });
     expect(b.build.phase).toBe("draft");
     expect(b.build.agentId).toBeTruthy();
-    expect(b.draft).toMatchObject({ version: 1, live: false, problems: [] });
+    // v1 is the drafter's; v2 adds the manual and the template's setup checklist
+    // (docs/builder-plan.md §5, §6).
+    expect(b.draft).toMatchObject({ version: 2, live: false, problems: [] });
     // The fit-gap's build row is an open item; the known risk is one put off from the start,
     // and a template's intake form makes no items: there is no client yet.
     expect(b.items.map((i) => [i.title, i.owner, i.state])).toEqual([
@@ -507,6 +509,25 @@ describe.skipIf(!h)("builds", () => {
     // Go waits for the client's copy to be live.
     const waiting = await call("POST", `/api/ops/builds/${id}/decision`, { go: true });
     expect(waiting.status).toBe(409);
+    // docs/builder-plan.md §6: the copy carries the template's setup checklist, and its stages
+    // wait on it; we record the items the client agreed with us.
+    const held = await H.call(OPERATOR, "POST", `/api/ops/agents/${b.build.testAgentId}/stage`, {
+      to: "live",
+      reason: "Signed off on paper",
+    });
+    expect(held.status).toBe(409);
+    expect((held.json as { error: { code: string } }).error.code).toBe("setup_not_done");
+    const goLive = (await H.call(OPERATOR, "GET", `/api/ops/agents/${b.build.testAgentId}/go-live`))
+      .json as { goLive: { setup?: { items: { id: string; done: boolean }[] } } };
+    for (const item of goLive.goLive.setup?.items.filter((i) => !i.done) ?? []) {
+      const done = await H.call(
+        OPERATOR,
+        "POST",
+        `/api/ops/agents/${b.build.testAgentId}/setup/${item.id}`,
+        { value: "2" },
+      );
+      expect(done.status, JSON.stringify(done.json)).toBe(200);
+    }
     const stage = await H.call(OPERATOR, "POST", `/api/ops/agents/${b.build.testAgentId}/stage`, {
       to: "live",
       reason: "Signed off on paper",
@@ -910,12 +931,13 @@ describe.skipIf(!h)("builds", () => {
       });
     });
     b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "The amount is wrong." });
-    const step = /Draft v1 step \[([^\]]+)\] Update the record \(write\)/.exec(lastUserText());
+    const step = /Draft v2 step \[([^\]]+)\] Update the record \(write\)/.exec(lastUserText());
     expect(step).not.toBeNull();
     const proposed = b.messages.at(-1);
     expect(proposed?.proposal).toMatchObject({ state: "proposed", action: { do: "edit_draft" } });
 
-    // Agreed: the workflow's Builder makes it (about that step) and it is saved as v2.
+    // Agreed: the workflow's Builder makes it (about that step) and it is saved as v3 (v2 is
+    // the manual the build wrote into the draft).
     model.push(
       editsDraft("Set the amount to 15.00.", (d) => {
         setAmount(d, "15.00");
@@ -932,16 +954,16 @@ describe.skipIf(!h)("builds", () => {
     expect(agreed?.result).toMatch(/^Changed: /);
     expect(b.messages.at(-1)?.text).toContain("Changed the draft: Set the amount to 15.00.");
     let saved = await versions();
-    expect(saved.map((v) => v.version)).toEqual([2, 1]);
+    expect(saved.map((v) => v.version)).toEqual([3, 2, 1]);
     expect(JSON.stringify(saved[0]?.bundle)).toContain('"15.00"');
-    expect(b.draft?.version).toBe(2);
+    expect(b.draft?.version).toBe(3);
 
     // Undo puts the step back, as a new version: history is never rewritten.
     b = await ok("POST", `/api/ops/builds/${id}/messages/${proposed?.id}/proposal`, {
       decide: "undo",
     });
     saved = await versions();
-    expect(saved.map((v) => v.version)).toEqual([3, 2, 1]);
+    expect(saved.map((v) => v.version)).toEqual([4, 3, 2, 1]);
     expect(JSON.stringify(saved[0]?.bundle)).toContain('"12.00"');
     expect(JSON.stringify(saved[0]?.bundle)).not.toContain('"15.00"');
     expect(b.messages.find((m) => m.id === proposed?.id)?.proposal?.state).toBe("undone");
@@ -964,7 +986,7 @@ describe.skipIf(!h)("builds", () => {
     });
     expect(b.messages.find((m) => m.id === rename?.id)?.proposal?.state).toBe("unchanged");
     expect(b.messages.at(-1)?.text).toContain("It already reads well");
-    expect((await versions()).map((v) => v.version)).toEqual([3, 2, 1]);
+    expect((await versions()).map((v) => v.version)).toEqual([4, 3, 2, 1]);
 
     // An edit whose draft was saved again since (in the workflow) is not undone over that save.
     model.push(

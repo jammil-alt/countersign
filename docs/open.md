@@ -328,6 +328,28 @@ finish it:
 | D7 | Before production: the handoff's audit row naming the desktop (`app: desktop`), and the same confirm page as M8 (another app could register `mezonas://` on a computer; the code is useless without the app's verifier). | |
 | D8 | Next: signing Desk items in the app (Touch ID, Windows Hello), the Office add-in for open workbooks, Word, QuickBooks Desktop (Web Connector), sending files already in a folder, network shares, managed installs. | Owner's order. |
 
+### Builds that work first (B0–B6, owner 2026-11-19; `docs/plan.md` §1.155, `docs/builder-plan.md`)
+
+Built 2026-11-19 with no migration: a try on real examples in the POC, decisions on a build, the
+agent manual, the setup checklist, client adjustments and feedback, and governance in three tiers
+(ARCHITECTURE v0.20 §10.16). Left:
+
+| # | What | Notes |
+|---|---|---|
+| G1 | **Run the builds again on staging** (the Nexonia expense agent, invoice intake) and count the operator's actions from New to a running trial. Target: under 15. | `docs/builder-plan.md` §9. Owner, once this is deployed. |
+| G2 | **Merge #433** (Agree on "run the tests"; test cases cut off). | Part of B0 in the plan; not in this sprint's branches. |
+| G3 | A POC try on **a Sandbox record** (today an uploaded document or a JSON input; a record's id can be given as JSON). A **skill** tried on a document (skill cases run on fixtures only, so the API answers 422). | Code. |
+| G4 | Changing a decision's words directly from the Decisions card (today through the conversation, which marks it changed). A custom skill's step counted as writing in the high-risk check (only built-in skills are looked up). | Code. |
+| G5 | **Known risks counted from runs** (`ManualKnownRisk.hits` stays empty), and **deleting** a learned note from the manual (shown, read only). | Code. §1.153 already lists the count. |
+| G6 | `manual.read` given to every agent: today only when listed (`extraTools` or a skill), because adding it to every step changes every model request and the recorded fixtures. | Code, with new fixtures. |
+| G7 | **Governance in the other model calls**: the owner's review, the AI check (confer), path choice, Sloan's and the area owners' chat, the Builder keep their own preambles; only agent and task steps, conversation turns and reach-out messages read the tiers. | Code. |
+| G8 | **A run-level pin** of the governance versions read (today recorded per model call in its stored body; no column fits without a migration). The guardrails and standard policies as seeded rows (`builder-plan.md` §8 "Where kept") would need a table. | Migration, its own PR. |
+| G9 | The guardrails and standard policies are in English for agents; only "How Mezonas agents work" is translated. A fluent speaker's review of the new portal copy (manual, setup checklist, adjustments, charter) joins the language review below. | Owner. |
+| G10 | Setup checklist: the back office can't send a file item for the client; `setup` and `adjust` changes aren't in the back office's change list (who did what is on the checklist and in the manual); the intake form's fields have no guard and the Builder's decisions no parameter (the setting is worked out by code, `settingForDecision`). | Code. Adding fields changes the Builder's answer and its fixtures. |
+| G11 | Client adjustments: **marking a step's own parameter** from the builder's step panel (the schema and the API take one; the definition editor marks the agent's skill parameters and schedules); limits on a date; a **setup answer written into the manual** as a change, as an adjustment is. | Code. |
+| G12 | Feedback on the manual and requests past the bounds arrive as issues with what they are about on their created event; the **area owner's suggestions** (§10.15) don't read that link yet, so the operator turns them into a change by hand. | Code. |
+| G13 | A client user who isn't limited reads "What you can adjust"; only the client admin changes it. Owner to confirm the client user may read it. | Owner decision. |
+
 ### Sign-in codes and the Claude connector (owner, 2026-11-10)
 
 | # | Step | Notes |

@@ -91,6 +91,8 @@ describe("portal settings", () => {
       ["Exports", "/settings/exports"],
       ["Conversations", "/settings/conversations"],
       ["Voice samples", "/settings/voice"],
+      // docs/builder-plan.md §8: the charter to confirm, and the policies.
+      ["Charter and policies", "/settings/charter"],
       // P-8
       ["US texting", "/settings/texting"],
     ]);

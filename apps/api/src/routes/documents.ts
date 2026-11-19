@@ -393,6 +393,10 @@ async function receiveUploads(
   // `document.received`, no reading in the background and no CSV import. It reaches an agent only
   // when Sloan (or Reggie) passes the message on, so the same invoice isn't started twice.
   forChat = false,
+  // DECISION (builder-plan.md B1): a document uploaded to try a build's draft on is stored quietly
+  // too (no `document.received`, so no Sandbox agent starts on it, and no CSV import): the try runs
+  // it. It is still read in the background, as an upload is.
+  forTry = false,
 ) {
   const { c, tx, session, services, defer } = ctx;
   let form: FormData;
@@ -420,7 +424,7 @@ async function receiveUploads(
       purchases: null,
       error: null,
     };
-    if (isCsv(file) && !forChat) {
+    if (isCsv(file) && !forChat && !forTry) {
       try {
         const r = await importPurchasesCsv(tx, {
           tenantId,
@@ -465,9 +469,10 @@ async function receiveUploads(
       results.push({
         ...base,
         kind: "refused" as const,
-        error: forChat
-          ? "Attach PDFs or images (PNG, JPEG, GIF, WebP)."
-          : "Upload PDFs, images (PNG, JPEG, GIF, WebP) or a CSV of purchases.",
+        error:
+          forChat || forTry
+            ? "Attach PDFs or images (PNG, JPEG, GIF, WebP)."
+            : "Upload PDFs, images (PNG, JPEG, GIF, WebP) or a CSV of purchases.",
       });
       continue;
     }
@@ -479,10 +484,11 @@ async function receiveUploads(
         bytes,
         filename: file.name,
         mimeType,
-        meta: forChat
-          ? { uploadedBy: session.user.id, via: "chat" }
-          : { uploadedBy: session.user.id },
-        ...(forChat ? { announce: false } : {}),
+        meta:
+          forChat || forTry
+            ? { uploadedBy: session.user.id, via: forChat ? "chat" : "try" }
+            : { uploadedBy: session.user.id },
+        ...(forChat || forTry ? { announce: false } : {}),
       });
       if (stored.event) events.push(stored.event);
       if (stored.created && !forChat) extract.push(stored.document.id);
@@ -518,7 +524,9 @@ export function documentRoutes(app: Hono<AppEnv>): void {
       ctx.params.id,
       "only the Sandbox client's documents are uploaded from the back office",
     );
-    return narrowToTenant(ctx.tx, t.id, (tx) => receiveUploads({ ...ctx, tx }, t.id));
+    return narrowToTenant(ctx.tx, t.id, (tx) =>
+      receiveUploads({ ...ctx, tx }, t.id, false, ctx.query.for === "try"),
+    );
   });
 
   mount(app, routes.portalDocuments, async ({ tx, tenantIds, query }) => ({

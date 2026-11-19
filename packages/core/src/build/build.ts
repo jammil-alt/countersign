@@ -290,11 +290,269 @@ export function buildHasSetupForm(b: { kind: BuildKind; clientId: string | null 
   return b.kind === "agent" && !b.clientId;
 }
 
+// ── Decisions (docs/builder-plan.md §4) ─────────────────────────────────────────────────────────
+
+/**
+ * Every decision the Builder makes about the process to get the happy path running, one row each.
+ * They are part of the process and need no confirmation, except the high-risk ones (§4.2), which
+ * must be looked at before the client test. Kept on the build's fit-gap record (no migration).
+ */
+export const DECISION_KINDS = ["assumption", "decision_point", "client_setup"] as const;
+export const DecisionKind = z.enum(DECISION_KINDS);
+export type DecisionKind = z.infer<typeof DecisionKind>;
+
+export const DECISION_KIND_WORDS: Record<DecisionKind, string> = {
+  assumption: "Assumption",
+  decision_point: "Decision point",
+  client_setup: "Client setup",
+};
+
+export const DECISION_RISKS = ["high", "normal"] as const;
+export const DecisionRisk = z.enum(DECISION_RISKS);
+export type DecisionRisk = z.infer<typeof DecisionRisk>;
+
+export const DECISION_STATUSES = ["never_discussed", "discussed", "confirmed", "changed"] as const;
+export const DecisionStatus = z.enum(DECISION_STATUSES);
+export type DecisionStatus = z.infer<typeof DecisionStatus>;
+
+export const DECISION_STATUS_WORDS: Record<DecisionStatus, string> = {
+  never_discussed: "Never discussed",
+  discussed: "Discussed",
+  confirmed: "Confirmed",
+  changed: "Changed",
+};
+
+/** The statuses the operator sets (a change is the Builder's rewrite of a looked-at row). */
+export const DECISION_OPERATOR_STATUSES = ["never_discussed", "discussed", "confirmed"] as const;
+export const DecisionOperatorStatus = z.enum(DECISION_OPERATOR_STATUSES);
+
+/** The high-risk list (§4.2, agreed 2026-11-19): a decision in one of these is always high risk. */
+export const DECISION_CATEGORIES = [
+  "writes",
+  "money",
+  "contact",
+  "vendor_data",
+  "approvals",
+  "overwrite",
+] as const;
+export const DecisionCategory = z.enum(DECISION_CATEGORIES);
+export type DecisionCategory = z.infer<typeof DecisionCategory>;
+
+export const DECISION_CATEGORY_WORDS: Record<DecisionCategory, string> = {
+  writes: "Writes into a client's tool",
+  money: "Money",
+  contact: "Contacts people outside the client",
+  vendor_data: "Data leaving to a vendor of ours",
+  approvals: "Approvals and permissions",
+  overwrite: "Overwrites or removes records",
+};
+
+export const DECISION_WHAT_MAX = 300;
+export const DECISION_WHY_MAX = 500;
+export const DECISION_VALUE_MAX = 300;
+
+/** A decision as the Builder writes it: never its status, which is the operator's. */
+export const DecisionDraft = z.object({
+  id: ShortId,
+  what: z
+    .string()
+    .trim()
+    .min(1)
+    .max(DECISION_WHAT_MAX)
+    .describe("The decision, in one plain sentence: Freight and tax stay out of the catalog"),
+  why: z
+    .string()
+    .trim()
+    .max(DECISION_WHY_MAX)
+    .default("")
+    .describe("One sentence: what it rests on (the brief, the catalog, a document you read)"),
+  value: z
+    .string()
+    .trim()
+    .max(DECISION_VALUE_MAX)
+    .optional()
+    .describe("When it is a number or a list: the starting value, e.g. 2% or 5 business days"),
+  kind: DecisionKind.describe(
+    "assumption (you decided; part of the process), decision_point (a person decides in each run: a person step), client_setup (differs by client: asked once at onboarding)",
+  ),
+  risk: DecisionRisk.default("normal").describe(
+    "high when it touches writing into a client's tool, money, contacting people outside the client, data leaving to a vendor of ours, approvals and who signs, or overwriting records; else normal",
+  ),
+  stepId: z
+    .string()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe("The draft's step it shapes, by its id, when there is one"),
+  category: DecisionCategory.optional().describe(
+    "Which high-risk kind it is: writes, money, contact, vendor_data, approvals or overwrite",
+  ),
+});
+export type DecisionDraft = z.infer<typeof DecisionDraft>;
+
+export const Decision = DecisionDraft.extend({
+  status: DecisionStatus.default("never_discussed"),
+  /** Who looked at it last (the operator's name), and when. */
+  by: z.string().nullable().default(null),
+  at: z.string().nullable().default(null),
+  // B5 (docs/builder-plan.md §7): a client admin's change on the agent's settings is written here
+  // as `changed`, by them; `side` says whose `by` is. Optional with no default, so the rows a
+  // build wrote (the operator's) parse and hash as they were.
+  side: z.enum(["client", "operator"]).optional(),
+});
+export type Decision = z.infer<typeof Decision>;
+
+export const DECISIONS_MAX = 60;
+
+/**
+ * Decisions as the model may send them: longer text than a row keeps, so one wordy row doesn't
+ * throw the whole answer away. `clampDecisions` cuts them to size.
+ */
+// DECISION: as the fit-gap's "how", a model's long "what" or "why" is cut at a sentence, not
+// refused.
+export const DecisionAnswer = DecisionDraft.extend({
+  what: z
+    .string()
+    .trim()
+    .min(1)
+    .max(1000)
+    .describe(DecisionDraft.shape.what.description ?? ""),
+  why: z
+    .string()
+    .trim()
+    .max(2000)
+    .default("")
+    .describe(DecisionDraft.shape.why.description ?? ""),
+  value: z.string().trim().max(1000).optional().describe("The starting value, when there is one"),
+});
+export type DecisionAnswer = z.infer<typeof DecisionAnswer>;
+
+export function clampDecisions(list: readonly DecisionAnswer[]): DecisionDraft[] {
+  return list.map((d) => ({
+    ...d,
+    what: clampText(d.what, DECISION_WHAT_MAX),
+    why: clampText(d.why, DECISION_WHY_MAX),
+    ...(d.value !== undefined ? { value: clampText(d.value, DECISION_VALUE_MAX) } : {}),
+  }));
+}
+
+/** Looked at by a person: discussed, confirmed, or changed after a look. */
+export function decisionReviewed(d: Pick<Decision, "status">): boolean {
+  return d.status !== "never_discussed";
+}
+
+/** High risk and nobody has looked at it yet: it holds the move into the client test. */
+export function decisionUnreviewed(d: Pick<Decision, "status" | "risk">): boolean {
+  return d.risk === "high" && !decisionReviewed(d);
+}
+
+/**
+ * The Builder's new and updated decisions onto the stored ones. Rows are never dropped by being
+ * left out (an answer lists only what it adds or changes). A row the Builder updates keeps the
+ * operator's status, who and when; if a person had looked at it and its words, value or kind
+ * changed, it is "changed" (it was looked at, then changed in the conversation). Risk only rises.
+ */
+// DECISION: once high, a decision stays high: code never lowers it, and neither does the Builder's
+// rewrite (strict first, as approvals).
+export function mergeDecisions(
+  before: readonly Decision[],
+  updates: readonly DecisionDraft[],
+): Decision[] {
+  const out = before.map((d) => ({ ...d }));
+  const at = new Map(out.map((d, i) => [d.id, i]));
+  for (const u of updates) {
+    const i = at.get(u.id);
+    if (i === undefined) {
+      if (out.length >= DECISIONS_MAX) continue;
+      at.set(u.id, out.length);
+      out.push({ ...u, status: "never_discussed", by: null, at: null });
+      continue;
+    }
+    const p = out[i] as Decision;
+    const changed = p.what !== u.what || (p.value ?? "") !== (u.value ?? "") || p.kind !== u.kind;
+    out[i] = {
+      ...u,
+      risk: p.risk === "high" || u.risk === "high" ? "high" : "normal",
+      ...(u.category === undefined && p.category !== undefined ? { category: p.category } : {}),
+      ...(u.stepId === undefined && p.stepId !== undefined ? { stepId: p.stepId } : {}),
+      status: decisionReviewed(p) && changed ? "changed" : p.status,
+      by: p.by,
+      at: p.at,
+    };
+  }
+  return out;
+}
+
+/**
+ * A decision's risk worked out by code (§4.2), with the Builder's flag on top: high when the
+ * Builder said so, when it has a category on the high-risk list, or when the step it shapes writes
+ * to a client's tool or contacts people (`writes`, from the draft: `writingStepIds`). Code never
+ * lowers the Builder's high.
+ */
+export function decisionRisk(
+  d: Pick<Decision, "risk" | "category" | "stepId">,
+  writes: ReadonlySet<string> = new Set(),
+): DecisionRisk {
+  if (d.risk === "high") return "high";
+  if (d.category !== undefined) return "high";
+  if (d.stepId !== undefined && writes.has(d.stepId)) return "high";
+  return "normal";
+}
+
+/** The decisions with their risk worked out by code, as the build shows them and its gate reads. */
+export function withDecisionRisk(
+  decisions: readonly Decision[],
+  writes: ReadonlySet<string> = new Set(),
+): Decision[] {
+  return decisions.map((d) => {
+    const risk = decisionRisk(d, writes);
+    return risk === d.risk ? d : { ...d, risk };
+  });
+}
+
+/** The operator marks a decision discussed or confirmed (or back to never discussed). */
+export function setDecisionStatus(
+  decisions: readonly Decision[],
+  id: string,
+  status: (typeof DECISION_OPERATOR_STATUSES)[number],
+  by: string | null,
+  at: string,
+): Decision[] | null {
+  if (!decisions.some((d) => d.id === id)) return null;
+  return decisions.map((d) =>
+    d.id !== id
+      ? d
+      : status === "never_discussed"
+        ? { ...d, status, by: null, at: null }
+        : { ...d, status, by, at },
+  );
+}
+
+/** "2 high-risk decisions haven't been looked at yet." */
+export function unreviewedWords(n: number): string {
+  return n === 1
+    ? "1 high-risk decision hasn't been looked at yet."
+    : `${n} high-risk decisions haven't been looked at yet.`;
+}
+
+/** Decisions as stored: a row that no longer reads is left out rather than losing the record. */
+function readDecisions(raw: unknown): Decision[] {
+  if (!Array.isArray(raw)) return [];
+  const out: Decision[] = [];
+  for (const r of raw) {
+    const parsed = Decision.safeParse(r);
+    if (parsed.success && out.length < DECISIONS_MAX) out.push(parsed.data);
+  }
+  return out;
+}
+
 export const FitGap = z.object({
   rows: z.array(FitRow).max(40).default([]),
   needsTrue: z.array(NeedsTrue).max(20).default([]),
   /** A template's client intake form. */
   setup: z.array(SetupField).max(30).default([]),
+  /** The Builder's decisions (docs/builder-plan.md §4). */
+  decisions: z.array(Decision).max(DECISIONS_MAX).default([]),
 });
 export type FitGap = z.infer<typeof FitGap>;
 
@@ -314,15 +572,26 @@ function withoutPackFields(raw: unknown): unknown {
 }
 
 export function readFitGap(raw: unknown): FitGap {
-  const parsed = FitGap.safeParse(withoutPackFields(raw ?? {}));
-  return parsed.success ? parsed.data : { rows: [], needsTrue: [], setup: [] };
+  // Decisions are read row by row (as the intake form's old fields are dropped): one row that no
+  // longer reads must not lose the rows, the form or the other decisions.
+  const decisions = readDecisions((raw as { decisions?: unknown } | null)?.decisions);
+  const rest =
+    typeof raw === "object" && raw !== null ? { ...(raw as object), decisions: [] } : raw;
+  const parsed = FitGap.safeParse(withoutPackFields(rest ?? {}));
+  return parsed.success
+    ? { ...parsed.data, decisions }
+    : { rows: [], needsTrue: [], setup: [], decisions };
 }
 
-/** A fit-gap as the Builder writes it: no overrides or challenges, which are the operator's. */
+/**
+ * A fit-gap as the Builder writes it: no overrides or challenges, which are the operator's. Its
+ * decisions, when sent, are new or updated rows (`mergeDecisions`).
+ */
 export const FitGapDraft = z.object({
   rows: z.array(FitRowDraft).max(40).default([]),
   needsTrue: z.array(NeedsTrue).max(20).default([]),
   setup: z.array(SetupFieldDraft).max(30).default([]),
+  decisions: z.array(DecisionDraft).max(DECISIONS_MAX).optional(),
 });
 export type FitGapDraft = z.infer<typeof FitGapDraft>;
 
@@ -417,6 +686,8 @@ export function mergeFitGap(before: FitGap, after: FitGapDraft): FitGap {
     rows: rows.slice(0, 40),
     needsTrue: after.needsTrue,
     setup: mergeSetup(before.setup, after.setup),
+    // A fit-gap rewrite never drops a decision; the ones it sends are added or updated.
+    decisions: mergeDecisions(before.decisions, after.decisions ?? []),
   };
 }
 
@@ -475,6 +746,9 @@ export function operatorFitGap(
           s.dropped !== f.dropped;
         return { ...f, byOperator: f.byOperator || changed };
       }),
+      // Decisions change only by their own route (a status) and the Builder's turns: what a save
+      // of the fit-gap sends for them is ignored.
+      decisions: stored.decisions,
     },
   };
 }
@@ -665,9 +939,14 @@ export function gateReasons(f: GateFacts): string[] {
         );
       }
       break;
-    case "poc":
+    case "poc": {
       if (!f.poc.passed) out.push(f.poc.detail);
+      // docs/builder-plan.md §4.2: a high-risk decision is looked at before the client test.
+      // DECISION: a skill build (no client test) is held the same way, before QA.
+      const unreviewed = f.fitgap.decisions.filter(decisionUnreviewed).length;
+      if (unreviewed > 0) out.push(unreviewedWords(unreviewed));
       break;
+    }
     case "client_test":
       if (!f.trialDone) out.push("The client's trial isn't done yet.");
       break;

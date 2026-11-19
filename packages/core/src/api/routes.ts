@@ -1,5 +1,6 @@
 import { z } from "zod";
 // P-4
+import { DecisionDraft } from "../build/build";
 import { ConverseOpsView, ConversePortalView } from "../converse";
 import { DESK_ITEM_FIELDS } from "../desk/item";
 import { Locale } from "../i18n/locale";
@@ -1355,8 +1356,9 @@ export const opsRoutes = {
     auth: "session",
     roles: OPS,
     summary:
-      "Upload files to the Sandbox client as the portal does (multipart, field `files`): PDFs and images become documents, a CSV of purchases becomes transactions (403 not_sandbox in any other client)",
+      "Upload files to the Sandbox client as the portal does (multipart, field `files`): PDFs and images become documents, a CSV of purchases becomes transactions; `for=try` keeps PDFs and images quiet for a build's try (403 not_sandbox in any other client)",
     params: IdParams,
+    query: z.object({ for: z.enum(["try"]).optional() }),
     response: z.object({ results: z.array(UploadResult) }),
   }),
   opsSandboxAuthorizeCallback: defineRoute({
@@ -2042,6 +2044,8 @@ export const opsRoutes = {
       startFromTemplate: z
         .object({ id: z.string(), slug: z.string(), name: z.string() })
         .nullable(),
+      /** docs/builder-plan.md §4: the decisions the Builder made to draft it, for its build. */
+      decisions: z.array(DecisionDraft).optional(),
     }),
   }),
   opsReviseAgent: defineRoute({

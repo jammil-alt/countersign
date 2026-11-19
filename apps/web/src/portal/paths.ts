@@ -12,6 +12,8 @@ export const PORTAL_PATHS = {
   // template's slug only to pick the agent's own view).
   agent: (serviceId: string) => `/agents/${serviceId}`,
   agentRuns: (serviceId: string) => `/agents/${serviceId}/runs`,
+  // docs/builder-plan.md §5 (B3): the agent's manual.
+  agentManual: (serviceId: string) => `/agents/${serviceId}/manual`,
   // The Access tab became Agent settings (2026-11-11); `/agents/:id/access` lands here.
   agentSettings: (serviceId: string) => `/agents/${serviceId}/settings`,
   accounts: "/accounts",
@@ -30,6 +32,8 @@ export const PORTAL_PATHS = {
   billing: "/settings/billing",
   exports: "/settings/exports",
   conversations: "/settings/conversations",
+  // docs/builder-plan.md §8: the client's charter and policies, for the client admin.
+  charter: "/settings/charter",
   voice: "/settings/voice",
   // P-8: US texting registration (docs/plan.md §1.70)
   texting: "/settings/texting",

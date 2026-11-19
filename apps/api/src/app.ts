@@ -62,6 +62,7 @@ import { bankfeedRoutes } from "./routes/bankfeed";
 import { billingRouteHandlers } from "./routes/billing";
 import { browserRoutes } from "./routes/browser";
 import { browserScriptRoutes } from "./routes/browser-scripts";
+import { buildTryRoutes } from "./routes/build-tries";
 import { callsSetupRoutes } from "./routes/calls-setup";
 // R4: business hours, person hours and channels (docs/plan.md §1.86)
 import { channelRoutes } from "./routes/channels";
@@ -101,6 +102,8 @@ import { ledgerRoutes } from "./routes/ledger";
 // R8: the Library's banks (docs/plan.md §1.86)
 import { libraryRoutes } from "./routes/library";
 import { lifecycleRoutes } from "./routes/lifecycle";
+// docs/builder-plan.md §5 (B3): the agent manual
+import { manualRouteHandlers } from "./routes/manual";
 import { messagingSetupRoutes } from "./routes/messaging-setup";
 // §1.116: the phone app
 import { mobileRoutes, mobileSession } from "./routes/mobile";
@@ -301,6 +304,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   reggieRoutes(app);
   // docs/plan.md §1.108: builds, from intake to go-live
   opsBuildRoutes(app);
+  // builder-plan.md B1: try the draft on real examples in the POC test
+  buildTryRoutes(app);
   // docs/plan.md §1.125: the Dev queue
   opsCodeRequestRoutes(app);
   // §1.124 back office work
@@ -345,6 +350,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   accountRoutes(app);
   // v0.12 W2-G: KPIs and the client view, credits running out, the client's audit export
   clientViewRoutes(app);
+  // docs/builder-plan.md §5 (B3): the agent manual
+  manualRouteHandlers(app);
   auditExportRoutes(app);
   // v0.12 W2-C: the test bench, skill tests and the agent lab
   testbenchRoutes(app);

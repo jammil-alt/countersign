@@ -5,6 +5,8 @@
 // Words in the reader's language (docs/plan.md §1.18; English in the back office); the entries'
 // titles and bodies are the client's own words and stay as written.
 import {
+  GOVERNANCE_TAGS,
+  type GovernanceTag,
   KNOWLEDGE_BODY_MAX,
   KNOWLEDGE_TITLE_MAX,
   type KnowledgeEntry,
@@ -16,12 +18,43 @@ import type { PlainKey } from "../i18n/catalog";
 import { type I18n, useI18n } from "../i18n/i18n";
 import { Field, Select, TextArea, TextInput } from "../ui/forms";
 import { Badge, Button, Card, EmptyState } from "../ui/primitives";
+import { TagList, TagPicker } from "./Charter";
+
+// B6: a policy may say what it covers (`tags`); agents read it when their work matches.
+export interface EntryInput {
+  kind: KnowledgeEntryKind;
+  title: string;
+  body: string;
+  tier?: "policy";
+  tags?: GovernanceTag[];
+}
 
 export interface EntryActions {
-  create(input: { kind: KnowledgeEntryKind; title: string; body: string }): Promise<unknown>;
-  edit(id: string, input: { title: string; body: string; baseVersion: number }): Promise<unknown>;
+  create(input: EntryInput): Promise<unknown>;
+  edit(
+    id: string,
+    input: { title: string; body: string; baseVersion: number; tags?: GovernanceTag[] },
+  ): Promise<unknown>;
   archive(id: string, baseVersion: number): Promise<unknown>;
 }
+
+/** The form's values as the create route takes them: tags only when some are picked. */
+export function createInput(v: FormValues): EntryInput {
+  const base = { kind: v.kind, title: v.title, body: v.body };
+  return v.kind === "policy" && v.tags.length > 0
+    ? { ...base, tier: "policy", tags: v.tags }
+    : base;
+}
+
+export interface FormValues {
+  kind: KnowledgeEntryKind;
+  title: string;
+  body: string;
+  tags: GovernanceTag[];
+}
+
+const sameTags = (a: readonly string[], b: readonly string[]) =>
+  a.length === b.length && [...a].sort().join() === [...b].sort().join();
 
 export const KIND_LABEL: Record<KnowledgeEntryKind, string> = { faq: "FAQ", policy: "Policy" };
 
@@ -68,7 +101,7 @@ export function EntryForm({
 }: {
   initial?: KnowledgeEntry;
   submitLabel: string;
-  onSubmit: (values: { kind: KnowledgeEntryKind; title: string; body: string }) => Promise<void>;
+  onSubmit: (values: FormValues) => Promise<void>;
   onCancel?: () => void;
   testId: string;
 }) {
@@ -76,6 +109,13 @@ export function EntryForm({
   const [kind, setKind] = useState<KnowledgeEntryKind>(initial?.kind ?? "faq");
   const [title, setTitle] = useState(initial?.title ?? "");
   const [body, setBody] = useState(initial?.body ?? "");
+  const [tags, setTags] = useState<GovernanceTag[]>(
+    (initial?.tags ?? []).filter((x): x is GovernanceTag =>
+      (GOVERNANCE_TAGS as readonly string[]).includes(x),
+    ),
+  );
+  // The charter isn't tagged: every step reads it.
+  const tagged = kind === "policy" && initial?.tier !== "charter";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const ready = title.trim().length > 0 && body.trim().length > 0;
@@ -86,10 +126,11 @@ export function EntryForm({
     setBusy(true);
     setError(null);
     try {
-      await onSubmit({ kind, title: title.trim(), body: body.trim() });
+      await onSubmit({ kind, title: title.trim(), body: body.trim(), tags: tagged ? tags : [] });
       if (!initial) {
         setTitle("");
         setBody("");
+        setTags([]);
       }
     } catch (err) {
       setError(saveError(err, t));
@@ -135,6 +176,7 @@ export function EntryForm({
           onChange={(e) => setBody(e.target.value)}
         />
       </Field>
+      {tagged ? <TagPicker value={tags} onChange={setTags} testId={`${testId}-tags`} /> : null}
       <div className="flex flex-wrap items-center gap-3">
         <Button
           type="submit"
@@ -202,6 +244,10 @@ export function EntryList({
                   title: v.title,
                   body: v.body,
                   baseVersion: entry.version,
+                  // Tags only when they changed: left out, the server keeps them.
+                  ...(v.kind === "policy" && !sameTags(v.tags, entry.tags ?? [])
+                    ? { tags: v.tags }
+                    : {}),
                 });
                 setEditing(null);
                 onChanged();
@@ -224,6 +270,7 @@ export function EntryList({
                 </div>
               </div>
               <p className="mt-3 whitespace-pre-wrap text-ink">{entry.body}</p>
+              <TagList tags={entry.tags ?? []} testId={`${area}-entry-tags`} />
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 <Button
                   size="sm"

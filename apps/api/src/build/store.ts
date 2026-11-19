@@ -28,6 +28,7 @@ import {
   nextPhase,
   PHASE_WORDS,
   ProposalState,
+  parseSkillRef,
   phaseIndex,
   phasesOf,
   processes,
@@ -41,7 +42,10 @@ import {
   readQa,
   readRequirements,
   readTestPlan,
+  type SkillDefinition,
   toProcessBundle,
+  withDecisionRisk,
+  writingStepIds,
 } from "@countersign/core";
 import {
   appUser,
@@ -65,7 +69,10 @@ import { z } from "zod";
 import { stepRequests } from "../dev-queue/store";
 import { iso, notFound, type Services } from "../http";
 import { goLiveView } from "../lifecycle/stages";
+import { fullSuiteRun, notPendingTry } from "../testbench/partial";
 import { buildFacts, buildStageOf, buildStanding } from "../work/work-list";
+import { trySandbox, tryViews } from "./tries";
+import { failureWhy } from "./why";
 
 export type BuildRow = typeof build.$inferSelect;
 export type BuildItemRow = typeof buildItem.$inferSelect;
@@ -569,7 +576,10 @@ async function suitePoc(
   targetKind: "template" | "skill",
   targetId: string,
   versionId: string | null,
+  buildId: string,
 ): Promise<BuildPocView> {
+  // builder-plan.md B1: a try waiting to be kept isn't a case yet, and a run of some cases (a
+  // try's) isn't the latest run: both show as tries.
   const cases = await tx
     .select({ id: testCase.id, name: testCase.name, required: testCase.required })
     .from(testCase)
@@ -578,12 +588,19 @@ async function suitePoc(
         eq(testCase.targetKind, targetKind),
         eq(testCase.targetId, targetId),
         isNull(testCase.archivedAt),
+        notPendingTry(),
       ),
     );
   const [latest] = await tx
     .select()
     .from(testSuiteRun)
-    .where(and(eq(testSuiteRun.targetKind, targetKind), eq(testSuiteRun.targetId, targetId)))
+    .where(
+      and(
+        eq(testSuiteRun.targetKind, targetKind),
+        eq(testSuiteRun.targetId, targetId),
+        fullSuiteRun(),
+      ),
+    )
     .orderBy(desc(testSuiteRun.createdAt))
     .limit(1);
   const required = cases.filter((c) => c.required);
@@ -595,6 +612,7 @@ async function suitePoc(
         caseId: testCaseResult.testCaseId,
         status: testCaseResult.status,
         runId: testCaseResult.runId,
+        diff: testCaseResult.diff,
       })
       .from(testCaseResult)
       .where(eq(testCaseResult.suiteRunId, latest.id));
@@ -606,6 +624,7 @@ async function suitePoc(
         name: c.name,
         status: byCase.get(c.id)?.status ?? "error",
         runId: byCase.get(c.id)?.runId ?? null,
+        why: failureWhy(byCase.get(c.id)?.diff),
       }));
     requiredFailing = required.filter((c) => byCase.get(c.id)?.status !== "pass").length;
   }
@@ -644,6 +663,8 @@ async function suitePoc(
         }
       : null,
     failures,
+    tries: await tryViews(tx, { kind: targetKind, id: targetId }, buildId, versionId),
+    trySandbox: targetKind === "template" ? await trySandbox(tx) : null,
     testRuns: null,
     passed,
     detail,
@@ -672,6 +693,8 @@ async function testRunPoc(
     required: 0,
     latest: null,
     failures: [],
+    tries: [],
+    trySandbox: null,
     testRuns: { total: rows.length, succeeded, latestRunId: rows[0]?.id ?? null },
     passed: succeeded > 0,
     detail:
@@ -702,12 +725,12 @@ async function pocFacts(
   if (row.kind === "skill") {
     const skillId = draft.view?.skillId ?? null;
     return skillId
-      ? suitePoc(ctx.tx, "skill", skillId, await latestSkillVersion(ctx.tx, skillId))
+      ? suitePoc(ctx.tx, "skill", skillId, await latestSkillVersion(ctx.tx, skillId), row.id)
       : null;
   }
   if (!draft.agentRow) return null;
   return draft.agentRow.kind === "template"
-    ? suitePoc(ctx.tx, "template", draft.agentRow.id, draft.latestVersionId)
+    ? suitePoc(ctx.tx, "template", draft.agentRow.id, draft.latestVersionId, row.id)
     : testRunPoc(ctx.tx, draft.agentRow.id, draft.latestVersionId);
 }
 
@@ -861,6 +884,28 @@ function qaChecks(
   return out;
 }
 
+/**
+ * The draft's steps that write to a client's tool or contact people, by the process validator's
+ * helpers over the platform's tools and built-in skills. A custom skill isn't looked up here: a
+ * decision on its step keeps the Builder's own flag.
+ */
+export function draftWritingSteps(
+  ctx: Pick<StoreCtx, "services">,
+  bundle: DraftFacts["bundle"],
+): Set<string> {
+  if (!bundle) return new Set();
+  const { platform } = ctx.services;
+  const skills: Record<string, SkillDefinition> = {};
+  for (const w of bundle.workflows) {
+    for (const { step } of processes.allSteps(w.workflow)) {
+      if (step.kind !== "skill") continue;
+      const def = platform.catalog.get(parseSkillRef(step.skill).id);
+      if (def) skills[step.skill] = def;
+    }
+  }
+  return writingStepIds(bundle, { tools: platform.tools.specs(), skills });
+}
+
 /** The build as the screen shows it. */
 export async function buildDetail(ctx: StoreCtx, row: BuildRow): Promise<BuildDetail> {
   const { tx } = ctx;
@@ -889,10 +934,16 @@ export async function buildDetail(ctx: StoreCtx, row: BuildRow): Promise<BuildDe
   );
 
   const brief = readBrief(row.brief);
-  const fitgap = readFitGap(row.fitgap);
   const testPlan = readTestPlan(row.testPlan);
   const qa = readQa(row.qa);
   const draft = await draftFacts(ctx, row);
+  // docs/builder-plan.md §4.2: a decision's risk is worked out by code from the draft as it is
+  // now (a step that writes or contacts people), on top of the Builder's flag.
+  const stored = readFitGap(row.fitgap);
+  const fitgap = {
+    ...stored,
+    decisions: withDecisionRisk(stored.decisions, draftWritingSteps(ctx, draft.bundle)),
+  };
   const poc = await pocFacts(ctx, row, draft);
   const clientTest = await clientTestFacts(ctx, row);
   const checks = qaChecks(row, draft, poc, clientTest);

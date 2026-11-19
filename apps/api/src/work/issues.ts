@@ -75,6 +75,11 @@ export interface CreateIssueInput {
   userId: string | null;
   /** The opening message on its conversation, from the raiser (none from the back office). */
   openingText?: string | null;
+  /**
+   * B5 (docs/builder-plan.md §7): what it is about, kept on its `created` event: a line of an
+   * agent's manual (a decision by id) or an adjustable setting asked past its bounds.
+   */
+  about?: Record<string, unknown> | undefined;
   now?: Date;
 }
 
@@ -155,7 +160,7 @@ export async function createIssue(tx: Tx, input: CreateIssueInput): Promise<Issu
     toValue: "reported",
     actor: input.actor,
     userId: input.userId,
-    payload: { source: input.source, urgency },
+    payload: { source: input.source, urgency, ...(input.about ? { about: input.about } : {}) },
   });
   if (input.openingText?.trim()) {
     await postMessage(tx, {

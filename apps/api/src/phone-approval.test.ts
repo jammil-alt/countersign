@@ -317,7 +317,12 @@ describe.skipIf(!h)("approving a sign-in on the phone (§1.154)", () => {
     expect(pushed).toHaveLength(1);
     const [message] = pushed[0] ?? [];
     expect(message).toMatchObject({ to: `ExponentPushToken[dana${n}]`, title: "Mezonas" });
-    expect(JSON.stringify(message)).not.toContain(String(number));
+    // The approval's id and the phone's token are random and may hold the number's digits by
+    // chance ("…-1404-…" holds 40): everything else of the push is checked for it.
+    const shown = JSON.stringify(message)
+      .replaceAll(id, "")
+      .replaceAll(`ExponentPushToken[dana${n}]`, "");
+    expect(shown).not.toContain(String(number));
     expect(JSON.stringify(message)).not.toContain("Chrome");
     expect(j(message).data.path).toBe(`/sign-in-approval?id=${id}`);
 

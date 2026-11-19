@@ -14,6 +14,8 @@ export * from "./account/words";
 export * from "./api/a2p";
 export * from "./api/access";
 export * from "./api/account";
+// docs/builder-plan.md §7 (B5): client adjustments and feedback on the manual
+export * from "./api/adjust";
 export * from "./api/all-routes";
 export * from "./api/approver-rules";
 export * from "./api/assigned";
@@ -71,6 +73,7 @@ export * from "./api/ledger";
 export * from "./api/library";
 // v0.12 W1-A: go-live stages and client controls
 export * from "./api/lifecycle";
+export * from "./api/manual";
 export * from "./api/messaging";
 // §1.116: the phone app
 export * from "./api/mobile";
@@ -108,6 +111,8 @@ export * from "./api/runs-filter";
 // v0.12 W2-F
 export * from "./api/search";
 export * from "./api/second-factor";
+// docs/builder-plan.md §6 (B4): the setup checklist
+export * from "./api/setup";
 // The skill model (owner, 2026-11-10)
 export * from "./api/skill-model";
 // v0.14 W4-C: the Slack channel picker
@@ -151,6 +156,7 @@ export * from "./browser/site";
 export * from "./build/build";
 export * from "./build/code-request-words";
 export * from "./build/code-requests";
+export * from "./build/decisions";
 export * from "./build/issues";
 export * from "./bundle/client-specific";
 export * from "./bundle/diff";
@@ -199,6 +205,8 @@ export * from "./email/layout";
 export * from "./email/onboarding";
 // docs/plan.md §1.121: forms, "Request info"
 export * from "./forms";
+// docs/builder-plan.md §8 (B6): governance in tiers
+export * from "./governance";
 // v0.19: area owners (ARCHITECTURE §10.15)
 export * from "./help/guide";
 // v0.12 W2-E
@@ -235,6 +243,8 @@ export * from "./lazy";
 export * from "./ledger/schemas";
 export * from "./lifecycle/pause";
 export * from "./lifecycle/stage";
+// docs/builder-plan.md §5 (B3): the agent manual
+export * from "./manual/manual";
 export * from "./mappers/qbo";
 export * from "./mappers/upload";
 // P-8: US texting registration
@@ -288,6 +298,11 @@ export * from "./schemas/tool";
 export * from "./schemas/tool-display";
 export * from "./schemas/workflow";
 export * from "./security/session-limits";
+export * from "./setup/adjust";
+export * from "./setup/adjustable";
+export * from "./setup/checklist";
+export * from "./setup/item";
+export * from "./setup/view";
 export * from "./skills/index";
 export * from "./supervisor/health";
 export * from "./template/template";

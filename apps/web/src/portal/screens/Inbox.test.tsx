@@ -614,6 +614,29 @@ describe("The Inbox: Mezonas stepped in", () => {
     );
   });
 
+  // B3 (docs/builder-plan.md §5): the step rests on a decision in the agent's manual that nobody
+  // has discussed yet.
+  it("says a change rests on a decision nobody has discussed yet", async () => {
+    const resting = {
+      ...ITEM,
+      id: "00000000-0000-4000-8000-0000000b0105",
+      payload: {
+        ...ITEM.payload,
+        undiscussed: [{ id: "freight", what: "Freight stays out of the catalog" }],
+      },
+    };
+    const api = fakeApi({
+      ...base,
+      "GET /api/overview": () => overview(1),
+      "GET /api/inbox": inbox(() => ({ open: [resting] })),
+    });
+    renderAt("/inbox", api);
+    const open = await screen.findByTestId("desk-detail");
+    expect(await within(open).findByTestId("desk-undiscussed")).toHaveTextContent(
+      "Based on a decision nobody has discussed yet: freight stays out of the catalog",
+    );
+  });
+
   it("says when we passed an item to you, and why", async () => {
     const passed = {
       ...ITEM,
