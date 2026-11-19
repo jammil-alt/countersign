@@ -174,4 +174,38 @@ describe("the Decisions card", () => {
     expect(within(view).getByTestId("build-decisions-meta")).not.toHaveTextContent("to check");
     expect(within(view).queryByTestId("build-issue-decision:tol")).toBeNull();
   });
+
+  it("starts shut when nothing waits on a check, and its jump link opens it", async () => {
+    localStorage.clear();
+    const looked = decisions.map((d) => ({ ...d, status: "confirmed" as const, by: "Ann", at }));
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/counts": () => ({ needsUs: 0, clients: [] }),
+      [`GET /api/ops/builds/${ID}`]: () => detail(looked),
+    });
+    render(
+      <MemoryRouter initialEntries={[`/ops/builds/${ID}`]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    const view = await screen.findByTestId("build-view");
+    const card = within(view).getByTestId("build-decisions");
+    // Shut: its counts show, its rows don't.
+    expect(within(card).getByTestId("build-decisions-meta")).toHaveTextContent("3 decisions");
+    expect(within(card).queryByTestId("build-decision-tol")).toBeNull();
+    // The bar links to each section, with what waits there.
+    const bar = within(view).getByTestId("build-bar");
+    expect(within(bar).getByTestId("build-jump-phase")).toHaveTextContent("POC test");
+    expect(within(bar).getByTestId("build-jump-decisions")).toHaveTextContent(/^Decisions$/);
+    await userEvent.click(within(bar).getByTestId("build-jump-decisions"));
+    expect(within(card).getByTestId("build-decision-tol")).toBeTruthy();
+    // Folding it again is kept for this browser.
+    await userEvent.click(within(card).getByTestId("build-fold-decisions"));
+    expect(within(card).queryByTestId("build-decision-tol")).toBeNull();
+    expect(JSON.parse(localStorage.getItem("mezonas.build.folded") ?? "{}")).toEqual({
+      decisions: false,
+    });
+  });
 });

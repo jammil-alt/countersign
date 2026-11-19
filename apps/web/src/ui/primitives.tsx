@@ -126,13 +126,32 @@ export function buttonClass(
   return cx("ds-btn", `ds-btn--${variant}`, size === "sm" && "ds-btn--sm", className);
 }
 
+/**
+ * `working`: this button's own action is under way (owner, 2026-11-19: a busy button only greyed
+ * out and read as stuck). It stays at full strength, is off and `aria-busy`, and a slate line runs
+ * along its foot; the line stops under reduced motion and the label still says it.
+ */
 export function Button({
   variant = "secondary",
   size,
   className,
+  working,
+  disabled,
   ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; size?: "sm" }) {
-  return <button type="button" {...rest} className={buttonClass(variant, className, size)} />;
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: ButtonVariant;
+  size?: "sm";
+  working?: boolean | undefined;
+}) {
+  return (
+    <button
+      type="button"
+      {...rest}
+      disabled={disabled || working}
+      aria-busy={working || rest["aria-busy"] || undefined}
+      className={buttonClass(variant, cx(working && "ui-btn--working", className), size)}
+    />
+  );
 }
 
 /**
@@ -150,6 +169,7 @@ export function Card({
   footer,
   pad,
   titleAbove,
+  fold,
 }: {
   children: ReactNode;
   className?: string;
@@ -164,6 +184,11 @@ export function Card({
    * inside it. `testId` goes on the whole group, `className` on the card.
    */
   titleAbove?: boolean;
+  /**
+   * The title folds the card: closed, only its head shows (title and meta, so the counts stay in
+   * sight). The caller keeps whether it is open.
+   */
+  fold?: { open: boolean; onToggle(): void; testId?: string } | undefined;
 }) {
   // DECISION: tables and row lists carry a plain title above them, not a bordered header band
   // (2026-11-10, the owner's call); cards about one thing keep their header inside.
@@ -181,19 +206,38 @@ export function Card({
       </section>
     );
   }
+  const shut = fold ? !fold.open : false;
   return (
     <div
       data-testid={testId}
+      data-folded={shut || undefined}
       className={cx("ds-card", dashed && "border-dashed border-line-strong", className)}
     >
       {title || meta ? (
-        <div className="ui-card__head">
-          {title ? <h3 className="type-subheading text-ink">{title}</h3> : <span />}
+        <div className={cx("ui-card__head", shut && "ui-card__head--shut")}>
+          {title && fold ? (
+            <h3 className="type-subheading text-ink">
+              <button
+                type="button"
+                className="ui-card__fold"
+                aria-expanded={fold.open}
+                onClick={fold.onToggle}
+                data-testid={fold.testId}
+              >
+                <Icon name={fold.open ? "chevron-down" : "chevron-right"} size={16} />
+                {title}
+              </button>
+            </h3>
+          ) : title ? (
+            <h3 className="type-subheading text-ink">{title}</h3>
+          ) : (
+            <span />
+          )}
           {meta ? <div className="ui-card__meta">{meta}</div> : null}
         </div>
       ) : null}
-      {pad ? <div className="ui-card__body">{children}</div> : children}
-      {footer ? <div className="ui-card__foot">{footer}</div> : null}
+      {shut ? null : pad ? <div className="ui-card__body">{children}</div> : children}
+      {footer && !shut ? <div className="ui-card__foot">{footer}</div> : null}
     </div>
   );
 }
