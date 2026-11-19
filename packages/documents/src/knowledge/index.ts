@@ -6,6 +6,8 @@
 export * from "./chunk";
 export * from "./documents";
 export * from "./entries";
+// B6 (docs/builder-plan.md §8): the client's charter and tagged policies.
+export * from "./governance";
 export * from "./search";
 // v0.12 W1-G: voice samples (docs/plan.md §1.42).
 export * from "./voice-email";

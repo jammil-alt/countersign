@@ -7,6 +7,7 @@ import type { ConnectionRef } from "@countersign/connectors";
 import type {
   AgentBundle,
   ApproverRule,
+  ClientGovernance,
   GrantLimits,
   JsonObject,
   PermissionLevel,
@@ -48,6 +49,9 @@ export interface PinnedAgent {
   channels?: Record<string, string>;
   /** The client agent's approver override (null: the client's setting). */
   approver: "client_admin" | "operator" | null;
+  // B6 (docs/builder-plan.md §8): the area the operator set on the agent, over its definition's.
+  /** `agent.area`; absent or null: the definition's `area`, else `general`. */
+  area?: string | null;
 }
 
 export interface ApprovalRouting {
@@ -134,6 +138,13 @@ export interface RuntimeStore {
    * caps nothing.
    */
   agentCostSince?(tenantId: string, agentId: string, since: Date): Promise<string>;
+  // B6 (docs/builder-plan.md §8): governance tiers 1 and 2, the client's part.
+  /**
+   * The client's confirmed charter (its latest confirmed version) and its tagged policies, read at
+   * the start of each model step so a confirmation applies to the next one. Optional: a store
+   * without it reads only the Mezonas guardrails and standard policies.
+   */
+  governance?(tenantId: string): Promise<ClientGovernance>;
 }
 
 export type StepStatus = "running" | "waiting" | "succeeded" | "failed" | "cancelled";

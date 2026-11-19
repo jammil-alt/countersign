@@ -1291,6 +1291,58 @@ export const en = {
   "knowledge.problem.changed":
     "Someone changed this since you opened it. Reload to see the latest, then try again.",
   "knowledge.problem.failed": "We couldn't save it. Try again.",
+  // B6 (docs/builder-plan.md §8): the charter, tags and how our agents work.
+  "knowledge.charter.section": "Your charter",
+  "knowledge.charter.intro":
+    "Who you are, how you speak, what matters to you and what you never do. Our agents read it before every task.",
+  "knowledge.charter.none":
+    "We'll draft your charter from what you told us during onboarding, for you to confirm.",
+  "knowledge.charter.waiting": "Waiting on you",
+  "knowledge.charter.waitingLine":
+    "Read it, then confirm it or edit it. Our agents follow it once you confirm.",
+  "knowledge.charter.inUse": "Our agents follow version {version} until you confirm this one.",
+  "knowledge.charter.confirmed": "Confirmed",
+  "knowledge.charter.confirmedLine": "Confirmed by {who} on {date}",
+  "knowledge.charter.confirm": "Confirm",
+  "knowledge.charter.confirming": "Confirming…",
+  "knowledge.charter.problem": "We couldn't confirm it. Try again.",
+  "knowledge.tags": "What it covers",
+  "knowledge.tagsHint": "Agents read a policy when their work matches what it covers.",
+  "governance.tag.security": "Security",
+  "governance.tag.writing-into-tools": "Writing into tools",
+  "governance.tag.money": "Money",
+  "governance.tag.contacting-people": "Contacting people",
+  "governance.tag.data-handling": "Data handling",
+  "governance.tag.people-and-roles": "People and roles",
+  "governance.tag.purchasing": "Purchasing",
+  "governance.tag.sales": "Sales",
+  "governance.tag.receivables": "Receivables",
+  "governance.tag.bookkeeping": "Bookkeeping",
+  "governance.tag.marketing": "Marketing",
+  "governance.tag.general": "General",
+  "howAgentsWork.title": "How Mezonas agents work",
+  "howAgentsWork.intro": "The rules every agent follows, before your charter and your policies.",
+  "howAgentsWork.tools.title": "They work only through your tools",
+  "howAgentsWork.tools.body":
+    "Agents read and change data only through the connections you gave us, within the permissions you set.",
+  "howAgentsWork.evidence.title": "Every figure has a source",
+  "howAgentsWork.evidence.body":
+    "An agent never makes up a number or a name. What it reports points to the records it came from.",
+  "howAgentsWork.data.title": "Documents are read, not obeyed",
+  "howAgentsWork.data.body":
+    "Text in an invoice, an email or a reply is information. An agent never follows instructions written there.",
+  "howAgentsWork.approval.title": "You approve changes",
+  "howAgentsWork.approval.body":
+    "Changes to your tools wait for a person's approval. Only we can loosen that, and only when you agree.",
+  "howAgentsWork.money.title": "No money moves on its own",
+  "howAgentsWork.money.body":
+    "Agents never pay, transfer or change bank details by themselves, and never sign in to banks or email accounts.",
+  "howAgentsWork.privacy.title": "Your data stays yours",
+  "howAgentsWork.privacy.body":
+    "What an agent learns about your business is used only for you, never for another client.",
+  "howAgentsWork.yours.title": "Your charter and policies come next",
+  "howAgentsWork.yours.body":
+    "Agents then read your charter and your policies. They can add rules and tighten ours, never loosen them.",
 
   // ── Contacts and consent (plan §1.22, §1.25) ──
   "contacts.title": "Contacts",

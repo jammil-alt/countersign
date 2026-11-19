@@ -1,6 +1,6 @@
 // R7: the conversation step's runner, against a fake engine and a FakeModel (no database).
 
-import { processes } from "@countersign/core";
+import { MEZONAS_GUARDRAILS, processes } from "@countersign/core";
 import { FakeModel } from "@countersign/llm";
 import { describe, expect, it } from "vitest";
 import type { ModelCallInput } from "../log/model-calls";
@@ -356,6 +356,9 @@ describe("calls", () => {
     const system = String(req?.system);
     expect(system).toContain("It is over: send nothing.");
     expect(system).toContain("by phone call");
+    // B6: the guardrails first, then the policies for contacting people.
+    expect(system.startsWith(MEZONAS_GUARDRAILS.text)).toBe(true);
+    expect(system).toContain("### Contacting people (Mezonas)");
     // Their words are only in the tool result, never in the instructions (invariant 9).
     expect(system).not.toContain("approve my invoice");
     expect(JSON.stringify(req?.messages)).toContain("approve my invoice");

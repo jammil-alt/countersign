@@ -200,6 +200,8 @@ export * from "./email/layout";
 export * from "./email/onboarding";
 // docs/plan.md §1.121: forms, "Request info"
 export * from "./forms";
+// docs/builder-plan.md §8 (B6): governance in tiers
+export * from "./governance";
 // v0.19: area owners (ARCHITECTURE §10.15)
 export * from "./help/guide";
 // v0.12 W2-E
