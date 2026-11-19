@@ -33,6 +33,7 @@ import { Field, Select, TextArea, TextInput } from "../../ui/forms";
 import { Loaded, Page } from "../../ui/page";
 import { Badge, Button, Card, EmptyState, ErrorNotice, PageHeader, Tag } from "../../ui/primitives";
 import { startConnect } from "./Accounts";
+import { SetupChecklists } from "./SetupChecklists";
 
 type View = PortalIntakeView;
 type Offered = ResponseOf<typeof apiRoutes.portalConnections>["connections"][number];
@@ -46,7 +47,18 @@ export function GettingStartedScreen() {
   return (
     <Page width="narrow" testId="portal-start">
       <Loaded state={state}>
-        {(d) => (d.intake ? <GettingStarted initial={d.intake} /> : <NothingToAnswer />)}
+        {(d) =>
+          // docs/builder-plan.md §6 (B4): each agent's setup checklist, under the intake's cards
+          // (or on its own when no intake is open).
+          d.intake ? (
+            <div className="flex flex-col gap-6">
+              <GettingStarted initial={d.intake} />
+              <SetupChecklists />
+            </div>
+          ) : (
+            <SetupChecklists header empty={<NothingToAnswer />} />
+          )
+        }
       </Loaded>
     </Page>
   );

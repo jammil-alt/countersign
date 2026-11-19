@@ -71,6 +71,7 @@ import { createLlmClient, DEFAULT_MODELS, type LlmTransport } from "@countersign
 import { and, asc, eq, inArray, like, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { withBuildManual } from "../build/manual";
+import { draftSetupItems, withSetupItems } from "../build/setup";
 import {
   addEvent,
   addItems,
@@ -1262,14 +1263,21 @@ async function makeDraft(
 }
 
 /**
- * Writes the agent's manual into the draft (docs/builder-plan.md §5): one new version through the
- * back office's own save, as the operator, when the manual it writes differs from the one there.
- * A skill build has none. A failure is reported and never holds the move.
+/**
+ * Writes what the build owns into the draft, as one new version through the back office's own
+ * save, as the operator, when it changes the draft: the agent's manual (docs/builder-plan.md §5,
+ * B3) and, for a template build, its setup checklist (`definition.setup`, §6, B4), which a client
+ * copy forked from the template carries to the client. A skill build has neither. A failure is
+ * reported and never holds the move.
  */
 // DECISION: written on the moves into the draft and the POC test only, never per turn, so a
 // conversation doesn't add a version each time the Builder records a decision; the manual is
 // written again on the next move.
-async function writeManual(ctx: LongCtx, id: string): Promise<void> {
+// DECISION: only a template build (one with a client intake form) makes a checklist; a build for
+// one client keeps its open items, as its fit-gap does today.
+// DECISION: the manual and the checklist go in one version per move (merged from B3 and B4), so a
+// move adds at most one version.
+async function writeDraftFromBuild(ctx: LongCtx, id: string): Promise<void> {
   const next = await ctx.inTx(async (scoped) => {
     const r = await readBuild(scoped.tx, id);
     if (r.kind !== "agent" || !r.agentId) return null;
@@ -1277,8 +1285,25 @@ async function writeManual(ctx: LongCtx, id: string): Promise<void> {
     if (!latest) return null;
     const parsed = AnyAgentBundle.safeParse(latest.bundle);
     if (!parsed.success) return null;
-    const bundle = withBuildManual(await detailIn(scoped, ctx.services, r), parsed.data);
-    return bundle ? { agentId: r.agentId, versionId: latest.id, bundle } : null;
+    // The decisions with their risk worked out by code, as the build shows them.
+    const detail = await detailIn(scoped, ctx.services, r);
+    const withManual = withBuildManual(detail, parsed.data);
+    let bundle: unknown = withManual ?? latest.bundle;
+    let withSetup: unknown | null = null;
+    if (buildHasSetupForm(r)) {
+      const items = draftSetupItems(ctx.services, detail.build.fitgap, bundle);
+      withSetup = items ? withSetupItems(bundle, items) : null;
+      if (withSetup) bundle = withSetup;
+    }
+    const changeNote =
+      withManual && withSetup
+        ? "The manual and setup checklist, written from the build"
+        : withManual
+          ? "The manual, written from the build"
+          : withSetup
+            ? "Setup checklist from the build"
+            : null;
+    return changeNote ? { agentId: r.agentId, versionId: latest.id, bundle, changeNote } : null;
   });
   if (!next) return;
   try {
@@ -1287,11 +1312,11 @@ async function writeManual(ctx: LongCtx, id: string): Promise<void> {
       body: {
         bundle: next.bundle,
         parentVersionId: next.versionId,
-        changeNote: "The manual, written from the build",
+        changeNote: next.changeNote,
       },
     });
   } catch (error) {
-    reportHandled("writing an agent's manual from its build failed", error, {
+    reportHandled("writing an agent's manual or setup checklist from its build failed", error, {
       kind: "build",
       build: id,
     });
@@ -1386,9 +1411,10 @@ async function move(
       });
     }
   });
-  // 3b. docs/builder-plan.md §5: the agent's manual, written into the draft from the brief, the
-  //     decisions and the known risks when it is drafted and when it goes to the POC test.
-  if (forward && (to === "draft" || to === "poc")) await writeManual(ctx, id);
+  // 3b. docs/builder-plan.md §5 and §6: the agent's manual (from the brief, the decisions and the
+  //     known risks) and a template's setup checklist (from the intake form, the client_setup
+  //     decisions and the draft's writes), when it is drafted and when it goes to the POC test.
+  if (forward && (to === "draft" || to === "poc")) await writeDraftFromBuild(ctx, id);
   // 4. The Builder opens the phases it has work in.
   if (forward && (to === "fitgap" || to === "poc")) await turn(ctx, id, null);
   if (forward && to === "draft") {

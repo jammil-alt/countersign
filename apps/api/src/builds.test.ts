@@ -322,6 +322,8 @@ describe.skipIf(!h)("builds", () => {
     b = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "draft" });
     expect(b.build.phase).toBe("draft");
     expect(b.build.agentId).toBeTruthy();
+    // v1 is the drafter's; v2 adds the manual and the template's setup checklist
+    // (docs/builder-plan.md §5, §6).
     expect(b.draft).toMatchObject({ version: 2, live: false, problems: [] });
     // The fit-gap's build row is an open item; the known risk is one put off from the start,
     // and a template's intake form makes no items: there is no client yet.
@@ -507,6 +509,25 @@ describe.skipIf(!h)("builds", () => {
     // Go waits for the client's copy to be live.
     const waiting = await call("POST", `/api/ops/builds/${id}/decision`, { go: true });
     expect(waiting.status).toBe(409);
+    // docs/builder-plan.md §6: the copy carries the template's setup checklist, and its stages
+    // wait on it; we record the items the client agreed with us.
+    const held = await H.call(OPERATOR, "POST", `/api/ops/agents/${b.build.testAgentId}/stage`, {
+      to: "live",
+      reason: "Signed off on paper",
+    });
+    expect(held.status).toBe(409);
+    expect((held.json as { error: { code: string } }).error.code).toBe("setup_not_done");
+    const goLive = (await H.call(OPERATOR, "GET", `/api/ops/agents/${b.build.testAgentId}/go-live`))
+      .json as { goLive: { setup?: { items: { id: string; done: boolean }[] } } };
+    for (const item of goLive.goLive.setup?.items.filter((i) => !i.done) ?? []) {
+      const done = await H.call(
+        OPERATOR,
+        "POST",
+        `/api/ops/agents/${b.build.testAgentId}/setup/${item.id}`,
+        { value: "2" },
+      );
+      expect(done.status, JSON.stringify(done.json)).toBe(200);
+    }
     const stage = await H.call(OPERATOR, "POST", `/api/ops/agents/${b.build.testAgentId}/stage`, {
       to: "live",
       reason: "Signed off on paper",
