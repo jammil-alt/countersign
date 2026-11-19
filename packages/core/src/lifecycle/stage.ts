@@ -9,6 +9,7 @@ import { GO_LIVE_WORDS } from "../i18n/lifecycle";
 import type { Locale } from "../i18n/locale";
 import type { AgentDefinition } from "../schemas/agent";
 import type { AgentMode } from "../schemas/permissions";
+import { SetupProgress } from "../setup/item";
 
 export const AGENT_STAGES = ["bench", "trial", "signoff", "live"] as const;
 export const AgentStage = z.enum(AGENT_STAGES);
@@ -61,6 +62,8 @@ export const StageState = z
     // DECISION: the client admin's rejections are kept on the agent too (newest last), so the
     // reason is never lost while the lead's thread (W1-C) does not exist yet.
     rejections: z.array(StageRejection).optional(),
+    /** docs/builder-plan.md §6: the setup checklist's progress, by item id. */
+    setup: z.record(z.string(), SetupProgress).optional(),
   })
   .loose();
 export type StageState = z.infer<typeof StageState>;

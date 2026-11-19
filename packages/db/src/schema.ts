@@ -1111,6 +1111,21 @@ export interface AgentStageState {
   trial?: { startedAt: string; minDays: number; minRuns: number; setBy: string | null };
   signoff?: { inboxItemId: string; askedAt: string };
   skipped?: { stage: AgentStage; reason: string; by: string | null; at: string }[];
+  rejections?: { reason: string; by: string | null; at: string; inboxItemId: string | null }[];
+  /** docs/builder-plan.md §6: the setup checklist's progress, by item id (core's SetupProgress). */
+  setup?: Record<
+    string,
+    {
+      done: boolean;
+      by: string | null;
+      byName?: string | null;
+      side?: "client" | "operator" | null;
+      at: string;
+      value?: string;
+      files?: string[];
+      versionId?: string;
+    }
+  >;
 }
 
 /** `agent.pause` (ARCHITECTURE §5.5): one side's pause; `all` pauses every agent of the client. */

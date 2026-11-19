@@ -107,6 +107,8 @@ export * from "./api/runs-ask";
 export * from "./api/runs-filter";
 // v0.12 W2-F
 export * from "./api/search";
+// docs/builder-plan.md §6 (B4): the setup checklist
+export * from "./api/setup";
 export * from "./api/second-factor";
 // The skill model (owner, 2026-11-10)
 export * from "./api/skill-model";
@@ -238,6 +240,9 @@ export * from "./lazy";
 export * from "./ledger/schemas";
 export * from "./lifecycle/pause";
 export * from "./lifecycle/stage";
+export * from "./setup/checklist";
+export * from "./setup/item";
+export * from "./setup/view";
 export * from "./mappers/qbo";
 export * from "./mappers/upload";
 // P-8: US texting registration

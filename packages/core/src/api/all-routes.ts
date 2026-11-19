@@ -8,6 +8,7 @@ import { codeRequestRoutes } from "./code-requests";
 import { opsIntakeRoutes, portalIntakeRoutes, welcomeRoutes } from "./intake";
 import { inviteRoutes } from "./invite";
 import { routes } from "./routes";
+import { setupRoutes } from "./setup";
 
 /**
  * docs/plan.md §1.125: the Dev queue's routes, and §1.149: onboarding v1's (the client file,
@@ -24,4 +25,6 @@ export const allRoutes = {
   ...opsIntakeRoutes,
   ...portalIntakeRoutes,
   ...welcomeRoutes,
+  // docs/builder-plan.md §6 (B4): the setup checklist (Getting started, the agent's page).
+  ...setupRoutes,
 } as const;
