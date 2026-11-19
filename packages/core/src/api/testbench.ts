@@ -130,6 +130,11 @@ export const RunTestsBody = z.strictObject({
    * naming no client). A client's own skill always runs in its client.
    */
   clientId: Id.optional(),
+  /**
+   * builder-plan.md B1: only these cases (in the same scope), e.g. one example tried on a build.
+   * A run of some cases never counts as the version's latest run for a gate.
+   */
+  caseIds: z.array(Id).min(1).max(20).optional(),
 });
 
 /** Turning the gate off needs a reason (logged); turning it on doesn't. */
@@ -243,7 +248,7 @@ export const testbenchRoutes = {
     auth: "session",
     roles: OPS,
     summary:
-      "Run every case of a skill or template version (never writes): pass rate, precision on label fields, cost per case",
+      "Run every case of a skill or template version, or the cases named (never writes): pass rate, precision on label fields, cost per case",
     body: RunTestsBody,
     response: z.object({ suiteRun: SuiteRunView }),
   }),

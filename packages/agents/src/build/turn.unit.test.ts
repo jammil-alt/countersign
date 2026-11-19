@@ -221,6 +221,31 @@ describe("buildTurn", () => {
     ]);
     expect(JSON.stringify(model.requests[0]?.system)).toContain("client intake form");
   });
+
+  // builder-plan.md B1: works first, and real examples before model-made cases.
+  it("fills a missing piece with a person step or a rule first, and fixes a wrong try", async () => {
+    const model = new FakeModel([
+      { toolUse: { name: BUILD_TURN_TOOL, input: { text: "I'd add a person step." } } },
+    ]);
+    await buildTurn(
+      {
+        ...base,
+        phase: "poc",
+        words: "About “Try: invoice.pdf”: freight went into the catalog.",
+        facts: ['Tried "Try: invoice.pdf", not kept yet. What the agent would do (data…): {}'],
+      },
+      { llm: createLlmClient({ transport: model }) },
+    );
+    const system = JSON.stringify(model.requests[0]?.system);
+    expect(system).toContain(
+      "in the first version, a missing piece is a person step (a person decides it in each run) or a simple rule",
+    );
+    expect(system).toContain(
+      "Propose draft_skill only when the piece will be reused by other agents",
+    );
+    expect(system).toContain("When they say a try is wrong");
+    expect(JSON.stringify(model.requests[0]?.messages)).toContain('Tried \\"Try: invoice.pdf\\"');
+  });
 });
 
 describe("makeTestCases", () => {

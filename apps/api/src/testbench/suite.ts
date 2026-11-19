@@ -48,6 +48,7 @@ import { requestRun, type StepRunner, WaitTimeoutError } from "@countersign/work
 import { and, asc, type Column, eq, isNull } from "drizzle-orm";
 import { createRunRow } from "../runs/dispatch";
 import { executeRun, forClient, type RunDeps } from "../runs/execute";
+import { partialMarks } from "./partial";
 
 /** What a TestSuiteWorkflow instance is given (plain JSON); the instance id is the suite run's. */
 export interface SuiteParams {
@@ -65,6 +66,8 @@ export interface SuiteParams {
   /** Templates: where the test copy runs (the Sandbox for a shared suite, else the client). */
   runTenantId?: string;
   actorId: string | null;
+  /** builder-plan.md B1: a run of some cases (`caseIds` named), kept out of every gate. */
+  partial?: boolean;
 }
 
 /** The part of a StepRunner a suite uses. */
@@ -246,9 +249,12 @@ async function runTemplate(deps: RunDeps, params: SuiteParams, c: CaseRow): Prom
   });
   // The named steps' outputs (the last row of each, a retried step's included).
   const expected = (c.expected ?? {}) as Record<string, unknown>;
+  // DECISION (builder-plan.md B1): a case that names no step yet (an example tried on a build)
+  // records every step's output: what the agent would do, kept as the answer if it is right.
+  const every = Object.keys(expected).length === 0;
   const got: Record<string, unknown> = {};
   for (const s of steps) {
-    if (Object.hasOwn(expected, s.nodeId)) got[s.nodeId] = s.output ?? null;
+    if (every || Object.hasOwn(expected, s.nodeId)) got[s.nodeId] = s.output ?? null;
   }
   const extra = {
     run: { status: result.status, reason: result.reason ?? null },
@@ -340,7 +346,8 @@ export async function finishSuite(
         total: Math.max(totals.total, params.caseIds.length),
         passed: totals.passed,
         failed: totals.failed,
-        metrics: { ...totals.metrics },
+        // A partial run stays marked: it never counts for a gate (testbench/partial.ts).
+        metrics: { ...totals.metrics, ...(params.partial ? partialMarks(params.caseIds) : {}) },
         costUsd: totals.costUsd,
         finishedAt: new Date(),
       })
