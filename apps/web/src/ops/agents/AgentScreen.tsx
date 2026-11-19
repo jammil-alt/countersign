@@ -52,6 +52,7 @@ import { ReviseTab } from "./BuilderParts";
 import { DefinitionEditor, type SaveResult } from "./DefinitionEditor";
 import { canDiscard, DiscardButton, DiscardedNotice } from "./DiscardDraft";
 import { AgentLineage, agentKindBadge } from "./Lineage";
+import { OpsManualTab } from "./ManualTab";
 import { OperationPanel, ServicePanel } from "./OperationPanel";
 import { LatestRuns, OverviewTab } from "./OverviewTab";
 import { PricePanel } from "./PricePanel";
@@ -133,6 +134,8 @@ function AgentTabs({
             label: "Steps",
             active: stepsActive,
           },
+          // docs/builder-plan.md §5 (B3): the agent's manual.
+          { to: `${base}/manual${keep}`, label: "Manual" },
           { to: `${base}/runs${keep}`, label: "Runs" },
           {
             to: `${base}/versions${keep}`,
@@ -541,6 +544,11 @@ export function AgentScreen({
                 </EmptyState>
               )
             }
+          />
+          {/* docs/builder-plan.md §5 (B3): the manual of the version shown, with its notes. */}
+          <Route
+            path="manual"
+            element={<OpsManualTab agentId={view.id} version={shown?.version ?? null} />}
           />
           {/* Triggers moved into the Workflow tab (its first step); the old address opens it. */}
           <Route

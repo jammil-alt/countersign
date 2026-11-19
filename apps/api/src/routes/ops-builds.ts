@@ -70,6 +70,7 @@ import {
 import { createLlmClient, DEFAULT_MODELS, type LlmTransport } from "@countersign/llm";
 import { and, asc, eq, inArray, like, sql } from "drizzle-orm";
 import type { Hono } from "hono";
+import { withBuildManual } from "../build/manual";
 import {
   addEvent,
   addItems,
@@ -86,7 +87,6 @@ import {
   summaries,
   withDecisions,
 } from "../build/store";
-import { withBuildManual } from "../build/manual";
 import { clientModels, clientsRefusingModel } from "../compliance/models";
 import { acceptRequest, type DqCtx, fileRequest, linkToRequest } from "../dev-queue/service";
 import { settleShipped } from "../dev-queue/ship";

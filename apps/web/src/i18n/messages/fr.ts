@@ -374,6 +374,8 @@ export const fr: Messages = {
     "Le premier SMS à une personne, et le premier après 30 jours, vous nomme et se termine par la façon de se désinscrire. Nous l'ajoutons.",
   "inbox.findingDone": "Fait",
   "inbox.signAndUpdate": "Approuver et mettre à jour {tool}",
+  // B3: a change that rests on a decision nobody has discussed
+  "inbox.undiscussed": "Repose sur une décision dont personne n'a encore discuté : {what}", // fluent review
   // ── Your Desk (UI-1b) ──
   "desk.title": "Boîte de réception", // fluent review
   "desk.subtitle": "Ce dont vos agents ont besoin de vous, et ce qu'ils ont fait.", // fluent review
@@ -2306,6 +2308,35 @@ export const fr: Messages = {
   "agent.tab.overview": "Vue d'ensemble",
   "agent.tab.runs": "Exécutions",
   "agent.tab.settings": "Réglages de l’agent",
+  // B3: the agent manual (docs/builder-plan.md §5)
+  "agent.tab.manual": "Manuel", // fluent review
+  "manual.whatItDoes": "Ce qu'il fait", // fluent review
+  "manual.howItWorks": "Comment il fonctionne", // fluent review
+  "manual.decisions": "Décisions", // fluent review
+  "manual.decisionPoints": "Où une personne décide", // fluent review
+  "manual.knownRisks": "Risques connus", // fluent review
+  "manual.setup": "Ce que nous avons mis en place avec vous", // fluent review
+  "manual.learned": "Ce qu'il a appris", // fluent review
+  "manual.reads": "Ce qu'il lit", // fluent review
+  "manual.notWritten":
+    "Nous n'avons pas encore écrit le manuel de cet agent. Son fonctionnement est lu à partir de ses étapes.", // fluent review
+  "manual.nothingYet": "Rien pour l'instant.", // fluent review
+  "manual.notAnswered": "Pas encore de réponse", // fluent review
+  "manual.highRisk": "Risque élevé", // fluent review
+  "manual.learnedHidden": "Ce qu'il a appris est réservé à votre administrateur.", // fluent review
+  "manual.ask": "Poser une question à ce sujet", // fluent review
+  "manual.askText": "À propos du manuel de {agent} : « {line} » ", // fluent review
+  "manual.startsAt": "Commence à {value}", // fluent review
+  "manual.onStep": "Étape : {step}", // fluent review
+  "manual.who": "Qui : {who}", // fluent review
+  "manual.byWhen": "Sous {when}", // fluent review
+  "manual.kind.assumption": "Hypothèse", // fluent review
+  "manual.kind.decision_point": "Point de décision", // fluent review
+  "manual.kind.client_setup": "Mis en place avec vous", // fluent review
+  "manual.status.never_discussed": "Jamais discuté", // fluent review
+  "manual.status.discussed": "Discuté", // fluent review
+  "manual.status.confirmed": "Confirmé", // fluent review
+  "manual.status.changed": "Modifié", // fluent review
   "agent.about": "Ce que fait {name}",
   "agent.aboutNone": "Nous n’avons pas encore décrit {name}.",
   "agent.status": "Statut",

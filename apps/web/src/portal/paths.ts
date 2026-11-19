@@ -12,6 +12,8 @@ export const PORTAL_PATHS = {
   // template's slug only to pick the agent's own view).
   agent: (serviceId: string) => `/agents/${serviceId}`,
   agentRuns: (serviceId: string) => `/agents/${serviceId}/runs`,
+  // docs/builder-plan.md §5 (B3): the agent's manual.
+  agentManual: (serviceId: string) => `/agents/${serviceId}/manual`,
   // The Access tab became Agent settings (2026-11-11); `/agents/:id/access` lands here.
   agentSettings: (serviceId: string) => `/agents/${serviceId}/settings`,
   accounts: "/accounts",

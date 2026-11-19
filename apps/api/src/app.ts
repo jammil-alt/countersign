@@ -67,8 +67,6 @@ import { callsSetupRoutes } from "./routes/calls-setup";
 import { channelRoutes } from "./routes/channels";
 import { clientFileRoutes } from "./routes/client-files";
 import { clientViewRoutes } from "./routes/client-view";
-// docs/builder-plan.md §5 (B3): the agent manual
-import { manualRoutes } from "./routes/manual";
 // v0.12 W2-F: the command center, search and plain-words questions
 import { commandCenterRoutes } from "./routes/command-center";
 import { complianceRouteHandlers } from "./routes/compliance";
@@ -103,6 +101,8 @@ import { ledgerRoutes } from "./routes/ledger";
 // R8: the Library's banks (docs/plan.md §1.86)
 import { libraryRoutes } from "./routes/library";
 import { lifecycleRoutes } from "./routes/lifecycle";
+// docs/builder-plan.md §5 (B3): the agent manual
+import { manualRoutes } from "./routes/manual";
 import { messagingSetupRoutes } from "./routes/messaging-setup";
 // §1.116: the phone app
 import { mobileRoutes, mobileSession } from "./routes/mobile";

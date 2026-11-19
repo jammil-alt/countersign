@@ -5,8 +5,8 @@
 import { describe, expect, it } from "vitest";
 import { forbiddenPortalFields } from "../api/contract";
 import { Decision } from "../build/build";
-import { mergeBundles } from "../bundle/merge";
 import { diffBundles } from "../bundle/diff";
+import { mergeBundles } from "../bundle/merge";
 import { bundleHash } from "../canonical";
 import { AgentBundle, AnyAgentBundle } from "../schemas/agent";
 import { bundle, edit } from "../testing/fixtures";

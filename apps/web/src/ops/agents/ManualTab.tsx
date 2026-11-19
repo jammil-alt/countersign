@@ -1,0 +1,24 @@
+// The agent page's Manual tab (docs/builder-plan.md §5, B3): the manual of the version shown (what
+// it does, how it works, its decisions, decision points and known risks), with a client agent's
+// notes for its client read live. A build writes it into the draft; it changes with the agent's
+// versions.
+
+import { apiRoutes } from "../../api/routes";
+import { useApi } from "../../api/useApi";
+import { ManualSections, OPS_MANUAL_TEXT } from "../../manual/ManualSections";
+import { Loaded } from "../../ui/page";
+import { SkeletonRows } from "../../ui/skeleton";
+
+export function OpsManualTab({ agentId, version }: { agentId: string; version: number | null }) {
+  const manual = useApi(apiRoutes.opsAgentManual, {
+    params: { id: agentId },
+    query: version === null ? {} : { version },
+  });
+  return (
+    <div data-testid="agent-manual">
+      <Loaded state={manual} skeleton={<SkeletonRows rows={6} columns={1} />}>
+        {(view) => <ManualSections view={view} text={OPS_MANUAL_TEXT} />}
+      </Loaded>
+    </div>
+  );
+}

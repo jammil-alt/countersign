@@ -30,6 +30,7 @@ import {
   suggestionFacts,
 } from "../inbox/InboxCard";
 import { LateAnswer } from "../inbox/LateAnswer";
+import { UndiscussedLines } from "../inbox/Undiscussed";
 import { packReviewCard } from "../packs/reviews";
 import { PORTAL_PATHS } from "../portal/paths";
 import { ReleaseCodeEntry } from "../portal/screens/AccessRelease";
@@ -69,6 +70,8 @@ const DESK_PLUMBING = new Set([
   "accessRelease",
   // §1.121: a form request's form, shown as its own section.
   "form",
+  // B3: the decisions its step rests on that nobody has discussed, shown as their own lines.
+  "undiscussed",
 ]);
 
 export function DeskDetail({
@@ -331,6 +334,11 @@ export function DeskDetail({
           ) : (
             <ItemBody item={lead} heading={leadHeading} />
           )}
+
+          {/* B3: a change resting on a decision nobody has discussed yet says so. */}
+          {lead.kind === "external_action" ? (
+            <UndiscussedLines payload={lead.payload} testId="desk-undiscussed" />
+          ) : null}
 
           {/* R5: an answer after we went ahead, and the undo a late no is offered (§1.86). */}
           <LateAnswer
