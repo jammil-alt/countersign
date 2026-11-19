@@ -70,7 +70,7 @@ function detail(p: BuildPocView = poc()): BuildDetail {
       statusLine: "",
       stuck: false,
       brief: {},
-      fitgap: { rows: [], needsTrue: [], setup: [] },
+      fitgap: { rows: [], needsTrue: [], setup: [], decisions: [] },
       testPlan: { datasets: [] },
       qa: { accepted: {}, signedBy: null, signedAt: null, decision: null },
     },
