@@ -2975,7 +2975,8 @@ export const ptBR: Messages = {
   "secondStep.continue": "Continuar",
   "secondStep.totp.title": "Adicione a Mezonas ao seu app autenticador",
   "secondStep.totp.step1":
-    "No app, adicione uma conta e digite esta chave. Neste celular, você pode abrir o app diretamente.",
+    "Escaneie este código com seu app autenticador, ou adicione uma conta e digite a chave abaixo. Neste celular, você pode abrir o app diretamente.",
+  "secondStep.totp.qr": "Código QR para adicionar o Mezonas ao seu app autenticador",
   "secondStep.totp.openApp": "Abrir no meu app autenticador",
   "secondStep.totp.key": "Chave de configuração",
   "secondStep.totp.step2": "Depois digite o código de 6 dígitos que o app mostra.",
