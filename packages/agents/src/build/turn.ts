@@ -17,7 +17,11 @@ import {
   type BuildKind,
   type BuildPhase,
   BuildProposal,
+  clampDecisions,
   clampFitGap,
+  DECISION_KIND_WORDS,
+  DECISION_STATUS_WORDS,
+  DecisionAnswer,
   FIT_VERDICTS,
   FIT_WORDS,
   type FitGap,
@@ -120,6 +124,13 @@ export const BuildTurnAnswer = z.object({
   proposal: BuildProposal.optional().describe(
     "One change that settles the issue this answer is about. Nothing changes until the operator agrees",
   ),
+  decisions: z
+    .array(DecisionAnswer)
+    .max(30)
+    .default([])
+    .describe(
+      "Fit-gap, draft and POC test: the decisions you made this turn to get the normal case running, new ones and ones you changed (the whole row, same id); leave out the rest",
+    ),
 });
 export type BuildTurnAnswer = z.infer<typeof BuildTurnAnswer>;
 
@@ -140,6 +151,7 @@ const PHASE_RULES: Record<BuildPhase, string> = {
 - A build or figure out row on the first version is the only thing that needs new work before the POC test, so for each one ask yourself whether the normal case can do without it: if a person can do that part in the first version (approve with the receipt open, pick from two matches), make it a known risk instead.
 - Choosing a path by rules or by the agent's judgement (an if step), handing a case to a person, waiting, notifying, going through a list and repeating are steps every workflow has. Never a gap, never figure out.
 - Don't add open items for rows, for what needs to be true or for the intake form: the API makes them when the direction is agreed (a known risk becomes a put-off item).
+- Start the decisions list here: each choice the fit-gap makes for the normal case (what stays out, a starting value, where a person decides) is a row in "decisions", not an open item or a question.
 - Keep a row the operator dropped as dropped. Keep each row's id when you rewrite it. Say the counts in one sentence, then what needs to be true.
 - Write "how" for a business owner: what does it, in plain words, naming tools, skills and connectors by their names ("the QuickBooks account register"), never their ids ("qbo.account.register").
 - End every fit-gap answer with the next step: when it looks right, press "Agree the direction" under the table; before that they can drop a row, change a verdict with a reason, or ask you about one.
@@ -183,6 +195,7 @@ Issues: everything left to settle is listed under "Issues", each with its key. T
   - draft_skill takes the skill's title, goal (what it does, one sentence), dataIn, dataOut, and rules naming the catalog parts it is made from.
   - A request this build waits on that is in triage may be approved here: propose approve_code_request. Only the operator agrees; agents never accept or close a request.
   - While a step waits on a request, say so plainly: the draft's problem on that step holds the move into the POC test; open questions and other gaps don't.
+- Decisions (fit-gap, draft and POC test): record every decision you make to get the normal case running in "decisions", one row each: what you decided, why (what it rests on), the starting value when it is a number or a list, and the step it shapes. They are part of the process and need no confirmation: don't ask the operator to confirm them. Where the agent can't know (which of two matches, whether to pay), prefer a decision point: a person step where someone decides in each run. A choice that differs by client (a tolerance, who signs, when writes start) is client_setup: it is asked once at onboarding, never guessed in the template. Set "risk" high, with its "category", when it is about writing into a client's tool (writes), money (money), contacting people outside the client (contact), data leaving to a vendor of ours (vendor_data), approvals, permissions or who signs (approvals), or overwriting or removing records (overwrite); only high-risk ones need a person to look at them before the client test. To change one, send the whole row with its id; never set its status, which is the operator's. A decision can be what you're talking about (a decision:… key): explain what it rests on and, if the operator wants it different, update the row (and propose edit_draft when the draft must change).
 - When the operator asks what already exists or overlaps, answer from "Other work" and the catalog's templates, by name; say so when there is nothing.
 - Judge what a catalog part can do by its description and its input and output, never by its name. If the description doesn't say it can (filter, group, total, send to a new kind of contact), it can't.
 - Never say something is done, built or fixed unless the facts show it ("What we know now", the issues). After a change, check: if the issue it was for is still listed as open, say it isn't fixed yet and why. Nothing changes until the operator agrees, so say it as a proposal ("I'd close this as done"), never as done. Propose only what the issue needs and only when it fits: close an item only once it is settled (the operator said so, or the facts show it).
@@ -237,7 +250,12 @@ function stateBlock(input: BuildTurnInput): string {
     `Building: ${input.kind === "skill" ? "a skill" : "an agent"}, "${input.title}", ${input.clientName ? `for the client ${input.clientName}` : "for every client (a template)"}.`,
     `Phase: ${PHASE_WORDS[input.phase].label}. ${PHASE_WORDS[input.phase].closes}`,
     `Brief:\n${brief}`,
-    input.fitgap.rows.length > 0 ? `Fit-gap:\n${JSON.stringify(input.fitgap)}` : null,
+    input.fitgap.rows.length > 0
+      ? `Fit-gap:\n${JSON.stringify({ ...input.fitgap, decisions: undefined })}`
+      : null,
+    (input.fitgap.decisions ?? []).length > 0
+      ? `Decisions (yours, with the operator's status):\n${(input.fitgap.decisions ?? []).map(decisionLine).join("\n")}`
+      : null,
     input.testPlan.datasets.length > 0 ? `Test plan:\n${JSON.stringify(input.testPlan)}` : null,
     input.issues.length > 0 ? `Issues:\n${input.issues.map((i) => `- ${i}`).join("\n")}` : null,
     input.otherWork?.length
@@ -259,6 +277,17 @@ function stateBlock(input: BuildTurnInput): string {
     `</build>`,
   ];
   return lines.filter(Boolean).join("\n\n");
+}
+
+/** One decision for the Builder: its key first, so it can be talked about and updated. */
+export function decisionLine(d: FitGap["decisions"][number]): string {
+  const risk =
+    d.risk === "high" ? `high risk${d.category ? ` (${d.category})` : ""}` : "normal risk";
+  const status = `${DECISION_STATUS_WORDS[d.status].toLowerCase()}${d.by ? ` by ${d.by}` : ""}`;
+  const where = d.stepId ? `, step ${d.stepId}` : "";
+  const value = d.value ? ` Value: ${d.value}.` : "";
+  const why = d.why ? ` Why: ${d.why}` : "";
+  return `- [decision:${d.id}] (${DECISION_KIND_WORDS[d.kind]}, ${risk}, ${status}${where}): ${d.what}${value}${why}`;
 }
 
 const OPENERS: Partial<Record<BuildPhase, string>> = {
@@ -372,6 +401,8 @@ export async function buildTurn(
 // DECISION (QA on staging, 2026-11-16): dropped in code as well as asked against in the prompt.
 const MOVE_CHIP = /^(confirm|agree|approve|move on|go ahead|next phase)\b/i;
 
+const DECISION_PHASES: ReadonlySet<BuildPhase> = new Set(["fitgap", "draft", "poc"]);
+
 /** Only what the phase may change: a brief outside intake, a fit-gap outside fit-gap, are dropped. */
 function cleanAnswer(phase: BuildPhase, answer: BuildTurnAnswer): BuildTurnAnswer {
   const chips = answer.chips.filter((c) => !MOVE_CHIP.test(c.trim()));
@@ -380,6 +411,9 @@ function cleanAnswer(phase: BuildPhase, answer: BuildTurnAnswer): BuildTurnAnswe
     chips,
     items: answer.items,
     answered: answer.answered,
+    // docs/builder-plan.md §4: the Builder starts its decisions in the fit-gap and adds to them
+    // while it drafts and tests; later phases change the process only by going back.
+    decisions: DECISION_PHASES.has(phase) ? clampDecisions(answer.decisions) : [],
   };
   // Which issue and what change are checked by the caller, against the build as it is.
   if (answer.about) out.about = answer.about;
