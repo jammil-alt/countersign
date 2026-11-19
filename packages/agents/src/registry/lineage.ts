@@ -21,6 +21,7 @@ import {
   parseSkillRef,
   processes,
   type Resolution,
+  readManual,
   type SkillDefinition,
   selectChanges,
   validateBundle,
@@ -672,6 +673,7 @@ export function stripForPromotion<B extends AnyAgentBundle>(
     else delete customize.parameters;
   });
   scrubPeople(out.definition.permissions, base?.definition.permissions);
+  scrubManual(out.definition, base?.definition);
   for (const w of out.workflows) {
     const bw = base?.workflows.find((x) => x.slug === w.slug);
     const baseTriggers = bw ? triggersOf(bw.workflow) : [];
@@ -684,6 +686,35 @@ export function stripForPromotion<B extends AnyAgentBundle>(
   }
   // What is left in free text (instructions, titles, messages): addresses removed.
   return redactAddresses(out) as B;
+}
+
+/**
+ * B5 (docs/builder-plan.md §7): the manual's record of a setting changed on this copy (who changed
+ * it, when, and the value chosen: a row with a `side`) is the client's own. Invariant 1: it never
+ * travels in a promotion. Each such row is put back to the base template's row of the same id, or
+ * left out when the base has none, so the merge changes nothing of the template's there. A manual
+ * that no longer reads is the base's, or none.
+ */
+function scrubManual(def: { manual?: unknown }, base: { manual?: unknown } | undefined): void {
+  if (def.manual === undefined) return;
+  const baseManual = readManual(base?.manual);
+  const manual = readManual(def.manual);
+  if (!manual) {
+    if (base?.manual !== undefined) def.manual = cloneJson(base.manual);
+    else delete def.manual;
+    return;
+  }
+  // Nothing changed on this copy: the manual stays as stored.
+  if (!manual.decisions.some((d) => d.side !== undefined)) return;
+  const baseRows = new Map((baseManual?.decisions ?? []).map((d) => [d.id, d]));
+  def.manual = {
+    ...manual,
+    decisions: manual.decisions.flatMap((d) => {
+      if (d.side === undefined) return [d];
+      const b = baseRows.get(d.id);
+      return b ? [cloneJson(b)] : [];
+    }),
+  };
 }
 
 /** The `when` of a path of a step, or undefined when the bundle has no such path. */
