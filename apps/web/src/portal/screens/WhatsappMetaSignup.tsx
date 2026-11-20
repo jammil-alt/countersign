@@ -107,7 +107,7 @@ function loadSdk(link: Link): Promise<FbGlobal> {
 
 /** Back to Connections with a full load, so this page's wider policy goes with it. */
 function backToConnections() {
-  window.location.assign("/accounts");
+  window.location.assign("/connectors/whatsapp_meta");
 }
 
 type Phase = "loading" | "ready" | "signing" | "saving" | "cancelled" | "failed" | "unavailable";
@@ -246,7 +246,7 @@ export function WhatsappMetaSignupScreen() {
           </>
         )}
         {/* A plain link: a full load, so this page's wider policy goes with it. */}
-        <a href="/accounts" className={buttonClass("ghost")}>
+        <a href="/connectors/whatsapp_meta" className={buttonClass("ghost")}>
           {t("callback.back")}
         </a>
       </div>

@@ -143,10 +143,10 @@ export function PortalLayout({ children }: { children: ReactNode }) {
             {limited ? null : (
               <>
                 <SidebarLink
-                  to={PORTAL_PATHS.accounts}
+                  to={PORTAL_PATHS.connectors}
                   icon="bank"
-                  label={t("nav.accounts")}
-                  testId="portal-nav-accounts"
+                  label={t("nav.connectors")}
+                  testId="portal-nav-connectors"
                 />
                 <SidebarLink
                   to={PORTAL_PATHS.contacts}

@@ -397,7 +397,7 @@ describe("portal layout", () => {
       ["portal-nav-inbox", "/inbox"],
       ["portal-nav-requests", "/requests"],
       ["portal-nav-runs", "/runs"],
-      ["portal-nav-accounts", "/accounts"],
+      ["portal-nav-connectors", "/connectors"],
       ["portal-nav-contacts", "/contacts"],
       // §1.122: the admin's team management.
       ["portal-nav-team", "/settings/team"],

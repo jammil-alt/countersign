@@ -1,5 +1,5 @@
 // v0.14 W4-A (docs/plan.md §1.57): connecting the client's own WhatsApp number with Meta's Embedded
-// Signup. The Connections card opens the signup page with a full load (Meta's SDK is allowed only
+// Signup. Its connector page's Connect opens the signup page with a full load (Meta's SDK is allowed only
 // there); the page opens Meta's window with the configuration's id, takes the chosen account and
 // number only from facebook.com's own message (exact origins), and posts the code with the state
 // to the usual callback route. Meta's script and frames are let in on that page only.
@@ -9,6 +9,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import headers from "../../../public/_headers?raw";
 import { AppProviders, AppRoutes } from "../../App";
+import { connectorCard, connectorPageView } from "../../test/connectors";
 import { CLIENT_SESSION, fakeApi, Reply } from "../../test/fixtures";
 import { META_SDK_SCRIPT, sessionInfoOf, WHATSAPP_META_SIGNUP_PATH } from "./WhatsappMetaSignup";
 
@@ -42,10 +43,23 @@ function renderAt(path: string, locale: "en" | "es" = "en") {
     }),
     "GET /api/overview": () => new Reply(404, {}),
     "GET /api/feedback/status": () => ({ enabled: false }),
-    "GET /api/connections": () => ({ connections: [CARD] }),
-    "GET /api/connections/upload/forwarding": () => new Reply(404, {}),
-    "GET /api/documents": () => ({ items: [] }),
-    "GET /api/approver-rules": () => new Reply(404, {}),
+    "GET /api/portal/connectors/whatsapp_meta": () =>
+      connectorPageView(
+        connectorCard({
+          connector: "whatsapp_meta",
+          name: CARD.name,
+          description: CARD.description,
+          group: "messages",
+        }),
+        [],
+      ),
+    "GET /api/access": () => ({
+      items: [],
+      setup: [],
+      browserSites: [],
+      canEdit: true,
+      people: [],
+    }),
     "POST /api/connections/whatsapp_meta/authorize": () => ({
       connection: CARD,
       redirectUrl: null,
@@ -71,14 +85,16 @@ afterEach(() => {
   (window as { FB?: unknown }).FB = undefined;
 });
 
-describe("the WhatsApp (your own number) card", () => {
+describe("the WhatsApp (your own number) page", () => {
   it("opens the signup page with a full load, and asks nothing of the API itself", async () => {
     const assign = vi.fn();
     vi.spyOn(window, "location", "get").mockReturnValue({ ...window.location, assign });
-    const { api } = renderAt("/connections", "es");
-    const card = await screen.findByTestId("portal-connection-whatsapp_meta");
-    expect(within(card).getByText(/Conecte su propio número de WhatsApp Business/)).toBeTruthy();
-    await userEvent.click(within(card).getByTestId("portal-connection-connect"));
+    const { api } = renderAt("/connectors/whatsapp_meta", "es");
+    const card = await screen.findByTestId("portal-connector");
+    expect(
+      await within(card).findByText(/Conecte su propio número de WhatsApp Business/),
+    ).toBeTruthy();
+    await userEvent.click(within(card).getByTestId("connector-connect"));
     expect(assign).toHaveBeenCalledWith(WHATSAPP_META_SIGNUP_PATH);
     expect(api.calls).not.toContain("POST /api/connections/whatsapp_meta/authorize");
   });
@@ -111,7 +127,7 @@ describe("the signup page", () => {
     send("https://www.facebook.com", info("509876543210"));
     const callback = login.mock.calls[0]?.[0] as (r: unknown) => void;
     callback({ authResponse: { code: "fake-code-1" } });
-    await waitFor(() => expect(assign).toHaveBeenCalledWith("/accounts"));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("/connectors/whatsapp_meta"));
     expect(bodies).toEqual([
       {
         params: {
