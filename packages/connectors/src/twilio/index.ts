@@ -2,6 +2,7 @@ import {
   A2pRegistration,
   type A2pStatus,
   type AvailableNumber,
+  CallingRegistration,
   inWhatsAppWindow,
   isNanpNumber,
   type JsonObject,
@@ -133,6 +134,15 @@ export const TwilioConfig = z.looseObject({
   /** Where Twilio sends this client's inbound messages and delivery status. */
   webhooks: z.object({ messages: z.string(), status: z.string() }),
   provisionedAt: z.string(),
+  /**
+   * §1.160: when the subaccount was closed and its numbers released (a retired client). Absent
+   * while it is open. Closed is final: the client can't be reconnected to it.
+   */
+  closedAt: z.string().optional(),
+  /** §1.160: calls that carry the client's name (SHAKEN/STIR and CNAM); absent until asked. */
+  calling: CallingRegistration.optional(),
+  /** The last try at closing that Twilio refused, so the hourly pass tries again. */
+  closeError: z.object({ at: z.string(), message: z.string() }).optional(),
 });
 export type TwilioConfig = z.infer<typeof TwilioConfig>;
 
@@ -296,13 +306,35 @@ export async function releaseNumber(
   fetch: FetchLike,
   auth: TwilioAuth,
   sid: string,
+  /** The account the number is in, when `auth` is the main account acting on a subaccount. */
+  accountSid: string = auth.accountSid,
 ): Promise<void> {
   await twilioRequest(
     fetch,
     auth,
     "DELETE",
-    `${accountUrl(auth.accountSid)}/IncomingPhoneNumbers/${sid}.json`,
+    `${accountUrl(accountSid)}/IncomingPhoneNumbers/${sid}.json`,
   );
+}
+
+/**
+ * Closes a client's subaccount for good, with the main account (§1.160, a retired client). A
+ * closed subaccount can't be reopened; Twilio stops billing it. Its numbers are released first
+ * (`releaseNumber`), one by one, so each release is ours to record.
+ */
+export async function closeSubaccount(
+  fetch: FetchLike,
+  main: TwilioAuth,
+  sid: string,
+): Promise<void> {
+  await twilioRequest(fetch, main, "POST", `${accountUrl(sid)}.json`, {
+    form: { Status: "closed" },
+  });
+}
+
+/** A Twilio answer that the thing asked for isn't there (already released, already closed). */
+export function isTwilioNotFound(error: unknown): boolean {
+  return error instanceof TwilioError && (error.status === 404 || error.code === 20404);
 }
 
 /** A2P 10DLC: approved only when the brand is approved and the campaign verified. */

@@ -140,9 +140,11 @@ To use it on staging: the client's Twilio subaccount, two numbers (the account k
 line price on `/ops/billing` if not $10. Retiring an agent gives its line back to the account
 (Messaging marks it Spare until it's given to another agent or released). Open for the owner:
 whether the account's own number should be billed too, and the five non-English portal strings'
-review. Open to build: retiring a client releases none of its Twilio numbers and doesn't close its
-subaccount, so we keep paying Twilio until someone does it in the console; caller name (CNAM) and
-SHAKEN/STIR registration for calls are by hand in the Twilio console (`docs/plan.md` §1.23).
+review. Built since: retiring a client releases its numbers and closes its Twilio subaccount within
+the hour, and Messaging registers a client's numbers for signed calls (SHAKEN/STIR) and its caller
+name (CNAM) once its texting registration's business profile is approved. Open: the by-hand checks
+against a real subaccount (`packages/connectors/src/twilio/NOTES.md`, "Calls that carry the
+client's name"), before the first client's calls.
 
 ## 2. The marketing site (mezonas.com)
 
