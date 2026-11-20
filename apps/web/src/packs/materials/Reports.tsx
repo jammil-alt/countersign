@@ -566,7 +566,7 @@ export function CatalogView({ clientId, clientName }: { clientId?: string; clien
 }
 
 /**
- * Links to a pack's reports on the back office's client page (its Packs tab), titled as the API
+ * Links to a pack's reports on the back office's client page (its Areas tab), titled as the API
  * names the pack's screens.
  */
 export function PackReportLinks({

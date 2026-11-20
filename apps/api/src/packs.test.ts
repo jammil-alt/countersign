@@ -160,7 +160,16 @@ describe.skipIf(!h)("packs on the platform", () => {
     expect(packTemplates.map((v) => v.version).sort()).toEqual([1, 2, 3]);
     expect(packTemplates.every((v) => v.tenantId === null)).toBe(true);
     const list = await H.call(OPERATOR, "GET", `/api/ops/clients/${H.A.tenantId}/packs`);
-    expect((list.json as J).packs[0]).toMatchObject({ enabled: true });
+    // §1.162: the area's name as people see it, and the connections it works through.
+    expect((list.json as J).packs[0]).toMatchObject({
+      enabled: true,
+      name: "Materials",
+      area: "Purchasing",
+      connections: expect.arrayContaining([
+        { connectors: ["qbo"], use: expect.any(String) },
+        { connectors: ["gmail", "outlook"], use: expect.any(String) },
+      ]),
+    });
     // A client the operator doesn't serve, and an unknown pack.
     expect(
       (await H.call(OPERATOR, "POST", `/api/ops/clients/${H.C.tenantId}/packs/materials/enable`))

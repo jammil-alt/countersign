@@ -7,6 +7,21 @@ import { EventTypeSpec } from "./event";
 import { SkillDefinition } from "./skill";
 import { ToolSpec } from "./tool";
 
+/**
+ * docs/plan.md §1.162 (owner, 2026-11-20): a connection a business area works through, shown on
+ * the client page's Areas tab with its status for that client. Any one of `connectors` meets it
+ * (Gmail or Outlook); the first is the one to offer. `use` says what the area does with it, in the
+ * operator's words.
+ */
+// DECISION: a list of needs, each met by any of its connectors, rather than the manifest's flat
+// `requiresConnectors`: an area can work through one of several tools (Search Console signs in two
+// ways), and nothing here gates switching the area on; it only says what to connect.
+export const AreaConnection = z.object({
+  connectors: z.array(z.string().regex(/^[a-z][a-z0-9_]*$/)).min(1),
+  use: z.string().min(1),
+});
+export type AreaConnection = z.infer<typeof AreaConnection>;
+
 /** ARCHITECTURE §12.1. */
 export const PackManifest = z
   .object({
@@ -15,6 +30,8 @@ export const PackManifest = z
     version: z.string(),
     description: z.string(),
     requiresConnectors: z.array(z.string()).default([]),
+    // §1.162: the connections the pack's business area works through (AreaConnection).
+    connections: z.array(AreaConnection).optional(),
     events: z.array(EventTypeSpec),
     tools: z.array(ToolSpec),
     skills: z.array(SkillDefinition),

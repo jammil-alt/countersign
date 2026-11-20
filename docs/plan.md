@@ -6119,6 +6119,22 @@ connection's matrix compare it with the connector's reviewed default. The contra
 | Setup checklist | A `connect` item is done when its connector is connected, bound and nothing the agent needs there is blocked (a row off, a scope, a grant); its label adds what is missing ("Connect QuickBooks: allow create bills"). Without the skill catalog (the hourly pass) only connected and bound count, as before. // DECISION |
 | Website logins in our changes | A request, like the direct edit, can never change a website login's site, version, identity or the client's stricter settings (422 `browser_login_locked`, PLATFORM_QA SEC-5): the lock is in `editedSettings`, which both paths use. Main's SEC-5 test now checks a real client's config change goes for approval (409) and keeps its "login fields kept" check in the Sandbox. // DECISION |
 
+### 1.162 The client page's Areas tab (owner, 2026-11-20; no migration)
+
+Owner: "we don't have packs anymore and we should add their connectors here." The back office's
+client page has **Overview · Agents · Areas · File · Data · Setup · Settings**. Areas replaces the
+Packs tab; the code keeps the word "pack", and only what people see changes. Areas links to the
+client's one place for connections, Setup's Connectors (§1.161), rather than replacing it: it shows
+which connections each area needs and how each stands, and every change to a connection is made on
+Connectors. The sidebar's Packs (the operator's library of packs) is unchanged.
+
+| Topic | Decision |
+|---|---|
+| What an area needs | `PackManifest.connections` (core `AreaConnection`): each need is met by any one of its connectors (Gmail or Outlook; Search Console's two sign-ins), the first being the one to recommend, with a line on what the area uses it for. Purchasing: Upload, QuickBooks, Gmail or Outlook. Bookkeeping: the bank feed, QuickBooks. Marketing: Search Console, Bing, Website. The manifest's flat `requiresConnectors` stays unused at pack level. Nothing gates switching an area on. A unit test checks every named connector is registered. These are an area's needs, not an agent's: an agent's needs and gaps stay core's `agentNeeds` and `accessGaps`, which the tab reads through the Connectors route rather than working out again. // DECISION |
+| The API | `opsClientPacks` (and the portal's list, which shows neither) carries each pack's `connections` and `area`, the area's name from its intake section ("Purchasing" for Materials). The web matches needs to the client's connections from `opsClientConnections`, and adds the Connectors route's flags (an agent needs something here, a request waiting on the client) from `opsClientConnectors`. // DECISION |
+| The tab | Each area: its name, On or Switch on, a row per need (the connector, what it's for, a status chip: Connected, Needs reconnecting, Not connected, and §1.161's flags) with Open in Connectors (that connector's own page on Setup's Connectors) and, for a connector not yet recommended to the client, Recommend; then its reports and Materials' Import bill prices. // DECISION |
+| Old addresses | `…/packs` redirects to `…/areas` (query and hash kept). Areas' reports keep their `…/reports/<pack>/…` addresses under the tab. The report pages' "area is off" notice opens Areas. // DECISION |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

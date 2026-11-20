@@ -259,6 +259,21 @@ export const materialsManifest: PackManifest = lazyParse(PackManifest, () => ({
   description:
     "Material cost management and purchasing: the client's catalog of materials, matching invoice lines across vendors, prices and alerts, purchase requests, quotes and purchase orders.",
   requiresConnectors: [],
+  // §1.162: the connections the Purchasing area works through, for the client page's Areas tab.
+  connections: [
+    {
+      connectors: ["upload"],
+      use: "Invoices and quotes the client uploads or forwards by email.",
+    },
+    {
+      connectors: ["qbo"],
+      use: "Vendors, bills and their prices, and purchase orders.",
+    },
+    {
+      connectors: ["gmail", "outlook"],
+      use: "Requests for quotes, orders and notes to accounts payable, sent by email.",
+    },
+  ],
   events: MATERIALS_EVENTS,
   tools: ALL_TOOLS.map((t) => t.spec),
   skills: MATERIALS_SKILLS,
