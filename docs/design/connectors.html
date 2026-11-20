@@ -80,6 +80,8 @@
     <button aria-pressed="false" data-go="gmail">3 · Not connected yet</button>
     <button aria-pressed="false" data-go="start">4 · Getting started</button>
     <button aria-pressed="false" data-go="ops">5 · Back office readiness</button>
+    <button aria-pressed="false" data-go="opsedit">6 · Back office: we change it</button>
+    <button aria-pressed="false" data-go="approve">7 · Client approves</button>
   </div>
 </nav>
 
@@ -283,7 +285,72 @@
         </tbody>
       </table>
     </div>
-    <p class="note">The setup checklist holds the trial until every row is Ready. The template's own page shows the same needs, before any client has it.</p>
+    <p class="note">The setup checklist holds the trial until every row is Ready. The template's own page shows the same needs, before any client has it. Send to client makes a change request (screen 6, 7).</p>
+  </div>
+
+  <!-- 6 · Back office: the client's QuickBooks, edited by us --------------------------------------->
+  <div class="screen" id="s-opsedit">
+    <div class="crumbs">Back office / Hartley Millwork / Connectors / QuickBooks Online</div>
+    <div class="head">
+      <span class="mark lg">QB</span>
+      <div class="grow"><h1 style="font-size:22px">QuickBooks Online</h1><div class="ds-help">Hartley Millwork LLC · Connected by Pat Lee (client admin) · Used by Buyer, Bookkeeper</div></div>
+      <span class="ds-pill ds-pill--positive">Connected</span>
+    </div>
+    <div style="background:var(--surface-subtle);border:1px solid var(--line);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:14px"><span>You're editing the client's settings. Tighter changes apply at once; anything looser goes to Hartley Millwork to approve.</span></div>
+
+    <div class="group">
+      <div class="grouphead"><div><h2>Change</h2><div class="m">Edited rows are marked. Nothing is saved yet.</div></div><div class="ds-help">Delete is always off</div></div>
+      <div class="rows">
+        <div class="row"><div class="grow"><div class="t">Attach documents</div><div class="tools">qbo.attachable.upload</div></div><div class="ds-seg"><button aria-pressed="false">On its own</button><button aria-pressed="true">Ask me first</button><button aria-pressed="false">Off</button></div></div>
+        <div class="row"><div class="grow"><div class="t">Create purchase orders</div><div class="tools">qbo.purchaseorder.create · Buyer needs this</div></div><span class="need-tag">Off → Ask me first</span><div class="ds-seg"><button aria-pressed="false">On its own</button><button aria-pressed="true">Ask me first</button><button aria-pressed="false">Off</button></div></div>
+        <div class="row"><div class="grow"><div class="t">Create vendors</div><div class="tools">qbo.vendor.create · Buyer needs this</div></div><span class="need-tag">Off → Ask me first</span><div class="ds-seg"><button aria-pressed="false">On its own</button><button aria-pressed="true">Ask me first</button><button aria-pressed="false">Off</button></div></div>
+        <div class="row"><div class="grow"><div class="t">Update bill and purchase lines</div><div class="tools">update_lines, update_memo</div></div><div class="ds-seg"><button aria-pressed="false">On its own</button><button aria-pressed="false">Ask me first</button><button aria-pressed="true">Off</button></div></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="rows" style="padding:var(--space-4)">
+        <div class="t" style="font-weight:500">2 changes, both looser</div>
+        <div class="m" style="margin:var(--space-1) 0 var(--space-3)">Create purchase orders: Off → Ask me first · Create vendors: Off → Ask me first</div>
+        <label class="ds-label" for="why">Why (Hartley Millwork sees this)</label>
+        <textarea class="ds-textarea" id="why" rows="2" style="width:100%;box-sizing:border-box">The Buyer sends the POs you approve to QuickBooks, and adds a vendor when a quote comes from someone new. Each one still waits for your signature.</textarea>
+        <div class="ds-row" style="margin-top:var(--space-3);gap:var(--space-2);display:flex;justify-content:flex-end">
+          <button class="ds-btn ds-btn--ghost">Discard</button>
+          <button class="ds-btn ds-btn--primary" data-go="approve">Send to Hartley Millwork for approval</button>
+        </div>
+      </div>
+    </div>
+
+    <section>
+      <div class="sechead"><h2>Requests</h2></div>
+      <div class="rows">
+        <div class="row"><div class="grow"><div class="t">Turn on Google Drive "Add a file" for the Buyer</div><div class="m">Sent by Ana, 3 days ago</div></div><span class="ds-pill ds-pill--warning">Waiting on client</span><button class="ds-btn ds-btn--ghost ds-btn--sm">Withdraw</button></div>
+        <div class="row"><div class="grow"><div class="t">Turn off Create bills</div><div class="m">Ana, Nov 12 · applied at once, client told</div></div><span class="ds-pill ds-pill--neutral">Applied</span></div>
+        <div class="row"><div class="grow"><div class="t">Book bank transactions: Ask me first</div><div class="m">Approved by Pat Lee, Nov 9</div></div><span class="ds-pill ds-pill--positive">Approved</span></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- 7 · The client approves, in their Inbox ------------------------------------------------------->
+  <div class="screen" id="s-approve">
+    <div class="crumbs">Inbox</div>
+    <div class="rows" style="padding:var(--space-6)" id="req">
+      <div style="display:flex;gap:var(--space-3);align-items:center;margin-bottom:var(--space-4)">
+        <span class="mark">QB</span>
+        <div class="grow" style="flex:1"><div class="t" style="font-weight:500">Mezonas asks to change QuickBooks access</div><div class="m" style="color:var(--ink-muted);font-size:13px">For the Buyer · asked by <span class="lead">Ana, your Mezonas lead</span> · today</div></div>
+        <span class="ds-pill ds-pill--warning" id="req-state">Waiting on you</span>
+      </div>
+      <div class="rows">
+        <div class="row"><div class="grow"><div class="t">Create purchase orders</div></div><span class="m">Off</span><span class="m">→</span><strong>Ask me first</strong></div>
+        <div class="row"><div class="grow"><div class="t">Create vendors</div></div><span class="m">Off</span><span class="m">→</span><strong>Ask me first</strong></div>
+      </div>
+      <p style="margin:var(--space-4) 0"><span class="ds-eyebrow">Why</span><br>The Buyer sends the POs you approve to QuickBooks, and adds a vendor when a quote comes from someone new. Each one still waits for your signature.</p>
+      <div style="display:flex;gap:var(--space-2);justify-content:flex-end" id="req-actions">
+        <button class="ds-btn ds-btn--ghost" id="decline">Decline</button>
+        <button class="ds-btn ds-btn--primary" id="approve">Approve</button>
+      </div>
+      <p class="note" id="req-note">Nothing changes until you approve. You can change these rows again any time on the QuickBooks page.</p>
+    </div>
   </div>
 
   </main>
@@ -317,6 +384,17 @@
     this.remove();
     var st = document.getElementById('buyer-state'); st.textContent = 'Has what it needs'; st.classList.add('met');
   });
+  function answer(approved) {
+    var s = document.getElementById('req-state');
+    s.className = 'ds-pill ' + (approved ? 'ds-pill--positive' : 'ds-pill--neutral');
+    s.textContent = approved ? 'Approved' : 'Declined';
+    document.getElementById('req-actions').remove();
+    document.getElementById('req-note').textContent = approved
+      ? 'Approved by Pat Lee just now. Both rows are on, asking you first. It shows in QuickBooks’ history with Ana’s request.'
+      : 'Declined by Pat Lee just now. Nothing changed; Ana is told.';
+  }
+  document.getElementById('approve').addEventListener('click', function () { answer(true); });
+  document.getElementById('decline').addEventListener('click', function () { answer(false); });
 </script>
 </body>
 </html>

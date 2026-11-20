@@ -1,7 +1,8 @@
 # Connectors: one place for the client, access set by what agents need
 
-Draft for the owner's agreement (2026-11-20). Nothing here is built yet. Once agreed, the decisions
-go into `docs/plan.md` §1 and the build into its milestones (§7 below).
+Agreed by the owner (2026-11-20): the design and the seven decisions in §10 as recommended, plus
+§7.1 (our changes go to the client to approve). Nothing here is built yet. The decisions go into
+`docs/plan.md` §1 and the build into its milestones (§9 below).
 
 ## 0. What the owner asked
 
@@ -229,8 +230,11 @@ matching words in invariant 8:
 - A **client admin** may turn any read on or off, and set any write between **Off** and **Ask me
   first**. Turning a write on is their consent for their own data. Every change is a
   `connection_change` row with the person.
-- Only **we** set **On its own** (and only where the step, the grant and the agent's `act` mode also
-  allow it, as today). The client may always take it back to Ask me first or Off, at once.
+- Only **we** propose **On its own** (and it only runs where the step, the grant and the agent's
+  `act` mode also allow it, as today). The client may always take it back to Ask me first or Off,
+  at once.
+- **We never loosen a client's connection by ourselves** (§7.1): anything of ours that lets agents
+  do or reach more is a request the client admin approves. Only tightening applies at once.
 - Delete stays off for everyone.
 - A client turning something off that an agent needs is allowed and shows as a gap at once (the
   agent asks or stops at that step; it never works around it).
@@ -271,13 +275,58 @@ first breaks "the operator builds"; the second we can add later as one connector
   reads and changes, from `agentNeeds`. Shown before publishing; part of the template's manual.
 - **New client agent / fork**: a **Readiness** panel per connector: Ready, Not connected, Needs access
   (which rows), Not bound, Grant too narrow. Our fixes are buttons (bind, widen grant); the client's
-  fixes are a **Send to client** button that adds them to the client's Getting started and sends the
-  existing reminder, opening `/connectors/<id>?for=<agent>`.
+  fixes are a **Send to client** button: a change request (§7.1) with exactly the missing rows,
+  which also lands in the client's Getting started.
 - **Setup checklist**: a `connect` item is done when connected, bound **and** gap-free; its label
   says what's missing.
 - **Client file / health**: "Waiting on connectors" counts per client (the catalog's "waiting to
   connect" becomes gap-based).
 - `connectors_offered` stays, meaning **recommended** (shown first), no longer "visible".
+
+### 7.1 Our changes, the client's approval (owner, 2026-11-20)
+
+We see every client's connectors, and we can change their settings, but a change that gives agents
+more goes to the client to approve first.
+
+**What we see.** The client's **Connectors** tab in the back office (today's
+`/ops/clients/:id/connections`, reworked): the same three parts as the portal (Connected, Built for
+you, Recommended), each connection with its account, status, the Read and Change rows, the agents
+using it and their gaps, its history, and any **open requests**. Credentials never show, as today.
+
+**How we change something.** On a connector's page in the back office, we edit the rows (and its
+setup: Gmail query, Drive folders, Slack channels) as if it were ours. Nothing is saved yet. The
+footer says what changed, row by row, and asks **why** (required, shown to the client). Then:
+
+- **Only tighter** (a row to Off, Ask me first instead of On its own, fewer folders): **Apply now**.
+  It applies at once, like today, and the client is told in their Inbox ("Ana turned off Create
+  bills on QuickBooks: …"). We can always make things safer without waiting.
+- **Anything looser** (a row on, a write to Ask me first or On its own, more folders or channels, a
+  wider query): **Send to Hartley Millwork for approval**. Nothing changes until a client admin
+  approves. A mixed change is sent whole.
+
+**The request** (a new record, `connection_change_request`):
+
+- What changes (each row: from → to), why, who asked, for which agent if any, and the matrix it was
+  made against.
+- The client admin gets an **Inbox item**, signal gold, "Waiting on you": "Mezonas asks to change
+  QuickBooks access", the rows as before → after in plain words, the reason, the agent it's for,
+  and **Approve** / **Decline** (with an optional note back). Their usual notices (email, phone)
+  carry it too. A client user sees it read-only.
+- **Approve** applies exactly those rows as one `connection_change` naming both people (who asked,
+  who approved) and the request.
+- If the connection's settings changed since we asked (the client tightened something meanwhile),
+  approving is refused and the request says **Out of date**; we send a new one. A request never
+  overwrites a change the client made.
+- One open request per connection: a new one replaces the old (marked **Replaced**). Open requests
+  end after **14 days** (**Expired**). We can **Withdraw** one until it's answered.
+- States: open, approved, declined, replaced, expired, withdrawn. Never deleted.
+
+**The same request everywhere.** The Readiness panel's Send to client, the gold "Allow what Buyer
+needs" strip in the portal, and our own edits are all a change request. When the client presses
+Allow on their own page, it is their change and applies at once; when we send it, they approve it.
+
+**Not a request:** an agent's grant (its limits within what the connection allows) stays ours, as
+today; binding an agent; the Sandbox client (ours, we change it directly).
 
 ## 8. What changes in the code
 
@@ -289,6 +338,10 @@ first breaks "the operator builds"; the second we can add later as one connector
 | `packages/connectors/*/index.ts` | each connector's reviewed default (§5.1); a test that every connector has one | no |
 | `packages/core/src/permissions/decide.ts`, `apps/api` matrix routes | the client-may-allow rule (§5.4) | no |
 | `connector_setting` | `clients uuid[]` for custom connectors | **yes, its own PR** |
+| `connection_change_request` (new, tenant table with RLS) | our requests and their answers (§7.1); `connection_change` gains the request's id | **yes, same PR as above** |
+| `packages/core/src/permissions` | `changeDirection(before, after)` (tighter / looser / mixed, matrix and setup), `requestStale(request, current)` | no |
+| `apps/api` ops connection routes | `opsUpdateConnection` applies only tighter changes (else 409, "send it for approval"); new create / withdraw request routes; the Sandbox keeps direct edits | no |
+| `apps/api` portal routes, inbox | approve / decline a request (client admin, audited); the Inbox item; the notices | no |
 | `apps/api/src/routes/portal.ts` | every live connector, offered = recommended, custom filtered by client; needs and gaps per connection and per agent; "allow for agent" route | no |
 | `apps/web/src/portal` | `/connectors` and `/connectors/:id`; Getting started cards and agent Settings link to it; Accounts and its vault rail retire | no |
 | `apps/web/src/ops` | Needs panel, Readiness panel, Send to client | no |
@@ -304,16 +357,22 @@ Each ends green; the migration goes alone.
 1. **C1 Needs** (core only): `needs` on skills, `agentNeeds`, `accessGaps`, tests over every
    template in the seed and the packs. No screen.
 2. **C2 Defaults**: each connector's reviewed low-risk default, the new fallback, the test.
-3. **C3 Migration**: `connector_setting.clients` (alone).
+3. **C3 Migration**: `connector_setting.clients` and `connection_change_request` (alone).
 4. **C4 API**: the portal routes (all live connectors, custom filter, needs and gaps, allow for an
-   agent), the client-may-allow rule, contract tests (a client can't set On its own, can't see
-   another client's custom connector).
-5. **C5 Portal**: Connectors and the connector page; Getting started and the agent's Settings link
-   in; redirects from `/accounts`.
-6. **C6 Back office**: Needs, Readiness, Send to client; the setup guard on gaps; the catalog's
-   waiting count.
+   agent), the client-may-allow rule, change requests (create, withdraw, approve, decline, stale,
+   expiry), ops edits tighter-only; contract tests (a client can't set On its own by itself, can't
+   see another client's custom connector; an operator can't loosen a real client's connection
+   without an approved request; approving a stale request changes nothing).
+5. **C5 Portal**: Connectors and the connector page; the change request in the Inbox; Getting
+   started and the agent's Settings link in; redirects from `/accounts`.
+6. **C6 Back office**: the client's Connectors tab with edit → apply or send; open requests;
+   Needs, Readiness, Send to client; the setup guard on gaps; the catalog's waiting count.
 
 ## 10. Decisions for the owner
+
+All seven agreed as recommended (owner, 2026-11-20: "this looks good"), with §7.1 added. Inside
+§7.1 we picked, and the owner may change: tightening by us applies at once (the client is told);
+requests expire after 14 days; one open request per connection.
 
 1. **The client may turn a write on to Ask me first** (§5.4). *Recommended: yes.* Without it, writes
    off by default means every agent needs us to loosen the client's own tool.
