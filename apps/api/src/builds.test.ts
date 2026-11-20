@@ -1026,6 +1026,79 @@ describe.skipIf(!h)("builds", () => {
     expect(JSON.stringify(refused.json)).toContain("Undo it in the workflow instead");
   });
 
+  // QA on staging (2026-11-19, Sentry MEZONAS-API-9): in the draft, the Builder proposed a skill
+  // for a step and named the draft's problem (not a gap item) as what it settles. The proposal was
+  // dropped, so it said it had proposed the skill and no card showed, twice.
+  it("keeps a skill proposal that names no open gap, and makes its gap item when agreed", async () => {
+    let b = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Skill from the draft" });
+    const id = b.build.id;
+    model.push(
+      turnAnswer({
+        text: "Got it.",
+        brief: {
+          goal: { text: "Keep records right", state: "confirmed" },
+          trigger: { text: "Someone asks", state: "confirmed" },
+          dataIn: { text: "The record", state: "confirmed" },
+          dataOut: { text: "The corrected record", state: "confirmed" },
+        },
+      }),
+    );
+    await ok("POST", `/api/ops/builds/${id}/turns`, { text: "An agent that fixes records." });
+    model.push(reviewed());
+    model.push(
+      turnAnswer({
+        text: "One we do as is.",
+        fitgap: {
+          rows: [{ id: "update", need: "Update the record", verdict: "native", how: "Testkit" }],
+        },
+      }),
+    );
+    await ok("POST", `/api/ops/builds/${id}/phase`, { to: "fitgap" });
+    model.push(draftAnswer());
+    b = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "draft" });
+    expect(b.items.filter((i) => i.kind === "gap")).toEqual([]);
+
+    const skill = {
+      do: "draft_skill",
+      itemId: "problem:main:update:missing_input",
+      stepId: "update",
+      title: "Match answers to tasks",
+      goal: "Pick the one task an answer is about, or hand it to a person",
+      dataIn: "The night's answers and the person's open tasks",
+      dataOut: "Each answer with its task, or no match",
+    };
+    model.push(
+      turnAnswer({
+        text: "That step needs a skill. I'd draft it as a skill build.",
+        proposal: { summary: "Draft the skill “Match answers to tasks”", action: skill },
+      }),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "Build the matching skill." });
+    const proposed = b.messages.at(-1);
+    expect(proposed?.proposal).toMatchObject({ state: "proposed", action: { do: "draft_skill" } });
+    expect(proposed?.proposal?.action).not.toHaveProperty("itemId");
+
+    // Agreed: the skill build starts, and the draft has a gap item that names it, once.
+    b = await ok("POST", `/api/ops/builds/${id}/messages/${proposed?.id}/proposal`, {
+      decide: "agree",
+    });
+    expect(b.messages.at(-1)?.text).toContain("I started the skill build “Match answers to tasks”");
+    const gaps = b.items.filter((i) => i.kind === "gap");
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]).toMatchObject({ owner: "builder", state: "in_progress", stepId: "update" });
+    expect(gaps[0]?.ref.buildId).toBeTruthy();
+
+    // A second skill for the same step is not proposed: it has its skill build.
+    model.push(
+      turnAnswer({
+        text: "I'd draft it again.",
+        proposal: { summary: "Draft the skill again", action: skill },
+      }),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "And again?" });
+    expect(b.messages.at(-1)?.proposal).toBeUndefined();
+  });
+
   // QA on staging (2026-11-16): the fit-gap failed three times out of three. The raw validation
   // error reached the screen, the operator's words vanished, and nothing reached Sentry.
   it("says a failed turn in the conversation, keeps it from the model and retries it", async () => {

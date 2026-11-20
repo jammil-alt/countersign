@@ -394,6 +394,10 @@ export async function addItems(
         state: i.state ?? "open",
         resolvedAt: i.state && !itemOpen(i.state) ? new Date() : null,
         createdBy: userId,
+        // Items are listed by created_at, then id. now() is the transaction's start, so items
+        // added together tied, and a v7 id is random within its millisecond: they came back in
+        // any order (a flaky builds test, 2026-11-19). The clock's time keeps them in this order.
+        createdAt: sql`clock_timestamp()`,
       })
       .onConflictDoNothing()
       .returning({ id: buildItem.id });
