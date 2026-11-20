@@ -275,6 +275,8 @@ export * as processes from "./process";
 export * from "./process/change-class";
 // Agent motion (docs/plan.md §1.106): the thinking state a running step shows.
 export { THINKING_STATES, type ThinkingState, thinkingOf } from "./process/thinking";
+// Invariant 9: what a prompt puts between its tags can't close them.
+export * from "./prompt-data";
 export * from "./reach/rules";
 export * from "./roles";
 export * from "./rules/compile";

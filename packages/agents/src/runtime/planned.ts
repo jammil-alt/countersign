@@ -13,6 +13,7 @@ import {
   isAlwaysSigned,
   type JsonObject,
   type ModelChoice,
+  promptJson,
   type ReachLanguage,
   recipientOf,
   releaseOf,
@@ -297,7 +298,7 @@ export async function composeReachMessage(
       {
         role: "user",
         // The person's name is data too: it can be theirs to set (a WhatsApp profile name).
-        content: `Write the message for the person in the data.\n<data>\n${JSON.stringify({ to: input.contactName, record: input.data })}\n</data>`,
+        content: `Write the message for the person in the data.\n<data>\n${promptJson({ to: input.contactName, record: input.data })}\n</data>`,
       },
     ],
     tool: { name: "message", description: "The message to send.", schema: Composed },
