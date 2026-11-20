@@ -17,7 +17,13 @@
 //
 // The old skills stay registered, unchanged, for stored agents (invariant 3).
 
-import { lazy, lazyObject, type processes, type SkillDefinition } from "@countersign/core";
+import {
+  lazy,
+  lazyObject,
+  type processes,
+  type SkillDefinition,
+  type SkillNeed,
+} from "@countersign/core";
 import { DEFAULT_MODELS } from "@countersign/llm";
 import { z } from "zod";
 import { CONTENT_GET_TOOL } from "../content/tools";
@@ -49,6 +55,8 @@ function aiSkill(def: {
   summary: string;
   reads?: string[];
   requiresConnectors?: string[];
+  // Connectors C1 (docs/connectors-plan.md §4.2): what it needs that no tool of its own says.
+  needs?: SkillNeed[];
 }): SkillDefinition {
   return lazyObject({
     schemaVersion: 1,
@@ -66,6 +74,7 @@ function aiSkill(def: {
     settings: [],
     summary: def.summary,
     requiresConnectors: def.requiresConnectors ?? [],
+    ...(def.needs ? { needs: def.needs } : {}),
     requiresPacks: [PACK_ID],
     producesAlerts: false,
   });
@@ -155,6 +164,15 @@ export const WRITE_FORUM_REPLY_SKILL = aiSkill({
     why: z.string().min(1).max(500),
   }),
   requiresConnectors: ["hackernews"],
+  // The thread comes in its input, read by an earlier step: it calls no Hacker News tool itself.
+  needs: [
+    {
+      connector: "hackernews",
+      verb: "read",
+      entity: "story",
+      why: "to read the thread it answers",
+    },
+  ],
   summary: "Read a forum thread: {{decision}}",
 });
 

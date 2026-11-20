@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { BrowserSiteSlug } from "../browser/site";
 import { JsonSchema, LocalizedTemplate, SkillId, ToolId } from "./common";
+import { EntityId, Verb } from "./permissions";
 import { Rules } from "./rules";
 // The skill model (owner, 2026-11-10): parameters and the rule rows' typed values.
 import {
@@ -121,6 +122,25 @@ export const SkillRule = z
   });
 export type SkillRule = z.infer<typeof SkillRule>;
 
+// Connectors (docs/connectors-plan.md §4.2): what a skill needs of a client's connection beyond
+// what its tools already say (a tool's `connector`, `verb` and `entity` are its need).
+/**
+ * One thing a skill needs on a client's connection: a verb, on a record type or the connector's
+ * verb as a whole, and why, in words a client reads ("to read the vendor's last bills").
+ */
+export const SkillNeed = z
+  .strictObject({
+    connector: z.string().regex(/^[a-z][a-z0-9_-]*$/),
+    verb: Verb,
+    /** The record type (one of the connector's `permissionEntities`); absent: the whole verb. */
+    entity: EntityId.optional(),
+    why: z.string().trim().min(1).max(200),
+  })
+  // Delete stays off for every connection (ARCHITECTURE §6.1), so nothing may need it.
+  .refine((n) => n.verb !== "delete", { message: "nothing may need delete", path: ["verb"] })
+  .meta({ id: "SkillNeed" });
+export type SkillNeed = z.infer<typeof SkillNeed>;
+
 /** ARCHITECTURE §9.2. */
 export const SkillDefinition = z
   .object({
@@ -149,6 +169,10 @@ export const SkillDefinition = z
     /** Client timeline line over the skill's output (docs/plan.md §1.2 "Client run timeline"). */
     summary: LocalizedTemplate.optional(),
     requiresConnectors: z.array(z.string()).default([]),
+    // Connectors (docs/connectors-plan.md §4.2): needs its tools don't say. Optional with no
+    // default, so stored skill versions parse and hash as they were.
+    /** What the skill needs on a client's connections beyond its tools' own needs. */
+    needs: z.array(SkillNeed).max(30).optional(),
     requiresPacks: z.array(z.string()).default([]),
     /** Outputs must carry `sources` (CLAUDE.md invariant 10). */
     producesAlerts: z.boolean().default(false),

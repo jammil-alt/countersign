@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connectors mockup</title>
+<!-- docs/connectors-plan.md: the client's one Connectors place, a connector's page, the agent's
+     needs and the back office's readiness. Built on the design system's own files. Open it from the
+     repo (the links are relative); the strip at the top switches screens. -->
+<link rel="stylesheet" href="../../packages/design-system/tokens.css">
+<link rel="stylesheet" href="../../packages/design-system/components/bundle.css">
+<style>
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font-sans); }
+  .switch { position: sticky; top: 0; z-index: 5; display: flex; gap: var(--space-2); flex-wrap: wrap;
+    padding: var(--space-3) var(--space-4); background: var(--surface); border-bottom: 1px solid var(--line); }
+  .switch .label { font-family: var(--font-mono); font-size: 12px; color: var(--ink-muted); align-self: center; margin-right: var(--space-2); text-transform: uppercase; letter-spacing: .06em; }
+  .app { display: flex; min-height: calc(100vh - 56px); }
+  .app > .ds-sidebar { flex: none; }
+  main { flex: 1; min-width: 0; padding: var(--space-10) var(--space-16); max-width: 1000px; }
+  .screen { display: none; } .screen.on { display: block; }
+  h1 { font-size: 28px; font-weight: 500; letter-spacing: -0.02em; margin: 0 0 var(--space-1); }
+  h2 { font-size: 16px; font-weight: 500; margin: 0; }
+  .sub { color: var(--ink-muted); margin: 0 0 var(--space-8); }
+  section { margin-top: var(--space-10); }
+  .sechead { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: var(--space-3); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--space-3); }
+  .tile { display: flex; gap: var(--space-3); align-items: flex-start; padding: var(--space-4); background: var(--surface);
+    border: 1px solid var(--line); border-radius: var(--radius-md); cursor: pointer; text-align: left; font: inherit; color: inherit; }
+  .tile:hover { border-color: var(--line-strong); }
+  .tile p { margin: 2px 0 0; font-size: 13px; color: var(--ink-muted); }
+  .tile .how { font-family: var(--font-mono); font-size: 11px; color: var(--ink-muted); margin-top: var(--space-2); }
+  .mark { flex: none; width: 36px; height: 36px; border-radius: var(--radius-md); display: grid; place-items: center;
+    font-weight: 500; font-size: 13px; background: var(--surface-subtle); border: 1px solid var(--line); color: var(--ink); }
+  .mark.lg { width: 48px; height: 48px; font-size: 16px; }
+  .rows { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; }
+  .row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--line); }
+  .row:first-child { border-top: 0; }
+  .row.click { cursor: pointer; } .row.click:hover { background: var(--surface-subtle); }
+  .row .grow { flex: 1; min-width: 0; }
+  .row .t { font-weight: 500; } .row .m { font-size: 13px; color: var(--ink-muted); }
+  .needs { background: var(--signal-tint); color: var(--signal-ink); border: 1px solid var(--line); border-radius: var(--radius-md);
+    padding: var(--space-4); display: flex; gap: var(--space-4); align-items: center; }
+  .needs.done { background: var(--positive-tint); color: var(--ink); }
+  .needs .grow { flex: 1; }
+  .needs ul { margin: var(--space-1) 0 0; padding-left: 18px; }
+  .crumbs { font-size: 13px; color: var(--ink-muted); margin-bottom: var(--space-4); }
+  .crumbs a { color: var(--link); text-decoration: none; cursor: pointer; }
+  .head { display: flex; gap: var(--space-4); align-items: center; margin-bottom: var(--space-6); }
+  .head .grow { flex: 1; }
+  .group { margin-top: var(--space-8); }
+  .grouphead { display: flex; align-items: center; justify-content: space-between; padding: var(--space-3) var(--space-4);
+    background: var(--surface-subtle); border: 1px solid var(--line); border-bottom: 0; border-radius: var(--radius-md) var(--radius-md) 0 0; }
+  .grouphead + .rows { border-radius: 0 0 var(--radius-md) var(--radius-md); }
+  .grouphead .m { font-size: 13px; color: var(--ink-muted); }
+  .need-tag { font-size: 12px; padding: 1px 8px; border-radius: var(--radius-pill); background: var(--signal-tint); color: var(--signal-ink); white-space: nowrap; }
+  .need-tag.met { background: var(--positive-tint); color: var(--ink); }
+  .ds-seg button { font-size: 13px; }
+  .tools { font-family: var(--font-mono); font-size: 11px; color: var(--ink-muted); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+  .note { font-size: 13px; color: var(--ink-muted); margin-top: var(--space-3); }
+  .lead { color: var(--copper-ink); }
+  table.ready { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.ready th { text-align: left; font-weight: 500; font-size: 12px; color: var(--ink-muted); padding: var(--space-2) var(--space-4); border-bottom: 1px solid var(--line); }
+  table.ready td { padding: var(--space-3) var(--space-4); border-bottom: 1px solid var(--line); vertical-align: top; }
+  @media (max-width: 760px) {
+    .app > .ds-sidebar { display: none; }
+    main { padding: var(--space-6) var(--space-4); }
+    .two { grid-template-columns: 1fr; }
+    .row { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="switch" aria-label="Mockup screens">
+  <span class="label">Mockup</span>
+  <div class="ds-seg" role="group" id="switch">
+    <button aria-pressed="true" data-go="list">1 · Connectors</button>
+    <button aria-pressed="false" data-go="qbo">2 · QuickBooks, for the Buyer</button>
+    <button aria-pressed="false" data-go="gmail">3 · Not connected yet</button>
+    <button aria-pressed="false" data-go="start">4 · Getting started</button>
+    <button aria-pressed="false" data-go="ops">5 · Back office readiness</button>
+    <button aria-pressed="false" data-go="opsedit">6 · Back office: we change it</button>
+    <button aria-pressed="false" data-go="approve">7 · Client approves</button>
+  </div>
+</nav>
+
+<div class="app">
+  <aside class="ds-sidebar">
+    <span class="ds-eyebrow" style="padding:6px 10px 10px">Hartley Millwork</span>
+    <button class="ds-navitem">Home</button>
+    <button class="ds-navitem">Inbox<span class="ds-num">3</span></button>
+    <button class="ds-navitem">Runs</button>
+    <button class="ds-navitem" aria-current="page" data-go="list">Connectors<span class="ds-num">2</span></button>
+    <button class="ds-navitem">Contacts</button>
+    <button class="ds-navitem">Settings</button>
+  </aside>
+
+  <main>
+
+  <!-- 1 · The list ----------------------------------------------------------------------------->
+  <div class="screen on" id="s-list">
+    <h1>Connectors</h1>
+    <p class="sub">The tools your agents work in. You sign in; you decide what they may read and change.</p>
+
+    <div class="needs">
+      <div class="grow">
+        <strong>The Buyer needs 2 things from you</strong>
+        <ul>
+          <li>QuickBooks: allow creating purchase orders and vendors</li>
+          <li>Gmail: connect it to send quote requests</li>
+        </ul>
+      </div>
+      <button class="ds-btn ds-btn--secondary" data-go="qbo">Review</button>
+    </div>
+
+    <section>
+      <div class="sechead"><h2>Connected</h2><span class="ds-help">3</span></div>
+      <div class="rows">
+        <div class="row click" data-go="qbo">
+          <span class="mark">QB</span>
+          <div class="grow"><div class="t">QuickBooks Online</div><div class="m">Hartley Millwork LLC · Used by Buyer, Bookkeeper · Reads 9 · changes 2, asking you first</div></div>
+          <span class="need-tag">Buyer needs 2</span>
+          <span class="ds-pill ds-pill--positive">Connected</span>
+        </div>
+        <div class="row click">
+          <span class="mark">SL</span>
+          <div class="grow"><div class="t">Slack</div><div class="m">#purchasing · Used by Buyer · Posts messages, asking you first</div></div>
+          <span class="ds-pill ds-pill--positive">Connected</span>
+        </div>
+        <div class="row click">
+          <span class="mark">BK</span>
+          <div class="grow"><div class="t">Bank feed</div><div class="m">Chase ····4410 · Used by Bookkeeper · Reads only</div></div>
+          <span class="ds-pill ds-pill--risk">Sign in again</span>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="sechead"><h2>Built for you</h2><span class="ds-help">Made for Hartley Millwork only</span></div>
+      <div class="grid">
+        <button class="tile"><span class="mark">MS</span><span><strong>MillSoft ERP</strong><p>Your shop's job and stock system. Reads jobs and stock levels.</p><div class="how">You enter a key · Connected</div></span></button>
+        <button class="tile"><span class="mark">NL</span><span><strong>Northside Lumber portal</strong><p>The Buyer signs in with its own login to check prices.</p><div class="how">Website login · In your vault</div></span></button>
+        <button class="tile"><span class="mark">+</span><span><strong>Ask for a connector</strong><p>Use a tool we don't list? Tell us which, and what the agent should do there.</p><div class="how">Goes to Ana, your Mezonas lead</div></span></button>
+      </div>
+    </section>
+
+    <section>
+      <div class="sechead"><h2>Browse</h2><input class="ds-input" placeholder="Search connectors" style="max-width:240px"></div>
+      <p class="ds-eyebrow">Recommended for you</p>
+      <div class="grid" style="margin-bottom:var(--space-6)">
+        <button class="tile" data-go="gmail"><span class="mark">GM</span><span><strong>Gmail</strong><p>Send email from your mailbox. We can't read it.</p><div class="how">You sign in · <span class="lead">Buyer needs this</span></div></span></button>
+        <button class="tile"><span class="mark">GD</span><span><strong>Google Drive</strong><p>File invoices and POs in the folders you choose.</p><div class="how">You sign in</div></span></button>
+      </div>
+      <p class="ds-eyebrow">Money</p>
+      <div class="grid" style="margin-bottom:var(--space-6)">
+        <button class="tile"><span class="mark">BL</span><span><strong>BILL</strong><p>Bills and vendor payments.</p><div class="how">You sign in</div></span></button>
+        <button class="tile"><span class="mark">RA</span><span><strong>Ramp</strong><p>Card transactions and receipts.</p><div class="how">You sign in</div></span></button>
+        <button class="tile"><span class="mark">ST</span><span><strong>Stripe</strong><p>Payments, payouts and customers.</p><div class="how">You enter a key</div></span></button>
+      </div>
+      <p class="ds-eyebrow">Email and messages</p>
+      <div class="grid">
+        <button class="tile"><span class="mark">OL</span><span><strong>Outlook</strong><p>Send email from your Microsoft mailbox.</p><div class="how">You sign in</div></span></button>
+        <button class="tile"><span class="mark">TM</span><span><strong>Microsoft Teams</strong><p>Post to the channels you add us to.</p><div class="how">You sign in</div></span></button>
+        <button class="tile"><span class="mark">WA</span><span><strong>WhatsApp</strong><p>Message vendors and your team.</p><div class="how">You sign in with Meta</div></span></button>
+      </div>
+    </section>
+  </div>
+
+  <!-- 2 · QuickBooks, connected, with the Buyer picked ------------------------------------------>
+  <div class="screen" id="s-qbo">
+    <div class="crumbs"><a data-go="list">Connectors</a> / QuickBooks Online</div>
+    <div class="head">
+      <span class="mark lg">QB</span>
+      <div class="grow"><h1 style="font-size:22px">QuickBooks Online</h1><div class="ds-help">Hartley Millwork LLC · Last sync 4 minutes ago · Connected by Pat Lee</div></div>
+      <span class="ds-pill ds-pill--positive">Connected</span>
+      <button class="ds-btn ds-btn--ghost">Sign in again</button>
+      <button class="ds-btn ds-btn--ghost">Disconnect</button>
+    </div>
+
+    <div class="needs" id="qbo-needs">
+      <div class="grow">
+        <strong id="qbo-needs-title">Buyer needs 2 more things here</strong>
+        <ul id="qbo-needs-list">
+          <li>Create purchase orders, to send the POs you approve</li>
+          <li>Create vendors, when a quote comes from a new vendor</li>
+        </ul>
+        <div class="note" id="qbo-needs-note" style="color:inherit">Each one still waits for your approval before it's written.</div>
+      </div>
+      <button class="ds-btn ds-btn--primary" id="allow">Allow what Buyer needs</button>
+    </div>
+
+    <div class="group">
+      <div class="grouphead">
+        <div><h2>Read</h2><div class="m">What agents can look at. Reads never change anything.</div></div>
+        <div class="ds-seg" role="group"><button aria-pressed="true">On</button><button aria-pressed="false">Off</button></div>
+      </div>
+      <div class="rows">
+        <div class="row"><div class="grow"><div class="t">Bills</div><div class="tools">qbo.bill.query</div></div><span class="need-tag met">Buyer, Bookkeeper</span><div class="ds-seg"><button aria-pressed="true">On</button><button aria-pressed="false">Off</button></div></div>
+        <div class="row"><div class="grow"><div class="t">Vendors</div><div class="tools">qbo.vendor.query</div></div><span class="need-tag met">Buyer</span><div class="ds-seg"><button aria-pressed="true">On</button><button aria-pressed="false">Off</button></div></div>
+        <div class="row"><div class="grow"><div class="t">Purchase orders</div><div class="tools">qbo.purchaseorder.query</div></div><span class="need-tag met">Buyer</span><div class="ds-seg"><button aria-pressed="true">On</button><button aria-pressed="false">Off</button></div></div>
+        <div class="row"><div class="grow"><div class="t">Items, accounts, classes</div><div class="tools">3 record types</div></div><div class="ds-seg"><button aria-pressed="true">On</button><button aria-pressed="false">Off</button></div></div>
+        <div class="row"><div class="grow"><div class="t">Invoices, customers, payments</div><div class="tools">3 record types</div></div><div class="ds-seg"><button aria-pressed="true">On</button><button aria-pressed="false">Off</button></div></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="grouphead">
+        <div><h2>Change</h2><div class="m">What agents can write. Started low: only what's easy to take back.</div></div>
+        <div class="ds-help">Delete is always off</div>
+      </div>
+      <div class="rows">
+        <div class="row"><div class="grow"><div class="t">Attach documents</div><div class="tools">qbo.attachable.upload</div></div><span class="need-tag met">Bookkeeper</span><div class="ds-seg"><button aria-pressed="true">Ask me first</button><button aria-pressed="false">Off</button></div></div>
+        <div class="row"><div class="grow"><div class="t">Add notes to invoices</div><div class="tools">qbo.invoice.add_note</div></div><div class="ds-seg"><button aria-pressed="true">Ask me first</button><button aria-pressed="false">Off</button></div></div>
+        <div class="row" data-need><div class="grow"><div class="t">Create purchase orders</div><div class="tools">qbo.purchaseorder.create</div></div><span class="need-tag">Buyer needs this</span><div class="ds-seg"><button aria-pressed="false">Ask me first</button><button aria-pressed="true">Off</button></div></div>
+        <div class="row" data-need><div class="grow"><div class="t">Create vendors</div><div class="tools">qbo.vendor.create</div></div><span class="need-tag">Buyer needs this</span><div class="ds-seg"><button aria-pressed="false">Ask me first</button><button aria-pressed="true">Off</button></div></div>
+        <div class="row"><div class="grow"><div class="t">Create bills</div><div class="tools">qbo.bill.create</div></div><div class="ds-seg"><button aria-pressed="false">Ask me first</button><button aria-pressed="true">Off</button></div></div>
+        <div class="row"><div class="grow"><div class="t">Book bank transactions</div><div class="tools">purchases, deposits, transfers</div></div><span class="need-tag met">Bookkeeper</span><div class="ds-seg"><button aria-pressed="true">Ask me first</button><button aria-pressed="false">Off</button></div></div>
+        <div class="row"><div class="grow"><div class="t">Update bill and purchase lines</div><div class="tools">update_lines, update_memo</div></div><div class="ds-seg"><button aria-pressed="false">Ask me first</button><button aria-pressed="true">Off</button></div></div>
+      </div>
+      <p class="note">"On its own" shows only where your Mezonas lead has set it up with you. You can always move it back.</p>
+    </div>
+
+    <div class="group">
+      <div class="grouphead">
+        <div><h2>Changes by Mezonas</h2><div class="m">How much your Mezonas lead may change here without asking you each time.</div></div>
+      </div>
+      <div class="rows" id="may">
+        <label class="row click"><input type="radio" name="may" value="ask" checked><div class="grow"><div class="t">Ask me each time</div><div class="m">Every change that lets agents do more comes to your Inbox to approve.</div></div></label>
+        <label class="row click"><input type="radio" name="may" value="needs"><div class="grow"><div class="t">Allow what agents need</div><div class="m">Mezonas may turn on what your agents need here, asking you first before each write. Anything else still comes to you.</div></div></label>
+        <label class="row click"><input type="radio" name="may" value="any"><div class="grow"><div class="t">Allow any change</div><div class="m">Mezonas may change any row and this tool's setup, up to "Ask me first".</div></div></label>
+        <div class="row" id="may-for" style="display:none"><div class="grow"><div class="t">For how long</div></div><div class="ds-seg"><button aria-pressed="false">Until I turn it off</button><button aria-pressed="true">For 30 days</button></div></div>
+      </div>
+      <p class="note" id="may-note">You're told about every change, and you can undo any of them here. "On its own" always needs your yes.</p>
+    </div>
+
+    <section>
+      <div class="sechead"><h2>Used by</h2></div>
+      <div class="rows">
+        <div class="row"><div class="grow"><div class="t">Buyer</div><div class="m">Purchasing · reads bills, vendors, POs · creates POs and vendors</div></div><span class="need-tag" id="buyer-state">Needs 2</span></div>
+        <div class="row"><div class="grow"><div class="t">Bookkeeper</div><div class="m">Bookkeeping · reads bills, accounts · books bank transactions</div></div><span class="need-tag met">Has what it needs</span></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- 3 · Not connected yet ---------------------------------------------------------------------->
+  <div class="screen" id="s-gmail">
+    <div class="crumbs"><a data-go="list">Connectors</a> / Gmail</div>
+    <div class="head">
+      <span class="mark lg">GM</span>
+      <div class="grow"><h1 style="font-size:22px">Gmail</h1><div class="ds-help">Send email from your mailbox. We ask Google for sending only: we can't read your mail.</div></div>
+      <button class="ds-btn ds-btn--primary">Connect</button>
+    </div>
+    <div class="needs">
+      <div class="grow"><strong>Buyer needs this</strong> to send quote requests to your vendors. Connecting turns on "Send email" for the Buyer, asking you first.</div>
+    </div>
+    <div class="two" style="margin-top:var(--space-8)">
+      <div>
+        <div class="grouphead"><div><h2>Read</h2><div class="m">Nothing. Replies come back by forwarding.</div></div></div>
+        <div class="rows"><div class="row"><div class="grow m">Gmail is send only.</div></div></div>
+      </div>
+      <div>
+        <div class="grouphead"><div><h2>Change</h2><div class="m">Once connected</div></div></div>
+        <div class="rows">
+          <div class="row"><div class="grow"><div class="t">Send email</div><div class="tools">gmail.send · up to 5 attachments</div></div><span class="ds-pill ds-pill--neutral">Ask me first</span></div>
+        </div>
+      </div>
+    </div>
+    <p class="note">Any of your team can connect their own mailbox. You can change all of this after connecting.</p>
+  </div>
+
+  <!-- 4 · Getting started links into the same page ----------------------------------------------->
+  <div class="screen" id="s-start">
+    <h1>Getting the Buyer ready</h1>
+    <p class="sub">Three things from you, then Ana runs a trial with you.</p>
+    <div class="rows">
+      <div class="row"><span class="mark">QB</span><div class="grow"><div class="t">QuickBooks: allow 2 things</div><div class="m">Connected. The Buyer needs to create purchase orders and vendors, asking you first.</div></div><button class="ds-btn ds-btn--secondary" data-go="qbo">Review</button></div>
+      <div class="row"><span class="mark">GM</span><div class="grow"><div class="t">Connect Gmail</div><div class="m">To send quote requests from your mailbox.</div></div><button class="ds-btn ds-btn--primary" data-go="gmail">Connect</button></div>
+      <div class="row"><span class="mark">SL</span><div class="grow"><div class="t">Slack</div><div class="m">Connected. The Buyer has what it needs.</div></div><span class="ds-pill ds-pill--positive">Done</span></div>
+      <div class="row"><span class="mark">?</span><div class="grow"><div class="t">Which account do POs book to?</div><div class="m">A question for the Buyer's set-up.</div></div><button class="ds-btn ds-btn--secondary">Answer</button></div>
+    </div>
+    <p class="note">Every connect card opens the connector's own page. There is no second place to connect.</p>
+  </div>
+
+  <!-- 5 · Back office: readiness for a client agent ---------------------------------------------->
+  <div class="screen" id="s-ops">
+    <div class="crumbs">Back office / Hartley Millwork / Buyer</div>
+    <h1 style="font-size:22px">Readiness</h1>
+    <p class="sub">What this agent needs from Hartley Millwork's connectors, from its steps' tools and skills.</p>
+    <div class="rows">
+      <table class="ready">
+        <thead><tr><th>Connector</th><th>Needs</th><th>State</th><th>Fix</th></tr></thead>
+        <tbody>
+          <tr><td>QuickBooks Online</td><td>Read bills, vendors, POs, accounts · create POs, vendors (ask first)</td><td><span class="need-tag">Off on the connection: create POs, vendors</span></td><td>Client allows · <button class="ds-btn ds-btn--link">Send to client</button></td></tr>
+          <tr><td>Gmail</td><td>Send email (ask first)</td><td><span class="need-tag">Not connected</span></td><td>Client connects · <button class="ds-btn ds-btn--link">Send to client</button></td></tr>
+          <tr><td>Slack</td><td>Post a message (ask first)</td><td><span class="need-tag met">Ready</span></td><td>—</td></tr>
+          <tr><td>Google Drive</td><td>Add a file (ask first)</td><td><span class="need-tag">Connected, not bound</span></td><td><button class="ds-btn ds-btn--link">Bind</button> (us)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">The setup checklist holds the trial until every row is Ready. The template's own page shows the same needs, before any client has it. Send to client makes a change request (screen 6, 7).</p>
+  </div>
+
+  <!-- 6 · Back office: the client's QuickBooks, edited by us --------------------------------------->
+  <div class="screen" id="s-opsedit">
+    <div class="crumbs">Back office / Hartley Millwork / Connectors / QuickBooks Online</div>
+    <div class="head">
+      <span class="mark lg">QB</span>
+      <div class="grow"><h1 style="font-size:22px">QuickBooks Online</h1><div class="ds-help">Hartley Millwork LLC · Connected by Pat Lee (client admin) · Used by Buyer, Bookkeeper</div></div>
+      <span class="ds-pill ds-pill--positive">Connected</span>
+    </div>
+    <div style="background:var(--surface-subtle);border:1px solid var(--line);border-radius:var(--radius-md);padding:var(--space-3) var(--space-4);font-size:14px"><span>You're editing the client's settings. Tighter changes apply at once; anything looser goes to Hartley Millwork to approve.</span></div>
+
+    <div class="group">
+      <div class="grouphead"><div><h2>Change</h2><div class="m">Edited rows are marked. Nothing is saved yet.</div></div><div class="ds-help">Delete is always off</div></div>
+      <div class="rows">
+        <div class="row"><div class="grow"><div class="t">Attach documents</div><div class="tools">qbo.attachable.upload</div></div><div class="ds-seg"><button aria-pressed="false">On its own</button><button aria-pressed="true">Ask me first</button><button aria-pressed="false">Off</button></div></div>
+        <div class="row"><div class="grow"><div class="t">Create purchase orders</div><div class="tools">qbo.purchaseorder.create · Buyer needs this</div></div><span class="need-tag">Off → Ask me first</span><div class="ds-seg"><button aria-pressed="false">On its own</button><button aria-pressed="true">Ask me first</button><button aria-pressed="false">Off</button></div></div>
+        <div class="row"><div class="grow"><div class="t">Create vendors</div><div class="tools">qbo.vendor.create · Buyer needs this</div></div><span class="need-tag">Off → Ask me first</span><div class="ds-seg"><button aria-pressed="false">On its own</button><button aria-pressed="true">Ask me first</button><button aria-pressed="false">Off</button></div></div>
+        <div class="row"><div class="grow"><div class="t">Update bill and purchase lines</div><div class="tools">update_lines, update_memo</div></div><div class="ds-seg"><button aria-pressed="false">On its own</button><button aria-pressed="false">Ask me first</button><button aria-pressed="true">Off</button></div></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="rows" style="padding:var(--space-4)">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-3);flex-wrap:wrap;margin-bottom:var(--space-3)">
+          <span class="ds-help" id="ops-may">Hartley Millwork asks to approve each change here.</span>
+          <span class="ds-help">Mockup: the client's choice
+            <span class="ds-seg" id="ops-may-seg"><button aria-pressed="true" data-may="ask">Ask each time</button><button aria-pressed="false" data-may="needs">What agents need</button></span>
+          </span>
+        </div>
+        <div class="t" style="font-weight:500">2 changes, both looser</div>
+        <div class="m" style="margin:var(--space-1) 0 var(--space-3)">Create purchase orders: Off → Ask me first · Create vendors: Off → Ask me first</div>
+        <label class="ds-label" for="why">Why (Hartley Millwork sees this)</label>
+        <textarea class="ds-textarea" id="why" rows="2" style="width:100%;box-sizing:border-box">The Buyer sends the POs you approve to QuickBooks, and adds a vendor when a quote comes from someone new. Each one still waits for your signature.</textarea>
+        <div class="ds-row" style="margin-top:var(--space-3);gap:var(--space-2);display:flex;justify-content:flex-end">
+          <button class="ds-btn ds-btn--ghost">Discard</button>
+          <button class="ds-btn ds-btn--primary" data-go="approve" id="ops-send">Send to Hartley Millwork for approval</button>
+        </div>
+      </div>
+    </div>
+
+    <section>
+      <div class="sechead"><h2>Requests</h2></div>
+      <div class="rows">
+        <div class="row"><div class="grow"><div class="t">Turn on Google Drive "Add a file" for the Buyer</div><div class="m">Sent by Ana, 3 days ago</div></div><span class="ds-pill ds-pill--warning">Waiting on client</span><button class="ds-btn ds-btn--ghost ds-btn--sm">Withdraw</button></div>
+        <div class="row"><div class="grow"><div class="t">Turn off Create bills</div><div class="m">Ana, Nov 12 · applied at once, client told</div></div><span class="ds-pill ds-pill--neutral">Applied</span></div>
+        <div class="row"><div class="grow"><div class="t">Book bank transactions: Ask me first</div><div class="m">Approved by Pat Lee, Nov 9</div></div><span class="ds-pill ds-pill--positive">Approved</span></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- 7 · The client approves, in their Inbox ------------------------------------------------------->
+  <div class="screen" id="s-approve">
+    <div class="crumbs">Inbox</div>
+    <div class="rows" style="padding:var(--space-6)" id="req">
+      <div style="display:flex;gap:var(--space-3);align-items:center;margin-bottom:var(--space-4)">
+        <span class="mark">QB</span>
+        <div class="grow" style="flex:1"><div class="t" style="font-weight:500">Mezonas asks to change QuickBooks access</div><div class="m" style="color:var(--ink-muted);font-size:13px">For the Buyer · asked by <span class="lead">Ana, your Mezonas lead</span> · today</div></div>
+        <span class="ds-pill ds-pill--warning" id="req-state">Waiting on you</span>
+      </div>
+      <div class="rows">
+        <div class="row"><div class="grow"><div class="t">Create purchase orders</div></div><span class="m">Off</span><span class="m">→</span><strong>Ask me first</strong></div>
+        <div class="row"><div class="grow"><div class="t">Create vendors</div></div><span class="m">Off</span><span class="m">→</span><strong>Ask me first</strong></div>
+      </div>
+      <p style="margin:var(--space-4) 0"><span class="ds-eyebrow">Why</span><br>The Buyer sends the POs you approve to QuickBooks, and adds a vendor when a quote comes from someone new. Each one still waits for your signature.</p>
+      <div style="display:flex;gap:var(--space-2);justify-content:flex-end" id="req-actions">
+        <button class="ds-btn ds-btn--ghost" id="decline">Decline</button>
+        <button class="ds-btn ds-btn--primary" id="approve">Approve</button>
+      </div>
+      <p class="note" id="req-note">Nothing changes until you approve. You can change these rows again any time on the QuickBooks page.</p>
+    </div>
+  </div>
+
+  </main>
+</div>
+
+<script>
+  // Screen switching, and the one live action: Allow what Buyer needs.
+  function go(name) {
+    document.querySelectorAll('.screen').forEach(function (s) { s.classList.toggle('on', s.id === 's-' + name); });
+    document.querySelectorAll('#switch button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.go === name); });
+    window.scrollTo(0, 0);
+  }
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-go]');
+    if (t) { go(t.dataset.go); return; }
+    var b = e.target.closest('.ds-seg button');
+    if (b && !b.closest('#switch')) {
+      b.parentNode.querySelectorAll('button').forEach(function (x) { x.setAttribute('aria-pressed', x === b); });
+    }
+  });
+  document.getElementById('allow').addEventListener('click', function () {
+    document.querySelectorAll('[data-need]').forEach(function (r) {
+      var btns = r.querySelectorAll('.ds-seg button');
+      btns[0].setAttribute('aria-pressed', 'true'); btns[1].setAttribute('aria-pressed', 'false');
+      var tag = r.querySelector('.need-tag'); tag.textContent = 'Turned on for Buyer'; tag.classList.add('met');
+    });
+    var box = document.getElementById('qbo-needs'); box.classList.add('done');
+    document.getElementById('qbo-needs-title').textContent = 'Buyer has what it needs here';
+    document.getElementById('qbo-needs-list').innerHTML = '<li>Create purchase orders: Ask me first</li><li>Create vendors: Ask me first</li>';
+    document.getElementById('qbo-needs-note').textContent = 'Allowed by Pat Lee just now. It shows in this connector’s history.';
+    this.remove();
+    var st = document.getElementById('buyer-state'); st.textContent = 'Has what it needs'; st.classList.add('met');
+  });
+  function answer(approved) {
+    var s = document.getElementById('req-state');
+    s.className = 'ds-pill ' + (approved ? 'ds-pill--positive' : 'ds-pill--neutral');
+    s.textContent = approved ? 'Approved' : 'Declined';
+    document.getElementById('req-actions').remove();
+    document.getElementById('req-note').textContent = approved
+      ? 'Approved by Pat Lee just now. Both rows are on, asking you first. It shows in QuickBooks’ history with Ana’s request.'
+      : 'Declined by Pat Lee just now. Nothing changed; Ana is told.';
+  }
+  document.getElementById('approve').addEventListener('click', function () { answer(true); });
+  // Changes by Mezonas: the client's choice on their page, and what it does to our button.
+  document.getElementById('may').addEventListener('change', function (e) {
+    var v = e.target.value;
+    document.getElementById('may-for').style.display = v === 'ask' ? 'none' : '';
+    document.getElementById('may-note').textContent = v === 'ask'
+      ? 'You’re told about every change, and you can undo any of them here. “On its own” always needs your yes.'
+      : 'Set by Pat Lee just now, until Dec 20. You’re told about every change Mezonas makes, and can undo it here. “On its own” always needs your yes.';
+  });
+  document.getElementById('ops-may-seg').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    var needs = b.dataset.may === 'needs';
+    var send = document.getElementById('ops-send');
+    document.getElementById('ops-may').textContent = needs
+      ? 'Hartley Millwork lets us make changes agents need here, until Dec 20. Both rows are for the Buyer.'
+      : 'Hartley Millwork asks to approve each change here.';
+    send.textContent = needs ? 'Apply now (Pat is told)' : 'Send to Hartley Millwork for approval';
+    if (needs) send.removeAttribute('data-go'); else send.setAttribute('data-go', 'approve');
+  });
+  document.getElementById('decline').addEventListener('click', function () { answer(false); });
+</script>
+</body>
+</html>
