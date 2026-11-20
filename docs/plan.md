@@ -6150,6 +6150,53 @@ read-only copy of the portal's agent page inside the back office.
 | Its answer | `GET /api/ops/clients/:id/agents/:agentId/client-view` (`opsClientAgentView`): operator-only, and its response is the portal's `ServiceDetail` schema object itself, from the portal route's own function (`serviceDetail`) under `narrowToTenant` (withTenant's scope for that one client, inside the request's transaction), through `mount()` for the audit row. A client the operator doesn't serve, or another client's agent, is not found. KPI labels are in the client's language (no reader). Contract tests pin the shared schema and its lack of forbidden fields. // DECISION |
 | What it draws | The portal page's Overview drawn with the portal's own parts, moved to `portal/screens/agentParts.tsx` (its state chip, this month's figures, its run rows): the header, this month's figures, its recent runs, and on the rail how many runs wait on the client. No Pause, Run now, inbox items, upload or form; no link into the portal (figures are not links, runs open the back office's run page). The portal's other tabs (Runs, Manual, Settings) and its pack views are not copied: each asks portal routes of its own. // DECISION |
 
+### 1.164 Data in and out of files, and a spreadsheet matched to Zoho (owner, 2026-11-20; planned, not built)
+
+The owner: "We need to add a skill that can intake a spreadsheet or csv file, modify it and
+transform to a preset format either to come out as a reformed csv/xlsx or as a JSON … map the
+fields on each agent or even each step." Then the first client's use: an Excel file in, reshaped
+into custom fields in Zoho, each row matched by meaning to the client's Zoho leads and deals on a
+handful of fields, and the matches updated in Zoho. Outside ARCHITECTURE v0.15 §1 until v0.16 is
+written, like the Marketing and Bookkeeping areas.
+
+**The mapping is Reshape data's** (§1.86, `processes.ReshapeMapping`): versioned with the agent,
+one per step, proposed by name and type then by the Builder AI, previewed on a sample. Nothing new
+maps fields. What is new is the file at each end, a few gaps, and the Sales area's first tables.
+
+| Topic | Decision |
+|---|---|
+| Read table | `data.read-table`, a built-in deterministic skill like Reshape (no model, `sideEffect: none`, runs on the test bench). Input: a document id. Output: `{ columns, rows: [{ <field>: cell }], sheet, problems }`. Reads `.csv` (the upload connector's `parseCsv`), `.xlsx` and `.json`. Parameters: sheet, header row, rows to skip, range, most rows, skip blank and total rows, skip rows where a named column is empty. CSV, XLSX and JSON are read in code, never by a model. // DECISION |
+| The expected columns | A new skill parameter type, `columns`: each column's field name, the header names it accepts ("Vendor", "Payee", "Supplier"), its type (text, number, money, date with its style, boolean) and whether it is required. It types Read table's output, so Reshape's proposer maps from it; a file missing a required column fails the step naming it, never half-mapped. For `.json`, an optional expected shape (a JSON Schema) does the same. // DECISION |
+| Per agent, per step | The existing cascade (`skills/parameters.ts`): the agent sets Read table's and Write table's parameters once (`definition.skills[].parameters`), a step overrides them. Reshape's mapping is always per step. A template ships the formats; columns only one client has are marked `clientSpecific`, so a promotion back to the template never carries them. Clients don't adjust columns (B5's adjustable types stay number, money, text, date). // DECISION |
+| Write table | `data.write-table`, built-in and deterministic: rows and an output format (columns in order, header labels, types; `csv` or `xlsx`) → a new `document` in the client's storage, its `sources` the input documents. Making the file is internal (logged, no approval); sending it anywhere (email, Drive, the desktop app's folder or workbook, Zoho) is a write step, approval on (invariant 8). JSON needs no step: Reshape's output is the JSON. // DECISION |
+| XLSX in the Worker | A small reader and writer on `fflate` (already `apps/desktop`'s): shared and inline strings, numbers, booleans, date serials by number format, one sheet at a time; formulas read as their cached values. Not the npm `xlsx` package (stale, open advisories) nor `exceljs` (Node streams). // DECISION |
+| Limits | At most 10,000 rows and 5 MB per file (Worker memory); past that the step fails saying so. // DECISION |
+| Documents | The document store, uploads, chat attachments and forwarding accept `.csv`, `.xlsx` and `.json` beside PDFs and images (forwarding skips `.xlsx` today, `forwarding.test.ts`). They are never sent to a model as files. // DECISION |
+| Webhook JSON | A webhook trigger may carry a sample payload the operator pastes; its schema is inferred from it, so `{{trigger.…}}` is typed and Reshape's proposer works on webhook JSON. Without one it stays "any path reads". // DECISION |
+| Reshape gaps | An `object` expression (`{ object: { fields } }`, `mapList` without the list) so a step can build a nested object. Filtering, sorting and grouping a list stay out of Reshape (owner, 2026-11-11); Read table's row skips cover files. // DECISION |
+| PDFs and images to data | Unchanged: `docs.read` for invoices and quotes, or an AI task skill whose input marks the document (`x-document`) and whose output schema is the fields wanted, then checks, Reshape and Write table. Reading long tables page by page is not in this entry. |
+
+**The Zoho use: a spreadsheet matched to leads and deals.** One client agent, five steps:
+Read table → Reshape (rows to the client's Zoho field names) → Match to Zoho → a person answers
+the unsure rows → update the matched records (`zoho_crm.update_record`, approval on, one approval
+group per run).
+
+| Topic | Decision |
+|---|---|
+| Zoho's fields | The connector reads the org's fields (`GET /crm/v8/settings/fields?module=`, NOTES.md's follow-up "field metadata"): API names, labels, types, custom or not. The builder types `zoho_crm.*` inputs from them, so Reshape proposes the client's custom fields by label. Scope `ZohoCRM.settings.fields.READ`, which connections made before need a new sign-in for. UNCHECKED against the live API. // DECISION |
+| Syncing custom fields | Sync reads a fixed standard list per module (`ZOHO_SYNC_FIELDS`). A connection may add fields to read per module (its config, checked against the field metadata, within v8's 50), so the fields the match uses are in `raw_record`. // DECISION |
+| Where matching happens | In our Postgres, on synced records: Zoho's API search is one credit a call, `equals`/`starts_with` only, with no search by meaning we can use. So Leads and Deals sync into `raw_record` (built, W4-B) and the match reads our copy. Before any update, the record is read again from Zoho and the update carries `expectedModifiedTime` (built), so a stale copy never writes. // DECISION |
+| The Sales area, first tables | Per §12.0 rule 5, a match index that lasts and is searched is an area's: the **Sales** pack (designed, not built), first version. `crm_record_key`: per client, connector, module and external id, the record's normalised keys (email, phone in E.164, website domain, company and person names), its match text, a trigram index and an `embedding vector(1024)` (`packages/llm` embeddings, as the vendor catalog's). `crm_match`: each input row's decision (the record, how: key, alias, text, meaning, model or person; the score; the agent version; sources). `crm_alias`: a person's answer, so the same value matches next time. Migration in its own PR. // DECISION |
+| The match | `sales.match_records`, internal: deterministic first (exact email, phone, domain, then aliases), then candidates by trigram and by meaning on the fields the step names, then a small model chooses among at most 5 candidates or says none, then a person for anything under the step's threshold (invariant 7). Hard rules veto the model (e.g. two different emails is never the same lead). The fields matched on and the threshold are the step's parameters. // DECISION |
+| Embeddings and compliance | Embedding a lead sends its match text to OpenAI (already named in compliance; HIPAA mode refuses it, and matching then stops at keys, text and the model). Embeddings are made when records sync and re-made when their match text changes; cost is recorded as usage. // DECISION |
+| Updates | Each matched row becomes one `zoho_crm.update_record` with only the fields the step maps, its before state kept for undo (built). New leads for unmatched rows only if the operator adds a create step, approval on. // DECISION |
+
+**Order** (each ends green): (1) Read table with CSV and JSON, the `columns` parameter, documents
+taking the types, the builder's sample-file check; (2) XLSX reading and Write table; (3) Zoho field
+metadata and custom-field sync; (4) the Sales area's migration; (5) its keys, embeddings and
+`sales.match_records`, with goldens in `fixtures/matching/crm` (≥ 95% precision on "same"); (6) the
+webhook sample payload and Reshape's `object`. Steps 1–3 need no migration.
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

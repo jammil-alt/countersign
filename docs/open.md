@@ -146,6 +146,15 @@ name (CNAM) once its texting registration's business profile is approved. Open: 
 against a real subaccount (`packages/connectors/src/twilio/NOTES.md`, "Calls that carry the
 client's name"), before the first client's calls.
 
+## 1e. Spreadsheets in and out, and a spreadsheet matched to Zoho (`docs/plan.md` §1.164)
+
+Planned, not built (owner, 2026-11-20). Two built-in skills, Read table (CSV, XLSX, JSON in) and
+Write table (CSV or XLSX out), with Reshape data mapping the fields per step; then the first
+client's use: an Excel file's rows reshaped into Zoho fields, matched by meaning to the client's
+leads and deals, and the matches updated in Zoho with approval. Needs the Sales area's first tables
+(a migration in its own PR) and Zoho's field metadata, unchecked against the live API. Open for the
+owner: which client, the fields matched on, and whether new leads are made for rows with no match.
+
 ## 2. The marketing site (mezonas.com)
 
 This session's network can't reach `mezonas.com`, so whether it is live is **not checked here**.
