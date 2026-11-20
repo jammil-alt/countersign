@@ -158,6 +158,8 @@ export * from "./build/code-request-words";
 export * from "./build/code-requests";
 export * from "./build/decisions";
 export * from "./build/issues";
+// BUILDER_QA CONS-6: a draft's problems counted the same on the build and in the builder
+export * from "./build/problems";
 export * from "./bundle/client-specific";
 export * from "./bundle/diff";
 export {
@@ -314,6 +316,8 @@ export * from "./template/typer";
 export * from "./testbench/case";
 export * from "./testbench/match";
 export * from "./testbench/suite";
+// BUILDER_QA INPUT-1, INPUT-3: text Postgres can store, and cutting it on whole characters
+export * from "./text";
 export * from "./threads/command";
 export * from "./threads/schemas";
 export * from "./translate/detect";

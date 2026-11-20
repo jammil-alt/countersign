@@ -23,6 +23,7 @@ import {
 } from "../build/build";
 import { isUuid } from "../ids";
 import { AgentStage } from "../lifecycle/stage";
+import { STORABLE_TEXT_MESSAGE, storable, storableJson } from "../text";
 import { WorkBuildStage, WorkWaitingOn } from "../work/pipelines";
 import { RequirementsRequest } from "../work/requirements";
 import { Standing } from "../work/standing";
@@ -296,7 +297,7 @@ export type BuildDetail = z.infer<typeof BuildDetail>;
 export const StartBuild = z
   .strictObject({
     kind: BuildKind,
-    title: z.string().trim().min(1).max(200),
+    title: storable(z.string().trim().min(1).max(200)),
     /** For one client (a client agent, that client's skill); else for everyone. */
     clientId: Id.optional(),
     // docs/plan.md §1.124: from a template, what started it, and the date promised.
@@ -311,21 +312,21 @@ export const StartBuild = z
   });
 
 export const UpdateBuild = z.strictObject({
-  title: z.string().trim().min(1).max(200).optional(),
+  title: storable(z.string().trim().min(1).max(200)).optional(),
   brief: Brief.optional(),
   fitgap: FitGap.optional(),
   testPlan: TestPlan.optional(),
   // docs/plan.md §1.124: moving a promised date is the operator's.
   promisedOn: IsoDate.nullable().optional(),
   waitingOn: WorkWaitingOn.optional(),
-  statusLine: z.string().trim().max(120).optional(),
+  statusLine: storable(z.string().trim().max(120)).optional(),
   stuck: z.boolean().optional(),
 });
 
 /** An item made from a failed case or a rejected write is made once (its key is the case or write). */
 export const NewBuildItem = z.strictObject({
-  title: z.string().trim().min(1).max(300),
-  detail: z.string().trim().max(2000).optional(),
+  title: storable(z.string().trim().min(1).max(300)),
+  detail: storable(z.string().trim().max(2000)).optional(),
   kind: BuildItemKind.optional(),
   owner: BuildItemOwner.optional(),
   stepId: z.string().min(1).max(100).optional(),
@@ -333,8 +334,8 @@ export const NewBuildItem = z.strictObject({
 });
 
 export const UpdateBuildItem = z.strictObject({
-  title: z.string().trim().min(1).max(300).optional(),
-  detail: z.string().trim().max(2000).optional(),
+  title: storable(z.string().trim().min(1).max(300)).optional(),
+  detail: storable(z.string().trim().max(2000)).optional(),
   owner: BuildItemOwner.optional(),
   state: BuildItemState.optional(),
 });
@@ -349,6 +350,7 @@ export const TryBody = z
     input: z
       .unknown()
       .refine((v) => JSON.stringify(v ?? null).length <= 100_000, "the input is too large")
+      .refine((v) => storableJson(v), STORABLE_TEXT_MESSAGE)
       .optional(),
     /** A template's workflow, by slug (default: the one that starts on a document, or by hand). */
     workflow: z.string().trim().min(1).max(100).optional(),
@@ -417,7 +419,7 @@ export const buildRoutes = {
       "Your words in the build's conversation, and the Builder's answer for the phase. Without words, the Builder's last turn is tried again: its answer to your last words, or its opening of the phase",
     params: IdParams,
     body: z.strictObject({
-      text: z.string().trim().min(1).max(BUILD_TEXT_MAX).optional(),
+      text: storable(z.string().trim().min(1).max(BUILD_TEXT_MAX)).optional(),
       /** The issue the words are about (the conversation's focus). */
       about: z.string().min(1).max(160).optional(),
     }),

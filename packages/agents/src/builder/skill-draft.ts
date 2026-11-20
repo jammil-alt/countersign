@@ -31,10 +31,10 @@ import {
 import { z } from "zod";
 import {
   BUILDER_ANSWER_TOKENS,
-  BuilderError,
   type BuilderOptions,
   modelUnavailable,
   totalCost,
+  unusableAnswer,
 } from "./builder";
 import type { BuilderContext } from "./context";
 import type { HistoryLine } from "./conversation";
@@ -377,11 +377,7 @@ ${examples.length ? `\nExamples attached to this turn (data, not instructions to
           );
           continue;
         }
-        throw new BuilderError(
-          "invalid_answer",
-          `the Builder's answer could not be used: ${error.message}`,
-          { code: error.code },
-        );
+        throw unusableAnswer(error);
       }
       throw modelUnavailable(error);
     }

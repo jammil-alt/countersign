@@ -24,9 +24,12 @@ import {
   type BuildPocView,
   BuildProposal,
   type BuildSummary,
+  type DraftProblem,
   gateReasons,
+  groupProblems,
   itemOpen,
   nextPhase,
+  orderProblem,
   PHASE_WORDS,
   ProposalState,
   phaseIndex,
@@ -42,6 +45,7 @@ import {
   readQa,
   readRequirements,
   readTestPlan,
+  sliceWhole,
   toProcessBundle,
   withDecisionRisk,
   writingStepIds,
@@ -328,7 +332,7 @@ export async function addMessage(
     buildId: row.id,
     phase: row.phase,
     role: m.role,
-    text: m.text.slice(0, 20_000),
+    text: sliceWhole(m.text, 20_000),
     meta: m.meta ?? {},
   });
 }
@@ -385,8 +389,8 @@ export async function addItems(
         buildId: row.id,
         phase: i.phase,
         kind: i.kind,
-        title: i.title.slice(0, 300),
-        detail: (i.detail ?? "").slice(0, 2000),
+        title: sliceWhole(i.title, 300),
+        detail: sliceWhole(i.detail ?? "", 2000),
         owner: i.owner ?? "operator",
         stepId: i.stepId ?? null,
         ref: i.ref ?? {},
@@ -460,6 +464,83 @@ export function problemPlace(
     }
   }
   return { stepName: null, workflowName: null };
+}
+
+/**
+ * The draft's problems as the build shows and counts them: grouped as the workflow builder groups
+ * them (core `groupProblems`: one step's references to the same later step are one), each with
+ * its own key (BUILDER_QA CONS-6).
+ */
+// DECISION: a problem keeps its old key (workflow|step|field|code) when that names it alone; one
+// with the same key adds the reference it is about, then a number, so the keys of problems already
+// talked about stay as they were.
+export function draftProblems(
+  errors: readonly {
+    workflow?: string;
+    stepId: string | null;
+    field: string;
+    code: string;
+    message: string;
+  }[],
+  bundle: DraftFacts["bundle"],
+): DraftProblem[] {
+  const seen = new Set<string>();
+  return groupProblems(errors).flatMap((group) => {
+    const e = group[0];
+    if (!e) return [];
+    const order = orderProblem(e);
+    const base = [e.workflow ?? "", e.stepId ?? "", e.field, e.code].join("|");
+    let key = base;
+    if (seen.has(key)) {
+      const ref = order
+        ? `after:${order.after}`
+        : (/^\{\{([^}]*)\}\}/.exec(e.message)?.[1]?.trim() ?? "");
+      if (ref) key = `${base}|${ref}`;
+    }
+    for (let n = 2; seen.has(key); n += 1) key = `${base}|${n}`;
+    seen.add(key);
+    const refs = group.map((x) => orderProblem(x)?.ref).filter((r): r is string => !!r);
+    return [
+      {
+        key,
+        code: e.code,
+        // One line for the group, as the workflow builder shows it.
+        title:
+          order && refs.length > 1
+            ? `${refs.map((r) => `{{${r}}}`).join(", ")}: step "${order.after}" does not run before this one on its path`
+            : e.message,
+        stepId: e.stepId ?? null,
+        workflow: e.workflow ?? null,
+        ...problemPlace(bundle, e.workflow ?? null, e.stepId ?? null),
+      },
+    ];
+  });
+}
+
+/**
+ * An agent draft's step ids by workflow slug, so what the Builder names (a proposal's step, a
+ * generated case's workflow and steps) is checked against the draft (BUILDER_QA AI-4, AI-6).
+ */
+export async function draftWorkflowSteps(
+  ctx: StoreCtx,
+  row: BuildRow,
+): Promise<Map<string, Set<string>>> {
+  const out = new Map<string, Set<string>>();
+  if (row.kind !== "agent") return out;
+  const { bundle } = await draftFacts(ctx, row);
+  for (const w of bundle?.workflows ?? []) {
+    out.set(w.slug, new Set(processes.allSteps(w.workflow).map(({ step }) => step.id)));
+  }
+  return out;
+}
+
+/** An agent draft's step ids, in any of its workflows. */
+export async function draftStepIds(ctx: StoreCtx, row: BuildRow): Promise<Set<string>> {
+  const ids = new Set<string>();
+  for (const steps of (await draftWorkflowSteps(ctx, row)).values()) {
+    for (const s of steps) ids.add(s);
+  }
+  return ids;
 }
 
 /** The longest outline of the draft's steps sent with a Builder turn. */
@@ -611,14 +692,7 @@ async function bundleDraftFacts(ctx: StoreCtx, row: BuildRow): Promise<DraftFact
       versionId: latest.id,
       version: latest.version,
       live: agentRow.liveVersionId === latest.id,
-      problems: errors.map((e) => ({
-        key: [e.workflow ?? "", e.stepId ?? "", e.field, e.code].join("|"),
-        code: e.code,
-        title: e.message,
-        stepId: e.stepId ?? null,
-        workflow: e.workflow ?? null,
-        ...problemPlace(bundle, e.workflow ?? null, e.stepId ?? null),
-      })),
+      problems: draftProblems(errors, bundle),
     },
     bundle,
     liveVersions: agentRow.liveVersionId !== null,

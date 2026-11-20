@@ -90,7 +90,18 @@ export type ReviseAnswer = z.infer<typeof ReviseAnswer>;
 
 // ── Errors ───────────────────────────────────────────────────────────────────────────────────────
 
-export type BuilderErrorCode = "model_unavailable" | "invalid_answer";
+/** `refusal`: the model declined to answer (BUILDER_QA AI-7), which a form's retry won't fix. */
+export type BuilderErrorCode = "model_unavailable" | "invalid_answer" | "refusal";
+
+/** A model's answer that can't be used, as the Builder reports it: a refusal keeps its own code. */
+export function unusableAnswer(error: LlmToolError, what = "the Builder's answer"): BuilderError {
+  if (error.code === "refusal") {
+    return new BuilderError("refusal", `the model declined to give ${what}`, { code: error.code });
+  }
+  return new BuilderError("invalid_answer", `${what} could not be used: ${error.message}`, {
+    code: error.code,
+  });
+}
 
 export class BuilderError extends Error {
   override name = "BuilderError";
@@ -295,13 +306,7 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
           }
           continue;
         }
-        throw new BuilderError(
-          "invalid_answer",
-          `the Builder's answer could not be used: ${error.message}`,
-          {
-            code: error.code,
-          },
-        );
+        throw unusableAnswer(error);
       }
       throw modelUnavailable(error);
     }

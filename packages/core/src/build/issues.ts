@@ -70,8 +70,10 @@ export function buildIssues(d: BuildDetail): BuildIssue[] {
   const t = (key: string) => talk.get(key) ?? 0;
   const out: BuildIssue[] = [];
   const phase = d.build.phase;
-  // Open items hold the moves into the client test and the go-live.
-  const itemsHold = d.gate.next === "client_test" || phase === "qa";
+  // What holds the next move, from the same facts as the gate (`gateReasons`, BUILDER_QA CONS-1):
+  // open items hold only the go-live (QA), draft problems only the move out of the draft.
+  const itemsHold = phase === "qa";
+  const problemsHold = phase === "draft";
 
   // A missing step whose part is in the Dev queue waits on its request.
   const waitingByStep = new Map<string, { id: string; ref: string }>();
@@ -91,7 +93,7 @@ export function buildIssues(d: BuildDetail): BuildIssue[] {
       detail: waiting ? [place, `Waiting on ${waiting.ref}`].filter(Boolean).join(". ") : place,
       phase: "draft",
       open: true,
-      blocking: true,
+      blocking: problemsHold,
       state: "Open",
       owner: null,
       itemId: null,

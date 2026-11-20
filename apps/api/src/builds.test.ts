@@ -361,6 +361,18 @@ describe.skipIf(!h)("builds", () => {
     );
     b = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "poc" });
     expect(b.build.testPlan.datasets).toHaveLength(1);
+    // The case names the draft's step by its id as stored (the Builder's "update" got a server
+    // id): a case naming a step the draft doesn't have is left out (BUILDER_QA AI-6).
+    const [drafted] = await H.t.db
+      .select({ bundle: agentVersion.bundle })
+      .from(agentVersion)
+      .where(eq(agentVersion.agentId, b.build.agentId as string))
+      .orderBy(desc(agentVersion.version))
+      .limit(1);
+    const draftedBundle = drafted?.bundle as {
+      workflows: { workflow: { steps: { id: string }[] } }[];
+    };
+    const stepId = draftedBundle.workflows[0]?.workflow.steps[0]?.id as string;
     model.push({
       toolUse: {
         name: "submit_test_cases",
@@ -370,7 +382,7 @@ describe.skipIf(!h)("builds", () => {
               name: "Wrong amount",
               dataset: "records",
               input: { workflow: "main", payload: {} },
-              expected: { update: {} },
+              expected: { [stepId]: {} },
             },
             { name: "Not a template case", dataset: "records", input: {}, expected: {} },
           ],

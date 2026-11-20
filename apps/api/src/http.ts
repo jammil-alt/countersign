@@ -287,6 +287,17 @@ function pgStatus(error: unknown): HttpError | null {
       return new HttpError(409, "conflict", "that already exists");
     case "23503":
       return new HttpError(422, "invalid_reference", "that refers to something that is not there");
+    // BUILDER_QA INPUT-1: text the schemas let through and Postgres can't store (a NUL, half of a
+    // character in jsonb, text that isn't valid in its type). The schemas refuse it first; this is
+    // the backstop, so it is the request's fault, not a 500.
+    case "22021": // character_not_in_repertoire
+    case "22P05": // untranslatable_character
+    case "22P02": // invalid_text_representation
+      return new HttpError(
+        400,
+        "invalid_text",
+        "a value can't be stored as it is: a NUL, half of a character, or text in the wrong form",
+      );
     default:
       return null;
   }

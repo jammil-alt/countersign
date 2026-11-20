@@ -166,13 +166,34 @@ const STOP = new Set(
   ),
 );
 
-/** Words of a text or field name: lowercase, camelCase and snake_case split, stop words out. */
+/**
+ * A word's plain form, so one word in the singular and the plural is one token (BUILDER_QA
+ * CONS-5): "addresses" and "address", "matches" and "match", "entries" and "entry". Index and
+ * query both go through it. A final "e" after s, x, z, ch or sh goes too, so "cases" and "case"
+ * meet at "cas".
+ */
+// DECISION: a few suffix rules, not a full stemmer: the catalog's words are short English names
+// and descriptions, and both sides of a match go through the same rules.
+export function stem(w: string): string {
+  let s = w;
+  if (s.length > 4 && s.endsWith("ies")) s = `${s.slice(0, -3)}y`;
+  else if (s.length > 4 && /(?:[sxz]|ch|sh)es$/.test(s)) s = s.slice(0, -2);
+  else if (s.length > 3 && s.endsWith("s") && !/(?:ss|us|is)$/.test(s)) s = s.slice(0, -1);
+  if (s.length > 3 && /(?:[sxz]|ch|sh)e$/.test(s)) s = s.slice(0, -1);
+  return s;
+}
+
+/**
+ * Words of a text or field name: lowercase, camelCase and snake_case split, stop words out, each
+ * in its plain form. Letters outside English stay ("café").
+ */
 export function words(text: string): string[] {
   return text
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([\p{Ll}\p{N}])(\p{Lu})/gu, "$1 $2")
     .toLowerCase()
-    .split(/[^a-z0-9&]+/)
-    .map((w) => (w.length > 4 && w.endsWith("s") ? w.slice(0, -1) : w))
+    .split(/[^\p{L}\p{N}&]+/u)
+    .filter((w) => w.length > 1 && !STOP.has(w))
+    .map(stem)
     .filter((w) => w.length > 1 && !STOP.has(w));
 }
 

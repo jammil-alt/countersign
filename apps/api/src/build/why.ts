@@ -2,7 +2,7 @@
 // result's `diff` (testbench/suite.ts) holds either the error that stopped it or the fields that
 // differed (core's MatchDiff); this puts the first few in plain words.
 
-import type { BuildPocView, MatchDiff } from "@countersign/core";
+import { type BuildPocView, type MatchDiff, sliceWhole } from "@countersign/core";
 
 /** Longest "why" (characters). */
 export const WHY_MAX = 300;
@@ -11,7 +11,7 @@ const WHY_FIELDS = 3;
 const VALUE_MAX = 60;
 
 const clip = (text: string, max: number) =>
-  text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`;
+  text.length <= max ? text : `${sliceWhole(text, max - 1).trimEnd()}…`;
 
 function shown(value: unknown): string {
   if (value === undefined) return "nothing";
