@@ -134,7 +134,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 // needs and setup; the test plan's datasets). Where both changed one key the server's wins: that is
 // the panel's own save coming back (perhaps tidied by the server), or the Builder's newer answer.
 export function mergeRecord<T extends object>(base: T, mine: T, theirs: T): T {
-  const out: Record<string, unknown> = { ...theirs };
+  const out = { ...theirs } as Record<string, unknown>;
   const b = base as Record<string, unknown>;
   const m = mine as Record<string, unknown>;
   const t = theirs as Record<string, unknown>;
