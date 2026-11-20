@@ -49,7 +49,7 @@ Two fixes took a different path from the fix direction in the table below, and t
   of the executor running it as that agent.
 - AI-3: a skill whose schema Zod can't read now fails the step, instead of re-asking the model.
 
-SEC-2, judged by design, was fixed afterwards at the owner's request, in its own PR with migration 0068.
+The five findings judged by design were fixed afterwards at the owner's request: SEC-2 (#460, migration 0068), SEC-6 (#470, migration 0070), SEC-4 (#468), and STATE-5 and TOOL-4 (#469). #467 passes a statement's currency into reconciliation (the gap #452 left). Two flaky tests found on the way were fixed too (#465, #466).
 
 #450 also raised the web first-load budget to 495 kB, recorded as a DECISION in `scripts/web-size.mjs`.
 
@@ -595,10 +595,10 @@ Skills table notes:
 | AI-2 | DISPROVED | The facts in the charter draft are the client's own (`theirs` facts and confirmed `about` entries). The draft isn't used until the client admin confirms it (`apps/api/src/knowledge/charter.ts:1-6`). The only "attacker" is the client, editing their own charter. |
 | FLOW-3 | DISPROVED | `portalAuthorize` writes nothing. A connection is inserted only at the callback, which reuses an existing row (`connections.ts:130-143`). A double press fetches a second redirect URL and nothing more. |
 | SEC-2 | BY DESIGN | Recorded in migration `0042_second_factor.sql` and asserted by `second-factor.test.ts:107`. The only route to these rows checks that the operator serves the person's client (`second-factor.ts:424-429`). `user_factor` has no `tenant_id`, and recovery codes are HMACs. **Owner's call:** RLS gives no isolation behind that route check. **Fixed anyway, at the owner's request:** migration 0068 limits an operator session to the people of the clients it serves (`docs/plan.md` §1.157). |
-| SEC-4 | BY DESIGN | `plan.md:5074` (§1.122 "Not here"): "A limited user's document by id is checked by client, not by agent." Ids are UUIDv7. |
-| SEC-6 | BY DESIGN | DECISION at `plan.md:921` and the `0017_audit_log.sql:41-42` policy. Rows with no client belong to no tenant, and every operator is Mezonas staff. |
-| STATE-5 | BY DESIGN | DECISION at `hubspot/index.ts:813-816`, the twin check. The record holds that exact note, and the action records its id. Odoo has the same rule. |
-| TOOL-4 | BY DESIGN | DECISION at `plan.md:4037-4041`. BILL's archive is a void that keeps the bill, approval is on by default, and it runs alone only after the operator loosens and the client allows `auto`. Delete itself stays off. |
+| SEC-4 | BY DESIGN | `plan.md:5074` (§1.122 "Not here"): "A limited user's document by id is checked by client, not by agent." Ids are UUIDv7. **Fixed anyway, at the owner's request** (#468): a limited user opens only documents their own agents' items, runs or steps name. |
+| SEC-6 | BY DESIGN | DECISION at `plan.md:921` and the `0017_audit_log.sql:41-42` policy. Rows with no client belong to no tenant, and every operator is Mezonas staff. **Fixed anyway, at the owner's request** (#470, migration 0070): an operator reads only no-client rows of people in clients it serves, of operators, or with no actor. |
+| STATE-5 | BY DESIGN | DECISION at `hubspot/index.ts:813-816`, the twin check. The record holds that exact note, and the action records its id. Odoo has the same rule. **Fixed anyway, at the owner's request** (#469): HubSpot and Odoo create once per key through attempt records; different keys always write. |
+| TOOL-4 | BY DESIGN | DECISION at `plan.md:4037-4041`. BILL's archive is a void that keeps the bill, approval is on by default, and it runs alone only after the operator loosens and the client allows `auto`. Delete itself stays off. **Fixed anyway, at the owner's request** (#469): `billcom.bill.archive` is always signed. |
 | FLOW-9 | DUPLICATE OF INPUT-5 | The same `Number(text)` at `DeskDetail.tsx:1054`. |
 
 Lowered by the verifier, with the reason that carried the most weight:
