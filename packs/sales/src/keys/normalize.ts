@@ -40,9 +40,12 @@ export function normalizeEmail(raw: unknown): string | null {
 // without its country that isn't North American is no key.
 export function normalizeCrmPhone(raw: unknown): string | null {
   if (typeof raw !== "string" && typeof raw !== "number") return null;
-  const v = String(raw)
-    .trim()
-    .replace(/\s*(?:ext\.?|extension|x|#)\s*\d{1,6}$/i, "");
+  // DECISION: the length is checked before any pattern runs, and the extension is cut without a
+  // leading `\s*` (which, anchored at the end, takes quadratic time on a long run of spaces in
+  // text that comes from a client's CRM); what it leaves is trimmed after.
+  const trimmed = String(raw).trim();
+  if (trimmed.length > 60) return null;
+  const v = trimmed.replace(/(?:ext\.?|extension|x|#)\s*\d{1,6}$/i, "").trimEnd();
   if (!/\d/.test(v) || v.length > 40) return null;
   return normalizeSignupPhone(v);
 }

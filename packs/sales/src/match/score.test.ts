@@ -25,6 +25,10 @@ describe("keys in one spelling", () => {
     expect(normalizeCrmPhone("+44 20 7946 0958")).toBe("+442079460958");
     expect(normalizeCrmPhone(5125550177)).toBe("+15125550177");
     expect(normalizeCrmPhone("555-0177")).toBeNull();
+    expect(normalizeCrmPhone("512 555 0177 x9")).toBe("+15125550177");
+    expect(normalizeCrmPhone("5125550177#4")).toBe("+15125550177");
+    // A long run of spaces is refused at once, never scanned by a pattern.
+    expect(normalizeCrmPhone(`5125550177${" ".repeat(50_000)}x`)).toBeNull();
     expect(websiteDomain("https://www.Acme.com/about?x=1")).toBe("acme.com");
     expect(websiteDomain("acme")).toBeNull();
     expect(companyDomain({ email: "jane@acme.com" })).toBe("acme.com");
