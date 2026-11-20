@@ -3,7 +3,8 @@
 // inline strings, booleans, errors, date formats built in and custom, cached formula values, the
 // 1904 date system, a hidden sheet), so it isn't only tested against our own writer; then the
 // writer's files are read back.
-import type { processes } from "@countersign/core";
+
+import type { tableFiles } from "@countersign/core";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { describe, expect, it } from "vitest";
 import { isDateFormat, readXlsx, writeXlsx, XlsxError, xlsxSheetName } from "./xlsx";
@@ -82,7 +83,7 @@ describe("readXlsx", () => {
 });
 
 describe("writeXlsx", () => {
-  const grid: processes.WriteGrid = {
+  const grid: tableFiles.WriteGrid = {
     headers: ["Vendor", "Amount", "Date", "Paid", "Count"],
     rows: [
       [

@@ -6,20 +6,22 @@ import type { XlsxCell } from "../desktop/a1";
 import type { SkillDefinition } from "../schemas/skill";
 import { parameterValueProblem } from "../schemas/skill-model";
 import type { TableColumnInput } from "../schemas/table";
-import { Process } from "./schema";
 import {
   decimalText,
   parseTableDate,
-  READ_TABLE_PARAMETERS,
-  READ_TABLE_SKILL,
   type ReadTableOptions,
   readTableOptions,
-  readTableOutputSchema,
-  TABLE_MAX_ROWS,
   tableForWriting,
   tableFromGrid,
   tableFromJson,
   typeCell,
+} from "../tables/files";
+import { Process } from "./schema";
+import {
+  READ_TABLE_PARAMETERS,
+  READ_TABLE_SKILL,
+  readTableOutputSchema,
+  TABLE_MAX_ROWS,
 } from "./table";
 import { stepOutputSchema } from "./validate";
 
@@ -251,6 +253,11 @@ describe("the columns parameter", () => {
     expect(p("json_schema", {})).toBeNull();
     expect(p("json_schema", { type: "array", items: { type: "object" } })).toBeNull();
     expect(p("json_schema", [])).toBe("x is a JSON Schema (an object)");
+    expect(p("json_schema", { type: "objekt" })).toContain('"type" is one of object');
+    expect(
+      p("json_schema", { type: "object", properties: { lines: { type: "array", items: 3 } } }),
+    ).toBe("x isn't a JSON Schema we can check: a schema at lines.items is an object");
+    expect(p("json_schema", { required: "id" })).toContain('"required" is a list of field names');
     // Every default of Read table's parameters is a value of its type.
     for (const param of READ_TABLE_PARAMETERS) {
       expect(parameterValueProblem(param, param.default)).toBeNull();

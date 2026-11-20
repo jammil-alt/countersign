@@ -21,6 +21,7 @@ import {
   processes,
   type SkillDefinition,
   TableColumns,
+  tableFiles,
 } from "@countersign/core";
 import { z } from "zod";
 import { defineInternalTool, type InternalTool, type ToolInvocation } from "./types";
@@ -71,9 +72,9 @@ export function readTable(
   file: { documentId: string; filename: string; mimeType: string; bytes: Uint8Array },
   parameters: Readonly<Record<string, unknown>>,
 ): ReadTableOutput {
-  const options = processes.readTableOptions(parameters);
+  const options = tableFiles.readTableOptions(parameters);
   if (!options.ok) throw new Error(`Read table's parameters: ${options.error}`);
-  let read: processes.TableRead;
+  let read: tableFiles.TableRead;
   try {
     read = readTableFile(file, options.options).read;
   } catch (error) {

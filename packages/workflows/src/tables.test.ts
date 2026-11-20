@@ -3,7 +3,7 @@
 // Reshape's proposer), its rows mapped to the fields another system takes, and laid out for a new
 // .xlsx in that system's columns, naming the file it came from. The executor hands each step to
 // the agent port; the port here runs core's rules as the runtime's handlers do
-// (`processes.tableFromGrid`, `evaluateReshape`, `tableForWriting`). The bytes of the files (the
+// (`tableFiles.tableFromGrid`, `evaluateReshape`, `tableForWriting`). The bytes of the files (the
 // XLSX reader and writer) are tested in packages/connectors and packages/agents.
 import {
   type JsonSchema,
@@ -11,6 +11,7 @@ import {
   type SkillDefinition,
   schemaAtPath,
   TableColumns,
+  tableFiles,
   type XlsxCell,
 } from "@countersign/core";
 import { describe, expect, it } from "vitest";
@@ -126,9 +127,9 @@ const SHEET: XlsxCell[][] = [
 
 /** What the runtime's Read table handler does with the file's cells and its parameters. */
 function readSheet(documentId: string, parameters: Record<string, unknown>) {
-  const options = processes.readTableOptions(parameters);
+  const options = tableFiles.readTableOptions(parameters);
   if (!options.ok) throw new Error(options.error);
-  const r = processes.tableFromGrid(SHEET, options.options, "Invoices");
+  const r = tableFiles.tableFromGrid(SHEET, options.options, "Invoices");
   if (r.failure) throw new Error(`invoices.xlsx: ${r.failure}`);
   return {
     columns: r.columns,
@@ -251,7 +252,7 @@ describe("Read table → Reshape data → Write table", () => {
     ).toEqual([]);
 
     const h = new Harness();
-    let laid: processes.WriteGrid | null = null;
+    let laid: tableFiles.WriteGrid | null = null;
     h.handlers.read = (req) => {
       const { input, customize } = req as SkillStepRequest;
       const { documentId } = input as { documentId: string };
@@ -279,7 +280,7 @@ describe("Read table → Reshape data → Write table", () => {
       };
       // The step's own parameters reach the runtime with its customization.
       const params = customize?.parameters ?? {};
-      const r = processes.tableForWriting(rows, TableColumns.parse(params.columns ?? []));
+      const r = tableFiles.tableForWriting(rows, TableColumns.parse(params.columns ?? []));
       if (!r.ok) return { kind: "failed", error: r.error };
       laid = r.grid;
       return {

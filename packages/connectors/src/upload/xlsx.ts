@@ -10,7 +10,7 @@
 // worksheet, a bold header row kept in view, text as inline strings (never run as a formula),
 // numbers and amounts as numbers, dates as real dates in the column's style, true and false.
 
-import { processes, type XlsxCell, xlsxColumnLetters } from "@countersign/core";
+import { tableFiles, type XlsxCell, xlsxColumnLetters } from "@countersign/core";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 
 export class XlsxError extends Error {
@@ -294,7 +294,7 @@ function dateStylesOf(xml: string | null): Set<number> {
 
 /** An Excel serial date as ISO 8601: a date, or a date and time when it has a fraction. */
 function serialToIso(serial: number, date1904: boolean): string {
-  if (!date1904 && Number.isInteger(serial)) return processes.excelSerialToIso(serial);
+  if (!date1904 && Number.isInteger(serial)) return tableFiles.excelSerialToIso(serial);
   const epoch = date1904 ? Date.UTC(1904, 0, 1) : Date.UTC(1899, 11, 30);
   const iso = new Date(epoch + Math.round(serial * 86_400_000)).toISOString();
   return Number.isInteger(serial) ? iso.slice(0, 10) : iso.slice(0, 19);
@@ -441,7 +441,7 @@ function inlineCell(ref: string, text: string, style: number): string {
   return `<c r="${ref}"${s} t="inlineStr"><is><t xml:space="preserve">${esc(text)}</t></is></c>`;
 }
 
-function cellXml(ref: string, cell: processes.WriteCell): string {
+function cellXml(ref: string, cell: tableFiles.WriteCell): string {
   if (cell === null) return "";
   switch (cell.kind) {
     case "text":
@@ -453,7 +453,7 @@ function cellXml(ref: string, cell: processes.WriteCell): string {
     case "money":
       return `<c r="${ref}" s="${STYLE.money}"><v>${esc(cell.value)}</v></c>`;
     case "date":
-      return `<c r="${ref}" s="${STYLE[cell.style]}"><v>${processes.isoToExcelSerial(cell.value)}</v></c>`;
+      return `<c r="${ref}" s="${STYLE[cell.style]}"><v>${tableFiles.isoToExcelSerial(cell.value)}</v></c>`;
     case "boolean":
       return `<c r="${ref}" t="b"><v>${cell.value ? 1 : 0}</v></c>`;
   }
@@ -461,7 +461,7 @@ function cellXml(ref: string, cell: processes.WriteCell): string {
 
 /** One worksheet as an .xlsx file: the header row, then each row, in the grid's order. */
 export function writeXlsx(
-  grid: processes.WriteGrid,
+  grid: tableFiles.WriteGrid,
   options: { sheet?: string | null } = {},
 ): Uint8Array {
   const width = Math.max(1, grid.headers.length);

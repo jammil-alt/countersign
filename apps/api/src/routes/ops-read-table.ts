@@ -13,6 +13,7 @@ import {
   type ReadTableSampleView,
   resolveSkillParameters,
   routes,
+  tableFiles,
 } from "@countersign/core";
 import type { Hono } from "hono";
 import { type AppEnv, HttpError, mount } from "../http";
@@ -59,7 +60,7 @@ export function opsReadTableRoutes(app: Hono<AppEnv>): void {
         `Read table's parameters: ${problems.map((p) => p.message).join("; ")}`,
       );
     }
-    const options = processes.readTableOptions(parameters);
+    const options = tableFiles.readTableOptions(parameters);
     if (!options.ok) throw new HttpError(422, "invalid_parameters", options.error);
 
     const bytes = bytesOf(body.file.base64);

@@ -8,6 +8,7 @@ import {
   processes,
   type TableColumnInput,
   TableColumns,
+  tableFiles,
   XLSX_MIME_TYPE,
 } from "@countersign/core";
 import { strFromU8, strToU8 } from "fflate";
@@ -25,7 +26,7 @@ const COLUMNS: TableColumnInput[] = [
 ];
 
 function options(params: Record<string, unknown> = {}) {
-  const r = processes.readTableOptions({ columns: COLUMNS, ...params });
+  const r = tableFiles.readTableOptions({ columns: COLUMNS, ...params });
   if (!r.ok) throw new Error(r.error);
   return r.options;
 }

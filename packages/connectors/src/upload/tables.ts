@@ -1,5 +1,5 @@
 // Table files in and out (docs/plan.md §1.164): a .csv, .xlsx or .json document's bytes read as a
-// table by core's rules (`processes.tableFromGrid`, `tableFromJson`), and rows written as a .csv
+// table by core's rules (`tableFiles.tableFromGrid`, `tableFromJson`), and rows written as a .csv
 // or .xlsx file. Read table, Write table and the builder's sample-file check all come here, so a
 // file reads the same way in a run and in the builder. Code only: no model reads these files.
 
@@ -9,6 +9,7 @@ import {
   type TableColumns,
   type TableFileKind,
   tableFileKind,
+  tableFiles,
   tableMimeType,
   XLSX_MIME_TYPE,
 } from "@countersign/core";
@@ -25,7 +26,7 @@ export interface TableFileRead {
   kind: TableFileKind;
   /** An .xlsx file's worksheets; empty for CSV and JSON. */
   sheets: string[];
-  read: processes.TableRead;
+  read: tableFiles.TableRead;
 }
 
 const MB = (n: number) => `${Math.round(n / (1024 * 1024))} MB`;
@@ -42,7 +43,7 @@ function text(bytes: Uint8Array): string {
  */
 export function readTableFile(
   file: { bytes: Uint8Array; mimeType: string; filename: string },
-  options: processes.ReadTableOptions,
+  options: tableFiles.ReadTableOptions,
 ): TableFileRead {
   if (file.bytes.length > processes.TABLE_MAX_BYTES) {
     throw new TableFileError(
@@ -66,7 +67,7 @@ export function readTableFile(
           `${file.filename} isn't a CSV we can read: ${error instanceof CsvError ? error.message : "unreadable"}`,
         );
       }
-      return { kind, sheets: [], read: processes.tableFromGrid(grid, options) };
+      return { kind, sheets: [], read: tableFiles.tableFromGrid(grid, options) };
     }
     case "xlsx": {
       try {
@@ -74,7 +75,7 @@ export function readTableFile(
         return {
           kind,
           sheets: sheet.sheets,
-          read: processes.tableFromGrid(sheet.grid, options, sheet.sheet),
+          read: tableFiles.tableFromGrid(sheet.grid, options, sheet.sheet),
         };
       } catch (error) {
         if (error instanceof XlsxError)
@@ -89,7 +90,7 @@ export function readTableFile(
       } catch {
         throw new TableFileError(`${file.filename} isn't JSON we can read`);
       }
-      return { kind, sheets: [], read: processes.tableFromJson(value, options) };
+      return { kind, sheets: [], read: tableFiles.tableFromJson(value, options) };
     }
   }
 }
@@ -102,7 +103,7 @@ export interface TableFileWritten {
 }
 
 /** A written cell as CSV text: dates in their style, amounts as decimals, true or false. */
-function csvCell(cell: processes.WriteCell): { value: string; text: boolean } {
+function csvCell(cell: tableFiles.WriteCell): { value: string; text: boolean } {
   if (cell === null) return { value: "", text: false };
   switch (cell.kind) {
     case "text":
@@ -112,7 +113,7 @@ function csvCell(cell: processes.WriteCell): { value: string; text: boolean } {
     case "money":
       return { value: cell.value, text: false };
     case "date":
-      return { value: processes.formatTableDate(cell.value, cell.style), text: false };
+      return { value: tableFiles.formatTableDate(cell.value, cell.style), text: false };
     case "boolean":
       return { value: cell.value ? "true" : "false", text: false };
   }
@@ -129,7 +130,7 @@ export function writeTableFile(
   format: "csv" | "xlsx",
   options: { sheet?: string | null } = {},
 ): TableFileWritten {
-  const laid = processes.tableForWriting(rows, columns);
+  const laid = tableFiles.tableForWriting(rows, columns);
   if (!laid.ok) throw new TableFileError(laid.error);
   const { grid } = laid;
   let bytes: Uint8Array;

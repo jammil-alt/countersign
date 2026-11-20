@@ -325,6 +325,8 @@ export * from "./setup/item";
 export * from "./setup/view";
 export * from "./skills/index";
 export * from "./supervisor/health";
+// §1.164: reading and writing table files, outside `processes` (kept out of the web first load).
+export * as tableFiles from "./tables";
 export * from "./template/template";
 export * from "./template/typer";
 // v0.12 W2-C: the test bench
