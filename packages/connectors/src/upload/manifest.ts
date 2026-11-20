@@ -10,6 +10,8 @@ export const UPLOAD_CONNECTOR_ID = "upload";
 export function createUploadConnector(): Connector {
   return defineConnector({
     id: UPLOAD_CONNECTOR_ID,
+    // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
+    askFirst: [],
     name: "Upload and forwarding",
     description:
       "Upload invoices, receipts and purchase CSVs, or forward invoices from your email to your private address.",

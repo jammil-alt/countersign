@@ -277,7 +277,7 @@ describe("calendar.event.create on Google", () => {
     ).toBe("approval");
     expect(
       decideToolCall({ sideEffect: "external", verb: "update", matrix, agentMode: "act" }),
-    ).toBe("approval");
+    ).toBe("refused");
     const { before } = await captureBefore(connector, CALENDAR_TOOLS.create, MEETING, ctx);
     expect(before).toEqual({
       calendar: "pat.lee@shop.example",

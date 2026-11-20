@@ -511,6 +511,8 @@ export function createWhatsappMetaConnector(options: WhatsappMetaConnectorOption
 
   return defineConnector({
     id: WHATSAPP_META_CONNECTOR_ID,
+    // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
+    askFirst: [{ verb: "create", entity: "message" }],
     name: "WhatsApp (your own number)",
     description:
       "Connect your own WhatsApp Business number through Meta. Agents message your contacts from it, and what they send you is kept.",
