@@ -494,7 +494,7 @@ export function draftProblems(
     if (seen.has(key)) {
       const ref = order
         ? `after:${order.after}`
-        : (/^\{\{\s*([^}]+?)\s*\}\}/.exec(e.message)?.[1] ?? "");
+        : (/^\{\{([^}]*)\}\}/.exec(e.message)?.[1]?.trim() ?? "");
       if (ref) key = `${base}|${ref}`;
     }
     for (let n = 2; seen.has(key); n += 1) key = `${base}|${n}`;
