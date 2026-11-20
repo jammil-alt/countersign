@@ -69,7 +69,7 @@ import { z } from "zod";
 import { stepRequests } from "../dev-queue/store";
 import { iso, notFound, type Services } from "../http";
 import { goLiveView } from "../lifecycle/stages";
-import { fullSuiteRun, notPendingTry } from "../testbench/partial";
+import { fullSuiteRun, notPendingTry, staleRun } from "../testbench/partial";
 import { buildFacts, buildStageOf, buildStanding } from "../work/work-list";
 import { trySandbox, tryViews } from "./tries";
 import { failureWhy } from "./why";
@@ -692,7 +692,7 @@ async function suitePoc(
         : !current
           ? "The latest test run is of an older version: run the cases again."
           : !done
-            ? latest.status === "running"
+            ? latest.status === "running" && !staleRun(latest, latest.total)
               ? "The test cases are running."
               : "The latest test run failed to finish."
             : requiredFailing > 0
@@ -707,7 +707,7 @@ async function suitePoc(
     latest: latest
       ? {
           id: latest.id,
-          status: latest.status,
+          status: staleRun(latest, latest.total) ? "failed" : latest.status,
           total: latest.total,
           passed: latest.passed,
           failed: latest.failed,

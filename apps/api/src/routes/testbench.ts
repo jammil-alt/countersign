@@ -43,7 +43,7 @@ import {
 import { runDepsFromEnv } from "../runs/execute";
 import { type TestSuiteJobs, testSuiteJobs } from "../testbench/instances";
 import { notPendingTry, partialMarks } from "../testbench/partial";
-import { executeSuite, type SuiteParams } from "../testbench/suite";
+import { executeSuite, finishSuite, type SuiteParams } from "../testbench/suite";
 
 type Scope = Pick<HandlerCtx<never>, "tx" | "tenantIds">;
 type CaseRow = typeof testCase.$inferSelect;
@@ -386,7 +386,14 @@ export function testbenchRoutes(app: Hono<AppEnv>): void {
     };
     const jobs = testSuiteJobsFor(services.deps, services.env);
     if (jobs) {
-      ctx.afterCommit(() => jobs.start(params));
+      // INTEG-2: a job that can't start (Workflows down, a quota) finishes its suite run as
+      // failed, so neither the run nor a build's try shows "running" for ever.
+      ctx.afterCommit(() =>
+        jobs.start(params).catch(async (error: unknown) => {
+          await finishSuite(services.db, params, [], "failed");
+          throw error;
+        }),
+      );
     } else {
       // DECISION: where TestSuiteWorkflow isn't bound, the suite runs after the response in the
       // request's own lifetime (each case its own transactions, none held across a model call).

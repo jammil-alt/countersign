@@ -307,6 +307,8 @@ describe("the POC test on the build page", () => {
     const row = await screen.findByTestId(`build-try-${TRY}`);
     expect(row).toHaveTextContent("Running");
     expect(within(row).queryByTestId(`build-try-keep-${TRY}`)).toBeNull();
+    // INTEG-2: a running try can still be discarded, so one that never finishes isn't a dead end.
+    expect(within(row).getByTestId(`build-try-discard-${TRY}`)).toBeInTheDocument();
   });
 
   it("offers to try an older or stopped try again, and to discard it", async () => {
