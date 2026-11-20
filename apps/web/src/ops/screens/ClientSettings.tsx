@@ -6,7 +6,7 @@
 // read-only; the account's number and email, ours to bind), Billing, Compliance (HIPAA mode and
 // vendors), Run audit (wave 6: which finished runs we check by hand), Exports (it was a tab;
 // `/exports` redirects here) and Retire client. The tools it is
-// offered are on Setup, Connections.
+// offered are on the Areas tab (§1.162).
 import type { ExternalApprover, OpsClientSettings } from "@countersign/core";
 import { type ReactNode, useEffect, useState } from "react";
 import { Link, NavLink, useLocation, useParams } from "react-router-dom";

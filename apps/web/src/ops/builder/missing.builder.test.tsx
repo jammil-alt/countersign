@@ -231,7 +231,7 @@ describe("a missing step in the builder", () => {
     });
     expect(within(inspector).getByTestId("builder-missing-connections")).toHaveAttribute(
       "href",
-      `/ops/clients/${CLIENT_ID}/connections`,
+      `/ops/clients/${CLIENT_ID}/areas`,
     );
 
     // Replace it with a step from the palette: it takes the missing step's place and id.

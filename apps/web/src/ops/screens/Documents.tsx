@@ -63,9 +63,7 @@ export function OpsDocumentsScreen() {
               ? "No documents yet. Upload an invoice above."
               : "No documents yet. They arrive when the client uploads or forwards an invoice, or a connection brings one in."
           }
-          {...(data.sandbox
-            ? {}
-            : { action: { label: "See connections", to: `${base}/connections` } })}
+          {...(data.sandbox ? {} : { action: { label: "See connections", to: `${base}/areas` } })}
         />
       ) : null}
       {data && data.documents.length > 0 ? (

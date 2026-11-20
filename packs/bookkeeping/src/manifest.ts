@@ -177,6 +177,14 @@ export const bookkeepingManifest: PackManifest = lazyParse(PackManifest, () => (
   description:
     "Bookkeeping from the client's bank and card feeds: each transaction matched with the accounting tool, booked by the client's rules or proposed from its chart of accounts, a person deciding what isn't sure, and written to QuickBooks after approval.",
   requiresConnectors: [],
+  // §1.162: the connections the Bookkeeping area works through, for the client page's Areas tab.
+  connections: [
+    { connectors: ["bankfeed"], use: "Bank and card transactions from the bank feed." },
+    {
+      connectors: ["qbo"],
+      use: "The chart of accounts, and bookings written after approval.",
+    },
+  ],
   events: [],
   tools: ALL_TOOLS.map((t) => t.spec),
   skills: BOOKKEEPING_SKILLS,

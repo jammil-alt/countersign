@@ -6061,6 +6061,22 @@ Numbered 0070 because main took 0068 and 0069 while it was open. Core gains the 
 | Custom connectors | `connector_setting.clients uuid[]`: null is every client, else one to 200 clients. No foreign key (arrays have none); a purged client's id stays and matches nothing, since ids are never reused. `connector_setting` stays operator-only; the portal reads it as today, through `readOperatorCatalogue`. // DECISION |
 | The previous Worker | A new table and nullable columns only. The DB fixture now inserts `connection` and `connection_change` by named columns, as `membership`, so the migration tests stopped at earlier migrations still seed. // DECISION |
 
+### 1.162 The client page's Areas tab (owner, 2026-11-20; no migration)
+
+Owner: "we don't have packs anymore and we should add their connectors here." The back office's
+client page has **Overview · Agents · Areas · File · Data · Setup · Settings**. Areas replaces the
+Packs tab and takes Setup's Connections; Setup keeps Messaging, Directory and Knowledge. The code
+keeps the word "pack"; only what people see changes. The sidebar's Packs (the operator's library of
+packs) is unchanged.
+
+| Topic | Decision |
+|---|---|
+| What an area needs | `PackManifest.connections` (core `AreaConnection`): each need is met by any one of its connectors (Gmail or Outlook; Search Console's two sign-ins), the first being the one to offer, with a line on what the area uses it for. Purchasing: Upload, QuickBooks, Gmail or Outlook. Bookkeeping: the bank feed, QuickBooks. Marketing: Search Console, Bing, Website. The manifest's flat `requiresConnectors` stays unused at pack level. Nothing gates switching an area on. A unit test checks every named connector is registered. // DECISION |
+| The API | `opsClientPacks` (and the portal's list, which shows neither) carries each pack's `connections` and `area`, the area's name from its intake section ("Purchasing" for Materials). The web matches needs to the client's connections from `opsClientConnections`. // DECISION |
+| The tab | Each area: its name, On or Switch on, a row per need (the connector, what it's for, a status chip: Connected, Needs reconnecting, Not connected) with the way forward (offer it to the client; the Sandbox's own Connect; "the client signs in from their portal") and Manage, which opens the connection's full card in place; then its reports and Materials' Import bill prices. Below: Other connections (connectors no area names, on or off), the permission matrix and the offering. // DECISION |
+| Old addresses | `…/packs` and `…/connections` redirect to `…/areas` (query and hash kept); `…/setup` now opens Messaging. Areas' reports keep their `…/reports/<pack>/…` addresses under the tab. In-app links (Needs us, the builder's missing step, a run's sign-in failure, Documents, Records, the OAuth callback, PackGate) point at Areas. // DECISION |
+| The connectors plan | `docs/connectors-plan.md` §7.1 (C6) reworks "today's `/ops/clients/:id/connections`": it is the Areas tab's connection parts now (`ops/screens/Connections.tsx`). |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

@@ -229,9 +229,10 @@ event trigger). Neither is a bundle or a prompt (invariant 11).
   - Needs us also lists approvals waiting over 24 hours and approvals nobody can act on.
   - The Clients list, the sidebar badge and Escalations read the same count.
 - **Command center:** at most four tiles, each a link to its filtered list.
-- **Client page:** five tabs: Overview, Agents, Data (Documents, Records), Setup (Connections,
-  Messaging, Directory, Knowledge) and Settings. Settings shows one section at a time. Old
-  addresses keep working.
+- **Client page:** Overview, Agents, Areas (each business area with its switch, the connections it
+  works through and its reports, then the client's other connections; `docs/plan.md` §1.162),
+  File, Data (Documents, Records, Chart of accounts), Setup (Messaging, Directory, Knowledge) and
+  Settings. Settings shows one section at a time. Old addresses keep working.
 - **Run page:** Timeline, Changes and Details (model calls, oversight, raw data). The waiting block
   sits at the top.
   - Runs are titled by what they're about (a derived `subject`).

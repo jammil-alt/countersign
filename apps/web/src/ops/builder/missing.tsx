@@ -92,7 +92,7 @@ export function MissingFields(
             hint="Connect the tool for the client, then replace this step with one that uses it."
             action={
               <Link
-                to={`/ops/clients/${props.tenantId}/connections`}
+                to={`/ops/clients/${props.tenantId}/areas`}
                 className={buttonClass("secondary")}
                 data-testid="builder-missing-connections"
               >

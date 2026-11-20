@@ -1,34 +1,27 @@
-// `/ops/clients/:clientId/connections` (design screen 2 in the back office; ARCHITECTURE §6.1 "Who
-// does what"): which connectors the client is offered, the client's connections with their sync
-// state and who uses them, the permission matrix (the operator may loosen as well as tighten) and
-// each connection's configuration. The client signs in from the portal; the operator never
-// connects a tool on a client's behalf and never sees credentials. The one exception is the Sandbox
-// client, the operator's own test client: the operator connects its no-sign-in tools here, and signs
-// in to its offered OAuth tools with their own account (the provider returns to
-// `/ops/connections/:connector/callback`). The Sandbox's connected Gmail also sends a test email
-// to itself from here (plan §1.31).
+// A client's connections in the back office (design screen 2; ARCHITECTURE §6.1 "Who does what"):
+// the parts the client page's Areas tab (../client/ClientAreas.tsx) is built from, since §1.162
+// folded Setup's Connections into it (`/ops/clients/:clientId/connections` redirects there). Each
+// connection's card with its sync state and who uses it, the permission matrix (the operator may
+// loosen as well as tighten), each connection's configuration, and which connectors the client is
+// offered. The client signs in from the portal; the operator never connects a tool on a client's
+// behalf and never sees credentials. The one exception is the Sandbox client, the operator's own
+// test client: the operator connects its no-sign-in tools here, and signs in to its offered OAuth
+// tools with their own account (the provider returns to `/ops/connections/:connector/callback`).
+// The Sandbox's connected Gmail also sends a test email to itself from here (plan §1.31).
 import { connectionAccountName } from "@countersign/core";
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import type { ResponseOf } from "../../api/client";
+import { Link } from "react-router-dom";
+import type { ApiClient, ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { ConnectorMark, connectionStatusLabel } from "../../connections/ConnectorMark";
 import { MatrixTable } from "../../connections/MatrixTable";
 import { shortTime } from "../../runs/format";
-import {
-  Badge,
-  Button,
-  Card,
-  EmptyState,
-  ErrorNotice,
-  Loading,
-  SectionLabel,
-} from "../../ui/primitives";
+import { Badge, Button, Card, ErrorNotice, SectionLabel } from "../../ui/primitives";
 import { plural } from "../../usage/format";
-import { ClientFrame } from "../client/ClientFrame";
 
-type Data = ResponseOf<typeof apiRoutes.opsClientConnections>;
+export type ClientConnections = ResponseOf<typeof apiRoutes.opsClientConnections>;
+export type ClientConnection = ClientConnections["connections"][number];
 
 /** How the client connects each kind of connector, in the operator's words. */
 const AUTH_LINE: Record<string, string> = {
@@ -47,132 +40,146 @@ export function operatorBlurb(description: string): string {
   return (kept.length > 0 ? kept : sentences).join("").trim();
 }
 
-export function OpsConnectionsScreen() {
-  const { clientId = "" } = useParams();
-  return (
-    <ClientFrame clientId={clientId}>
-      <Connections clientId={clientId} />
-    </ClientFrame>
-  );
-}
-
-function Connections({ clientId }: { clientId: string }) {
-  const api = useApiClient();
-  const { data, error, loading, reload } = useApi(apiRoutes.opsClientConnections, {
-    params: { id: clientId },
-  });
+/** The client's connections, with the connectors' record types for the matrix's entity rows. */
+export function useClientConnections(clientId: string) {
+  const state = useApi(apiRoutes.opsClientConnections, { params: { id: clientId } });
   // v0.12 W2-A: each connector's record types, for the matrix's entity rows.
   const catalog = useApi(apiRoutes.opsConnectors);
-
-  if (loading && !data) return <Loading />;
-  if (error) return <ErrorNotice error={error} onRetry={reload} />;
-  if (!data) return null;
-
-  const names = Object.fromEntries(data.connectors.map((c) => [c.id, c.name]));
   const entitiesOf = Object.fromEntries(
     (catalog.data?.connectors ?? []).map((c) => [c.id, c.permissionEntities]),
   );
-  return (
-    <div>
-      <p className="mb-6 text-ink-muted" data-testid="ops-connections-intro">
-        {data.sandbox
-          ? "Your own test client, so you connect its tools here. Test runs never write to them."
-          : "The tools offered, what is connected, and what agents may do in each. The client signs in from their portal; you never connect on their behalf."}
-      </p>
-      <div className="flex flex-col gap-6">
-        <section>
-          <SectionLabel>
-            Connected · {data.connections.filter((c) => c.status === "connected").length}
-          </SectionLabel>
-          {data.connections.length === 0 ? (
-            <EmptyState>
-              {data.sandbox
-                ? "No connections yet. Connect a connector below."
-                : "No connections yet. Offer a connector below; the client admin signs in from their portal."}
-            </EmptyState>
-          ) : (
-            <div
-              data-testid="ops-connections-list"
-              className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3"
-            >
-              {data.connections.map((c) => (
-                <ConnectionCard
-                  key={c.id}
-                  connection={c}
-                  name={names[c.connector] ?? c.connector}
-                  usedBy={data.usedBy[c.id] ?? []}
-                  testEmail={
-                    data.sandbox && c.connector === "gmail" && c.status === "connected"
-                      ? clientId
-                      : null
-                  }
-                  {...(data.sandbox && c.status !== "disconnected"
-                    ? {
-                        onDisconnect: async () => {
-                          await api.call(apiRoutes.opsSandboxDisconnect, {
-                            params: { id: clientId, connectionId: c.id },
-                          });
-                          reload();
-                        },
-                      }
-                    : {})}
-                  onSaveConfig={async (config) => {
-                    await api.call(apiRoutes.opsUpdateConnection, {
-                      params: { id: c.id },
-                      body: { config },
-                    });
-                    reload();
-                  }}
-                />
-              ))}
-            </div>
-          )}
-        </section>
+  return { ...state, entitiesOf };
+}
 
-        {data.connections.length > 0 ? (
-          <MatrixTable
-            editor="operator"
-            note="The client admin can tighten these from the portal; only you can loosen them."
-            rows={data.connections.map((c) => ({
-              id: c.id,
-              name: names[c.connector] ?? c.connector,
-              permissions: c.permissions,
-              entities: entitiesOf[c.connector],
-            }))}
-            onSave={async (id, edit) => {
-              await api.call(apiRoutes.opsUpdateConnection, {
-                params: { id },
-                body: { permissions: edit },
+/** Connector id → its name, from the client's connections data. */
+export function connectorNames(data: ClientConnections): Record<string, string> {
+  return Object.fromEntries(data.connectors.map((c) => [c.id, c.name]));
+}
+
+/** The Sandbox only: connect a no-sign-in connector, or start the sign-in to an OAuth one. */
+export async function connectSandbox(
+  api: ApiClient,
+  clientId: string,
+  connector: { id: string; auth: string },
+  reload: () => void,
+): Promise<void> {
+  if (connector.auth === "none") {
+    await api.call(apiRoutes.opsConnectSandbox, {
+      params: { id: clientId, connector: connector.id },
+    });
+    reload();
+    return;
+  }
+  const res = await api.call(apiRoutes.opsSandboxAuthorize, {
+    params: { id: clientId, connector: connector.id },
+  });
+  // The provider's sign-in, then back to the back office's callback page.
+  window.location.assign(res.redirectUrl);
+}
+
+/** One of the client's connections as a card, with its configuration and actions. */
+export function ClientConnectionCard({
+  clientId,
+  data,
+  connection: c,
+  reload,
+}: {
+  clientId: string;
+  data: ClientConnections;
+  connection: ClientConnection;
+  reload: () => void;
+}) {
+  const api = useApiClient();
+  return (
+    <ConnectionCard
+      connection={c}
+      name={connectorNames(data)[c.connector] ?? c.connector}
+      usedBy={data.usedBy[c.id] ?? []}
+      testEmail={
+        data.sandbox && c.connector === "gmail" && c.status === "connected" ? clientId : null
+      }
+      {...(data.sandbox && c.status !== "disconnected"
+        ? {
+            onDisconnect: async () => {
+              await api.call(apiRoutes.opsSandboxDisconnect, {
+                params: { id: clientId, connectionId: c.id },
               });
               reload();
-            }}
-          />
-        ) : null}
+            },
+          }
+        : {})}
+      onSaveConfig={async (config) => {
+        await api.call(apiRoutes.opsUpdateConnection, {
+          params: { id: c.id },
+          body: { config },
+        });
+        reload();
+      }}
+    />
+  );
+}
 
-        <Offering
-          clientId={clientId}
-          data={data}
-          onConnect={async (connector) => {
-            await api.call(apiRoutes.opsConnectSandbox, { params: { id: clientId, connector } });
-            reload();
-          }}
-          onSignIn={async (connector) => {
-            const res = await api.call(apiRoutes.opsSandboxAuthorize, {
-              params: { id: clientId, connector },
-            });
-            // The provider's sign-in, then back to the back office's callback page.
-            window.location.assign(res.redirectUrl);
-          }}
-          onSave={async (offered) => {
-            await api.call(apiRoutes.opsOfferConnectors, {
-              params: { id: clientId },
-              body: { offered },
-            });
-            reload();
-          }}
-        />
-      </div>
-    </div>
+/** What agents may do in each of the client's connections (the operator may loosen). */
+export function ClientConnectionsMatrix({
+  data,
+  entitiesOf,
+  reload,
+}: {
+  data: ClientConnections;
+  entitiesOf: Record<
+    string,
+    ResponseOf<typeof apiRoutes.opsConnectors>["connectors"][number]["permissionEntities"]
+  >;
+  reload: () => void;
+}) {
+  const api = useApiClient();
+  if (data.connections.length === 0) return null;
+  const names = connectorNames(data);
+  return (
+    <MatrixTable
+      editor="operator"
+      note="The client admin can tighten these from the portal; only you can loosen them."
+      rows={data.connections.map((c) => ({
+        id: c.id,
+        name: names[c.connector] ?? c.connector,
+        permissions: c.permissions,
+        entities: entitiesOf[c.connector],
+      }))}
+      onSave={async (id, edit) => {
+        await api.call(apiRoutes.opsUpdateConnection, {
+          params: { id },
+          body: { permissions: edit },
+        });
+        reload();
+      }}
+    />
+  );
+}
+
+/** Which connectors the client is offered, with the Sandbox's Connect beside each. */
+export function ClientOffering({
+  clientId,
+  data,
+  reload,
+}: {
+  clientId: string;
+  data: ClientConnections;
+  reload: () => void;
+}) {
+  const api = useApiClient();
+  return (
+    <Offering
+      clientId={clientId}
+      data={data}
+      onConnect={(connector) => connectSandbox(api, clientId, connector, reload)}
+      onSave={async (offered) => {
+        await api.call(apiRoutes.opsOfferConnectors, {
+          params: { id: clientId },
+          body: { offered },
+        });
+        reload();
+      }}
+    />
   );
 }
 
@@ -228,7 +235,7 @@ function GmailTestSend({ clientId }: { clientId: string }) {
 const BUILT_IN_SOURCES = new Set(["upload"]);
 
 /** "synced 2 h ago", or for upload and forwarding "last document 2 h ago" (never "never synced"). */
-function activityWords(c: Data["connections"][number]): string {
+export function activityWords(c: ClientConnection): string {
   const at = c.lastActivityAt === undefined ? c.lastSyncAt : c.lastActivityAt;
   if (BUILT_IN_SOURCES.has(c.connector)) {
     return at ? `last document ${shortTime(at)}` : "no documents yet";
@@ -244,7 +251,7 @@ function ConnectionCard({
   onDisconnect,
   onSaveConfig,
 }: {
-  connection: Data["connections"][number];
+  connection: ClientConnection;
   name: string;
   usedBy: { id: string; name: string }[];
   /** The Sandbox client's id when its connected Gmail may send a test email; else null. */
@@ -428,15 +435,15 @@ function Offering({
   data,
   onSave,
   onConnect,
-  onSignIn,
 }: {
   clientId: string;
-  data: Data;
+  data: ClientConnections;
   onSave: (offered: string[]) => Promise<void>;
-  /** The Sandbox only: the operator connects a connector that needs no sign-in. */
-  onConnect: (connector: string) => Promise<void>;
-  /** The Sandbox only: the operator signs in to an offered OAuth connector themselves. */
-  onSignIn: (connector: string) => Promise<void>;
+  /**
+   * The Sandbox only: the operator connects a connector that needs no sign-in, or signs in to an
+   * offered OAuth connector themselves.
+   */
+  onConnect: (connector: { id: string; auth: string }) => Promise<void>;
 }) {
   const known = data.offered.filter((id) => data.connectors.some((c) => c.id === id));
   const unknown = data.offered.filter((id) => !known.includes(id));
@@ -492,7 +499,7 @@ function Offering({
                       onClick={() => {
                         setBusy(true);
                         setProblem(null);
-                        (c.auth === "none" ? onConnect(c.id) : onSignIn(c.id))
+                        onConnect(c)
                           .catch(setProblem)
                           .finally(() => setBusy(false));
                       }}

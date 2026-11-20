@@ -76,6 +76,13 @@ export const marketingManifest: PackManifest = lazyParse(PackManifest, () => ({
   description:
     "The Marketing area for the client's own websites: measurement without cookies or kept IP addresses, search figures, the content of its guides, a weekly report, and agents that draft articles, posts and forum replies for a person to sign.",
   requiresConnectors: [],
+  // §1.162: the connections the Marketing area works through, for the client page's Areas tab.
+  // Measurement is the area's own collector, so it needs none.
+  connections: [
+    { connectors: ["gsc_oauth", "gsc"], use: "Google search figures for each site." },
+    { connectors: ["bing_webmaster"], use: "Bing search figures for each site." },
+    { connectors: ["website"], use: "Guides published to the client's site once a person signs." },
+  ],
   events: all((a) => a.EVENTS),
   tools: Object.values(MARKETING_HANDLERS).map((t) => t.spec),
   skills: MARKETING_SKILLS,

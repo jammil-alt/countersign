@@ -1,8 +1,10 @@
 // The back-office client page's frame (docs/ui-plan.md "Client page", drafted in the prototype's
-// style for the owner to adjust): the client's name with how many of its agents are live, and five
-// tabs: Overview, Agents, Data (Documents, Records), Setup (Connections, Messaging, Directory,
-// Knowledge) and Settings. Data and Setup each have a small switch between their pages instead of
-// more tabs. Every page keeps its own route (../routes.tsx), so old addresses keep working; each
+// style for the owner to adjust): the client's name with how many of its agents are live, and its
+// tabs: Overview, Agents, Areas (the business areas with the connections each works through, and
+// the client's other connections; docs/plan.md §1.162), File, Data (Documents, Records, Chart of
+// accounts), Setup (Messaging, Directory, Knowledge) and Settings. Data and Setup each have a small
+// switch between their pages instead of more tabs. Every page keeps its own route (../routes.tsx),
+// and old addresses redirect (`packs` and `connections` to `areas`); each
 // renders inside this frame, which loads the client once and hands it down (`useClientPage`). The
 // client's runs are on the Runs page, filtered to it, linked from the Overview.
 import { goLiveCounts } from "@countersign/core";
@@ -34,10 +36,10 @@ export function useClientPage(): ApiState<OpsClient> {
   return state;
 }
 
-export type ClientTabId = "overview" | "agents" | "file" | "data" | "setup" | "packs" | "settings";
+export type ClientTabId = "overview" | "agents" | "areas" | "file" | "data" | "setup" | "settings";
 
 /**
- * The six tabs. `pages`: the addresses under `/ops/clients/:clientId` each tab owns, the first
+ * The seven tabs. `pages`: the addresses under `/ops/clients/:clientId` each tab owns, the first
  * its own; a tab with more than one page shows the switch between them.
  */
 export const CLIENT_TABS: {
@@ -47,6 +49,10 @@ export const CLIENT_TABS: {
 }[] = [
   { id: "overview", label: "Overview", pages: [["", "Overview"]] },
   { id: "agents", label: "Agents", pages: [["agents", "Agents"]] },
+  // §1.162 (owner, 2026-11-20): the business areas switched on for the client (packs in the code),
+  // the connections each works through and the client's other connections; their reports open
+  // under it. It was the Packs tab, and Setup's Connections folded into it.
+  { id: "areas", label: "Areas", pages: [["areas", "Areas"]] },
   // §1.149: what we know about the client, from the first call on (operator only).
   { id: "file", label: "File", pages: [["file", "Client file"]] },
   {
@@ -63,14 +69,11 @@ export const CLIENT_TABS: {
     id: "setup",
     label: "Setup",
     pages: [
-      ["connections", "Connections"],
       ["messaging", "Messaging"],
       ["directory", "Directory"],
       ["knowledge", "Knowledge"],
     ],
   },
-  // P-1: the business areas switched on for the client; their reports open under it.
-  { id: "packs", label: "Packs", pages: [["packs", "Packs"]] },
   // The old Exports tab is a section of Settings now.
   { id: "settings", label: "Settings", pages: [["settings", "Settings"]] },
 ];
@@ -90,7 +93,10 @@ export function clientPageOf(
   const rest = pathname.startsWith(base) ? pathname.slice(base.length).replace(/^\//, "") : "";
   const first = rest.split("/")[0] ?? "";
   if (first === "exports") return { tab: "settings", page: "settings" };
-  if (first === "reports") return { tab: "packs", page: "packs" };
+  // An area's reports, and the old Packs and Connections addresses (they redirect), are Areas'.
+  if (first === "reports" || first === "packs" || first === "connections") {
+    return { tab: "areas", page: "areas" };
+  }
   for (const tab of CLIENT_TABS) {
     if (tab.pages.some(([p]) => p === first)) return { tab: tab.id, page: first };
   }

@@ -1,6 +1,6 @@
 // Pack screens in the back office (ARCHITECTURE §15): the Packs page lists the deployment's packs
 // and switches one on for a client, so that client's agents can use its tools and skills; the
-// client page shows the same switch and links to that client's reports. Packs ship no agents
+// client page's Areas tab (§1.162) shows the same switch and links to that client's reports. Packs ship no agents
 // (docs/plan.md §1.63): agents are built in the Agent lab, so a pack's template list is usually
 // empty. The portal's pack screens are in ./screens.tsx; these stay out of the portal's first load.
 import { useState } from "react";
@@ -13,7 +13,6 @@ import {
   Badge,
   Button,
   Card,
-  EmptyState,
   ErrorNotice,
   Loading,
   PageHeader,
@@ -21,7 +20,7 @@ import {
 } from "../ui/primitives";
 import { BankTransactionsView } from "./bookkeeping/BankTransactions";
 import { ReconciliationsView } from "./bookkeeping/Reconciliations";
-import { CatalogView, PackReportLinks, PriceWatchView } from "./materials/Reports";
+import { CatalogView, PriceWatchView } from "./materials/Reports";
 // P-9
 import { RequestsView, RequestView } from "./materials/Requests";
 // §1.88
@@ -30,16 +29,8 @@ import { PackGate } from "./PackGate";
 
 // ── Back office ──────────────────────────────────────────────────────────────────────────────────
 
-// A client's pack pages sit in the client page's Packs tab (../ops/client/ClientFrame.tsx).
-export function OpsClientPacksScreen() {
-  const { clientId = "" } = useParams();
-  return (
-    <ClientFrame clientId={clientId}>
-      <ClientPacks clientId={clientId} />
-    </ClientFrame>
-  );
-}
-
+// A client's pack reports open under the client page's Areas tab (§1.162,
+// ../ops/client/ClientAreas.tsx), which shows the switch and links here.
 export function OpsClientPriceWatchScreen() {
   const { clientId = "" } = useParams();
   return (
@@ -122,7 +113,7 @@ export function OpsClientReconciliationsScreen() {
 }
 
 /** P-9: the back office's "Import bill prices": every synced QuickBooks bill in a range. */
-function ImportBillPrices({ clientId }: { clientId: string }) {
+export function ImportBillPrices({ clientId }: { clientId: string }) {
   const client = useApiClient();
   const year = new Date().getUTCFullYear();
   const [from, setFrom] = useState(`${year - 1}-01-01`);
@@ -182,7 +173,7 @@ function ImportBillPrices({ clientId }: { clientId: string }) {
   );
 }
 
-function EnableButton({
+export function EnableButton({
   clientId,
   pack,
   onDone,
@@ -374,41 +365,5 @@ export function OpsPacksScreen() {
         </section>
       ))}
     </div>
-  );
-}
-
-/** The client page's packs: which are on, switch one on, and that client's reports. */
-export function ClientPacks({ clientId }: { clientId: string }) {
-  const { data, error, reload } = useApi(apiRoutes.opsClientPacks, { params: { id: clientId } });
-  if (error) return <ErrorNotice error={error} onRetry={reload} />;
-  if (!data) return <Loading />;
-  if (data.packs.length === 0) return <EmptyState>This deployment has no packs.</EmptyState>;
-  return (
-    <section data-testid="ops-client-packs">
-      <div className="flex flex-col gap-3">
-        {data.packs.map((p) => (
-          <Card key={p.id} className="p-5" testId={`ops-client-pack-${p.id}`}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="font-medium text-ink">{p.name}</p>
-                <p className="text-sm text-ink-muted">{p.description}</p>
-              </div>
-              {p.enabled ? (
-                <Badge tone="positive">On</Badge>
-              ) : (
-                <EnableButton clientId={clientId} pack={p.id} onDone={() => reload()} />
-              )}
-            </div>
-            {p.enabled && p.screens.length > 0 ? (
-              <div className="mt-4">
-                <PackReportLinks screens={p.screens} base={`/ops/clients/${clientId}`} />
-              </div>
-            ) : null}
-            {/* P-9 */}
-            {p.enabled && p.id === "materials" ? <ImportBillPrices clientId={clientId} /> : null}
-          </Card>
-        ))}
-      </div>
-    </section>
   );
 }

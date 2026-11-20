@@ -270,7 +270,7 @@ describe("back office knowledge tab", () => {
     renderAt(`/ops/clients/${CLIENT}`, api);
     expect(await screen.findByRole("link", { name: "Setup" })).toHaveAttribute(
       "href",
-      `/ops/clients/${CLIENT}/connections`,
+      `/ops/clients/${CLIENT}/messaging`,
     );
     expect(screen.getByRole("link", { name: "Agents" })).toHaveAttribute(
       "href",

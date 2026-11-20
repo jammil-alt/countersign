@@ -187,7 +187,7 @@ export function OpsRecordsScreen() {
                         set({ q: "", source: "", page: "" });
                       },
                     }
-                  : { label: "See connections", to: `${base}/connections` }
+                  : { label: "See connections", to: `${base}/areas` }
               }
             />
           ) : (

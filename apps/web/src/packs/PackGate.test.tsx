@@ -10,6 +10,7 @@ const CLIENT = "00000000-0000-4000-8000-0000000000c1";
 const pack = (id: string, name: string, enabled: boolean) => ({
   id,
   name,
+  area: "Purchasing",
   description: "",
   enabled,
   enabledAt: enabled ? "2026-11-01T00:00:00Z" : null,
@@ -34,14 +35,14 @@ function renderGate(enabled: boolean) {
 }
 
 describe("PackGate", () => {
-  it("says the pack is off, with the way to the Packs tab, instead of the report", async () => {
+  it("says the area is off, with the way to the Areas tab, instead of the report", async () => {
     renderGate(false);
     expect(await screen.findByTestId("pack-off-materials")).toHaveTextContent(
-      "Materials is off for this client",
+      "Purchasing is off for this client",
     );
     expect(screen.getByTestId("pack-off-materials-open")).toHaveAttribute(
       "href",
-      `/ops/clients/${CLIENT}/packs`,
+      `/ops/clients/${CLIENT}/areas`,
     );
     expect(screen.queryByTestId("report")).toBeNull();
   });

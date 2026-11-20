@@ -77,10 +77,12 @@ async function clientPacks(tx: Tx, services: Services, tenantId: string): Promis
     return {
       id: p.manifest.id,
       name: p.manifest.name,
+      area: p.manifest.intakeSection?.title ?? p.manifest.name,
       description: p.manifest.description,
       enabled: Boolean(row),
       enabledAt: row?.enabledAt.toISOString() ?? null,
       screens: screensOf(p),
+      connections: p.manifest.connections ?? [],
     };
   });
 }

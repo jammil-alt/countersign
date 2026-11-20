@@ -114,7 +114,7 @@ describe("the client page", () => {
     renderAt(`/ops/clients/${CLIENT}`, api);
     const title = await screen.findByRole("heading", { level: 1, name: "Harbor Millwork" });
     const tabs = within(screen.getByTestId("ops-client-tabs"));
-    for (const tab of ["Agents", "File", "Data", "Setup", "Packs", "Settings", "Overview"]) {
+    for (const tab of ["Agents", "Areas", "File", "Data", "Setup", "Settings", "Overview"]) {
       await user.click(tabs.getByRole("link", { name: tab }));
       // The same heading element: the frame was not remounted.
       expect(screen.getByRole("heading", { level: 1, name: "Harbor Millwork" })).toBe(title);
@@ -236,19 +236,19 @@ describe("the client page", () => {
     expect(tabs.map((t) => t.textContent)).toEqual([
       "Overview",
       "Agents",
+      "Areas",
       "File",
       "Data",
       "Setup",
-      "Packs",
       "Settings",
     ]);
     expect(tabs.map((t) => t.getAttribute("href"))).toEqual([
       `/ops/clients/${CLIENT}`,
       `/ops/clients/${CLIENT}/agents`,
+      `/ops/clients/${CLIENT}/areas`,
       `/ops/clients/${CLIENT}/file`,
       `/ops/clients/${CLIENT}/documents`,
-      `/ops/clients/${CLIENT}/connections`,
-      `/ops/clients/${CLIENT}/packs`,
+      `/ops/clients/${CLIENT}/messaging`,
       `/ops/clients/${CLIENT}/settings`,
     ]);
     // The client's runs: the Runs page filtered to it, from the Overview.
@@ -448,7 +448,7 @@ describe("the client page's tabs and addresses", () => {
       within(pages)
         .getAllByRole("link")
         .map((l) => l.textContent),
-    ).toEqual(["Connections", "Messaging", "Directory", "Knowledge"]);
+    ).toEqual(["Messaging", "Directory", "Knowledge"]);
     expect(within(pages).getByRole("link", { name: "Directory" })).toHaveAttribute(
       "aria-current",
       "page",
@@ -460,7 +460,7 @@ describe("the client page's tabs and addresses", () => {
 
   it.each([
     ["data", "ops-client-data-pages", "Documents"],
-    ["setup", "ops-client-setup-pages", "Connections"],
+    ["setup", "ops-client-setup-pages", "Messaging"],
   ])("sends /%s to its first page", async (old, pagesId, first) => {
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
