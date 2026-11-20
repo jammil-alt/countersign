@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../App";
 import { ApiProvider } from "../api/useApi";
 import { PortalApproverRules } from "../portal/screens/ApproverRules";
+import { NO_CONNECTORS } from "../test/connectors";
 import { CLIENT_SESSION, fakeApi, Reply } from "../test/fixtures";
 import { I18nProvider } from "./i18n";
 
@@ -650,7 +651,7 @@ const WORDS = {
     optedOut: "Dado de baja",
     units: ["minutos", "horas", "días"],
     save: "Guardar personas",
-    nav: ["Inicio", "Bandeja", "Ejecuciones", "Cuentas", "Contactos", "Ajustes"],
+    nav: ["Inicio", "Bandeja", "Ejecuciones", "Conectores", "Contactos", "Ajustes"],
     whoContacts: "A quién contacta Orders desk",
   },
   de: {
@@ -698,7 +699,7 @@ const WORDS = {
     optedOut: "Abgemeldet",
     units: ["Minuten", "Stunden", "Tage"],
     save: "Personen speichern",
-    nav: ["Start", "Posteingang", "Abläufe", "Konten", "Kontakte", "Einstellungen"],
+    nav: ["Start", "Posteingang", "Abläufe", "Konnektoren", "Kontakte", "Einstellungen"],
     whoContacts: "Wen Orders desk kontaktiert",
   },
 } as const;
@@ -714,7 +715,7 @@ for (const locale of ["es", "de"] as const) {
       ).toBeInTheDocument();
       // The sidebar's places, all translated.
       expect(
-        ["home", "inbox", "runs", "accounts", "contacts", "settings"].map(
+        ["home", "inbox", "runs", "connectors", "contacts", "settings"].map(
           // The Inbox's count follows its name.
           (l) => screen.getByTestId(`portal-nav-${l}`).textContent?.replace(/\d+$/, ""),
         ),
@@ -833,7 +834,7 @@ describe("the access page in Spanish and German", () => {
   it.each([
     [
       "es",
-      "Cuentas",
+      "Conectores",
       "Secreto guardado",
       "Todas las herramientas",
       "Restringir",
@@ -841,7 +842,7 @@ describe("the access page in Spanish and German", () => {
     ],
     [
       "de",
-      "Konten",
+      "Konnektoren",
       "Geheimnis gespeichert",
       "Alle Tools",
       "Verschärfen",
@@ -852,8 +853,9 @@ describe("the access page in Spanish and German", () => {
     async (locale, title, secret, all, tighten, release) => {
       const api = portalApi(locale, {
         "GET /api/access": () => ({ items: [item], setup: [], canEdit: true, people: [] }),
+        "GET /api/portal/connectors": () => NO_CONNECTORS,
       });
-      // `/access` lands on the Accounts page's vault; a login's details open on request.
+      // `/access` lands on Connectors' website logins; a login's details open on request.
       renderAt("/access", api);
       const card = await screen.findByTestId("vault-item-acme");
       await userEvent.click(within(card).getByTestId("vault-item-open"));

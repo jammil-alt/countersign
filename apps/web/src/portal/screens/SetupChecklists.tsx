@@ -25,6 +25,7 @@ import {
   SectionLabel,
   Tag,
 } from "../../ui/primitives";
+import { PORTAL_PATHS } from "../paths";
 
 const GUARD: Record<SetupGuard, "start.setup.beforeTrial" | "start.setup.beforeLive"> = {
   setup: "start.setup.beforeTrial",
@@ -199,7 +200,12 @@ function SetupItem({
       ) : null}
 
       {row.byConnection && !row.done && canAnswer ? (
-        <Link className="ds-btn ds-btn--primary ds-btn--sm mt-2" to="/accounts">
+        <Link
+          className="ds-btn ds-btn--primary ds-btn--sm mt-2"
+          to={
+            row.connector ? PORTAL_PATHS.connector(row.connector, agentId) : PORTAL_PATHS.connectors
+          }
+        >
           {t("start.setup.connect")}
         </Link>
       ) : null}

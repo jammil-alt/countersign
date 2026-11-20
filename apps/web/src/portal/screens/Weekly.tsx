@@ -188,7 +188,7 @@ function WeeklyTable({
               badge={<StatusChip state="setup">{t("weekly.setup")}</StatusChip>}
               end={
                 <Link
-                  to={PORTAL_PATHS.accounts}
+                  to={PORTAL_PATHS.connector(s.connector, s.agentId)}
                   className={buttonClass("secondary", undefined, "sm")}
                 >
                   {t("weekly.connect")}

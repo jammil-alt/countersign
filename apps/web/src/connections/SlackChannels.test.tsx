@@ -1,4 +1,4 @@
-// v0.14 W4-C: Slack on the portal's Connections page (docs/plan.md §1.56): its description in the
+// v0.14 W4-C: Slack's page in the portal's Connectors (Connectors C5) (docs/plan.md §1.56): its description in the
 // reader's language; the client admin picks channels (the bot's membership shown, the picks saved
 // by id); a client user never sees the picker.
 import { render, screen, waitFor, within } from "@testing-library/react";
@@ -6,32 +6,22 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../App";
+import { connectionPage, connectorCard, connectorPageView } from "../test/connectors";
 import { CLIENT_SESSION, fakeApi, Reply } from "../test/fixtures";
 
 const TENANT = CLIENT_SESSION.activeTenantId as string;
 const SLACK_CONN = "00000000-0000-4000-8000-0000000e0051";
-const matrix = { read: "auto", create: "approval", update: "approval", delete: "off", scope: null };
 
-const SLACK = {
+const SLACK = connectorCard({
   connector: "slack",
   name: "Slack",
   description: "Post messages to the Slack channels you pick. We can't read your messages.",
-  icon: "message",
-  available: true,
-  credentialForm: false,
-  personal: false,
-  connection: {
-    id: SLACK_CONN,
-    status: "connected",
-    externalAccountId: "T0ACMEMILL",
-    accountName: "Acme Millwork",
-    lastSyncAt: null,
-    permissions: matrix,
-    access: [],
-    usedBy: [],
-    connectedByYou: true,
-  },
-};
+  group: "messages",
+});
+
+const CONNECTED = [
+  connectionPage({ id: SLACK_CONN, accountName: "Acme Millwork", connectedByYou: true }),
+];
 
 const CHANNELS = {
   connectionId: SLACK_CONN,
@@ -47,7 +37,7 @@ const CHANNELS = {
 function renderAs(
   role: "client_admin" | "client_user",
   locale: "en" | "es",
-  connections: unknown[],
+  connections: ReturnType<typeof connectionPage>[],
 ) {
   const api = fakeApi({
     "GET /api/session": () => ({
@@ -57,14 +47,19 @@ function renderAs(
     }),
     "GET /api/overview": () => new Reply(404, {}),
     "GET /api/feedback/status": () => ({ enabled: false }),
-    "GET /api/connections": () => ({ connections }),
-    "GET /api/connections/upload/forwarding": () => new Reply(404, {}),
-    "GET /api/documents": () => ({ items: [] }),
-    "GET /api/approver-rules": () => new Reply(404, {}),
+    "GET /api/portal/connectors/slack": () =>
+      connectorPageView(SLACK, connections, { mayEdit: role === "client_admin" }),
+    "GET /api/access": () => ({
+      items: [],
+      setup: [],
+      browserSites: [],
+      canEdit: role === "client_admin",
+      people: [],
+    }),
     "GET /api/connections/slack/channels": () => CHANNELS,
   });
   render(
-    <MemoryRouter initialEntries={["/connections"]}>
+    <MemoryRouter initialEntries={["/connectors/slack"]}>
       <AppProviders client={api.client}>
         <AppRoutes />
       </AppProviders>
@@ -73,27 +68,25 @@ function renderAs(
   return api;
 }
 
-describe("Slack on the Connections page", () => {
+describe("Slack's page", () => {
   it("says what it does in the reader's language", async () => {
-    renderAs("client_user", "es", [{ ...SLACK, connection: null }]);
-    const card = await screen.findByTestId("portal-connection-slack");
+    renderAs("client_user", "es", []);
+    const card = await screen.findByTestId("portal-connector");
     expect(
-      within(card).getByText(
+      await within(card).findByText(
         "Publique mensajes en los canales de Slack que elija. No podemos leer sus mensajes.",
       ),
     ).toBeTruthy();
   });
 
   it("lets the client admin pick channels, saved by id", async () => {
-    const api = renderAs("client_admin", "en", [SLACK]);
+    const api = renderAs("client_admin", "en", CONNECTED);
     const bodies: unknown[] = [];
     api.on("PUT /api/connections/slack/channels", ({ init }) => {
       bodies.push(JSON.parse(String(init.body)));
       return CHANNELS;
     });
-    // The channels are part of the tool's card, open on request (the Accounts page).
-    const card = await screen.findByTestId("portal-connection-slack");
-    await userEvent.click(within(card).getByTestId("portal-connection-permissions-toggle"));
+    // The channels are the tool's own setup, on its page.
     const picker = await screen.findByTestId("slack-channels");
     expect(await within(picker).findByText("Workspace: Acme Millwork")).toBeTruthy();
     expect(within(picker).getByTestId("slack-picked-count").textContent).toBe("1 channel picked");
@@ -116,10 +109,10 @@ describe("Slack on the Connections page", () => {
   });
 
   it("isn't shown to a client user", async () => {
-    const api = renderAs("client_user", "en", [SLACK]);
+    const api = renderAs("client_user", "en", CONNECTED);
     await screen.findByTestId("portal-connection-slack");
     expect(screen.queryByTestId("slack-channels")).toBeNull();
-    await waitFor(() => expect(api.calls).toContain("GET /api/connections"));
+    await waitFor(() => expect(api.calls).toContain("GET /api/portal/connectors/slack"));
     expect(api.calls).not.toContain("GET /api/connections/slack/channels");
   });
 });

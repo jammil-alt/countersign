@@ -9,6 +9,7 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
 import { EN } from "../../i18n/i18n";
+import { connectionSummary, connectorCard, NO_CONNECTORS } from "../../test/connectors";
 import { CLIENT_SESSION, fakeApi, Reply, tableService, tableView } from "../../test/fixtures";
 import { formFields, triggerWords } from "./Agent";
 
@@ -137,48 +138,32 @@ const RUN_VIEW = {
   actions: [],
 };
 
-const ACCESS = {
-  items: [
-    {
-      connectionId: QBO,
+/** Connectors as the portal lists them: QuickBooks used by Pia, and Gmail Pia still needs. */
+const CONNECTORS = {
+  ...NO_CONNECTORS,
+  connected: [
+    connectorCard({
       connector: "qbo",
       name: "QuickBooks Online",
-      kind: "oauth",
-      status: "active",
-      // A QuickBooks realm id: never shown to the client; the company name is.
-      externalAccountId: "9341455130122716",
-      accountName: "Harbor Millwork",
-      secret: { set: true, fields: [], updatedAt: null },
-      credentialForm: false,
-      matrix: { read: "auto", create: "approval", update: "approval", delete: "off" },
-      tools: [],
-      agents: [
-        {
-          agentId: SVC,
-          name: "Pia",
-          limits: {},
-          effective: { read: "auto", create: "off", update: "approval", delete: "off" },
-          tools: null,
-          revoked: false,
-          updatedAt: null,
-        },
+      connections: [
+        connectionSummary({
+          id: QBO,
+          // The company's name; never the QuickBooks realm id (9341455130122716).
+          accountName: "Harbor Millwork",
+          usedBy: [{ id: SVC, name: "Pia" }],
+        }),
       ],
-      browser: null,
-      release: {
-        mode: "off",
-        person: null,
-        channel: "email",
-        window: "run",
-        sentTo: null,
-        updatedAt: null,
-        live: [],
-      },
+    }),
+  ],
+  waiting: [
+    {
+      agent: { id: SVC, name: "Pia" },
+      connector: "gmail",
+      connectorName: "Gmail",
+      kind: "not_connected" as const,
+      words: "Pia: connect Gmail",
     },
   ],
-  setup: [],
-  browserSites: [],
-  canEdit: true,
-  people: [],
 };
 
 const trigger = (o: Record<string, unknown>) => ({
@@ -303,7 +288,7 @@ describe("the agent page", () => {
       }),
       "GET /api/table": () => TABLE,
       [`GET /api/runs/${RUN}`]: () => RUN_VIEW,
-      "GET /api/access": () => ACCESS,
+      "GET /api/portal/connectors": () => CONNECTORS,
       "GET /api/controls": () => control(),
       [`GET /api/services/${SVC}/view`]: () => ({
         service: { id: SVC, name: "Pia" },
@@ -417,19 +402,19 @@ describe("the agent page", () => {
     const contact = await screen.findByTestId("agent-contact");
     expect(contact).toHaveTextContent("pia.harbor-millwork-abc@in.mezonas.com");
     expect(within(contact).getByTestId("agent-contact-command")).toHaveTextContent("/pia");
-    const reach = await screen.findByTestId(`agent-reach-${QBO}`);
+    // Connectors C5: the connectors it uses, Ready or what it needs, each opening the connector's
+    // page with this agent picked; what it may do per record type is on that page.
+    const reach = await screen.findByTestId("agent-reach-qbo");
     expect(reach).toHaveTextContent("QuickBooks Online · Harbor Millwork");
-    expect(reach).not.toHaveTextContent("9341455130122716");
-    expect(within(reach).getByTestId(`agent-reach-${QBO}-read`)).toHaveTextContent(
-      "Read: on its own",
+    expect(reach).toHaveAttribute("href", `/connectors/qbo?for=${SVC}`);
+    expect(within(reach).getByTestId("agent-reach-qbo-state")).toHaveTextContent("Ready");
+    const gmail = screen.getByTestId("agent-reach-gmail");
+    expect(gmail).toHaveTextContent("Pia: connect Gmail");
+    expect(within(gmail).getByTestId("agent-reach-gmail-state")).toHaveTextContent(
+      "Needs something",
     );
-    expect(within(reach).getByTestId(`agent-reach-${QBO}-update`)).toHaveTextContent(
-      "Update: needs your approval",
-    );
-    expect(within(reach).getByTestId(`agent-reach-${QBO}-delete`)).toHaveTextContent("Delete: off");
-    expect(
-      within(screen.getByTestId("agent-reach")).getByRole("link", { name: "Change" }),
-    ).toHaveAttribute("href", "/accounts");
+    expect(gmail).toHaveAttribute("href", `/connectors/gmail?for=${SVC}`);
+    expect(screen.queryByTestId(`agent-reach-qbo-update`)).toBeNull();
     // Never the bundle, the instructions or the cost.
     expect(container.textContent).not.toMatch(/0\.4000|never shown/);
   });
@@ -488,7 +473,7 @@ describe("the agent page", () => {
           },
         ],
       }),
-      "GET /api/access": () => ACCESS,
+      "GET /api/portal/connectors": () => CONNECTORS,
       "GET /api/controls": () => control(),
     });
     renderAt(`/agents/${SVC}`, api);
@@ -573,7 +558,7 @@ describe("the agent page", () => {
   it("shows the client admin who it contacts on Agent settings, reached from the old Access address", async () => {
     const api = fakeApi({
       ...base,
-      "GET /api/access": () => ACCESS,
+      "GET /api/portal/connectors": () => CONNECTORS,
       "GET /api/controls": () => control(),
       "GET /api/people": () => ({
         items: [
@@ -745,13 +730,11 @@ describe("the agent page", () => {
         language: { effective: "de", user: "de", client: null },
       }),
       "GET /api/table": () => TABLE,
-      "GET /api/access": () => ACCESS,
+      "GET /api/portal/connectors": () => CONNECTORS,
     });
     renderAt(`/agents/${SVC}/settings`, api);
     await waitFor(() => expect(screen.getByTestId("agent-state")).toHaveTextContent("Arbeitet"));
-    expect(await screen.findByTestId(`agent-reach-${QBO}-update`)).toHaveTextContent(
-      "Ändern: braucht Ihre Freigabe",
-    );
+    expect(await screen.findByTestId("agent-reach-qbo-state")).toHaveTextContent("Bereit");
     expect(
       within(screen.getByRole("main")).getByRole("link", { name: "Abläufe" }),
     ).toBeInTheDocument();

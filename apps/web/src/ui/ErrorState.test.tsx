@@ -98,12 +98,12 @@ describe("ErrorNotice on a page's load", () => {
     expect(retry).toHaveBeenCalledOnce();
   });
 
-  it("a connection page with no connection says what is missing and links to Accounts", () => {
+  it("a connection page with no connection says what is missing and links to Connectors", () => {
     show("/connections/gsheets/pick", fail(404, "not_found", "Not found."));
     const end = screen.getByTestId("error-not-found");
     expect(end).toHaveTextContent("This needs a connection you haven't made yet.");
-    expect(end).toHaveTextContent("Connect it in Accounts");
-    expect(within(end).getByTestId("error-back")).toHaveAttribute("href", "/accounts");
+    expect(end).toHaveTextContent("Connect it in Connectors");
+    expect(within(end).getByTestId("error-back")).toHaveAttribute("href", "/connectors");
   });
 
   it("an action's notice (no retry) reads as before, with the API's words", () => {

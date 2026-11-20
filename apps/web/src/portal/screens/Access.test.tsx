@@ -1,12 +1,13 @@
-// The vault on the portal's Accounts page (docs/plan.md §1.26; C4): every vault item with whether
+// The vault on the portal's Connectors page, under Built for you (docs/plan.md §1.26; C4, C5): every vault item with whether
 // its secret is stored (never the secret), each agent's access; the client admin enters an API-key
 // tool's login, tightens (only stricter levels are offered) and revokes; a client user only reads.
-// `/access` is the old address: it lands on `/accounts#vault`.
+// `/access` is the old address: it lands on `/connectors#vault`.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
+import { NO_CONNECTORS } from "../../test/connectors";
 import { CLIENT_SESSION, fakeApi } from "../../test/fixtures";
 
 const DEMO = CLIENT_SESSION.activeTenantId as string;
@@ -82,6 +83,8 @@ function vault(limits: Record<string, unknown> = {}) {
 }
 
 function renderAt(api: ReturnType<typeof fakeApi>) {
+  // Nothing listed under Connected: the vault's logins all show under Built for you.
+  api.on("GET /api/portal/connectors", () => NO_CONNECTORS);
   return render(
     <MemoryRouter initialEntries={["/access"]}>
       <AppProviders client={api.client}>
