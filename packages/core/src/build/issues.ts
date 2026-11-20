@@ -6,9 +6,18 @@
 // issue's thread, which is how "go back to it" works however long ago it was.
 
 import type { BuildDetail } from "../api/build";
-import { type BuildItemOwner, type BuildPhase, ITEM_STATE_WORDS, itemOpen } from "./build";
+import {
+  type BuildItemOwner,
+  type BuildPhase,
+  DECISION_KIND_WORDS,
+  DECISION_STATUS_WORDS,
+  type Decision,
+  decisionUnreviewed,
+  ITEM_STATE_WORDS,
+  itemOpen,
+} from "./build";
 
-export const ISSUE_SOURCES = ["item", "problem", "case", "rejection", "check"] as const;
+export const ISSUE_SOURCES = ["item", "problem", "case", "rejection", "check", "decision"] as const;
 export type IssueSource = (typeof ISSUE_SOURCES)[number];
 
 export const ISSUE_SOURCE_WORDS: Record<IssueSource, string> = {
@@ -17,10 +26,14 @@ export const ISSUE_SOURCE_WORDS: Record<IssueSource, string> = {
   case: "Failing test",
   rejection: "Rejected by the client",
   check: "QA check",
+  decision: "Decision",
 };
 
 export interface BuildIssue {
-  /** Stable across turns: `item:<id>`, `problem:<key>`, `case:<id>`, `rejection:<id>`, `check:<id>`. */
+  /**
+   * Stable across turns: `item:<id>`, `problem:<key>`, `case:<id>`, `rejection:<id>`, `check:<id>`,
+   * `decision:<id>`.
+   */
   key: string;
   source: IssueSource;
   title: string;
@@ -45,8 +58,9 @@ const SOURCE_ORDER: Record<IssueSource, number> = {
   problem: 0,
   case: 1,
   check: 2,
-  rejection: 3,
-  item: 4,
+  decision: 3,
+  rejection: 4,
+  item: 5,
 };
 
 /** The build's issues: open ones first, the ones holding the next move first among them. */
@@ -56,8 +70,10 @@ export function buildIssues(d: BuildDetail): BuildIssue[] {
   const t = (key: string) => talk.get(key) ?? 0;
   const out: BuildIssue[] = [];
   const phase = d.build.phase;
-  // Open items hold the moves into the client test and the go-live.
-  const itemsHold = d.gate.next === "client_test" || phase === "qa";
+  // What holds the next move, from the same facts as the gate (`gateReasons`, BUILDER_QA CONS-1):
+  // open items hold only the go-live (QA), draft problems only the move out of the draft.
+  const itemsHold = phase === "qa";
+  const problemsHold = phase === "draft";
 
   // A missing step whose part is in the Dev queue waits on its request.
   const waitingByStep = new Map<string, { id: string; ref: string }>();
@@ -77,7 +93,7 @@ export function buildIssues(d: BuildDetail): BuildIssue[] {
       detail: waiting ? [place, `Waiting on ${waiting.ref}`].filter(Boolean).join(". ") : place,
       phase: "draft",
       open: true,
-      blocking: true,
+      blocking: problemsHold,
       state: "Open",
       owner: null,
       itemId: null,
@@ -123,6 +139,10 @@ export function buildIssues(d: BuildDetail): BuildIssue[] {
       talk: t(key),
       waitingOn: null,
     });
+  }
+  // docs/builder-plan.md §4.2: a high-risk decision nobody has looked at holds the POC's move on.
+  for (const dec of d.build.fitgap?.decisions ?? []) {
+    if (decisionUnreviewed(dec)) out.push(decisionIssue(d, dec, t(`decision:${dec.id}`)));
   }
   for (const r of d.clientTest?.rejections ?? []) {
     if (itemFor("actionId", r.actionId)) continue;
@@ -171,6 +191,50 @@ export function buildIssues(d: BuildDetail): BuildIssue[] {
         a.at - b.at,
     )
     .map(({ issue }) => issue);
+}
+
+/** A decision as an issue: the conversation can be on any decision ("Ask about it"). */
+export function decisionIssue(d: BuildDetail, dec: Decision, talk = 0): BuildIssue {
+  const open = decisionUnreviewed(dec);
+  return {
+    key: `decision:${dec.id}`,
+    source: "decision",
+    title: dec.what,
+    detail: [
+      dec.risk === "high" ? `High risk, ${DECISION_KIND_WORDS[dec.kind].toLowerCase()}` : null,
+      dec.risk === "high" ? null : DECISION_KIND_WORDS[dec.kind],
+      dec.value ? `Starts at ${dec.value}` : null,
+      dec.why || null,
+    ]
+      .filter(Boolean)
+      .join(". "),
+    phase: "fitgap",
+    open,
+    blocking: open && d.build.phase === "poc",
+    state: DECISION_STATUS_WORDS[dec.status],
+    owner: null,
+    itemId: null,
+    talk,
+    waitingOn: null,
+  };
+}
+
+/**
+ * The issue with this key: one of the build's issues, or any of its decisions (a decision that
+ * isn't an issue, being normal risk or looked at, can still be asked about).
+ */
+export function issueByKey(
+  d: BuildDetail,
+  key: string,
+  issues: readonly BuildIssue[] = buildIssues(d),
+): BuildIssue | null {
+  const found = issues.find((i) => i.key === key);
+  if (found) return found;
+  const id = /^decision:(.+)$/.exec(key)?.[1];
+  const dec = id ? (d.build.fitgap?.decisions ?? []).find((x) => x.id === id) : undefined;
+  if (!dec) return null;
+  const talk = d.messages.filter((m) => m.about === key).length;
+  return decisionIssue(d, dec, talk);
 }
 
 /** The request an item's ref names, if any. */

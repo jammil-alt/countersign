@@ -165,6 +165,10 @@
         // Each client still gets its own subaccount. Not secrets.
         "TWILIO_PRIMARY_PROFILE_SID": "BUfc3f4925f70126f60f3feecddb28208c",
         "TWILIO_A2P_EMAIL": "compliance@mezonas.com",
+        // Our own second step (docs/plan.md §1.100): Twilio Verify in the "Mezonas sign-in staging" subaccount,
+        // reached with its own API key (TWILIO_VERIFY_API_KEY_SID / _SECRET, GitHub environment
+        // secrets). Not a secret. Set: every password sign-in asks for a code.
+        "TWILIO_VERIFY_SERVICE_SID": "VA9dc96fe13d3c060ef23381aa66550a2c",
         // The vendors with a signed BAA (docs/plan.md §1.35), e.g. "cloudflare,neon,workos,anthropic".
         // Add one only once its BAA is signed. Empty: no client can be put in HIPAA mode.
         "BAA_PROCESSORS": ""
@@ -236,6 +240,10 @@
         // profile: its TWILIO_ACCOUNT_SID is the same Twilio account.
         "TWILIO_PRIMARY_PROFILE_SID": "BUfc3f4925f70126f60f3feecddb28208c",
         "TWILIO_A2P_EMAIL": "compliance@mezonas.com",
+        // Our own second step (docs/plan.md §1.100): Twilio Verify in the "Mezonas sign-in" subaccount,
+        // reached with its own API key (TWILIO_VERIFY_API_KEY_SID / _SECRET, GitHub environment
+        // secrets). Not a secret. Set: every password sign-in asks for a code.
+        "TWILIO_VERIFY_SERVICE_SID": "VAff5f4c427fcb597b652fd3f0769d70a9",
         // The vendors with a signed BAA (docs/plan.md §1.35), e.g. "cloudflare,neon,workos,anthropic".
         // Add one only once its BAA is signed. Empty: no client can be put in HIPAA mode.
         "BAA_PROCESSORS": ""

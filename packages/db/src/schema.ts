@@ -29,6 +29,7 @@ import {
   numeric,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   unique,
@@ -232,8 +233,62 @@ export const mcpSessionApproval = pgTable(
   ],
 );
 
+/** Where a sign-in's approval on the phone app is (docs/plan.md §1.154). */
+export const SIGN_IN_APPROVAL_STATUSES = ["pending", "approved", "denied"] as const;
+
+/**
+ * A sign-in waiting on the person's phone (§1.154): the browser shows `number`, the phone app
+ * picks it and signs the approval with the phone's key behind Face ID or a fingerprint. Only the
+ * browser that asked, holding the key whose hash is kept here, passes the step with it, once.
+ * Pending past `expires_at` is expired.
+ */
+export const signInApproval = pgTable(
+  "sign_in_approval",
+  {
+    id: id(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => appUser.id, { onDelete: "cascade" }),
+    /** SHA-256 of the key only the asking browser holds (it polls with it). */
+    browserKeyHash: text("browser_key_hash").notNull(),
+    /** The two-digit number the browser shows and the phone must pick. */
+    number: smallint("number").notNull(),
+    status: text("status")
+      .$type<(typeof SIGN_IN_APPROVAL_STATUSES)[number]>()
+      .notNull()
+      .default("pending"),
+    /** What the phone shows of the asking browser: "Chrome on macOS". */
+    browser: text("browser").notNull(),
+    /** Where the request came from, as Cloudflare places its address: "Austin, US". */
+    place: text("place"),
+    /** The phone that decided (`person_device.id`, in one of the person's clients). */
+    deviceId: uuid("device_id"),
+    decidedAt: ts("decided_at"),
+    /** The asking browser passed the step with it. */
+    usedAt: ts("used_at"),
+    expiresAt: ts("expires_at").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("sign_in_approval_user_idx").on(t.userId, t.createdAt),
+    check("sign_in_approval_status_check", oneOf(t.status, SIGN_IN_APPROVAL_STATUSES)),
+    check("sign_in_approval_number_check", sql`${t.number} between 10 and 99`),
+    check(
+      "sign_in_approval_decided_check",
+      sql`(${t.status} = 'pending') = (${t.decidedAt} is null)
+        and (${t.status} <> 'approved' or ${t.deviceId} is not null)`,
+    ),
+    check("sign_in_approval_used_check", sql`${t.usedAt} is null or ${t.status} = 'approved'`),
+  ],
+);
+
 /** Global tables keyed by person, readable by that person (`app.user_id`) or an operator session. */
-export const USER_TABLES = ["user_factor", "user_recovery_code", "mcp_session_approval"] as const;
+export const USER_TABLES = [
+  "user_factor",
+  "user_recovery_code",
+  "mcp_session_approval",
+  "sign_in_approval",
+] as const;
 
 // ── Reggie, the operator's account agent (docs/plan.md §1.101) ───────────────────────────────────
 
@@ -1056,6 +1111,21 @@ export interface AgentStageState {
   trial?: { startedAt: string; minDays: number; minRuns: number; setBy: string | null };
   signoff?: { inboxItemId: string; askedAt: string };
   skipped?: { stage: AgentStage; reason: string; by: string | null; at: string }[];
+  rejections?: { reason: string; by: string | null; at: string; inboxItemId: string | null }[];
+  /** docs/builder-plan.md §6: the setup checklist's progress, by item id (core's SetupProgress). */
+  setup?: Record<
+    string,
+    {
+      done: boolean;
+      by: string | null;
+      byName?: string | null;
+      side?: "client" | "operator" | null;
+      at: string;
+      value?: string;
+      files?: string[];
+      versionId?: string;
+    }
+  >;
 }
 
 /** `agent.pause` (ARCHITECTURE §5.5): one side's pause; `all` pauses every agent of the client. */
@@ -2998,6 +3068,15 @@ export const knowledgeEntryVersion = pgTable(
 export interface KnowledgeEntryMeta {
   personUserId?: string;
   channel?: string;
+  // B6 (docs/builder-plan.md §8): governance, on a `policy` entry's version. No migration: the
+  // column is JSON. Core's `GovernanceTier` and `GovernanceTag` hold the values.
+  /** `charter`: the client's charter (one per client); `policy`: read by agents by its tags. */
+  tier?: "charter" | "policy";
+  /** The standard topics and business areas it covers. */
+  tags?: string[];
+  /** The client admin who confirmed this version (an app user id), and when (ISO). */
+  confirmedBy?: string;
+  confirmedAt?: string;
 }
 
 /**

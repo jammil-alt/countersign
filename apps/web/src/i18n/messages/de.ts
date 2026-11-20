@@ -389,6 +389,8 @@ export const de: Messages = {
     "Die erste SMS an eine Person, und die erste nach 30 Tagen, nennt Sie und endet mit dem Hinweis zur Abmeldung. Wir fügen ihn hinzu.",
   "inbox.findingDone": "Erledigt",
   "inbox.signAndUpdate": "Freigeben und {tool} aktualisieren", // fluent review
+  // B3: a change that rests on a decision nobody has discussed
+  "inbox.undiscussed": "Beruht auf einer Entscheidung, die noch niemand besprochen hat: {what}", // fluent review
   // ── Your Desk (UI-1b) ──
   "desk.title": "Posteingang", // fluent review
   "desk.subtitle": "Was Ihre Agenten von Ihnen brauchen, und was sie erledigt haben.", // fluent review
@@ -1378,6 +1380,60 @@ export const de: Messages = {
   "knowledge.problem.changed":
     "Jemand hat das geändert, seit Sie es geöffnet haben. Laden Sie neu, um den neuesten Stand zu sehen, und versuchen Sie es erneut.",
   "knowledge.problem.failed": "Wir konnten es nicht speichern. Versuchen Sie es erneut.",
+  // B6 (docs/builder-plan.md §8): the charter, tags and how our agents work.
+  "knowledge.charter.section": "Ihre Leitlinien",
+  "knowledge.charter.intro":
+    "Wer Sie sind, wie Sie sprechen, was Ihnen wichtig ist und was Sie nie tun. Unsere Agenten lesen sie vor jeder Aufgabe.",
+  "knowledge.charter.none":
+    "Wir entwerfen Ihre Leitlinien aus dem, was Sie uns beim Einstieg erzählt haben, und Sie bestätigen sie.",
+  "knowledge.charter.waiting": "Wartet auf Sie",
+  "knowledge.charter.waitingLine":
+    "Lesen Sie sie, dann bestätigen oder bearbeiten Sie sie. Unsere Agenten folgen ihnen, sobald Sie bestätigen.",
+  "knowledge.charter.inUse": "Unsere Agenten folgen Version {version}, bis Sie diese bestätigen.",
+  "knowledge.charter.confirmed": "Bestätigt",
+  "knowledge.charter.confirmedLine": "Bestätigt von {who} am {date}",
+  "knowledge.charter.confirm": "Bestätigen",
+  "knowledge.charter.confirming": "Wird bestätigt…",
+  "knowledge.charter.problem": "Wir konnten sie nicht bestätigen. Versuchen Sie es erneut.",
+  "knowledge.tags": "Was sie abdeckt",
+  "knowledge.tagsHint":
+    "Agenten lesen eine Richtlinie, wenn ihre Arbeit zu dem passt, was sie abdeckt.",
+  "governance.tag.security": "Sicherheit",
+  "governance.tag.writing-into-tools": "In Tools schreiben",
+  "governance.tag.money": "Geld",
+  "governance.tag.contacting-people": "Personen kontaktieren",
+  "governance.tag.data-handling": "Umgang mit Daten",
+  "governance.tag.people-and-roles": "Personen und Rollen",
+  "governance.tag.purchasing": "Einkauf",
+  "governance.tag.sales": "Vertrieb",
+  "governance.tag.receivables": "Forderungen",
+  "governance.tag.bookkeeping": "Buchhaltung",
+  "governance.tag.marketing": "Marketing",
+  "governance.tag.general": "Allgemein",
+  "howAgentsWork.title": "Wie Mezonas-Agenten arbeiten",
+  "howAgentsWork.intro":
+    "Die Regeln, denen jeder Agent folgt, vor Ihren Leitlinien und Richtlinien.",
+  "howAgentsWork.tools.title": "Sie arbeiten nur über Ihre Tools",
+  "howAgentsWork.tools.body":
+    "Agenten lesen und ändern Daten nur über die Verbindungen, die Sie uns gegeben haben, im Rahmen Ihrer Berechtigungen.",
+  "howAgentsWork.evidence.title": "Jede Zahl hat eine Quelle",
+  "howAgentsWork.evidence.body":
+    "Ein Agent erfindet nie eine Zahl oder einen Namen. Was er meldet, verweist auf die Datensätze, aus denen es stammt.",
+  "howAgentsWork.data.title": "Dokumente werden gelesen, nicht befolgt",
+  "howAgentsWork.data.body":
+    "Text in einer Rechnung, einer E-Mail oder einer Antwort ist Information. Ein Agent befolgt nie Anweisungen, die dort stehen.",
+  "howAgentsWork.approval.title": "Sie genehmigen Änderungen",
+  "howAgentsWork.approval.body":
+    "Änderungen an Ihren Tools warten auf die Genehmigung einer Person. Nur wir können das lockern, und nur mit Ihrer Zustimmung.",
+  "howAgentsWork.money.title": "Kein Geld fließt von selbst",
+  "howAgentsWork.money.body":
+    "Agenten zahlen, überweisen oder ändern Bankdaten nie selbst und melden sich nie bei Banken oder E-Mail-Konten an.",
+  "howAgentsWork.privacy.title": "Ihre Daten bleiben Ihre",
+  "howAgentsWork.privacy.body":
+    "Was ein Agent über Ihr Unternehmen lernt, wird nur für Sie genutzt, nie für einen anderen Kunden.",
+  "howAgentsWork.yours.title": "Danach Ihre Leitlinien und Richtlinien",
+  "howAgentsWork.yours.body":
+    "Dann lesen Agenten Ihre Leitlinien und Richtlinien. Diese können Regeln hinzufügen und unsere verschärfen, nie lockern.",
 
   // ── Contacts and consent (plan §1.22, §1.25) ──
   "contacts.title": "Kontakte",
@@ -2270,6 +2326,60 @@ export const de: Messages = {
   "agent.tab.overview": "Überblick",
   "agent.tab.runs": "Abläufe",
   "agent.tab.settings": "Agent-Einstellungen",
+  // B3: the agent manual (docs/builder-plan.md §5)
+  "agent.tab.manual": "Handbuch", // fluent review
+  "manual.whatItDoes": "Was er tut", // fluent review
+  "manual.howItWorks": "Wie er arbeitet", // fluent review
+  "manual.decisions": "Entscheidungen", // fluent review
+  "manual.decisionPoints": "Wo ein Mensch entscheidet", // fluent review
+  "manual.knownRisks": "Bekannte Risiken", // fluent review
+  "manual.setup": "Was wir mit Ihnen eingerichtet haben", // fluent review
+  "manual.learned": "Was er gelernt hat", // fluent review
+  "manual.reads": "Was er liest", // fluent review
+  "manual.notWritten":
+    "Wir haben das Handbuch dieses Agenten noch nicht geschrieben. Wie er arbeitet, wird aus seinen Schritten gelesen.", // fluent review
+  "manual.nothingYet": "Noch nichts.", // fluent review
+  "manual.notAnswered": "Noch nicht beantwortet", // fluent review
+  "manual.highRisk": "Hohes Risiko", // fluent review
+  "manual.learnedHidden": "Was er gelernt hat, sieht Ihr Administrator.", // fluent review
+  "manual.ask": "Danach fragen", // fluent review
+  "manual.askText": "Zum Handbuch von {agent}: „{line}“ ", // fluent review
+  "manual.startsAt": "Beginnt bei {value}", // fluent review
+  "manual.onStep": "Schritt: {step}", // fluent review
+  "manual.who": "Wer: {who}", // fluent review
+  "manual.byWhen": "Innerhalb von {when}", // fluent review
+  "manual.kind.assumption": "Annahme", // fluent review
+  "manual.kind.decision_point": "Entscheidungspunkt", // fluent review
+  "manual.kind.client_setup": "Mit Ihnen eingerichtet", // fluent review
+  "manual.status.never_discussed": "Nie besprochen", // fluent review
+  "manual.status.discussed": "Besprochen", // fluent review
+  "manual.status.confirmed": "Bestätigt", // fluent review
+  "manual.status.changed": "Geändert", // fluent review
+  // B5 (docs/builder-plan.md §7): changes on the agent's settings, and feedback on the manual.
+  "manual.changedBy": "Geändert von {who} am {date}", // fluent review
+  "manual.changedByUs": "Von uns geändert am {date}", // fluent review
+  "manual.wrong": "Das stimmt nicht", // fluent review
+  "manual.wrongBecause": "Das stimmt nicht, weil…", // fluent review
+  "manual.wrongSend": "An uns senden", // fluent review
+  "manual.wrongSent": "Als Anfrage Nr. {number} an uns gesendet. Wir antworten dort.", // fluent review
+  "adjust.title": "Was Sie anpassen können", // fluent review
+  "adjust.help":
+    "Diese Einstellungen haben wir für {name} eingerichtet. Eine Änderung innerhalb der Grenzen oder eine strengere gilt sofort. Alles darüber hinaus kommt als Anfrage zu uns.", // fluent review
+  "adjust.adminOnly": "Ihr Admin kann diese ändern.", // fluent review
+  "adjust.between": "Zwischen {min} und {max}", // fluent review
+  "adjust.atLeast": "Mindestens {min}", // fluent review
+  "adjust.atMost": "Höchstens {max}", // fluent review
+  "adjust.tighterLower": "Niedriger ist strenger.", // fluent review
+  "adjust.tighterHigher": "Höher ist strenger.", // fluent review
+  "adjust.notSet": "Nicht festgelegt", // fluent review
+  "adjust.change": "Ändern", // fluent review
+  "adjust.other": "Etwas anderes", // fluent review
+  "adjust.otherWhat": "Was Sie möchten", // fluent review
+  "adjust.why": "Warum (optional)", // fluent review
+  "adjust.applied": "Gespeichert. {label} ist jetzt {value}.", // fluent review
+  "adjust.unchanged": "{label} ist bereits {value}.", // fluent review
+  "adjust.requested":
+    "Das geht über unsere Einrichtung hinaus, daher kam es als Anfrage Nr. {number} zu uns. Wir antworten dort.", // fluent review
   "agent.about": "Was {name} macht",
   "agent.aboutNone": "Für {name} gibt es noch keine Beschreibung.",
   "agent.status": "Status",
@@ -2338,6 +2448,7 @@ export const de: Messages = {
   "settingsPage.exports": "Exporte",
   "settingsPage.conversations": "Unterhaltungen",
   "settingsPage.voice": "Stilbeispiele",
+  "settingsPage.charter": "Leitbild und Richtlinien",
   "settingsPage.sloanBody":
     "Sloan ist Ihr Konto-Agent. Fragen Sie ihn nach der Arbeit Ihrer Agenten, oder bitten Sie ihn, einen zu pausieren: mit „Sloan fragen“ oben oder in der Suche. Sloan lockert nie eine Regel.",
   "settingsPage.sloanOpen": "Sloan öffnen",
@@ -3042,7 +3153,8 @@ export const de: Messages = {
   "secondStep.continue": "Weiter",
   "secondStep.totp.title": "Mezonas in Ihrer Authenticator-App hinzufügen",
   "secondStep.totp.step1":
-    "Fügen Sie in Ihrer App ein Konto hinzu und geben Sie diesen Schlüssel ein. Auf diesem Telefon können Sie die App direkt öffnen.",
+    "Scannen Sie diesen Code mit Ihrer Authenticator-App, oder fügen Sie ein Konto hinzu und geben Sie den Schlüssel unten ein. Auf diesem Telefon können Sie die App direkt öffnen.",
+  "secondStep.totp.qr": "QR-Code, um Mezonas zu Ihrer Authenticator-App hinzuzufügen",
   "secondStep.totp.openApp": "In meiner Authenticator-App öffnen",
   "secondStep.totp.key": "Einrichtungsschlüssel",
   "secondStep.totp.step2": "Geben Sie dann den 6-stelligen Code aus der App ein.",
@@ -3080,6 +3192,42 @@ export const de: Messages = {
     "Telefon und Wiederherstellungscodes verloren? Bitten Sie Ihre Administration oder Ihre Ansprechperson bei Mezonas, Ihre Anmeldung zurückzusetzen.",
   "secondStep.signOut": "Abmelden",
   "secondStep.failed": "Das hat nicht funktioniert. Versuchen Sie es erneut.",
+  "setupLink.title": "Anmeldung einrichten",
+  "setupLink.intro":
+    "Fügen Sie eine Möglichkeit hinzu, Codes für {email} zu erhalten. Sie können beide hinzufügen.",
+  "setupLink.setUp": "Einrichten",
+  "setupLink.done": "Fertig",
+  "setupLink.back": "Zurück",
+  "setupLink.backToSignIn": "Zurück zur Anmeldung",
+  "secondStep.emailLink.title": "Anmeldung per E-Mail einrichten",
+  "secondStep.emailLink.intro":
+    "Zum Schutz Ihres Kontos senden wir Ihnen per E-Mail einen Link, um Ihre Telefonnummer oder eine Authenticator-App hinzuzufügen.",
+  "secondStep.emailLink.send": "Link per E-Mail senden",
+  "secondStep.emailLink.sent":
+    "Wir haben einen Link an {email} gesendet. Öffnen Sie ihn, fügen Sie Ihr Telefon oder eine Authenticator-App hinzu und kehren Sie dann hierher zurück.",
+  "secondStep.emailLink.check": "Erledigt",
+  "secondStep.emailLink.notYet":
+    "Noch nichts eingerichtet. Öffnen Sie zuerst den Link in der E-Mail.",
+  "secondStep.emailLink.again": "Link erneut senden",
+  "error.setup_by_email":
+    "Richten Sie Ihre Anmeldung über den Link ein, den wir Ihnen per E-Mail senden.",
+  "error.link_expired":
+    "Dieser Link ist abgelaufen. Melden Sie sich erneut an, um einen neuen zu erhalten.",
+  "error.email_unavailable":
+    "Wir können gerade keine E-Mails senden. Wenden Sie sich an Ihren Mezonas-Ansprechpartner.",
+  "error.email_failed": "Wir konnten die E-Mail nicht senden. Versuchen Sie es erneut.",
+  "secondStep.phoneApprove.title": "Auf dem Telefon bestätigen",
+  "secondStep.phoneApprove.intro":
+    "Öffnen Sie Mezonas auf Ihrem Telefon und tippen Sie auf diese Zahl.",
+  "secondStep.phoneApprove.number": "Die Zahl, auf die Sie auf Ihrem Telefon tippen",
+  "secondStep.phoneApprove.waiting": "Wir warten auf Ihr Telefon.",
+  "secondStep.phoneApprove.denied":
+    "Diese Anmeldung wurde auf Ihrem Telefon abgelehnt. Wenn Sie das nicht waren, ändern Sie Ihr Passwort.",
+  "secondStep.phoneApprove.expired": "Ihr Telefon hat nicht rechtzeitig geantwortet.",
+  "secondStep.phoneApprove.again": "Telefon erneut fragen",
+  "secondStep.phoneApprove.useCode": "Stattdessen einen Code verwenden",
+  "secondStep.phoneApprove.instead": "Stattdessen auf dem Telefon bestätigen",
+  "error.no_phone": "Kein Telefon kann diese Anmeldung bestätigen. Verwenden Sie einen Code.",
   // §1.120: approving a Claude connection (the MCP server) from the browser.
   "connectClaude.title": "Claude verbinden",
   "connectClaude.subtitle":
@@ -3196,6 +3344,30 @@ export const de: Messages = {
   "start.answered": "Beantwortet",
   "start.choose": "Auswählen…",
   "start.files.added": { one: "1 Datei hinzugefügt", other: "{count} Dateien hinzugefügt" },
+  "start.setup.title": "Ihre Agenten einrichten",
+  "start.setup.intro":
+    "Was jeder Agent von Ihnen braucht, bevor er startet. Ihre Antworten werden seine Einstellungen.",
+  "start.setup.count": "{done} von {total} erledigt",
+  "start.setup.waiting": "Wartet auf Sie",
+  "start.setup.done": "Erledigt",
+  "start.setup.holdsTrial": "Die Testphase beginnt, wenn die Punkte davor erledigt sind.",
+  "start.setup.holdsLive": "Er geht live, wenn der Rest erledigt ist.",
+  "start.setup.beforeTrial": "Vor der Testphase",
+  "start.setup.beforeLive": "Vor dem Livegang",
+  "start.setup.connect": "Verbinden",
+  "start.setup.connected": "Verbunden",
+  "start.setup.answer": "Ihre Antwort",
+  "start.setup.note": "Eine Notiz (optional)",
+  "start.setup.save": "Speichern",
+  "start.setup.confirm": "Bestätigen",
+  "start.setup.change": "Ändern",
+  "start.setup.addFile": "Datei hinzufügen",
+  "start.setup.byName": "Erledigt von {name} am {date}",
+  "start.setup.byUs": "Von uns erledigt am {date}",
+  "start.setup.suggested": "Wir schlagen {value} vor",
+  "start.setup.range": "Zwischen {min} und {max}",
+  "start.setup.setsValue": "Ihre Antwort wird die Einstellung dieses Agenten.",
+  "start.setup.adminOnly": "Ihr Admin beantwortet diese Punkte.",
   "start.ask.who": "Wen",
   "start.ask.pick": "Kollegin oder Kollegen wählen",
   "start.ask.new": "Jemand Neues",

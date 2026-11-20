@@ -24,9 +24,11 @@ import {
   loadDeviceId,
   loadDevUser,
   loadSession,
+  loadUserId,
   setupDone as readSetupDone,
   saveDevUser,
   saveSession,
+  saveUserId,
 } from "./store";
 
 export type SessionInfo = ResponseOf<typeof routes.session>;
@@ -48,6 +50,11 @@ interface AppValue {
   devSignedIn(email: string): Promise<void>;
   signOut(): Promise<void>;
   refreshMe(): Promise<void>;
+  /** §1.154: the person this phone approves sign-ins for; null until it was set up for someone. */
+  userId: string | null;
+  /** §1.154: the sign-in approval screen is open (over everything, signed in or not). */
+  approving: boolean;
+  setApproving(open: boolean): void;
 }
 
 const AppContext = createContext<AppValue | null>(null);
@@ -67,6 +74,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<SessionInfo | null>(null);
   const [deviceId, setDeviceId] = useState<string | null>(null);
   const [setupDone, setSetupDone] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+  const [approving, setApproving] = useState(false);
   const [lock, setLock] = useState<LockState>(startLock(false));
   const creds = useRef<Credentials>({ kind: "none" });
 
@@ -95,7 +104,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const refreshMe = useCallback(async () => {
-    setMe(await api.call(routes.session));
+    const next = await api.call(routes.session);
+    setMe(next);
+    // §1.154: who this phone approves sign-ins for, kept for when the session has ended.
+    setUserId(next.user.id);
+    if (!FIXTURES) await saveUserId(next.user.id).catch(() => undefined);
   }, [api]);
 
   // Start: a stored session (or the dev user), this phone's device id and whether it was set up.
@@ -104,6 +117,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const session = FIXTURES ? "fixture" : await loadSession();
       const dev = session ? null : await loadDevUser();
       setDeviceId(FIXTURES ? "0190a1b2-0000-7000-8000-00000000d001" : await loadDeviceId());
+      setUserId(FIXTURES ? "0190a1b2-0000-7000-8000-00000000a001" : await loadUserId());
       setSetupDone(FIXTURES ? true : await readSetupDone());
       if (session) creds.current = { kind: "session", session };
       else if (dev && __DEV__) creds.current = { kind: "dev", email: dev };
@@ -176,6 +190,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
     await forgetDevice().catch(() => undefined);
     setDeviceId(null);
+    setUserId(null);
     setSetupDone(false);
     ended();
   }, [api, deviceId, ended]);
@@ -194,6 +209,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     devSignedIn,
     signOut,
     refreshMe,
+    userId,
+    approving,
+    setApproving,
   };
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }

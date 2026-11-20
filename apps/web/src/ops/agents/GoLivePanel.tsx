@@ -8,6 +8,7 @@ import { Link } from "react-router-dom";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { Badge, Button, Card, SectionLabel, type Tone } from "../../ui/primitives";
+import { SetupChecklist } from "./SetupChecklist";
 import { recentEventLabel, triggerEventType, useRecentEvents } from "./TestPayload";
 import { errorText, Field, Notice, plural, Select, TextInput, useAction } from "./ui";
 
@@ -152,6 +153,17 @@ export function GoLivePanel({
             </li>
           ))}
         </ul>
+      ) : null}
+
+      {g.setup ? (
+        <SetupChecklist
+          agentId={agent.id}
+          setup={g.setup}
+          onChanged={() => {
+            state.reload();
+            onChanged();
+          }}
+        />
       ) : null}
 
       {action.error ? (

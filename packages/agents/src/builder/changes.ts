@@ -19,6 +19,7 @@ import {
   mergeBundles,
   selectableBetween,
   selectChanges,
+  sliceWhole,
 } from "@countersign/core";
 
 /** core's root entity key (`bundle`). */
@@ -29,7 +30,7 @@ const MAX_VALUE = 40;
 export function showValue(v: unknown): string {
   if (v === undefined) return "none";
   if (v === null) return "none";
-  if (typeof v === "string") return v.length > MAX_VALUE ? `${v.slice(0, MAX_VALUE - 1)}…` : v;
+  if (typeof v === "string") return v.length > MAX_VALUE ? `${sliceWhole(v, MAX_VALUE - 1)}…` : v;
   if (typeof v === "number" || typeof v === "boolean") return String(v);
   if (Array.isArray(v)) return `${v.length} item${v.length === 1 ? "" : "s"}`;
   return "…";

@@ -14,9 +14,11 @@ import {
   reviewBrief,
 } from "@countersign/agents";
 import {
+  AnyAgentBundle,
   BRIEF_FIELDS,
   BRIEF_LABELS,
   type Brief,
+  type BriefFieldKey,
   type BuildAction,
   type BuildDetail,
   type BuildIssue,
@@ -28,18 +30,26 @@ import {
   buildIssues,
   CODE_REQUEST_STATUS_WORDS,
   ComplianceRefusal,
+  type DecisionDraft,
+  decisionUnreviewed,
   dqNumber,
   FIT_WORDS,
   type FitGap,
   type FitRow,
   fitChangeKind,
+  fitScope,
+  issueByKey,
   issueLine,
+  isUuid,
   itemOpen,
+  mergeBrief,
+  mergeDecisions,
   mergeFitGap,
   nextPhase,
   operatorFitGap,
   PHASE_WORDS,
   ProposalState,
+  parseDqNumber,
   phaseIndex,
   proposalUndo,
   readBrief,
@@ -48,6 +58,8 @@ import {
   readTestPlan,
   routes,
   SETUP_WORDS,
+  setDecisionStatus,
+  sliceWhole,
   testCaseProblems,
 } from "@countersign/core";
 import {
@@ -62,8 +74,10 @@ import {
   type Tx,
 } from "@countersign/db";
 import { createLlmClient, DEFAULT_MODELS, type LlmTransport } from "@countersign/llm";
-import { and, asc, eq, inArray, like, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like, sql } from "drizzle-orm";
 import type { Hono } from "hono";
+import { withBuildManual } from "../build/manual";
+import { draftSetupItems, withSetupItems } from "../build/setup";
 import {
   addEvent,
   addItems,
@@ -71,15 +85,19 @@ import {
   type BuildRow,
   buildDetail,
   draftOutline,
+  draftStepIds,
+  draftWorkflowSteps,
   latestSkillVersion,
   listBuilds,
   type NewItem,
   openItemsAcross,
   readBuild,
   refKey,
+  STALE_DRAFT_KEY,
   summaries,
   withDecisions,
 } from "../build/store";
+import { testCaseFacts } from "../build/why";
 import { clientModels, clientsRefusingModel } from "../compliance/models";
 import { acceptRequest, type DqCtx, fileRequest, linkToRequest } from "../dev-queue/service";
 import { settleShipped } from "../dev-queue/ship";
@@ -179,6 +197,13 @@ export function draftDescription(
     lines.push("", "What we get from each client to set it up:");
     for (const f of asked) lines.push(`- ${f.label} (${SETUP_WORDS[f.kind]})`);
   }
+  // docs/builder-plan.md §4: the decisions made so far, so the draft follows them.
+  if (fitgap.decisions.length > 0) {
+    lines.push("", "Decisions already made (follow them; a decision point is a person step):");
+    for (const d of fitgap.decisions) {
+      lines.push(`- ${d.what}${d.value ? ` (starts at ${d.value})` : ""}`);
+    }
+  }
   const text = lines.join("\n");
   return text.length > 4000 ? `${text.slice(0, 3990)}…` : text;
 }
@@ -258,28 +283,42 @@ function answeredChallenges(before: FitGap, after: FitGap) {
   return out;
 }
 
-/** One line per thing the turn changed, for the conversation. */
-function changeLines(answer: Awaited<ReturnType<typeof buildTurn>>["answer"]): string[] {
+/**
+ * One line per thing the turn changed, for the conversation: only what was stored (BUILDER_QA
+ * AI-5), so a brief field kept as the operator had it or a decision with no room isn't claimed.
+ */
+function changeLines(
+  answer: Awaited<ReturnType<typeof buildTurn>>["answer"],
+  stored: {
+    brief: readonly BriefFieldKey[];
+    fitgap: boolean;
+    testPlan: boolean;
+    decisions: ReadonlySet<string>;
+  },
+): string[] {
   const out: string[] = [];
   if (answer.brief) {
     for (const key of BRIEF_FIELDS) {
       const f = answer.brief[key];
-      if (!f) continue;
+      if (!f || !stored.brief.includes(key)) continue;
       // QA (2026-11-17): a field the turn left open read as filled ("+ Brief: done well means").
       const state =
         f.state === "open" ? " (still open)" : f.state === "assumed" ? " (assumed)" : "";
       out.push(`Brief: ${BRIEF_LABELS[key].toLowerCase()}${state}`);
     }
   }
-  if (answer.fitgap) {
+  if (answer.fitgap && stored.fitgap) {
     const n = answer.fitgap.rows.length;
     out.push(`Fit-gap: ${n} ${n === 1 ? "row" : "rows"}`);
   }
-  if (answer.testPlan) {
+  if (answer.testPlan && stored.testPlan) {
     const n = answer.testPlan.datasets.length;
     out.push(`Test plan: ${n} ${n === 1 ? "dataset" : "datasets"}`);
   }
   for (const i of answer.items) out.push(`Open item: ${i.title}`);
+  for (const d of answer.decisions) {
+    if (stored.decisions.has(d.id)) out.push(`Decision: ${d.what}`);
+  }
   return out;
 }
 
@@ -304,14 +343,18 @@ function call<R extends Parameters<typeof invokeRoute>[3]>(
   return invokeRoute(ctx.app, ctx.c, ctx.session, spec, raw, "build");
 }
 
+/** What a failed turn left undone, by phase. */
+function phaseNotDone(phase: BuildPhase): string {
+  return phase === "fitgap"
+    ? "The fit-gap isn't written yet"
+    : phase === "poc"
+      ? "The test plan isn't written yet"
+      : "Nothing changed";
+}
+
 /** What the conversation says when the Builder's turn fails, by what went wrong. */
 function failedTurnText(phase: BuildPhase, error: unknown): { code: string; text: string } {
-  const what =
-    phase === "fitgap"
-      ? "The fit-gap isn't written yet"
-      : phase === "poc"
-        ? "The test plan isn't written yet"
-        : "Nothing changed";
+  const what = phaseNotDone(phase);
   // HIPAA mode (§1.35): nothing was sent; the turn says why rather than "try again".
   if (error instanceof ComplianceRefusal) {
     return { code: "hipaa", text: `${error.message}. ${what}.` };
@@ -333,6 +376,13 @@ function failedTurnText(phase: BuildPhase, error: unknown): { code: string; text
     return {
       code,
       text: `My answer ran too long and was cut off before I could save it. ${what}. Press Retry; we've logged it.`,
+    };
+  }
+  // BUILDER_QA AI-7: the model declined; its answer's form had nothing to do with it.
+  if (code === "refusal") {
+    return {
+      code,
+      text: `My model declined to answer that. ${what}. Try saying it another way, or press Retry; we've logged it.`,
     };
   }
   return {
@@ -388,7 +438,8 @@ async function turn(
     const detail = await detailIn(scoped, ctx.services, row);
     const issues = buildIssues(detail);
     // An issue that isn't the build's (gone, or never was) is no focus.
-    const focused = about ? (issues.find((i) => i.key === about) ?? null) : null;
+    // docs/builder-plan.md §4: any decision can be talked about, not only the ones that are issues.
+    const focused = about ? issueByKey(detail, about, issues) : null;
     if (words && !retry) {
       await addMessage(scoped.tx, row, {
         role: "operator",
@@ -401,11 +452,13 @@ async function turn(
       ? all
           .filter((m) => !failed(m) && metaAbout(m.meta) === focused.key)
           .slice(-THREAD_MAX)
-          .map((m) => ({ role: m.role, text: m.text.slice(0, 600) }))
+          .map((m) => ({ role: m.role, text: sliceWhole(m.text, 600) }))
       : [];
     const facts = [
       ...(detail.draft?.problems.map((p) => `Draft problem: ${p.title}`) ?? []),
       ...(detail.poc ? [`Tests: ${detail.poc.detail}`] : []),
+      // builder-plan.md B0, B1: why each failing case fails, and what each try did.
+      ...testCaseFacts(detail.poc),
       ...(detail.clientTest
         ? [
             `Client test at ${detail.clientTest.client.name}: stage ${detail.clientTest.stage ?? "none"}, ${detail.clientTest.writes.signed} writes signed, ${detail.clientTest.writes.rejected} rejected, ${detail.clientTest.writes.waiting} waiting.`,
@@ -415,6 +468,10 @@ async function turn(
           ]
         : []),
       ...detail.qaChecks.map((c) => `QA ${c.label}: ${c.state} (${c.detail})`),
+      // docs/builder-plan.md §4.2: high-risk decisions nobody has looked at hold the client test.
+      ...detail.build.fitgap.decisions
+        .filter(decisionUnreviewed)
+        .map((d) => `High-risk decision not looked at yet [decision:${d.id}]: ${d.what}`),
       ...(detail.gate.reasons.length > 0
         ? [`Can't move on yet: ${detail.gate.reasons.join(" ")}`]
         : []),
@@ -454,7 +511,8 @@ async function turn(
         title: row.title,
         clientName: prep.client,
         brief: readBrief(row.brief),
-        fitgap: readFitGap(row.fitgap),
+        // The decisions with their risk worked out by code, as the build shows them.
+        fitgap: prep.detail.build.fitgap,
         testPlan: readTestPlan(row.testPlan),
         issues: prep.issues.map(issueLine),
         focus: prep.focused ? { line: issueLine(prep.focused), thread: prep.thread } : null,
@@ -467,79 +525,142 @@ async function turn(
       { llm: createLlmClient({ transport: transport(ctx.services, row) }) },
     );
   } catch (error) {
-    const failure = failedTurnText(row.phase, error);
-    reportHandled("a Builder turn in a build failed", error, {
-      kind: "build",
-      phase: row.phase,
-      failure: failure.code,
-      build: id,
-    });
-    await ctx.inTx(async (scoped) => {
-      const fresh = await readBuild(scoped.tx, id, true);
-      await addMessage(scoped.tx, fresh, {
-        role: "builder",
-        text: failure.text,
-        meta: { failed: failure.code },
-      });
-    });
+    await failTurn(ctx, id, row.phase, failedTurnText(row.phase, error), error);
     return;
   }
-  await ctx.inTx(async (scoped) => {
-    const fresh = await readBuild(scoped.tx, id, true);
-    // The phase may have moved while the model answered: only that phase's record changes.
-    const { answer } = result;
-    const set: Partial<BuildRow> = {};
-    if (fresh.phase === row.phase) {
-      if (answer.brief) set.brief = { ...readBrief(fresh.brief), ...answer.brief };
-      if (answer.fitgap) {
-        const before = readFitGap(fresh.fitgap);
-        const merged = mergeFitGap(before, answer.fitgap);
-        set.fitgap = merged;
-        for (const a of answeredChallenges(before, merged)) {
-          await addEvent(scoped.tx, fresh, {
-            kind: "record",
-            payload: { verdict: { ...a, as: "builder" } },
-            userId: null,
-          });
+  const { answer } = result;
+  try {
+    await ctx.inTx(async (scoped) => {
+      const fresh = await readBuild(scoped.tx, id, true);
+      // BUILDER_QA STATE-2: a build stopped (or gone live) while the model answered keeps its
+      // record as it was when it closed: the answer is refused, nothing of it is saved.
+      refuseClosed(fresh);
+      // The phase may have moved while the model answered: only that phase's record changes.
+      const set: Partial<BuildRow> = {};
+      let briefChanged: BriefFieldKey[] = [];
+      if (fresh.phase === row.phase) {
+        if (answer.brief) {
+          // BUILDER_QA AI-2: never lowers a field's state, so the operator's confirmed words stay.
+          const merged = mergeBrief(readBrief(fresh.brief), answer.brief);
+          briefChanged = merged.changed;
+          if (briefChanged.length > 0) set.brief = merged.brief;
+        }
+        if (answer.fitgap) {
+          const before = readFitGap(fresh.fitgap);
+          const merged = mergeFitGap(before, answer.fitgap);
+          set.fitgap = merged;
+          for (const a of answeredChallenges(before, merged)) {
+            await addEvent(scoped.tx, fresh, {
+              kind: "record",
+              payload: { verdict: { ...a, as: "builder" } },
+              userId: null,
+            });
+          }
+        }
+        if (answer.testPlan) set.testPlan = answer.testPlan;
+        // docs/builder-plan.md §4: the Builder's new and changed decisions, onto the build's record.
+        if (answer.decisions.length > 0) {
+          const base = set.fitgap ? readFitGap(set.fitgap) : readFitGap(fresh.fitgap);
+          set.fitgap = { ...base, decisions: mergeDecisions(base.decisions, answer.decisions) };
         }
       }
-      if (answer.testPlan) set.testPlan = answer.testPlan;
-    }
-    if (Object.keys(set).length > 0) await scoped.tx.update(build).set(set).where(eq(build.id, id));
-    else await scoped.tx.update(build).set({ updatedAt: now() }).where(eq(build.id, id));
-    await addItems(
-      scoped.tx,
-      fresh,
-      answer.items.map((i) => ({ ...i, phase: fresh.phase })),
-      ctx.session.user.id,
-    );
-    const answered = await closeAnswered(scoped.tx, fresh, answer.answered);
-    // The issue it answered about, and its proposal, only as they fit the build as it was asked.
-    const about =
-      (answer.about && prep.issues.some((i) => i.key === answer.about) ? answer.about : null) ??
-      prep.focused?.key ??
-      null;
-    const proposal = answer.proposal
-      ? fitProposal(answer.proposal, prep.detail, fresh.phase)
-      : null;
-    if (answer.proposal && !proposal) {
-      reportProblem("the Builder proposed a change that doesn't fit the build", {
-        kind: "build",
-        action: answer.proposal.action.do,
-        build: id,
+      if (Object.keys(set).length > 0)
+        await scoped.tx.update(build).set(set).where(eq(build.id, id));
+      else await scoped.tx.update(build).set({ updatedAt: now() }).where(eq(build.id, id));
+      await addItems(
+        scoped.tx,
+        fresh,
+        answer.items.map((i) => ({ ...i, phase: fresh.phase })),
+        ctx.session.user.id,
+      );
+      // BUILDER_QA AI-8: only the operator's words answer a question. A turn the Builder opens
+      // (no words) closes nothing, whatever it lists as answered.
+      const answered = prep.said ? await closeAnswered(scoped.tx, fresh, answer.answered) : [];
+      // The issue it answered about, and its proposal, only as they fit the build as it was asked.
+      const about =
+        (answer.about && issueByKey(prep.detail, answer.about, prep.issues)
+          ? answer.about
+          : null) ??
+        prep.focused?.key ??
+        null;
+      const proposal = answer.proposal
+        ? fitProposal(
+            answer.proposal,
+            prep.detail,
+            fresh.phase,
+            await proposalFacts(scoped.tx, ctx.services, fresh, answer.proposal),
+          )
+        : null;
+      if (answer.proposal && !proposal) {
+        reportProblem("the Builder proposed a change that doesn't fit the build", {
+          kind: "build",
+          action: answer.proposal.action.do,
+          build: id,
+        });
+      }
+      // BUILDER_QA AI-5: the change lines say what was stored, not what the answer sent.
+      const kept =
+        fresh.phase === row.phase ? readFitGap(set.fitgap ?? fresh.fitgap).decisions : [];
+      await addMessage(scoped.tx, fresh, {
+        role: "builder",
+        text: answer.text,
+        meta: {
+          chips: answer.chips,
+          changes: [
+            ...changeLines(answer, {
+              brief: briefChanged,
+              fitgap: !!set.fitgap && !!answer.fitgap,
+              testPlan: !!set.testPlan,
+              decisions: new Set(kept.map((d) => d.id)),
+            }),
+            ...answered.map((t) => `Answered: ${t}`),
+          ],
+          costUsd: result.costUsd,
+          model: result.calls[0]?.model ?? null,
+          ...(about ? { about } : {}),
+          ...(proposal ? { proposal: { ...proposal, state: "proposed" } } : {}),
+        },
       });
-    }
+    });
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
+    // BUILDER_QA INPUT-3: an answer the database wouldn't take is a failed turn with Retry, as a
+    // failed model call is, never a 500 that loses the operator's words.
+    await failTurn(
+      ctx,
+      id,
+      row.phase,
+      {
+        code: "save_failed",
+        text: `I couldn't save my answer. ${phaseNotDone(row.phase)}. Press Retry; we've logged it.`,
+      },
+      error,
+    );
+  }
+}
+
+/** A failed Builder turn, said in the conversation and reported (Sentry). */
+async function failTurn(
+  ctx: LongCtx,
+  id: string,
+  phase: BuildPhase,
+  failure: { code: string; text: string },
+  error: unknown,
+): Promise<void> {
+  reportHandled("a Builder turn in a build failed", error, {
+    kind: "build",
+    phase,
+    failure: failure.code,
+    build: id,
+  });
+  await ctx.inTx(async (scoped) => {
+    const fresh = await readBuild(scoped.tx, id, true);
+    // BUILDER_QA STATE-2: a stopped build's conversation is as it was when it stopped.
+    refuseClosed(fresh);
     await addMessage(scoped.tx, fresh, {
       role: "builder",
-      text: answer.text,
-      meta: {
-        chips: answer.chips,
-        changes: [...changeLines(answer), ...answered.map((t) => `Answered: ${t}`)],
-        costUsd: result.costUsd,
-        model: result.calls[0]?.model ?? null,
-        ...(about ? { about } : {}),
-        ...(proposal ? { proposal: { ...proposal, state: "proposed" } } : {}),
-      },
+      text: failure.text,
+      meta: { failed: failure.code },
     });
   });
 }
@@ -736,12 +857,60 @@ function metaAbout(meta: unknown): string | null {
   return typeof v === "string" ? v : null;
 }
 
+/** What a proposal names, read from the build as it is now (BUILDER_QA AI-4). */
+interface ProposalFacts {
+  /** An agent draft's step ids, when the proposal names a step; null when nothing is checked. */
+  stepIds: ReadonlySet<string> | null;
+  /** The Dev queue request it names, if there is one, and whether this build waits on it. */
+  request: { id: string; number: number; status: string; waitedOn: boolean } | null;
+}
+
+async function proposalFacts(
+  tx: Tx,
+  services: Services,
+  row: BuildRow,
+  p: BuildProposal,
+): Promise<ProposalFacts> {
+  const a = p.action;
+  const out: ProposalFacts = { stepIds: null, request: null };
+  if (a.do === "edit_draft" && a.stepId && row.kind === "agent") {
+    out.stepIds = await draftStepIds({ tx, services, now }, row);
+  }
+  if (a.do === "link_code_request" || a.do === "approve_code_request") {
+    const n = isUuid(a.requestId) ? null : parseDqNumber(a.requestId);
+    if (isUuid(a.requestId) || n !== null) {
+      const [r] = await tx
+        .select({ id: codeRequest.id, number: codeRequest.number, status: codeRequest.status })
+        .from(codeRequest)
+        .where(
+          isUuid(a.requestId) ? eq(codeRequest.id, a.requestId) : eq(codeRequest.number, n ?? 0),
+        );
+      if (r) {
+        const [link] = await tx
+          .select({ id: codeRequestLink.id })
+          .from(codeRequestLink)
+          .where(and(eq(codeRequestLink.requestId, r.id), eq(codeRequestLink.buildId, row.id)))
+          .limit(1);
+        out.request = { ...r, waitedOn: !!link };
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * The Builder's proposal if it fits the build: an item it names is this build's and in the state
  * the change needs, a check is failing in QA, going back is to an earlier phase, tests run in the
- * POC. The route that makes the change checks again when the operator agrees.
+ * POC, a step it names is in the draft, a request it names exists under its ref (and one to approve
+ * is in triage and this build waits on it). The route that makes the change checks again when the
+ * operator agrees.
  */
-function fitProposal(p: BuildProposal, d: BuildDetail, phase: BuildPhase): BuildProposal | null {
+function fitProposal(
+  p: BuildProposal,
+  d: BuildDetail,
+  phase: BuildPhase,
+  f: ProposalFacts,
+): BuildProposal | null {
   const a = p.action;
   const itemOf = (raw: string) => d.items.find((i) => i.id === raw.replace(/^item:/, ""));
   switch (a.do) {
@@ -765,6 +934,8 @@ function fitProposal(p: BuildProposal, d: BuildDetail, phase: BuildPhase): Build
     case "run_tests":
       return phase === "poc" && d.draft ? p : null;
     case "edit_draft":
+      // BUILDER_QA AI-4: a step it names is one of the draft's.
+      if (a.stepId && f.stepIds && !f.stepIds.has(a.stepId)) return null;
       // The draft is what the POC tests; from the client test on, the change goes back first.
       return (phase === "draft" || phase === "poc") &&
         (d.build.kind === "agent" ? !!d.draft?.versionId : !!d.draft?.sessionId)
@@ -775,15 +946,37 @@ function fitProposal(p: BuildProposal, d: BuildDetail, phase: BuildPhase): Build
     case "link_code_request":
     case "draft_skill": {
       if (phase !== "fitgap" && phase !== "draft" && phase !== "poc") return null;
-      if (!a.itemId) return p;
-      const item = itemOf(a.itemId);
-      if (!item || !itemOpen(item.state) || item.kind !== "gap") return null;
+      // BUILDER_QA AI-4: the request to link is there, under the ref it names, and still open.
+      if (a.do === "link_code_request") {
+        const r = f.request;
+        if (!r || parseDqNumber(a.ref) !== r.number || r.status === "closed") return null;
+      }
+      // A step that already has its skill build is settled that way.
+      if (
+        a.do === "draft_skill" &&
+        a.stepId &&
+        d.items.some((i) => i.stepId === a.stepId && i.ref.buildId && itemOpen(i.state))
+      ) {
+        return null;
+      }
+      const item = a.itemId ? itemOf(a.itemId) : undefined;
+      // QA on staging (2026-11-19, Sentry MEZONAS-API-9): in the draft the issues are the draft's
+      // problems, so the Builder named a `problem:` key (or no open gap) and the whole proposal
+      // was dropped: it said it had proposed the skill, and no card showed. A key that isn't an
+      // open gap is left out instead; the change makes its own gap item, as a request's link does.
+      if (!item || !itemOpen(item.state) || item.kind !== "gap") {
+        const { itemId: _, ...rest } = a;
+        return { ...p, action: rest };
+      }
       // A gap already waiting on a request, or with its skill build, is settled that way.
       if (item.ref.codeRequestId || (a.do === "draft_skill" && item.ref.buildId)) return null;
       return { ...p, action: { ...a, itemId: item.id } };
     }
-    case "approve_code_request":
-      return p;
+    case "approve_code_request": {
+      // BUILDER_QA AI-4: only a request this build waits on, under its own ref, still in triage.
+      const r = f.request;
+      return r?.waitedOn && r.status === "triage" && parseDqNumber(a.ref) === r.number ? p : null;
+    }
   }
 }
 
@@ -883,6 +1076,33 @@ async function undoEdit(ctx: LongCtx, id: string, edit: SavedEdit, summary: stri
   });
 }
 
+/**
+ * Runs the POC's test cases on the draft's latest version (the test bench's suite run). Called by
+ * the build's Run button and by an agreed "run the tests" proposal: a slow route isn't reachable
+ * through `invokeRoute`, so the proposal calls this, not the route (Sentry MEZONAS-API-7).
+ */
+async function runBuildTests(ctx: LongCtx, id: string): Promise<void> {
+  const target = await ctx.inTx(async (scoped) => {
+    const row = await readBuild(scoped.tx, id);
+    refuseClosed(row);
+    const detail = await detailIn(scoped, ctx.services, row);
+    if (row.kind === "skill") {
+      const skillId = detail.draft?.skillId;
+      const versionId = skillId ? await latestSkillVersion(scoped.tx, skillId) : null;
+      if (!skillId || !versionId) throw new HttpError(409, "no_draft", "the skill isn't saved yet");
+      return { targetKind: "skill" as const, targetId: skillId, versionId };
+    }
+    const versionId = detail.draft?.versionId;
+    if (!detail.draft?.agentId || !versionId)
+      throw new HttpError(409, "no_draft", "there is no draft yet");
+    if (detail.poc?.mode !== "suite") {
+      throw new HttpError(409, "test_runs", "a client agent is tested with test runs on its page");
+    }
+    return { targetKind: "template" as const, targetId: detail.draft.agentId, versionId };
+  });
+  await call(ctx, routes.opsRunTests, { body: target });
+}
+
 /** Makes an agreed change through the build's own route, as the operator. */
 async function runAction(ctx: LongCtx, id: string, a: BuildAction): Promise<void> {
   switch (a.do) {
@@ -903,7 +1123,7 @@ async function runAction(ctx: LongCtx, id: string, a: BuildAction): Promise<void
       await move(ctx, id, a.to, a.reason);
       return;
     case "run_tests":
-      await call(ctx, routes.opsBuildRunTests, { params: { id } });
+      await runBuildTests(ctx, id);
       return;
     case "edit_draft":
       throw new Error("a draft edit is made by applyEdit");
@@ -1091,6 +1311,24 @@ async function draftSkill(
           ref: sql`${buildItem.ref} || ${JSON.stringify({ buildId: skillBuild })}::jsonb`,
         })
         .where(and(eq(buildItem.id, a.itemId), eq(buildItem.buildId, id)));
+    } else {
+      // No gap named: one for the skill build, as a request's link makes one (keyed, made once).
+      await scoped.tx
+        .insert(buildItem)
+        .values({
+          buildId: parent.id,
+          phase: parent.phase,
+          kind: "gap",
+          title: clip(a.title, 300),
+          detail: `Drafted as the skill build “${clip(a.title, 200)}”.`,
+          owner: "builder",
+          state: "in_progress",
+          stepId: a.stepId ?? null,
+          ref: { buildId: skillBuild },
+          key: `skill:${skillBuild}`,
+          createdBy: ctx.session.user.id,
+        })
+        .onConflictDoNothing();
     }
   });
   return {
@@ -1139,7 +1377,7 @@ async function devQueueFacts(tx: Tx, buildId: string): Promise<string[]> {
 }
 
 const clip = (text: string, max: number) =>
-  text.length > max ? `${text.slice(0, max - 1)}…` : text;
+  text.length > max ? `${sliceWhole(text, max - 1)}…` : text;
 
 /** The first `n` sentences of a reply, for a one-line account of what was done. */
 function firstSentences(text: string, n: number): string {
@@ -1177,26 +1415,177 @@ function doneText(summary: string, next: BuildIssue | undefined, changed: string
     : `${done} That was the last open issue.`;
 }
 
-/** Makes the draft (once): the Builder's own route, as the operator. */
-async function makeDraft(ctx: LongCtx, row: BuildRow): Promise<Partial<BuildRow>> {
+/**
+ * Makes the draft (once): the Builder's own route, as the operator. With the decisions the
+ * drafter made (docs/builder-plan.md §4), which the build keeps. A draft that already exists is
+ * kept (`kept`); what changed in the fit-gap since it was made is flagged by the move (STATE-4).
+ */
+async function makeDraft(
+  ctx: LongCtx,
+  row: BuildRow,
+): Promise<{ set: Partial<BuildRow>; decisions: DecisionDraft[]; kept: boolean }> {
   const description = draftDescription(row, readBrief(row.brief), readFitGap(row.fitgap));
   if (row.kind === "agent") {
-    if (row.agentId) return {};
+    if (row.agentId) return { set: {}, decisions: [], kept: true };
     const out = await call(ctx, routes.opsDraftAgent, {
       body: { description, name: row.title, ...(row.clientId ? { clientId: row.clientId } : {}) },
     });
-    return { agentId: out.agent.id };
+    return { set: { agentId: out.agent.id }, decisions: out.decisions ?? [], kept: false };
   }
-  if (row.sessionId) return {};
+  if (row.sessionId) return { set: {}, decisions: [], kept: true };
   const started = await call(ctx, routes.opsStartBuilderSession, {
     body: { kind: "skill", name: row.title, ...(row.clientId ? { clientId: row.clientId } : {}) },
   });
-  // The skill's first draft: a model that can't answer leaves the conversation for the operator.
+  // FLOW-5: the skill's first draft. A model that can't answer fails the move as an agent's draft
+  // does (503, the build stays in the fit-gap to try again), never "look at the draft" over an
+  // empty conversation.
+  // DECISION: the Builder session started for a first draft that failed is left unused (the build
+  // doesn't point at it); the next try starts a new one from the brief and the fit-gap.
   await call(ctx, routes.opsBuilderTurn, {
     params: { id: started.session.id },
     body: { text: description },
-  }).catch(() => undefined);
-  return { sessionId: started.session.id };
+  });
+  return { set: { sessionId: started.session.id }, decisions: [], kept: false };
+}
+
+/** A short, stable fingerprint of a fit-gap's first version. */
+function fitGapHash(fitgap: FitGap): string {
+  const rows = fitgap.rows
+    .filter((r) => fitScope(r) === "main")
+    .map((r) => [r.id, r.need, r.verdict, r.how]);
+  const text = JSON.stringify(rows);
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+
+/**
+ * STATE-4: what changed in the fit-gap's first version since an earlier fit-gap, one line each in
+ * the need's own words: a row new to it, changed (its need, verdict or how), or taken out.
+ */
+function fitGapChanges(before: FitGap, after: FitGap): string[] {
+  const main = (f: FitGap) =>
+    new Map(f.rows.filter((r) => fitScope(r) === "main").map((r) => [r.id, r]));
+  const was = main(before);
+  const is = main(after);
+  const out: string[] = [];
+  for (const [rowId, r] of is) {
+    const w = was.get(rowId);
+    if (!w) out.push(`${r.need} (new)`);
+    else if (w.need !== r.need || w.verdict !== r.verdict || w.how !== r.how) {
+      out.push(`${r.need} (changed)`);
+    }
+  }
+  for (const [rowId, w] of was) if (!is.has(rowId)) out.push(`${w.need} (taken out)`);
+  return out;
+}
+
+/** The fit-gap as the build's last move out of the fit-gap recorded it (its `build_event`). */
+async function lastFitGapRecord(tx: Tx, buildId: string): Promise<FitGap | null> {
+  const [e] = await tx
+    .select({ payload: buildEvent.payload })
+    .from(buildEvent)
+    .where(
+      and(
+        eq(buildEvent.buildId, buildId),
+        eq(buildEvent.kind, "record"),
+        sql`${buildEvent.payload} ? 'fitgap'`,
+      ),
+    )
+    .orderBy(desc(buildEvent.createdAt), desc(buildEvent.id))
+    .limit(1);
+  return e ? readFitGap((e.payload as { fitgap?: unknown }).fitgap) : null;
+}
+
+/** What the Builder says once a build is in its draft: what the move did, by what happened. */
+function draftMovedText(
+  kind: BuildRow["kind"],
+  kept: boolean,
+  changes: string[] | null,
+  problems: number,
+): string {
+  const open =
+    kind === "skill"
+      ? "Open its Builder conversation to look at it and save it; its problems show here."
+      : problems === 0
+        ? "It has no problems; open the workflow to look it over."
+        : `${problems === 1 ? "1 problem is" : `${problems} problems are`} left to fix: missing steps are where the catalog has nothing yet. Open the workflow to work on them.`;
+  if (!kept) {
+    return kind === "skill"
+      ? `I drafted the skill from the brief and the fit-gap in its own Builder conversation. ${open}`
+      : `I drafted it from the brief and the fit-gap. ${open}`;
+  }
+  if (changes && changes.length > 0) {
+    return `I kept the draft from before. It was made before the fit-gap changed, so it doesn't cover: ${changes.join(", ")}. I added an item to change the draft to match; the draft can't go to the POC test until you close it. ${open}`;
+  }
+  return changes
+    ? `I kept the draft from before: the fit-gap's first version hasn't changed since. ${open}`
+    : `I kept the draft from before. ${open}`;
+}
+
+/**
+ * Writes what the build owns into the draft, as one new version through the back office's own
+ * save, as the operator, when it changes the draft: the agent's manual (docs/builder-plan.md §5,
+ * B3) and, for a template build, its setup checklist (`definition.setup`, §6, B4), which a client
+ * copy forked from the template carries to the client. A skill build has neither. A failure is
+ * reported and never holds the move. Nothing is written once the build has left `phase` or closed.
+ */
+// DECISION: written on the moves into the draft and the POC test only, never per turn, so a
+// conversation doesn't add a version each time the Builder records a decision; the manual is
+// written again on the next move.
+// DECISION: only a template build (one with a client intake form) makes a checklist; a build for
+// one client keeps its open items, as its fit-gap does today.
+// DECISION: the manual and the checklist go in one version per move (merged from B3 and B4), so a
+// move adds at most one version.
+async function writeDraftFromBuild(ctx: LongCtx, id: string, phase: BuildPhase): Promise<void> {
+  const next = await ctx.inTx(async (scoped) => {
+    const r = await readBuild(scoped.tx, id);
+    // STATE-2b: a build stopped (or moved on) since its move is left as it is.
+    if (r.status !== "open" || r.phase !== phase) return null;
+    if (r.kind !== "agent" || !r.agentId) return null;
+    const latest = await latestVersion(scoped.tx, r.agentId);
+    if (!latest) return null;
+    const parsed = AnyAgentBundle.safeParse(latest.bundle);
+    if (!parsed.success) return null;
+    // The decisions with their risk worked out by code, as the build shows them.
+    const detail = await detailIn(scoped, ctx.services, r);
+    const withManual = withBuildManual(detail, parsed.data);
+    let bundle: unknown = withManual ?? latest.bundle;
+    let withSetup: unknown | null = null;
+    if (buildHasSetupForm(r)) {
+      const items = draftSetupItems(ctx.services, detail.build.fitgap, bundle);
+      withSetup = items ? withSetupItems(bundle, items) : null;
+      if (withSetup) bundle = withSetup;
+    }
+    const changeNote =
+      withManual && withSetup
+        ? "The manual and setup checklist, written from the build"
+        : withManual
+          ? "The manual, written from the build"
+          : withSetup
+            ? "Setup checklist from the build"
+            : null;
+    return changeNote ? { agentId: r.agentId, versionId: latest.id, bundle, changeNote } : null;
+  });
+  if (!next) return;
+  try {
+    await call(ctx, routes.opsSaveVersion, {
+      params: { id: next.agentId },
+      body: {
+        bundle: next.bundle,
+        parentVersionId: next.versionId,
+        changeNote: next.changeNote,
+      },
+    });
+  } catch (error) {
+    reportHandled("writing an agent's manual or setup checklist from its build failed", error, {
+      kind: "build",
+      build: id,
+    });
+  }
 }
 
 async function move(
@@ -1229,37 +1618,90 @@ async function move(
         "start the client test with the client it runs at",
       );
     }
+    if (to === "client_test" && !r.clientId && r.agentId && r.testAgentId !== r.agentId) {
+      // STATE-8: the client's copy of a template is from the version it was forked from; a
+      // template changed since goes back through the client test's own start, which updates it.
+      const copy = await latestVersion(scoped.tx, r.testAgentId as string);
+      const template = await latestVersion(scoped.tx, r.agentId);
+      if (template && copy?.basedOnTemplateVersionId !== template.id) {
+        throw new HttpError(
+          409,
+          "copy_behind",
+          "The client's copy is from an older version of the template, so its trial wouldn't run your changes. Start the client test again to update it.",
+        );
+      }
+    }
     const detail = await detailIn(scoped, ctx.services, r);
     const skip = r.phase === "client_test" && !!reason;
     // Moving into the draft makes it: the draft gate is the fit-gap's.
     if (detail.gate.reasons.length > 0 && !skip) {
       throw new HttpError(409, "gate", detail.gate.reasons.join(" "), detail.gate.reasons);
     }
+    // STATE-1: the move into the draft is claimed here, before the draft is made outside any
+    // transaction: from now on the build is in its draft, so a second press (another tab, a
+    // double click) is refused as already there and never makes a second draft.
+    // DECISION: the claim is the build's phase itself (no new column): its record (the phase
+    // event) is written once the draft is made, and a draft that can't be made puts the phase
+    // back. A Worker that dies mid-move leaves the build in its draft with "There is no draft
+    // yet"; going back to the fit-gap and on again makes it.
+    if (to === "draft") {
+      await scoped.tx.update(build).set({ phase: to }).where(eq(build.id, r.id));
+    }
     return r;
   });
-  const forward = phaseIndex(row.kind, to) > phaseIndex(row.kind, row.phase);
+  const from = row.phase;
+  const forward = phaseIndex(row.kind, to) > phaseIndex(row.kind, from);
+  const claimed = forward && to === "draft";
+  // What the build must still be for the move to finish: in the phase it claimed (else the one it
+  // is leaving), with the draft it had. Anything else is another request's move.
+  const unchanged = (r: BuildRow) =>
+    r.phase === (claimed ? to : from) && r.agentId === row.agentId && r.sessionId === row.sessionId;
+  /** A claimed move that doesn't finish leaves the build in the phase it was in. */
+  const putBack = async (tx: Tx, r: BuildRow) => {
+    if (claimed && unchanged(r)) {
+      await tx.update(build).set({ phase: from }).where(eq(build.id, id));
+    }
+  };
   // 1b. Owner (2026-11-17): a brief gets a second look before it is confirmed. What it doesn't
   //     settle becomes open questions and the build stays in intake; confirming the same brief
   //     again goes on with them open.
-  if (forward && row.phase === "intake" && (await reviewHolds(ctx, row))) return;
+  if (forward && from === "intake" && (await reviewHolds(ctx, row))) return;
   // 2. What the move makes, outside any transaction.
-  const made = forward && to === "draft" ? await makeDraft(ctx, row) : {};
+  let made: Awaited<ReturnType<typeof makeDraft>> = { set: {}, decisions: [], kept: false };
+  if (claimed) {
+    try {
+      made = await makeDraft(ctx, row);
+    } catch (error) {
+      await ctx.inTx(async (scoped) => putBack(scoped.tx, await readBuild(scoped.tx, id, true)));
+      throw error;
+    }
+  }
   // 3. The move, its record and the items it leaves.
-  await ctx.inTx(async (scoped) => {
+  const done = await ctx.inTx(async (scoped) => {
     const r = await readBuild(scoped.tx, id, true);
+    // STATE-1, STATE-2b: the build is still as the move found it: open (a stop while the draft
+    // was being made wins, I11) and not moved by another request.
+    if (r.status !== "open" || !unchanged(r)) {
+      await putBack(scoped.tx, r);
+      return { refused: r.status !== "open" ? r.status : "moved", changes: null };
+    }
     const qa = readQa(r.qa);
+    const fitgap = readFitGap(r.fitgap);
     await scoped.tx
       .update(build)
       .set({
-        ...made,
+        ...made.set,
+        ...(made.decisions.length > 0
+          ? { fitgap: { ...fitgap, decisions: mergeDecisions(fitgap.decisions, made.decisions) } }
+          : {}),
         phase: to,
         phaseAt: now(),
         // Going back before QA undoes its signature and decision: QA is done again.
         ...(forward ? {} : { qa: { ...qa, signedBy: null, signedAt: null, decision: null } }),
       })
       .where(eq(build.id, id));
-    await addEvent(scoped.tx, r, { kind: "phase", from: r.phase, to, reason, userId });
-    if (forward && r.phase === "intake") {
+    await addEvent(scoped.tx, r, { kind: "phase", from, to, reason, userId });
+    if (forward && from === "intake") {
       await addEvent(scoped.tx, r, {
         kind: "record",
         payload: { brief: readBrief(r.brief) },
@@ -1267,37 +1709,75 @@ async function move(
       });
       await addItems(scoped.tx, r, briefItems(readBrief(r.brief)), userId);
     }
-    if (forward && r.phase === "fitgap") {
-      await addEvent(scoped.tx, r, {
-        kind: "record",
-        payload: { fitgap: readFitGap(r.fitgap) },
-        userId,
-      });
-      await addItems(scoped.tx, r, fitGapItems(readFitGap(r.fitgap), buildHasSetupForm(r)), userId);
+    let changes: string[] | null = null;
+    if (forward && from === "fitgap") {
+      // STATE-4: a draft kept from before is checked against the fit-gap the build last moved on
+      // with (that move's record). What changed since becomes an open item, which holds the
+      // draft gate as a draft problem until it is closed.
+      // DECISION: the kept draft is flagged, not drafted again: a new draft would drop what was
+      // changed in it since, and the Builder makes the change as an agreed draft edit.
+      const before = made.kept ? await lastFitGapRecord(scoped.tx, id) : null;
+      changes = before ? fitGapChanges(before, fitgap) : null;
+      if (before && changes && changes.length > 0) {
+        await addItems(
+          scoped.tx,
+          r,
+          [
+            {
+              phase: "draft",
+              kind: "note",
+              title: clip(`Change the draft for the new fit-gap: ${changes.join(", ")}`, 300),
+              detail:
+                "The draft was made before the fit-gap changed. Change it to match (ask the Builder here, or open the workflow), then close this item.",
+              key: `${STALE_DRAFT_KEY}${fitGapHash(before)}:${fitGapHash(fitgap)}`,
+            },
+          ],
+          userId,
+        );
+      }
+      await addEvent(scoped.tx, r, { kind: "record", payload: { fitgap }, userId });
+      await addItems(scoped.tx, r, fitGapItems(fitgap, buildHasSetupForm(r)), userId);
     }
-    if (forward && r.phase === "poc") {
+    if (forward && from === "poc") {
       await addEvent(scoped.tx, r, {
         kind: "record",
         payload: { testPlan: readTestPlan(r.testPlan) },
         userId,
       });
     }
+    return { refused: null, changes };
   });
+  if (done.refused) {
+    // A draft made for a move that lost (the build stopped, or moved by another request) is
+    // discarded, so no draft agent is left over that nothing points at.
+    const orphan = made.set.agentId;
+    if (orphan) {
+      await call(ctx, routes.opsDiscardAgent, { params: { id: orphan } }).catch((error: unknown) =>
+        reportHandled("discarding a draft made for a refused move failed", error, {
+          kind: "build",
+          build: id,
+        }),
+      );
+    }
+    throw done.refused === "moved"
+      ? new HttpError(409, "moved", "the build moved while this ran: look at it again")
+      : new HttpError(409, "build_closed", `this build is ${done.refused}`);
+  }
+  // 3b. docs/builder-plan.md §5 and §6: the agent's manual (from the brief, the decisions and the
+  //     known risks) and a template's setup checklist (from the intake form, the client_setup
+  //     decisions and the draft's writes), when it is drafted and when it goes to the POC test.
+  if (forward && (to === "draft" || to === "poc")) await writeDraftFromBuild(ctx, id, to);
   // 4. The Builder opens the phases it has work in.
   if (forward && (to === "fitgap" || to === "poc")) await turn(ctx, id, null);
-  if (forward && to === "draft") {
+  if (claimed) {
     await ctx.inTx(async (scoped) => {
       const r = await readBuild(scoped.tx, id, true);
+      // STATE-2b: nothing more is said on a build stopped (or moved) since.
+      if (r.status !== "open" || r.phase !== to) return;
       const detail = await detailIn(scoped, ctx.services, r);
-      const n = detail.draft?.problems.length ?? 0;
       await addMessage(scoped.tx, r, {
         role: "builder",
-        text:
-          r.kind === "skill"
-            ? "I started the skill in its own Builder conversation. Open it to look at the draft and save it; its problems show here."
-            : n === 0
-              ? "I drafted it from the brief and the fit-gap. It has no problems; open the workflow to look it over."
-              : `I drafted it from the brief and the fit-gap. ${n === 1 ? "1 problem is" : `${n} problems are`} left to fix: missing steps are where the catalog has nothing yet. Open the workflow to work on them.`,
+        text: draftMovedText(r.kind, made.kept, done.changes, detail.draft?.problems.length ?? 0),
       });
     });
   }
@@ -1449,6 +1929,14 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
       if (p.state !== wanted) {
         throw new HttpError(409, "decided", `this proposal is ${p.state} already`);
       }
+      if (decide === "undo") {
+        const undoable = isDevQueueAction(p.action)
+          ? false
+          : p.action.do === "edit_draft"
+            ? (decided?.edit?.changeIds.length ?? 0) > 0
+            : !!proposalUndo(p.action, p.before);
+        if (!undoable) throw new HttpError(409, "no_undo", "this change has no undo here");
+      }
       const itemId = "itemId" in p.action ? p.action.itemId : null;
       const [item] = itemId
         ? await scoped.tx
@@ -1456,58 +1944,107 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
             .from(buildItem)
             .where(and(eq(buildItem.id, itemId), eq(buildItem.buildId, row.id)))
         : [];
-      return {
-        p,
-        before: item?.state ?? null,
-        about: metaAbout(meta),
-        edit: decided?.edit ?? null,
-      };
+      const before = item?.state ?? null;
+      const about = metaAbout(meta);
+      // STATE-3: the decision is claimed here, as the operator's message, in the transaction that
+      // found the proposal still open (the build row locked): a second Agree (another tab, a
+      // double click) finds it decided and is refused 409 `decided`. What the change did is
+      // settled on the Builder's message after it; a change that fails puts the proposal back.
+      const simple = !isDevQueueAction(p.action) && p.action.do !== "edit_draft";
+      await addMessage(scoped.tx, row, {
+        role: "operator",
+        text: { agree: "Agreed.", decline: "Not this.", undo: "Undo that." }[decide],
+        meta: {
+          decides: messageId,
+          decision: ({ agree: "agreed", decline: "declined", undo: "undone" } as const)[decide],
+          ...(decide === "agree" && simple && before ? { before } : {}),
+          ...(about ? { about } : {}),
+        },
+      });
+      return { p, about, decided, edit: decided?.edit ?? null };
     });
     const { p, about } = found;
-    // The operator's decision, as their message in the conversation.
+    if (decide === "decline") return detailOf(ctx, id);
     // The Builder's own message after a decision.
     const say = (text: string, meta: Record<string, unknown>) =>
       ctx.inTx(async (scoped) => {
         const fresh = await readBuild(scoped.tx, id, true);
         await addMessage(scoped.tx, fresh, { role: "builder", text: clip(text, 3000), meta });
       });
-    const record = (
-      decision: "agreed" | "unchanged" | "declined" | "undone",
-      extra: Record<string, unknown> = {},
-    ) =>
-      ctx.inTx(async (scoped) => {
-        const fresh = await readBuild(scoped.tx, id, true);
-        await addMessage(scoped.tx, fresh, {
-          role: "operator",
-          text: { agree: "Agreed.", decline: "Not this.", undo: "Undo that." }[decide],
-          meta: { decides: messageId, decision, ...extra, ...(about ? { about } : {}) },
-        });
-      });
-    if (decide === "decline") {
-      await record("declined");
-      return detailOf(ctx, id);
-    }
+    /** What the change did, settled on the Builder's message after it (the latest decision). */
+    const settle = (decision: "agreed" | "unchanged", extra: Record<string, unknown>) => ({
+      decides: messageId,
+      decision,
+      ...extra,
+    });
+    /**
+     * Makes the agreed change (or its undo). One that fails puts the proposal back as it was, the
+     * Builder saying why, so it can be agreed (or undone) again.
+     */
+    // DECISION (STATE-3): the proposal is put back by a decision on the Builder's message (the
+    // decision before the claim, else "proposed"), never by removing the claim: messages are
+    // insert only, and the conversation keeps why it didn't go through.
+    const guarded = async <T>(change: () => Promise<T>): Promise<T> => {
+      try {
+        return await change();
+      } catch (error) {
+        const err = toHttpError(error);
+        const why =
+          err.status < 500 || err.status === 503
+            ? err.message
+            : "something went wrong on our side, and we've logged it";
+        await ctx
+          .inTx(async (scoped) => {
+            const fresh = await readBuild(scoped.tx, id, true);
+            if (fresh.status !== "open") return;
+            await addMessage(scoped.tx, fresh, {
+              role: "builder",
+              text: clip(
+                `That didn't go through: ${why.trim().replace(/[.\s]+$/, "")}. Press ${decide === "agree" ? "Agree" : "Undo"} to try again.`,
+                3000,
+              ),
+              meta: {
+                ...(found.decided ?? {}),
+                decides: messageId,
+                decision: found.decided?.decision ?? "proposed",
+                ...(about ? { about } : {}),
+              },
+            });
+          })
+          .catch((e: unknown) =>
+            reportHandled("putting a build's proposal back failed", e, {
+              kind: "build",
+              build: id,
+            }),
+          );
+        throw error;
+      }
+    };
     // docs/plan.md §1.125: filing, linking, approving a request, or starting a skill build.
     if (isDevQueueAction(p.action)) {
-      if (decide !== "agree") throw new HttpError(409, "no_undo", "this change has no undo here");
-      const out = await runDevQueueAction(lc, id, p.action);
-      await record("agreed", { result: clip(out.text, 1000) });
+      const action = p.action;
+      const out = await guarded(() => runDevQueueAction(lc, id, action));
       await say(out.text, {
         ...(about ? { about } : {}),
         ...(out.proposal ? { proposal: { ...out.proposal, state: "proposed" } } : {}),
+        ...settle("agreed", { result: clip(out.text, 1000) }),
       });
       return detailOf(ctx, id);
     }
     let changed: string[] = [];
+    let settled: Record<string, unknown> = {};
     if (p.action.do === "edit_draft") {
       // Owner (2026-11-17): the draft changes in the build's conversation, made by the workflow's
       // Builder (its guards, its labelled changes) and saved as a draft version; undo is its own.
+      const action = p.action;
       if (decide === "agree") {
-        const edit = await applyEdit(lc, id, p.action, p.summary);
+        const edit = await guarded(() => applyEdit(lc, id, action, p.summary));
         const said = firstSentences(edit.text, 2);
         if (edit.changes.length === 0) {
-          await record("unchanged", { result: clip(`Nothing changed: ${said}`, 500) });
-          await say(`I tried, and the draft didn't change: ${said}`, about ? { about } : {});
+          await say(`I tried, and the draft didn't change: ${said}`, {
+            ...(about ? { about } : {}),
+            ...settle("unchanged", { result: clip(`Nothing changed: ${said}`, 500) }),
+          });
           return detailOf(ctx, id);
         }
         // QA on staging (2026-11-17): "Done: Build the filter skill" was said when only a step's
@@ -1517,10 +2054,10 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
           stillOpen(
             await detailIn(scoped, ctx.services, await readBuild(scoped.tx, id, true)),
             about,
-            p.action.do === "edit_draft" ? (p.action.stepId ?? null) : null,
+            action.stepId ?? null,
           ),
         );
-        await record("agreed", {
+        settled = settle("agreed", {
           result: clip(left ? `Changed, still open: ${said}` : `Changed: ${said}`, 1000),
           changes: edit.changes.map((c) => clip(c.label, 300)).slice(0, 20),
           ...(left ? { unresolved: true } : {}),
@@ -1534,13 +2071,13 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
         if (left) {
           await say(
             `I changed the draft, but it isn't fixed: “${left.title}” is still open${left.detail ? ` (${left.detail})` : ""}. What I changed: ${said}`,
-            { ...(about ? { about } : {}), chips: ["What would fix it?"] },
+            { ...(about ? { about } : {}), chips: ["What would fix it?"], ...settled },
           );
           return detailOf(ctx, id);
         }
         changed = [said];
         // A part a request shipped, put in its step: the gap item closes once the step validates.
-        const settled = await ctx.inTx(async (scoped) =>
+        const shipped = await ctx.inTx(async (scoped) =>
           settleShipped(
             scoped.tx,
             ctx.services.platform,
@@ -1548,24 +2085,18 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
             now(),
           ),
         );
-        if (settled.length > 0) {
-          changed.push(`That settles ${settled.map((t) => `“${t}”`).join(", ")}, so I closed it.`);
+        if (shipped.length > 0) {
+          changed.push(`That settles ${shipped.map((t) => `“${t}”`).join(", ")}, so I closed it.`);
         }
       } else {
-        if (!found.edit || found.edit.changeIds.length === 0) {
-          throw new HttpError(409, "no_undo", "this change has no undo here");
-        }
-        await undoEdit(lc, id, found.edit, p.summary);
-        await record("undone");
+        const edit = found.edit;
+        if (!edit) throw new HttpError(409, "no_undo", "this change has no undo here");
+        await guarded(() => undoEdit(lc, id, edit, p.summary));
       }
     } else {
       const action = decide === "agree" ? p.action : proposalUndo(p.action, p.before);
       if (!action) throw new HttpError(409, "no_undo", "this change has no undo here");
-      await runAction(lc, id, action);
-      await record(
-        decide === "agree" ? "agreed" : "undone",
-        decide === "agree" && found.before ? { before: found.before } : {},
-      );
+      await guarded(() => runAction(lc, id, action));
     }
     await ctx.inTx(async (scoped) => {
       const fresh = await readBuild(scoped.tx, id, true);
@@ -1577,7 +2108,7 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
         await addMessage(scoped.tx, fresh, {
           role: "builder",
           text: `Changed the draft: ${changed.join(" ")} “${item.title}” stays open until you close it. Does this settle it?`,
-          meta: { about: item.key, chips: ["Yes, close it", "Not yet"] },
+          meta: { about: item.key, chips: ["Yes, close it", "Not yet"], ...settled },
         });
         return;
       }
@@ -1592,6 +2123,7 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
           // The thread moves to the next issue, so "yes" there carries on with it.
           ...(decide === "agree" && next ? { about: next.key } : about ? { about } : {}),
           chips: decide === "agree" && next ? ["Yes, take it", "What's left?"] : [],
+          ...settled,
         },
       });
     });
@@ -1666,7 +2198,16 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
       if (row.phase !== "poc")
         throw new HttpError(409, "not_poc", "test cases are made in the POC test");
       const detail = await detailIn(scoped, ctx.services, row);
-      return { row, detail, target: await caseTarget(scoped.tx, row, detail) };
+      return {
+        row,
+        detail,
+        target: await caseTarget(scoped.tx, row, detail),
+        // BUILDER_QA AI-6: the draft's workflows and steps, which a generated case must name.
+        steps:
+          row.kind === "agent"
+            ? await draftWorkflowSteps({ tx: scoped.tx, services: ctx.services, now }, row)
+            : null,
+      };
     });
     const plan = readTestPlan(prep.row.testPlan);
     if (!plan.datasets.some((d) => d.source === "generate")) {
@@ -1684,6 +2225,13 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
         matcher: { kind: "subset" as const, tolerances: {} },
       };
       if (testCaseProblems(prep.target.kind, fields).length > 0) continue;
+      if (prep.steps && !caseFitsDraft(prep.steps, c.input, c.expected)) {
+        reportProblem("the Builder made a test case for steps the draft doesn't have", {
+          kind: "build",
+          build: prep.row.id,
+        });
+        continue;
+      }
       await call(lc, routes.opsCreateTest, {
         body: {
           targetKind: prep.target.kind,
@@ -1707,7 +2255,7 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
         text:
           created === made.cases.length
             ? `I made ${created} test ${created === 1 ? "case" : "cases"} from the plan. Run them when you're ready.`
-            : `I made ${created} test ${created === 1 ? "case" : "cases"} from the plan; ${made.cases.length - created} didn't fit the test bench and were left out.`,
+            : `I made ${created} test ${created === 1 ? "case" : "cases"} from the plan; ${made.cases.length - created} didn't fit the draft or the test bench and were left out.`,
         meta: { costUsd: made.costUsd },
       });
     });
@@ -1715,31 +2263,7 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
   });
 
   mountLong(app, routes.opsBuildRunTests, async (ctx) => {
-    const lc = long(ctx.c, ctx.session, ctx.services, ctx.inTx);
-    const target = await ctx.inTx(async (scoped) => {
-      const row = await readBuild(scoped.tx, ctx.params.id);
-      refuseClosed(row);
-      const detail = await detailIn(scoped, ctx.services, row);
-      if (row.kind === "skill") {
-        const skillId = detail.draft?.skillId;
-        const versionId = skillId ? await latestSkillVersion(scoped.tx, skillId) : null;
-        if (!skillId || !versionId)
-          throw new HttpError(409, "no_draft", "the skill isn't saved yet");
-        return { targetKind: "skill" as const, targetId: skillId, versionId };
-      }
-      const versionId = detail.draft?.versionId;
-      if (!detail.draft?.agentId || !versionId)
-        throw new HttpError(409, "no_draft", "there is no draft yet");
-      if (detail.poc?.mode !== "suite") {
-        throw new HttpError(
-          409,
-          "test_runs",
-          "a client agent is tested with test runs on its page",
-        );
-      }
-      return { targetKind: "template" as const, targetId: detail.draft.agentId, versionId };
-    });
-    await call(lc, routes.opsRunTests, { body: target });
+    await runBuildTests(long(ctx.c, ctx.session, ctx.services, ctx.inTx), ctx.params.id);
     return detailOf(ctx, ctx.params.id);
   });
 
@@ -1785,10 +2309,63 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
     };
     let testAgentId = agentId;
     let blocked: { title: string; detail: string } | null = null;
-    if (!row.clientId) {
+    // An item made once per copy, and once per template version for a copy brought up to date.
+    let blockKey = "";
+    // STATE-8: a template build back at the client test after a fix brings the copy its first
+    // client test made up to the fixed template, so the trial runs the fix (a second fork
+    // conflicted with the first copy). A copy the client ran (it has a live version) gets the
+    // update merge any client agent gets from its template, and is published; a copy never
+    // published there is discarded and forked again.
+    // DECISION: a copy that ran is updated in place rather than replaced, so its trial, runs and
+    // what the client set up on it stay; a merge that conflicts becomes an open item, as a refused
+    // publish does.
+    const earlier =
+      !row.clientId && row.testAgentId && row.testClientId === clientId ? row.testAgentId : null;
+    const before = earlier
+      ? await ctx.inTx(async (scoped) => {
+          const copyRow = await getAgent(scoped.tx, earlier);
+          return {
+            latest: await latestVersion(scoped.tx, earlier),
+            live: copyRow.liveVersionId,
+            slug: await freeSlug(scoped.tx, clientId, (await getAgent(scoped.tx, agentId)).slug),
+          };
+        })
+      : null;
+    if (earlier && before && !before.live) {
+      await call(lc, routes.opsDiscardAgent, { params: { id: earlier } }).catch((e: unknown) =>
+        reportHandled("discarding a client's unpublished copy before forking again failed", e, {
+          kind: "build",
+          build: row.id,
+        }),
+      );
+    }
+    const copy = earlier && before?.live ? earlier : null;
+    if (copy && before) {
+      testAgentId = copy;
+      blockKey = `start:${copy}:${versionId}`;
+      let target: string | null = before.latest?.id ?? null;
+      if (before.latest?.basedOnTemplateVersionId !== versionId) {
+        try {
+          const updated = await call(lc, routes.opsUpdate, {
+            params: { id: copy },
+            body: { resolutions: [], changeNote: "The template's fix, for the client's trial" },
+          });
+          target = updated.version.id;
+        } catch (e) {
+          target = null;
+          blocked = { title: "Update the client's copy to the fixed template", detail: refused(e) };
+        }
+      }
+      if (target && target !== before.live) {
+        const vid = target;
+        blocked = await call(lc, routes.opsPublish, { params: { id: copy, vid } })
+          .then(() => null)
+          .catch((e: unknown) => ({ title: "Publish the client's copy", detail: refused(e) }));
+      }
+    } else if (!row.clientId) {
       const fork = await call(lc, routes.opsFork, {
         params: { id: agentId },
-        body: { clientId, versionId },
+        body: { clientId, versionId, ...(before ? { slug: before.slug } : {}) },
       });
       testAgentId = fork.agent.id;
       blocked = await call(lc, routes.opsPublish, {
@@ -1828,7 +2405,7 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
               kind: "precondition",
               title: blocked.title,
               detail: blocked.detail,
-              key: `start:${testAgentId}`,
+              key: blockKey || `start:${testAgentId}`,
             },
           ],
           userId,
@@ -1888,6 +2465,7 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
       await move(lc, ctx.params.id, body.to, body.reason);
       await ctx.inTx(async (scoped) => {
         const row = await readBuild(scoped.tx, ctx.params.id, true);
+        refuseClosed(row);
         const qa = readQa(row.qa);
         await scoped.tx
           .update(build)
@@ -1969,6 +2547,8 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsUpdateBuildItem, async (ctx) => {
     const row = await readBuild(ctx.tx, ctx.params.id, true);
+    // INPUT-8: a stopped (or live) build's items don't change either (I11).
+    refuseClosed(row);
     const [item] = await ctx.tx
       .select()
       .from(buildItem)
@@ -1993,6 +2573,39 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
     );
   });
 
+  // docs/builder-plan.md §4: the operator marks one of the Builder's decisions discussed or
+  // confirmed. Its words change only through the conversation (the Builder's rewrite, or a draft
+  // edit the operator agrees), so a person's look stays tied to what they looked at.
+  mount(app, routes.opsBuildDecisionStatus, async (ctx) => {
+    const row = await readBuild(ctx.tx, ctx.params.id, true);
+    refuseClosed(row);
+    const fitgap = readFitGap(row.fitgap);
+    // DECISION: who looked is kept as the operator's name (else their email), as the screen
+    // says it ("confirmed by Ada"); the build's event row keeps their user id.
+    const by = ctx.session.user.name?.trim() || ctx.session.user.email || null;
+    const decisions = setDecisionStatus(
+      fitgap.decisions,
+      ctx.params.decisionId,
+      ctx.body.status,
+      by,
+      now().toISOString(),
+    );
+    if (!decisions) throw notFound("decision");
+    await ctx.tx
+      .update(build)
+      .set({ fitgap: { ...fitgap, decisions }, updatedAt: now() })
+      .where(eq(build.id, row.id));
+    await addEvent(ctx.tx, row, {
+      kind: "record",
+      payload: { decision: { id: ctx.params.decisionId, status: ctx.body.status } },
+      userId: ctx.session.user.id,
+    });
+    return buildDetail(
+      { tx: ctx.tx, services: ctx.services, now },
+      await readBuild(ctx.tx, row.id),
+    );
+  });
+
   mount(app, routes.opsStopBuild, async (ctx) => {
     const row = await readBuild(ctx.tx, ctx.params.id, true);
     refuseClosed(row);
@@ -2011,6 +2624,22 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
 }
 
 /** What the test cases run against, in words the model can make cases for. */
+/**
+ * A generated template case names a workflow of the draft, and expects outputs only of that
+ * workflow's steps (BUILDER_QA AI-6): one that doesn't can never pass, and would hold the gate.
+ */
+function caseFitsDraft(
+  steps: ReadonlyMap<string, ReadonlySet<string>>,
+  input: unknown,
+  expected: unknown,
+): boolean {
+  const slug = (input as { workflow?: unknown } | null)?.workflow;
+  const ids = typeof slug === "string" ? steps.get(slug) : undefined;
+  if (!ids) return false;
+  if (!expected || typeof expected !== "object") return false;
+  return Object.keys(expected).every((id) => ids.has(id));
+}
+
 async function caseTarget(
   tx: Tx,
   row: BuildRow,

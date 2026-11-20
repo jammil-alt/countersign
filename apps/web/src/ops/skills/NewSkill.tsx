@@ -6,7 +6,7 @@
 // version. The conversation lives at `?session=<id>`, so a reload picks it up again.
 // `?by=hand` keeps the form for writing a skill without the Builder.
 import { BuilderExample, type BuilderTurnView, SkillDefinition } from "@countersign/core";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { z } from "zod";
 import { apiRoutes } from "../../api/routes";
@@ -92,20 +92,31 @@ function StartConversation() {
   const clients = [...new Map(session.tenants.map((t) => [t.id, t])).values()];
   const [clientId, setClientId] = useState("");
   const action = useAction();
+  // The conversation started for a first turn that failed, so sending again uses it.
+  const started = useRef<{ id: string; clientId: string } | null>(null);
 
+  // FLOW-4 (QA 2026-11-19): a failed first turn went to the empty conversation, without the words,
+  // the examples or the error (the API keeps an operator's words only with the Builder's answer).
+  // DECISION: the form stays, with the words, the examples and the error, until a turn answers. The
+  // API's turn runs in one transaction with the model call, so saving the words before it would
+  // leave a question without an answer that the next send repeats.
   async function send(text: string, examples: z.infer<typeof Examples> | undefined) {
-    const started = await action.call(apiRoutes.opsStartBuilderSession, {
-      body: { kind: "skill", ...(clientId ? { clientId } : {}) },
-    });
-    if (!started.ok) return false;
-    const id = started.data.session.id;
+    let id = started.current?.clientId === clientId ? started.current.id : null;
+    if (!id) {
+      const out = await action.call(apiRoutes.opsStartBuilderSession, {
+        body: { kind: "skill", ...(clientId ? { clientId } : {}) },
+      });
+      if (!out.ok) return false;
+      id = out.data.session.id;
+      started.current = { id, clientId };
+    }
     const turn = await action.call(apiRoutes.opsBuilderTurn, {
       params: { id },
       body: { text, ...(examples ? { examples } : {}) },
     });
-    // The conversation exists either way; its page shows the turn or lets you try again.
+    if (!turn.ok) return false;
     navigate(`/ops/skills/new?session=${id}`, { replace: true });
-    return turn.ok;
+    return true;
   }
 
   return (

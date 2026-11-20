@@ -17,7 +17,6 @@ import { PortalDocumentScreen } from "./screens/Document";
 import { GsheetsPickScreen } from "./screens/GsheetsPick";
 import { HomeScreen } from "./screens/Home";
 import { PortalInboxScreen } from "./screens/Inbox";
-import { PortalKnowledgeScreen } from "./screens/Knowledge";
 import { OAuthCallbackScreen } from "./screens/OAuthCallback";
 import { PortalRecordsScreen } from "./screens/Records";
 import { PortalReportsScreen } from "./screens/Reports";
@@ -44,6 +43,11 @@ const RequirementsScreen = lazy(() =>
 const GettingStartedScreen = lazy(() =>
   import("./screens/GettingStarted").then((m) => ({ default: m.GettingStartedScreen })),
 );
+// Staging CI (2026-11-19): Knowledge (with the charter and policy tags, docs/builder-plan.md §8)
+// loads when opened, so the first load stays in its budget (docs/plan.md §1.146).
+const PortalKnowledgeScreen = lazy(() =>
+  import("./screens/Knowledge").then((m) => ({ default: m.PortalKnowledgeScreen })),
+);
 const OnDemand = ({ children }: { children: ReactNode }) => (
   <Suspense fallback={<Loading />}>{children}</Suspense>
 );
@@ -62,6 +66,8 @@ export const portalRoutes = (
     {/* An agent: Overview, Runs, Access */}
     <Route path="agents/:id" element={<AgentScreen tab="overview" />} />
     <Route path="agents/:id/runs" element={<AgentScreen tab="runs" />} />
+    {/* docs/builder-plan.md §5 (B3): the agent's manual, read only */}
+    <Route path="agents/:id/manual" element={<AgentScreen tab="manual" />} />
     <Route path="agents/:id/settings" element={<AgentScreen tab="settings" />} />
     <Route path="agents/:id/access" element={<Redirect to="/agents/:id/settings" />} />
 
@@ -79,6 +85,7 @@ export const portalRoutes = (
       element={<PortalSettingsScreen section="conversations" />}
     />
     <Route path="settings/voice" element={<PortalSettingsScreen section="voice" />} />
+    <Route path="settings/charter" element={<PortalSettingsScreen section="charter" />} />
     {/* P-8: US texting registration */}
     <Route path="settings/texting" element={<PortalSettingsScreen section="texting" />} />
 
@@ -102,7 +109,14 @@ export const portalRoutes = (
     <Route path="upload" element={<PortalUploadScreen />} />
     {/* DECISION: knowledge belongs to the back office (the client page's Knowledge tab); the
         page keeps its address for old links, and nothing in the portal links to it. */}
-    <Route path="knowledge" element={<PortalKnowledgeScreen />} />
+    <Route
+      path="knowledge"
+      element={
+        <OnDemand>
+          <PortalKnowledgeScreen />
+        </OnDemand>
+      }
+    />
 
     {/* Addresses a provider sends the browser back to: they never move. */}
     <Route path="connections/:connector/callback" element={<OAuthCallbackScreen />} />

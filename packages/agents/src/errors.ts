@@ -5,6 +5,8 @@ export type AgentsErrorCode =
   | "invalid_bundle"
   | "invalid_definition"
   | "no_op"
+  /** STATE-7: a version saved from a parent that is no longer the latest (another save came first). */
+  | "stale_parent"
   | "not_a_template"
   | "not_a_client_agent"
   | "not_linked"

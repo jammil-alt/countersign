@@ -7,7 +7,13 @@
 // object storage under the client's prefix. The back office reads them; the portal never does.
 
 import type { ObjectStore } from "@countersign/connectors";
-import { Decimal, type ModelCallAction, redactCardNumbersDeep, uuidv7 } from "@countersign/core";
+import {
+  Decimal,
+  type GovernanceRead,
+  type ModelCallAction,
+  redactCardNumbersDeep,
+  uuidv7,
+} from "@countersign/core";
 import { type Db, modelCall, stepRun, withTenant } from "@countersign/db";
 import { and, eq, sql } from "drizzle-orm";
 
@@ -33,6 +39,14 @@ export interface ModelCallInput {
   /** The model's answer; null when the call failed. */
   answer: unknown;
   error?: string | undefined;
+  /**
+   * B6 (docs/builder-plan.md §8): the governance documents the prompt held, as `{tier, source, id,
+   * version}`: the Mezonas guardrails, the client's confirmed charter, the policies read by tag.
+   */
+  // DECISION (B6, no migration): kept in the call's stored body beside its request (back office
+  // only, under the client's prefix), not a new column: the request already holds their text, and
+  // this names exactly which versions it was.
+  governance?: readonly GovernanceRead[] | undefined;
 }
 
 export interface ModelCallPort {
@@ -56,11 +70,14 @@ export function modelCallBodyKey(tenantId: string, id: string): string {
  */
 // DECISION: a document read by the model is already stored once as the client's document; its
 // bytes are not copied into every model call's body.
-export function modelCallBody(call: Pick<ModelCallInput, "request" | "answer" | "error">) {
+export function modelCallBody(
+  call: Pick<ModelCallInput, "request" | "answer" | "error" | "governance">,
+) {
   return redactCardNumbersDeep({
     request: withoutInlineFiles(call.request),
     answer: call.answer ?? null,
     error: call.error ?? null,
+    ...(call.governance ? { governance: call.governance } : {}),
   });
 }
 

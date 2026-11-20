@@ -10,6 +10,7 @@ import {
   StageSkip,
 } from "../lifecycle/stage";
 import { JsonSchema, Slug } from "../schemas/common";
+import { SetupView } from "../setup/view";
 import { defineRoute } from "./contract";
 
 // Go-live stages (ARCHITECTURE §10.9), client controls (§11.5) and running a client agent live on a
@@ -61,6 +62,11 @@ export const GoLive = z.object({
     .nullable(),
   skipped: z.array(StageSkip),
   rejections: z.array(StageRejection),
+  /**
+   * docs/builder-plan.md §6: the setup checklist with this client's progress, when the version
+   * shown carries one; optional so older answers still parse.
+   */
+  setup: SetupView.optional(),
   /** Who paused it and why (the operator sees the client's reason). */
   pause: z
     .object({

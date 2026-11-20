@@ -14,6 +14,8 @@ export * from "./account/words";
 export * from "./api/a2p";
 export * from "./api/access";
 export * from "./api/account";
+// docs/builder-plan.md §7 (B5): client adjustments and feedback on the manual
+export * from "./api/adjust";
 export * from "./api/all-routes";
 export * from "./api/approver-rules";
 export * from "./api/assigned";
@@ -71,6 +73,7 @@ export * from "./api/ledger";
 export * from "./api/library";
 // v0.12 W1-A: go-live stages and client controls
 export * from "./api/lifecycle";
+export * from "./api/manual";
 export * from "./api/messaging";
 // §1.116: the phone app
 export * from "./api/mobile";
@@ -85,6 +88,7 @@ export * from "./api/oversight";
 export * from "./api/owners";
 export * from "./api/packs";
 export * from "./api/people";
+export * from "./api/phone-approval";
 export * from "./api/qbo";
 export * from "./api/reach";
 export * from "./api/records";
@@ -107,6 +111,8 @@ export * from "./api/runs-filter";
 // v0.12 W2-F
 export * from "./api/search";
 export * from "./api/second-factor";
+// docs/builder-plan.md §6 (B4): the setup checklist
+export * from "./api/setup";
 // The skill model (owner, 2026-11-10)
 export * from "./api/skill-model";
 // v0.14 W4-C: the Slack channel picker
@@ -150,7 +156,10 @@ export * from "./browser/site";
 export * from "./build/build";
 export * from "./build/code-request-words";
 export * from "./build/code-requests";
+export * from "./build/decisions";
 export * from "./build/issues";
+// BUILDER_QA CONS-6: a draft's problems counted the same on the build and in the builder
+export * from "./build/problems";
 export * from "./bundle/client-specific";
 export * from "./bundle/diff";
 export {
@@ -196,8 +205,11 @@ export * from "./email/authentication";
 // docs/plan.md §1.149: the branded layout and the onboarding emails.
 export * from "./email/layout";
 export * from "./email/onboarding";
+export * from "./email/second-factor";
 // docs/plan.md §1.121: forms, "Request info"
 export * from "./forms";
+// docs/builder-plan.md §8 (B6): governance in tiers
+export * from "./governance";
 // v0.19: area owners (ARCHITECTURE §10.15)
 export * from "./help/guide";
 // v0.12 W2-E
@@ -234,6 +246,8 @@ export * from "./lazy";
 export * from "./ledger/schemas";
 export * from "./lifecycle/pause";
 export * from "./lifecycle/stage";
+// docs/builder-plan.md §5 (B3): the agent manual
+export * from "./manual/manual";
 export * from "./mappers/qbo";
 export * from "./mappers/upload";
 // P-8: US texting registration
@@ -263,6 +277,8 @@ export * as processes from "./process";
 export * from "./process/change-class";
 // Agent motion (docs/plan.md §1.106): the thinking state a running step shows.
 export { THINKING_STATES, type ThinkingState, thinkingOf } from "./process/thinking";
+// Invariant 9: what a prompt puts between its tags can't close them.
+export * from "./prompt-data";
 export * from "./reach/rules";
 export * from "./roles";
 export * from "./rules/compile";
@@ -287,6 +303,11 @@ export * from "./schemas/tool";
 export * from "./schemas/tool-display";
 export * from "./schemas/workflow";
 export * from "./security/session-limits";
+export * from "./setup/adjust";
+export * from "./setup/adjustable";
+export * from "./setup/checklist";
+export * from "./setup/item";
+export * from "./setup/view";
 export * from "./skills/index";
 export * from "./supervisor/health";
 export * from "./template/template";
@@ -295,6 +316,8 @@ export * from "./template/typer";
 export * from "./testbench/case";
 export * from "./testbench/match";
 export * from "./testbench/suite";
+// BUILDER_QA INPUT-1, INPUT-3: text Postgres can store, and cutting it on whole characters
+export * from "./text";
 export * from "./threads/command";
 export * from "./threads/schemas";
 export * from "./translate/detect";

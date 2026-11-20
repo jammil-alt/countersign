@@ -3,11 +3,14 @@
 // load (scripts/web-size.mjs). The API mounts them from their own group, and the contract and
 // access tests walk this whole list, so none of them skips a check.
 
+import { adjustRoutes } from "./adjust";
 import { clientFileRoutes, startRoutes } from "./client-files";
 import { codeRequestRoutes } from "./code-requests";
 import { opsIntakeRoutes, portalIntakeRoutes, welcomeRoutes } from "./intake";
 import { inviteRoutes } from "./invite";
+import { manualRoutes } from "./manual";
 import { routes } from "./routes";
+import { setupRoutes } from "./setup";
 
 /**
  * docs/plan.md §1.125: the Dev queue's routes, and §1.149: onboarding v1's (the client file,
@@ -24,4 +27,12 @@ export const allRoutes = {
   ...opsIntakeRoutes,
   ...portalIntakeRoutes,
   ...welcomeRoutes,
+  // docs/builder-plan.md §5 (B3): the agent manual; its tabs load lazily, and its view's schema
+  // with them.
+  ...manualRoutes,
+  // docs/builder-plan.md §6 (B4): the setup checklist (Getting started, the agent's page).
+  ...setupRoutes,
+  // docs/builder-plan.md §7 (B5): client adjustments on the agent's Settings, and feedback on a
+  // line of its manual; both load with their tabs.
+  ...adjustRoutes,
 } as const;

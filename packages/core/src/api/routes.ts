@@ -1,5 +1,6 @@
 import { z } from "zod";
 // P-4
+import { DecisionDraft } from "../build/build";
 import { ConverseOpsView, ConversePortalView } from "../converse";
 import { DESK_ITEM_FIELDS } from "../desk/item";
 import { Locale } from "../i18n/locale";
@@ -87,6 +88,7 @@ import { ownerRoutes } from "./owners";
 import { packRoutes } from "./packs";
 // v0.12 W1-G: people (autonomy).
 import { peopleRoutes, voiceSampleRoutes } from "./people";
+import { phoneApprovalRoutes } from "./phone-approval";
 import { qboRoutes } from "./qbo";
 import { reachRoutes } from "./reach";
 import { recordRoutes } from "./records";
@@ -1354,8 +1356,9 @@ export const opsRoutes = {
     auth: "session",
     roles: OPS,
     summary:
-      "Upload files to the Sandbox client as the portal does (multipart, field `files`): PDFs and images become documents, a CSV of purchases becomes transactions (403 not_sandbox in any other client)",
+      "Upload files to the Sandbox client as the portal does (multipart, field `files`): PDFs and images become documents, a CSV of purchases becomes transactions; `for=try` keeps PDFs and images quiet for a build's try (403 not_sandbox in any other client)",
     params: IdParams,
+    query: z.object({ for: z.enum(["try"]).optional() }),
     response: z.object({ results: z.array(UploadResult) }),
   }),
   opsSandboxAuthorizeCallback: defineRoute({
@@ -2041,6 +2044,8 @@ export const opsRoutes = {
       startFromTemplate: z
         .object({ id: z.string(), slug: z.string(), name: z.string() })
         .nullable(),
+      /** docs/builder-plan.md §4: the decisions the Builder made to draft it, for its build. */
+      decisions: z.array(DecisionDraft).optional(),
     }),
   }),
   opsReviseAgent: defineRoute({
@@ -2523,6 +2528,7 @@ export const routes = {
   ...a2pRoutes,
   // §1.100: a second factor by authenticator app, text or WhatsApp.
   ...secondFactorRoutes,
+  ...phoneApprovalRoutes,
   // R4: business hours, person hours and channels (docs/plan.md §1.86).
   ...hoursRoutes,
   // R8: the Library (docs/plan.md §1.86).

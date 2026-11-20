@@ -48,6 +48,7 @@ import { requestRun, type StepRunner, WaitTimeoutError } from "@countersign/work
 import { and, asc, type Column, eq, isNull } from "drizzle-orm";
 import { createRunRow } from "../runs/dispatch";
 import { executeRun, forClient, type RunDeps } from "../runs/execute";
+import { partialMarks } from "./partial";
 
 /** What a TestSuiteWorkflow instance is given (plain JSON); the instance id is the suite run's. */
 export interface SuiteParams {
@@ -65,6 +66,8 @@ export interface SuiteParams {
   /** Templates: where the test copy runs (the Sandbox for a shared suite, else the client). */
   runTenantId?: string;
   actorId: string | null;
+  /** builder-plan.md B1: a run of some cases (`caseIds` named), kept out of every gate. */
+  partial?: boolean;
 }
 
 /** The part of a StepRunner a suite uses. */
@@ -190,6 +193,28 @@ async function bindCopy(
   });
 }
 
+/**
+ * A bench wait that timed out: a person, approval or event step's `<kind>:timeout` (a tool's own
+ * timeout names the tool, e.g. `gmail.send:timeout`, and is an error like any other).
+ */
+function benchTimeout(errorKey: string | undefined): boolean {
+  return !!errorKey && /^[a-z_]+:timeout$/.test(errorKey);
+}
+
+/** Why a case's run stopped, in words, with what to do when it was the client's connection. */
+function stoppedWhy(result: { reason?: string; nodeId?: string; errorKey?: string }): string {
+  const reason = (result.reason ?? "the run failed").trim().replace(/[.\s]+$/, "");
+  const at = result.nodeId ? `The run stopped at "${result.nodeId}": ${reason}.` : `${reason}.`;
+  const connection =
+    /:unauthorized$|:forbidden$/.test(result.errorKey ?? "") ||
+    /\b(401|403)\b|unauthori[sz]ed|expired|disconnected|not connected|no connection|connection is|is bound|sign[- ]?in/i.test(
+      reason,
+    );
+  return connection
+    ? `${at} Reconnect the client's connection, then try it again.`
+    : `${at} Fix it, then try it again.`;
+}
+
 async function runTemplate(deps: RunDeps, params: SuiteParams, c: CaseRow): Promise<Scored> {
   const input = TemplateCaseInput.safeParse(c.input);
   if (!input.success) return failed("a template case's input is {workflow, payload}");
@@ -246,14 +271,24 @@ async function runTemplate(deps: RunDeps, params: SuiteParams, c: CaseRow): Prom
   });
   // The named steps' outputs (the last row of each, a retried step's included).
   const expected = (c.expected ?? {}) as Record<string, unknown>;
+  // DECISION (builder-plan.md B1): a case that names no step yet (an example tried on a build)
+  // records every step's output: what the agent would do, kept as the answer if it is right.
+  const every = Object.keys(expected).length === 0;
   const got: Record<string, unknown> = {};
   for (const s of steps) {
-    if (Object.hasOwn(expected, s.nodeId)) got[s.nodeId] = s.output ?? null;
+    if (every || Object.hasOwn(expected, s.nodeId)) got[s.nodeId] = s.output ?? null;
   }
   const extra = {
     run: { status: result.status, reason: result.reason ?? null },
     steps: steps.map((s) => ({ id: s.nodeId, status: s.status })),
   };
+  // INTEG-1: a run that failed on a step's error (the client's tool refused it: a sign-in that
+  // expired, a connection disconnected or missing) is an error, never scored: a try or a kept case
+  // expecting nothing would otherwise pass on the tool's error. The bench's own waits time out on
+  // purpose (`benchRunner`), and those runs are scored as they are.
+  if (result.status === "failed" && !benchTimeout(result.errorKey)) {
+    return { ...failed(stoppedWhy(result), extra, String(costUsd)), runId: req.runId };
+  }
   // A shared case's run lives in the Sandbox: its result names it, without a foreign key.
   return { ...scored(c, got, extra, String(costUsd)), runId: req.runId };
 }
@@ -340,7 +375,8 @@ export async function finishSuite(
         total: Math.max(totals.total, params.caseIds.length),
         passed: totals.passed,
         failed: totals.failed,
-        metrics: { ...totals.metrics },
+        // A partial run stays marked: it never counts for a gate (testbench/partial.ts).
+        metrics: { ...totals.metrics, ...(params.partial ? partialMarks(params.caseIds) : {}) },
         costUsd: totals.costUsd,
         finishedAt: new Date(),
       })

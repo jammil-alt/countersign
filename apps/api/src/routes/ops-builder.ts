@@ -25,6 +25,7 @@ import {
   createSkillVersion,
   createTemplate,
   createVersion,
+  customSlug,
   draftAgent,
   EMPTY_SKILL_DRAFT,
   type ExistingSteps,
@@ -299,6 +300,28 @@ export function platformBuilderContext(
   };
 }
 
+/**
+ * A skill id (`custom:<slug>`) not taken in its scope, a client's skills or the shared ones, as
+ * `freeSlug` finds an agent's (BUILDER_QA INPUT-4): two skills whose names give the same slug (any
+ * name with no Latin letters gives "skill") are saved as "<slug>" and "<slug>-2".
+ */
+// DECISION: the id is made free at the first save, not when the skill is drafted: the scope's
+// taken ids are only certain then, and the draft's id is the Builder's guess until it is saved.
+async function freeSkillId(ctx: Pick<Ctx, "tx">, tenantId: string | null, id: string) {
+  const taken = new Set(
+    (
+      await ctx.tx
+        .select({ slug: skill.slug })
+        .from(skill)
+        .where(tenantId ? eq(skill.tenantId, tenantId) : isNull(skill.tenantId))
+    ).map((r) => r.slug),
+  );
+  const root = customSlug(id) || "skill";
+  let slug = root;
+  for (let n = 2; taken.has(slug); n += 1) slug = `${root}-${n}`;
+  return `custom:${slug}`;
+}
+
 /** A slug not taken among templates (clientId null) or the client's agents. */
 async function freeSlug(ctx: Pick<Ctx, "tx">, clientId: string | null, base: string) {
   const taken = new Set(
@@ -333,6 +356,15 @@ export function builderHttpError(error: unknown): never {
         503,
         "builder_unavailable",
         "The Builder couldn't reach its model just now, so nothing changed. Try again in a minute.",
+        { failure },
+      );
+    }
+    // BUILDER_QA AI-7: a refusal is the model declining, not an answer in the wrong form.
+    if (error.code === "refusal") {
+      throw new HttpError(
+        422,
+        "builder_refused",
+        "The Builder's model declined to answer this one, so nothing changed. Try saying it another way; we've logged it.",
         { failure },
       );
     }
@@ -434,6 +466,7 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
       startFromTemplate: template
         ? { id: template.id, slug: template.slug, name: template.name }
         : null,
+      decisions: result.decisions,
     };
   });
 
@@ -1104,9 +1137,16 @@ function builderSessionRoutes(app: Hono<AppEnv>): void {
       if (!draft.definition) throw new HttpError(422, "no_definition", "no skill drafted yet");
       let skillRow: { id: string; slug: string };
       if (!s.skillId) {
+        // BUILDER_QA INPUT-4: an id free in the skill's scope; the conversation keeps it from here.
+        const id = await freeSkillId(ctx, s.tenantId, draft.definition.id);
+        const definition =
+          id === draft.definition.id ? draft.definition : { ...draft.definition, id };
+        if (definition !== draft.definition) {
+          await updateSession(tx, s.id, { bundle: { ...draft, definition } });
+        }
         const created = await createSkill(tx, {
           tenantId: s.tenantId,
-          definition: draft.definition,
+          definition,
           authorId: session.user.id,
           changeNote,
           tools: services.platform.tools,

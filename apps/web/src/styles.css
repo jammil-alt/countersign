@@ -232,6 +232,21 @@
  * the sidebar, the page) are the shell's classes, so it lands where the real frame does; these are
  * only the sizes of its placeholder shapes, on the skeleton's colour (`.ui-skel`). */
 @layer components {
+  /* Owner, 2026-11-20: a browser not known to be signed in (public/frame.js sets
+   * `data-frame="sign-in"` on <html>) sees the logo alone on paper, never the app's frame. */
+  .ui-frame__signin {
+    display: none;
+  }
+  html[data-frame="sign-in"] .ui-frame > :not(.ui-frame__signin, .sr-only) {
+    display: none;
+  }
+  html[data-frame="sign-in"] .ui-frame__signin {
+    display: flex;
+    min-height: 100vh;
+    align-items: center;
+    justify-content: center;
+    background: var(--color-paper);
+  }
   /* The menu button is the phone's only (the skeleton's display would otherwise show it). */
   .ui-frame__menu {
     display: none;

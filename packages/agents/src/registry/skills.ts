@@ -306,6 +306,28 @@ export async function createSkillVersion(
   if (input.parentVersionId && (!parent || parent.skillId !== row.id)) {
     throw notFound(`skill version ${input.parentVersionId} of ${row.slug}`);
   }
+  // STATE-7: a version edited from one that is no longer the latest would undo the change saved
+  // in between; a rollback (`restoring`) copies an older version on purpose. The skill row is
+  // locked, so no other version is inserted between this check and the insert.
+  if (parent && input.parentVersionId && !input.restoring) {
+    const [latest] = await tx
+      .select({ id: skillVersion.id, version: skillVersion.version })
+      .from(skillVersion)
+      .where(eq(skillVersion.skillId, row.id))
+      .orderBy(desc(skillVersion.version))
+      .limit(1);
+    if (latest && latest.id !== parent.id) {
+      throw new AgentsError(
+        "stale_parent",
+        `v${latest.version} was saved after v${parent.version}, which this was edited from. Saving it would undo that change, so it wasn't saved. Reload to start from v${latest.version} and make your change again.`,
+        {
+          latestVersionId: latest.id,
+          latestVersion: latest.version,
+          parentVersion: parent.version,
+        },
+      );
+    }
+  }
   if (parent && parent.definitionHash === hash) {
     throw new AgentsError("no_op", "nothing changed since the version it was edited from");
   }

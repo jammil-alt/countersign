@@ -372,6 +372,8 @@ export const it: Messages = {
     "Il primo SMS a una persona, e il primo dopo 30 giorni, riporta il vostro nome e finisce con come disiscriversi. Lo aggiungiamo noi.",
   "inbox.findingDone": "Fatto",
   "inbox.signAndUpdate": "Approva e aggiorna {tool}",
+  // B3: a change that rests on a decision nobody has discussed
+  "inbox.undiscussed": "Si basa su una decisione che nessuno ha ancora discusso: {what}", // fluent review
   // ── Your Desk (UI-1b) ──
   "desk.title": "In arrivo", // fluent review
   "desk.subtitle": "Quello che i tuoi agenti ti chiedono, e quello che hanno fatto.", // fluent review
@@ -1341,6 +1343,61 @@ export const it: Messages = {
   "knowledge.problem.changed":
     "Qualcuno l'ha cambiata dopo che l'hai aperta. Ricarica per vedere l'ultima versione, poi riprova.",
   "knowledge.problem.failed": "Non siamo riusciti a salvarla. Riprova.",
+  // B6 (docs/builder-plan.md §8): the charter, tags and how our agents work.
+  "knowledge.charter.section": "La tua carta",
+  "knowledge.charter.intro":
+    "Chi sei, come parli, cosa conta per te e cosa non fai mai. I nostri agenti la leggono prima di ogni attività.",
+  "knowledge.charter.none":
+    "Prepareremo una bozza della tua carta da quello che ci hai detto all'inizio, da confermare.",
+  "knowledge.charter.waiting": "In attesa di te",
+  "knowledge.charter.waitingLine":
+    "Leggila, poi confermala o modificala. I nostri agenti la seguono appena la confermi.",
+  "knowledge.charter.inUse":
+    "I nostri agenti seguono la versione {version} finché non confermi questa.",
+  "knowledge.charter.confirmed": "Confermata",
+  "knowledge.charter.confirmedLine": "Confermata da {who} il {date}",
+  "knowledge.charter.confirm": "Conferma",
+  "knowledge.charter.confirming": "Conferma in corso…",
+  "knowledge.charter.problem": "Non siamo riusciti a confermarla. Riprova.",
+  "knowledge.tags": "Cosa copre",
+  "knowledge.tagsHint":
+    "Gli agenti leggono una regola quando il loro lavoro corrisponde a ciò che copre.",
+  "governance.tag.security": "Sicurezza",
+  "governance.tag.writing-into-tools": "Scrivere negli strumenti",
+  "governance.tag.money": "Denaro",
+  "governance.tag.contacting-people": "Contattare persone",
+  "governance.tag.data-handling": "Gestione dei dati",
+  "governance.tag.people-and-roles": "Persone e ruoli",
+  "governance.tag.purchasing": "Acquisti",
+  "governance.tag.sales": "Vendite",
+  "governance.tag.receivables": "Crediti",
+  "governance.tag.bookkeeping": "Contabilità",
+  "governance.tag.marketing": "Marketing",
+  "governance.tag.general": "Generale",
+  "howAgentsWork.title": "Come lavorano gli agenti Mezonas",
+  "howAgentsWork.intro":
+    "Le regole che ogni agente segue, prima della tua carta e delle tue regole.",
+  "howAgentsWork.tools.title": "Lavorano solo con i tuoi strumenti",
+  "howAgentsWork.tools.body":
+    "Gli agenti leggono e modificano i dati solo tramite le connessioni che ci hai dato, entro i permessi che hai impostato.",
+  "howAgentsWork.evidence.title": "Ogni cifra ha una fonte",
+  "howAgentsWork.evidence.body":
+    "Un agente non inventa mai un numero o un nome. Quello che riporta rimanda ai record da cui viene.",
+  "howAgentsWork.data.title": "I documenti si leggono, non si eseguono",
+  "howAgentsWork.data.body":
+    "Il testo di una fattura, di un'email o di una risposta è un'informazione. Un agente non segue mai istruzioni scritte lì.",
+  "howAgentsWork.approval.title": "Le modifiche le approvi tu",
+  "howAgentsWork.approval.body":
+    "Le modifiche ai tuoi strumenti attendono l'approvazione di una persona. Solo noi possiamo allentarla, e solo se sei d'accordo.",
+  "howAgentsWork.money.title": "Il denaro non si muove da solo",
+  "howAgentsWork.money.body":
+    "Gli agenti non pagano, non trasferiscono e non cambiano mai i dati bancari da soli, e non accedono mai a banche o caselle email.",
+  "howAgentsWork.privacy.title": "I tuoi dati restano tuoi",
+  "howAgentsWork.privacy.body":
+    "Quello che un agente impara sulla tua attività è usato solo per te, mai per un altro cliente.",
+  "howAgentsWork.yours.title": "Poi la tua carta e le tue regole",
+  "howAgentsWork.yours.body":
+    "Poi gli agenti leggono la tua carta e le tue regole. Possono aggiungere regole e rendere più severe le nostre, mai allentarle.",
 
   // ── Contacts and consent (plan §1.22, §1.25) ──
   "contacts.title": "Contatti",
@@ -2224,6 +2281,60 @@ export const it: Messages = {
   "agent.tab.overview": "Panoramica",
   "agent.tab.runs": "Esecuzioni",
   "agent.tab.settings": "Impostazioni dell’agente",
+  // B3: the agent manual (docs/builder-plan.md §5)
+  "agent.tab.manual": "Manuale", // fluent review
+  "manual.whatItDoes": "Cosa fa", // fluent review
+  "manual.howItWorks": "Come funziona", // fluent review
+  "manual.decisions": "Decisioni", // fluent review
+  "manual.decisionPoints": "Dove decide una persona", // fluent review
+  "manual.knownRisks": "Rischi noti", // fluent review
+  "manual.setup": "Cosa abbiamo impostato con te", // fluent review
+  "manual.learned": "Cosa ha imparato", // fluent review
+  "manual.reads": "Cosa legge", // fluent review
+  "manual.notWritten":
+    "Non abbiamo ancora scritto il manuale di questo agente. Come funziona è letto dai suoi passaggi.", // fluent review
+  "manual.nothingYet": "Ancora niente.", // fluent review
+  "manual.notAnswered": "Ancora senza risposta", // fluent review
+  "manual.highRisk": "Rischio alto", // fluent review
+  "manual.learnedHidden": "Cosa ha imparato lo vede il tuo amministratore.", // fluent review
+  "manual.ask": "Chiedi su questo", // fluent review
+  "manual.askText": "Sul manuale di {agent}: “{line}” ", // fluent review
+  "manual.startsAt": "Parte da {value}", // fluent review
+  "manual.onStep": "Passaggio: {step}", // fluent review
+  "manual.who": "Chi: {who}", // fluent review
+  "manual.byWhen": "Entro {when}", // fluent review
+  "manual.kind.assumption": "Ipotesi", // fluent review
+  "manual.kind.decision_point": "Punto di decisione", // fluent review
+  "manual.kind.client_setup": "Impostato con te", // fluent review
+  "manual.status.never_discussed": "Mai discusso", // fluent review
+  "manual.status.discussed": "Discusso", // fluent review
+  "manual.status.confirmed": "Confermato", // fluent review
+  "manual.status.changed": "Modificato", // fluent review
+  // B5 (docs/builder-plan.md §7): changes on the agent's settings, and feedback on the manual.
+  "manual.changedBy": "Modificato da {who} il {date}", // fluent review
+  "manual.changedByUs": "Modificato da noi il {date}", // fluent review
+  "manual.wrong": "Questo è sbagliato", // fluent review
+  "manual.wrongBecause": "Questo è sbagliato perché…", // fluent review
+  "manual.wrongSend": "Inviacelo", // fluent review
+  "manual.wrongSent": "Inviato come richiesta n. {number}. Risponderemo lì.", // fluent review
+  "adjust.title": "Cosa può regolare", // fluent review
+  "adjust.help":
+    "Le abbiamo impostate per {name}. Una modifica entro i limiti, o più restrittiva, vale subito. Oltre, ci arriva come richiesta.", // fluent review
+  "adjust.adminOnly": "Il suo amministratore può modificarle.", // fluent review
+  "adjust.between": "Tra {min} e {max}", // fluent review
+  "adjust.atLeast": "Almeno {min}", // fluent review
+  "adjust.atMost": "Al massimo {max}", // fluent review
+  "adjust.tighterLower": "Più basso è più restrittivo.", // fluent review
+  "adjust.tighterHigher": "Più alto è più restrittivo.", // fluent review
+  "adjust.notSet": "Non impostato", // fluent review
+  "adjust.change": "Modifica", // fluent review
+  "adjust.other": "Altro", // fluent review
+  "adjust.otherWhat": "Cosa desidera", // fluent review
+  "adjust.why": "Perché (facoltativo)", // fluent review
+  "adjust.applied": "Salvato. {label} ora è {value}.", // fluent review
+  "adjust.unchanged": "{label} è già {value}.", // fluent review
+  "adjust.requested":
+    "Va oltre ciò che abbiamo impostato, quindi ci è arrivato come richiesta n. {number}. Risponderemo lì.", // fluent review
   "agent.about": "Cosa fa {name}",
   "agent.aboutNone": "Non abbiamo ancora scritto una descrizione di {name}.",
   "agent.status": "Stato",
@@ -2292,6 +2403,7 @@ export const it: Messages = {
   "settingsPage.exports": "Esportazioni",
   "settingsPage.conversations": "Conversazioni",
   "settingsPage.voice": "Esempi di stile",
+  "settingsPage.charter": "Carta e politiche",
   "settingsPage.sloanBody":
     "Sloan è il tuo agente di account. Chiedigli del lavoro dei tuoi agenti, o di metterne uno in pausa: usa «Chiedi a Sloan» in alto, o la ricerca. Sloan non allenta mai una regola.",
   "settingsPage.sloanOpen": "Apri Sloan",
@@ -2991,7 +3103,8 @@ export const it: Messages = {
   "secondStep.continue": "Continua",
   "secondStep.totp.title": "Aggiunga Mezonas alla sua app di autenticazione",
   "secondStep.totp.step1":
-    "Nella sua app, aggiunga un account e inserisca questa chiave. Su questo telefono può aprire l'app direttamente.",
+    "Scansioni questo codice con la sua app di autenticazione, oppure aggiunga un account e inserisca la chiave qui sotto. Su questo telefono può aprire l'app direttamente.",
+  "secondStep.totp.qr": "Codice QR per aggiungere Mezonas alla sua app di autenticazione",
   "secondStep.totp.openApp": "Apri nella mia app di autenticazione",
   "secondStep.totp.key": "Chiave di configurazione",
   "secondStep.totp.step2": "Poi inserisca il codice a 6 cifre mostrato dall'app.",
@@ -3029,6 +3142,37 @@ export const it: Messages = {
     "Ha perso telefono e codici di recupero? Chieda al suo amministratore o al suo referente Mezonas di reimpostare l'accesso.",
   "secondStep.signOut": "Esci",
   "secondStep.failed": "Non ha funzionato. Riprovi.",
+  "setupLink.title": "Configuri l'accesso",
+  "setupLink.intro":
+    "Aggiunga un modo per ricevere i codici per {email}. Può aggiungerli entrambi.",
+  "setupLink.setUp": "Configura",
+  "setupLink.done": "Fatto",
+  "setupLink.back": "Indietro",
+  "setupLink.backToSignIn": "Torna all'accesso",
+  "secondStep.emailLink.title": "Configuri l'accesso via email",
+  "secondStep.emailLink.intro":
+    "Per proteggere il suo account, le inviamo via email un link per aggiungere il suo numero di telefono o un'app di autenticazione.",
+  "secondStep.emailLink.send": "Inviami il link",
+  "secondStep.emailLink.sent":
+    "Abbiamo inviato un link a {email}. Lo apra, aggiunga il telefono o un'app di autenticazione e torni qui.",
+  "secondStep.emailLink.check": "L'ho configurato",
+  "secondStep.emailLink.notYet": "Non è ancora configurato nulla. Apra prima il link nell'email.",
+  "secondStep.emailLink.again": "Invia di nuovo il link",
+  "error.setup_by_email": "Configuri l'accesso dal link che le inviamo via email.",
+  "error.link_expired": "Questo link è scaduto. Acceda di nuovo per riceverne uno nuovo.",
+  "error.email_unavailable": "Ora non possiamo inviare email. Si rivolga al suo referente Mezonas.",
+  "error.email_failed": "Non siamo riusciti a inviare l'email. Riprovi.",
+  "secondStep.phoneApprove.title": "Approvi sul telefono",
+  "secondStep.phoneApprove.intro": "Apra Mezonas sul telefono e tocchi questo numero.",
+  "secondStep.phoneApprove.number": "Il numero da toccare sul telefono",
+  "secondStep.phoneApprove.waiting": "In attesa del telefono.",
+  "secondStep.phoneApprove.denied":
+    "Questo accesso è stato rifiutato sul telefono. Se non è stato lei, cambi la password.",
+  "secondStep.phoneApprove.expired": "Il telefono non ha risposto in tempo.",
+  "secondStep.phoneApprove.again": "Chiedere di nuovo al telefono",
+  "secondStep.phoneApprove.useCode": "Usare un codice",
+  "secondStep.phoneApprove.instead": "Approvare sul telefono",
+  "error.no_phone": "Nessun telefono può approvare questo accesso. Usi un codice.",
   // §1.120: approving a Claude connection (the MCP server) from the browser.
   "connectClaude.title": "Collega Claude",
   "connectClaude.subtitle": "Claude può usare Mezonas a Suo nome dopo che Lei lo approva qui.",
@@ -3143,6 +3287,30 @@ export const it: Messages = {
   "start.answered": "Con risposta",
   "start.choose": "Scegli…",
   "start.files.added": { one: "1 file aggiunto", other: "{count} file aggiunti" },
+  "start.setup.title": "Configura i tuoi agenti",
+  "start.setup.intro":
+    "Ciò che ogni agente ti chiede prima di iniziare. Le tue risposte diventano le sue impostazioni.",
+  "start.setup.count": "{done} di {total} fatti",
+  "start.setup.waiting": "In attesa di te",
+  "start.setup.done": "Fatto",
+  "start.setup.holdsTrial": "La prova inizia quando i punti prima della prova sono fatti.",
+  "start.setup.holdsLive": "Va in produzione quando il resto è fatto.",
+  "start.setup.beforeTrial": "Prima della prova",
+  "start.setup.beforeLive": "Prima della messa in produzione",
+  "start.setup.connect": "Collega",
+  "start.setup.connected": "Collegato",
+  "start.setup.answer": "La tua risposta",
+  "start.setup.note": "Una nota (facoltativa)",
+  "start.setup.save": "Salva",
+  "start.setup.confirm": "Conferma",
+  "start.setup.change": "Modifica",
+  "start.setup.addFile": "Aggiungi un file",
+  "start.setup.byName": "Fatto da {name} il {date}",
+  "start.setup.byUs": "Fatto da noi il {date}",
+  "start.setup.suggested": "Suggeriamo {value}",
+  "start.setup.range": "Tra {min} e {max}",
+  "start.setup.setsValue": "La tua risposta diventa l'impostazione di questo agente.",
+  "start.setup.adminOnly": "Il tuo amministratore risponde a questi punti.",
   "start.ask.who": "Chi",
   "start.ask.pick": "Scegli un collega",
   "start.ask.new": "Qualcuno di nuovo",

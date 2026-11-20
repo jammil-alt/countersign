@@ -11,6 +11,7 @@ import {
   BuildPhase,
   BuildProposal,
   BuildStatus,
+  DecisionOperatorStatus,
   FitGap,
   FitReason,
   FitVerdict,
@@ -22,6 +23,7 @@ import {
 } from "../build/build";
 import { isUuid } from "../ids";
 import { AgentStage } from "../lifecycle/stage";
+import { STORABLE_TEXT_MESSAGE, storable, storableJson } from "../text";
 import { WorkBuildStage, WorkWaitingOn } from "../work/pipelines";
 import { RequirementsRequest } from "../work/requirements";
 import { Standing } from "../work/standing";
@@ -160,6 +162,29 @@ export const BuildDraftView = z.object({
 });
 export type BuildDraftView = z.infer<typeof BuildDraftView>;
 
+/**
+ * builder-plan.md B1: one example the operator tried in the POC test (a document or an input), run
+ * once as a test (never writes) and not kept yet. What the agent would do is `output`: a template's
+ * step outputs by step id, a skill's output.
+ */
+export const BuildTryView = z.object({
+  caseId: z.string(),
+  name: z.string(),
+  /** `running` until its test finishes; `error` when it couldn't finish (`why` says why). */
+  status: z.enum(["running", "done", "error"]),
+  output: z.unknown(),
+  why: z.string().nullable(),
+  /** A template's test run. */
+  runId: z.string().nullable(),
+  /** Tried on the draft's latest version (else: try it again after a fix). */
+  current: z.boolean(),
+  at: z.string(),
+});
+export type BuildTryView = z.infer<typeof BuildTryView>;
+
+/** Most tries the build page shows (newest first). */
+export const BUILD_TRIES_SHOWN = 3;
+
 export const BuildPocView = z.object({
   /** Suite runs of test cases (a template or skill), or test runs (a client agent). */
   mode: z.enum(["suite", "test_runs"]),
@@ -183,8 +208,14 @@ export const BuildPocView = z.object({
       name: z.string(),
       status: z.string(),
       runId: z.string().nullable(),
+      /** builder-plan.md B0: why it fails: its error, or the first fields that differed. */
+      why: z.string().nullable().default(null),
     }),
   ),
+  /** builder-plan.md B1: examples tried and not kept yet, newest first (suite mode only). */
+  tries: z.array(BuildTryView).default([]),
+  /** A template's try document is uploaded to this Sandbox client (where its tests run). */
+  trySandbox: z.object({ id: z.string(), name: z.string() }).nullable().default(null),
   testRuns: z
     .object({
       total: z.number().int(),
@@ -266,7 +297,7 @@ export type BuildDetail = z.infer<typeof BuildDetail>;
 export const StartBuild = z
   .strictObject({
     kind: BuildKind,
-    title: z.string().trim().min(1).max(200),
+    title: storable(z.string().trim().min(1).max(200)),
     /** For one client (a client agent, that client's skill); else for everyone. */
     clientId: Id.optional(),
     // docs/plan.md §1.124: from a template, what started it, and the date promised.
@@ -281,21 +312,21 @@ export const StartBuild = z
   });
 
 export const UpdateBuild = z.strictObject({
-  title: z.string().trim().min(1).max(200).optional(),
+  title: storable(z.string().trim().min(1).max(200)).optional(),
   brief: Brief.optional(),
   fitgap: FitGap.optional(),
   testPlan: TestPlan.optional(),
   // docs/plan.md §1.124: moving a promised date is the operator's.
   promisedOn: IsoDate.nullable().optional(),
   waitingOn: WorkWaitingOn.optional(),
-  statusLine: z.string().trim().max(120).optional(),
+  statusLine: storable(z.string().trim().max(120)).optional(),
   stuck: z.boolean().optional(),
 });
 
 /** An item made from a failed case or a rejected write is made once (its key is the case or write). */
 export const NewBuildItem = z.strictObject({
-  title: z.string().trim().min(1).max(300),
-  detail: z.string().trim().max(2000).optional(),
+  title: storable(z.string().trim().min(1).max(300)),
+  detail: storable(z.string().trim().max(2000)).optional(),
   kind: BuildItemKind.optional(),
   owner: BuildItemOwner.optional(),
   stepId: z.string().min(1).max(100).optional(),
@@ -303,11 +334,33 @@ export const NewBuildItem = z.strictObject({
 });
 
 export const UpdateBuildItem = z.strictObject({
-  title: z.string().trim().min(1).max(300).optional(),
-  detail: z.string().trim().max(2000).optional(),
+  title: storable(z.string().trim().min(1).max(300)).optional(),
+  detail: storable(z.string().trim().max(2000)).optional(),
   owner: BuildItemOwner.optional(),
   state: BuildItemState.optional(),
 });
+
+/**
+ * A try (builder-plan.md B1): exactly one of a document uploaded to the Sandbox (a template), an
+ * input (a skill's input, or a template's trigger payload), or a try to run again.
+ */
+export const TryBody = z
+  .strictObject({
+    documentId: Id.optional(),
+    input: z
+      .unknown()
+      .refine((v) => JSON.stringify(v ?? null).length <= 100_000, "the input is too large")
+      .refine((v) => storableJson(v), STORABLE_TEXT_MESSAGE)
+      .optional(),
+    /** A template's workflow, by slug (default: the one that starts on a document, or by hand). */
+    workflow: z.string().trim().min(1).max(100).optional(),
+    caseId: Id.optional(),
+  })
+  .refine(
+    (b) => [b.documentId, b.input, b.caseId].filter((v) => v !== undefined).length === 1,
+    "give a document, an input or a try to run again",
+  );
+export type TryBody = z.infer<typeof TryBody>;
 
 export const buildRoutes = {
   opsBuilds: defineRoute({
@@ -366,7 +419,7 @@ export const buildRoutes = {
       "Your words in the build's conversation, and the Builder's answer for the phase. Without words, the Builder's last turn is tried again: its answer to your last words, or its opening of the phase",
     params: IdParams,
     body: z.strictObject({
-      text: z.string().trim().min(1).max(BUILD_TEXT_MAX).optional(),
+      text: storable(z.string().trim().min(1).max(BUILD_TEXT_MAX)).optional(),
       /** The issue the words are about (the conversation's focus). */
       about: z.string().min(1).max(160).optional(),
     }),
@@ -427,6 +480,28 @@ export const buildRoutes = {
     params: IdParams,
     response: BuildDetail,
   }),
+  opsBuildTry: defineRoute({
+    method: "POST",
+    path: "/api/ops/builds/:id/tries",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Try the draft on a real example in the POC test: a Sandbox document or an input, run once as a test (never writes); with caseId, try one again on the latest version",
+    params: IdParams,
+    body: TryBody,
+    response: BuildDetail,
+  }),
+  opsBuildTryDecide: defineRoute({
+    method: "POST",
+    path: "/api/ops/builds/:id/tries/:caseId",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Keep a try as a required test case, its result the expected answer, or discard it (archived)",
+    params: z.object({ id: Id, caseId: Id }),
+    body: z.strictObject({ decide: z.enum(["keep", "discard"]) }),
+    response: BuildDetail,
+  }),
   opsBuildClientTest: defineRoute({
     method: "POST",
     path: "/api/ops/builds/:id/client-test",
@@ -483,6 +558,19 @@ export const buildRoutes = {
     summary: "Change an open item: who has it, its state, its words",
     params: ItemParams,
     body: UpdateBuildItem,
+    response: BuildDetail,
+  }),
+  // docs/builder-plan.md §4: the operator marks one of the Builder's decisions discussed or
+  // confirmed (a high-risk one must be looked at before the client test).
+  opsBuildDecisionStatus: defineRoute({
+    method: "PATCH",
+    path: "/api/ops/builds/:id/decisions/:decisionId",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Mark one of the Builder's decisions discussed or confirmed, or back to never discussed",
+    params: z.object({ id: Id, decisionId: z.string().min(1).max(40) }),
+    body: z.strictObject({ status: DecisionOperatorStatus }),
     response: BuildDetail,
   }),
   opsStopBuild: defineRoute({
