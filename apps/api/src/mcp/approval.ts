@@ -248,12 +248,18 @@ export async function claudeConnectionGate(input: {
     const code = connectionCode();
     const codeHash = await connectionCodeHash(key, code);
     const expiresAt = new Date(now.getTime() + CLAUDE_LINK_MIN * 60_000);
+    // DECISION (docs/plan.md §1.120, 2026-11-20): an AuthKit session can outlive 12 hours (a
+    // Claude connection on staging kept its `sid` for two days), so an approval window that would
+    // end before this link does starts again from now. Kept, every link of that session expired
+    // the moment it was approved, and the only way out was to reconnect Claude.
+    const restart =
+      !row || row.createdAt.getTime() + SESSION_MAX_AGE_SEC * 1000 <= expiresAt.getTime();
     await tx
       .insert(mcpSessionApproval)
-      .values({ userId, workosSessionId: sessionId, codeHash, expiresAt })
+      .values({ userId, workosSessionId: sessionId, codeHash, expiresAt, createdAt: now })
       .onConflictDoUpdate({
         target: [mcpSessionApproval.workosSessionId, mcpSessionApproval.userId],
-        set: { codeHash, expiresAt, approvedAt: null },
+        set: { codeHash, expiresAt, approvedAt: null, ...(restart ? { createdAt: now } : {}) },
       });
     const confirm = await connectionConfirmCode(key, code);
     return {

@@ -503,6 +503,28 @@ describe.skipIf(!h)("the Claude connector's approval link (§1.120)", () => {
     expect(refused.json.error.code).toBe("expired");
   });
 
+  it("approves a Claude sign-in whose AuthKit session has outlived 12 hours", async () => {
+    // Claude first asked 13 hours ago in this session and nobody approved; the session lives on.
+    const bearer = await token(WORKOS_IDS.operator, "authkit_long");
+    expect((await whoami(bearer)).isError).toBe(true);
+    await H.t.db
+      .update(mcpSessionApproval)
+      .set({ createdAt: new Date(Date.now() - 13 * 60 * 60_000) })
+      .where(eq(mcpSessionApproval.workosSessionId, "authkit_long"));
+    const link = await whoami(bearer);
+    const ok = await request(
+      operator,
+      "POST",
+      `/api/auth/claude-connections/${link.code}/approve`,
+      { confirm: link.confirm },
+    );
+    expect(ok.status, JSON.stringify(ok.json)).toBe(200);
+    expect(ok.json.status).toBe("approved");
+    // A new 12 hours, counted from the link that was approved.
+    expect(new Date(ok.json.expiresAt).getTime()).toBeGreaterThan(Date.now() + 11 * 60 * 60_000);
+    expect((await whoami(bearer)).isError).toBe(false);
+  });
+
   it("sends a client's person to the portal, and they approve their own", async () => {
     const admin = new Browser();
     const [user] = await H.t.db.select().from(appUser).where(eq(appUser.id, H.A.admin));
