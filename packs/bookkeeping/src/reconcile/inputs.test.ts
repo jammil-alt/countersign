@@ -1,19 +1,73 @@
 // Reconciliation inputs (PLATFORM_QA INPUT-1 to INPUT-4): currencies on each side, amounts at the
 // column's edge, and the client's own "last month". Driven through the pack's real tools as
-// cs_worker, as store.test.ts does.
+// cs_worker, as store.test.ts does. The Bookkeeper's payout check passes the statement's currency,
+// as the reader writes it, to its given side (INPUT-2, the template's v5).
 
+import { type AnyAgentBundle, processes, resolveTemplate } from "@countersign/core";
 import { closeDb, createDb, type Db, tenant, withTenant } from "@countersign/db";
 import { createTestDatabase, databaseAvailable, type TestDatabase } from "@countersign/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { importFeeds } from "../feed";
-import { BOOKKEEPING_HANDLERS } from "../manifest";
+import { BOOKKEEPING_HANDLERS, bookkeepingManifest } from "../manifest";
 import type { PackToolContext } from "../pack";
 import { bankTxn, reconciliation } from "../schema";
 import { type BooksFixture, insertBooks } from "../testing.test-helper";
-import { monthPeriod, ReconMoney } from "./store";
+import { givenCurrency, monthPeriod, ReconcileInput, ReconMoney } from "./store";
 
 const online = await databaseAvailable();
+
+const DOC = "00000000-0000-4000-8000-000000000001";
+
+/** The latest Bookkeeper's payout check: its reconcile step's input, as the template has it. */
+function payoutStepInput(): unknown {
+  const latest = bookkeepingManifest.templates[0]?.versions?.at(-1) as AnyAgentBundle | undefined;
+  const wf = latest?.workflows.find((w) => w.slug === "payout-check")?.workflow;
+  if (wf?.schemaVersion !== 4) throw new Error("no v4 payout check");
+  const step = processes.allSteps(wf).find((l) => l.step.id === "payout")?.step;
+  if (step?.kind !== "write" || step.tool !== "bookkeeping.reconcile") throw new Error("no payout");
+  return step.input;
+}
+
+/** The payout step's input, resolved over a statement read as the reader would give it. */
+function payoutInput(bankTxnId: string, label: string, currency: string | null) {
+  const statement = {
+    label,
+    opening: null,
+    closing: "100.00",
+    currency,
+    items: [
+      { id: "1", date: "2026-10-06", effect: "100.00", reference: "ch_1", description: "Charge" },
+    ],
+    sources: [DOC],
+  };
+  return resolveTemplate(payoutStepInput(), {
+    trigger: { bankTxnId, documentId: DOC },
+    steps: { statement: { output: statement } },
+  }) as { b: { currency?: unknown } };
+}
+
+describe("a given side's currency, as a statement reader writes it", () => {
+  it("(PLATFORM_QA INPUT-2) reads a code in any case and spacing, and anything else as none", () => {
+    expect(givenCurrency("cad")).toBe("CAD");
+    expect(givenCurrency(" Usd ")).toBe("USD");
+    expect(givenCurrency("EUR")).toBe("EUR");
+    for (const junk of ["Canadian dollars", "C$", "$", "XYZ", "", "  ", null, undefined]) {
+      expect(givenCurrency(junk), String(junk)).toBeNull();
+    }
+  });
+
+  it("(PLATFORM_QA INPUT-2) the Bookkeeper's payout check passes the statement's currency to its given side", () => {
+    const txn = "00000000-0000-4000-8000-000000000002";
+    const input = payoutInput(txn, "Stripe payout", "cad");
+    expect(input.b.currency).toBe("cad");
+    expect(ReconcileInput.parse(input).b).toMatchObject({ source: "given", currency: "CAD" });
+    const junk = payoutInput(txn, "Stripe payout", "Canadian dollars");
+    expect(ReconcileInput.parse(junk).b).toMatchObject({ source: "given", currency: null });
+    const none = payoutInput(txn, "Stripe payout", null);
+    expect(ReconcileInput.parse(none).b).toMatchObject({ source: "given", currency: null });
+  });
+});
 
 describe("monthPeriod on the client's calendar", () => {
   it("(PLATFORM_QA INPUT-3) last month is the client's last month, not UTC's (Los Angeles, Nov 30 at 17:00)", () => {
@@ -141,6 +195,45 @@ describe.skipIf(!online)("reconciliation inputs (database, as cs_worker)", () =>
         ctx(A),
       ),
     ).rejects.toThrow(/same currency/);
+  });
+
+  it('(PLATFORM_QA INPUT-2) the payout check reconciles a statement read as "cad" against a CAD deposit in CAD', async () => {
+    const out = (await tool("bookkeeping.reconcile").run(
+      payoutInput(id("cad-1"), "Payout in cad", "cad"),
+      ctx(A),
+    )) as { reconciliationId: string; summary: string };
+    const [row] = await t.db
+      .select()
+      .from(reconciliation)
+      .where(eq(reconciliation.id, out.reconciliationId));
+    expect({ currency: row?.currency, summary: out.summary }).toEqual({
+      currency: "CAD",
+      summary: expect.not.stringContaining("$"),
+    });
+  });
+
+  it("(PLATFORM_QA INPUT-2) the payout check reads a junk statement currency as none: the deposit's", async () => {
+    const out = (await tool("bookkeeping.reconcile").run(
+      payoutInput(id("cad-1"), "Payout in junk", "Canadian dollars"),
+      ctx(A),
+    )) as { reconciliationId: string };
+    const [row] = await t.db
+      .select()
+      .from(reconciliation)
+      .where(eq(reconciliation.id, out.reconciliationId));
+    expect(row?.currency).toBe("CAD");
+  });
+
+  it("(PLATFORM_QA INPUT-2) the payout check refuses a CAD statement against a USD deposit", async () => {
+    for (const currency of ["cad", " CAD "]) {
+      await expect(
+        tool("bookkeeping.reconcile").run(
+          payoutInput(id("usd-1"), `Payout ${currency.trim()}`, currency),
+          ctx(A),
+        ),
+        currency,
+      ).rejects.toThrow(/same currency/);
+    }
   });
 
   it("(PLATFORM_QA INPUT-4) an amount past numeric(14,4) is refused plainly, not by a database overflow", async () => {
