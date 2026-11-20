@@ -6191,11 +6191,34 @@ group per run).
 | Embeddings and compliance | Embedding a lead sends its match text to OpenAI (already named in compliance; HIPAA mode refuses it, and matching then stops at keys, text and the model). Embeddings are made when records sync and re-made when their match text changes; cost is recorded as usage. // DECISION |
 | Updates | Each matched row becomes one `zoho_crm.update_record` with only the fields the step maps, its before state kept for undo (built). New leads for unmatched rows only if the operator adds a create step, approval on. // DECISION |
 
+**Confirm matches** (owner, 2026-11-20: "a data matching confirmation form … show low confidence
+and they can approve suggested or remap … a look up to remap"). The Sales pack's review card
+`sales.match`, on a person step after the match (payload `review: "sales.match"`, as Materials'
+`materials.match`), shown on the client's Desk and the back office's Escalations.
+
+| Topic | Decision |
+|---|---|
+| What it shows | The rows the match wasn't sure of first, then the rest folded under "Matched" with their count. Each row: the sheet's values beside the suggested Zoho record's values for the fields matched on, differences marked; the confidence in words (High, Medium, Low) with its number; how it was found (same email, a name you confirmed before, similar name, similar meaning, the model's pick). // DECISION |
+| What a person does | Per row: **Approve** the suggestion, **pick another** of the candidates, **Look up** any synced lead or deal (a search box over name, company, email, phone and deal name, the module chosen), or **No match**. "Approve all High" for the folded rows. **Finish** sends the answers back to the waiting run; the step's output is the confirmed matches. // DECISION |
+| What it teaches | A person's Approve, pick or look-up is a `crm_match` with method `human` and a `crm_alias` (the row's key values → the record), so the same row matches by itself next time. No match teaches nothing. // DECISION |
+| The look-up | `GET /api/inbox/:id/pack-review/lookup?module=&q=` and its back-office twin: the client's synced records only (withTenant), at most 20, by trigram on the match text and exact email or phone; the record's id, name, company, email and the deal's stage and amount. // DECISION |
+| Why not a confer | Confer is advice only (ARCHITECTURE §10.14): it never changes a step's output, and a remap must. So the card is a person step's. A confer on the match step (a second model, or a person's agree or disagree) still works as advice before it. // DECISION |
+| Colours and words | Waiting rows are signal with "Waiting on you"; a person's decisions copper; the agent's matches ink (brand book). Sheet values and Zoho names show as written (data). |
+
+**The happy path (done when)**, with fakes on staging: a client's `.xlsx` of 20 rows is uploaded
+→ Read table reads it with the agent's columns → Reshape maps the rows to Zoho fields, one of them
+custom (proposed from Zoho's field list) → the match finds 15 by key, 3 by meaning and the model,
+and 2 unsure → Confirm matches: one approved, one remapped through the look-up → 20 updates go to
+one approval group → approved → the fake Zoho holds the new values, each with its before state →
+the same file again matches all 20 with no person (the aliases). The Sales pack ships it as the
+template "Spreadsheet to Zoho".
+
 **Order** (each ends green): (1) Read table with CSV and JSON, the `columns` parameter, documents
 taking the types, the builder's sample-file check; (2) XLSX reading and Write table; (3) Zoho field
 metadata and custom-field sync; (4) the Sales area's migration; (5) its keys, embeddings and
 `sales.match_records`, with goldens in `fixtures/matching/crm` (≥ 95% precision on "same"); (6) the
-webhook sample payload and Reshape's `object`. Steps 1–3 need no migration.
+Confirm matches card and its look-up; (7) the webhook sample payload and Reshape's `object`; (8) the
+template and the happy path end to end. Steps 1–3 and 7 need no migration.
 
 ## 2. Package layering
 
