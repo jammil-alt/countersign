@@ -125,6 +125,7 @@ import { tenantLocale } from "../routes/language";
 // Wave 6: the owner's check on every step, and the audit queue (docs/plan.md §1.86)
 import { dbOwnerCheckLog, queueFinishedRun } from "../run-audit/store";
 import { signerFor } from "../storage";
+import { oneAskPerStep } from "./asks";
 import { createRunRow, dispatchEvents, dispatchingRunner, senseEmitter } from "./dispatch";
 // Hand off (owner, 2026-11-11): hand-off steps, and a handed-off run's entry step.
 import { handoffPort, handoffStart } from "./handoff";
@@ -385,6 +386,8 @@ export function runtimeFor(
     // §1.77: web research on the same transport, when the deployment has it on.
     ...(deps.webResearch ? { webResearch: { transport: deps.transport } } : {}),
   });
+  // PLATFORM_QA STATE-8: a step tried again by the engine asks a person once.
+  ports.platform = oneAskPerStep(ports.platform, db);
   // §1.150: Sloan's answer to a person who wrote by email or text goes back that way.
   if (deps.notify && ports.threads) {
     ports.threads = deliveringThreads(ports.threads, {
