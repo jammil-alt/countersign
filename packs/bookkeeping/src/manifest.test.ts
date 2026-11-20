@@ -107,6 +107,32 @@ describe("the Bookkeeping manifest", () => {
     ]);
   });
 
+  it("(PLATFORM_QA INPUT-2) keeps v5 the same as v4 but for the statement's currency on its given side", () => {
+    const [template] = bookkeepingManifest.templates;
+    const [, , v4, v5] = template?.versions ?? [];
+    if (!v4 || !v5) throw new Error("no v4 or v5");
+    const diffs: string[] = [];
+    const walk = (a: unknown, b: unknown, path: string) => {
+      if (a && b && typeof a === "object" && typeof b === "object") {
+        const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+        for (const k of keys) {
+          walk(
+            (a as Record<string, unknown>)[k],
+            (b as Record<string, unknown>)[k],
+            `${path}.${k}`,
+          );
+        }
+      } else if (JSON.stringify(a) !== JSON.stringify(b)) {
+        diffs.push(`${path}: ${JSON.stringify(a)} -> ${JSON.stringify(b)}`);
+      }
+    };
+    walk(JSON.parse(JSON.stringify(v4)), JSON.parse(JSON.stringify(v5)), "");
+    const payout = v4.workflows.findIndex((w) => w.slug === "payout-check");
+    expect(diffs).toEqual([
+      `.workflows.${payout}.workflow.steps.1.input.b.currency: undefined -> "{{steps.statement.output.currency}}"`,
+    ]);
+  });
+
   it("serves its cards, actions and reports by name", () => {
     expect(Object.keys(BOOKKEEPING_REVIEWS).sort()).toEqual([
       "bookkeeping.account-questions",

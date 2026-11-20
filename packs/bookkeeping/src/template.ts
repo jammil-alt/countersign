@@ -1093,9 +1093,50 @@ const bookkeeperV4 = once(() =>
   } satisfies AnyAgentBundleInput),
 );
 
-/** The Bookkeeper: v1 as first installed, then v2 (v4 processes), v3 (the skill model), v4. */
+// ── v5 (2026-11-20): a statement's currency reaches the reconciliation ──────────────────────────
+//
+// v4 with each reconcile step's `given` side read from a statement (Read a statement document)
+// passing the statement's `currency` (PLATFORM_QA INPUT-2, docs/plan.md §1.157 "Not in this pass").
+// The reader gives free text; `bookkeeping.reconcile` reads it as a code or as none (store.ts
+// `givenCurrency`), so a CAD statement against a USD account is refused rather than reconciled in
+// dollars. Every other step, id and trigger is v4's.
+
+const STATEMENT_SKILLS: ReadonlySet<string> = new Set([
+  "bookkeeping.read-statement",
+  "bookkeeping.read-statement-document",
+]);
+
+/** A reconcile step's sides, a given side read from a statement step passing its currency. */
+function withStatementCurrency(steps: readonly processes.Step[]): processes.Step[] {
+  const statements = new Set<string>();
+  return processes.replaceSteps(steps, (step) => {
+    if (step.kind === "skill" && STATEMENT_SKILLS.has(step.skill)) statements.add(step.id);
+    if (step.kind !== "write" || step.tool !== "bookkeeping.reconcile") return undefined;
+    const input: Record<string, unknown> = { ...step.input };
+    for (const key of ["a", "b"] as const) {
+      const side = input[key] as Record<string, unknown> | undefined;
+      if (side?.source !== "given" || "currency" in side) continue;
+      const from = /^\{\{steps\.([\w-]+)\.output\.closing\}\}$/.exec(String(side.closing));
+      if (!from?.[1] || !statements.has(from[1])) continue;
+      input[key] = { ...side, currency: `{{steps.${from[1]}.output.currency}}` };
+    }
+    return [{ ...step, input }];
+  });
+}
+
+const bookkeeperV5 = once(() =>
+  AnyAgentBundle.parse({
+    ...bookkeeperV4(),
+    workflows: bookkeeperV4().workflows.map((w) => {
+      if (w.workflow.schemaVersion !== 4) throw new Error(`${w.slug}: not v4`);
+      return { ...w, workflow: { ...w.workflow, steps: withStatementCurrency(w.workflow.steps) } };
+    }),
+  } satisfies AnyAgentBundleInput),
+);
+
+/** The Bookkeeper: v1 as first installed, then v2 (v4 processes), v3 (the skill model), v4, v5. */
 export const BOOKKEEPER_TEMPLATE = lazyObject({
   slug: BOOKKEEPER_V1.slug,
   bundle: lazy(() => BOOKKEEPER_V1.bundle),
-  versions: lazy(() => [bookkeeperV2(), bookkeeperV3(), bookkeeperV4()]),
+  versions: lazy(() => [bookkeeperV2(), bookkeeperV3(), bookkeeperV4(), bookkeeperV5()]),
 });
