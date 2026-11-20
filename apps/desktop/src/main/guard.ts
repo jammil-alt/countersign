@@ -79,12 +79,36 @@ export async function resolveInFolder(
     }
     return real;
   }
-  // A new file: its folder is made inside the grant, then checked once links are followed.
-  const parent = join(root, ...parts.slice(0, -1));
-  await mkdir(parent, { recursive: true });
-  const realParent = await realpath(parent);
-  if (!inside(root, realParent, options.platform)) {
-    throw new GuardProblem("not_granted", `${relative} leads outside ${folder.label}.`);
+  // A new file: nothing is made until it is proven inside the grant (SEC-7). The deepest folder
+  // on its path that exists is checked once links are followed; then each missing level is made
+  // in it, one at a time, and must be a plain folder (not a link someone put there meanwhile).
+  const outside = () =>
+    new GuardProblem("not_granted", `${relative} leads outside ${folder.label}.`);
+  const dirs = parts.slice(0, -1);
+  let existing = dirs.length;
+  let realParent = root;
+  for (; existing > 0; existing--) {
+    try {
+      realParent = await realpath(join(root, ...dirs.slice(0, existing)));
+      break;
+    } catch (e) {
+      if (!isMissing(e)) throw e;
+    }
+  }
+  if (!inside(root, realParent, options.platform)) throw outside();
+  if (!(await lstat(realParent)).isDirectory()) {
+    throw new GuardProblem("invalid", `That path can't be used: ${relative} isn't in a folder.`);
+  }
+  for (const part of dirs.slice(existing)) {
+    const next = join(realParent, part);
+    try {
+      await mkdir(next);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException | null)?.code !== "EEXIST") throw e;
+    }
+    const made = await lstat(next);
+    if (made.isSymbolicLink() || !made.isDirectory()) throw outside();
+    realParent = next;
   }
   return join(realParent, parts[parts.length - 1] ?? "");
 }
