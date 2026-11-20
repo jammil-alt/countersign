@@ -124,6 +124,9 @@ export async function startRun(deps: DispatchDeps, request: RunRequest): Promise
   } catch (error) {
     // The agent was paused between routing and starting: nothing to start.
     if (error instanceof AgentsError && error.code === "invalid_state") return;
+    // Another cron pass wrote the same tick's row between our read and our insert (PLATFORM_QA
+    // STATE-1): it is that pass's run to start, not an error that ends this client's pass.
+    if (isRunKeyConflict(error)) return;
     throw error;
   }
   if (!created) return;
@@ -136,6 +139,16 @@ export async function startRun(deps: DispatchDeps, request: RunRequest): Promise
       run: request.runId,
     });
   }
+}
+
+// DECISION: the race is caught as the run's primary-key conflict here (the transaction rolls back
+// and the row the other pass wrote stands) rather than by an `onConflictDoNothing` insert, which
+// would live in createRun (packages/agents/src/log) and change every caller of it.
+function isRunKeyConflict(error: unknown): boolean {
+  type PgError = { code?: unknown; constraint_name?: unknown; cause?: PgError } | null | undefined;
+  const e = error as PgError;
+  const pg = e?.code === "23505" ? e : e?.cause;
+  return pg?.code === "23505" && pg.constraint_name === "run_pkey";
 }
 
 /** How far back the cron asks for schedule ticks: a tick it missed (or failed) runs late. */

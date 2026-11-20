@@ -10,6 +10,7 @@ import { z } from "zod";
 import { defineTool, type PackTool } from "../pack";
 import { bankAccountLink, reconciliation } from "../schema";
 import {
+  clientTimezone,
   monthPeriod,
   proposeMatch,
   ReconcileInput,
@@ -59,8 +60,8 @@ export const pairsTool = defineTool({
     count: z.number(),
   }),
   async run(input, ctx) {
-    const period = monthPeriod(new Date(), input.month);
     return withTenant(ctx.db, ctx.tenantId, async (tx) => {
+      const period = monthPeriod(new Date(), input.month, await clientTimezone(tx, ctx.tenantId));
       const rows = await tx
         .select({ l: bankAccountLink, a: ledgerAccount })
         .from(bankAccountLink)

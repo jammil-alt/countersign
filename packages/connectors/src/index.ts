@@ -93,6 +93,7 @@ export * from "./stripe/index";
 export * from "./teams/index";
 export * from "./tenant-keys";
 export * from "./testkit/index";
+export * from "./twilio/calling";
 export * from "./twilio/index";
 // §1.100: people's sign-in codes through Twilio Verify.
 export * from "./twilio/verify";

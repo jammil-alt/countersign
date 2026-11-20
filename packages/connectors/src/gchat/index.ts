@@ -145,6 +145,8 @@ export class GchatApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** Chat answered the post with a refusal (a 4xx but 408 and 409): nothing was posted. */
+    readonly notWritten = false,
   ) {
     super(message);
     this.name = "GchatApiError";
@@ -273,17 +275,19 @@ export function createGchatConnector(options: GchatOptions = {}): Connector {
     return { status: res.status, json };
   }
 
-  function refused(status: number, json: unknown): GchatApiError {
+  function refused(status: number, json: unknown, notWritten = false): GchatApiError {
     const m = (json as { error?: { message?: unknown } } | null)?.error?.message;
     if (status === 403 || status === 404) {
       return new GchatApiError(
         status,
         "Google Chat refused: Mezonas may have been removed from that space. Add it again and reconnect the space.",
+        notWritten,
       );
     }
     return new GchatApiError(
       status,
       `Google Chat refused the message (${status}): ${typeof m === "string" ? m.slice(0, 200) : "no reason given"}`,
+      notWritten,
     );
   }
 
@@ -381,7 +385,14 @@ export function createGchatConnector(options: GchatOptions = {}): Connector {
             if (got.status !== 200 || !msg.success) throw refused(got.status, got.json);
             return output(msg.data, space, messageId, text, true);
           }
-          throw refused(created.status, created.json);
+          // DECISION: a 4xx on the create (a 429 rate limit, a 403 or 404 for a space we were
+          // removed from) is Chat's refusal: nothing was posted, so the action fails as not
+          // written and the step's retry may post it under the same message id (PLATFORM_QA
+          // INTEG-5). A 408 or a 5xx may have come after the post was made. Chat's Retry-After is
+          // left to the step's own backoff.
+          const notWritten =
+            created.status >= 400 && created.status < 500 && created.status !== 408;
+          throw refused(created.status, created.json, notWritten);
         },
       }),
     ],

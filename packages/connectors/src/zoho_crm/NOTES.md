@@ -60,8 +60,10 @@ follow-up if clients hit the cap.
 - Sync of modules into `raw_record` (bulk read or `GET /{module}?fields=…&modified_since`) and Zoho
   **notifications** (`/crm/v8/actions/watch`) as a trigger, as QBO's webhooks are planned. Notification
   limits and expiry are unchecked.
-- Upsert with `duplicate_check_fields` so a retried create can't make a second record (Zoho takes no
-  idempotency key; today the external action runs the call once, and only a lost answer could repeat it).
+- Upsert with `duplicate_check_fields` so a create whose answer was lost can be checked instead of
+  asking a person. Zoho takes no idempotency key; since 2026-11-20 creates, notes and tasks are made
+  at most once per key through the platform's record of attempts (PLATFORM_QA STATE-4): a try
+  started without Zoho's answer fails as unconfirmed and is never sent again.
 - Per-DC client secrets from env (`ZOHO_CLIENT_SECRETS`).
 - Field metadata (`/settings/fields`) for typed inputs in the builder.
 

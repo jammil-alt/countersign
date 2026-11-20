@@ -39,6 +39,7 @@ import {
   openingLine,
   type PermissionMatrix,
   type processes,
+  readHold,
   type Step,
   trimTrailingSlashes,
 } from "@countersign/core";
@@ -193,6 +194,8 @@ export interface AnsweringStep {
   };
   // v0.12 W1-A: the go-live stage, read with the agent in this transaction (§10.9).
   stage: string | null;
+  /** docs/plan.md §1.124: the agent is on a safety hold, read with the agent like the stage. */
+  held: boolean;
 }
 
 /**
@@ -242,6 +245,7 @@ export async function answeringStep(
           bundle: v.bundle,
           step,
           stage: a.stage,
+          held: readHold(a.hold) !== null,
         };
       }
     }
@@ -348,6 +352,9 @@ export async function planInbound(
     stepApproval: answering.step.approval?.required,
     // v0.12 W1-A: in trial and signoff an agent never answers on its own (§10.9).
     agentMode: effectiveMode(answering.bundle.definition, answering.stage),
+    // docs/plan.md §1.124.1: while held, every write waits for a person, as the runtime's gate
+    // (call-tool.ts) applies it: an approval ceiling, so a held agent never answers on its own.
+    ceilings: answering.held ? ["approval"] : undefined,
     // v0.12 W2-A: calls' entity level, on the connection and the grant.
     entity: { tool: { id: CALL_ANSWER_TOOL, entity: CALL_ENTITY } },
   });
@@ -356,7 +363,9 @@ export async function planInbound(
   }
   if (decision !== "run") {
     return fallback(
-      `${answering.agentName}'s answering step needs approval, the connection doesn't allow it to run by itself, or the agent only suggests`,
+      answering.held
+        ? `${answering.agentName} is on a safety hold until a person releases it`
+        : `${answering.agentName}'s answering step needs approval, the connection doesn't allow it to run by itself, or the agent only suggests`,
     );
   }
   if (!input.voice.elevenlabs) return fallback("voice agents aren't set up on this deployment");

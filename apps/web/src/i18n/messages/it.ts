@@ -430,6 +430,8 @@ export const it: Messages = {
   "desk.form.required": "obbligatoria", // fluent review
   "desk.editHint": "Cambia quello che serve, poi salva. Lo ricontrolliamo prima che tu approvi.",
   "desk.editSave": "Salva le modifiche",
+  "desk.edit.number": "Scrivi un numero, per esempio 1200.",
+  "desk.edit.money": "Scrivi un importo, per esempio 1200.",
   "desk.snooze.until": "Fallo tornare",
   "desk.snooze.later": "Più tardi oggi",
   "desk.snooze.tomorrow": "Domani alle 8:00",
@@ -769,6 +771,10 @@ export const it: Messages = {
   "vault.browser.authenticatorHint":
     "Il link otpauth:// che il sito mostra quando attivi un'app di autenticazione per l'account dell'agente.",
   "vault.browser.setUp": "Configura",
+  "vault.browser.setupFailed":
+    "Non siamo riusciti a configurare questo accesso adesso. Riprova tra qualche minuto.",
+  "vault.browser.badLink":
+    "Non siamo riusciti a usare quel link di configurazione. Copialo di nuovo dal sito e incollalo qui.",
   "vault.browser.identity": "Email dell'account dell'agente",
   "vault.browser.identityPhone": "Telefono dell'account dell'agente",
   "vault.browser.identityHint":
@@ -1598,6 +1604,18 @@ export const it: Messages = {
   },
   "billing.daysOf": "{days} giorni su {total}",
   "billing.includedPrice": "Incluso",
+  "line.ask": "Chiedi un numero dedicato",
+  "line.help":
+    "Un numero dedicato permette al tuo team di scrivere e chiamare {name} direttamente. {price} al mese.",
+  "line.confirm":
+    "Acquisteremo un numero per {name} e aggiungeremo {price} al mese alla tua fattura dal giorno in cui sarà attivo.",
+  "line.confirmButton": "Chiedilo a noi",
+  "line.asked": "Richiesta inviata. Ti avviseremo qui quando sarà attivo.",
+  "line.seeRequest": "Vedi la richiesta",
+  "line.subject": "Un numero di telefono per {name}",
+  "line.text":
+    "Per favore, date a {name} un numero di telefono dedicato, a {price} al mese, così il nostro team può scrivergli e chiamarlo direttamente.",
+  "billing.phoneLine": "Linea telefonica {number}",
   "billing.extraUsage": "Utilizzo aggiuntivo",
   "billing.extraUsageDetail":
     "{credits} oltre i {included} inclusi ({used} usati), {price} ciascuno",
@@ -3285,6 +3303,8 @@ export const it: Messages = {
   "start.adminConnects": "Gli strumenti li collega il tuo admin.",
   "start.cantConnect": "Non posso collegarlo ora",
   "start.answered": "Con risposta",
+  "start.invalid.number": "Non riusciamo a leggerlo come un numero. Scrivilo così: 340.",
+  "start.invalid.money": "Non riusciamo a leggerlo come un importo. Scrivilo così: 12500.",
   "start.choose": "Scegli…",
   "start.files.added": { one: "1 file aggiunto", other: "{count} file aggiunti" },
   "start.setup.title": "Configura i tuoi agenti",

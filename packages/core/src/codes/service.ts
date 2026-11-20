@@ -107,6 +107,8 @@ export const OpenWaitInput = z.discriminatedUnion("channel", [
   z.strictObject({ ...WaitBase, channel: z.literal("totp") }),
 ]);
 export const ClaimInput = z.strictObject({ ...Owned, waitId: z.uuid() });
+/** Closes a wait its sign-in gave up on, so no later code lands in it (PLATFORM_QA INTEG-2). */
+export const CancelWaitInput = z.strictObject({ ...Owned, waitId: z.uuid() });
 export const AlertsInput = z.strictObject({
   tenantId: TenantId,
   /** Alerts created at or after this time. */
@@ -168,6 +170,11 @@ export const CodeAlert = z.object({
 });
 export const AlertsResult = z.object({ alerts: z.array(CodeAlert) });
 
+export const CancelWaitResult = z.object({
+  /** Whether the wait was still open or filled (false: already claimed, closed or gone). */
+  cancelled: z.boolean(),
+});
+
 export const DeleteIdentityResult = z.object({
   deleted: z.literal(true),
   /** Whether a phone number was released back to Twilio. */
@@ -210,11 +217,13 @@ export type AddPhoneInput = z.input<typeof AddPhoneInput>;
 export type SetAuthenticatorInput = z.input<typeof SetAuthenticatorInput>;
 export type OpenWaitInput = z.input<typeof OpenWaitInput>;
 export type ClaimInput = z.input<typeof ClaimInput>;
+export type CancelWaitInput = z.input<typeof CancelWaitInput>;
 export type AlertsInput = z.input<typeof AlertsInput>;
 export type AuthenticatorView = z.infer<typeof AuthenticatorView>;
 export type IdentityView = z.infer<typeof IdentityView>;
 export type OpenWaitResult = z.infer<typeof OpenWaitResult>;
 export type ClaimResult = z.infer<typeof ClaimResult>;
+export type CancelWaitResult = z.infer<typeof CancelWaitResult>;
 export type CodeAlert = z.infer<typeof CodeAlert>;
 export type AlertsResult = z.infer<typeof AlertsResult>;
 export type DeleteIdentityResult = z.infer<typeof DeleteIdentityResult>;
@@ -237,6 +246,7 @@ export interface CodesService {
   setAuthenticator(input: SetAuthenticatorInput): Promise<CodesResponse<AuthenticatorView>>;
   openWait(input: OpenWaitInput): Promise<CodesResponse<OpenWaitResult>>;
   claim(input: ClaimInput): Promise<CodesResponse<ClaimResult>>;
+  cancelWait(input: CancelWaitInput): Promise<CodesResponse<CancelWaitResult>>;
   alerts(input: AlertsInput): Promise<CodesResponse<AlertsResult>>;
   deleteIdentity(input: DeleteIdentityInput): Promise<CodesResponse<DeleteIdentityResult>>;
 }
@@ -249,6 +259,7 @@ export const CodesResponses = {
   setAuthenticator: codesResponse(AuthenticatorView),
   openWait: codesResponse(OpenWaitResult),
   claim: codesResponse(ClaimResult),
+  cancelWait: codesResponse(CancelWaitResult),
   alerts: codesResponse(AlertsResult),
   deleteIdentity: codesResponse(DeleteIdentityResult),
 } satisfies Record<keyof CodesService, z.ZodType>;
@@ -261,6 +272,7 @@ export const CodesInputs = {
   setAuthenticator: SetAuthenticatorInput,
   openWait: OpenWaitInput,
   claim: ClaimInput,
+  cancelWait: CancelWaitInput,
   alerts: AlertsInput,
   deleteIdentity: DeleteIdentityInput,
 } satisfies Record<keyof CodesService, z.ZodType>;

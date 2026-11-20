@@ -112,10 +112,20 @@ export function signAllWrites(step: StepContext, why: NonNullable<StepContext["s
   step.signedBecause ??= why;
 }
 
-export function connectionContext(deps: RuntimeDeps, tenantId: string, connection: ConnectionRef) {
+/**
+ * What a connector call runs with. `agentId` is the client agent the call is for, when there is
+ * one: a messaging connector sends from that agent's own number (docs/plan.md §1.160).
+ */
+export function connectionContext(
+  deps: RuntimeDeps,
+  tenantId: string,
+  connection: ConnectionRef,
+  agentId?: string | null,
+) {
   return {
     tenantId,
     connection,
+    ...(agentId ? { agentId } : {}),
     credentials: deps.credentials?.(connection) ?? memoryCredentials(null),
     logger: deps.logger ?? noopLogger,
     now: deps.now ?? (() => new Date()),

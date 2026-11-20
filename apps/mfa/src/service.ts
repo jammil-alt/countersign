@@ -8,6 +8,8 @@ import {
   type AlertsInput,
   type AlertsResult,
   type AuthenticatorView,
+  type CancelWaitInput,
+  type CancelWaitResult,
   type ClaimInput,
   type ClaimResult,
   type CodeAlert,
@@ -129,8 +131,15 @@ export class Codes extends WorkerEntrypoint<CodesEnv> implements CodesService, C
       });
     } catch (error) {
       if (error instanceof TwilioError) {
-        logEvent("phone.failed", { identityId, tenantId, status: error.status });
-        return fail("unavailable", error.message);
+        // Twilio's own words name our subaccount's path: they go to our log, never to a caller
+        // (PLATFORM_QA FLOW-6).
+        logEvent("phone.failed", {
+          identityId,
+          tenantId,
+          status: error.status,
+          reason: error.message.slice(0, 300),
+        });
+        return fail("unavailable", "no phone number could be bought for this identity");
       }
       throw error;
     }
@@ -160,6 +169,15 @@ export class Codes extends WorkerEntrypoint<CodesEnv> implements CodesService, C
     const p = parse(CodesInputs.claim, input);
     if (!p.ok) return p;
     return this.identityStub(p.value.identityId).claim({
+      tenantId: p.value.tenantId,
+      waitId: p.value.waitId,
+    });
+  }
+
+  async cancelWait(input: CancelWaitInput): Promise<CodesResponse<CancelWaitResult>> {
+    const p = parse(CodesInputs.cancelWait, input);
+    if (!p.ok) return p;
+    return this.identityStub(p.value.identityId).cancelWait({
       tenantId: p.value.tenantId,
       waitId: p.value.waitId,
     });

@@ -1,4 +1,4 @@
-// Connectors C3 (docs/connectors-plan.md §7.1, §7.2; docs/plan.md §1.157): what is stored for our
+// Connectors C3 (docs/connectors-plan.md §7.1, §7.2; docs/plan.md §1.161): what is stored for our
 // change requests to a client's connection and for the client's standing say over our changes.
 // The rules that read them (stale, within an authorization, who may answer) come in C4.
 

@@ -178,7 +178,7 @@ async function plannedDispatch(
       };
     }
   }
-  const ctx = connectionContext(deps, step.tenantId, conn);
+  const ctx = connectionContext(deps, step.tenantId, conn, step.agent.agentId);
   const captured = await captureBefore(tool.connector, tool.spec.id, call.input, ctx);
   const { action } = await deps.ports.actions.propose(step.tenantId, {
     connectionId: conn.id,

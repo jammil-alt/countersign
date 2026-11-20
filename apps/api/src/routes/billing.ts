@@ -114,6 +114,7 @@ function settingsView(config: BillingConfig): BillingSettingsView {
     defaultAgentPrice: s.defaultAgentPrice,
     defaultIncludedCredits: s.allowanceCreditsPerAgent,
     creditPrice: s.creditPrice,
+    phoneLinePrice: s.phoneLinePrice,
     autoSend: s.autoSend,
     daysUntilDue: s.daysUntilDue,
     unitCosts: config.unitCosts,
@@ -123,8 +124,12 @@ function settingsView(config: BillingConfig): BillingSettingsView {
 
 interface Detail {
   days?: number;
+  phoneNumber?: string;
   prices?: { monthlyPrice: string; days: number }[];
 }
+
+/** Agent lines and agent phone lines (§1.160) are billed by the days recorded. */
+const billedByDay = (kind: string): boolean => kind === "agent" || kind === "phone_line";
 
 function lineView(
   l: {
@@ -144,9 +149,11 @@ function lineView(
     agentId: l.agentId,
     description: l.description,
     amount: money(l.amount, currency),
-    days: l.kind === "agent" && typeof d.days === "number" ? d.days : null,
+    days: billedByDay(l.kind) && typeof d.days === "number" ? d.days : null,
+    phoneNumber:
+      l.kind === "phone_line" && typeof d.phoneNumber === "string" ? d.phoneNumber : null,
     prices:
-      l.kind === "agent" && Array.isArray(d.prices)
+      billedByDay(l.kind) && Array.isArray(d.prices)
         ? d.prices.map((p) => ({ monthlyPrice: money(p.monthlyPrice, currency), days: p.days }))
         : [],
   };
@@ -509,6 +516,7 @@ export function billingRouteHandlers(app: Hono<AppEnv>): void {
         allowanceCreditsPerAgent: body.defaultIncludedCredits,
         defaultAgentPrice: body.defaultAgentPrice,
         creditPrice: body.creditPrice,
+        ...(body.phoneLinePrice !== undefined ? { phoneLinePrice: body.phoneLinePrice } : {}),
         autoSend: body.autoSend,
         daysUntilDue: body.daysUntilDue,
         updatedAt: new Date(),

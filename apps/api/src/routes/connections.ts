@@ -26,6 +26,7 @@ import {
   noopLogger,
   OAuthCallbackError,
   type OAuthOrigin,
+  oauthCallbackWords,
   QBO_CONNECTOR_ID,
   ReconnectRequiredError,
   readOAuthState,
@@ -515,8 +516,9 @@ async function finishSignIn(
         accountTakenElsewhere(services.db, { tenantId, connector: connectorId, externalAccountId }),
     });
   } catch (error) {
+    // PLATFORM_QA FLOW-1: our own words, never the callback's `?error=` text.
     if (error instanceof OAuthCallbackError) {
-      throw new HttpError(400, error.reason, error.message);
+      throw new HttpError(400, error.reason, error.words);
     }
     // The sign-in worked but the grant can't be kept (Gmail: send left unticked); nothing stored.
     if (error instanceof SignInRefusedError) {
@@ -931,16 +933,16 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
     // The state names the client. Nothing in it counts until its signature holds; then it must be a
     // back-office sign-in to this connector by this operator.
     const state = body.params.state;
-    if (!state) throw new HttpError(400, "missing_state", "the callback has no state");
+    if (!state) throw new HttpError(400, "missing_state", oauthCallbackWords("missing_state"));
     const read = await readOAuthState(state, { secret: stateSecret(services.env) });
-    if (!read.ok) throw new HttpError(400, read.reason, `invalid OAuth state: ${read.reason}`);
+    if (!read.ok) throw new HttpError(400, read.reason, oauthCallbackWords(read.reason));
     const { claims } = read;
     if (
       claims.origin !== "ops" ||
       claims.connector !== params.connector ||
       claims.userId !== session.user.id
     ) {
-      throw new HttpError(400, "mismatch", "invalid OAuth state: mismatch");
+      throw new HttpError(400, "mismatch", oauthCallbackWords("mismatch"));
     }
     // A client this operator serves (404 otherwise), and the Sandbox (403 otherwise).
     const { t, connector, existing } = await inTx(async (tx) => {

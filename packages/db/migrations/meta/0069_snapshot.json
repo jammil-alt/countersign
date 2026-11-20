@@ -1,6 +1,6 @@
 {
-  "id": "5b1eb5f0-8f95-4de7-86e8-342fbaf08a60",
-  "prevId": "587d1e93-833a-4d8c-980c-34cf97e72f62",
+  "id": "e3c7e7ec-97a1-443b-a766-9cc5ef8bf48f",
+  "prevId": "4ec431f6-f07a-46db-9303-00e18c566208",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -2470,6 +2470,116 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.billing_phone_line_day": {
+      "name": "billing_phone_line_day",
+      "schema": "",
+      "columns": {
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "day": {
+          "name": "day",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "phone_number": {
+          "name": "phone_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "agent_name": {
+          "name": "agent_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "monthly_price": {
+          "name": "monthly_price",
+          "type": "numeric(14, 4)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "currency": {
+          "name": "currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'USD'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "billing_phone_line_day_tenant_id_tenant_id_fk": {
+          "name": "billing_phone_line_day_tenant_id_tenant_id_fk",
+          "tableFrom": "billing_phone_line_day",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "billing_phone_line_day_agent_fk": {
+          "name": "billing_phone_line_day_agent_fk",
+          "tableFrom": "billing_phone_line_day",
+          "tableTo": "agent",
+          "columnsFrom": [
+            "agent_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "billing_phone_line_day_tenant_id_day_phone_number_pk": {
+          "name": "billing_phone_line_day_tenant_id_day_phone_number_pk",
+          "columns": [
+            "tenant_id",
+            "day",
+            "phone_number"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "billing_phone_line_day_price_check": {
+          "name": "billing_phone_line_day_price_check",
+          "value": "\"billing_phone_line_day\".\"monthly_price\" >= 0"
+        },
+        "billing_phone_line_day_number_check": {
+          "name": "billing_phone_line_day_number_check",
+          "value": "\"billing_phone_line_day\".\"phone_number\" ~ '^\\+[1-9][0-9]{6,14}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.billing_setting": {
       "name": "billing_setting",
       "schema": "",
@@ -2552,6 +2662,13 @@
           "notNull": true,
           "default": false
         },
+        "phone_line_price": {
+          "name": "phone_line_price",
+          "type": "numeric(14, 4)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'10.0000'"
+        },
         "updated_at": {
           "name": "updated_at",
           "type": "timestamp with time zone",
@@ -2601,6 +2718,10 @@
         "billing_setting_prices_check": {
           "name": "billing_setting_prices_check",
           "value": "\"billing_setting\".\"default_agent_price\" >= 0 and \"billing_setting\".\"credit_price\" >= 0"
+        },
+        "billing_setting_phone_line_price_check": {
+          "name": "billing_setting_phone_line_price_check",
+          "value": "\"billing_setting\".\"phone_line_price\" >= 0"
         }
       },
       "isRLSEnabled": false
@@ -3062,11 +3183,11 @@
       "checkConstraints": {
         "billing_statement_line_kind_check": {
           "name": "billing_statement_line_kind_check",
-          "value": "\"billing_statement_line\".\"kind\" in ('agent', 'usage', 'adjustment')"
+          "value": "\"billing_statement_line\".\"kind\" in ('agent', 'phone_line', 'usage', 'adjustment')"
         },
         "billing_statement_line_agent_check": {
           "name": "billing_statement_line_agent_check",
-          "value": "(\"billing_statement_line\".\"kind\" = 'agent') = (\"billing_statement_line\".\"agent_id\" is not null)"
+          "value": "(\"billing_statement_line\".\"kind\" in ('agent', 'phone_line')) = (\"billing_statement_line\".\"agent_id\" is not null)"
         }
       },
       "isRLSEnabled": false
@@ -6507,12 +6628,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "mezonas_may": {
-          "name": "mezonas_may",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -6589,10 +6704,6 @@
         "connection_status_check": {
           "name": "connection_status_check",
           "value": "\"connection\".\"status\" in ('pending', 'connected', 'disconnected', 'error')"
-        },
-        "connection_mezonas_may_check": {
-          "name": "connection_mezonas_may_check",
-          "value": "\"connection\".\"mezonas_may\" is null or (jsonb_typeof(\"connection\".\"mezonas_may\") = 'object'\n        and \"connection\".\"mezonas_may\"->>'choice' in ('needs', 'any')\n        and \"connection\".\"mezonas_may\" ? 'until' and \"connection\".\"mezonas_may\" ? 'setBy' and \"connection\".\"mezonas_may\" ? 'setAt')"
         }
       },
       "isRLSEnabled": false
@@ -6631,12 +6742,6 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true
-        },
-        "request_id": {
-          "name": "request_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -6725,271 +6830,12 @@
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
-        },
-        "connection_change_request_fk": {
-          "name": "connection_change_request_fk",
-          "tableFrom": "connection_change",
-          "tableTo": "connection_change_request",
-          "columnsFrom": [
-            "request_id",
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id",
-            "tenant_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.connection_change_request": {
-      "name": "connection_change_request",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "uuid_generate_v7()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "connection_id": {
-          "name": "connection_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'open'"
-        },
-        "against": {
-          "name": "against",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "proposed": {
-          "name": "proposed",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "reason": {
-          "name": "reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "requested_by": {
-          "name": "requested_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "for_agent_id": {
-          "name": "for_agent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "closed_at": {
-          "name": "closed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "closed_by": {
-          "name": "closed_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "answer_note": {
-          "name": "answer_note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "connection_change_request_open_key": {
-          "name": "connection_change_request_open_key",
-          "columns": [
-            {
-              "expression": "connection_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"connection_change_request\".\"status\" = 'open'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "connection_change_request_tenant_idx": {
-          "name": "connection_change_request_tenant_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "connection_change_request_tenant_id_tenant_id_fk": {
-          "name": "connection_change_request_tenant_id_tenant_id_fk",
-          "tableFrom": "connection_change_request",
-          "tableTo": "tenant",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "connection_change_request_requested_by_app_user_id_fk": {
-          "name": "connection_change_request_requested_by_app_user_id_fk",
-          "tableFrom": "connection_change_request",
-          "tableTo": "app_user",
-          "columnsFrom": [
-            "requested_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "connection_change_request_closed_by_app_user_id_fk": {
-          "name": "connection_change_request_closed_by_app_user_id_fk",
-          "tableFrom": "connection_change_request",
-          "tableTo": "app_user",
-          "columnsFrom": [
-            "closed_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "connection_change_request_connection_fk": {
-          "name": "connection_change_request_connection_fk",
-          "tableFrom": "connection_change_request",
-          "tableTo": "connection",
-          "columnsFrom": [
-            "connection_id",
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id",
-            "tenant_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "connection_change_request_agent_fk": {
-          "name": "connection_change_request_agent_fk",
-          "tableFrom": "connection_change_request",
-          "tableTo": "agent",
-          "columnsFrom": [
-            "for_agent_id",
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id",
-            "tenant_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "connection_change_request_id_tenant_key": {
-          "name": "connection_change_request_id_tenant_key",
-          "nullsNotDistinct": false,
-          "columns": [
-            "id",
-            "tenant_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "connection_change_request_status_check": {
-          "name": "connection_change_request_status_check",
-          "value": "\"connection_change_request\".\"status\" in ('open', 'approved', 'declined', 'replaced', 'expired', 'withdrawn')"
-        },
-        "connection_change_request_reason_check": {
-          "name": "connection_change_request_reason_check",
-          "value": "length(\"connection_change_request\".\"reason\") between 1 and 1000"
-        },
-        "connection_change_request_note_check": {
-          "name": "connection_change_request_note_check",
-          "value": "\"connection_change_request\".\"answer_note\" is null or length(\"connection_change_request\".\"answer_note\") <= 1000"
-        },
-        "connection_change_request_expiry_check": {
-          "name": "connection_change_request_expiry_check",
-          "value": "\"connection_change_request\".\"expires_at\" > \"connection_change_request\".\"created_at\""
-        },
-        "connection_change_request_closed_check": {
-          "name": "connection_change_request_closed_check",
-          "value": "(\"connection_change_request\".\"status\" = 'open') = (\"connection_change_request\".\"closed_at\" is null)\n        and (\"connection_change_request\".\"status\" not in ('approved', 'declined', 'withdrawn') or \"connection_change_request\".\"closed_by\" is not null)\n        and (\"connection_change_request\".\"answer_note\" is null or \"connection_change_request\".\"status\" in ('approved', 'declined'))"
-        }
-      },
       "isRLSEnabled": false
     },
     "public.connector_setting": {
@@ -7011,12 +6857,6 @@
         "default_permissions": {
           "name": "default_permissions",
           "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "clients": {
-          "name": "clients",
-          "type": "uuid[]",
           "primaryKey": false,
           "notNull": false
         },
@@ -7068,10 +6908,6 @@
         "connector_setting_connector_check": {
           "name": "connector_setting_connector_check",
           "value": "length(\"connector_setting\".\"connector\") between 1 and 64"
-        },
-        "connector_setting_clients_check": {
-          "name": "connector_setting_clients_check",
-          "value": "\"connector_setting\".\"clients\" is null or cardinality(\"connector_setting\".\"clients\") between 1 and 200"
         }
       },
       "isRLSEnabled": false

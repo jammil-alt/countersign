@@ -1,4 +1,4 @@
-// Connectors C3 (migration 0069, docs/plan.md §1.157) as the Worker's role sees it. A change request
+// Connectors C3 (migration 0070, docs/plan.md §1.161) as the Worker's role sees it. A change request
 // is its client's own: forced RLS, and one client's session never reads or writes another's. One
 // open request per connection; what was asked never changes, only its status and answer; nothing is
 // deleted. A connection's Changes by Mezonas and a custom connector's clients hold only their shapes.

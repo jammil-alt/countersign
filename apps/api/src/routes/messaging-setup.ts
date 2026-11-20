@@ -24,13 +24,15 @@ import {
   twilioWebhookUrls,
 } from "@countersign/connectors";
 import { A2pRegistration, type MessagingSetup, routes } from "@countersign/core";
-import { connection, connectionChange, type Tx, tenant } from "@countersign/db";
-import { and, desc, eq } from "drizzle-orm";
+import { agent, connection, connectionChange, type Tx, tenant } from "@countersign/db";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
+import { loadBillingConfig } from "../billing/ledger";
 import type { Bindings } from "../env";
 import { type AppContext, type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
 // P-8: US texting registration by API (docs/plan.md §1.70)
 import {
+  a2pSettings,
   a2pWithoutRegistration,
   joinService,
   opsView,
@@ -39,6 +41,13 @@ import {
   rollupFees,
   submitRegistration,
 } from "../messaging/a2p";
+import {
+  CallingRefused,
+  callingView,
+  followCalling,
+  registerCalling,
+  unassignBeforeRelease,
+} from "../messaging/calling";
 import { messagingSettingsOf } from "../messaging/contacts";
 import { cipherFor, connectionCredentials } from "../secrets";
 import { takeCalls } from "./calls-setup";
@@ -95,11 +104,33 @@ async function setupOf(
               // P-8: the stored registration stays out; its view is below.
               a2p: a2pWithoutRegistration(config.a2p),
               registration: opsView(config, env),
+              closedAt: config.closedAt ?? null,
+              closeError: config.closeError?.message ?? null,
+              calling: callingView(config, t.name),
             }
           : null,
       webhooks: config?.webhooks ?? twilioWebhookUrls(originOf(c, env), tenantId),
+      agents: await lineAgents(tx, tenantId),
+      phoneLinePrice: (await loadBillingConfig(tx)).settings.phoneLinePrice,
     },
   };
+}
+
+/** §1.160: the client agents a number can be the own line of: not test copies, not retired. */
+async function lineAgents(tx: Tx, tenantId: string): Promise<{ id: string; name: string }[]> {
+  const rows = await tx
+    .select({ id: agent.id, name: agent.name, serviceName: agent.serviceName })
+    .from(agent)
+    .where(
+      and(
+        eq(agent.tenantId, tenantId),
+        eq(agent.kind, "client"),
+        eq(agent.testCopy, false),
+        inArray(agent.runStatus, ["active", "paused"]),
+      ),
+    )
+    .orderBy(asc(agent.name), asc(agent.id));
+  return rows.map((r) => ({ id: r.id, name: r.serviceName ?? r.name }));
 }
 
 /** The connected Twilio connection, its config and the subaccount's credentials. */
@@ -191,6 +222,9 @@ export function messagingSetupRoutes(app: Hono<AppEnv>): void {
         "already_provisioned",
         "this client already has its Twilio subaccount",
       );
+    }
+    if (t.retiredAt || existingConfig?.closedAt) {
+      throw new HttpError(409, "closed", "this client is retired: its Twilio subaccount is closed");
     }
     const fetch = fetchFor(services);
     // DECISION: a disconnected client keeps its subaccount and numbers; reconnecting reads the
@@ -326,13 +360,18 @@ export function messagingSetupRoutes(app: Hono<AppEnv>): void {
     const { row, config, auth } = await connected(ctx.tx, ctx.services.env, tenantId);
     const n = config.numbers.find((x) => x.sid === ctx.params.sid);
     if (!n) throw notFound("number");
+    // §1.160: off the caller name and SHAKEN/STIR first, so neither stays on a number Twilio may
+    // give to someone else.
+    const unassigned = await twilio(() =>
+      unassignBeforeRelease(fetchFor(ctx.services), auth, config, n.sid),
+    );
     await twilio(() => releaseNumber(fetchFor(ctx.services), auth, n.sid));
     const voice = readVoiceConfig(row.config);
     await saveConfig(
       ctx.tx,
       row,
       {
-        ...config,
+        ...unassigned,
         numbers: config.numbers.filter((x) => x.sid !== n.sid),
         // A released number no longer takes the client's calls.
         ...(voice
@@ -375,6 +414,45 @@ export function messagingSetupRoutes(app: Hono<AppEnv>): void {
       },
       ctx.session.user.id,
       { kind: "whatsapp_sender", number: n.phoneNumber, enabled: ctx.body.enabled },
+    );
+    return setupOf(ctx.c, ctx.tx, ctx.services.env, tenantId);
+  });
+
+  // §1.160: the operator makes a number one agent's own line (the client asked for it and the
+  // line price was agreed), or gives it back to the account. Recorded as a connection change.
+  mount(app, routes.opsTwilioNumberAgent, async (ctx) => {
+    const tenantId = ctx.params.id;
+    ensureClient(ctx, tenantId);
+    const { row, config } = await connected(ctx.tx, ctx.services.env, tenantId);
+    const n = config.numbers.find((x) => x.sid === ctx.params.sid);
+    if (!n) throw notFound("number");
+    const agentId = ctx.body.agentId;
+    if ((n.agentId ?? null) === agentId) throw new HttpError(409, "no_op", "nothing to change");
+    if (agentId && !(await lineAgents(ctx.tx, tenantId)).some((a) => a.id === agentId)) {
+      throw notFound("agent");
+    }
+    // DECISION: an agent has at most one own line, so which number it texts from never depends
+    // on the order numbers were bought in.
+    if (agentId && config.numbers.some((x) => x.sid !== n.sid && x.agentId === agentId)) {
+      throw new HttpError(409, "has_line", "this agent already has a number of its own");
+    }
+    // The account keeps a number: the last number nobody owns can't become an agent's.
+    if (agentId && !config.numbers.some((x) => x.sid !== n.sid && !x.agentId)) {
+      throw new HttpError(
+        409,
+        "account_needs_number",
+        "the account needs a number of its own: buy another before giving this one to an agent",
+      );
+    }
+    await saveConfig(
+      ctx.tx,
+      row,
+      {
+        ...config,
+        numbers: config.numbers.map((x) => (x.sid === n.sid ? { ...x, agentId } : x)),
+      },
+      ctx.session.user.id,
+      { kind: "phone_line", number: n.phoneNumber, from: n.agentId ?? null, to: agentId },
     );
     return setupOf(ctx.c, ctx.tx, ctx.services.env, tenantId);
   });
@@ -434,6 +512,54 @@ export function messagingSetupRoutes(app: Hono<AppEnv>): void {
       status: a2p.status,
       brandStatus: a2p.brandStatus,
       campaignStatus: a2p.campaignStatus,
+    });
+    return setupOf(ctx.c, ctx.tx, ctx.services.env, tenantId);
+  });
+
+  // §1.160: calls that carry the client's name (SHAKEN/STIR and CNAM), on the business profile
+  // the texting registration made.
+  mount(app, routes.opsTwilioCalling, async (ctx) => {
+    const tenantId = ctx.params.id;
+    ensureClient(ctx, tenantId);
+    const { row, config, auth } = await connected(ctx.tx, ctx.services.env, tenantId);
+    const settings = a2pSettings(ctx.services.env);
+    if (!settings) {
+      throw new HttpError(503, "not_configured", "Mezonas' Trust Hub email isn't set up here yet");
+    }
+    const [t] = await ctx.tx.select().from(tenant).where(eq(tenant.id, tenantId));
+    if (!t) throw notFound("client");
+    try {
+      await registerCalling(ctx.tx, {
+        row,
+        config,
+        auth,
+        fetch: fetchFor(ctx.services),
+        email: settings.email,
+        clientName: t.name,
+        displayName: ctx.body.displayName,
+        actorId: ctx.session.user.id,
+        now: new Date(),
+      });
+    } catch (error) {
+      if (!(error instanceof CallingRefused)) throw error;
+      // A refusal by Twilio is saved first, so the screen shows it and the next try goes on.
+      if (error.code === "twilio_error") return setupOf(ctx.c, ctx.tx, ctx.services.env, tenantId);
+      throw new HttpError(409, error.code, error.message);
+    }
+    return setupOf(ctx.c, ctx.tx, ctx.services.env, tenantId);
+  });
+
+  mount(app, routes.opsTwilioCallingRefresh, async (ctx) => {
+    const tenantId = ctx.params.id;
+    ensureClient(ctx, tenantId);
+    const { row, config, auth } = await connected(ctx.tx, ctx.services.env, tenantId);
+    await followCalling(ctx.tx, {
+      row,
+      config,
+      auth,
+      fetch: fetchFor(ctx.services),
+      actorId: ctx.session.user.id,
+      now: new Date(),
     });
     return setupOf(ctx.c, ctx.tx, ctx.services.env, tenantId);
   });

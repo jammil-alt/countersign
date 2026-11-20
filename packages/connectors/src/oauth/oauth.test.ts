@@ -4,7 +4,12 @@ import { defineConnector } from "../connector";
 import { CredentialCipher, generateEncryptionKey, memoryTenantKeys } from "../credentials";
 import { encryptedCredentials, memoryCredentials } from "../credentials-accessor";
 import { fromBase64Url, fromUtf8, toBase64Url, utf8 } from "../runtime";
-import { beginAuthorization, completeAuthorization, type OAuthCallbackError } from "./flow";
+import {
+  beginAuthorization,
+  completeAuthorization,
+  type OAuthCallbackError,
+  oauthCallbackWords,
+} from "./flow";
 import { createOAuthState, OAUTH_STATE_TTL_MS, readOAuthState, verifyOAuthState } from "./state";
 import {
   AccessFailingError,
@@ -565,7 +570,7 @@ describe("authorization flow", () => {
     ).toMatchObject({ accessToken: "at-1", code: "c-1" });
   });
 
-  it("refuses a callback from another session, a provider error or a missing state", async () => {
+  it("(PLATFORM_QA FLOW-1) refuses a callback from another session, a provider error or a missing state, in our own words", async () => {
     const cipher = (await CredentialCipher.create({ current: generateEncryptionKey() })).forClients(
       memoryTenantKeys(),
     );
@@ -601,6 +606,22 @@ describe("authorization flow", () => {
       (await err(completeAuthorization({ ...base, params: { error: "access_denied" }, session })))
         ?.reason,
     ).toBe("provider_error");
+    // (PLATFORM_QA FLOW-1) the person reads our words, never the callback's text.
+    const planted = "Your account is suspended. Call 555-0100 to restore it";
+    const refusedThere = await err(
+      completeAuthorization({ ...base, params: { error: planted, state }, session }),
+    );
+    expect(refusedThere?.words).toBe(oauthCallbackWords("provider_error"));
+    expect(`${refusedThere?.message} ${refusedThere?.words}`).not.toContain(planted);
+    const denied = await err(
+      completeAuthorization({ ...base, params: { error: "access_denied", state }, session }),
+    );
+    expect(denied?.words).toMatch(/^You cancelled the sign-in/);
+    expect(`${denied?.message} ${denied?.words}`).not.toContain("access_denied");
+    expect(
+      (await err(completeAuthorization({ ...base, params: { code: "c", state: "x.y" }, session })))
+        ?.words,
+    ).toBe(oauthCallbackWords("signature"));
     expect(
       (await err(completeAuthorization({ ...base, params: { code: "c" }, session })))?.reason,
     ).toBe("missing_state");
