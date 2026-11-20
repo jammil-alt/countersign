@@ -271,6 +271,8 @@ export * from "./permissions/decide";
 export * from "./permissions/entities";
 export * from "./permissions/explain";
 export * from "./permissions/grants";
+// Connectors C1 (docs/connectors-plan.md §4): an agent's needs, the gaps, allowing what it needs.
+export * from "./permissions/needs";
 export * from "./permissions/release";
 // R1: processes, workflow schemaVersion 4 (docs/plan.md §1.86, §9), as the `processes` namespace.
 export * as processes from "./process";

@@ -5923,6 +5923,26 @@ Below are the choices they made where the fix left a choice open, each with a `/
 | Not in this pass | The guard doesn't yet compare a conversation step's channel or contact. Saves that opt out of the stale check (update merge, promotion, relink, setup answers) can still save over a newer draft, as before. Two `.slice` cuts still split characters: the approve summary in the proposal path, and `reasonOf` in the client-test facts. |
 | Checked | Each PR's own suites, then the four branches merged together on `main`. There was one import-list conflict, in `apps/api/src/build/store.ts`: keep `sliceWhole`, drop the unused `SkillDefinition`. On that merge, lint, layering and typecheck pass. The tests pass in every package (API 1758, web 1580, core 1623, agents 429 and the rest). The merge showed one interaction: #442's client-test fixture named a step the draft doesn't have, which #445's AI-6 check now leaves out. #442's fixture now names the stored step id. Two failures are this environment's, and fail the same way on `main`: `apps/desktop` `controller.test.ts` and `apps/browser` `chromium.test.ts` (no matching Chromium build). |
 
+### 1.157 Connectors: one client place, low-risk defaults, agents' needs (owner, 2026-11-20)
+
+The design is `docs/connectors-plan.md`, agreed by the owner with its seven decisions and two
+additions: our changes to a client's connection go to the client to approve (§7.1), and the
+client may authorize them in advance per connector (§7.2). It is built in six steps, C1–C6
+(its §9); C3 is the only migration.
+
+**C1, needs and gaps (core only; no migration).** `SkillDefinition.needs` and
+`packages/core/src/permissions/needs.ts`: `skillNeeds`, `agentNeeds`, `accessGaps`, `needsMet`,
+`allowNeeds`. Nothing reads them yet; C4 and later do.
+
+| Topic | Decision |
+|---|---|
+| A skill's needs | Its tools' (`tools`, `handler`, `reads`: connector, verb, record type), plus its declared `needs`. A connector in `requiresConnectors` that neither covers reads as a read on that connector, so stored skills keep asking for it without a guessed write. Built-in skills cover all of theirs (`apps/api/src/connector-needs.test.ts`); `marketing.write-forum-reply` declares its Hacker News read. // DECISION |
+| Need levels | A read needs `on`, a write `ask` (Needs approval). A write wants `auto` only where its step is set `not_required`, the agent is in `act` mode and the tool isn't always signed; that is a suggestion (`could_run_alone`), never a blocker. Nothing may need delete. // DECISION |
+| A write action without `via` | One need per connector it can resolve to, in one `anyOf` group: met when any one is. // DECISION |
+| Automations | A v4 automation's steps are walked with the use step's approval overrides; a v3 one counts its required tools, read without approvals. Stored v3 workflows are skipped: callers read bundles with `toProcessBundle` first. // DECISION |
+| Gaps | Per connector: not connected, broken, not bound, off on the connection, a scope that leaves the tool out, off in the agent's grant, and could run alone. Levels come from the gate's own `effectiveLevel`, so no blocking gap means no call is refused. With no agent yet (a template checked against a client), any connection of the connector counts and binding isn't asked. // DECISION |
+| Allowing what an agent needs | Rows open at their least level (reads on, writes Needs approval), never On its own. Where a verb is off for the whole connection, the verb opens and each other declared record type of that verb is pinned off; a tool of that connector with no record type opens with the verb, since the matrix has nothing finer. A scope that leaves the tool out, and delete, stay unresolved for a person. // DECISION |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
