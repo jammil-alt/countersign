@@ -128,6 +128,8 @@ import { opsModelRoutes } from "./routes/ops-models";
 // v0.13 W2-I
 import { opsOversightRoutes } from "./routes/ops-oversight";
 // Reshape data (2026-11-11)
+// §1.164: Read table's sample-file check
+import { opsReadTableRoutes } from "./routes/ops-read-table";
 import { opsReshapeRoutes } from "./routes/ops-reshape";
 import { opsSkillRoutes } from "./routes/ops-skills";
 import { ownerRoutes } from "./routes/owners";
@@ -266,6 +268,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   opsBuilderRoutes(app);
   // Reshape data (2026-11-11): propose a Reshape step's mapping, and its sample values.
   opsReshapeRoutes(app);
+  opsReadTableRoutes(app);
   opsMergeRoutes(app);
   opsEventRoutes(app);
   // v0.13 W2-H: models for task skills and skill steps.

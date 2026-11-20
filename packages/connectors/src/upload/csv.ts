@@ -5,8 +5,11 @@ export class CsvError extends Error {
   override name = "CsvError";
 }
 
-/** Rows of cells; blank lines are dropped. */
-export function parseCsv(text: string): string[][] {
+/**
+ * Rows of cells; blank lines are dropped, unless `keepBlankLines` (Read table, docs/plan.md
+ * §1.164), so a row's place is the file's line number (a quoted line break aside).
+ */
+export function parseCsv(text: string, options: { keepBlankLines?: boolean } = {}): string[][] {
   const src = text.replace(/^﻿/, "");
   const rows: string[][] = [];
   let row: string[] = [];
@@ -16,7 +19,7 @@ export function parseCsv(text: string): string[][] {
   const endRow = () => {
     row.push(cell);
     cell = "";
-    if (row.some((c) => c.trim() !== "")) rows.push(row);
+    if (options.keepBlankLines || row.some((c) => c.trim() !== "")) rows.push(row);
     row = [];
   };
   while (i < src.length) {
@@ -52,4 +55,26 @@ export function parseCsv(text: string): string[][] {
   if (quoted) throw new CsvError("a quoted field is never closed");
   if (cell !== "" || row.length > 0) endRow();
   return rows;
+}
+
+/** A cell as CSV: quoted when it holds a comma, a quote or a line break. */
+function csvField(cell: string): string {
+  return /[",\r\n]/.test(cell) ? `"${cell.replaceAll('"', '""')}"` : cell;
+}
+
+/**
+ * Rows of cells as RFC 4180 CSV, CRLF line ends. `text` marks the cells written from text: one
+ * that starts as a formula would (`=`, `+`, `-`, `@`) gets a leading `'`, so a spreadsheet opening
+ * the file never runs it.
+ */
+// DECISION (§1.164): the guard is on text cells only; numbers and amounts are written as they are.
+export function writeCsv(rows: readonly (readonly { value: string; text: boolean }[])[]): string {
+  return rows
+    .map((row) =>
+      row
+        .map((c) => csvField(c.text && /^[=+\-@\t\r]/.test(c.value) ? `'${c.value}` : c.value))
+        .join(","),
+    )
+    .map((line) => `${line}\r\n`)
+    .join("");
 }

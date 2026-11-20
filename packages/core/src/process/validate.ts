@@ -113,6 +113,8 @@ import {
   type SubProcessStep,
   type WriteStep,
 } from "./schema";
+// §1.164: Read table's output, typed by its columns.
+import { isReadTableStep, readTableColumnsFor, readTableOutputSchema } from "./table";
 import { isLogic, stepCount, walkSteps } from "./walk";
 
 // ── Results ──────────────────────────────────────────────────────────────────────────────────
@@ -413,6 +415,8 @@ export function stepOutputSchema(step: Step, ctx: TypingContext): JsonSchema | u
     case "skill": {
       // Reshape data (2026-11-11): the output is the fields the step's mapping defines.
       if (isReshapeStep(step)) return reshapeOutputSchema(step.reshape);
+      // §1.164: Read table's rows are typed by its effective columns (the step's, the agent's).
+      if (isReadTableStep(step)) return readTableOutputSchema(readTableColumnsFor(step, ctx));
       const def = lookupSkill(step.skill, ctx);
       if (def?.resultFromInput)
         return typedResultOutput(def.output, def.resultFromInput, step.input);

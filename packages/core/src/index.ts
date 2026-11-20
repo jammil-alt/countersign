@@ -93,6 +93,8 @@ export * from "./api/people";
 export * from "./api/phone-approval";
 export * from "./api/qbo";
 export * from "./api/reach";
+// §1.164: the builder's sample-file check for a Read table step.
+export * from "./api/read-table";
 export * from "./api/records";
 export * from "./api/reggie";
 export * from "./api/requests";
@@ -201,6 +203,8 @@ export * from "./directory/schemas";
 export * from "./directory/search";
 export * from "./directory/voice-samples";
 export * from "./documents/extraction";
+// §1.164: table files (.csv, .xlsx, .json) as documents.
+export * from "./documents/tables";
 export * from "./duration";
 // Inbound email: whose verdicts count, and which mail is automatic.
 export * from "./email/authentication";
@@ -308,6 +312,8 @@ export * from "./schemas/rules";
 export * from "./schemas/skill";
 // The skill model (owner, 2026-11-10): parameters, rule rows, kinds, models, versions, writes.
 export * from "./schemas/skill-model";
+// §1.164: a table file's expected columns (the `columns` skill parameter).
+export * from "./schemas/table";
 export * from "./schemas/tool";
 export * from "./schemas/tool-display";
 export * from "./schemas/workflow";

@@ -26,6 +26,18 @@ export interface TypingContext {
   // v0.12 W2-B
   /** Automation versions by their pinned reference (`slug@version`). */
   automations?: Record<string, AnyAutomationDefinition>;
+  /**
+   * The owning agent's skills with its parameter values (`definition.skills`), when known: a Read
+   * table step's output is typed by its effective columns, the step's own over the agent's
+   * (docs/plan.md §1.164). A process's validation context gives them as its `agent`; absent
+   * both, only the step's own and the skill's default count.
+   */
+  agentSkills?:
+    | readonly {
+        skill: string;
+        parameters?: Readonly<Record<string, unknown>> | undefined;
+      }[]
+    | undefined;
 }
 
 export type PathType =

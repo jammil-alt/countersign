@@ -6,6 +6,7 @@
 // every value is data the builder can show. The evaluator is `skills/rules.ts`.
 
 import { z } from "zod";
+import { TableColumns } from "./table";
 
 // ── Parameters ───────────────────────────────────────────────────────────────────────────────
 
@@ -14,7 +15,18 @@ export const SkillParameterName = z
   .string()
   .regex(/^[a-z][a-z0-9_]{0,62}$/, "lowercase letters, digits and underscores, from a letter");
 
-export const SKILL_PARAMETER_TYPES = ["number", "text", "date", "money", "buckets"] as const;
+// Data in and out of files (docs/plan.md §1.164): `boolean` (an on or off choice), `columns` (a
+// table file's expected columns, `TableColumns`) and `json_schema` (a JSON file's expected shape).
+export const SKILL_PARAMETER_TYPES = [
+  "number",
+  "text",
+  "date",
+  "money",
+  "buckets",
+  "boolean",
+  "columns",
+  "json_schema",
+] as const;
 export const SkillParameterType = z.enum(SKILL_PARAMETER_TYPES);
 export type SkillParameterType = z.infer<typeof SkillParameterType>;
 
@@ -86,6 +98,42 @@ export function parameterValueProblem(
         : `${name} is an amount and a currency, such as { "amount": "500.00", "currency": "USD" }`;
     case "buckets":
       return bucketsProblem(name, value);
+    case "boolean":
+      return typeof value === "boolean" ? null : `${name} is on or off (true or false)`;
+    case "columns":
+      return columnsProblem(name, value);
+    case "json_schema":
+      return jsonSchemaProblem(name, value);
+  }
+}
+
+/** Columns: each with a field name, the headers it accepts, a type, and whether it is required. */
+function columnsProblem(name: string, value: unknown): string | null {
+  if (!Array.isArray(value)) return `${name} is a list of columns`;
+  const parsed = TableColumns.safeParse(value);
+  if (parsed.success) return null;
+  const issue = parsed.error.issues[0];
+  const at = typeof issue?.path[0] === "number" ? ` (column ${issue.path[0] + 1})` : "";
+  return `${name}${at}: ${issue?.message ?? "not a list of columns"}`;
+}
+
+/** At most this much JSON in a `json_schema` parameter. */
+const JSON_SCHEMA_MAX_CHARS = 20_000;
+
+// DECISION: an expected shape is a JSON Schema the platform's one validator (Zod's
+// `fromJSONSchema`) can read; one it can't read is refused when it is set, never at run time.
+// `{}` (the default) checks nothing.
+function jsonSchemaProblem(name: string, value: unknown): string | null {
+  if (!isPlain(value)) return `${name} is a JSON Schema (an object)`;
+  if (JSON.stringify(value).length > JSON_SCHEMA_MAX_CHARS) {
+    return `${name} is at most ${JSON_SCHEMA_MAX_CHARS.toLocaleString("en-US")} characters of JSON`;
+  }
+  if (Object.keys(value).length === 0) return null;
+  try {
+    z.fromJSONSchema(value as Parameters<typeof z.fromJSONSchema>[0]);
+    return null;
+  } catch (error) {
+    return `${name} isn't a JSON Schema we can check: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
 

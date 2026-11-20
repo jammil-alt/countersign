@@ -217,6 +217,25 @@ export interface DocumentsPort {
    * Absent where nothing provides it: an AI skill that reads a document then fails with a reason.
    */
   file?(tenantId: string, documentId: string): Promise<DocumentFile>;
+  // §1.164: Read table and Write table.
+  /**
+   * A table document's file (.csv, .xlsx, .json), whole, for Read table's code: never for a model
+   * (`file` refuses table files). Refuses any other type and a file over 5 MB.
+   */
+  table?(tenantId: string, documentId: string): Promise<DocumentFile>;
+  /** Stores a table file Write table made as the client's document (source `generated`). */
+  storeTable?(
+    tenantId: string,
+    input: {
+      bytes: Uint8Array;
+      filename: string;
+      mimeType: string;
+      sources: readonly string[];
+      agentVersionId: string;
+      runId: string;
+      testRun: boolean;
+    },
+  ): Promise<{ documentId: string; created: boolean }>;
   /** Records a reading a skill step made as the document's latest extraction (no model here). */
   record?(
     tenantId: string,
