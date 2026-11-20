@@ -14,6 +14,7 @@
 // cached and thinking tokens apart.
 
 import { MODEL_PREFIXES, providerModelName } from "@countersign/core";
+import { z } from "zod";
 import type * as Anthropic from "./messages";
 import {
   type HttpTransportOptions,
@@ -327,11 +328,89 @@ const REFUSALS = new Set([
   "IMAGE_SAFETY",
 ]);
 
+const count = z.number().int().nonnegative();
+
+/**
+ * The answer as much as the translation reads it, checked at the boundary (invariant 5), as
+ * Anthropic's `parseMessage` checks its own. Loose: fields we don't read pass through.
+ */
+const responseSchema = z.looseObject({
+  candidates: z
+    .array(
+      z.looseObject({
+        content: z
+          .looseObject({
+            role: z.string().optional(),
+            parts: z
+              .array(
+                z.looseObject({
+                  text: z.string().optional(),
+                  thought: z.boolean().optional(),
+                  thoughtSignature: z.string().optional(),
+                  functionCall: z
+                    .looseObject({
+                      id: z.string().optional(),
+                      name: z.string().min(1),
+                      args: z.record(z.string(), z.unknown()).optional(),
+                    })
+                    .optional(),
+                }),
+              )
+              .optional(),
+          })
+          .optional(),
+        finishReason: z.string().optional(),
+      }),
+    )
+    .optional(),
+  promptFeedback: z
+    .looseObject({
+      blockReason: z.string().optional(),
+      blockReasonMessage: z.string().optional(),
+    })
+    .nullable()
+    .optional(),
+  // DECISION (AI-4): an answer without usage is refused, not priced at 0 tokens and $0, so a
+  // step's cost and the monthly caps always see what a call cost.
+  usageMetadata: z.looseObject({
+    promptTokenCount: count.optional(),
+    candidatesTokenCount: count.optional(),
+    cachedContentTokenCount: count.optional(),
+    thoughtsTokenCount: count.optional(),
+    toolUsePromptTokenCount: count.optional(),
+    totalTokenCount: count.optional(),
+  }),
+  responseId: z.string().optional(),
+});
+
+function invalidAnswer(issues: string): GeminiError {
+  return new GeminiError(`Google gave an invalid answer: ${issues}`, null, null, "failed");
+}
+
+/** The answer, checked; anything that doesn't fit is the provider's error, not an empty turn. */
+function checkResponse(value: unknown): GeminiResponse {
+  const parsed = responseSchema.safeParse(value);
+  if (!parsed.success) {
+    throw invalidAnswer(
+      parsed.error.issues
+        .slice(0, 3)
+        .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+        .join("; "),
+    );
+  }
+  const response = parsed.data as GeminiResponse;
+  if (!response.candidates?.[0] && !response.promptFeedback?.blockReason) {
+    throw invalidAnswer("no candidate and no block reason");
+  }
+  return response;
+}
+
 /**
  * The answer as an Anthropic message. `model` is the platform id that was asked for (with its
  * prefix), so pricing and logs name the model the way definitions do.
  */
-export function fromGeminiResponse(response: GeminiResponse, request: LlmRequest): LlmMessage {
+export function fromGeminiResponse(answer: unknown, request: LlmRequest): LlmMessage {
+  const response = checkResponse(answer);
   const candidate = response.candidates?.[0];
   const blocked = !candidate && Boolean(response.promptFeedback?.blockReason);
   const content: Anthropic.ContentBlock[] = [];
@@ -425,7 +504,7 @@ export function geminiTransport(options: HttpTransportOptions): LlmTransport {
         `${base}/models/${encodeURIComponent(providerModelName(request.model))}:generateContent`,
       headers: (apiKey) => ({ "x-goog-api-key": apiKey }),
       body: toGeminiRequest,
-      answer: (json, request) => fromGeminiResponse(json as GeminiResponse, request),
+      answer: (json, request) => fromGeminiResponse(json, request),
     },
     options,
   );

@@ -2,14 +2,17 @@
 // (ARCHITECTURE §14). Every handler runs inside withOperator(the clients this operator serves).
 
 import type { Approver, RegistryContext } from "@countersign/agents";
-import { applyMatrixChange } from "@countersign/connectors";
+import { applyMatrixChange, BROWSER_CONNECTOR_ID } from "@countersign/connectors";
 import {
   type AnyAgentBundle,
+  BrowserConnectionConfig,
   complianceOf,
   connectorShown,
+  deepEqual,
   findNodeStep,
   type GoLive,
   GoLivePayload,
+  isPlainObject,
   type OpsAgentActivity,
   parseCoveredProcessors,
   processingRefusal,
@@ -652,6 +655,44 @@ async function connectionInScope(tx: Tx, tenantIds: readonly string[], id: strin
   return row;
 }
 
+/** What makes a browser connection the client's own login: whose site, and how they tightened it. */
+const BROWSER_LOGIN_KEYS = ["site", "siteVersionId", "identity", "stricter"] as const;
+
+/**
+ * An operator's new config for a browser connection. DECISION (SEC-5): the site, its version, the
+ * agent identity and the client's stricter settings can't be changed through config (422): the
+ * client's vault login would be typed on another site's origins, and only clients tighten their
+ * login (invariants 8 and 13). Left out, they are kept as they are; the rest is replaced, and the
+ * whole must still be a browser connection's config. No other connector declares a config shape.
+ */
+function browserConfigEdit(
+  current: unknown,
+  proposed: Record<string, unknown>,
+): Record<string, unknown> {
+  const before = isPlainObject(current) ? current : {};
+  const changed = BROWSER_LOGIN_KEYS.filter(
+    (k) => k in proposed && !deepEqual(proposed[k], before[k]),
+  );
+  if (changed.length > 0) {
+    throw new HttpError(
+      422,
+      "browser_login_locked",
+      `a website login's ${changed.join(", ")} can't be changed here`,
+    );
+  }
+  const next: Record<string, unknown> = { ...proposed };
+  for (const k of BROWSER_LOGIN_KEYS) {
+    if (k in before) next[k] = before[k];
+  }
+  if (
+    BrowserConnectionConfig.safeParse(before).success &&
+    !BrowserConnectionConfig.safeParse(next).success
+  ) {
+    throw new HttpError(422, "invalid_config", "that isn't a website login's configuration");
+  }
+  return next;
+}
+
 export function opsClientRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsClients, async (ctx) => ({
     clients: await clientSummaries(ctx.tx, ctx.tenantIds, ctx.services, ctx.query.view),
@@ -947,8 +988,12 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       }
     }
     if (body.config) {
-      set.config = body.config;
-      changes.push({ kind: "config", before: row.config, after: body.config });
+      const config =
+        row.connector === BROWSER_CONNECTOR_ID
+          ? browserConfigEdit(row.config, body.config)
+          : body.config;
+      set.config = config;
+      changes.push({ kind: "config", before: row.config, after: config });
     }
     if (changes.length === 0) return { connection: opsConnection(row) };
     const [updated] = await tx
