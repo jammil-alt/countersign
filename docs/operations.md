@@ -1347,8 +1347,11 @@ Settings page in the back office (with a reason). It can only be switched on onc
 would receive its data has a signed BAA. Those vendors are listed in `BAA_PROCESSORS` in
 `apps/api/wrangler.jsonc`, per environment. Add a vendor there by pull request only after its BAA
 is signed, and keep the signed copy. The ids are `cloudflare`, `neon`, `workos`, `anthropic`,
-`openai`, `xai`, `google`, `twilio`, `meta_whatsapp`, `elevenlabs` and `resend`. The first three are
-needed for any HIPAA client. `anthropic` is needed for agents and document reading. `openai`,
+`openai`, `xai`, `google`, `twilio`, `meta_whatsapp`, `elevenlabs`, `resend`, `plaid`, `billcom`
+and `expo_push` (the full list is `PROCESSORS` in `packages/core/src/compliance/processors.ts`). The
+first three are needed for any HIPAA client. `anthropic` is needed for agents and document reading.
+`plaid` is needed to offer the bank feed, `billcom` the BILL connector, and `expo_push` phone
+notifications. `openai`,
 `xai` and `google` are needed only for agents set to their models (`openai:`, `xai:`, `google:`
 ids); `google` is the Gemini API on our key, not a client's own Google account. M50: website measurement is
 held for a client in HIPAA mode whatever is listed: its site's beacons are answered and nothing is
@@ -1371,7 +1374,9 @@ disconnected. Then:
    environment's approval; the job gets `cs_owner`'s connection from Neon inside itself, so no
    person holds it, and the log never carries the client's name.
    It refuses when the name doesn't match, until the 30 days have passed, and until step 2 is done. It briefly locks each table, so run it at a
-   quiet hour. Builds for the client go with it; a template's build tested at it stays, no
+   quiet hour, but soon: the retention policy has the rows purged once the files are gone
+   (`docs/policies/data-retention.md` §4). `client.purge_files` and `client.purge` in the audit
+   log show when each happened. Builds for the client go with it; a template's build tested at it stays, no
    longer tested there. Reggie's conversations about the client go with their messages and every
    change proposed in them, including any for another client (an action can't outlive its
    conversation); each change made stays in the audit log (`reggie …`). The audit log keeps the
@@ -1443,11 +1448,16 @@ step's date:
    operator.
 2. WorkOS, both environments: delete the user. That ends their WorkOS sessions at the next refresh,
    within the same 5 minutes.
-3. GitHub: remove them from the repository's collaborators.
-4. Every other console they could sign in to: Cloudflare, Neon, WorkOS's dashboard, Sentry,
-   Stripe, Twilio, Resend, ElevenLabs, the model providers' consoles, the domain registrar.
-5. Any key they could read: rotate it (§1, "Worker secrets"). There should be none: keys live in
+3. Google Workspace: suspend the account. That ends their email and every sign-in made with it.
+4. GitHub: remove them from the repository's collaborators.
+5. Every other console they could sign in to, from the accounts inventory (`docs/plaid-plan.md`
+   §3): Cloudflare, Neon, WorkOS's dashboard, Intuit's and Plaid's dashboards, Sentry, Stripe,
+   Twilio, Resend, ElevenLabs, the model providers' consoles, the domain registrar.
+6. Any key they could read: rotate it (§1, "Worker secrets"). There should be none: keys live in
    GitHub secrets and Workers, never with people.
+
+Keep the dated list with the access reviews: it is the evidence for the policy's one business day
+and for Plaid's de-provisioning attestation.
 
 ### Break-glass database access
 
