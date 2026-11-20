@@ -8,7 +8,7 @@
 // for a new draft. `?version=N` shows an older version on the bundle tabs.
 import type { AnyAgentBundle } from "@countersign/core";
 import type { ReactNode } from "react";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import {
   Link,
   Navigate,
@@ -321,18 +321,6 @@ export function AgentScreen({
     apiRoutes.opsAgentVersion,
     requested && !inHand ? { params: { id: agentId, vid: requested.id } } : null,
   );
-  // A trigger added above the builder is a new draft the builder didn't make: once the agent has
-  // reloaded with it, the builder opens afresh on it (else its next save would drop the trigger).
-  const [awaiting, setAwaiting] = useState<string | null>(null);
-  const [builderEpoch, setBuilderEpoch] = useState(0);
-  const latestId = data?.latest?.id ?? null;
-  useEffect(() => {
-    if (awaiting && latestId === awaiting) {
-      setAwaiting(null);
-      setBuilderEpoch((n) => n + 1);
-    }
-  }, [awaiting, latestId]);
-
   if (!data) {
     return (
       <AgentFrameSkeleton
@@ -440,7 +428,10 @@ export function AgentScreen({
         }
       >
         <WorkflowBuilder
-          key={`${view.id}:${builderEpoch}`}
+          // A trigger added above the builder is a new draft the builder didn't make: once the
+          // agent has reloaded with it, the builder moves onto it with its unsaved edits carried
+          // over (FLOW-6, QA 2026-11-19: it used to open afresh on it, and they were gone).
+          key={view.id}
           agent={view}
           from={latest}
           bundle={latestAny}
@@ -456,10 +447,7 @@ export function AgentScreen({
                 agent={view}
                 latest={latest}
                 bundle={latestAny}
-                onChanged={(versionId) => {
-                  setAwaiting(versionId);
-                  reload();
-                }}
+                onChanged={() => reload()}
               />
             </div>
           }

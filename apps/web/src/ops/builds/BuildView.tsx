@@ -50,8 +50,10 @@ import {
 } from "@countersign/core";
 import {
   type CSSProperties,
+  type Dispatch,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
+  type SetStateAction,
   useEffect,
   useRef,
   useState,
@@ -121,12 +123,59 @@ function sameRecords(prev: BuildDetail | null, next: BuildDetail): BuildDetail {
   };
 }
 
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * A record merged three ways, by its top-level keys: what the panel had from the server (`base`),
+ * what the operator has on screen (`mine`) and the server's new one (`theirs`). A key the operator
+ * didn't change takes the server's; a key only the operator changed stays theirs.
+ */
+// DECISION: FLOW-1 (QA 2026-11-19) merges by top-level key (a brief's field; the fit-gap's rows,
+// needs and setup; the test plan's datasets). Where both changed one key the server's wins: that is
+// the panel's own save coming back (perhaps tidied by the server), or the Builder's newer answer.
+export function mergeRecord<T extends object>(base: T, mine: T, theirs: T): T {
+  const out = { ...theirs } as Record<string, unknown>;
+  const b = base as Record<string, unknown>;
+  const m = mine as Record<string, unknown>;
+  const t = theirs as Record<string, unknown>;
+  for (const k of new Set([...Object.keys(b), ...Object.keys(m)])) {
+    if (same(m[k], b[k]) || !same(t[k], b[k])) continue;
+    if (m[k] === undefined) delete out[k];
+    else out[k] = m[k];
+  }
+  return out as T;
+}
+
+/**
+ * A panel's working copy of one of the build's records (the brief, the fit-gap, the test plan).
+ * FLOW-1 (QA 2026-11-19): a new record from the server no longer resets the operator's unsaved
+ * edits: it is merged with them (`mergeRecord`).
+ */
+function useWorkingCopy<T extends object>(server: T): [T, Dispatch<SetStateAction<T>>] {
+  const [value, setValue] = useState<T>(server);
+  const base = useRef(server);
+  const mine = useRef(value);
+  mine.current = value;
+  useEffect(() => {
+    if (base.current === server) return;
+    const was = base.current;
+    base.current = server;
+    setValue(same(mine.current, was) ? server : mergeRecord(was, mine.current, server));
+  }, [server]);
+  return [value, setValue];
+}
+
 export function BuildView({ id, embedded = false }: { id: string; embedded?: boolean }) {
   const api = useApiClient();
   const loaded = useApi(apiRoutes.opsBuild, { params: { id } });
   const [detail, setDetail] = useState<BuildDetail | null>(loaded.data ?? null);
   const [viewing, setViewing] = useState<BuildPhase | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
+  // FLOW-2 (QA 2026-11-19): every request on its way, not one slot. A chat turn sent while a move
+  // ran cleared the one slot when it answered, and the move's button came back on while the move
+  // was still running (a second press made a second draft). Each request now clears only itself.
+  const [inFlight, setInFlight] = useState<{ n: number; path: string }[]>([]);
+  const calls = useRef(0);
+  const busy = busyPath(inFlight.map((f) => f.path));
   const [pending, setPending] = useState<{ text: string; since: number } | null>(null);
   const [error, setError] = useState<unknown>(null);
   // QA (2026-11-17, fourth run): a failure while saving or moving showed above the page while the
@@ -154,7 +203,8 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
   );
 
   useEffect(() => {
-    if (loaded.data) setDetail(loaded.data);
+    const data = loaded.data;
+    if (data) setDetail((prev) => sameRecords(prev, data));
   }, [loaded.data]);
 
   // builder-plan.md B0: while the tests (or a try) run, the build is read again every 5 seconds,
@@ -210,11 +260,15 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
     // QA (2026-11-17, fourth run): for the five minutes the draft was being made, the box said it
     // was about an old, answered question. A move to another phase starts the conversation there.
     if (route.path === apiRoutes.opsMoveBuild.path) offIssue();
-    setBusy(route.path);
+    calls.current += 1;
+    const n = calls.current;
+    setInFlight((f) => [...f, { n, path: route.path }]);
     setError(null);
     try {
       const out = (await api.call(route, opts)) as BuildDetail;
-      setDetail(out);
+      // FLOW-1 (QA 2026-11-19): an answer is always a new object; a record it didn't change keeps
+      // its old one, so a panel's unsaved edits of it aren't reset by an unrelated action.
+      setDetail((prev) => sameRecords(prev, out));
       setViewing(null);
       // The conversation stays on the issue the Builder answered about (or moved on to).
       const last = out.messages.at(-1);
@@ -227,7 +281,7 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
       setError(e);
       return false;
     } finally {
-      setBusy(null);
+      setInFlight((f) => f.filter((x) => x.n !== n));
     }
   };
 
@@ -244,7 +298,7 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
       if (!done) {
         await api
           .call(apiRoutes.opsBuild, { params: { id } })
-          .then((out) => setDetail(out as BuildDetail))
+          .then((out) => setDetail((prev) => sameRecords(prev, out as BuildDetail)))
           .catch(() => undefined);
       }
       return done;
@@ -254,7 +308,7 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
   }
 
   const moving = busy === apiRoutes.opsMoveBuild.path || busy === apiRoutes.opsBuildClientTest.path;
-  const retrying = busy === apiRoutes.opsBuildTurn.path && !pending;
+  const retrying = inFlight.some((f) => f.path === apiRoutes.opsBuildTurn.path) && !pending;
   const lastId = detail.messages.at(-1)?.id;
   const decide = (messageId: string, d: "agree" | "decline" | "undo") =>
     void act(apiRoutes.opsBuildProposal, {
@@ -552,7 +606,7 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
               onAbout={
                 open
                   ? (title) => {
-                      setDraftText(`About “${title}”: `);
+                      setDraftText((t) => aboutStart(title, t));
                       box.current?.focus();
                     }
                   : undefined
@@ -579,7 +633,7 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
               onAnswer={
                 open
                   ? (title) => {
-                      setDraftText(`About “${title}”: `);
+                      setDraftText((t) => aboutStart(title, t));
                       box.current?.focus();
                     }
                   : undefined
@@ -894,6 +948,7 @@ function Next({
   onClick,
   testId,
   extra,
+  why,
 }: {
   label: string;
   detail: BuildDetail;
@@ -901,6 +956,8 @@ function Next({
   onClick(): void;
   testId: string;
   extra?: ReactNode;
+  /** Why the button is off besides the gate's reasons (FLOW-8: no client picked to test with). */
+  why?: ReactNode;
 }) {
   const reasons = detail.gate.reasons;
   // Feedback (2026-11-16): a move can take the Builder a minute (agreeing the brief drafts the
@@ -951,6 +1008,11 @@ function Next({
           ))}
         </ul>
       ) : null}
+      {why ? (
+        <div className="text-sm text-ink-muted" data-testid={`${testId}-why`}>
+          {why}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -984,12 +1046,34 @@ type PanelProps = Parameters<typeof PhasePanel>[0];
 
 const isBusy = (busy: string | null) => busy !== null;
 
+/** Moves between phases: the longest requests, and the one the page says it's working on first. */
+const MOVES: readonly string[] = [
+  apiRoutes.opsMoveBuild.path,
+  apiRoutes.opsBuildClientTest.path,
+  apiRoutes.opsBuildDecision.path,
+];
+
+/**
+ * What the page is busy with, of the requests on their way: a move if one is, else the latest.
+ * Null only when none is, so a button that waits on `busy` stays off until every one has answered.
+ */
+export function busyPath(paths: readonly string[]): string | null {
+  return paths.find((p) => MOVES.includes(p)) ?? paths.at(-1) ?? null;
+}
+
+/**
+ * The conversation's box after an issue's "Answer it" or a try's "Wrong": the "About …" start put
+ * before what's typed there (FLOW-10, QA 2026-11-19: it replaced it). An earlier start is swapped.
+ */
+export function aboutStart(title: string, typed: string): string {
+  return `About “${title}”: ${typed.replace(/^About “[^”]*”: /, "")}`;
+}
+
 // ── 1 Intake ────────────────────────────────────────────────────────────────────────────────────
 
 function IntakePanel({ detail, current, busy, act }: PanelProps) {
   const id = detail.build.id;
-  const [brief, setBrief] = useState<Brief>(detail.build.brief);
-  useEffect(() => setBrief(detail.build.brief), [detail.build.brief]);
+  const [brief, setBrief] = useWorkingCopy<Brief>(detail.build.brief);
   const dirty = JSON.stringify(brief) !== JSON.stringify(detail.build.brief);
   const counts = BRIEF_STATES.map(
     (s) => [s, BRIEF_FIELDS.filter((k) => brief[k]?.state === s).length] as const,
@@ -1120,8 +1204,7 @@ function IntakePanel({ detail, current, busy, act }: PanelProps) {
 
 function FitGapPanel({ detail, current, busy, act }: PanelProps) {
   const id = detail.build.id;
-  const [fitgap, setFitgap] = useState<FitGap>(detail.build.fitgap);
-  useEffect(() => setFitgap(detail.build.fitgap), [detail.build.fitgap]);
+  const [fitgap, setFitgap] = useWorkingCopy<FitGap>(detail.build.fitgap);
   const [only, setOnly] = useState<FitVerdict | null>(null);
   const [changing, setChanging] = useState<string | null>(null);
   const dirty = JSON.stringify(fitgap) !== JSON.stringify(detail.build.fitgap);
@@ -1816,8 +1899,7 @@ function DraftPanel({ detail, current, busy, act }: PanelProps) {
 function PocPanel({ detail, current, busy, act, onAbout }: PanelProps) {
   const b = detail.build;
   const id = b.id;
-  const [plan, setPlan] = useState<TestPlan>(b.testPlan);
-  useEffect(() => setPlan(b.testPlan), [b.testPlan]);
+  const [plan, setPlan] = useWorkingCopy<TestPlan>(b.testPlan);
   const dirty = JSON.stringify(plan) !== JSON.stringify(b.testPlan);
   const poc = detail.poc;
   const clients = useApi(
@@ -2105,6 +2187,23 @@ function PocPanel({ detail, current, busy, act, onAbout }: PanelProps) {
             detail={detail}
             busy={isBusy(busy) || (!b.client && !clientId)}
             testId="build-promote"
+            // FLOW-8 (QA 2026-11-19): off with no word why but a tooltip. Said on the page: the
+            // clients couldn't be read, there is none to test with, or none is picked yet.
+            why={
+              b.client || clientId ? null : clients.error ? (
+                <ErrorNotice error={clients.error} onRetry={clients.reload} />
+              ) : clients.loading ? null : (clients.data?.clients ?? []).length === 0 ? (
+                <>
+                  There's no client to test it with yet.{" "}
+                  <Link to="/ops/clients/new" className="font-medium text-slate hover:underline">
+                    Add a client
+                  </Link>{" "}
+                  first.
+                </>
+              ) : (
+                "Pick the client it's tested with."
+              )
+            }
             onClick={() =>
               void act(apiRoutes.opsBuildClientTest, {
                 params: { id },
@@ -2405,6 +2504,18 @@ function QaPanel({ detail, current, busy, act }: PanelProps) {
                 </Button>
               )}
             </div>
+          ) : null}
+          {/* FLOW-3 (QA 2026-11-19): Go live was off with no word why. The gate's reasons, as
+              `Next` says them. */}
+          {current && signed && detail.gate.reasons.length > 0 ? (
+            <ul
+              className="flex flex-col gap-0.5 text-sm text-ink-muted"
+              data-testid="build-go-reasons"
+            >
+              {detail.gate.reasons.map((r) => (
+                <li key={r}>{r}</li>
+              ))}
+            </ul>
           ) : null}
           {current ? (
             <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4">
