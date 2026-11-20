@@ -87,16 +87,46 @@ export interface SendAttempt {
   text: string;
   templateId: string | null;
   startedAt: Date;
+  /**
+   * PLATFORM_QA INTEG-6: 1 for the first try. A try the provider refused (it answered, and sent
+   * nothing) may be followed by the next under the same key; the newest is what a re-run sees.
+   */
+  attempt?: number;
+  /** From `attemptFor`: the provider refused this try, so nothing was sent. */
+  refused?: boolean;
+}
+
+/**
+ * A send's error that says the provider answered and sent nothing (`notWritten`): any 4xx but 408
+ * and 409, so a rate limit (Twilio's 20429, Meta's 130429) or a refusal. A timeout, a 5xx or no
+ * answer may have been sent.
+ */
+export function sendRefused(status: number | null): boolean {
+  return status !== null && status >= 400 && status < 500 && status !== 408 && status !== 409;
 }
 
 export interface MessagingServices {
   checkSend(input: SendCheckInput): Promise<SendCheck>;
   /** The message already sent under this key, if any. */
   sentFor(idempotencyKey: string): Promise<SentRecord | null>;
-  /** Records that a send is starting, before the provider is called. The first one per key stands. */
+  /**
+   * Records that a send is starting, before the provider is called. The first one per key and
+   * try (`attempt`, 1 when absent) stands.
+   */
   startAttempt(attempt: SendAttempt): Promise<void>;
-  /** The send started under this key, if any. */
+  /** The newest send started under this key, if any, with `attempt` and `refused`. */
   attemptFor(idempotencyKey: string): Promise<SendAttempt | null>;
+  /**
+   * PLATFORM_QA INTEG-6: records that the provider refused try `attempt` (it answered and sent
+   * nothing), so a re-run may send again instead of stopping for a person. Without it, every
+   * started try stands.
+   */
+  refuseAttempt?(input: {
+    idempotencyKey: string;
+    attempt: number;
+    reason: string;
+    at: Date;
+  }): Promise<void>;
   /** Which of these provider ids are recorded already, under any key. */
   recordedSids(sids: readonly string[]): Promise<string[]>;
   /** Stores the message once (by sid) in the contact's thread and counts it as usage. */
