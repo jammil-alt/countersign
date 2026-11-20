@@ -221,6 +221,19 @@
       <p class="note">"On its own" shows only where your Mezonas lead has set it up with you. You can always move it back.</p>
     </div>
 
+    <div class="group">
+      <div class="grouphead">
+        <div><h2>Changes by Mezonas</h2><div class="m">How much your Mezonas lead may change here without asking you each time.</div></div>
+      </div>
+      <div class="rows" id="may">
+        <label class="row click"><input type="radio" name="may" value="ask" checked><div class="grow"><div class="t">Ask me each time</div><div class="m">Every change that lets agents do more comes to your Inbox to approve.</div></div></label>
+        <label class="row click"><input type="radio" name="may" value="needs"><div class="grow"><div class="t">Allow what agents need</div><div class="m">Mezonas may turn on what your agents need here, asking you first before each write. Anything else still comes to you.</div></div></label>
+        <label class="row click"><input type="radio" name="may" value="any"><div class="grow"><div class="t">Allow any change</div><div class="m">Mezonas may change any row and this tool's setup, up to "Ask me first".</div></div></label>
+        <div class="row" id="may-for" style="display:none"><div class="grow"><div class="t">For how long</div></div><div class="ds-seg"><button aria-pressed="false">Until I turn it off</button><button aria-pressed="true">For 30 days</button></div></div>
+      </div>
+      <p class="note" id="may-note">You're told about every change, and you can undo any of them here. "On its own" always needs your yes.</p>
+    </div>
+
     <section>
       <div class="sechead"><h2>Used by</h2></div>
       <div class="rows">
@@ -310,13 +323,19 @@
 
     <div class="group">
       <div class="rows" style="padding:var(--space-4)">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-3);flex-wrap:wrap;margin-bottom:var(--space-3)">
+          <span class="ds-help" id="ops-may">Hartley Millwork asks to approve each change here.</span>
+          <span class="ds-help">Mockup: the client's choice
+            <span class="ds-seg" id="ops-may-seg"><button aria-pressed="true" data-may="ask">Ask each time</button><button aria-pressed="false" data-may="needs">What agents need</button></span>
+          </span>
+        </div>
         <div class="t" style="font-weight:500">2 changes, both looser</div>
         <div class="m" style="margin:var(--space-1) 0 var(--space-3)">Create purchase orders: Off → Ask me first · Create vendors: Off → Ask me first</div>
         <label class="ds-label" for="why">Why (Hartley Millwork sees this)</label>
         <textarea class="ds-textarea" id="why" rows="2" style="width:100%;box-sizing:border-box">The Buyer sends the POs you approve to QuickBooks, and adds a vendor when a quote comes from someone new. Each one still waits for your signature.</textarea>
         <div class="ds-row" style="margin-top:var(--space-3);gap:var(--space-2);display:flex;justify-content:flex-end">
           <button class="ds-btn ds-btn--ghost">Discard</button>
-          <button class="ds-btn ds-btn--primary" data-go="approve">Send to Hartley Millwork for approval</button>
+          <button class="ds-btn ds-btn--primary" data-go="approve" id="ops-send">Send to Hartley Millwork for approval</button>
         </div>
       </div>
     </div>
@@ -394,6 +413,24 @@
       : 'Declined by Pat Lee just now. Nothing changed; Ana is told.';
   }
   document.getElementById('approve').addEventListener('click', function () { answer(true); });
+  // Changes by Mezonas: the client's choice on their page, and what it does to our button.
+  document.getElementById('may').addEventListener('change', function (e) {
+    var v = e.target.value;
+    document.getElementById('may-for').style.display = v === 'ask' ? 'none' : '';
+    document.getElementById('may-note').textContent = v === 'ask'
+      ? 'You’re told about every change, and you can undo any of them here. “On its own” always needs your yes.'
+      : 'Set by Pat Lee just now, until Dec 20. You’re told about every change Mezonas makes, and can undo it here. “On its own” always needs your yes.';
+  });
+  document.getElementById('ops-may-seg').addEventListener('click', function (e) {
+    var b = e.target.closest('button'); if (!b) return;
+    var needs = b.dataset.may === 'needs';
+    var send = document.getElementById('ops-send');
+    document.getElementById('ops-may').textContent = needs
+      ? 'Hartley Millwork lets us make changes agents need here, until Dec 20. Both rows are for the Buyer.'
+      : 'Hartley Millwork asks to approve each change here.';
+    send.textContent = needs ? 'Apply now (Pat is told)' : 'Send to Hartley Millwork for approval';
+    if (needs) send.removeAttribute('data-go'); else send.setAttribute('data-go', 'approve');
+  });
   document.getElementById('decline').addEventListener('click', function () { answer(false); });
 </script>
 </body>

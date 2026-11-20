@@ -1,7 +1,7 @@
 # Connectors: one place for the client, access set by what agents need
 
 Agreed by the owner (2026-11-20): the design and the seven decisions in §10 as recommended, plus
-§7.1 (our changes go to the client to approve). Nothing here is built yet. The decisions go into
+§7.1 (our changes go to the client to approve) and §7.2 (the client may authorize them in advance). Nothing here is built yet. The decisions go into
 `docs/plan.md` §1 and the build into its milestones (§9 below).
 
 ## 0. What the owner asked
@@ -234,7 +234,9 @@ matching words in invariant 8:
   `act` mode also allow it, as today). The client may always take it back to Ask me first or Off,
   at once.
 - **We never loosen a client's connection by ourselves** (§7.1): anything of ours that lets agents
-  do or reach more is a request the client admin approves. Only tightening applies at once.
+  do or reach more is a request the client admin approves, unless the client has authorized that
+  kind of change on that connector in advance (§7.2). Tightening applies at once. On its own is
+  always a request.
 - Delete stays off for everyone.
 - A client turning something off that an agent needs is allowed and shows as a gap at once (the
   agent asks or stops at that step; it never works around it).
@@ -302,7 +304,8 @@ footer says what changed, row by row, and asks **why** (required, shown to the c
   bills on QuickBooks: …"). We can always make things safer without waiting.
 - **Anything looser** (a row on, a write to Ask me first or On its own, more folders or channels, a
   wider query): **Send to Hartley Millwork for approval**. Nothing changes until a client admin
-  approves. A mixed change is sent whole.
+  approves. A mixed change is sent whole. Where the client has authorized that kind of change on
+  this connector (§7.2), it applies at once instead, and the client is told.
 
 **The request** (a new record, `connection_change_request`):
 
@@ -328,6 +331,37 @@ Allow on their own page, it is their change and applies at once; when we send it
 **Not a request:** an agent's grant (its limits within what the connection allows) stays ours, as
 today; binding an agent; the Sandbox client (ours, we change it directly).
 
+### 7.2 Changes by Mezonas: the client's standing say (owner, 2026-11-20)
+
+Each connector's page in the portal has a section **Changes by Mezonas**, where the client admin
+says how much we may change on that connection without asking each time:
+
+| Choice | What we may then do without a request |
+|---|---|
+| **Ask me each time** (the default) | Nothing looser: every looser change is a request (§7.1). |
+| **Allow what agents need** | Turn on the rows an agent's needs call for (§4.3), up to Ask me first. Anything else is a request. |
+| **Allow any change** | Change any row and the tool's setup (folders, channels, the Gmail query), up to Ask me first. |
+
+- **For how long**: *Until I turn it off*, or *For 30 days* (handy while agents are being set up).
+  It ends by itself; the page says when.
+- **On its own is always a request**, whatever the choice: a write that runs with nobody signing
+  needs the client's yes each time it's set. Delete stays off.
+- **Every change we make under it is told**: an Inbox notice (not waiting on anyone) with the rows
+  before → after, our reason and the authorization it used ("You let Mezonas make changes agents
+  need on QuickBooks, Nov 20"). The connection's history names both: who changed it, and who
+  authorized and when.
+- **The client can take it back at once**, and undo any change we made, from the same page.
+  Taking it back doesn't undo past changes; it stops new ones.
+- **Who**: only a client admin sets it; a client user sees it. We can't set it, and we can't ask
+  for it through a request: it's always the client's own choice. Getting started may suggest
+  *Allow what agents need, for 30 days* during onboarding, with the words above; the client picks.
+- **In the back office**: the client's connector shows "Hartley Millwork lets us: make changes
+  agents need, until Dec 20". When an edit fits it, the footer's button says **Apply now (Pat is
+  told)**; when it doesn't, **Send for approval**, with the reason it doesn't fit ("Create bills
+  isn't something an agent needs").
+- Stored on the connection (`connection.mezonas_may`: choice, until, set by, set at); each change
+  to it is a `connection_change`. A change applied under it records the authorization with it.
+
 ## 8. What changes in the code
 
 | Where | Change | Migration |
@@ -339,6 +373,8 @@ today; binding an agent; the Sandbox client (ours, we change it directly).
 | `packages/core/src/permissions/decide.ts`, `apps/api` matrix routes | the client-may-allow rule (§5.4) | no |
 | `connector_setting` | `clients uuid[]` for custom connectors | **yes, its own PR** |
 | `connection_change_request` (new, tenant table with RLS) | our requests and their answers (§7.1); `connection_change` gains the request's id | **yes, same PR as above** |
+| `connection.mezonas_may` (new column) | the client's standing authorization (§7.2); `connection_change` gains the authorization it used | **yes, same PR as above** |
+| `packages/core/src/permissions` | `withinAuthorization(change, mezonasMay, needs, now)`: whether an edit of ours fits, and why not | no |
 | `packages/core/src/permissions` | `changeDirection(before, after)` (tighter / looser / mixed, matrix and setup), `requestStale(request, current)` | no |
 | `apps/api` ops connection routes | `opsUpdateConnection` applies only tighter changes (else 409, "send it for approval"); new create / withdraw request routes; the Sandbox keeps direct edits | no |
 | `apps/api` portal routes, inbox | approve / decline a request (client admin, audited); the Inbox item; the notices | no |
@@ -357,13 +393,17 @@ Each ends green; the migration goes alone.
 1. **C1 Needs** (core only): `needs` on skills, `agentNeeds`, `accessGaps`, tests over every
    template in the seed and the packs. No screen.
 2. **C2 Defaults**: each connector's reviewed low-risk default, the new fallback, the test.
-3. **C3 Migration**: `connector_setting.clients` and `connection_change_request` (alone).
+3. **C3 Migration**: `connector_setting.clients`, `connection_change_request` and
+   `connection.mezonas_may` (alone).
 4. **C4 API**: the portal routes (all live connectors, custom filter, needs and gaps, allow for an
    agent), the client-may-allow rule, change requests (create, withdraw, approve, decline, stale,
-   expiry), ops edits tighter-only; contract tests (a client can't set On its own by itself, can't
-   see another client's custom connector; an operator can't loosen a real client's connection
-   without an approved request; approving a stale request changes nothing).
-5. **C5 Portal**: Connectors and the connector page; the change request in the Inbox; Getting
+   expiry), ops edits tighter-only unless authorized (§7.2); contract tests (a client can't set On
+   its own by itself, can't see another client's custom connector; an operator can't loosen a real
+   client's connection without an approved request or an authorization that covers it, never sets
+   On its own under one, and can't set the authorization; an ended authorization covers nothing;
+   approving a stale request changes nothing).
+5. **C5 Portal**: Connectors and the connector page with Changes by Mezonas; the change request
+   and the notices in the Inbox; Getting
    started and the agent's Settings link in; redirects from `/accounts`.
 6. **C6 Back office**: the client's Connectors tab with edit → apply or send; open requests;
    Needs, Readiness, Send to client; the setup guard on gaps; the catalog's waiting count.
@@ -372,7 +412,9 @@ Each ends green; the migration goes alone.
 
 All seven agreed as recommended (owner, 2026-11-20: "this looks good"), with §7.1 added. Inside
 §7.1 we picked, and the owner may change: tightening by us applies at once (the client is told);
-requests expire after 14 days; one open request per connection.
+requests expire after 14 days; one open request per connection. Inside §7.2: three choices (ask
+each time, what agents need, any change); On its own is always a request even when authorized; a
+30-day option; the authorization is per connector and only the client sets it.
 
 1. **The client may turn a write on to Ask me first** (§5.4). *Recommended: yes.* Without it, writes
    off by default means every agent needs us to loosen the client's own tool.
