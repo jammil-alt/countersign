@@ -150,17 +150,18 @@ function TryRow({
               Try it again
             </Button>
           ) : null}
-          {t.status !== "running" ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={busy}
-              onClick={() => decide("discard")}
-              data-testid={`build-try-discard-${t.caseId}`}
-            >
-              Discard
-            </Button>
-          ) : null}
+          {/* INTEG-2: a try can always be discarded, a running one too: a test that never
+              finishes is never a dead end. One that stopped (the API marks a test that couldn't
+              start, or ran past its time, as stopped) is offered again above. */}
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => decide("discard")}
+            data-testid={`build-try-discard-${t.caseId}`}
+          >
+            Discard
+          </Button>
         </div>
       ) : null}
     </li>

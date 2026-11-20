@@ -64,12 +64,12 @@ import {
   testCaseResult,
   testSuiteRun,
 } from "@countersign/db";
-import { and, asc, desc, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, like, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { stepRequests } from "../dev-queue/store";
 import { iso, notFound, type Services } from "../http";
 import { goLiveView } from "../lifecycle/stages";
-import { fullSuiteRun, notPendingTry } from "../testbench/partial";
+import { fullSuiteRun, notPendingTry, staleRun } from "../testbench/partial";
 import { buildFacts, buildStageOf, buildStanding } from "../work/work-list";
 import { trySandbox, tryViews } from "./tries";
 import { failureWhy } from "./why";
@@ -223,7 +223,8 @@ const SavedProposal = BuildProposal.extend({
  */
 export const ProposalDecision = z.object({
   decides: z.string(),
-  decision: z.enum(["agreed", "unchanged", "declined", "undone"]),
+  /** STATE-3: `proposed` puts a proposal back when the change agreed to it failed. */
+  decision: z.enum(["proposed", "agreed", "unchanged", "declined", "undone"]),
   /** Agreed: an item's state before the change, for its undo. */
   before: BuildItemState.nullable().optional(),
   /** What was done, in words ("Changed: …"), shown under the proposal. */
@@ -485,7 +486,59 @@ export async function draftOutline(ctx: StoreCtx, row: BuildRow): Promise<string
   return lines;
 }
 
+/** STATE-4: the key of an open item for a fit-gap change made after the draft (the move adds it). */
+export const STALE_DRAFT_KEY = "draft:fitgap:";
+
+/**
+ * The draft's problems that aren't in its bundle, each holding the draft gate: the draft agent
+ * discarded under the build (STATE-5), and a fit-gap change it doesn't cover yet, until its item
+ * is closed (STATE-4).
+ */
+// DECISION (STATE-5): a discarded draft is a draft problem rather than a discard refused while a
+// build points at it: the agents registry knows nothing of builds, and Restore brings it back.
+async function heldProblems(
+  tx: Tx,
+  row: BuildRow,
+  agentRow: DraftFacts["agentRow"],
+): Promise<BuildDraftView["problems"]> {
+  const out: BuildDraftView["problems"] = [];
+  if (agentRow?.status === "disabled") {
+    out.push({
+      key: "draft:discarded",
+      code: "draft_discarded",
+      title: "The draft was discarded. Restore it on its page to go on.",
+      stepId: null,
+      workflow: null,
+    });
+  }
+  const stale = await tx
+    .select({ state: buildItem.state })
+    .from(buildItem)
+    .where(and(eq(buildItem.buildId, row.id), like(buildItem.key, `${STALE_DRAFT_KEY}%`)));
+  if (stale.some((i) => itemOpen(i.state))) {
+    out.push({
+      key: "draft:fitgap",
+      code: "draft_stale",
+      title:
+        "The fit-gap changed after the draft was made. Change the draft to match, then close its item.",
+      stepId: null,
+      workflow: null,
+    });
+  }
+  return out;
+}
+
 async function draftFacts(ctx: StoreCtx, row: BuildRow): Promise<DraftFacts> {
+  const facts = await bundleDraftFacts(ctx, row);
+  if (!facts.view) return facts;
+  const held = await heldProblems(ctx.tx, row, facts.agentRow);
+  return held.length === 0
+    ? facts
+    : { ...facts, view: { ...facts.view, problems: [...held, ...facts.view.problems] } };
+}
+
+/** The draft as its latest version reads, with its validation problems. */
+async function bundleDraftFacts(ctx: StoreCtx, row: BuildRow): Promise<DraftFacts> {
   const none: DraftFacts = {
     view: null,
     bundle: null,
@@ -643,7 +696,7 @@ async function suitePoc(
         : !current
           ? "The latest test run is of an older version: run the cases again."
           : !done
-            ? latest.status === "running"
+            ? latest.status === "running" && !staleRun(latest, latest.total)
               ? "The test cases are running."
               : "The latest test run failed to finish."
             : requiredFailing > 0
@@ -658,7 +711,7 @@ async function suitePoc(
     latest: latest
       ? {
           id: latest.id,
-          status: latest.status,
+          status: staleRun(latest, latest.total) ? "failed" : latest.status,
           total: latest.total,
           passed: latest.passed,
           failed: latest.failed,

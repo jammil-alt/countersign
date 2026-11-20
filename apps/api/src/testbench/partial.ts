@@ -32,3 +32,21 @@ export const keptRef = (buildId: string) => `kept:${buildId}`;
 export const notPendingTry = () => sql`coalesce(${testCase.sourceRef}, '') not like 'try:%'`;
 
 export const isPendingTry = (sourceRef: string | null) => !!sourceRef?.startsWith("try:");
+
+/** How long one case may run (TestSuiteWorkflow's step timeout, testbench/workflow.ts). */
+export const CASE_TIMEOUT_MS = 15 * 60 * 1000;
+
+/**
+ * INTEG-2: a suite run still `running` after every case's step would have timed out (and a
+ * minute more) never finishes: its job didn't start, or died. It is read as finished, unscored.
+ */
+export function staleRun(
+  run: { status: string; createdAt: Date },
+  cases: number,
+  now: Date = new Date(),
+): boolean {
+  return (
+    run.status === "running" &&
+    now.getTime() - run.createdAt.getTime() > Math.max(1, cases) * CASE_TIMEOUT_MS + 60_000
+  );
+}

@@ -218,6 +218,8 @@ export async function createUpdateDraft(
     agentId: row.id,
     bundle: preview.result.bundle,
     parentVersionId: preview.ours.id,
+    // A three-way merge onto the live version, as before STATE-7 (its own preview shows it).
+    fromOlder: true,
     authorType: "merge",
     authorId: input.actorId ?? null,
     changeNote: input.changeNote ?? `Update from template v${preview.theirs.version}`,
@@ -830,6 +832,8 @@ export async function createPromotionDraft(
     agentId: preview.ours.agentId,
     bundle: preview.result.bundle,
     parentVersionId: preview.ours.id,
+    // A three-way merge onto the template's live version, as before STATE-7.
+    fromOlder: true,
     authorType: "promote",
     authorId: input.actorId ?? null,
     changeNote: input.changeNote ?? `Promoted from a client's v${preview.client.version}`,
