@@ -9,6 +9,7 @@
 // (retries, time limits, errors) is ./provider.ts, shared with every provider but Anthropic.
 
 import { MODEL_PREFIXES, providerModelName } from "@countersign/core";
+import { z } from "zod";
 import {
   fromOpenAIEmbeddings,
   type OAEmbeddingsResponse,
@@ -376,6 +377,81 @@ export function toOpenAIRequest(request: LlmRequest): OAResponsesRequest {
 // ---------------------------------------------------------------------------------------------
 // Response: Responses → an Anthropic-shaped message.
 
+const count = z.number().int().nonnegative();
+
+/**
+ * The answer as much as the translation reads it, checked at the boundary (invariant 5), as
+ * Anthropic's `parseMessage` checks its own. Loose: fields we don't read pass through.
+ */
+const responseSchema = z.looseObject({
+  id: z.string(),
+  model: z.string().optional(),
+  status: z.string().optional(),
+  incomplete_details: z.looseObject({ reason: z.string().optional() }).nullable().optional(),
+  error: z
+    .looseObject({ code: z.string().nullable().optional(), message: z.string().optional() })
+    .nullable()
+    .optional(),
+  output: z.array(
+    z.looseObject({
+      type: z.string(),
+      id: z.string().optional(),
+      role: z.string().optional(),
+      content: z
+        .array(
+          z.looseObject({
+            type: z.string(),
+            text: z.string().optional(),
+            refusal: z.string().optional(),
+          }),
+        )
+        .optional(),
+      call_id: z.string().optional(),
+      name: z.string().optional(),
+      arguments: z.string().optional(),
+    }),
+  ),
+  usage: z
+    .looseObject({
+      input_tokens: count,
+      input_tokens_details: z
+        .looseObject({ cached_tokens: count.optional() })
+        .nullable()
+        .optional(),
+      output_tokens: count,
+      output_tokens_details: z
+        .looseObject({ reasoning_tokens: count.optional() })
+        .nullable()
+        .optional(),
+    })
+    .nullable()
+    .optional(),
+});
+
+function invalidAnswer(dialect: ResponsesDialect, issues: string): ProviderError {
+  return new dialect.errorClass(
+    `${dialect.vendor} gave an invalid answer: ${issues}`,
+    null,
+    null,
+    "failed",
+  );
+}
+
+/** The answer, checked; anything that doesn't fit is the provider's error, not an empty turn. */
+function checkResponse(value: unknown, dialect: ResponsesDialect): OAResponse {
+  const parsed = responseSchema.safeParse(value);
+  if (!parsed.success) {
+    throw invalidAnswer(
+      dialect,
+      parsed.error.issues
+        .slice(0, 3)
+        .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+        .join("; "),
+    );
+  }
+  return parsed.data as OAResponse;
+}
+
 function parseArguments(args: string | undefined): unknown {
   if (!args) return {};
   try {
@@ -391,10 +467,11 @@ function parseArguments(args: string | undefined): unknown {
  * prefix), so pricing and logs name the model the way definitions do.
  */
 export function fromResponsesAnswer(
-  response: OAResponse,
+  answer: unknown,
   request: LlmRequest,
   dialect: ResponsesDialect,
 ): LlmMessage {
+  const response = checkResponse(answer, dialect);
   if (response.status === "failed" || response.status === "cancelled") {
     const code = response.error?.code ?? null;
     throw new dialect.errorClass(
@@ -416,10 +493,12 @@ export function fromResponsesAnswer(
         }
       }
     } else if (item.type === "function_call") {
+      // A call to no tool can't be answered or refused by name: it is the provider's error.
+      if (!item.name) throw invalidAnswer(dialect, "a function call with no name");
       content.push({
         type: "tool_use",
         id: item.call_id ?? item.id ?? "",
-        name: item.name ?? "",
+        name: item.name,
         input: parseArguments(item.arguments),
         caller: { type: "direct" },
       } as Anthropic.ToolUseBlock);
@@ -437,7 +516,10 @@ export function fromResponsesAnswer(
         : content.some((b) => b.type === "tool_use")
           ? "tool_use"
           : "end_turn";
-  const u = response.usage ?? {};
+  // DECISION (AI-4): an answer without usage is refused, not priced at 0 tokens and $0, so a
+  // step's cost and the monthly caps always see what a call cost.
+  const u = response.usage;
+  if (!u) throw invalidAnswer(dialect, "no usage");
   const cached = u.input_tokens_details?.cached_tokens ?? 0;
   return {
     id: response.id,
@@ -465,7 +547,7 @@ export function fromResponsesAnswer(
   } as LlmMessage;
 }
 
-export function fromOpenAIResponse(response: OAResponse, request: LlmRequest): LlmMessage {
+export function fromOpenAIResponse(response: unknown, request: LlmRequest): LlmMessage {
   return fromResponsesAnswer(response, request, OPENAI_DIALECT);
 }
 
@@ -487,7 +569,7 @@ export function responsesTransport(
       url: (base) => `${base}/responses`,
       headers: (apiKey) => ({ authorization: `Bearer ${apiKey}` }),
       body: (request) => toResponsesRequest(request, dialect),
-      answer: (json, request) => fromResponsesAnswer(json as OAResponse, request, dialect),
+      answer: (json, request) => fromResponsesAnswer(json, request, dialect),
     },
     options,
   );
