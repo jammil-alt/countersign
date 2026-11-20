@@ -9,9 +9,11 @@ export {
   DEFAULT_MATCH_TEXT_FIELDS,
   keysHash,
   keysOf,
+  MATCH_FIELDS_MAX,
   MATCH_TEXT_FIELDS,
   type MappedRecord,
   type MatchTextField,
+  matchFieldsFrom,
   matchTextFieldsFrom,
   matchTextOf,
   type RecordFields,
@@ -27,6 +29,7 @@ export {
 } from "./match/decide";
 export {
   type CandidateView,
+  extraValues,
   FOUND_BY,
   type FoundBy,
   KeyMapping,
@@ -56,6 +59,8 @@ export {
 export * from "./pack";
 export * from "./schema";
 export {
+  type ClientMatchSettings,
+  clientMatchSettings,
   type EmbedResult,
   embedDueKeys,
   type KeyRow,

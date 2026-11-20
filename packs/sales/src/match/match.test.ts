@@ -481,6 +481,40 @@ describe.skipIf(!online)("matching rows to a client's synced CRM records", () =>
     expect((await look("Leads", "a", 3)).length).toBeLessThanOrEqual(3);
   });
 
+  it("reads the client's own match fields from the payload by name, custom fields included", async () => {
+    const R = await insertSalesClient(t.db, "Regions", {
+      settings: { sales: { matchFields: { Leads: ["Region", "Tags"] } } },
+    });
+    // A re-read after the connection's extra sync fields changed: the same Modified_Time with a
+    // suffix, stored later. The newest stored version is the one keyed.
+    await R.record("Leads", "R1", { First_Name: "Ann", Last_Name: "Lee", Company: "Fjord Fish" });
+    await R.record(
+      "Leads",
+      "R1",
+      {
+        First_Name: "Ann",
+        Last_Name: "Lee",
+        Company: "Fjord Fish",
+        Region: "Pacific Northwest",
+        Tags: ["Wholesale", "Seafood"],
+      },
+      "2026-11-01T10:00:00+00:00~a1b2",
+    );
+    const res = await matchRecords(ctx(R), {
+      rows: [{ Name: "Ann Lee", Territory: "Pacific Northwest" }],
+      keys: { name: "Name", extra: { Region: "Territory" } },
+      modules: ["Leads"],
+    });
+    const [key] = await t.db
+      .select()
+      .from(crmRecordKey)
+      .where(eq(crmRecordKey.tenantId, R.tenantId));
+    expect(key?.matchText).toBe("ann lee | fjord fish | pacific northwest | wholesale seafood");
+    expect(key?.display).toMatchObject({ Region: "Pacific Northwest", name: "Ann Lee" });
+    // The row's text holds its territory too, so the record comes up by text.
+    expect(res.rows[0]?.candidates[0]).toMatchObject({ externalId: "R1", foundBy: ["text"] });
+  });
+
   describe("by meaning and the model", () => {
     let M: SalesFixture;
     const keys: KeyMapping = { name: "Name", company: "Company", email: "Email" };

@@ -123,6 +123,20 @@ export const zohoMapper: CrmRecordMapper = {
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
     return read(module, payload as Payload);
   },
+  field(payload, name) {
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
+    // An own field only (the payload's names are Zoho's, never an object's prototype).
+    if (!Object.hasOwn(payload, name)) return undefined;
+    const p = payload as Payload;
+    const v = p[name];
+    if (typeof v === "boolean") return v ? "yes" : "no";
+    // A multi-select pick list is a list of words.
+    if (Array.isArray(v)) {
+      const items = v.filter((x): x is string => typeof x === "string" && x.trim() !== "");
+      return items.length > 0 ? items.join(", ").slice(0, 300) : undefined;
+    }
+    return text(p, name)?.slice(0, 300);
+  },
 };
 
 /** Every connector the Sales area reads records from, by its manifest id. */

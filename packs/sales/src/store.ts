@@ -17,6 +17,7 @@ import {
   type CrmRecordMapper,
   keysOf,
   type MatchTextField,
+  matchFieldsFrom,
   matchTextFieldsFrom,
   matchTextOf,
   textHash,
@@ -101,13 +102,23 @@ export async function salesOn(tx: Tx, tenantId: string): Promise<boolean> {
   return rows.length > 0;
 }
 
-/** The fields the client's match text is built from (`tenant.settings.sales.matchText`). */
-export async function clientMatchTextFields(tx: Tx, tenantId: string): Promise<MatchTextField[]> {
+export interface ClientMatchSettings {
+  /** The keys the match text holds (`tenant.settings.sales.matchText`). */
+  textFields: MatchTextField[];
+  /** The client's own fields it also holds, per module (`tenant.settings.sales.matchFields`). */
+  extraFields: Record<string, string[]>;
+}
+
+/** What the client's match text is built from. */
+export async function clientMatchSettings(tx: Tx, tenantId: string): Promise<ClientMatchSettings> {
   const [row] = await tx
     .select({ settings: tenant.settings })
     .from(tenant)
     .where(eq(tenant.id, tenantId));
-  return matchTextFieldsFrom(row?.settings);
+  return {
+    textFields: matchTextFieldsFrom(row?.settings),
+    extraFields: matchFieldsFrom(row?.settings),
+  };
 }
 
 // ── Keys from synced records ────────────────────────────────────────────────────────────────────
@@ -156,7 +167,7 @@ export async function refreshRecordKeys(
   if (connectors.length === 0 || modules.length === 0) return { built: 0, more: false };
   if (options.rawRecordIds && options.rawRecordIds.length === 0) return { built: 0, more: false };
   const limit = Math.min(options.limit ?? REFRESH_MAX, REFRESH_MAX);
-  const fields = await clientMatchTextFields(tx, tenantId);
+  const settings = await clientMatchSettings(tx, tenantId);
   const scope = sql`r.tenant_id = ${tenantId} and not r.is_deleted
     and r.connector = any(${textArray(connectors)}) and r.entity_type = any(${textArray(modules)})
     ${options.connectionId ? sql`and r.connection_id = ${options.connectionId}` : sql``}
@@ -170,6 +181,9 @@ export async function refreshRecordKeys(
             )}]::uuid[]`}))`
         : sql``
     }`;
+  // DECISION: a record's latest version is its newest raw record by `synced_at` (then id), never
+  // by `external_version`: Zoho's may be `<Modified_Time>~<key>` (a re-read when a connection's
+  // extra sync fields change) and two versions may share one Modified_Time.
   const due = await tx.execute<{
     id: string;
     connection_id: string;
@@ -202,7 +216,13 @@ export async function refreshRecordKeys(
     // DECISION: a record its mapper can't read still gets a row, with no keys and no text, so it
     // isn't read again on every pass; it matches nothing until a newer version reads.
     const keys = mapped ? keysOf(mapped.fields) : {};
-    const matchText = matchTextOf(keys, fields);
+    // The client's own match fields, read from the payload by name (custom fields included).
+    const extra: Record<string, string> = {};
+    for (const name of settings.extraFields[r.entity_type] ?? []) {
+      const v = mapped ? mapper?.field(r.payload, name) : undefined;
+      if (v) extra[name] = v;
+    }
+    const matchText = matchTextOf(keys, settings.textFields, Object.values(extra));
     const values = {
       rawRecordId: r.id,
       email: keys.email ?? null,
@@ -211,7 +231,7 @@ export async function refreshRecordKeys(
       companyName: keys.company ?? null,
       personName: keys.name ?? null,
       dealName: keys.deal ?? null,
-      display: mapped?.display ?? {},
+      display: mapped ? { ...extra, ...mapped.display } : {},
       matchText,
       matchHash: await textHash(matchText),
       updatedAt: new Date(),

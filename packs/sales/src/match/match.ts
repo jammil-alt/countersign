@@ -11,19 +11,13 @@
 import { uuidv7 } from "@countersign/core";
 import { withTenant } from "@countersign/db";
 import { z } from "zod";
-import {
-  keysHash,
-  keysOf,
-  type MatchTextField,
-  matchTextOf,
-  type RecordFields,
-} from "../keys/build";
+import { keysHash, keysOf, matchTextOf, type RecordFields } from "../keys/build";
 import { CRM_MAPPERS } from "../keys/zoho";
 import { type PackToolContext, SalesRefusal } from "../pack";
 import { type CrmKeys, type CrmMatchDecision, type CrmMatchMethod, crmMatch } from "../schema";
 import {
   aliasesFor,
-  clientMatchTextFields,
+  clientMatchSettings,
   type EmbedResult,
   embedDueKeys,
   embedTexts,
@@ -70,6 +64,11 @@ export const KeyMapping = z
     firstName: z.string().min(1).max(200),
     lastName: z.string().min(1).max(200),
     deal: z.string().min(1).max(200),
+    /**
+     * The client's own CRM fields its match text also holds (`tenant.settings.sales.matchFields`):
+     * the CRM field's name → the row's field.
+     */
+    extra: z.record(z.string().regex(/^[A-Za-z][A-Za-z0-9_]{0,99}$/), z.string().min(1).max(200)),
   })
   .partial()
   .refine((m) => Object.keys(m).length > 0, "map at least one of the row's fields to a key");
@@ -219,9 +218,31 @@ export function rowValues(
 ): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, field] of Object.entries(mapping)) {
-    if (!field || !Object.hasOwn(row, field)) continue;
+    if (typeof field !== "string" || !Object.hasOwn(row, field)) continue;
     const v = cell(row[field]);
     if (v !== undefined) out[key] = v;
+  }
+  return out;
+}
+
+/**
+ * A row's values for the client's own match fields in the modules (`keys.extra`: the CRM field's
+ * name → the row's field), in the order the client lists them, so its text reads like the records'.
+ */
+export function extraValues(
+  row: Record<string, unknown>,
+  extra: Readonly<Record<string, string>> | undefined,
+  fields: Readonly<Record<string, readonly string[]>>,
+  modules: readonly string[],
+): string[] {
+  if (!extra) return [];
+  const names = [...new Set(modules.flatMap((m) => fields[m] ?? []))];
+  const out: string[] = [];
+  for (const name of names) {
+    const field = Object.hasOwn(extra, name) ? extra[name] : undefined;
+    if (!field || !Object.hasOwn(row, field)) continue;
+    const v = cell(row[field]);
+    if (v !== undefined) out.push(v);
   }
   return out;
 }
@@ -486,7 +507,7 @@ export async function matchRecords(
       );
     }
     const refreshed = await refreshRecordKeys(tx, ctx.tenantId, { modules });
-    return { refreshed, textFields: await clientMatchTextFields(tx, ctx.tenantId) };
+    return { refreshed, settings: await clientMatchSettings(tx, ctx.tenantId) };
   });
   const embedded = !testRun && ctx.llm ? await embedDueKeys(ctx, { modules }) : null;
 
@@ -499,7 +520,11 @@ export async function matchRecords(
         values,
         keys,
         hash: await keysHash(keys),
-        text: matchTextOf(keys, prepared.textFields as MatchTextField[]),
+        text: matchTextOf(
+          keys,
+          prepared.settings.textFields,
+          extraValues(row, input.keys.extra, prepared.settings.extraFields, modules),
+        ),
         found: new Map<string, Found>(),
         outcome: null,
       };

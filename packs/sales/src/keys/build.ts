@@ -12,6 +12,7 @@ import {
   normalizeDeal,
   normalizeEmail,
   normalizePerson,
+  words,
 } from "./normalize";
 
 /** A record's fields as its connector names them, read into the keys' plain parts. */
@@ -42,6 +43,11 @@ export interface CrmRecordMapper {
   modules: Readonly<Record<string, RecordKind>>;
   /** One raw record's payload; null when it can't be read. */
   map(module: string, payload: unknown): MappedRecord | null;
+  /**
+   * One field of a raw record's payload as text, by the connector's own field name (a custom field
+   * a connection syncs, e.g. Zoho's `Region`); undefined when it has none.
+   */
+  field(payload: unknown, name: string): string | undefined;
 }
 
 /** The fields a match text is built from, in this order. */
@@ -75,13 +81,24 @@ export function keysOf(fields: RecordFields): CrmKeys {
   return keys;
 }
 
-/** The text a record or a row is searched by: its chosen keys, in a fixed order, `|` between. */
-export function matchTextOf(keys: CrmKeys, fields: readonly MatchTextField[]): string {
+/**
+ * The text a record or a row is searched by: its chosen keys in a fixed order, then the values of
+ * the client's own match fields (as words), `|` between.
+ */
+export function matchTextOf(
+  keys: CrmKeys,
+  fields: readonly MatchTextField[],
+  extra: readonly (string | undefined)[] = [],
+): string {
   const parts: string[] = [];
   for (const f of MATCH_TEXT_FIELDS) {
     if (!fields.includes(f)) continue;
     const v = keys[f];
     if (v) parts.push(v);
+  }
+  for (const v of extra) {
+    const w = v ? words(v) : "";
+    if (w) parts.push(w);
   }
   const text = parts.join(" | ");
   return text.length > MATCH_TEXT_MAX ? text.slice(0, MATCH_TEXT_MAX) : text;
@@ -101,6 +118,33 @@ export function keysHash(keys: CrmKeys): Promise<string> {
 // DECISION: the Sales area's one setting per client lives in `tenant.settings.sales` (no table for
 // a few field names); absent or unreadable, the default. A change applies to a record when it next
 // syncs, or to all of them on `sales.keys.refresh` with `rebuild`.
+/** At most this many of the client's own fields per module go into the match text. */
+export const MATCH_FIELDS_MAX = 10;
+
+/**
+ * `tenant.settings.sales.matchFields`: the client's own CRM fields its match text also holds, per
+ * module, by the connector's field names (`{ "Leads": ["Region"] }`). A connection syncs them as
+ * extra fields (`connection.config.syncFields`); they reach the keys from the raw payload, read by
+ * name, never from a fixed list.
+ */
+// DECISION: these fields go into the match text (trigrams and meaning) and the record's display,
+// not into the rules' score: their meaning is the client's, so the rules can't weigh them; the
+// text search, the model and the person can.
+export function matchFieldsFrom(settings: unknown): Record<string, string[]> {
+  const raw = (settings as { sales?: { matchFields?: unknown } } | null | undefined)?.sales
+    ?.matchFields;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, string[]> = {};
+  for (const [module, list] of Object.entries(raw as Record<string, unknown>)) {
+    if (!/^[A-Za-z][A-Za-z0-9_]{0,99}$/.test(module) || !Array.isArray(list)) continue;
+    const names = list
+      .filter((f): f is string => typeof f === "string" && /^[A-Za-z][A-Za-z0-9_]{0,99}$/.test(f))
+      .slice(0, MATCH_FIELDS_MAX);
+    if (names.length > 0) out[module] = [...new Set(names)];
+  }
+  return out;
+}
+
 export function matchTextFieldsFrom(settings: unknown): MatchTextField[] {
   const raw = (settings as { sales?: { matchText?: unknown } } | null | undefined)?.sales
     ?.matchText;
