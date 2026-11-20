@@ -9,7 +9,7 @@
 // `email.send` is the provider-neutral email channel tool. Gmail (M10) sends with `gmail.send`, which
 // takes the same input. Facts about Resend we couldn't check are in NOTES.md.
 
-import { AttachmentSummary, OutboundAttachments } from "@countersign/core";
+import { AttachmentSummary, EMAIL_SENDABLE_TYPES, OutboundAttachments } from "@countersign/core";
 import { z } from "zod";
 // P-3: attachments both ways
 import { type AttachmentLimits, describeOutbound, loadOutbound, summaries } from "../attachments";
@@ -45,7 +45,7 @@ export const EmailSendInput = z.object({
   /** Tags the reply-to address so a reply finds what it answers. */
   replyTag: ReplyTag.optional(),
   // P-3: attachments both ways (docs/plan.md §1.65)
-  /** Stored documents of this client, PDFs and images, at most five; names come from the records. */
+  /** Stored documents of this client (PDFs, images, .csv and .xlsx), at most five; names from the records. */
   attachments: OutboundAttachments.optional(),
 });
 export type EmailSendInput = z.infer<typeof EmailSendInput>;
@@ -78,6 +78,7 @@ export const RESEND_ATTACHMENT_LIMITS: AttachmentLimits = {
   provider: "Mezonas' email sending",
   maxCount: 5,
   maxTotalBytes: 29 * 1024 * 1024,
+  types: EMAIL_SENDABLE_TYPES,
 };
 
 /** What the connection keeps in `connection.config`. */

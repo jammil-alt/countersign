@@ -34,9 +34,12 @@ export const TableColumn = z.strictObject({
   /** A file without it fails the step, naming it (default false). */
   required: z.boolean().optional(),
   /**
-   * A column only this client has (docs/plan.md §1.164, "Per agent, per step"): marked so a
-   * promotion back to the template can leave it out.
+   * A column only this client has (docs/plan.md §1.164, "Per agent, per step"), shown as such in
+   * the editor. A promotion never carries it: promotion carries no client's parameter values at
+   * all (`stripForPromotion` in packages/agents keeps the template's own, or none).
    */
+  // DECISION: no column-by-column merge on promotion; the stricter whole-value rule already keeps
+  // a client's columns out, and a shared improvement goes into the template by hand.
   clientSpecific: z.boolean().optional(),
 });
 export type TableColumn = z.infer<typeof TableColumn>;

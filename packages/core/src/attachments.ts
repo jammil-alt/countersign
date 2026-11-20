@@ -6,6 +6,7 @@
 // connectors and the screens.
 
 import { z } from "zod";
+import { CSV_MIME_TYPE, XLSX_MIME_TYPE } from "./documents/tables";
 import type { ReachChannel } from "./reach/rules";
 
 /** At most this many attachments on one email or message. */
@@ -20,8 +21,25 @@ export const SENDABLE_TYPES: readonly string[] = [
   "image/webp",
 ];
 
+/**
+ * §1.164: what an email may also carry: a spreadsheet Write table made (.csv, .xlsx). Texts and
+ * WhatsApp keep PDFs and images.
+ */
+// DECISION: email only, and never .json: a spreadsheet is what a person opens; MMS and WhatsApp
+// carriers refuse or mangle these types, and reach-outs (which may go by text) keep the narrow set.
+export const EMAIL_SENDABLE_TYPES: readonly string[] = [
+  ...SENDABLE_TYPES,
+  CSV_MIME_TYPE,
+  XLSX_MIME_TYPE,
+];
+
 export function isSendableType(mimeType: string): boolean {
-  return SENDABLE_TYPES.includes(mimeType.trim().toLowerCase());
+  return sendableIn(mimeType, SENDABLE_TYPES);
+}
+
+/** Whether a document of this type may go where `types` are allowed (a provider's own set). */
+export function sendableIn(mimeType: string, types: readonly string[]): boolean {
+  return types.includes(mimeType.trim().toLowerCase());
 }
 
 /** One attachment as a send tool takes it: a stored document of this client, by id. */
