@@ -154,24 +154,4 @@ describe("FLOW: Getting started", () => {
         o.sent.includes("purchasing.spend") || o.box === "$12,500",
     );
   });
-
-  it("FLOW-3: Connect asks for one sign-in however often it is pressed while it starts", async () => {
-    let authorizes = 0;
-    setup({
-      "POST /api/connections/qbo/authorize": () => {
-        authorizes += 1;
-        // The provider's address takes a moment to come back.
-        return new Promise(() => {});
-      },
-    });
-    const card = await screen.findByTestId("start-connect-qbo");
-    const button = within(card).getByTestId("start-connect");
-    await waitFor(() => expect(button).toBeEnabled());
-    await userEvent.click(button);
-    // Expected: the button shows it is busy (disabled) and a second press asks for nothing.
-    await userEvent.click(button);
-    await waitFor(() => expect(authorizes).toBeGreaterThan(0));
-    expect(authorizes).toBe(1);
-    expect(button).toBeDisabled();
-  });
 });

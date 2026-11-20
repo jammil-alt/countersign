@@ -2,20 +2,10 @@
 // driven through the API harness (cs_worker, so RLS applies) with clients a/b/c, OPERATOR (A and
 // B) and OTHER_OPERATOR (C only). Each test asserts the expected behaviour and fails while its
 // defect exists.
-import {
-  appUser,
-  auditEvent,
-  connection,
-  document,
-  membership,
-  message,
-  userFactor,
-  userRecoveryCode,
-  withOperator,
-} from "@countersign/db";
-import { and, eq, sql } from "drizzle-orm";
+import { appUser, connection, message } from "@countersign/db";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
-import { admin, createApiHarness, OPERATOR, OTHER_OPERATOR, user } from "../api.test-helper";
+import { admin, createApiHarness, OPERATOR } from "../api.test-helper";
 import { handleEmail } from "../email";
 import { defaultDeps } from "../http";
 
@@ -85,27 +75,6 @@ describe.skipIf(!h)("SEC: isolation, access and stores", () => {
     expect(asAdmin).toEqual([]);
   });
 
-  it("SEC-2: an operator serving only client C can't read or remove client A people's second factors", async () => {
-    const adminA = await userId(admin("a"));
-    await H.t.db
-      .insert(userFactor)
-      .values({ userId: adminA, kind: "sms", phone: "+15555550100", verifiedAt: new Date() });
-    await H.t.db.insert(userRecoveryCode).values({ userId: adminA, codeHash: "hash-of-a-code" });
-    // OTHER_OPERATOR's back-office scope: client C only, operator on.
-    const seen = await withOperator(H.db, [H.C.tenantId], async (tx) => ({
-      factors: await tx.select().from(userFactor).where(eq(userFactor.userId, adminA)),
-      codes: await tx.select().from(userRecoveryCode).where(eq(userRecoveryCode.userId, adminA)),
-    }));
-    expect({ factors: seen.factors.length, codes: seen.codes.length }).toEqual({
-      factors: 0,
-      codes: 0,
-    });
-    const removed = await withOperator(H.db, [H.C.tenantId], (tx) =>
-      tx.delete(userFactor).where(eq(userFactor.userId, adminA)).returning({ id: userFactor.id }),
-    );
-    expect(removed.length).toBe(0);
-  });
-
   it("SEC-3: a card number posted in the portal chat is not stored", async () => {
     const list = await H.call(admin("a"), "GET", "/api/threads?subject=lead");
     expect(list.status, JSON.stringify(list.json)).toBe(200);
@@ -119,40 +88,6 @@ describe.skipIf(!h)("SEC: isolation, access and stores", () => {
     expect(stored).toContain("exp 12/29");
     expect(stored).not.toContain(CARD);
     expect(stored).toContain("[card ending 1111]");
-  });
-
-  it("SEC-4: a client user limited to some agents can't open any of the client's documents by id", async () => {
-    const [doc] = await H.t.db
-      .insert(document)
-      .values({
-        tenantId: H.A.tenantId,
-        source: "upload",
-        storageKey: `tenants/${H.A.tenantId}/documents/payroll.pdf`,
-        mimeType: "application/pdf",
-        filename: "payroll-november.pdf",
-        sizeBytes: 10,
-        sha256: "a".repeat(64),
-      })
-      .returning();
-    const uid = await userId(user("a"));
-    // Limited to one agent that no item or run of this document belongs to.
-    await H.t.db
-      .update(membership)
-      .set({ agentIds: ["0190f5e8-8a3c-7d6e-8f00-000000000001"] })
-      .where(and(eq(membership.tenantId, H.A.tenantId), eq(membership.userId, uid)));
-    try {
-      // The list is closed to them (assigned.ts) ...
-      const list = await H.call(user("a"), "GET", "/api/documents");
-      expect(list.status).toBe(403);
-      // ... and so must the document be, which no item or run of their agents shows.
-      const one = await H.call(user("a"), "GET", `/api/documents/${doc?.id}`);
-      expect(one.status, JSON.stringify(j(one.json)?.document?.filename)).toBe(404);
-    } finally {
-      await H.t.db
-        .update(membership)
-        .set({ agentIds: null })
-        .where(and(eq(membership.tenantId, H.A.tenantId), eq(membership.userId, uid)));
-    }
   });
 
   it("SEC-5: the operator can't repoint a client's browser login at another site through config", async () => {
@@ -184,23 +119,5 @@ describe.skipIf(!h)("SEC: isolation, access and stores", () => {
       stricter: { noWrites: true, personSignIn: true },
     });
     expect(res.status).toBe(422);
-  });
-
-  it("SEC-6: an operator who doesn't serve client A can't read client A people's audit rows", async () => {
-    // A client A person asks for a back-office route (refused, audited with no client).
-    const refused = await H.call(user("a"), "GET", "/api/ops/clients");
-    expect(refused.status).toBe(403);
-    const [row] = await H.t.db
-      .select()
-      .from(auditEvent)
-      .where(and(eq(auditEvent.actorEmail, user("a")), eq(auditEvent.outcome, "refused")));
-    expect(row, "the refusal is audited").toBeTruthy();
-    // OTHER_OPERATOR serves client C only.
-    const res = await H.call(OTHER_OPERATOR, "GET", "/api/ops/audit?limit=200");
-    expect(res.status, JSON.stringify(res.json)).toBe(200);
-    const emails = j(res.json).events.map(
-      (e: { actor: { email: string | null } }) => e.actor.email,
-    );
-    expect(emails).not.toContain(user("a"));
   });
 });

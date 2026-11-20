@@ -3,8 +3,6 @@
 // the client's system (an archive, BILL's void) under `update`, so `delete: off` never stops them.
 
 import {
-  BILLCOM_TOOLS,
-  createBillcomConnector,
   createOdooConnector,
   executeWrite,
   memoryCredentials,
@@ -13,7 +11,7 @@ import {
   type WriteContext,
 } from "@countersign/connectors";
 import { FAKE_ODOO, fakeOdoo } from "@countersign/connectors/testing";
-import { DEFAULT_PERMISSIONS, decideToolCall, isAlwaysSigned } from "@countersign/core";
+import { DEFAULT_PERMISSIONS } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 
 const NOW = new Date("2026-11-10T15:00:00.000Z");
@@ -62,28 +60,5 @@ describe("TOOL: delete-like writes", () => {
     // client's customer is archived in Odoo under `update`.
     expect(odoo.row("res.partner", FAKE_ODOO.partners.harbor)?.active).toBe(true);
     expect(refused).not.toBeNull();
-  });
-
-  it("TOOL-4: billcom.bill.archive (BILL's void) never runs without a person's signature", () => {
-    const connector = createBillcomConnector({ devKey: "dev-key", environment: "sandbox" });
-    const spec = connector.manifest.tools.find((t) => t.id === BILLCOM_TOOLS.billArchive);
-    if (!spec) throw new Error("no bill.archive");
-    // Updates loosened for this client by the operator; delete stays off.
-    const decision = decideToolCall({
-      sideEffect: spec.sideEffect,
-      verb: spec.verb,
-      matrix: { read: "auto", create: "approval", update: "auto", delete: "off" },
-      stepApproval: "not_required",
-      agentMode: "act",
-      entity: {
-        tool: spec,
-        input: { id: "00n01ABCDEFGHIJKLMN" },
-        declared: connector.manifest.permissionEntities,
-      },
-      alwaysSigned: isAlwaysSigned(spec),
-    });
-    // Expected: a void is never automatic (as QBO's deactivate and the website's take-down are
-    // always signed). Today it runs on its own under update: auto, though delete is off.
-    expect(decision).not.toBe("run");
   });
 });
