@@ -5,6 +5,7 @@
 // is made once however often the run is retried, and nothing the run kept holds the password; and a
 // client in HIPAA mode is refused BILL's tools without a BAA.
 
+import { undoAction } from "@countersign/agents";
 import {
   BILLCOM_TOOLS,
   connectionDefaults,
@@ -40,7 +41,7 @@ import {
   OPERATOR,
 } from "./api.test-helper";
 import { hipaaToolPolicy } from "./compliance/policy";
-import { credentialsFor, executeRun } from "./runs/execute";
+import { credentialsFor, executeRun, forClient, runtimeFor } from "./runs/execute";
 import { cloudflareStepRunner } from "./runs/step-runner";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
@@ -295,5 +296,33 @@ describe.skipIf(!h)("BILL through the API", () => {
     ]);
     expect(kept).not.toContain(FAKE_BILLCOM.password);
     expect(kept).not.toContain("sess-");
+
+    // (PLATFORM_QA TOOL-4) The archive is always signed, and is still the bill's undo: a person's
+    // press is its signature, and the bill is archived once.
+    const tool = H.platform.connectors
+      .get("billcom")
+      ?.manifest.tools.find((t) => t.id === BILLCOM_TOOLS.billArchive);
+    expect(tool?.approval).toBe("always");
+    const runtime = runtimeFor(forClient(deps, H.B.tenantId));
+    const out = await undoAction(runtime, {
+      tenantId: H.B.tenantId,
+      actionId: action?.id as string,
+      by: H.B.admin,
+    });
+    expect(out.status, JSON.stringify(out)).toBe("done");
+    expect(made()[0]).toMatchObject({ archived: true });
+    const [undo] = await H.t.db
+      .select()
+      .from(externalAction)
+      .where(eq(externalAction.tool, BILLCOM_TOOLS.billArchive));
+    expect(undo).toMatchObject({ status: "done", approvedBy: H.B.admin });
+    // A second press stands on the first: nothing is archived twice.
+    const again = await undoAction(runtime, {
+      tenantId: H.B.tenantId,
+      actionId: action?.id as string,
+      by: H.B.admin,
+    });
+    expect(again.status).toBe("done");
+    expect(bill.requests.filter((r) => r.url.endsWith("/archive"))).toHaveLength(1);
   });
 });

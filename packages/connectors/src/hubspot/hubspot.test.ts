@@ -5,7 +5,8 @@ import {
   type PermissionMatrix,
 } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { type WriteContext, writeNotMade } from "../connector";
+import type { WriteAttemptServices, WriteAttemptState } from "../attempts";
+import { UnconfirmedWriteError, type WriteContext, writeNotMade } from "../connector";
 import { CredentialCipher, generateEncryptionKey, memoryTenantKeys } from "../credentials";
 import { memoryCredentials } from "../credentials-accessor";
 import { formDecode, parseUrl } from "../http";
@@ -44,7 +45,39 @@ async function signedIn(hs: ReturnType<typeof fakeHubspot>) {
   return { connector, credentials: grant.credentials };
 }
 
-function ctx(credentials: JsonObject | null, key = "run-1:write:0") {
+/** The platform's record of write attempts, in memory (as slack.test.ts keeps it). */
+function memoryAttempts() {
+  const started = new Map<string, { details: JsonObject; at: Date }>();
+  const refused = new Set<string>();
+  const done = new Map<string, JsonObject>();
+  const s: WriteAttemptServices = {
+    async stateFor(key): Promise<WriteAttemptState> {
+      const mine = [...started.entries()].filter(([k]) => k.startsWith(`${key}#`));
+      const last = mine.at(-1)?.[1];
+      return {
+        done: done.get(key) ?? null,
+        started: mine.length,
+        refused: [...refused].filter((k) => k.startsWith(`${key}#`)).length,
+        last: last ? { details: last.details, startedAt: last.at } : null,
+      };
+    },
+    async start({ idempotencyKey, attempt, details, at }) {
+      const k = `${idempotencyKey}#${attempt}`;
+      if (started.has(k)) return false;
+      started.set(k, { details, at });
+      return true;
+    },
+    async refused({ idempotencyKey, attempt }) {
+      refused.add(`${idempotencyKey}#${attempt}`);
+    },
+    async done({ idempotencyKey, output }) {
+      if (!done.has(idempotencyKey)) done.set(idempotencyKey, output);
+    },
+  };
+  return s;
+}
+
+function ctx(credentials: JsonObject | null, key = "run-1:write:0", attempts = memoryAttempts()) {
   const store = memoryCredentials(credentials);
   const c: WriteContext = {
     tenantId: tenant,
@@ -60,6 +93,7 @@ function ctx(credentials: JsonObject | null, key = "run-1:write:0") {
     credentials: store,
     logger: memoryLogger(),
     now: () => NOW,
+    services: { attempts },
     idempotencyKey: key,
   };
   return { c, store };
@@ -301,7 +335,7 @@ describe("hubspot connector", () => {
     expect(hs.writes()).toHaveLength(1);
   });
 
-  it("creates a record once: a lost answer's retry finds its own record, a real duplicate is refused", async () => {
+  it("creates a record once per key: a lost answer's retry is unconfirmed, a real duplicate is refused", async () => {
     const hs = fakeHubspot({ now: NOW });
     const { connector, credentials } = await signedIn(hs);
     const { c } = ctx(credentials);
@@ -318,26 +352,34 @@ describe("hubspot connector", () => {
       retryable: true,
     });
     expect(hs.writes()).toHaveLength(1);
-    const retried = await executeWrite(connector, HUBSPOT_TOOLS.create, input, c);
-    expect(retried.output).toMatchObject({ objectType: "contacts", alreadyDone: true });
+    // (PLATFORM_QA STATE-5) The retry under the same key may not write again, and no match on
+    // the record's content stands in for the lost answer: the operator checks.
+    const retried = await executeWrite(connector, HUBSPOT_TOOLS.create, input, c, {
+      recheck: false,
+    }).catch((e: unknown) => e);
+    expect(retried).toBeInstanceOf(UnconfirmedWriteError);
     expect(hs.writes()).toHaveLength(1);
     // An old contact with the same email is not ours: the approver is shown it, the write refused.
     const dup = {
       objectType: "contacts",
       properties: { email: "pat@okafor.example", firstname: "P" },
     };
-    expect((await captureBefore(connector, HUBSPOT_TOOLS.create, dup, c)).before).toMatchObject({
+    const d = ctx(credentials, "run-1:write:1").c;
+    expect((await captureBefore(connector, HUBSPOT_TOOLS.create, dup, d)).before).toMatchObject({
       existing: [{ id: FAKE_HUBSPOT.contact }],
     });
-    await expect(executeWrite(connector, HUBSPOT_TOOLS.create, dup, c)).rejects.toThrow(
-      /already exists/,
+    const refused = await executeWrite(connector, HUBSPOT_TOOLS.create, dup, d).catch(
+      (e: unknown) => e,
     );
+    expect(refused).toBeInstanceOf(HubspotApiError);
+    expect((refused as Error).message).toMatch(/already exists/);
+    expect(writeNotMade(refused)).toBe(true);
     // A deal with a new name is simply made.
     const deal = await executeWrite(
       connector,
       HUBSPOT_TOOLS.create,
       { objectType: "deals", properties: { dealname: "Okafor vanity", amount: "4200" } },
-      c,
+      ctx(credentials, "run-1:write:2").c,
     );
     expect(deal.output).toMatchObject({ objectType: "deals", alreadyDone: false });
     expect(hs.writes()).toHaveLength(2);
@@ -377,7 +419,8 @@ describe("hubspot connector", () => {
       objectType: "contacts",
       recordId: FAKE_HUBSPOT.contact,
     };
-    const t1 = await executeWrite(connector, HUBSPOT_TOOLS.task, task, c);
+    const tc = ctx(credentials, "run-1:task:0").c;
+    const t1 = await executeWrite(connector, HUBSPOT_TOOLS.task, task, tc);
     expect(t1.before).toEqual({
       record: { objectType: "contacts", id: FAKE_HUBSPOT.contact, name: "Pat Lee" },
     });
@@ -391,11 +434,16 @@ describe("hubspot connector", () => {
     expect(made2?.associations).toEqual([
       { type: "contacts", id: FAKE_HUBSPOT.contact, typeId: 204 },
     ]);
-    const t2 = await executeWrite(connector, HUBSPOT_TOOLS.task, task, c);
+    const t2 = await executeWrite(connector, HUBSPOT_TOOLS.task, task, tc);
     expect(t2.output).toEqual({ id: made2?.id, alreadyDone: true });
     expect(hs.objects.filter((o) => o.type === "tasks")).toHaveLength(1);
     // A task on nothing, and a task on a record that isn't there.
-    const loose = await executeWrite(connector, HUBSPOT_TOOLS.task, { subject: "Order hinges" }, c);
+    const loose = await executeWrite(
+      connector,
+      HUBSPOT_TOOLS.task,
+      { subject: "Order hinges" },
+      ctx(credentials, "run-1:task:1").c,
+    );
     expect(loose.before).toBeNull();
     await expect(
       executeWrite(connector, HUBSPOT_TOOLS.task, { ...task, recordId: "42" }, c),
@@ -403,6 +451,92 @@ describe("hubspot connector", () => {
     await expect(
       executeWrite(connector, HUBSPOT_TOOLS.task, { subject: "x", recordId: "1" }, c),
     ).rejects.toThrow(/invalid input/);
+  });
+
+  it("(PLATFORM_QA STATE-5) two actions with different keys and the same words both write", async () => {
+    const hs = fakeHubspot({ now: NOW });
+    const { connector, credentials } = await signedIn(hs);
+    const attempts = memoryAttempts();
+    const note = { objectType: "deals", recordId: FAKE_HUBSPOT.deal, text: "Left a voicemail." };
+    const task = { subject: "Call Pat back", objectType: "deals", recordId: FAKE_HUBSPOT.deal };
+    const deal = { objectType: "deals", properties: { dealname: "Okafor vanity" } };
+    for (const run of ["run-1", "run-2"]) {
+      const n = await executeWrite(
+        connector,
+        HUBSPOT_TOOLS.note,
+        note,
+        ctx(credentials, `${run}:note:0`, attempts).c,
+      );
+      expect(n.output).toMatchObject({ alreadyDone: false });
+      const t = await executeWrite(
+        connector,
+        HUBSPOT_TOOLS.task,
+        task,
+        ctx(credentials, `${run}:task:0`, attempts).c,
+      );
+      expect(t.output).toMatchObject({ alreadyDone: false });
+      const d = await executeWrite(
+        connector,
+        HUBSPOT_TOOLS.create,
+        deal,
+        ctx(credentials, `${run}:deal:0`, attempts).c,
+      );
+      expect(d.output).toMatchObject({ alreadyDone: false });
+    }
+    expect(hs.objects.filter((o) => o.type === "notes")).toHaveLength(2);
+    expect(hs.objects.filter((o) => o.type === "tasks")).toHaveLength(2);
+    expect(
+      hs.objects.filter((o) => o.type === "deals" && o.properties.dealname === "Okafor vanity"),
+    ).toHaveLength(2);
+  });
+
+  it("(PLATFORM_QA STATE-5) a takeover under the same key after a lost answer doesn't write twice", async () => {
+    const hs = fakeHubspot({ now: NOW });
+    const { connector, credentials } = await signedIn(hs);
+    const attempts = memoryAttempts();
+    const note = { objectType: "deals", recordId: FAKE_HUBSPOT.deal, text: "Left a voicemail." };
+    hs.loseNextAnswer();
+    const lost = await executeWrite(
+      connector,
+      HUBSPOT_TOOLS.note,
+      note,
+      ctx(credentials, "run-1:note:0", attempts).c,
+    ).catch((e: unknown) => e);
+    expect(writeNotMade(lost)).toBe(false);
+    const again = await executeWrite(
+      connector,
+      HUBSPOT_TOOLS.note,
+      note,
+      ctx(credentials, "run-1:note:0", attempts).c,
+      { recheck: false },
+    ).catch((e: unknown) => e);
+    expect(again).toBeInstanceOf(UnconfirmedWriteError);
+    expect(hs.objects.filter((o) => o.type === "notes")).toHaveLength(1);
+    // Once its result is recorded, a re-run under the key returns it and sends nothing.
+    const c2 = ctx(credentials, "run-1:note:1", attempts).c;
+    const made = await executeWrite(connector, HUBSPOT_TOOLS.note, note, c2);
+    const rerun = await executeWrite(connector, HUBSPOT_TOOLS.note, note, c2);
+    expect(rerun.output).toEqual({ ...(made.output as JsonObject), alreadyDone: true });
+    expect(hs.objects.filter((o) => o.type === "notes")).toHaveLength(2);
+  });
+
+  it("(PLATFORM_QA STATE-5) a try HubSpot refused writes nothing, and the retry under the same key writes once", async () => {
+    const hs = fakeHubspot({ now: NOW });
+    const { connector, credentials } = await signedIn(hs);
+    const { c } = ctx(credentials, "run-1:task:0");
+    hs.rateLimitNext(1);
+    const refused = await executeWrite(
+      connector,
+      HUBSPOT_TOOLS.task,
+      { subject: "Order hinges" },
+      c,
+    ).catch((e: unknown) => e);
+    expect(writeNotMade(refused)).toBe(true);
+    const made = await executeWrite(connector, HUBSPOT_TOOLS.task, { subject: "Order hinges" }, c);
+    expect(made.output).toMatchObject({ alreadyDone: false });
+    const again = await executeWrite(connector, HUBSPOT_TOOLS.task, { subject: "Order hinges" }, c);
+    expect(again.output).toEqual({ id: (made.output as JsonObject).id, alreadyDone: true });
+    expect(hs.objects.filter((o) => o.type === "tasks")).toHaveLength(1);
   });
 
   it("refreshes on a 401 keeping the refresh token, asks for a reconnect when it's gone, revokes on disconnect", async () => {

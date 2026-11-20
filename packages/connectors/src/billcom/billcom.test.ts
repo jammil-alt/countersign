@@ -268,6 +268,41 @@ describe("billcom connector: the manifest", () => {
     expect(decide(create, { ...DEFAULT_PERMISSIONS, create: "auto" }, "not_required")).toBe("run");
   });
 
+  it("(PLATFORM_QA TOOL-4) never archives a bill (BILL's void) without a person, whatever the operator sets", () => {
+    const m = setup().connector.manifest;
+    const spec = m.tools.find((t) => t.id === BILLCOM_TOOLS.billArchive);
+    const create = m.tools.find((t) => t.id === BILLCOM_TOOLS.billCreate);
+    if (!spec || !create) throw new Error("no tools");
+    expect(isAlwaysSigned(spec)).toBe(true);
+    // It is still the undo of a bill we created.
+    expect(create.undo).toEqual({ kind: "reverse", tool: BILLCOM_TOOLS.billArchive });
+    const decide = (matrix: Partial<PermissionMatrix>, step?: "required" | "not_required") =>
+      decideToolCall({
+        sideEffect: spec.sideEffect,
+        verb: spec.verb,
+        matrix,
+        agentMode: "act",
+        alwaysSigned: isAlwaysSigned(spec),
+        ...(step ? { stepApproval: step } : {}),
+        entity: {
+          tool: { id: spec.id, entity: spec.entity },
+          input: { id: "00n01ARCHIVE" },
+          declared: m.permissionEntities,
+        },
+      });
+    const loosest: Partial<PermissionMatrix> = {
+      ...DEFAULT_PERMISSIONS,
+      update: "auto",
+      entities: { bill: { update: "auto" } },
+    };
+    for (const matrix of [connectionDefaults(m), loosest]) {
+      for (const step of [undefined, "required", "not_required"] as const) {
+        expect(decide(matrix, step)).not.toBe("run");
+      }
+    }
+    expect(decide(loosest, "not_required")).toBe("approval");
+  });
+
   it("is a processor of ours, so a client in HIPAA mode is refused it without a BAA", () => {
     expect(processorsForOffer("billcom")).toEqual(["billcom"]);
     expect(processorsForTool(BILLCOM_TOOLS.billCreate, "billcom")).toEqual(["billcom"]);

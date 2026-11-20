@@ -7,7 +7,7 @@
 //
 // Reads: vendors, bills and payments, each with `sources`. Writes, each `external` behind approval
 // and run once per external action: vendor create and update, bill create, update and archive (a
-// created bill's undo), and a stored document attached to a bill. `billcom.payment.create` is
+// created bill's undo, always signed by a person), and a stored document attached to a bill. `billcom.payment.create` is
 // defined but refused: BILL pays only from an MFA-trusted session, which waits for a path through
 // our code service; its entity starts off and it is always signed by a person. No delete tool.
 // Unchecked facts: ./NOTES.md.
@@ -1077,6 +1077,11 @@ export function createBillcomConnector(options: BillcomOptions = {}): Connector 
         description:
           "Archive a bill in BILL (BILL's void: the bill stays, marked archived). Refused once a payment is scheduled or made on it. Undoes a bill we created.",
         verb: "update",
+        // DECISION (PLATFORM_QA TOOL-4): BILL's void is always signed by a person, whatever the
+        // matrix, the step or the mode allow, as QuickBooks' `active: false` updates and the
+        // website's take-down. As the undo of `billcom.bill.create` it still runs: the person's
+        // press is its signature (packages/agents `undoAction` asks the gate in its signed mode).
+        approval: "always",
         undo: { kind: "none" },
         summary: "Archived the bill {{id}} in BILL",
         input: z.object({ id: BillcomId, expectedUpdatedTime: z.string().max(60).optional() }),

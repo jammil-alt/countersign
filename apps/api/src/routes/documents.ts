@@ -45,6 +45,7 @@ import { createLlmClient } from "@countersign/llm";
 import { collectEmitted, EmittedEvents, type EventRow, emit } from "@countersign/senses";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Hono } from "hono";
+import { ensureSeesDocument } from "../assigned";
 import { clientExtractionModels } from "../compliance/models";
 import {
   type AppContext,
@@ -533,9 +534,12 @@ export function documentRoutes(app: Hono<AppEnv>): void {
     documents: await recentDocuments(tx, tenantIds[0] as string, query.limit ?? 50),
   }));
 
-  mount(app, routes.portalDocument, async ({ c, tx, tenantIds, params, services }) =>
-    documentDetail({ c, tx, services }, tenantIds[0] as string, params.id),
-  );
+  // A client user limited to some agents opens only a document their agents' runs, steps or items
+  // name (PLATFORM_QA SEC-4, `assigned.ts`); the list of documents stays closed to them.
+  mount(app, routes.portalDocument, async ({ c, tx, tenantIds, params, services, agents }) => {
+    await ensureSeesDocument(tx, tenantIds[0] as string, params.id, agents);
+    return documentDetail({ c, tx, services }, tenantIds[0] as string, params.id);
+  });
 
   mount(app, routes.portalForwarding, async ({ tx, tenantIds, session, services }) => {
     const tenantId = tenantIds[0] as string;

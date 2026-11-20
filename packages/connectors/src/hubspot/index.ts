@@ -6,6 +6,7 @@
 
 import type { JsonObject } from "@countersign/core";
 import { z } from "zod";
+import type { WriteAttemptServices } from "../attempts";
 import {
   type ConnectionContext,
   type Connector,
@@ -13,6 +14,9 @@ import {
   defineReadTool,
   defineWriteTool,
   type ToolContext,
+  UnconfirmedWriteError,
+  type WriteContext,
+  writeNotMade,
 } from "../connector";
 import { type FetchLike, formEncode, globalFetch, timeoutSignal } from "../http";
 import {
@@ -61,13 +65,6 @@ const ASSOCIATION_TYPE = {
   tasks: { contacts: 204, companies: 192, deals: 216 },
 } as const satisfies Record<"notes" | "tasks", Record<HubspotObjectType, number>>;
 
-/** The singular names HubSpot's search uses for association filters (`associations.contact`). */
-const ASSOCIATION_FILTER: Record<HubspotObjectType, string> = {
-  contacts: "associations.contact",
-  companies: "associations.company",
-  deals: "associations.deal",
-};
-
 /** The properties returned when the call names none: enough to know the record. */
 const DEFAULT_PROPERTIES: Record<HubspotObjectType, readonly string[]> = {
   contacts: ["firstname", "lastname", "email", "phone", "company", "jobtitle", "lifecyclestage"],
@@ -82,8 +79,14 @@ const KEY_PROPERTIES: Record<HubspotObjectType, readonly string[]> = {
   deals: ["dealname"],
 };
 
-/** A create that finds its twin made within this long is this action's own earlier write. */
-const TWIN_WINDOW_MS = 24 * 60 * 60 * 1000;
+/** Tries of one create HubSpot refused before we stop and fail it. */
+const MAX_ATTEMPTS = 5;
+
+function attemptServices(ctx: ToolContext): WriteAttemptServices {
+  const s = ctx.services?.attempts;
+  if (!s) throw new Error("HubSpot creates need the platform's record of attempts");
+  return s;
+}
 
 export const HubspotCredentials = OAuthTokens.extend({
   /** The HubSpot account (portal) the tokens are for. */
@@ -110,10 +113,13 @@ export class HubspotApiError extends Error {
     message: string,
     /** 429 and 5xx: the step's retry with backoff may get through. */
     readonly retryable: boolean,
+    /** Our own refusal before anything was sent: nothing written, whatever the status. */
+    notWritten?: boolean,
   ) {
     super(message);
     this.name = "HubspotApiError";
-    this.notWritten = status >= 400 && status < 500 && status !== 408 && status !== 409;
+    this.notWritten =
+      notWritten ?? (status >= 400 && status < 500 && status !== 408 && status !== 409);
   }
 }
 
@@ -161,6 +167,20 @@ const RawRecord = z.looseObject({
   createdAt: z.string().nullable().optional(),
   updatedAt: z.string().nullable().optional(),
 });
+
+/** What the creates return; a re-run under the same key returns the recorded one, `alreadyDone`. */
+const CreateOutput = z.object({
+  objectType: HubspotObjectType,
+  id: z.string(),
+  alreadyDone: z.boolean(),
+});
+const NoteOutput = z.object({
+  objectType: HubspotObjectType,
+  recordId: z.string(),
+  id: z.string(),
+  alreadyDone: z.boolean(),
+});
+const TaskOutput = z.object({ id: z.string(), alreadyDone: z.boolean() });
 
 /** HubSpot's record JSON → HubspotRecord. Property values are strings (or null) in HubSpot. */
 export function mapHubspotRecord(objectType: HubspotObjectType, raw: unknown): HubspotRecord {
@@ -394,40 +414,78 @@ export function createHubspotConnector(options: HubspotOptions = {}): Connector 
     );
   }
 
-  /** Made since this instant: a create that finds one like itself treats it as its own. */
-  const twinSince = (ctx: ToolContext) => String(ctx.now().getTime() - TWIN_WINDOW_MS);
-
-  /** A note or task like this one, made within the window, on the same record (or none). */
-  async function findTwin(
-    ctx: ToolContext,
-    kind: "notes" | "tasks",
-    on: { objectType: HubspotObjectType; recordId: string } | null,
-    match: Record<string, string>,
-  ): Promise<string | null> {
-    const [keyName, keyValue] = Object.entries(match)[0] ?? [];
-    const filters: Filter[] = [
-      { propertyName: "hs_createdate", operator: "GTE", value: twinSince(ctx) },
-      ...(on
-        ? [{ propertyName: ASSOCIATION_FILTER[on.objectType], operator: "EQ", value: on.recordId }]
-        : []),
-      // Long text can't be an equality filter (NOTES.md): a task's subject narrows; a note's body
-      // is compared below.
-      ...(kind === "tasks" && keyName && keyValue !== undefined
-        ? [{ propertyName: keyName, operator: "EQ", value: keyValue }]
-        : []),
-    ];
-    const found = await search(ctx, kind, {
-      filters,
-      properties: Object.keys(match),
-      limit: 100,
-    });
-    for (const raw of found.results) {
-      const r = RawRecord.parse(raw);
-      const props = r.properties ?? {};
-      if (Object.entries(match).every(([k, v]) => String(props[k] ?? "") === v))
-        return String(r.id);
+  /**
+   * A create HubSpot takes no idempotency key for, made at most once per key through the
+   * platform's record of attempts (as Zoho's, Slack's and LinkedIn's): a re-run after the result
+   * was recorded returns it (`alreadyDone`); an attempt started without HubSpot's answer is never
+   * sent again, and fails as unconfirmed for the operator; an attempt HubSpot refused created
+   * nothing and may be tried again. Another action's key always writes, whatever its words.
+   */
+  async function createOnce<T extends JsonObject & { alreadyDone: boolean }>(
+    ctx: WriteContext,
+    what: string,
+    details: JsonObject,
+    parse: (recorded: JsonObject) => T,
+    create: () => Promise<T>,
+  ): Promise<T> {
+    const attempts = attemptServices(ctx);
+    const key = ctx.idempotencyKey;
+    const state = await attempts.stateFor(key);
+    if (state.done) return { ...parse(state.done), alreadyDone: true };
+    if (state.started > state.refused) {
+      const last = state.last;
+      throw new UnconfirmedWriteError(
+        `The ${what} in HubSpot may have been created`,
+        `we started it at ${last?.startedAt.toISOString() ?? "an unknown time"} and have no answer from HubSpot`,
+        {
+          channel: "hubspot",
+          ...(last?.details ?? {}),
+          ...(last ? { startedAt: last.startedAt.toISOString() } : {}),
+        },
+      );
     }
-    return null;
+    if (state.started >= MAX_ATTEMPTS) {
+      throw new Error(`HubSpot refused this ${what} ${state.started} times; we stopped trying`);
+    }
+    // The sign-in is refreshed before the attempt is recorded: a refresh that fails leaves no
+    // started create behind.
+    const stored = HubspotCredentials.safeParse(await ctx.credentials.get());
+    if (!stored.success)
+      throw new ReconnectRequiredError("the HubSpot connection has no valid credentials");
+    await tokenManager({ credentials: ctx.credentials, refresher, now: ctx.now }).accessToken();
+    const attempt = state.started + 1;
+    const claimed = await attempts.start({
+      idempotencyKey: key,
+      attempt,
+      details: { ...details, attempt },
+      at: ctx.now(),
+    });
+    if (!claimed) {
+      throw new UnconfirmedWriteError(
+        `The ${what} in HubSpot may have been created`,
+        "another run of this action started creating it at the same time",
+        { channel: "hubspot", ...details, attempt },
+      );
+    }
+    let output: T;
+    try {
+      // A network failure, a 5xx, a 408 or a 409 throws here with the attempt open: unconfirmed
+      // on retry.
+      output = await create();
+    } catch (error) {
+      if (writeNotMade(error)) {
+        const status = (error as { status?: unknown }).status;
+        await attempts.refused({
+          idempotencyKey: key,
+          attempt,
+          reason: typeof status === "number" ? `HTTP_${status}` : (error as Error).name,
+          at: ctx.now(),
+        });
+      }
+      throw error;
+    }
+    await attempts.done({ idempotencyKey: key, output, at: ctx.now() });
+    return output;
   }
 
   const SearchFilter = z.object({
@@ -625,11 +683,7 @@ export function createHubspotConnector(options: HubspotOptions = {}): Connector 
         undo: { kind: "none" },
         summary: "Created {{objectType}} {{id}}",
         input: z.object({ objectType: HubspotObjectType, properties: Properties }),
-        output: z.object({
-          objectType: HubspotObjectType,
-          id: z.string(),
-          alreadyDone: z.boolean(),
-        }),
+        output: CreateOutput,
         // What is there already: records of this type with the same email, domain, name or deal
         // name, so the approver sees a likely duplicate before it is made.
         beforeSchema: z.object({ existing: z.array(HubspotRecord) }),
@@ -647,34 +701,37 @@ export function createHubspotConnector(options: HubspotOptions = {}): Connector 
           return { existing: found.results.map((r) => mapHubspotRecord(input.objectType, r)) };
         },
         async run(input, ctx, before) {
-          // DECISION: HubSpot takes no idempotency key. A record of this type made within the
-          // last day whose every given property already has the given value is this action's own
-          // earlier write (a retry after a lost answer): it is reported done, not made again.
-          const since = ctx.now().getTime() - TWIN_WINDOW_MS;
-          const twin = (before?.existing ?? []).find(
-            (r) =>
-              r.createdAt !== null &&
-              Date.parse(r.createdAt) >= since &&
-              Object.entries(input.properties).every(
-                ([k, v]) => (r.properties[k] ?? null) === asText(v),
-              ),
+          // DECISION: HubSpot takes no idempotency key, so a create (record, note or task) is made
+          // at most once per key through the platform's record of attempts (as Zoho, Slack and
+          // LinkedIn): a re-run returns the recorded result, a takeover after a lost answer fails
+          // as unconfirmed for the operator, and a different key always writes, even the same
+          // words on the same day (invariants 8 and 10; PLATFORM_QA STATE-5). This replaces the
+          // day's "twin" match on content, which took a second action's write as already made.
+          return createOnce(
+            ctx,
+            "record",
+            { objectType: input.objectType },
+            (r) => CreateOutput.parse(r),
+            async () => {
+              // A contact whose email is there already is refused before anything is sent.
+              if (input.objectType === "contacts" && (before?.existing.length ?? 0) > 0) {
+                throw new HubspotApiError(
+                  409,
+                  "CONFLICT",
+                  "a contact with this email already exists: update it instead",
+                  false,
+                  true,
+                );
+              }
+              ctx.logger.info("creating hubspot record", { objectType: input.objectType });
+              const out = RawRecord.parse(
+                await api(ctx, "POST", `/crm/v3/objects/${input.objectType}`, {
+                  properties: input.properties,
+                }),
+              );
+              return { objectType: input.objectType, id: String(out.id), alreadyDone: false };
+            },
           );
-          if (twin) return { objectType: input.objectType, id: twin.id, alreadyDone: true };
-          if (input.objectType === "contacts" && (before?.existing.length ?? 0) > 0) {
-            throw new HubspotApiError(
-              409,
-              "CONFLICT",
-              "a contact with this email already exists: update it instead",
-              false,
-            );
-          }
-          ctx.logger.info("creating hubspot record", { objectType: input.objectType });
-          const out = RawRecord.parse(
-            await api(ctx, "POST", `/crm/v3/objects/${input.objectType}`, {
-              properties: input.properties,
-            }),
-          );
-          return { objectType: input.objectType, id: String(out.id), alreadyDone: false };
         },
       }),
       defineWriteTool({
@@ -797,12 +854,7 @@ export function createHubspotConnector(options: HubspotOptions = {}): Connector 
         undo: { kind: "none" },
         summary: "Added a note to {{objectType}} {{recordId}}",
         input: Attach.extend({ text: z.string().min(1).max(10_000) }),
-        output: z.object({
-          objectType: HubspotObjectType,
-          recordId: z.string(),
-          id: z.string(),
-          alreadyDone: z.boolean(),
-        }),
+        output: NoteOutput,
         beforeSchema: z.object({ record: AttachedTo }),
         async before(input, ctx) {
           const r = await getRecord(ctx, input.objectType, input.recordId);
@@ -818,33 +870,37 @@ export function createHubspotConnector(options: HubspotOptions = {}): Connector 
             );
           }
           const body = noteBodyHtml(input.text);
-          const done = (id: string, alreadyDone: boolean) => ({
-            objectType: input.objectType,
-            recordId: input.recordId,
-            id,
-            alreadyDone,
-          });
-          // DECISION: the same note on the same record within a day is this action's own earlier
-          // write (HubSpot takes no idempotency key): reported done, not added again.
-          const twin = await findTwin(ctx, "notes", input, { hs_note_body: body });
-          if (twin) return done(twin, true);
-          const out = RawRecord.parse(
-            await api(ctx, "POST", "/crm/v3/objects/notes", {
-              properties: { hs_timestamp: ctx.now().toISOString(), hs_note_body: body },
-              associations: [
-                {
-                  to: { id: input.recordId },
-                  types: [
+          // As records: once per key through the record of attempts, never matched on its words.
+          return createOnce(
+            ctx,
+            "note",
+            { objectType: input.objectType, recordId: input.recordId },
+            (r) => NoteOutput.parse(r),
+            async () => {
+              const out = RawRecord.parse(
+                await api(ctx, "POST", "/crm/v3/objects/notes", {
+                  properties: { hs_timestamp: ctx.now().toISOString(), hs_note_body: body },
+                  associations: [
                     {
-                      associationCategory: "HUBSPOT_DEFINED",
-                      associationTypeId: ASSOCIATION_TYPE.notes[input.objectType],
+                      to: { id: input.recordId },
+                      types: [
+                        {
+                          associationCategory: "HUBSPOT_DEFINED",
+                          associationTypeId: ASSOCIATION_TYPE.notes[input.objectType],
+                        },
+                      ],
                     },
                   ],
-                },
-              ],
-            }),
+                }),
+              );
+              return {
+                objectType: input.objectType,
+                recordId: input.recordId,
+                id: String(out.id),
+                alreadyDone: false,
+              };
+            },
           );
-          return done(String(out.id), false);
         },
       }),
       defineWriteTool({
@@ -868,7 +924,7 @@ export function createHubspotConnector(options: HubspotOptions = {}): Connector 
           .refine((v) => (v.objectType === undefined) === (v.recordId === undefined), {
             message: "give both objectType and recordId, or neither",
           }),
-        output: z.object({ id: z.string(), alreadyDone: z.boolean() }),
+        output: TaskOutput,
         beforeSchema: z.object({ record: AttachedTo }),
         async before(input, ctx) {
           if (!input.objectType || !input.recordId) return null;
@@ -891,11 +947,6 @@ export function createHubspotConnector(options: HubspotOptions = {}): Connector 
           // DECISION: a due date is noon UTC of that day, so it reads as the same day in the
           // Americas and Europe; no due date is due now (HubSpot requires hs_timestamp).
           const due = input.dueDate ? `${input.dueDate}T12:00:00.000Z` : ctx.now().toISOString();
-          const match: Record<string, string> = { hs_task_subject: input.subject };
-          if (input.body) match.hs_task_body = noteBodyHtml(input.body);
-          // As notes: the same task within a day is this action's own earlier write.
-          const twin = await findTwin(ctx, "tasks", on, match);
-          if (twin) return { id: twin, alreadyDone: true };
           const properties: Record<string, string> = {
             hs_timestamp: due,
             hs_task_subject: input.subject,
@@ -904,27 +955,36 @@ export function createHubspotConnector(options: HubspotOptions = {}): Connector 
             ...(input.body ? { hs_task_body: noteBodyHtml(input.body) } : {}),
             ...(input.priority ? { hs_task_priority: input.priority } : {}),
           };
-          const out = RawRecord.parse(
-            await api(ctx, "POST", "/crm/v3/objects/tasks", {
-              properties,
-              ...(on
-                ? {
-                    associations: [
-                      {
-                        to: { id: on.recordId },
-                        types: [
+          // As records: once per key through the record of attempts, never matched on its words.
+          return createOnce(
+            ctx,
+            "task",
+            on ? { objectType: on.objectType, recordId: on.recordId } : {},
+            (r) => TaskOutput.parse(r),
+            async () => {
+              const out = RawRecord.parse(
+                await api(ctx, "POST", "/crm/v3/objects/tasks", {
+                  properties,
+                  ...(on
+                    ? {
+                        associations: [
                           {
-                            associationCategory: "HUBSPOT_DEFINED",
-                            associationTypeId: ASSOCIATION_TYPE.tasks[on.objectType],
+                            to: { id: on.recordId },
+                            types: [
+                              {
+                                associationCategory: "HUBSPOT_DEFINED",
+                                associationTypeId: ASSOCIATION_TYPE.tasks[on.objectType],
+                              },
+                            ],
                           },
                         ],
-                      },
-                    ],
-                  }
-                : {}),
-            }),
+                      }
+                    : {}),
+                }),
+              );
+              return { id: String(out.id), alreadyDone: false };
+            },
           );
-          return { id: String(out.id), alreadyDone: false };
         },
       }),
     ],

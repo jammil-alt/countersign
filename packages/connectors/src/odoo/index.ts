@@ -11,14 +11,18 @@
 // order; post a draft invoice or bill; validate a receipt; log an internal note; schedule an
 // activity. No delete tool, and delete stays off. Unchecked facts about Odoo: ./NOTES.md.
 
-import { CurrencyCode, DecimalString, dec } from "@countersign/core";
+import { CurrencyCode, DecimalString, dec, type JsonObject } from "@countersign/core";
 import { z } from "zod";
+import type { WriteAttemptServices } from "../attempts";
 import {
   type Connector,
   defineConnector,
   defineReadTool,
   defineWriteTool,
   type ToolContext,
+  UnconfirmedWriteError,
+  type WriteContext,
+  writeNotMade,
 } from "../connector";
 import type { FetchLike } from "../http";
 import {
@@ -47,9 +51,7 @@ import {
   OdooValue,
   type OdooValueType,
   OdooWritableModel,
-  odooDatetime,
   PROTECTED_FIELDS,
-  plainText,
   QUERY_FIELDS,
   SETTABLE_TYPES,
 } from "./records";
@@ -119,8 +121,28 @@ const LINES: Partial<Record<OdooWritableModel, { field: string; quantity: string
   "account.move": { field: "invoice_line_ids", quantity: "quantity" },
 };
 
-/** A record made by us within this long that matches a create is this action's own earlier write. */
-const TWIN_WINDOW_MS = 24 * 60 * 60 * 1000;
+/** What the creates return; a re-run under the same key returns the recorded one, `alreadyDone`. */
+const CreateOutput = z.object({
+  model: OdooWritableModel,
+  id: z.number().int(),
+  alreadyDone: z.boolean(),
+});
+const NoteOutput = z.object({
+  model: OdooModel,
+  recordId: z.number().int(),
+  id: z.number().int(),
+  alreadyDone: z.boolean(),
+});
+const ActivityOutput = z.object({ id: z.number().int(), alreadyDone: z.boolean() });
+
+/** Tries of one create Odoo refused before we stop and fail it. */
+const MAX_ATTEMPTS = 5;
+
+function attemptServices(ctx: ToolContext): WriteAttemptServices {
+  const s = ctx.services?.attempts;
+  if (!s) throw new Error("Odoo creates need the platform's record of attempts");
+  return s;
+}
 
 // ── Inputs ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -387,8 +409,8 @@ export function createOdooConnector(options: OdooOptions = {}): Connector {
     });
   type CreateInput = z.infer<typeof CreateInput>;
 
-  /** What finds a record a create would repeat: the same email or name, or the same draft. */
-  function twinDomain(input: CreateInput): unknown[] | null {
+  /** What finds a record a create may repeat, for the approver: the same email or name, or draft. */
+  function likeDomain(input: CreateInput): unknown[] | null {
     const v = input.values;
     const has = (k: string) => v[k] !== undefined && v[k] !== null && v[k] !== "";
     switch (input.model) {
@@ -414,6 +436,75 @@ export function createOdooConnector(options: OdooOptions = {}): Connector {
             ]
           : null;
     }
+  }
+
+  /**
+   * A create Odoo takes no idempotency key for, made at most once per key through the platform's
+   * record of attempts (as Zoho's, Slack's and LinkedIn's): a re-run after the result was recorded
+   * returns it (`alreadyDone`); an attempt started without Odoo's answer is never sent again, and
+   * fails as unconfirmed for the operator; an attempt Odoo refused (its transaction rolled back)
+   * created nothing and may be tried again. Another action's key always writes, whatever its
+   * words. The caller signs in first, so a refused sign-in leaves no started create behind.
+   */
+  async function createOnce<T extends JsonObject & { alreadyDone: boolean }>(
+    ctx: WriteContext,
+    note: WriteNote,
+    parse: (recorded: JsonObject) => T,
+    create: () => Promise<T>,
+  ): Promise<T> {
+    const attempts = attemptServices(ctx);
+    const key = ctx.idempotencyKey;
+    const details: JsonObject = { connector: "odoo", ...(note.details ?? {}) };
+    const state = await attempts.stateFor(key);
+    if (state.done) return { ...parse(state.done), alreadyDone: true };
+    if (state.started > state.refused) {
+      const last = state.last;
+      throw new UnconfirmedWriteError(
+        note.title,
+        `we started it at ${last?.startedAt.toISOString() ?? "an unknown time"} and have no answer from Odoo`,
+        {
+          ...details,
+          ...(last?.details ?? {}),
+          ...(last ? { startedAt: last.startedAt.toISOString() } : {}),
+        },
+      );
+    }
+    if (state.started >= MAX_ATTEMPTS) {
+      throw new Error(`Odoo refused this ${state.started} times; we stopped trying`);
+    }
+    const attempt = state.started + 1;
+    const claimed = await attempts.start({
+      idempotencyKey: key,
+      attempt,
+      details: { ...details, attempt },
+      at: ctx.now(),
+    });
+    if (!claimed) {
+      throw new UnconfirmedWriteError(
+        note.title,
+        "another run of this action started it at the same time",
+        { ...details, attempt },
+      );
+    }
+    let output: T;
+    try {
+      // A lost answer or a 5xx throws an UnconfirmedWriteError here with the attempt open.
+      output = await create();
+    } catch (error) {
+      if (writeNotMade(error)) {
+        // Odoo's exception name (`odoo.exceptions.UserError`) or `HTTP_<n>`, else the error's.
+        const code = (error as { code?: unknown }).code;
+        await attempts.refused({
+          idempotencyKey: key,
+          attempt,
+          reason: typeof code === "string" ? code : (error as Error).name,
+          at: ctx.now(),
+        });
+      }
+      throw error;
+    }
+    await attempts.done({ idempotencyKey: key, output, at: ctx.now() });
+    return output;
   }
 
   const NoteText = z.string().trim().min(1).max(10_000);
@@ -620,16 +711,12 @@ export function createOdooConnector(options: OdooOptions = {}): Connector {
         undo: { kind: "none" },
         summary: "Created {{model}} {{id}}",
         input: CreateInput,
-        output: z.object({
-          model: OdooWritableModel,
-          id: z.number().int(),
-          alreadyDone: z.boolean(),
-        }),
+        output: CreateOutput,
         // What is there already: records like this one (same email or name, or a draft for the
         // same partner), so the approver sees a likely duplicate before it is made.
         beforeSchema: z.object({ existing: z.array(OdooRecord) }),
         async before(input, ctx) {
-          const domain = twinDomain(input);
+          const domain = likeDomain(input);
           if (!domain) return { existing: [] };
           const s = session(ctx);
           const lines = LINES[input.model];
@@ -643,26 +730,8 @@ export function createOdooConnector(options: OdooOptions = {}): Connector {
         },
         async run(input, ctx, before) {
           const s = session(ctx);
+          // Signs in and checks the values before any attempt is recorded.
           const values = await wireValues(s, input.model, input.values);
-          const uid = await s.c.uid();
-          // DECISION: Odoo takes no idempotency key. A record of this kind that our Odoo user made
-          // within the last day, with every given field already as asked (and as many lines), is
-          // this action's own earlier write (a retry after a lost answer): reported done, not made
-          // again.
-          const since = odooDatetime(new Date(ctx.now().getTime() - TWIN_WINDOW_MS));
-          const lineField = LINES[input.model]?.field;
-          const twin = (before?.existing ?? []).find(
-            (r) =>
-              r.createdBy === uid &&
-              r.createdAt !== null &&
-              r.createdAt >= since &&
-              Object.entries(input.values).every(([k, v]) => sameValue(r.fields[k], v)) &&
-              (!lineField ||
-                !input.lines ||
-                (Array.isArray(r.fields[lineField]) &&
-                  (r.fields[lineField] as number[]).length === input.lines.length)),
-          );
-          if (twin) return { model: input.model, id: twin.id, alreadyDone: true };
           if (
             input.model === "res.partner" &&
             input.values.email &&
@@ -676,6 +745,7 @@ export function createOdooConnector(options: OdooOptions = {}): Connector {
               false,
             );
           }
+          const lineField = LINES[input.model]?.field;
           const vals: Record<string, unknown> = {
             ...values,
             ...(input.moveType ? { move_type: input.moveType } : {}),
@@ -687,17 +757,30 @@ export function createOdooConnector(options: OdooOptions = {}): Connector {
             title: `A ${input.model} record may have been created in Odoo`,
             details: { model: input.model },
           };
-          ctx.logger.info("creating odoo record", { model: input.model });
-          const out = writeAnswer(
-            z.union([RecordId, z.array(RecordId).length(1)]),
-            await s.c.execute(input.model, "create", [vals], {}, note),
+          // DECISION: Odoo takes no idempotency key, so a create (record, note or activity) is
+          // made at most once per key through the platform's record of attempts (as Zoho, Slack
+          // and LinkedIn): a re-run returns the recorded result, a takeover after a lost answer
+          // fails as unconfirmed for the operator, and a different key always writes, even the
+          // same words on the same day (invariants 8 and 10; PLATFORM_QA STATE-5). This replaces
+          // the day's "twin" match on content, which took a second action's write as already made.
+          return createOnce(
+            ctx,
             note,
+            (r) => CreateOutput.parse(r),
+            async () => {
+              ctx.logger.info("creating odoo record", { model: input.model });
+              const out = writeAnswer(
+                z.union([RecordId, z.array(RecordId).length(1)]),
+                await s.c.execute(input.model, "create", [vals], {}, note),
+                note,
+              );
+              return {
+                model: input.model,
+                id: Array.isArray(out) ? (out[0] as number) : out,
+                alreadyDone: false,
+              };
+            },
           );
-          return {
-            model: input.model,
-            id: Array.isArray(out) ? (out[0] as number) : out,
-            alreadyDone: false,
-          };
         },
       }),
       defineWriteTool({
@@ -1069,12 +1152,7 @@ export function createOdooConnector(options: OdooOptions = {}): Connector {
         undo: { kind: "none" },
         summary: "Logged a note on {{model}} {{recordId}}",
         input: z.object({ model: OdooModel, recordId: RecordId, text: NoteText }),
-        output: z.object({
-          model: OdooModel,
-          recordId: z.number().int(),
-          id: z.number().int(),
-          alreadyDone: z.boolean(),
-        }),
+        output: NoteOutput,
         beforeSchema: z.object({
           record: z.object({ model: OdooModel, id: z.number().int(), name: z.string().nullable() }),
         }),
@@ -1090,59 +1168,38 @@ export function createOdooConnector(options: OdooOptions = {}): Connector {
         async run(input, ctx, before) {
           if (!before) throw notFound(input.model, input.recordId);
           const s = session(ctx);
-          const uid = await s.c.uid();
-          const done = (id: number, alreadyDone: boolean) => ({
-            model: input.model,
-            recordId: input.recordId,
-            id,
-            alreadyDone,
-          });
-          // DECISION: the same note on the same record by our Odoo user within a day is this
-          // action's own earlier write (Odoo takes no idempotency key): reported done, not logged
-          // again.
-          const since = odooDatetime(new Date(ctx.now().getTime() - TWIN_WINDOW_MS));
-          const found = z
-            .array(z.looseObject({ id: RecordId, body: z.union([z.string(), z.literal(false)]) }))
-            .parse(
-              await s.c.execute(
-                "mail.message",
-                "search_read",
-                [
-                  [
-                    ["model", "=", input.model],
-                    ["res_id", "=", input.recordId],
-                    ["create_uid", "=", uid],
-                    ["create_date", ">=", since],
-                    ["message_type", "=", "comment"],
-                  ],
-                ],
-                { fields: ["body"], limit: 50, order: "id desc" },
-              ),
-            );
-          const want = input.text
-            .replace(/[ \t]+/g, " ")
-            .replace(/\s*\n\s*/g, "\n")
-            .trim();
-          const twin = found.find((m) => typeof m.body === "string" && plainText(m.body) === want);
-          if (twin) return done(twin.id, true);
+          await s.c.uid(); // signs in before the attempt is recorded
           const note: WriteNote = {
             title: `A note may have been logged on ${input.model} ${input.recordId} in Odoo`,
             details: { model: input.model, id: String(input.recordId) },
           };
-          // UNCHECKED (NOTES.md): Odoo escapes a plain-text body over RPC from 17 on; older
-          // versions sanitize it as HTML. Either way markup in the text doesn't run.
-          const out = writeAnswer(
-            z.union([RecordId, z.array(RecordId).length(1)]),
-            await s.c.execute(
-              input.model,
-              "message_post",
-              [[input.recordId]],
-              { body: input.text, message_type: "comment", subtype_xmlid: "mail.mt_note" },
-              note,
-            ),
+          // As records: once per key through the record of attempts, never matched on its words.
+          return createOnce(
+            ctx,
             note,
+            (r) => NoteOutput.parse(r),
+            async () => {
+              // UNCHECKED (NOTES.md): Odoo escapes a plain-text body over RPC from 17 on; older
+              // versions sanitize it as HTML. Either way markup in the text doesn't run.
+              const out = writeAnswer(
+                z.union([RecordId, z.array(RecordId).length(1)]),
+                await s.c.execute(
+                  input.model,
+                  "message_post",
+                  [[input.recordId]],
+                  { body: input.text, message_type: "comment", subtype_xmlid: "mail.mt_note" },
+                  note,
+                ),
+                note,
+              );
+              return {
+                model: input.model,
+                recordId: input.recordId,
+                id: Array.isArray(out) ? (out[0] as number) : out,
+                alreadyDone: false,
+              };
+            },
           );
-          return done(Array.isArray(out) ? (out[0] as number) : out, false);
         },
       }),
       defineWriteTool({
@@ -1165,7 +1222,7 @@ export function createOdooConnector(options: OdooOptions = {}): Connector {
           /** An activity type's id (mail.activity.type); Odoo's default (a to-do) when left out. */
           activityTypeId: RecordId.optional(),
         }),
-        output: z.object({ id: z.number().int(), alreadyDone: z.boolean() }),
+        output: ActivityOutput,
         beforeSchema: z.object({
           record: z.object({ model: OdooModel, id: z.number().int(), name: z.string().nullable() }),
         }),
@@ -1182,26 +1239,6 @@ export function createOdooConnector(options: OdooOptions = {}): Connector {
           if (!before) throw notFound(input.model, input.recordId);
           const s = session(ctx);
           const uid = await s.c.uid();
-          // As notes: the same activity on the same record by our user within a day is ours.
-          const since = odooDatetime(new Date(ctx.now().getTime() - TWIN_WINDOW_MS));
-          const twin = z.array(RecordId).parse(
-            await s.c.execute(
-              "mail.activity",
-              "search",
-              [
-                [
-                  ["res_model", "=", input.model],
-                  ["res_id", "=", input.recordId],
-                  ["summary", "=", input.summary],
-                  ["date_deadline", "=", input.dueDate],
-                  ["create_uid", "=", uid],
-                  ["create_date", ">=", since],
-                ],
-              ],
-              { limit: 1 },
-            ),
-          )[0];
-          if (twin !== undefined) return { id: twin, alreadyDone: true };
           const modelId = z.array(RecordId).parse(
             await s.c.execute("ir.model", "search", [[["model", "=", input.model]]], {
               limit: 1,
@@ -1212,28 +1249,36 @@ export function createOdooConnector(options: OdooOptions = {}): Connector {
             title: `An activity may have been scheduled on ${input.model} ${input.recordId} in Odoo`,
             details: { model: input.model, id: String(input.recordId) },
           };
-          const out = writeAnswer(
-            z.union([RecordId, z.array(RecordId).length(1)]),
-            await s.c.execute(
-              "mail.activity",
-              "create",
-              [
-                {
-                  res_model_id: modelId,
-                  res_id: input.recordId,
-                  summary: input.summary,
-                  date_deadline: input.dueDate,
-                  user_id: input.userId ?? uid,
-                  ...(input.note ? { note: input.note } : {}),
-                  ...(input.activityTypeId ? { activity_type_id: input.activityTypeId } : {}),
-                },
-              ],
-              {},
-              note,
-            ),
+          // As records: once per key through the record of attempts, never matched on its words.
+          return createOnce(
+            ctx,
             note,
+            (r) => ActivityOutput.parse(r),
+            async () => {
+              const out = writeAnswer(
+                z.union([RecordId, z.array(RecordId).length(1)]),
+                await s.c.execute(
+                  "mail.activity",
+                  "create",
+                  [
+                    {
+                      res_model_id: modelId,
+                      res_id: input.recordId,
+                      summary: input.summary,
+                      date_deadline: input.dueDate,
+                      user_id: input.userId ?? uid,
+                      ...(input.note ? { note: input.note } : {}),
+                      ...(input.activityTypeId ? { activity_type_id: input.activityTypeId } : {}),
+                    },
+                  ],
+                  {},
+                  note,
+                ),
+                note,
+              );
+              return { id: Array.isArray(out) ? (out[0] as number) : out, alreadyDone: false };
+            },
           );
-          return { id: Array.isArray(out) ? (out[0] as number) : out, alreadyDone: false };
         },
       }),
     ],
