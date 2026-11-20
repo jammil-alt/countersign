@@ -16,17 +16,25 @@ import { errorText, TextArea, useAction } from "../agents/ui";
 import type { BuilderProblem } from "./catalog";
 import { SmallInput, SmallSelect } from "./fields";
 import type { Process, Step } from "./model";
-import { applyProposal, copyPaths, exprText, sampleText } from "./reshape";
+import {
+  applyProposal,
+  copyPaths,
+  exprText,
+  recordFields,
+  recordSchema,
+  sampleText,
+} from "./reshape";
 
 type SkillStep = Extract<Step, { kind: "skill" }>;
 type Field = processes.ReshapeField;
-type EditKind = "none" | "copy" | "value" | "expression";
+type EditKind = "none" | "copy" | "value" | "record" | "expression";
 
 const HOW_WORDS: Record<string, string> = {
   exact: "same name",
   name: "same name, other spelling",
   synonym: "a name that means the same",
   kept: "kept: it still fits",
+  fields: "built field by field",
   ai: "suggested by the Builder AI",
 };
 
@@ -34,6 +42,7 @@ function kindOf(e: processes.ReshapeExpr | undefined): EditKind {
   if (!e) return "none";
   if ("input" in e) return "copy";
   if ("value" in e) return "value";
+  if ("object" in e) return "record";
   return "expression";
 }
 
@@ -48,15 +57,28 @@ function literal(text: string): processes.ReshapeExpr {
 function FieldEditor({
   field,
   paths,
+  path: at = field.name,
+  depth = 0,
   onSave,
   onCancel,
 }: {
   field: Field;
   paths: readonly { path: string }[];
+  /** The field's path in the output (`customer.email` inside a record). */
+  path?: string;
+  /** How many records deep the field sits. */
+  depth?: number;
   onSave(from: processes.ReshapeExpr | undefined): void;
   onCancel(): void;
 }) {
   const [kind, setKind] = useState<EditKind>(kindOf(field.from));
+  // §1.164: a field that takes a record (or is built as one) is built field by field.
+  const [record, setRecord] = useState<Record<string, processes.ReshapeExpr>>(
+    field.from && "object" in field.from ? field.from.object.fields : {},
+  );
+  const canRecord =
+    (recordSchema(field.schema) !== null || kind === "record") &&
+    depth < processes.RESHAPE_MAX_NESTING;
   const [path, setPath] = useState(
     field.from && "input" in field.from ? field.from.input : (paths[0]?.path ?? ""),
   );
@@ -81,12 +103,13 @@ function FieldEditor({
     if (kind === "none") return onSave(undefined);
     if (kind === "copy") return onSave(path ? { input: path } : undefined);
     if (kind === "value") return onSave(literal(value));
+    if (kind === "record") return onSave({ object: { fields: record } });
     if (parsed?.ok) onSave(parsed.expr);
   };
   return (
-    <div className="flex flex-col gap-2" data-testid={`builder-reshape-editor-${field.name}`}>
+    <div className="flex flex-col gap-2" data-testid={`builder-reshape-editor-${at}`}>
       <SmallSelect
-        aria-label={`How ${field.name} is filled`}
+        aria-label={`How ${at} is filled`}
         data-testid="builder-reshape-kind"
         value={kind}
         onChange={(e) => setKind(e.target.value as EditKind)}
@@ -94,6 +117,7 @@ function FieldEditor({
         <option value="none">Not mapped</option>
         <option value="copy">Copy a field</option>
         <option value="value">A fixed value</option>
+        {canRecord ? <option value="record">Field by field (a record)</option> : null}
         <option value="expression">Worked out (an expression)</option>
       </SmallSelect>
       {kind === "copy" ? (
@@ -118,6 +142,16 @@ function FieldEditor({
           onChange={(e) => setValue(e.target.value)}
         />
       ) : null}
+      {kind === "record" ? (
+        <RecordEditor
+          schema={field.schema}
+          fields={record}
+          paths={paths}
+          path={at}
+          depth={depth + 1}
+          onChange={setRecord}
+        />
+      ) : null}
       {kind === "expression" ? (
         <>
           <TextArea
@@ -131,7 +165,7 @@ function FieldEditor({
           <p className="text-xs text-ink-muted">
             JSON from the allowed set: input, value, today, sum, difference, percentChange,
             daysBetween, bucket, formatDate, formatNumber, formatMoney, join, split, pick, pluck,
-            mapList, convertUnit.
+            mapList, object, convertUnit.
           </p>
           {parsed?.ok === false ? (
             <p className="ds-error text-xs">Not an expression from the allowed set.</p>
@@ -142,7 +176,10 @@ function FieldEditor({
         <Button
           size="sm"
           data-testid="builder-reshape-save-field"
-          disabled={kind === "expression" && parsed?.ok !== true}
+          disabled={
+            (kind === "expression" && parsed?.ok !== true) ||
+            (kind === "record" && Object.keys(record).length === 0)
+          }
           onClick={save}
         >
           Use this
@@ -152,6 +189,94 @@ function FieldEditor({
         </Button>
       </div>
     </div>
+  );
+}
+
+/** §1.164: a record's fields, each mapped like a field of its own. */
+function RecordEditor({
+  schema,
+  fields,
+  paths,
+  path,
+  depth,
+  onChange,
+}: {
+  schema: Field["schema"];
+  fields: Record<string, processes.ReshapeExpr>;
+  paths: readonly { path: string }[];
+  path: string;
+  depth: number;
+  onChange(fields: Record<string, processes.ReshapeExpr>): void;
+}) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const rows = recordFields(schema, fields);
+  const set = (name: string, from: processes.ReshapeExpr | undefined) => {
+    const { [name]: _old, ...rest } = fields;
+    onChange(from ? { ...rest, [name]: from } : rest);
+    setEditing(null);
+  };
+  return (
+    <ul
+      className="flex flex-col border-l-2 border-line pl-3"
+      data-testid={`builder-reshape-record-${path}`}
+    >
+      {rows.length === 0 ? (
+        <li className="text-sm text-ink-muted">This record names no fields.</li>
+      ) : null}
+      {rows.map((r) => {
+        const sub = `${path}.${r.name}`;
+        const from = fields[r.name];
+        return (
+          <li
+            key={r.name}
+            className="flex flex-col gap-1 py-1"
+            data-testid={`builder-reshape-field-${sub}`}
+          >
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <span className="text-sm text-ink">
+                <span className="reference">{r.name}</span>{" "}
+                <span className="text-xs text-ink-muted">
+                  {processes.typeWords(processes.schemaTypeNames(r.schema)) || "anything"}
+                  {r.required ? "" : ", optional"}
+                </span>
+              </span>
+              {editing === r.name ? null : (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  data-testid={`builder-reshape-edit-${sub}`}
+                  onClick={() => setEditing(r.name)}
+                >
+                  Edit
+                </Button>
+              )}
+            </div>
+            {editing === r.name ? (
+              <FieldEditor
+                field={{
+                  name: r.name,
+                  schema: r.schema,
+                  ...(r.required ? {} : { required: false }),
+                  ...(from ? { from } : {}),
+                }}
+                paths={paths}
+                path={sub}
+                depth={depth}
+                onSave={(f) => set(r.name, f)}
+                onCancel={() => setEditing(null)}
+              />
+            ) : (
+              <p
+                className={cx("text-sm break-words", from ? "text-ink" : "text-ink-muted")}
+                data-testid={`builder-reshape-from-${sub}`}
+              >
+                {from ? exprText(from) : r.required ? "Not mapped" : "Not mapped (left out)"}
+              </p>
+            )}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
