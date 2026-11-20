@@ -72,8 +72,10 @@ Rows 1–8 below are done. The stale branches are deleted.
   (the retention policy); authenticator apps on consoles (the policy asks for passkeys or keys);
   refusing Google sign-ins (dropped, below); `claude_ai` and T1 as done (owner: later). The Plaid
   plan's two open points are for the owner.
-- **The trust claims plan** (`fe7dbcac`), refreshed. Keep the masking promise on the Security page
-  (owner).
+- ~~**The trust claims plan** (`fe7dbcac`), refreshed. Keep the masking promise on the Security page
+  (owner).~~ Done 2026-11-20: `docs/marketing/trust-plan.md`, refreshed against `main`, masking kept
+  as a promise to make true. Its §6 checks the Security page line by line; its new owner decisions
+  are in its last section.
 - **HIPAA mode for the Claude connector, the Builder and questions** (audit T1/T2): later, when the
   first HIPAA client comes (owner: none yet, no PHI flows).
 - **Dropped:** `c2747d76`, the sign-in change refusing Google. It contradicts the owner's decision that
