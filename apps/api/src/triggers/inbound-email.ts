@@ -36,7 +36,7 @@ import {
   sameAgentAddress,
 } from "@countersign/core";
 import { agent, agentVersion, type Db, rawRecord, tenant, withTenant } from "@countersign/db";
-import { storeDocument } from "@countersign/documents";
+import { attachmentsToKeep, storeEmailAttachments } from "@countersign/documents";
 import { type EventRow, type EventTypeRegistry, emit } from "@countersign/senses";
 import { commandCandidates } from "@countersign/threads";
 import { and, eq } from "drizzle-orm";
@@ -211,20 +211,19 @@ export async function receiveAgentEmail(
         agentId: found.agentId,
       },
     };
-    for (const a of headers.attachments.slice(0, MAX_ATTACHMENTS)) {
-      const stored = await storeDocument(tx, deps.content, {
-        tenantId,
-        source: "email",
-        connectionId: conn.id,
-        bytes: a.bytes,
-        filename: a.filename,
-        mimeType: a.mimeType,
-        meta,
-      });
-      documents.push(stored.document.id);
-      if (stored.created) fresh.push(stored.document.id);
-      if (stored.event) events.push(stored.event);
+    // As forwarded mail: a part whose bytes aren't its type, or that the store refuses (empty, too
+    // large), is skipped and the rest kept, never the whole message lost (INPUT-6).
+    const files = await storeEmailAttachments(tx, deps.content, {
+      tenantId,
+      connectionId: conn.id,
+      attachments: attachmentsToKeep(headers.attachments, MAX_ATTACHMENTS).kept,
+      meta,
+    });
+    for (const d of files.documents) {
+      documents.push(d.id);
+      if (d.created) fresh.push(d.id);
     }
+    events.push(...files.events);
     const [stored] = await tx
       .insert(rawRecord)
       .values({

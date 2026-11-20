@@ -5,7 +5,7 @@
 // space the client hasn't bound, and posts once per action, also after a lost answer.
 import { DEFAULT_PERMISSIONS, decideToolCall } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import type { ConnectionRef } from "../connector";
+import { type ConnectionRef, writeNotMade } from "../connector";
 import { memoryCredentials } from "../credentials-accessor";
 import { formDecode } from "../http";
 import { captureBefore, executeWrite } from "../invoke";
@@ -469,6 +469,28 @@ describe("gchat.message.post", () => {
     await expect(
       executeWrite(connector, GCHAT_POST_TOOL, { space: SPACE, text: "x" }, ctx),
     ).rejects.toThrow(/refused the message \(500\)/);
+  });
+
+  it("(PLATFORM_QA INTEG-5) a 429 or another 4xx on a post is not written, and the retry posts once", async () => {
+    const { google, connector, ctx } = await setup();
+    const input = { space: SPACE, text: "Line 2 is down for 20 minutes." };
+    google.failNext(429);
+    const limited = await executeWrite(connector, GCHAT_POST_TOOL, input, ctx).catch(
+      (e: unknown) => e,
+    );
+    expect(writeNotMade(limited)).toBe(true);
+    expect(google.messages).toHaveLength(0);
+    await executeWrite(connector, GCHAT_POST_TOOL, input, ctx);
+    expect(google.messages).toHaveLength(1);
+    // A 5xx may have come after the post was made: never marked not written.
+    google.failNext(500);
+    const down = await executeWrite(
+      connector,
+      GCHAT_POST_TOOL,
+      { ...input, text: "Back up." },
+      { ...ctx, idempotencyKey: "0192f7a0-run:post:post:1" },
+    ).catch((e: unknown) => e);
+    expect(writeNotMade(down)).toBe(false);
   });
 
   it("refuses to write where the app's keys aren't set", async () => {

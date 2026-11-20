@@ -5923,6 +5923,72 @@ Below are the choices they made where the fix left a choice open, each with a `/
 | Not in this pass | The guard doesn't yet compare a conversation step's channel or contact. Saves that opt out of the stale check (update merge, promotion, relink, setup answers) can still save over a newer draft, as before. Two `.slice` cuts still split characters: the approve summary in the proposal path, and `reasonOf` in the client-test facts. |
 | Checked | Each PR's own suites, then the four branches merged together on `main`. There was one import-list conflict, in `apps/api/src/build/store.ts`: keep `sliceWhole`, drop the unused `SkillDefinition`. On that merge, lint, layering and typecheck pass. The tests pass in every package (API 1758, web 1580, core 1623, agents 429 and the rest). The merge showed one interaction: #442's client-test fixture named a step the draft doesn't have, which #445's AI-6 check now leaves out. #442's fixture now names the stored step id. Two failures are this environment's, and fail the same way on `main`: `apps/desktop` `controller.test.ts` and `apps/browser` `chromium.test.ts` (no matching Chromium build). |
 
+### 1.157 The platform QA fixes (2026-11-20; no migration)
+
+A hostile QA pass on the platform outside the Builder (`PLATFORM_QA.md`, PR #446) found 49 defects
+that survived an adversarial verification, each with a failing test. They are fixed in seven PRs,
+split so no two edit the same file. Each brings its repros in as regular tests, titled
+"(PLATFORM_QA ID) …":
+
+- #451: approvals stay on across lineage, and a held agent doesn't answer calls (CONS-3, TOOL-1, TOOL-2, STATE-7)
+- #455: proven senders only, no card numbers kept, Sloan within the portal's limits, provider answers checked (SEC-1, SEC-3, SEC-5, SEC-7, SEC-8, SEC-9, INPUT-6, AI-4)
+- #453: runs ask and notify once, a reject holds, schemas fail closed, web.fetch stays in scope (STATE-1, STATE-2, STATE-3, STATE-8, CONS-1, CONS-2, AI-3, AI-7)
+- #454: connector writes run once and a refusal isn't "maybe sent"; OAuth errors in our words (TOOL-3, STATE-4, INTEG-4, INTEG-5, INTEG-6, FLOW-1)
+- #456: browser sign-in survives code-service trouble, each code reaches its own login (INTEG-1, INTEG-2, INTEG-3, INPUT-9, FLOW-6 (server), STATE-6)
+- #452: pack tools keep test runs out of live data, hard rules hold at save, money stays in one currency (TOOL-5, AI-1, AI-5, AI-6, INPUT-1, INPUT-2, INPUT-3, INPUT-4, INPUT-7, INPUT-8)
+- #450: the screens keep what people typed and say what failed (INPUT-5, FLOW-2, CONS-4, FLOW-4, FLOW-5, FLOW-6 (web), FLOW-7, FLOW-8)
+
+Below are the choices they made where the fix left a choice open, each with a `// DECISION` in the code.
+
+| Topic | Decision |
+|---|---|
+| **Lineage approvals (TOOL-1) (#451)** | A promotion or copy puts each loosened approval back to the base step's value (same id, same shape), or turns it on; the client's own tightening isn't carried either. // DECISION |
+| Lineage mode (TOOL-1) (#451) | A promotion or copy takes the base's `permissions.mode`, or `suggest_only` with no base. // DECISION |
+| Fork versions (TOOL-2) (#451) | Only a published (live or retired) version of the same template forks; a draft is 409 `invalid_state`, another template's version 404; a template's own test copy may still fork drafts. // DECISION |
+| Older publish (STATE-7) (#451) | Publishing a version below the live one is refused, 409 `stale_parent` with the latest version in its details, pointing to rollback. // DECISION |
+| Held agent and calls (CONS-3) (#451) | Inbound calls read the agent's hold like the runtime gate does: a held agent's calls go to voicemail or forward. // DECISION |
+| **Back-office mail sender (SEC-1) (#455)** | Mail to support@ or hello@ with no sender proven by SPF or DMARC becomes a "Sort this" to-do with no client, whatever address it claims; an unproven sender no longer opens a lead deal. // DECISION |
+| Card numbers in threads (SEC-3) (#455) | `postMessage` stores the body with card numbers reduced to their last four, for every poster (portal, ops, Sloan, issues). // DECISION |
+| Browser config from ops (SEC-5) (#455) | `site`, `siteVersionId`, `identity` and `stricter` can't change through `PATCH /api/ops/connections/:id` (422 `browser_login_locked`); left out, they are kept; the rest must still parse as `BrowserConnectionConfig`. // DECISION |
+| Card numbers in external actions (SEC-9) (#455) | A change whose input (or a person's edit) carries a card number is refused before anything is stored; `tool_call` input and output, and an action's before, result, after and error are stored redacted. A redacted before state reads as changed against the live record, so such a write or undo is refused rather than made over the wrong record. // DECISION |
+| Sloan for limited users (SEC-8) (#455) | A client user limited to some agents has no Sloan (§1.122): the account port refuses them, and Sloan's email and text entry gives them the stranger reply. // DECISION |
+| Mail attachments (INPUT-6) (#455) | Mail to an agent or to Sloan uses forwarding's per-attachment filter: a part that is empty, the wrong type or over the limit is skipped and the rest kept. // DECISION |
+| Desktop new files (SEC-7) (#455) | A new file's folders are made level by level only after the deepest existing one is proven inside the grant; a link on the way is refused. // DECISION |
+| Provider answers (AI-4) (#455) | An OpenAI, xAI or Gemini answer that isn't a valid response, has no usage, or has a nameless function call is a typed provider error, never an empty or free turn. // DECISION |
+| **Schedule start race (STATE-1) (#453)** | A second cron pass starting the same tick catches the run's primary-key conflict and treats the run as started; the client's pass goes on. // DECISION |
+| `any` approval round (STATE-2) (#453) | In `any` mode a reject among one round's answers decides; answers are not ordered by approver position. // DECISION |
+| Notice retries (STATE-3) (#453) | The step row is marked sent in its own durable step (`<node>:logged`), so a failed row write never repeats the send. // DECISION |
+| Asks on engine retry (STATE-8) (#453) | A run's step reuses its open inbox item with the same run, node, kind, title, details and assignee instead of asking again (`apps/api/src/runs/asks.ts`). // DECISION |
+| Skill step `agent` (CONS-1) (#453) | The validators refuse a skill step that names another agent (`step_agent_unsupported`; hand off instead), and check the owner's skills either way; the schema keeps the field so stored versions parse. // DECISION |
+| Repeat durable names (CONS-2) (#453) | A repeat holding a step with id `until` or `wait` uses `~until`/`~wait` for its own names; other repeats keep theirs, so runs in flight replay unchanged. // DECISION |
+| Unreadable schemas (AI-3) (#453) | A skill schema Zod can't read fails closed at run time and is refused when an operator skill is saved. Replaces the fail-open DECISION. // DECISION |
+| web.fetch links (AI-7) (#453) | `web.fetch` reads only links the step run has seen (its input, any tool result, a search's results), and nothing in a test run. // DECISION |
+| **Odoo archive (TOOL-3) (#454)** | `active` is protected on create and update; an archive, if ever wanted, gets its own always-signed tool. // DECISION |
+| Zoho once per key (STATE-4) (#454) | Creates, notes and tasks go through the platform attempt records; a lost answer fails as unconfirmed, never a second record. Overrides the old DECISION (invariant 8). // DECISION |
+| Which 4xx are not written (INTEG-5, INTEG-6, STATE-4) (#454) | Any 4xx except 408 and 409 for Zoho, HubSpot, Twilio and Meta; Google Chat excludes 408 (its 409 path reads the message back); LinkedIn: any 4xx. Retry-After is left to the step's backoff. // DECISION |
+| Messaging tries (INTEG-6) (#454) | Numbered tries as in the email services: try 1 keeps version null, try n is "n", each refusal is its own raw record, so a refused send is sent by the retry. // DECISION |
+| LinkedIn refresh (INTEG-4) (#454) | The token is fetched before the post's attempt is recorded, as Gmail does; a not-written error marks the try refused. // DECISION |
+| OAuth callback words (FLOW-1) (#454) | The provider's `error` decides only "cancelled" (`access_denied`) or "didn't finish"; its text is never shown or kept; state failures get our own words. // DECISION |
+| **Code-service trouble (INTEG-1) (#456)** | A code-service outage, a failed RPC or its own daily cap is `CodesUnavailable`: retryable, and never a failed sign-in; a failed claim inside the poll is polled past. // DECISION |
+| Stale code waits (INTEG-2) (#456) | A sign-in that doesn't claim its code cancels its wait at the code service on every way out (best effort; an older code service lets the wait expire). // DECISION |
+| Replayed texts (INTEG-3) (#456) | The code service keeps each text's MessageSid for 30 days and ignores a repeat. // DECISION |
+| Secret cookies and spent codes (INPUT-9) (#456) | A cookie is redacted only if it is httpOnly and 8+ characters, or looks like a token (16+, no spaces, letters and digits); a code is redacted only until the sign-in succeeds; the password always. // DECISION |
+| Set-up errors (FLOW-6) (#456) | The code service and `codesError` answer in fixed words per error code and log the provider's text; an identity made before a failed set-up is deleted. // DECISION |
+| One login per site (STATE-6) (#456) | A transaction-scoped advisory lock on (client, site) around the check and insert, not a unique index, so no migration; the second set-up gets 409 `conflict`. // DECISION |
+| **Group totals (INPUT-7, INPUT-8) (#452)** | `data.list.group` refuses a mixed-currency group and an amount it can't read ("1,250.00" now reads); one figure per total, and an agent stops rather than act on a partial sum. // DECISION |
+| Reconcile currency (INPUT-1, INPUT-2) (#452) | Each side carries a currency; a side naming none takes the other's, else USD; a mixed side or two sides that differ are refused. // DECISION |
+| Reconcile month and amounts (INPUT-3, INPUT-4) (#452) | Last month is the client's (`tenant.timezone`); amounts take core's `DECIMAL_RE` and a difference that doesn't fit `numeric(14,4)` is refused. // DECISION |
+| Test runs in materials (TOOL-5) (#452) | `catalog.create_item`, `vendor_item.upsert`, `set_preferred` and `discontinue` do the work and roll it back in a test run, answering what would have been saved, as `contract.save` does. // DECISION |
+| Hard-rule veto at Save to records (AI-5) (#452) | The veto re-runs on every "matched" that `matches.record` and `vendor_items.register` receive, whatever method the input claims; only the vendor's own alias, found again server-side, settles one. // DECISION |
+| A person's answer (AI-6) (#452) | `vendor_items.register` takes answers as a person's only from this run's resolved inbox items (resolved by `decidedBy`, holding each line); outside a run no answer counts as a person's. // DECISION |
+| **Desk edit numbers (INPUT-5) (#450)** | A blank or unreadable number or amount is refused under its box, never sent; numbers keep the input's type; amounts are sent as decimal text. // DECISION |
+| Batch undo and snooze (FLOW-5) (#450) | Each call settles on its own; what succeeded is applied, the card reloads and the lists refresh, then the first failure shows. // DECISION |
+| Intake money (FLOW-2, CONS-4) (#450) | Takes "$" and thousands separators and checks with core's money schema; negative amounts are still refused. // DECISION |
+| Price panel and Billing (CONS-4) (#450) | Validated with SetAgentPrice and BillingSettings; the first schema issue is the form's message. // DECISION |
+| Vault set-up error (FLOW-6) (#450) | codes_*, 5xx and network failures show our fixed words with a retry; codes_invalid on an authenticator site says the setup link is wrong. // DECISION |
+| Web first-load budget (#450) | Raised to 495 kB (`scripts/web-size.mjs`): main was at 489.4 kB and the screen fixes add 2.5 kB to the first load. The follow-ups recorded there bring it back down. // DECISION |
+| Not in this pass | Bookkeeping templates don't yet pass the read-statement skill's currency to a given side (it is free text, not a currency code), so a given side takes the other side's currency. Google Chat's Retry-After is left to the step's backoff. SEC-2, SEC-4, SEC-6, STATE-5 and TOOL-4 were judged by design (`PLATFORM_QA.md` §4); SEC-2 (operators read every person's second factors under RLS) is worth the owner's look. |
+
 ### 1.160 An agent's own phone line, $10 a month (owner, 2026-11-20; migration 0068)
 
 The owner: "For each agent, offer to add their own phone number, add $10 per month per line. This

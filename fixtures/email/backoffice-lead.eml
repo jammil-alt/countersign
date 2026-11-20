@@ -1,3 +1,4 @@
+Authentication-Results: mx.cloudflare.net; spf=pass smtp.mailfrom=jo@acme-widgets.example; dkim=pass header.d=acme-widgets.example; dmarc=pass header.from=acme-widgets.example
 From: Jo Rivera <jo@acme-widgets.example>
 To: hello@in.example.test
 Subject: Help with our invoices

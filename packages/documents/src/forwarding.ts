@@ -15,10 +15,86 @@ import {
   UPLOAD_CONNECTOR_ID,
 } from "@countersign/connectors";
 import { authenticatedSenders, bytesMatchType } from "@countersign/core";
-import { connection, type Db, withTenant } from "@countersign/db";
+import { connection, type Db, type Tx, withTenant } from "@countersign/db";
 import type { EventRow } from "@countersign/senses";
 import { and, eq } from "drizzle-orm";
-import { storeDocument } from "./store";
+import { DocumentError, storeDocument } from "./store";
+
+export interface EmailAttachment {
+  filename: string;
+  mimeType: string;
+  bytes: Uint8Array;
+}
+
+export interface SkippedAttachment {
+  filename: string;
+  reason: string;
+}
+
+/**
+ * Which of a message's attachments to keep: each whose bytes are what its type says, at most
+ * `max`; the rest with why. Shared by every mail entry point (forwarding, an agent's address,
+ * Sloan), so one bad part is skipped and the rest kept.
+ */
+export function attachmentsToKeep<A extends EmailAttachment>(
+  attachments: readonly A[],
+  max: number,
+): { kept: A[]; skipped: SkippedAttachment[] } {
+  const kept: A[] = [];
+  const skipped: SkippedAttachment[] = [];
+  for (const a of attachments) {
+    if (!bytesMatchType(a.bytes, a.mimeType)) {
+      skipped.push({ filename: a.filename, reason: "the file is not what its type says" });
+    } else if (kept.length >= max) {
+      skipped.push({ filename: a.filename, reason: `more than ${max} attachments` });
+    } else {
+      kept.push(a);
+    }
+  }
+  return { kept, skipped };
+}
+
+/**
+ * Stores each kept attachment as the client's document; one the store refuses (empty, too large,
+ * a type it doesn't keep) is skipped with why, never the whole message.
+ */
+export async function storeEmailAttachments(
+  tx: Tx,
+  content: ContentStore,
+  input: {
+    tenantId: string;
+    connectionId: string;
+    attachments: readonly EmailAttachment[];
+    meta: Record<string, unknown>;
+  },
+): Promise<{
+  documents: { id: string; created: boolean; filename: string }[];
+  skipped: SkippedAttachment[];
+  events: EventRow[];
+}> {
+  const documents: { id: string; created: boolean; filename: string }[] = [];
+  const skipped: SkippedAttachment[] = [];
+  const events: EventRow[] = [];
+  for (const a of input.attachments) {
+    try {
+      const stored = await storeDocument(tx, content, {
+        tenantId: input.tenantId,
+        source: "email",
+        connectionId: input.connectionId,
+        bytes: a.bytes,
+        filename: a.filename,
+        mimeType: a.mimeType,
+        meta: input.meta,
+      });
+      documents.push({ id: stored.document.id, created: stored.created, filename: a.filename });
+      if (stored.event) events.push(stored.event);
+    } catch (error) {
+      if (!(error instanceof DocumentError)) throw error;
+      skipped.push({ filename: a.filename, reason: error.message });
+    }
+  }
+  return { documents, skipped, events };
+}
 
 export interface ForwardedMessage {
   /** Envelope sender (MAIL FROM). */
@@ -117,20 +193,12 @@ export async function receiveForwardedEmail(
     }
 
     // Each attachment's bytes must be what its type says; at most FORWARDED_DOCUMENTS_MAX kept.
-    const skipped = parsed.skipped.map((s) => ({ filename: s.filename, reason: s.reason }));
-    const kept: typeof parsed.attachments = [];
-    for (const a of parsed.attachments) {
-      if (!bytesMatchType(a.bytes, a.mimeType)) {
-        skipped.push({ filename: a.filename, reason: "the file is not what its type says" });
-      } else if (kept.length >= FORWARDED_DOCUMENTS_MAX) {
-        skipped.push({
-          filename: a.filename,
-          reason: `more than ${FORWARDED_DOCUMENTS_MAX} attachments`,
-        });
-      } else {
-        kept.push(a);
-      }
-    }
+    const filtered = attachmentsToKeep(parsed.attachments, FORWARDED_DOCUMENTS_MAX);
+    const kept = filtered.kept;
+    const skipped = [
+      ...parsed.skipped.map((s) => ({ filename: s.filename, reason: s.reason })),
+      ...filtered.skipped,
+    ];
     const meta = {
       email: {
         // As the message says, for display; `authenticated` says whether anyone proved it.
@@ -148,28 +216,19 @@ export async function receiveForwardedEmail(
           : {}),
       },
     };
-    const documents: { id: string; created: boolean; filename: string }[] = [];
-    const events: EventRow[] = [];
-    for (const a of kept) {
-      const stored = await storeDocument(tx, deps.content, {
-        tenantId,
-        source: "email",
-        connectionId: conn.id,
-        bytes: a.bytes,
-        filename: a.filename,
-        mimeType: a.mimeType,
-        meta,
-      });
-      documents.push({ id: stored.document.id, created: stored.created, filename: a.filename });
-      if (stored.event) events.push(stored.event);
-    }
+    const stored = await storeEmailAttachments(tx, deps.content, {
+      tenantId,
+      connectionId: conn.id,
+      attachments: kept,
+      meta,
+    });
     await countForwarded(tx, conn, { accepted: true }, now());
     return {
       status: "accepted",
       tenantId,
-      documents,
-      skipped,
-      events,
+      documents: stored.documents,
+      skipped: [...skipped, ...stored.skipped],
+      events: stored.events,
     };
   });
 }

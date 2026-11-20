@@ -21,6 +21,7 @@ import { browserSite, skill, skillVersion, type Tx } from "@countersign/db";
 import { knownModelIds } from "@countersign/llm";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { AgentsError, notFound } from "../errors";
+import { schemaProblem } from "../runtime/json-schema";
 import type { ToolRegistry } from "./tools";
 
 /** Where a resolved skill came from. */
@@ -202,6 +203,14 @@ export function parseOperatorSkill(
   }
   if (def.model && !knownModelIds().includes(def.model.id)) {
     problems.push(`unknown model ${def.model.id}`);
+  }
+  // PLATFORM_QA AI-3: a schema the runtime can't check against would fail every run of the skill.
+  for (const [side, schema] of [
+    ["input", def.input],
+    ["output", def.output],
+  ] as const) {
+    const problem = schemaProblem(schema);
+    if (problem) problems.push(`the ${side} schema can't be checked: ${problem}`);
   }
   if (tools) {
     for (const t of def.tools) if (!tools.has(t)) problems.push(`unknown tool ${t}`);

@@ -1,3 +1,4 @@
+Authentication-Results: mx.cloudflare.net; spf=pass smtp.mailfrom=admin@a.example.com; dkim=pass header.d=a.example.com; dmarc=pass header.from=a.example.com
 From: Client A admin <admin@a.example.com>
 To: support@in.example.test
 Subject: Invoices posted twice

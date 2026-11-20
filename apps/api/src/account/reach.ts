@@ -47,10 +47,10 @@ import {
   tenant,
   withTenant,
 } from "@countersign/db";
-import { storeDocument } from "@countersign/documents";
+import { attachmentsToKeep, storeEmailAttachments } from "@countersign/documents";
 import type { EventRow, EventTypeRegistry } from "@countersign/senses";
 import { channelAccountThread, postAsPerson, senseEmitPosted } from "@countersign/threads";
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { auditInTx } from "../audit";
 import { channelFor, channelState, lineOwner } from "../channels/resolve";
 import type { ContactRow } from "../messaging/contacts";
@@ -69,7 +69,11 @@ export interface SloanPerson {
   role: (typeof CLIENT_ROLES)[number];
 }
 
-/** A client admin or client user of this client with this sign-in email, or null. */
+/**
+ * A client admin or client user of this client with this sign-in email, or null. DECISION
+ * (SEC-8): a client user limited to some agents is not one here: they have no Sloan (plan
+ * §1.122), so their mail and texts to Sloan are answered as a stranger's.
+ */
 export async function clientPersonByEmail(
   tx: Tx,
   tenantId: string,
@@ -85,6 +89,7 @@ export async function clientPersonByEmail(
       and(
         eq(membership.tenantId, tenantId),
         inArray(membership.role, [...CLIENT_ROLES]),
+        isNull(membership.agentIds),
         eq(appUser.email, address),
       ),
     )
@@ -297,7 +302,9 @@ export async function receiveSloanEmail(
     }
     // The person's words, quoted history cut, cards redacted (as an agent's mail is kept).
     const text = inboundText(reply.text).trim();
-    const attachments = parsed.attachments.slice(0, MAX_ATTACHMENTS);
+    // As forwarded mail: a part whose bytes aren't its type, or that the store refuses (empty, too
+    // large), is skipped and the rest kept (INPUT-6).
+    const attachments = attachmentsToKeep(parsed.attachments, MAX_ATTACHMENTS).kept;
     if (!text && attachments.length === 0) return dropped("empty");
     const events: EventRow[] = [];
     const documents: string[] = [];
@@ -316,20 +323,17 @@ export async function receiveSloanEmail(
           sloan: true,
         },
       };
-      for (const a of attachments) {
-        const stored = await storeDocument(tx, deps.content, {
-          tenantId,
-          source: "email",
-          connectionId: conn.id,
-          bytes: a.bytes,
-          filename: a.filename,
-          mimeType: a.mimeType,
-          meta,
-        });
-        documents.push(stored.document.id);
-        if (stored.created) fresh.push(stored.document.id);
-        if (stored.event) events.push(stored.event);
+      const files = await storeEmailAttachments(tx, deps.content, {
+        tenantId,
+        connectionId: conn.id,
+        attachments,
+        meta,
+      });
+      for (const d of files.documents) {
+        documents.push(d.id);
+        if (d.created) fresh.push(d.id);
       }
+      events.push(...files.events);
     }
     await postToSloan(tx, {
       tenantId,

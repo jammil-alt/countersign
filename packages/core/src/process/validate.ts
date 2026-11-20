@@ -55,6 +55,7 @@ import {
   joinField as field,
   locateIssue,
   type RefChecker,
+  STEP_AGENT_UNSUPPORTED,
   skillWrites,
   type ValidationCode,
   type ValidationContext,
@@ -1303,13 +1304,18 @@ function checkSkillStep(c: Checker, step: Extract<Step, { kind: "skill" }>, scop
   checkErrorMessage(c, step.id, step.input, ["input"]);
   const skill = lookupSkill(step.skill, ctx);
   if (ctx.skills && !skill) c.add(step.id, "skill", "unknown_skill", `no skill "${step.skill}"`);
-  if (ctx.agent && step.agent === undefined) {
+  // PLATFORM_QA CONS-1: the executor runs every skill step as the owner, so the owner must have
+  // the skill, and a step naming another agent is refused (see STEP_AGENT_UNSUPPORTED).
+  if (ctx.agent) {
     const id = parseSkillRef(step.skill).id;
     const has = ctx.agent.skills.some((s) => parseSkillRef(s.skill).id === id);
     if (!has) c.add(step.id, "skill", "skill_not_allowed", `the agent has no skill "${id}"`);
   }
   if (ctx.agent && step.agent !== undefined && !(ctx.agent.canCommand ?? []).includes(step.agent)) {
     c.add(step.id, "agent", "agent_not_commandable", `the agent may not ask "${step.agent}"`);
+  }
+  if (step.agent !== undefined) {
+    c.add(step.id, "agent", "step_agent_unsupported", STEP_AGENT_UNSUPPORTED);
   }
   if (skill) checkInput(c, step.id, step.input, skill.input, scope);
   // Skill model (2026-11-10): a new step uses a deterministic or an AI skill, never a retired kind.

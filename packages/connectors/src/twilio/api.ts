@@ -10,6 +10,7 @@ import {
   type HttpResponseLike,
   timeoutSignal,
 } from "../http";
+import { sendRefused } from "../messaging/services";
 import { hmacKey, subtle, toBase64, utf8 } from "../runtime";
 
 export const TWILIO_API = "https://api.twilio.com/2010-04-01";
@@ -24,6 +25,11 @@ export interface TwilioAuth {
 }
 
 export class TwilioError extends Error {
+  /**
+   * Twilio answered a 4xx (but 408 and 409): it made nothing, e.g. a rate limit (20429) or an
+   * invalid number (PLATFORM_QA INTEG-6). No answer, a timeout or a 5xx may have been taken.
+   */
+  readonly notWritten: boolean;
   constructor(
     readonly status: number | null,
     /** Twilio's error code (e.g. 21211 invalid To), when it gave one. */
@@ -32,6 +38,7 @@ export class TwilioError extends Error {
   ) {
     super(message);
     this.name = "TwilioError";
+    this.notWritten = sendRefused(status);
   }
 }
 
