@@ -7,6 +7,10 @@ import {
   DeviceSignature,
   deviceSignedText,
   itemFingerprintText,
+  SignInApprovalDecideBody,
+  SignInApprovalsBody,
+  signInApprovalText,
+  signInListText,
 } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { fromBase64url } from "../util/bytes";
@@ -18,6 +22,8 @@ import {
   publicJwk,
   signDecision,
   signedDecision,
+  signSignInDecision,
+  signSignInList,
 } from "./signing";
 
 const item = {
@@ -152,5 +158,63 @@ describe("a decision as the app sends it", () => {
       readKey: async () => null,
     });
     expect(cancelled).toMatchObject({ ok: false });
+  });
+});
+
+describe("approving a sign-in on the phone (§1.154)", () => {
+  const privateKey = newPrivateKey(new Uint8Array(randomBytes(48)));
+  const jwk = publicJwk(privateKey);
+  const userId = "0190a1b2-0000-7000-8000-00000000a001";
+  const approvalId = "0190a1b2-0000-7000-8000-00000000c001";
+  const at = new Date("2026-11-18T12:00:00.000Z");
+
+  it("signs the list of waiting sign-ins as the API checks it", async () => {
+    const body = signSignInList({ privateKey, userId, deviceId, at });
+    expect(SignInApprovalsBody.safeParse(body).success).toBe(true);
+    const text = signInListText({ userId, deviceId, at: body.at });
+    expect(await verify(jwk, body.signature, text)).toBe(true);
+    // Not as a Desk item's, nor as a decision.
+    expect(
+      await verify(
+        jwk,
+        body.signature,
+        signInApprovalText({
+          approvalId,
+          userId,
+          deviceId,
+          decision: "deny",
+          number: null,
+          at: body.at,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("signs a decision with its number, and only that decision", async () => {
+    const body = signSignInDecision({
+      privateKey,
+      approvalId,
+      userId,
+      deviceId,
+      decision: "approve",
+      number: 47,
+      at,
+    });
+    expect(SignInApprovalDecideBody.safeParse(body).success).toBe(true);
+    const text = (number: number | null, decision: "approve" | "deny" = "approve") =>
+      signInApprovalText({ approvalId, userId, deviceId, decision, number, at: body.at });
+    expect(await verify(jwk, body.signature, text(47))).toBe(true);
+    expect(await verify(jwk, body.signature, text(48))).toBe(false);
+    expect(await verify(jwk, body.signature, text(null, "deny"))).toBe(false);
+    const deny = signSignInDecision({
+      privateKey,
+      approvalId,
+      userId,
+      deviceId,
+      decision: "deny",
+      number: null,
+      at,
+    });
+    expect(await verify(jwk, deny.signature, text(null, "deny"))).toBe(true);
   });
 });

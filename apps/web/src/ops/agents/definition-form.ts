@@ -21,6 +21,8 @@ import {
   uuidv7,
 } from "@countersign/core";
 
+import { type AdjustDraft, draftProblems, draftsFrom, withAdjustable } from "./adjustable-form";
+
 export type SettingValue = string | boolean;
 
 export interface SkillEntry {
@@ -51,6 +53,11 @@ export interface DefinitionForm {
   memory: boolean;
   /** Wave 6: what the agent's owner reviews (`definition.oversight.review`); none set reads `off`. */
   ownerReview: OversightReview;
+  /**
+   * B5 (docs/builder-plan.md §7): the settings the client may adjust, with their bounds as typed.
+   * Absent: the definition's are kept as they are.
+   */
+  adjustable?: AdjustDraft[];
 }
 
 /** Field → message. Skill settings are keyed `skills.<i>.<key>`. */
@@ -105,6 +112,7 @@ export function formFromBundle(bundle: Pick<AnyAgentBundle, "definition">): Defi
     maxCostUsd: d.budgets.maxCostUsd,
     memory: d.memory.enabled,
     ownerReview: d.oversight?.review ?? "off",
+    adjustable: draftsFrom(d),
   };
 }
 
@@ -180,6 +188,10 @@ export function validateForm(form: DefinitionForm, options: readonly SkillOption
       if (problem) errors[field] = problem;
     }
   });
+  // B5: each mark's name and bounds read.
+  for (const [id, problem] of Object.entries(draftProblems(form.adjustable ?? []))) {
+    errors[`adjustable.${id}`] = problem;
+  }
   return errors;
 }
 
@@ -240,7 +252,9 @@ export function applyForm<B extends AnyAgentBundle>(
   };
   if (d.identity.avatar !== undefined) identity.avatar = d.identity.avatar;
   const oversight = oversightWith(d.oversight, form.ownerReview);
-  const { oversight: _was, ...rest } = d;
+  const { oversight: _was, ...kept } = d;
+  // B5: the client-adjustable marks as the form has them (kept as stored when it has none).
+  const rest = form.adjustable ? withAdjustable(kept, form.adjustable) : kept;
   return {
     ...bundle,
     definition: {

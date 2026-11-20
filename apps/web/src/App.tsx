@@ -38,6 +38,9 @@ const FormPageScreen = lazy(() =>
   import("./forms/FormPage").then((m) => ({ default: m.FormPageScreen })),
 );
 // §1.149: the welcome page an invite's link opens, before sign-in: its own chunk.
+const SetupLinkScreen = lazy(() =>
+  import("./session/SetupLink").then((m) => ({ default: m.SetupLinkScreen })),
+);
 const WelcomeScreen = lazy(() =>
   import("./onboarding/Welcome").then((m) => ({ default: m.WelcomeScreen })),
 );
@@ -70,6 +73,15 @@ export function AppRoutes() {
         element={
           <Suspense fallback={<StillFrame />}>
             <FormPageScreen />
+          </Suspense>
+        }
+      />
+      {/* Owner, 2026-11-19: the emailed link that sets up a first sign-in method; no session. */}
+      <Route
+        path="/sign-in/setup/:token"
+        element={
+          <Suspense fallback={<StillFrame />}>
+            <SetupLinkScreen />
           </Suspense>
         }
       />

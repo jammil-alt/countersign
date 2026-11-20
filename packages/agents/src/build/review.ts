@@ -4,7 +4,13 @@
 // `BUILD_CHECKLIST`), the catalog in short and the other work, and names what the brief doesn't
 // settle and matters for this work. The API turns each into an open question before the fit-gap.
 
-import { BRIEF_FIELDS, BRIEF_LABELS, type Brief, BUILD_CHECKLIST } from "@countersign/core";
+import {
+  BRIEF_FIELDS,
+  BRIEF_LABELS,
+  type Brief,
+  BUILD_CHECKLIST,
+  promptText,
+} from "@countersign/core";
 import {
   BUILDER_EFFORT,
   DEFAULT_MODELS,
@@ -84,17 +90,18 @@ export async function reviewBrief(
 ): Promise<{ concerns: ReviewAnswer["concerns"]; calls: LlmCallRecord[]; costUsd: string | null }> {
   const brief = BRIEF_FIELDS.map((k) => {
     const f = input.brief[k];
-    return `- ${BRIEF_LABELS[k]}: ${f ? `[${f.state}] ${f.text || "(open)"}` : "(not asked)"}`;
+    return `- ${BRIEF_LABELS[k]}: ${f ? `[${f.state}] ${promptText(f.text) || "(open)"}` : "(not asked)"}`;
   }).join("\n");
+  // Invariant 9: every value inside <build> is escaped, so none can close it (as the turn's).
   const content = [
     `<build>`,
-    `Building: ${input.kind === "skill" ? "a skill" : "an agent"}, "${input.title}", ${input.clientName ? `for the client ${input.clientName}` : "for every client (a template)"}.`,
+    `Building: ${input.kind === "skill" ? "a skill" : "an agent"}, "${promptText(input.title)}", ${input.clientName ? `for the client ${promptText(input.clientName)}` : "for every client (a template)"}.`,
     `Brief:\n${brief}`,
     input.issues.length
-      ? `Already open (don't raise again):\n${input.issues.map((i) => `- ${i}`).join("\n")}`
+      ? `Already open (don't raise again):\n${input.issues.map((i) => `- ${promptText(i)}`).join("\n")}`
       : null,
     input.otherWork.length
-      ? `Other work (other builds and their open issues):\n${input.otherWork.map((w) => `- ${w}`).join("\n")}`
+      ? `Other work (other builds and their open issues):\n${input.otherWork.map((w) => `- ${promptText(w)}`).join("\n")}`
       : null,
     `</build>`,
     "Review the brief.",

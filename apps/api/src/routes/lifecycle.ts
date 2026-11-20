@@ -4,7 +4,7 @@
 // admin and signing client users (inside withTenant, one client).
 
 import { getAgent } from "@countersign/agents";
-import { routes } from "@countersign/core";
+import { type PortalSetupAgent, routes, setupRoutes } from "@countersign/core";
 import type { Hono } from "hono";
 import { ensureSeesAgent } from "../assigned";
 import { type AppEnv, type HandlerCtx, HttpError, mount, notFound } from "../http";
@@ -25,6 +25,12 @@ import {
 } from "../lifecycle/runs";
 import { goLiveView, moveStage, type StageActor, setTrialMinimums } from "../lifecycle/stages";
 import { startAfterCommit } from "../runs/reconcile";
+import {
+  agentSetupView,
+  portalSetupAgent,
+  portalSetupAgents,
+  recordSetupItem,
+} from "../setup/checklist";
 
 /** A client agent of a client this operator serves. */
 async function clientAgentInScope(ctx: Pick<HandlerCtx<never>, "tx" | "tenantIds">, id: string) {
@@ -40,6 +46,25 @@ function actorOf(ctx: Pick<HandlerCtx<never>, "session" | "role">): StageActor {
     actorUserId: ctx.session.user.id,
     actorEmail: ctx.session.user.email,
     actorRole: ctx.role,
+  };
+}
+
+/** The person's name as a checklist shows who did an item (else their email). */
+function personName(ctx: Pick<HandlerCtx<never>, "session">): string | null {
+  return ctx.session.user.name?.trim() || ctx.session.user.email || null;
+}
+
+/**
+ * The checklist as the client sees it: an item we recorded for them reads "by us", never an
+ * operator's name or email.
+ */
+function clientSide(a: PortalSetupAgent): PortalSetupAgent {
+  return {
+    ...a,
+    setup: {
+      ...a.setup,
+      items: a.setup.items.map((i) => (i.side === "operator" ? { ...i, byName: null } : i)),
+    },
   };
 }
 
@@ -117,6 +142,48 @@ export function lifecycleRoutes(app: Hono<AppEnv>): void {
       for (const r of requests) await startAfterCommit(ctx.services, r);
     });
     return { runs: requests.map((r) => ({ runId: r.runId, workflow: r.workflowSlug })), left };
+  });
+
+  // docs/builder-plan.md §6 (B4): the operator records a setup item for the client.
+  mount(app, setupRoutes.opsSetupItem, async (ctx) => {
+    const row = await clientAgentInScope(ctx, ctx.params.id);
+    const updated = await recordSetupItem(ctx.tx, {
+      agentId: row.id,
+      tenantId: row.tenantId as string,
+      itemId: ctx.params.itemId,
+      body: ctx.body,
+      actor: { userId: ctx.session.user.id, name: personName(ctx), side: "operator" },
+      ctx: ctx.services.platform.ctx,
+    });
+    return { goLive: await goLiveView(ctx.tx, updated, ctx.services.platform.ctx) };
+  });
+
+  // ── The client: Getting started's setup checklists ───────────────────────────────────────────
+
+  mount(app, setupRoutes.portalSetup, async (ctx) => {
+    const agents = await portalSetupAgents(
+      ctx.tx,
+      ctx.tenantIds[0] as string,
+      ctx.agents,
+      ctx.services.platform.ctx,
+    );
+    return { agents: agents.map(clientSide) };
+  });
+
+  mount(app, setupRoutes.portalSetupItem, async (ctx) => {
+    const tenantId = ctx.tenantIds[0] as string;
+    ensureSeesAgent(ctx.agents, ctx.params.id);
+    const updated = await recordSetupItem(ctx.tx, {
+      agentId: ctx.params.id,
+      tenantId,
+      itemId: ctx.params.itemId,
+      body: ctx.body,
+      actor: { userId: ctx.session.user.id, name: personName(ctx), side: "client" },
+      ctx: ctx.services.platform.ctx,
+    });
+    const setup = await agentSetupView(ctx.tx, updated, ctx.services.platform.ctx);
+    if (!setup) throw notFound("setup checklist");
+    return { agent: clientSide(portalSetupAgent(updated, setup)) };
   });
 
   // ── The client admin: pause and resume ───────────────────────────────────────────────────────

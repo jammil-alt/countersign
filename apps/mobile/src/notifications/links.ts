@@ -13,3 +13,12 @@ export function pathForNotification(data: unknown): "/" | "/messages" | "/settin
   // Weekly Table and connections are read on the web for now.
   return "/";
 }
+
+/** §1.154: a sign-in waiting on this phone; its screen opens, signed in or not. */
+export function isSignInApproval(data: unknown): boolean {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { kind?: unknown }).kind === "sign_in_approval"
+  );
+}

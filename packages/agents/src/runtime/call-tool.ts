@@ -35,6 +35,7 @@ import {
   releaseOf,
   releaseSettingProblem,
   routeApproval,
+  undiscussedFor,
 } from "@countersign/core";
 import type { RegisteredTool } from "../registry/tools";
 import { executeAction } from "./actions";
@@ -360,6 +361,8 @@ async function dispatch(
       settings: step.settings ?? {},
       ...(deps.packServices ? { packServices: deps.packServices } : {}),
       knowledge: deps.ports.knowledge,
+      // B3: other agents' manuals for this client
+      manuals: deps.ports.manuals,
       directory: deps.ports.directory,
       ledger: deps.ports.ledger,
       health: deps.ports.health,
@@ -576,6 +579,9 @@ async function dispatch(
             input: captured.input as JsonObject[string],
             before: (captured.before ?? null) as JsonObject[string],
             stepId: step.stepId,
+            // B3 (docs/builder-plan.md §5): the decisions this step rests on that nobody has
+            // discussed yet, from the agent's manual, so the card says so. Never loosens.
+            ...undiscussedPayload(step),
             onReject: step.approval?.onReject ?? "stop",
             // What chose the approver: a rule (with the rules' revision), the step, the agent,
             // the client's default, or the default (the client admin).
@@ -611,6 +617,18 @@ async function dispatch(
       : null,
   });
   return settle(deps, step, tool, action);
+}
+
+/**
+ * B3 (docs/builder-plan.md §5): the approval card's never-discussed decisions: those in the agent's
+ * manual that shape this step and nobody has discussed yet. Nothing when there are none, so a card
+ * without them is the same as before.
+ */
+export function undiscussedPayload(step: Pick<StepContext, "agent" | "stepId">): JsonObject {
+  const list = undiscussedFor(step.agent.bundle.definition, step.stepId);
+  return list.length > 0
+    ? { undiscussed: list.map((d) => ({ id: d.id, what: d.what })) as JsonObject[string] }
+    : {};
 }
 
 /**

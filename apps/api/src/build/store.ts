@@ -8,6 +8,7 @@ import {
   existingBundle,
   getAgent,
   latestVersion,
+  skillContext,
   validateForPublish,
 } from "@countersign/agents";
 import {
@@ -23,9 +24,12 @@ import {
   type BuildPocView,
   BuildProposal,
   type BuildSummary,
+  type DraftProblem,
   gateReasons,
+  groupProblems,
   itemOpen,
   nextPhase,
+  orderProblem,
   PHASE_WORDS,
   ProposalState,
   phaseIndex,
@@ -41,7 +45,10 @@ import {
   readQa,
   readRequirements,
   readTestPlan,
+  sliceWhole,
   toProcessBundle,
+  withDecisionRisk,
+  writingStepIds,
 } from "@countersign/core";
 import {
   appUser,
@@ -60,12 +67,15 @@ import {
   testCaseResult,
   testSuiteRun,
 } from "@countersign/db";
-import { and, asc, desc, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, like, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { stepRequests } from "../dev-queue/store";
 import { iso, notFound, type Services } from "../http";
 import { goLiveView } from "../lifecycle/stages";
+import { fullSuiteRun, notPendingTry, staleRun } from "../testbench/partial";
 import { buildFacts, buildStageOf, buildStanding } from "../work/work-list";
+import { trySandbox, tryViews } from "./tries";
+import { failureWhy } from "./why";
 
 export type BuildRow = typeof build.$inferSelect;
 export type BuildItemRow = typeof buildItem.$inferSelect;
@@ -216,7 +226,8 @@ const SavedProposal = BuildProposal.extend({
  */
 export const ProposalDecision = z.object({
   decides: z.string(),
-  decision: z.enum(["agreed", "unchanged", "declined", "undone"]),
+  /** STATE-3: `proposed` puts a proposal back when the change agreed to it failed. */
+  decision: z.enum(["proposed", "agreed", "unchanged", "declined", "undone"]),
   /** Agreed: an item's state before the change, for its undo. */
   before: BuildItemState.nullable().optional(),
   /** What was done, in words ("Changed: …"), shown under the proposal. */
@@ -321,7 +332,7 @@ export async function addMessage(
     buildId: row.id,
     phase: row.phase,
     role: m.role,
-    text: m.text.slice(0, 20_000),
+    text: sliceWhole(m.text, 20_000),
     meta: m.meta ?? {},
   });
 }
@@ -378,8 +389,8 @@ export async function addItems(
         buildId: row.id,
         phase: i.phase,
         kind: i.kind,
-        title: i.title.slice(0, 300),
-        detail: (i.detail ?? "").slice(0, 2000),
+        title: sliceWhole(i.title, 300),
+        detail: sliceWhole(i.detail ?? "", 2000),
         owner: i.owner ?? "operator",
         stepId: i.stepId ?? null,
         ref: i.ref ?? {},
@@ -387,6 +398,10 @@ export async function addItems(
         state: i.state ?? "open",
         resolvedAt: i.state && !itemOpen(i.state) ? new Date() : null,
         createdBy: userId,
+        // Items are listed by created_at, then id. now() is the transaction's start, so items
+        // added together tied, and a v7 id is random within its millisecond: they came back in
+        // any order (a flaky builds test, 2026-11-19). The clock's time keeps them in this order.
+        createdAt: sql`clock_timestamp()`,
       })
       .onConflictDoNothing()
       .returning({ id: buildItem.id });
@@ -451,6 +466,83 @@ export function problemPlace(
   return { stepName: null, workflowName: null };
 }
 
+/**
+ * The draft's problems as the build shows and counts them: grouped as the workflow builder groups
+ * them (core `groupProblems`: one step's references to the same later step are one), each with
+ * its own key (BUILDER_QA CONS-6).
+ */
+// DECISION: a problem keeps its old key (workflow|step|field|code) when that names it alone; one
+// with the same key adds the reference it is about, then a number, so the keys of problems already
+// talked about stay as they were.
+export function draftProblems(
+  errors: readonly {
+    workflow?: string;
+    stepId: string | null;
+    field: string;
+    code: string;
+    message: string;
+  }[],
+  bundle: DraftFacts["bundle"],
+): DraftProblem[] {
+  const seen = new Set<string>();
+  return groupProblems(errors).flatMap((group) => {
+    const e = group[0];
+    if (!e) return [];
+    const order = orderProblem(e);
+    const base = [e.workflow ?? "", e.stepId ?? "", e.field, e.code].join("|");
+    let key = base;
+    if (seen.has(key)) {
+      const ref = order
+        ? `after:${order.after}`
+        : (/^\{\{([^}]*)\}\}/.exec(e.message)?.[1]?.trim() ?? "");
+      if (ref) key = `${base}|${ref}`;
+    }
+    for (let n = 2; seen.has(key); n += 1) key = `${base}|${n}`;
+    seen.add(key);
+    const refs = group.map((x) => orderProblem(x)?.ref).filter((r): r is string => !!r);
+    return [
+      {
+        key,
+        code: e.code,
+        // One line for the group, as the workflow builder shows it.
+        title:
+          order && refs.length > 1
+            ? `${refs.map((r) => `{{${r}}}`).join(", ")}: step "${order.after}" does not run before this one on its path`
+            : e.message,
+        stepId: e.stepId ?? null,
+        workflow: e.workflow ?? null,
+        ...problemPlace(bundle, e.workflow ?? null, e.stepId ?? null),
+      },
+    ];
+  });
+}
+
+/**
+ * An agent draft's step ids by workflow slug, so what the Builder names (a proposal's step, a
+ * generated case's workflow and steps) is checked against the draft (BUILDER_QA AI-4, AI-6).
+ */
+export async function draftWorkflowSteps(
+  ctx: StoreCtx,
+  row: BuildRow,
+): Promise<Map<string, Set<string>>> {
+  const out = new Map<string, Set<string>>();
+  if (row.kind !== "agent") return out;
+  const { bundle } = await draftFacts(ctx, row);
+  for (const w of bundle?.workflows ?? []) {
+    out.set(w.slug, new Set(processes.allSteps(w.workflow).map(({ step }) => step.id)));
+  }
+  return out;
+}
+
+/** An agent draft's step ids, in any of its workflows. */
+export async function draftStepIds(ctx: StoreCtx, row: BuildRow): Promise<Set<string>> {
+  const ids = new Set<string>();
+  for (const steps of (await draftWorkflowSteps(ctx, row)).values()) {
+    for (const s of steps) ids.add(s);
+  }
+  return ids;
+}
+
 /** The longest outline of the draft's steps sent with a Builder turn. */
 const OUTLINE_STEPS = 80;
 
@@ -474,7 +566,59 @@ export async function draftOutline(ctx: StoreCtx, row: BuildRow): Promise<string
   return lines;
 }
 
+/** STATE-4: the key of an open item for a fit-gap change made after the draft (the move adds it). */
+export const STALE_DRAFT_KEY = "draft:fitgap:";
+
+/**
+ * The draft's problems that aren't in its bundle, each holding the draft gate: the draft agent
+ * discarded under the build (STATE-5), and a fit-gap change it doesn't cover yet, until its item
+ * is closed (STATE-4).
+ */
+// DECISION (STATE-5): a discarded draft is a draft problem rather than a discard refused while a
+// build points at it: the agents registry knows nothing of builds, and Restore brings it back.
+async function heldProblems(
+  tx: Tx,
+  row: BuildRow,
+  agentRow: DraftFacts["agentRow"],
+): Promise<BuildDraftView["problems"]> {
+  const out: BuildDraftView["problems"] = [];
+  if (agentRow?.status === "disabled") {
+    out.push({
+      key: "draft:discarded",
+      code: "draft_discarded",
+      title: "The draft was discarded. Restore it on its page to go on.",
+      stepId: null,
+      workflow: null,
+    });
+  }
+  const stale = await tx
+    .select({ state: buildItem.state })
+    .from(buildItem)
+    .where(and(eq(buildItem.buildId, row.id), like(buildItem.key, `${STALE_DRAFT_KEY}%`)));
+  if (stale.some((i) => itemOpen(i.state))) {
+    out.push({
+      key: "draft:fitgap",
+      code: "draft_stale",
+      title:
+        "The fit-gap changed after the draft was made. Change the draft to match, then close its item.",
+      stepId: null,
+      workflow: null,
+    });
+  }
+  return out;
+}
+
 async function draftFacts(ctx: StoreCtx, row: BuildRow): Promise<DraftFacts> {
+  const facts = await bundleDraftFacts(ctx, row);
+  if (!facts.view) return facts;
+  const held = await heldProblems(ctx.tx, row, facts.agentRow);
+  return held.length === 0
+    ? facts
+    : { ...facts, view: { ...facts.view, problems: [...held, ...facts.view.problems] } };
+}
+
+/** The draft as its latest version reads, with its validation problems. */
+async function bundleDraftFacts(ctx: StoreCtx, row: BuildRow): Promise<DraftFacts> {
   const none: DraftFacts = {
     view: null,
     bundle: null,
@@ -548,14 +692,7 @@ async function draftFacts(ctx: StoreCtx, row: BuildRow): Promise<DraftFacts> {
       versionId: latest.id,
       version: latest.version,
       live: agentRow.liveVersionId === latest.id,
-      problems: errors.map((e) => ({
-        key: [e.workflow ?? "", e.stepId ?? "", e.field, e.code].join("|"),
-        code: e.code,
-        title: e.message,
-        stepId: e.stepId ?? null,
-        workflow: e.workflow ?? null,
-        ...problemPlace(bundle, e.workflow ?? null, e.stepId ?? null),
-      })),
+      problems: draftProblems(errors, bundle),
     },
     bundle,
     liveVersions: agentRow.liveVersionId !== null,
@@ -569,7 +706,10 @@ async function suitePoc(
   targetKind: "template" | "skill",
   targetId: string,
   versionId: string | null,
+  buildId: string,
 ): Promise<BuildPocView> {
+  // builder-plan.md B1: a try waiting to be kept isn't a case yet, and a run of some cases (a
+  // try's) isn't the latest run: both show as tries.
   const cases = await tx
     .select({ id: testCase.id, name: testCase.name, required: testCase.required })
     .from(testCase)
@@ -578,12 +718,19 @@ async function suitePoc(
         eq(testCase.targetKind, targetKind),
         eq(testCase.targetId, targetId),
         isNull(testCase.archivedAt),
+        notPendingTry(),
       ),
     );
   const [latest] = await tx
     .select()
     .from(testSuiteRun)
-    .where(and(eq(testSuiteRun.targetKind, targetKind), eq(testSuiteRun.targetId, targetId)))
+    .where(
+      and(
+        eq(testSuiteRun.targetKind, targetKind),
+        eq(testSuiteRun.targetId, targetId),
+        fullSuiteRun(),
+      ),
+    )
     .orderBy(desc(testSuiteRun.createdAt))
     .limit(1);
   const required = cases.filter((c) => c.required);
@@ -595,6 +742,7 @@ async function suitePoc(
         caseId: testCaseResult.testCaseId,
         status: testCaseResult.status,
         runId: testCaseResult.runId,
+        diff: testCaseResult.diff,
       })
       .from(testCaseResult)
       .where(eq(testCaseResult.suiteRunId, latest.id));
@@ -606,6 +754,7 @@ async function suitePoc(
         name: c.name,
         status: byCase.get(c.id)?.status ?? "error",
         runId: byCase.get(c.id)?.runId ?? null,
+        why: failureWhy(byCase.get(c.id)?.diff),
       }));
     requiredFailing = required.filter((c) => byCase.get(c.id)?.status !== "pass").length;
   }
@@ -620,7 +769,7 @@ async function suitePoc(
         : !current
           ? "The latest test run is of an older version: run the cases again."
           : !done
-            ? latest.status === "running"
+            ? latest.status === "running" && !staleRun(latest, latest.total)
               ? "The test cases are running."
               : "The latest test run failed to finish."
             : requiredFailing > 0
@@ -635,7 +784,7 @@ async function suitePoc(
     latest: latest
       ? {
           id: latest.id,
-          status: latest.status,
+          status: staleRun(latest, latest.total) ? "failed" : latest.status,
           total: latest.total,
           passed: latest.passed,
           failed: latest.failed,
@@ -644,6 +793,8 @@ async function suitePoc(
         }
       : null,
     failures,
+    tries: await tryViews(tx, { kind: targetKind, id: targetId }, buildId, versionId),
+    trySandbox: targetKind === "template" ? await trySandbox(tx) : null,
     testRuns: null,
     passed,
     detail,
@@ -672,6 +823,8 @@ async function testRunPoc(
     required: 0,
     latest: null,
     failures: [],
+    tries: [],
+    trySandbox: null,
     testRuns: { total: rows.length, succeeded, latestRunId: rows[0]?.id ?? null },
     passed: succeeded > 0,
     detail:
@@ -702,12 +855,12 @@ async function pocFacts(
   if (row.kind === "skill") {
     const skillId = draft.view?.skillId ?? null;
     return skillId
-      ? suitePoc(ctx.tx, "skill", skillId, await latestSkillVersion(ctx.tx, skillId))
+      ? suitePoc(ctx.tx, "skill", skillId, await latestSkillVersion(ctx.tx, skillId), row.id)
       : null;
   }
   if (!draft.agentRow) return null;
   return draft.agentRow.kind === "template"
-    ? suitePoc(ctx.tx, "template", draft.agentRow.id, draft.latestVersionId)
+    ? suitePoc(ctx.tx, "template", draft.agentRow.id, draft.latestVersionId, row.id)
     : testRunPoc(ctx.tx, draft.agentRow.id, draft.latestVersionId);
 }
 
@@ -779,21 +932,12 @@ async function clientTestFacts(ctx: StoreCtx, row: BuildRow): Promise<BuildClien
   };
 }
 
-/** Writes whose approval is loosened anywhere in the bundle (invariant 8). */
+/**
+ * Every loosening anywhere in the bundle (invariant 8), as core counts them: steps' approvals,
+ * conversations' messages sent without a person's yes, and process steps' approval overrides.
+ */
 function loosenedApprovals(bundle: NonNullable<DraftFacts["bundle"]>): number {
-  let n = 0;
-  for (const w of bundle.workflows) {
-    for (const { step } of processes.allSteps(w.workflow)) {
-      const checks = (step as { checks?: { approval?: unknown } }).checks;
-      if (checks?.approval) {
-        n += processes.approvalLoosenings(
-          checks.approval as Parameters<typeof processes.approvalLoosenings>[0],
-          "checks.approval",
-        ).length;
-      }
-    }
-  }
-  return n;
+  return processes.bundleLoosenings(bundle).length;
 }
 
 function qaChecks(
@@ -861,6 +1005,27 @@ function qaChecks(
   return out;
 }
 
+/**
+ * The draft's steps that write to a client's tool or contact people, by the process validator's
+ * helpers over the platform's tools, the built-in skills and the client's own (and shared) custom
+ * skills, as publish resolves them (`skillContext`). A skill found nowhere counts as writing
+ * (core's `writingStepIds`), so a decision on its step is high risk.
+ */
+export async function draftWritingSteps(
+  ctx: Pick<StoreCtx, "services" | "tx">,
+  draft: Pick<DraftFacts, "bundle" | "agentRow">,
+): Promise<Set<string>> {
+  const { bundle } = draft;
+  if (!bundle) return new Set();
+  const { platform } = ctx.services;
+  const { skills } = await skillContext(ctx.tx, {
+    tenantId: draft.agentRow?.tenantId ?? null,
+    bundle,
+    catalog: platform.catalog,
+  });
+  return writingStepIds(bundle, { tools: platform.tools.specs(), skills });
+}
+
 /** The build as the screen shows it. */
 export async function buildDetail(ctx: StoreCtx, row: BuildRow): Promise<BuildDetail> {
   const { tx } = ctx;
@@ -889,10 +1054,16 @@ export async function buildDetail(ctx: StoreCtx, row: BuildRow): Promise<BuildDe
   );
 
   const brief = readBrief(row.brief);
-  const fitgap = readFitGap(row.fitgap);
   const testPlan = readTestPlan(row.testPlan);
   const qa = readQa(row.qa);
   const draft = await draftFacts(ctx, row);
+  // docs/builder-plan.md §4.2: a decision's risk is worked out by code from the draft as it is
+  // now (a step that writes or contacts people), on top of the Builder's flag.
+  const stored = readFitGap(row.fitgap);
+  const fitgap = {
+    ...stored,
+    decisions: withDecisionRisk(stored.decisions, await draftWritingSteps(ctx, draft)),
+  };
   const poc = await pocFacts(ctx, row, draft);
   const clientTest = await clientTestFacts(ctx, row);
   const checks = qaChecks(row, draft, poc, clientTest);

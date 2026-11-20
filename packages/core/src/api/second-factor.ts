@@ -16,8 +16,11 @@ export type SecondFactorKind = z.infer<typeof SecondFactorKind>;
 export const SecondFactorState = z.enum(["pending", "done", "exempt"]);
 export type SecondFactorState = z.infer<typeof SecondFactorState>;
 
-/** Operators reach every client, so they use an authenticator app only. */
-export const OPERATOR_SECOND_FACTOR_KINDS: readonly SecondFactorKind[] = ["totp"];
+/**
+ * Operators: an authenticator app or a text message (owner, 2026-11-19, which loosened "an
+ * authenticator app only" of 2026-11-09). No WhatsApp: operators reach every client.
+ */
+export const OPERATOR_SECOND_FACTOR_KINDS: readonly SecondFactorKind[] = ["totp", "sms"];
 export const CLIENT_SECOND_FACTOR_KINDS: readonly SecondFactorKind[] = ["totp", "sms", "whatsapp"];
 
 /** How long a sign-in may wait on the step before it must start again. */
@@ -50,13 +53,24 @@ export const SecondFactorStatus = z.object({
   state: SecondFactorState,
   /** Whether this environment runs the step at all (Twilio Verify set up). */
   enabled: z.boolean(),
-  /** The methods this person may set up (operators: an authenticator app only). */
+  /** The methods this person may set up (operators: an authenticator app or a text; WhatsApp only once its sender is set up). */
   allowed: z.array(SecondFactorKind),
   /** Their methods: a verified one is used to sign in; an unverified one is a setup in progress. */
   methods: z.array(SecondFactorMethodView),
   /** No verified method yet: this sign-in sets one up. */
   setupNeeded: z.boolean(),
   recoveryCodesLeft: z.int(),
+  /**
+   * The first method is set up from a link emailed to the person (owner, 2026-11-19), never on
+   * this page: whoever has the password must also have the inbox. False only where Mezonas can't
+   * send email (then the first method is set up here, as before).
+   */
+  setupByEmail: z.boolean(),
+  /**
+   * How many of the person's phones can approve this sign-in (docs/plan.md §1.154): set up to
+   * sign, in a client they belong to. Zero for operators and while the step is off.
+   */
+  phones: z.int(),
 });
 export type SecondFactorStatus = z.infer<typeof SecondFactorStatus>;
 
@@ -100,6 +114,48 @@ export const SecondFactorPassed = z.object({
 
 export const SecondFactorResetBody = z.strictObject({
   reason: z.string().trim().min(3).max(500),
+});
+
+// ── The setup link (owner, 2026-11-19) ─────────────────────────────────────────────────────────
+// A first sign-in with a password, and no method yet, asks for a link by email; the link opens a
+// page with no session where the person sets up a text number and/or an authenticator app, then
+// goes back to sign in. So the first method needs the password and the inbox.
+
+/** How long a setup link works. */
+export const SETUP_LINK_MIN = 30;
+
+/** The link's token: a signed payload and its signature, base64url, dot-separated. */
+export const SetupLinkToken = z.object({
+  token: z.string().regex(/^[A-Za-z0-9_-]{10,400}\.[A-Za-z0-9_-]{43}$/),
+});
+
+/** The setup page at `/sign-in/setup/<token>`. */
+export const setupLinkPagePath = (token: string) => `/sign-in/setup/${token}`;
+
+export const SetupLinkSent = z.object({
+  ok: z.literal(true),
+  /** "d•••@acme.com" */
+  emailHint: z.string(),
+});
+
+export const SetupLinkStatus = z.object({
+  emailHint: z.string(),
+  /** The methods this person may set up here. */
+  allowed: z.array(SecondFactorKind),
+  methods: z.array(SecondFactorMethodView),
+  expiresAt: z.string(),
+});
+export type SetupLinkStatus = z.infer<typeof SetupLinkStatus>;
+
+export const SetupLinkVerifyBody = z.strictObject({
+  kind: SecondFactorKind,
+  code: SecondFactorCode,
+});
+
+export const SetupLinkVerified = z.object({
+  ok: z.literal(true),
+  /** Shown once, with the person's first method; null for a second one. */
+  recoveryCodes: z.array(z.string()).nullable(),
 });
 
 const OPS = ["operator"] as const;
@@ -189,6 +245,50 @@ export const secondFactorRoutes = {
     summary: "Finish the sign-in with a one-time recovery code",
     body: SecondFactorRecoveryBody,
     response: SecondFactorPassed,
+  }),
+  secondFactorSetupLink: defineRoute({
+    method: "POST",
+    path: "/api/auth/second-factor/setup-link",
+    auth: "public",
+    roles: [],
+    summary:
+      "Email the person signing in a link to set up their first method (text and/or authenticator app)",
+    body: z.strictObject({}),
+    response: SetupLinkSent,
+  }),
+  // DECISION (owner, 2026-11-19): the link's page has no session: the link is the proof of the
+  // inbox, and it was only sent after the password was checked. It sets up methods only (never
+  // signs anyone in) and only for a person with no verified method, or the second kind of a
+  // person whose first was set up from this link's page.
+  setupLinkStatus: defineRoute({
+    method: "GET",
+    path: "/api/auth/setup-link/:token",
+    auth: "public",
+    roles: [],
+    summary: "The setup link's page: who it is for, and what may be set up",
+    params: SetupLinkToken,
+    response: SetupLinkStatus,
+  }),
+  setupLinkSetup: defineRoute({
+    method: "POST",
+    path: "/api/auth/setup-link/:token/setup",
+    auth: "public",
+    roles: [],
+    summary: "Start setting up a method from the setup link: an authenticator app or a number",
+    params: SetupLinkToken,
+    body: SecondFactorSetupBody,
+    response: SecondFactorSetupResponse,
+    secretShownOnce: ["otpauthUri"],
+  }),
+  setupLinkVerify: defineRoute({
+    method: "POST",
+    path: "/api/auth/setup-link/:token/verify",
+    auth: "public",
+    roles: [],
+    summary: "Prove a method set up from the setup link with one code (recovery codes, once)",
+    params: SetupLinkToken,
+    body: SetupLinkVerifyBody,
+    response: SetupLinkVerified,
   }),
   opsSecondFactorReset: defineRoute({
     method: "POST",

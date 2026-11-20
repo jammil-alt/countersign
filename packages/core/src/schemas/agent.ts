@@ -1,6 +1,8 @@
 import { z } from "zod";
 // v0.12 W2-G
 import { ClientView } from "../kpi/schema";
+// B3 (docs/builder-plan.md §5): the agent manual.
+import { AgentManual } from "../manual/manual";
 import { DecimalString } from "../money";
 // v0.13 W2-I
 import { OversightSettings } from "../oversight/decision";
@@ -8,6 +10,10 @@ import { OwnerArea } from "../owners/areas";
 // R1 (docs/plan.md §1.86): a bundle entry may hold a v4 process.
 import { Process } from "../process/schema";
 import { PersonRole } from "../reach/rules";
+// docs/builder-plan.md §7 (B5): the settings a client may adjust, with their bounds.
+import { AdjustableSettings } from "../setup/adjustable";
+// docs/builder-plan.md §6: the setup checklist a client copy is set up by.
+import { SetupChecklist } from "../setup/item";
 import { SkillRef, Slug, ToolId } from "./common";
 import { AgentMode } from "./permissions";
 import { ModelChoice } from "./skill";
@@ -81,6 +87,19 @@ export const AgentDefinition = z
     // with no default, so bundles without it parse and hash as they were; absent reads from
     // `requiresPacks`, else `general` (`processArea`).
     area: OwnerArea.optional(),
+    // B3 (docs/builder-plan.md §5): the agent's manual, written by its build (what it does, its
+    // decisions, decision points and known risks). Optional with no default, so bundles without
+    // it parse and hash as they were; diffed and merged as any definition field.
+    manual: AgentManual.optional(),
+    // docs/builder-plan.md §6 (B4): the setup checklist a client copy is set up by, made by code
+    // from the build's intake form, its client_setup decisions and the draft's writes. Optional
+    // with no default, so bundles without it parse and hash as they were. Each client's progress
+    // is operational (`agent.stage_state.setup`), never in a version.
+    setup: SetupChecklist.optional(),
+    // docs/builder-plan.md §7 (B5): the settings the client admin may adjust in the portal, each
+    // a skill parameter or a schedule with its bounds, marked by the operator. Optional with no
+    // default, so bundles without it parse and hash as they were; a copy keeps its template's.
+    adjustable: AdjustableSettings.optional(),
   })
   .meta({ id: "AgentDefinition" });
 export type AgentDefinition = z.infer<typeof AgentDefinition>;

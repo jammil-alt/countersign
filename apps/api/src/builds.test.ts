@@ -6,7 +6,7 @@
 // operator sees a client's build only when it serves the client.
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import type { BuildDetail } from "@countersign/core";
-import { agentVersion, run, testCase, testCaseResult, testSuiteRun } from "@countersign/db";
+import { agentVersion, run, tenant, testCase, testCaseResult, testSuiteRun } from "@countersign/db";
 import { FakeModel, fakeMessage, type LlmRequest } from "@countersign/llm";
 import { desc, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
@@ -322,7 +322,9 @@ describe.skipIf(!h)("builds", () => {
     b = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "draft" });
     expect(b.build.phase).toBe("draft");
     expect(b.build.agentId).toBeTruthy();
-    expect(b.draft).toMatchObject({ version: 1, live: false, problems: [] });
+    // v1 is the drafter's; v2 adds the manual and the template's setup checklist
+    // (docs/builder-plan.md §5, §6).
+    expect(b.draft).toMatchObject({ version: 2, live: false, problems: [] });
     // The fit-gap's build row is an open item; the known risk is one put off from the start,
     // and a template's intake form makes no items: there is no client yet.
     expect(b.items.map((i) => [i.title, i.owner, i.state])).toEqual([
@@ -359,6 +361,18 @@ describe.skipIf(!h)("builds", () => {
     );
     b = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "poc" });
     expect(b.build.testPlan.datasets).toHaveLength(1);
+    // The case names the draft's step by its id as stored (the Builder's "update" got a server
+    // id): a case naming a step the draft doesn't have is left out (BUILDER_QA AI-6).
+    const [drafted] = await H.t.db
+      .select({ bundle: agentVersion.bundle })
+      .from(agentVersion)
+      .where(eq(agentVersion.agentId, b.build.agentId as string))
+      .orderBy(desc(agentVersion.version))
+      .limit(1);
+    const draftedBundle = drafted?.bundle as {
+      workflows: { workflow: { steps: { id: string }[] } }[];
+    };
+    const stepId = draftedBundle.workflows[0]?.workflow.steps[0]?.id as string;
     model.push({
       toolUse: {
         name: "submit_test_cases",
@@ -368,7 +382,7 @@ describe.skipIf(!h)("builds", () => {
               name: "Wrong amount",
               dataset: "records",
               input: { workflow: "main", payload: {} },
-              expected: { update: {} },
+              expected: { [stepId]: {} },
             },
             { name: "Not a template case", dataset: "records", input: {}, expected: {} },
           ],
@@ -379,6 +393,38 @@ describe.skipIf(!h)("builds", () => {
     expect(b.created).toBe(1);
     expect(b.poc).toMatchObject({ mode: "suite", cases: 1, required: 1, passed: false });
     expect(b.gate.reasons).toContain("The test cases haven't run yet.");
+
+    // Staging (2026-11-18, Sentry MEZONAS-API-7): the Builder proposes running them and the
+    // operator agrees; the suite starts in the Sandbox (the run route is a slow one, so the
+    // proposal calls its code directly).
+    const [b2] = await H.t.db
+      .select({ settings: tenant.settings })
+      .from(tenant)
+      .where(eq(tenant.id, H.B.tenantId));
+    await H.t.db
+      .update(tenant)
+      .set({ settings: { ...(b2?.settings as object), sandbox: true } })
+      .where(eq(tenant.id, H.B.tenantId));
+    model.push(
+      turnAnswer({
+        text: "The cases are made. I'd run them now.",
+        proposal: { summary: "Run the test cases", action: { do: "run_tests" } },
+      }),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "What's next?" });
+    const runIt = b.messages.at(-1);
+    expect(runIt?.proposal).toMatchObject({ state: "proposed", action: { do: "run_tests" } });
+    b = await ok("POST", `/api/ops/builds/${id}/messages/${runIt?.id}/proposal`, {
+      decide: "agree",
+    });
+    expect(b.messages.find((m) => m.id === runIt?.id)?.proposal).toMatchObject({
+      state: "agreed",
+    });
+    const started = await H.t.db
+      .select({ id: testSuiteRun.id })
+      .from(testSuiteRun)
+      .where(eq(testSuiteRun.targetId, b.build.agentId as string));
+    expect(started).toHaveLength(1);
 
     // The suite passes (as the test bench writes it).
     const [suite] = await H.t.db
@@ -475,6 +521,25 @@ describe.skipIf(!h)("builds", () => {
     // Go waits for the client's copy to be live.
     const waiting = await call("POST", `/api/ops/builds/${id}/decision`, { go: true });
     expect(waiting.status).toBe(409);
+    // docs/builder-plan.md §6: the copy carries the template's setup checklist, and its stages
+    // wait on it; we record the items the client agreed with us.
+    const held = await H.call(OPERATOR, "POST", `/api/ops/agents/${b.build.testAgentId}/stage`, {
+      to: "live",
+      reason: "Signed off on paper",
+    });
+    expect(held.status).toBe(409);
+    expect((held.json as { error: { code: string } }).error.code).toBe("setup_not_done");
+    const goLive = (await H.call(OPERATOR, "GET", `/api/ops/agents/${b.build.testAgentId}/go-live`))
+      .json as { goLive: { setup?: { items: { id: string; done: boolean }[] } } };
+    for (const item of goLive.goLive.setup?.items.filter((i) => !i.done) ?? []) {
+      const done = await H.call(
+        OPERATOR,
+        "POST",
+        `/api/ops/agents/${b.build.testAgentId}/setup/${item.id}`,
+        { value: "2" },
+      );
+      expect(done.status, JSON.stringify(done.json)).toBe(200);
+    }
     const stage = await H.call(OPERATOR, "POST", `/api/ops/agents/${b.build.testAgentId}/stage`, {
       to: "live",
       reason: "Signed off on paper",
@@ -878,12 +943,13 @@ describe.skipIf(!h)("builds", () => {
       });
     });
     b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "The amount is wrong." });
-    const step = /Draft v1 step \[([^\]]+)\] Update the record \(write\)/.exec(lastUserText());
+    const step = /Draft v2 step \[([^\]]+)\] Update the record \(write\)/.exec(lastUserText());
     expect(step).not.toBeNull();
     const proposed = b.messages.at(-1);
     expect(proposed?.proposal).toMatchObject({ state: "proposed", action: { do: "edit_draft" } });
 
-    // Agreed: the workflow's Builder makes it (about that step) and it is saved as v2.
+    // Agreed: the workflow's Builder makes it (about that step) and it is saved as v3 (v2 is
+    // the manual the build wrote into the draft).
     model.push(
       editsDraft("Set the amount to 15.00.", (d) => {
         setAmount(d, "15.00");
@@ -900,16 +966,16 @@ describe.skipIf(!h)("builds", () => {
     expect(agreed?.result).toMatch(/^Changed: /);
     expect(b.messages.at(-1)?.text).toContain("Changed the draft: Set the amount to 15.00.");
     let saved = await versions();
-    expect(saved.map((v) => v.version)).toEqual([2, 1]);
+    expect(saved.map((v) => v.version)).toEqual([3, 2, 1]);
     expect(JSON.stringify(saved[0]?.bundle)).toContain('"15.00"');
-    expect(b.draft?.version).toBe(2);
+    expect(b.draft?.version).toBe(3);
 
     // Undo puts the step back, as a new version: history is never rewritten.
     b = await ok("POST", `/api/ops/builds/${id}/messages/${proposed?.id}/proposal`, {
       decide: "undo",
     });
     saved = await versions();
-    expect(saved.map((v) => v.version)).toEqual([3, 2, 1]);
+    expect(saved.map((v) => v.version)).toEqual([4, 3, 2, 1]);
     expect(JSON.stringify(saved[0]?.bundle)).toContain('"12.00"');
     expect(JSON.stringify(saved[0]?.bundle)).not.toContain('"15.00"');
     expect(b.messages.find((m) => m.id === proposed?.id)?.proposal?.state).toBe("undone");
@@ -932,7 +998,7 @@ describe.skipIf(!h)("builds", () => {
     });
     expect(b.messages.find((m) => m.id === rename?.id)?.proposal?.state).toBe("unchanged");
     expect(b.messages.at(-1)?.text).toContain("It already reads well");
-    expect((await versions()).map((v) => v.version)).toEqual([3, 2, 1]);
+    expect((await versions()).map((v) => v.version)).toEqual([4, 3, 2, 1]);
 
     // An edit whose draft was saved again since (in the workflow) is not undone over that save.
     model.push(
@@ -970,6 +1036,79 @@ describe.skipIf(!h)("builds", () => {
     });
     expect(refused.status).toBe(409);
     expect(JSON.stringify(refused.json)).toContain("Undo it in the workflow instead");
+  });
+
+  // QA on staging (2026-11-19, Sentry MEZONAS-API-9): in the draft, the Builder proposed a skill
+  // for a step and named the draft's problem (not a gap item) as what it settles. The proposal was
+  // dropped, so it said it had proposed the skill and no card showed, twice.
+  it("keeps a skill proposal that names no open gap, and makes its gap item when agreed", async () => {
+    let b = await ok("POST", "/api/ops/builds", { kind: "agent", title: "Skill from the draft" });
+    const id = b.build.id;
+    model.push(
+      turnAnswer({
+        text: "Got it.",
+        brief: {
+          goal: { text: "Keep records right", state: "confirmed" },
+          trigger: { text: "Someone asks", state: "confirmed" },
+          dataIn: { text: "The record", state: "confirmed" },
+          dataOut: { text: "The corrected record", state: "confirmed" },
+        },
+      }),
+    );
+    await ok("POST", `/api/ops/builds/${id}/turns`, { text: "An agent that fixes records." });
+    model.push(reviewed());
+    model.push(
+      turnAnswer({
+        text: "One we do as is.",
+        fitgap: {
+          rows: [{ id: "update", need: "Update the record", verdict: "native", how: "Testkit" }],
+        },
+      }),
+    );
+    await ok("POST", `/api/ops/builds/${id}/phase`, { to: "fitgap" });
+    model.push(draftAnswer());
+    b = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "draft" });
+    expect(b.items.filter((i) => i.kind === "gap")).toEqual([]);
+
+    const skill = {
+      do: "draft_skill",
+      itemId: "problem:main:update:missing_input",
+      stepId: "update",
+      title: "Match answers to tasks",
+      goal: "Pick the one task an answer is about, or hand it to a person",
+      dataIn: "The night's answers and the person's open tasks",
+      dataOut: "Each answer with its task, or no match",
+    };
+    model.push(
+      turnAnswer({
+        text: "That step needs a skill. I'd draft it as a skill build.",
+        proposal: { summary: "Draft the skill “Match answers to tasks”", action: skill },
+      }),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "Build the matching skill." });
+    const proposed = b.messages.at(-1);
+    expect(proposed?.proposal).toMatchObject({ state: "proposed", action: { do: "draft_skill" } });
+    expect(proposed?.proposal?.action).not.toHaveProperty("itemId");
+
+    // Agreed: the skill build starts, and the draft has a gap item that names it, once.
+    b = await ok("POST", `/api/ops/builds/${id}/messages/${proposed?.id}/proposal`, {
+      decide: "agree",
+    });
+    expect(b.messages.at(-1)?.text).toContain("I started the skill build “Match answers to tasks”");
+    const gaps = b.items.filter((i) => i.kind === "gap");
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]).toMatchObject({ owner: "builder", state: "in_progress", stepId: "update" });
+    expect(gaps[0]?.ref.buildId).toBeTruthy();
+
+    // A second skill for the same step is not proposed: it has its skill build.
+    model.push(
+      turnAnswer({
+        text: "I'd draft it again.",
+        proposal: { summary: "Draft the skill again", action: skill },
+      }),
+    );
+    b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "And again?" });
+    expect(b.messages.at(-1)?.proposal).toBeUndefined();
   });
 
   // QA on staging (2026-11-16): the fit-gap failed three times out of three. The raw validation

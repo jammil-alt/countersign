@@ -42,6 +42,7 @@ import {
 import { and, count, eq, gt, gte, inArray, isNotNull, isNull, max, sql } from "drizzle-orm";
 import type { Bindings } from "../env";
 import { reportProblem } from "../observability/report";
+import { signingPhones } from "./phone";
 
 /** What the step is built from; tests pass a code service in memory (AppDeps.codeVerifier). */
 export interface SecondFactorConfig {
@@ -50,6 +51,11 @@ export interface SecondFactorConfig {
   recoveryKeys: readonly string[];
   /** The WorkOS cookie password: it seals the remembered-browser cookie too (own purpose). */
   cookiePassword: string;
+  /**
+   * WhatsApp codes can be sent: a WhatsApp sender is attached to the Verify service and
+   * TWILIO_VERIFY_WHATSAPP is `on`. Off, nobody sets WhatsApp up (a method already set up stays).
+   */
+  whatsapp: boolean;
 }
 
 export type SecondFactorSetup =
@@ -62,6 +68,10 @@ const read = (v: string | undefined) => (typeof v === "string" ? v.trim() : "");
 // DECISION (docs/plan.md §1.100): on where TWILIO_VERIFY_SERVICE_SID is set (a Worker variable);
 // it needs Twilio's keys, ENCRYPTION_KEY (recovery codes) and the WorkOS sign-in. Missing one of
 // them is `misconfigured`: sign-ins stay pending and the routes answer 503, never "off".
+// DECISION (owner, 2026-11-18): the Verify service lives in a Twilio subaccount of its own, reached
+// with that subaccount's API key (TWILIO_VERIFY_API_KEY_SID / _SECRET), never the main account's
+// keys, which make clients' subaccounts. Without the key pair, a service on the main account is
+// reached with TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN; half a pair is `misconfigured`.
 export function secondFactorSetupOf(
   env: Bindings,
   inject?: { verifier?: (env: Bindings) => CodeVerifier; fetch?: FetchLike },
@@ -69,10 +79,18 @@ export function secondFactorSetupOf(
   const serviceSid = read(env.TWILIO_VERIFY_SERVICE_SID);
   if (!serviceSid) return { state: "off" };
   const problems: string[] = [];
-  const accountSid = read(env.TWILIO_ACCOUNT_SID);
-  const authToken = read(env.TWILIO_AUTH_TOKEN);
+  const keySid = read(env.TWILIO_VERIFY_API_KEY_SID);
+  const keySecret = read(env.TWILIO_VERIFY_API_KEY_SECRET);
+  const ownKey = Boolean(keySid || keySecret);
+  // An API key signs in as its SID and secret; Verify's URLs carry no account SID.
+  const accountSid = ownKey ? keySid : read(env.TWILIO_ACCOUNT_SID);
+  const authToken = ownKey ? keySecret : read(env.TWILIO_AUTH_TOKEN);
   if (!inject?.verifier && (!accountSid || !authToken)) {
-    problems.push("TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN are needed for Twilio Verify");
+    problems.push(
+      ownKey
+        ? "TWILIO_VERIFY_API_KEY_SID and TWILIO_VERIFY_API_KEY_SECRET are both needed"
+        : "TWILIO_VERIFY_API_KEY_SID and TWILIO_VERIFY_API_KEY_SECRET (or TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN) are needed for Twilio Verify",
+    );
   }
   const key = read(env.ENCRYPTION_KEY);
   if (!key) problems.push("ENCRYPTION_KEY is needed for recovery codes");
@@ -94,16 +112,34 @@ export function secondFactorSetupOf(
       verifier,
       recoveryKeys: previous ? [key, previous] : [key],
       cookiePassword: workos.config.cookiePassword,
+      whatsapp: read(env.TWILIO_VERIFY_WHATSAPP).toLowerCase() === "on",
     },
   };
 }
 
-/** The methods a person may use: operators reach every client, so an authenticator app only. */
+/**
+ * The methods a person may use: operators an authenticator app or a text (they reach every
+ * client); client users those or WhatsApp.
+ */
 export async function allowedKinds(db: Db, userId: string): Promise<readonly SecondFactorKind[]> {
   const memberships = await userMemberships(db, userId);
   return memberships.some((m) => isOperatorRole(m.role))
     ? OPERATOR_SECOND_FACTOR_KINDS
     : CLIENT_SECOND_FACTOR_KINDS;
+}
+
+/**
+ * The methods a person may set up now: what they may use, less WhatsApp until a WhatsApp sender
+ * is attached to the Verify service (TWILIO_VERIFY_WHATSAPP), so a code is never asked for on a
+ * channel that can't send it.
+ */
+// DECISION (owner, 2026-11-19): WhatsApp is offered only once the environment says its sender is
+// set up; a method already set up stays usable, so turning it off locks nobody out.
+export function setupKinds(
+  allowed: readonly SecondFactorKind[],
+  config: Pick<SecondFactorConfig, "whatsapp">,
+): SecondFactorKind[] {
+  return allowed.filter((k) => k !== "whatsapp" || config.whatsapp);
 }
 
 export type FactorRow = typeof userFactor.$inferSelect;
@@ -333,8 +369,10 @@ export async function rememberedBrowser(
         ),
       ),
   );
-  if (!factor) return false;
-  return (await allowedKinds(db, userId)).includes(factor.kind);
+  if (factor) return (await allowedKinds(db, userId)).includes(factor.kind);
+  // §1.154: a browser passed with the phone app names that phone: remembered while it is still
+  // the person's and set up to sign (never for an operator: signingPhones has none).
+  return (await signingPhones(db, userId, { deviceId: device.fid })).length > 0;
 }
 
 /** What the WorkOS adapter is given: whether the step is on, and the remembered-browser check. */

@@ -46,6 +46,9 @@ import { VoiceSamples } from "./VoiceSamples";
 
 // The Team section loads when it is opened (docs/plan.md §1.122): it holds the access editor and
 // the invite form, and the web app's first load has a budget (scripts/web-size.mjs).
+const PortalKnowledgeScreen = lazy(() =>
+  import("./Knowledge").then((m) => ({ default: m.PortalKnowledgeScreen })),
+);
 const PortalTeamScreen = lazy(() =>
   import("./Team").then((m) => ({ default: m.PortalTeamScreen })),
 );
@@ -61,6 +64,7 @@ export type SettingsSection =
   | "exports"
   | "conversations"
   | "voice"
+  | "charter"
   // P-8: US texting registration (docs/plan.md §1.70)
   | "texting";
 
@@ -74,6 +78,7 @@ const SECTION_WORDS: Record<SettingsSection, PlainKey> = {
   exports: "settingsPage.exports",
   conversations: "settingsPage.conversations",
   voice: "settingsPage.voice",
+  charter: "settingsPage.charter",
   texting: "settingsPage.texting",
 };
 
@@ -87,6 +92,7 @@ const SECTION_PATH: Record<SettingsSection, string> = {
   exports: PORTAL_PATHS.exports,
   conversations: PORTAL_PATHS.conversations,
   voice: PORTAL_PATHS.voice,
+  charter: PORTAL_PATHS.charter,
   texting: PORTAL_PATHS.texting,
 };
 
@@ -105,6 +111,7 @@ const ADMIN: readonly SettingsSection[] = [
   "exports",
   "conversations",
   "voice",
+  "charter",
   "texting",
 ];
 
@@ -241,6 +248,16 @@ function Body({
       return (
         <Part title={title}>
           <VoiceSamples />
+        </Part>
+      );
+    // docs/builder-plan.md §8: the charter we drafted, to confirm or edit, and the policies;
+    // loaded when opened (the first load's budget, docs/plan.md §1.146).
+    case "charter":
+      return (
+        <Part title={title} subtitle={t("knowledge.subtitle")}>
+          <Suspense fallback={<Loading />}>
+            <PortalKnowledgeScreen embedded />
+          </Suspense>
         </Part>
       );
     case "texting":

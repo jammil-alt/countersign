@@ -93,6 +93,43 @@ describe("the search", () => {
     });
     expect(hits.map((h) => h.partId)).toContain("r-open");
   });
+
+  // BUILDER_QA CONS-5: one stemmer for index and query.
+  it.each([
+    ["address", "addresses"],
+    ["match", "matches"],
+    ["tax", "taxes"],
+    ["status", "statuses"],
+    ["box", "boxes"],
+    ["entry", "entries"],
+    ["case", "cases"],
+    ["invoice", "invoices"],
+  ])("%s and %s are one word", (one, many) => {
+    expect(words(many), `words("${one}") = ${JSON.stringify(words(one))}`).toEqual(words(one));
+  });
+
+  it("keeps letters outside English in a word", () => {
+    expect(words("Café prices")).toEqual(["café", "price"]);
+    expect(words("請求書")).toEqual(["請求書"]);
+  });
+
+  it("finds the part described in the singular for a request in the plural", () => {
+    const parts = [
+      {
+        partType: "tool" as const,
+        partId: "vendor.address_lookup",
+        name: "vendor.address_lookup",
+        description: "Looks up a vendor's remit-to address",
+        inputs: ["vendorId"],
+        outputs: ["address"],
+      },
+    ];
+    const score = (query: string, outputs: string[]) =>
+      searchCatalog(parts, { query, outputs })[0]?.score ?? 0;
+    const singular = score("Look up a vendor remit-to address", ["address"]);
+    const plural = score("Look up vendor remit-to addresses", ["addresses"]);
+    expect(plural, `singular scores ${singular}`).toBe(singular);
+  });
 });
 
 describe("the judge", () => {
