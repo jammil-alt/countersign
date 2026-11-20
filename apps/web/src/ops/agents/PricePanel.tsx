@@ -2,7 +2,7 @@
 // template's price is the default for its client agents; a client agent's own price overrides it,
 // with a note saying why. Every change is kept in the agent's log, listed here. Changes apply from
 // the next day recorded; a month's statement keeps the prices each day had.
-import type { AgentSummary } from "@countersign/core";
+import { type AgentSummary, SetAgentPrice } from "@countersign/core";
 import { useState } from "react";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
@@ -13,18 +13,22 @@ import { SOURCE_LABEL } from "../screens/Billing";
 import { Field, Notice, TextInput, useAction } from "./ui";
 
 /** The price as typed, or what is wrong with it. */
+// DECISION (PLATFORM_QA CONS-4): the form checks with the route's own schema (`SetAgentPrice`), so
+// it takes exactly what the API takes; the regexes only read the text into the schema's types.
 export function priceFromDraft(
   monthlyPrice: string,
   includedCredits: string,
 ): { monthlyPrice: string; includedCredits: number } | { problem: string } {
   const p = monthlyPrice.trim().replace(/^\$/, "");
-  if (!/^\d{1,10}(\.\d{1,4})?$/.test(p)) {
+  const c = includedCredits.trim();
+  const price = { monthlyPrice: p, includedCredits: /^\d+$/.test(c) ? Number(c) : Number.NaN };
+  const parsed = SetAgentPrice.safeParse({ price });
+  if (parsed.success) return price;
+  const wrong = new Set(parsed.error.issues.map((i) => i.path.at(-1)));
+  if (wrong.has("monthlyPrice")) {
     return { problem: "The monthly price is a dollar amount, like 250 or 249.50." };
   }
-  if (!/^\d{1,9}$/.test(includedCredits.trim())) {
-    return { problem: "The credits included are a whole number." };
-  }
-  return { monthlyPrice: p, includedCredits: Number(includedCredits.trim()) };
+  return { problem: "The credits included are a whole number up to 100,000,000." };
 }
 
 export function PricePanel({ agent }: { agent: AgentSummary }) {
