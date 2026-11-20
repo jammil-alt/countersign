@@ -34,6 +34,7 @@ import {
   type PackTool,
   packToolContext,
 } from "@countersign/pack-materials";
+import { SALES_HANDLERS, SALES_SYNCED, salesManifest } from "@countersign/pack-sales";
 import type { z } from "zod";
 import type { SignedWrite } from "./signed-writes";
 
@@ -102,6 +103,12 @@ export interface RegisteredPack {
   /** M43: its nightly pass over every client with it on, at this UTC hour and minute. */
   nightly?: PackNightly;
   /**
+   * §1.164: after a sync page of one of `connectors` committed, the pack's pass over the raw records
+   * it stored (the Sales area builds its record keys). apps/api calls it for every client; the pack
+   * skips a client that has it off. Deterministic: no model.
+   */
+  synced?: PackSynced;
+  /**
    * M46: the reports whose items are pages a preview link may show (routes/pack-preview.ts):
    * each item a checked fragment `{ title, description, html, path, domain }`.
    */
@@ -122,6 +129,14 @@ export interface PackInbound {
       cf?: Record<string, unknown> | undefined;
       now: Date;
     },
+  ): Promise<unknown>;
+}
+
+export interface PackSynced {
+  connectors: readonly string[];
+  run(
+    db: Db,
+    input: { tenantId: string; connectionId: string; rawRecordIds: readonly string[] },
   ): Promise<unknown>;
 }
 
@@ -188,6 +203,14 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = lazyObjects([
     nightly: BOOKKEEPING_NIGHTLY,
     portalReports: lazy(() => screenReports(bookkeepingManifest)),
   },
+  // docs/plan.md §1.164: the Sales area's first version: record keys from the client's synced CRM
+  // (built after each sync page), the match and the look-up. No reports or screens yet; the
+  // Confirm matches card comes with the next piece.
+  {
+    manifest: salesManifest,
+    handlers: SALES_HANDLERS,
+    synced: SALES_SYNCED,
+  },
 ]);
 
 /**
@@ -222,6 +245,8 @@ function adapt(tool: PackTool): InternalTool {
           tenantId: ctx.tenantId,
           agentVersionId: ctx.agentVersionId,
           runId: ctx.runId,
+          // §1.164: the step a decision records (the Sales area's matches).
+          stepId: ctx.stepId,
           mode: ctx.mode,
           settings: ctx.settings,
           db,

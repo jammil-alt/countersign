@@ -41,6 +41,12 @@ const INVENTORY: Record<string, readonly string[]> = {
     "materials.embeddings.write",
     "materials.vendor_item.upsert",
   ],
+  // §1.164: the Sales area's match (embeddings of rows and records, the model's choice among
+  // candidates) and the record keys' refresh (their embeddings).
+  "packs/sales/src/match/match.ts": ["sales.match_records"],
+  "packs/sales/src/match/model.ts": ["sales.match_records"],
+  "packs/sales/src/store.ts": ["sales.match_records", "sales.keys.refresh"],
+  "packs/sales/src/tools.ts": ["sales.match_records", "sales.keys.refresh"],
 };
 const DECLARED_WITHOUT_CODE = ["comms.converse"];
 
