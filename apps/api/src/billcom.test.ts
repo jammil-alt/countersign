@@ -303,6 +303,15 @@ describe.skipIf(!h)("BILL through the API", () => {
       .get("billcom")
       ?.manifest.tools.find((t) => t.id === BILLCOM_TOOLS.billArchive);
     expect(tool?.approval).toBe("always");
+    // Connectors C2/C4: a BILL connection starts with updating bills off, and archiving a bill is
+    // an update, so the client admin turns it on (Ask me first) before the undo can archive it.
+    const allowArchive = await H.call(
+      admin("b"),
+      "PUT",
+      `/api/portal/connections/${connectionId}/access`,
+      { permissions: { update: "approval", entities: { bill: { update: "approval" } } } },
+    );
+    expect(allowArchive.status, JSON.stringify(allowArchive.json)).toBe(200);
     const runtime = runtimeFor(forClient(deps, H.B.tenantId));
     const out = await undoAction(runtime, {
       tenantId: H.B.tenantId,
