@@ -54,9 +54,21 @@ afterAll(() => h?.close());
 const FIXTURES = resolve(DEFAULT_FIXTURE_DIR, "..", "email");
 const fixture = (name: string) => readFileSync(resolve(FIXTURES, name));
 
-function mime(lines: { from: string; to: string; subject: string; text: string; id: string }) {
+function mime(lines: {
+  from: string;
+  to: string;
+  subject: string;
+  text: string;
+  id: string;
+  /** Cloudflare's verdict that DMARC passed for the From header's domain. */
+  authenticated?: boolean;
+}) {
+  const domain = /@([^>\s]+)>?$/.exec(lines.from)?.[1] ?? "";
   return new TextEncoder().encode(
     [
+      ...(lines.authenticated
+        ? [`Authentication-Results: mx.cloudflare.net; dmarc=pass header.from=${domain}`]
+        : []),
       `From: ${lines.from}`,
       `To: ${lines.to}`,
       `Subject: ${lines.subject}`,
@@ -189,7 +201,18 @@ describe.skipIf(!h)("the back office's email", () => {
     expect(msgs.some((m) => j(m.message.body).text?.includes("duplicates are gone"))).toBe(false);
     expect((await sortTodos()).some((t) => t.title.includes("mallory@evil.example"))).toBe(true);
 
-    await deliver("admin@a.example.com", `support+${tag}@${DOMAIN}`, raw);
+    await deliver(
+      "admin@a.example.com",
+      `support+${tag}@${DOMAIN}`,
+      mime({
+        from: "Client A admin <admin@a.example.com>",
+        to: `support+${tag}@${DOMAIN}`,
+        subject: "Re: Invoices posted twice",
+        text: "Thanks, the duplicates are gone.",
+        id: "reply-1",
+        authenticated: true,
+      }),
+    );
     msgs = await H.t.db
       .select()
       .from(message)
@@ -251,6 +274,7 @@ describe.skipIf(!h)("the back office's email", () => {
         subject: "Re: Two times",
         text: "Tuesday at 10.",
         id: "jo-2",
+        authenticated: true,
       }),
     );
     const after = await H.t.db.select().from(dealActivity).where(eq(dealActivity.dealId, dealId));
@@ -265,6 +289,7 @@ describe.skipIf(!h)("the back office's email", () => {
         subject: "Also",
         text: "And payroll?",
         id: "jo-3",
+        authenticated: true,
       }),
     );
     const deals = await H.t.db
@@ -309,6 +334,7 @@ describe.skipIf(!h)("the back office's email", () => {
           subject: "Payroll",
           text: "The payroll export is short a week.",
           id: "s-2",
+          authenticated: true,
         }),
       );
     } finally {
@@ -329,6 +355,39 @@ describe.skipIf(!h)("the back office's email", () => {
       { domain: DOMAIN, locals: ["support", "hello"] },
     );
     expect(other).toEqual({ handled: false });
+  });
+
+  it("(PLATFORM_QA SEC-1) an unauthenticated email to support@ claiming a client admin is not filed as them", async () => {
+    // No Authentication-Results: neither SPF nor DMARC vouches for this sender, and the envelope
+    // sender is whatever the sending server says.
+    await deliver(
+      admin("a"),
+      `support@${DOMAIN}`,
+      mime({
+        from: `Client A admin <${admin("a")}>`,
+        to: `support@${DOMAIN}`,
+        subject: "Please change our bank details",
+        text: "Our bank account changed; pay vendors to the new one from today.",
+        id: "spoof-1",
+      }),
+    );
+    const [aAdmin] = await H.t.db
+      .select()
+      .from(appUser)
+      .where(eq(appUser.email, admin("a")));
+    const raised = await H.t.db
+      .select()
+      .from(issue)
+      .where(and(eq(issue.tenantId, A()), eq(issue.title, "Please change our bank details")));
+    expect(raised).toEqual([]);
+    const posted = await H.t.db
+      .select()
+      .from(message)
+      .where(eq(message.senderId, aAdmin?.id as string));
+    expect(posted.some((m) => j(m.body).text?.includes("bank account changed"))).toBe(false);
+    // It is the operator's to sort, tied to no client, its text as data.
+    const sorted = (await sortTodos()).find((t) => t.detail.includes("bank account changed"));
+    expect(sorted).toMatchObject({ owner: "operator", clientId: null, source: "email" });
   });
 
   it("reminds a client of their to-do from their lead", async () => {
