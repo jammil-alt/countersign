@@ -6,6 +6,7 @@ import {
   processorsForOffer,
 } from "@countersign/core";
 import { describe, expect, it } from "vitest";
+import type { WriteAttemptServices, WriteAttemptState } from "../attempts";
 import {
   type ToolContext,
   ToolRefused,
@@ -43,12 +44,52 @@ const LOGIN: JsonObject = {
   apiKey: FAKE_ODOO.apiKey,
 };
 
+/** The platform's record of write attempts, in memory (as slack.test.ts keeps it). */
+function memoryAttempts() {
+  const started = new Map<string, { details: JsonObject; at: Date }>();
+  const refused = new Set<string>();
+  const done = new Map<string, JsonObject>();
+  const s: WriteAttemptServices = {
+    async stateFor(key): Promise<WriteAttemptState> {
+      const mine = [...started.entries()].filter(([k]) => k.startsWith(`${key}#`));
+      const last = mine.at(-1)?.[1];
+      return {
+        done: done.get(key) ?? null,
+        started: mine.length,
+        refused: [...refused].filter((k) => k.startsWith(`${key}#`)).length,
+        last: last ? { details: last.details, startedAt: last.at } : null,
+      };
+    },
+    async start({ idempotencyKey, attempt, details, at }) {
+      const k = `${idempotencyKey}#${attempt}`;
+      if (started.has(k)) return false;
+      started.set(k, { details, at });
+      return true;
+    },
+    async refused({ idempotencyKey, attempt }) {
+      refused.add(`${idempotencyKey}#${attempt}`);
+    },
+    async done({ idempotencyKey, output }) {
+      if (!done.has(idempotencyKey)) done.set(idempotencyKey, output);
+    },
+  };
+  return s;
+}
+
 function setup(
-  over: { credentials?: JsonObject | null; permissions?: Partial<PermissionMatrix> } = {},
+  over: {
+    credentials?: JsonObject | null;
+    permissions?: Partial<PermissionMatrix>;
+    /** Wraps the fake's fetch, to refuse or lose one call. */
+    fetch?: (f: ReturnType<typeof fakeOdoo>["fetch"]) => ReturnType<typeof fakeOdoo>["fetch"];
+  } = {},
 ) {
   const odoo = fakeOdoo({ now: () => NOW });
-  const connector = createOdooConnector({ fetch: odoo.fetch });
+  const connector = createOdooConnector({
+    fetch: over.fetch ? over.fetch(odoo.fetch) : odoo.fetch,
+  });
   const logger = memoryLogger();
+  const attempts = memoryAttempts();
   const ctx = (extra: Partial<ToolContext> = {}): ToolContext => ({
     tenantId: tenant,
     connection: {
@@ -63,6 +104,7 @@ function setup(
     credentials: memoryCredentials(over.credentials === undefined ? LOGIN : over.credentials),
     logger,
     now: () => NOW,
+    services: { attempts },
     ...extra,
   });
   const wctx = (key = "run-1:step:0"): WriteContext => ({ ...ctx(), idempotencyKey: key });
@@ -315,17 +357,21 @@ describe("odoo connector: creating", () => {
     expect(create?.raw).toContain('"product_uom_qty":40,"price_unit":4.1');
   });
 
-  it("treats its own create from the last day as done when the answer was lost", async () => {
+  it("never creates again under the same key when the answer was lost (PLATFORM_QA STATE-5)", async () => {
     const { write, odoo, wctx } = setup();
     odoo.loseNextAnswer();
     const lost = await write(ODOO_TOOLS.create, QUOTE).catch((e) => e);
     expect(lost).toBeInstanceOf(UnconfirmedWriteError);
     expect(odoo.writes()).toHaveLength(1);
-    const again = await write(ODOO_TOOLS.create, QUOTE, wctx());
-    expect(again.output.alreadyDone).toBe(true);
+    // The takeover fails as unconfirmed for the operator; no match on content stands in for it.
+    const again = await write(ODOO_TOOLS.create, QUOTE, wctx()).catch((e) => e);
+    expect(again).toBeInstanceOf(UnconfirmedWriteError);
     expect(odoo.writes()).toHaveLength(1);
-    // Someone else's draft for the same customer is shown to the approver, not taken as ours.
-    expect(again.before.existing.length).toBeGreaterThan(0);
+    // Drafts for the same customer are shown to the approver of another action, and it is made.
+    const other = await write(ODOO_TOOLS.create, QUOTE, wctx("run-2:step:0"));
+    expect(other.before.existing.length).toBeGreaterThan(0);
+    expect(other.output.alreadyDone).toBe(false);
+    expect(odoo.writes()).toHaveLength(2);
   });
 
   it("refuses a contact whose email is already in Odoo, and protected fields", async () => {
@@ -584,6 +630,72 @@ describe("odoo connector: notes and activities", () => {
     });
     const again = await write(ODOO_TOOLS.activity, input);
     expect(again.output).toEqual({ id: output.id, alreadyDone: true });
+  });
+});
+
+describe("odoo connector: (PLATFORM_QA STATE-5) creates once per key, never matched on content", () => {
+  const NOTE = { model: "crm.lead", recordId: FAKE_ODOO.lead, text: "Left a voicemail." };
+  const ACTIVITY = {
+    model: "sale.order",
+    recordId: FAKE_ODOO.saleOrder,
+    summary: "Chase the signed quote",
+    dueDate: "2026-11-14",
+  };
+  const LEAD = { model: "crm.lead", values: { name: "Okafor vanity" } };
+
+  it("(PLATFORM_QA STATE-5) two actions with different keys and the same words both write", async () => {
+    const { write, wctx, odoo } = setup();
+    for (const run of ["run-1", "run-2"]) {
+      const n = await write(ODOO_TOOLS.note, NOTE, wctx(`${run}:note:0`));
+      expect(n.output.alreadyDone).toBe(false);
+      const a = await write(ODOO_TOOLS.activity, ACTIVITY, wctx(`${run}:activity:0`));
+      expect(a.output.alreadyDone).toBe(false);
+      const l = await write(ODOO_TOOLS.create, LEAD, wctx(`${run}:lead:0`));
+      expect(l.output.alreadyDone).toBe(false);
+    }
+    expect(odoo.writes().map((w) => w.method)).toEqual([
+      "message_post",
+      "create",
+      "create",
+      "message_post",
+      "create",
+      "create",
+    ]);
+  });
+
+  it("(PLATFORM_QA STATE-5) a takeover under the same key after a lost answer doesn't write twice", async () => {
+    const { write, wctx, odoo } = setup();
+    odoo.loseNextAnswer();
+    const lost = await write(ODOO_TOOLS.note, NOTE, wctx("run-1:note:0")).catch((e) => e);
+    expect(lost).toBeInstanceOf(UnconfirmedWriteError);
+    const again = await write(ODOO_TOOLS.note, NOTE, wctx("run-1:note:0")).catch((e) => e);
+    expect(again).toBeInstanceOf(UnconfirmedWriteError);
+    expect(odoo.writes()).toHaveLength(1);
+    // Once its result is recorded, a re-run under the key returns it and sends nothing.
+    const made = await write(ODOO_TOOLS.note, NOTE, wctx("run-1:note:1"));
+    const rerun = await write(ODOO_TOOLS.note, NOTE, wctx("run-1:note:1"));
+    expect(rerun.output).toEqual({ ...made.output, alreadyDone: true });
+    expect(odoo.writes()).toHaveLength(2);
+  });
+
+  it("(PLATFORM_QA STATE-5) a try Odoo refused writes nothing, and the retry under the same key writes once", async () => {
+    let refuseNext = true;
+    const { write, wctx, odoo } = setup({
+      fetch: (f) => async (url, init) => {
+        if (refuseNext && (init?.body ?? "").includes('"message_post"')) {
+          refuseNext = false;
+          return { status: 429, ok: false, headers: { get: () => null }, text: async () => "" };
+        }
+        return f(url, init);
+      },
+    });
+    const refused = await write(ODOO_TOOLS.note, NOTE, wctx("run-1:note:0")).catch((e) => e);
+    expect(writeNotMade(refused)).toBe(true);
+    const made = await write(ODOO_TOOLS.note, NOTE, wctx("run-1:note:0"));
+    expect(made.output.alreadyDone).toBe(false);
+    const again = await write(ODOO_TOOLS.note, NOTE, wctx("run-1:note:0"));
+    expect(again.output).toEqual({ ...made.output, alreadyDone: true });
+    expect(odoo.writes()).toHaveLength(1);
   });
 });
 

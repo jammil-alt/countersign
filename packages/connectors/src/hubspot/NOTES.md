@@ -40,19 +40,19 @@ stays the text HubSpot gives (no float); a tool that needs it as money reads it 
 - **Update** is safe to repeat: if every property already has the value asked for, nothing is sent
   and the result says `alreadyDone`. That check comes before the stale check (`expectedUpdatedAt`),
   so a retry after a lost answer is a no-op rather than a "changed since" refusal.
-- **Create** (record, note, task): right before writing, a record of the same kind made in the last
-  24 hours that matches it is taken as this action's own earlier write and reported done. A record:
-  same type, every given property equal, found by its email, domain, name or deal name. A note: the
-  same body on the same record (found by `hs_createdate` and the association, compared on our side).
-  A task: the same subject and body, on the same record if any.
-  - **UNCHECKED**: that search can filter on `associations.contact` / `.company` / `.deal` for notes
-    and tasks, and on `hs_createdate` with epoch milliseconds.
-  - **UNCHECKED**: that HubSpot stores `hs_note_body` exactly as sent (we send the text with `&`, `<`
-    and `>` escaped). If HubSpot rewrites the HTML, the note's twin is not recognised and a retry
-    after a lost answer adds the note again.
-  - The cost: the same note or task on the same record within a day, asked for by two different
-    actions, is made once. A contact whose email exists already (and is not this action's) is
-    refused before writing ("update it instead"), as HubSpot itself would.
+- **Create** (record, note, task) is made at most once per external action's key through the
+  platform's record of attempts (`ctx.services.attempts`, as Zoho, Slack and LinkedIn): the attempt
+  is recorded before HubSpot is called, and its result once HubSpot answers.
+  - A re-run under the same key after the result was recorded returns it (`alreadyDone`) and sends
+    nothing.
+  - An attempt started without an answer (a lost answer, a 5xx, a 408 or a 409) is never sent
+    again: the action fails as unconfirmed (`UnconfirmedWriteError`) for the operator to check.
+  - An attempt HubSpot refused (a 4xx but 408 and 409) wrote nothing and is recorded as refused, so
+    the retry may write; after 5 refusals we stop.
+  - A different key always writes: two actions that log the same note on the same record the same
+    day make two notes (PLATFORM_QA STATE-5). Nothing is matched on content any more.
+  - A contact whose email exists already is refused before writing ("update it instead"), as
+    HubSpot itself would; the approver sees it in the before state.
 
 ## Rate limits
 

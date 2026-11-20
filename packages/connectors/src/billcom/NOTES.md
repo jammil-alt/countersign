@@ -41,6 +41,7 @@ All under the v3 base, with `devKey` and `sessionId` headers.
 | Clearing a field with `null` in a PATCH | **UNCHECKED**. So an update whose before value was empty has no undo |
 | BILL refuses to change or archive a bill with a payment scheduled or made | **UNCHECKED**. We refuse it ourselves first (payment status other than `UNPAID`) |
 | Archived bills can be restored (`POST /bills/{id}/restore`) | **UNCHECKED**; not used (archive's own undo is `none`) |
+| Archive is BILL's void: the bill stays, marked archived | from the brief. `billcom.bill.archive` is always signed by a person (`approval: "always"`), whatever the matrix, a step or the agent's mode allow (PLATFORM_QA TOOL-4); as a created bill's undo, the person's press signs it |
 | Duplicate invoice numbers: BILL warns or refuses a second bill with the same vendor and invoice number | **UNCHECKED**. We look ourselves: a vendor's open bills (up to 1,000), numbers compared on letters and digits |
 | Idempotency keys on creates | **UNCHECKED** whether v3 takes one. We use none: a retried create finds its own earlier write (a bill: same vendor, number, total and line count; a vendor: same name and fields, made in the last day; a document: same file name on the bill) and reports it done |
 | Amounts | JSON numbers in dollars on the wire, both ways | **UNCHECKED** (dollars, not cents). Read through text into decimals (`dec(String(n))`); written from the decimal's text (`billcomJson`), never through a float |
