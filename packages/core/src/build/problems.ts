@@ -11,7 +11,9 @@ export interface GroupableProblem {
   message: string;
 }
 
-const ORDER = /^\{\{\s*([^}]+?)\s*\}\}:\s*step "(.+)" does not run before this one on its path$/s;
+// A reference is anything up to the closing braces, trimmed after: spaces and the reference
+// matched by parts that overlap took polynomial time on a long "{{    " (CodeQL js/polynomial-redos).
+const ORDER = /^\{\{([^}]*)\}\}:\s*step "(.+)" does not run before this one on its path$/s;
 
 /**
  * The step a problem's reference reads that doesn't run before its step, and the reference, or
@@ -21,7 +23,8 @@ export function orderProblem(e: GroupableProblem): { ref: string; after: string 
   // A Reshape mapping's problem names the mapping's own fields: it stays a line of its own.
   if (e.code === "reshape_mapping") return null;
   const m = ORDER.exec(e.message);
-  return m?.[1] && m[2] ? { ref: m[1], after: m[2] } : null;
+  const ref = m?.[1]?.trim();
+  return ref && m?.[2] ? { ref, after: m[2] } : null;
 }
 
 /** The key that joins problems into one: a step's references to the same later step; else null. */
