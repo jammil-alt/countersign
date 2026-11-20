@@ -8,6 +8,8 @@ import {
   overageCredits,
   periodCredits,
   periodSeconds,
+  phoneLineDescription,
+  phoneLineNumber,
   previousPeriod,
   priceMeasures,
   readTenantBilling,
@@ -299,6 +301,73 @@ describe("statements", () => {
     expect(() => centsOf("0.0050")).toThrow();
     expect(toCents("0.005")).toBe("0.0100");
     expect(sumAmounts(["1.10", "2.20", "-0.30"])).toBe("3.0000");
+  });
+});
+
+describe("agent phone lines (§1.160)", () => {
+  const lineDays = (agentId: string, phone: string, from: number, to: number, price = "10.0000") =>
+    Array.from({ length: to - from + 1 }, (_, i) => ({
+      phoneNumber: phone,
+      agentId,
+      agentName: agentId === "a" ? "Orders desk" : "Invoice clerk",
+      day: `2026-11-${String(from + i).padStart(2, "0")}`,
+      monthlyPrice: price,
+    }));
+
+  it("bill a full month's line at its price, after the agent lines and before usage", () => {
+    const s = buildStatement({
+      period: "2026-11-01",
+      days: [],
+      lineDays: lineDays("a", "+15555550123", 1, 30),
+      creditsUsed: 0,
+      creditPrice: "0.02",
+    });
+    expect(s.lines.map((l) => l.kind)).toEqual(["phone_line", "usage"]);
+    expect(s.lines[0]).toEqual({
+      kind: "phone_line",
+      agentId: "a",
+      description: "Phone line +1 555-555-0123 (Orders desk)",
+      amount: "10.0000",
+      detail: {
+        phoneNumber: "+15555550123",
+        days: 30,
+        daysInMonth: 30,
+        prices: [{ monthlyPrice: "10.0000", days: 30 }],
+      },
+    });
+    // A line brings no credits.
+    expect(s.creditsIncluded).toBe(0);
+    expect(s.total).toBe("10.0000");
+  });
+
+  it("prorate a line by its days, and split a number given to another agent mid-month", () => {
+    const s = buildStatement({
+      period: "2026-11-01",
+      days: [],
+      lineDays: [
+        ...lineDays("a", "+15555550123", 1, 10),
+        ...lineDays("b", "+15555550123", 11, 30),
+        // Outside the month: never billed here.
+        { ...lineDays("a", "+15555550123", 1, 1)[0], day: "2026-12-01" } as never,
+      ],
+      creditsUsed: 0,
+      creditPrice: "0.02",
+    });
+    const lines = s.lines.filter((l) => l.kind === "phone_line");
+    // $10 × 10/30 = $3.33; $10 × 20/30 = $6.67 (half up, once per line).
+    expect(lines.map((l) => [l.agentId, l.amount])).toEqual([
+      ["b", "6.6700"],
+      ["a", "3.3300"],
+    ]);
+    expect(s.total).toBe("10.0000");
+  });
+
+  it("write the number readably", () => {
+    expect(phoneLineNumber("+15555550123")).toBe("+1 555-555-0123");
+    expect(phoneLineNumber("+447700900123")).toBe("+447700900123");
+    expect(phoneLineDescription("+15555550123", "Sloan")).toBe(
+      "Phone line +1 555-555-0123 (Sloan)",
+    );
   });
 });
 

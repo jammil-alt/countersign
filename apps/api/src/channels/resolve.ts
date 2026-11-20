@@ -31,6 +31,8 @@ import {
   type ChannelLine,
   channelTool,
   levelFor,
+  numberFor,
+  numberOwner,
   type PermissionMatrix,
   type processes,
   REACH_CHANNELS,
@@ -75,21 +77,21 @@ export function accountBindings(settings: unknown): ChannelBindings {
   return parsed.success ? parsed.data : {};
 }
 
-/** The number (E.164) or address a connection sends `kind` from, or null when it has none yet. */
-export function channelAddress(conn: ChannelConnection, kind: ReachChannel): string | null {
+/**
+ * The number (E.164) or address a connection sends `kind` from, or null when it has none yet. On
+ * Twilio, `agentId`'s own line when it has one (§1.160), else the account's number: a number that
+ * is an agent's own line never speaks for the account.
+ */
+export function channelAddress(
+  conn: ChannelConnection,
+  kind: ReachChannel,
+  agentId?: string | null,
+): string | null {
   switch (conn.connector) {
     case TWILIO_CONNECTOR_ID: {
+      if (kind === "email") return null;
       const numbers = readTwilioConfig(conn.config)?.numbers ?? [];
-      const n = numbers.find((x) =>
-        kind === "whatsapp"
-          ? x.whatsapp
-          : kind === "sms"
-            ? x.capabilities.sms
-            : kind === "voice"
-              ? x.capabilities.voice
-              : false,
-      );
-      return n?.phoneNumber ?? null;
+      return numberFor(numbers, kind, agentId)?.phoneNumber ?? null;
     }
     case RESEND_CONNECTOR_ID: {
       const config = ResendConfig.safeParse(conn.config);
@@ -104,6 +106,8 @@ export function channelAddress(conn: ChannelConnection, kind: ReachChannel): str
 
 /** The email addresses a line can name instead of its connection's sender (see `pickChannel`). */
 export interface ChannelEmails {
+  /** §1.160: the agent the lines are for, so its own number is found. */
+  agentId?: string | null | undefined;
   /** The agent's own address (§10.8's `agentAddress`), when it has one. */
   agentEmail?: string | null | undefined;
   /** The account's own address (the client's forwarding address), when it has one. */
@@ -133,7 +137,7 @@ export function pickChannel(
     kind,
     connectionId: c.id,
     connector: c.connector,
-    address: channelAddress(c, kind),
+    address: channelAddress(c, kind, source === "agent" ? input.agentId : null),
     source,
   });
   const bound = (id: string | undefined, source: "agent" | "account") => {
@@ -156,6 +160,18 @@ export function pickChannel(
   };
   const own = bound(input.agent?.[kind], "agent");
   if (own !== undefined) return own;
+  // §1.160: a number in the client's Twilio account that is this agent's own line, with no
+  // binding needed: the operator marks the number as the agent's.
+  if (input.agentId && kind !== "email") {
+    const mine = connections.find(
+      (c) =>
+        c.connector === TWILIO_CONNECTOR_ID &&
+        carries(c) &&
+        numberFor(readTwilioConfig(c.config)?.numbers ?? [], kind, input.agentId)?.agentId ===
+          input.agentId,
+    );
+    if (mine) return line(mine, "agent");
+  }
   const account = accountLine();
   // DECISION: on Mezonas' own sending (Resend) an email line names the agent's §10.8 address, else
   // the account's forwarding address: mail to either reaches the client (the agent's starts its
@@ -211,9 +227,10 @@ export function sendingChannels(
   agentChannels: Record<string, string> | null | undefined,
   account: ChannelBindings,
   connections: readonly ChannelConnection[],
+  agentId?: string | null,
 ): Map<ReachChannel, SendingChannel> {
   const out = new Map<ReachChannel, SendingChannel>();
-  for (const l of agentLines(agentChannels, account, connections)) {
+  for (const l of agentLines(agentChannels, account, connections, { agentId })) {
     const c = connections.find((x) => x.id === l.connectionId);
     out.set(l.kind, {
       id: l.connectionId,
@@ -271,7 +288,7 @@ export async function channelFor(
       .where(and(eq(agent.id, agentId), eq(agent.tenantId, tenantId)));
     own = (a?.channels ?? null) as Record<string, string> | null;
   }
-  return pickChannel({ kind, agent: own, ...state });
+  return pickChannel({ kind, agent: own, agentId, ...state });
 }
 
 /**
@@ -296,7 +313,7 @@ export async function actionChannels(
     own = (a?.channels ?? null) as Record<string, string> | null;
   }
   for (const kind of ["email", "sms"] as const) {
-    const line = pickChannel({ kind, agent: own, ...state });
+    const line = pickChannel({ kind, agent: own, agentId, ...state });
     const conn = line ? state.connections.find((c) => c.id === line.connectionId) : undefined;
     out[kind] = line
       ? {
@@ -313,12 +330,17 @@ export async function actionChannels(
  * (their own binding, or the account's when they have none). Incoming messages on the account's
  * number start the processes whose message trigger listens there; the caller still checks each
  * agent's triggers, and anything nobody takes goes to Sloan and the Desk as today.
+ *
+ * With `to` (the number the message came in on, §1.160), only agents whose line has that number:
+ * a text to an agent's own line is that agent's alone, and agents with a line of their own don't
+ * listen on the account's number.
  */
 export async function agentsListeningOn(
   tx: Tx,
   tenantId: string,
   kind: ReachChannel,
   connectionId: string,
+  to?: string | null,
 ): Promise<string[]> {
   const state = await channelState(tx, tenantId);
   const agents = await tx
@@ -326,12 +348,25 @@ export async function agentsListeningOn(
     .from(agent)
     .where(and(eq(agent.tenantId, tenantId), eq(agent.kind, "client"), sql`not ${agent.testCopy}`));
   return agents
-    .filter(
-      (a) =>
-        pickChannel({ kind, agent: a.channels as Record<string, string>, ...state })
-          ?.connectionId === connectionId,
-    )
+    .filter((a) => {
+      const l = pickChannel({
+        kind,
+        agent: a.channels as Record<string, string>,
+        agentId: a.id,
+        ...state,
+      });
+      if (l?.connectionId !== connectionId) return false;
+      // DECISION: compared only where both are known; a line with no number yet keeps listening
+      // on its connection, as before §1.160.
+      return !to || !l.address || l.address === to;
+    })
     .map((a) => a.id);
+}
+
+/** §1.160: the client agent whose own line `phoneNumber` is on a Twilio connection, or null. */
+export function lineOwner(conn: ChannelConnection, phoneNumber: string): string | null {
+  if (conn.connector !== TWILIO_CONNECTOR_ID) return null;
+  return numberOwner(readTwilioConfig(conn.config)?.numbers ?? [], phoneNumber);
 }
 
 /**

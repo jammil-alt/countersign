@@ -3,6 +3,7 @@
 // never by an agent), marks the WhatsApp sender once Twilio has registered it, records and checks
 // A2P 10DLC registration, sets quiet hours, and keeps the client's contacts.
 import type { A2pStatus, AvailableNumber, MessagingSetup, QuietHours } from "@countersign/core";
+import { formatAmount } from "@countersign/core";
 import { type FormEvent, useState } from "react";
 import { useParams } from "react-router-dom";
 import { isApiError } from "../../api/client";
@@ -11,7 +12,7 @@ import { useApi, useApiClient } from "../../api/useApi";
 import { ContactsPanel } from "../../contacts/ContactsPanel";
 // v0.14 capture
 import { ConversationsPanel } from "../../conversations/ConversationsPanel";
-import { Field, TextInput } from "../../ui/forms";
+import { Field, Select, TextInput } from "../../ui/forms";
 import {
   Badge,
   Button,
@@ -169,6 +170,9 @@ function Numbers({
   const [found, setFound] = useState<AvailableNumber[] | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
   const numbers = setup.twilio?.numbers ?? [];
+  const linePrice = setup.phoneLinePrice
+    ? `US$${formatAmount(setup.phoneLinePrice)}`
+    : "set in Billing";
 
   async function search(e: FormEvent) {
     e.preventDefault();
@@ -187,6 +191,10 @@ function Numbers({
   return (
     <Card className="p-5" testId="ops-twilio-numbers">
       <SectionLabel>Numbers</SectionLabel>
+      <p className="mb-3 text-sm text-ink-muted" data-testid="ops-number-lines-help">
+        A number can be one agent's own line: it texts and calls only for that agent, and the client
+        is billed the line price ({linePrice}) a month for it. Keep one number for the account.
+      </p>
       {numbers.length === 0 ? (
         <p className="mb-4 text-ink-muted">No numbers yet. Find one below.</p>
       ) : (
@@ -200,6 +208,29 @@ function Numbers({
               <span className="figures text-ink">{n.phoneNumber}</span>
               <span className="flex flex-wrap items-center gap-2">
                 {n.whatsapp ? <Badge tone="positive">WhatsApp sender</Badge> : null}
+                {/* §1.160: the account's, or one agent's own line (billed per line). */}
+                <Select
+                  className="w-56"
+                  aria-label={`Whose number ${n.phoneNumber} is`}
+                  value={n.agentId ?? ""}
+                  disabled={busy}
+                  onChange={(e) =>
+                    void act(() =>
+                      api.call(apiRoutes.opsTwilioNumberAgent, {
+                        params: { id: clientId, sid: n.sid },
+                        body: { agentId: e.target.value || null },
+                      }),
+                    )
+                  }
+                  data-testid={`ops-number-${n.phoneNumber}-agent`}
+                >
+                  <option value="">The account's number</option>
+                  {setup.agents.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}'s own line
+                    </option>
+                  ))}
+                </Select>
                 <Button
                   size="sm"
                   disabled={busy}

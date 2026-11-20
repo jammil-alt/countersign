@@ -1604,6 +1604,18 @@ export const it: Messages = {
   },
   "billing.daysOf": "{days} giorni su {total}",
   "billing.includedPrice": "Incluso",
+  "line.ask": "Chiedi un numero dedicato",
+  "line.help":
+    "Un numero dedicato permette al tuo team di scrivere e chiamare {name} direttamente. {price} al mese.",
+  "line.confirm":
+    "Acquisteremo un numero per {name} e aggiungeremo {price} al mese alla tua fattura dal giorno in cui sarà attivo.",
+  "line.confirmButton": "Chiedilo a noi",
+  "line.asked": "Richiesta inviata. Ti avviseremo qui quando sarà attivo.",
+  "line.seeRequest": "Vedi la richiesta",
+  "line.subject": "Un numero di telefono per {name}",
+  "line.text":
+    "Per favore, date a {name} un numero di telefono dedicato, a {price} al mese, così il nostro team può scrivergli e chiamarlo direttamente.",
+  "billing.phoneLine": "Linea telefonica {number}",
   "billing.extraUsage": "Utilizzo aggiuntivo",
   "billing.extraUsageDetail":
     "{credits} oltre i {included} inclusi ({used} usati), {price} ciascuno",

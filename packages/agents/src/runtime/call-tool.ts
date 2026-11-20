@@ -506,7 +506,7 @@ async function dispatch(
   // too: a test reads the client's real data.
   const waiting = await releaseGate(deps, step, conn, tool.spec.id);
   if (waiting) return waiting;
-  const ctx = connectionContext(deps, step.tenantId, conn);
+  const ctx = connectionContext(deps, step.tenantId, conn, step.agent.agentId);
   if (tool.spec.sideEffect !== "external") {
     // v0.16: a scoped run's reads may share what the connector keeps open (one browser per site).
     const readCtx = sessions ? { ...ctx, sessions } : ctx;

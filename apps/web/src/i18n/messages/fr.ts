@@ -1621,6 +1621,18 @@ export const fr: Messages = {
   },
   "billing.daysOf": "{days} jours sur {total}",
   "billing.includedPrice": "Inclus",
+  "line.ask": "Demander un numéro dédié",
+  "line.help":
+    "Un numéro dédié permet à votre équipe d'écrire et d'appeler {name} directement. {price} par mois.",
+  "line.confirm":
+    "Nous achèterons un numéro pour {name} et ajouterons {price} par mois à votre facture dès sa mise en place.",
+  "line.confirmButton": "Nous le demander",
+  "line.asked": "Demande envoyée. Nous vous préviendrons ici une fois le numéro en place.",
+  "line.seeRequest": "Voir la demande",
+  "line.subject": "Un numéro de téléphone pour {name}",
+  "line.text":
+    "Merci de donner à {name} un numéro de téléphone dédié, à {price} par mois, pour que notre équipe puisse lui écrire et l'appeler directement.",
+  "billing.phoneLine": "Ligne téléphonique {number}",
   "billing.extraUsage": "Utilisation supplémentaire",
   "billing.extraUsageDetail":
     "{credits} au-delà des {included} inclus ({used} utilisés), {price} chacun",

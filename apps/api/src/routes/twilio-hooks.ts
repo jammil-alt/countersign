@@ -368,7 +368,7 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
             knownContact &&
             archive &&
             msg.text.trim() !== "" &&
-            (await isAccountTextLine(tx, tenantId, row.id)) &&
+            (await isAccountTextLine(tx, tenantId, row.id, msg.to)) &&
             !(await waitedOnByAnAgent(tx, tenantId, contactRow.id)) &&
             (await sloanIsOn(tx, tenantId))
               ? await sloanTextSender(tx, tenantId, contactRow)

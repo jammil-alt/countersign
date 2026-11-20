@@ -1591,6 +1591,18 @@ export const ptBR: Messages = {
   "billing.priceForDays": { one: "{price} por {count} dia", other: "{price} por {count} dias" },
   "billing.daysOf": "{days} de {total} dias",
   "billing.includedPrice": "Incluído",
+  "line.ask": "Pedir um número próprio",
+  "line.help":
+    "Um número próprio permite que sua equipe envie mensagens e ligue para {name} diretamente. {price} por mês.",
+  "line.confirm":
+    "Vamos comprar um número para {name} e adicionar {price} por mês à sua fatura a partir do dia em que estiver configurado.",
+  "line.confirmButton": "Pedir para nós",
+  "line.asked": "Pedido enviado. Avisaremos aqui quando estiver configurado.",
+  "line.seeRequest": "Ver o pedido",
+  "line.subject": "Um número de telefone para {name}",
+  "line.text":
+    "Por favor, deem a {name} um número de telefone próprio, a {price} por mês, para que nossa equipe possa enviar mensagens e ligar diretamente.",
+  "billing.phoneLine": "Linha telefônica {number}",
   "billing.extraUsage": "Uso adicional",
   "billing.extraUsageDetail":
     "{credits} além dos {included} incluídos ({used} usados), {price} cada",

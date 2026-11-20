@@ -1499,6 +1499,7 @@ export function conversePort(deps: ConverseDeps): ConversePort {
       agentRow.channels as Record<string, string> | null,
       accountBindings(tenantRow.settings),
       conns,
+      agentRow.id,
     );
     return {
       agentRow,

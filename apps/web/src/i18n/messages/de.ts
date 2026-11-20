@@ -1637,6 +1637,18 @@ export const de: Messages = {
   "billing.priceForDays": { one: "{price} für {count} Tag", other: "{price} für {count} Tage" },
   "billing.daysOf": "{days} von {total} Tagen",
   "billing.includedPrice": "Inklusive",
+  "line.ask": "Eigene Nummer anfragen",
+  "line.help":
+    "Mit einer eigenen Nummer kann Ihr Team {name} direkt anschreiben und anrufen. {price} pro Monat.",
+  "line.confirm":
+    "Wir kaufen eine Nummer für {name} und berechnen ab dem Tag der Einrichtung {price} pro Monat zusätzlich.",
+  "line.confirmButton": "Bei uns anfragen",
+  "line.asked": "Angefragt. Wir sagen Ihnen hier Bescheid, sobald sie eingerichtet ist.",
+  "line.seeRequest": "Anfrage ansehen",
+  "line.subject": "Eine Telefonnummer für {name}",
+  "line.text":
+    "Bitte geben Sie {name} eine eigene Telefonnummer für {price} pro Monat, damit unser Team direkt schreiben und anrufen kann.",
+  "billing.phoneLine": "Telefonleitung {number}",
   "billing.extraUsage": "Zusätzliche Nutzung",
   "billing.extraUsageDetail":
     "{credits} über den {included} enthaltenen ({used} verbraucht), je {price}",

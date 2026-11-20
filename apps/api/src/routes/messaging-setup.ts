@@ -24,9 +24,10 @@ import {
   twilioWebhookUrls,
 } from "@countersign/connectors";
 import { A2pRegistration, type MessagingSetup, routes } from "@countersign/core";
-import { connection, connectionChange, type Tx, tenant } from "@countersign/db";
-import { and, desc, eq } from "drizzle-orm";
+import { agent, connection, connectionChange, type Tx, tenant } from "@countersign/db";
+import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
+import { loadBillingConfig } from "../billing/ledger";
 import type { Bindings } from "../env";
 import { type AppContext, type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
 // P-8: US texting registration by API (docs/plan.md §1.70)
@@ -98,8 +99,27 @@ async function setupOf(
             }
           : null,
       webhooks: config?.webhooks ?? twilioWebhookUrls(originOf(c, env), tenantId),
+      agents: await lineAgents(tx, tenantId),
+      phoneLinePrice: (await loadBillingConfig(tx)).settings.phoneLinePrice,
     },
   };
+}
+
+/** §1.160: the client agents a number can be the own line of: not test copies, not retired. */
+async function lineAgents(tx: Tx, tenantId: string): Promise<{ id: string; name: string }[]> {
+  const rows = await tx
+    .select({ id: agent.id, name: agent.name, serviceName: agent.serviceName })
+    .from(agent)
+    .where(
+      and(
+        eq(agent.tenantId, tenantId),
+        eq(agent.kind, "client"),
+        eq(agent.testCopy, false),
+        inArray(agent.runStatus, ["active", "paused"]),
+      ),
+    )
+    .orderBy(asc(agent.name), asc(agent.id));
+  return rows.map((r) => ({ id: r.id, name: r.serviceName ?? r.name }));
 }
 
 /** The connected Twilio connection, its config and the subaccount's credentials. */
@@ -375,6 +395,45 @@ export function messagingSetupRoutes(app: Hono<AppEnv>): void {
       },
       ctx.session.user.id,
       { kind: "whatsapp_sender", number: n.phoneNumber, enabled: ctx.body.enabled },
+    );
+    return setupOf(ctx.c, ctx.tx, ctx.services.env, tenantId);
+  });
+
+  // §1.160: the operator makes a number one agent's own line (the client asked for it and the
+  // line price was agreed), or gives it back to the account. Recorded as a connection change.
+  mount(app, routes.opsTwilioNumberAgent, async (ctx) => {
+    const tenantId = ctx.params.id;
+    ensureClient(ctx, tenantId);
+    const { row, config } = await connected(ctx.tx, ctx.services.env, tenantId);
+    const n = config.numbers.find((x) => x.sid === ctx.params.sid);
+    if (!n) throw notFound("number");
+    const agentId = ctx.body.agentId;
+    if ((n.agentId ?? null) === agentId) throw new HttpError(409, "no_op", "nothing to change");
+    if (agentId && !(await lineAgents(ctx.tx, tenantId)).some((a) => a.id === agentId)) {
+      throw notFound("agent");
+    }
+    // DECISION: an agent has at most one own line, so which number it texts from never depends
+    // on the order numbers were bought in.
+    if (agentId && config.numbers.some((x) => x.sid !== n.sid && x.agentId === agentId)) {
+      throw new HttpError(409, "has_line", "this agent already has a number of its own");
+    }
+    // The account keeps a number: the last number nobody owns can't become an agent's.
+    if (agentId && !config.numbers.some((x) => x.sid !== n.sid && !x.agentId)) {
+      throw new HttpError(
+        409,
+        "account_needs_number",
+        "the account needs a number of its own: buy another before giving this one to an agent",
+      );
+    }
+    await saveConfig(
+      ctx.tx,
+      row,
+      {
+        ...config,
+        numbers: config.numbers.map((x) => (x.sid === n.sid ? { ...x, agentId } : x)),
+      },
+      ctx.session.user.id,
+      { kind: "phone_line", number: n.phoneNumber, from: n.agentId ?? null, to: agentId },
     );
     return setupOf(ctx.c, ctx.tx, ctx.services.env, tenantId);
   });

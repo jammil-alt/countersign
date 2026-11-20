@@ -1545,6 +1545,17 @@ export const en = {
   "billing.priceForDays": { one: "{price} for {count} day", other: "{price} for {count} days" },
   "billing.daysOf": "{days} of {total} days",
   "billing.includedPrice": "Included",
+  "line.ask": "Ask for a number of its own",
+  "line.help": "A number of its own lets your team text and call {name} directly. {price} a month.",
+  "line.confirm":
+    "We'll buy a number for {name} and add {price} a month to your bill from the day it's set up.",
+  "line.confirmButton": "Ask us",
+  "line.asked": "Asked. We'll tell you here when it's set up.",
+  "line.seeRequest": "See the request",
+  "line.subject": "A phone number for {name}",
+  "line.text":
+    "Please give {name} a phone number of its own, at {price} a month, so our team can text and call it directly.",
+  "billing.phoneLine": "Phone line {number}",
   "billing.extraUsage": "Extra usage",
   "billing.extraUsageDetail": "{credits} past the {included} included ({used} used), {price} each",
   "billing.total": "Total",

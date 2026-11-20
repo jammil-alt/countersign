@@ -1592,6 +1592,18 @@ export const es: Messages = {
   },
   "billing.daysOf": "{days} de {total} días",
   "billing.includedPrice": "Incluido",
+  "line.ask": "Pedir un número propio",
+  "line.help":
+    "Un número propio permite a su equipo escribir y llamar a {name} directamente. {price} al mes.",
+  "line.confirm":
+    "Compraremos un número para {name} y añadiremos {price} al mes a su factura desde el día en que quede configurado.",
+  "line.confirmButton": "Pedírnoslo",
+  "line.asked": "Solicitado. Le avisaremos aquí cuando esté configurado.",
+  "line.seeRequest": "Ver la solicitud",
+  "line.subject": "Un número de teléfono para {name}",
+  "line.text":
+    "Por favor, den a {name} un número de teléfono propio, a {price} al mes, para que nuestro equipo pueda escribirle y llamarle directamente.",
+  "billing.phoneLine": "Línea telefónica {number}",
   "billing.extraUsage": "Uso adicional",
   "billing.extraUsageDetail":
     "{credits} por encima de los {included} incluidos ({used} usados), {price} cada uno",

@@ -379,9 +379,12 @@ export async function isAccountTextLine(
   tx: Tx,
   tenantId: string,
   connectionId: string,
+  /** §1.160: the number it came in on; an agent's own line is never Sloan's. */
+  to?: string | null,
 ): Promise<boolean> {
   const sms = await channelFor(tx, tenantId, null, "sms");
-  return sms?.connectionId === connectionId;
+  if (sms?.connectionId !== connectionId) return false;
+  return !to || !sms.address || sms.address === to;
 }
 
 /**

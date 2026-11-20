@@ -294,6 +294,7 @@ interface Draft {
   defaultAgentPrice: string;
   defaultIncludedCredits: string;
   creditPrice: string;
+  phoneLinePrice: string;
   autoSend: boolean;
   daysUntilDue: string;
   unitCosts: { measure: string; unitCost: string; perUnits: string }[];
@@ -304,6 +305,7 @@ function draftOf(s: OpsBilling["settings"]): Draft {
     defaultAgentPrice: s.defaultAgentPrice,
     defaultIncludedCredits: String(s.defaultIncludedCredits),
     creditPrice: s.creditPrice,
+    phoneLinePrice: s.phoneLinePrice,
     autoSend: s.autoSend,
     daysUntilDue: String(s.daysUntilDue),
     unitCosts: s.unitCosts.map((u) => ({ ...u, perUnits: String(u.perUnits) })),
@@ -321,6 +323,7 @@ export function settingsFromDraft(d: Draft): { settings: BillingSettings } | { p
     defaultAgentPrice: d.defaultAgentPrice.trim().replace(/^\$/, ""),
     defaultIncludedCredits: whole(d.defaultIncludedCredits),
     creditPrice: d.creditPrice.trim().replace(/^\$/, ""),
+    phoneLinePrice: d.phoneLinePrice.trim().replace(/^\$/, ""),
     autoSend: d.autoSend,
     daysUntilDue: whole(d.daysUntilDue),
     unitCosts: d.unitCosts.map((u) => ({
@@ -338,6 +341,8 @@ export function settingsFromDraft(d: Draft): { settings: BillingSettings } | { p
       return { problem: "The credits included are a whole number up to 100,000,000." };
     case "creditPrice":
       return { problem: "The price of an extra credit is a dollar amount with up to 4 places." };
+    case "phoneLinePrice":
+      return { problem: "The phone line price is a dollar amount with up to 4 places." };
     case "daysUntilDue":
       return { problem: "Days until due is a whole number from 1 to 365." };
   }
@@ -426,6 +431,17 @@ function SettingsForm({ data, onSaved }: { data: OpsBilling; onSaved: () => void
               inputMode="decimal"
               value={draft.creditPrice}
               onChange={(e) => set({ creditPrice: e.target.value })}
+            />
+          </Field>
+          <Field
+            label="Phone line price, a month (USD)"
+            hint="For each number that is one agent's own line"
+          >
+            <TextInput
+              data-testid="ops-billing-line-price"
+              inputMode="decimal"
+              value={draft.phoneLinePrice}
+              onChange={(e) => set({ phoneLinePrice: e.target.value })}
             />
           </Field>
           <Field
