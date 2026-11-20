@@ -185,7 +185,7 @@ describe("data-track names", () => {
     for (const name of ["hero-talk", "nav-contact", "footer-contact", "contact-email"]) {
       expect(page(on, "index").tracks).toContain(name);
     }
-    expect(page(on, "index").tracks.filter((t) => t.startsWith("footer-"))).toHaveLength(6);
+    expect(page(on, "index").tracks.filter((t) => t.startsWith("footer-"))).toHaveLength(7);
   });
 
   it("are each listed in the README, and the README lists no name the site lacks", () => {

@@ -4,7 +4,7 @@
 // the default price and credits, the price of an extra credit, auto-send, days until due and the
 // unit costs that turn usage into credits. Drafted in the prototype's back-office style (no
 // prototype screen; docs/ui-plan.md): the month's figures as stat tiles, then each part in a card.
-import { type BillingSettings, dec, type OpsBilling, type UnitCost } from "@countersign/core";
+import { BillingSettings, dec, type OpsBilling } from "@countersign/core";
 import { type ReactNode, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
@@ -310,49 +310,45 @@ function draftOf(s: OpsBilling["settings"]): Draft {
   };
 }
 
-const WHOLE = /^\d{1,9}$/;
-const DOLLARS = /^\d{1,10}(\.\d{1,4})?$/;
+/** A whole number as typed, or NaN (which the schema refuses). */
+const whole = (text: string) => (/^\d+$/.test(text.trim()) ? Number(text.trim()) : Number.NaN);
 
 /** The settings from the form, or what is wrong with them. */
+// DECISION (PLATFORM_QA CONS-4): the form checks with the route's own schema (`BillingSettings`),
+// so it takes exactly what the API takes; the first thing the schema refuses is said in words.
 export function settingsFromDraft(d: Draft): { settings: BillingSettings } | { problem: string } {
-  const agentPrice = d.defaultAgentPrice.trim().replace(/^\$/, "");
-  const creditPrice = d.creditPrice.trim().replace(/^\$/, "");
-  if (!DOLLARS.test(agentPrice)) {
-    return { problem: "The default agent price is a dollar amount with up to 4 places." };
-  }
-  if (!WHOLE.test(d.defaultIncludedCredits)) {
-    return { problem: "The credits included are a whole number." };
-  }
-  if (!DOLLARS.test(creditPrice)) {
-    return { problem: "The price of an extra credit is a dollar amount with up to 4 places." };
-  }
-  if (!WHOLE.test(d.daysUntilDue) || Number(d.daysUntilDue) < 1 || Number(d.daysUntilDue) > 365) {
-    return { problem: "Days until due is a whole number from 1 to 365." };
-  }
-  const unitCosts: UnitCost[] = [];
-  for (const u of d.unitCosts) {
-    if (!DOLLARS.test(u.unitCost.trim())) {
-      return { problem: `The unit cost of ${u.measure} is a dollar amount with up to 4 places.` };
-    }
-    if (!WHOLE.test(u.perUnits) || Number(u.perUnits) < 1) {
-      return { problem: `${u.measure} is priced per a whole number of units.` };
-    }
-    unitCosts.push({
+  const parsed = BillingSettings.safeParse({
+    defaultAgentPrice: d.defaultAgentPrice.trim().replace(/^\$/, ""),
+    defaultIncludedCredits: whole(d.defaultIncludedCredits),
+    creditPrice: d.creditPrice.trim().replace(/^\$/, ""),
+    autoSend: d.autoSend,
+    daysUntilDue: whole(d.daysUntilDue),
+    unitCosts: d.unitCosts.map((u) => ({
       measure: u.measure,
       unitCost: u.unitCost.trim(),
-      perUnits: Number(u.perUnits),
-    });
+      perUnits: whole(u.perUnits),
+    })),
+  });
+  if (parsed.success) return { settings: parsed.data };
+  const [field, index, part] = parsed.error.issues[0]?.path ?? [];
+  switch (field) {
+    case "defaultAgentPrice":
+      return { problem: "The default agent price is a dollar amount with up to 4 places." };
+    case "defaultIncludedCredits":
+      return { problem: "The credits included are a whole number up to 100,000,000." };
+    case "creditPrice":
+      return { problem: "The price of an extra credit is a dollar amount with up to 4 places." };
+    case "daysUntilDue":
+      return { problem: "Days until due is a whole number from 1 to 365." };
   }
-  return {
-    settings: {
-      defaultAgentPrice: agentPrice,
-      defaultIncludedCredits: Number(d.defaultIncludedCredits),
-      creditPrice,
-      autoSend: d.autoSend,
-      daysUntilDue: Number(d.daysUntilDue),
-      unitCosts,
-    },
-  };
+  const measure = typeof index === "number" ? d.unitCosts[index]?.measure : undefined;
+  if (measure && part === "unitCost") {
+    return { problem: `The unit cost of ${measure} is a dollar amount with up to 4 places.` };
+  }
+  if (measure && part === "perUnits") {
+    return { problem: `${measure} is priced per a whole number of units, up to 1,000,000.` };
+  }
+  return { problem: "The unit costs can't be saved as they are." };
 }
 
 function SettingsForm({ data, onSaved }: { data: OpsBilling; onSaved: () => void }) {

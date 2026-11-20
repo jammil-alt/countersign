@@ -305,6 +305,12 @@ export function PortalInboxScreen() {
                     testId="desk-later"
                   />
                 ) : null}
+                {/* PLATFORM_QA FLOW-4: a list shown below that failed to load says so. */}
+                {view === "waiting" && showLater && later.error && !later.data ? (
+                  <div className="p-4">
+                    <ErrorNotice error={later.error} onRetry={later.reload} />
+                  </div>
+                ) : null}
                 {view === "waiting" && !agentFilter && doneThisWeek.length > 0 ? (
                   <DeskList
                     entries={doneThisWeek}
@@ -314,6 +320,11 @@ export function PortalInboxScreen() {
                     heading={t("desk.day.doneThisWeek")}
                     testId="desk-done-week"
                   />
+                ) : null}
+                {view === "waiting" && !agentFilter && done.error && !done.data ? (
+                  <div className="p-4">
+                    <ErrorNotice error={done.error} onRetry={done.reload} />
+                  </div>
                 ) : null}
               </>
             )}

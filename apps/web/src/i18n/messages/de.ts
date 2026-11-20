@@ -452,6 +452,8 @@ export const de: Messages = {
   "desk.editHint":
     "Ändern Sie, was nötig ist, und speichern Sie. Wir prüfen es erneut, bevor Sie freigeben.", // fluent review
   "desk.editSave": "Änderungen speichern",
+  "desk.edit.number": "Geben Sie eine Zahl ein, zum Beispiel 1200.",
+  "desk.edit.money": "Geben Sie einen Betrag ein, zum Beispiel 1200.",
   "desk.snooze.until": "Zurückholen",
   "desk.snooze.later": "Später heute",
   "desk.snooze.tomorrow": "Morgen um 8:00",
@@ -797,6 +799,10 @@ export const de: Messages = {
   "vault.browser.authenticatorHint":
     "Der otpauth://-Link, den die Website zeigt, wenn Sie für das Konto des Agenten eine Authenticator-App einschalten.",
   "vault.browser.setUp": "Einrichten",
+  "vault.browser.setupFailed":
+    "Wir konnten diese Anmeldung gerade nicht einrichten. Versuchen Sie es in ein paar Minuten noch einmal.",
+  "vault.browser.badLink":
+    "Diesen Einrichtungslink konnten wir nicht verwenden. Kopieren Sie ihn noch einmal von der Website und fügen Sie ihn hier ein.",
   "vault.browser.identity": "E-Mail des Agentenkontos",
   "vault.browser.identityPhone": "Telefon des Agentenkontos",
   "vault.browser.identityHint":
@@ -3342,6 +3348,10 @@ export const de: Messages = {
   "start.adminConnects": "Tools verbindet Ihr Admin.",
   "start.cantConnect": "Gerade nicht möglich",
   "start.answered": "Beantwortet",
+  "start.invalid.number":
+    "Das konnten wir nicht als Zahl lesen. Schreiben Sie es zum Beispiel als 340.",
+  "start.invalid.money":
+    "Das konnten wir nicht als Betrag lesen. Schreiben Sie es zum Beispiel als 12500.",
   "start.choose": "Auswählen…",
   "start.files.added": { one: "1 Datei hinzugefügt", other: "{count} Dateien hinzugefügt" },
   "start.setup.title": "Ihre Agenten einrichten",

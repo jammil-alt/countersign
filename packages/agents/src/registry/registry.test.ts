@@ -197,7 +197,12 @@ describe.skipIf(!harness)("agent registry", () => {
 
   it("operational fields change without a version and are logged; bindings stay in-client", async () => {
     const { agent: a } = await h.ops(async (tx) => {
-      const { version } = await createTemplate(tx, { slug: "ops-fields", bundle: makeBundle() });
+      const { agent: tpl, version } = await createTemplate(tx, {
+        slug: "ops-fields",
+        bundle: makeBundle(),
+      });
+      // PLATFORM_QA TOOL-2: only a published template version is forked into a client.
+      await publish(tx, { agentId: tpl.id, versionId: version.id, ctx: h.ctx });
       return fork(tx, {
         tenantId: h.A.tenantId,
         slug: "ops-fields",
@@ -233,7 +238,11 @@ describe.skipIf(!harness)("agent registry", () => {
 
   it("activation refuses until bound, published and test-run; pause stops it", async () => {
     const { agent: a, version } = await h.ops(async (tx) => {
-      const { version: tv } = await createTemplate(tx, { slug: "activate", bundle: makeBundle() });
+      const { agent: tpl, version: tv } = await createTemplate(tx, {
+        slug: "activate",
+        bundle: makeBundle(),
+      });
+      await publish(tx, { agentId: tpl.id, versionId: tv.id, ctx: h.ctx });
       return fork(tx, { tenantId: h.A.tenantId, slug: "activate", templateVersionId: tv.id });
     });
     const problems0 = await h.ops((tx) => activationProblems(tx, { agentId: a.id, ctx: h.ctx }));
@@ -379,7 +388,8 @@ describe.skipIf(!harness)("skill registry", () => {
       ],
     });
     await h.ops(async (tx) => {
-      const { version: tv } = await createTemplate(tx, { slug: "uses-shared", bundle });
+      const { agent: tpl, version: tv } = await createTemplate(tx, { slug: "uses-shared", bundle });
+      await publish(tx, { agentId: tpl.id, versionId: tv.id, ctx: h.ctx });
       const { agent: a, version } = await fork(tx, {
         tenantId: h.A.tenantId,
         slug: "uses-shared",

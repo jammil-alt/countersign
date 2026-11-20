@@ -45,8 +45,8 @@ describe("the still frame", () => {
     expect(html).not.toMatch(/<style\b/i);
   });
 
-  it("has a status for screen readers and hides its shapes from them", () => {
+  it("has a status for screen readers and hides its shapes (and the signed-out logo) from them", () => {
     expect(root).toContain('role="status"');
-    expect(root.match(/aria-hidden="true"/g)).toHaveLength(2);
+    expect(root.match(/aria-hidden="true"/g)).toHaveLength(3);
   });
 });
