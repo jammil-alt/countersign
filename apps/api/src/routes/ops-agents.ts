@@ -182,6 +182,8 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
       tenantId: body.clientId,
       slug: body.slug ?? template.slug,
       templateVersionId: versionId,
+      // PLATFORM_QA TOOL-2: the version must be this template's own, and published.
+      templateId: template.id,
       actorId: session.user.id,
       ...defined({
         serviceName: body.serviceName,

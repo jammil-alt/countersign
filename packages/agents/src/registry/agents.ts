@@ -569,6 +569,21 @@ export async function publish(
   if (row.status === "disabled") {
     throw new AgentsError("invalid_state", "it was discarded: restore it before publishing");
   }
+  // PLATFORM_QA STATE-7: a version older than the live one would silently undo every change made
+  // since it (a second tab still showing it). Going back is a rollback, which copies it as a new
+  // version on top and says so.
+  // DECISION: refused with `stale_parent` (409), the code a save over a newer version gets, with
+  // its detail's shape: the version that is newer, and the one refused.
+  if (row.liveVersionId) {
+    const live = await getVersion(tx, row.liveVersionId);
+    if (live.version > v.version) {
+      throw new AgentsError(
+        "stale_parent",
+        `v${live.version} went live after v${v.version} was saved. Publishing v${v.version} would undo it, so it wasn't published. To go back to v${v.version}, roll back to it.`,
+        { latestVersionId: live.id, latestVersion: live.version, version: v.version },
+      );
+    }
+  }
   const errors = await validateForPublish(tx, row, v.bundle, input.ctx, {
     previous: input.installed
       ? parseVersionBundle(v.bundle)
@@ -753,15 +768,31 @@ export async function fork(
   tx: Tx,
   input: ClientAgentFields & {
     templateVersionId: string;
+    /** The template the caller named: the version must be one of its own (PLATFORM_QA TOOL-2). */
+    templateId?: string;
     actorId?: string | null;
     /** A template's test copy (see `templateTestCopy`). */
     testCopy?: boolean;
   },
 ): Promise<{ agent: AgentRow; version: AgentVersionRow }> {
   const tv = await getVersion(tx, input.templateVersionId);
+  if (input.templateId !== undefined && tv.agentId !== input.templateId) {
+    throw notFound(`version ${input.templateVersionId} of template ${input.templateId}`);
+  }
   const template = await getAgent(tx, tv.agentId);
   if (template.kind !== "template") {
     throw new AgentsError("not_a_template", `${template.slug} is not a template`);
+  }
+  // PLATFORM_QA TOOL-2 (invariant 11): only a published template version (live or retired) goes to
+  // a client. A draft is unreviewed; only the template's own test copy runs one (test runs never
+  // write).
+  // DECISION: a retired version may still be forked (it was published and reviewed); a draft is
+  // refused with 409 `invalid_state`, a version of another template as not found (404).
+  if (tv.status === "draft" && !input.testCopy) {
+    throw new AgentsError(
+      "invalid_state",
+      `v${tv.version} of ${template.slug} is a draft: publish it before giving it to a client`,
+    );
   }
   const row = await insertClientAgent(
     tx,
