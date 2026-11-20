@@ -62,11 +62,20 @@ Rows 1–8 below are done. The stale branches are deleted.
 - **The Claude connector's approval link.** Ported from `c194789f` onto main's second step as
   `docs/plan.md` §1.120, in its own draft PR, #372. It
   also gates clients' Claude connections; the owner to confirm that.
-- **The compliance docs, rewritten** (audit piece 8): the Plaid attestations, the EOL inventory, the
-  joining and leaving checklist, and the `security.md` and `hipaa-plan.md` edits. Leave out what the
-  policies contradict (the audit's notes).
-- **The trust claims plan** (`fe7dbcac`), refreshed. Keep the masking promise on the Security page
-  (owner).
+- ~~**The compliance docs, rewritten** (audit piece 8)~~: done 2026-11-20, from `a74a5456`
+  rewritten on main. Landed: `docs/plaid-plan.md` (the 11 attestations, each with its register
+  control), `docs/eol-inventory.md` (Node 24 and CodeQL v4 no longer flagged), the leaving steps'
+  Google Workspace and Plaid lines (`operations.md` §1.3), Plaid and its id in `security.md` and
+  `hipaa-plan.md`, OSV-Scanner, patch deadlines and end of life in `security.md` §7, its "Still to
+  set" list, and the stale "in PR" notes gone. Left out: medium 90 and low 180 days (the policy
+  says the next monthly update); rows purged 30 days after the files and "leave to delete sooner"
+  (the retention policy); authenticator apps on consoles (the policy asks for passkeys or keys);
+  refusing Google sign-ins (dropped, below); `claude_ai` and T1 as done (owner: later). The Plaid
+  plan's two open points are for the owner.
+- ~~**The trust claims plan** (`fe7dbcac`), refreshed. Keep the masking promise on the Security page
+  (owner).~~ Done 2026-11-20: `docs/marketing/trust-plan.md`, refreshed against `main`, masking kept
+  as a promise to make true. Its §6 checks the Security page line by line; its new owner decisions
+  are in its last section.
 - **HIPAA mode for the Claude connector, the Builder and questions** (audit T1/T2): later, when the
   first HIPAA client comes (owner: none yet, no PHI flows).
 - **Dropped:** `c2747d76`, the sign-in change refusing Google. It contradicts the owner's decision that

@@ -4,40 +4,37 @@ The plan from here to a client in HIPAA mode, a SOC 2 report and a PCI self-asse
 `docs/security.md` has what is done. The design is in `docs/plan.md` §1.35. Each control, its
 status and its SOC 2, HIPAA and PCI references are in the register
 (`packages/core/src/compliance/controls.ts`), shown in the back office at `/ops/security`
-(`docs/plan.md` §1.102).
-Last updated 2026-11-06.
-
-Until #82 and #84 merge, `docs/plan.md` §1.35 and `docs/operations.md` §1.2 exist only on their
-branches.
+(`docs/plan.md` §1.102). Plaid's 11 attestations need the same controls, policies and routines:
+`docs/plaid-plan.md`.
+Last updated 2026-11-20.
 
 **Where we are:**
-- The technical controls are built and green, in four pull requests not yet merged.
-- The settings in WorkOS, Cloudflare, GitHub and Neon are done.
-- Nothing administrative has started: no BAAs, policies, risk assessment or audit.
+- The technical controls are built and on staging (`docs/security.md`, status).
+- The first settings in WorkOS, Cloudflare, GitHub and Neon are done; a second list is open (§2).
+- The information security and data retention policies are adopted (2026-11-09,
+  `docs/policies/`). No BAAs, risk analysis or audit yet.
 - No client can be put in HIPAA mode until the first BAAs are signed.
 
 ## 1. Merge the code
 
-| PR | What | Order |
-|---|---|---|
-| #81 | CI: no database copy (CI never connects to Neon), CodeQL, Dependabot | First. "analyze" is a required check and comes from this PR |
-| #83 | Sign-in: 30-minute idle limit, 12-hour sessions | Any time after #81 |
-| #82 | Migration 0017: the audit log, `tenant.retired_at`, plan §1.35 | Before #84 |
-| #84 | The controls and the back-office screens | Last. Retarget its base to `main` first |
-
-After #81 is merged, open PRs need "Update branch" so their CodeQL check runs. Each merge deploys
-to staging.
+Done. #81–#84 merged by 2026-11-09. The rest followed: CodeQL v4 (#315), OSV-Scanner and patch
+deadlines (#316), Node 24 (#317), the register (#318), removing people (#325, #370) and the model
+gate (#414). What is left in code is T1 and T3 (§3).
 
 ## 2. Settings outside the code
 
-All set on 2026-11-06: WorkOS (MFA and session limits), Cloudflare, GitHub and Neon. The record is
-`docs/security.md` §10.
+Set on 2026-11-06: WorkOS (MFA and session limits), Cloudflare, GitHub and Neon. WorkOS multi-factor
+is required for every sign-in since 2026-11-16. The record is `docs/security.md` §10. Still to set:
+`docs/security.md` §10, "Still to set" (passkeys on Neon and WorkOS's dashboard, Intuit and
+Plaid's second factors, Google Workspace's allowed methods, the scan as a required check,
+`ALERTS_TOKEN`, the bank feed's webhook in the rate limit's exclusions). Staff second factors on
+the rest were set on 2026-11-18.
 
 ## 3. Technical items still open
 
 | # | Item | Why it matters | Suggested fix |
 |---|---|---|---|
-| T1 | **The Ops MCP connector doesn't check HIPAA mode.** An operator using Claude with the connector sends what the tools return to Anthropic through claude.ai. | That's a disclosure to a vendor unless it's covered. Anthropic's BAA for claude.ai plans, if any, may differ from the API's. | Refuse MCP tools on clients in HIPAA mode unless a `claude_ai` processor is listed, or until the plan we use is covered. Small change in `apps/api/src/mcp`. |
+| T1 | **The Ops MCP connector doesn't check HIPAA mode.** An operator using Claude with the connector sends what the tools return to Anthropic through claude.ai. | That's a disclosure to a vendor unless it's covered. Anthropic's BAA for claude.ai plans, if any, may differ from the API's. | Refuse MCP tools on clients in HIPAA mode unless a `claude_ai` processor is listed, or until the plan we use is covered. Small change in `apps/api/src/mcp`. Owner (2026-11-16): build it when the first HIPAA client comes; none yet, no health data flows. |
 | T2 | Done (2026-11-17, PR #414): the Builder's model calls, and every other model call outside a run, go through one entry point held to the HIPAA mode of each client whose data they may carry (`apps/api/src/compliance/models.ts`, `docs/plan.md` §1.143). Work on a template or a shared skill names no client. | Was: fine while the Builder only sees templates, not if an operator pastes a HIPAA client's data into it. | Nothing left. |
 | T3 | Clients can't see their own audit log. | Covered entities may ask for an access report. | A portal page, `client_admin` only, showing their own client's rows. |
 | T4 | Audit log retention past 6 years is manual. | It only matters in 2032, but should be written down. | A yearly owner task, or a script like `db:purge-client`. |
@@ -69,6 +66,7 @@ Two directions:
 | Twilio | Texts and calls | Not started | `twilio` |
 | ElevenLabs | Live calls | Not started | `elevenlabs` |
 | Resend | Our sending email | Not started | `resend` |
+| Plaid | The bank feed | Not started; may not sign one. Until then, no bank feed for HIPAA clients | `plaid` |
 | BILL | The BILL connector (plan §1.87), on our developer key | Not started | `billcom` |
 | Meta (WhatsApp) | WhatsApp | Meta doesn't sign BAAs as far as we know; keep WhatsApp off for HIPAA clients | none |
 
@@ -127,16 +125,19 @@ way: no card fields in our pages, and card numbers never stored (already enforce
 | Every quarter | Restore test from Neon's history; note the result | `docs/operations.md` §4 |
 | Weekly | Read the production scan's issue; fix findings on the policy's deadlines | GitHub → Issues, "Production scan: findings" |
 | Every quarter | Review Cloudflare's Security Insights; fix or accept each finding | Cloudflare → Security Center |
-| Monthly | Merge Dependabot's grouped update once green; security updates as they arrive, within a month (PCI DSS 6.3.3) | GitHub |
-| As they come | Fix CodeQL findings and secret-scanning alerts | GitHub → Security |
+| Monthly | Merge Dependabot's grouped update once green | GitHub |
+| Monthly | Read the latest Vulnerability deadlines run: fix or plan anything near its date; save its summary with the date | `docs/operations.md` §2 |
+| As they come | Fix Dependabot, CodeQL and OSV-Scanner alerts within the policy's deadlines (critical 7 days, high 30, medium and low at the next monthly update); secret-scanning alerts at once | GitHub → Security, issues labelled `vulnerability` |
+| Every quarter | End-of-life review: update `docs/eol-inventory.md`; plan anything within 12 months of its end | `docs/eol-inventory.md` |
+| Each person who leaves | The leaving steps, within one business day, each dated | `docs/operations.md` §1.3 |
 | Yearly | Risk analysis, policy review, training, penetration test (from T10) | — |
-| On each client exit | Retire, the vendor checklist, then the purge after 30 days | `docs/operations.md` §1.2 |
+| On each client exit | Retire, the vendor checklist, then the row purge once the files are gone (day 30) | `docs/operations.md` §1.2 |
 
 ## 9. Decisions for the owner
 
 - [ ] When to start the BAAs, and which plans we're willing to pay for (most BAAs need a higher
       tier).
-- [ ] Whether to fix T1 now (the MCP connector and HIPAA clients), or rule out using it on them in
-      policy.
+- [x] T1 (the MCP connector and HIPAA clients): build it when the first HIPAA client comes
+      (2026-11-16).
 - [ ] Whether to use a compliance tool for SOC 2, and when to start the Type II period.
 - [ ] Counsel for the client BAA template and contract terms.
