@@ -75,7 +75,11 @@ describe("TOOL: delete-like writes", () => {
       matrix: { read: "auto", create: "approval", update: "auto", delete: "off" },
       stepApproval: "not_required",
       agentMode: "act",
-      entity: { tool: spec, input: { id: "00n01ABCDEFGHIJKLMN" }, declared: connector.manifest.permissionEntities },
+      entity: {
+        tool: spec,
+        input: { id: "00n01ABCDEFGHIJKLMN" },
+        declared: connector.manifest.permissionEntities,
+      },
       alwaysSigned: isAlwaysSigned(spec),
     });
     // Expected: a void is never automatic (as QBO's deactivate and the website's take-down are

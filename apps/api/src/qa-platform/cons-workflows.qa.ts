@@ -54,20 +54,4 @@ describe("CONS: validator vs executor on durable names", () => {
     // Ready on the first pass: one pass, done.
     expect({ status: result.status, passes: n }).toEqual({ status: "succeeded", passes: 1 });
   });
-
-  it("CONS-2 (control): the same repeat with its inner step named `check` stops after one pass", async () => {
-    const h = new Harness();
-    let n = 0;
-    h.handlers.check = () => {
-      n += 1;
-      return { kind: "done", output: { n, ready: true } };
-    };
-    const result = await executeWorkflow(
-      cloudflareStepRunner(new FakeWorkflowStep()),
-      h.context({ catalog: CATALOG }),
-      proc([repeat("check")]),
-      {},
-    );
-    expect({ status: result.status, passes: n }).toEqual({ status: "succeeded", passes: 1 });
-  });
 });

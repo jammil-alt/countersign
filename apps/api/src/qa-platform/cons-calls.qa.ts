@@ -138,7 +138,10 @@ describe.skipIf(!h)("CONS: the gate for a ringing call", () => {
       `/api/ops/agents/${agentId}/versions/${j(created.json).version.id}/publish`,
     );
     expect(pub.status, JSON.stringify(pub.json)).toBe(200);
-    await H.t.db.update(agent).set({ runStatus: "active", stage: "live" }).where(eq(agent.id, agentId));
+    await H.t.db
+      .update(agent)
+      .set({ runStatus: "active", stage: "live" })
+      .where(eq(agent.id, agentId));
     // Unheld, the agent answers (the precondition the hold should change).
     const preview = j((await H.call(OPERATOR, "GET", calls())).json).setup.inbound;
     expect(preview).toMatchObject({ decision: "agent", agentName: "Reception" });
