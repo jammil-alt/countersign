@@ -339,6 +339,10 @@ export const OpsAgentActivity = z.object({
     .object({ id: z.string(), status: z.string(), at: Timestamp, waiting: z.boolean() })
     .nullable(),
   perDay: z.array(DayRuns),
+  // §1.162: the next tick of its schedules (null: none in the next 8 days, or it isn't running);
+  // optional so older answers still parse.
+  /** When its schedule next starts a run, within the next 8 days. */
+  nextRunAt: NullableTimestamp.optional(),
 });
 export type OpsAgentActivity = z.infer<typeof OpsAgentActivity>;
 

@@ -415,4 +415,17 @@ export const usageRoutes = {
     params: z.object({ id: Id }),
     response: ServiceDetail,
   }),
+  // docs/plan.md §1.162 (owner, 2026-11-20): the back office opens what a client sees for one of
+  // its agents. The portal's own answer, the same schema object, so it never carries more than the
+  // portal's page does (no bundle, instructions, prompts or cost: invariant 11).
+  opsClientAgentView: defineRoute({
+    method: "GET",
+    path: "/api/ops/clients/:id/agents/:agentId/client-view",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "One client agent as that client's portal shows it, read only: the same answer as GET /api/services/:id for the client",
+    params: z.object({ id: Id, agentId: Id }),
+    response: ServiceDetail,
+  }),
 } as const;

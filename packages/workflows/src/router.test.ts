@@ -1,6 +1,13 @@
 import { type AgentBundle, AgentBundle as BundleSchema, eventRunId } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { dueSchedules, type RoutableAgent, requestRun, routeEvent, ticksBetween } from "./router";
+import {
+  dueSchedules,
+  nextSchedules,
+  type RoutableAgent,
+  requestRun,
+  routeEvent,
+  ticksBetween,
+} from "./router";
 
 const CLIENT_A = "0192f7a0-0000-7000-8000-00000000c00a";
 const CLIENT_B = "0192f7a0-0000-7000-8000-00000000c00b";
@@ -172,6 +179,69 @@ describe("routeEvent", () => {
     const { runs, problems } = await routeEvent(doc(), [bad]);
     expect(runs).toEqual([]);
     expect(problems).toHaveLength(1);
+  });
+});
+
+// §1.162: the client page's next scheduled run, as the cron would start it.
+describe("nextSchedules", () => {
+  const DAY = 86_400_000;
+  const from = new Date("2026-11-03T13:30:00Z");
+
+  it("gives each runnable agent its earliest tick, in the client's zone or the trigger's", () => {
+    const ny = agent({
+      liveBundle: bundle([
+        { slug: "daily", on: { type: "schedule", cron: "0 9 * * *" } },
+        { slug: "tokyo", on: { type: "schedule", cron: "0 9 * * *", tz: "Asia/Tokyo" } },
+      ]),
+    });
+    const minute = agent({
+      liveBundle: bundle([{ slug: "often", on: { type: "schedule", cron: "* * * * *" } }]),
+    });
+    const weekly = agent({
+      liveBundle: bundle([{ slug: "monday", on: { type: "schedule", cron: "0 9 * * 1" } }]),
+    });
+    const next = nextSchedules({
+      agents: [ny, minute, weekly],
+      timezones: { [CLIENT_A]: "America/New_York" },
+      from,
+      horizonMs: 8 * DAY,
+    });
+    // 9:00 in New York is 14:00 UTC; 9:00 in Tokyo the next day is 00:00 UTC, later.
+    expect(next.get(ny.id)?.toISOString()).toBe("2026-11-03T14:00:00.000Z");
+    expect(next.get(minute.id)?.toISOString()).toBe("2026-11-03T13:31:00.000Z");
+    // Tuesday the 3rd: the next Monday is the 9th.
+    expect(next.get(weekly.id)?.toISOString()).toBe("2026-11-09T14:00:00.000Z");
+  });
+
+  it("leaves out agents that don't run, have no schedule, or none in the window", () => {
+    const daily = { type: "schedule", cron: "0 9 * * *" };
+    const paused = agent({ runStatus: "paused", liveBundle: bundle([{ slug: "d", on: daily }]) });
+    const manual = agent({
+      liveBundle: bundle([{ slug: "m", on: { type: "manual", input: {} } }]),
+    });
+    const yearly = agent({
+      liveBundle: bundle([{ slug: "y", on: { type: "schedule", cron: "0 9 1 1 *" } }]),
+    });
+    const next = nextSchedules({
+      agents: [paused, manual, yearly],
+      timezones: {},
+      from,
+      horizonMs: 8 * DAY,
+    });
+    expect([...next.keys()]).toEqual([]);
+  });
+
+  it("skips a holiday when the trigger says so", () => {
+    // Thanksgiving, 26 Nov 2026: the next weekday tick after it is the 27th.
+    const on = { type: "schedule", cron: "0 9 * * 1-5", tz: "UTC", skipHolidays: true };
+    const a = agent({ liveBundle: bundle([{ slug: "w", on }]) });
+    const next = nextSchedules({
+      agents: [a],
+      timezones: {},
+      from: new Date("2026-11-26T08:00:00Z"),
+      horizonMs: 8 * DAY,
+    });
+    expect(next.get(a.id)?.toISOString()).toBe("2026-11-27T09:00:00.000Z");
   });
 });
 

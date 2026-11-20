@@ -65,6 +65,16 @@ describe("route contract (static)", () => {
     expect(manualRoutes.opsAgentManual.roles).toEqual(["operator"]);
   });
 
+  // §1.162: what a client sees for one agent, opened in the back office: operator-only, and the
+  // portal page's own answer, so it carries nothing the portal may not. The running route is
+  // checked in ops-client-agent-view.test.ts.
+  it("keeps the back office's client view of an agent to operators, as the portal's answer", () => {
+    expect(routeFamily(routes.opsClientAgentView)).toBe("ops");
+    expect(routes.opsClientAgentView.roles).toEqual(["operator"]);
+    expect(routes.opsClientAgentView.response).toBe(routes.portalService.response);
+    expect(forbiddenPortalFields(routes.opsClientAgentView.response)).toEqual([]);
+  });
+
   // B5 (docs/builder-plan.md §7): what the client may adjust reaches the portal as words, bounds
   // and values, never which skill, parameter or step they set; only the client admin changes one.
   // The running routes are checked in client-adjust.test.ts.

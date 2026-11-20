@@ -6,6 +6,7 @@ import { applyMatrixChange, BROWSER_CONNECTOR_ID } from "@countersign/connectors
 import {
   type AnyAgentBundle,
   BrowserConnectionConfig,
+  clientHolidays,
   complianceOf,
   connectorShown,
   deepEqual,
@@ -42,6 +43,7 @@ import {
   toolCall,
 } from "@countersign/db";
 import type { EventRow } from "@countersign/senses";
+import { nextSchedules, type RoutableAgent } from "@countersign/workflows";
 import { and, count, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { sloanByDefault, withSloan } from "../account/sloan";
@@ -163,6 +165,9 @@ function validTimezone(tz: string): boolean {
   }
 }
 
+/** How far ahead the client page looks for an agent's next scheduled run (§1.162). */
+const NEXT_RUN_HORIZON_MS = 8 * 86_400_000;
+
 /**
  * UI cleanup (design pass): each client agent's work at a glance for the client page: live runs
  * started in the last 7 days, runs waiting for approval now (as Runs filters them), its last run
@@ -247,7 +252,9 @@ async function agentActivity(
  * (lifecycle/stages.ts) answers it for one agent, without a read per agent: the trial's runs come
  * from `agentActivity`'s count, the sign-off items in one read, the versions `writes` is read from
  * in one read, and their skills and automations once for all of them (`writesContext`).
- * src/ops-client-views.test.ts pins it to `goLiveView` for each kind of agent.
+ * src/ops-client-views.test.ts pins it to `goLiveView` for each kind of agent. It also hands back
+ * the bundles it read (each agent's live one, else its latest), so the page's next runs (§1.162)
+ * read none again.
  */
 async function goLiveViews(
   tx: Tx,
@@ -257,8 +264,11 @@ async function goLiveViews(
   trialRunsOf: Promise<ReadonlyMap<string, number>>,
   ctx: RegistryContext,
   now: Date,
-): Promise<{ agentId: string; goLive: GoLive }[]> {
-  if (rows.length === 0) return [];
+): Promise<{
+  views: { agentId: string; goLive: GoLive }[];
+  bundles: ReadonlyMap<string, AnyAgentBundle>;
+}> {
+  if (rows.length === 0) return { views: [], bundles: new Map() };
   const states = new Map(rows.map((r) => [r.id, readStageState(r.stageState)]));
   const signoffIds = [...states.values()].flatMap((s) =>
     s.signoff ? [s.signoff.inboxItemId] : [],
@@ -308,7 +318,7 @@ async function goLiveViews(
     const bundle = bundles.get(r.id);
     return r.kind === "client" && bundle ? bundleWritesWith(bundle, context, ctx) : false;
   });
-  return rows.map((row, i) => {
+  const views = rows.map((row, i) => {
     const stage = stageOf(row);
     const state = states.get(row.id) ?? readStageState(row.stageState);
     let trial: GoLive["trial"] = null;
@@ -350,6 +360,40 @@ async function goLiveViews(
           : null,
       },
     };
+  });
+  return { views, bundles };
+}
+
+/**
+ * §1.162: when each agent's schedules next start a run, as the cron reads them (`nextSchedules`):
+ * agents that run (active, with a live version) and nobody paused, from the live bundles
+ * `goLiveViews` read, in the client's zone with its holidays, within NEXT_RUN_HORIZON_MS.
+ */
+// DECISION: from the bundles the page already read, not a read of its own: for an agent with a
+// live version, the bundle `goLiveViews` reads is the live one (its query puts it first).
+function nextRuns(
+  t: Pick<typeof tenant.$inferSelect, "id" | "timezone" | "settings">,
+  rows: readonly (typeof agent.$inferSelect)[],
+  bundles: ReadonlyMap<string, AnyAgentBundle>,
+  now: Date,
+): Map<string, Date> {
+  const agents: RoutableAgent[] = rows
+    .filter((r) => r.liveVersionId !== null && !readPause(r.pause))
+    .map((r) => ({
+      id: r.id,
+      tenantId: r.tenantId,
+      kind: r.kind,
+      status: r.status,
+      runStatus: r.runStatus,
+      liveVersionId: r.liveVersionId,
+      liveBundle: bundles.get(r.id) ?? null,
+    }));
+  return nextSchedules({
+    agents,
+    timezones: { [t.id]: t.timezone },
+    holidays: { [t.id]: clientHolidays(t.settings) },
+    from: now,
+    horizonMs: NEXT_RUN_HORIZON_MS,
   });
 }
 
@@ -825,10 +869,15 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
     // so it never surfaces as an unhandled rejection (the handler still fails through `pending`).
     const trialRuns = pending.then((a) => a.trialRuns);
     trialRuns.catch(() => {});
-    const [{ activity }, goLive] = await Promise.all([
+    const [{ activity: worked }, { views: goLive, bundles }] = await Promise.all([
       pending,
       goLiveViews(tx, t.id, shown, trialRuns, services.platform.ctx, now),
     ]);
+    const next = nextRuns(t, shown, bundles, now);
+    const activity = worked.map((a) => ({
+      ...a,
+      nextRunAt: next.get(a.agentId)?.toISOString() ?? null,
+    }));
     return {
       client: {
         id: t.id,

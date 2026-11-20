@@ -129,6 +129,23 @@ describe("route contract", () => {
     expect(r.params?.safeParse({ id: "x", connectionId: "y" }).success).toBe(false);
   });
 
+  // §1.162: what a client sees for one agent, opened in the back office: operator-only, and the
+  // portal's own answer (the same schema), so it never carries what the portal may not.
+  it("keeps the back office's client view of an agent to operators, as the portal's answer", () => {
+    const r = routes.opsClientAgentView;
+    expect(r).toMatchObject({
+      method: "GET",
+      path: "/api/ops/clients/:id/agents/:agentId/client-view",
+      roles: ["operator"],
+    });
+    expect(routeFamily(r)).toBe("ops");
+    expect(r.response).toBe(routes.portalService.response);
+    expect(forbiddenPortalFields(r.response)).toEqual([]);
+    expect(
+      checkRouteContract({ leaky: { ...r, roles: ["operator", "client_admin"] as const } }),
+    ).toHaveLength(1);
+  });
+
   it("knows the families and fills path parameters", () => {
     expect(routeFamily({ path: "/api/ops/runs" })).toBe("ops");
     expect(routeFamily({ path: "/api/runs" })).toBe("portal");
