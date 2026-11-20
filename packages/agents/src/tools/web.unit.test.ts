@@ -389,6 +389,14 @@ describe("web.fetch", () => {
     ]);
   });
 
+  it("finds links in a page full of punctuation in linear time", () => {
+    // A link followed by a long run of "!" once took quadratic time (CodeQL: polynomial regex).
+    const text = `see https://example.com/a${"!".repeat(100_000)} and https://example.com/b?x=1).`;
+    const started = performance.now();
+    expect(linksIn(text)).toEqual(["https://example.com/a", "https://example.com/b?x=1"]);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
   it("are reads the platform owns", () => {
     for (const t of [webSearchTool, webFetchTool]) {
       expect(t.spec).toMatchObject({ sideEffect: "none", verb: "read", source: "platform" });

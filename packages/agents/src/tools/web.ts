@@ -153,11 +153,18 @@ function linkKey(url: string): string | null {
   }
 }
 
+/** A link with the sentence's closing punctuation taken off; a loop, not a regex, so it stays linear. */
+function trimTrailing(link: string): string {
+  let end = link.length;
+  while (end > 0 && ".,;:!?)".includes(link[end - 1] as string)) end--;
+  return link.slice(0, end);
+}
+
 /** The http and https links in a text, in their compared form. */
 export function linksIn(text: string): string[] {
   const out: string[] = [];
   for (const m of text.matchAll(/https?:\/\/[^\s"'<>\\`{}|^[\]]+/gi)) {
-    const key = linkKey(m[0].replace(/[.,;:!?)]+$/, ""));
+    const key = linkKey(trimTrailing(m[0]));
     if (key) out.push(key);
   }
   return out;
