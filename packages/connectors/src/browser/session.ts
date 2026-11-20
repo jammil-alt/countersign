@@ -29,6 +29,7 @@ import {
   BrowserCapReached,
   BrowserRefused,
   BrowserStop,
+  CodesUnavailable,
   checkForStops,
   isSignedIn,
   SignInFailed,
@@ -137,17 +138,48 @@ function configOf(ctx: ToolContext): BrowserConnectionConfig {
 }
 
 /**
- * Replaces every secret this session handled (the password, cookie values, the code) wherever it
- * appears in what goes back to the model or a log: a page that echoes one never leaks it.
+ * Whether a cookie's value is a secret: a session or auth cookie (httpOnly, which a page's script
+ * can't read), or a value that looks like a token. A site's preference cookie ("invoices",
+ * "Delivered", "en-US") is not, and hiding it would hide the page's own words (PLATFORM_QA INPUT-9).
+ */
+// DECISION: "looks like a token" is 16 characters or more, no spaces, with both letters and digits
+// (session ids, JWTs, random keys); every httpOnly cookie of 8 characters or more is a secret.
+export function secretCookie(cookie: { value?: unknown; httpOnly?: unknown }): boolean {
+  const value = typeof cookie.value === "string" ? cookie.value : "";
+  if (value.length < 8) return false;
+  if (cookie.httpOnly === true) return true;
+  return value.length >= 16 && !/\s/.test(value) && /\d/.test(value) && /[a-z]/i.test(value);
+}
+
+/**
+ * Replaces every secret this session handled (the password, session and auth cookies, the code
+ * while the sign-in that uses it is under way) wherever it appears in what goes back to the model
+ * or a log: a page that echoes one never leaks it.
  */
 export class Redactor {
   readonly #secrets = new Set<string>();
+  readonly #codes = new Set<string>();
   add(value: string | null | undefined, min = 4): void {
     if (value && value.length >= min) this.#secrets.add(value);
   }
+  /** A cookie's value, when it is a secret (`secretCookie`). */
+  cookie(cookie: { value?: unknown; httpOnly?: unknown }): void {
+    if (secretCookie(cookie)) this.#secrets.add(cookie.value as string);
+  }
+  /** A second-factor code, hidden until `spent`. */
+  code(value: string): void {
+    if (value) this.#codes.add(value);
+  }
+  /**
+   * The sign-in is done and its codes are spent: a one-time code the site took is no secret, and a
+   * short one (`2026`) would otherwise rewrite the page's dates and amounts (PLATFORM_QA INPUT-9).
+   */
+  spent(): void {
+    this.#codes.clear();
+  }
   text(value: string): string {
     let out = value;
-    for (const s of this.#secrets) out = out.split(s).join("[hidden]");
+    for (const s of [...this.#secrets, ...this.#codes]) out = out.split(s).join("[hidden]");
     return out;
   }
   deep<T>(value: T): T {
@@ -233,7 +265,7 @@ export async function withBrowserSession<T>(
   const login: StoredLogin = stored.data;
   const redact = new Redactor();
   redact.add(login.password, 1);
-  for (const c of login.session?.cookies ?? []) redact.add(String(c.value ?? ""), 8);
+  for (const c of login.session?.cookies ?? []) redact.cookie(c);
 
   const startedAt = ctx.now();
   const keep = mayKeepSession(site.tier, config.stricter, site.profile);
@@ -301,10 +333,11 @@ export async function withBrowserSession<T>(
           codes: services.codes,
           poll: options.codePoll,
           sleep: services.sleep ?? defaultSleep,
-          onCode: (code) => redact.add(code, 1),
+          onCode: (code) => redact.code(code),
         });
       } catch (error) {
-        if (error instanceof BrowserRefused) throw error;
+        // Our own code service's trouble is not the client's failed sign-in (PLATFORM_QA INTEG-1).
+        if (error instanceof BrowserRefused || error instanceof CodesUnavailable) throw error;
         const failures = state.failures + 1;
         const message = error instanceof Error ? error.message : "signing in failed";
         if (error instanceof BrowserStop || failures >= BROWSER_MAX_FAILURES) {
@@ -321,6 +354,7 @@ export async function withBrowserSession<T>(
       }
       signedIn = true;
       record.signIn = "fresh";
+      redact.spent();
       if (state.failures > 0) {
         state = { ...state, failures: 0 };
         await services.state.put(state);
@@ -338,7 +372,7 @@ export async function withBrowserSession<T>(
       }
     };
     await shot();
-    for (const c of await tab.cookies()) redact.add(c.value, 8);
+    for (const c of await tab.cookies()) redact.cookie(c);
 
     // The last opened page's own screenshot: never an earlier page's when this one's failed.
     let pageShot: string | null = null;
@@ -506,9 +540,11 @@ function cleanError(error: unknown, redact: { text(value: string): string }): Er
         ? BrowserStop
         : error instanceof SignInFailed
           ? SignInFailed
-          : error instanceof BrowserRefused
-            ? BrowserRefused
-            : Error;
+          : error instanceof CodesUnavailable
+            ? CodesUnavailable
+            : error instanceof BrowserRefused
+              ? BrowserRefused
+              : Error;
   return new Clean(message);
 }
 
