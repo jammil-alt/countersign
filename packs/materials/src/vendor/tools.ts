@@ -11,7 +11,7 @@ import { identifyingSku } from "../catalog/store";
 import { unitWord } from "../pricing/uom";
 import { catalogItem, VENDOR_ITEM_STATUSES, vendorItem } from "../schema";
 import { Answer, Checked, LookedUp, Open } from "../split";
-import { defineTool, type PackTool, type PackToolContext } from "../tools";
+import { defineTool, type PackTool, type PackToolContext, savedUnlessTest } from "../tools";
 import { EMBEDDING_TEMPLATE } from "./embedding-text";
 import { importPriceList, readPriceList } from "./import";
 import {
@@ -428,6 +428,7 @@ export const vendorItemsRegister = defineTool({
       vendorItemHints: input.hints,
       answers: input.answers,
       decidedBy: input.decidedBy,
+      runId: ctx.runId,
       testRun: ctx.mode === "test",
     });
     return {
@@ -575,9 +576,11 @@ export const vendorItemUpsert = defineTool({
   }),
   async run(input, ctx) {
     const saved = await saveVendorItem(input, ctx);
+    // A test run's save was rolled back: there is nothing to embed.
+    if (ctx.mode === "test") return { ...saved, embedded: false };
     // DECISION: the vendor item is embedded when it is saved (§1.88: "made when a master item or
     // vendor item is saved"), after its transaction; the write compares the text, so a change of
-    // price or pack embeds nothing. No model, or a test run: it stays due for `missing`.
+    // price or pack embeds nothing. No model: it stays due for `missing`.
     const e = await writeEmbeddings(ctx, { vendorItemIds: [saved.item.id] });
     return { ...saved, embedded: e.vendorItems > 0 };
   },
@@ -603,7 +606,7 @@ function saveVendorItem(
   },
   ctx: PackToolContext,
 ) {
-  return withTenant(ctx.db, ctx.tenantId, async (tx) => {
+  return savedUnlessTest(ctx, async (tx) => {
     if (input.listPrice && !input.listPriceOn) {
       throw new VendorItemError("bad_input", "a list price needs its date (listPriceOn)");
     }
@@ -757,7 +760,7 @@ export const vendorItemSetPreferred = defineTool({
     sources: z.array(z.string()),
   }),
   run: (input, ctx) =>
-    withTenant(ctx.db, ctx.tenantId, async (tx) => {
+    savedUnlessTest(ctx, async (tx) => {
       const r = await setPreferred(tx, ctx.tenantId, input.vendorItemId);
       return {
         item: vendorItemView(r.item),
@@ -779,7 +782,7 @@ export const vendorItemDiscontinue = defineTool({
   input: z.object({ vendorItemId: Uuid }),
   output: z.object({ item: VendorItemOut, sources: z.array(z.string()) }),
   run: (input, ctx) =>
-    withTenant(ctx.db, ctx.tenantId, async (tx) => {
+    savedUnlessTest(ctx, async (tx) => {
       const item = await discontinue(tx, ctx.tenantId, input.vendorItemId);
       return { item: vendorItemView(item), sources: [item.id] };
     }),
