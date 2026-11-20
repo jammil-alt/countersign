@@ -277,6 +277,12 @@ describe.skipIf(!h)("scripted site tools through the API", () => {
       bindings: { "browser:supplier": logins.a },
     });
     expect(bound.status, JSON.stringify(bound.json)).toBe(200);
+    // Connectors C2/C4: a website login starts read only; the client admin lets agents submit on
+    // it, asking first (their own change).
+    const own = await H.call(admin("a"), "PUT", `/api/portal/connections/${logins.a}/access`, {
+      permissions: { create: "approval" },
+    });
+    expect(own.status, JSON.stringify(own.json)).toBe(200);
     await H.t.db
       .update(agent)
       .set({ runStatus: "active", stage: "live", liveVersionId: j(fork.json).version.id })

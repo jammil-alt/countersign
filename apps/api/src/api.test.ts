@@ -422,12 +422,25 @@ describe.skipIf(!h)("API", () => {
       expect(other.status).toBe(404);
     });
 
-    it("lets the operator loosen, logged, but never turn delete on", async () => {
+    // Connectors C4 (docs/connectors-plan.md §5.4, §7.1): we no longer loosen a real client's
+    // connection by ourselves; the client admin turns the write back on to ask first.
+    it("lets only the client admin loosen, logged, and nobody turn delete on", async () => {
       const path = `/api/ops/connections/${H.A.connectionId}`;
-      const res = await H.call(OPERATOR, "PATCH", path, { permissions: { update: "approval" } });
+      const ours = await H.call(OPERATOR, "PATCH", path, { permissions: { update: "approval" } });
+      expect([ours.status, j(ours.json).error.code]).toEqual([409, "send_for_approval"]);
+      const res = await H.call(
+        admin("a"),
+        "PUT",
+        `/api/portal/connections/${H.A.connectionId}/access`,
+        { permissions: { update: "approval" } },
+      );
       expect(res.status, JSON.stringify(res.json)).toBe(200);
-      expect(j(res.json).connection.permissions.update).toBe("approval");
-      expect(j(res.json).connection).not.toHaveProperty("credentialsEncrypted");
+      expect(JSON.stringify(res.json)).not.toContain("credentialsEncrypted");
+      const tighter = await H.call(OPERATOR, "PATCH", path, {
+        permissions: { create: "approval" },
+      });
+      expect(tighter.status, JSON.stringify(tighter.json)).toBe(200);
+      expect(j(tighter.json).connection).not.toHaveProperty("credentialsEncrypted");
       const del = await H.call(OPERATOR, "PATCH", path, { permissions: { delete: "auto" } });
       expect(del.status).toBe(422);
       const list = await H.call(OPERATOR, "GET", `/api/ops/clients/${H.A.tenantId}/connections`);

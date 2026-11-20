@@ -410,7 +410,7 @@ export function accessRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.portalSetCredentials, async (ctx) => {
     const { tx, tenantIds, params, body, session, services } = ctx;
     const tenantId = tenantIds[0] as string;
-    await offeredTo(tx, tenantId, params.connector);
+    await offeredTo(tx, tenantId, params.connector, services);
     const connector = services.platform.connectors.get(params.connector);
     if (!connector || !hasCredentialForm(connector)) {
       throw new HttpError(409, "not_available", "this tool doesn't take a key here");

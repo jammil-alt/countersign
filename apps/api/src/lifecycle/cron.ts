@@ -4,6 +4,7 @@
 // failure never holds up the next.
 
 import { type Db, tenant, withTenant } from "@countersign/db";
+import { expireRequests } from "../connector-access/service";
 import { reportHandled } from "../observability/report";
 import { USAGE_SWEEP_MINUTE } from "../runs/dispatch";
 import { resumeEndedPauses } from "./pause";
@@ -17,6 +18,8 @@ export async function lifecycleTick(db: Db, scheduledTime: Date): Promise<void> 
       await withTenant(db, id, async (tx) => {
         await resumeEndedPauses(tx, id, scheduledTime);
         if (hourly) await advanceTrials(tx, id, scheduledTime);
+        // Connectors C4: change requests past their 14 days end, and their inbox items with them.
+        if (hourly) await expireRequests(tx, id, scheduledTime);
       });
     } catch (error) {
       reportHandled(`lifecycle cron for client ${id} failed`, error, {

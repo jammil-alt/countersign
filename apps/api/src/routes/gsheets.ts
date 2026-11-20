@@ -184,13 +184,13 @@ async function setSheets(
 export function gsheetsRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.portalGsheetsPicker, async ({ tx, tenantIds, services }) => {
     const tenantId = tenantIds[0] as string;
-    await offeredTo(tx, tenantId, GSHEETS_CONNECTOR_ID);
+    await offeredTo(tx, tenantId, GSHEETS_CONNECTOR_ID, services);
     return pickerView(services.env, await newest(tx, tenantId));
   });
 
   mount(app, routes.portalGsheetsSheets, async ({ tx, tenantIds, services, session, body }) => {
     const tenantId = tenantIds[0] as string;
-    await offeredTo(tx, tenantId, GSHEETS_CONNECTOR_ID);
+    await offeredTo(tx, tenantId, GSHEETS_CONNECTOR_ID, services);
     return setSheets(tx, services, { tenantId, actorId: session.user.id, ids: body.sheetIds });
   });
 }

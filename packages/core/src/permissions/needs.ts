@@ -19,7 +19,7 @@ import { type SkillDefinition, skillTools } from "../schemas/skill";
 import { isAlwaysSigned, type ToolSpec } from "../schemas/tool";
 import { lookupSkill, type TypingContext } from "../template/typer";
 import { automationRequires as v3AutomationRequires } from "../workflow/automation";
-import { effectiveLevel, readEntities } from "./entities";
+import { effectiveLevel, entityOfCall, readEntities } from "./entities";
 import { bindingConnector, type GrantLimits, grantAllowsTool, stricterLevel } from "./grants";
 
 /** The least a need asks: a read `on`, a write `ask` (Needs approval). */
@@ -204,11 +204,18 @@ function addTool(
   from: NeedSource,
   autoStep: boolean,
   anyOf?: string,
+  input?: unknown,
 ): void {
   const tool = w.ctx.tools?.[toolId];
   if (!tool) return;
-  const need = toolNeed(tool, w.ctx.connectors);
-  if (!need) return;
+  const found = toolNeed(tool, w.ctx.connectors);
+  if (!found) return;
+  // Connectors C4: a tool whose input names the record type (HubSpot's, Zoho's, Odoo's) needs the
+  // type the step's own input names, when it names one plainly ("purchase.order"), as the publish
+  // check reads it; a type left to a template is not known until the run.
+  // DECISION (docs/plan.md §1.157, C4): such a need without a plain type stays on the verb alone.
+  const named = !found.entity && tool.entityInput ? entityOfCall(tool, input) : undefined;
+  const need = named ? { ...found, entity: named } : found;
   // A step's approval only matters for the writes it makes; a verb a person always signs never
   // runs on its own (§1.73).
   const wantsAuto =
@@ -220,11 +227,11 @@ function visitStep(w: WalkCtx, step: Step, from: NeedSource, override?: Step["ch
   const autoStep = skipsApproval(step, override);
   switch (step.kind) {
     case "read":
-      addTool(w, step.tool, from, false);
+      addTool(w, step.tool, from, false, undefined, step.input);
       return;
     case "write": {
       if (step.tool !== undefined) {
-        addTool(w, step.tool, from, autoStep);
+        addTool(w, step.tool, from, autoStep, undefined, step.input);
         return;
       }
       if (step.action === undefined) return;

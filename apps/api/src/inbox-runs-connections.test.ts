@@ -108,11 +108,25 @@ describe.skipIf(!h)("portal connections", () => {
     expect(scope.status).toBe(403);
     const del = await H.call(admin("a"), "PATCH", path, { delete: "auto" });
     expect(del.status).toBe(403);
-    // The operator may loosen again.
+    // Connectors C4: the operator may no longer loosen a real client's connection by itself
+    // (it sends a request); the client admin turns a write back on to ask first, on the
+    // Connectors page.
     const ops = await H.call(OPERATOR, "PATCH", `/api/ops/connections/${H.A.connectionId}`, {
       permissions: { update: "approval" },
     });
-    expect(j(ops.json).connection.permissions.update).toBe("approval");
+    expect([ops.status, j(ops.json).error.code]).toEqual([409, "send_for_approval"]);
+    const own = await H.call(
+      admin("a"),
+      "PUT",
+      `/api/portal/connections/${H.A.connectionId}/access`,
+      {
+        permissions: { update: "approval" },
+      },
+    );
+    expect(own.status, JSON.stringify(own.json)).toBe(200);
+    expect(j(own.json).connection.change).toContainEqual(
+      expect.objectContaining({ verb: "update", entity: null, level: "approval" }),
+    );
   });
 });
 
@@ -155,9 +169,10 @@ describe.skipIf(!h)("back office connections", () => {
     expect((await H.call(admin("a"), "PUT", path, { offered: [] })).status).toBe(403);
     const none = await H.call(OPERATOR, "PUT", path, { offered: [] });
     expect(j(none.json)).toEqual({ offered: [] });
-    // No longer offered: no new sign-in, but the existing connection is still listed.
+    // Connectors C4 (docs/connectors-plan.md §10 decision 2): no longer offered means no longer
+    // recommended; a live connector can still be signed in to, and the connection is still listed.
     expect((await H.call(admin("a"), "POST", "/api/connections/testkit/authorize")).status).toBe(
-      404,
+      200,
     );
     const list = await H.call(admin("a"), "GET", "/api/connections");
     expect(j(list.json).connections.map((c: { connector: string }) => c.connector)).toEqual([

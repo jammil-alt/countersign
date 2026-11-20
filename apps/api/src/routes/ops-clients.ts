@@ -5,6 +5,7 @@ import type { Approver, RegistryContext } from "@countersign/agents";
 import { applyMatrixChange } from "@countersign/connectors";
 import {
   type AnyAgentBundle,
+  changeDirection,
   complianceOf,
   connectorShown,
   findNodeStep,
@@ -42,6 +43,7 @@ import type { EventRow } from "@countersign/senses";
 import { and, count, desc, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { sloanByDefault, withSloan } from "../account/sloan";
+import { editedSettings, settingsOf } from "../connector-access/service";
 // P-4
 import { runConversations } from "../converse/views";
 import {
@@ -919,7 +921,8 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       if (refusal) throw new HttpError(409, "hipaa", refusal);
     }
     // DECISION: withdrawing an offer leaves an existing connection as it is (the client still sees
-    // and can disconnect it); it only stops new sign-ins.
+    // and can disconnect it). Connectors C4: an offer now means recommended; a live connector can
+    // be signed in to whether offered or not (docs/connectors-plan.md §10 decision 2).
     await tx
       .update(tenant)
       .set({ settings: { ...t.settings, connectors_offered: offered } })
@@ -930,6 +933,23 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsUpdateConnection, async (ctx) => {
     const { tx, params, body, tenantIds, session, services } = ctx;
     const row = await connectionInScope(tx, tenantIds, params.id);
+    // Connectors C4 (docs/connectors-plan.md §7.1): in a real client we only make things safer
+    // here; anything that gives agents more goes to the client admin as a change request (the
+    // Connectors tab's `POST .../changes`). The Sandbox is ours, so edits there apply as before.
+    const [owner] = await tx.select().from(tenant).where(eq(tenant.id, row.tenantId));
+    if (!isSandbox(owner?.settings ?? {})) {
+      const declared = services.platform.connectors.get(row.connector)?.manifest.permissionEntities;
+      const before = settingsOf(row);
+      const after = editedSettings(row, body, services.platform);
+      const { direction } = changeDirection(before, after, declared);
+      if (direction === "looser" || direction === "mixed") {
+        throw new HttpError(
+          409,
+          "send_for_approval",
+          "This gives agents more than the client allowed. Send it to them for approval from their Connectors tab.",
+        );
+      }
+    }
     const set: Partial<typeof connection.$inferInsert> = {};
     const changes: Record<string, unknown>[] = [];
     if (body.permissions) {

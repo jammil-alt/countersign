@@ -5990,6 +5990,31 @@ back office (C6) build against them.
 | Back office paths | `GET /api/ops/clients/:id/connectors` (beside the existing `PUT` that offers connectors) and `.../connectors/:connector`; `POST .../connections/:connectionId/changes` (and `/preview`, which changes nothing, for the footer's button); `POST .../connection-requests/:requestId/withdraw`; the agent panels under `/api/ops/agents/:id` (`needs`, `readiness`, `readiness/send`), as grants are; a template's Readiness takes `?client=`. The old `PATCH /api/ops/connections/:id` becomes tighter-only in a real client (409 `send_for_approval`). No ops route sets Changes by Mezonas. // DECISION |
 | The inbox | The inbox's kinds are fixed by a database check, so a request is an `approval` item with subject `connection_change_request` (answered only by its own routes, as Sloan's drafted changes are), and our change applied at once is a `review` item with subject `connection_change_notice`. Their payloads are typed in core (`ConnectionRequestInboxPayload`, `ConnectionNoticeInboxPayload`). // DECISION |
 
+**C4, the API (phase 2).** Every route of `connectorAccessRoutes` is mounted in
+`apps/api/src/routes/connector-access.ts` (audited by `mount()`, in the request's scope), over
+`apps/api/src/connector-access/` (`service.ts`: a client's connections, agents with their needs and
+gaps, the connectors shown, settings, requests and notices; `views.ts`: the contract's shapes).
+`PATCH /api/ops/connections/:id` is tighter-only in a real client (409 `send_for_approval`); the
+inbox's generic answer refuses a request (409 `use_connection_request`) and stepping in on one
+(409 `client_approves`). C2's tests are updated: a test whose agent writes has the client admin
+press Allow what it needs (`allowForAgent` in `api.test-helper.ts`), and assertions on a new
+connection's matrix compare it with the connector's reviewed default. The contract tests are in
+`apps/api/src/connector-access.test.ts`. No contract shape changed.
+
+| Topic | Decision |
+|---|---|
+| Which connectors a client sees | Every registered one that is `live` or `beta` (with no status set, as the catalog reads it: live where it can be signed in to here), plus any we offered or the client already has; never a custom one built for other clients (`connector_setting.clients`), even if offered or in use; never one HIPAA mode refuses, unless already connected; test-only ones only where they show. `in_review` and `building` are hidden unless offered or in use: an offer stays ours to make. // DECISION |
+| Connecting | The same rule gates every sign-in path (`offeredTo` → `connectableTo`: the portal's authorize and callback, the Sandbox's, key forms, Sheets, Excel, website logins), so a custom connector is never connected for another client; withdrawing an offer no longer stops a live connector's sign-in, it stops recommending it. An offered connector this deployment lacks still answers 409 not available. // DECISION |
+| Expiry | Lazy, on every read and answer of a client's requests (and their inbox items close with them), and hourly in the lifecycle cron. A request is never answered past its end. // DECISION |
+| An agent's needs here | Read from its live version, else its latest; client agents that are active and not retired, test copies left out. A tool whose input names the record type (Odoo's, HubSpot's, Zoho's) needs the type the step's input names plainly; one left to a template stays on the verb (core `agentNeeds`). A connection with nothing to sign in to counts as connected once it exists. // DECISION |
+| Our edit under "what agents need" | The needs that count are those of the agents bound to the connection and of the agent the change is for (a Readiness send for an agent not bound yet). // DECISION |
+| What our change stores | A `connection_change` of kind `settings` with the whole settings before and after, `by`, the reason, the agent it was for, and, under the go-ahead, the authorization; an approved request's change is the approver's, with `requestedBy` and `request_id`. Changes by Mezonas is a change of kind `mezonas_may` with its words. History rows are worded from these and from older `permissions`, `config` and `status` changes. // DECISION |
+| Approving | Refused when no longer open (409 `closed`, also once expired) or out of date (409 `out_of_date`): nothing applies, nothing is marked applied, and the request stays open (shown Out of date) until we replace or withdraw it. A replaced request's inbox item closes as resolved with `replaced`. // DECISION |
+| Notices | Our tighter change in a real client and our change under the go-ahead each make a `review` item for the client admin; the Sandbox gets none. The old PATCH route writes none (it has no reason to show). // DECISION |
+| Built for you | Custom connectors for this client, and the website logins (browser connections) it has. Browse lists every non-custom connector shown, recommended (offered, or an agent can't run without connecting it) first. // DECISION |
+| Groups | Browse's group per connector is the web's map (`connections/groups.ts`), copied into `apps/api/src/connector-access/groups.ts`. // DECISION |
+| Setup checklist | A `connect` item is done when its connector is connected, bound and nothing the agent needs there is blocked (a row off, a scope, a grant); its label adds what is missing ("Connect QuickBooks: allow create bills"). Without the skill catalog (the hourly pass) only connected and bound count, as before. // DECISION |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
