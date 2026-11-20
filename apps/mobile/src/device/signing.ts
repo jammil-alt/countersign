@@ -8,6 +8,10 @@ import {
   type DeviceSignature,
   deviceSignedText,
   itemFingerprintText,
+  type SignInApprovalDecideBody,
+  type SignInApprovalsBody,
+  signInApprovalText,
+  signInListText,
 } from "@countersign/core";
 import { p256 } from "@noble/curves/nist.js";
 import { sha256 } from "@noble/hashes/sha2.js";
@@ -117,5 +121,52 @@ export async function signedDecision(input: {
       fingerprint: deviceSignature.fingerprint,
       deviceSignature,
     },
+  };
+}
+
+// ── Approving a sign-in (docs/plan.md §1.154) ────────────────────────────────────────────────────
+
+const signText = (text: string, privateKey: Uint8Array) =>
+  base64url(p256.sign(utf8(text), privateKey, { prehash: true, lowS: true }));
+
+/** The body that lists the sign-ins waiting on this phone, signed with its key. */
+export function signSignInList(input: {
+  privateKey: Uint8Array;
+  userId: string;
+  deviceId: string;
+  at: Date;
+}): SignInApprovalsBody {
+  const at = input.at.toISOString();
+  const { userId, deviceId } = input;
+  return {
+    userId,
+    deviceId,
+    at,
+    signature: signText(signInListText({ userId, deviceId, at }), input.privateKey),
+  };
+}
+
+/** The body that approves a waiting sign-in with the number picked, or denies it, signed. */
+export function signSignInDecision(input: {
+  privateKey: Uint8Array;
+  approvalId: string;
+  userId: string;
+  deviceId: string;
+  decision: "approve" | "deny";
+  number: number | null;
+  at: Date;
+}): SignInApprovalDecideBody {
+  const at = input.at.toISOString();
+  const { approvalId, userId, deviceId, decision, number } = input;
+  return {
+    userId,
+    deviceId,
+    at,
+    decision,
+    number,
+    signature: signText(
+      signInApprovalText({ approvalId, userId, deviceId, decision, number, at }),
+      input.privateKey,
+    ),
   };
 }

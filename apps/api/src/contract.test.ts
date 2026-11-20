@@ -5,10 +5,12 @@
 
 import { createOAuthState } from "@countersign/connectors";
 import {
+  adjustRoutes,
   allRoutes,
   buildPath,
   checkRouteContract,
   forbiddenPortalFields,
+  manualRoutes,
   type RouteSpec,
   routeFamily,
   routes,
@@ -28,8 +30,10 @@ describe("route contract (static)", () => {
   });
 
   it("lets only a person's own authenticator setup show a secret, once (§1.100)", () => {
+    // The step's own setup, and the emailed setup link's (owner, 2026-11-19).
     expect(ROUTES.filter(([, r]) => r.secretShownOnce?.length).map(([name]) => name)).toEqual([
       "secondFactorSetup",
+      "setupLinkSetup",
     ]);
   });
 
@@ -37,6 +41,39 @@ describe("route contract (static)", () => {
     for (const [, r] of ROUTES) {
       if (routeFamily(r) === "portal") expect(forbiddenPortalFields(r.response)).toEqual([]);
     }
+  });
+
+  // B6 (docs/builder-plan.md §8): the client's charter and policies reach the portal as the
+  // client's own words, with their tags and confirmation; never an agent's prompt or our guardrails'
+  // text, which the portal shows only as its own plain-words summary.
+  it("keeps the charter's portal routes to the client admin, with no forbidden fields", () => {
+    for (const r of [routes.portalKnowledge, routes.portalKnowledgeConfirm]) {
+      expect(routeFamily(r)).toBe("portal");
+      expect(r.roles).toEqual(["client_admin"]);
+      expect(forbiddenPortalFields(r.response)).toEqual([]);
+    }
+    expect(routes.opsKnowledgeCharterDraft.roles).toEqual(["operator"]);
+  });
+
+  // B3 (docs/builder-plan.md §5): the agent manual reaches the portal as a view made by code,
+  // never the bundle, its definition, instructions, prompts or cost (agent bundles stay on
+  // /api/ops). The running route is checked in agent-manual.test.ts.
+  it("keeps the agent manual's portal route to a view with no forbidden fields", () => {
+    expect(routeFamily(manualRoutes.portalAgentManual)).toBe("portal");
+    expect(manualRoutes.portalAgentManual.roles).toEqual(["client_admin", "client_user"]);
+    expect(forbiddenPortalFields(manualRoutes.portalAgentManual.response)).toEqual([]);
+    expect(manualRoutes.opsAgentManual.roles).toEqual(["operator"]);
+  });
+
+  // B5 (docs/builder-plan.md §7): what the client may adjust reaches the portal as words, bounds
+  // and values, never which skill, parameter or step they set; only the client admin changes one.
+  // The running routes are checked in client-adjust.test.ts.
+  it("keeps client adjustments and manual feedback to views with no forbidden fields", () => {
+    for (const r of Object.values(adjustRoutes)) {
+      expect(routeFamily(r)).toBe("portal");
+      expect(forbiddenPortalFields(r.response)).toEqual([]);
+    }
+    expect(adjustRoutes.portalAgentAdjust.roles).toEqual(["client_admin"]);
   });
 });
 

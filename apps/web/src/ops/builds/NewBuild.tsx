@@ -3,7 +3,7 @@
 // starts as a build (docs/plan.md §1.108), so it gets its brief, fit-gap, draft and tests. The
 // build's page takes it from there.
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { ErrorNotice } from "../../ui/ErrorState";
@@ -49,6 +49,23 @@ export function NewBuild({
   // A client agent is for one client; a template is for every client; a skill may be either.
   const needsClient = kind === "client" && !clientId;
   const ready = !!title.trim() && !needsClient;
+  const clientList = clients.data?.clients ?? [];
+  // FLOW-8 (QA 2026-11-19): Start was off for a client agent with no client picked, and the only
+  // word why was a tooltip. Said on the form: the clients couldn't be read, there's none to pick,
+  // or none is picked yet.
+  const clientsFailed = kind !== "template" && !!clients.error;
+  const why =
+    !needsClient || clientsFailed || clients.loading ? null : clientList.length === 0 ? (
+      <>
+        There's no client to build it for yet.{" "}
+        <Link to="/ops/clients/new" className="font-medium text-slate hover:underline">
+          Add a client
+        </Link>{" "}
+        first.
+      </>
+    ) : (
+      "Pick the client it's for."
+    );
   async function start() {
     setBusy(true);
     setError(null);
@@ -112,7 +129,7 @@ export function NewBuild({
                 <option value="">
                   {kind === "skill" ? "Every agent (shared)" : "Pick a client"}
                 </option>
-                {(clients.data?.clients ?? []).map((c) => (
+                {clientList.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name} only
                   </option>
@@ -121,13 +138,13 @@ export function NewBuild({
             </Field>
           )}
         </div>
+        {clientsFailed ? <ErrorNotice error={clients.error} onRetry={clients.reload} /> : null}
         {error ? <ErrorNotice error={error} /> : null}
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             type="submit"
             variant="primary"
             disabled={busy || !ready}
-            title={needsClient ? "Pick the client it's for." : undefined}
             data-testid="builds-start-go"
           >
             {busy ? "Starting…" : "Start the build"}
@@ -135,6 +152,11 @@ export function NewBuild({
           <Button variant="ghost" onClick={onCancel}>
             Cancel
           </Button>
+          {why ? (
+            <span className="text-sm text-ink-muted" data-testid="builds-start-why">
+              {why}
+            </span>
+          ) : null}
         </div>
       </form>
     </Card>

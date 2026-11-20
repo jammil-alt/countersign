@@ -7,6 +7,7 @@ import { gatePasses } from "@countersign/core";
 import { type skill, type Tx, testCase, testCaseResult, testSuiteRun } from "@countersign/db";
 import { and, desc, eq, isNull, ne } from "drizzle-orm";
 import { HttpError } from "../http";
+import { fullSuiteRun } from "./partial";
 
 type SkillRow = typeof skill.$inferSelect;
 
@@ -43,6 +44,8 @@ export async function skillGate(tx: Tx, row: SkillRow, versionId: string): Promi
         eq(testSuiteRun.targetId, row.id),
         eq(testSuiteRun.versionId, versionId),
         ne(testSuiteRun.status, "running"),
+        // A run of some cases (a try) never opens or shuts the gate (builder-plan.md B1).
+        fullSuiteRun(),
         scope ? eq(testSuiteRun.tenantId, scope) : isNull(testSuiteRun.tenantId),
       ),
     )

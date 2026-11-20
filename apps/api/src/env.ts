@@ -29,8 +29,12 @@ export interface Secrets {
   QBO_WEBHOOK_VERIFIER?: string;
   /** Mezonas' own Twilio account: it makes each client's subaccount (docs/plan.md §1.22). */
   TWILIO_ACCOUNT_SID?: string;
-  /** §1.100: Twilio Verify's service (`VA…`) for sign-in codes; empty: the second step is off. */
-  TWILIO_VERIFY_SERVICE_SID?: string;
+  /**
+   * §1.100: an API key (`SK…`) of the Twilio subaccount that holds the Verify service, and its
+   * secret. Unset: Verify is reached with the main account's keys above.
+   */
+  TWILIO_VERIFY_API_KEY_SID?: string;
+  TWILIO_VERIFY_API_KEY_SECRET?: string;
   TWILIO_AUTH_TOKEN?: string;
   /** Mezonas' own ElevenLabs account: the voice agents on calls (docs/plan.md §1.23). */
   ELEVENLABS_API_KEY?: string;
@@ -136,6 +140,16 @@ export interface Secrets {
 /** Vars are read as plain strings: deployments set values the generated literals don't know. */
 export interface Vars {
   ENVIRONMENT?: string;
+  /**
+   * §1.100: Twilio Verify's service (`VA…`) for sign-in codes, a var per environment in
+   * wrangler.jsonc; empty: the second step is off.
+   */
+  TWILIO_VERIFY_SERVICE_SID?: string;
+  /**
+   * §1.100: `on` once a WhatsApp sender is attached to that Verify service; until then WhatsApp
+   * is not offered at setup.
+   */
+  TWILIO_VERIFY_WHATSAPP?: string;
   AUTH_PROVIDER?: string;
   WORKOS_CLIENT_ID?: string;
   /**

@@ -22,6 +22,7 @@ import {
   buildIssues,
   DATA_SOURCES,
   type Dataset,
+  decisionUnreviewed,
   FIT_REASON_MIN,
   FIT_SCOPE_WORDS,
   FIT_SCOPES,
@@ -35,6 +36,7 @@ import {
   fitScope,
   ISSUE_SOURCE_WORDS,
   ITEM_STATE_WORDS,
+  issueByKey,
   itemOpen,
   OWNER_WORDS,
   PHASE_WORDS,
@@ -48,8 +50,10 @@ import {
 } from "@countersign/core";
 import {
   type CSSProperties,
+  type Dispatch,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
+  type SetStateAction,
   useEffect,
   useRef,
   useState,
@@ -63,10 +67,13 @@ import { AgentBadge } from "../../ui/badges";
 import { AgentSaid, ChatLog, Composer, Pending, Thinking, YouSaid } from "../../ui/chat";
 import { ErrorNotice } from "../../ui/ErrorState";
 import { Select, TextArea, TextInput } from "../../ui/forms";
-import { Badge, Button, Card, cx, Loading, Tag } from "../../ui/primitives";
+import { Badge, Button, Card, Count, cx, Loading, Tag } from "../../ui/primitives";
+import { DecisionsCard } from "./decisions";
+import { type Fold, useFirstRows, useFold } from "./fold";
 import { AboutLink, FocusBar, ProposalCard } from "./issues";
 import { problemAdvice, problemWhere } from "./problems";
 import { RequirementsCard } from "./RequirementsCard";
+import { TryCard } from "./TryCard";
 import {
   BRIEF_STATE_TONE,
   BRIEF_STATE_WORDS,
@@ -94,12 +101,81 @@ function retryable(error: unknown): boolean {
   );
 }
 
+/** How often a build whose tests are running is read again. */
+export const TESTS_POLL_MS = 5000;
+
+/**
+ * The build read again, keeping the records it had where they're the same, so a panel's unsaved
+ * edits of them (the brief, the fit-gap, the test plan) aren't reset by a refresh.
+ */
+function sameRecords(prev: BuildDetail | null, next: BuildDetail): BuildDetail {
+  if (!prev) return next;
+  const keep = <K extends "brief" | "fitgap" | "testPlan">(k: K) =>
+    JSON.stringify(prev.build[k]) === JSON.stringify(next.build[k]) ? prev.build[k] : next.build[k];
+  return {
+    ...next,
+    build: {
+      ...next.build,
+      brief: keep("brief"),
+      fitgap: keep("fitgap"),
+      testPlan: keep("testPlan"),
+    },
+  };
+}
+
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * A record merged three ways, by its top-level keys: what the panel had from the server (`base`),
+ * what the operator has on screen (`mine`) and the server's new one (`theirs`). A key the operator
+ * didn't change takes the server's; a key only the operator changed stays theirs.
+ */
+// DECISION: FLOW-1 (QA 2026-11-19) merges by top-level key (a brief's field; the fit-gap's rows,
+// needs and setup; the test plan's datasets). Where both changed one key the server's wins: that is
+// the panel's own save coming back (perhaps tidied by the server), or the Builder's newer answer.
+export function mergeRecord<T extends object>(base: T, mine: T, theirs: T): T {
+  const out = { ...theirs } as Record<string, unknown>;
+  const b = base as Record<string, unknown>;
+  const m = mine as Record<string, unknown>;
+  const t = theirs as Record<string, unknown>;
+  for (const k of new Set([...Object.keys(b), ...Object.keys(m)])) {
+    if (same(m[k], b[k]) || !same(t[k], b[k])) continue;
+    if (m[k] === undefined) delete out[k];
+    else out[k] = m[k];
+  }
+  return out as T;
+}
+
+/**
+ * A panel's working copy of one of the build's records (the brief, the fit-gap, the test plan).
+ * FLOW-1 (QA 2026-11-19): a new record from the server no longer resets the operator's unsaved
+ * edits: it is merged with them (`mergeRecord`).
+ */
+function useWorkingCopy<T extends object>(server: T): [T, Dispatch<SetStateAction<T>>] {
+  const [value, setValue] = useState<T>(server);
+  const base = useRef(server);
+  const mine = useRef(value);
+  mine.current = value;
+  useEffect(() => {
+    if (base.current === server) return;
+    const was = base.current;
+    base.current = server;
+    setValue(same(mine.current, was) ? server : mergeRecord(was, mine.current, server));
+  }, [server]);
+  return [value, setValue];
+}
+
 export function BuildView({ id, embedded = false }: { id: string; embedded?: boolean }) {
   const api = useApiClient();
   const loaded = useApi(apiRoutes.opsBuild, { params: { id } });
   const [detail, setDetail] = useState<BuildDetail | null>(loaded.data ?? null);
   const [viewing, setViewing] = useState<BuildPhase | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
+  // FLOW-2 (QA 2026-11-19): every request on its way, not one slot. A chat turn sent while a move
+  // ran cleared the one slot when it answered, and the move's button came back on while the move
+  // was still running (a second press made a second draft). Each request now clears only itself.
+  const [inFlight, setInFlight] = useState<{ n: number; path: string }[]>([]);
+  const calls = useRef(0);
+  const busy = busyPath(inFlight.map((f) => f.path));
   const [pending, setPending] = useState<{ text: string; since: number } | null>(null);
   const [error, setError] = useState<unknown>(null);
   // QA (2026-11-17, fourth run): a failure while saving or moving showed above the page while the
@@ -118,10 +194,38 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
   // shows. It follows the Builder: when its answer is about an issue, the next words are too.
   const [focus, setFocus] = useState<string | null>(null);
   const [threadOnly, setThreadOnly] = useState(false);
+  // Owner (2026-11-19): a long page. Its sections fold, and the jump links open the one they go
+  // to. Decisions starts shut when nothing waits on a check.
+  const issuesFold = useFold("issues");
+  const decisionsFold = useFold(
+    "decisions",
+    (detail?.build.fitgap.decisions ?? []).some(decisionUnreviewed),
+  );
 
   useEffect(() => {
-    if (loaded.data) setDetail(loaded.data);
+    const data = loaded.data;
+    if (data) setDetail((prev) => sameRecords(prev, data));
   }, [loaded.data]);
+
+  // builder-plan.md B0: while the tests (or a try) run, the build is read again every 5 seconds,
+  // and no longer once they're done. Not while an action is on its way: its answer is newer.
+  const busyNow = useRef(busy);
+  busyNow.current = busy;
+  const testsRunning =
+    detail?.poc?.latest?.status === "running" ||
+    (detail?.poc?.tries ?? []).some((t) => t.status === "running");
+  useEffect(() => {
+    if (!testsRunning) return;
+    const timer = setInterval(() => {
+      void api
+        .call(apiRoutes.opsBuild, { params: { id } })
+        .then((out) => {
+          if (!busyNow.current) setDetail((prev) => sameRecords(prev, out as BuildDetail));
+        })
+        .catch(() => undefined);
+    }, TESTS_POLL_MS);
+    return () => clearInterval(timer);
+  }, [testsRunning, api, id]);
 
   if (!detail) {
     return loaded.error ? (
@@ -137,9 +241,9 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
   const shownAt = detail.phases.findIndex((p) => p.phase === shown);
 
   const issues = buildIssues(detail);
-  const focused = focus ? (issues.find((i) => i.key === focus) ?? null) : null;
-  const issueOf = (key: string | undefined) =>
-    key ? (issues.find((i) => i.key === key) ?? null) : null;
+  // docs/builder-plan.md §4: any decision can be talked about, not only the ones that are issues.
+  const focused = focus ? issueByKey(detail, focus, issues) : null;
+  const issueOf = (key: string | undefined) => (key ? issueByKey(detail, key, issues) : null);
   const onIssue = (key: string, only = false) => {
     setFocus(key);
     setThreadOnly(only);
@@ -156,11 +260,15 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
     // QA (2026-11-17, fourth run): for the five minutes the draft was being made, the box said it
     // was about an old, answered question. A move to another phase starts the conversation there.
     if (route.path === apiRoutes.opsMoveBuild.path) offIssue();
-    setBusy(route.path);
+    calls.current += 1;
+    const n = calls.current;
+    setInFlight((f) => [...f, { n, path: route.path }]);
     setError(null);
     try {
       const out = (await api.call(route, opts)) as BuildDetail;
-      setDetail(out);
+      // FLOW-1 (QA 2026-11-19): an answer is always a new object; a record it didn't change keeps
+      // its old one, so a panel's unsaved edits of it aren't reset by an unrelated action.
+      setDetail((prev) => sameRecords(prev, out));
       setViewing(null);
       // The conversation stays on the issue the Builder answered about (or moved on to).
       const last = out.messages.at(-1);
@@ -173,7 +281,7 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
       setError(e);
       return false;
     } finally {
-      setBusy(null);
+      setInFlight((f) => f.filter((x) => x.n !== n));
     }
   };
 
@@ -190,7 +298,7 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
       if (!done) {
         await api
           .call(apiRoutes.opsBuild, { params: { id } })
-          .then((out) => setDetail(out as BuildDetail))
+          .then((out) => setDetail((prev) => sameRecords(prev, out as BuildDetail)))
           .catch(() => undefined);
       }
       return done;
@@ -200,7 +308,7 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
   }
 
   const moving = busy === apiRoutes.opsMoveBuild.path || busy === apiRoutes.opsBuildClientTest.path;
-  const retrying = busy === apiRoutes.opsBuildTurn.path && !pending;
+  const retrying = inFlight.some((f) => f.path === apiRoutes.opsBuildTurn.path) && !pending;
   const lastId = detail.messages.at(-1)?.id;
   const decide = (messageId: string, d: "agree" | "decline" | "undo") =>
     void act(apiRoutes.opsBuildProposal, {
@@ -210,6 +318,7 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
       // Not this: the box is where the operator says what they'd do instead.
       if (ok && d === "decline") box.current?.focus();
     });
+  const hasDecisions = b.phase !== "intake" || b.fitgap.decisions.length > 0;
   const shownMessages =
     threadOnly && focused
       ? detail.messages.filter((m) => m.about === focused.key)
@@ -461,37 +570,89 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
 
         <div className="relative flex min-w-0 flex-col gap-5 xl:pl-6">
           <SplitHandle split={split} />
-          <PhasePanel
-            phase={shown}
-            detail={detail}
-            current={shown === b.phase && open}
-            busy={busy}
-            act={act}
-          />
-          <ItemsPanel
-            detail={detail}
-            issues={issues}
-            focus={focused?.key ?? null}
-            onTalk={open ? onIssue : undefined}
-            onWalk={
-              open
-                ? () => {
-                    offIssue();
-                    void say("Walk me through the open issues, one at a time.", null);
-                  }
-                : undefined
-            }
-            busy={busy}
-            act={act}
-            onAnswer={
-              open
-                ? (title) => {
-                    setDraftText(`About “${title}”: `);
-                    box.current?.focus();
-                  }
-                : undefined
-            }
-          />
+          <BuildBar
+            links={[
+              {
+                id: "build-at-phase",
+                label: PHASE_WORDS[shown].label,
+              },
+              {
+                id: "build-at-issues",
+                label: "Issues",
+                count: issues.filter((i) => i.open).length,
+                fold: issuesFold,
+              },
+              ...(hasDecisions
+                ? [
+                    {
+                      id: "build-at-decisions",
+                      label: "Decisions",
+                      count: b.fitgap.decisions.filter(decisionUnreviewed).length,
+                      fold: decisionsFold,
+                    },
+                  ]
+                : []),
+            ]}
+          >
+            <WorkingStrip busy={busy} phase={b.phase} talking={!!pending} />
+          </BuildBar>
+          <div id="build-at-phase" className="ui-build-anchor flex flex-col gap-5">
+            <PhasePanel
+              phase={shown}
+              detail={detail}
+              current={shown === b.phase && open}
+              busy={busy}
+              act={act}
+              onAbout={
+                open
+                  ? (title) => {
+                      setDraftText((t) => aboutStart(title, t));
+                      box.current?.focus();
+                    }
+                  : undefined
+              }
+            />
+          </div>
+          <div id="build-at-issues" className="ui-build-anchor">
+            <ItemsPanel
+              fold={issuesFold}
+              detail={detail}
+              issues={issues}
+              focus={focused?.key ?? null}
+              onTalk={open ? onIssue : undefined}
+              onWalk={
+                open
+                  ? () => {
+                      offIssue();
+                      void say("Walk me through the open issues, one at a time.", null);
+                    }
+                  : undefined
+              }
+              busy={busy}
+              act={act}
+              onAnswer={
+                open
+                  ? (title) => {
+                      setDraftText((t) => aboutStart(title, t));
+                      box.current?.focus();
+                    }
+                  : undefined
+              }
+            />
+          </div>
+          {/* docs/builder-plan.md §4: the Builder's decisions, beside the issues and known risks. */}
+          {hasDecisions ? (
+            <div id="build-at-decisions" className="ui-build-anchor">
+              <DecisionsCard
+                fold={decisionsFold}
+                detail={detail}
+                focus={focused?.key ?? null}
+                onTalk={open ? onIssue : undefined}
+                busy={isBusy(busy)}
+                act={act}
+              />
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -677,6 +838,98 @@ function GoBack({
   );
 }
 
+/**
+ * While anything on the page is under way: one line that stays in sight wherever the page is
+ * scrolled (owner, 2026-11-19: the faded buttons read as stuck). Not for the first half second, so
+ * a quick save doesn't flash it.
+ */
+function WorkingStrip({
+  busy,
+  phase,
+  talking,
+}: {
+  busy: string | null;
+  phase: BuildPhase;
+  talking: boolean;
+}) {
+  const [since, setSince] = useState<number | null>(null);
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (!busy) {
+      setSince(null);
+      setShown(false);
+      return;
+    }
+    setSince(Date.now());
+    const t = setTimeout(() => setShown(true), 500);
+    return () => clearTimeout(t);
+  }, [busy]);
+  if (!busy || !shown) return null;
+  const label =
+    busy === apiRoutes.opsMoveBuild.path
+      ? NEXT_WORKING[phase]
+      : busy === apiRoutes.opsBuildTurn.path || busy === apiRoutes.opsBuildProposal.path || talking
+        ? "The Builder is working on it…"
+        : busy === apiRoutes.opsBuildCases.path
+          ? "The Builder is making the test cases…"
+          : busy === apiRoutes.opsBuildRunTests.path
+            ? "Starting the test cases…"
+            : "Saving…";
+  return (
+    <div className="ui-build-bar__working" data-testid="build-working">
+      <Thinking
+        badge={<AgentBadge name="Builder" size="sm" />}
+        label={label}
+        state={busy === apiRoutes.opsMoveBuild.path ? "drafting" : "tracing"}
+        since={since ?? undefined}
+      />
+    </div>
+  );
+}
+
+interface JumpLink {
+  /** The section's element id. */
+  id: string;
+  label: string;
+  /** What waits there: open issues, decisions to check. */
+  count?: number;
+  /** A folded section opens when it is jumped to. */
+  fold?: Fold;
+}
+
+/**
+ * Over the build's sections, staying in sight as the page scrolls (owner, 2026-11-19): a link to
+ * each section with what waits in it, and what the Builder is doing while it works.
+ */
+function BuildBar({ links, children }: { links: JumpLink[]; children: ReactNode }) {
+  const jump = (l: JumpLink) => {
+    l.fold?.reveal();
+    // After the section has opened, so the jump lands on its full height.
+    requestAnimationFrame(() =>
+      document.getElementById(l.id)?.scrollIntoView?.({ behavior: "smooth", block: "start" }),
+    );
+  };
+  return (
+    <div className="ui-build-bar" data-testid="build-bar">
+      <nav aria-label="Sections of the build" className="ui-build-bar__links">
+        {links.map((l) => (
+          <button
+            key={l.id}
+            type="button"
+            className="ui-build-bar__link"
+            onClick={() => jump(l)}
+            data-testid={`build-jump-${l.id.replace("build-at-", "")}`}
+          >
+            {l.label}
+            {l.count ? <Count n={l.count} tone="warning" /> : null}
+          </button>
+        ))}
+      </nav>
+      {children}
+    </div>
+  );
+}
+
 /** What the Builder is doing while a phase's move runs. */
 const NEXT_WORKING: Record<BuildPhase, string> = {
   intake: "The Builder is giving the brief a second look, then checking it against the catalog…",
@@ -695,6 +948,7 @@ function Next({
   onClick,
   testId,
   extra,
+  why,
 }: {
   label: string;
   detail: BuildDetail;
@@ -702,6 +956,8 @@ function Next({
   onClick(): void;
   testId: string;
   extra?: ReactNode;
+  /** Why the button is off besides the gate's reasons (FLOW-8: no client picked to test with). */
+  why?: ReactNode;
 }) {
   const reasons = detail.gate.reasons;
   // Feedback (2026-11-16): a move can take the Builder a minute (agreeing the brief drafts the
@@ -721,7 +977,7 @@ function Next({
         <Button
           variant="primary"
           disabled={busy || reasons.length > 0}
-          aria-busy={working || undefined}
+          working={working}
           onClick={() => {
             setSince(Date.now());
             onClick();
@@ -752,6 +1008,11 @@ function Next({
           ))}
         </ul>
       ) : null}
+      {why ? (
+        <div className="text-sm text-ink-muted" data-testid={`${testId}-why`}>
+          {why}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -762,6 +1023,8 @@ function PhasePanel(props: {
   current: boolean;
   busy: string | null;
   act: Act;
+  /** Starts the operator's words about something in the conversation's box. */
+  onAbout?: ((title: string) => void) | undefined;
 }) {
   switch (props.phase) {
     case "intake":
@@ -783,12 +1046,34 @@ type PanelProps = Parameters<typeof PhasePanel>[0];
 
 const isBusy = (busy: string | null) => busy !== null;
 
+/** Moves between phases: the longest requests, and the one the page says it's working on first. */
+const MOVES: readonly string[] = [
+  apiRoutes.opsMoveBuild.path,
+  apiRoutes.opsBuildClientTest.path,
+  apiRoutes.opsBuildDecision.path,
+];
+
+/**
+ * What the page is busy with, of the requests on their way: a move if one is, else the latest.
+ * Null only when none is, so a button that waits on `busy` stays off until every one has answered.
+ */
+export function busyPath(paths: readonly string[]): string | null {
+  return paths.find((p) => MOVES.includes(p)) ?? paths.at(-1) ?? null;
+}
+
+/**
+ * The conversation's box after an issue's "Answer it" or a try's "Wrong": the "About …" start put
+ * before what's typed there (FLOW-10, QA 2026-11-19: it replaced it). An earlier start is swapped.
+ */
+export function aboutStart(title: string, typed: string): string {
+  return `About “${title}”: ${typed.replace(/^About “[^”]*”: /, "")}`;
+}
+
 // ── 1 Intake ────────────────────────────────────────────────────────────────────────────────────
 
 function IntakePanel({ detail, current, busy, act }: PanelProps) {
   const id = detail.build.id;
-  const [brief, setBrief] = useState<Brief>(detail.build.brief);
-  useEffect(() => setBrief(detail.build.brief), [detail.build.brief]);
+  const [brief, setBrief] = useWorkingCopy<Brief>(detail.build.brief);
   const dirty = JSON.stringify(brief) !== JSON.stringify(detail.build.brief);
   const counts = BRIEF_STATES.map(
     (s) => [s, BRIEF_FIELDS.filter((k) => brief[k]?.state === s).length] as const,
@@ -821,6 +1106,7 @@ function IntakePanel({ detail, current, busy, act }: PanelProps) {
                 <Button
                   size="sm"
                   disabled={isBusy(busy)}
+                  working={busy === apiRoutes.opsUpdateBuild.path}
                   onClick={() =>
                     void act(apiRoutes.opsUpdateBuild, { params: { id }, body: { brief } })
                   }
@@ -918,8 +1204,7 @@ function IntakePanel({ detail, current, busy, act }: PanelProps) {
 
 function FitGapPanel({ detail, current, busy, act }: PanelProps) {
   const id = detail.build.id;
-  const [fitgap, setFitgap] = useState<FitGap>(detail.build.fitgap);
-  useEffect(() => setFitgap(detail.build.fitgap), [detail.build.fitgap]);
+  const [fitgap, setFitgap] = useWorkingCopy<FitGap>(detail.build.fitgap);
   const [only, setOnly] = useState<FitVerdict | null>(null);
   const [changing, setChanging] = useState<string | null>(null);
   const dirty = JSON.stringify(fitgap) !== JSON.stringify(detail.build.fitgap);
@@ -977,6 +1262,7 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
               <Button
                 size="sm"
                 disabled={isBusy(busy)}
+                working={busy === apiRoutes.opsBuildTurn.path}
                 onClick={() => void act(apiRoutes.opsBuildTurn, { params: { id }, body: {} })}
                 data-testid="build-fitgap-write"
               >
@@ -1508,6 +1794,11 @@ function VerdictChange({
 function DraftPanel({ detail, current, busy, act }: PanelProps) {
   const d = detail.draft;
   const b = detail.build;
+  const problems = useFirstRows(d?.problems ?? [], {
+    first: 3,
+    noun: "problems",
+    testId: "build-draft-problems-more",
+  });
   const link =
     b.kind === "skill"
       ? d?.sessionId
@@ -1558,43 +1849,46 @@ function DraftPanel({ detail, current, busy, act }: PanelProps) {
       ) : (
         // Feedback (2026-11-16): each problem in plain words, where it is, what would fix it and
         // what that fix costs (./problems.ts).
-        <ul className="flex flex-col" data-testid="build-draft-problems">
-          {d.problems.map((p) => {
-            const advice = problemAdvice(p);
-            const where = problemWhere(p);
-            return (
-              <li
-                key={p.key}
-                data-testid="build-draft-problem"
-                className="flex flex-col gap-2 border-b border-line px-6 py-4 text-sm last:border-b-0"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex min-w-0 flex-col gap-0.5">
-                    <span className="font-medium text-ink">{advice.what}</span>
-                    {where ? <span className="text-xs text-ink-muted">{where}</span> : null}
+        <>
+          <ul className="flex flex-col" data-testid="build-draft-problems">
+            {problems.shown.map((p) => {
+              const advice = problemAdvice(p);
+              const where = problemWhere(p);
+              return (
+                <li
+                  key={p.key}
+                  data-testid="build-draft-problem"
+                  className="flex flex-col gap-2 border-b border-line px-6 py-4 text-sm last:border-b-0"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 flex-col gap-0.5">
+                      <span className="font-medium text-ink">{advice.what}</span>
+                      {where ? <span className="text-xs text-ink-muted">{where}</span> : null}
+                    </div>
+                    <Badge tone={p.code === "missing_step" ? "warning" : "risk"}>
+                      {p.code === "missing_step" ? "Missing" : "Invalid"}
+                    </Badge>
                   </div>
-                  <Badge tone={p.code === "missing_step" ? "warning" : "risk"}>
-                    {p.code === "missing_step" ? "Missing" : "Invalid"}
-                  </Badge>
-                </div>
-                <dl className="grid gap-x-3 gap-y-1 sm:grid-cols-[110px_minmax(0,1fr)]">
-                  <dt className="text-ink-muted">To fix it</dt>
-                  <dd className="text-ink" data-testid="build-draft-problem-fix">
-                    {advice.fix}
-                  </dd>
-                  {advice.cost ? (
-                    <>
-                      <dt className="text-ink-muted">What it costs</dt>
-                      <dd className="text-ink" data-testid="build-draft-problem-cost">
-                        {advice.cost}
-                      </dd>
-                    </>
-                  ) : null}
-                </dl>
-              </li>
-            );
-          })}
-        </ul>
+                  <dl className="grid gap-x-3 gap-y-1 sm:grid-cols-[110px_minmax(0,1fr)]">
+                    <dt className="text-ink-muted">To fix it</dt>
+                    <dd className="text-ink" data-testid="build-draft-problem-fix">
+                      {advice.fix}
+                    </dd>
+                    {advice.cost ? (
+                      <>
+                        <dt className="text-ink-muted">What it costs</dt>
+                        <dd className="text-ink" data-testid="build-draft-problem-cost">
+                          {advice.cost}
+                        </dd>
+                      </>
+                    ) : null}
+                  </dl>
+                </li>
+              );
+            })}
+          </ul>
+          {problems.more}
+        </>
       )}
     </Card>
   );
@@ -1602,11 +1896,10 @@ function DraftPanel({ detail, current, busy, act }: PanelProps) {
 
 // ── 4 POC test ──────────────────────────────────────────────────────────────────────────────────
 
-function PocPanel({ detail, current, busy, act }: PanelProps) {
+function PocPanel({ detail, current, busy, act, onAbout }: PanelProps) {
   const b = detail.build;
   const id = b.id;
-  const [plan, setPlan] = useState<TestPlan>(b.testPlan);
-  useEffect(() => setPlan(b.testPlan), [b.testPlan]);
+  const [plan, setPlan] = useWorkingCopy<TestPlan>(b.testPlan);
   const dirty = JSON.stringify(plan) !== JSON.stringify(b.testPlan);
   const poc = detail.poc;
   const clients = useApi(
@@ -1618,6 +1911,14 @@ function PocPanel({ detail, current, busy, act }: PanelProps) {
     setPlan((p) => ({ datasets: p.datasets.map((d, j) => (j === i ? { ...d, ...patch } : d)) }));
   return (
     <div className="flex flex-col gap-5">
+      {/* builder-plan.md B1: real examples first; model-made cases stay below. */}
+      <TryCard
+        detail={detail}
+        live={current}
+        busy={isBusy(busy)}
+        act={act}
+        {...(onAbout ? { onWrong: onAbout } : {})}
+      />
       <Card
         testId="build-test-plan"
         title="Test data plan"
@@ -1673,7 +1974,9 @@ function PocPanel({ detail, current, busy, act }: PanelProps) {
                 <>
                   <Button
                     size="sm"
+                    variant="ghost"
                     disabled={isBusy(busy) || dirty}
+                    working={busy === apiRoutes.opsBuildCases.path}
                     onClick={() => void act(apiRoutes.opsBuildCases, { params: { id } })}
                     data-testid="build-make-cases"
                   >
@@ -1684,6 +1987,7 @@ function PocPanel({ detail, current, busy, act }: PanelProps) {
                   <Button
                     size="sm"
                     disabled={isBusy(busy) || (poc?.cases ?? 0) === 0}
+                    working={busy === apiRoutes.opsBuildRunTests.path}
                     onClick={() => void act(apiRoutes.opsBuildRunTests, { params: { id } })}
                     data-testid="build-run-cases"
                   >
@@ -1823,11 +2127,22 @@ function PocPanel({ detail, current, busy, act }: PanelProps) {
                     key={f.caseId}
                     className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-6 py-3 text-sm last:border-b-0"
                   >
-                    <span className="text-ink">
-                      {f.name}{" "}
-                      <span className="text-ink-muted">
-                        · {f.status === "fail" ? "fails" : "errored"}
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="text-ink">
+                        {f.name}{" "}
+                        <span className="text-ink-muted">
+                          · {f.status === "fail" ? "fails" : "errored"}
+                        </span>
                       </span>
+                      {/* builder-plan.md B0: why, in its words (an error, or the fields that differ). */}
+                      {f.why ? (
+                        <span
+                          className="break-words text-ink-muted"
+                          data-testid={`build-poc-why-${f.caseId}`}
+                        >
+                          {f.why}
+                        </span>
+                      ) : null}
                     </span>
                     {made ? (
                       <Badge tone="neutral">Open item</Badge>
@@ -1872,6 +2187,23 @@ function PocPanel({ detail, current, busy, act }: PanelProps) {
             detail={detail}
             busy={isBusy(busy) || (!b.client && !clientId)}
             testId="build-promote"
+            // FLOW-8 (QA 2026-11-19): off with no word why but a tooltip. Said on the page: the
+            // clients couldn't be read, there is none to test with, or none is picked yet.
+            why={
+              b.client || clientId ? null : clients.error ? (
+                <ErrorNotice error={clients.error} onRetry={clients.reload} />
+              ) : clients.loading ? null : (clients.data?.clients ?? []).length === 0 ? (
+                <>
+                  There's no client to test it with yet.{" "}
+                  <Link to="/ops/clients/new" className="font-medium text-slate hover:underline">
+                    Add a client
+                  </Link>{" "}
+                  first.
+                </>
+              ) : (
+                "Pick the client it's tested with."
+              )
+            }
             onClick={() =>
               void act(apiRoutes.opsBuildClientTest, {
                 params: { id },
@@ -2173,6 +2505,18 @@ function QaPanel({ detail, current, busy, act }: PanelProps) {
               )}
             </div>
           ) : null}
+          {/* FLOW-3 (QA 2026-11-19): Go live was off with no word why. The gate's reasons, as
+              `Next` says them. */}
+          {current && signed && detail.gate.reasons.length > 0 ? (
+            <ul
+              className="flex flex-col gap-0.5 text-sm text-ink-muted"
+              data-testid="build-go-reasons"
+            >
+              {detail.gate.reasons.map((r) => (
+                <li key={r}>{r}</li>
+              ))}
+            </ul>
+          ) : null}
           {current ? (
             <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4">
               <span className="text-ink-muted">No-go: back to</span>
@@ -2228,6 +2572,7 @@ const STATES: BuildItemState[] = ["open", "in_progress", "waiting", "done", "def
  * can be talked about in the conversation, its thread shown again, or all walked through in turn.
  */
 function ItemsPanel({
+  fold,
   detail,
   issues,
   focus,
@@ -2237,6 +2582,8 @@ function ItemsPanel({
   act,
   onAnswer,
 }: {
+  /** Folds the card (the page keeps it, so its jump link can open it). */
+  fold?: Fold | undefined;
   detail: BuildDetail;
   issues: readonly BuildIssue[];
   /** The issue the conversation is on. */
@@ -2253,6 +2600,12 @@ function ItemsPanel({
   const id = detail.build.id;
   const [title, setTitle] = useState("");
   const [owner, setOwner] = useState<BuildItemOwner>("operator");
+  // Open ones first, then the first few of them; the one the conversation is on always shows.
+  const rows = useFirstRows([...issues.filter((i) => i.open), ...issues.filter((i) => !i.open)], {
+    keep: (i) => i.key === focus,
+    noun: "issues",
+    testId: "build-issues-more",
+  });
   const openCount = issues.filter((i) => i.open).length;
   const closed = issues.length - openCount;
   const editable = detail.build.status === "open";
@@ -2285,6 +2638,7 @@ function ItemsPanel({
     <Card
       testId="build-items"
       title="Issues"
+      fold={fold}
       meta={
         <span className="flex flex-wrap items-center gap-1.5">
           <Badge tone={openCount > 0 ? "warning" : "positive"}>{openCount} open</Badge>
@@ -2342,6 +2696,7 @@ function ItemsPanel({
               size="sm"
               type="submit"
               disabled={isBusy(busy) || !title.trim()}
+              working={busy === apiRoutes.opsAddBuildItem.path}
               data-testid="build-item-add"
             >
               Add
@@ -2366,7 +2721,7 @@ function ItemsPanel({
               </tr>
             </thead>
             <tbody>
-              {issues.map((issue) => {
+              {rows.shown.map((issue) => {
                 const i = issue.itemId ? items.get(issue.itemId) : undefined;
                 if (!i) {
                   return (
@@ -2401,7 +2756,9 @@ function ItemsPanel({
                               ? "positive"
                               : issue.source === "rejection"
                                 ? "person"
-                                : "risk"
+                                : issue.source === "decision"
+                                  ? "warning"
+                                  : "risk"
                           }
                         >
                           {issue.state}
@@ -2511,6 +2868,7 @@ function ItemsPanel({
               })}
             </tbody>
           </table>
+          {rows.more}
         </div>
       )}
     </Card>

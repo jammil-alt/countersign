@@ -1,11 +1,18 @@
-// A person's second factor (migration 0042, docs/plan.md §1.100) as the Worker's role sees it: the
-// person signing in sees and writes only their own rows, an operator session sees everyone's, and
-// no scope sees nothing.
+// A person's second factor (migrations 0042 and 0067, docs/plan.md §1.100 and §1.154) as the
+// Worker's role sees it: the person signing in sees and writes only their own rows, an operator
+// session sees everyone's, and no scope sees nothing.
 
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withOperator, withUser } from "./client";
-import { appUser, mcpSessionApproval, USER_TABLES, userFactor, userRecoveryCode } from "./schema";
+import {
+  appUser,
+  mcpSessionApproval,
+  signInApproval,
+  USER_TABLES,
+  userFactor,
+  userRecoveryCode,
+} from "./schema";
 import { asWorker, createTestDatabase, databaseAvailable, type TestDatabase } from "./testing";
 
 const online = await databaseAvailable();
@@ -47,11 +54,19 @@ describe.skipIf(!online)("second factor tables", () => {
         codeHash: `c-${userId}`,
         expiresAt: new Date(Date.now() + 3_600_000),
       });
+      await t.db.insert(signInApproval).values({ ...approval, userId });
     }
   });
   afterAll(async () => {
     await t?.drop();
   });
+
+  const approval = {
+    browserKeyHash: "h",
+    number: 42,
+    browser: "Chrome on macOS",
+    expiresAt: new Date(Date.now() + 120_000),
+  };
 
   const owners = async (table: string) =>
     [
@@ -118,6 +133,52 @@ describe.skipIf(!online)("second factor tables", () => {
         t.db.insert(userFactor).values({ userId: bob, kind: "sms", twilioFactorSid: "YF1" }),
       ),
     ).toBe("23514");
+  });
+
+  it("refuse a phone approval in a shape the step never makes", async () => {
+    const userId = ann;
+    const now = new Date();
+    const device = "00000000-0000-7000-8000-000000000001";
+    // A number the browser can't show.
+    for (const number of [9, 100]) {
+      expect(
+        await errorCode(t.db.insert(signInApproval).values({ ...approval, userId, number })),
+      ).toBe("23514");
+    }
+    expect(
+      await errorCode(
+        t.db.insert(signInApproval).values({ ...approval, userId, status: "nope" as never }),
+      ),
+    ).toBe("23514");
+    // Decided without a time, or a time while still pending.
+    expect(
+      await errorCode(
+        t.db.insert(signInApproval).values({ ...approval, userId, status: "denied" }),
+      ),
+    ).toBe("23514");
+    expect(
+      await errorCode(t.db.insert(signInApproval).values({ ...approval, userId, decidedAt: now })),
+    ).toBe("23514");
+    // Approved by no phone; used without an approval.
+    expect(
+      await errorCode(
+        t.db
+          .insert(signInApproval)
+          .values({ ...approval, userId, status: "approved", decidedAt: now }),
+      ),
+    ).toBe("23514");
+    expect(
+      await errorCode(
+        t.db
+          .insert(signInApproval)
+          .values({ ...approval, userId, status: "denied", decidedAt: now, usedAt: now }),
+      ),
+    ).toBe("23514");
+    // What the step does make.
+    await t.db.insert(signInApproval).values([
+      { ...approval, userId, status: "denied", decidedAt: now },
+      { ...approval, userId, status: "approved", decidedAt: now, deviceId: device, usedAt: now },
+    ]);
   });
 
   it("go with the person when their app_user row is deleted", async () => {

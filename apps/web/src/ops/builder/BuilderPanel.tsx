@@ -83,8 +83,11 @@ export function useBuilderSession({
   read(bundle: AnyAgentBundle): ProcessAgentBundle;
   /** The version the canvas is saved as, saving unsaved edits first; null when saving failed. */
   ensureSaved(): Promise<{ id: string } | null>;
-  /** The conversation's draft, onto the canvas. */
-  onDraft(bundle: ProcessAgentBundle): void;
+  /**
+   * The conversation's draft, onto the canvas. `base` is the canvas it answers (as it was when the
+   * request was made), so edits made since can be kept (FLOW-9).
+   */
+  onDraft(bundle: ProcessAgentBundle, base: ProcessAgentBundle): void;
 }): BuilderSession {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [pending, setPending] = useState<string | null>(null);
@@ -118,11 +121,12 @@ export function useBuilderSession({
   const draft = raw ? read(raw) : null;
   const inSync = draft !== null && canonicalJson(draft) === canonicalJson(bundle);
 
+  // `bundle` here is the canvas as it was when the request was made: this closure's render's.
   const take = (next: Detail) => {
     setDetail(next);
     const p = parsed(next);
     const b = p ? read(p) : null;
-    if (b && canonicalJson(b) !== canonicalJson(bundle)) onDraft(b);
+    if (b && canonicalJson(b) !== canonicalJson(bundle)) onDraft(b, bundle);
   };
 
   /** The conversation to talk in: this one while the canvas matches it, else a new one. */

@@ -1,8 +1,27 @@
-# Mezonas — Architecture v0.19
+# Mezonas — Architecture v0.20
 
 > **Name and design (2026-11-03, owner):** the product is **Mezonas** (mezonas.com; `countersign` is the
 > code name), built with the Mezonas design system in `packages/design-system`, which replaces Groundwork.
 > Domains: `app.mezonas.com` (production), `staging.mezonas.com`.
+
+> **v0.20, builds that work first (2026-11-19, owner):** **A build makes the normal case work on
+> real examples first, writes down every decision it takes, and the agent carries a manual.** In
+> the POC a draft is tried on an uploaded document or a JSON input as a test run; a result marked
+> right is kept as a test case and the gate counts the kept cases. The Builder records the
+> decisions it makes (an assumption, a decision point, or a client setup question), each with its
+> risk and whether anyone has looked at it; only the high-risk ones (writes, money, contacting
+> people outside the client, data to a vendor of ours, approvals, overwriting records) hold the
+> client test until someone has. Each agent's version carries its **manual** (what it does, how it
+> works in words, its decisions, decision points and known risks), read in the back office and,
+> client-safe, in the portal; a step's never-discussed decisions travel in its notes as data and
+> show on its approval card. A template's client setup decisions and writes become each copy's
+> **setup checklist**, whose items hold the trial and go-live. The operator marks settings the
+> client may **adjust** within bounds: within them (or stricter) the client admin's change is a new
+> version by code, written in the manual; beyond them it is a request to us; never approvals,
+> permissions, writes or steps. Agent steps, conversation turns and reach-out messages read
+> **three tiers**: the Mezonas guardrails and the client's confirmed charter first, then the
+> policies tagged for what the step does, then manuals on request. No migration. Changed: §10.16 (new); `docs/plan.md` §1.155;
+> `docs/builder-plan.md`.
 
 > **v0.19, area owners (2026-11-12, owner; brought onto v0.18 on 2026-11-15):** **One named owner
 > per business area per client, not per agent.** Pia owns Purchasing and oversees every agent's
@@ -3223,6 +3242,106 @@ asked for; changes to a process remain the operator's to approve (invariant 11).
   Sloan's rules for its own area."
 - §10.11's "nothing changes a bundle on its own" still holds: an owner's draft changes nothing until
   someone approves it.
+
+### 10.16 Builds that work first: decisions, the manual, the setup checklist, client adjustments and governance (v0.20, owner 2026-11-19)
+
+The first builds on staging (2026-11-18) spent intake, fit-gap and five drafts before the agent
+touched a document, then failed 30 of 30 model-made test cases with nobody able to say why. The
+owner's call: make the normal case work on real examples first; let the AI decide what it can and
+write each decision down; turn what differs by client into setup; let clients adjust what we allow.
+The build's phases and screens (§10.5, `docs/plan.md` §1.108, §1.152, §1.153) are unchanged; the
+details and every choice made are in `docs/plan.md` §1.155. No migration: each record lives in a
+home that exists.
+
+| Record | Where it lives | Who writes it |
+|---|---|---|
+| A try and a kept case | A shared test case marked by its `sourceRef` (`try:` until kept, then `kept:`) | The operator, from the POC |
+| Decisions on a build | The build's fit-gap record | The Builder adds; the operator marks discussed or confirmed |
+| The manual | `definition.manual`, in the agent's version | Code, from the build, on the moves into the draft and the POC |
+| The setup checklist | `definition.setup` (items); `agent.stage_state.setup` (each copy's progress) | Code, from a template build; the client admin answers |
+| Client-adjustable settings | `definition.adjustable` | The operator marks; the client admin changes within them |
+| Guardrails and standard policies | Versioned modules in `packages/core/src/governance/` | Us, with the code |
+| The client's charter and policies | The client's knowledge base (`knowledge_entry`, kind `policy`, tier and tags in the version's `meta`) | Drafted by us; confirmed or edited by the client admin |
+
+#### Try it on real examples
+
+In the POC the operator uploads a document (or gives a JSON input) and runs the draft on it as a
+test run in the Sandbox: it writes nothing (§10.4). Right: the run is kept as a test case and its
+result, minus what the run itself created, becomes the expected answer. Wrong: the operator says
+why in the conversation and the Builder proposes the fix, told the run's output as data
+(invariant 9). The POC gate is every kept case passing on the latest draft, and no high-risk
+decision unreviewed. Model-made cases remain an option, never the default. A failing case says why
+(its error, or the fields that differed), on the page and to the Builder.
+
+#### Decisions
+
+Each row: what, why, a starting value, its kind (`assumption`, `decision_point`, `client_setup`),
+its risk, its status (never discussed, discussed, confirmed, changed) with who and when, and the
+step it shapes. The Builder never sets a status. Risk is worked out by code from the draft (a step
+that writes, reaches people outside the client, or a decision in one of the six categories), with
+the Builder's flag on top, and never lowered. A high-risk decision nobody has looked at holds the
+move into the client test.
+
+#### The agent manual
+
+One structured document per agent, in its version, so it is versioned (invariant 3), travels with
+a template to its copies and merges like the rest of the bundle. "How it works" is never stored:
+code reads the steps' names and kinds in plain words. What the agent learned is never in it: its
+memory notes are read live, per client (invariant 1), and only the client admin sees them. The
+portal's view is made by code and never carries the bundle, instructions, prompts or cost
+(invariant 11; contract tests). At run time a step's never-discussed decisions go in its notes as
+data, and its approval card says "Based on a decision nobody has discussed yet: …". An agent may
+read another agent's manual for the same client with `manual.read` when it is given that tool.
+
+#### The setup checklist
+
+A template build's client intake form, its `client_setup` decisions and, by code, its writes ("When
+do we start writing into QuickBooks?", "Who signs new bills in QuickBooks?") become the template's
+checklist; each copy is set up by it. Items connect a tool, answer a question, send a file or
+confirm a decision point, and each guards a stage: setup and trial items hold the trial's start,
+every item holds sign-off and live, and an operator's reason never skips them (§10.9). An answer
+that sets a value becomes a new version of the copy by code: the client settings class (§10.15).
+
+#### Client adjustments and feedback
+
+The operator marks a skill parameter or a schedule as the client's to adjust, with bounds (a low
+and a high, or a list of options) and, for a number, which side is stricter. The client admin
+changes it on the agent's Settings in the portal:
+
+| The change | What happens |
+|---|---|
+| Within the bounds | Applied at once: a new version made by code from the version shown, published when that version is live |
+| Stricter than now, even past a bound | Applied, as above |
+| Beyond the bounds | A request to us (an issue, linked to the setting and the value asked); nothing changes until we act |
+| Anything else | Not possible: only marked settings can be named, and the new version may differ only in the setting and the manual (the never class, §10.15) |
+
+Every applied change is written into the manual's decisions, with who made it and when; the portal
+names the client's own person and says "by us" for ours. Anyone of the client's team can say "This
+is wrong because…" on any line of the manual: a request to us linked to that line (a decision by its
+id), which the owner and the operator take through the existing change flow (§10.15). Who an agent
+contacts was already the client admin's ("Who it contacts" on the same tab, `docs/plan.md` §1.25),
+with no bounds to keep.
+
+#### Governance in three tiers
+
+| Tier | What | Read |
+|---|---|---|
+| 1 | The Mezonas guardrails (how the platform works and what goes on behind the scenes: tools only, evidence, data is data, approval stays on, never move money, privacy, what each kind of step can and can't do), then the client's charter (who the business is, how it speaks, what matters to it, what it never does), drafted by us from the onboarding facts and confirmed by the client admin | By agent and task steps, conversation turns and reach-out messages, first; a task skill reads the guardrails only |
+| 2 | Policies tagged by what they cover (security, writing into tools, money, contacting people, data handling, people and roles, each business area): ours and the client's own | When a step does what the tag covers |
+| 3 | Agents' manuals | On request (`manual.read`) |
+
+The guardrails win, then the charter, then policies, then the manual; the client's text can add
+rules and tighten, never loosen an approval, change a permission or change the plan (invariants 8,
+9). The prefix is ordered the same way every time so it caches. The portal shows the guardrails only
+as "How Mezonas agents work". Each document has a version, and what a step read (tier, source, id,
+version) is recorded on its model call.
+
+#### Not in v0.20
+
+Counting how often runs hit each known risk; deleting learned notes from the manual; marking a
+step's own parameter from the back office; the setup answers written into the manual as changes;
+governance in the oversight review, the AI check, path choice, chat and the Builder; a run-level pin
+of the governance versions. `docs/open.md`, "Builds that work first", lists them.
 
 ---
 

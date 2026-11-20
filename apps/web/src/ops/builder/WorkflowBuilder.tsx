@@ -160,6 +160,7 @@ import {
 } from "./outcomes";
 import { type Member, type People, personName } from "./people";
 import { type ProblemLine, problemLines, problemPlace, readableErrors } from "./problems";
+import { rebase } from "./rebase";
 // Reshape data (2026-11-11)
 import { addReshapeBefore, addReshapeThenAction, newReshapeStep } from "./reshape";
 import { StepsList, stepRows } from "./StepsList";
@@ -433,6 +434,11 @@ function BuilderBody(
   }));
   const canon = useMemo(() => canonicalJson(bundle), [bundle]);
   const dirty = canon !== saved.canon;
+  // The bundle the saved version holds (the base an edit made here is carried from), and the
+  // canvas now, for answers that come back after the screen re-rendered (FLOW-6, FLOW-9).
+  const savedBundle = useRef(start);
+  const present = useRef(bundle);
+  present.current = bundle;
   const [draftAt, setDraftAt] = useState<number | null>(restored?.at ?? null);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [focus, setFocus] = useState<FocusRequest | null>(null);
@@ -1019,6 +1025,7 @@ function BuilderBody(
         canon: snapshotCanon,
       };
       setSaved(next);
+      savedBundle.current = snapshot;
       writeDraft(draftKey, null);
       setDraftAt(null);
       props.onChanged();
@@ -1027,6 +1034,7 @@ function BuilderBody(
     if (isCode(res.error, "no_op")) {
       const next = { ...saved, canon: snapshotCanon };
       setSaved(next);
+      savedBundle.current = snapshot;
       writeDraft(draftKey, null);
       setDraftAt(null);
       action.clear();
@@ -1077,12 +1085,61 @@ function BuilderBody(
     }
   };
 
+  // FLOW-6 (QA 2026-11-19): a version saved on top of this one while it is open (a trigger added
+  // or removed in "Starts when" above) used to reopen the builder on it, and its unsaved edits were
+  // gone. The builder now moves onto it with them carried over, so its next save builds on it.
+  // A version saved on top of another isn't taken: the edits stay, and a save of them is refused
+  // by the API as stale rather than made over the newer version.
+  // DECISION: rebase onto the new version with core's three-way merge, rather than save the
+  // builder's edits first (a version the operator didn't ask for) or put the panel's triggers on
+  // the canvas unsaved (the panel says it saved a version, and the agent's other tabs read it).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once per new version.
+  useEffect(() => {
+    if (from.id === saved.id || from.parentVersionId !== saved.id) return;
+    const theirs = readProcessBundle(props.bundle, ctx);
+    const next = rebase(savedBundle.current, present.current, theirs, (b) =>
+      readProcessBundle(b, ctx),
+    );
+    if (!next) {
+      setNotice({
+        tone: "warning",
+        body: `v${from.version} was saved while you edited here, and changes the same part of the workflow. Your changes stay on the canvas, unsaved; reload to start again from v${from.version}.`,
+      });
+      return;
+    }
+    setHistory((h) =>
+      canonicalJson(h.present) === saved.canon ? startHistory(next) : commit(h, next),
+    );
+    setSaved({
+      id: from.id,
+      version: from.version,
+      status: from.status,
+      canon: canonicalJson(theirs),
+    });
+    savedBundle.current = theirs;
+  }, [from.id]);
+
   const session = useBuilderSession({
     agent,
     bundle,
     read: (b) => readProcessBundle(b, ctx),
     ensureSaved: async () => (dirty ? await save() : saved),
-    onDraft: (next) => apply(() => next),
+    // FLOW-9 (QA 2026-11-19): the Builder's draft answers the canvas as it was when the words were
+    // sent; edits made on the canvas while it worked are carried onto it, not undone.
+    // DECISION: merge, not lock: core's three-way merge (the update merge's) keeps both, and the
+    // canvas stays usable for the minute a turn can take. Where both changed the same thing the
+    // canvas is kept and the Builder's change stays in the conversation, to ask again.
+    onDraft: (next, base) => {
+      const merged = rebase(base, present.current, next, (b) => readProcessBundle(b, ctx));
+      if (merged) {
+        apply(() => merged);
+        return;
+      }
+      setNotice({
+        tone: "warning",
+        body: "You changed the same steps while the Builder worked, so its change isn't on the canvas. Your edits are kept; ask the Builder again.",
+      });
+    },
   });
   // ── v0.18: working on steps with the Builder (docs/plan.md §1.105) ──
   // Opt-in and off by default; with it off the builder is exactly as before.
@@ -1290,7 +1347,7 @@ function BuilderBody(
                     data-testid="builder-discard-draft"
                     className="text-sm underline"
                     onClick={() => {
-                      setHistory(startHistory(start));
+                      setHistory(startHistory(savedBundle.current));
                       writeDraft(draftKey, null);
                       setDraftAt(null);
                       setNotice(null);

@@ -30,6 +30,17 @@ describe("card numbers", () => {
     expect(redactCardNumbers("amex 378282246310005")).toBe("amex [card ending 0005]");
   });
 
+  it("never takes an id for a card, and still finds a card beside one", () => {
+    // Its dashed groups hold "766-7791-9840-102": 14 digits that pass Luhn (CI, 2026-11-18).
+    const id = "01a1f0e5-c766-7791-9840-102d4b7dc21a";
+    expect(luhnValid("76677919840102")).toBe(true);
+    expect(redactCardNumbers(id)).toBe(id);
+    expect(redactCardNumbers(`client ${id} paid with 4242 4242 4242 4242`)).toBe(
+      `client ${id} paid with [card ending 4242]`,
+    );
+    expect(redactCardNumbersDeep({ client: { id } })).toEqual({ client: { id } });
+  });
+
   it("leaves numbers that aren't cards alone", () => {
     for (const text of [
       "Invoice 4242424242424241", // fails Luhn

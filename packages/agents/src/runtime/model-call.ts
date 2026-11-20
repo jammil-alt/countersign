@@ -4,7 +4,7 @@
 // conversation step's turn, the AI's second check and the agent's choice of a path; each says
 // what the call was for (§1.115).
 
-import { isUuid, type ModelCallAction } from "@countersign/core";
+import { type GovernanceRead, isUuid, type ModelCallAction } from "@countersign/core";
 import { type LlmCallRecord, type LlmExchange, providerOf } from "@countersign/llm";
 import type { ModelCallPort } from "../log/model-calls";
 
@@ -15,6 +15,8 @@ export interface ModelCallPlace {
   agentVersionId: string | null;
   /** What the call was for (docs/plan.md §1.115), so tokens can be counted by action. */
   action: ModelCallAction;
+  /** B6: the governance documents the call's prompt held (ids and versions), in order. */
+  governance?: readonly GovernanceRead[] | undefined;
 }
 
 /**
@@ -31,8 +33,10 @@ export async function recordModelCall(
   exchange: LlmExchange,
 ): Promise<void> {
   if (!port || !isUuid(place.runId) || !isUuid(place.stepRunId)) return;
+  const { governance, ...at } = place;
   await port.record(tenantId, {
-    ...place,
+    ...at,
+    ...(governance ? { governance } : {}),
     provider: providerOf(record.model),
     model: record.model,
     tokensIn:

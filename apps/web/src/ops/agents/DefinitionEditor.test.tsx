@@ -327,6 +327,93 @@ describe("DefinitionEditor", () => {
     ]);
   });
 
+  // B5 (docs/builder-plan.md §7): the operator lets the client adjust a parameter, with bounds.
+  it("marks a parameter as the client's to adjust, with its limits, and checks them", async () => {
+    const match: SkillOption = {
+      id: "custom:price-match",
+      name: "Match prices",
+      description: "Compares a price with the catalog",
+      category: "data",
+      source: "client",
+      version: 1,
+      settings: [],
+      requiresConnectors: [],
+      kind: "deterministic",
+      parameters: [
+        { name: "tolerance", label: "Price tolerance (%)", type: "number", default: 2 },
+        {
+          name: "aging",
+          label: "Aging buckets",
+          type: "buckets",
+          default: [{ from: 0, label: "Any" }],
+        },
+      ],
+      recommendedModel: null,
+    };
+    const sent: Record<string, unknown>[] = [];
+    const api = fakeApi({
+      [`POST ${AGENT_PATH}`]: ({ init }) => {
+        sent.push(JSON.parse(String(init.body)));
+        return saved();
+      },
+    });
+    render(
+      <MemoryRouter>
+        <ApiProvider client={api.client}>
+          <DefinitionEditor
+            agent={AGENT_SUMMARY}
+            from={AGENT_DETAIL.versions[0] as (typeof AGENT_DETAIL.versions)[number]}
+            bundle={FORK_BUNDLE}
+            skills={[SKILLS[0] as SkillOption, SKILLS[1] as SkillOption, match]}
+            onSaved={vi.fn()}
+            onNoChange={vi.fn()}
+          />
+        </ApiProvider>
+      </MemoryRouter>,
+    );
+    const user = userEvent.setup();
+    await user.selectOptions(
+      screen.getByTestId("agent-editor-skill-add-select"),
+      "custom:price-match",
+    );
+    await user.click(screen.getByTestId("agent-editor-skill-add"));
+    const at = "adjust-custom:price-match-tolerance";
+    // Buckets are set here only: no checkbox for them.
+    expect(screen.queryByTestId("adjust-custom:price-match-aging")).toBeNull();
+    await user.click(screen.getByTestId(`${at}-toggle`));
+    expect(screen.getByTestId(`${at}-label`)).toHaveValue("Price tolerance (%)");
+    await user.type(screen.getByTestId(`${at}-min`), "6");
+    await user.type(screen.getByTestId(`${at}-max`), "5");
+    await user.click(screen.getByTestId("agent-editor-save"));
+    expect(sent).toHaveLength(0);
+    expect(screen.getByText("The low limit is above the high one.")).toBeInTheDocument();
+    await user.clear(screen.getByTestId(`${at}-min`));
+    await user.type(screen.getByTestId(`${at}-min`), "0");
+    await user.selectOptions(screen.getByTestId(`${at}-tighter`), "lower");
+    await user.click(screen.getByTestId("agent-editor-save"));
+    expect(sent).toHaveLength(1);
+    const body = sent[0] as {
+      bundle: typeof FORK_BUNDLE & { definition: { adjustable?: unknown } };
+    };
+    expect(body.bundle.definition.adjustable).toEqual([
+      {
+        id: "param-tolerance",
+        label: "Price tolerance (%)",
+        hint: "",
+        target: {
+          kind: "parameter",
+          skill: "custom:price-match",
+          parameter: "tolerance",
+          type: "number",
+        },
+        bounds: { min: "0", max: "5" },
+        tighter: "lower",
+      },
+    ]);
+    // The steps are untouched.
+    expect(body.bundle.workflows).toEqual(FORK_BUNDLE.workflows);
+  });
+
   // Wave 6 (docs/plan.md §1.86 "Run audit (wave 6)"): the owner's review, worded with its cost.
   it("offers the owner's review of every step, says what it costs, and saves it", async () => {
     const { sent, user } = setup();

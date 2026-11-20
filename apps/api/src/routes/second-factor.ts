@@ -12,12 +12,23 @@ import {
   type Session,
   type WorkOSAdapter,
 } from "@countersign/auth";
-import { routes, type SecondFactorKind } from "@countersign/core";
-import { membership, userFactor, userRecoveryCode, withUser } from "@countersign/db";
+import { globalFetch } from "@countersign/connectors";
+import {
+  browserLocale,
+  parseAcceptLanguage,
+  parseCoveredProcessors,
+  routes,
+  SETUP_LINK_MIN,
+  type SecondFactorKind,
+  secondFactorSetupEmail,
+  setupLinkPagePath,
+} from "@countersign/core";
+import { appUser, membership, userFactor, userRecoveryCode, withUser } from "@countersign/db";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AuditEntry, auditAlone, auditInTx } from "../audit";
 import { authDirectory } from "../auth";
+import type { Bindings } from "../env";
 import { type AppContext, type AppEnv, HttpError, mount, mountPublic, notFound } from "../http";
 import {
   approveConnection,
@@ -27,6 +38,8 @@ import {
   findConnection,
 } from "../mcp/approval";
 import { PHONE_ENDED_MESSAGE, phoneEndedForPerson } from "../mobile/phone-session";
+import { mailerFromEnv } from "../notify/mailer";
+import { pusherFromEnv } from "../notify/push";
 import {
   ATTEMPT_ACTION,
   allowedKinds,
@@ -38,8 +51,18 @@ import {
   recoveryCodesLeft,
   type SecondFactorConfig,
   secondFactorSetupOf,
+  setupKinds,
   useRecoveryCode,
 } from "../second-factor";
+import { emailHint, openSetupLink, signSetupLink } from "../second-factor/link";
+import {
+  browserInWords,
+  checkApproval,
+  placeOf,
+  pushApproval,
+  signingPhones,
+  startApproval,
+} from "../second-factor/phone";
 
 function sendCookies(c: AppContext, cookies: readonly string[]) {
   for (const cookie of cookies) c.header("Set-Cookie", cookie, { append: true });
@@ -101,8 +124,11 @@ async function pending(c: AppContext) {
   return { ...ctx, workos: ctx.workos, config: ctx.config };
 }
 
+/** Who an audit row, a send or a try is for: a session's person, or a setup link's. */
+type Who = { readonly user: { readonly id: string; readonly email: string } };
+
 function entry(
-  session: Session,
+  session: Who,
   action: string,
   outcome: AuditEntry["outcome"],
   httpStatus: number,
@@ -133,15 +159,83 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
     const factors = enabled ? await factorsOf(services.db, userId) : [];
     const allowed = enabled ? await allowedKinds(services.db, userId) : [];
     const usable = factors.filter((f) => f.verifiedAt && allowed.includes(f.kind));
+    // What the page offers: what may be set up now, and any method already set up.
+    const offered = config
+      ? allowed.filter(
+          (k) => setupKinds(allowed, config).includes(k) || factors.some((f) => f.kind === k),
+        )
+      : [];
     return {
       state: session.secondFactor ?? "exempt",
       enabled,
-      allowed: [...allowed],
+      allowed: offered,
       methods: factors
-        .filter((f) => allowed.includes(f.kind))
+        .filter((f) => offered.includes(f.kind))
         .map((f) => ({ kind: f.kind, phoneHint: phoneHint(f.phone), verified: !!f.verifiedAt })),
       setupNeeded: enabled && usable.length === 0,
       recoveryCodesLeft: enabled ? await recoveryCodesLeft(services.db, userId) : 0,
+      setupByEmail: enabled && setupLinksAvailable(services.env),
+      // §1.154: only once a code method is set up (a phone signs in through the step itself).
+      phones: enabled && usable.length > 0 ? (await signingPhones(services.db, userId)).length : 0,
+    };
+  });
+
+  // §1.154: ask the person's phone to approve this sign-in.
+  mountPublic(app, routes.secondFactorPhone, async ({ c, services }) => {
+    const { session } = await pending(c);
+    const userId = session.user.id;
+    const db = services.db;
+    const phones = await signingPhones(db, userId);
+    if (phones.length === 0) {
+      throw new HttpError(409, "no_phone", "no phone can approve this sign-in: use a code");
+    }
+    // A request is a send: the same 5 in 15 minutes as texts, so a stolen password can't spam a phone.
+    await sendOnce(c, session, "phone");
+    const now = new Date();
+    const { row, key } = await startApproval(db, {
+      userId,
+      browser: browserInWords(c.req.header("user-agent")),
+      place: placeOf(c.req.raw),
+      now,
+    });
+    await auditAlone(
+      db,
+      c,
+      entry(session, "session.phone_approval", "ok", 200, { approval: row.id, step: "requested" }),
+    );
+    await pushApproval(
+      pusherFromEnv(services.env, services.deps.fetch?.(services.env) ?? globalFetch()),
+      phones,
+      { approvalId: row.id, covered: parseCoveredProcessors(services.env.BAA_PROCESSORS) },
+    );
+    return {
+      id: row.id,
+      key,
+      number: row.number,
+      expiresAt: row.expiresAt.toISOString(),
+      phones: phones.length,
+    };
+  });
+
+  // §1.154: whether the phone answered; approved, the step is passed here.
+  mountPublic(app, routes.secondFactorPhoneCheck, async ({ c, body, services }) => {
+    const { session, config, workos, current } = await pending(c);
+    const userId = session.user.id;
+    const db = services.db;
+    const now = new Date();
+    const checked = await checkApproval(db, { userId, id: body.id, key: body.key, now });
+    if (checked.status !== "approved") return { status: checked.status, passed: null };
+    // The phone may have been removed between its answer and this check.
+    const still = await signingPhones(db, userId, { deviceId: checked.deviceId });
+    if (still.length === 0) return { status: "expired" as const, passed: null };
+    await pass(c, workos, current, session, config, checked.deviceId, body.remember, now, "phone");
+    return {
+      status: "approved" as const,
+      passed: {
+        ok: true as const,
+        recoveryCodes: null,
+        recoveryCodesLeft: await recoveryCodesLeft(db, userId),
+      },
     };
   });
 
@@ -150,8 +244,13 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
     const userId = session.user.id;
     const db = services.db;
     const allowed = await allowedKinds(db, userId);
-    if (!allowed.includes(body.kind)) {
-      throw new HttpError(403, "method_not_allowed", "operators use an authenticator app");
+    if (!setupKinds(allowed, config).includes(body.kind)) {
+      throw new HttpError(403, "method_not_allowed", "that method can't be set up here");
+    }
+    // Owner, 2026-11-19: where Mezonas can send email, the first method is set up from the link
+    // emailed to the person, never here, so whoever has the password must also have the inbox.
+    if (setupLinksAvailable(services.env)) {
+      throw new HttpError(403, "setup_by_email", "set up your sign-in from the link we email you");
     }
     const factors = await factorsOf(db, userId);
     // DECISION (docs/plan.md §1.100): setup only while a person has no usable method; changing
@@ -275,6 +374,48 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
     };
   });
 
+  // Owner, 2026-11-19: the first method is set up from a link emailed to the sign-in address.
+  mountPublic(app, routes.secondFactorSetupLink, async ({ c, services }) => {
+    const { session } = await pending(c);
+    const userId = session.user.id;
+    const db = services.db;
+    if (!setupLinksAvailable(services.env)) {
+      throw new HttpError(503, "email_unavailable", "we can't send email right now");
+    }
+    const allowed = await allowedKinds(db, userId);
+    if ((await factorsOf(db, userId)).some((f) => f.verifiedAt && allowed.includes(f.kind))) {
+      throw new HttpError(409, "already_set_up", "you already have a method; use it to sign in");
+    }
+    // A link is a send: the same 5 in 15 minutes as texts.
+    await sendOnce(c, session, "setup_link");
+    const now = new Date();
+    const token = await signSetupLink(services.env, {
+      userId,
+      email: session.user.email,
+      now,
+    });
+    const origin = (services.env.APP_ORIGIN ?? "").replace(/\/+$/, "");
+    const locale =
+      browserLocale(parseAcceptLanguage(c.req.header("accept-language") ?? null)) ?? "en";
+    const email = secondFactorSetupEmail({
+      locale,
+      link: `${origin}${setupLinkPagePath(token)}`,
+      origin,
+    });
+    try {
+      await mailerFromEnv(services.env, services.deps.fetch?.(services.env)).send({
+        to: session.user.email,
+        subject: email.subject,
+        text: email.text,
+        html: email.html,
+        idempotencyKey: `setup-link-${crypto.randomUUID()}`,
+      });
+    } catch {
+      throw new HttpError(502, "email_failed", "we couldn't send the email; try again");
+    }
+    return { ok: true as const, emailHint: emailHint(session.user.email) };
+  });
+
   // An operator resets a person's methods (a lost phone): they set up again at their next sign-in.
   mount(
     app,
@@ -318,6 +459,146 @@ export function secondFactorRoutes(app: Hono<AppEnv>): void {
       return { ok: true as const, removed: factors.length };
     },
   );
+}
+
+// ── The emailed setup link (owner, 2026-11-19) ─────────────────────────────────────────────────
+
+/** Whether first methods are set up from an emailed link here: email can go, links can be signed. */
+export function setupLinksAvailable(env: Bindings): boolean {
+  return (
+    mailerFromEnv(env).isConfigured && !!env.APP_ORIGIN?.trim() && !!env.ENCRYPTION_KEY?.trim()
+  );
+}
+
+/**
+ * The person a setup link is for, while it works and their address is still the one it was sent
+ * to, with the step's configuration. Anything else answers as a link that matches nothing.
+ */
+async function linkContext(c: AppContext, token: string) {
+  const { db, env, deps } = c.get("req").services();
+  const now = new Date();
+  const payload = await openSetupLink(env, token, now);
+  const gone = () =>
+    new HttpError(404, "link_expired", "this link has expired; sign in again for a new one");
+  if (!payload) throw gone();
+  const [user] = await withUser(db, payload.u, (tx) =>
+    tx
+      .select({ id: appUser.id, email: appUser.email })
+      .from(appUser)
+      .where(eq(appUser.id, payload.u)),
+  );
+  if (!user || user.email.toLowerCase() !== payload.m) throw gone();
+  const setup = secondFactorSetupOf(env, {
+    ...(deps.codeVerifier ? { verifier: deps.codeVerifier } : {}),
+  });
+  if (setup.state !== "on") {
+    throw new HttpError(503, "second_factor_unavailable", "codes can't be checked right now");
+  }
+  const issuedAt = new Date(payload.e - SETUP_LINK_MIN * 60_000);
+  const allowed = setupKinds(await allowedKinds(db, user.id), setup.config);
+  const factors = await factorsOf(db, user.id);
+  // What this link may still set up: everything while the person has no verified method; once
+  // one is verified from this link (verified after it was sent), the kinds not yet verified.
+  const verifiedBefore = factors.some((f) => f.verifiedAt && f.verifiedAt < issuedAt);
+  // Set up before this link was sent: it was sent for nothing, and opens nothing.
+  if (verifiedBefore) throw gone();
+  const open = allowed.filter((k) => !factors.some((f) => f.kind === k && f.verifiedAt));
+  return {
+    who: { user: { id: user.id, email: user.email } },
+    config: setup.config,
+    allowed,
+    open,
+    factors,
+    expiresAt: new Date(payload.e),
+  };
+}
+
+export function setupLinkRoutes(app: Hono<AppEnv>): void {
+  mountPublic(app, routes.setupLinkStatus, async ({ c }) => {
+    const ctx = await linkContext(c, c.req.param("token") ?? "");
+    return {
+      emailHint: emailHint(ctx.who.user.email),
+      allowed: ctx.allowed,
+      methods: ctx.factors
+        .filter((f) => ctx.allowed.includes(f.kind))
+        .map((f) => ({ kind: f.kind, phoneHint: phoneHint(f.phone), verified: !!f.verifiedAt })),
+      expiresAt: ctx.expiresAt.toISOString(),
+    };
+  });
+
+  mountPublic(app, routes.setupLinkSetup, async ({ c, body, services }) => {
+    const { who, config, open, factors } = await linkContext(c, c.req.param("token") ?? "");
+    const userId = who.user.id;
+    if (!open.includes(body.kind)) {
+      throw new HttpError(409, "already_set_up", "that method is already set up");
+    }
+    try {
+      if (body.kind === "totp") {
+        const old = factors.find((f) => f.kind === "totp");
+        if (old?.twilioFactorSid) await config.verifier.deleteTotp(userId, old.twilioFactorSid);
+        const made = await config.verifier.createTotp(userId, who.user.email);
+        await saveFactor(c, userId, { kind: "totp", phone: null, twilioFactorSid: made.factorSid });
+        await auditAlone(
+          services.db,
+          c,
+          entry(who, "session.second_factor_setup", "ok", 200, { kind: "totp", via: "link" }),
+        );
+        return { kind: "totp" as const, otpauthUri: made.uri, phoneHint: null };
+      }
+      await sendOnce(c, who, body.kind);
+      await saveFactor(c, userId, { kind: body.kind, phone: body.phone, twilioFactorSid: null });
+      await config.verifier.sendCode(body.phone, body.kind);
+    } catch (error) {
+      if (error instanceof HttpError) throw error;
+      throw providerFailed();
+    }
+    await auditAlone(
+      services.db,
+      c,
+      entry(who, "session.second_factor_setup", "ok", 200, { kind: body.kind, via: "link" }),
+    );
+    return { kind: body.kind, otpauthUri: null, phoneHint: phoneHint(body.phone) };
+  });
+
+  mountPublic(app, routes.setupLinkVerify, async ({ c, body, services }) => {
+    const { who, config, open, factors } = await linkContext(c, c.req.param("token") ?? "");
+    const userId = who.user.id;
+    const db = services.db;
+    const factor = factors.find((f) => f.kind === body.kind);
+    if (!factor || !open.includes(body.kind)) throw notFound("that method");
+    await tryOnce(c, who, body.kind);
+    let right: boolean;
+    try {
+      right =
+        factor.kind === "totp"
+          ? await config.verifier.verifyTotp(userId, factor.twilioFactorSid ?? "", body.code)
+          : await config.verifier.checkCode(factor.phone ?? "", body.code);
+    } catch {
+      throw providerFailed();
+    }
+    if (!right) {
+      await auditAlone(
+        db,
+        c,
+        entry(who, "session.second_factor", "refused", 422, { method: body.kind, via: "link" }),
+      );
+      throw new HttpError(422, "wrong_code", "that code is not right, or has expired");
+    }
+    const first = !factors.some((f) => f.verifiedAt);
+    await markUsed(c, userId, factor.id, new Date(), true);
+    await auditAlone(
+      db,
+      c,
+      entry(who, "session.second_factor_setup", "ok", 200, {
+        kind: body.kind,
+        via: "link",
+        step: "verified",
+      }),
+    );
+    const recoveryCodes = first ? await newRecoveryCodes(db, config, userId) : null;
+    if (recoveryCodes) await auditAlone(db, c, entry(who, "session.recovery_codes", "ok", 200));
+    return { ok: true as const, recoveryCodes };
+  });
 }
 
 // ── The Claude connector's approval link (docs/plan.md §1.120) ─────────────────────────────────
@@ -412,7 +693,7 @@ const tooMany = () =>
  * Audit 5.4: one code send, claimed (its `session.second_factor_send` row written) before the
  * message goes out; past the limit, 429 and nothing is sent.
  */
-async function sendOnce(c: AppContext, session: Session, kind: string): Promise<void> {
+async function sendOnce(c: AppContext, session: Who, kind: string): Promise<void> {
   const { db } = c.get("req").services();
   const claimed = await claimSend(db, session.user.id, (tx) =>
     auditInTx(tx, c, entry(session, "session.second_factor_send", "ok", 200, { kind })),
@@ -420,7 +701,7 @@ async function sendOnce(c: AppContext, session: Session, kind: string): Promise<
   if (!claimed) throw tooMany();
 }
 
-async function tryOnce(c: AppContext, session: Session, method: string): Promise<void> {
+async function tryOnce(c: AppContext, session: Who, method: string): Promise<void> {
   const { db } = c.get("req").services();
   const claimed = await claimAttempt(db, session.user.id, (tx) =>
     auditInTx(tx, c, entry(session, ATTEMPT_ACTION, "ok", 200, { method })),

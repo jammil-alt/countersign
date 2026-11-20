@@ -1,7 +1,8 @@
 // The sign-in's second step (docs/plan.md §1.100): an operator sets up an authenticator app and
 // saves recovery codes; a client signs in with a texted code, gets a wrong code first, then
 // passes; a recovery code instead; the app sends a pending session to the step, and the page goes
-// back where the person was going; numbers and return addresses are checked.
+// back where the person was going; numbers and return addresses are checked; approving on the
+// phone app (§1.154) comes first when a phone can, with a code a click away.
 import type { SecondFactorStatus } from "@countersign/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -19,6 +20,8 @@ const pending = (over: Partial<SecondFactorStatus> = {}): SecondFactorStatus => 
   methods: [],
   setupNeeded: true,
   recoveryCodesLeft: 0,
+  phones: 0,
+  setupByEmail: false,
   ...over,
 });
 
@@ -90,6 +93,10 @@ describe("the second step", () => {
     expect(await screen.findByTestId("second-step-secret")).toHaveTextContent(
       "JBSW Y3DP EHPK 3PXP",
     );
+    // The link as a QR code to scan, drawn here.
+    const qr = screen.getByTestId("second-step-qr");
+    expect(qr).toHaveAttribute("aria-label", "QR code to add Mezonas to your authenticator app");
+    expect(qr.querySelector("path")?.getAttribute("d")).toMatch(/^M\d+ \d+h1v1h-1z/);
     expect(screen.getByTestId("second-step-open-app")).toHaveAttribute(
       "href",
       expect.stringMatching(/^otpauth:\/\/totp\//),
@@ -230,5 +237,160 @@ describe("the step's helpers", () => {
     expect(safeReturnTo("https://evil.example", "/")).toBe("/");
     expect(safeReturnTo("/sign-in/second-step", "/")).toBe("/");
     expect(safeReturnTo(null, "/")).toBe("/");
+  });
+
+  describe("approving on the phone (§1.154)", () => {
+    const withPhone = () =>
+      pending({
+        setupNeeded: false,
+        recoveryCodesLeft: 8,
+        methods: [{ kind: "sms", phoneHint: "•••• 4567", verified: true }],
+        phones: 1,
+      });
+    const STARTED = {
+      id: "0190a1b2-0000-7000-8000-0000000000aa",
+      key: "k".repeat(43),
+      number: 47,
+      expiresAt: "2026-11-18T12:02:00.000Z",
+      phones: 1,
+    };
+
+    it("shows the number, waits on the phone, then goes on", async () => {
+      let passed = false;
+      let checks = 0;
+      const bodies: unknown[] = [];
+      renderAt("/sign-in/second-step?return_to=%2Finbox", {
+        "GET /api/session": () => (passed ? CLIENT_SESSION : REQUIRED),
+        "GET /api/auth/second-factor": () => withPhone(),
+        "POST /api/auth/second-factor/phone": () => STARTED,
+        "POST /api/auth/second-factor/phone/check": async ({ init }) => {
+          bodies.push(JSON.parse(String(init?.body)));
+          checks += 1;
+          if (checks < 2) return { status: "pending", passed: null };
+          passed = true;
+          return {
+            status: "approved",
+            passed: { ok: true, recoveryCodes: null, recoveryCodesLeft: 8 },
+          };
+        },
+      });
+      expect(await screen.findByTestId("second-step")).toHaveAttribute("data-view", "phone");
+      expect(await screen.findByTestId("second-step-phone-number")).toHaveTextContent("47");
+      await userEvent.click(screen.getByTestId("second-step-remember"));
+      await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent(/^\/inbox$/), {
+        timeout: 8000,
+      });
+      expect(bodies.at(-1)).toEqual({ id: STARTED.id, key: STARTED.key, remember: true });
+    }, 15_000);
+
+    it("says when the phone turned it down, asks again, and offers a code instead", async () => {
+      let asks = 0;
+      renderAt("/sign-in/second-step?return_to=%2Finbox", {
+        "GET /api/session": () => REQUIRED,
+        "GET /api/auth/second-factor": () => withPhone(),
+        "POST /api/auth/second-factor/phone": () => {
+          asks += 1;
+          return STARTED;
+        },
+        "POST /api/auth/second-factor/phone/check": () => ({ status: "denied", passed: null }),
+      });
+      await waitFor(
+        () =>
+          expect(screen.getByTestId("second-step-phone")).toHaveAttribute("data-state", "denied"),
+        { timeout: 5000 },
+      );
+      expect(screen.getByText(/turned down on your phone/)).toBeInTheDocument();
+      await userEvent.click(screen.getByTestId("second-step-phone-again"));
+      await waitFor(() => expect(asks).toBe(2));
+      await userEvent.click(screen.getByTestId("second-step-use-code"));
+      expect(screen.getByTestId("second-step")).toHaveAttribute("data-view", "code");
+      // And back to the phone from the code.
+      await userEvent.click(screen.getByTestId("second-step-use-phone"));
+      expect(screen.getByTestId("second-step")).toHaveAttribute("data-view", "phone");
+    }, 15_000);
+
+    it("starts on a code when no phone can approve", async () => {
+      renderAt("/sign-in/second-step?return_to=%2Finbox", {
+        "GET /api/session": () => REQUIRED,
+        "GET /api/auth/second-factor": () => ({ ...withPhone(), phones: 0 }),
+      });
+      expect(await screen.findByTestId("second-step")).toHaveAttribute("data-view", "code");
+      expect(screen.queryByTestId("second-step-use-phone")).toBeNull();
+    });
+  });
+
+  it("sets up a first method by email where email can go, then asks for a code", async () => {
+    let checks = 0;
+    renderAt("/sign-in/second-step?return_to=%2Finbox", {
+      "GET /api/session": () => REQUIRED,
+      "GET /api/auth/second-factor": () => {
+        checks += 1;
+        // Not yet on the first check after sending, then set up.
+        return checks < 3
+          ? pending({ setupByEmail: true })
+          : pending({
+              setupByEmail: true,
+              setupNeeded: false,
+              recoveryCodesLeft: 10,
+              methods: [{ kind: "sms", phoneHint: "•••• 2222", verified: true }],
+            });
+      },
+      "POST /api/auth/second-factor/setup-link": () => ({
+        ok: true,
+        emailHint: "p•••@acme.com",
+      }),
+    });
+    expect(await screen.findByTestId("second-step")).toHaveAttribute("data-view", "email-link");
+    await userEvent.click(screen.getByTestId("second-step-email-send"));
+    expect(await screen.findByTestId("second-step-email-sent")).toHaveTextContent(
+      "We sent a link to p•••@acme.com.",
+    );
+    await userEvent.click(screen.getByTestId("second-step-email-check"));
+    expect(await screen.findByText(/Nothing is set up yet/)).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("second-step-email-check"));
+    await waitFor(() =>
+      expect(screen.getByTestId("second-step")).toHaveAttribute("data-view", "code"),
+    );
+  });
+});
+
+describe("the emailed setup link's page", () => {
+  const TOKEN = `${"a".repeat(20)}.${"b".repeat(43)}`;
+
+  it("sets up a text number, shows the recovery codes once, then goes back to sign in", async () => {
+    let verified = false;
+    const bodies: unknown[] = [];
+    renderAt(`/sign-in/setup/${TOKEN}`, {
+      [`GET /api/auth/setup-link/${TOKEN}`]: () => ({
+        emailHint: "p•••@acme.com",
+        allowed: ["totp", "sms"],
+        methods: verified ? [{ kind: "sms", phoneHint: "•••• 2222", verified: true }] : [],
+        expiresAt: "2026-11-19T12:30:00.000Z",
+      }),
+      [`POST /api/auth/setup-link/${TOKEN}/setup`]: async ({ init }) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        return { kind: "sms", otpauthUri: null, phoneHint: "•••• 2222" };
+      },
+      [`POST /api/auth/setup-link/${TOKEN}/verify`]: async ({ init }) => {
+        bodies.push(JSON.parse(String(init?.body)));
+        verified = true;
+        return { ok: true, recoveryCodes: CODES };
+      },
+    });
+    expect(await screen.findByText(/p•••@acme.com/)).toBeInTheDocument();
+    expect(screen.queryByTestId("setup-link-back")).toBeNull();
+    await userEvent.click(screen.getByTestId("setup-link-start-sms"));
+    await userEvent.type(screen.getByTestId("setup-link-phone"), "555 111 2222");
+    await userEvent.click(screen.getByTestId("setup-link-send"));
+    await userEvent.type(await screen.findByTestId("setup-link-code"), "246810");
+    await userEvent.click(screen.getByTestId("setup-link-verify"));
+    expect(await screen.findByTestId("second-step-codes")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("second-step-saved-continue"));
+    expect(await screen.findByTestId("setup-link-done-sms")).toBeInTheDocument();
+    expect(screen.getByTestId("setup-link-back")).toHaveAttribute("href", "/");
+    expect(bodies).toEqual([
+      { kind: "sms", phone: "+15551112222" },
+      { kind: "sms", code: "246810" },
+    ]);
   });
 });

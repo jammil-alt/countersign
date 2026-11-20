@@ -814,6 +814,7 @@ What to check against Stripe's docs and a test-mode account before the first rea
 | Repository variable | same page, Variables tab | `NEON_PROJECT_ID` |
 | Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY` (xAI's Grok), `GEMINI_API_KEY` (Google's Gemini) (one per environment; a repository secret also works; the model keys after Anthropic's are optional) |
 | Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `RAMP_CLIENT_ID`, `RAMP_CLIENT_SECRET` (Ramp), `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` (HubSpot), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook), `PLAID_CLIENT_ID`, `PLAID_SECRET` (bank and card feeds), `BILL_DEV_KEY` (BILL, plan §1.87), `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` (Slack), `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER` (Google Sheets' picking, public values), `GOOGLE_CHAT_SERVICE_ACCOUNT`, `GOOGLE_CHAT_PROJECT_NUMBER` (Google Chat), `META_APP_ID`, `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`, `META_CONFIG_ID` (WhatsApp through Meta) |
+| Environment secret (sign-in codes, plan §1.100) | same place | `TWILIO_VERIFY_API_KEY_SID` (`SK…`), `TWILIO_VERIFY_API_KEY_SECRET`: a Standard API key of the Twilio subaccount that holds the environment's Verify service, copied into the app's Worker when set |
 | Environment secret (the code service) | same place | `MFA_TWILIO_ACCOUNT_SID`, `MFA_TWILIO_AUTH_TOKEN`: the codes Twilio subaccount, copied into the code service's Worker only |
 | Environment variable (email) | Settings → Environments → Variables | `RESEND_FALLBACK_DOMAIN`, `RESEND_FALLBACK_DOMAIN_ID`: our own sending domain until a client's is verified; passed to the Worker as vars |
 
@@ -914,9 +915,10 @@ WorkOS values below. Each PR's checks pass before it merges.
      `QBO_WEBHOOK_VERIFIER` (Intuit), `PLAID_CLIENT_ID`, `PLAID_SECRET` (Plaid), then a redeploy
      (Actions → Deploy → production). Until then QuickBooks and bank feeds show "Not available
      yet" in production.
-   - Not yet: `TWILIO_VERIFY_SERVICE_SID` (our own second step). Leave it out of
-     `env.production.vars` until the second step's screens are on `main` and it has been checked
-     on staging (the sign-in codes section below).
+   - `TWILIO_VERIFY_SERVICE_SID` (our own second step) is in `env.production.vars` since
+     2026-11-18, with the key in the production environment's secrets: the release turns sign-in
+     codes on, so everyone signs in once more and sets up a method. Check it on staging first
+     (the sign-in codes section below), then turn WorkOS multi-factor off after the release.
 
 **The release:**
 1. Tag `v0.1.0` on `main` (or Actions → Deploy → production) and approve it. It runs the full
@@ -971,8 +973,8 @@ run again, e.g. after new clients exist: it never adds a second first client.
 
 After WorkOS checks the password, Mezonas asks for a code itself: an authenticator app (operators:
 only this), a text or WhatsApp. A browser that passed can be remembered for 30 days. Codes are
-checked by **Twilio Verify** on Mezonas' own Twilio account; we never hold a code or an
-authenticator secret. People who sign in through their company's SSO are not asked.
+checked by **Twilio Verify** in a Twilio subaccount of its own (one per environment, under
+Mezonas' account; never a client's subaccount); we never hold a code or an authenticator secret. People who sign in through their company's SSO are not asked.
 
 **Off until `TWILIO_VERIFY_SERVICE_SID` is set** (a var under the environment's `vars` in
 `apps/api/wrangler.jsonc`; left out of the file until it has a value). The Claude connector
@@ -985,20 +987,37 @@ its routes answer 503.
 
 To turn it on for an environment (staging first):
 
-1. Twilio Console → Verify → Services → **Create** "Mezonas" (staging: "Mezonas staging"). Under
-   TOTP, set the **Issuer** to the same name (it is what the authenticator app shows). For
-   WhatsApp codes, attach a WhatsApp sender. Turn on **Fraud Guard** for SMS.
-2. `TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN` (already used for numbers) and `ENCRYPTION_KEY`
-   (recovery codes are HMACs under it) must be set in the environment.
-3. Add `"TWILIO_VERIFY_SERVICE_SID": "VA…"` under the environment's `vars`; merge (staging) or
-   release (production).
-4. Sign in once with a password: you're asked to set up a method. Check the items in
+1. Twilio Console → Subaccounts → **Create** "Mezonas sign-in" (staging: "Mezonas sign-in
+   staging"). Switch to it, then Verify → Services → **Create** "Mezonas" (staging: "Mezonas
+   staging"). Under TOTP, set the **Issuer** to the same name (it is what the authenticator app
+   shows). Turn on **Fraud Guard** for SMS. WhatsApp is not offered until step 7.
+2. In that subaccount, Account → API keys → **Create** a Standard key. In GitHub → Settings →
+   Environments → the environment, add its SID (`SK…`) as `TWILIO_VERIFY_API_KEY_SID` and its
+   secret as `TWILIO_VERIFY_API_KEY_SECRET`, then redeploy (Actions → Deploy) so the Worker has
+   them. Never use `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` for this: they are the main
+   account's and make clients' subaccounts. `ENCRYPTION_KEY` (recovery codes are HMACs under it)
+   is already set by the first deploy.
+3. Only then add `"TWILIO_VERIFY_SERVICE_SID": "VA…"` under the environment's `vars`; merge
+   (staging) or release (production). With the service set and the key missing, every sign-in
+   waits on a step that cannot pass.
+4. Sign in once with a password: you're asked for a setup link by email (where Resend is set up;
+   without it, the method is set up on the page). Open the link, add a number and/or an
+   authenticator app, save the recovery codes, then sign in with a code. Check the items in
    `packages/connectors/src/twilio/VERIFY_NOTES.md` as you go.
 5. Connect Claude to the environment's `/mcp` and ask it something ("whoami in Mezonas staging"):
    it answers with an approval link. Open it in the browser from step 4, approve, ask again: it
    answers. The audit log has `mcp.approve`.
 6. Then turn **WorkOS's own multi-factor off** (WorkOS → the environment → Authentication →
    Multi-factor auth), so nobody is asked twice.
+7. WhatsApp codes (optional, any time later; clients only). Verify's WhatsApp channel is off until
+   it has a sender of our own (Twilio's "Bring your own WhatsApp sender"): in the sign-in
+   subaccount, Messaging → Senders → WhatsApp senders, register a number on Mezonas' WhatsApp
+   Business Account (Meta Business verification first; a number that has never been on WhatsApp),
+   put that sender in a new Messaging Service ("Mezonas sign-in WhatsApp"), then in the Verify
+   service → WhatsApp, enter the Messaging Service's `MG…` SID and save. Send yourself a code
+   from the Verify service's test page, then add `"TWILIO_VERIFY_WHATSAPP": "on"` under the
+   environment's `vars` in `apps/api/wrangler.jsonc` (a small PR). Until then the step page
+   offers an authenticator app and a text only.
 
 Everyone signs in once more when it is turned on (sessions from before it are ended). Someone who
 lost their phone uses a recovery code; otherwise an operator resets their methods
@@ -1006,7 +1025,7 @@ lost their phone uses a recovery code; otherwise an operator resets their method
 which also forgets every browser they had remembered. Every step is in the audit log:
 `session.second_factor_setup`, `session.second_factor` (ok or refused, with the method),
 `session.second_factor_send`, `session.recovery_codes`, `session.second_factor_reset`,
-`mcp.approve` (a Claude connection approved), and the sign-in row's `second_factor` (`pending`, `exempt` or `remembered`).
+`mcp.approve` (a Claude connection approved), `session.phone_approval` (a sign-in asked of, approved or denied on the phone app, `docs/plan.md` §1.154), and the sign-in row's `second_factor` (`pending`, `exempt` or `remembered`).
 
 ### The phone app (`docs/plan.md` §1.116)
 

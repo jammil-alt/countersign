@@ -8,7 +8,7 @@
 // for a new draft. `?version=N` shows an older version on the bundle tabs.
 import type { AnyAgentBundle } from "@countersign/core";
 import type { ReactNode } from "react";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import {
   Link,
   Navigate,
@@ -65,6 +65,8 @@ export type AgentDetail = ResponseOf<typeof apiRoutes.opsAgent>;
 
 // The builder (with drag and drop) is its own chunk inside /ops, fetched when a workflow opens.
 const WorkflowBuilder = lazy(() => import("../builder/WorkflowBuilder"));
+// B3: the Manual tab is its own chunk (with its route's schema), fetched when it opens.
+const OpsManualTab = lazy(() => import("./ManualTab").then((m) => ({ default: m.OpsManualTab })));
 
 // An agent's own status (switched on, paused…), not a run's: "Active", never "Running", so it
 // can't be read as a run's status (the owner's decision 1).
@@ -133,6 +135,8 @@ function AgentTabs({
             label: "Steps",
             active: stepsActive,
           },
+          // docs/builder-plan.md §5 (B3): the agent's manual.
+          { to: `${base}/manual${keep}`, label: "Manual" },
           { to: `${base}/runs${keep}`, label: "Runs" },
           {
             to: `${base}/versions${keep}`,
@@ -317,18 +321,6 @@ export function AgentScreen({
     apiRoutes.opsAgentVersion,
     requested && !inHand ? { params: { id: agentId, vid: requested.id } } : null,
   );
-  // A trigger added above the builder is a new draft the builder didn't make: once the agent has
-  // reloaded with it, the builder opens afresh on it (else its next save would drop the trigger).
-  const [awaiting, setAwaiting] = useState<string | null>(null);
-  const [builderEpoch, setBuilderEpoch] = useState(0);
-  const latestId = data?.latest?.id ?? null;
-  useEffect(() => {
-    if (awaiting && latestId === awaiting) {
-      setAwaiting(null);
-      setBuilderEpoch((n) => n + 1);
-    }
-  }, [awaiting, latestId]);
-
   if (!data) {
     return (
       <AgentFrameSkeleton
@@ -436,7 +428,10 @@ export function AgentScreen({
         }
       >
         <WorkflowBuilder
-          key={`${view.id}:${builderEpoch}`}
+          // A trigger added above the builder is a new draft the builder didn't make: once the
+          // agent has reloaded with it, the builder moves onto it with its unsaved edits carried
+          // over (FLOW-6, QA 2026-11-19: it used to open afresh on it, and they were gone).
+          key={view.id}
           agent={view}
           from={latest}
           bundle={latestAny}
@@ -452,10 +447,7 @@ export function AgentScreen({
                 agent={view}
                 latest={latest}
                 bundle={latestAny}
-                onChanged={(versionId) => {
-                  setAwaiting(versionId);
-                  reload();
-                }}
+                onChanged={() => reload()}
               />
             </div>
           }
@@ -540,6 +532,15 @@ export function AgentScreen({
                   <Link to="/ops/lab?tab=drafts">See every build in the Agent lab</Link>.
                 </EmptyState>
               )
+            }
+          />
+          {/* docs/builder-plan.md §5 (B3): the manual of the version shown, with its notes. */}
+          <Route
+            path="manual"
+            element={
+              <Suspense fallback={<Loading />}>
+                <OpsManualTab agentId={view.id} version={shown?.version ?? null} />
+              </Suspense>
             }
           />
           {/* Triggers moved into the Workflow tab (its first step); the old address opens it. */}

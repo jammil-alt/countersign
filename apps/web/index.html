@@ -9,6 +9,9 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+    <!-- Before the page is drawn: the app's frame for a browser signed in here before, else the
+         logo alone (public/frame.js). A file, as the CSP allows no inline script. -->
+    <script src="/frame.js"></script>
     <link rel="apple-touch-icon" href="./node_modules/@countersign/design-system/assets/Logos/apple-touch-icon-180.png" />
   </head>
   <body>
@@ -18,6 +21,10 @@
            twin (src/session/StillFrame.tsx; a test keeps the two the same) until the session is known. -->
       <div class="ui-shell ui-frame" data-testid="still-frame">
         <p class="sr-only" role="status">Loading…</p>
+        <span aria-hidden="true" class="ui-frame__signin">
+          <img src="./node_modules/@countersign/design-system/assets/Logos/mezonas-logo.svg" alt="" width="188" height="26" class="theme-light-only" />
+          <img src="./node_modules/@countersign/design-system/assets/Logos/mezonas-logo-paper.svg" alt="" width="188" height="26" class="theme-dark-only" />
+        </span>
         <div aria-hidden="true" class="ds-header ui-topbar">
           <span class="ui-skel ui-topbar__menu ui-frame__menu"></span>
           <span class="ui-topbar__logo">
