@@ -15,7 +15,7 @@ import { draftValue } from "../portal/screens/GettingStarted";
 const MONEY_FIELD = { key: "area.purchasing.budget", kind: "money" } as unknown as PortalGuideField;
 
 describe("CONS: the web's number rules against the server's", () => {
-  it("CONS-6: an intake money answer the form sends is one the server's money schema takes", () => {
+  it("CONS-4: an intake money answer the form sends is one the server's money schema takes", () => {
     const refused: string[] = [];
     for (const typed of ["250", "250.50", "12345678901", "99999999999.99"]) {
       const value = draftValue(MONEY_FIELD, typed);
@@ -25,7 +25,7 @@ describe("CONS: the web's number rules against the server's", () => {
     expect(refused).toEqual([]);
   });
 
-  it("CONS-6: an agent's price the Price panel accepts is one SetAgentPrice takes", () => {
+  it("CONS-4: an agent's price the Price panel accepts is one SetAgentPrice takes", () => {
     const refused: string[] = [];
     for (const [monthly, credits] of [
       ["250", "2000"],
@@ -39,7 +39,7 @@ describe("CONS: the web's number rules against the server's", () => {
     expect(refused).toEqual([]);
   });
 
-  it("CONS-6: billing settings the Billing form accepts are ones BillingSettings takes", () => {
+  it("CONS-4: billing settings the Billing form accepts are ones BillingSettings takes", () => {
     const draft = {
       defaultAgentPrice: "250",
       defaultIncludedCredits: "500000000",
