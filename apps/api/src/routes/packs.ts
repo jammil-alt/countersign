@@ -420,6 +420,60 @@ async function reviewView(
   };
 }
 
+/** A pack's refusal on a card (`ReviewError`, Materials' `MatchError`) as the card's 422. */
+async function asCard<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof Error && /ReviewError|MatchError/.test(error.name)) {
+      throw new HttpError(422, "invalid_decision", error.message);
+    }
+    throw error;
+  }
+}
+
+/**
+ * §1.164: a card's search (Confirm matches' look-up). Only someone who may decide the open item
+ * searches from it, and only that item's client's records (the pack queries by its tenant, inside
+ * the route's transaction, which holds that client).
+ */
+async function reviewLookup(
+  tx: Tx,
+  services: Services,
+  item: InboxRow,
+  who: { userId: string; role: Role },
+  query: { q: string; module?: string | undefined },
+) {
+  const key = reviewKey(item);
+  const handler = key ? reviewHandler(services, key) : null;
+  if (!key || !handler?.lookup) throw notFound("review lookup");
+  if (item.status !== "open") throw new HttpError(409, "not_open", "this item is closed");
+  const by = await withCanSign(tx, item.tenantId, who);
+  if (by.canSign === false || !mayResolve(item, by)) {
+    throw new HttpError(403, "not_assignee", "only someone who decides this card searches from it");
+  }
+  const lookup = handler.lookup.bind(handler);
+  const records = await asCard(() =>
+    lookup(tx, item.tenantId, item.payload as Record<string, unknown>, query),
+  );
+  return { records: records.slice(0, 20) };
+}
+
+/**
+ * §1.164: the answer a finished card hands its waiting run, from the pack (`answer`): what was
+ * recorded, never what the browser sent. Undefined for an item that isn't a card, or a card whose
+ * pack gives none (the browser's answer stands, as before). The inbox's resolve routes pass it.
+ */
+export function packReviewAnswer(services: Services) {
+  return async (tx: Tx, item: InboxRow): Promise<unknown> => {
+    const key = reviewKey(item);
+    const handler = key ? reviewHandler(services, key) : null;
+    if (!handler?.answer) return undefined;
+    const answer = handler.answer.bind(handler);
+    return asCard(() => answer(tx, item.tenantId, item.payload as Record<string, unknown>));
+  };
+}
+
 /**
  * A review's decision: the item is read and checked in one short transaction, the pack's handler
  * decides in its own (it records the match and learns the alias), and the view is read in a third.
@@ -457,20 +511,15 @@ async function decide(
     }
     return { item, handler, testRun };
   });
-  try {
-    await handler.decide(services.db, {
+  await asCard(() =>
+    handler.decide(services.db, {
       tenantId: item.tenantId,
       userId: who.userId,
       payload: item.payload as Record<string, unknown>,
       decision: body,
       testRun,
-    });
-  } catch (error) {
-    if (error instanceof Error && /ReviewError|MatchError/.test(error.name)) {
-      throw new HttpError(422, "invalid_decision", error.message);
-    }
-    throw error;
-  }
+    }),
+  );
   return inTx(async (tx) => reviewView(tx, services, await find(tx), who));
 }
 
@@ -622,6 +671,23 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
     }),
   );
 
+  // §1.164: the card's search, for the item's client only.
+  mount(
+    app,
+    routes.opsPackReviewLookup,
+    async ({ tx, tenantIds, params, services, session, role, query }) =>
+      reviewLookup(
+        tx,
+        services,
+        await opsItem(tx, tenantIds, params.id),
+        {
+          userId: session.user.id,
+          role,
+        },
+        query,
+      ),
+  );
+
   mountLong(app, routes.opsPackReviewDecide, async (ctx) => {
     const { tenantIds, params, services, session, role, body } = ctx;
     return decide(
@@ -696,6 +762,16 @@ export function packRouteHandlers(app: Hono<AppEnv>): void {
     async ({ tx, tenantIds, params, services, session, role }) => {
       const item = await portalItem(tx, tenantIds[0] as string, role, session.user.id, params.id);
       return reviewView(tx, services, item, { userId: session.user.id, role });
+    },
+  );
+
+  // §1.164: the card's search: the portal's own client's records only.
+  mount(
+    app,
+    routes.portalPackReviewLookup,
+    async ({ tx, tenantIds, params, services, session, role, query }) => {
+      const item = await portalItem(tx, tenantIds[0] as string, role, session.user.id, params.id);
+      return reviewLookup(tx, services, item, { userId: session.user.id, role }, query);
     },
   );
 

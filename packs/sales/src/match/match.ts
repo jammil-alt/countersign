@@ -145,6 +145,13 @@ export interface MatchRecordsResult {
   counts: { matched: number; none: number; unsure: number };
   anyNeedsReview: boolean;
   threshold: number;
+  /** The CRM modules matched in (the Confirm matches card's look-up offers them). */
+  modules: string[];
+  /**
+   * Each row's values for the mapped keys, as written, by row index: what the Confirm matches
+   * card shows beside a record (the person step's payload carries it; `rows` is too large to).
+   */
+  sheet: Record<string, string>[];
   /** Record keys built from newly synced records, and embedded, before matching. */
   keys: { built: number; embedded: EmbedResult | null };
   /** Whether the rows were searched by meaning (null: no transport; `refused`: HIPAA mode). */
@@ -691,6 +698,8 @@ export async function matchRecords(
     counts,
     anyNeedsReview: counts.unsure > 0,
     threshold,
+    modules,
+    sheet: rows.map((r) => r.values),
     keys: { built: prepared.refreshed.built, embedded },
     meaning,
     testRun,

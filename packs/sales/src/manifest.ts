@@ -1,10 +1,9 @@
 // The Sales pack's manifest (docs/plan.md §1.164; ARCHITECTURE §12.0, the Sales area's first
-// version): the record keys built from the client's synced CRM, the match and the look-up. The
-// Confirm matches card and the "Spreadsheet to Zoho" template come with the next piece.
-// DECISION: core's `AREA_OF_PACK` (owners/areas.ts) doesn't name this pack yet: naming it seeds a
-// Sales start in onboarding (with generic intake questions) and moves processes into the Sales
-// area. The template declares `area: "sales"` itself; the pack's owner-area mapping and its
-// intake section come with it.
+// version): the record keys built from the client's synced CRM, the match and the look-up, the
+// Confirm matches card (`./review`), the confirmed matches the updates read, and the template
+// "Spreadsheet to Zoho" (`./template`).
+// DECISION: core's `AREA_OF_PACK` names this pack as the Sales area's, so onboarding seeds a Sales
+// start and asks the area's own questions (`./intake`); the template declares `area: "sales"` too.
 
 import {
   lazy,
@@ -15,9 +14,17 @@ import {
   type SkillDefinition,
 } from "@countersign/core";
 import { PACK_ID } from "./ids";
+import { SALES_INTAKE_SECTION } from "./intake";
 import { MATCH_THRESHOLD } from "./match/score";
 import type { PackTool } from "./pack";
-import { keysRefreshTool, matchRecordsTool, recordsLookupTool, SALES_TOOLS } from "./tools";
+import { SPREADSHEET_TO_ZOHO_TEMPLATE } from "./template";
+import {
+  confirmedMatchesTool,
+  keysRefreshTool,
+  matchRecordsTool,
+  recordsLookupTool,
+  SALES_TOOLS,
+} from "./tools";
 
 export { PACK_ID };
 
@@ -91,12 +98,20 @@ export const SALES_SKILLS: readonly SkillDefinition[] = lazyObjects([
       "Finds the client's synced CRM records in one module by a name, company, email, phone or deal name.",
     summary: "Found {{records.length}} records",
   }),
+  toolSkill(confirmedMatchesTool, {
+    id: "sales.confirmed-matches",
+    name: "Confirmed matches",
+    description:
+      "The rows a Match to CRM step settled, after a person confirmed the ones it wasn't sure of: each matched row's record and its fields, ready for an update step.",
+    summary: "{{count}} rows to update",
+  }),
 ]);
 
 export const salesManifest: PackManifest = lazyParse(PackManifest, () => ({
   id: PACK_ID,
   name: "Sales",
-  version: "0.1.0",
+  // §1.164: 0.2.0 adds Confirm matches, the confirmed matches and "Spreadsheet to Zoho".
+  version: "0.2.0",
   description:
     "The Sales area: the client's CRM records (leads, contacts, accounts, deals) kept ready to match, and rows from a file or a step matched to them by email, phone, website, name and meaning, a person deciding what isn't sure.",
   requiresConnectors: [],
@@ -112,7 +127,9 @@ export const salesManifest: PackManifest = lazyParse(PackManifest, () => ({
   events: [],
   tools: SALES_TOOLS.map((t) => t.spec),
   skills: SALES_SKILLS,
-  templates: [],
+  templates: [SPREADSHEET_TO_ZOHO_TEMPLATE],
+  // §1.149.2: the area's questions for a client's intake (Getting started's card).
+  intakeSection: SALES_INTAKE_SECTION,
   screens: [],
 }));
 

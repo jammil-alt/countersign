@@ -66,6 +66,12 @@ export interface ResolveInput {
    * `changed`) before anything is recorded. The portal's routes set it; the back office's don't.
    */
   seen?: { fingerprint: string; of: (item: InboxRow) => Promise<string> };
+  /**
+   * §1.164: a pack card's answer for its waiting run (routes/packs.ts `packReviewAnswer`): when it
+   * gives one, it replaces what the browser sent, so the run gets what was recorded (Confirm
+   * matches: the confirmed matches). It may refuse the finish (422). Undefined: the body's answer.
+   */
+  reviewAnswer?: (tx: Tx, item: InboxRow) => Promise<unknown>;
 }
 
 /** Said when an item changed between the person opening it and answering it (audit 3.4). */
@@ -259,6 +265,10 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
       if (!decision) throw new HttpError(400, "invalid_request", "approve or reject this item");
       approved = decision === "approve";
     }
+    // §1.164: a finished pack card answers with what was recorded, not with what was sent.
+    const recorded =
+      approved && input.reviewAnswer ? await input.reviewAnswer(tx, item) : undefined;
+    const given = recorded === undefined ? answer : recorded;
     // v0.12 W1-A: the client admin's go-live sign-off moves the agent's stage in this transaction:
     // approved → live; rejected → back to trial with the reason (ARCHITECTURE §10.9).
     if (isGoLiveItem(item)) {
@@ -279,7 +289,7 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
     const stored = {
       ...(decision === undefined ? {} : { decision }),
       approved,
-      answer: answer ?? null,
+      answer: given ?? null,
       by: input.by.userId,
       ...(note === undefined ? {} : { note }),
       ...(applied ? { applied } : {}),
@@ -311,7 +321,7 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
       { registry: input.registry, testRun },
     );
     if (row) input.collect.push(row);
-    resolution = { approved, answer: answer ?? null, by: input.by.userId };
+    resolution = { approved, answer: given ?? null, by: input.by.userId };
   }
 
   // v0.12 W1-D: the undo window. An approval reaches the run only once it has passed: the cron

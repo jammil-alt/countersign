@@ -22,12 +22,14 @@ export const DEFAULT_OWNER_AREA: OwnerArea = "general";
  * The pack each area's data lives in, for reading a template's `requiresPacks`. Only packs that are
  * an area's are named; `general` has none.
  */
-// DECISION (O2): materials is Purchasing's pack (ARCHITECTURE §12.0); bookkeeping and marketing are
-// their own. Sales and Receivables have no pack yet, so a template reaches them only by `area`.
+// DECISION (O2): materials is Purchasing's pack (ARCHITECTURE §12.0); bookkeeping, marketing and
+// sales (docs/plan.md §1.164) are their own. Receivables has no pack yet, so a template reaches it
+// only by `area`.
 const AREA_OF_PACK: Readonly<Record<string, OwnerArea>> = {
   materials: "purchasing",
   bookkeeping: "bookkeeping",
   marketing: "marketing",
+  sales: "sales",
 };
 
 /**

@@ -81,7 +81,7 @@ export const INTAKE_AREA_TITLES: Record<IntakeArea, string> = {
 export const GENERIC_AREA_SUFFIXES = ["today", "who", "tools", "volume", "wrong"] as const;
 
 /**
- * Core's questions for an area without a pack of its own (Sales and Receivables today; cases-plan
+ * Core's questions for an area without a pack of its own (Receivables today; cases-plan
  * §8 q11): how it works today, who does it, the tools, how much, what goes wrong.
  */
 export function genericAreaSection(area: IntakeArea): GuideSectionSource {

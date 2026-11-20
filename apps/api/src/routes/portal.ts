@@ -85,6 +85,7 @@ import { steppedInOf } from "../step-in/service";
 import { clientDescription } from "../weekly/stats";
 import { lastActivityOf, sourceActivity, usedByWith } from "./built-in-sources";
 import { matrixEdit } from "./mappers";
+import { packReviewAnswer } from "./packs";
 import {
   isClientCheckRow,
   stepFinder,
@@ -1002,6 +1003,8 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
       collect,
       // R5: a late no is offered an undo when its write's tool says how.
       tools: services.platform.tools,
+      // §1.164: a finished pack card answers its run with what was recorded.
+      reviewAnswer: packReviewAnswer(services),
       ...(body.fingerprint
         ? {
             seen: {

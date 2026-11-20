@@ -88,6 +88,7 @@ import {
   opsToolCall,
 } from "./mappers";
 import { inviteToClient, withApprovals } from "./onboarding";
+import { packReviewAnswer } from "./packs";
 import { canSignIn, sourcesOf } from "./portal";
 import { stepOutcomes } from "./run-checks";
 import { ensureFilterClients, runErrorGroups, runFilterWhere, runsPerDay } from "./run-controls";
@@ -1144,6 +1145,8 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       collect,
       // R5: a late no is offered an undo when its write's tool says how.
       tools: services.platform.tools,
+      // §1.164: a finished pack card answers its run with what was recorded.
+      reviewAnswer: packReviewAnswer(services),
     });
     // R7: and a conversation's own event beside it, for a v4 conversation step.
     if (outcome.resume || outcome.conversation) {
