@@ -50,7 +50,7 @@ import {
 import { attachmentsToKeep, storeEmailAttachments } from "@countersign/documents";
 import type { EventRow, EventTypeRegistry } from "@countersign/senses";
 import { channelAccountThread, postAsPerson, senseEmitPosted } from "@countersign/threads";
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { auditInTx } from "../audit";
 import { channelFor } from "../channels/resolve";
 import type { ContactRow } from "../messaging/contacts";
@@ -69,7 +69,11 @@ export interface SloanPerson {
   role: (typeof CLIENT_ROLES)[number];
 }
 
-/** A client admin or client user of this client with this sign-in email, or null. */
+/**
+ * A client admin or client user of this client with this sign-in email, or null. DECISION
+ * (SEC-8): a client user limited to some agents is not one here: they have no Sloan (plan
+ * §1.122), so their mail and texts to Sloan are answered as a stranger's.
+ */
 export async function clientPersonByEmail(
   tx: Tx,
   tenantId: string,
@@ -85,6 +89,7 @@ export async function clientPersonByEmail(
       and(
         eq(membership.tenantId, tenantId),
         inArray(membership.role, [...CLIENT_ROLES]),
+        isNull(membership.agentIds),
         eq(appUser.email, address),
       ),
     )
