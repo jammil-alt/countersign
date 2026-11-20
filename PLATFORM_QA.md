@@ -1,6 +1,6 @@
 # Platform QA (2026-11-20)
 
-A hostile QA pass on Mezonas outside the Agent Builder, weighted toward tools, connectors and skills. Report only: nothing is fixed. The Builder (audited in `BUILDER_QA.md`) was left alone.
+A hostile QA pass on Mezonas outside the Agent Builder, weighted toward tools, connectors and skills. The report came first, with nothing fixed; the fixes followed (see Fix status). The Builder (audited in `BUILDER_QA.md`) was left alone.
 
 **Result: 49 defects survived verification, out of 57 reported.**
 
@@ -19,7 +19,7 @@ How the 57 were handled:
   - It found 5 by design (SEC-2, SEC-4, SEC-6, STATE-5, TOOL-4).
   - It merged 1 duplicate (FLOW-9 into INPUT-5).
   - It lowered 30 severities.
-- **Repros now:** every surviving finding has a test that fails today. That is 67 tests: 56 API and 11 web.
+- **Repros:** every surviving finding had a test that failed at the time of the audit. That was 67 tests: 56 API and 11 web.
 
 **Where it ran.**
 - Everything ran locally, against a throwaway Postgres 16 (pgvector), using the repo's own API harness.
@@ -27,13 +27,29 @@ How the 57 were handled:
 - No test touched staging, production, a live model, a live provider or real client data. Staging wasn't used at all, not even for reads.
 - STATE-6 is a race and failed in 2 of 3 runs alone; every other repro fails every time.
 
-**How to run the repros.** The two configs below include only `src/qa-platform`, so the repros stay out of `pnpm test` and CI. Each test asserts the expected behaviour, so it fails while its defect exists.
+## Fix status (2026-11-20)
 
-```sh
-cd apps/api && npx wrangler types   # once: tsc needs worker-configuration.d.ts
-cd apps/api && COUNTERSIGN_REQUIRE_DB=1 npx vitest run --config vitest.qa.config.ts
-cd apps/web && npx vitest run --config vitest.qa.config.ts
-```
+All 49 are fixed, in seven PRs. Each PR brings its repros in as regular tests titled "(PLATFORM_QA ID) …",
+so CI runs them. The decisions they made are in `docs/plan.md` §1.157. The repro folders that were
+first in this PR (`apps/*/src/qa-platform`, with their `vitest.qa.config.ts`) are gone: their tests now
+live in the fix PRs.
+
+| PR | What it fixes |
+|---|---|
+| #451 Approvals stay on across lineage, and a held agent doesn't answer calls | CONS-3, TOOL-1, TOOL-2, STATE-7 |
+| #455 Proven senders only, no card numbers kept, Sloan within the portal's limits, provider answers checked | SEC-1, SEC-3, SEC-5, SEC-7, SEC-8, SEC-9, INPUT-6, AI-4 |
+| #453 Runs ask and notify once, a reject holds, schemas fail closed, web.fetch stays in scope | STATE-1, STATE-2, STATE-3, STATE-8, CONS-1, CONS-2, AI-3, AI-7 |
+| #454 Connector writes run once and a refusal isn't "maybe sent"; OAuth errors in our words | TOOL-3, STATE-4, INTEG-4, INTEG-5, INTEG-6, FLOW-1 |
+| #456 Browser sign-in survives code-service trouble, each code reaches its own login | INTEG-1, INTEG-2, INTEG-3, INPUT-9, FLOW-6 (server half), STATE-6 |
+| #452 Pack tools keep test runs out of live data, hard rules hold at save, money stays in one currency | TOOL-5, AI-1, AI-5, AI-6, INPUT-1, INPUT-2, INPUT-3, INPUT-4, INPUT-7, INPUT-8 |
+| #450 The screens keep what people typed and say what failed | INPUT-5, FLOW-2, CONS-4, FLOW-4, FLOW-5, FLOW-6 (web half), FLOW-7, FLOW-8 |
+
+Two fixes took a different path from the fix direction in the table below, and their tests changed with them:
+- CONS-1: the validators now refuse a skill step that names another agent (`step_agent_unsupported`), instead
+  of the executor running it as that agent.
+- AI-3: a skill whose schema Zod can't read now fails the step, instead of re-asking the model.
+
+#450 also raised the web first-load budget to 495 kB, recorded as a DECISION in `scripts/web-size.mjs`.
 
 ## 1. Top 5: what would hurt a real client first
 
@@ -65,7 +81,7 @@ Close behind:
 
 ## 2. Findings
 
-Sorted by severity. Within each severity, tools, connectors, skills and the runtime come first. "Lens" is the attack lens that found the finding. Every repro path is under `apps/api/src/qa-platform/` (`.qa.ts`) or `apps/web/src/qa-platform/` (`.qa.tsx`); the file is named in each row and the test title starts with the ID. "Inv." is the CLAUDE.md invariant broken; R1–R4 and I-numbers are the concrete invariants in section 5.0.
+Sorted by severity. Within each severity, tools, connectors, skills and the runtime come first. "Lens" is the attack lens that found the finding. The repro column names the audit's repro file (in `apps/api/src/qa-platform/` or `apps/web/src/qa-platform/`, as first pushed in this PR) and the test, whose title starts with the ID. The fix PRs carry each one as a regular test. "Inv." is the CLAUDE.md invariant broken; R1–R4 and I-numbers are the concrete invariants in section 5.0.
 
 | ID | Lens | Sev. | File:line | Trigger | Observed vs expected | Repro | Fix direction |
 |---|---|---|---|---|---|---|---|
@@ -1278,13 +1294,3 @@ Checked by each lens with grep over the existing `*.test.ts` and `*.test.tsx`. T
 | R2 | 429 and 4xx on Google Chat, Twilio and Meta followed by a retry of the same key. A LinkedIn refresh failure before a post. That a connector's `retryable` flag is ever acted on (it is read only by `apps/api/src/qbo/sync.ts:376`). |
 | R4 | Two concurrent cron passes or `startRun`s. |
 | Calls | Publishing a draft older than the live version. Concurrent set-up of a browser login. |
-
-## Files
-
-| What | Where |
-|---|---|
-| API repros | `apps/api/src/qa-platform/*.qa.ts`, with `apps/api/vitest.qa.config.ts` |
-| Web repros | `apps/web/src/qa-platform/*.qa.tsx`, with `apps/web/vitest.qa.config.ts` |
-| Smoke checks | `smoke.qa.ts` and `smoke.qa.tsx` (they pass) |
-
-Each repro file's header says what it covers. Repros for disproved findings were removed. Some repros import a package's internals by relative path (for example `packages/connectors/src/...` and `packages/workflows/src/fakes.test-helper.ts`) where the symbol isn't exported.
