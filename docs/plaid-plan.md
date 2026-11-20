@@ -25,7 +25,7 @@ there (`packages/connectors/src/bankfeed`, `docs/plan.md` §1.52). The portal is
 | Plaid attestation | The control | Register | Evidence to collect |
 |---|---|---|---|
 | MFA on consumer-facing app (Plaid Link) | WorkOS multi-factor is required for every sign-in (owner, 2026-11-16; `docs/open.md` A1). Our own second step (`docs/plan.md` §1.100) is built and takes over once Twilio Verify is on (A2); it asks Google and Microsoft sign-ins too. A client's SSO uses its own second factor | ACC-2 | WorkOS → Authentication → Multi-factor auth; a portal sign-in showing the second factor; `docs/security.md` §2 |
-| MFA on internal systems with consumer data | Passkeys or hardware keys on every system that holds client data or can change production (`docs/policies/information-security.md` §3). Not yet on Cloudflare, Sentry and GitHub | ACC-2 (partial) | A screenshot per row of §3 |
+| MFA on internal systems with consumer data | Passkeys or hardware keys on every system that holds client data or can change production (`docs/policies/information-security.md` §3). In place on Google, GitHub, Cloudflare, Sentry and Stripe; Neon and WorkOS's dashboard have an authenticator app (WorkOS offers no passkey); Intuit and Plaid not recorded (`docs/security.md` §10, 2026-11-18) | ACC-2 (partial) | A screenshot per row of §3 |
 | Zero trust access architecture | No servers, admin ports or VPN: Workers and vendors' consoles. Every request is checked for its person, role and client (WorkOS, a second factor, session limits, row-level security, the audit log). No person holds the database owner's password. Named accounts only | ACC-1, ACC-4, ISO-1 | §2 below as the description; `docs/security.md` §1–2 and §8 |
 | Access control policy | `docs/policies/information-security.md` §3: least privilege, named accounts, MFA, sessions 30 minutes idle and 12 hours, joining and leaving, quarterly review | GOV-2, ACC-4 | The policy, with its record of approval |
 | Periodic access reviews and audits | `/ops/security/audit?view=access` (a dated CSV) every quarter, plus §3 for our other systems; the audit log kept 6 years | ACC-5 (partial), LOG-1 | Each quarter's CSV and §3, dated, with what was removed |
@@ -81,22 +81,23 @@ list for the leaving steps (`docs/operations.md` §1.3).
 
 | System | Holds client or bank data | Who has access, and role | Passkey or key enforced | Removed by |
 |---|---|---|---|---|
-| Google Workspace | email | | | suspend the user |
-| GitHub (`jammil-alt/countersign`) | code, Actions secrets | | | remove the collaborator |
-| Cloudflare | all traffic, R2 files, Workers | | | |
-| Neon | the database | | | |
-| WorkOS dashboard | app users' names and emails | | | |
+| Google Workspace | email | the owner, admin | passkeys; 2-Step Verification enforced (2026-11-18) | suspend the user |
+| GitHub (`jammil-alt/countersign`) | code, Actions secrets | `jammil-alt` only, admin | passkeys (2026-11-18) | remove the collaborator |
+| Cloudflare | all traffic, R2 files, Workers | the owner, Super Administrator | security keys; required for every member (2026-11-18) | |
+| Neon | the database | the owner, Admin | authenticator app; required for the organization (2026-11-18) | |
+| WorkOS dashboard | app users' names and emails | the owner, Admin | authenticator app (no passkey offered); team requirement off (2026-11-18) | |
 | Intuit developer portal | QuickBooks app keys | | | |
 | Plaid dashboard | bank items | | | |
 | Domain registrar and DNS | none | | | |
-| Sentry | scrubbed error reports | | | |
-| Stripe | billing | | | |
+| Sentry | scrubbed error reports | the owner, Owner | Touch ID; required (2026-11-18) | |
+| Stripe | billing | the owner, Owner | passkeys; team requirement off (2026-11-18) | |
 | Twilio, Resend, ElevenLabs | messages and calls, when used | | | |
 | Model providers' consoles (Anthropic, OpenAI, xAI, Google) | API keys | | | |
 | Mezonas back office, production and staging | everything | `/ops/security/audit?view=access` | WorkOS | Actions → Remove operator |
 
-The repository is under a personal account, which can't require 2FA of others: check each
-collaborator's, or move it to an organization that requires it (`docs/security.md` §10).
+The repository is under a personal account, which can't require 2FA of others. It has one
+collaborator today; before adding anyone, check their two-factor, or move it to an organization
+that requires it (`docs/security.md` §10).
 
 ## 4. Draft: "Reason for data access"
 

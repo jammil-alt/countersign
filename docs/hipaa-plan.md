@@ -25,9 +25,10 @@ gate (#414). What is left in code is T1 and T3 (§3).
 
 Set on 2026-11-06: WorkOS (MFA and session limits), Cloudflare, GitHub and Neon. WorkOS multi-factor
 is required for every sign-in since 2026-11-16. The record is `docs/security.md` §10. Still to set:
-`docs/security.md` §10, "Still to set" (staff passkeys, Google Workspace 2-Step Verification,
-GitHub 2FA and the scan as a required check, `ALERTS_TOKEN`, the bank feed's webhook in the rate
-limit's exclusions).
+`docs/security.md` §10, "Still to set" (passkeys on Neon and WorkOS's dashboard, Intuit and
+Plaid's second factors, Google Workspace's allowed methods, the scan as a required check,
+`ALERTS_TOKEN`, the bank feed's webhook in the rate limit's exclusions). Staff second factors on
+the rest were set on 2026-11-18.
 
 ## 3. Technical items still open
 

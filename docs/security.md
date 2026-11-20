@@ -315,7 +315,7 @@ finding each setting.
 | The owner's MacBook Pro (macOS 26.6.2) | Device settings (policy §4) | FileVault on, recovery key in 1Password; screen lock immediate; firewall on; automatic macOS updates on; Find My Mac on; one user account. Checked by hand with `fdesetup`, `socketfilterfw`, `sysadminctl` and `dscl` (2026-11-18); not yet under device management |
 | Claude (claude.ai), the owner's account | Privacy → Help improve our AI models | Off: chats and coding sessions, including what the Ops MCP connector returns, aren't used for training. A personal plan, not a business one; no BAA, so HIPAA clients stay out of the connector (`docs/hipaa-plan.md` T1) (checked 2026-11-18) |
 | Better Stack (free) | Uptime and status page | Monitor on `https://app.mezonas.com/api/health` every 3 minutes, email alerts; public status page at `https://status.mezonas.com` (CNAME `status` → `statuspage.betteruptime.com`, DNS only, on `mezonas.com`). It reaches only the public health route: no client data (2026-11-18) |
-| Sentry, organization | Security & Privacy | Data Scrubber, default scrubbers and "Prevent Storing of IP Addresses" on and enforced on `mezonas-api` and `mezonas-web`; sensitive fields email, cookie, session, prompt, completion, utterance, transcript (checked 2026-11-14). "Require Two-Factor Authentication" off: Sentry refuses it until the owner's own account has a second factor |
+| Sentry, organization | Security & Privacy | Data Scrubber, default scrubbers and "Prevent Storing of IP Addresses" on and enforced on `mezonas-api` and `mezonas-web`; sensitive fields email, cookie, session, prompt, completion, utterance, transcript (checked 2026-11-14). "Require Two-Factor Authentication" was off then; on since 2026-11-18 (row above) |
 | Sentry, `mezonas-api` and `mezonas-web` | Alerts | "Production errors to the security officer": a new or regressed issue in `environment:production`, email to the owner, at most every 30 minutes (#6345968, #6345969; 2026-11-14). The default "high priority issues" alert stays, all environments. Developer plan: one user, events kept 30 days |
 
 ### Still to set (owner)
@@ -324,9 +324,10 @@ Each needs a dated screenshot in the evidence folder (`docs/plaid-plan.md` §1).
 
 | Where | Setting |
 |---|---|
-| GitHub, Cloudflare, Sentry, and each other system in the policy (Google Workspace, Neon, WorkOS's dashboard, Intuit, Plaid, Stripe) | A passkey or hardware key on every staff account (`docs/policies/information-security.md` §3; control ACC-2). Cloudflare, Sentry and GitHub have none yet. Then Sentry's "Require Two-Factor Authentication" |
-| Google Workspace | Enforce 2-Step Verification for everyone, passkeys or security keys only |
-| GitHub | `countersign` is under a personal account, which can't require 2FA of others: check each collaborator's, or move it to an organization that requires it |
+| Neon, WorkOS's dashboard | A passkey or hardware key on the owner's account (`docs/policies/information-security.md` §3; control ACC-2). Both have an authenticator app today; WorkOS offers no passkey, so it stays an app until it does (2026-11-18). Google, GitHub, Cloudflare, Sentry and Stripe have passkeys or security keys (above) |
+| Intuit, Plaid | A second factor, by passkey or hardware key, on the owner's developer accounts: not yet recorded |
+| Google Workspace, organization | 2-Step Verification is enforced (2026-11-18). Check whether it can be limited to passkeys and security keys only, and record the method allowed |
+| GitHub, `countersign` | One collaborator today, with two-factor (above). Before adding anyone, check their two-factor, or move the repo to an organization that requires it: a personal account can't |
 | GitHub, ruleset "Protect main" | Add the Vulnerability scan's pull-request check (`scan-pr / osv-scan`) as required |
 | GitHub, secrets | `ALERTS_TOKEN`, so the patch deadlines cover Dependabot alerts (`docs/operations.md` §2) |
 | Cloudflare, rate limiting rule "API rate limit" | Add `/api/connections/bankfeed/webhook/` to the excluded webhook paths, before the bank feed goes live |
