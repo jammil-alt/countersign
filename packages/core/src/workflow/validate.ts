@@ -82,6 +82,8 @@ export type ValidationCode =
   | "unknown_skill"
   | "skill_not_allowed"
   | "agent_not_commandable"
+  // PLATFORM_QA CONS-1: a skill step runs as the agent that owns the workflow.
+  | "step_agent_unsupported"
   | "unknown_tool"
   | "tool_not_allowed"
   | "action_not_external"
@@ -180,6 +182,15 @@ export interface ValidationResult<T> {
 // R1 (docs/plan.md §1.86): the v3 checks below are exported so `validateProcess` runs the same
 // code. Each takes a `RefChecker`: where errors go, and how a reference types in the caller's
 // scope (v3's `Scope`, v4's `ProcessScope`).
+
+// DECISION (PLATFORM_QA CONS-1): a skill step's `agent` (ARCHITECTURE §10.1, "another agent of the
+// same client") is refused, not run: the executor runs every skill step as the agent that owns the
+// workflow, so a step naming another agent would run as the owner or fail. Running a step as
+// another agent would need that agent's live version, bindings and approver on the run; until
+// then, a hand off step starts the other agent's own run. The schema keeps the field, so stored
+// versions still parse.
+export const STEP_AGENT_UNSUPPORTED =
+  "a skill step runs as this agent; to have another agent do the work, hand off to it";
 
 export const VERB_NOUN: Record<Verb, string> = {
   read: "reads",
@@ -489,7 +500,9 @@ function checkStep(c: Checker, step: Step, scope: Scope, allowed: Set<string> | 
       if (ctx.skills && !skill) {
         c.add(step.id, "skill", "unknown_skill", `no skill "${step.skill}"`);
       }
-      if (ctx.agent && step.agent === undefined) {
+      // PLATFORM_QA CONS-1: the executor runs every skill step as the owner, so the owner must
+      // have the skill, and a step naming another agent is refused (see STEP_AGENT_UNSUPPORTED).
+      if (ctx.agent) {
         const id = parseSkillRef(step.skill).id;
         const has = ctx.agent.skills.some((s) => parseSkillRef(s.skill).id === id);
         if (!has) c.add(step.id, "skill", "skill_not_allowed", `the agent has no skill "${id}"`);
@@ -500,6 +513,9 @@ function checkStep(c: Checker, step: Step, scope: Scope, allowed: Set<string> | 
         !(ctx.agent.canCommand ?? []).includes(step.agent)
       ) {
         c.add(step.id, "agent", "agent_not_commandable", `the agent may not ask "${step.agent}"`);
+      }
+      if (step.agent !== undefined) {
+        c.add(step.id, "agent", "step_agent_unsupported", STEP_AGENT_UNSUPPORTED);
       }
       if (skill) checkInput(c, step.id, step.input, skill.input, scope);
       checkStepModel(c, step, skill);

@@ -20,6 +20,7 @@ import {
   BROWSER_CONNECTOR_ID,
   BrowserRefused,
   BrowserStop,
+  CodesUnavailable,
   type ConnectionRef,
   ContentStore,
   credentialKeysFromEnv,
@@ -426,6 +427,10 @@ function browserFailure(error: unknown): never {
   }
   if (error instanceof BrowserStop) throw new HttpError(409, "stopped", error.message);
   if (error instanceof SignInFailed) throw new HttpError(422, "sign_in_failed", error.message);
+  // Our own code service's trouble: try again later (PLATFORM_QA INTEG-1).
+  if (error instanceof CodesUnavailable) {
+    throw new HttpError(503, "codes_unavailable", error.message);
+  }
   // A click on a button that sends a form, not marked as the submit: worded by the portal.
   if (error instanceof ScriptClickSendsForm) {
     throw new HttpError(422, "sends_form", error.message);

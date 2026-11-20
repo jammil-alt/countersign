@@ -137,6 +137,15 @@ export class FakeCodesService implements CodesService {
     w.code = null;
     return ok<ClaimResult>({ status: "code", code });
   }
+  async cancelWait(input: { tenantId: string; identityId: string; waitId: string }) {
+    const i = this.identities.get(input.identityId);
+    if (!i || i.tenantId !== input.tenantId) return notFound();
+    const w = this.waits.find((x) => x.id === input.waitId && x.identityId === input.identityId);
+    if (!w || w.claimed) return ok({ cancelled: false });
+    w.claimed = true;
+    w.code = null;
+    return ok({ cancelled: true });
+  }
   async alerts(input: { tenantId: string }) {
     return ok({
       alerts: this.alertsRaised.filter(
@@ -187,12 +196,17 @@ export class FakeCodesService implements CodesService {
 /** The connector's codes port over a CodesService, for one client (apps/api's is the same idea). */
 export function fakeCodesPort(service: CodesService, tenantId: string): BrowserCodesPort {
   const unwrap = <T>(r: CodesResponse<T>): T => {
-    if (!r.ok) throw new Error(`code service: ${r.error.code}`);
+    // With the service's code on it, as apps/api's CodesServiceError has.
+    if (!r.ok)
+      throw Object.assign(new Error(`code service: ${r.error.code}`), { code: r.error.code });
     return r.value;
   };
   return {
     openWait: async (input) => unwrap(await service.openWait({ ...input, tenantId })),
     claim: async (input) => unwrap(await service.claim({ ...input, tenantId })),
+    cancel: async (input) => {
+      unwrap(await service.cancelWait({ ...input, tenantId }));
+    },
   };
 }
 

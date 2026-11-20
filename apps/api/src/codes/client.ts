@@ -6,6 +6,7 @@
 import {
   type AddPhoneInput,
   type AlertsInput,
+  type CancelWaitInput,
   type ClaimInput,
   type CodesErrorCode,
   CodesResponses,
@@ -53,6 +54,7 @@ export function codesClient(binding: CodesService) {
       unwrap("setAuthenticator", binding.setAuthenticator(input)),
     openWait: (input: OpenWaitInput) => unwrap("openWait", binding.openWait(input)),
     claim: (input: ClaimInput) => unwrap("claim", binding.claim(input)),
+    cancelWait: (input: CancelWaitInput) => unwrap("cancelWait", binding.cancelWait(input)),
     alerts: (input: AlertsInput) => unwrap("alerts", binding.alerts(input)),
     deleteIdentity: (input: DeleteIdentityInput) =>
       unwrap("deleteIdentity", binding.deleteIdentity(input)),

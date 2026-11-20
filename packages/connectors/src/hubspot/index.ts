@@ -99,6 +99,11 @@ const TokenAnswer = z.looseObject({
 });
 
 export class HubspotApiError extends Error {
+  /**
+   * HubSpot answered and changed nothing: a 4xx but 408 and 409 (a refusal, a rate limit, a record
+   * not found). A 5xx, a 408 or a 409 may have come after the write was made (PLATFORM_QA INTEG-5).
+   */
+  readonly notWritten: boolean;
   constructor(
     readonly status: number,
     readonly code: string,
@@ -108,6 +113,7 @@ export class HubspotApiError extends Error {
   ) {
     super(message);
     this.name = "HubspotApiError";
+    this.notWritten = status >= 400 && status < 500 && status !== 408 && status !== 409;
   }
 }
 

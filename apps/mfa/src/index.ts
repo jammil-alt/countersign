@@ -88,6 +88,7 @@ app.post("/twilio/sms/:identityId", async (c) => {
     const stub = c.env.IDENTITY.get(c.env.IDENTITY.idFromName(identityId));
     const outcome = await stub.receive({
       channel: "sms",
+      messageId: params.MessageSid ?? null,
       sender: params.From ?? null,
       to: params.To ?? null,
       text: params.Body ?? "",

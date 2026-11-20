@@ -45,7 +45,8 @@ export const WEB_LIMITS = {
   excerptChars: 500,
 } as const;
 
-export const WebStatus = z.enum(["ok", "off", "limit", "failed"]);
+// PLATFORM_QA AI-7: `refused`, a link the step was never given.
+export const WebStatus = z.enum(["ok", "off", "limit", "failed", "refused"]);
 export type WebStatus = z.infer<typeof WebStatus>;
 
 export const WebSearchInput = z.strictObject({
@@ -111,6 +112,14 @@ export interface WebCall {
 export interface WebResearchPort {
   /** Counts one use of `kind` in a step run; false once the step has used `limit`. */
   take(stepRunId: string, kind: "search" | "fetch", limit: number): boolean;
+  // PLATFORM_QA AI-7
+  /**
+   * Notes the links in text the step run was given or a tool returned to it (its input, a search's
+   * results, a page read): the links `web.fetch` may read in that step run.
+   */
+  see(stepRunId: string, text: string): void;
+  /** Whether the step run has seen `url` (`see`). */
+  seen(stepRunId: string, url: string): boolean;
   search(input: WebSearchInput, call: WebCall): Promise<WebSearchOutput>;
   fetch(input: WebFetchInput, call: WebCall): Promise<WebFetchOutput>;
 }
@@ -132,6 +141,34 @@ export function stepCap(
 }
 
 const RESEARCH_OFF = "Web research is off on this deployment.";
+const TEST_RUN_OFF = "A test run doesn't read web pages.";
+
+/** A link as it is compared: the URL parser's form, or null for anything else. */
+function linkKey(url: string): string | null {
+  try {
+    const u = new URL(url);
+    return u.protocol === "http:" || u.protocol === "https:" ? u.href : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A link with the sentence's closing punctuation taken off; a loop, not a regex, so it stays linear. */
+function trimTrailing(link: string): string {
+  let end = link.length;
+  while (end > 0 && ".,;:!?)".includes(link[end - 1] as string)) end--;
+  return link.slice(0, end);
+}
+
+/** The http and https links in a text, in their compared form. */
+export function linksIn(text: string): string[] {
+  const out: string[] = [];
+  for (const m of text.matchAll(/https?:\/\/[^\s"'<>\\`{}|^[\]]+/gi)) {
+    const key = linkKey(trimTrailing(m[0]));
+    if (key) out.push(key);
+  }
+  return out;
+}
 
 function webCall(ctx: ToolInvocation): WebCall {
   return {
@@ -203,6 +240,18 @@ export const webFetchTool = defineInternalTool({
       sources: [],
     });
     if (!ctx.web) return empty("off", RESEARCH_OFF);
+    // DECISION (PLATFORM_QA AI-7): a page is read only at a link the step was given or found (its
+    // input, a search's results, a page it read, another tool's result), never one the model wrote
+    // itself, which could carry the client's data in its query to any host. And a test run reads
+    // no page at all: it reaches nothing outside. Searches still run in a test run (a query goes to
+    // the search vendor, not to a host the model chose).
+    if (ctx.mode === "test") return empty("off", TEST_RUN_OFF);
+    if (!ctx.web.seen(ctx.stepRunId, input.url)) {
+      return empty(
+        "refused",
+        "This step reads only links it was given or found by a search, and this isn't one of them.",
+      );
+    }
     const cap = stepCap(ctx.settings, "webFetchesPerStep");
     if (!ctx.web.take(ctx.stepRunId, "fetch", cap)) {
       return empty("limit", `This step may read at most ${cap} web pages.`);
@@ -368,6 +417,20 @@ export function llmWebResearch(options: LlmWebResearchOptions): WebResearchPort 
     throw new WebResearchError("web research runs only on the model vendor's server-side tools");
   }
   const used = new Map<string, { search: number; fetch: number }>();
+  // PLATFORM_QA AI-7: the links each step run has seen (`see`).
+  const links = new Map<string, Set<string>>();
+  const see = (stepRunId: string, text: string) => {
+    const found = linksIn(text);
+    if (found.length === 0) return;
+    let set = links.get(stepRunId);
+    if (!set) {
+      set = new Set();
+      links.set(stepRunId, set);
+      // As `used`: the port lives for one run; keep it small all the same.
+      if (links.size > 200) links.delete(links.keys().next().value as string);
+    }
+    for (const l of found) if (set.size < 5000) set.add(l);
+  };
   const client = (call: WebCall) =>
     createLlmClient({
       transport: options.transport,
@@ -385,6 +448,11 @@ export function llmWebResearch(options: LlmWebResearchOptions): WebResearchPort 
       if (used.size > 200) used.delete(used.keys().next().value as string);
       return true;
     },
+    see,
+    seen(stepRunId, url) {
+      const key = linkKey(url);
+      return key !== null && (links.get(stepRunId)?.has(key) ?? false);
+    },
     async search(input, call) {
       const { message } = await client(call).message(
         {
@@ -396,7 +464,9 @@ export function llmWebResearch(options: LlmWebResearchOptions): WebResearchPort 
         },
         { label: WEB_SEARCH_TOOL },
       );
-      return searchResultsOf(message, input.query, input.limit);
+      const found = searchResultsOf(message, input.query, input.limit);
+      see(call.stepRunId, found.sources.join("\n"));
+      return found;
     },
     async fetch(input, call) {
       const { message } = await client(call).message(

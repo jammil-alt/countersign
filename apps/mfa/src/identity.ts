@@ -50,6 +50,13 @@ const fail = (code: Fail["error"]["code"], message: string): Fail => ({
 const ok = <T>(value: T): { ok: true; value: T } => ({ ok: true, value });
 const NOT_FOUND = () => fail("not_found", "no such identity for this client");
 
+/**
+ * Twilio's MessageSids of texts already received (PLATFORM_QA INTEG-3). Also made on first use,
+ * for identities created before it existed.
+ */
+const SEEN_TABLE = `create table if not exists seen_message (
+     sid text primary key, expires_at integer not null)`;
+
 const SCHEMA = [
   `create table if not exists identity (
      id text primary key, tenant_id text not null, label text not null, email text not null,
@@ -68,6 +75,7 @@ const SCHEMA = [
      id text primary key, kind text not null, channel text not null, sender text,
      received_at integer not null, created_at integer not null)`,
   "create index if not exists alert_created_idx on alert (created_at)",
+  SEEN_TABLE,
 ];
 
 interface IdentityRow {
@@ -95,6 +103,8 @@ interface WaitRow {
 
 export interface InboundMessage {
   channel: "sms" | "email";
+  /** Twilio's MessageSid: a text with one already seen is a replay and is ignored. */
+  messageId?: string | null;
   /** Twilio's From, or the email's From address. */
   sender: string | null;
   /** For texts: the number it was sent to (must be this identity's). */
@@ -108,7 +118,10 @@ export interface InboundMessage {
 export type ReceiveOutcome =
   | { outcome: "matched"; waitId: string }
   | { outcome: "alert"; kind: CodeAlertKind; alertId: string }
-  | { outcome: "ignored"; reason: "unknown_identity" | "unauthenticated" | "wrong_number" };
+  | {
+      outcome: "ignored";
+      reason: "unknown_identity" | "unauthenticated" | "wrong_number" | "duplicate";
+    };
 
 const iso = (ms: number) => new Date(ms).toISOString();
 const utcDay = (ms: number) => iso(ms).slice(0, 10);
@@ -370,6 +383,29 @@ export class Identity extends DurableObject<CodesEnv> {
     return ok({ status: "code", code });
   }
 
+  /**
+   * Closes a wait its sign-in gave up on (no code in time, a refused password, any failure), so a
+   * code the site sends a later sign-in can't land in it (PLATFORM_QA INTEG-2). Answers whether it
+   * was still open or filled.
+   */
+  async cancelWait(input: {
+    tenantId: string;
+    waitId: string;
+  }): Promise<CodesResponse<{ cancelled: boolean }>> {
+    const r = this.owned(input.tenantId);
+    if (!r) return NOT_FOUND();
+    const w = this.sql.exec<WaitRow>("select * from wait where id = ?", input.waitId).toArray()[0];
+    if (!w || w.status === "claimed") return ok({ cancelled: false });
+    this.closeWait(w.id);
+    logEvent("wait.cancelled", {
+      identityId: r.id,
+      tenantId: r.tenant_id,
+      waitId: w.id,
+      channel: w.channel,
+    });
+    return ok({ cancelled: true });
+  }
+
   /** Marks a wait claimed and deletes what it held. */
   private closeWait(waitId: string): void {
     this.sql.exec("update wait set status = 'claimed' where id = ?", waitId);
@@ -447,7 +483,15 @@ export class Identity extends DurableObject<CodesEnv> {
     const r = this.owned(input.tenantId);
     if (!r) return NOT_FOUND();
     await this.ctx.storage.deleteAlarm();
-    for (const t of ["message", "wait", "authenticator", "request_count", "alert", "identity"]) {
+    for (const t of [
+      "message",
+      "wait",
+      "authenticator",
+      "request_count",
+      "alert",
+      "seen_message",
+      "identity",
+    ]) {
       this.sql.exec(`drop table if exists ${t}`);
     }
     await this.ctx.storage.deleteAll();
@@ -475,6 +519,27 @@ export class Identity extends DurableObject<CodesEnv> {
       return { outcome: "ignored", reason: "wrong_number" };
     }
     const now = Date.now();
+    // A signed text carries no time, so a captured one (or Twilio's own retry) passes the
+    // signature again: each MessageSid is taken once. The check and the write have no await
+    // between them.
+    // DECISION: MessageSids are kept as long as alerts (30 days), longer than a held code's ten
+    // minutes, so a replay of an old text can't fill a wait opened later either.
+    if (message.messageId) {
+      this.sql.exec(SEEN_TABLE);
+      const seen = this.sql
+        .exec("select count(*) as n from seen_message where sid = ?", message.messageId)
+        .one().n;
+      if (seen !== 0) {
+        logEvent("message.ignored", { ...meta, reason: "duplicate" });
+        return { outcome: "ignored", reason: "duplicate" };
+      }
+      this.sql.exec(
+        "insert into seen_message (sid, expires_at) values (?, ?)",
+        message.messageId,
+        now + ALERT_KEEP_MS,
+      );
+      await this.scheduleAt(now + ALERT_KEEP_MS);
+    }
     const text = matchableText([message.subject, message.text]);
     // DECISION: while EMAIL_CODES is off, an email never fills a wait (Cloudflare's authentication
     // headers are not verified yet); it is still read, and raises an alert as any unmatched message.
@@ -557,13 +622,16 @@ export class Identity extends DurableObject<CodesEnv> {
       this.sql.exec("delete from wait where id = ?", w.id);
     }
     this.sql.exec("delete from alert where created_at <= ?", now - ALERT_KEEP_MS);
+    this.sql.exec(SEEN_TABLE);
+    this.sql.exec("delete from seen_message where expires_at <= ?", now);
     this.sql.exec("delete from request_count where day < ?", utcDay(now - 24 * 60 * MINUTE));
     const next = this.sql
       .exec<{ at: number | null }>(
         `select min(at) as at from (
            select min(expires_at) as at from message
            union all select min(expires_at) + ? from wait
-           union all select min(created_at) + ? from alert)`,
+           union all select min(created_at) + ? from alert
+           union all select min(expires_at) from seen_message)`,
         WAIT_KEEP_MS,
         ALERT_KEEP_MS,
       )

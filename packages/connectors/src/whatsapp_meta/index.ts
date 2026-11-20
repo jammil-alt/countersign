@@ -32,6 +32,7 @@ import {
   type ToolContext,
   UnconfirmedWriteError,
   type WriteContext,
+  writeNotMade,
 } from "../connector";
 import { requireCredentials } from "../credentials-accessor";
 import { type FetchLike, globalFetch } from "../http";
@@ -266,8 +267,9 @@ async function send(
   // A re-run after a crash: returned as it went, before any check (as Twilio's, plan §1.22).
   const already = await services.sentFor(ctx.idempotencyKey);
   if (already) return sentOutput(already);
+  // A try Meta refused (it answered, and sent nothing) is sent again under the next try's number.
   const attempt = await services.attemptFor(ctx.idempotencyKey);
-  if (attempt) return reconcile(ctx, services, attempt);
+  if (attempt && !attempt.refused) return reconcile(ctx, services, attempt);
 
   const { contact, from, lastInboundAt } = await checkSend(ctx, input.to, { forSending: true });
   const open = inWhatsAppWindow(lastInboundAt, ctx.now());
@@ -321,8 +323,11 @@ async function send(
     : [input.text ?? "", file ? attachmentLine([file]) : ""].filter(Boolean).join("\n\n");
   const templateId = template ? template.id : null;
   // DECISION: at most once. Meta's send takes no idempotency key (NOTES.md), so the attempt is
-  // recorded before Meta is called, as Twilio's; a re-run finds it and never sends again.
+  // recorded before Meta is called, as Twilio's; a re-run finds it and never sends again. A try
+  // Meta answered with a 4xx (its 130429 rate limit, a refusal) sent nothing: it is recorded as
+  // refused, so the run's retry sends under the next try's number (PLATFORM_QA INTEG-6).
   const startedAt = ctx.now();
+  const tryNumber = attempt ? (attempt.attempt ?? 1) + 1 : 1;
   await services.startAttempt({
     idempotencyKey: ctx.idempotencyKey,
     connectionId: ctx.connection.id,
@@ -334,6 +339,7 @@ async function send(
     text,
     templateId,
     startedAt,
+    attempt: tryNumber,
   });
   ctx.logger.info("sending a message", { channel: "whatsapp" });
   let answer: unknown;
@@ -345,6 +351,14 @@ async function send(
       json: body,
     });
   } catch (error) {
+    if (writeNotMade(error)) {
+      await services.refuseAttempt?.({
+        idempotencyKey: ctx.idempotencyKey,
+        attempt: tryNumber,
+        reason: `HTTP_${(error as MetaGraphError).status}`,
+        at: ctx.now(),
+      });
+    }
     sendError(error);
   }
   const parsed = SendAnswer.safeParse(answer);

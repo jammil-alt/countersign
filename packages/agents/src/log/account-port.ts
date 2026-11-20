@@ -143,6 +143,9 @@ const ROLE_WORDS: Record<AccountAction, string> = {
   pass: "only people of this client can pass a request to the lead",
 };
 
+const LIMITED_WORDS =
+  "Sloan isn't open to people who work on only some services: ask your admin or the lead";
+
 /** The run's asker, from its trigger: the person who posted in an account thread. */
 async function askerOf(
   tx: Tx,
@@ -189,13 +192,17 @@ async function askerOf(
   }
   const userId = posted.data.senderId;
   const [m] = await tx
-    .select({ role: membership.role, name: appUser.name })
+    .select({ role: membership.role, name: appUser.name, agentIds: membership.agentIds })
     .from(membership)
     .innerJoin(appUser, eq(appUser.id, membership.userId))
     .where(and(eq(membership.tenantId, tenantId), eq(membership.userId, userId)));
   if (m?.role !== "client_admin" && m?.role !== "client_user") {
     throw new AccountRefusal(ROLE_WORDS.read);
   }
+  // DECISION (SEC-8): a client user limited to some agents has no Sloan (plan §1.122), so every
+  // account view and write is refused for them here, rather than each view narrowed to their
+  // agents: Sloan never shows them more than the portal does.
+  if (m.agentIds !== null) throw new AccountRefusal(LIMITED_WORDS);
   return {
     userId,
     role: m.role,

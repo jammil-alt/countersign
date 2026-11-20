@@ -113,12 +113,56 @@ function at(item: unknown, path: string): unknown {
 
 const isSet = (v: unknown) => v !== undefined && v !== null && v !== "";
 
+// A number as text, plain ("1250.00") or with thousands grouped by commas ("1,250.00"), as a sheet
+// or a CSV gives it (PLATFORM_QA INPUT-8).
+const DECIMAL_TEXT = /^-?(\d+|\d{1,3}(,\d{3})+)(\.\d+)?$/;
+
 function decimal(v: unknown): Decimal | null {
   if (typeof v === "number" && Number.isFinite(v)) return new Decimal(String(v));
-  if (typeof v === "string" && /^\s*-?\d+(\.\d+)?\s*$/.test(v)) return new Decimal(v.trim());
+  if (typeof v === "string" && DECIMAL_TEXT.test(v.trim()))
+    return new Decimal(v.trim().replaceAll(",", ""));
   if (typeof v === "object" && v !== null && "amount" in v)
     return decimal((v as { amount: unknown }).amount);
   return null;
+}
+
+/** The currency a money value names (`{ amount, currency }`), if any. */
+function currencyOf(v: unknown): string | null {
+  if (typeof v !== "object" || v === null || !("currency" in v)) return null;
+  const c = (v as { currency: unknown }).currency;
+  return typeof c === "string" && c.trim() !== "" ? c.trim().toUpperCase() : null;
+}
+
+/**
+ * One group's total of one field. A value that is set but can't be read as a number, or a group
+ * whose values name two currencies, is refused, never added as 0 or as one figure
+ * (PLATFORM_QA INPUT-7, INPUT-8; invariant 6). An item with no value adds nothing.
+ */
+// DECISION: data.list.group refuses a mixed-currency group and an unreadable amount rather than
+// totalling per currency or listing the misses: one figure per total keeps the output shape, and
+// a finance agent should stop on either, not act on a partial sum (PLATFORM_QA INPUT-7, INPUT-8).
+function total(items: readonly unknown[], field: string, group: string): string {
+  let sum = new Decimal(0);
+  const currencies = new Set<string>();
+  for (const item of items) {
+    const v = at(item, field);
+    if (!isSet(v)) continue;
+    const d = decimal(v);
+    if (!d) {
+      throw new Error(
+        `${field} in group ${group} is ${JSON.stringify(v).slice(0, 60)}, not a number we can total`,
+      );
+    }
+    const c = currencyOf(v);
+    if (c) currencies.add(c);
+    sum = sum.plus(d);
+  }
+  if (currencies.size > 1) {
+    throw new Error(
+      `${field} in group ${group} is in more than one currency (${[...currencies].join(", ")}); we don't total currencies together`,
+    );
+  }
+  return sum.toFixed();
 }
 
 const DAY = 86_400_000;
@@ -176,14 +220,7 @@ export function groupList(raw: GroupListInput, today = new Date()): GroupListOut
   const groups = [...byKey.entries()].map(([key, items]) => ({
     key,
     count: items.length,
-    totals: Object.fromEntries(
-      input.totals.map((t) => [
-        t.as,
-        items
-          .reduce((sum, i) => sum.plus(decimal(at(i, t.field)) ?? new Decimal(0)), new Decimal(0))
-          .toFixed(),
-      ]),
-    ),
+    totals: Object.fromEntries(input.totals.map((t) => [t.as, total(items, t.field, key)])),
     items,
   }));
   const min = input.minTotal;

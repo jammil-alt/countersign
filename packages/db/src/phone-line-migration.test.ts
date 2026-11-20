@@ -1,4 +1,4 @@
-// Agent phone lines (migration 0068, docs/plan.md §1.160) as the Worker's role sees it: a line's
+// Agent phone lines (migration 0069, docs/plan.md §1.160) as the Worker's role sees it: a line's
 // days are one client's, read and inserted only inside that client; they are never changed or
 // deleted. A `phone_line` statement line names its agent, as an `agent` line does. The price of a
 // line defaults to $10 a month.
@@ -30,7 +30,7 @@ async function errorCode(promise: Promise<unknown>): Promise<string | undefined>
 const RESTRICT_VIOLATION = "23001";
 const CHECK_VIOLATION = "23514";
 
-describe.skipIf(!online)("agent phone lines (0068)", () => {
+describe.skipIf(!online)("agent phone lines (0069)", () => {
   let t: TestDatabase;
   let A: ClientFixture;
   let B: ClientFixture;

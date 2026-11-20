@@ -59,6 +59,9 @@ export function codesPort(codes: CodesClient, tenantId: string): BrowserCodesPor
   return {
     openWait: (input) => codes.openWait({ ...input, tenantId }),
     claim: (input) => codes.claim({ ...input, tenantId }),
+    cancel: async (input) => {
+      await codes.cancelWait({ ...input, tenantId });
+    },
   };
 }
 

@@ -1,6 +1,7 @@
-// A person's second factor (migrations 0042 and 0067, docs/plan.md §1.100 and §1.154) as the
-// Worker's role sees it: the person signing in sees and writes only their own rows, an operator
-// session sees everyone's, and no scope sees nothing.
+// A person's second factor (migrations 0042, 0067 and 0068, docs/plan.md §1.100, §1.154 and
+// §1.157) as the Worker's role sees it: the person signing in sees and writes only their own rows,
+// an operator session sees the rows of people in the clients it serves (PLATFORM_QA SEC-2), and no
+// scope sees nothing.
 
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -8,7 +9,9 @@ import { withOperator, withUser } from "./client";
 import {
   appUser,
   mcpSessionApproval,
+  membership,
   signInApproval,
+  tenant,
   USER_TABLES,
   userFactor,
   userRecoveryCode,
@@ -31,6 +34,8 @@ describe.skipIf(!online)("second factor tables", () => {
   let t: TestDatabase;
   let ann = "";
   let bob = "";
+  let clientA = "";
+  let clientB = "";
 
   beforeAll(async () => {
     const created = await createTestDatabase();
@@ -45,6 +50,17 @@ describe.skipIf(!online)("second factor tables", () => {
       .returning({ id: appUser.id });
     ann = users[0]?.id ?? "";
     bob = users[1]?.id ?? "";
+    // Ann belongs to client A, Bob to client B.
+    const clients = await t.db
+      .insert(tenant)
+      .values([{ name: "Client A" }, { name: "Client B" }])
+      .returning({ id: tenant.id });
+    clientA = clients[0]?.id ?? "";
+    clientB = clients[1]?.id ?? "";
+    await t.db.insert(membership).values([
+      { tenantId: clientA, userId: ann, role: "client_admin" },
+      { tenantId: clientB, userId: bob, role: "client_user" },
+    ]);
     for (const userId of [ann, bob]) {
       await t.db.insert(userFactor).values({ userId, kind: "sms", phone: "+15550100000" });
       await t.db.insert(userRecoveryCode).values({ userId, codeHash: `h-${userId}` });
@@ -104,16 +120,54 @@ describe.skipIf(!online)("second factor tables", () => {
     expect(code).toBe("42501");
   });
 
-  it("show an operator session everyone's rows, and no scope nothing", async () => {
-    await withOperator(t.db, [], async (tx) => {
+  const seenBy = async (served: string[]) =>
+    withOperator(t.db, served, async (tx) => {
       await asWorker(tx);
+      const seen: Record<string, Set<string>> = {};
       for (const table of USER_TABLES) {
-        const ids = [
-          ...(await tx.execute<{ u: string }>(sql.raw(`select user_id::text as u from ${table}`))),
-        ].map((r) => r.u);
-        expect(new Set(ids), table).toEqual(new Set([ann, bob]));
+        seen[table] = new Set(
+          [
+            ...(await tx.execute<{ u: string }>(
+              sql.raw(`select user_id::text as u from ${table}`),
+            )),
+          ].map((r) => r.u),
+        );
       }
+      return seen;
     });
+
+  it("(PLATFORM_QA SEC-2) show an operator session only the people of the clients it serves", async () => {
+    for (const [table, ids] of Object.entries(await seenBy([clientA]))) {
+      expect(ids, table).toEqual(new Set([ann]));
+    }
+    for (const [table, ids] of Object.entries(await seenBy([clientA, clientB]))) {
+      expect(ids, table).toEqual(new Set([ann, bob]));
+    }
+    // An operator scope over no clients (the code-try counters) sees no one's rows.
+    for (const [table, ids] of Object.entries(await seenBy([]))) {
+      expect(ids, table).toEqual(new Set());
+    }
+  });
+
+  it("(PLATFORM_QA SEC-2) refuse an operator removing or writing a factor of a person in a client it doesn't serve", async () => {
+    const removed = await withOperator(t.db, [clientA], async (tx) => {
+      await asWorker(tx);
+      return tx.execute<{ u: string }>(
+        sql`delete from user_recovery_code where user_id = ${bob} returning user_id::text as u`,
+      );
+    });
+    expect([...removed]).toEqual([]);
+    const code = await errorCode(
+      withOperator(t.db, [clientA], async (tx) => {
+        await asWorker(tx);
+        await tx.insert(userFactor).values({ userId: bob, kind: "whatsapp", phone: "+1555" });
+      }),
+    );
+    expect(code).toBe("42501");
+    expect((await owners("user_recovery_code")).sort()).toEqual([ann, bob].sort());
+  });
+
+  it("show no scope nothing", async () => {
     await t.db.transaction(async (tx) => {
       await asWorker(tx);
       for (const table of USER_TABLES) {
@@ -182,6 +236,8 @@ describe.skipIf(!online)("second factor tables", () => {
   });
 
   it("go with the person when their app_user row is deleted", async () => {
+    // A person leaves their clients first (membership has no cascade), then their row goes.
+    await t.db.execute(sql`delete from membership where user_id = ${bob}`);
     await t.db.execute(sql`delete from app_user where id = ${bob}`);
     for (const table of USER_TABLES) expect(await owners(table), table).not.toContain(bob);
   });
