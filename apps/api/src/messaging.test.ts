@@ -788,6 +788,53 @@ describe.skipIf(!h)("texts and WhatsApp through the API", () => {
         ).toHaveLength(1);
       }
     });
+
+    it("(PLATFORM_QA INTEG-6) a text Twilio turned away (429) is recorded as refused and sent by the retry under the same key", async () => {
+      const params = await started();
+      const sends = twilio.sends().length;
+      let limited = true;
+      connectorFetch = async (url, init) => {
+        if (limited && init?.method === "POST" && url.endsWith("/Messages.json")) {
+          limited = false;
+          // Twilio's rate limit (error 20429): the message was not created.
+          return {
+            status: 429,
+            ok: false,
+            headers: { get: () => null },
+            text: async () =>
+              JSON.stringify({ code: 20429, message: "Too Many Requests", status: 429 }),
+          };
+        }
+        return twilio.fetch(url, init);
+      };
+      const first = await runIt(params);
+      connectorFetch = twilio.fetch;
+      expect(twilio.sends()).toHaveLength(sends);
+      if (first.status !== "succeeded") {
+        // The run's retry carries the write under its key (a takeover of the same action).
+        const action = await actionOf(params.runId);
+        await leftExecuting(action?.id ?? "");
+        expect(await runIt(params)).toEqual({ status: "succeeded" });
+      }
+      expect(twilio.sends()).toHaveLength(sends + 1);
+      const action = await actionOf(params.runId);
+      expect(action).toMatchObject({ status: "done" });
+      const rows = await H.t.db
+        .select({ type: rawRecord.entityType, version: rawRecord.externalVersion })
+        .from(rawRecord)
+        .where(
+          and(
+            eq(rawRecord.connectionId, setup.twilio.connectionId),
+            eq(rawRecord.externalId, action?.idempotencyKey ?? ""),
+          ),
+        );
+      // Each try is kept: the refused first, its refusal, and the second that went out.
+      expect(rows.map((r) => `${r.type}:${r.version}`).sort()).toEqual([
+        "MessageAttempt:2",
+        "MessageAttempt:null",
+        "MessageAttemptRefused:null",
+      ]);
+    });
   });
 
   // §1.97: they gave the client this number for business.

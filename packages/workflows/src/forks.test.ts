@@ -710,6 +710,8 @@ describe("replay", () => {
     expect(runner.calls.filter((c) => c.kind === "do" && !c.cached).map((c) => c.name)).toEqual([
       "route",
       "fix",
+      // PLATFORM_QA STATE-3: a notice's row is marked sent in its own durable step.
+      "fix:logged",
     ]);
   });
 });

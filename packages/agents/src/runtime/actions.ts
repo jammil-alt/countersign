@@ -241,6 +241,8 @@ export async function executeAction(
   // the input, the before read) wrote nothing; one after it may come after the provider took it.
   let sending = false;
   let written: WriteResult;
+  // §1.160: the agent the write is for, so a text goes from its own number when it has one.
+  const writer = action.runId ? await store.run(input.tenantId, action.runId) : null;
   try {
     // v0.12 W1-D: the signer's edit, when there is one, is what is written; `input` stays the
     // agent's version (ARCHITECTURE §11.1).
@@ -249,7 +251,7 @@ export async function executeAction(
       action.tool,
       action.editedInput ?? action.input,
       {
-        ...connectionContext(deps, input.tenantId, conn),
+        ...connectionContext(deps, input.tenantId, conn, writer?.agentId),
         idempotencyKey: action.idempotencyKey,
         // v0.14 W4-D: what the approver saw, for tools that refuse a change made since.
         proposedBefore: action.before,
@@ -444,7 +446,7 @@ export async function checkEditedInput(
       own.connector,
       tool.spec.id,
       edited,
-      connectionContext(deps, tenantId, conn),
+      connectionContext(deps, tenantId, conn, owner.agentId),
     );
     return { ok: true, input: captured.input as JsonObject, before: captured.before };
   } catch (error) {

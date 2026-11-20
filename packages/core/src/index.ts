@@ -252,6 +252,7 @@ export * from "./mappers/qbo";
 export * from "./mappers/upload";
 // P-8: US texting registration
 export * from "./messaging/a2p";
+export * from "./messaging/calling";
 export * from "./messaging/rules";
 export * from "./messaging/signup";
 export * from "./mobile/mobile";

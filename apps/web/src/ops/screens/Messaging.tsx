@@ -2,7 +2,14 @@
 // the client's Twilio subaccount, buys and releases its numbers (they cost money, so only here,
 // never by an agent), marks the WhatsApp sender once Twilio has registered it, records and checks
 // A2P 10DLC registration, sets quiet hours, and keeps the client's contacts.
-import type { A2pStatus, AvailableNumber, MessagingSetup, QuietHours } from "@countersign/core";
+import type {
+  A2pStatus,
+  AvailableNumber,
+  CallingStatus,
+  MessagingSetup,
+  QuietHours,
+} from "@countersign/core";
+import { formatAmount, numberFor } from "@countersign/core";
 import { type FormEvent, useState } from "react";
 import { useParams } from "react-router-dom";
 import { isApiError } from "../../api/client";
@@ -11,7 +18,7 @@ import { useApi, useApiClient } from "../../api/useApi";
 import { ContactsPanel } from "../../contacts/ContactsPanel";
 // v0.14 capture
 import { ConversationsPanel } from "../../conversations/ConversationsPanel";
-import { Field, TextInput } from "../../ui/forms";
+import { Field, Select, TextInput } from "../../ui/forms";
 import {
   Badge,
   Button,
@@ -112,6 +119,13 @@ function TwilioSetup({
             Texts and WhatsApp aren't set up for Mezonas yet. An engineer adds our Twilio key; then
             you can set up this client's numbers here.
           </p>
+        ) : twilio?.closedAt || twilio?.closeError ? (
+          // §1.160: a retired client's Twilio is given up hourly: numbers released, closed for good.
+          <p className="text-ink-muted" data-testid="ops-twilio-closed">
+            {twilio.closedAt
+              ? `The client is retired. We released its numbers and closed its subaccount on ${new Date(twilio.closedAt).toLocaleDateString()}. It can't be reopened.`
+              : `The client is retired. We're releasing its numbers and closing its subaccount; Twilio refused the last try (${twilio.closeError}), so we try again every hour.`}
+          </p>
         ) : twilio === null || twilio.status !== "connected" ? (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-ink-muted">
@@ -144,6 +158,7 @@ function TwilioSetup({
         <>
           <Numbers clientId={clientId} setup={setup} busy={busy} act={act} />
           <A2pPanel clientId={clientId} setup={setup} busy={busy} act={act} />
+          <CallerIdPanel clientId={clientId} setup={setup} busy={busy} act={act} />
         </>
       ) : null}
       <QuietHoursPanel clientId={clientId} setup={setup} busy={busy} act={act} />
@@ -169,6 +184,17 @@ function Numbers({
   const [found, setFound] = useState<AvailableNumber[] | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
   const numbers = setup.twilio?.numbers ?? [];
+  const linePrice = setup.phoneLinePrice
+    ? `US$${formatAmount(setup.phoneLinePrice)}`
+    : "set in Billing";
+  // §1.160: the account sends texts and calls from the first number nobody owns. Any other number
+  // nobody owns (not a WhatsApp sender) only receives: spare, and still paid for at Twilio.
+  const sendsFrom = new Set(
+    [numberFor(numbers, "sms")?.sid, numberFor(numbers, "voice")?.sid].filter(Boolean),
+  );
+  type Num = (typeof numbers)[number];
+  const spare = (n: Num) => !n.agentId && !n.whatsapp && !sendsFrom.has(n.sid);
+  const ownerGone = (n: Num) => !!n.agentId && !setup.agents.some((a) => a.id === n.agentId);
 
   async function search(e: FormEvent) {
     e.preventDefault();
@@ -187,6 +213,13 @@ function Numbers({
   return (
     <Card className="p-5" testId="ops-twilio-numbers">
       <SectionLabel>Numbers</SectionLabel>
+      <p className="mb-3 text-sm text-ink-muted" data-testid="ops-number-lines-help">
+        A number can be one agent's own line: it texts and calls only for that agent, and the client
+        is billed the line price ({linePrice}) a month for it. Keep one number for the account. When
+        an agent is retired, its line goes back to the account. A spare number is the account's but
+        nothing sends from it: texts to it still reach the account, and we pay Twilio for it until
+        it's released.
+      </p>
       {numbers.length === 0 ? (
         <p className="mb-4 text-ink-muted">No numbers yet. Find one below.</p>
       ) : (
@@ -200,6 +233,44 @@ function Numbers({
               <span className="figures text-ink">{n.phoneNumber}</span>
               <span className="flex flex-wrap items-center gap-2">
                 {n.whatsapp ? <Badge tone="positive">WhatsApp sender</Badge> : null}
+                {spare(n) ? (
+                  <Badge tone="warning" testId={`ops-number-${n.phoneNumber}-spare`}>
+                    Spare
+                  </Badge>
+                ) : null}
+                {ownerGone(n) ? (
+                  <Badge tone="warning" testId={`ops-number-${n.phoneNumber}-unused`}>
+                    Not in use
+                  </Badge>
+                ) : null}
+                {/* §1.160: the account's, or one agent's own line (billed per line). */}
+                <Select
+                  className="w-56"
+                  aria-label={`Whose number ${n.phoneNumber} is`}
+                  value={n.agentId ?? ""}
+                  disabled={busy}
+                  onChange={(e) =>
+                    void act(() =>
+                      api.call(apiRoutes.opsTwilioNumberAgent, {
+                        params: { id: clientId, sid: n.sid },
+                        body: { agentId: e.target.value || null },
+                      }),
+                    )
+                  }
+                  data-testid={`ops-number-${n.phoneNumber}-agent`}
+                >
+                  <option value="">The account's number</option>
+                  {ownerGone(n) ? (
+                    <option value={n.agentId ?? ""} disabled>
+                      An agent no longer in use
+                    </option>
+                  ) : null}
+                  {setup.agents.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}'s own line
+                    </option>
+                  ))}
+                </Select>
                 <Button
                   size="sm"
                   disabled={busy}
@@ -387,6 +458,138 @@ function A2pPanel({
           Check status
         </Button>
       </form>
+    </Card>
+  );
+}
+
+const CALLING: Record<CallingStatus, { label: string; tone: Tone }> = {
+  not_started: { label: "Not started", tone: "neutral" },
+  pending: { label: "In review", tone: "warning" },
+  approved: { label: "Approved", tone: "positive" },
+  rejected: { label: "Refused", tone: "risk" },
+};
+
+/**
+ * §1.160: calls that carry the client's name. SHAKEN/STIR signs our calls so carriers don't mark
+ * them as spam; CNAM shows the client's name to the person called. Both sit on the business
+ * profile the texting registration made, so they wait for its approval.
+ */
+function CallerIdPanel({
+  clientId,
+  setup,
+  busy,
+  act,
+}: {
+  clientId: string;
+  setup: MessagingSetup;
+  busy: boolean;
+  act: Act;
+}) {
+  const api = useApiClient();
+  const calling = setup.twilio?.calling ?? null;
+  const [name, setName] = useState(calling?.displayName ?? calling?.suggestedName ?? "");
+  if (!calling) return null;
+  const shaken = CALLING[calling.shakenStir.status];
+  const cnam = CALLING[calling.cnam.status];
+  const started =
+    calling.shakenStir.status !== "not_started" || calling.cnam.status !== "not_started";
+  const voiceNumbers = (setup.twilio?.numbers ?? []).filter(
+    (n) => n.capabilities.voice && n.phoneNumber.startsWith("+1"),
+  );
+  const issues = [...calling.shakenStir.issues, ...calling.cnam.issues];
+  return (
+    <Card className="p-5" testId="ops-caller-id">
+      <SectionLabel>Calls that carry the client's name</SectionLabel>
+      <p className="mb-4 text-sm text-ink-muted">
+        Signed calls (SHAKEN/STIR) keep carriers from marking our calls as spam. The caller name
+        (CNAM) is what the person we call sees, up to 15 characters. Both are free. Twilio reviews
+        them in about three days, and the name can take a few more to reach every US carrier.
+      </p>
+      {!calling.profileReady ? (
+        <p className="text-sm" data-testid="ops-caller-id-waiting">
+          <Badge tone="warning">Waiting</Badge> These go on the client's business profile, which
+          Twilio approves as part of the US texting registration above. Register once it's approved.
+        </p>
+      ) : (
+        <>
+          <dl className="mb-4 grid grid-cols-1 gap-2 text-sm sm:grid-cols-[180px_minmax(0,1fr)]">
+            <dt className="text-ink-muted">Signed calls</dt>
+            <dd>
+              <Badge tone={shaken.tone} testId="ops-shaken-status">
+                {shaken.label}
+              </Badge>
+            </dd>
+            <dt className="text-ink-muted">Caller name</dt>
+            <dd>
+              <Badge tone={cnam.tone} testId="ops-cnam-status">
+                {cnam.label}
+              </Badge>
+              {calling.displayName ? ` ${calling.displayName}` : null}
+            </dd>
+            {started ? (
+              <>
+                <dt className="text-ink-muted">Numbers covered</dt>
+                <dd data-testid="ops-caller-id-covered">
+                  {calling.numbersCovered.length} of {voiceNumbers.length}
+                  {calling.numbersCovered.length < voiceNumbers.length
+                    ? ". The rest are added within the hour."
+                    : ""}
+                </dd>
+              </>
+            ) : null}
+          </dl>
+          {issues.length > 0 || calling.error ? (
+            <ul role="alert" className="ds-error mb-4 text-sm" data-testid="ops-caller-id-issues">
+              {calling.error ? <li>{calling.error}</li> : null}
+              {issues.map((i) => (
+                <li key={i}>{i}</li>
+              ))}
+            </ul>
+          ) : null}
+          <form
+            className="flex flex-wrap items-end gap-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void act(() =>
+                api.call(apiRoutes.opsTwilioCalling, {
+                  params: { id: clientId },
+                  body: { displayName: name.trim() },
+                }),
+              );
+            }}
+          >
+            <Field label="Caller name" className="w-64">
+              <TextInput
+                value={name}
+                maxLength={15}
+                onChange={(e) => setName(e.target.value)}
+                data-testid="ops-cnam-name"
+              />
+            </Field>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={busy || name.trim() === ""}
+              data-testid="ops-caller-id-register"
+            >
+              {started ? "Send again" : "Register"}
+            </Button>
+            {started ? (
+              <Button
+                disabled={busy}
+                onClick={() =>
+                  void act(() =>
+                    api.call(apiRoutes.opsTwilioCallingRefresh, { params: { id: clientId } }),
+                  )
+                }
+                data-testid="ops-caller-id-refresh"
+              >
+                Check status
+              </Button>
+            ) : null}
+          </form>
+        </>
+      )}
     </Card>
   );
 }

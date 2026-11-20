@@ -1,7 +1,7 @@
 // What ran, as rows (ARCHITECTURE §5.3, §13): runs, step runs with cost and tokens written as each
 // model call returns, and tool calls. Each write is one short client-scoped transaction.
 
-import { readApproverRuleSet } from "@countersign/core";
+import { readApproverRuleSet, redactCardNumbersDeep } from "@countersign/core";
 import {
   agent,
   type Db,
@@ -241,7 +241,9 @@ export function dbRunLog(db: Db): RunLog {
             tenantId,
             stepRunId: input.stepRunId,
             tool: input.tool,
-            input: input.input as Record<string, unknown>,
+            // Card numbers are never stored (invariant 14): a call's input and output are its log,
+            // never read back to run anything, so they keep `[card ending 1234]` (SEC-9).
+            input: redactCardNumbersDeep(input.input) as Record<string, unknown>,
             status: "running",
           })
           .returning({ id: toolCall.id });
@@ -256,7 +258,7 @@ export function dbRunLog(db: Db): RunLog {
           .update(toolCall)
           .set({
             status: result.status,
-            output: (result.output ?? null) as Record<string, unknown> | null,
+            output: redactCardNumbersDeep(result.output ?? null) as Record<string, unknown> | null,
             durationMs: result.durationMs,
             externalActionId: result.externalActionId ?? null,
           })

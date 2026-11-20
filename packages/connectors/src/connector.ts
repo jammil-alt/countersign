@@ -127,6 +127,11 @@ export interface ConnectionContext {
    * signed-in browser), closed by the runtime when the run ends. Absent: each call stands alone.
    */
   sessions?: RunSessions | undefined;
+  /**
+   * docs/plan.md §1.160: the client agent the call is made for, when there is one. A messaging
+   * connector sends from that agent's own number when it has one, else the account's.
+   */
+  agentId?: string | undefined;
 }
 
 export type ToolContext = ConnectionContext;

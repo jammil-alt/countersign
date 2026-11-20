@@ -137,7 +137,10 @@ export function fakeTwilio(opts: { now?: () => Date } = {}) {
   const now = opts.now ?? (() => new Date());
   let counter = 1;
   const next = () => counter++;
-  const accounts = new Map<string, { token: string; parent: string | null; name: string }>([
+  const accounts = new Map<
+    string,
+    { token: string; parent: string | null; name: string; status?: "active" | "closed" }
+  >([
     [
       FAKE_TWILIO_MAIN.accountSid,
       { token: FAKE_TWILIO_MAIN.authToken, parent: null, name: "Mezonas" },
@@ -168,7 +171,9 @@ export function fakeTwilio(opts: { now?: () => Date } = {}) {
       decoded.slice(0, decoded.indexOf(":")),
       decoded.slice(decoded.indexOf(":") + 1),
     ];
-    return accounts.get(sid)?.token === token ? sid : null;
+    const a = accounts.get(sid);
+    // A closed account's credentials no longer work.
+    return a?.token === token && a.status !== "closed" ? sid : null;
   }
 
   const mayActOn = (caller: string, target: string) =>
@@ -288,8 +293,21 @@ export function fakeTwilio(opts: { now?: () => Date } = {}) {
         sid: acc[1],
         auth_token: a.token,
         friendly_name: a.name,
-        status: "active",
+        status: a.status ?? "active",
       });
+    }
+    // §1.160: closing a subaccount, by its parent only. Closed is final; its numbers go with it.
+    if (acc?.[1] && method === "POST") {
+      const a = accounts.get(acc[1]);
+      if (!a || a.parent !== caller) return json(404, { code: 20404, message: "not found" });
+      if (a.status === "closed") {
+        return json(400, { code: 20005, message: "a closed account can't be changed" });
+      }
+      if (form.Status === "closed") {
+        a.status = "closed";
+        for (const [sid, n] of numbers) if (n.account_sid === acc[1]) numbers.delete(sid);
+      }
+      return json(200, { sid: acc[1], friendly_name: a.name, status: a.status ?? "active" });
     }
     const m = path.match(/^\/Accounts\/(AC[0-9a-f]{32})(\/.*)$/);
     if (!m?.[1] || !m[2]) return json(404, { code: 20404, message: "not found" });

@@ -2,6 +2,7 @@ import {
   A2pRegistration,
   type A2pStatus,
   type AvailableNumber,
+  CallingRegistration,
   inWhatsAppWindow,
   isNanpNumber,
   type JsonObject,
@@ -10,6 +11,7 @@ import {
   type MessagingChannel,
   needsIntroduction,
   normalizePhone,
+  numberFor,
   RELEASE_TEXT_PREFIXES,
   type StoredMedia,
   sendBlockMessage,
@@ -34,6 +36,7 @@ import {
   type ToolContext,
   UnconfirmedWriteError,
   type WriteContext,
+  writeNotMade,
 } from "../connector";
 import { requireCredentials } from "../credentials-accessor";
 import { type FetchLike, globalFetch } from "../http";
@@ -109,6 +112,8 @@ export const TWILIO_MESSAGE_ENTITY = "Message";
 export const TWILIO_STATUS_ENTITY = "MessageStatus";
 /** A send started (by the action's key), recorded before Twilio is called: our own fact. */
 export const TWILIO_ATTEMPT_ENTITY = "MessageAttempt";
+/** PLATFORM_QA INTEG-6: a started send the provider refused (it answered and sent nothing). */
+export const TWILIO_ATTEMPT_REFUSED_ENTITY = "MessageAttemptRefused";
 
 // ── What is stored ───────────────────────────────────────────────────────────────────────────────
 
@@ -129,6 +134,15 @@ export const TwilioConfig = z.looseObject({
   /** Where Twilio sends this client's inbound messages and delivery status. */
   webhooks: z.object({ messages: z.string(), status: z.string() }),
   provisionedAt: z.string(),
+  /**
+   * §1.160: when the subaccount was closed and its numbers released (a retired client). Absent
+   * while it is open. Closed is final: the client can't be reconnected to it.
+   */
+  closedAt: z.string().optional(),
+  /** §1.160: calls that carry the client's name (SHAKEN/STIR and CNAM); absent until asked. */
+  calling: CallingRegistration.optional(),
+  /** The last try at closing that Twilio refused, so the hourly pass tries again. */
+  closeError: z.object({ at: z.string(), message: z.string() }).optional(),
 });
 export type TwilioConfig = z.infer<typeof TwilioConfig>;
 
@@ -292,13 +306,35 @@ export async function releaseNumber(
   fetch: FetchLike,
   auth: TwilioAuth,
   sid: string,
+  /** The account the number is in, when `auth` is the main account acting on a subaccount. */
+  accountSid: string = auth.accountSid,
 ): Promise<void> {
   await twilioRequest(
     fetch,
     auth,
     "DELETE",
-    `${accountUrl(auth.accountSid)}/IncomingPhoneNumbers/${sid}.json`,
+    `${accountUrl(accountSid)}/IncomingPhoneNumbers/${sid}.json`,
   );
+}
+
+/**
+ * Closes a client's subaccount for good, with the main account (§1.160, a retired client). A
+ * closed subaccount can't be reopened; Twilio stops billing it. Its numbers are released first
+ * (`releaseNumber`), one by one, so each release is ours to record.
+ */
+export async function closeSubaccount(
+  fetch: FetchLike,
+  main: TwilioAuth,
+  sid: string,
+): Promise<void> {
+  await twilioRequest(fetch, main, "POST", `${accountUrl(sid)}.json`, {
+    form: { Status: "closed" },
+  });
+}
+
+/** A Twilio answer that the thing asked for isn't there (already released, already closed). */
+export function isTwilioNotFound(error: unknown): boolean {
+  return error instanceof TwilioError && (error.status === 404 || error.code === 20404);
 }
 
 /** A2P 10DLC: approved only when the brand is approved and the campaign verified. */
@@ -493,7 +529,8 @@ export function agentVisibleText(body: string): string {
 /** The client's number that can text a release code now, or null (then the code goes by email). */
 export function releaseTextSender(config: TwilioConfig | null): string | null {
   if (!config) return null;
-  const n = config.numbers.find((x) => x.capabilities.sms);
+  // §1.160: the account's number, never an agent's own line.
+  const n = numberFor(config.numbers, "sms");
   if (!n) return null;
   // US texts need A2P 10DLC approved, as for any send.
   if (isNanpNumber(n.phoneNumber) && config.a2p.status !== "approved") return null;
@@ -577,9 +614,13 @@ function configOf(ctx: ToolContext): TwilioConfig {
   return c;
 }
 
-/** The client's number that sends on this channel. */
-function senderFor(config: TwilioConfig, channel: MessagingChannel): string {
-  const n = config.numbers.find((x) => (channel === "sms" ? x.capabilities.sms : x.whatsapp));
+/** The client's number that sends on this channel: the agent's own line, else the account's. */
+export function senderFor(
+  config: TwilioConfig,
+  channel: MessagingChannel,
+  agentId?: string | null,
+): string {
+  const n = numberFor(config.numbers, channel, agentId);
   if (!n) {
     throw new SendBlockedError(
       "no_sender",
@@ -619,7 +660,7 @@ async function checkSend(
   client: string | undefined;
 }> {
   const config = configOf(ctx);
-  const from = senderFor(config, channel);
+  const from = senderFor(config, channel, ctx.agentId);
   if (channel === "sms" && isNanpNumber(from) && config.a2p.status !== "approved") {
     throw new SendBlockedError("a2p_pending", sendBlockMessage("a2p_pending"));
   }
@@ -814,9 +855,10 @@ async function send(
   // stop every message not yet sent (docs/plan.md §1.22).
   const already = await services.sentFor(ctx.idempotencyKey);
   if (already) return sentOutput(already);
-  // Started but never recorded: Twilio may have it. Look for it rather than send again.
+  // Started but never recorded: Twilio may have it. Look for it rather than send again. A try
+  // Twilio refused (it answered, and sent nothing) is sent again under the next try's number.
   const attempt = await services.attemptFor(ctx.idempotencyKey);
-  if (attempt) return reconcile(fetch, ctx, services, attempt);
+  if (attempt && !attempt.refused) return reconcile(fetch, ctx, services, attempt);
 
   const checked = await checkSend(ctx, input.channel, input.to, { forSending: true });
   const { contact, from, lastInboundAt } = checked;
@@ -869,7 +911,11 @@ async function send(
   // attempt is recorded, with its time, before Twilio is called. A re-run that finds an attempt
   // and no message never sends again: it adopts the one matching message Twilio lists, or fails
   // the action for the operator to check (`reconcile`, docs/plan.md §1.22).
+  // DECISION: a try Twilio answered with a 4xx (a 20429 rate limit, a refused number) made no
+  // message: it is recorded as refused, so the run's retry sends under the next try's number
+  // instead of failing as unconfirmed (PLATFORM_QA INTEG-6, as Gmail's `refuseAttempt`).
   const startedAt = ctx.now();
+  const tryNumber = attempt ? (attempt.attempt ?? 1) + 1 : 1;
   await services.startAttempt({
     idempotencyKey: ctx.idempotencyKey,
     connectionId: ctx.connection.id,
@@ -881,14 +927,35 @@ async function send(
     text,
     templateId,
     startedAt,
+    attempt: tryNumber,
   });
   ctx.logger.info("sending a message", { channel: input.channel });
-  const created = MessageCreated.parse(
-    await twilioRequest(fetch, auth, "POST", `${accountUrl(auth.accountSid)}/Messages.json`, {
-      form,
-      ...(media.length ? { repeated: { name: "MediaUrl", values: media.map((m) => m.url) } } : {}),
-    }),
-  );
+  let answer: unknown;
+  try {
+    answer = await twilioRequest(
+      fetch,
+      auth,
+      "POST",
+      `${accountUrl(auth.accountSid)}/Messages.json`,
+      {
+        form,
+        ...(media.length
+          ? { repeated: { name: "MediaUrl", values: media.map((m) => m.url) } }
+          : {}),
+      },
+    );
+  } catch (error) {
+    if (writeNotMade(error)) {
+      await services.refuseAttempt?.({
+        idempotencyKey: ctx.idempotencyKey,
+        attempt: tryNumber,
+        reason: `HTTP_${(error as TwilioError).status}`,
+        at: ctx.now(),
+      });
+    }
+    throw error;
+  }
+  const created = MessageCreated.parse(answer);
   const status = created.status ?? "queued";
   await services.recordOutbound({
     connectionId: ctx.connection.id,

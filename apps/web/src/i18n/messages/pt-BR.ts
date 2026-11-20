@@ -423,6 +423,8 @@ export const ptBR: Messages = {
   "desk.form.required": "obrigatória", // fluent review
   "desk.editHint": "Mude o que precisar e salve. Verificamos de novo antes de você aprovar.",
   "desk.editSave": "Salvar alterações",
+  "desk.edit.number": "Digite um número, por exemplo 1200.",
+  "desk.edit.money": "Digite um valor, por exemplo 1200.",
   "desk.snooze.until": "Trazer de volta",
   "desk.snooze.later": "Mais tarde hoje",
   "desk.snooze.tomorrow": "Amanhã às 8:00",
@@ -765,6 +767,10 @@ export const ptBR: Messages = {
   "vault.browser.authenticatorHint":
     "O link otpauth:// que o site mostra quando você ativa um app autenticador para a conta do agente.",
   "vault.browser.setUp": "Configurar",
+  "vault.browser.setupFailed":
+    "Não conseguimos configurar este acesso agora. Tente de novo em alguns minutos.",
+  "vault.browser.badLink":
+    "Não conseguimos usar esse link de configuração. Copie de novo no site e cole aqui.",
   "vault.browser.identity": "E-mail da conta do agente",
   "vault.browser.identityPhone": "Telefone da conta do agente",
   "vault.browser.identityHint":
@@ -1585,6 +1591,18 @@ export const ptBR: Messages = {
   "billing.priceForDays": { one: "{price} por {count} dia", other: "{price} por {count} dias" },
   "billing.daysOf": "{days} de {total} dias",
   "billing.includedPrice": "Incluído",
+  "line.ask": "Pedir um número próprio",
+  "line.help":
+    "Um número próprio permite que sua equipe envie mensagens e ligue para {name} diretamente. {price} por mês.",
+  "line.confirm":
+    "Vamos comprar um número para {name} e adicionar {price} por mês à sua fatura a partir do dia em que estiver configurado.",
+  "line.confirmButton": "Pedir para nós",
+  "line.asked": "Pedido enviado. Avisaremos aqui quando estiver configurado.",
+  "line.seeRequest": "Ver o pedido",
+  "line.subject": "Um número de telefone para {name}",
+  "line.text":
+    "Por favor, deem a {name} um número de telefone próprio, a {price} por mês, para que nossa equipe possa enviar mensagens e ligar diretamente.",
+  "billing.phoneLine": "Linha telefônica {number}",
   "billing.extraUsage": "Uso adicional",
   "billing.extraUsageDetail":
     "{credits} além dos {included} incluídos ({used} usados), {price} cada",
@@ -3270,6 +3288,8 @@ export const ptBR: Messages = {
   "start.adminConnects": "Quem conecta as ferramentas é o seu admin.",
   "start.cantConnect": "Não consigo conectar agora",
   "start.answered": "Respondida",
+  "start.invalid.number": "Não conseguimos ler isto como um número. Escreva assim: 340.",
+  "start.invalid.money": "Não conseguimos ler isto como um valor. Escreva assim: 12500.",
   "start.choose": "Escolher…",
   "start.files.added": { one: "1 arquivo adicionado", other: "{count} arquivos adicionados" },
   "start.setup.title": "Configure seus agentes",

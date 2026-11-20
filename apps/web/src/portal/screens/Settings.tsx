@@ -416,9 +416,10 @@ function WhoApproves() {
  * Your notifications and, for the admin, the team's emails.
  */
 // DECISION (QA round 1): hidden until we send these emails (`emailsOn`), so no "we don't send these
-// yet" and no Save for nothing.
+// yet" and no Save for nothing. PLATFORM_QA FLOW-8: a load that failed says so, with a retry.
 function NotificationsPart({ isAdmin }: { isAdmin: boolean }) {
   const mine = useApi(apiRoutes.portalMyNotifications);
+  if (mine.error && !mine.data) return <ErrorNotice error={mine.error} onRetry={mine.reload} />;
   if (mine.data?.emailsOn !== true) return null;
   return (
     <>

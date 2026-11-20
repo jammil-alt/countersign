@@ -3,20 +3,36 @@
 // way `matchLine` always has (`recordVerdict`: an item_match row with the agent version, a new item
 // when it is one, the vendor's `auto` aliases, the line's event). No model is called here.
 
-import { type Db, docExtraction, docLine, withTenant } from "@countersign/db";
+import { type Db, docExtraction, docLine, type Tx, withTenant } from "@countersign/db";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { materialsEventRegistry } from "../events";
-import { parseNormalized } from "./keys";
-import { MatchError, type MatchLineResult, prepare, recordVerdict, type Verdict } from "./match";
+import type { Category } from "../schema";
+import { parseNormalized, scorePair } from "./keys";
+import {
+  MatchError,
+  type MatchLineResult,
+  type Prepared,
+  prepare,
+  recordVerdict,
+  type Verdict,
+} from "./match";
 import {
   type CandidateItem,
   type CheckedLine,
   decideByRules,
   type LookedUpLine,
   thresholdOf,
+  VETOED_CONFIDENCE,
   withModelReading,
 } from "./split";
-import { findAlias, findCandidates, latestMatch, liveItem, skuContradicts } from "./store";
+import {
+  type CatalogItemRow,
+  findAlias,
+  findCandidates,
+  latestMatch,
+  liveItem,
+  skuContradicts,
+} from "./store";
 
 export interface LookupResult {
   documentId: string;
@@ -139,6 +155,38 @@ export async function lookupDocument(
   });
 }
 
+/**
+ * The key attribute that vetoes recording `item` as the line's match, or null (PLATFORM_QA AI-5,
+ * invariant 7). Save to records holds the hard rule itself, whoever sent the decision (Check
+ * matches, or a model's answer wired straight in): the vendor's own alias for the line, found
+ * again here and not taken from the input, settles it as Look up existing does; anything else
+ * must not differ from the item on a key attribute (the category included).
+ */
+// DECISION: the veto re-runs on every "matched" Save to records receives, not only the model's:
+// the input's method is the caller's word. A line Check matches let through passes it unchanged.
+export async function vetoOf(
+  tx: Tx,
+  tenantId: string,
+  prepared: Prepared,
+  parsed: { category: Category; attributes: Record<string, string> },
+  item: CatalogItemRow,
+): Promise<string | null> {
+  const alias = await findAlias(tx, tenantId, {
+    vendorId: prepared.vendorId,
+    vendorSku: prepared.line.sku,
+    taughtSku: prepared.line.taughtSku,
+    descriptionHash: prepared.line.hash,
+  });
+  if (alias && alias.item.id === item.id) {
+    return alias.via === "sku" ? skuContradicts(tx, tenantId, parsed, item) : null;
+  }
+  const s = scorePair(parsed, {
+    category: item.category,
+    attributes: item.attributes as Record<string, string>,
+  });
+  return s.comparison.differ[0] ?? null;
+}
+
 export interface RecordMatchesInput {
   tenantId: string;
   agentVersionId: string;
@@ -211,13 +259,22 @@ export async function recordMatches(
       if (line.decision === "matched" && !item) {
         throw new MatchError("not_found", `catalog item ${line.catalogItemId} not found`);
       }
-      const verdict: Verdict = {
-        decision: line.decision,
-        item,
-        confidence: line.confidence,
-        method: line.method === "recalled" ? "rules" : line.method,
-        hinge: line.hingeAttribute,
-      };
+      const veto = item ? await vetoOf(tx, input.tenantId, prepared, parsed, item) : null;
+      const verdict: Verdict = veto
+        ? {
+            decision: "unsure",
+            item: null,
+            confidence: Math.min(line.confidence, VETOED_CONFIDENCE),
+            method: line.method === "recalled" ? "rules" : line.method,
+            hinge: veto,
+          }
+        : {
+            decision: line.decision,
+            item,
+            confidence: line.confidence,
+            method: line.method === "recalled" ? "rules" : line.method,
+            hinge: line.hingeAttribute,
+          };
       const r = await recordVerdict(
         tx,
         {

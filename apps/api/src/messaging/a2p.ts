@@ -78,6 +78,7 @@ import type { Bindings } from "../env";
 import { HttpError } from "../http";
 import { reportHandled } from "../observability/report";
 import { connectionCredentials } from "../secrets";
+import { followCalling } from "./calling";
 
 type ConnectionRow = typeof connection.$inferSelect;
 type Secrets = Pick<Bindings, "ENCRYPTION_KEY" | "ENCRYPTION_KEY_PREVIOUS">;
@@ -976,12 +977,31 @@ export async function a2pCronTick(
         const row = await twilioConnectionOf(tx, client.id);
         const config = row ? readTwilioConfig(row.config) : null;
         if (!row || !config || row.status !== "connected") return;
-        if (!FOLLOWED.includes(registrationOf(config).stage)) return;
+        const texting = FOLLOWED.includes(registrationOf(config).stage);
+        const calling = Boolean(config.calling);
+        if (!texting && !calling) return;
         const auth = twilioCredentialsOf(
           await (await connectionCredentials(tx, deps.env, row)).get(),
         );
         if (!auth) return;
-        await pollRegistration(tx, deps.env, { row, config, auth, fetch: deps.fetch, now: at });
+        if (texting) {
+          await pollRegistration(tx, deps.env, { row, config, auth, fetch: deps.fetch, now: at });
+        }
+        // §1.160: the calls registration's review, and numbers bought since, the same hour.
+        if (calling) {
+          const [fresh] = await tx.select().from(connection).where(eq(connection.id, row.id));
+          const now = fresh ? readTwilioConfig(fresh.config) : null;
+          if (fresh && now) {
+            await followCalling(tx, {
+              row: fresh,
+              config: now,
+              auth,
+              fetch: deps.fetch,
+              actorId: null,
+              now: at,
+            });
+          }
+        }
         passes++;
       });
     } catch (error) {
