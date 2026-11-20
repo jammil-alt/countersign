@@ -10,6 +10,8 @@
 import type {
   AnyAgentBundle,
   AnyAutomationDefinition,
+  ConnectionSettings,
+  MezonasMay,
   PermissionMatrix,
   processes,
   SkillDefinition,
@@ -44,6 +46,17 @@ import {
 
 export const MEMBERSHIP_ROLES = ["operator", "client_admin", "client_user"] as const;
 export const CONNECTION_STATUSES = ["pending", "connected", "disconnected", "error"] as const;
+/** Connectors C3 (docs/plan.md §1.157): core's CONNECTION_CHANGE_REQUEST_STATUSES. */
+export const CONNECTION_CHANGE_REQUEST_STATUSES = [
+  "open",
+  "approved",
+  "declined",
+  "replaced",
+  "expired",
+  "withdrawn",
+] as const;
+/** Connectors C3: core's MEZONAS_MAY_CHOICES (Changes by Mezonas, beside "Ask me each time"). */
+export const MEZONAS_MAY_CHOICES = ["needs", "any"] as const;
 export const EXTERNAL_ACTION_STATUSES = [
   "proposed",
   "approved",
@@ -825,6 +838,11 @@ export const connection = pgTable(
     lastSyncAt: ts("last_sync_at"),
     syncCursor: json("sync_cursor"),
     connectedBy: uuid("connected_by").references(() => appUser.id),
+    /**
+     * Connectors C3 (docs/connectors-plan.md §7.2): Changes by Mezonas, the client admin's standing
+     * say over our changes to this connection (core's `MezonasMay`). Null: Ask me each time.
+     */
+    mezonasMay: json<MezonasMay>("mezonas_may"),
     createdAt: createdAt(),
     updatedAt: ts("updated_at")
       .notNull()
@@ -835,6 +853,12 @@ export const connection = pgTable(
     unique("connection_id_tenant_key").on(t.id, t.tenantId),
     index("connection_tenant_idx").on(t.tenantId),
     check("connection_status_check", oneOf(t.status, CONNECTION_STATUSES)),
+    check(
+      "connection_mezonas_may_check",
+      sql`${t.mezonasMay} is null or (jsonb_typeof(${t.mezonasMay}) = 'object'
+        and ${t.mezonasMay}->>'choice' in ('needs', 'any')
+        and ${t.mezonasMay} ? 'until' and ${t.mezonasMay} ? 'setBy' and ${t.mezonasMay} ? 'setAt')`,
+    ),
   ],
 );
 
@@ -847,7 +871,13 @@ export const connectionChange = pgTable(
     connectionId: uuid("connection_id").notNull(),
     /** Null for the system. */
     actorId: uuid("actor_id").references(() => appUser.id),
+    /**
+     * What changed. Connectors C3: a change made under Changes by Mezonas carries the
+     * authorization it used in here (`authorization`, core's `MezonasMay`).
+     */
     change: json("change").notNull(),
+    /** Connectors C3: the change request this change applied, when a client admin approved one. */
+    requestId: uuid("request_id"),
     createdAt: createdAt(),
   },
   (t) => [
@@ -856,8 +886,85 @@ export const connectionChange = pgTable(
       columns: [t.connectionId, t.tenantId],
       foreignColumns: [connection.id, connection.tenantId],
     }),
+    foreignKey({
+      name: "connection_change_request_fk",
+      columns: [t.requestId, t.tenantId],
+      foreignColumns: [connectionChangeRequest.id, connectionChangeRequest.tenantId],
+    }),
     index("connection_change_connection_idx").on(t.connectionId, t.createdAt),
     index("connection_change_tenant_idx").on(t.tenantId),
+  ],
+);
+
+/**
+ * Connectors C3 (docs/connectors-plan.md §7.1): our ask to change a client's connection in a way
+ * that gives agents more. Nothing changes until a client admin approves; approving applies exactly
+ * `proposed` as one `connection_change` naming this request, and is refused once the connection's
+ * settings are no longer `against` (Out of date). One open request per connection: a new one
+ * replaces it. Only its status and answer change (trigger); never deleted.
+ */
+export const connectionChangeRequest = pgTable(
+  "connection_change_request",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    connectionId: uuid("connection_id").notNull(),
+    status: text("status")
+      .$type<(typeof CONNECTION_CHANGE_REQUEST_STATUSES)[number]>()
+      .notNull()
+      .default("open"),
+    /** The connection's settings when we asked (core's `ConnectionSettings`). */
+    against: json<ConnectionSettings>("against").notNull(),
+    /** What approving sets (core's `ConnectionSettings`). */
+    proposed: json<ConnectionSettings>("proposed").notNull(),
+    /** Why, in our words; shown to the client. */
+    reason: text("reason").notNull(),
+    /** The operator who asked. */
+    requestedBy: uuid("requested_by")
+      .notNull()
+      .references(() => appUser.id),
+    /** The agent it is for, when it comes from an agent's needs. */
+    forAgentId: uuid("for_agent_id"),
+    expiresAt: ts("expires_at").notNull(),
+    /** When it stopped being open, and who ended it (null when it expired or was replaced). */
+    closedAt: ts("closed_at"),
+    closedBy: uuid("closed_by").references(() => appUser.id),
+    /** The client admin's note back, on approving or declining. */
+    answerNote: text("answer_note"),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("connection_change_request_id_tenant_key").on(t.id, t.tenantId),
+    foreignKey({
+      name: "connection_change_request_connection_fk",
+      columns: [t.connectionId, t.tenantId],
+      foreignColumns: [connection.id, connection.tenantId],
+    }),
+    foreignKey({
+      name: "connection_change_request_agent_fk",
+      columns: [t.forAgentId, t.tenantId],
+      foreignColumns: [agent.id, agent.tenantId],
+    }),
+    uniqueIndex("connection_change_request_open_key")
+      .on(t.connectionId)
+      .where(sql`${t.status} = 'open'`),
+    index("connection_change_request_tenant_idx").on(t.tenantId, t.status, t.createdAt),
+    check(
+      "connection_change_request_status_check",
+      oneOf(t.status, CONNECTION_CHANGE_REQUEST_STATUSES),
+    ),
+    check("connection_change_request_reason_check", sql`length(${t.reason}) between 1 and 1000`),
+    check(
+      "connection_change_request_note_check",
+      sql`${t.answerNote} is null or length(${t.answerNote}) <= 1000`,
+    ),
+    check("connection_change_request_expiry_check", sql`${t.expiresAt} > ${t.createdAt}`),
+    check(
+      "connection_change_request_closed_check",
+      sql`(${t.status} = 'open') = (${t.closedAt} is null)
+        and (${t.status} not in ('approved', 'declined', 'withdrawn') or ${t.closedBy} is not null)
+        and (${t.answerNote} is null or ${t.status} in ('approved', 'declined'))`,
+    ),
   ],
 );
 
@@ -3938,6 +4045,13 @@ export const connectorSetting = pgTable(
     status: text("status").$type<ConnectorStatus>().notNull(),
     /** A matrix with entities (core's `PermissionMatrix`); null: the manifest's, else the platform's. */
     defaultPermissions: json<PermissionMatrix>("default_permissions"),
+    /**
+     * Connectors C3 (docs/connectors-plan.md §6): a connector built for some clients only. Null: every
+     * client; else it is shown, offered and bindable only for these. Clearing it promotes it.
+     */
+    // DECISION: no foreign key (Postgres has none for array elements). A purged client's id stays
+    // and matches no client, since ids are never reused.
+    clients: uuid("clients").array(),
     note: text("note").notNull().default(""),
     updatedBy: uuid("updated_by").references(() => appUser.id),
     updatedAt: ts("updated_at")
@@ -3948,6 +4062,10 @@ export const connectorSetting = pgTable(
   (t) => [
     check("connector_setting_status_check", oneOf(t.status, CONNECTOR_STATUSES)),
     check("connector_setting_connector_check", sql`length(${t.connector}) between 1 and 64`),
+    check(
+      "connector_setting_clients_check",
+      sql`${t.clients} is null or cardinality(${t.clients}) between 1 and 200`,
+    ),
   ],
 );
 
@@ -5905,6 +6023,8 @@ export const TENANT_TABLES = [
   "membership",
   "connection",
   "connection_change",
+  // Connectors C3 (0069): our requests to change a client's connection.
+  "connection_change_request",
   "raw_record",
   "external_action",
   "tenant_pack",

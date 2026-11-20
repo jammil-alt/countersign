@@ -290,6 +290,8 @@ export * from "./schemas/approval";
 // v0.12 W2-B
 export * from "./schemas/automation";
 export * from "./schemas/common";
+// Connectors C3: change requests and Changes by Mezonas (docs/plan.md §1.157)
+export * from "./schemas/connection-requests";
 export * from "./schemas/connector";
 // v0.14 capture
 export * from "./schemas/conversation";

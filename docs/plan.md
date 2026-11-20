@@ -5943,6 +5943,21 @@ client may authorize them in advance per connector (§7.2). It is built in six s
 | Gaps | Per connector: not connected, broken, not bound, off on the connection, a scope that leaves the tool out, off in the agent's grant, and could run alone. Levels come from the gate's own `effectiveLevel`, so no blocking gap means no call is refused. With no agent yet (a template checked against a client), any connection of the connector counts and binding isn't asked. // DECISION |
 | Allowing what an agent needs | Rows open at their least level (reads on, writes Needs approval), never On its own. Where a verb is off for the whole connection, the verb opens and each other declared record type of that verb is pinned off; a tool of that connector with no record type opens with the verb, since the matrix has nothing finer. A scope that leaves the tool out, and delete, stay unresolved for a person. // DECISION |
 
+
+**C3, the migration (0069, alone).** What C4 stores, and nothing else: no route reads it yet.
+Numbered 0069 because two open branches hold 0068. Core gains the stored shapes
+(`schemas/connection-requests.ts`: the request statuses, `ConnectionSettings`, `MezonasMay`, the
+14 days).
+
+| Topic | Decision |
+|---|---|
+| A change request | `connection_change_request`, a tenant table with forced RLS like every other. It keeps `against` and `proposed` as whole settings (the matrix and the tool's setup), not row diffs: approving sets `proposed`, and it is Out of date when the connection's settings are no longer `against`. The rows shown to the client are their diff. `reason` is required, `for_agent_id` optional. // DECISION |
+| Its life | Statuses open, approved, declined, replaced, expired, withdrawn. `closed_at` is set exactly when it leaves open; approved, declined and withdrawn name who (`closed_by`); only an answer carries a note. One open request per connection (a partial unique index). Only the status and answer columns may change (trigger); nothing is deleted (no grant, and the trigger). `expires_at` is stored, set by the API. // DECISION |
+| Changes by Mezonas | `connection.mezonas_may`, one jsonb (`choice`, `until`, `setBy`, `setAt`), null for Ask me each time; a check holds its shape. Each change to it is a `connection_change`. // DECISION |
+| The history | `connection_change.request_id` names the request a change applied (a foreign key within the client). A change made under Changes by Mezonas carries the authorization in its `change` JSON rather than a column: it is a snapshot read with the change, never joined. // DECISION |
+| Custom connectors | `connector_setting.clients uuid[]`: null is every client, else one to 200 clients. No foreign key (arrays have none); a purged client's id stays and matches nothing, since ids are never reused. `connector_setting` stays operator-only; the portal reads it as today, through `readOperatorCatalogue`. // DECISION |
+| The previous Worker | A new table and nullable columns only. The DB fixture now inserts `connection` and `connection_change` by named columns, as `membership`, so the migration tests stopped at earlier migrations still seed. // DECISION |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

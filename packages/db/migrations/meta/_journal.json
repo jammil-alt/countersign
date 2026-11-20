@@ -463,6 +463,13 @@
       "when": 1795039612358,
       "tag": "0067_sign_in_approval",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1795189787909,
+      "tag": "0069_connector_requests",
+      "breakpoints": true
     }
   ]
 }
