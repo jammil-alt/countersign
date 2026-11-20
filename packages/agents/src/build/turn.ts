@@ -27,6 +27,8 @@ import {
   type FitGap,
   FitGapAnswer,
   PHASE_WORDS,
+  promptJson,
+  promptText,
   type TestPlan,
   TestPlan as TestPlanSchema,
 } from "@countersign/core";
@@ -248,39 +250,46 @@ export interface BuildTurnResult {
   costUsd: string | null;
 }
 
+/**
+ * The build's state, as data inside `<build>`. Invariant 9: every value in it (the brief, facts
+ * holding a try's document text or a client's rejection reasons, issue lines, the title) is
+ * escaped, text by `promptText` and JSON by `promptJson`, so nothing in it can close the block
+ * and speak after it as the operator.
+ */
 function stateBlock(input: BuildTurnInput): string {
+  const t = promptText;
   const brief = BRIEF_FIELDS.map((k) => {
     const f = input.brief[k];
-    return `- ${k} (${BRIEF_LABELS[k]}): ${f ? `[${f.state}] ${f.text || "(open)"}` : "(not asked)"}`;
+    return `- ${k} (${BRIEF_LABELS[k]}): ${f ? `[${f.state}] ${t(f.text) || "(open)"}` : "(not asked)"}`;
   }).join("\n");
   const lines = [
     `<build>`,
-    `Building: ${input.kind === "skill" ? "a skill" : "an agent"}, "${input.title}", ${input.clientName ? `for the client ${input.clientName}` : "for every client (a template)"}.`,
+    `Building: ${input.kind === "skill" ? "a skill" : "an agent"}, "${t(input.title)}", ${input.clientName ? `for the client ${t(input.clientName)}` : "for every client (a template)"}.`,
     `Phase: ${PHASE_WORDS[input.phase].label}. ${PHASE_WORDS[input.phase].closes}`,
     `Brief:\n${brief}`,
     input.fitgap.rows.length > 0
-      ? `Fit-gap:\n${JSON.stringify({ ...input.fitgap, decisions: undefined })}`
+      ? `Fit-gap:\n${promptJson({ ...input.fitgap, decisions: undefined })}`
       : null,
     (input.fitgap.decisions ?? []).length > 0
-      ? `Decisions (yours, with the operator's status):\n${(input.fitgap.decisions ?? []).map(decisionLine).join("\n")}`
+      ? `Decisions (yours, with the operator's status):\n${(input.fitgap.decisions ?? []).map((d) => t(decisionLine(d))).join("\n")}`
       : null,
-    input.testPlan.datasets.length > 0 ? `Test plan:\n${JSON.stringify(input.testPlan)}` : null,
-    input.issues.length > 0 ? `Issues:\n${input.issues.map((i) => `- ${i}`).join("\n")}` : null,
+    input.testPlan.datasets.length > 0 ? `Test plan:\n${promptJson(input.testPlan)}` : null,
+    input.issues.length > 0 ? `Issues:\n${input.issues.map((i) => `- ${t(i)}`).join("\n")}` : null,
     input.otherWork?.length
-      ? `Other work (other builds and their open issues):\n${input.otherWork.map((w) => `- ${w}`).join("\n")}`
+      ? `Other work (other builds and their open issues):\n${input.otherWork.map((w) => `- ${t(w)}`).join("\n")}`
       : null,
     input.focus
       ? [
-          `Talking about: ${input.focus.line}`,
+          `Talking about: ${t(input.focus.line)}`,
           input.focus.thread.length > 0
-            ? `What was said about it before:\n${input.focus.thread.map((m) => `- ${m.role === "operator" ? "Operator" : "You"}: ${m.text}`).join("\n")}`
+            ? `What was said about it before:\n${input.focus.thread.map((m) => `- ${m.role === "operator" ? "Operator" : "You"}: ${t(m.text)}`).join("\n")}`
             : null,
         ]
           .filter(Boolean)
           .join("\n")
       : null,
     input.facts.length > 0
-      ? `What we know now:\n${input.facts.map((f) => `- ${f}`).join("\n")}`
+      ? `What we know now:\n${input.facts.map((f) => `- ${t(f)}`).join("\n")}`
       : null,
     `</build>`,
   ];
@@ -495,7 +504,7 @@ export async function makeTestCases(
   const system = `${BUILD_RULES}
 
 You make synthetic test cases for a ${input.kind === "template" ? "template agent" : "skill"} from its test plan. The data is made up: never real people, companies, emails, phone numbers or account numbers (use example.com, 555 numbers, made-up names). Cover each dataset's cases once; at most ${BUILD_CASES_MAX} cases, fewer is better. Keep each input short: only the fields the draft reads. Expected outputs name only the fields that matter, so a case passes on the right answer however the rest is worded.`;
-  const first = `<target>\n${input.target}\n</target>\n\n<test_plan>\n${JSON.stringify({ datasets })}\n</test_plan>\n\nMake the test cases.`;
+  const first = `<target>\n${promptText(input.target)}\n</target>\n\n<test_plan>\n${promptJson({ datasets })}\n</test_plan>\n\nMake the test cases.`;
   const calls: LlmCallRecord[] = [];
   try {
     const res = await options.llm.callTool({

@@ -11,8 +11,13 @@ import type { TypingContext } from "../template/typer";
 /**
  * The ids of the draft's steps that write to a client's tool or reach people. A write step whose
  * tool isn't known here (an action resolved at run time, a tool from a pack not loaded) counts as
- * writing: never less strict than the draft.
+ * writing: never less strict than the draft. So does a skill step whose skill isn't known here.
  */
+// DECISION (CONS-4): a skill step the typing context doesn't know (a client's custom skill not
+// looked up, or one that no longer exists) counts as writing, as the validator's
+// `outputBeforeChecks` counts it and the executor reads its approval: the safe side. Callers pass
+// the client's custom skills (apps/api `draftWritingSteps`), so a known skill that writes nothing
+// and reaches nobody stays normal risk.
 export function writingStepIds(
   bundle: Pick<ProcessAgentBundle, "workflows">,
   typing: TypingContext,
@@ -22,7 +27,7 @@ export function writingStepIds(
     for (const { step } of allSteps(w.workflow)) {
       const writes = stepWrites(step, typing);
       if (
-        (step.kind === "write" && writes === undefined) ||
+        ((step.kind === "write" || step.kind === "skill") && writes === undefined) ||
         (writes?.length ?? 0) > 0 ||
         stepReaches(step, typing)
       ) {

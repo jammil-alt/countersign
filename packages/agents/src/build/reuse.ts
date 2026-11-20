@@ -15,6 +15,8 @@ import {
   type CodeRequestSpec,
   type PartType,
   processes,
+  promptJson,
+  promptText,
   REASON_MIN,
   type ReuseCandidate,
   type ReuseCheck,
@@ -301,16 +303,18 @@ export async function judgeCandidates(
     out: c.outputs,
     ...(c.partType === "request" ? { request: `DQ-${c.number}`, open: c.open } : {}),
   }));
+  // Invariant 9: what goes between the tags is escaped, so none of it can close them.
+  const t = promptText;
   const content = [
     "<request>",
-    `Title: ${input.title}`,
-    `Kind: ${input.kind}`,
-    `Summary: ${input.spec.summary || "(none)"}`,
-    `Inputs: ${input.spec.inputs.join("; ") || "(none)"}`,
-    `Outputs: ${input.spec.outputs.join("; ") || "(none)"}`,
-    input.spec.rules.length ? `Rules: ${input.spec.rules.join("; ")}` : null,
+    `Title: ${t(input.title)}`,
+    `Kind: ${t(input.kind)}`,
+    `Summary: ${t(input.spec.summary) || "(none)"}`,
+    `Inputs: ${t(input.spec.inputs.join("; ")) || "(none)"}`,
+    `Outputs: ${t(input.spec.outputs.join("; ")) || "(none)"}`,
+    input.spec.rules.length ? `Rules: ${t(input.spec.rules.join("; "))}` : null,
     "</request>",
-    `<candidates>\n${JSON.stringify(listed)}\n</candidates>`,
+    `<candidates>\n${promptJson(listed)}\n</candidates>`,
     "Judge each candidate.",
   ]
     .filter(Boolean)
