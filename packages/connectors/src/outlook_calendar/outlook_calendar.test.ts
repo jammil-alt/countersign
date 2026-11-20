@@ -380,20 +380,21 @@ describe("calendar.freebusy on Outlook", () => {
 describe("calendar.event.create on Outlook", () => {
   it("is behind approval by default", async () => {
     const { connector } = await setup();
-    expect(connector.manifest.defaultPermissions).toBeUndefined();
     const matrix = connectionDefaults(connector.manifest);
+    // It starts low risk (Connectors C2): adding is the one write it asks for; update waits for the operator.
     expect(matrix).toMatchObject({
       read: "auto",
       create: "approval",
-      update: "approval",
+      update: "off",
       delete: "off",
     });
     expect(DEFAULT_PERMISSIONS.create).toBe("approval");
-    for (const verb of ["create", "update"] as const) {
-      expect(decideToolCall({ sideEffect: "external", verb, matrix, agentMode: "act" })).toBe(
-        "approval",
-      );
-    }
+    expect(
+      decideToolCall({ sideEffect: "external", verb: "create", matrix, agentMode: "act" }),
+    ).toBe("approval");
+    expect(
+      decideToolCall({ sideEffect: "external", verb: "update", matrix, agentMode: "act" }),
+    ).toBe("refused");
     expect(
       decideToolCall({
         sideEffect: "external",

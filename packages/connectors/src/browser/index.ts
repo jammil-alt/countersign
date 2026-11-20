@@ -141,6 +141,8 @@ export function createBrowserConnector(options: BrowserConnectorOptions = {}): C
   };
   return defineConnector({
     id: BROWSER_CONNECTOR_ID,
+    // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
+    askFirst: [],
     name: "Website logins",
     description:
       "An agent signs in to a website we allow as its own agent account, reads pages and downloads files. We sign in, never the agent; it never sees the password or a code.",

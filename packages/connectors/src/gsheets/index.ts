@@ -751,6 +751,8 @@ export function createGsheetsConnector(options: GsheetsOptions = {}): GsheetsCon
 
   const connector = defineConnector({
     id: GSHEETS_CONNECTOR_ID,
+    // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
+    askFirst: [{ verb: "create", entity: "row" }],
     name: "Google Sheets",
     description:
       "Read and add rows in the Google Sheets you pick. We can open only the sheets you choose.",

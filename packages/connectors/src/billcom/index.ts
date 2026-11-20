@@ -524,6 +524,8 @@ export function createBillcomConnector(options: BillcomOptions = {}): Connector 
 
   return defineConnector({
     id: BILLCOM_CONNECTOR_ID,
+    // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
+    askFirst: [{ verb: "create", entity: "document" }],
     name: "BILL",
     description:
       "Vendors, bills and payments in your BILL (Bill.com). We sign in as a BILL user you make for us. Paying bills stays off.",
@@ -537,16 +539,9 @@ export function createBillcomConnector(options: BillcomOptions = {}): Connector 
       { id: "payment", label: "Payments", verbs: ["read", "create"] },
       { id: "document", label: "Bill documents", verbs: ["create"] },
     ],
-    // DECISION: payments start off, above the platform's defaults (approval on, delete off). Only
-    // the operator can turn them on, and then only to approval in effect: the tool is always
-    // signed by a person (`approval: "always"`), and refused until the MFA path exists.
-    defaultPermissions: {
-      read: "auto",
-      create: "approval",
-      update: "approval",
-      delete: "off",
-      entities: { payment: { create: "off" } },
-    },
+    // DECISION: payments start off with every other write but attaching a document (Connectors
+    // C2). Only the operator can turn them on, and then only to approval in effect: the tool is
+    // always signed by a person (`approval: "always"`), and refused until the MFA path exists.
     isConfigured: () => Boolean(options.devKey),
     tools: [
       // ── Reads ──

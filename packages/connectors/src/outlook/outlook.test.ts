@@ -285,7 +285,11 @@ describe("outlook sign-in", () => {
 describe("outlook.send", () => {
   it("is behind approval by default (M29)", async () => {
     const { connector } = await setup();
-    expect(connector.manifest.defaultPermissions).toBeUndefined();
+    // It starts low risk (Connectors C2): this one write asks first, nothing else is on.
+    expect(connector.manifest.defaultPermissions).toMatchObject({
+      create: "approval",
+      update: "off",
+    });
     const matrix = connectionDefaults(connector.manifest);
     expect(matrix).toMatchObject({ create: "approval", delete: "off" });
     expect(DEFAULT_PERMISSIONS.create).toBe("approval");

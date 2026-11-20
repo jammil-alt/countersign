@@ -226,7 +226,11 @@ describe("slack channels", () => {
 describe("slack.message.post", () => {
   it("is behind approval by default, also with an auto matrix in act mode", async () => {
     const { connector } = await setup();
-    expect(connector.manifest.defaultPermissions).toBeUndefined();
+    // It starts low risk (Connectors C2): this one write asks first, nothing else is on.
+    expect(connector.manifest.defaultPermissions).toMatchObject({
+      create: "approval",
+      update: "off",
+    });
     const spec = connector.manifest.tools.find((t) => t.id === SLACK_POST_TOOL);
     expect(spec).toMatchObject({ sideEffect: "external", verb: "create", entity: "message" });
     expect(connector.manifest.tools).toHaveLength(1);

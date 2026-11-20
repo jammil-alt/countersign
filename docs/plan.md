@@ -5958,6 +5958,19 @@ Numbered 0069 because two open branches hold 0068. Core gains the stored shapes
 | Custom connectors | `connector_setting.clients uuid[]`: null is every client, else one to 200 clients. No foreign key (arrays have none); a purged client's id stays and matches nothing, since ids are never reused. `connector_setting` stays operator-only; the portal reads it as today, through `readOperatorCatalogue`. // DECISION |
 | The previous Worker | A new table and nullable columns only. The DB fixture now inserts `connection` and `connection_change` by named columns, as `membership`, so the migration tests stopped at earlier migrations still seed. // DECISION |
 
+**C2, low-risk starts (connectors only; no migration).** A connector's manifest says which writes a
+new connection asks first for (`askFirst`); `defineConnector` builds its `defaultPermissions` from
+them with `lowRiskPermissions`. The reviewed list is the snapshot in
+`apps/api/src/connector-defaults.test.ts`, which matches `docs/connectors-plan.md` §5.1.
+
+| Topic | Decision |
+|---|---|
+| Two fallbacks | `LOW_RISK_PERMISSIONS` (read on, every write off, delete off) is what a new connection starts with when neither the operator's default access nor the connector gives one. `DEFAULT_PERMISSIONS` (create and update ask first) is unchanged: it is still the gate's and `normalizeMatrix`'s fill for a verb a stored matrix leaves out, so no existing connection changes. // DECISION |
+| How a connector says it | `askFirst: [{ verb, entity?, scope? }]` rows, checked against its `permissionEntities` (a declared type with that verb, an existing scope, and a type named when it declares any); `askFirst` and `defaultPermissions` together are refused. Each asked verb goes to Needs approval and every other declared type of that verb is pinned off, so only the rows open. Reads-only connectors say `askFirst: []`. Never `auto`. // DECISION |
+| Tools whose input names the type | HubSpot's, Zoho's and Odoo's record tools open only for types a row names, so they start off; the snapshot checks each type such a tool can name, as the gate decides at run time. `describeAccess` still shows such a tool at its verb's level, with the type rows beside it (as before). // DECISION |
+| Beyond the §5.1 table | Calendars: create an event asks first, updates off. Twilio and WhatsApp: send a message. Podio: a comment or task; Odoo: a note or activity. Webhooks: send an event. Resend: send. Desktop: add a file or rows. Website, LinkedIn, website logins, Search Console, Bing, Hacker News, the bank feed and upload: reads only. The testkit asks for its update so its tests keep a write. // DECISION |
+| When it lands | With C4, not before (owner, 2026-11-20). Alone, a new QuickBooks or BILL connection would refuse to publish an agent that creates bills, vendors or POs until someone opened them; C4's connecting for an agent opens what it needs. Its `apps/api` tests are updated in C4. Existing connections never change. // DECISION |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

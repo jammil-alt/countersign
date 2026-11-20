@@ -243,6 +243,8 @@ export function createHackerNewsConnector(options: HackerNewsOptions = {}): Conn
 
   return defineConnector({
     id: HACKERNEWS_CONNECTOR_ID,
+    // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
+    askFirst: [],
     name: "Hacker News",
     description:
       "Find recent Hacker News threads about your subject. Read only: we never post or vote.",
