@@ -55,6 +55,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
   admin,
+  allowForAgent,
   createApiHarness,
   FakeWorkflowStep,
   forbiddenKeys,
@@ -455,6 +456,8 @@ describe.skipIf(!h)("end to end: the managed service, through the API", () => {
     await ok(OPERATOR, "PATCH", `/api/ops/agents/${ids.clerk}/operation`, {
       bindings: { qbo: ids.connection },
     });
+    // Connectors C4: QuickBooks started low risk; the client admin allows what the clerk needs.
+    await allowForAgent(H, OWNER, ids.connection, ids.clerk);
     await ok(OPERATOR, "POST", `/api/ops/agents/${ids.clerk}/versions/${ids.clerkV1}/publish`);
     // Not activated before a passing test run on this client's data.
     const early = await H.call(OPERATOR, "POST", `/api/ops/agents/${ids.clerk}/activate`);

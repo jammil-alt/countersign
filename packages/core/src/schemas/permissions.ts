@@ -118,6 +118,20 @@ export const DEFAULT_PERMISSIONS: PermissionMatrix = {
   delete: "off",
 };
 
+/**
+ * Connectors C2 (docs/connectors-plan.md §5.1): where a new connection starts when its connector
+ * says nothing: reads on, every write off. Only a new connection's start: the gate still reads a
+ * verb a stored matrix leaves out as `DEFAULT_PERMISSIONS`, so no existing connection changes.
+ */
+// DECISION: two fallbacks, not one (docs/plan.md §1.161, C2): changing DEFAULT_PERMISSIONS would
+// turn off writes on every stored connection that leaves a verb out.
+export const LOW_RISK_PERMISSIONS: PermissionMatrix = {
+  read: "auto",
+  create: "off",
+  update: "off",
+  delete: "off",
+};
+
 /** The agent's own setting (ARCHITECTURE §9.1). `suggest_only`: every write waits. */
 export const AgentMode = z.enum(["suggest_only", "act"]);
 export type AgentMode = z.infer<typeof AgentMode>;

@@ -511,6 +511,11 @@ export function createOdooConnector(options: OdooOptions = {}): Connector {
 
   return defineConnector({
     id: ODOO_CONNECTOR_ID,
+    // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
+    askFirst: [
+      { verb: "create", entity: "note" },
+      { verb: "create", entity: "activity" },
+    ],
     name: "Odoo",
     description:
       "Leads, contacts, orders, invoices, bills, products and stock in your Odoo. We sign in as an Odoo user you make for us, with an API key.",

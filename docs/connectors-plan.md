@@ -200,12 +200,20 @@ The proposal for the main connectors (to review with the owner, one line each):
 | Stripe | everything | — | everything else |
 | Bank feed (Plaid) | everything | — (read only) | — |
 | Twilio / WhatsApp | — | send a message | — |
+| Google / Outlook Calendar | everything | create an event | update an event |
+| Podio / Odoo | everything | add a comment, note, task or activity | create or update records, confirm, post or validate |
+| Webhooks / Resend | — | send an event / send email | — |
+| Desktop app | the folders given | add a file; add rows | — |
+| Website, LinkedIn, website logins, Search Console, Bing, Hacker News, upload | everything | — (read only) | publish, post or submit |
 
 Rule of thumb: on by default to **ask first** only if a wrong one is cheap to take back (a note, an
 attachment, a message a person reads first). Anything that moves money, creates a record in the books
 or changes one someone else made starts off.
 
 The catalog's "default access for new clients" (operator-set) still overrides the manifest's.
+
+Built in C2: each manifest's `askFirst` rows, with the reviewed list held as a snapshot in
+`apps/api/src/connector-defaults.test.ts` (`docs/plan.md` §1.161).
 
 ### 5.2 Connecting for an agent
 

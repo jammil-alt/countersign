@@ -324,6 +324,11 @@ export function desktopRestoreInput(
 export function createDesktopConnector(): Connector {
   return defineConnector({
     id: DESKTOP_CONNECTOR_ID,
+    // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
+    askFirst: [
+      { verb: "create", entity: "file" },
+      { verb: "create", entity: "row" },
+    ],
     name: "Desktop app",
     description:
       "Work with files in the folders you give Mezonas on your computer: read them, add rows to closed Excel workbooks and save new files. Only those folders, and every change waits for your sign-off.",

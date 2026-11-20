@@ -396,6 +396,8 @@ export function createSlackConnector(options: SlackOptions = {}): SlackConnector
 
   const connector = defineConnector({
     id: SLACK_CONNECTOR_ID,
+    // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
+    askFirst: [{ verb: "create", entity: "message" }],
     name: "Slack",
     description: "Post messages to the Slack channels you pick. We can't read your messages.",
     icon: "message",

@@ -1,6 +1,6 @@
 // `/connections/:connector/callback`: where a tool's sign-in (Zoho, later QuickBooks) sends the
 // client back. Passes the provider's parameters to the API once, which checks the state against
-// this session, then returns to Connections.
+// this session, then returns to the connector's page (with the agent it was started for).
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
@@ -8,6 +8,8 @@ import { useApiClient } from "../../api/useApi";
 import { openPlaidLink, pendingLink } from "../../connections/plaidLink";
 import { useI18n } from "../../i18n/i18n";
 import { buttonClass, ErrorNotice, Loading } from "../../ui/primitives";
+import { afterConnectPath } from "../connectors/connect";
+import { PORTAL_PATHS } from "../paths";
 import { ConnectFrame } from "./ConnectFrame";
 
 export function OAuthCallbackScreen() {
@@ -41,14 +43,14 @@ export function OAuthCallbackScreen() {
             : null,
         )
         .then(
-          () => navigate("/accounts", { replace: true }),
+          () => navigate(afterConnectPath(connector), { replace: true }),
           (e: unknown) => setError(e),
         );
       return;
     }
     const params = Object.fromEntries(search.entries());
     api.call(apiRoutes.portalAuthorizeCallback, { params: { connector }, body: { params } }).then(
-      () => navigate("/accounts", { replace: true }),
+      () => navigate(afterConnectPath(connector), { replace: true }),
       (e: unknown) => setError(e),
     );
   }, [api, connector, search, navigate, t]);
@@ -58,7 +60,10 @@ export function OAuthCallbackScreen() {
       {error ? (
         <div className="flex flex-col gap-3">
           <ErrorNotice error={error} />
-          <Link to="/accounts" className={buttonClass("secondary", "self-start")}>
+          <Link
+            to={PORTAL_PATHS.connector(connector)}
+            className={buttonClass("secondary", "self-start")}
+          >
             {t("callback.back")}
           </Link>
         </div>

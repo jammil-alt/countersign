@@ -2,7 +2,7 @@
 // §1.149.2), the client's home while an intake is open and no agent is live. The lead's note, then
 // a card per part (the business, each area, each agent): what an agent would do, "We think" lines
 // to say yes to or change, at most about five questions (the rest one click away), a Connect card
-// for each tool (the Accounts page's own connect flow), Start with this or Not now, and Ask someone
+// for each tool (opening the connector's own page), Start with this or Not now, and Ask someone
 // else. Under the cards: Different process in mind?, Rather talk it through? (Sloan, next wave),
 // and every question as one plain form. Read from and written to `/api/intake`; never a fact's id,
 // a question's origin or anything of ours (invariant 11). Answers are the client's words: data.
@@ -33,7 +33,7 @@ import { useSession } from "../../session/session";
 import { Field, Select, TextArea, TextInput } from "../../ui/forms";
 import { Loaded, Page } from "../../ui/page";
 import { Badge, Button, Card, EmptyState, ErrorNotice, PageHeader, Tag } from "../../ui/primitives";
-import { startConnect } from "./Accounts";
+import { PORTAL_PATHS } from "../paths";
 import { SetupChecklists } from "./SetupChecklists";
 
 type View = PortalIntakeView;
@@ -570,9 +570,7 @@ function WeThinkLine({
 function ConnectCard({ field, ctx }: { field: PortalGuideField; ctx: CardCtx }) {
   const i18n = useI18n();
   const { t } = i18n;
-  const api = useApiClient();
   const session = useSession();
-  const [error, setError] = useState<unknown>(null);
   const isAdmin =
     (session.tenants.find((c) => c.id === session.activeTenantId) ?? session.tenants[0])?.role ===
     "client_admin";
@@ -602,27 +600,16 @@ function ConnectCard({ field, ctx }: { field: PortalGuideField; ctx: CardCtx }) 
         <>
           <p className="text-sm text-ink-muted">{t("start.connectHow")}</p>
           <span className="flex flex-wrap items-center gap-2">
+            {/* Connectors C5: every connect card opens the connector's own page; there is no
+                second place to connect (docs/connectors-plan.md §3.3). */}
             {isAdmin || offered?.personal === true ? (
-              offered?.credentialForm ? (
-                <Link className="ds-btn ds-btn--primary ds-btn--sm" to="/accounts#vault">
-                  {t("start.enterKey")}
-                </Link>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="primary"
-                  disabled={ctx.busy || !offered?.available}
-                  data-testid="start-connect"
-                  onClick={() => {
-                    setError(null);
-                    void startConnect(api, field.connector ?? "")
-                      .then(() => ctx.reload())
-                      .catch(setError);
-                  }}
-                >
-                  {fieldWords(field, i18n).label}
-                </Button>
-              )
+              <Link
+                className="ds-btn ds-btn--primary ds-btn--sm"
+                data-testid="start-connect"
+                to={PORTAL_PATHS.connector(field.connector ?? "")}
+              >
+                {offered?.credentialForm ? t("start.enterKey") : fieldWords(field, i18n).label}
+              </Link>
             ) : (
               <span className="text-sm text-ink-muted">{t("start.adminConnects")}</span>
             )}
@@ -638,7 +625,6 @@ function ConnectCard({ field, ctx }: { field: PortalGuideField; ctx: CardCtx }) 
               </Button>
             ) : null}
           </span>
-          {error ? <ErrorNotice error={error} /> : null}
         </>
       )}
     </div>

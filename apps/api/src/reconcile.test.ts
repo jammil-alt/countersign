@@ -28,6 +28,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import {
   type ApiHarness,
   admin,
+  allowForAgent,
   createApiHarness,
   FakeWorkflowStep,
   forbiddenKeys,
@@ -317,6 +318,9 @@ describe.skipIf(!h)("the Bookkeeper reconciles a month", () => {
       bindings: { qbo: ids.qbo, bankfeed: ids.feed },
     });
     expect(bound.status, JSON.stringify(bound.json)).toBe(200);
+    // Connectors C4: each connection started low risk; the client admin allows what it needs.
+    await allowForAgent(H, admin("a"), ids.qbo, ids.agentId);
+    await allowForAgent(H, admin("a"), ids.feed, ids.agentId);
     const pub = await H.call(
       OPERATOR,
       "POST",

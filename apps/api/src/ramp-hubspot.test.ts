@@ -4,6 +4,7 @@
 // in a workflow waits for approval and is added once, however often the run is retried.
 
 import {
+  connectionDefaults,
   createHubspotConnector,
   createRampConnector,
   generateEncryptionKey,
@@ -19,6 +20,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
   admin,
+  allowForAgent,
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
@@ -70,11 +72,18 @@ describe.skipIf(!h)("Ramp and HubSpot through the API", () => {
       `${ORIGIN}/connections/${connector}/callback`,
     );
     const state = redirect.searchParams.get("state") ?? "";
-    // Another client's admin can't land this state in their client.
+    // Another client's admin can't land this state in their client. Connectors C4: the connector
+    // is live for every client now, so it is the state (bound to client B) that refuses it.
     const swapped = await H.call(admin("a"), "POST", `/api/connections/${connector}/callback`, {
       params: { code, state },
     });
-    expect(swapped.status).toBe(404);
+    expect(swapped.status).toBe(400);
+    expect(
+      await H.t.db
+        .select()
+        .from(connection)
+        .where(and(eq(connection.tenantId, H.A.tenantId), eq(connection.connector, connector))),
+    ).toEqual([]);
     const done = await H.call(admin("b"), "POST", `/api/connections/${connector}/callback`, {
       params: { code, state },
     });
@@ -82,11 +91,11 @@ describe.skipIf(!h)("Ramp and HubSpot through the API", () => {
     const id: string = j(done.json).connection.connection.id;
     const [row] = await H.t.db.select().from(connection).where(eq(connection.id, id));
     expect(row?.connectedBy).toBe(H.B.admin);
-    expect(row?.permissions).toMatchObject({
-      create: "approval",
-      update: "approval",
-      delete: "off",
-    });
+    // Connectors C2: a new connection starts at the connector's reviewed low-risk default.
+    expect(row?.permissions).toEqual(
+      connectionDefaults(H.platform.connectors.get(connector)?.manifest),
+    );
+    expect(row?.permissions.delete).toBe("off");
     const asOperator = JSON.stringify(
       (await H.call(OPERATOR, "GET", `/api/ops/clients/${H.B.tenantId}/connections`)).json,
     );
@@ -264,6 +273,8 @@ describe.skipIf(!h)("Ramp and HubSpot through the API", () => {
         bindings: { hubspot: connectionId },
       });
       expect(op.status, JSON.stringify(op.json)).toBe(200);
+      // Connectors C4: the client admin allows what the agent needs on HubSpot.
+      await allowForAgent(H, admin("b"), connectionId, id);
       const pub = await H.call(
         OPERATOR,
         "POST",

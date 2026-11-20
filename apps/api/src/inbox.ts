@@ -18,6 +18,7 @@ import type { JsonObject, ResolveBody } from "@countersign/core";
 import {
   // v0.12 W2-D
   ACCOUNT_CHANGE_SUBJECT,
+  CONNECTION_REQUEST_SUBJECT,
   choiceProblem,
   FORBIDDEN_PORTAL_FIELD,
   isPlainObject,
@@ -161,6 +162,15 @@ export async function resolveInboxItem(tx: Tx, input: ResolveInput): Promise<Res
   // applies it with the portal's code (POST /api/account-changes/:id/resolve).
   if (item.subjectType === ACCOUNT_CHANGE_SUBJECT) {
     throw new HttpError(409, "use_account_change", "approve this change from its own card");
+  }
+  // Connectors C4 (docs/connectors-plan.md §7.1): our change request is approved or declined only
+  // through its own routes, which check it is still current and apply exactly what it asked.
+  if (item.subjectType === CONNECTION_REQUEST_SUBJECT) {
+    throw new HttpError(
+      409,
+      "use_connection_request",
+      "approve or decline this change from its own card",
+    );
   }
   // docs/plan.md §1.124: a build's requirements request is answered through its own form.
   if (item.subjectType === "requirements_request") {

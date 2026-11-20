@@ -35,9 +35,16 @@ import {
 import { LateAnswer } from "../inbox/LateAnswer";
 import { UndiscussedLines } from "../inbox/Undiscussed";
 import { packReviewCard } from "../packs/reviews";
+import {
+  ConnectionNotice,
+  connectionNoticeOf,
+  connectionRequestOf,
+  InboxConnectionRequest,
+} from "../portal/connectors/ChangeRequest";
 import { PORTAL_PATHS } from "../portal/paths";
 import { ReleaseCodeEntry } from "../portal/screens/AccessRelease";
 import { SourceLinks } from "../records/SourceLinks";
+import { useSession } from "../session/session";
 import { BeforeAfter } from "../ui/activity";
 import { AgentBadge } from "../ui/badges";
 import { Field, TextArea, TextInput } from "../ui/forms";
@@ -105,7 +112,16 @@ export function DeskDetail({
   const lead = items[0] as DeskItem;
   const batch = isBatch({ key: entry.key, items });
   const open = items.some((i) => i.status === "open");
-  const need = needOf(lead);
+  // Connectors C5 (docs/connectors-plan.md §7.1): a change Mezonas asks to make to a connection is
+  // answered on its own card, through its own routes, by a client admin; a change we made at once
+  // is a notice, closed with Done.
+  const connectionRequest = connectionRequestOf(lead);
+  const connectionNotice = connectionRequest ? null : connectionNoticeOf(lead);
+  const need = connectionNotice ? "done" : needOf(lead);
+  const session = useSession();
+  const isClientAdmin =
+    (session.tenants.find((c) => c.id === session.activeTenantId) ?? session.tenants[0])?.role ===
+    "client_admin";
   // A pack's review (e.g. the Materials match review) brings its own card and its own finish.
   const ReviewCard = lead.kind === "external_action" ? null : packReviewCard(lead.payload);
   const agent = lead.service?.name ?? null;
@@ -339,6 +355,17 @@ export function DeskDetail({
                 })
               }
             />
+          ) : connectionRequest ? (
+            <InboxConnectionRequest
+              itemId={lead.id}
+              payload={connectionRequest}
+              itemOpen={lead.status === "open"}
+              resolvedBy={lead.resolvedBy?.name ?? null}
+              mayAnswer={canSign && isClientAdmin}
+              onChanged={onChanged}
+            />
+          ) : connectionNotice ? (
+            <ConnectionNotice payload={connectionNotice} />
           ) : ReviewCard ? (
             <ReviewCard
               itemId={lead.id}
@@ -439,8 +466,8 @@ export function DeskDetail({
 
           {error ? <ErrorNotice error={error} /> : null}
 
-          <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
-            {decision === "snoozed" ? (
+          <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4 empty:hidden">
+            {connectionRequest ? null : decision === "snoozed" ? (
               <p className="text-sm text-ink-muted" data-testid="desk-snoozed">
                 {lead.snoozedUntil
                   ? t("desk.snoozedUntil", { time: fmt.time(lead.snoozedUntil) })

@@ -479,6 +479,8 @@ export function createOutlookCalendarConnector(options: OutlookCalendarOptions =
 
   return defineConnector({
     id: OUTLOOK_CALENDAR_CONNECTOR_ID,
+    // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
+    askFirst: [{ verb: "create", entity: "event" }],
     name: "Outlook Calendar",
     description:
       "See and add events on your Outlook or Microsoft 365 calendar, and change the ones you organize. We never cancel or delete one.",

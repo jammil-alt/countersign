@@ -141,14 +141,15 @@ describe("odoo connector: the manifest", () => {
     ]);
   });
 
-  it("starts with approval on every write and delete off; reads run alone", () => {
+  it("starts low risk: notes and activities ask first, other writes and delete off; reads run alone", () => {
     const m = setup().connector.manifest;
     const matrix = connectionDefaults(m);
-    expect(matrix).toMatchObject({ create: "approval", update: "approval", delete: "off" });
+    expect(matrix).toMatchObject({ create: "approval", update: "off", delete: "off" });
+    const asks: string[] = [ODOO_TOOLS.note, ODOO_TOOLS.activity];
     for (const t of m.tools) {
       const input = t.entityInput ? { model: "sale.order" } : {};
       expect(connectionLevel(m, t, matrix, input), t.id).toBe(
-        t.verb === "read" ? "auto" : "approval",
+        t.verb === "read" ? "auto" : asks.includes(t.id) ? "approval" : "off",
       );
     }
     const confirm = m.tools.find((t) => t.id === ODOO_TOOLS.confirmOrder);
@@ -166,7 +167,8 @@ describe("odoo connector: the manifest", () => {
           declared: m.permissionEntities,
         },
       });
-    expect(decide(matrix)).toBe("approval");
+    expect(decide(matrix)).toBe("refused");
+    expect(decide(DEFAULT_PERMISSIONS)).toBe("approval");
     expect(decide({ ...DEFAULT_PERMISSIONS, update: "auto" })).toBe("approval");
     expect(decide({ ...DEFAULT_PERMISSIONS, update: "auto" }, "not_required")).toBe("run");
     expect(confirm.amount).toEqual({ path: "expectedTotal", currencyPath: "currency" });

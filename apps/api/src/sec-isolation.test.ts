@@ -2,7 +2,7 @@
 // in a thread is not stored (invariant 14), and the operator can't repoint a client's browser
 // login at another site, or drop the client's own tightening, through a connection's config
 // (invariants 8 and 13). From the platform QA audit (PLATFORM_QA SEC-3, SEC-5).
-import { connection, message } from "@countersign/db";
+import { connection, message, tenant } from "@countersign/db";
 import { eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { admin, createApiHarness, OPERATOR } from "./api.test-helper";
@@ -37,11 +37,11 @@ describe.skipIf(!h)("security: thread text and connection config", () => {
     expect(stored).toContain("[card ending 1111]");
   });
 
-  async function browserConnection() {
+  async function browserConnection(tenantId = H.A.tenantId) {
     const [conn] = await H.t.db
       .insert(connection)
       .values({
-        tenantId: H.A.tenantId,
+        tenantId,
         connector: "browser",
         status: "connected",
         config: {
@@ -81,10 +81,33 @@ describe.skipIf(!h)("security: thread text and connection config", () => {
     });
     expect(loosen.status, JSON.stringify(loosen.json)).toBe(422);
     expect(await configOf(id)).toMatchObject({ stricter: { noWrites: true, personSignIn: true } });
+    // Nor can we ask the client to approve it (Connectors C4's change requests).
+    const asked = await H.call(
+      OPERATOR,
+      "POST",
+      `/api/ops/clients/${H.A.tenantId}/connections/${id}/changes`,
+      { config: { site: "operator-site" }, reason: "Point it at our site." },
+    );
+    expect(asked.status, JSON.stringify(asked.json)).toBe(422);
+    expect(j(asked.json).error.code).toBe("browser_login_locked");
+    expect(await configOf(id)).toMatchObject({ site: "supplier" });
   });
 
   it("(PLATFORM_QA SEC-5) other config on a browser connection still changes, keeping the login's fields", async () => {
-    const id = await browserConnection();
+    // Connectors C4: in a real client our config change goes to the client for approval.
+    const real = await browserConnection();
+    const sent = await H.call(OPERATOR, "PATCH", `/api/ops/connections/${real}`, {
+      config: { caps: { signInsPerDay: 4, hours: null } },
+    });
+    expect(sent.status, JSON.stringify(sent.json)).toBe(409);
+    expect(j(sent.json).error.code).toBe("send_for_approval");
+    // In the Sandbox (ours) it applies at once, and the login's fields are kept.
+    const [b] = await H.t.db.select().from(tenant).where(eq(tenant.id, H.B.tenantId));
+    await H.t.db
+      .update(tenant)
+      .set({ settings: { ...(b?.settings ?? {}), sandbox: true } })
+      .where(eq(tenant.id, H.B.tenantId));
+    const id = await browserConnection(H.B.tenantId);
     const res = await H.call(OPERATOR, "PATCH", `/api/ops/connections/${id}`, {
       config: { caps: { signInsPerDay: 4, hours: null } },
     });
@@ -101,5 +124,9 @@ describe.skipIf(!h)("security: thread text and connection config", () => {
       config: { caps: { signInsPerDay: 5000 } },
     });
     expect(bad.status, JSON.stringify(bad.json)).toBe(422);
+    await H.t.db
+      .update(tenant)
+      .set({ settings: b?.settings ?? {} })
+      .where(eq(tenant.id, H.B.tenantId));
   });
 });

@@ -224,7 +224,14 @@ describe("the portal in the session's language", () => {
     renderAt("/", api);
     expect(await screen.findByRole("heading", { name: "Sus agentes" })).toBeInTheDocument();
     const nav = screen.getByRole("complementary", { name: "Navegación" });
-    for (const label of ["Inicio", "Bandeja", "Ejecuciones", "Cuentas", "Contactos", "Ajustes"]) {
+    for (const label of [
+      "Inicio",
+      "Bandeja",
+      "Ejecuciones",
+      "Conectores",
+      "Contactos",
+      "Ajustes",
+    ]) {
       expect(within(nav).getByText(label)).toBeInTheDocument();
     }
     // The status reads in Spanish on the agent's card. The heading shows while the cards are

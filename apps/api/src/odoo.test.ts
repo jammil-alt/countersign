@@ -5,7 +5,12 @@
 // waits for the client's approval, is confirmed once however often the run is retried, and nothing
 // the run kept holds the key. Odoo is the client's own tool: HIPAA mode doesn't refuse it.
 
-import { createOdooConnector, generateEncryptionKey, ODOO_TOOLS } from "@countersign/connectors";
+import {
+  connectionDefaults,
+  createOdooConnector,
+  generateEncryptionKey,
+  ODOO_TOOLS,
+} from "@countersign/connectors";
 import { FAKE_ODOO, fakeOdoo } from "@countersign/connectors/testing";
 import {
   AgentBundle,
@@ -29,6 +34,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
   admin,
+  allowForAgent,
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
@@ -72,10 +78,10 @@ describe.skipIf(!h)("Odoo through the API", () => {
     expect(c).toMatchObject({
       name: "Odoo",
       available: true,
-      defaultAccess: {
-        matrix: { read: "auto", create: "approval", update: "approval", delete: "off" },
-      },
+      // Connectors C2 (docs/connectors-plan.md §5.1): the reviewed low-risk start.
+      defaultAccess: { matrix: connectionDefaults(H.platform.connectors.get("odoo")?.manifest) },
     });
+    expect(c.defaultAccess.matrix).toMatchObject({ read: "auto", delete: "off" });
     expect(c.tools.map((t: { id: string }) => t.id)).toEqual(
       expect.arrayContaining(Object.values(ODOO_TOOLS)),
     );
@@ -115,11 +121,11 @@ describe.skipIf(!h)("Odoo through the API", () => {
     ]);
     const [row] = await H.t.db.select().from(connection).where(eq(connection.id, connectionId));
     expect(row?.connectedBy).toBe(H.B.admin);
-    expect(row?.permissions).toMatchObject({
-      create: "approval",
-      update: "approval",
-      delete: "off",
-    });
+    // Connectors C2: it starts at the reviewed low-risk default.
+    expect(row?.permissions).toEqual(
+      connectionDefaults(H.platform.connectors.get("odoo")?.manifest),
+    );
+    expect(row?.permissions.delete).toBe("off");
     const seen = JSON.stringify([
       res.json,
       row,
@@ -196,6 +202,8 @@ describe.skipIf(!h)("Odoo through the API", () => {
       bindings: { odoo: connectionId },
     });
     expect(op.status, JSON.stringify(op.json)).toBe(200);
+    // Connectors C4: the client admin allows what the agent needs on Odoo.
+    await allowForAgent(H, admin("b"), connectionId, id);
     const pub = await H.call(
       OPERATOR,
       "POST",

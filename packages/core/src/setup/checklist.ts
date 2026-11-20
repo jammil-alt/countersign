@@ -300,16 +300,44 @@ export function buildSetupItems(input: BuildSetupInput): SetupItem[] {
 /** What the checklist reads about the client: which connectors are connected and bound. */
 export interface SetupFacts {
   connected(connector: string): boolean;
+  /**
+   * Connectors C4 (docs/connectors-plan.md §7): what the agent still needs on a connector that is
+   * connected and bound, in words ("Allow create bills"); null or absent when nothing blocks it.
+   */
+  missing?(connector: string): string | null;
 }
 
-/** Whether an item is done: a connect item with a connector by its connection, else by a person. */
+/** What a connected, bound connector still lacks for the agent, or null. */
+function connectMissing(item: Pick<SetupItem, "kind" | "connector">, facts: SetupFacts) {
+  if (item.kind !== "connect" || !item.connector) return null;
+  if (!facts.connected(item.connector)) return null;
+  return facts.missing?.(item.connector) ?? null;
+}
+
+/**
+ * Whether an item is done: a connect item with a connector by its connection (connected, bound
+ * and with nothing the agent needs missing there), else by a person.
+ */
 export function setupItemDone(
   item: Pick<SetupItem, "kind" | "connector">,
   progress: SetupProgress | undefined,
   facts: SetupFacts,
 ): boolean {
-  if (item.kind === "connect" && item.connector) return facts.connected(item.connector);
+  if (item.kind === "connect" && item.connector) {
+    return facts.connected(item.connector) && connectMissing(item, facts) === null;
+  }
   return progress?.done === true;
+}
+
+/** An item's label, with what is still missing on a connected connector ("Connect QuickBooks: allow create bills"). */
+export function setupItemLabel(
+  item: Pick<SetupItem, "kind" | "connector" | "label">,
+  facts: SetupFacts,
+): string {
+  const missing = connectMissing(item, facts);
+  if (!missing) return item.label;
+  const base = item.label.replace(/[.?]$/, "");
+  return `${base}: ${missing.charAt(0).toLowerCase()}${missing.slice(1)}`;
 }
 
 /** The items a stage waits on: the trial on setup and trial items; sign-off and live on all. */
@@ -328,9 +356,9 @@ export function setupHolds(
   to: AgentStage,
 ): SetupItem[] {
   const guards = STAGE_SETUP_GUARDS[to];
-  return items.filter(
-    (i) => guards.includes(i.guards) && !setupItemDone(i, progress?.[i.id], facts),
-  );
+  return items
+    .filter((i) => guards.includes(i.guards) && !setupItemDone(i, progress?.[i.id], facts))
+    .map((i) => ({ ...i, label: setupItemLabel(i, facts) }));
 }
 
 /** "The setup checklist isn't done: Connect QuickBooks; Who signs new bills in QuickBooks?" */

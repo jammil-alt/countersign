@@ -1,9 +1,11 @@
-import { DEFAULT_PERMISSIONS } from "@countersign/core";
+import { DEFAULT_PERMISSIONS, LOW_RISK_PERMISSIONS } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import {
   applyMatrixChange,
+  askFirstProblems,
   connectionDefaults,
   describeAccess,
+  lowRiskPermissions,
   manifestDefaultProblems,
   normalizeMatrix,
   stricter,
@@ -12,13 +14,15 @@ import {
 import { createTestkitConnector } from "./testkit/index";
 
 describe("defaults", () => {
-  it("are read auto, create and update approval, delete off", () => {
-    expect(connectionDefaults()).toEqual({
+  it("start a new connection low risk: read auto, every write off", () => {
+    expect(connectionDefaults()).toEqual(LOW_RISK_PERMISSIONS);
+    expect(LOW_RISK_PERMISSIONS).toEqual({
       read: "auto",
-      create: "approval",
-      update: "approval",
+      create: "off",
+      update: "off",
       delete: "off",
     });
+    // The gate's fallback for a verb a stored matrix leaves out is unchanged.
     expect(normalizeMatrix(undefined)).toEqual(DEFAULT_PERMISSIONS);
     expect(normalizeMatrix({ update: "off" })).toEqual({ ...DEFAULT_PERMISSIONS, update: "off" });
   });
@@ -139,5 +143,74 @@ describe("describeAccess", () => {
       "not_allowed",
       "not_allowed",
     ]);
+  });
+});
+
+describe("a connector's low-risk start (Connectors C2)", () => {
+  const declared = [
+    {
+      id: "invoice",
+      label: "Invoices",
+      verbs: ["read", "create", "update"],
+      scopes: [{ id: "notes_only", label: "Notes only", verb: "update" }],
+    },
+    { id: "bill", label: "Bills", verbs: ["read", "create", "update"] },
+    { id: "attachment", label: "Attachments", verbs: ["read", "create"] },
+    { id: "account", label: "Accounts", verbs: ["read"] },
+  ] as const;
+  const ents = declared as unknown as Parameters<typeof lowRiskPermissions>[1];
+
+  it("is reads only with no rows", () => {
+    expect(lowRiskPermissions([], ents)).toEqual(LOW_RISK_PERMISSIONS);
+    expect(lowRiskPermissions([], undefined)).toEqual(LOW_RISK_PERMISSIONS);
+  });
+
+  it("asks first for each row and pins every other record type of that verb off", () => {
+    expect(
+      lowRiskPermissions(
+        [
+          { verb: "create", entity: "attachment" },
+          { verb: "update", entity: "invoice", scope: "notes_only" },
+        ],
+        ents,
+      ),
+    ).toEqual({
+      read: "auto",
+      create: "approval",
+      update: "approval",
+      delete: "off",
+      entities: {
+        invoice: { create: "off", scope: { update: "notes_only" } },
+        bill: { create: "off", update: "off" },
+      },
+    });
+  });
+
+  it("opens the whole verb where the connector declares no record types", () => {
+    expect(lowRiskPermissions([{ verb: "create" }], undefined)).toEqual({
+      ...LOW_RISK_PERMISSIONS,
+      create: "approval",
+    });
+  });
+
+  it("refuses rows that name what the connector doesn't declare", () => {
+    expect(askFirstProblems([{ verb: "create", entity: "attachment" }], ents)).toEqual([]);
+    expect(
+      askFirstProblems(
+        [
+          { verb: "create" },
+          { verb: "create", entity: "truck" },
+          { verb: "update", entity: "attachment" },
+          { verb: "update", entity: "invoice", scope: "everything" },
+        ],
+        ents,
+      ),
+    ).toEqual([
+      "askFirst create: name a record type (the connector declares them)",
+      "askFirst create truck: not a record type the connector declares",
+      "askFirst update attachment: attachment has no update",
+      "askFirst update invoice: no update scope everything",
+    ]);
+    expect(askFirstProblems([{ verb: "create" }], undefined)).toEqual([]);
   });
 });

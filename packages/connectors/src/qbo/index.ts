@@ -98,6 +98,11 @@ export function createQboConnector(options: QboOptions = {}): QboConnector {
 
   const connector = defineConnector({
     id: QBO_CONNECTOR_ID,
+    // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
+    askFirst: [
+      { verb: "create", entity: "attachment" },
+      { verb: "update", entity: "invoice", scope: "notes_only" },
+    ],
     name: "QuickBooks Online",
     description:
       "Bills, purchases, purchase orders, vendors, items, accounts, classes, attachments, invoices, customers and payments in your QuickBooks Online, and deposits and transfers booked from your bank. You sign in to QuickBooks yourself.",

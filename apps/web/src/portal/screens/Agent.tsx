@@ -12,7 +12,12 @@
 //   it runs, how to reach it, what it may do in each of your tools (read-only; the client admin
 //   tightens on Accounts) and who it contacts (the client admin chooses).
 // Never the agent's bundle, instructions, prompts or cost (invariant 11).
-import type { DayRuns, PortalAccessView, RunForm, ServiceControl } from "@countersign/core";
+import {
+  connectorAccessRoutes,
+  type DayRuns,
+  type RunForm,
+  type ServiceControl,
+} from "@countersign/core";
 import { type FormEvent, lazy, type ReactNode, Suspense, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { type AgentViewKey, defaultReports, viewsFor } from "../../agents/views";
@@ -62,7 +67,6 @@ import { stageWord } from "../agentState";
 import { useKnownAgent, useRememberRuns } from "../known";
 import { PORTAL_PATHS } from "../paths";
 import { agentChip, runChip, runOpen } from "../status";
-import { accountAddress } from "./Accounts";
 import { APPROVED, KIND_LABEL } from "./Home";
 import { runsNote } from "./Reports";
 import { TAB_WORDS as RUN_TAB_WORDS, TABS as RUN_TABS, type Tab as RunTab } from "./Runs";
@@ -1075,84 +1079,59 @@ function AgentFiguresStrip({
   );
 }
 
-const VERBS = ["read", "create", "update", "delete"] as const;
-
-/** What the agent may do through each connection it is bound to: the effective level per verb. */
+/**
+ * Connectors this agent uses (Connectors C5, docs/connectors-plan.md §3.3): each connector it is
+ * bound to or needs, Ready or what it needs, each opening the connector's page with this agent
+ * picked. What it may do per record type lives on the connector's page.
+ */
 function Reach({ id, name }: { id: string; name: string | null }) {
   const { t } = useI18n();
-  const access = useApi(apiRoutes.portalAccess, {
-    // The vault is never stored (docs/audit-plan.md 1.2).
-    cache: "none",
-  });
-  if (!access.data || name === null) {
-    return access.error ? (
-      <ErrorNotice error={access.error} onRetry={access.reload} />
+  const list = useApi(connectorAccessRoutes.portalConnectors);
+  if (!list.data || name === null) {
+    return list.error ? (
+      <ErrorNotice error={list.error} onRetry={list.reload} />
     ) : (
       <Skeleton>
         <SkeletonCard lines={4} />
       </Skeleton>
     );
   }
-  const items = reachOf(id, access.data);
+  const items = reachOf(id, list.data);
   return (
-    <Card
-      titleAbove
-      title={t("agent.reach", { name })}
-      testId="agent-reach"
-      meta={
-        access.data.canEdit && items.length > 0 ? (
-          <Link to={PORTAL_PATHS.accounts} className="text-sm text-link hover:underline">
-            {t("agent.reachChange")}
-          </Link>
-        ) : null
-      }
-    >
+    <Card titleAbove title={t("agent.reach", { name })} testId="agent-reach">
       {items.length === 0 ? (
         <p className="ui-card__body text-ink-muted">{t("agent.reachNone", { name })}</p>
       ) : (
         <div className="divide-y divide-line">
-          {items.map(({ item, grant }) => (
-            <div
-              key={item.connectionId}
-              className="flex flex-col gap-2 px-6 py-4"
-              data-testid={`agent-reach-${item.connectionId}`}
+          {items.map((item) => (
+            <Link
+              key={item.connector}
+              to={PORTAL_PATHS.connector(item.connector, id)}
+              className="flex flex-wrap items-center gap-3 px-6 py-4 hover:bg-surface-subtle max-sm:px-4"
+              data-testid={`agent-reach-${item.connector}`}
             >
-              <span className="font-medium text-ink">
-                {item.name}
-                {/* The account by its name in the tool, never its id there (a QuickBooks realm id). */}
-                {(item.accountName ?? accountAddress(item.externalAccountId)) ? (
-                  <span className="font-normal text-ink-muted">
-                    {" "}
-                    · {item.accountName ?? accountAddress(item.externalAccountId)}
-                  </span>
+              <span className="min-w-0 flex-1">
+                <span className="block font-medium text-ink">
+                  {item.name}
+                  {/* The account by its name in the tool, never its id there. */}
+                  {item.account ? (
+                    <span className="font-normal text-ink-muted"> · {item.account}</span>
+                  ) : null}
+                </span>
+                {item.needs.length > 0 ? (
+                  <span className="block text-sm text-ink-muted">{item.needs.join(" · ")}</span>
                 ) : null}
               </span>
-              {grant.revoked ? (
-                <Badge>{t("agent.revoked")}</Badge>
+              {item.needs.length === 0 ? (
+                <Badge tone="positive" testId={`agent-reach-${item.connector}-state`}>
+                  {t("agent.reachReady")}
+                </Badge>
               ) : (
-                <span className="flex flex-wrap gap-1.5">
-                  {VERBS.map((verb) => {
-                    const level = grant.effective[verb];
-                    const words = t(`agent.level.${level}`, { verb: t(`agent.verb.${verb}`) });
-                    return (
-                      <Badge
-                        key={verb}
-                        tone={
-                          level === "auto"
-                            ? "positive"
-                            : level === "approval"
-                              ? "warning"
-                              : "neutral"
-                        }
-                        testId={`agent-reach-${item.connectionId}-${verb}`}
-                      >
-                        {words}
-                      </Badge>
-                    );
-                  })}
-                </span>
+                <Badge tone="warning" testId={`agent-reach-${item.connector}-state`}>
+                  {t("agent.reachNeeds")}
+                </Badge>
               )}
-            </div>
+            </Link>
           ))}
         </div>
       )}
@@ -1160,11 +1139,35 @@ function Reach({ id, name }: { id: string; name: string | null }) {
   );
 }
 
-function reachOf(id: string, access: PortalAccessView) {
-  return access.items.flatMap((item) => {
-    const grant = item.agents.find((a) => a.agentId === id);
-    return grant ? [{ item, grant }] : [];
-  });
+/** The connectors an agent uses or needs, from Connectors' lists: its own needs' words with each. */
+function reachOf(id: string, list: ResponseOf<typeof connectorAccessRoutes.portalConnectors>) {
+  const cards = [...list.connected, ...list.builtForYou, ...list.browse];
+  const out = new Map<
+    string,
+    { connector: string; name: string; account: string | null; needs: string[] }
+  >();
+  for (const card of cards) {
+    const used = card.connections.filter((c) => c.usedBy.some((a) => a.id === id));
+    if (used.length === 0 || out.has(card.connector)) continue;
+    out.set(card.connector, {
+      connector: card.connector,
+      name: card.name,
+      account: used[0]?.accountName ?? null,
+      needs: [],
+    });
+  }
+  for (const w of list.waiting) {
+    if (w.agent.id !== id) continue;
+    const item = out.get(w.connector) ?? {
+      connector: w.connector,
+      name: w.connectorName,
+      account: null,
+      needs: [],
+    };
+    item.needs.push(w.words);
+    out.set(w.connector, item);
+  }
+  return [...out.values()];
 }
 
 // ── Run now ──────────────────────────────────────────────────────────────────────────────────────

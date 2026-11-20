@@ -49,6 +49,43 @@ function renderAt(
       usedBy: {},
       sandbox: true,
     }),
+    // Connectors C6: the tab's connectors, with the connection just made.
+    [`GET /api/ops/clients/${SANDBOX}/connectors`]: () => ({
+      connected: [
+        {
+          connector: "qbo",
+          name: "QuickBooks Online",
+          description: "",
+          icon: null,
+          auth: "oauth2",
+          personal: false,
+          multiple: false,
+          available: true,
+          beta: false,
+          recommended: true,
+          custom: false,
+          group: "Money",
+          connections: [
+            {
+              id: CONNECTED.connection.id,
+              status: "connected",
+              accountName: null,
+              lastSyncAt: null,
+              usedBy: [],
+              access: { reads: 1, changesAsk: 2, changesAuto: 0 },
+              needsSomething: false,
+              openRequest: false,
+              mezonasMay: null,
+            },
+          ],
+        },
+      ],
+      builtForYou: [],
+      recommended: [],
+      requests: [],
+      agents: [],
+      sandbox: true,
+    }),
     "GET /api/connections": () => ({ connections: [] }),
     "GET /api/approver-rules": () => ({ rules: [], defaultApprover: "client_admin" }),
   });

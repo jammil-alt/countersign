@@ -52,6 +52,7 @@ import cdcFixture from "../../../fixtures/qbo/webhook-notification.json";
 import {
   type ApiHarness,
   admin,
+  allowForAgent,
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
@@ -216,6 +217,8 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
         })
       ).status,
     ).toBe(200);
+    // Connectors C4: the client admin allows what this agent needs on QuickBooks.
+    await allowForAgent(H, admin("a"), connectionId, id);
     const pub = await call(
       OPERATOR,
       "POST",
@@ -283,10 +286,18 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
     expect(bounce.headers.get("location")).toBe(`/connections/qbo/callback?${query}`);
 
     // The portal page posts the parameters in the admin's session; another client can't land them.
+    // Connectors C4: QuickBooks is live, so every client may connect it; the state, bound to
+    // client A and its admin, is what refuses client B's session, and nothing is stored for B.
     const params = { code: "fixture-code", state, realmId: FAKE_QBO_REALM };
     expect(
       (await call(admin("b"), "POST", "/api/connections/qbo/callback", { params })).status,
-    ).toBe(404);
+    ).toBe(400);
+    expect(
+      await H.t.db
+        .select()
+        .from(connection)
+        .where(and(eq(connection.tenantId, H.B.tenantId), eq(connection.connector, "qbo"))),
+    ).toEqual([]);
     const done = await call(admin("a"), "POST", "/api/connections/qbo/callback", { params });
     expect(done.status, JSON.stringify(done.json)).toBe(200);
     expect(j(done.json).connection.connection).toMatchObject({
@@ -302,12 +313,20 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
 
     const [row] = await H.t.db.select().from(connection).where(eq(connection.id, connectionId));
     expect(row).toMatchObject({ connectedBy: H.A.admin, externalAccountId: FAKE_QBO_REALM });
+    // Connectors C2 (docs/connectors-plan.md §5.1): it starts low risk: reads on, only attaching a
+    // document and a note on an invoice ask first, every other write off, delete off.
     expect(row?.permissions).toMatchObject({
       read: "auto",
       create: "approval",
       update: "approval",
       delete: "off",
+      entities: expect.objectContaining({
+        bill: expect.objectContaining({ create: "off", update: "off" }),
+        vendor: expect.objectContaining({ create: "off" }),
+        invoice: { scope: { update: "notes_only" } },
+      }),
     });
+    expect(row?.permissions.entities?.attachment?.create).not.toBe("off");
     expect(row?.config).toMatchObject({
       accountName: "Harbor Millwork (sandbox)",
       environment: "sandbox",
@@ -1124,6 +1143,20 @@ describe.skipIf(!h)("QuickBooks Online through the API", () => {
     expect((await call(admin("a"), "GET", `/api/ops/clients/${H.A.tenantId}/ledger`)).status).toBe(
       403,
     );
+
+    // Connectors C4: QuickBooks started with the chart's writes off; the client admin turns
+    // creating and updating accounts and classes on, asking first (their own change).
+    const [current] = await H.t.db.select().from(connection).where(eq(connection.id, connectionId));
+    const { account: _a, class: _c, ...entities } = current?.permissions.entities ?? {};
+    const allowed = await call(
+      admin("a"),
+      "PUT",
+      `/api/portal/connections/${connectionId}/access`,
+      {
+        permissions: { entities },
+      },
+    );
+    expect(allowed.status, JSON.stringify(allowed.json)).toBe(200);
 
     const change = (
       tool: string,

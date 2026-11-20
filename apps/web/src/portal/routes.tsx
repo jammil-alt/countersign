@@ -5,12 +5,11 @@
 //
 // The route sweep (#141, apps/web/e2e/route-sweep.mjs) reads the `path="…"` lines of this file.
 import { lazy, type ReactNode, Suspense } from "react";
-import { Route } from "react-router-dom";
+import { Navigate, Route, useLocation } from "react-router-dom";
 import { PortalRecordScreen } from "../records/RecordScreens";
 import { ConnectClaudeScreen } from "../session/ConnectClaude";
 import { Redirect } from "../shell/Redirect";
 import { Loading } from "../ui/primitives";
-import { AccountsScreen, VaultRedirect } from "./screens/Accounts";
 import { AgentScreen } from "./screens/Agent";
 import { ContactsScreen } from "./screens/Contacts";
 import { PortalDocumentScreen } from "./screens/Document";
@@ -48,19 +47,48 @@ const GettingStartedScreen = lazy(() =>
 const PortalKnowledgeScreen = lazy(() =>
   import("./screens/Knowledge").then((m) => ({ default: m.PortalKnowledgeScreen })),
 );
+// Connectors C5: the list and a connector's page load when opened, so the first load stays in its
+// budget (scripts/web-size.mjs).
+const ConnectorsScreen = lazy(() =>
+  import("./screens/Connectors").then((m) => ({ default: m.ConnectorsScreen })),
+);
+const ConnectorPageScreen = lazy(() =>
+  import("./screens/ConnectorPage").then((m) => ({ default: m.ConnectorPageScreen })),
+);
+/** `/access`, `/accounts/access`: the vault's old pages, now Connectors' website logins. */
+function VaultRedirect() {
+  const { search } = useLocation();
+  return <Navigate to={{ pathname: "/connectors", search, hash: "#vault" }} replace />;
+}
+
 const OnDemand = ({ children }: { children: ReactNode }) => (
   <Suspense fallback={<Loading />}>{children}</Suspense>
 );
 
 export const portalRoutes = (
   <>
-    {/* The sidebar: Home, Inbox, Runs, Accounts, Contacts */}
+    {/* The sidebar: Home, Inbox, Runs, Connectors, Contacts */}
     <Route index element={<HomeScreen />} />
     <Route path="inbox" element={<PortalInboxScreen />} />
     <Route path="runs" element={<PortalRunsScreen />} />
     <Route path="runs/:id" element={<PortalRunScreen />} />
-    <Route path="accounts" element={<AccountsScreen />} />
-    <Route path="accounts/access" element={<VaultRedirect />} />
+    {/* Connectors C5 (docs/connectors-plan.md §3): the client's tools, and each one's page */}
+    <Route
+      path="connectors"
+      element={
+        <OnDemand>
+          <ConnectorsScreen />
+        </OnDemand>
+      }
+    />
+    <Route
+      path="connectors/:connector"
+      element={
+        <OnDemand>
+          <ConnectorPageScreen />
+        </OnDemand>
+      }
+    />
     <Route path="contacts" element={<ContactsScreen />} />
 
     {/* An agent: Overview, Runs, Access */}
@@ -138,7 +166,10 @@ export const portalRoutes = (
     <Route path="people/*" element={<Redirect to="/contacts" />} />
     <Route path="conversations" element={<Redirect to="/settings/conversations" />} />
     <Route path="services/:id" element={<Redirect to="/agents/:id" />} />
-    <Route path="connections" element={<Redirect to="/accounts" />} />
+    {/* Accounts and its vault rail retired (C5): the vault's logins are under Built for you. */}
+    <Route path="accounts" element={<Redirect to="/connectors" />} />
+    <Route path="accounts/access" element={<VaultRedirect />} />
+    <Route path="connections" element={<Redirect to="/connectors" />} />
     <Route path="access" element={<VaultRedirect />} />
     <Route path="access/*" element={<VaultRedirect />} />
     <Route path="directory" element={<Redirect to="/contacts" />} />

@@ -1,17 +1,25 @@
 // The setup checklist on a client copy (docs/builder-plan.md §6, B4). The items travel in the
 // agent's version (`definition.setup`); the client's progress is the agent's own
 // (`agent.stage_state.setup`, operational, never in a version). A connect item is done when its
-// connector is connected and bound to the agent; the rest when a person answers, confirms or sends
+// connector is connected and bound to the agent and, Connectors C4, has what the agent needs
+// there; the rest when a person answers, confirms or sends
 // a file. An answer that sets a skill parameter becomes a new version of the copy, by code: the
 // "client settings" class (ARCHITECTURE §10.15), never a loosening. The go-live stages read the
 // holds (`lifecycle/stages.ts`). Every function runs in the caller's transaction, scoped to the
 // agent's client (invariant 1).
 
-import { AgentsError, createVersion, publish, type RegistryContext } from "@countersign/agents";
+import {
+  AgentsError,
+  createVersion,
+  grantsOfClient,
+  publish,
+  type RegistryContext,
+} from "@countersign/agents";
 import {
   type AgentStage,
   type AnyAgentBundle,
   applySetupSetting,
+  type GrantLimits,
   type PortalSetupAgent,
   readSetupAnswer,
   readStageState,
@@ -36,6 +44,7 @@ import {
   type Tx,
 } from "@countersign/db";
 import { and, desc, eq, inArray } from "drizzle-orm";
+import { bundleNeeds, gapsOf, gapWords } from "../connector-access/service";
 import { HttpError, notFound } from "../http";
 
 type AgentRow = typeof agent.$inferSelect;
@@ -71,13 +80,17 @@ export function checklistOf(bundle: unknown): SetupItem[] {
 
 /**
  * Which of the copy's connectors are usable and bound to it, for its connect items: connected, or
- * pending for a connector that needs no sign-in, as the activation check counts them.
+ * pending for a connector that needs no sign-in, as the activation check counts them. Connectors
+ * C4 (docs/connectors-plan.md §7): with the skill catalog and the version's bundle, also what the
+ * agent still needs on each (a row off, a scope, a grant), so a connect item is done only when
+ * nothing blocks the agent there and its label says what's missing.
  */
 // DECISION: without the registry (the hourly pass has none), only a connected one counts.
 export async function setupFacts(
   tx: Tx,
   row: AgentRow,
-  ctx?: Pick<RegistryContext, "tools">,
+  ctx?: Pick<RegistryContext, "tools"> & Partial<Pick<RegistryContext, "catalog">>,
+  bundle?: unknown,
 ): Promise<SetupFacts> {
   const ids = Object.values(row.bindings);
   if (!row.tenantId || ids.length === 0) return { connected: () => false };
@@ -89,26 +102,63 @@ export async function setupFacts(
     c.status === "connected" ||
     (c.status === "pending" && ctx?.tools.connectors.get(c.connector)?.manifest.auth === "none");
   const ok = new Set(rows.filter(usable).map((c) => `${c.connector}|${c.id}`));
+  const missing =
+    ctx?.catalog && bundle !== undefined && bundle !== null
+      ? await missingOn(tx, row, { tools: ctx.tools, catalog: ctx.catalog }, bundle)
+      : undefined;
   return {
     connected: (connector) => {
       const bound = row.bindings[connector];
       return bound !== undefined && ok.has(`${connector}|${bound}`);
     },
+    ...(missing ? { missing } : {}),
   };
 }
+
+/** What a bound agent still needs on each connector, in words, from its gaps there. */
+async function missingOn(
+  tx: Tx,
+  row: AgentRow,
+  reg: Pick<RegistryContext, "tools" | "catalog">,
+  bundle: unknown,
+): Promise<(connector: string) => string | null> {
+  const tenantId = row.tenantId as string;
+  const needs = await bundleNeeds(tx, tenantId, bundle, reg);
+  if (needs.length === 0) return () => null;
+  const connections = await tx.select().from(connection).where(eq(connection.tenantId, tenantId));
+  const grants: Record<string, GrantLimits | null> = {};
+  for (const g of await grantsOfClient(tx, tenantId)) {
+    if (g.agentId === row.id) grants[g.connectionId] = g.limits;
+  }
+  const platform = { connectors: reg.tools.connectors };
+  const gaps = gapsOf(needs, { connections, platform, bindings: row.bindings, grants });
+  return (connector) => {
+    const words = gaps
+      .filter((g) => g.connector === connector && g.blocking && ACCESS_GAPS.has(g.kind))
+      .map((g) => gapWords(platform, g, row.serviceName ?? row.name));
+    return words.length > 0 ? words.join("; ") : null;
+  };
+}
+
+/** The gaps a connected, bound connector can still have. */
+const ACCESS_GAPS: ReadonlySet<string> = new Set([
+  "off_on_connection",
+  "scope_excludes",
+  "off_in_grant",
+]);
 
 /** The copy's checklist with its progress, or null when its version carries none. */
 export async function agentSetupView(
   tx: Tx,
   row: AgentRow,
-  ctx?: Pick<RegistryContext, "tools">,
+  ctx?: Pick<RegistryContext, "tools"> & Partial<Pick<RegistryContext, "catalog">>,
 ): Promise<SetupView | null> {
   if (row.kind !== "client") return null;
   const v = await shownVersion(tx, row);
   const items = checklistOf(v?.bundle);
   if (items.length === 0) return null;
   const state = readStageState(row.stageState);
-  return setupView(items, state.setup, await setupFacts(tx, row, ctx));
+  return setupView(items, state.setup, await setupFacts(tx, row, ctx, v?.bundle));
 }
 
 /**
@@ -119,13 +169,13 @@ export async function setupHoldsFor(
   tx: Tx,
   row: AgentRow,
   to: AgentStage,
-  ctx?: Pick<RegistryContext, "tools">,
+  ctx?: Pick<RegistryContext, "tools"> & Partial<Pick<RegistryContext, "catalog">>,
 ): Promise<SetupItem[]> {
   if (row.kind !== "client") return [];
   const v = await shownVersion(tx, row);
   const items = checklistOf(v?.bundle);
   if (items.length === 0) return [];
-  const facts = await setupFacts(tx, row, ctx);
+  const facts = await setupFacts(tx, row, ctx, v?.bundle);
   return setupHolds(items, readStageState(row.stageState).setup, facts, to);
 }
 
@@ -168,7 +218,7 @@ export async function recordSetupItem(
     throw new HttpError(
       409,
       "connect_item",
-      "This is done when the tool is connected: connect it on the Accounts page.",
+      "This is done when the tool is connected and allows what the agent needs: see its Connectors page.",
     );
   }
   const base: Omit<SetupProgress, "done"> = {

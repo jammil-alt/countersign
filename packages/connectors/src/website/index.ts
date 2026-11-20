@@ -210,6 +210,8 @@ export function createWebsiteConnector(options: WebsiteConnectorOptions = {}): C
 
   return defineConnector({
     id: WEBSITE_CONNECTOR_ID,
+    // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
+    askFirst: [],
     name: "Website",
     description:
       "Publish guides on your own website, with its sitemap, once a person signs each change.",

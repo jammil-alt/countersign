@@ -144,11 +144,11 @@ describe("Getting started: the setup checklists", () => {
       expect(confirm).toHaveTextContent("Done");
       expect(confirm).toHaveTextContent("From the trial");
       expect(confirm).toHaveTextContent("Done by us on");
-      // A connect item goes to the Accounts page.
+      // A connect item opens the connector's page with this agent picked (Connectors C5).
       const connect = screen.getByTestId("start-setup-item-connect-qbo");
       expect(within(connect).getByRole("link", { name: "Connect it" })).toHaveAttribute(
         "href",
-        "/accounts",
+        `/connectors/qbo?for=${AGENT}`,
       );
       expect(screen.getByTestId("start-setup-item-go-date")).toHaveTextContent("Before go-live");
     },

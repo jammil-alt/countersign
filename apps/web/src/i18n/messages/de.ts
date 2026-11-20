@@ -52,7 +52,7 @@ export const de: Messages = {
   "errorPage.connection.title":
     "Dafür fehlt eine Verbindung, die Sie noch nicht eingerichtet haben.",
   "errorPage.connection.line":
-    "Verbinden Sie sie unter Konten und kommen Sie dann auf diese Seite zurück.",
+    "Verbinden Sie sie unter Konnektoren und kommen Sie dann auf diese Seite zurück.",
   "errorPage.forbidden.title": "Sie haben keinen Zugriff auf diese Seite.",
   "errorPage.failure":
     "Beim Laden dieser Seite ist etwas schiefgegangen. Versuchen Sie es gleich noch einmal.",
@@ -64,7 +64,7 @@ export const de: Messages = {
   "errorPage.back.runs": "Zu den Abläufen",
   "errorPage.back.records": "Zu den Einträgen",
   "errorPage.back.sloan": "Zu Sloan",
-  "errorPage.back.accounts": "Zu den Konten",
+  "errorPage.back.accounts": "Zu den Konnektoren",
   "errorPage.back.clients": "Zu den Kunden",
   "errorPage.back.lab": "Zum Agenten-Labor",
   "errorPage.back.skills": "Zu den Fähigkeiten",
@@ -160,7 +160,7 @@ export const de: Messages = {
   "nav.desk": "Ihr Schreibtisch",
   "nav.yourAgents": "Ihre Agenten",
   "nav.yourBusiness": "Ihr Unternehmen",
-  "nav.accounts": "Konten",
+  "nav.connectors": "Konnektoren",
   "nav.more": "Mehr",
   "nav.lead": "Ihr Ansprechpartner bei Mezonas",
   "nav.noAgents": "Noch keine Agenten.",
@@ -309,17 +309,10 @@ export const de: Messages = {
   "agent.latest": "Neues von {name}",
   "agent.history": "Verlauf",
   "agent.took": "Dauer: {duration}",
-  "agent.reach": "Worauf {name} zugreift",
+  "agent.reach": "Konnektoren, die {name} nutzt",
   "agent.reachChange": "Ändern",
-  "agent.reachNone": "{name} hat noch keinen Zugriff auf Ihre Konten.",
+  "agent.reachNone": "{name} nutzt noch keinen Ihrer Konnektoren.",
   "agent.revoked": "Kein Zugriff",
-  "agent.level.auto": "{verb}: selbstständig", // fluent review
-  "agent.level.approval": "{verb}: braucht Ihre Freigabe",
-  "agent.level.off": "{verb}: aus",
-  "agent.verb.read": "Lesen",
-  "agent.verb.create": "Anlegen",
-  "agent.verb.update": "Ändern",
-  "agent.verb.delete": "Löschen",
   "agent.runNow": "Jetzt ausführen",
   "agent.run": "Starten",
   "agent.runStarted": "{name} hat begonnen.",
@@ -663,9 +656,7 @@ export const de: Messages = {
   "connections.subtitle":
     "Verbinden Sie jedes Tool einmal. Ihre Agenten nutzen diese Konten, im Rahmen der hier gezeigten Berechtigungen.",
   "connections.connected": "Verbunden · {count}",
-  "connections.noneConnected": "Noch keine Tools verbunden.",
   "connections.connectBelow": "Verbinden Sie unten eines.",
-  "connections.adminConnects": "Ihr Admin verbindet sie.",
   "connections.matrixNote":
     "Freigabe heißt: Die Änderung wartet in Ihrem Posteingang, bis jemand zustimmt.",
   "connections.available": "Verfügbar",
@@ -683,7 +674,6 @@ export const de: Messages = {
     "Die Agenten nutzen {tool} erst wieder, wenn Sie es neu verbinden.",
   "connections.keepIt": "Behalten",
   "connections.notAvailable": "Noch nicht verfügbar",
-  "connections.reconnect": "Neu verbinden",
   "connections.connect": "Verbinden",
   "connections.adminCanConnect": "Ihr Admin kann es verbinden.",
   "connections.enterKey": "Zugangsdaten eingeben",
@@ -731,14 +721,14 @@ export const de: Messages = {
   "matrix.save": "Berechtigungen speichern",
   "callback.title": "Verbindung wird hergestellt",
   "callback.subtitle": "Die Anmeldung bei Ihrem Tool wird abgeschlossen.",
-  "callback.back": "Zurück zu den Konten",
+  "callback.back": "Zurück zu den Konnektoren",
   "callback.connecting": "Wird verbunden…",
   // v0.12 bankfeed (pending review by a fluent speaker).
   "connections.bankfeed.description":
     "Lesen Sie die Umsätze Ihrer Bankkonten und Karten. Hier kann kein Geld bewegt werden.",
   "connections.bankfeed.connect": "Bank oder Karte verbinden",
   "callback.linkLost":
-    "Diese Bankanmeldung wurde in einem anderen Tab oder Fenster begonnen. Beginnen Sie unter Konten neu.",
+    "Diese Bankanmeldung wurde in einem anderen Tab oder Fenster begonnen. Beginnen Sie unter Konnektoren neu.",
 
   // ── Access (the vault and agents' access) ──
   "vault.title": "Zugriff",
@@ -1130,7 +1120,7 @@ export const de: Messages = {
   "settings.approvals.byYou": "Sie geben Änderungen an Ihren Tools frei, bevor sie passieren.",
   "settings.approvals.howToChange":
     "Fügen Sie unten eine Regel hinzu, um festzulegen, wer freigibt. Sie können Freigaben strenger machen; nur wir lockern sie. Was Agenten in einem Tool dürfen, schränken Sie ein unter",
-  "settings.approvals.accountsLink": "Konten.",
+  "settings.approvals.accountsLink": "Konnektoren.",
   "settings.approvals.askAdmin": "Wenn jemand anderes freigeben soll, fragen Sie Ihren Admin.",
   "settings.emails": "E-Mails",
   "settings.emailsSoon": "E-Mails kommen bald",
@@ -1937,11 +1927,6 @@ export const de: Messages = {
   "whatsappMeta.signup.notSetUp":
     "Die eigene WhatsApp-Nummer lässt sich hier noch nicht verbinden. Wir sagen Ihnen Bescheid, sobald es geht.",
   // ── UI-1c: Accounts and vault, People ──
-  "accounts.title": "Konten",
-  "accounts.subtitle":
-    "Die Tools und Zugänge, die Ihre Agenten nutzen. Öffnen Sie ein Tool, um zu sehen, was Agenten darin dürfen.", // fluent review
-  "accounts.addLogin": "Zugang im Tresor hinzufügen",
-  "accounts.connectAccount": "Konto verbinden",
   "accounts.stat.connected": "Verbunden",
   "accounts.stat.allWorking": "Alles funktioniert",
   "accounts.stat.stopped": {
@@ -1957,13 +1942,6 @@ export const de: Messages = {
   "accounts.stat.waiting": "Wartet auf Sie",
   "accounts.stat.fixBelow": "Unten beheben",
   "accounts.stat.nothingWaits": "Nichts wartet auf Sie",
-  "accounts.tools.title": "Ihre Tools",
-  "accounts.tools.connectRight": "Verbinden Sie eines rechts.",
-  "accounts.card.agentsMay": "Was Agenten dürfen", // fluent review
-  "accounts.card.hide": "Ausblenden",
-  "accounts.card.matrixNote":
-    "Sie können jede dieser Stufen sofort verschärfen. Lockern können nur wir. Löschen ist immer aus.",
-  "accounts.card.tools": "Was jedes Tool tut",
   "accounts.vault.title": "Ihr Tresor",
   "accounts.vault.subtitle": "Website-Zugänge und Schlüssel, die Ihre Agenten nutzen",
   "accounts.vault.note":
@@ -1980,10 +1958,6 @@ export const de: Messages = {
   "accounts.vault.agentLogin": "Agenten-Zugang · {email}",
   "accounts.vault.details": "Details",
   "accounts.vault.hideDetails": "Details ausblenden",
-  "accounts.add.title": "Weiteres Tool hinzufügen",
-  "accounts.add.ask": "Ihres ist nicht dabei?",
-  "accounts.add.askLink": "Bitten Sie uns, es hinzuzufügen.",
-  "accounts.add.none": "Alle Tools, die wir Ihnen anbieten, sind verbunden.",
   "peoplePage.title": "Personen",
   "peoplePage.subtitle":
     "Alle, die Ihre Agenten kontaktieren dürfen, wer sie für Sie sind und wie sie erreicht werden möchten.",
@@ -2057,8 +2031,6 @@ export const de: Messages = {
   "peoplePage.voice.text": "Ihre Worte",
   "peoplePage.voice.textHint":
     "Fügen Sie eine E-Mail oder Nachricht dieser Person ein. Zitierte Antworten werden entfernt.",
-  "accounts.signoff": "Wer welche Änderungen freigibt, und bis zu welchem Betrag, steht in", // fluent review
-  "accounts.signoffLink": "Einstellungen, unter Freigaben", // fluent review
   // UI-1d: Runs, a run's page, the Weekly Table, Settings and Sloan (docs/ui-plan.md C6–C10).
   "nav.weekly": "Wochentisch",
   "nav.sloan": "Sloan",
@@ -2451,8 +2423,6 @@ export const de: Messages = {
     one: "{count} mit „Nicht jetzt“ Zurückgestelltes zeigen",
     other: "{count} mit „Nicht jetzt“ Zurückgestellte zeigen",
   },
-  "accounts.add.askPrompt":
-    "Bitte fügen Sie dieses Tool hinzu, damit meine Agenten es nutzen können: ",
   "matrix.recordTypes": { one: "{count} Datensatztyp", other: "{count} Datensatztypen" },
   "contactsPage.backToList": "Zurück zu Ihren Kontakten",
   "contactsPage.consent": "Einwilligung und wie die Person erreicht werden möchte",
@@ -3116,14 +3086,7 @@ export const de: Messages = {
   "accounts.group.files": "Dateien und Tabellen",
   "accounts.group.sales": "Kunden und Vertrieb",
   "accounts.group.web": "Websites und Suche",
-  "accounts.group.logins": "Website-Anmeldungen",
   "accounts.group.other": "Weitere Tools",
-  "accounts.how.signIn": "Sie melden sich selbst an. Wir sehen Ihr Passwort nie.",
-  "accounts.how.key": "Sie geben den Schlüssel in Ihrem Tresor ein.",
-  "accounts.how.none": "Keine Anmeldung und kein Schlüssel nötig.",
-  "accounts.how.login":
-    "Sie geben die Zugangsdaten eines Kontos ein, das für Ihre Agenten angelegt wurde. Sie liegen in Ihrem Tresor, verschlüsselt mit dem Schlüssel Ihres Unternehmens, und wir sehen sie nie.",
-  "accounts.add.enterLogin": "Zugangsdaten eingeben",
   // docs/plan.md §1.98: signing up for texts. REVIEW: needs a fluent speaker (§1.18).
   "peoplePage.textInvite": "Zu SMS einladen",
   "peoplePage.textInviteHint":
@@ -3443,4 +3406,187 @@ export const de: Messages = {
   "start.fact.pains": "Was besser sein könnte",
   "start.fact.limits": "Grenzen",
   "start.fact.notes": "Sonstiges",
+  // ── Connectors C5 (docs/connectors-plan.md §3, §7): the portal's Connectors and a connector's page ──
+  "connectors.subtitle":
+    "Die Tools, in denen Ihre Agenten arbeiten. Sie melden sich an; Sie entscheiden, was sie lesen und ändern dürfen.",
+  "connectors.crumbs": "Wo Sie sind",
+  "connectors.beta": "Beta",
+  "connectors.mezonas": "Mezonas",
+  "connectors.someone": "Jemand aus Ihrem Team",
+  "connectors.needs.one": {
+    one: "{agent} braucht {count} Sache von Ihnen",
+    other: "{agent} braucht {count} Dinge von Ihnen",
+  },
+  "connectors.needs.many": {
+    one: "{count} Agent braucht etwas von Ihnen",
+    other: "{count} Agenten brauchen etwas von Ihnen",
+  },
+  "connectors.needs.requests": {
+    one: "Mezonas bittet darum, {count} Verbindung zu ändern.",
+    other: "Mezonas bittet darum, {count} Verbindungen zu ändern.",
+  },
+  "connectors.needs.toInbox": "Antworten Sie im Posteingang",
+  "connectors.connected.title": "Verbunden",
+  "connectors.connected.none":
+    "Noch nichts verbunden. Verbinden Sie unten unter Durchsuchen ein Tool.",
+  "connectors.usedByLine": "Genutzt von {names}",
+  "connectors.summary.reads": { one: "Liest {count}", other: "Liest {count}" },
+  "connectors.summary.ask": {
+    one: "ändert {count}, fragt Sie vorher",
+    other: "ändert {count}, fragt Sie vorher",
+  },
+  "connectors.summary.alone": { one: "{count} selbstständig", other: "{count} selbstständig" },
+  "connectors.summary.readsOnly": {
+    one: "Liest {count}, ändert nichts",
+    other: "Liest {count}, ändert nichts",
+  },
+  "connectors.summary.nothing": "Noch nichts erlaubt",
+  "connectors.row.request": "Änderung zu genehmigen",
+  "connectors.row.needsSomething": "Braucht etwas",
+  "connectors.signInAgain": "Erneut anmelden",
+  "connectors.built.title": "Für Sie gebaut",
+  "connectors.built.meta": "Nur für Ihr Unternehmen",
+  "connectors.logins.title": "Website-Anmeldungen",
+  "connectors.logins.subtitle":
+    "Websites, bei denen sich ein Agent mit eigener Anmeldung für Sie anmeldet",
+  "connectors.ask.title": "Einen Konnektor anfragen",
+  "connectors.ask.help":
+    "Sie nutzen ein Tool, das hier fehlt? Sagen Sie uns, welches, und was der Agent dort tun soll.",
+  "connectors.ask.lead": "Geht an Ihre Ansprechperson bei Mezonas",
+  "connectors.ask.tool": "Welches Tool",
+  "connectors.ask.what": "Was soll der Agent dort tun?",
+  "connectors.ask.send": "An Ihre Ansprechperson senden",
+  "connectors.ask.sent": "Gesendet. Ihre Anfrage ansehen",
+  "connectors.ask.subject": "Ein Konnektor für {tool}",
+  "connectors.browse.title": "Durchsuchen",
+  "connectors.browse.search": "Konnektoren suchen",
+  "connectors.browse.recommended": "Für Sie empfohlen",
+  "connectors.browse.noMatch": "Kein Konnektor passt dazu.",
+  "connectors.browse.none": "Noch keine weiteren Konnektoren.",
+  "connectors.tile.connected": "Verbunden",
+  "connectors.how.signIn": "Sie melden sich an",
+  "connectors.how.key": "Sie geben einen Schlüssel ein",
+  "connectors.how.none": "Keine Anmeldung nötig",
+  "connectors.level.on": "Ein",
+  "connectors.level.off": "Aus",
+  "connectors.level.ask": "Erst fragen",
+  "connectors.level.alone": "Selbstständig",
+  "connectors.read.title": "Lesen",
+  "connectors.read.help": "Was Agenten ansehen können. Lesen ändert nie etwas.",
+  "connectors.read.none": "Hier gibt es nichts zu lesen.",
+  "connectors.change.title": "Ändern",
+  "connectors.change.help":
+    "Was Agenten schreiben können. Am Anfang nur, was sich leicht zurücknehmen lässt.",
+  "connectors.change.none": "Agenten ändern hier nichts.",
+  "connectors.change.deleteOff": "Löschen ist immer aus",
+  "connectors.change.aloneNote":
+    "„Selbstständig“ erscheint nur, wo Ihre Ansprechperson bei Mezonas es mit Ihnen eingerichtet hat. Sie können es jederzeit zurücknehmen.",
+  "connectors.row.tools": { one: "{count} Tool", other: "{count} Tools" },
+  "connectors.row.scope": "Nur: {scope}",
+  "connectors.row.needs": "{names} braucht das",
+  "connectors.row.toolsTitle": "Tools",
+  "connectors.row.noTools": "Noch kein Tool nutzt das.",
+  "connectors.row.agentsTitle": "Agenten",
+  "connectors.row.noAgents": "Kein Agent nutzt das.",
+  "connectors.row.uses": "nutzt das",
+  "connectors.row.needsIt": "braucht das",
+  "connectors.connectAnother": "Weitere verbinden",
+  "connectors.connectedByYou": "Von Ihnen verbunden",
+  "connectors.agentsCan": "Was Agenten tun können",
+  "connectors.start.title": "Was es nach dem Verbinden tun kann",
+  "connectors.start.admin":
+    "Eine Administratorin oder ein Administrator Ihres Unternehmens verbindet es.",
+  "connectors.start.personal": "Jede Person in Ihrem Team kann ihr eigenes verbinden.",
+  "connectors.start.later": "Sie können all das nach dem Verbinden ändern.",
+  "connectors.details.show": "Anmeldung und Zugriff jedes Agenten",
+  "connectors.details.hide": "Anmeldung und Zugriff ausblenden",
+  "connectors.for.has": "{agent} hat hier, was es braucht",
+  "connectors.for.allowedSome": "Für {agent} erlaubt, was möglich war",
+  "connectors.for.unresolved": "Braucht noch eine Person: {needs}",
+  "connectors.for.allowedByYou": "Gerade von Ihnen erlaubt. Es steht im Verlauf dieses Konnektors.",
+  "connectors.for.needsThis": "{agent} braucht das",
+  "connectors.for.needsMore": {
+    one: "{agent} braucht hier noch {count} Sache",
+    other: "{agent} braucht hier noch {count} Dinge",
+  },
+  "connectors.for.connectTurnsOn":
+    "Beim Verbinden wird eingeschaltet, was {agent} braucht, mit Rückfrage bei Ihnen.",
+  "connectors.for.asks":
+    "Jede Änderung wartet weiterhin auf Ihre Genehmigung, bevor sie geschrieben wird.",
+  "connectors.for.ours": "Den Rest erledigt Ihre Ansprechperson bei Mezonas: {words}",
+  "connectors.for.adminAllows":
+    "Eine Administratorin oder ein Administrator Ihres Unternehmens kann das erlauben.",
+  "connectors.for.allow": "Erlauben, was {agent} braucht",
+  "connectors.usedBy.title": "Genutzt von",
+  "connectors.usedBy.none": "Noch kein Agent nutzt diese Verbindung.",
+  "connectors.usedBy.ready": "Hat, was es braucht",
+  "connectors.usedBy.needsCount": { one: "Braucht {count}", other: "Braucht {count}" },
+  "connectors.usedBy.needs": "Braucht: {needs}",
+  "connectors.history.title": "Verlauf",
+  "connectors.history.none": "Noch keine Änderungen.",
+  "connectors.history.system": "Einrichtung",
+  "connectors.history.fromRequest": "aus der Anfrage von Mezonas genehmigt",
+  "connectors.history.underGoAhead": "mit Ihrer Freigabe vom {date}",
+  "connectors.history.all": { one: "Alle {count} zeigen", other: "Alle {count} zeigen" },
+  "connectors.history.fewer": "Weniger zeigen",
+  "connectors.may.title": "Änderungen durch Mezonas",
+  "connectors.may.help":
+    "Wie viel Ihre Ansprechperson bei Mezonas hier ändern darf, ohne Sie jedes Mal zu fragen.",
+  "connectors.may.ask": "Jedes Mal fragen",
+  "connectors.may.askHelp":
+    "Jede Änderung, die Agenten mehr erlaubt, kommt zur Genehmigung in Ihren Posteingang.",
+  "connectors.may.needs": "Erlauben, was Agenten brauchen",
+  "connectors.may.needsHelp":
+    "Mezonas darf hier einschalten, was Ihre Agenten brauchen, mit Rückfrage vor jedem Schreiben. Alles andere kommt weiterhin zu Ihnen.",
+  "connectors.may.any": "Jede Änderung erlauben",
+  "connectors.may.anyHelp":
+    "Mezonas darf jede Zeile und die Einrichtung dieses Tools ändern, bis „Erst fragen“.",
+  "connectors.may.howLong": "Wie lange",
+  "connectors.may.untilOff": "Bis ich es ausschalte",
+  "connectors.may.days30": "30 Tage lang",
+  "connectors.may.setUntil": "Festgelegt von {name} am {date}, bis {until}.",
+  "connectors.may.setUntilOff": "Festgelegt von {name} am {date}, bis Sie es ausschalten.",
+  "connectors.may.ended":
+    "Was {name} erlaubt hatte, endete am {date}: Mezonas fragt Sie wieder jedes Mal.",
+  "connectors.may.note":
+    "Sie erfahren von jeder Änderung und können jede hier rückgängig machen. „Selbstständig“ braucht immer Ihr Ja.",
+  "connectors.may.adminOnly":
+    "Nur eine Administratorin oder ein Administrator Ihres Unternehmens kann das ändern.",
+  "connectors.request.title": "Mezonas bittet darum, den Zugriff auf {tool} zu ändern",
+  "connectors.request.forAgent": "Für {agent}",
+  "connectors.request.askedBy": "angefragt von {name}, Ihrer Ansprechperson bei Mezonas",
+  "connectors.request.why": "Warum",
+  "connectors.request.to": "wird zu",
+  "connectors.request.approved": "Genehmigt",
+  "connectors.request.declined": "Abgelehnt",
+  "connectors.request.replaced": "Ersetzt",
+  "connectors.request.expired": "Abgelaufen",
+  "connectors.request.withdrawn": "Zurückgezogen",
+  "connectors.request.answered": "Beantwortet",
+  "connectors.request.outOfDate": "Veraltet",
+  "connectors.request.outOfDateWords":
+    "Veraltet: Diese Verbindung hat sich seit der Anfrage von Mezonas geändert, eine Genehmigung würde also nichts ändern. Ihre Ansprechperson schickt eine neue.",
+  "connectors.request.nothingUntil": "Nichts ändert sich, bis Sie genehmigen.",
+  "connectors.request.ends": "Sie endet am {date}, wenn niemand antwortet.",
+  "connectors.request.note": "Eine Notiz zurück (optional)",
+  "connectors.request.addNote": "Notiz hinzufügen",
+  "connectors.request.approve": "Genehmigen",
+  "connectors.request.decline": "Ablehnen",
+  "connectors.request.approvedNow":
+    "Gerade von Ihnen genehmigt. Es steht mit der Anfrage im Verlauf von {tool}.",
+  "connectors.request.declinedNow":
+    "Gerade von Ihnen abgelehnt. Nichts hat sich geändert; Ihre Ansprechperson wird informiert.",
+  "connectors.request.closed": "Diese Anfrage ist nicht mehr offen.",
+  "connectors.request.answeredBy": "Beantwortet von {name}",
+  "connectors.request.adminAnswers":
+    "Eine Administratorin oder ein Administrator Ihres Unternehmens antwortet darauf.",
+  "connectors.request.openPage": "{tool} öffnen",
+  "connectors.notice.tightened": "{name} hat {tool} sicherer eingestellt. Es gilt sofort.",
+  "connectors.notice.authorized": "{name} hat {tool} mit Ihrer Freigabe geändert.",
+  "connectors.notice.underNeeds":
+    "Sie haben Mezonas erlaubt, auf {tool} Änderungen vorzunehmen, die Agenten brauchen, am {date}.",
+  "connectors.notice.underAny": "Sie haben Mezonas jede Änderung auf {tool} erlaubt, am {date}.",
+  "connectors.notice.undo": "Auf der Seite von {tool} rückgängig machen oder ändern",
+  "agent.reachReady": "Bereit",
+  "agent.reachNeeds": "Braucht etwas",
 };

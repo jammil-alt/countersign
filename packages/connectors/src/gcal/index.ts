@@ -514,6 +514,8 @@ export function createGcalConnector(options: GcalOptions = {}): Connector {
 
   return defineConnector({
     id: GCAL_CONNECTOR_ID,
+    // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
+    askFirst: [{ verb: "create", entity: "event" }],
     name: "Google Calendar",
     description:
       "See and add events on your Google Calendar, and change the ones you organize. We never cancel or delete one.",

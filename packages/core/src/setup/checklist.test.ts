@@ -275,6 +275,22 @@ describe("setup checklist: a client copy's progress and its stages", () => {
     );
   });
 
+  // Connectors C4 (docs/connectors-plan.md §7): connected and bound isn't done while the agent
+  // still needs something there; the label says what.
+  it("keeps a connect item open while the agent needs something there, and says what", () => {
+    const connect = items[0] as SetupItem;
+    const facts = {
+      connected: (c: string) => c === "qbo",
+      missing: (c: string) => (c === "qbo" ? "Allow create bills" : null),
+    };
+    expect(setupItemDone(connect, undefined, facts)).toBe(false);
+    expect(setupItemDone(connect, undefined, { ...facts, missing: () => null })).toBe(true);
+    const held = setupHolds(items, {}, facts, "trial");
+    expect(held[0]?.label).toBe(`${connect.label.replace(/[.?]$/, "")}: allow create bills`);
+    // Not connected: the label stays as it is (connecting is what's missing).
+    expect(setupHolds(items, {}, connected([]), "trial")[0]?.label).toBe(connect.label);
+  });
+
   it("holds the trial on setup and trial items, and sign-off and live on every item", () => {
     const progress = { a: done("2") };
     expect(setupHolds(items, progress, connected([]), "trial").map((i) => i.id)).toEqual([

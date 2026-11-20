@@ -153,7 +153,7 @@ describe("access per person (§1.122)", () => {
     for (const closed of ["approvals", "hours", "channels"]) {
       expect(screen.queryByTestId(`portal-settings-nav-${closed}`)).toBeNull();
     }
-    expect(screen.queryByTestId("portal-nav-accounts")).toBeNull();
+    expect(screen.queryByTestId("portal-nav-connectors")).toBeNull();
     expect(screen.queryByTestId("portal-nav-contacts")).toBeNull();
     expect(screen.queryByTestId("portal-nav-team")).toBeNull();
     expect(screen.queryByTestId("shell-ask-sloan")).toBeNull();
