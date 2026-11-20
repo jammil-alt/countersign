@@ -41,6 +41,8 @@ export * from "./api/code-requests";
 // v0.12 W2-F: the command center, search and plain-words questions
 export * from "./api/command-center";
 export * from "./api/compliance";
+// Connectors C4 (docs/connectors-plan.md §3, §7): the Connectors place, change requests, panels.
+export * from "./api/connector-access";
 // v0.12 W2-A: the connectors catalog
 export * from "./api/connectors";
 export * from "./api/contract";
@@ -267,6 +269,8 @@ export * from "./oversight/decision";
 export * from "./owners/areas";
 export * from "./owners/definition";
 export * from "./owners/names";
+// Connectors C4 (docs/connectors-plan.md §5.4, §7): a change's rows and direction, who may set it.
+export * from "./permissions/change";
 export * from "./permissions/decide";
 export * from "./permissions/entities";
 export * from "./permissions/explain";
