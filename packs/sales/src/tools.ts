@@ -195,6 +195,8 @@ export const ConfirmedUpdate = z.object({
 // or the match's output: a person's answers are crm_match rows, so the list is the same whether
 // or not a person was asked, and nothing a browser sent decides what is written. A test run
 // records no decision, so it lists nothing to update (and test runs never write).
+// DECISION: with `module`, only the rows matched in that module are listed (`otherModule` counts
+// the rest): an update step writes to one module, its entity named for the connection's matrix.
 // DECISION: each update carries only the fields the step before mapped (its row), with blanks and
 // fields the CRM couldn't take (`id`, names that aren't API names) left out; a row with none left
 // is listed under `empty` and not updated.
@@ -211,6 +213,8 @@ export const confirmedMatchesTool = defineTool({
     rows: z.array(z.record(z.string(), z.unknown())).max(MATCH_ROWS_MAX),
     /** Leave these fields out of the updates (e.g. the email the row was matched by). */
     omit: z.array(CrmFieldName).max(100).optional(),
+    /** Only the rows matched in this module (the update step writes to one). */
+    module: z.string().min(1).max(100).optional(),
   }),
   output: z.object({
     batchId: z.string(),
@@ -219,6 +223,8 @@ export const confirmedMatchesTool = defineTool({
     none: z.array(z.number().int()),
     unsure: z.array(z.number().int()),
     empty: z.array(z.number().int()),
+    /** Rows matched in another module than the one asked for: not updated here. */
+    otherModule: z.array(z.number().int()),
     testRun: z.boolean(),
     sources: z.array(z.string()),
   }),
@@ -229,7 +235,12 @@ export const confirmedMatchesTool = defineTool({
     const omit = new Set(input.omit ?? []);
     const updates: z.input<typeof ConfirmedUpdate>[] = [];
     const empty: number[] = [];
+    const otherModule: number[] = [];
     for (const m of confirmed.matches) {
+      if (input.module !== undefined && m.module !== input.module) {
+        otherModule.push(m.index);
+        continue;
+      }
       const row = input.rows[m.index];
       const fields: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(row ?? {})) {
@@ -260,6 +271,7 @@ export const confirmedMatchesTool = defineTool({
       none: confirmed.none,
       unsure: confirmed.unsure,
       empty,
+      otherModule,
       testRun: ctx.mode === "test",
       sources: confirmed.sources,
     };

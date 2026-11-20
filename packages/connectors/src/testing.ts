@@ -158,6 +158,35 @@ export function fakeZoho(opts: { acceptAccessTokens?: string[]; rateLimitNext?: 
         return jsonResponse(200, leadUpdate);
       }
     }
+    // docs/plan.md §1.164: any record the sync lists is read and updated by id, as in Zoho: an
+    // update merges its fields into the record and moves its Modified_Time on, so the next sync
+    // reads it again.
+    const byId = /^\/crm\/v8\/(Leads|Contacts|Accounts|Deals)\/(\d+)$/.exec(path);
+    const listedRecord = byId
+      ? [...(state.listed[byId[1] as string] ?? [])].reverse().find((r) => String(r.id) === byId[2])
+      : undefined;
+    if (byId && listedRecord && method === "GET") {
+      return jsonResponse(200, { data: [listedRecord] });
+    }
+    if (byId && listedRecord && method === "PUT") {
+      const body = JSON.parse(init.body ?? "{}") as { data?: Record<string, unknown>[] };
+      const modified = new Date(
+        Math.max(Date.now(), Date.parse(String(listedRecord.Modified_Time)) + 1000),
+      )
+        .toISOString()
+        .replace(/\.\d{3}Z$/, "+00:00");
+      Object.assign(listedRecord, body.data?.[0] ?? {}, { Modified_Time: modified });
+      return jsonResponse(200, {
+        data: [
+          {
+            code: "SUCCESS",
+            details: { id: String(listedRecord.id), Modified_Time: modified },
+            message: "record updated",
+            status: "success",
+          },
+        ],
+      });
+    }
     if (path.startsWith("/crm/v8/Leads/") && method === "GET") {
       return jsonResponse(400, {
         code: "INVALID_DATA",

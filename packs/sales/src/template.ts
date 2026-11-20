@@ -35,7 +35,7 @@ export const SPREADSHEET_TO_ZOHO_SLUG = "spreadsheet-to-zoho";
 /** Read table's skill (packages/agents, PR #480) and Reshape's (core). */
 export const READ_TABLE_SKILL = "data.read-table";
 export const RESHAPE_SKILL = "data.reshape";
-export const MATCH_SKILL = "sales.match-records";
+export const MATCH_TOOL = "sales.match_records";
 export const CONFIRMED_TOOL = "sales.matches.confirmed";
 export const ZOHO_UPDATE_TOOL = "zoho_crm.record.update";
 
@@ -156,6 +156,9 @@ export const MATCH_KEYS = {
   lastName: "Last_Name",
 };
 
+/** The fields a row is matched by, which its update leaves as they are in the CRM. */
+export const OMIT_FROM_UPDATE = ["Email", "First_Name", "Last_Name", "Company"];
+
 /** The steps, each id fixed. */
 export function spreadsheetSteps(): Step[] {
   return [
@@ -177,10 +180,12 @@ export function spreadsheetSteps(): Step[] {
       client: { visible: false },
     },
     {
+      // Save to records: each row's decision (crm_match), as Materials' "Save to records: the
+      // matches"; a skill never writes, so the match is a write step of the pack's own records.
       id: "match",
-      name: "Match each row to a Zoho lead",
-      kind: "skill",
-      skill: MATCH_SKILL,
+      name: "Save to records: each row matched to a Zoho lead",
+      kind: "write",
+      tool: MATCH_TOOL,
       input: {
         rows: "{{steps.shape.output.rows}}",
         keys: MATCH_KEYS,
@@ -235,6 +240,11 @@ export function spreadsheetSteps(): Step[] {
       input: {
         batchId: "{{steps.match.output.batchId}}",
         rows: "{{steps.shape.output.rows}}",
+        // DECISION: an update leaves out the fields a row is matched by (its name, company and
+        // email), so a sheet's spelling ("Liv" for Olivia) never renames a lead; the row's other
+        // fields (phone, website, the client's own) are written.
+        omit: OMIT_FROM_UPDATE,
+        module: "Leads",
       },
       client: { visible: false },
     },
@@ -254,7 +264,10 @@ export function spreadsheetSteps(): Step[] {
           kind: "write",
           tool: ZOHO_UPDATE_TOOL,
           input: {
-            module: "{{item.module}}",
+            // DECISION: the module is named, not read from the row, so the connection's matrix
+            // knows the write is to leads (the client allows lead updates); the confirmed
+            // matches list only the rows matched in Leads.
+            module: "Leads",
             id: "{{item.id}}",
             fields: "{{item.fields}}",
             expectedModifiedTime: "{{item.expectedModifiedTime}}",
@@ -319,7 +332,6 @@ const v2 = once(() => {
           parameters: { columns: SHEET_COLUMNS, skip_blank_rows: true },
         },
         { skill: RESHAPE_SKILL, settings: {} },
-        { skill: MATCH_SKILL, settings: {} },
       ],
       extraTools: processes.processTools([process]),
     },
