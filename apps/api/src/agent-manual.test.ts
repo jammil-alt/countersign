@@ -237,6 +237,8 @@ describe.skipIf(!h)("the agent manual", () => {
   });
 
   it("travels with a copy, and the portal reads it made by code, its notes for the admin only", async () => {
+    // PLATFORM_QA TOOL-2: only a published template version is forked into a client.
+    await ok("POST", `/api/ops/agents/${templateId}/versions/${templateVersion}/publish`);
     const forked = await ok<{ agent: { id: string } }>(
       "POST",
       `/api/ops/templates/${templateId}/fork`,

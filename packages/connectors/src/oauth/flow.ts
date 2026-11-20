@@ -99,13 +99,40 @@ export async function beginLinkAuthorization(input: {
 }
 
 export class OAuthCallbackError extends Error {
+  /** What the person is told: our own fixed words, never the callback's text (`oauthCallbackWords`). */
+  readonly words: string;
   constructor(
     readonly reason: OAuthStateFailure | "missing_state" | "provider_error",
     message: string,
+    /** The person pressed Deny (or Cancel) at the provider. */
+    cancelled = false,
   ) {
     super(message);
     this.name = "OAuthCallbackError";
+    this.words = oauthCallbackWords(reason, cancelled);
   }
+}
+
+/**
+ * PLATFORM_QA FLOW-1: what a person reads when a sign-in comes back without a connection. Anyone
+ * can send a client a link to our callback with any `?error=` text, so nothing from the query
+ * reaches the page: a refusal at the provider, a cancel and a bad state each get fixed words.
+ */
+// DECISION: the provider's `error` decides only between "you cancelled" (`access_denied`) and "it
+// didn't finish"; its text and `error_description` are never shown or kept in the message.
+export function oauthCallbackWords(
+  reason: OAuthStateFailure | "missing_state" | "provider_error",
+  cancelled = false,
+): string {
+  if (reason === "provider_error") {
+    return cancelled
+      ? "You cancelled the sign-in, so nothing was connected. Connect again when you're ready."
+      : "The sign-in didn't finish, so nothing was connected. Try again, and tell us if it keeps happening.";
+  }
+  if (reason === "expired") {
+    return "This sign-in took too long, so nothing was connected. Start again from your connections.";
+  }
+  return "We didn't start this sign-in for you, so nothing was connected. Start again from your connections.";
 }
 
 /**
@@ -136,7 +163,13 @@ export async function completeAuthorization(input: {
     throw new Error(`connector ${connector.manifest.id} does not sign in with OAuth`);
   }
   if (params.error) {
-    throw new OAuthCallbackError("provider_error", `the provider refused: ${params.error}`);
+    // Never the provider's text (FLOW-1): only whether the person cancelled.
+    const cancelled = params.error === "access_denied";
+    throw new OAuthCallbackError(
+      "provider_error",
+      cancelled ? "the provider said the person cancelled" : "the provider refused the sign-in",
+      cancelled,
+    );
   }
   if (!params.state) throw new OAuthCallbackError("missing_state", "the callback has no state");
   const verified = await verifyOAuthState(

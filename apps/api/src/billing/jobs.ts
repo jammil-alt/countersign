@@ -38,6 +38,7 @@ import {
   monthFor,
   type Pricing,
   recordAgentDays,
+  recordLineDays,
   tenantBilling,
 } from "./ledger";
 
@@ -363,6 +364,12 @@ export async function billingTick(
       );
       const built = await run(async (tx) => {
         await recordAgentDays(tx, { tenantId: client.id, day: today, pricing });
+        // §1.160: each active agent's own phone line, at the line price now.
+        await recordLineDays(tx, {
+          tenantId: client.id,
+          day: today,
+          price: config.settings.phoneLinePrice,
+        });
         // A client set up after the month ended has no statement for it.
         if (billing.setUpAt.slice(0, 10) > lastMonthEnd) return null;
         return buildMonthStatement(tx, { tenantId: client.id, period: lastMonth, config });

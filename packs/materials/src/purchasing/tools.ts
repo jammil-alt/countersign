@@ -35,6 +35,7 @@ import {
 } from "./quotes";
 import {
   addLines,
+  clientDay,
   createRequest,
   getRequest,
   listRequests,
@@ -47,7 +48,9 @@ import {
 } from "./requests";
 import { chosenQuote } from "./reviews";
 
-const today = () => new Date().toISOString().slice(0, 10);
+/** Today on the client's calendar (its time zone), not UTC's (PLATFORM_QA INPUT-3). */
+const today = (ctx: PackToolContext) =>
+  withTenant(ctx.db, ctx.tenantId, (tx) => clientDay(tx, ctx.tenantId, new Date()));
 
 const purchasing = (ctx: PackToolContext): PurchasingContext => ({
   tenantId: ctx.tenantId,
@@ -421,8 +424,11 @@ export const vendorsForItemsTool = defineTool({
     sources: z.array(z.string()),
   }),
   async run(input, ctx) {
-    const r = await withTenant(ctx.db, ctx.tenantId, (tx) =>
-      vendorsForItems(tx, ctx.tenantId, { ...input, today: today() }),
+    const r = await withTenant(ctx.db, ctx.tenantId, async (tx) =>
+      vendorsForItems(tx, ctx.tenantId, {
+        ...input,
+        today: await clientDay(tx, ctx.tenantId, new Date()),
+      }),
     );
     const counts = new Map<string, number>();
     for (const item of r.items) {
@@ -478,7 +484,7 @@ export const frequentItemsTool = defineTool({
     sources: z.array(z.string()),
   }),
   async run(input, ctx) {
-    const to = input.to ?? today();
+    const to = input.to ?? (await today(ctx));
     const from = input.from ?? daysBefore(to, 365);
     if (from > to) throw new Error("`from` is after `to`");
     const items = await withTenant(ctx.db, ctx.tenantId, (tx) =>
@@ -860,10 +866,10 @@ export const quoteCompare = defineTool({
     }),
     sources: z.array(z.string()),
   }),
-  run: (input, ctx) =>
+  run: async (input, ctx) =>
     compareQuotes(ctx.db, purchasing(ctx), {
       requestId: input.requestId,
-      asOf: input.asOf ?? today(),
+      asOf: input.asOf ?? (await today(ctx)),
       splitMinSavingPct: splitSavingFrom(ctx.settings),
     }),
 });

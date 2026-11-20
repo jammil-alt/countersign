@@ -435,6 +435,7 @@ async function load(tx: Tx, req: SkillStepRequest, input: ReachOutInput): Promis
     agentRow.channels as Record<string, string> | null,
     accountBindings(tenantRow.settings),
     conns,
+    agentRow.id,
   );
   return {
     agentRow,
@@ -581,6 +582,7 @@ export async function unsignedSendRefusal(tx: Tx, row: ReachOutRow): Promise<str
     agentRow.channels as Record<string, string> | null,
     accountBindings(tenantRow.settings),
     conns,
+    row.agentId,
   );
   const channels = planOf(row).channels ?? [];
   if (channels.length === 0) return "the message has no channel";
@@ -1278,6 +1280,7 @@ export async function attemptFrom(
     const connectionId = pickChannel({
       kind: channel,
       agent: state.channels,
+      agentId: row.agentId,
       account: accountBindings(state.t.settings),
       connections: state.conns,
     })?.connectionId;

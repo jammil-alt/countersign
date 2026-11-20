@@ -953,6 +953,19 @@ function RenameOwner({ id, name, area }: { id: string; name: string; area: strin
       >
         {t("home.owner.save")}
       </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        disabled={busy}
+        data-testid={`home-owner-rename-cancel-${area}`}
+        onClick={() => {
+          setEditing(false);
+          setValue(name);
+          setError(null);
+        }}
+      >
+        {t("common.cancel")}
+      </Button>
       {error ? <ErrorNotice error={error} /> : null}
     </form>
   );

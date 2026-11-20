@@ -47,12 +47,14 @@ export {
   inBrowserSession,
   Redactor,
   type SignedInPage,
+  secretCookie,
   withBrowserSession,
 } from "./session";
 export {
   BrowserCapReached,
   BrowserRefused,
   BrowserStop,
+  CodesUnavailable,
   checkForStops,
   isSignedIn,
   PLATFORM_STOP_SELECTORS,

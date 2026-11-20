@@ -5,13 +5,13 @@
 // disconnects; a client user sees all of it read-only. The API enforces the same rules.
 import type { GrantLimits, PermissionLevel, Verb } from "@countersign/core";
 import { type ReactNode, useEffect, useRef, useState } from "react";
-import type { ResponseOf } from "../api/client";
+import { isApiError, type ResponseOf } from "../api/client";
 import { apiRoutes } from "../api/routes";
 import { useApiClient } from "../api/useApi";
 import { ConnectorMark } from "../connections/ConnectorMark";
 import { isLooser, LEVEL_LABEL, LEVELS, levelTone, VERB_LABEL, VERBS } from "../connections/matrix";
 import type { PlainKey } from "../i18n/catalog";
-import { useI18n } from "../i18n/i18n";
+import { type I18n, useI18n } from "../i18n/i18n";
 import { ReleaseSection } from "../portal/screens/AccessRelease";
 import { shortTime } from "../runs/format";
 import { AgentBadge } from "../ui/badges";
@@ -382,6 +382,23 @@ export function SetupCard({ setup, onSaved }: { setup: Setup; onSaved: () => voi
 }
 
 /**
+ * What a failed login set-up says: our own words when the code service (`codes_*`) or anything
+ * past the API failed, never a provider's text; the API's own words for anything else.
+ */
+// DECISION (PLATFORM_QA FLOW-6): the vault card words a set-up failure by its code, as a screen's
+// own error (so the notice shows it as written, with a retry), whatever text the API sends.
+function setupError(error: unknown, authenticator: boolean, t: I18n["t"]): unknown {
+  if (!isApiError(error)) return error;
+  if (authenticator && error.code === "codes_invalid") {
+    return new Error(t("vault.browser.badLink"));
+  }
+  if (error.code.startsWith("codes_") || error.status >= 500 || error.status === 0) {
+    return new Error(t("vault.browser.setupFailed"));
+  }
+  return error;
+}
+
+/**
  * A website the client may set a login up on: its tier and what that means, the confirmation that
  * the client owns the account and the site's terms allow automated access, and for sites with an
  * authenticator app its setup link (sent on to the code service, never kept or shown).
@@ -470,7 +487,10 @@ export function BrowserSetupCard({
       </label>
       {error ? (
         <div className="mt-3">
-          <ErrorNotice error={error} />
+          <ErrorNotice
+            error={setupError(error, needsAuthenticator, t)}
+            onRetry={ready && !busy ? () => void setUp() : undefined}
+          />
         </div>
       ) : null}
       <div className="mt-3">

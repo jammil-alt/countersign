@@ -41,7 +41,7 @@ const verbRow = (rows: readonly AccessRowView[], verb: Verb) =>
  */
 // DECISION (C5): the edit sends the record types whole, rebuilt from the rows (their levels and
 // scopes as shown): the portal's connector page carries rows, not the stored matrix
-// (docs/plan.md §1.157).
+// (docs/plan.md §1.161).
 export function rowEdit(
   rows: readonly AccessRowView[],
   row: Pick<AccessRowView, "verb" | "entity">,

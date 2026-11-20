@@ -20,13 +20,13 @@ password was reset and no person holds it (§8); a restore was tested (§8); pro
 monitored from outside, with a public status page (§10). The owner's laptop is encrypted, locks
 at once, updates itself and has one user (§10), checked by hand until device management.
 
-Status, 2026-11-06:
-- The settings outside the code are all in place (table below).
-- The code is in four pull requests, not yet merged: #81, #82, #83 and #84.
-- Until they merge, the controls marked **(in PR)** exist only on their branches, not on staging.
-
-Until #82 and #84 merge, `docs/plan.md` §1.35 and `docs/operations.md` §1.2 exist only on their
-branches.
+Status, 2026-11-20:
+- The code for every control below is on `main` and on staging: #81–#84, then CodeQL v4 (#315),
+  OSV-Scanner and patch deadlines (#316), Node 24 (#317), the register (#318), removing people
+  (#325, #370) and the model gate (#414). The MCP connector's HIPAA check waits (§5).
+- The first settings outside the code are in place (§10). What the owner still has to set is in
+  §10, "Still to set".
+- Plaid's attestations, control by control, are in `docs/plaid-plan.md`.
 
 ## 1. Client isolation
 
@@ -44,8 +44,7 @@ branches.
 
 - Sign-in is through **WorkOS AuthKit**. Only invited, verified email addresses get in.
 - **Multi-factor authentication is required** in WorkOS, for email and password sign-ins (§10).
-- **Sessions end after 30 minutes without the person's own activity and 12 hours after sign-in**
-  (in PR #83).
+- **Sessions end after 30 minutes without the person's own activity and 12 hours after sign-in.**
   - Our sealed cookie (`__Host-`, HttpOnly, Secure) records the last activity.
   - Only requests the person made count. The app marks them after a key press, click or touch, so
     background polling never keeps an unattended session alive.
@@ -108,7 +107,7 @@ branches.
 - Code: `packages/auth`, `packages/core/src/security/session-limits.ts`,
   `apps/web/src/session/activity.ts`.
 
-## 3. The audit log (in PR #82 and #84)
+## 3. The audit log
 
 - `audit_event` records **who read or changed what, when and from where**:
   - every request to a session route, reads included;
@@ -156,7 +155,7 @@ branches.
 
 ## 5. Where client data may go
 
-- **HIPAA mode, per client** (in PR #84). A client whose records hold health information is put in
+- **HIPAA mode, per client.** A client whose records hold health information is put in
   HIPAA mode by an operator, with a reason. Its data then goes only to vendors listed in
   `BAA_PROCESSORS` (`apps/api/wrangler.jsonc`). That list is empty until BAAs are signed, so no
   client can be in HIPAA mode yet.
@@ -164,10 +163,15 @@ branches.
   - turning it on while a connector that needs an uncovered vendor is offered;
   - offering such a connector;
   - model calls to an uncovered provider (in runs, reach-outs and background document reading);
-  - tool calls that need an uncovered vendor, such as texts, WhatsApp, calls or our sending email.
+  - tool calls that need an uncovered vendor, such as texts, WhatsApp, calls or our sending email;
+  - model calls outside a run (the Builder on its agents, questions in plain words, voice typing)
+    to an uncovered provider. They all go through one entry point,
+    `apps/api/src/compliance/models.ts` (`docs/plan.md` §1.143).
+- Not yet held to it: the MCP connector, whose answers reach claude.ai (`docs/hipaa-plan.md` T1).
+  The owner's call: it waits for the first HIPAA client.
 - The list of which feature sends data to which vendor is
   `packages/core/src/compliance/processors.ts` (invariant 14).
-- **Card numbers** (in PR #84):
+- **Card numbers**:
   - Mezonas never takes card data: billing uses Stripe-hosted invoices, and payment sites are
     blocked for browser logins.
   - A card number that arrives anyway is stored as `[card ending 1234]`. That applies to
@@ -182,7 +186,7 @@ branches.
 
 ## 6. The app and its network
 
-- **Security headers** on every API and MCP answer (in PR #84): `Cache-Control: no-store`,
+- **Security headers** on every API and MCP answer: `Cache-Control: no-store`,
   `nosniff`, no framing, HSTS, and a strict CSP. The app's pages get a CSP that allows only our own
   origin and Sentry (`apps/web/public/_headers`). Checked in Chromium on operator and client pages.
   Their Permissions-Policy turns off the camera, location, payment and USB, and allows the
@@ -217,11 +221,21 @@ branches.
     pushes and deletion are blocked.
   - Only the admin can bypass it.
 - CI runs lint, the layering check, typecheck and every test, and applies every migration to its
-  own Postgres. It **never connects to Neon**, so client data never reaches a CI runner (in PR
-  #81). Migrations meet real rows on staging first, in a transaction, before production.
-- **CodeQL** (security queries) runs on pull requests, on `main` and weekly (in PR #81).
+  own Postgres. It **never connects to Neon**, so client data never reaches a CI runner.
+  Migrations meet real rows on staging first, in a transaction, before production.
+- **CodeQL** (security queries) runs on pull requests, on `main` and weekly.
 - **Dependabot** sends alerts and security updates, plus monthly grouped version updates (one pull request per ecosystem).
+- **OSV-Scanner** checks the lockfile against OSV.dev on pull requests (failing only on a
+  vulnerability the pull request adds), on `main` and weekly (`vulnerability-scan.yml`). We run no
+  containers or servers, so the lockfile is what there is to scan.
 - **Secret scanning** with push protection is on.
+- **Patch deadlines** (`docs/policies/information-security.md` §6): critical 7 days, high 30,
+  medium and low at the next monthly update, from when the alert is raised.
+  `vulnerability-sla.yml` opens an issue per open alert with its due date, closes it with how long
+  the fix took, and lists what is open and overdue in its daily summary. That summary, saved each
+  month, is the evidence (`docs/operations.md` §2).
+- **End of life:** `docs/eol-inventory.md` lists what we run and build with and when its support
+  ends; reviewed every quarter. The policy replaces an end-of-life component within 90 days.
 - **Production is scanned from outside** every Monday and after each production release
   (`.github/workflows/zap-scan.yml`, OWASP ZAP's baseline scan of `https://app.mezonas.com`; plan
   §1.102). It reads pages and headers only, never signs in and never reaches client data. Findings
@@ -242,7 +256,7 @@ branches.
   break-glass, recorded the same day, with the password reset afterwards (`docs/operations.md`,
   "Break-glass database access").
 
-## 9. When a client leaves (in PR #84)
+## 9. When a client leaves
 
 1. **Retire it** from the back office, with a reason and the client's name typed again. Then:
    - its users can no longer sign in;
@@ -254,6 +268,14 @@ branches.
    audit log keeps its ids.
 4. **Data at other vendors** (Twilio, ElevenLabs, Resend, Stripe) is closed by hand from the
    checklist in `docs/operations.md` §1.2.
+
+**Bank data (Plaid; `docs/policies/data-retention.md` §5).** Disconnecting a bank removes the item
+at Plaid (`/item/remove`) and deletes the access token at once; nothing more is read. Transactions
+already read are part of the client's books. They are kept until the client leaves, then purged with
+its rows (steps 2 and 3). They are not deleted bank by bank: synced records are immutable history,
+copied into events and the runs that used them (CLAUDE.md invariant 3). The policy also lets a
+client ask for specific data to go sooner; nothing in the product does that yet
+(`docs/plaid-plan.md` §2).
 
 ## 10. Settings outside the code
 
@@ -293,8 +315,22 @@ finding each setting.
 | The owner's MacBook Pro (macOS 26.6.2) | Device settings (policy §4) | FileVault on, recovery key in 1Password; screen lock immediate; firewall on; automatic macOS updates on; Find My Mac on; one user account. Checked by hand with `fdesetup`, `socketfilterfw`, `sysadminctl` and `dscl` (2026-11-18); not yet under device management |
 | Claude (claude.ai), the owner's account | Privacy → Help improve our AI models | Off: chats and coding sessions, including what the Ops MCP connector returns, aren't used for training. A personal plan, not a business one; no BAA, so HIPAA clients stay out of the connector (`docs/hipaa-plan.md` T1) (checked 2026-11-18) |
 | Better Stack (free) | Uptime and status page | Monitor on `https://app.mezonas.com/api/health` every 3 minutes, email alerts; public status page at `https://status.mezonas.com` (CNAME `status` → `statuspage.betteruptime.com`, DNS only, on `mezonas.com`). It reaches only the public health route: no client data (2026-11-18) |
-| Sentry, organization | Security & Privacy | Data Scrubber, default scrubbers and "Prevent Storing of IP Addresses" on and enforced on `mezonas-api` and `mezonas-web`; sensitive fields email, cookie, session, prompt, completion, utterance, transcript (checked 2026-11-14). "Require Two-Factor Authentication" off: Sentry refuses it until the owner's own account has a second factor |
+| Sentry, organization | Security & Privacy | Data Scrubber, default scrubbers and "Prevent Storing of IP Addresses" on and enforced on `mezonas-api` and `mezonas-web`; sensitive fields email, cookie, session, prompt, completion, utterance, transcript (checked 2026-11-14). "Require Two-Factor Authentication" was off then; on since 2026-11-18 (row above) |
 | Sentry, `mezonas-api` and `mezonas-web` | Alerts | "Production errors to the security officer": a new or regressed issue in `environment:production`, email to the owner, at most every 30 minutes (#6345968, #6345969; 2026-11-14). The default "high priority issues" alert stays, all environments. Developer plan: one user, events kept 30 days |
+
+### Still to set (owner)
+
+Each needs a dated screenshot in the evidence folder (`docs/plaid-plan.md` §1).
+
+| Where | Setting |
+|---|---|
+| Neon, WorkOS's dashboard | A passkey or hardware key on the owner's account (`docs/policies/information-security.md` §3; control ACC-2). Both have an authenticator app today; WorkOS offers no passkey, so it stays an app until it does (2026-11-18). Google, GitHub, Cloudflare, Sentry and Stripe have passkeys or security keys (above) |
+| Intuit, Plaid | A second factor, by passkey or hardware key, on the owner's developer accounts: not yet recorded |
+| Google Workspace, organization | 2-Step Verification is enforced (2026-11-18). Check whether it can be limited to passkeys and security keys only, and record the method allowed |
+| GitHub, `countersign` | One collaborator today, with two-factor (above). Before adding anyone, check their two-factor, or move the repo to an organization that requires it: a personal account can't |
+| GitHub, ruleset "Protect main" | Add the Vulnerability scan's pull-request check (`scan-pr / osv-scan`) as required |
+| GitHub, secrets | `ALERTS_TOKEN`, so the patch deadlines cover Dependabot alerts (`docs/operations.md` §2) |
+| Cloudflare, rate limiting rule "API rate limit" | Add `/api/connections/bankfeed/webhook/` to the excluded webhook paths, before the bank feed goes live |
 
 ## 11. Our vendors
 
@@ -314,6 +350,7 @@ in `docs/hipaa-plan.md`.
 | Meta (WhatsApp) | WhatsApp messages | `meta_whatsapp` |
 | ElevenLabs | Live calls and their transcripts | `elevenlabs` |
 | Resend | Emails sent from our sending service | `resend` |
+| Plaid | Bank and card transactions and balances of clients that connect a bank | `plaid` |
 | Expo (push) | Phone notifications, once the phone app ships (`docs/plan.md` §1.116): a phone's token, Mezonas or the business's name, and a count. Off until `MOBILE_PUSH=on` | `expo_push` |
 | Stripe | Billing: client company, amounts. No client records | none (kept out of scope) |
 | Sentry | Error reports, scrubbed of client data | none (kept out of scope) |

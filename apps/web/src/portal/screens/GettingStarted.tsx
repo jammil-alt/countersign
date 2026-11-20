@@ -7,6 +7,7 @@
 // and every question as one plain form. Read from and written to `/api/intake`; never a fact's id,
 // a question's origin or anything of ours (invariant 11). Answers are the client's words: data.
 import {
+  fieldValueSchema,
   GENERAL_SECTION,
   type GENERIC_AREA_SUFFIXES,
   genericAreaSection,
@@ -181,8 +182,15 @@ export function draftValue(f: PortalGuideField, draft: Draft | undefined): unkno
     }
     case "yes_no":
       return v === "yes" ? true : v === "no" ? false : undefined;
-    case "money":
-      return /^\d+(\.\d{1,4})?$/.test(v) ? { amount: v, currency: "USD" } : undefined;
+    case "money": {
+      // DECISION (PLATFORM_QA FLOW-2, CONS-4): an amount may be typed as people write it ("$12,500")
+      // and is checked with the server's own money schema (at most 10 digits and 4 places).
+      const amount = v.replace(/^\$/, "").replace(/[,\s]/g, "");
+      const value = { amount, currency: "USD" };
+      return fieldValueSchema("money").safeParse(value).success && !amount.startsWith("-")
+        ? value
+        : undefined;
+    }
     default:
       return v;
   }
@@ -635,10 +643,31 @@ function QuestionList({
   const i18n = useI18n();
   const { t } = i18n;
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  // The boxes a Save left unsent because they don't read as their kind: each says so until fixed.
+  const [flagged, setFlagged] = useState<ReadonlySet<string>>(() => new Set());
   const ready = fields.flatMap((f) => {
     const value = draftValue(f, drafts[f.key]);
     return value === undefined ? [] : [{ fieldKey: f.key, state: "answered" as const, value }];
   });
+  const unread = new Set(
+    fields
+      .filter((f) => {
+        const d = drafts[f.key];
+        return typeof d === "string" && d.trim() !== "" && draftValue(f, d) === undefined;
+      })
+      .map((f) => f.key),
+  );
+  function save() {
+    setFlagged(unread);
+    if (ready.length === 0) return;
+    const sent = new Set(ready.map((a) => a.fieldKey));
+    void ctx.answer(ready).then((ok) => {
+      // Only the drafts that were sent are cleared: the rest stay in their boxes, flagged.
+      if (ok) {
+        setDrafts((all) => Object.fromEntries(Object.entries(all).filter(([k]) => !sent.has(k))));
+      }
+    });
+  }
   return (
     <div className="flex flex-col gap-4" data-testid={testId}>
       {fields.map((f) => {
@@ -646,7 +675,16 @@ function QuestionList({
         const words = fieldWords(f, i18n);
         return (
           <div key={f.key} className="flex flex-col gap-1" data-testid={`start-field-${f.key}`}>
-            <Field label={words.label} hint={words.hint || undefined}>
+            <Field
+              label={words.label}
+              hint={words.hint || undefined}
+              testId={`start-input-${f.key}`}
+              error={
+                flagged.has(f.key) && unread.has(f.key)
+                  ? t(f.kind === "money" ? "start.invalid.money" : "start.invalid.number")
+                  : undefined
+              }
+            >
               <ValueInput
                 field={f}
                 draft={drafts[f.key] ?? draftOf(given)}
@@ -677,9 +715,9 @@ function QuestionList({
         <Button
           variant="primary"
           size="sm"
-          disabled={ctx.busy || ready.length === 0}
+          disabled={ctx.busy || (ready.length === 0 && unread.size === 0)}
           data-testid="start-save"
-          onClick={() => void ctx.answer(ready).then((ok) => ok && setDrafts({}))}
+          onClick={save}
         >
           {t("start.save")}
         </Button>

@@ -213,3 +213,45 @@ Before the first client:
 - MMS media download outside a reach-out's reply (P-3 fetches a reply's), toll-free verification, numbers outside the US. Messaging Services by API: built for A2P only (P-8).
 - Inbound messages counted as usage (only sent messages count, against the agent that sent them).
 - Translation of incoming messages (plan §1.18, next step).
+
+## Calls that carry the client's name, and giving numbers up (§1.160)
+
+Read 2026-11-20 from Twilio's docs as Markdown (`.md` appended). `support.twilio.com` could not be
+reached, so its CNAM help article wasn't read. Sources:
+[SHAKEN/STIR for ISVs with subaccounts](https://www.twilio.com/docs/voice/trusted-calling-with-shakenstir/shakenstir-onboarding/shaken-stir-trust-hub-api-isvs-subaccounts),
+[Branded calls using CNAM](https://www.twilio.com/docs/voice/brand-your-calls-using-cnam),
+[SHAKEN/STIR onboarding](https://www.twilio.com/docs/voice/trusted-calling-with-shakenstir/shakenstir-onboarding),
+[Trust Hub REST API](https://www.twilio.com/docs/trust-hub/trusthub-rest-api),
+[TrustProducts](https://www.twilio.com/docs/trust-hub/trusthub-rest-api/trust-products),
+[CNAM registration](https://www.twilio.com/docs/trust-hub/registrations/cnam),
+[IncomingPhoneNumber](https://www.twilio.com/docs/phone-numbers/api/incomingphonenumber-resource),
+[Subaccounts](https://www.twilio.com/docs/iam/api/subaccounts), [Account](https://www.twilio.com/docs/iam/api/account).
+
+| Fact | Status |
+|---|---|
+| SHAKEN/STIR trust product policy `RN7a97559effdf62d00f4298208492a5ea`; CNAM policy `RNf3db3cd1fe25fcfd3c3ded065c8fea53`, both "static across all accounts" | **Checked** (the SHAKEN/STIR ISV guide; the CNAM page). The Trust Hub overview says not to hardcode policy SIDs but read them from `GET /v1/Policies`; we keep them as constants, as for A2P's |
+| SHAKEN/STIR: `POST /v1/TrustProducts` (`FriendlyName`, `Email`, `PolicySid`), assign the secondary customer profile (`EntityAssignments ObjectSid=BU…`), assign numbers, `Status=pending-review`. No end user | **Checked** (SHAKEN/STIR ISV guide) |
+| CNAM: the same, plus an end user `Type=cnam_information`, `Attributes={"cnam_display_name": …}` assigned to it | **Checked** (CNAM page, REST section). For an ISV the profile assigned is the secondary one: inferred, the page doesn't spell out the ISV case |
+| The caller name: at most 15 characters, starts with a letter, only letters, digits, periods, commas and spaces; not generic (a city or state). Without one, the number's city and state show | **Checked** (CNAM page). Whether it must match the business's legal name: UNCHECKED (vetting rules aren't published) |
+| Numbers: `POST /v1/{CustomerProfiles|TrustProducts}/{BU}/ChannelEndpointAssignments` `ChannelEndpointType=phone-number`, `ChannelEndpointSid=PN…` → RA…. A trust product takes only numbers already on the business profile; assigning before or after submitting is fine | **Checked** (SHAKEN/STIR ISV guide; Trust Hub overview). Taking one off: `DELETE …/ChannelEndpointAssignments/{RA}` (CNAM page: "unassigning Phone Number from CNAM Trust Product") |
+| The A2P secondary customer profile can carry SHAKEN/STIR and CNAM too | UNCHECKED directly: same policy and primary-profile link, so very likely. **We reuse it** and wait for its `twilio-approved` |
+| The calls use the subaccount's credentials | UNCHECKED: the guide makes the profile "under Customer Subaccount" but doesn't name the credentials. As for A2P |
+| US long codes only: not Canadian numbers, not toll-free | **Checked** for CNAM (CNAM registration page). We send every `+1` number that takes calls; a Canadian one Twilio refuses shows as the error |
+| CNAM doesn't need SHAKEN/STIR first; a number may be in both | Neither page links them; both only need the approved profile. "May be in both": UNCHECKED, implied |
+| Statuses `draft`, `pending-review`, `in-review`, `twilio-approved`, `twilio-rejected`; rejection reasons in `errors` | **Checked** (TrustProducts) |
+| A `twilio-rejected` trust product can be fixed (a new name on its end user) and sent again with `Status=pending-review` | UNCHECKED: the pages show only the first submit. If Twilio refuses it, the refusal shows on Messaging; the fallback is a new product |
+| Review: about 72 hours for SHAKEN/STIR; CNAM's isn't stated, and the name takes 48–72 hours to reach US carriers once approved | **Checked** (onboarding; CNAM page) |
+| Fees: CNAM registration is free; no fee is mentioned for SHAKEN/STIR | **Checked** for CNAM ("a free way to help boost your call pickup rates"). SHAKEN/STIR: UNCHECKED, no pricing page found |
+| Attestation: C without approved profiles; A only for numbers on both an approved profile and an approved SHAKEN/STIR product | **Checked** (onboarding) |
+| A released number's trust product assignments | UNCHECKED. We take the number off the products and the profile before the `DELETE`, so the name doesn't stay on a number Twilio may give someone else |
+| `DELETE …/IncomingPhoneNumbers/{PN}.json` releases the number and stops its monthly fee; Twilio may give it to another customer; no hold period is documented | **Checked** (IncomingPhoneNumber) |
+| Closing a subaccount: `POST /Accounts/{AC}.json Status=closed` with the **main** account's credentials; it can't be reopened; Twilio releases all its numbers; closed subaccounts are deleted 30 days later by default | **Checked** (Subaccounts; Account). We release each number first so each is recorded, then close. What happens to the subaccount's trust products: UNCHECKED |
+| The main account can release a subaccount's number with its own credentials, on the subaccount's path | UNCHECKED (as "Accounts and auth" above) |
+
+### Checklist (by hand, against a real subaccount, before the first client's calls)
+
+1. On a test subaccount whose texting registration's profile is approved, register calls from
+   Messaging with a test name. Check that both products are made and each number is assigned.
+2. Read each product back in Twilio's console and check its status matches Messaging's.
+3. Release a number and check it is gone from the profile and both products.
+4. Close a test subaccount by retiring a test client, and check it shows closed in the console.

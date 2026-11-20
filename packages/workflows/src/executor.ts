@@ -2401,6 +2401,7 @@ class Executor {
       urgent: string | null;
       skipped?: boolean;
       failed?: string;
+      logId?: string;
     } = await this.runner.do(
       nodeName,
       async (attempt) => {
@@ -2464,8 +2465,7 @@ class Executor {
               });
             }
           }
-          await log.update(id, { status: "succeeded", summary: `${label}: ${this.words.sent}` });
-          return { sent: true, ack, urgent: urgentDue };
+          return { sent: true, ack, urgent: urgentDue, logId: id };
         } catch (error) {
           // DECISION (wave 5 review): the send is retried per `NOTICE_STEP_CONFIG`, like any durable
           // step; only its last try's failure is final. With `onError: continue` that one is the
@@ -2483,6 +2483,20 @@ class Executor {
       },
       NOTICE_STEP_CONFIG,
     );
+    // DECISION (PLATFORM_QA STATE-3): the step's row is marked sent in a durable step of its own,
+    // after the send's is stored, so a failure writing the row retries the row, never the send.
+    // A result stored before this (no `logId`) was marked sent inside the send's step.
+    const logId = sent.logId;
+    if (sent.sent && logId) {
+      await this.runner.do(
+        `${nodeName}:logged`,
+        async () => {
+          await log.update(logId, { status: "succeeded", summary: `${label}: ${this.words.sent}` });
+          return null;
+        },
+        NOTICE_STEP_CONFIG,
+      );
+    }
     if (typeof sent.failed === "string") return { outcome: "failed", error: sent.failed };
     // A test run's notice reads as sent, so it takes the path the live run would.
     if (!sent.sent) return { outcome: sent.skipped || !this.testRun ? "skipped" : "sent" };
@@ -3306,10 +3320,17 @@ class Executor {
     let done = false;
     let feedback: string | undefined;
     let ended: RunEnd | undefined;
+    // DECISION (PLATFORM_QA CONS-2): a pass's own durable names (`:wait`, `:until`) sit beside its
+    // steps' (`${name}:r${pass}:<step id>`), so a repeat holding a step whose id is `wait` or
+    // `until` takes `~wait` or `~until` for its own (`~` is never in a step id). Every other repeat
+    // keeps the names it always had, so a run in flight replays unchanged.
+    const inner = new Set(processes.allSteps(step).map((l) => l.step.id));
+    const ownName = (pass: number, what: "wait" | "until") =>
+      `${name}:r${pass}:${inner.has(what) ? "~" : ""}${what}`;
     try {
       for (let pass = 1; pass <= step.maxTimes; pass += 1) {
         if (pass > 1 && step.between) {
-          await this.runner.sleep(`${name}:r${pass}:wait`, step.between);
+          await this.runner.sleep(ownName(pass, "wait"), step.between);
         }
         const scope: RunContext = {
           ...frame.scope,
@@ -3335,7 +3356,7 @@ class Executor {
         // Decided inside a `do`, so a replay ends the loop where it ended.
         const until = step.until;
         const verdict = await this.runner.do(
-          `${name}:r${pass}:until`,
+          ownName(pass, "until"),
           async (): Promise<{ done: boolean | null; feedback?: string; failed?: string }> => {
             if ("rules" in until) return { done: evaluateRules(until.rules, scope) };
             // M61: the agent says. No port, or no answer that held: the repeat ends at its limit.
@@ -4114,14 +4135,20 @@ function verdictOf(answer: InboxResolution, by: string): NonNullable<ConferEntry
   return { verdict, note, by: answer.by ?? by };
 }
 
-/** `any`: the first answer. `all`: the first reject, or everyone approving. Null: still open. */
+/**
+ * `any`: the first answer, and a reject among the answers one round reads. `all`: the first
+ * reject, or everyone approving. Null: still open.
+ */
+// DECISION (PLATFORM_QA STATE-2): in `any` mode, answers that arrive together (read in the same
+// round) are not ordered by approver position: a reject among them decides, so a later yes read in
+// the same round never overrides an earlier no. The safe side of invariant 8, with no clock read.
 function decideGroup(
   answers: readonly (InboxResolution | null)[],
   mode: "any" | "all",
 ): InboxResolution | null {
   const given = answers.filter((a): a is InboxResolution => a !== null && a.withdrawn !== true);
-  if (mode === "any") return given[0] ?? null;
   const reject = given.find((a) => a.approved !== true);
+  if (mode === "any") return reject ?? given[0] ?? null;
   if (reject) return reject;
   if (given.length === answers.length && given.length > 0) {
     return { approved: true, answer: null, by: given[given.length - 1]?.by ?? null };

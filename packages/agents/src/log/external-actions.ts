@@ -2,7 +2,13 @@
 // one transaction, unique per client by idempotency key, claimed once for execution, and resolved
 // by a person through the inbox. Never deleted.
 
-import { isPlainObject, type JsonObject } from "@countersign/core";
+import { ToolRefused } from "@countersign/connectors";
+import {
+  deepEqual,
+  isPlainObject,
+  type JsonObject,
+  redactCardNumbersDeep,
+} from "@countersign/core";
 import {
   type Db,
   externalAction,
@@ -17,6 +23,29 @@ import { AgentsError, notFound } from "../errors";
 import type { ExternalActionRecord, ExternalActionStore } from "../runtime/ports";
 
 type Row = typeof externalAction.$inferSelect;
+
+// Card numbers are never stored (invariant 14, plan §1.35), here as everywhere: a change's before
+// and after states, its result and its error keep `[card ending 1234]`. A change's input is what
+// is written, re-read from its row when it is approved and executed, so it is never redacted.
+// DECISION (SEC-9): a change whose input carries a card number is refused before anything is
+// stored (a refusal: nothing was done), rather than kept until it is written or written
+// redacted: Mezonas never sends a card number, and a write never differs from the one approved.
+// A redacted before state the connector compares against the record now (a re-check, an undo's
+// check) reads as changed, so that write or undo is refused, never made over the wrong record.
+const CARD_IN_CHANGE =
+  "this change carries a card number, and we never send or keep card numbers: take it out of the change";
+
+function hasCardNumber(value: unknown): boolean {
+  return !deepEqual(redactCardNumbersDeep(value), value);
+}
+
+/** A stored state, card numbers redacted; null as null. */
+function stored(value: unknown): Record<string, unknown> | null {
+  return (value === undefined || value === null ? null : redactCardNumbersDeep(value)) as Record<
+    string,
+    unknown
+  > | null;
+}
 
 /** A sense the caller emits in the same transaction (apps/api passes packages/senses' emit). */
 export interface EmittedEvent {
@@ -143,6 +172,7 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
   };
   return {
     propose(tenantId, input) {
+      if (hasCardNumber(input.input)) return Promise.reject(new ToolRefused(CARD_IN_CHANGE));
       return withTenant(db, tenantId, async (tx) => {
         const [inserted] = await tx
           .insert(externalAction)
@@ -156,7 +186,7 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
             input: input.input,
             idempotencyKey: input.idempotencyKey,
             status: input.status,
-            before: (input.before ?? null) as Record<string, unknown> | null,
+            before: stored(input.before),
             ...(input.status === "approved" ? { approvedAt: new Date() } : {}),
           })
           .onConflictDoNothing({
@@ -190,7 +220,8 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
             assigneeRole: input.inbox.assigneeRole,
             assigneeUserId: input.inbox.assigneeUserId,
             title: input.inbox.title,
-            payload: { ...input.inbox.payload, actionId: inserted.id },
+            // The card shows the change's before state, as stored.
+            payload: { ...redactCardNumbersDeep(input.inbox.payload), actionId: inserted.id },
             batchKey: input.inbox.batchKey ?? null,
           })
           .returning({ id: inboxItem.id });
@@ -316,6 +347,7 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
     // that run's timeline beside the write it takes back; it has no step and no agent version (no
     // agent decided it), and a test run's write is never undone, so a test run never gets one.
     proposeUndo(tenantId, input) {
+      if (hasCardNumber(input.input)) return Promise.reject(new ToolRefused(CARD_IN_CHANGE));
       return withTenant(db, tenantId, async (tx) => {
         const now = new Date();
         const [inserted] = await tx
@@ -332,7 +364,7 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
             status: "approved",
             approvedBy: input.approvedBy,
             approvedAt: now,
-            before: (input.before ?? null) as Record<string, unknown> | null,
+            before: stored(input.before),
           })
           .onConflictDoNothing({
             target: [externalAction.tenantId, externalAction.idempotencyKey],
@@ -359,11 +391,11 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
           .update(externalAction)
           .set({
             status: "done",
-            result: (result.output ?? null) as Record<string, unknown> | null,
-            before: (result.before ?? null) as Record<string, unknown> | null,
+            result: stored(result.output),
+            before: stored(result.before),
             // Undefined (a write that can't be taken back) and null (the read failed) both store
             // null: an undo then refuses as `after_unknown`.
-            after: (result.after ?? null) as Record<string, unknown> | null,
+            after: stored(result.after),
             error: null,
             executedAt: new Date(),
           })
@@ -383,7 +415,7 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
           .update(externalAction)
           .set({
             status: "failed",
-            error: error as Record<string, unknown>,
+            error: redactCardNumbersDeep(error) as Record<string, unknown>,
             // Follow-up 9: a change known not to have been made shows no time it was made.
             ...(isPlainObject(error) && error.notWritten === true ? { executedAt: null } : {}),
           })
@@ -406,7 +438,7 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
             assigneeRole: "operator",
             assigneeUserId: null,
             title: item.title,
-            payload: { ...item.payload, actionId: row.id },
+            payload: { ...redactCardNumbersDeep(item.payload), actionId: row.id },
           });
         }
         await finishedEvent(tx, row, "external_action.failed");
@@ -420,7 +452,10 @@ export function dbExternalActions(db: Db, options: { emit?: Emit } = {}): Extern
         // its caller (it may have been sent), and returned as it is.
         const [row] = await tx
           .update(externalAction)
-          .set({ status: "rejected", error: error as Record<string, unknown> })
+          .set({
+            status: "rejected",
+            error: redactCardNumbersDeep(error) as Record<string, unknown>,
+          })
           .where(
             and(
               eq(externalAction.id, actionId),
@@ -1060,6 +1095,8 @@ export async function recordEditTx(
   tx: Tx,
   input: { tenantId: string; inboxItemId: string; edited: JsonObject; by: string; at: Date },
 ): Promise<ExternalActionRecord> {
+  // A person's edit is what is written, so a card number in it is refused, as in a proposal.
+  if (hasCardNumber(input.edited)) throw new AgentsError("invalid_state", CARD_IN_CHANGE);
   const action = await proposedActionTx(tx, input.tenantId, input.inboxItemId);
   const [row] = await tx
     .update(externalAction)

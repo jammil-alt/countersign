@@ -445,6 +445,22 @@ describe("odoo connector: updating", () => {
     expect(odoo.writes()).toEqual([]);
   });
 
+  it("(PLATFORM_QA TOOL-3) refuses to archive a record (active: false) with delete off", async () => {
+    const { write, odoo } = setup();
+    expect(DEFAULT_PERMISSIONS.delete).toBe("off");
+    const refused = await write(ODOO_TOOLS.update, {
+      model: "res.partner",
+      id: FAKE_ODOO.partners.harbor,
+      values: { active: false },
+    }).catch((e) => e);
+    // Archiving is Odoo's delete: refused like any other protected field, before anything is sent.
+    expect(refused).toBeInstanceOf(OdooInvalidInputError);
+    expect(refused.message).toMatch(/active isn't set this way/);
+    expect(writeNotMade(refused)).toBe(true);
+    expect(odoo.row("res.partner", FAKE_ODOO.partners.harbor)?.active).toBe(true);
+    expect(odoo.writes()).toEqual([]);
+  });
+
   it("passes on Odoo's own refusal as not written", async () => {
     const { write, odoo } = setup();
     odoo.touch("account.move", FAKE_ODOO.invoice, { state: "posted" });

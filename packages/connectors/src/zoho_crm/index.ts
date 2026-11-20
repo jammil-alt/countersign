@@ -1,5 +1,6 @@
 import { type JsonObject, trimTrailingSlashes } from "@countersign/core";
 import { z } from "zod";
+import type { WriteAttemptServices } from "../attempts";
 import {
   type ConnectionContext,
   type Connector,
@@ -7,6 +8,9 @@ import {
   defineReadTool,
   defineWriteTool,
   type ToolContext,
+  UnconfirmedWriteError,
+  type WriteContext,
+  writeNotMade,
 } from "../connector";
 import { type FetchLike, formEncode, globalFetch, parseUrl, timeoutSignal } from "../http";
 import {
@@ -80,6 +84,14 @@ export const ZOHO_SCOPES: readonly string[] = [
 ];
 
 const API_VERSION = "v8";
+/** Tries of one create Zoho refused before we stop and fail it. */
+const MAX_ATTEMPTS = 5;
+
+function attemptServices(ctx: ToolContext): WriteAttemptServices {
+  const s = ctx.services?.attempts;
+  if (!s) throw new Error("Zoho CRM creates need the platform's record of attempts");
+  return s;
+}
 const DEFAULT_ACCOUNTS = "https://accounts.zoho.com";
 
 /**
@@ -124,6 +136,12 @@ export const ZohoTokenResponse = z.union([
 ]);
 
 export class ZohoApiError extends Error {
+  /**
+   * Zoho answered and changed nothing: a 4xx but 408 and 409 (a refusal, a rate limit, a record
+   * not found, a write's own error status). A 5xx, a 408 or a 409 may have come after the write
+   * was made (PLATFORM_QA STATE-4).
+   */
+  readonly notWritten: boolean;
   constructor(
     readonly status: number,
     readonly code: string,
@@ -133,6 +151,7 @@ export class ZohoApiError extends Error {
   ) {
     super(message);
     this.name = "ZohoApiError";
+    this.notWritten = status >= 400 && status < 500 && status !== 408 && status !== 409;
   }
 }
 
@@ -198,6 +217,10 @@ const WriteAnswer = z.object({
     )
     .min(1),
 });
+
+const CreateOutput = z.object({ module: ZohoModule, id: z.string() });
+const NoteOutput = z.object({ module: ZohoModule, recordId: z.string(), id: z.string() });
+const TaskOutput = z.object({ id: z.string() });
 
 /** The one result of a single-record write, or the error Zoho gave for it. */
 function writeResult(body: unknown): { id: string; modifiedTime: string | null } {
@@ -383,6 +406,78 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
       throw new ZohoApiError(res.status, code, message, res.status === 429 || res.status >= 500);
     }
     return json;
+  }
+
+  /**
+   * A create Zoho takes no idempotency key for, made at most once per key through the platform's
+   * record of attempts (as Slack's and LinkedIn's posts): a re-run after the result was recorded
+   * returns it; an attempt started without Zoho's answer is never sent again, and fails as
+   * unconfirmed for the operator; an attempt Zoho refused created nothing and may be tried again.
+   */
+  async function createOnce<T extends JsonObject>(
+    ctx: WriteContext,
+    what: string,
+    details: JsonObject,
+    parse: (recorded: JsonObject) => T,
+    create: () => Promise<T>,
+  ): Promise<T> {
+    const attempts = attemptServices(ctx);
+    const key = ctx.idempotencyKey;
+    const state = await attempts.stateFor(key);
+    if (state.done) return parse(state.done);
+    if (state.started > state.refused) {
+      const last = state.last;
+      throw new UnconfirmedWriteError(
+        `The ${what} in Zoho CRM may have been created`,
+        `we started it at ${last?.startedAt.toISOString() ?? "an unknown time"} and have no answer from Zoho`,
+        {
+          channel: "zoho_crm",
+          ...(last?.details ?? {}),
+          ...(last ? { startedAt: last.startedAt.toISOString() } : {}),
+        },
+      );
+    }
+    if (state.started >= MAX_ATTEMPTS) {
+      throw new Error(`Zoho refused this ${what} ${state.started} times; we stopped trying`);
+    }
+    // The sign-in is refreshed before the attempt is recorded: a refresh that fails leaves no
+    // started create behind.
+    const stored = ZohoCredentials.safeParse(await ctx.credentials.get());
+    if (!stored.success)
+      throw new ReconnectRequiredError("the Zoho connection has no valid credentials");
+    await tokenManager({ credentials: ctx.credentials, refresher, now: ctx.now }).accessToken();
+    const attempt = state.started + 1;
+    const claimed = await attempts.start({
+      idempotencyKey: key,
+      attempt,
+      details: { ...details, attempt },
+      at: ctx.now(),
+    });
+    if (!claimed) {
+      throw new UnconfirmedWriteError(
+        `The ${what} in Zoho CRM may have been created`,
+        "another run of this action started creating it at the same time",
+        { channel: "zoho_crm", ...details, attempt },
+      );
+    }
+    let output: T;
+    try {
+      // A network failure or a 5xx throws here with the attempt open: unconfirmed on retry.
+      output = await create();
+    } catch (error) {
+      if (writeNotMade(error)) {
+        const status = (error as { status?: unknown }).status;
+        await attempts.refused({
+          idempotencyKey: key,
+          attempt,
+          reason: typeof status === "number" ? `HTTP_${status}` : (error as Error).name,
+          at: ctx.now(),
+        });
+      }
+      throw error;
+    }
+    await attempts.done({ idempotencyKey: key, output, at: ctx.now() });
+    return output;
   }
 
   async function getRecord(
@@ -677,20 +772,30 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
         undo: { kind: "none" },
         summary: "Created {{module}} {{id}}",
         input: z.object({ module: ZohoModule, fields: Fields }),
-        output: z.object({ module: ZohoModule, id: z.string() }),
+        output: CreateOutput,
         beforeSchema: z.object({}),
         async before() {
           return null;
         },
         async run(input, ctx) {
-          // DECISION: Zoho takes no idempotency key; the external action runs the call once, and a
-          // retry after a lost answer could create a second record (upsert with duplicate-check
-          // fields is the follow-up, NOTES.md).
-          ctx.logger.info("creating zoho record", { module: input.module });
-          const body = await api(ctx, "POST", `/${input.module}`, {
-            data: [input.fields],
-          });
-          return { module: input.module, id: writeResult(body).id };
+          // DECISION: Zoho takes no idempotency key, so a create is made at most once per key
+          // through the platform's record of attempts (as Slack, Gmail, Teams and LinkedIn): a
+          // takeover after a lost answer returns the recorded result or fails as unconfirmed for
+          // the operator, never a second record (invariant 8; PLATFORM_QA STATE-4). Notes and
+          // tasks go the same way. Upsert with duplicate-check fields stays a follow-up (NOTES.md).
+          return createOnce(
+            ctx,
+            "record",
+            { module: input.module },
+            (r) => CreateOutput.parse(r),
+            async () => {
+              ctx.logger.info("creating zoho record", { module: input.module });
+              const body = await api(ctx, "POST", `/${input.module}`, {
+                data: [input.fields],
+              });
+              return { module: input.module, id: writeResult(body).id };
+            },
+          );
         },
       }),
       defineWriteTool({
@@ -768,7 +873,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
           title: z.string().max(120).optional(),
           content: z.string().min(1).max(32_000),
         }),
-        output: z.object({ module: ZohoModule, recordId: z.string(), id: z.string() }),
+        output: NoteOutput,
         beforeSchema: z.object({}),
         async before() {
           return null;
@@ -776,13 +881,21 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
         async run(input, ctx) {
           const note: Record<string, string> = { Note_Content: input.content };
           if (input.title) note.Note_Title = input.title;
-          const body = await api(
+          return createOnce(
             ctx,
-            "POST",
-            `/${input.module}/${encodeURIComponent(input.recordId)}/Notes`,
-            { data: [note] },
+            "note",
+            { module: input.module, recordId: input.recordId },
+            (r) => NoteOutput.parse(r),
+            async () => {
+              const body = await api(
+                ctx,
+                "POST",
+                `/${input.module}/${encodeURIComponent(input.recordId)}/Notes`,
+                { data: [note] },
+              );
+              return { module: input.module, recordId: input.recordId, id: writeResult(body).id };
+            },
           );
-          return { module: input.module, recordId: input.recordId, id: writeResult(body).id };
         },
       }),
       defineWriteTool({
@@ -806,7 +919,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
           .refine((v) => (v.module === undefined) === (v.recordId === undefined), {
             message: "give both module and recordId, or neither",
           }),
-        output: z.object({ id: z.string() }),
+        output: TaskOutput,
         beforeSchema: z.object({}),
         async before() {
           return null;
@@ -823,8 +936,16 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
               task.$se_module = input.module;
             }
           }
-          const body = await api(ctx, "POST", "/Tasks", { data: [task] });
-          return { id: writeResult(body).id };
+          return createOnce(
+            ctx,
+            "task",
+            { subject: input.subject },
+            (r) => TaskOutput.parse(r),
+            async () => {
+              const body = await api(ctx, "POST", "/Tasks", { data: [task] });
+              return { id: writeResult(body).id };
+            },
+          );
         },
       }),
     ],

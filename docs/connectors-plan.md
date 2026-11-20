@@ -213,7 +213,7 @@ or changes one someone else made starts off.
 The catalog's "default access for new clients" (operator-set) still overrides the manifest's.
 
 Built in C2: each manifest's `askFirst` rows, with the reviewed list held as a snapshot in
-`apps/api/src/connector-defaults.test.ts` (`docs/plan.md` §1.157).
+`apps/api/src/connector-defaults.test.ts` (`docs/plan.md` §1.161).
 
 ### 5.2 Connecting for an agent
 

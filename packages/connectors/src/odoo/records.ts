@@ -195,9 +195,14 @@ export const SETTABLE_TYPES = new Set([
 /**
  * Fields no agent sets through the generic tools: a record's state moves only through the tools
  * that confirm, post or validate it (each behind approval), and the bookkeeping fields are Odoo's.
+ * `active` is Odoo's archive, its soft delete: delete is off (invariant 8), so no generic tool sets
+ * it (PLATFORM_QA TOOL-3).
  */
+// DECISION: `active` is protected on create and update alike; an archive, if one is ever wanted,
+// gets its own always-signed tool rather than riding on `update`.
 export const PROTECTED_FIELDS = new Set([
   "id",
+  "active",
   "state",
   "move_type",
   "company_id",

@@ -509,6 +509,8 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
   }
   const checkedInput = checkAgainst(def.input, input.input);
   if (!checkedInput.ok) return fail(`invalid input: ${checkedInput.message}`);
+  // PLATFORM_QA AI-7: the links the step was given are links `web.fetch` may read.
+  deps.ports.web?.see(stepRunId, JSON.stringify(checkedInput.value) ?? "");
 
   const asked = input.asked;
   const step: StepContext = {
@@ -1080,6 +1082,8 @@ export async function runAgent(deps: RuntimeDeps, input: RunAgentInput): Promise
             })
           : { status: "refused", reason: `no tool ${use.name}` };
         track(o);
+        // PLATFORM_QA AI-7: and so are the links a tool returned (a search's results, a page).
+        if (o.status === "done") deps.ports.web?.see(stepRunId, JSON.stringify(o.output) ?? "");
         // The model never learns of the wait: the step stops here and starts over once released.
         if (o.status === "awaiting_release") return awaitRelease(o);
         if (o.status === "busy") return awaitLease(o);

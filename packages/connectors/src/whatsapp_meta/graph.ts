@@ -11,6 +11,7 @@ import {
   parseUrl,
   timeoutSignal,
 } from "../http";
+import { sendRefused } from "../messaging/services";
 import { fromUtf8, utf8 } from "../runtime";
 
 /** The Graph API version, pinned in every URL (an unversioned call follows the app dashboard). */
@@ -70,6 +71,11 @@ export function waIdOf(e164: string): string {
 }
 
 export class MetaGraphError extends Error {
+  /**
+   * Graph answered a 4xx (but 408 and 409): nothing was sent, e.g. its rate limit (130429) or a
+   * refusal (PLATFORM_QA INTEG-6). No answer (status 0), a timeout or a 5xx may have been taken.
+   */
+  readonly notWritten: boolean;
   constructor(
     readonly status: number,
     /** Graph's error code (190: the token is gone; 131047: outside the 24-hour window), or null. */
@@ -79,6 +85,7 @@ export class MetaGraphError extends Error {
   ) {
     super(message);
     this.name = "MetaGraphError";
+    this.notWritten = sendRefused(status);
   }
 }
 

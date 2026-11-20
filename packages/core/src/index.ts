@@ -254,6 +254,7 @@ export * from "./mappers/qbo";
 export * from "./mappers/upload";
 // P-8: US texting registration
 export * from "./messaging/a2p";
+export * from "./messaging/calling";
 export * from "./messaging/rules";
 export * from "./messaging/signup";
 export * from "./mobile/mobile";
@@ -294,7 +295,7 @@ export * from "./schemas/approval";
 // v0.12 W2-B
 export * from "./schemas/automation";
 export * from "./schemas/common";
-// Connectors C3: change requests and Changes by Mezonas (docs/plan.md §1.157)
+// Connectors C3: change requests and Changes by Mezonas (docs/plan.md §1.161)
 export * from "./schemas/connection-requests";
 export * from "./schemas/connector";
 // v0.14 capture

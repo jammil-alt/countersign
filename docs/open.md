@@ -130,6 +130,22 @@ number with its texting registration approved and the person signed up for texts
 owner: whether Sloan may pause a service on a text (Twilio doesn't prove the sender). **Reggie** by
 email and text is planned (§1.150), its own PR: it needs Mezonas' own number and campaign.
 
+## 1d. An agent's own phone line, $10 a month (`docs/plan.md` §1.160)
+
+Built (migration 0069 in its own PR, then the feature): a client admin asks for a number of an
+agent's own from the agent's card or the Channels page; we buy one on the client's Messaging page
+and pick the agent in the number's "Whose number" list. The agent then texts and calls from it,
+texts to it go to that agent only (never Sloan), and each active day is billed at the line price.
+To use it on staging: the client's Twilio subaccount, two numbers (the account keeps one), and the
+line price on `/ops/billing` if not $10. Retiring an agent gives its line back to the account
+(Messaging marks it Spare until it's given to another agent or released). Open for the owner:
+whether the account's own number should be billed too, and the five non-English portal strings'
+review. Built since: retiring a client releases its numbers and closes its Twilio subaccount within
+the hour, and Messaging registers a client's numbers for signed calls (SHAKEN/STIR) and its caller
+name (CNAM) once its texting registration's business profile is approved. Open: the by-hand checks
+against a real subaccount (`packages/connectors/src/twilio/NOTES.md`, "Calls that carry the
+client's name"), before the first client's calls.
+
 ## 2. The marketing site (mezonas.com)
 
 This session's network can't reach `mezonas.com`, so whether it is live is **not checked here**.

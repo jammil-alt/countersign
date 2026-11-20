@@ -24,6 +24,7 @@ import { type AgentViewKey, defaultReports, viewsFor } from "../../agents/views"
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
+import { AskForLine, hasOwnNumber } from "../../channels/AskForLine";
 import { CHANNEL_KIND_KEY, ChannelLines } from "../../channels/ChannelLines";
 import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
@@ -607,6 +608,7 @@ function HowToReach({
   const { t } = useI18n();
   const channels = useApi(apiRoutes.portalChannels);
   const lines = channels.data?.agents.find((a) => a.agentId === id)?.channels ?? [];
+  const price = channels.data?.phoneLinePrice;
   return (
     <Card
       titleAbove
@@ -645,6 +647,12 @@ function HowToReach({
               <p className="ui-card__body text-sm text-ink-muted">
                 {t("agent.reachItNone", { name })}
               </p>
+            ) : null}
+            {/* §1.160: a number of its own, asked for by the client admin. */}
+            {isAdmin && name !== null && price && !hasOwnNumber(lines) ? (
+              <div className="border-t border-line first:border-t-0">
+                <AskForLine agentId={id} name={name} price={price} testId="agent-contact-line" />
+              </div>
             ) : null}
           </>
         )}

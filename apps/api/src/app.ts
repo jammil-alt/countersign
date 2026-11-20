@@ -36,6 +36,7 @@ import { lifecycleTick } from "./lifecycle/cron";
 import { mcpRoutes } from "./mcp/routes";
 // P-8: US texting registration
 import { a2pCronTick } from "./messaging/a2p";
+import { closeRetiredTwilio } from "./messaging/close";
 import { mailerFromEnv } from "./notify/mailer";
 // v0.12 W2-G
 import { originOf } from "./notify/outbox";
@@ -571,6 +572,14 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
       // here waits for the next hour; it never holds up the next tick.
       await vaultTick(db, env).catch((error: unknown) =>
         reportHandled("vault upkeep failed", error, { job: "vault" }),
+      );
+      // §1.160: retired clients' Twilio numbers released and subaccounts closed.
+      await closeRetiredTwilio(
+        db,
+        { env, fetch: deps.fetch?.(env) ?? globalFetch() },
+        scheduledTime,
+      ).catch((error: unknown) =>
+        reportHandled("closing retired clients' Twilio failed", error, { job: "twilio_close" }),
       );
       // Retired clients' files, 30 days after retirement (docs/plan.md §1.35).
       await purgeRetiredFiles(db, deps.objects(env), scheduledTime).catch((error: unknown) =>

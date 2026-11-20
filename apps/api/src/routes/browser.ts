@@ -24,7 +24,7 @@ import {
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { catalogue, catalogueForClient, siteView } from "../browser/sites";
-import { CodesServiceError, codesFor } from "../codes/client";
+import { type CodesClient, CodesServiceError, codesFor } from "../codes/client";
 import { type AppEnv, HttpError, mount, notFound } from "../http";
 import { offeredTo } from "./connections";
 import { newConnectionMatrix } from "./ops-connectors";
@@ -41,15 +41,47 @@ async function siteRow(tx: Tx, slug: string) {
   return row;
 }
 
+/**
+ * What a client admin reads when the code service can't set up a login's identity: our own words
+ * for each of its codes. Its own message (Twilio's text, with our subaccount's path) goes to our
+ * log only (PLATFORM_QA FLOW-6).
+ */
+const CODES_WORDS: Record<CodesServiceError["code"], string> = {
+  not_configured: "sign-in codes are not available yet",
+  unavailable: "we couldn't get this login a number for its codes just now; try again later",
+  invalid: "we couldn't use that authenticator setup link; paste the link the site shows",
+  not_found: "we couldn't set up sign-in codes for this login; try again",
+  conflict: "we couldn't set up sign-in codes for this login; try again",
+  daily_cap: "we couldn't set up sign-in codes for this login today; try again tomorrow",
+  bad_response: "we couldn't set up sign-in codes for this login just now; try again later",
+};
+
 function codesError(error: unknown): never {
   if (error instanceof CodesServiceError) {
+    console.warn("browser login setup: the code service refused", {
+      code: error.code,
+      detail: error.message,
+    });
     throw new HttpError(
       error.code === "not_configured" || error.code === "unavailable" ? 503 : 422,
       `codes_${error.code}`,
-      error.message,
+      CODES_WORDS[error.code],
     );
   }
   throw error;
+}
+
+/** Removes an identity a failed set-up made. Best effort: a leftover is logged for us to remove. */
+async function forgetIdentity(codes: CodesClient, tenantId: string, identityId: string) {
+  try {
+    await codes.deleteIdentity({ tenantId, identityId });
+  } catch (error) {
+    console.warn("browser login setup: could not remove the code identity of a failed set-up", {
+      tenantId,
+      identityId,
+      code: error instanceof CodesServiceError ? error.code : null,
+    });
+  }
 }
 
 export function browserRoutes(app: Hono<AppEnv>): void {
@@ -149,6 +181,14 @@ export function browserRoutes(app: Hono<AppEnv>): void {
     if (entry.site.tier === "blocked") {
       throw new HttpError(409, "not_allowed", "agents never sign in to this site");
     }
+    // Two set-ups of the same site at once (two tabs, two admins) wait for each other here, so the
+    // second sees the first's login and makes no second identity (PLATFORM_QA STATE-6). Held to
+    // the end of the request's transaction.
+    // DECISION: a transaction-scoped advisory lock on (client, site), not a unique index: no
+    // migration, and the check below stays the one rule.
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`browser-setup:${tenantId}:${body.site}`}, 0))`,
+    );
     const existing = await tx
       .select({ id: connection.id })
       .from(connection)
@@ -173,16 +213,18 @@ export function browserRoutes(app: Hono<AppEnv>): void {
     // The agent identity for its codes: an address on our agent domain, a number for texts, or
     // the site's authenticator key (sent to the code service, never kept here).
     let identity: { id: string; email: string; phone: string | null } | null = null;
+    const codes = factor.kind === "none" ? null : codesFor(services.env);
     if (factor.kind !== "none") {
-      const codes = codesFor(services.env);
       if (!codes) {
         throw new HttpError(503, "codes_not_configured", "sign-in codes are not available yet");
       }
+      let madeId: string | null = null;
       try {
         let made = await codes.createIdentity({
           tenantId,
           label: `${entry.site.name} agent account`.slice(0, 120),
         });
+        madeId = made.id;
         if (factor.kind === "sms") made = await codes.addPhone({ tenantId, identityId: made.id });
         if (factor.kind === "totp") {
           await codes.setAuthenticator({
@@ -194,36 +236,43 @@ export function browserRoutes(app: Hono<AppEnv>): void {
         }
         identity = { id: made.id, email: made.email, phone: made.phone };
       } catch (error) {
+        // A set-up that failed part way leaves no identity (or bought number) behind.
+        if (madeId) await forgetIdentity(codes, tenantId, madeId);
         codesError(error);
       }
     }
-    const config = BrowserConnectionConfig.parse({
-      site: entry.site.slug,
-      siteVersionId: entry.current.id,
-      identity,
-    });
     const id = uuidv7();
-    await tx.insert(connection).values({
-      id,
-      tenantId,
-      connector: BROWSER_CONNECTOR_ID,
-      status: "pending",
-      // v0.12 W2-A: the operator's default access for new clients, else the connector's.
-      permissions: await newConnectionMatrix(tx, connector.manifest),
-      config,
-    });
-    await tx.insert(connectionChange).values({
-      tenantId,
-      connectionId: id,
-      actorId: session.user.id,
-      change: {
-        kind: "browser_setup",
-        by: "client",
+    try {
+      const config = BrowserConnectionConfig.parse({
         site: entry.site.slug,
-        siteVersion: entry.current.version,
-        identity: identity !== null,
-      },
-    });
+        siteVersionId: entry.current.id,
+        identity,
+      });
+      await tx.insert(connection).values({
+        id,
+        tenantId,
+        connector: BROWSER_CONNECTOR_ID,
+        status: "pending",
+        // v0.12 W2-A: the operator's default access for new clients, else the connector's.
+        permissions: await newConnectionMatrix(tx, connector.manifest),
+        config,
+      });
+      await tx.insert(connectionChange).values({
+        tenantId,
+        connectionId: id,
+        actorId: session.user.id,
+        change: {
+          kind: "browser_setup",
+          by: "client",
+          site: entry.site.slug,
+          siteVersion: entry.current.version,
+          identity: identity !== null,
+        },
+      });
+    } catch (error) {
+      if (identity && codes) await forgetIdentity(codes, tenantId, identity.id);
+      throw error;
+    }
     return { connectionId: id };
   });
 

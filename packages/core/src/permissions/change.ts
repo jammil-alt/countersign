@@ -142,7 +142,7 @@ function itemKey(item: unknown): string {
   return canonicalJson(item ?? null);
 }
 
-// DECISION (docs/plan.md §1.157, C4): a setup value that is a list (folders, channels, sheets) is
+// DECISION (docs/plan.md §1.161, C4): a setup value that is a list (folders, channels, sheets) is
 // compared by item (an object's `id`, else its JSON): any item added is looser, only items removed
 // is tighter. Any other setup change (a Gmail query, a new key, a key dropped) counts as looser,
 // since the platform can't judge whether it gives agents more.
@@ -361,7 +361,7 @@ export type ClientMayAllowResult = { ok: true } | { ok: false; refused: RefusedR
  * Off and Ask me first; a write lowered from On its own; never a write set to On its own (one that
  * already was stays); delete never on. The tool's setup is theirs. Refused rows say why.
  */
-// DECISION (docs/plan.md §1.157, C4): the connection's own connector-specific scope stays the
+// DECISION (docs/plan.md §1.161, C4): the connection's own connector-specific scope stays the
 // operator's (as before: the platform can't judge it). A record type's scope the client may set
 // or widen, except where the row then runs on its own: widening that lets more run without anyone
 // signing is ours to ask for.
@@ -451,7 +451,7 @@ function needCovers(need: ConnectorNeed, row: LevelRowChange): boolean {
  * covers level rows an agent's need calls for (`needs`: those of the agents bound to this
  * connection), up to Ask me first; `any` covers every row and the setup, up to Ask me first.
  */
-// DECISION (docs/plan.md §1.157, C4): under `needs`, a scope widened and a setup change are never
+// DECISION (docs/plan.md §1.161, C4): under `needs`, a scope widened and a setup change are never
 // covered: allowNeeds never makes either, and neither is a record type and verb an agent needs.
 export function withinAuthorization(
   change: ProposedChange,

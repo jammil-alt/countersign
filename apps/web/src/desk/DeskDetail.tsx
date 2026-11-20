@@ -4,12 +4,15 @@
 // in part. After a signature the card stays, with Undo while the undo window lasts. Every decision
 // goes through the API's own routes; the screen never signs by itself (invariant 8).
 import {
+  DECIMAL_RE,
+  type DeskItemState,
   EDITABLE_KINDS,
   isPlainObject,
   itemFingerprint,
   type LocalizedText,
   pickLocalized,
   type ToolDisplay,
+  valueFromText,
 } from "@countersign/core";
 import { type ReactNode, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -227,9 +230,35 @@ export function DeskDetail({
       setDecision(decide === "approve" ? "signed" : "rejected");
     });
 
+  /**
+   * One call per item of the entry (a batch's snooze or undo). What went through is applied; when
+   * any failed, the card reloads to what the API holds and the lists refresh, then the first
+   * failure shows, so a second press retries only what is left.
+   */
+  // DECISION (PLATFORM_QA FLOW-5): each call is settled on its own (`Promise.allSettled`), never
+  // all or nothing: the API has already applied the ones that went through.
+  async function eachItem(calls: Promise<{ item: DeskItemState }>[]) {
+    const results = await Promise.allSettled(calls);
+    const byId = new Map(
+      results.flatMap((r) => (r.status === "fulfilled" ? [[r.value.item.id, r.value.item]] : [])),
+    );
+    setItems((cur) =>
+      cur.map((i) => {
+        const s = byId.get(i.id);
+        return s ? withState(i, s) : i;
+      }),
+    );
+    const failed = results.find((r): r is PromiseRejectedResult => r.status === "rejected");
+    if (failed) {
+      await reload();
+      onChanged();
+      throw failed.reason;
+    }
+  }
+
   const snooze = (until: Date) =>
     act(async () => {
-      const states = await Promise.all(
+      await eachItem(
         items
           .filter((i) => i.status === "open")
           .map((i) =>
@@ -239,28 +268,14 @@ export function DeskDetail({
             }),
           ),
       );
-      const byId = new Map(states.map((s) => [s.item.id, s.item]));
-      setItems((cur) =>
-        cur.map((i) => {
-          const s = byId.get(i.id);
-          return s ? withState(i, s) : i;
-        }),
-      );
       setPicking(false);
       setDecision("snoozed");
     });
 
   const undo = () =>
     act(async () => {
-      const states = await Promise.all(
+      await eachItem(
         inWindow.map((i) => api.call(apiRoutes.portalUndoInbox, { params: { id: i.id } })),
-      );
-      const byId = new Map(states.map((s) => [s.item.id, s.item]));
-      setItems((cur) =>
-        cur.map((i) => {
-          const s = byId.get(i.id);
-          return s ? withState(i, s) : i;
-        }),
       );
       setDecision(null);
       // The undo is recorded on the item: shown as the API now holds it, to sign it again.
@@ -1050,6 +1065,24 @@ function editableFields(item: DeskItem, { locale }: I18n): EditableField[] {
   return out;
 }
 
+/**
+ * A typed number or amount as the input wants it, or null when it doesn't read as one (a blank
+ * included: never sent as 0). A number reads as core's `valueFromText` reads one ("1,200" is
+ * 1200) and keeps the input's type (a number stays a number, text stays text); an amount may
+ * start with "$" and have thousands separators, and is sent as decimal text (invariant 6).
+ */
+// DECISION (PLATFORM_QA INPUT-5): the form refuses a blank or unreadable number or amount on the
+// page, under its box, instead of sending it; the API still checks the edit again.
+function editedValue(kind: "number" | "money", text: string, was: unknown): unknown {
+  if (kind === "money") {
+    const amount = text.trim().replace(/^\$/, "").replace(/[,\s]/g, "");
+    return DECIMAL_RE.test(amount) ? amount : null;
+  }
+  const n = valueFromText({ kind: "number" }, text);
+  if (typeof n !== "number") return null;
+  return typeof was === "string" ? text.trim().replace(/[,\s]/g, "") : n;
+}
+
 function EditForm({
   item,
   fields,
@@ -1075,16 +1108,42 @@ function EditForm({
         }),
       ),
   );
+  const [problems, setProblems] = useState<Map<string, PlainKey>>(() => new Map());
   const kinds = new Map(fields.map((f) => [f.key, f.kind]));
-  function edited(): Record<string, unknown> {
-    const parse = (key: string, text: string): unknown =>
-      kinds.get(key) === "number" && typeof original[key] === "number" ? Number(text) : text;
-    const changed = [...values.entries()].map(([k, v]) => [k, parse(k, v)] as const);
+  const change = (key: string, text: string) => {
+    setValues((cur) => new Map(cur).set(key, text));
+    setProblems((cur) => {
+      if (!cur.has(key)) return cur;
+      const next = new Map(cur);
+      next.delete(key);
+      return next;
+    });
+  };
+  /** The input with the person's changes, or the fields that don't read as their kind. */
+  function edited(): { input: Record<string, unknown> } | { problems: Map<string, PlainKey> } {
+    const changed: [string, unknown][] = [];
+    const wrong = new Map<string, PlainKey>();
+    for (const [key, text] of values) {
+      const kind = kinds.get(key);
+      const was = original[key];
+      if (kind !== "number" && kind !== "money") {
+        changed.push([key, text]);
+        continue;
+      }
+      // A box that was empty and is left empty keeps the input as it was.
+      if (!text.trim() && (was === undefined || was === null)) continue;
+      const value = editedValue(kind, text, was);
+      if (value === null) wrong.set(key, kind === "money" ? "desk.edit.money" : "desk.edit.number");
+      else changed.push([key, value]);
+    }
+    if (wrong.size > 0) return { problems: wrong };
     const keys = new Set(changed.map(([k]) => k));
-    return Object.fromEntries([
-      ...Object.entries(original).filter(([k]) => !keys.has(k)),
-      ...changed,
-    ]);
+    return {
+      input: Object.fromEntries([
+        ...Object.entries(original).filter(([k]) => !keys.has(k)),
+        ...changed,
+      ]),
+    };
   }
   return (
     <form
@@ -1092,29 +1151,43 @@ function EditForm({
       className="flex flex-col gap-4"
       onSubmit={(e) => {
         e.preventDefault();
-        onSave(edited());
+        const out = edited();
+        if ("problems" in out) {
+          setProblems(out.problems);
+          return;
+        }
+        onSave(out.input);
       }}
     >
       <p className="text-sm text-ink-muted">{t("desk.editHint")}</p>
-      {fields.map((f) => (
-        <Field key={f.key} label={f.label}>
-          {f.kind === "text" && (values.get(f.key) ?? "").length > 80 ? (
-            <TextArea
-              rows={5}
-              data-testid={`desk-edit-${f.key}`}
-              value={values.get(f.key) ?? ""}
-              onChange={(e) => setValues((cur) => new Map(cur).set(f.key, e.target.value))}
-            />
-          ) : (
-            <TextInput
-              data-testid={`desk-edit-${f.key}`}
-              inputMode={f.kind === "money" || f.kind === "number" ? "decimal" : undefined}
-              value={values.get(f.key) ?? ""}
-              onChange={(e) => setValues((cur) => new Map(cur).set(f.key, e.target.value))}
-            />
-          )}
-        </Field>
-      ))}
+      {fields.map((f) => {
+        const problem = problems.get(f.key);
+        return (
+          <Field
+            key={f.key}
+            label={f.label}
+            error={problem ? t(problem) : undefined}
+            testId={`desk-edit-${f.key}`}
+          >
+            {f.kind === "text" && (values.get(f.key) ?? "").length > 80 ? (
+              <TextArea
+                rows={5}
+                data-testid={`desk-edit-${f.key}`}
+                value={values.get(f.key) ?? ""}
+                onChange={(e) => change(f.key, e.target.value)}
+              />
+            ) : (
+              <TextInput
+                data-testid={`desk-edit-${f.key}`}
+                inputMode={f.kind === "money" || f.kind === "number" ? "decimal" : undefined}
+                invalid={problem !== undefined}
+                value={values.get(f.key) ?? ""}
+                onChange={(e) => change(f.key, e.target.value)}
+              />
+            )}
+          </Field>
+        );
+      })}
       <div className="flex justify-end gap-2">
         <Button variant="ghost" disabled={busy} onClick={onCancel}>
           {t("common.cancel")}

@@ -1,4 +1,4 @@
-// Connectors C3 (docs/connectors-plan.md §7.1, §7.2; docs/plan.md §1.157): what is stored for our
+// Connectors C3 (docs/connectors-plan.md §7.1, §7.2; docs/plan.md §1.161): what is stored for our
 // change requests to a client's connection and for the client's standing say over our changes.
 // The rules that read them (stale, within an authorization, who may answer) are in permissions/change.ts (C4).
 
@@ -98,7 +98,7 @@ export type ConnectionRowChange = z.infer<typeof ConnectionRowChange>;
  * `inbox_item.subject_type` (the inbox's kinds are fixed by a check in the database, so these are
  * subjects, as Sloan's drafted changes are).
  */
-// DECISION (docs/plan.md §1.157, C4): a request is an `approval` item for the client admin with
+// DECISION (docs/plan.md §1.161, C4): a request is an `approval` item for the client admin with
 // subject `connection_change_request` (subject id: the request), answered only through its own
 // approve and decline routes; our change applied at once (tighter, or under Changes by Mezonas) is
 // a `review` item with subject `connection_change_notice` (subject id: the connection), a notice

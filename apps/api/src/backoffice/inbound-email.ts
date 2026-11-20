@@ -7,19 +7,23 @@
 //   it. To `hello@` from anyone else: a new lead deal and its person. Anything else: "Sort this", a
 //   to-do for the operator.
 //
-// The sender is the envelope's, or the From header's when that domain passed DMARC. The text is
-// the reply's own words (quoted history cut), kept as untrusted data (invariants 9 and 12).
-// Nothing is bounced.
+// The sender is the envelope's when SPF passed for its domain, or the From header's when DMARC
+// passed for its domain; mail with neither is "Sort this". The text is the reply's own words
+// (quoted history cut), kept as untrusted data (invariants 9 and 12). Nothing is bounced.
 
 import {
   type ContentStore,
   parseForwardedEmail,
   parseReplyEmail,
   type ReplyEmail,
-  trustedFromHeader,
   UPLOAD_CONNECTOR_ID,
 } from "@countersign/connectors";
-import { bytesMatchType, REPLY_DOCUMENTS_MAX, redactCardNumbers } from "@countersign/core";
+import {
+  authenticatedSenders,
+  bytesMatchType,
+  REPLY_DOCUMENTS_MAX,
+  redactCardNumbers,
+} from "@countersign/core";
 import {
   appUser,
   clientAsk,
@@ -71,13 +75,13 @@ const done = (
   docs: { events: EventRow[]; fresh: string[] } = { events: [], fresh: [] },
 ): BackOfficeOutcome => ({ handled: true, kind, tenantId, id, ...docs });
 
-/** The addresses the mail may count as from: the envelope, and From when DMARC passed for it. */
+/**
+ * The addresses the mail is proven to come from, as every other mail path reads them: the
+ * envelope's when SPF passed for its domain, From when DMARC passed for its domain. Empty when
+ * neither is proven (SEC-1): such mail is no client person's and no deal person's.
+ */
 function senders(mail: InboundMail, parsed: ReplyEmail): string[] {
-  const out = [mail.from.trim().toLowerCase()];
-  if (parsed.from && trustedFromHeader(parsed.from, parsed.dmarcPassFrom)) {
-    out.push(parsed.from.toLowerCase());
-  }
-  return [...new Set(out.filter((s) => s.includes("@")))];
+  return authenticatedSenders({ envelopeFrom: mail.from, from: parsed.from, auth: parsed.auth });
 }
 
 async function liveClientIds(db: Db): Promise<string[]> {
@@ -235,7 +239,19 @@ export async function receiveBackOfficeEmail(
   const parsed = await parseReplyEmail(mail.raw);
   const text = parsed.text.trim().slice(0, TEXT_MAX);
   const from = senders(mail, parsed);
-  const sender = from[from.length - 1] ?? mail.from.toLowerCase();
+  const sender = from[from.length - 1] ?? mail.from.trim().toLowerCase();
+  // DECISION (SEC-1): mail whose sender neither SPF nor DMARC proves is "Sort this" for the
+  // operator, whatever address it claims: not an issue, a reply or a lead in anyone's name. Its
+  // text is still there to read, as data.
+  if (from.length === 0) {
+    return sortThis(db, {
+      clientIds: [],
+      from: sender,
+      to: mail.to,
+      parsed,
+      why: "An email whose sender we couldn't verify.",
+    });
+  }
   const all = await liveClientIds(db);
 
   if (addr.tag) {

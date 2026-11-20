@@ -4,11 +4,12 @@
 // the client in its queries (invariant 1). Posting emits `thread.message_posted` in the same
 // transaction (ids only, never the text).
 
-import type {
-  JsonObject,
-  MessageAudience,
-  PostedCommand,
-  ThreadMessagePostedPayload,
+import {
+  type JsonObject,
+  type MessageAudience,
+  type PostedCommand,
+  redactCardNumbersDeep,
+  type ThreadMessagePostedPayload,
 } from "@countersign/core";
 import { message, type Tx, thread, threadRead } from "@countersign/db";
 import { and, asc, desc, eq, inArray, isNull, lt, ne, or, type SQL, sql } from "drizzle-orm";
@@ -294,7 +295,9 @@ export async function postMessage(
       agentVersionId: input.agentVersionId ?? null,
       kind: input.kind,
       command: input.command?.name ?? null,
-      body: input.body,
+      // Card numbers are never stored (invariant 14, plan §1.35): whoever posts, a card number in
+      // the body is kept as `[card ending 1234]`, as SMS, email and extraction keep it.
+      body: redactCardNumbersDeep(input.body),
       sources: [...input.sources],
       audience: input.audience,
     })

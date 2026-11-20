@@ -1,5 +1,5 @@
 // What kind of tool each connector is, for Browse's groups (docs/connectors-plan.md §3.1).
-// DECISION (docs/plan.md §1.157, C4): the same map as the web's `connections/groups.ts`, kept
+// DECISION (docs/plan.md §1.161, C4): the same map as the web's `connections/groups.ts`, kept
 // here so the API can send a card's group without the web depending on the API or the manifest
 // gaining a field; an unknown connector is "other".
 

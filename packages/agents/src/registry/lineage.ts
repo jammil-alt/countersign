@@ -594,6 +594,45 @@ function stepsById(bundle: AnyAgentBundle): Map<string, AnyStep> {
 }
 
 /**
+ * TOOL-1 (invariant 8, docs/plan.md "approval stays on"): how a step's approval is loosened is the
+ * operator's setting for one client, so it never travels into a template or another client. A
+ * loosened approval (v3 `approval.required`, v4 `checks.approval`, a conversation's `messages`, a
+ * process step's `approvals`) is put back to the base template's step of the same id, or, where
+ * the base has none in the same shape, tightened (approval on). What isn't loosened stays.
+ */
+// DECISION: the base's value where the base step holds one in the same shape, else approval on.
+// A v3 step and a v4 step of the same id aren't compared across shapes: the copy is tightened.
+function scrubApprovals(step: AnyStep, base: AnyStep | undefined): void {
+  const s = step as AnyStep & Bag;
+  const b = base as (AnyStep & Bag) | undefined;
+  if (isPlainObject(s.approval) && s.approval.required === "not_required") {
+    const kept = isPlainObject(b?.approval) ? b.approval.required : undefined;
+    s.approval = { ...s.approval, required: kept === "not_required" ? kept : "required" };
+  }
+  const checks = isPlainObject(s.checks)
+    ? (s.checks as { approval?: processes.ApprovalCheck })
+    : undefined;
+  if (checks?.approval && processes.approvalLoosenings(checks.approval, "a").length > 0) {
+    const kept = (b?.checks as { approval?: processes.ApprovalCheck } | undefined)?.approval;
+    checks.approval = kept ? cloneJson(kept) : processes.tightenedApproval(checks.approval);
+  }
+  if (step.kind === "conversation" && processes.conversationLoosenings(step).length > 0) {
+    step.messages =
+      base?.kind === "conversation"
+        ? cloneJson(base.messages)
+        : { first: "required", later: "required" };
+  }
+  if (step.kind === "process" && step.approvals) {
+    const kept = base?.kind === "process" ? (base.approvals ?? {}) : {};
+    for (const [id, approval] of Object.entries(step.approvals)) {
+      if (processes.approvalLoosenings(approval, "a").length === 0) continue;
+      const same = kept[id];
+      step.approvals[id] = same ? cloneJson(same) : processes.tightenedApproval(approval);
+    }
+  }
+}
+
+/**
  * A client version as it may go into a template: settings marked `clientSpecific` and literal
  * record ids are replaced by the base template's value where it has one (so promotion doesn't
  * delete them from the template), else removed. Bindings never are in a bundle. Wave 3b: a v4
@@ -602,7 +641,8 @@ function stepsById(bundle: AnyAgentBundle): Map<string, AnyStep> {
  * Invariant 11: people and contacts named by id or address (approvers, assignees, people told,
  * escalations, reviewers, a message trigger's contacts), webhook hooks and skill parameter values
  * are reset to the base's or left unset, and email addresses and phone numbers left in free text
- * are removed. Step and path ids never change (invariant 3).
+ * are removed. TOOL-1 (invariant 8): the client's mode and loosened approvals are put back to the
+ * base's, or approval on. Step and path ids never change (invariant 3).
  */
 export function stripForPromotion<B extends AnyAgentBundle>(
   client: B,
@@ -657,6 +697,7 @@ export function stripForPromotion<B extends AnyAgentBundle>(
       step: { id: step.id, name: step.name },
       problems,
     });
+    scrubApprovals(step, b);
   });
   // DECISION: a skill's parameter values are set per agent (core's skill model), so the client's
   // never travel: the base template's values are kept, or none (a parameter without a default
@@ -675,6 +716,9 @@ export function stripForPromotion<B extends AnyAgentBundle>(
     else delete customize.parameters;
   });
   scrubPeople(out.definition.permissions, base?.definition.permissions);
+  // TOOL-1 (invariant 8): the client's mode is its own; a template or another client starts with
+  // the base's, or suggests only.
+  out.definition.permissions.mode = base?.definition.permissions.mode ?? "suggest_only";
   scrubManual(out.definition, base?.definition);
   for (const w of out.workflows) {
     const bw = base?.workflows.find((x) => x.slug === w.slug);

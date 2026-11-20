@@ -12,7 +12,7 @@ import { PermissionEntity, PermissionLevel, Verb } from "../schemas/permissions"
 import { defineRoute } from "./contract";
 import { MatrixEdit } from "./routes";
 
-// Connectors C4 (docs/connectors-plan.md §3, §5, §7; docs/plan.md §1.157): the routes behind the
+// Connectors C4 (docs/connectors-plan.md §3, §5, §7; docs/plan.md §1.161): the routes behind the
 // client's one Connectors place and the back office's Connectors tab, Needs and Readiness panels.
 // A client admin sets what agents may read and change (`clientMayAllow`), allows what an agent
 // needs, and says how much we may change without asking (Changes by Mezonas). Our changes apply
@@ -20,7 +20,7 @@ import { MatrixEdit } from "./routes";
 // a change request the client admin approves or declines. No response carries a credential, and
 // no portal response an agent's bundle, prompts, steps or cost (invariant 11).
 //
-// DECISION (docs/plan.md §1.157, C4): the client's routes live under `/api/portal/`:
+// DECISION (docs/plan.md §1.161, C4): the client's routes live under `/api/portal/`:
 // `/api/connectors` is the shared catalog every role reads, and `/api/connections/...` holds the
 // portal's older Accounts routes, which stay until the Connectors screens replace them. A
 // connection is addressed by its id alone (it names its connector).

@@ -434,6 +434,32 @@ describe("email codes off (EMAIL_CODES, the default in wrangler.jsonc)", () => {
   });
 });
 
+describe("cancelling a wait", () => {
+  it("(PLATFORM_QA INTEG-2) closes a wait its sign-in gave up on, so a later code doesn't land in it", async () => {
+    const id = await newIdentity();
+    const dead = (await openEmailWait(id.id)).waitId;
+    const cancel = (waitId: string, tenantId = TENANT) =>
+      codes.cancelWait({ tenantId, identityId: id.id, waitId });
+    // Only the identity's own client may cancel it.
+    expect(await cancel(dead, OTHER)).toMatchObject({ ok: false, error: { code: "not_found" } });
+    expect(await cancel(dead)).toEqual({ ok: true, value: { cancelled: true } });
+    expect(await cancel(dead)).toEqual({ ok: true, value: { cancelled: false } });
+    const live = (await openEmailWait(id.id)).waitId;
+    await handleEmail(
+      email({
+        to: id.email,
+        from: "no-reply@acme.example",
+        subject: "Your code",
+        text: "Your code is 314159",
+      }),
+      env,
+    );
+    const claim = (waitId: string) => codes.claim({ tenantId: TENANT, identityId: id.id, waitId });
+    expect(await claim(dead)).toEqual({ ok: true, value: { status: "expired" } });
+    expect(await claim(live)).toEqual({ ok: true, value: { status: "code", code: "314159" } });
+  });
+});
+
 describe("daily cap", () => {
   it("refuses code requests past the cap (3 in these tests)", async () => {
     const id = await newIdentity();
@@ -562,6 +588,70 @@ describe("texted codes", () => {
     );
     expect(res.status).toBe(413);
     expect(pulled).toBeLessThan(TOTAL);
+  });
+
+  it("(PLATFORM_QA INTEG-3) takes a replayed signed text (same MessageSid) only once", async () => {
+    const id = await withPhone();
+    const wait = () =>
+      codes.openWait({
+        tenantId: TENANT,
+        identityId: id.id,
+        siteKey: "acme",
+        channel: "sms",
+        sender: "+15550001111",
+        pattern: "(\\d{6}) is your",
+      });
+    const first = await wait();
+    if (!first.ok) throw new Error(first.error.message);
+    const params = {
+      AccountSid: "AC00000000000000000000000000000000",
+      MessageSid: `SM${"a".repeat(32)}`,
+      From: "+15550001111",
+      To: "+14155550123",
+      Body: "481516 is your Acme code",
+    };
+    expect((await text(id.id, params)).status).toBe(200);
+    // A later sign-in's wait, then the same signed request again (captured, or Twilio's retry).
+    const second = await wait();
+    if (!second.ok) throw new Error(second.error.message);
+    expect((await text(id.id, params)).status).toBe(200);
+    const claim = (waitId: string) => codes.claim({ tenantId: TENANT, identityId: id.id, waitId });
+    expect(await claim(first.value.waitId)).toEqual({
+      ok: true,
+      value: { status: "code", code: "481516" },
+    });
+    // The old code never fills the new wait.
+    expect(await claim(second.value.waitId)).toMatchObject({
+      ok: true,
+      value: { status: "pending" },
+    });
+    expect(logged.some((l) => l.includes('"reason":"duplicate"'))).toBe(true);
+    // A new text (a new MessageSid) still fills it.
+    expect(
+      (await text(id.id, { ...params, MessageSid: `SM${"b".repeat(32)}`, Body: "112358 is your" }))
+        .status,
+    ).toBe(200);
+    expect(await claim(second.value.waitId)).toEqual({
+      ok: true,
+      value: { status: "code", code: "112358" },
+    });
+  });
+
+  it("(PLATFORM_QA FLOW-6) answers a failed number purchase in its own words, never Twilio's", async () => {
+    const id = await newIdentity();
+    const twilioText =
+      "The requested resource /2010-04-01/Accounts/AC0000000000000000000000000000beef/IncomingPhoneNumbers.json was not found";
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      Response.json({ code: 20404, message: twilioText, status: 404 }, { status: 404 }),
+    );
+    const r = await codes.addPhone({ tenantId: TENANT, identityId: id.id });
+    expect(r).toMatchObject({ ok: false, error: { code: "unavailable" } });
+    const message = r.ok ? "" : r.error.message;
+    expect(message).not.toMatch(/Twilio|Accounts\/AC|IncomingPhoneNumbers/);
+    // The detail is in our own log.
+    expect(
+      logged.some((l) => l.includes("phone.failed") && l.includes("IncomingPhoneNumbers")),
+    ).toBe(true);
   });
 
   it("refuses a second number for the same identity", async () => {

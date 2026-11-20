@@ -107,6 +107,7 @@ const SETTINGS = {
   defaultAgentPrice: "250.0000",
   defaultIncludedCredits: 2000,
   creditPrice: "0.0200",
+  phoneLinePrice: "10.0000",
   autoSend: false,
   daysUntilDue: 30,
   unitCosts: [
@@ -182,6 +183,7 @@ describe("billing amounts", () => {
       defaultAgentPrice: "$250",
       defaultIncludedCredits: "2000",
       creditPrice: "0.02",
+      phoneLinePrice: "$10",
       autoSend: true,
       daysUntilDue: "30",
       unitCosts: [{ measure: "cost_usd", unitCost: "1.25", perUnits: "1" }],
@@ -191,6 +193,7 @@ describe("billing amounts", () => {
         defaultAgentPrice: "250",
         defaultIncludedCredits: 2000,
         creditPrice: "0.02",
+        phoneLinePrice: "10",
         autoSend: true,
         daysUntilDue: 30,
         unitCosts: [{ measure: "cost_usd", unitCost: "1.25", perUnits: 1 }],
@@ -200,6 +203,11 @@ describe("billing amounts", () => {
       "problem",
     );
     expect(settingsFromDraft({ ...draft, creditPrice: "0.00001" })).toHaveProperty("problem");
+    // §1.160: the phone line price is checked like any other price.
+    expect(settingsFromDraft({ ...draft, phoneLinePrice: "-10" })).toHaveProperty(
+      "problem",
+      "The phone line price is a dollar amount with up to 4 places.",
+    );
     expect(settingsFromDraft({ ...draft, defaultAgentPrice: "-1" })).toHaveProperty("problem");
     expect(settingsFromDraft({ ...draft, daysUntilDue: "0" })).toHaveProperty("problem");
     expect(adjustmentFromDraft(" Credit ", "-$15")).toEqual({
@@ -270,6 +278,7 @@ describe("ops billing", () => {
       defaultAgentPrice: "250.0000",
       defaultIncludedCredits: 2500,
       creditPrice: "0.025",
+      phoneLinePrice: "10.0000",
       autoSend: true,
       daysUntilDue: 30,
       unitCosts: [

@@ -1,4 +1,4 @@
-// Connectors C4 (docs/connectors-plan.md §3, §5, §7; docs/plan.md §1.157): the routes behind the
+// Connectors C4 (docs/connectors-plan.md §3, §5, §7; docs/plan.md §1.161): the routes behind the
 // client's one Connectors place and the back office's Connectors tab, Needs and Readiness panels
 // (core's `connectorAccessRoutes`). Every route is mounted (audited, in the request's scope:
 // withTenant for the portal, the clients served for the back office) and filters by `tenant_id`.
@@ -156,7 +156,7 @@ interface Decision {
  * applies at once; looser applies only where the client's go-ahead covers it, never On its own;
  * anything else goes to the client admin as a request.
  */
-// DECISION (docs/plan.md §1.157, C4): under "Allow what agents need", the needs that count are
+// DECISION (docs/plan.md §1.161, C4): under "Allow what agents need", the needs that count are
 // those of the agents bound to the connection and of the agent the change is for (a Readiness
 // send for an agent not bound yet).
 function decide(

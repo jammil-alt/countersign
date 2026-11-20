@@ -4,8 +4,8 @@
 // matches. Then the model's proposals and a person's decisions on the card, the residual worked
 // out again after each, and the sign-off, only when explained.
 
-import { dec, toNumeric } from "@countersign/core";
-import type { Tx } from "@countersign/db";
+import { CurrencyCode, DECIMAL_RE, dec, isoToday, once, toNumeric } from "@countersign/core";
+import { type Tx, tenant } from "@countersign/db";
 import { and, asc, desc, eq, gt, inArray, lte, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { PackRefusal } from "../pack";
@@ -27,7 +27,11 @@ import {
   reconcile,
 } from "./engine";
 
-const Money = z.string().regex(/^-?\d{1,12}(\.\d{1,4})?$/, "an amount, like -12.50");
+// PLATFORM_QA INPUT-4: core's limit, what `numeric(14,4)` holds, refused plainly at the door.
+export const ReconMoney = z
+  .string()
+  .regex(DECIMAL_RE, "an amount of at most 10 digits before the point and 4 after, like -12.50");
+const Money = ReconMoney;
 const Day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date, yyyy-mm-dd");
 
 export const GivenItem = z.object({
@@ -37,6 +41,28 @@ export const GivenItem = z.object({
   reference: z.string().max(200).nullable().optional(),
   description: z.string().max(500).nullable().optional(),
 });
+
+// The codes a given side's currency may name: ISO 4217's, as the runtime knows them (made on first
+// use), else any three capital letters (CurrencyCode).
+const knownCurrencies = once((): ReadonlySet<string> | null =>
+  typeof Intl.supportedValuesOf === "function" ? new Set(Intl.supportedValuesOf("currency")) : null,
+);
+
+/**
+ * A given side's currency as a code, or null. The statement reader gives free text ("cad", "CAD ",
+ * "Canadian dollars"), so it is trimmed and upper-cased; anything that isn't then a known ISO 4217
+ * code is no currency, and the side takes the other side's (PLATFORM_QA INPUT-2).
+ */
+// DECISION: normalised at `bookkeeping.reconcile`'s input, not by holding the read-statement skills'
+// output to a code: a model that writes "cad" or "Canadian dollars" doesn't fail the run, the input
+// is still checked (text or null, then a code or nothing), and the step template passes it as read.
+// A code that names a different currency from the other side's is refused, as before.
+export function givenCurrency(value: string | null | undefined): string | null {
+  const code = value?.trim().toUpperCase() ?? "";
+  if (!CurrencyCode.safeParse(code).success) return null;
+  const known = knownCurrencies();
+  return known && !known.has(code) ? null : code;
+}
 
 /** Where a side's balance and items come from. */
 export const SideInput = z.discriminatedUnion("source", [
@@ -56,6 +82,8 @@ export const SideInput = z.discriminatedUnion("source", [
     label: z.string().min(1).max(100),
     opening: Money.nullable().optional(),
     closing: Money,
+    /** The figures' currency (a statement read gives it); absent or not a code: the other side's. */
+    currency: z.string().nullable().optional().transform(givenCurrency),
     items: z.array(GivenItem).max(2000),
   }),
   z.object({
@@ -81,7 +109,19 @@ export interface Built {
   side: ReconSide;
   key: string;
   sources: string[];
-  currency: string;
+  /** Null when the side doesn't say (figures given without one, or a feed with nothing posted). */
+  currency: string | null;
+}
+
+/** The one currency of a side's transactions; two are refused (PLATFORM_QA INPUT-1). */
+function oneCurrency(label: string, currencies: readonly string[]): string | null {
+  const set = new Set(currencies);
+  if (set.size > 1) {
+    throw new PackRefusal(
+      `${label} holds transactions in more than one currency (${[...set].sort().join(", ")}); reconcile each currency's account on its own`,
+    );
+  }
+  return currencies[0] ?? null;
 }
 
 type LinkRow = typeof bankAccountLink.$inferSelect;
@@ -138,7 +178,7 @@ export async function buildSide(
       side,
       key: `given:${input.label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
       sources: input.items.map((i) => i.id),
-      currency: "USD",
+      currency: input.currency ?? null,
     };
   }
   if (input.source === "records") {
@@ -162,7 +202,10 @@ export async function buildSide(
       side: { label: input.label ?? "Bank transactions", opening: null, closing, items },
       key: `records:${[...input.bankTxnIds].sort().join(",")}`,
       sources: rows.map(({ t }) => t.rawRecordId),
-      currency: rows[0]?.t.currency ?? "USD",
+      currency: oneCurrency(
+        input.label ?? "Bank transactions",
+        rows.map(({ t }) => t.currency),
+      ),
     };
   }
   // The bank feed: the account's posted transactions in the period, and its balance as of the day.
@@ -226,7 +269,10 @@ export async function buildSide(
     },
     key: `bank:${link.id}`,
     sources: inPeriod.map((t) => t.rawRecordId),
-    currency: inPeriod[0]?.currency ?? "USD",
+    currency: oneCurrency(
+      link.name ?? "The bank account",
+      inPeriod.map((t) => t.currency),
+    ),
   };
 }
 
@@ -345,7 +391,15 @@ export async function runReconciliation(
       .sort()
       .at(-1) ??
     new Date().toISOString().slice(0, 10);
-  const currency = a.currency;
+  // PLATFORM_QA INPUT-1, INPUT-2: both sides in one currency, taken from whichever says it.
+  // DECISION: a side that names no currency (figures given without one, a feed with nothing
+  // posted) takes the other side's; neither saying is USD, as before. Two that differ are refused.
+  if (a.currency && b.currency && a.currency !== b.currency) {
+    throw new PackRefusal(
+      `${a.side.label} is in ${a.currency} and ${b.side.label} in ${b.currency}; we only reconcile two sides in the same currency`,
+    );
+  }
+  const currency = a.currency ?? b.currency ?? "USD";
   // Each side adds up before anything is compared (docs/plan.md §1.80).
   for (const [s, label] of [
     [a.side, "A"],
@@ -406,6 +460,22 @@ export async function runReconciliation(
     }
   }
   const result = reconcile(a.side, b.side, settings, asOf);
+  // PLATFORM_QA INPUT-4: every amount kept fits `numeric(14,4)`; a sum or a difference can grow
+  // past what each figure given could.
+  for (const [what, v] of [
+    [`${a.side.label}'s opening`, a.side.opening],
+    [`${a.side.label}'s closing`, a.side.closing],
+    [`${b.side.label}'s opening`, b.side.opening],
+    [`${b.side.label}'s closing`, b.side.closing],
+    ["The difference", result.difference],
+    ["The residual", result.residual],
+  ] as const) {
+    if (v !== null && !DECIMAL_RE.test(toNumeric(dec(v)))) {
+      throw new PackRefusal(
+        `${what} is ${v}: amounts are at most 10 digits before the decimal point; check the figures`,
+      );
+    }
+  }
   const leftovers = [
     ...[...result.unmatched.a].map(([i, label]) => ({ side: "a" as const, i, label })),
     ...[...result.unmatched.b].map(([i, label]) => ({ side: "b" as const, i, label })),
@@ -874,12 +944,29 @@ export async function decideReconciliation(
   await refresh(tx, who.tenantId, r.id);
 }
 
-/** Last month in UTC (the period a monthly run reconciles), or the month `month` (yyyy-mm). */
-export function monthPeriod(today: Date, month?: string): { periodStart: string; asOf: string } {
-  const [y, m] = month
-    ? (month.split("-").map(Number) as [number, number])
-    : [today.getUTCFullYear(), today.getUTCMonth()];
-  const start = new Date(Date.UTC(y, m - 1, 1));
+/**
+ * Last month on the client's calendar (the period a monthly run reconciles; UTC's when the zone is
+ * absent or unknown), or the month `month` (yyyy-mm). PLATFORM_QA INPUT-3.
+ */
+export function monthPeriod(
+  today: Date,
+  month?: string,
+  timezone?: string | null,
+): { periodStart: string; asOf: string } {
+  const named = month ?? isoToday(today, timezone ?? undefined).slice(0, 7);
+  const [y, m] = named.split("-").map(Number) as [number, number];
+  // The month named, or the one before the client's own (Date.UTC carries month 0 back a year).
+  const start = new Date(Date.UTC(y, month ? m - 1 : m - 2, 1));
   const end = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 0));
   return { periodStart: start.toISOString().slice(0, 10), asOf: end.toISOString().slice(0, 10) };
+}
+
+/** The client's time zone (`tenant.timezone`), for its own calendar. */
+export async function clientTimezone(tx: Tx, tenantId: string): Promise<string | null> {
+  const [row] = await tx
+    .select({ timezone: tenant.timezone })
+    .from(tenant)
+    .where(eq(tenant.id, tenantId))
+    .limit(1);
+  return row?.timezone ?? null;
 }

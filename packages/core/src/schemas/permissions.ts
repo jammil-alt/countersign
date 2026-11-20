@@ -123,7 +123,7 @@ export const DEFAULT_PERMISSIONS: PermissionMatrix = {
  * says nothing: reads on, every write off. Only a new connection's start: the gate still reads a
  * verb a stored matrix leaves out as `DEFAULT_PERMISSIONS`, so no existing connection changes.
  */
-// DECISION: two fallbacks, not one (docs/plan.md §1.157, C2): changing DEFAULT_PERMISSIONS would
+// DECISION: two fallbacks, not one (docs/plan.md §1.161, C2): changing DEFAULT_PERMISSIONS would
 // turn off writes on every stored connection that leaves a verb out.
 export const LOW_RISK_PERMISSIONS: PermissionMatrix = {
   read: "auto",

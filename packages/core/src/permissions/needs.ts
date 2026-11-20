@@ -213,7 +213,7 @@ function addTool(
   // Connectors C4: a tool whose input names the record type (HubSpot's, Zoho's, Odoo's) needs the
   // type the step's own input names, when it names one plainly ("purchase.order"), as the publish
   // check reads it; a type left to a template is not known until the run.
-  // DECISION (docs/plan.md §1.157, C4): such a need without a plain type stays on the verb alone.
+  // DECISION (docs/plan.md §1.161, C4): such a need without a plain type stays on the verb alone.
   const named = !found.entity && tool.entityInput ? entityOfCall(tool, input) : undefined;
   const need = named ? { ...found, entity: named } : found;
   // A step's approval only matters for the writes it makes; a verb a person always signs never

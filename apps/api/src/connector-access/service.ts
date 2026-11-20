@@ -1,4 +1,4 @@
-// Connectors C4 (docs/connectors-plan.md §3, §5, §7; docs/plan.md §1.157): what the client's one
+// Connectors C4 (docs/connectors-plan.md §3, §5, §7; docs/plan.md §1.161): what the client's one
 // Connectors place and the back office's Connectors tab read and change. A client's connections,
 // the connectors shown to it (every live one, custom ones only for their clients, HIPAA-refused
 // ones hidden), each agent's needs and gaps (C1's `agentNeeds` and `accessGaps`), and the rules
@@ -118,7 +118,7 @@ export async function connectorSettings(tx: Tx): Promise<Map<string, SettingRow>
 /**
  * Open requests past their end become `expired` and their inbox items close with them.
  */
-// DECISION (docs/plan.md §1.157, C4): expiry is lazy, on every read and answer of a client's
+// DECISION (docs/plan.md §1.161, C4): expiry is lazy, on every read and answer of a client's
 // requests, and once an hour in the lifecycle cron for the inbox; no request is ever answered
 // past its end, whichever comes first.
 export async function expireRequests(tx: Tx, tenantId: string, now: Date): Promise<number> {
@@ -337,7 +337,7 @@ interface ShownInput {
  * or beta one, and any offered or already connected; never a custom one built for other clients,
  * never one HIPAA mode refuses (unless already connected), test-only ones only where they show.
  */
-// DECISION (docs/plan.md §1.157, C4): a connector in review or being built (or not set up on
+// DECISION (docs/plan.md §1.161, C4): a connector in review or being built (or not set up on
 // this deployment) is hidden unless we offered it or the client already has it: an offer is
 // ours to make, as before. A custom connector stays hidden from every other client even when
 // offered to them; a connection a client already has is always shown, so they can disconnect it.

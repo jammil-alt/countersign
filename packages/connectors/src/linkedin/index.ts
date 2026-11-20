@@ -18,6 +18,7 @@ import {
   defineWriteTool,
   type ToolContext,
   UnconfirmedWriteError,
+  writeNotMade,
 } from "../connector";
 import { type FetchLike, formEncode, globalFetch, timeoutSignal } from "../http";
 import {
@@ -67,12 +68,15 @@ export type LinkedInConfig = z.infer<typeof LinkedInConfig>;
 export const LinkedInCredentials = OAuthTokens;
 
 export class LinkedInApiError extends Error {
+  /** LinkedIn answered a 4xx: nothing was posted (the post's attempt is recorded as refused). */
+  readonly notWritten: boolean;
   constructor(
     readonly status: number,
     message: string,
   ) {
     super(message);
     this.name = "LinkedInApiError";
+    this.notWritten = status >= 400 && status < 500;
   }
 }
 
@@ -453,6 +457,11 @@ export function createLinkedInConnector(options: LinkedInOptions = {}): Connecto
           }
           // Checked again at the post: the pages may have changed since it was signed.
           const page = pageFor(configOf(ctx), input.page);
+          // The sign-in is refreshed before the attempt is recorded, as Gmail's send: a refresh
+          // that fails leaves no started post behind, so the run's retry may post
+          // (PLATFORM_QA INTEG-4).
+          const tokens = tokenManager({ credentials: ctx.credentials, refresher, now: ctx.now });
+          await tokens.accessToken();
           const attempt = state.started + 1;
           const details: JsonObject = { pageId: page.id, pageName: page.name, attempt };
           const claimed = await attempts.start({
@@ -468,7 +477,6 @@ export function createLinkedInConnector(options: LinkedInOptions = {}): Connecto
               { channel: "linkedin", ...details },
             );
           }
-          const tokens = tokenManager({ credentials: ctx.credentials, refresher, now: ctx.now });
           const body = JSON.stringify({
             author: `urn:li:organization:${page.id}`,
             commentary: linkedInCommentary(input.text),
@@ -481,18 +489,32 @@ export function createLinkedInConnector(options: LinkedInOptions = {}): Connecto
             lifecycleState: "PUBLISHED",
             isReshareDisabledByAuthor: false,
           });
-          // A network failure throws here with the attempt open: unconfirmed on retry.
-          const res = await tokens.withAccessToken(
-            (token) =>
-              doFetch()(`${LINKEDIN_API}/posts`, {
-                method: "POST",
-                headers: { ...apiHeaders(token), "content-type": "application/json" },
-                body,
-                redirect: "manual",
-                signal: timeoutSignal(30_000),
-              }),
-            (r) => r.status === 401,
-          );
+          // A network failure throws here with the attempt open: unconfirmed on retry. An error
+          // that says nothing reached LinkedIn (a refresh after a 401 that failed) refuses the try.
+          let res: Awaited<ReturnType<FetchLike>>;
+          try {
+            res = await tokens.withAccessToken(
+              (token) =>
+                doFetch()(`${LINKEDIN_API}/posts`, {
+                  method: "POST",
+                  headers: { ...apiHeaders(token), "content-type": "application/json" },
+                  body,
+                  redirect: "manual",
+                  signal: timeoutSignal(30_000),
+                }),
+              (r) => r.status === 401,
+            );
+          } catch (error) {
+            if (writeNotMade(error)) {
+              await attempts.refused({
+                idempotencyKey: key,
+                attempt,
+                reason: error instanceof Error ? error.name : "refused",
+                at: ctx.now(),
+              });
+            }
+            throw error;
+          }
           if (res.status === 201) {
             const id = res.headers.get("x-restli-id") ?? res.headers.get("x-linkedin-id") ?? "";
             if (!POST_URN.test(id)) {

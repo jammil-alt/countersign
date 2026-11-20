@@ -4,7 +4,12 @@ import { defineConnector } from "../connector";
 import { CredentialCipher, generateEncryptionKey, memoryTenantKeys } from "../credentials";
 import { encryptedCredentials, memoryCredentials } from "../credentials-accessor";
 import { fromBase64Url, fromUtf8, toBase64Url, utf8 } from "../runtime";
-import { beginAuthorization, completeAuthorization, type OAuthCallbackError } from "./flow";
+import {
+  beginAuthorization,
+  completeAuthorization,
+  type OAuthCallbackError,
+  oauthCallbackWords,
+} from "./flow";
 import { createOAuthState, OAUTH_STATE_TTL_MS, readOAuthState, verifyOAuthState } from "./state";
 import {
   AccessFailingError,
@@ -191,11 +196,43 @@ describe("tokenManager", () => {
     return r;
   }
 
+  /** A promise and its resolve, so a test decides the order things happen in. */
+  function deferred() {
+    let resolve!: () => void;
+    const promise = new Promise<void>((r) => {
+      resolve = r;
+    });
+    return { promise, resolve };
+  }
+
+  /** A count a test can wait on: `reached(k)` settles once `add` has run k times. */
+  function tally() {
+    let count = 0;
+    const waiting: { at: number; resolve: () => void }[] = [];
+    return {
+      add() {
+        count += 1;
+        for (const w of waiting) if (count >= w.at) w.resolve();
+      },
+      reached(at: number): Promise<void> {
+        if (count >= at) return Promise.resolve();
+        const d = deferred();
+        waiting.push({ at, resolve: d.resolve });
+        return d.promise;
+      },
+    };
+  }
+
   /**
    * One connection's stored envelope, and an accessor per isolate over it: each caches what it
-   * read, as `encryptedCredentials` does for a run step.
+   * read, as `encryptedCredentials` does for a run step. `swaps` records each compare-and-swap
+   * (true: written) and `swapped(k)` settles once k are done; `beforeSwap` runs before the n-th
+   * one (from 0) compares, so a test can hold it.
    */
-  async function sharedStore(initial: JsonObject) {
+  async function sharedStore(
+    initial: JsonObject,
+    hooks: { beforeSwap?: (n: number) => Promise<void> } = {},
+  ) {
     const cipher = (await CredentialCipher.create({ current: generateEncryptionKey() })).forClients(
       memoryTenantKeys(),
     );
@@ -204,7 +241,12 @@ describe("tokenManager", () => {
       connectionId: "0190f0c8-0000-7000-8000-0000000000aa",
     };
     let stored: unknown = await cipher.encrypt(initial, binding);
+    const swaps: boolean[] = [];
+    const done = tally();
+    let started = 0;
     return {
+      swaps,
+      swapped: done.reached,
       async current() {
         return cipher.decrypt(stored, binding);
       },
@@ -217,13 +259,41 @@ describe("tokenManager", () => {
             stored = env;
           },
           saveIf: async (env, expected) => {
-            if (JSON.stringify(stored) !== JSON.stringify(expected)) return false;
-            stored = env;
-            return true;
+            await hooks.beforeSwap?.(started++);
+            const written = JSON.stringify(stored) === JSON.stringify(expected);
+            if (written) stored = env;
+            swaps.push(written);
+            done.add();
+            return written;
           },
         });
       },
     };
+  }
+
+  /**
+   * A provider that answers every refresh (it doesn't refuse a spent token), each only when the
+   * test releases it: `calls[i].answer()` releases the i-th call, which returns `at-<i+2>` and
+   * `rt-<i+2>`. `called(k)` settles once k calls have arrived.
+   */
+  function gatedRefresher() {
+    const calls: { startedFrom: string | undefined; answer: () => void }[] = [];
+    const arrivals = tally();
+    const refresher: TokenRefresher = {
+      async refresh(current, { now }) {
+        const serial = calls.length + 2;
+        const gate = deferred();
+        calls.push({ startedFrom: current.refreshToken, answer: gate.resolve });
+        arrivals.add();
+        await gate.promise;
+        return {
+          accessToken: `at-${serial}`,
+          refreshToken: `rt-${serial}`,
+          expiresAt: new Date(now.getTime() + 3600_000).toISOString(),
+        };
+      },
+    };
+    return { refresher, calls, called: arrivals.reached };
   }
 
   it("uses the stored token until it is about to expire", async () => {
@@ -317,28 +387,87 @@ describe("tokenManager", () => {
   });
 
   it("never overwrites a newer refresh token with an older one", async () => {
-    const store = await sharedStore(tokens({ expiresAt: t0.toISOString() }));
+    // The order is the test's, never the event loop's (the store's crypto settles on real time):
+    // both refreshes start from rt-1, then one answer's save lands before the other answers.
+    // Either refresh may be the one saved first; the first saved wins and the other is dropped.
+    for (const first of [0, 1]) {
+      const second = 1 - first;
+      const store = await sharedStore(tokens({ expiresAt: t0.toISOString() }));
+      const a = store.isolate();
+      const b = store.isolate();
+      await Promise.all([a.get(), b.get()]);
+      const provider = gatedRefresher();
+      const ma = tokenManager({
+        credentials: a,
+        refresher: provider.refresher,
+        now: () => t0,
+        sleep: tick,
+      });
+      const mb = tokenManager({
+        credentials: b,
+        refresher: provider.refresher,
+        now: () => t0,
+        sleep: tick,
+      });
+      const got = Promise.all([ma.accessToken(), mb.accessToken()]);
+      await provider.called(2);
+      expect(provider.calls.map((c) => c.startedFrom)).toEqual(["rt-1", "rt-1"]);
+      provider.calls[first]?.answer();
+      await store.swapped(1);
+      expect(store.swaps).toEqual([true]);
+      provider.calls[second]?.answer();
+      const winner = `at-${first + 2}`;
+      expect(await got).toEqual([winner, winner]);
+      // The later answer, started from rt-1, saw the newer token stored and wrote nothing.
+      expect(store.swaps).toEqual([true]);
+      expect(await store.current()).toMatchObject({
+        accessToken: winner,
+        refreshToken: `rt-${first + 2}`,
+      });
+    }
+  });
+
+  it("refuses a save that read the tokens before another isolate's save landed", async () => {
+    // Both saves read the stored rt-1 before either compares: the first to compare writes, the
+    // other is refused by the compare-and-swap, reads again and takes the winner's tokens.
+    const held = [deferred(), deferred()];
+    const arrived = [deferred(), deferred()];
+    const store = await sharedStore(tokens({ expiresAt: t0.toISOString() }), {
+      async beforeSwap(n) {
+        arrived[n]?.resolve();
+        await held[n]?.promise;
+      },
+    });
     const a = store.isolate();
     const b = store.isolate();
     await Promise.all([a.get(), b.get()]);
-    // A provider that answers both refreshes; the first saved wins and the other is dropped.
-    let n = 0;
-    const lenient: TokenRefresher = {
-      async refresh(_current, { now }) {
-        n += 1;
-        const serial = n + 1;
-        for (let i = 0; i < 5 * n; i++) await Promise.resolve();
-        return {
-          accessToken: `at-${serial}`,
-          refreshToken: `rt-${serial}`,
-          expiresAt: new Date(now.getTime() + 3600_000).toISOString(),
-        };
-      },
-    };
-    const ma = tokenManager({ credentials: a, refresher: lenient, now: () => t0 });
-    const mb = tokenManager({ credentials: b, refresher: lenient, now: () => t0 });
-    const got = await Promise.all([ma.accessToken(), mb.accessToken()]);
-    expect(got).toEqual(["at-2", "at-2"]);
+    const provider = gatedRefresher();
+    const ma = tokenManager({
+      credentials: a,
+      refresher: provider.refresher,
+      now: () => t0,
+      sleep: tick,
+    });
+    const mb = tokenManager({
+      credentials: b,
+      refresher: provider.refresher,
+      now: () => t0,
+      sleep: tick,
+    });
+    const got = Promise.all([ma.accessToken(), mb.accessToken()]);
+    await provider.called(2);
+    expect(provider.calls.map((c) => c.startedFrom)).toEqual(["rt-1", "rt-1"]);
+    provider.calls[0]?.answer();
+    await arrived[0]?.promise;
+    provider.calls[1]?.answer();
+    await arrived[1]?.promise;
+    // Both have read rt-1 and are about to compare; the first answer's save goes first.
+    held[0]?.resolve();
+    await store.swapped(1);
+    expect(store.swaps).toEqual([true]);
+    held[1]?.resolve();
+    expect(await got).toEqual(["at-2", "at-2"]);
+    expect(store.swaps).toEqual([true, false]);
     expect(await store.current()).toMatchObject({ accessToken: "at-2", refreshToken: "rt-2" });
   });
 
@@ -565,7 +694,7 @@ describe("authorization flow", () => {
     ).toMatchObject({ accessToken: "at-1", code: "c-1" });
   });
 
-  it("refuses a callback from another session, a provider error or a missing state", async () => {
+  it("(PLATFORM_QA FLOW-1) refuses a callback from another session, a provider error or a missing state, in our own words", async () => {
     const cipher = (await CredentialCipher.create({ current: generateEncryptionKey() })).forClients(
       memoryTenantKeys(),
     );
@@ -601,6 +730,22 @@ describe("authorization flow", () => {
       (await err(completeAuthorization({ ...base, params: { error: "access_denied" }, session })))
         ?.reason,
     ).toBe("provider_error");
+    // (PLATFORM_QA FLOW-1) the person reads our words, never the callback's text.
+    const planted = "Your account is suspended. Call 555-0100 to restore it";
+    const refusedThere = await err(
+      completeAuthorization({ ...base, params: { error: planted, state }, session }),
+    );
+    expect(refusedThere?.words).toBe(oauthCallbackWords("provider_error"));
+    expect(`${refusedThere?.message} ${refusedThere?.words}`).not.toContain(planted);
+    const denied = await err(
+      completeAuthorization({ ...base, params: { error: "access_denied", state }, session }),
+    );
+    expect(denied?.words).toMatch(/^You cancelled the sign-in/);
+    expect(`${denied?.message} ${denied?.words}`).not.toContain("access_denied");
+    expect(
+      (await err(completeAuthorization({ ...base, params: { code: "c", state: "x.y" }, session })))
+        ?.words,
+    ).toBe(oauthCallbackWords("signature"));
     expect(
       (await err(completeAuthorization({ ...base, params: { code: "c" }, session })))?.reason,
     ).toBe("missing_state");
