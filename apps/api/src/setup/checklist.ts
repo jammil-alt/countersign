@@ -300,6 +300,9 @@ export async function writeClientVersion(
       agentId: input.row.id,
       bundle: input.bundle,
       parentVersionId: input.from.id,
+      // The setup answers are written on the version the client sees (live, else latest), as
+      // before STATE-7: a client answer is never refused for an operator's draft.
+      fromOlder: true,
       authorType: "operator",
       authorId: input.actor.userId,
       changeNote: input.changeNote.slice(0, 500),

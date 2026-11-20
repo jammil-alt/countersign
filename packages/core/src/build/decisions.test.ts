@@ -217,6 +217,57 @@ describe("decisions: risk by code", () => {
     });
     expect([...ids].sort()).toEqual(["ask-vendor", "post-bill"]);
   });
+
+  // BUILDER_QA CONS-4: as the validator (`outputBeforeChecks`) and the executor count it.
+  it("counts a skill step on a skill it doesn't know as writing, the safe side", () => {
+    const skill = (id: string, ref: string) => ({ id, kind: "skill", name: id, skill: ref });
+    const bundle = {
+      workflows: [
+        {
+          workflow: {
+            schemaVersion: 4,
+            triggers: [],
+            steps: [
+              skill("post-bill", "custom:post-bill"),
+              skill("read-it", "custom:read-it"),
+              skill("tell-vendor", "custom:tell-vendor"),
+            ],
+          },
+        },
+      ],
+    } as unknown as ProcessAgentBundle;
+    const base = {
+      description: "",
+      tools: [],
+      reachesPeople: false,
+    };
+    const ids = writingStepIds(bundle, {
+      tools: {},
+      skills: {
+        "custom:read-it": { ...base, id: "custom:read-it" },
+        "custom:tell-vendor": { ...base, id: "custom:tell-vendor", reachesPeople: true },
+      } as never,
+    });
+    expect([...ids].sort()).toEqual(["post-bill", "tell-vendor"]);
+
+    // So a decision on that step is high risk, and holds the move into the client test.
+    const decisions = withDecisionRisk([dec("post-without-check", { stepId: "post-bill" })], ids);
+    expect(decisions[0]?.risk).toBe("high");
+    expect(
+      gateReasons({
+        kind: "agent",
+        phase: "poc",
+        brief: {},
+        fitgap: { ...empty, decisions },
+        draft: true,
+        draftErrors: 0,
+        poc: { passed: true, detail: "" },
+        trialDone: false,
+        qaSigned: false,
+        openItems: 0,
+      }),
+    ).toContain("1 high-risk decision hasn't been looked at yet.");
+  });
 });
 
 describe("decisions: the gate and the issues", () => {

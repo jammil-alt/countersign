@@ -7,7 +7,7 @@ import { BUILD_TRIES_SHOWN, type BuildTryView, type TestTargetKind } from "@coun
 import { type Tx, tenant, testCase, testCaseResult, testSuiteRun } from "@countersign/db";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { iso } from "../http";
-import { partialCaseIds, partialSuiteRun, tryRef } from "../testbench/partial";
+import { partialCaseIds, partialSuiteRun, staleRun, tryRef } from "../testbench/partial";
 import { failureWhy } from "./why";
 
 /** Partial runs looked at for a build's tries. */
@@ -108,7 +108,9 @@ export async function tryViews(
           }
         : { ...base, status: "done", output: result.got, why: null, runId: result.runId };
     }
-    if (r?.status === "running") return { ...base, status: "running", why: null };
+    // INTEG-2: a run past its case's timeout never finishes; it is shown stopped, to try again.
+    if (r?.status === "running" && !staleRun(r, 1))
+      return { ...base, status: "running", why: null };
     return {
       ...base,
       status: "error",

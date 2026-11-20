@@ -259,6 +259,7 @@ const AGENTS_STATUS: Record<AgentsError["code"], HttpError["status"]> = {
   invalid_bundle: 422,
   invalid_definition: 422,
   no_op: 409,
+  stale_parent: 409,
   not_a_template: 422,
   not_a_client_agent: 422,
   not_linked: 409,

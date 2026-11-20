@@ -14,6 +14,7 @@ import { type AgentSummary, apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { AgentBadge } from "../../ui/badges";
 import { Clamp } from "../../ui/Clamp";
+import { ErrorNotice } from "../../ui/ErrorState";
 import { TextInput } from "../../ui/forms";
 import { Loaded, Page } from "../../ui/page";
 import { Button, Card, cx, EmptyState, PageHeader, Tag } from "../../ui/primitives";
@@ -243,6 +244,7 @@ export function LabScreen() {
   );
   const discarded = (templates.data?.templates ?? []).filter((t) => t.status === "disabled");
   const open = builds.data?.builds ?? [];
+  const buildsFailed = tab === "drafts" && !!builds.error;
   const building = useMemo(
     () => new Set((builds.data?.builds ?? []).flatMap((b) => (b.agentId ? [b.agentId] : []))),
     [builds.data],
@@ -332,6 +334,9 @@ export function LabScreen() {
                 </fieldset>
               </div>
 
+              {/* FLOW-7 (QA 2026-11-19): a failed read of the builds showed "No drafts", and the
+                  operator might start one again. It says the builds couldn't be read. */}
+              {buildsFailed ? <ErrorNotice error={builds.error} onRetry={builds.reload} /> : null}
               {board.length > 0 ? (
                 <section className="flex flex-col gap-2" aria-label="Builds in progress">
                   <h2 className="type-subheading text-ink">
@@ -345,7 +350,8 @@ export function LabScreen() {
                   Drafts without a build <span className="text-ink-muted">· {shown.length}</span>
                 </h2>
               ) : null}
-              {board.length > 0 && shown.length === 0 ? null : shown.length === 0 ? (
+              {(board.length > 0 || (buildsFailed && !filtered)) &&
+              shown.length === 0 ? null : shown.length === 0 ? (
                 filtered ? (
                   <EmptyState
                     icon="search"

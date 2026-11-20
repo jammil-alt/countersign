@@ -50,11 +50,15 @@ export function BuildsBoard({ builds }: { builds: readonly BuildSummary[] }) {
                 <span className="font-medium text-ink">{b.title}</span>
                 <span className="text-ink-muted">{buildKindLine(b)}</span>
                 <span className="flex flex-wrap gap-1.5">
+                  {/* CONS-2 (QA 2026-11-19): the summary counts stored open items only, not the
+                      draft's problems, failing tests or decisions the page counts as issues. It
+                      called them "open issues" and said "Nothing open" beside a page with three.
+                      DECISION: the board names what it counts (items, as the page calls them) and
+                      claims nothing at none. Counting the page's issues for every build on the
+                      board means validating each draft for publish on every read. */}
                   {b.openItems > 0 ? (
-                    <Badge tone="warning">{plural(b.openItems, "open issue")}</Badge>
-                  ) : (
-                    <Badge tone="positive">Nothing open</Badge>
-                  )}
+                    <Badge tone="warning">{plural(b.openItems, "open item")}</Badge>
+                  ) : null}
                   {b.waitingOnClient > 0 ? (
                     <Badge tone="person">{b.waitingOnClient} with the client</Badge>
                   ) : null}

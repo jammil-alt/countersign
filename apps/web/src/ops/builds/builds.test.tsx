@@ -212,7 +212,7 @@ describe("Builds", () => {
     expect(within(fit).getByTestId(`builds-card-${ID}`)).toHaveTextContent(
       "Invoice intake reviewer",
     );
-    expect(within(fit).getByTestId(`builds-card-${ID}`)).toHaveTextContent("1 open issue");
+    expect(within(fit).getByTestId(`builds-card-${ID}`)).toHaveTextContent("1 open item");
     // The board's table of items across builds is gone: Your call and Work → Build list them.
     expect(screen.queryByTestId("builds-items")).toBeNull();
   });

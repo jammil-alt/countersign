@@ -8,6 +8,7 @@ import {
   existingBundle,
   getAgent,
   latestVersion,
+  skillContext,
   validateForPublish,
 } from "@countersign/agents";
 import {
@@ -31,7 +32,6 @@ import {
   orderProblem,
   PHASE_WORDS,
   ProposalState,
-  parseSkillRef,
   phaseIndex,
   phasesOf,
   processes,
@@ -45,7 +45,6 @@ import {
   readQa,
   readRequirements,
   readTestPlan,
-  type SkillDefinition,
   sliceWhole,
   toProcessBundle,
   withDecisionRisk,
@@ -68,12 +67,12 @@ import {
   testCaseResult,
   testSuiteRun,
 } from "@countersign/db";
-import { and, asc, desc, eq, gte, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, like, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { stepRequests } from "../dev-queue/store";
 import { iso, notFound, type Services } from "../http";
 import { goLiveView } from "../lifecycle/stages";
-import { fullSuiteRun, notPendingTry } from "../testbench/partial";
+import { fullSuiteRun, notPendingTry, staleRun } from "../testbench/partial";
 import { buildFacts, buildStageOf, buildStanding } from "../work/work-list";
 import { trySandbox, tryViews } from "./tries";
 import { failureWhy } from "./why";
@@ -227,7 +226,8 @@ const SavedProposal = BuildProposal.extend({
  */
 export const ProposalDecision = z.object({
   decides: z.string(),
-  decision: z.enum(["agreed", "unchanged", "declined", "undone"]),
+  /** STATE-3: `proposed` puts a proposal back when the change agreed to it failed. */
+  decision: z.enum(["proposed", "agreed", "unchanged", "declined", "undone"]),
   /** Agreed: an item's state before the change, for its undo. */
   before: BuildItemState.nullable().optional(),
   /** What was done, in words ("Changed: …"), shown under the proposal. */
@@ -398,6 +398,10 @@ export async function addItems(
         state: i.state ?? "open",
         resolvedAt: i.state && !itemOpen(i.state) ? new Date() : null,
         createdBy: userId,
+        // Items are listed by created_at, then id. now() is the transaction's start, so items
+        // added together tied, and a v7 id is random within its millisecond: they came back in
+        // any order (a flaky builds test, 2026-11-19). The clock's time keeps them in this order.
+        createdAt: sql`clock_timestamp()`,
       })
       .onConflictDoNothing()
       .returning({ id: buildItem.id });
@@ -562,7 +566,59 @@ export async function draftOutline(ctx: StoreCtx, row: BuildRow): Promise<string
   return lines;
 }
 
+/** STATE-4: the key of an open item for a fit-gap change made after the draft (the move adds it). */
+export const STALE_DRAFT_KEY = "draft:fitgap:";
+
+/**
+ * The draft's problems that aren't in its bundle, each holding the draft gate: the draft agent
+ * discarded under the build (STATE-5), and a fit-gap change it doesn't cover yet, until its item
+ * is closed (STATE-4).
+ */
+// DECISION (STATE-5): a discarded draft is a draft problem rather than a discard refused while a
+// build points at it: the agents registry knows nothing of builds, and Restore brings it back.
+async function heldProblems(
+  tx: Tx,
+  row: BuildRow,
+  agentRow: DraftFacts["agentRow"],
+): Promise<BuildDraftView["problems"]> {
+  const out: BuildDraftView["problems"] = [];
+  if (agentRow?.status === "disabled") {
+    out.push({
+      key: "draft:discarded",
+      code: "draft_discarded",
+      title: "The draft was discarded. Restore it on its page to go on.",
+      stepId: null,
+      workflow: null,
+    });
+  }
+  const stale = await tx
+    .select({ state: buildItem.state })
+    .from(buildItem)
+    .where(and(eq(buildItem.buildId, row.id), like(buildItem.key, `${STALE_DRAFT_KEY}%`)));
+  if (stale.some((i) => itemOpen(i.state))) {
+    out.push({
+      key: "draft:fitgap",
+      code: "draft_stale",
+      title:
+        "The fit-gap changed after the draft was made. Change the draft to match, then close its item.",
+      stepId: null,
+      workflow: null,
+    });
+  }
+  return out;
+}
+
 async function draftFacts(ctx: StoreCtx, row: BuildRow): Promise<DraftFacts> {
+  const facts = await bundleDraftFacts(ctx, row);
+  if (!facts.view) return facts;
+  const held = await heldProblems(ctx.tx, row, facts.agentRow);
+  return held.length === 0
+    ? facts
+    : { ...facts, view: { ...facts.view, problems: [...held, ...facts.view.problems] } };
+}
+
+/** The draft as its latest version reads, with its validation problems. */
+async function bundleDraftFacts(ctx: StoreCtx, row: BuildRow): Promise<DraftFacts> {
   const none: DraftFacts = {
     view: null,
     bundle: null,
@@ -713,7 +769,7 @@ async function suitePoc(
         : !current
           ? "The latest test run is of an older version: run the cases again."
           : !done
-            ? latest.status === "running"
+            ? latest.status === "running" && !staleRun(latest, latest.total)
               ? "The test cases are running."
               : "The latest test run failed to finish."
             : requiredFailing > 0
@@ -728,7 +784,7 @@ async function suitePoc(
     latest: latest
       ? {
           id: latest.id,
-          status: latest.status,
+          status: staleRun(latest, latest.total) ? "failed" : latest.status,
           total: latest.total,
           passed: latest.passed,
           failed: latest.failed,
@@ -876,21 +932,12 @@ async function clientTestFacts(ctx: StoreCtx, row: BuildRow): Promise<BuildClien
   };
 }
 
-/** Writes whose approval is loosened anywhere in the bundle (invariant 8). */
+/**
+ * Every loosening anywhere in the bundle (invariant 8), as core counts them: steps' approvals,
+ * conversations' messages sent without a person's yes, and process steps' approval overrides.
+ */
 function loosenedApprovals(bundle: NonNullable<DraftFacts["bundle"]>): number {
-  let n = 0;
-  for (const w of bundle.workflows) {
-    for (const { step } of processes.allSteps(w.workflow)) {
-      const checks = (step as { checks?: { approval?: unknown } }).checks;
-      if (checks?.approval) {
-        n += processes.approvalLoosenings(
-          checks.approval as Parameters<typeof processes.approvalLoosenings>[0],
-          "checks.approval",
-        ).length;
-      }
-    }
-  }
-  return n;
+  return processes.bundleLoosenings(bundle).length;
 }
 
 function qaChecks(
@@ -960,23 +1007,22 @@ function qaChecks(
 
 /**
  * The draft's steps that write to a client's tool or contact people, by the process validator's
- * helpers over the platform's tools and built-in skills. A custom skill isn't looked up here: a
- * decision on its step keeps the Builder's own flag.
+ * helpers over the platform's tools, the built-in skills and the client's own (and shared) custom
+ * skills, as publish resolves them (`skillContext`). A skill found nowhere counts as writing
+ * (core's `writingStepIds`), so a decision on its step is high risk.
  */
-export function draftWritingSteps(
-  ctx: Pick<StoreCtx, "services">,
-  bundle: DraftFacts["bundle"],
-): Set<string> {
+export async function draftWritingSteps(
+  ctx: Pick<StoreCtx, "services" | "tx">,
+  draft: Pick<DraftFacts, "bundle" | "agentRow">,
+): Promise<Set<string>> {
+  const { bundle } = draft;
   if (!bundle) return new Set();
   const { platform } = ctx.services;
-  const skills: Record<string, SkillDefinition> = {};
-  for (const w of bundle.workflows) {
-    for (const { step } of processes.allSteps(w.workflow)) {
-      if (step.kind !== "skill") continue;
-      const def = platform.catalog.get(parseSkillRef(step.skill).id);
-      if (def) skills[step.skill] = def;
-    }
-  }
+  const { skills } = await skillContext(ctx.tx, {
+    tenantId: draft.agentRow?.tenantId ?? null,
+    bundle,
+    catalog: platform.catalog,
+  });
   return writingStepIds(bundle, { tools: platform.tools.specs(), skills });
 }
 
@@ -1016,7 +1062,7 @@ export async function buildDetail(ctx: StoreCtx, row: BuildRow): Promise<BuildDe
   const stored = readFitGap(row.fitgap);
   const fitgap = {
     ...stored,
-    decisions: withDecisionRisk(stored.decisions, draftWritingSteps(ctx, draft.bundle)),
+    decisions: withDecisionRisk(stored.decisions, await draftWritingSteps(ctx, draft)),
   };
   const poc = await pocFacts(ctx, row, draft);
   const clientTest = await clientTestFacts(ctx, row);

@@ -193,6 +193,28 @@ async function bindCopy(
   });
 }
 
+/**
+ * A bench wait that timed out: a person, approval or event step's `<kind>:timeout` (a tool's own
+ * timeout names the tool, e.g. `gmail.send:timeout`, and is an error like any other).
+ */
+function benchTimeout(errorKey: string | undefined): boolean {
+  return !!errorKey && /^[a-z_]+:timeout$/.test(errorKey);
+}
+
+/** Why a case's run stopped, in words, with what to do when it was the client's connection. */
+function stoppedWhy(result: { reason?: string; nodeId?: string; errorKey?: string }): string {
+  const reason = (result.reason ?? "the run failed").trim().replace(/[.\s]+$/, "");
+  const at = result.nodeId ? `The run stopped at "${result.nodeId}": ${reason}.` : `${reason}.`;
+  const connection =
+    /:unauthorized$|:forbidden$/.test(result.errorKey ?? "") ||
+    /\b(401|403)\b|unauthori[sz]ed|expired|disconnected|not connected|no connection|connection is|is bound|sign[- ]?in/i.test(
+      reason,
+    );
+  return connection
+    ? `${at} Reconnect the client's connection, then try it again.`
+    : `${at} Fix it, then try it again.`;
+}
+
 async function runTemplate(deps: RunDeps, params: SuiteParams, c: CaseRow): Promise<Scored> {
   const input = TemplateCaseInput.safeParse(c.input);
   if (!input.success) return failed("a template case's input is {workflow, payload}");
@@ -260,6 +282,13 @@ async function runTemplate(deps: RunDeps, params: SuiteParams, c: CaseRow): Prom
     run: { status: result.status, reason: result.reason ?? null },
     steps: steps.map((s) => ({ id: s.nodeId, status: s.status })),
   };
+  // INTEG-1: a run that failed on a step's error (the client's tool refused it: a sign-in that
+  // expired, a connection disconnected or missing) is an error, never scored: a try or a kept case
+  // expecting nothing would otherwise pass on the tool's error. The bench's own waits time out on
+  // purpose (`benchRunner`), and those runs are scored as they are.
+  if (result.status === "failed" && !benchTimeout(result.errorKey)) {
+    return { ...failed(stoppedWhy(result), extra, String(costUsd)), runId: req.runId };
+  }
   // A shared case's run lives in the Sandbox: its result names it, without a foreign key.
   return { ...scored(c, got, extra, String(costUsd)), runId: req.runId };
 }
