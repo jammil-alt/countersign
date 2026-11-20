@@ -5986,8 +5986,9 @@ Below are the choices they made where the fix left a choice open, each with a `/
 | Intake money (FLOW-2, CONS-4) (#450) | Takes "$" and thousands separators and checks with core's money schema; negative amounts are still refused. // DECISION |
 | Price panel and Billing (CONS-4) (#450) | Validated with SetAgentPrice and BillingSettings; the first schema issue is the form's message. // DECISION |
 | Vault set-up error (FLOW-6) (#450) | codes_*, 5xx and network failures show our fixed words with a retry; codes_invalid on an authenticator site says the setup link is wrong. // DECISION |
+| Operators and person rows (SEC-2, migration 0068) | An operator session sees a person's second factors, recovery codes and Claude and phone approvals only when that person belongs to a client the session serves (a `membership` in `app_tenant_ids()`); the person still sees their own. Policies only, so the previous Worker keeps working: its one operator path, the second-factor reset, already checks that membership. Replaces 0042's "an operator session sees everyone's". // DECISION |
 | Web first-load budget (#450) | Raised to 495 kB (`scripts/web-size.mjs`): main was at 489.4 kB and the screen fixes add 2.5 kB to the first load. The follow-ups recorded there bring it back down. // DECISION |
-| Not in this pass | Bookkeeping templates don't yet pass the read-statement skill's currency to a given side (it is free text, not a currency code), so a given side takes the other side's currency. Google Chat's Retry-After is left to the step's backoff. SEC-2, SEC-4, SEC-6, STATE-5 and TOOL-4 were judged by design (`PLATFORM_QA.md` §4); SEC-2 (operators read every person's second factors under RLS) is worth the owner's look. |
+| Not in this pass | Bookkeeping templates don't yet pass the read-statement skill's currency to a given side (it is free text, not a currency code), so a given side takes the other side's currency. Google Chat's Retry-After is left to the step's backoff. SEC-4, SEC-6, STATE-5 and TOOL-4 were judged by design (`PLATFORM_QA.md` §4). |
 
 ## 2. Package layering
 
