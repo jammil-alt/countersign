@@ -57,6 +57,7 @@ import {
 } from "@countersign/db";
 import { and, count, desc, eq, gt, sql } from "drizzle-orm";
 import type { Hono } from "hono";
+import { connectableTo } from "../connector-access/service";
 import type { Bindings } from "../env";
 import {
   type AppContext,
@@ -76,7 +77,7 @@ import { cipherFor, connectionCredentials } from "../secrets";
 // v0.14 W4-A
 import { accountTakenElsewhere } from "../whatsapp-meta/inbound";
 import { opsConnection } from "./mappers";
-import { offeredConnectors, sandboxClient } from "./ops-clients";
+import { sandboxClient } from "./ops-clients";
 import { newConnectionMatrix } from "./ops-connectors";
 import { canSignIn, PERSONAL_CONNECTORS, portalConnections } from "./portal";
 import { qboSyncFor, startQboSync } from "./qbo";
@@ -174,10 +175,18 @@ async function connectorOut(
   return out;
 }
 
-export async function offeredTo(tx: Tx, tenantId: string, connectorId: string): Promise<void> {
-  const [t] = await tx.select().from(tenant).where(eq(tenant.id, tenantId));
-  if (!t) throw notFound("client");
-  if (!offeredConnectors(t.settings).includes(connectorId)) throw notFound("connector");
+/**
+ * Throws 404 unless the client may connect this connector here. Connectors C4
+ * (docs/connectors-plan.md §3.1, §6, §10 decision 2): every live connector, not only offered ones,
+ * and never a custom one built for another client or one HIPAA mode refuses (`connectableTo`).
+ */
+export async function offeredTo(
+  tx: Tx,
+  tenantId: string,
+  connectorId: string,
+  services: Pick<Services, "platform" | "env">,
+): Promise<void> {
+  await connectableTo(tx, services, tenantId, connectorId);
 }
 
 /**
@@ -719,7 +728,7 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.portalAuthorize, async (ctx) => {
     const { c, tx, tenantIds, params, query, session, services, role } = ctx;
     const tenantId = tenantIds[0] as string;
-    await offeredTo(tx, tenantId, params.connector);
+    await offeredTo(tx, tenantId, params.connector, services);
     const connector = services.platform.connectors.get(params.connector);
     // B-5 (docs/plan.md §1.79): which connection a multi-connection sign-in is for.
     const target = await signInTarget(tx, tenantId, params.connector, connector, query);
@@ -816,7 +825,7 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
     const inTx = txOnly(ctx.inTx);
     const tenantId = tenantIds[0] as string;
     const { connector, existing } = await inTx(async (tx) => {
-      await offeredTo(tx, tenantId, params.connector);
+      await offeredTo(tx, tenantId, params.connector, services);
       const connector = oauthConnector(services.platform, params.connector);
       // B-5: the signed state says which connection this is (another one, or one signed in
       // again); completeAuthorization checks the state in full before anything is kept.
@@ -902,7 +911,7 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsSandboxAuthorize, async (ctx) => {
     const { c, tx, params, services, session } = ctx;
     const t = await sandboxClient(ctx, params.id);
-    await offeredTo(tx, t.id, params.connector);
+    await offeredTo(tx, t.id, params.connector, services);
     const connector = oauthConnector(services.platform, params.connector);
     // DECISION: v0.12 bankfeed: a link widget (Plaid Link) is opened only from the portal, by the
     // client admin; the back office has no Link screen, so the Sandbox client can't connect one.
@@ -945,7 +954,7 @@ export function connectionRoutes(app: Hono<AppEnv>): void {
     // A client this operator serves (404 otherwise), and the Sandbox (403 otherwise).
     const { t, connector, existing } = await inTx(async (tx) => {
       const t = await sandboxClient({ tx, tenantIds: ctx.tenantIds }, claims.tenantId);
-      await offeredTo(tx, t.id, params.connector);
+      await offeredTo(tx, t.id, params.connector, services);
       const connector = oauthConnector(services.platform, params.connector);
       return { t, connector, existing: await newestConnection(tx, t.id, params.connector) };
     });
@@ -1025,7 +1034,7 @@ async function sendGmailTest(
   },
 ): Promise<{ to: string; sentAt: string }> {
   const { tenantId } = input;
-  await offeredTo(tx, tenantId, GMAIL_CONNECTOR_ID);
+  await offeredTo(tx, tenantId, GMAIL_CONNECTOR_ID, services);
   const connector = services.platform.connectors.get(GMAIL_CONNECTOR_ID);
   if (!isGmailConnector(connector)) {
     throw new HttpError(409, "not_available", "Gmail is not available here");

@@ -291,10 +291,24 @@ describe.skipIf(!h)("Slack through the API", () => {
   });
 
   it("waits for a person even in act mode on an auto matrix, then posts once", async () => {
-    // The operator loosens the matrix to `auto` for create; the step still says nothing.
-    const loosen = await call(OPERATOR, "PATCH", `/api/ops/connections/${slackConn}`, {
-      permissions: { create: "auto" },
-    });
+    // We propose `auto` for create (Connectors C4: On its own is always a request) and the client
+    // admin approves it; the step still says nothing.
+    const asked = await call(
+      OPERATOR,
+      "POST",
+      `/api/ops/clients/${A()}/connections/${slackConn}/changes`,
+      {
+        permissions: { create: "auto" },
+        reason: "Order notices may post without asking.",
+      },
+    );
+    expect(j(asked.json).outcome, JSON.stringify(asked.json)).toBe("request_sent");
+    const loosen = await call(
+      admin("a"),
+      "POST",
+      `/api/portal/connection-requests/${j(asked.json).request.id}/approve`,
+      {},
+    );
     expect(loosen.status, JSON.stringify(loosen.json)).toBe(200);
     const params = await startRun("Orders desk", {
       channel: "#orders",

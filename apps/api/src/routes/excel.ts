@@ -192,15 +192,15 @@ async function setWorkbooks(
 }
 
 export function excelRoutes(app: Hono<AppEnv>): void {
-  mount(app, routes.portalExcelPicker, async ({ tx, tenantIds }) => {
+  mount(app, routes.portalExcelPicker, async ({ tx, tenantIds, services }) => {
     const tenantId = tenantIds[0] as string;
-    await offeredTo(tx, tenantId, EXCEL_CONNECTOR_ID);
+    await offeredTo(tx, tenantId, EXCEL_CONNECTOR_ID, services);
     return pickerView(await newest(tx, tenantId));
   });
 
   mount(app, routes.portalExcelSearch, async ({ tx, tenantIds, services, query }) => {
     const tenantId = tenantIds[0] as string;
-    await offeredTo(tx, tenantId, EXCEL_CONNECTOR_ID);
+    await offeredTo(tx, tenantId, EXCEL_CONNECTOR_ID, services);
     const row = await connected(tx, tenantId, false);
     const connector = connectorOf(services);
     try {
@@ -216,7 +216,7 @@ export function excelRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.portalExcelWorkbooks, async ({ tx, tenantIds, services, session, body }) => {
     const tenantId = tenantIds[0] as string;
-    await offeredTo(tx, tenantId, EXCEL_CONNECTOR_ID);
+    await offeredTo(tx, tenantId, EXCEL_CONNECTOR_ID, services);
     return setWorkbooks(tx, services, {
       tenantId,
       actorId: session.user.id,

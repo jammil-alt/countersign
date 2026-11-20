@@ -46,6 +46,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
   admin,
+  allowForAgent,
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
@@ -424,6 +425,8 @@ describe.skipIf(!h)("calls through the API", () => {
       await H.call(OPERATOR, "PATCH", `/api/ops/agents/${callerAgent}/operation`, {
         bindings: { twilio: connectionId },
       });
+      // Connectors C4: Twilio started with calls off; the client admin allows what it needs.
+      await allowForAgent(H, admin("a"), connectionId, callerAgent);
       const pub = await H.call(
         OPERATOR,
         "POST",

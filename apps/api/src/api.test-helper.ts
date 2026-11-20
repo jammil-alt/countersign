@@ -403,6 +403,30 @@ export async function storedSkill(
   return { skillId: row.id, versionId: v.id };
 }
 
+/**
+ * Connectors C4 (docs/connectors-plan.md §3.2, §5.1): a new connection starts low risk (writes
+ * off but a few ask-first rows), so a test whose agent writes has the client admin press "Allow
+ * what <agent> needs" on the connection, as the portal does: exactly the agent's needs, at ask
+ * first, as the client's own change. Returns the connection's page view.
+ */
+export async function allowForAgent(
+  H: Pick<ApiHarness, "call">,
+  adminEmail: string,
+  connectionId: string,
+  agentId: string,
+): Promise<unknown> {
+  const res = await H.call(
+    adminEmail,
+    "POST",
+    `/api/portal/connections/${connectionId}/allow-for/${agentId}`,
+    {},
+  );
+  if (res.status !== 200) {
+    throw new Error(`allowing what the agent needs failed: ${JSON.stringify(res.json)}`);
+  }
+  return res.json;
+}
+
 export const admin = (c: "a" | "b" | "c") => `admin@${c}.example.com`;
 export const user = (c: "a" | "b" | "c") => `user@${c}.example.com`;
 

@@ -10,6 +10,7 @@
 import type { Approver } from "@countersign/agents";
 import {
   ACCOUNT_CHANGE_SUBJECT,
+  CONNECTION_REQUEST_SUBJECT,
   clientLanguage,
   isPlainObject,
   type JsonObject,
@@ -125,6 +126,11 @@ export async function stepIn(
   // (docs/plan.md §1.68).
   if (isGoLiveItem(item)) {
     throw new HttpError(409, "client_sign_off", "only the client signs off an agent to go live");
+  }
+  // Connectors C4 (docs/connectors-plan.md §7.1): our own change request is the client admin's to
+  // answer; stepping in on it would be approving our own ask.
+  if (item.subjectType === CONNECTION_REQUEST_SUBJECT) {
+    throw new HttpError(409, "client_approves", "only a client admin answers our change request");
   }
   // A client's request is resolved in the requests queue (as resolveInboxItem says too).
   if (item.kind === "change_request") {

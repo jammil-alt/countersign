@@ -22,7 +22,7 @@ import {
   fakeSearchConsole,
 } from "@countersign/connectors/testing";
 import { routes } from "@countersign/core";
-import { connection, rawRecord, tenant } from "@countersign/db";
+import { connection, connectorSetting, rawRecord, tenant } from "@countersign/db";
 import { searchPageDaily, searchQueryDaily } from "@countersign/pack-marketing";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -147,7 +147,13 @@ describe.skipIf(!h)("search figures on the platform", () => {
     });
     expect(putBing.status).toBe(200);
     bingId = j(putBing.json).item.connectionId;
-    // Client B has neither offered: it can't set one up.
+    // Connectors C4: a live connector may be set up by any client; one still being built only
+    // where we offered it. Client B wasn't offered Search Console: while it is being built, B
+    // can't set one up.
+    await H.t.db
+      .insert(connectorSetting)
+      .values({ connector: "gsc", status: "building" })
+      .onConflictDoUpdate({ target: connectorSetting.connector, set: { status: "building" } });
     expect(
       (
         await H.call(admin("b"), "PUT", "/api/connections/gsc/credentials", {

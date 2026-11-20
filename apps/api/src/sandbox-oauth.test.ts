@@ -18,7 +18,13 @@ import {
   fakeGoogle,
   fakeQbo,
 } from "@countersign/connectors/testing";
-import { connection, connectionChange, membership, tenant } from "@countersign/db";
+import {
+  connection,
+  connectionChange,
+  connectorSetting,
+  membership,
+  tenant,
+} from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -282,8 +288,11 @@ describe.skipIf(!h)("the operator's sign-in in the Sandbox client", () => {
     const none = await opsCallback(OPERATOR, "qbo", { code: "fixture-code" });
     expect(j(none.json).error.code).toBe("missing_state");
 
-    // Only a connector offered to the Sandbox.
+    // Only a connector shown to the Sandbox (Connectors C4: live, or offered): one still being
+    // built and not offered to it is not there.
+    await H.t.db.insert(connectorSetting).values({ connector: "testkit", status: "building" });
     expect((await authorize(OPERATOR, sandbox, "testkit")).status).toBe(404);
+    await H.t.db.delete(connectorSetting).where(eq(connectorSetting.connector, "testkit"));
   });
 
   it("leaves the portal's sign-in as it was", async () => {

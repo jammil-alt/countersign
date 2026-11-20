@@ -290,6 +290,14 @@ describe.skipIf(!h)("reach out through the API", () => {
     ).setup;
     number = setup.twilio.numbers[0].phoneNumber;
     twilioConn = setup.twilio.connectionId;
+    // Connectors C2/C4: a Twilio connection starts with texts asking first and calls off; the
+    // client admin turns calls on, asking first (their own change), so a reach-out may escalate.
+    const [twilioRow] = await H.t.db.select().from(connection).where(eq(connection.id, twilioConn));
+    const { call: _call, ...entities } = twilioRow?.permissions.entities ?? {};
+    const calls = await H.call(admin("a"), "PUT", `/api/portal/connections/${twilioConn}/access`, {
+      permissions: { entities },
+    });
+    expect(calls.status, JSON.stringify(calls.json)).toBe(200);
     // US texting needs A2P 10DLC approved.
     const brandSid = `BN${"1".repeat(32)}`;
     const serviceSid = `MG${"2".repeat(32)}`;

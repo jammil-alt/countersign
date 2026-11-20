@@ -4,6 +4,7 @@
 // tool run in a workflow. Secrets never reach the operator or other clients.
 
 import {
+  connectionDefaults,
   createPodioConnector,
   createWebhookConnector,
   createZohoCrmConnector,
@@ -38,6 +39,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
   admin,
+  allowForAgent,
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
@@ -142,6 +144,9 @@ describe.skipIf(!h)("connectors through the API", () => {
     const id = j(created.json).agent.id;
     const op = await H.call(OPERATOR, "PATCH", `/api/ops/agents/${id}/operation`, { bindings });
     expect(op.status, JSON.stringify(op.json)).toBe(200);
+    // Connectors C4: each connection started low risk; the client admin allows what it needs.
+    const who = admin(tenantId === H.A.tenantId ? "a" : tenantId === H.B.tenantId ? "b" : "c");
+    for (const c of new Set(Object.values(bindings))) await allowForAgent(H, who, c, id);
     const pub = await H.call(
       OPERATOR,
       "POST",
@@ -437,7 +442,15 @@ describe.skipIf(!h)("connectors through the API", () => {
       const swapped = await H.call(admin("a"), "POST", "/api/connections/zoho_crm/callback", {
         params,
       });
-      expect(swapped.status).toBe(404); // zoho_crm isn't offered to A
+      // Connectors C4: Zoho CRM is live for every client, so the state (bound to client B) is what
+      // refuses client A's session; nothing is stored for A.
+      expect(swapped.status).toBe(400);
+      expect(
+        await H.t.db
+          .select()
+          .from(connection)
+          .where(and(eq(connection.tenantId, H.A.tenantId), eq(connection.connector, "zoho_crm"))),
+      ).toEqual([]);
       const tampered = await H.call(admin("b"), "POST", "/api/connections/zoho_crm/callback", {
         params: { ...params, state: `${state}x` },
       });
@@ -455,12 +468,11 @@ describe.skipIf(!h)("connectors through the API", () => {
       const [row] = await H.t.db.select().from(connection).where(eq(connection.id, connectionId));
       expect(row?.connectedBy).toBe(H.B.admin);
       expect(row?.config).toMatchObject({ dataCenter: "eu", apiDomain: "https://www.zohoapis.eu" });
-      expect(row?.permissions).toMatchObject({
-        read: "auto",
-        create: "approval",
-        update: "approval",
-        delete: "off",
-      });
+      // Connectors C2: it starts at Zoho's reviewed low-risk default.
+      expect(row?.permissions).toEqual(
+        connectionDefaults(H.platform.connectors.get("zoho_crm")?.manifest),
+      );
+      expect(row?.permissions).toMatchObject({ read: "auto", delete: "off" });
       const stored = JSON.stringify(row?.credentialsEncrypted);
       expect(stored).not.toContain(ZOHO_FIXTURES.tokenCode.access_token);
       expect(stored).not.toContain(ZOHO_FIXTURES.tokenCode.refresh_token);
@@ -774,6 +786,7 @@ describe.skipIf(!h)("connectors through the API", () => {
           })
         ).status,
       ).toBe(200);
+      await allowForAgent(H, admin("c"), connectionId, id);
       const pub = await H.call(
         as,
         "POST",
