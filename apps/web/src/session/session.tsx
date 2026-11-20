@@ -98,6 +98,26 @@ interface SessionContextValue {
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
+/**
+ * Owner, 2026-11-20: whether this browser was signed in, for the first picture of the next visit
+ * (public/frame.js): the app's frame for a browser known to be signed in, the logo alone
+ * otherwise. Only a marker ("1"), never who; an error to reach the API changes nothing.
+ */
+export const SIGNED_IN_MARK = "mz.signedIn";
+function rememberSignedIn(status: SessionState["status"]) {
+  try {
+    if (status === "signed_in") {
+      window.localStorage.setItem(SIGNED_IN_MARK, "1");
+      document.documentElement.removeAttribute("data-frame");
+    } else if (status === "signed_out" || status === "second_step") {
+      window.localStorage.removeItem(SIGNED_IN_MARK);
+      document.documentElement.setAttribute("data-frame", "sign-in");
+    }
+  } catch {
+    // Storage blocked: the logo alone, as for anyone not known to be signed in.
+  }
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const client = useApiClient();
   const store = useApiStore();
@@ -146,6 +166,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (next.status === "signed_in") forgetLocalDrafts(next.session.user.id);
     else if (next.status === "signed_out") forgetLocalDrafts();
     shareScope(store.currentScope);
+    rememberSignedIn(next.status);
     setState(next);
     if (next.status === "signed_in") {
       identifyForErrors({
@@ -172,6 +193,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       redirectTo = (await client.call(apiRoutes.signOut)).redirectTo;
     } finally {
       // A failed sign-out still drops the local session view; the next call re-checks it.
+      rememberSignedIn("signed_out");
       setState({ status: "signed_out" });
     }
     // WorkOS may name its own sign-out page; the dev adapter never does.
