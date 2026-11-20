@@ -53,7 +53,7 @@ that turns out wrong is fixed in three places: this file, `./client.ts` / `./rec
 | `message_post(body, message_type='comment', subtype_xmlid='mail.mt_note')` logs an internal note (followers aren't notified) and answers the message id | known for 14–17 (`@api.returns`); **UNCHECKED** on 18–19 |
 | A plain-text `body` over RPC is escaped (17+) or sanitized as HTML (before) | **UNCHECKED** per version. Markup in the text never runs either way; on old versions it may show as formatting |
 | `mail.activity.create` needs `res_model_id` (an `ir.model` id, readable by internal users) and `res_id`; the activity type defaults to a to-do | **UNCHECKED**: the default type, and whether a user with few rights can read `ir.model` |
-| No idempotency key on any method | known. Once only is ours: see `docs/plan.md` §1.113 |
+| No idempotency key on any method | known. Once only is ours (`docs/plan.md` §1.113). Creates (records, notes, activities) go through the platform's record of attempts, once per external action's key: a re-run returns the recorded result (`alreadyDone`), a takeover after a lost answer fails as unconfirmed for the operator, a try Odoo refused may be tried again. A different key always writes, even the same words on the same record the same day; nothing is matched on content (PLATFORM_QA STATE-5). Updates, confirms and posts read the record's state first |
 
 ## The Odoo user
 
