@@ -477,6 +477,13 @@
       "when": 1795188780752,
       "tag": "0069_agent_phone_lines",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1795188780753,
+      "tag": "0070_operator_audit_rows",
+      "breakpoints": true
     }
   ]
 }
