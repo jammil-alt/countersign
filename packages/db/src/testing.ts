@@ -204,8 +204,8 @@ const TEMPLATE_PREFIX = "cs_template_";
 /**
  * A database name as a quoted SQL identifier, for the DDL below (CREATE, ALTER, DROP and COMMENT ON
  * DATABASE take no bind parameters). Only the names this file makes are accepted, so nothing else
- * can reach that SQL: `cs_test_<random hex>` and `cs_template_<hash>`, with lowercase letters,
- * digits and underscores.
+ * can reach that SQL: `cs_test_<random hex>` and `cs_template_<hash>[_<own>]`, with lowercase
+ * letters, digits and underscores.
  */
 function dbIdent(name: string): string {
   if (!/^cs_(test|template)_[a-z0-9_]{1,40}$/.test(name)) {
@@ -233,24 +233,35 @@ async function createBareDatabase(admin: postgres.Sql, name: string, url: string
   }
 }
 
-let template: Promise<string> | undefined;
+/**
+ * A migrated template's name: `cs_template_<hash>`, the one every test file of this checkout
+ * shares, or with `own`, `cs_template_<hash>_<own>`, one of the caller's own.
+ */
+export function templateName(own?: string): string {
+  return `${TEMPLATE_PREFIX}${templateHash()}${own ? `_${own}` : ""}`;
+}
+
+/** The templates this process has found or built, by name. */
+const templates = new Map<string, Promise<string>>();
 
 /**
- * The migrated template's name, building it first if no test process has yet. Test files run in
+ * The migrated template `name`, building it first if no test process has yet. Test files run in
  * separate processes (and packages in separate vitest runs), so the build is serialized by an
  * advisory lock on the server, not in memory. A template is only renamed to its final name once
  * it is complete, so a run killed halfway leaves nothing that a later run would trust.
  */
-function migratedTemplate(admin: postgres.Sql): Promise<string> {
-  template ??= (async () => {
-    const name = `${TEMPLATE_PREFIX}${templateHash()}`;
+function migratedTemplate(admin: postgres.Sql, name: string): Promise<string> {
+  const cached = templates.get(name);
+  if (cached) return cached;
+  const template = (async () => {
     const exists = async (on: postgres.Sql | postgres.TransactionSql) =>
       (await on`select 1 from pg_database where datname = ${name}`).length > 0;
     if (await exists(admin)) return name;
     await admin.begin(async (tx) => {
       // DECISION: a transaction-scoped advisory lock (docs/audit-plan.md 9.5). CREATE DATABASE
       // can't run inside a transaction, so the build runs on its own connection while this one
-      // holds the lock; the lock goes with the transaction, even if the build throws.
+      // holds the lock; the lock goes with the transaction, even if the build throws. One lock
+      // for every template name, so no build's clean-up meets another build half done.
       await tx`select pg_advisory_xact_lock(hashtext('countersign:test-template'))`;
       if (await exists(tx)) return;
       const lockedOut = postgres(adminUrl(), { max: 1, onnotice: () => {} });
@@ -262,11 +273,15 @@ function migratedTemplate(admin: postgres.Sql): Promise<string> {
     });
     return name;
   })();
+  templates.set(name, template);
   // A failed build is not cached: the next file tries again and reports its own error.
-  template.catch(() => {
-    template = undefined;
-  });
+  template.catch(() => forgetTemplate(name, template));
   return template;
+}
+
+/** Forgets a template this process found, so the next copy looks for it (and builds it) again. */
+function forgetTemplate(name: string, template?: Promise<string>): void {
+  if (!template || templates.get(name) === template) templates.delete(name);
 }
 
 async function buildTemplate(admin: postgres.Sql, name: string): Promise<void> {
@@ -285,20 +300,22 @@ async function buildTemplate(admin: postgres.Sql, name: string): Promise<void> {
   await admin.unsafe(
     `COMMENT ON DATABASE ${dbIdent(name)} IS ${sqlLiteral(`built ${new Date().toISOString()}`)}`,
   );
-  await dropOldTemplates(admin, name);
+  await dropOldTemplates(admin);
 }
 
 /**
  * Drops the templates of other migrations built more than TEMPLATE_KEEP_DAYS ago. Several local
  * checkouts can share one server, each with its own template, so a newer one is kept: dropping it
  * would only make that checkout build it again. A template dropped under a running test process
- * is rebuilt by `createTestDatabase`; one being copied right now makes the drop wait.
+ * is rebuilt by `createTestDatabase`; one being copied right now makes the drop wait. Templates
+ * of this checkout's migrations (`templateName()`, and any `_<own>` one) are never dropped here,
+ * however old: they are the ones in use.
  */
-async function dropOldTemplates(admin: postgres.Sql, current: string): Promise<void> {
+async function dropOldTemplates(admin: postgres.Sql): Promise<void> {
   const rows = await admin<{ datname: string; note: string | null }[]>`
     select datname, shobj_description(oid, 'pg_database') as note from pg_database
-    where datistemplate and starts_with(datname, ${TEMPLATE_PREFIX}) and datname <> ${current}
-      and right(datname, 9) <> '_building'`;
+    where datistemplate and starts_with(datname, ${TEMPLATE_PREFIX})
+      and not starts_with(datname, ${templateName()}) and right(datname, 9) <> '_building'`;
   const cutoff = Date.now() - TEMPLATE_KEEP_DAYS * 24 * 60 * 60 * 1000;
   for (const { datname, note } of rows) {
     const built = Date.parse(note?.match(/^built (\S+)$/)?.[1] ?? "");
@@ -325,6 +342,12 @@ export interface TestDatabase {
 export interface CreateTestDatabaseOptions {
   /** Apply the migrations (default true). */
   migrate?: boolean;
+  /**
+   * Copy the caller's own template, `templateName(ownTemplate)`, built like the shared one, instead
+   * of the template every test file shares. For a test that drops its template: it must not drop
+   * the one other files are copying.
+   */
+  ownTemplate?: string;
 }
 
 /**
@@ -343,17 +366,18 @@ export async function createTestDatabase(
     if (options.migrate === false) {
       await createBareDatabase(admin, name, url);
     } else {
-      try {
-        await admin.unsafe(
-          `CREATE DATABASE ${dbIdent(name)} TEMPLATE ${dbIdent(await migratedTemplate(admin))} OWNER cs_owner`,
+      const from = templateName(options.ownTemplate);
+      const copy = async () =>
+        admin.unsafe(
+          `CREATE DATABASE ${dbIdent(name)} TEMPLATE ${dbIdent(await migratedTemplate(admin, from))} OWNER cs_owner`,
         );
+      try {
+        await copy();
       } catch (error) {
         // Another checkout's clean-up dropped the template this process had found: build it again.
         if ((error as { code?: string }).code !== "3D000") throw error;
-        template = undefined;
-        await admin.unsafe(
-          `CREATE DATABASE ${dbIdent(name)} TEMPLATE ${dbIdent(await migratedTemplate(admin))} OWNER cs_owner`,
-        );
+        forgetTemplate(from);
+        await copy();
       }
       // The role is cluster-wide: a template from an earlier run still needs today's cs_worker.
       await ensureWorker(admin, url);
