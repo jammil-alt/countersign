@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isUuid } from "../ids";
+import { AreaConnection } from "../schemas/pack";
 import { defineRoute } from "./contract";
 import { ExportFile } from "./exports";
 
@@ -53,10 +54,17 @@ export type PackInfo = z.infer<typeof PackInfo>;
 export const ClientPack = z.object({
   id: z.string(),
   name: z.string(),
+  /**
+   * §1.162: the business area's name as people see it ("Purchasing" for the Materials pack), from
+   * the pack's intake section; the pack's own name where it has none.
+   */
+  area: z.string().optional(),
   description: z.string(),
   enabled: z.boolean(),
   enabledAt: z.string().nullable(),
   screens: z.array(z.object({ route: z.string(), title: z.string() })),
+  /** §1.162: the connections the area works through (the pack manifest's `connections`). */
+  connections: z.array(AreaConnection).default([]),
 });
 export type ClientPack = z.infer<typeof ClientPack>;
 
@@ -137,7 +145,8 @@ export const packRoutes = {
     path: "/api/ops/clients/:id/packs",
     auth: "session",
     roles: OPS,
-    summary: "The packs a client can have, and which are on",
+    summary:
+      "The packs (business areas) a client can have, which are on, and the connections each works through",
     params: ClientParams,
     response: z.object({ packs: z.array(ClientPack) }),
   }),

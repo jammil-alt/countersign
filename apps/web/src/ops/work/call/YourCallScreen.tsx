@@ -1,8 +1,9 @@
 // Your call at /ops/call (docs/plan.md §1.124.3; docs/cases-plan.md T1; the prototype's
-// `yourCall()`): one list for everything in the back office that needs a person. Yours as cards
-// with Reggie's read, plan, why, draft and options; Reggie's and the clients' as tables; and what
-// Reggie did on its own today. KPIs over it, then a sticky bar with the lists, the kind chips and
-// search. J and K move, S does it, E edits the draft, O opens the item.
+// `yourCall()`): one list for everything in the back office that needs a person. Yours as compact
+// cards that open a side sheet with Reggie's read, plan, why, draft, options and the decisions;
+// Reggie's and the clients' as tables; and what Reggie did on its own today. KPIs over it, then a
+// sticky bar with the lists, the kind chips and search. J and K move, S does it, E edits the draft,
+// O (or Enter) opens the sheet.
 import {
   CALL_KIND_LABELS,
   CALL_KINDS,
@@ -18,9 +19,9 @@ import { apiRoutes } from "../../../api/routes";
 import { useApi, useApiClient } from "../../../api/useApi";
 import { ErrorNotice } from "../../../ui/ErrorState";
 import { Page } from "../../../ui/page";
-import { Loading, PageHeader } from "../../../ui/primitives";
+import { EmptyState, Loading, PageHeader } from "../../../ui/primitives";
 import { FilterChips, HoldBanner, Kpis, todayIso } from "../parts";
-import { CallCard } from "./CallCard";
+import { CallCard, CallSheet } from "./CallCard";
 import { DoneToday } from "./DoneToday";
 import { TheirList } from "./TheirList";
 
@@ -46,6 +47,10 @@ const typing = (el: EventTarget | null) =>
     el.tagName === "SELECT" ||
     el.isContentEditable);
 
+/** A control that answers Enter itself (a link, a button): Enter there is not "open". */
+const control = (el: EventTarget | null) =>
+  el instanceof HTMLElement && el.closest("a, button, input, select, textarea, summary") !== null;
+
 export function YourCallScreen() {
   const api = useApiClient();
   const navigate = useNavigate();
@@ -64,11 +69,13 @@ export function YourCallScreen() {
 
   const [focus, setFocus] = useState(0);
   const [editing, setEditing] = useState<string | null>(null);
+  const [opened, setOpened] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [options, setOptions] = useState<Record<string, number>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState<unknown>(null);
   useEffect(() => {
@@ -84,6 +91,17 @@ export function YourCallScreen() {
   );
 
   const draftOf = (t: TodoView) => drafts[t.id] ?? t.draft?.text ?? "";
+  // The sheet shows the opened item while it is on the list; once it is done or snoozed and the
+  // list reloads without it, the sheet closes by itself.
+  const sheetItem = opened ? shown.find((t) => t.id === opened) : undefined;
+  const openSheet = useCallback((t: TodoView, edit = false) => {
+    setOpened(t.id);
+    if (edit) setEditing(t.id);
+  }, []);
+  const closeSheet = useCallback(() => {
+    setOpened(null);
+    setEditing(null);
+  }, []);
   const open = useCallback(
     (t: TodoView) => {
       if (t.about?.href) navigate(t.about.href);
@@ -99,6 +117,8 @@ export function YourCallScreen() {
         const out = (await work()) as { done?: string } | undefined;
         if (out?.done) setToast(out.done);
         setEditing(null);
+        // Done with it: its sheet closes (another item's sheet opened meanwhile stays).
+        setOpened((o) => (o === id ? null : o));
         list.reload();
       } catch (e) {
         setError(e);
@@ -146,23 +166,38 @@ export function YourCallScreen() {
       return { done: "Done." };
     });
 
-  // The keys: J and K move, S does it, E edits, O opens.
+  // The keys: J and K move (the sheet follows when it is open), S does it, E edits (in the sheet),
+  // O or Enter opens the sheet. With the sheet open they act on the item in it.
   useEffect(() => {
     if (tab !== "you") return;
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey || typing(e.target)) return;
-      const t = shown[focus];
-      if (e.key === "j") setFocus((f) => Math.min(f + 1, Math.max(shown.length - 1, 0)));
-      else if (e.key === "k") setFocus((f) => Math.max(f - 1, 0));
+      const at = sheetItem ? shown.indexOf(sheetItem) : focus;
+      const t = shown[at];
+      const move = (by: number) => {
+        const next = Math.min(Math.max(at + by, 0), Math.max(shown.length - 1, 0));
+        setFocus(next);
+        const n = shown[next];
+        if (!n) return;
+        if (sheetItem) setOpened(n.id);
+        // Focus follows the card, so Enter on it opens that one and Tab goes on from it.
+        else
+          listRef.current
+            ?.querySelector<HTMLElement>(`[data-testid="call-${n.id}"] [data-testid="call-open"]`)
+            ?.focus();
+      };
+      if (e.key === "j") move(1);
+      else if (e.key === "k") move(-1);
       else if (e.key === "s" && t) act(t);
-      else if (e.key === "e" && t?.draft && t.editable) setEditing(t.id);
-      else if (e.key === "o" && t) open(t);
+      else if (e.key === "e" && t?.draft && t.editable) openSheet(t, true);
+      else if ((e.key === "o" || (e.key === "Enter" && !control(e.target))) && t && !sheetItem)
+        openSheet(t);
       else return;
       e.preventDefault();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [tab, shown, focus, act, open]);
+  }, [tab, shown, focus, act, openSheet, sheetItem]);
 
   const firstHold = list.data?.holds[0];
   const kpis: WorkKpi[] = counts
@@ -218,6 +253,7 @@ export function YourCallScreen() {
     setKind("all");
     setQ("");
   };
+  const reggieCount = counts?.reggie ?? 0;
 
   return (
     <Page testId="ops-call">
@@ -289,37 +325,46 @@ export function YourCallScreen() {
           <DoneToday />
         ) : !list.data ? null : tab === "you" ? (
           all.length === 0 ? (
-            <div className="ds-card p-10 text-center" data-testid="call-empty">
-              <p className="m-0 font-medium">{W.empty}</p>
-              <p className="text-sm text-ink-muted">{W.emptyNote(counts?.reggie ?? 0)}</p>
-            </div>
+            <EmptyState
+              tone="done"
+              title={W.clear}
+              line={W.emptyNote(reggieCount)}
+              action={
+                reggieCount
+                  ? {
+                      label: W.seeReggie(reggieCount),
+                      onClick: () => setTab("reggie"),
+                      testId: "call-see-reggie",
+                    }
+                  : undefined
+              }
+              testId="call-empty"
+            />
           ) : shown.length === 0 ? (
-            <div className="dt">
-              <div className="dt-empty">
-                {W.noMatch}{" "}
-                <button type="button" className="ds-btn ds-btn--link text-sm" onClick={clear}>
-                  {W.clearFilters}
-                </button>
-              </div>
-            </div>
+            // DECISION (owner, 2026-11-20): an empty filter says what is empty and where the work
+            // is (Reggie's and the clients' counts), and offers every one of yours back.
+            <EmptyState
+              icon={q.trim() ? "search" : "filter"}
+              title={q.trim() ? W.noSearchMatch(q.trim()) : W.noneOfKind[kind]}
+              line={W.elsewhere(reggieCount, counts?.client ?? 0)}
+              action={{ label: W.showAll(all.length), onClick: clear, testId: "call-show-all" }}
+              testId="call-nomatch"
+            />
           ) : (
-            <div className="flex flex-col gap-3" data-testid="call-list">
+            <div className="flex flex-col gap-2" data-testid="call-list" ref={listRef}>
               {shown.map((t, i) => (
                 <CallCard
                   key={`${t.source}:${t.id}`}
                   item={t}
                   focused={i === focus}
-                  editing={editing === t.id}
-                  draft={draftOf(t)}
-                  option={options[t.id] ?? 0}
                   busy={busy === t.id}
                   pending={pending === t.id}
                   today={today}
-                  onDraft={(text) => setDrafts((d) => ({ ...d, [t.id]: text }))}
-                  onOption={(n) => setOptions((o) => ({ ...o, [t.id]: n }))}
-                  onEdit={() => setEditing(editing === t.id ? null : t.id)}
+                  onOpen={() => {
+                    setFocus(i);
+                    openSheet(t);
+                  }}
                   onAct={() => act(t)}
-                  onLater={() => void later(t)}
                   onDone={() => void done(t)}
                   onUndo={undo}
                   onFocus={() => setFocus(i)}
@@ -338,6 +383,27 @@ export function YourCallScreen() {
           />
         )}
       </div>
+      {tab === "you" && sheetItem ? (
+        <CallSheet
+          key={sheetItem.id}
+          item={sheetItem}
+          editing={editing === sheetItem.id}
+          draft={draftOf(sheetItem)}
+          option={options[sheetItem.id] ?? 0}
+          busy={busy === sheetItem.id}
+          pending={pending === sheetItem.id}
+          today={today}
+          onDraft={(text) => setDrafts((d) => ({ ...d, [sheetItem.id]: text }))}
+          onOption={(n) => setOptions((o) => ({ ...o, [sheetItem.id]: n }))}
+          onEdit={() => setEditing(editing === sheetItem.id ? null : sheetItem.id)}
+          onAct={() => act(sheetItem)}
+          onLater={() => void later(sheetItem)}
+          onDone={() => void done(sheetItem)}
+          onUndo={undo}
+          onClose={closeSheet}
+          notice={error ? <ErrorNotice error={error} /> : null}
+        />
+      ) : null}
       {toast ? (
         <div
           role="status"

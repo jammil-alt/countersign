@@ -32,7 +32,6 @@ import {
   // B-6
   OpsClientBankTransactionsScreen,
   OpsClientCatalogScreen,
-  OpsClientPacksScreen,
   OpsClientPriceWatchScreen,
   OpsClientReconciliationsScreen,
   // P-9
@@ -50,6 +49,7 @@ import { TemplatePage } from "./agents/TemplateScreens";
 import { BuildScreen } from "./builds/BuildsScreen";
 import { ClientAgentsScreen } from "./client/ClientAgents";
 import { ClientAgentViewScreen } from "./client/ClientAgentView";
+import { OpsClientAreasScreen } from "./client/ClientAreas";
 import { ClientLayout } from "./client/ClientFrame";
 import { OpsClientLedgerScreen } from "./client/ClientLedger";
 import { ClientOverviewScreen } from "./client/ClientOverview";
@@ -151,7 +151,7 @@ export const opsRoutes = (
     <Route path="skills/:id" element={<SkillPage />} />
     <Route path="skills/automations/:id" element={<AutomationPage />} />
 
-    {/* Clients: the client page with its five tabs (client/ClientFrame.tsx) and new client. Each
+    {/* Clients: the client page with its tabs (client/ClientFrame.tsx) and new client. Each
         page of the Data and Setup tabs keeps its own address. */}
     {/* docs/plan.md §1.101: Reggie, the operator's account agent */}
     <Route path="reggie" element={<ReggieScreen />} />
@@ -167,6 +167,9 @@ export const opsRoutes = (
     <Route element={<ClientLayout />}>
       <Route path="clients/:clientId" element={<ClientOverviewScreen />} />
       <Route path="clients/:clientId/agents" element={<ClientAgentsScreen />} />
+      {/* §1.162: Areas, the client's business areas with the connections each needs (was
+          Packs); its reports below. The connections themselves are Setup's Connectors. */}
+      <Route path="clients/:clientId/areas" element={<OpsClientAreasScreen />} />
       {/* §1.149: the client file. */}
       <Route path="clients/:clientId/file" element={<ClientFileScreen />} />
       {/* Data: Documents and Records */}
@@ -187,8 +190,7 @@ export const opsRoutes = (
       {/* Settings, one section at a time (General, Approvals, People, Billing, …) */}
       <Route path="clients/:clientId/settings" element={<ClientSettingsScreen />} />
       <Route path="clients/:clientId/settings/:section" element={<ClientSettingsScreen />} />
-      {/* Packs (P-1): the client's business areas and its pack reports */}
-      <Route path="clients/:clientId/packs" element={<OpsClientPacksScreen />} />
+      {/* An area's reports (P-1), under the Areas tab */}
       <Route
         path="clients/:clientId/reports/materials/prices"
         element={<OpsClientPriceWatchScreen />}
@@ -340,6 +342,11 @@ export const opsRoutes = (
     <Route
       path="clients/:clientId/setup"
       element={<Redirect to="/ops/clients/:clientId/connections" />}
+    />
+    {/* §1.162: the Packs tab is the Areas tab now. */}
+    <Route
+      path="clients/:clientId/packs"
+      element={<Redirect to="/ops/clients/:clientId/areas" />}
     />
     <Route
       path="clients/:clientId/exports"

@@ -248,7 +248,7 @@ function WorkTable({
   const urgent = tab === "all" || tab === "issues";
   const due = tab === "all" ? "Due" : PIPELINES[TAB_PIPE[tab]].due;
   return (
-    <div className="dt-wrap overflow-x-auto">
+    <div className="dt-ana ui-dtscroll overflow-x-auto">
       <table>
         <thead>
           <tr>
