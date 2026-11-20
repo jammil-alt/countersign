@@ -10,6 +10,7 @@
 import { convertLookup, grantsOfClient, skillContext } from "@countersign/agents";
 import {
   applyMatrixChange,
+  BROWSER_CONNECTOR_ID,
   type Connector,
   normalizeMatrix,
   UPLOAD_CONNECTOR_ID,
@@ -20,6 +21,7 @@ import {
   accessGaps,
   activeMezonasMay,
   agentNeeds,
+  BrowserConnectionConfig,
   CONNECTION_NOTICE_SUBJECT,
   CONNECTION_REQUEST_SUBJECT,
   type ConnectionNoticeInboxPayload,
@@ -32,8 +34,10 @@ import {
   complianceOf,
   connectorShown,
   declaredScope,
+  deepEqual,
   type GapView,
   type GrantLimits,
+  isPlainObject,
   levelFor,
   type MezonasMay,
   type MezonasMayView,
@@ -573,6 +577,44 @@ export function settingsOf(row: Pick<ConnectionRow, "permissions" | "config">): 
   };
 }
 
+/** What makes a browser connection the client's own login: whose site, and how they tightened it. */
+const BROWSER_LOGIN_KEYS = ["site", "siteVersionId", "identity", "stricter"] as const;
+
+/**
+ * An operator's new config for a browser connection. DECISION (SEC-5): the site, its version, the
+ * agent identity and the client's stricter settings can't be changed through config (422): the
+ * client's vault login would be typed on another site's origins, and only clients tighten their
+ * login (invariants 8 and 13). Left out, they are kept as they are; the rest is replaced, and the
+ * whole must still be a browser connection's config. No other connector declares a config shape.
+ */
+export function browserConfigEdit(
+  current: unknown,
+  proposed: Record<string, unknown>,
+): Record<string, unknown> {
+  const before = isPlainObject(current) ? current : {};
+  const changed = BROWSER_LOGIN_KEYS.filter(
+    (k) => k in proposed && !deepEqual(proposed[k], before[k]),
+  );
+  if (changed.length > 0) {
+    throw new HttpError(
+      422,
+      "browser_login_locked",
+      `a website login's ${changed.join(", ")} can't be changed here`,
+    );
+  }
+  const next: Record<string, unknown> = { ...proposed };
+  for (const k of BROWSER_LOGIN_KEYS) {
+    if (k in before) next[k] = before[k];
+  }
+  if (
+    BrowserConnectionConfig.safeParse(before).success &&
+    !BrowserConnectionConfig.safeParse(next).success
+  ) {
+    throw new HttpError(422, "invalid_config", "that isn't a website login's configuration");
+  }
+  return next;
+}
+
 /** The edit applied to the current settings (verbs left out keep their level). 422 if invalid. */
 export function editedSettings(
   row: ConnectionRow,
@@ -598,7 +640,14 @@ export function editedSettings(
     if (!r.ok) throw new HttpError(422, r.reason, r.message);
     permissions = r.matrix;
   }
-  return { permissions, config: edit.config ? { ...edit.config } : before.config };
+  // A website login's site, version, identity and the client's stricter settings never change
+  // through config, by a direct edit or a request (PLATFORM_QA SEC-5).
+  const config = edit.config
+    ? row.connector === BROWSER_CONNECTOR_ID
+      ? browserConfigEdit(row.config, edit.config)
+      : { ...edit.config }
+    : before.config;
+  return { permissions, config };
 }
 
 export function rowsOf(

@@ -6109,6 +6109,7 @@ connection's matrix compare it with the connector's reviewed default. The contra
 | Built for you | Custom connectors for this client, and the website logins (browser connections) it has. Browse lists every non-custom connector shown, recommended (offered, or an agent can't run without connecting it) first. // DECISION |
 | Groups | Browse's group per connector is the web's map (`connections/groups.ts`), copied into `apps/api/src/connector-access/groups.ts`. // DECISION |
 | Setup checklist | A `connect` item is done when its connector is connected, bound and nothing the agent needs there is blocked (a row off, a scope, a grant); its label adds what is missing ("Connect QuickBooks: allow create bills"). Without the skill catalog (the hourly pass) only connected and bound count, as before. // DECISION |
+| Website logins in our changes | A request, like the direct edit, can never change a website login's site, version, identity or the client's stricter settings (422 `browser_login_locked`, PLATFORM_QA SEC-5): the lock is in `editedSettings`, which both paths use. Main's SEC-5 test now checks a real client's config change goes for approval (409) and keeps its "login fields kept" check in the Sandbox. // DECISION |
 
 ## 2. Package layering
 
