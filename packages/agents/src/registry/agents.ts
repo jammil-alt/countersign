@@ -211,12 +211,22 @@ export interface CreateVersionInput {
   /** Client versions: defaults to the parent's base template version. */
   basedOnTemplateVersionId?: string | null;
   mergedFromVersionIds?: string[] | null;
+  /**
+   * The parent may be older than the latest version on purpose: a rollback restores it, and an
+   * update merge, a promotion, a re-link or a client's setup answer is made onto the live version.
+   * Every other save from an older parent is refused (`stale_parent`).
+   */
+  fromOlder?: boolean;
 }
 
 /**
  * Inserts a new draft version. Refused as a no-op when its bundle hashes the same as its parent's
  * and it keeps the parent's base template version (re-basing alone is a real change: re-linking).
+ * Refused as `stale_parent` when it was edited from a version that is no longer the latest (STATE-7):
+ * another save came in between, and saving over it would drop that change.
  */
+// DECISION (STATE-7): a stale parent is refused, not merged three ways: the editor or Builder
+// reloads the latest version and the change is made again on it, so nothing is merged unseen.
 export async function createVersion(tx: Tx, input: CreateVersionInput): Promise<AgentVersionRow> {
   const row = await lockAgent(tx, input.agentId);
   const bundle = parseVersionBundle(input.bundle);
@@ -231,6 +241,26 @@ export async function createVersion(tx: Tx, input: CreateVersionInput): Promise<
         .limit(1);
   if (input.parentVersionId && (!parent || parent.agentId !== row.id)) {
     throw notFound(`version ${input.parentVersionId} of agent ${row.slug}`);
+  }
+  if (parent && input.parentVersionId && !input.fromOlder) {
+    // The agent row is locked, so no other version is inserted between this check and the insert.
+    const [latest] = await tx
+      .select({ id: agentVersion.id, version: agentVersion.version })
+      .from(agentVersion)
+      .where(eq(agentVersion.agentId, row.id))
+      .orderBy(desc(agentVersion.version))
+      .limit(1);
+    if (latest && latest.id !== parent.id) {
+      throw new AgentsError(
+        "stale_parent",
+        `v${latest.version} was saved after v${parent.version}, which this was edited from. Saving it would undo that change, so it wasn't saved. Reload to start from v${latest.version} and make your change again.`,
+        {
+          latestVersionId: latest.id,
+          latestVersion: latest.version,
+          parentVersion: parent.version,
+        },
+      );
+    }
   }
   const basedOn =
     row.kind === "client"
@@ -594,6 +624,7 @@ export async function rollback(
     agentId: row.id,
     bundle: target.bundle,
     parentVersionId: row.liveVersionId,
+    fromOlder: true,
     authorType: "operator",
     authorId: input.actorId ?? null,
     changeNote: `Rollback to v${target.version}`,
@@ -968,6 +999,8 @@ export async function relink(
     agentId: row.id,
     bundle: current.bundle,
     parentVersionId: current.id,
+    // Re-basing the live version, as before STATE-7.
+    fromOlder: true,
     authorId: input.actorId ?? null,
     changeNote: `Re-linked to ${template.slug} v${tv.version}`,
     basedOnTemplateVersionId: tv.id,
