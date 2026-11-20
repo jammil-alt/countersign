@@ -46,6 +46,7 @@ import {
   catalogBriefBlock,
   modelUnavailable,
   totalCost,
+  unusableAnswer,
 } from "../builder/builder";
 import type { BuilderContext } from "../builder/context";
 
@@ -434,15 +435,8 @@ function cleanAnswer(phase: BuildPhase, answer: BuildTurnAnswer): BuildTurnAnswe
 
 function asBuilderError(error: unknown): Error {
   if (error instanceof BuilderError) return error;
-  if (error instanceof LlmToolError) {
-    return new BuilderError(
-      "invalid_answer",
-      `the Builder's answer could not be used: ${error.message}`,
-      {
-        code: error.code,
-      },
-    );
-  }
+  // BUILDER_QA AI-7: a refusal keeps its own code, so the turn doesn't say "press Retry".
+  if (error instanceof LlmToolError) return unusableAnswer(error);
   return modelUnavailable(error);
 }
 

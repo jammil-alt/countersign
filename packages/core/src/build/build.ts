@@ -4,6 +4,7 @@
 // screen share these, so the screen says why a move is off with the server's own reasons.
 
 import { z } from "zod";
+import { sliceWhole, storable } from "../text";
 
 export const BUILD_KINDS = ["agent", "skill"] as const;
 export const BuildKind = z.enum(BUILD_KINDS);
@@ -95,7 +96,7 @@ export const BriefFieldState = z.enum(BRIEF_STATES);
 export type BriefFieldState = z.infer<typeof BriefFieldState>;
 
 export const BriefField = z.object({
-  text: z.string().trim().max(1000),
+  text: storable(z.string().trim().max(1000)),
   state: BriefFieldState,
 });
 export type BriefField = z.infer<typeof BriefField>;
@@ -117,6 +118,35 @@ export function readBrief(raw: unknown): Brief {
     if (field.success && (field.data.text || field.data.state === "open")) out[key] = field.data;
   }
   return out;
+}
+
+const BRIEF_STATE_RANK: Record<BriefFieldState, number> = { open: 0, assumed: 1, confirmed: 2 };
+
+/**
+ * The Builder's brief fields onto the stored brief (BUILDER_QA AI-2), and the fields it changed. A
+ * field's state never goes down: a confirmed field (the operator wrote it, or said it) changes only
+ * to another confirmed text, which the Builder sends only for what the operator said; an assumed
+ * or open answer for it is ignored.
+ */
+// DECISION: "never lower a field's state" rather than marking the fields the operator wrote: the
+// operator can still change a field by saying so in the conversation, and the brief needs no new
+// stored marks.
+export function mergeBrief(
+  before: Brief,
+  answer: Brief,
+): { brief: Brief; changed: BriefFieldKey[] } {
+  const brief: Brief = { ...before };
+  const changed: BriefFieldKey[] = [];
+  for (const key of BRIEF_FIELDS) {
+    const a = answer[key];
+    if (!a) continue;
+    const p = before[key];
+    if (p && BRIEF_STATE_RANK[a.state] < BRIEF_STATE_RANK[p.state]) continue;
+    if (p && p.text === a.text && p.state === a.state) continue;
+    brief[key] = a;
+    changed.push(key);
+  }
+  return { brief, changed };
 }
 
 // ── Fit-gap ─────────────────────────────────────────────────────────────────────────────────────
@@ -232,6 +262,13 @@ export const NeedsTrue = z.object({
   done: z.boolean().default(false),
 });
 export type NeedsTrue = z.infer<typeof NeedsTrue>;
+
+/** A "needs to be true" line as stored: the Builder's rewrites keep the operator's lines. */
+export const NeedsTrueRow = NeedsTrue.extend({
+  /** Added or changed (marked done) by the operator. */
+  byOperator: z.boolean().optional(),
+});
+export type NeedsTrueRow = z.infer<typeof NeedsTrueRow>;
 
 // ── The client intake form (a template's) ───────────────────────────────────────────────────────
 
@@ -459,11 +496,22 @@ export function mergeDecisions(
   updates: readonly DecisionDraft[],
 ): Decision[] {
   const out = before.map((d) => ({ ...d }));
-  const at = new Map(out.map((d, i) => [d.id, i]));
+  let at = new Map(out.map((d, i) => [d.id, i]));
   for (const u of updates) {
     const i = at.get(u.id);
     if (i === undefined) {
-      if (out.length >= DECISIONS_MAX) continue;
+      if (out.length >= DECISIONS_MAX) {
+        // BUILDER_QA AI-5: a high-risk decision is never dropped for want of room. It takes the
+        // place of the oldest normal-risk one nobody has looked at (and that shapes no step, whose
+        // risk the draft may raise); with none, it is left out and the turn doesn't claim it.
+        if (decisionRisk(u) !== "high") continue;
+        const room = out.findIndex(
+          (d) => !decisionReviewed(d) && decisionRisk(d) === "normal" && d.stepId === undefined,
+        );
+        if (room < 0) continue;
+        out.splice(room, 1);
+        at = new Map(out.map((d, k) => [d.id, k]));
+      }
       at.set(u.id, out.length);
       out.push({ ...u, status: "never_discussed", by: null, at: null });
       continue;
@@ -548,7 +596,7 @@ function readDecisions(raw: unknown): Decision[] {
 
 export const FitGap = z.object({
   rows: z.array(FitRow).max(40).default([]),
-  needsTrue: z.array(NeedsTrue).max(20).default([]),
+  needsTrue: z.array(NeedsTrueRow).max(20).default([]),
   /** A template's client intake form. */
   setup: z.array(SetupField).max(30).default([]),
   /** The Builder's decisions (docs/builder-plan.md §4). */
@@ -636,10 +684,13 @@ export const FitGapAnswer = z.object({
 });
 export type FitGapAnswer = z.infer<typeof FitGapAnswer>;
 
-/** Cuts text to `max` characters, at the last sentence end that fits, else at a word, with "…". */
+/**
+ * Cuts text to `max` characters, at the last sentence end that fits, else at a word, with "…".
+ * Never inside a character (BUILDER_QA INPUT-3: half an emoji fails the jsonb write).
+ */
 export function clampText(text: string, max: number): string {
   if (text.length <= max) return text;
-  const head = text.slice(0, max - 1);
+  const head = sliceWhole(text, max - 1);
   const stop = Math.max(head.lastIndexOf(". "), head.lastIndexOf("; "));
   if (stop >= max / 2) return head.slice(0, stop + 1);
   const space = head.lastIndexOf(" ");
@@ -668,9 +719,11 @@ export function mergeFitGap(before: FitGap, after: FitGapDraft): FitGap {
   const prev = new Map(before.rows.map((r) => [r.id, r]));
   const rows: FitRow[] = after.rows.map((r) => {
     const p = prev.get(r.id);
-    const base: FitRow = { ...r, override: null, challenge: null };
+    // BUILDER_QA AI-3a: out of scope is the operator's call ("taken out of scope by the
+    // operator"), never the Builder's: its rewrite keeps the stored mark, and a new row is in.
+    const dropped = p?.dropped ?? false;
+    const base: FitRow = { ...r, dropped, override: null, challenge: null };
     if (!p) return base;
-    const dropped = p.dropped || r.dropped;
     // DECISION (owner, 2026-11-17): a row's place (first version or known risk) is set by the
     // Builder when the row is new and by the operator after that; a rewrite keeps it.
     const later = p.later;
@@ -684,7 +737,7 @@ export function mergeFitGap(before: FitGap, after: FitGapDraft): FitGap {
   }
   return {
     rows: rows.slice(0, 40),
-    needsTrue: after.needsTrue,
+    needsTrue: mergeNeedsTrue(before.needsTrue, after.needsTrue),
     setup: mergeSetup(before.setup, after.setup),
     // A fit-gap rewrite never drops a decision; the ones it sends are added or updated.
     decisions: mergeDecisions(before.decisions, after.decisions ?? []),
@@ -705,6 +758,23 @@ function mergeSetup(before: readonly SetupField[], after: FitGapDraft["setup"]):
   const ids = new Set(out.map((f) => f.id));
   for (const f of kept.values()) if (!ids.has(f.id)) out.push(f);
   return out.slice(0, 30);
+}
+
+/**
+ * The Builder's "what needs to be true" with the operator's lines kept, as the intake form is
+ * merged (BUILDER_QA AI-3b): an answer without it leaves it as it was, and lines the operator added
+ * or changed (marked done) stay as they are.
+ */
+function mergeNeedsTrue(
+  before: readonly NeedsTrueRow[],
+  after: readonly NeedsTrue[],
+): NeedsTrueRow[] {
+  if (after.length === 0) return [...before];
+  const kept = new Map(before.filter((n) => n.byOperator).map((n) => [n.id, n]));
+  const out: NeedsTrueRow[] = after.map((n) => kept.get(n.id) ?? { ...n });
+  const ids = new Set(out.map((n) => n.id));
+  for (const n of kept.values()) if (!ids.has(n.id)) out.push(n);
+  return out.slice(0, 20);
 }
 
 /**
@@ -735,7 +805,11 @@ export function operatorFitGap(
         dropped: byId.get(s.id)?.dropped ?? s.dropped,
         later: byId.get(s.id)?.later ?? s.later,
       })),
-      needsTrue: sent.needsTrue,
+      needsTrue: sent.needsTrue.map((n) => {
+        const s = stored.needsTrue.find((x) => x.id === n.id);
+        const changed = !s || s.text !== n.text || s.done !== n.done;
+        return { ...n, byOperator: !!(s?.byOperator || n.byOperator || changed) };
+      }),
       setup: sent.setup.map((f) => {
         const s = stored.setup.find((x) => x.id === f.id);
         const changed =

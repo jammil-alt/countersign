@@ -10,6 +10,7 @@ import {
   fitScope,
   type GateFacts,
   gateReasons,
+  mergeBrief,
   mergeFitGap,
   nextPhase,
   operatorFitGap,
@@ -299,5 +300,66 @@ describe("the client intake form", () => {
     const read = readFitGap(stored);
     expect(read.rows.map((r) => r.id)).toEqual(["r"]);
     expect(read.setup.map((f) => f.id)).toEqual(["qbo", "who"]);
+  });
+});
+
+describe("what the Builder's answer may change", () => {
+  // BUILDER_QA AI-2.
+  it("never lowers a brief field's state", () => {
+    const mine = { text: "Fix only invoices under $500", state: "confirmed" as const };
+    const out = mergeBrief(
+      { goal: mine, trigger: { text: "Someone asks", state: "assumed" } },
+      {
+        goal: { text: "Fix every invoice", state: "assumed" },
+        trigger: { text: "Each morning", state: "confirmed" },
+      },
+    );
+    expect(out.brief.goal).toEqual(mine);
+    expect(out.brief.trigger?.text).toBe("Each morning");
+    expect(out.changed).toEqual(["trigger"]);
+  });
+
+  // BUILDER_QA AI-3a, AI-3b.
+  it("keeps out of scope and the operator's 'needs to be true' as the operator left them", () => {
+    const row = { id: "r", need: "N", verdict: "native" as const, how: "H" };
+    const before: FitGap = {
+      rows: [{ ...row, dropped: false, later: false, override: null, challenge: null }],
+      needsTrue: [
+        { id: "conn", text: "The client connects", done: true, byOperator: true },
+        { id: "data", text: "Data loaded", done: false },
+      ],
+      setup: [],
+      decisions: [],
+    };
+    const quiet = mergeFitGap(before, {
+      rows: [{ ...row, dropped: true, later: false }],
+      needsTrue: [],
+      setup: [],
+    });
+    expect(quiet.rows[0]?.dropped).toBe(false);
+    expect(quiet.needsTrue).toEqual(before.needsTrue);
+    const rewritten = mergeFitGap(before, {
+      rows: [{ ...row, dropped: false, later: false }],
+      needsTrue: [{ id: "conn", text: "Connect it", done: false }],
+      setup: [],
+    });
+    expect(rewritten.needsTrue).toEqual([before.needsTrue[0]]);
+  });
+
+  it("marks the lines the operator adds or changes", () => {
+    const stored: FitGap = {
+      rows: [],
+      needsTrue: [{ id: "conn", text: "The client connects", done: false }],
+      setup: [],
+      decisions: [],
+    };
+    const out = operatorFitGap(stored, {
+      ...stored,
+      needsTrue: [
+        { id: "conn", text: "The client connects", done: true },
+        { id: "owner", text: "The owner answers", done: false },
+      ],
+    });
+    expect(out.ok && out.fitgap.needsTrue.map((n) => n.byOperator)).toEqual([true, true]);
   });
 });

@@ -3,6 +3,7 @@ import type { BuildDetail } from "../api/build";
 import type { ProcessAgentBundle } from "../schemas/agent";
 import {
   clampDecisions,
+  DECISIONS_MAX,
   type Decision,
   DecisionAnswer,
   decisionRisk,
@@ -82,6 +83,27 @@ describe("decisions: the record", () => {
 });
 
 describe("decisions: merge", () => {
+  // BUILDER_QA AI-5.
+  it("makes room at the cap for a high-risk decision, never for a normal one", () => {
+    const full = Array.from({ length: DECISIONS_MAX }, (_, i) =>
+      dec(`d${i}`, i < 2 ? { status: "discussed", by: "Ada", at: "t" } : {}),
+    );
+    const risky = { id: "auto-pay", what: "Pay bills", why: "", kind: "assumption" as const };
+    const normal = mergeDecisions(full, [{ ...risky, risk: "normal" }]);
+    expect(normal.map((d) => d.id)).not.toContain("auto-pay");
+    const high = mergeDecisions(full, [{ ...risky, risk: "high" }]);
+    expect(high).toHaveLength(DECISIONS_MAX);
+    expect(high.map((d) => d.id)).toContain("auto-pay");
+    // The oldest normal one nobody looked at goes; the ones looked at stay.
+    expect(high.map((d) => d.id)).not.toContain("d2");
+    expect(high.map((d) => d.id)).toContain("d0");
+    // With no room to make, it is left out (and the turn doesn't claim it).
+    const looked = full.map((d) => ({ ...d, status: "discussed" as const }));
+    expect(mergeDecisions(looked, [{ ...risky, risk: "high" }]).map((d) => d.id)).not.toContain(
+      "auto-pay",
+    );
+  });
+
   it("adds new rows and never drops one an answer leaves out", () => {
     const out = mergeDecisions(
       [dec("a")],
