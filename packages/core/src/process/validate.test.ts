@@ -19,10 +19,12 @@ import { type ConvertLookup, fromWorkflowV3 } from "./convert";
 import type { Process, Step } from "./schema";
 import {
   approvalLoosenings,
+  bundleLoosenings,
   outputBeforeChecks,
   type ProcessValidationCode,
   type ProcessValidationContext,
   SPLIT_MAX_STEPS,
+  stepLoosenings,
   stepReaches,
   validateProcess,
 } from "./validate";
@@ -1166,6 +1168,38 @@ describe("invariant 8: loosening a write's approval", () => {
         "a",
       ).map((l) => l.what),
     ).toEqual(["not_required", "when", "proceed"]);
+  });
+
+  // BUILDER_QA CONS-3: the one list the build's QA check counts.
+  it("lists every loosening in a bundle: approvals, conversations' messages, process overrides", () => {
+    const off = { required: "not_required", mode: "in_turn", ifNoAnswer: "stop", onReject: "stop" };
+    const steps = [
+      { id: "w", kind: "write", name: "Post", tool: "qbo.bill.create", checks: { approval: off } },
+      {
+        id: "talk",
+        kind: "conversation",
+        name: "Ask the vendor",
+        messages: { first: "not_required", later: "within_goal" },
+      },
+      {
+        id: "run",
+        kind: "process",
+        name: "Follow up",
+        process: "follow-up@2",
+        approvals: { inner: { ...off, ifNoAnswer: "proceed" } },
+      },
+      { id: "r", kind: "read", name: "Read", tool: "qbo.bill.list" },
+    ] as unknown as Step[];
+    const found = bundleLoosenings({ workflows: [{ slug: "main", workflow: { steps } }] });
+    expect(found.map((l) => [l.stepId, l.field, l.what])).toEqual([
+      ["w", "checks.approval.required", "not_required"],
+      ["talk", "messages.first", "not_required"],
+      ["talk", "messages.later", "within_goal"],
+      ["run", "approvals.inner.required", "not_required"],
+      ["run", "approvals.inner.ifNoAnswer", "proceed"],
+    ]);
+    expect(found.every((l) => l.workflow === "main")).toBe(true);
+    expect(stepLoosenings(steps[3] as Step)).toEqual([]);
   });
 });
 

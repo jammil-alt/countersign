@@ -863,6 +863,42 @@ export function conversationLoosenings(step: Pick<ConversationStep, "messages">)
   return out;
 }
 
+/**
+ * Every loosening a step holds (invariant 8): its own approval's (`approvalLoosenings`), a
+ * conversation's messages sent without a person's yes (`conversationLoosenings`), and a process
+ * step's `approvals` overrides of its inner steps (by `approvals.<inner id>`).
+ */
+export function stepLoosenings(step: Step): Loosening[] {
+  return [
+    ...approvalLoosenings(step.checks?.approval, "checks.approval"),
+    ...(step.kind === "conversation" ? conversationLoosenings(step) : []),
+    ...(step.kind === "process"
+      ? Object.entries(step.approvals ?? {}).flatMap(([inner, a]) =>
+          approvalLoosenings(a, `approvals.${inner}`),
+        )
+      : []),
+  ];
+}
+
+/** One loosening in a bundle, with the process and step it is on. */
+export interface BundleLoosening extends Loosening {
+  workflow: string;
+  stepId: string;
+}
+
+/** Every loosening in a bundle's processes, step by step (`stepLoosenings`). */
+export function bundleLoosenings(bundle: {
+  workflows: readonly { slug: string; workflow: Pick<Process, "steps"> }[];
+}): BundleLoosening[] {
+  const out: BundleLoosening[] = [];
+  for (const w of bundle.workflows) {
+    walkSteps(w.workflow, ({ step }) => {
+      for (const l of stepLoosenings(step)) out.push({ ...l, workflow: w.slug, stepId: step.id });
+    });
+  }
+  return out;
+}
+
 const LOOSENED: Record<Loosening["what"], string> = {
   not_required: "",
   when: ": on every run, not only when conditions hold",

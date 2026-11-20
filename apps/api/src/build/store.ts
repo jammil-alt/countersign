@@ -8,6 +8,7 @@ import {
   existingBundle,
   getAgent,
   latestVersion,
+  skillContext,
   validateForPublish,
 } from "@countersign/agents";
 import {
@@ -28,7 +29,6 @@ import {
   nextPhase,
   PHASE_WORDS,
   ProposalState,
-  parseSkillRef,
   phaseIndex,
   phasesOf,
   processes,
@@ -42,7 +42,6 @@ import {
   readQa,
   readRequirements,
   readTestPlan,
-  type SkillDefinition,
   toProcessBundle,
   withDecisionRisk,
   writingStepIds,
@@ -802,21 +801,12 @@ async function clientTestFacts(ctx: StoreCtx, row: BuildRow): Promise<BuildClien
   };
 }
 
-/** Writes whose approval is loosened anywhere in the bundle (invariant 8). */
+/**
+ * Every loosening anywhere in the bundle (invariant 8), as core counts them: steps' approvals,
+ * conversations' messages sent without a person's yes, and process steps' approval overrides.
+ */
 function loosenedApprovals(bundle: NonNullable<DraftFacts["bundle"]>): number {
-  let n = 0;
-  for (const w of bundle.workflows) {
-    for (const { step } of processes.allSteps(w.workflow)) {
-      const checks = (step as { checks?: { approval?: unknown } }).checks;
-      if (checks?.approval) {
-        n += processes.approvalLoosenings(
-          checks.approval as Parameters<typeof processes.approvalLoosenings>[0],
-          "checks.approval",
-        ).length;
-      }
-    }
-  }
-  return n;
+  return processes.bundleLoosenings(bundle).length;
 }
 
 function qaChecks(
@@ -886,23 +876,22 @@ function qaChecks(
 
 /**
  * The draft's steps that write to a client's tool or contact people, by the process validator's
- * helpers over the platform's tools and built-in skills. A custom skill isn't looked up here: a
- * decision on its step keeps the Builder's own flag.
+ * helpers over the platform's tools, the built-in skills and the client's own (and shared) custom
+ * skills, as publish resolves them (`skillContext`). A skill found nowhere counts as writing
+ * (core's `writingStepIds`), so a decision on its step is high risk.
  */
-export function draftWritingSteps(
-  ctx: Pick<StoreCtx, "services">,
-  bundle: DraftFacts["bundle"],
-): Set<string> {
+export async function draftWritingSteps(
+  ctx: Pick<StoreCtx, "services" | "tx">,
+  draft: Pick<DraftFacts, "bundle" | "agentRow">,
+): Promise<Set<string>> {
+  const { bundle } = draft;
   if (!bundle) return new Set();
   const { platform } = ctx.services;
-  const skills: Record<string, SkillDefinition> = {};
-  for (const w of bundle.workflows) {
-    for (const { step } of processes.allSteps(w.workflow)) {
-      if (step.kind !== "skill") continue;
-      const def = platform.catalog.get(parseSkillRef(step.skill).id);
-      if (def) skills[step.skill] = def;
-    }
-  }
+  const { skills } = await skillContext(ctx.tx, {
+    tenantId: draft.agentRow?.tenantId ?? null,
+    bundle,
+    catalog: platform.catalog,
+  });
   return writingStepIds(bundle, { tools: platform.tools.specs(), skills });
 }
 
@@ -942,7 +931,7 @@ export async function buildDetail(ctx: StoreCtx, row: BuildRow): Promise<BuildDe
   const stored = readFitGap(row.fitgap);
   const fitgap = {
     ...stored,
-    decisions: withDecisionRisk(stored.decisions, draftWritingSteps(ctx, draft.bundle)),
+    decisions: withDecisionRisk(stored.decisions, await draftWritingSteps(ctx, draft)),
   };
   const poc = await pocFacts(ctx, row, draft);
   const clientTest = await clientTestFacts(ctx, row);
