@@ -34,7 +34,8 @@ const builtins = platform.catalog.list();
 // §1.121: forms.request (a step-only skill on its handler, counted as a wrapper like
 // comms.reach-out) and forms.draft (an AI task skill).
 // §1.123: data.group-list, a built-in code skill (its handler in `tools`, not a wrapper).
-const BUILTINS = 142;
+// §1.164: data.read-table and data.write-table, built-in code skills (not wrappers).
+const BUILTINS = 144;
 const WRAPPERS = 98;
 
 describe("built-in skills under the R2 skill schema", () => {

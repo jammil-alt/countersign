@@ -48,8 +48,9 @@ describe.skipIf(!h)("files in a conversation", () => {
     expect(res.status).toBe(200);
     const [pdf, csv] = res.json.results;
     expect(pdf).toMatchObject({ kind: "document", created: true });
-    // A CSV in a chat is not imported as purchases.
-    expect(csv.kind).toBe("refused");
+    // A CSV in a chat is not imported as purchases: it is kept as a document, for Read table
+    // (§1.164), quietly as the PDF is.
+    expect(csv).toMatchObject({ kind: "document", created: true, purchases: null });
     fileId = pdf.document.id;
     await H.settle();
     const received = await H.t.db
