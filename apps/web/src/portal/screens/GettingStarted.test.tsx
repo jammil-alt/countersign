@@ -292,13 +292,13 @@ describe("Getting started", () => {
     );
   });
 
-  it("connects a tool through the Accounts page's own flow, or says not now", async () => {
+  it("opens the connector's own page to connect a tool, or says not now", async () => {
     const { sent } = setup();
     const connect = await screen.findByTestId("start-connect-qbo");
     expect(connect).toHaveTextContent("Connect QuickBooks");
-    await waitFor(() => expect(within(connect).getByTestId("start-connect")).toBeEnabled());
-    await userEvent.click(within(connect).getByTestId("start-connect"));
-    await waitFor(() => expect(sent.some((s) => s.route === "authorize")).toBe(true));
+    // Connectors C5: there is no second place to connect (docs/connectors-plan.md §3.3).
+    expect(within(connect).getByTestId("start-connect")).toHaveAttribute("href", "/connectors/qbo");
+    expect(sent.some((s) => s.route === "authorize")).toBe(false);
     await userEvent.click(within(connect).getByTestId("start-cant-connect"));
     await waitFor(() =>
       expect(sent).toContainEqual({

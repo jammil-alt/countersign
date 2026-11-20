@@ -4,7 +4,7 @@
 // errors, default access, who is waiting to connect), with the default access applied when a
 // client's connection is first made.
 
-import { createWebhookConnector } from "@countersign/connectors";
+import { connectionDefaults, createWebhookConnector } from "@countersign/connectors";
 import { CONNECTOR_STATUS_VALUES } from "@countersign/core";
 import { CONNECTOR_STATUSES, connection } from "@countersign/db";
 import { and, eq } from "drizzle-orm";
@@ -114,17 +114,31 @@ describe.skipIf(!h)("per-entity permissions on the matrix routes", () => {
     expect(Object.keys(row?.permissions.entities ?? {})).toEqual(["record"]);
   });
 
-  it("lets the operator loosen an entity, never delete", async () => {
+  // Connectors C4 (docs/connectors-plan.md §5.4, §7.1): on a real client we no longer loosen by
+  // ourselves (409, send it for approval); the client admin may, up to ask first. Never delete.
+  it("lets nobody turn delete on; only the client admin loosens an entity on a real client", async () => {
     const del = await H.call(OPERATOR, "PATCH", ops(), {
       permissions: { entities: { record: { delete: "auto" } } },
     });
     expect(del.status).toBe(422);
     expect(j(del.json).error.code).toBe("delete_not_off");
-    const res = await H.call(OPERATOR, "PATCH", ops(), {
+    const ours = await H.call(OPERATOR, "PATCH", ops(), {
       permissions: { create: "approval", entities: {} },
     });
+    expect([ours.status, j(ours.json).error.code]).toEqual([409, "send_for_approval"]);
+    const res = await H.call(
+      admin("a"),
+      "PUT",
+      `/api/portal/connections/${H.A.connectionId}/access`,
+      { permissions: { create: "approval", entities: {} } },
+    );
     expect(res.status, JSON.stringify(res.json)).toBe(200);
-    expect(j(res.json).connection.permissions.entities).toBeUndefined();
+    const [row] = await H.t.db
+      .select({ permissions: connection.permissions })
+      .from(connection)
+      .where(eq(connection.id, H.A.connectionId));
+    expect(row?.permissions.entities).toBeUndefined();
+    expect(row?.permissions.create).toBe("approval");
   });
 });
 
@@ -162,11 +176,14 @@ describe.skipIf(!h)("the connectors catalog", () => {
       available: true,
       permissionEntities: [{ id: "record" }],
       errors: { toolCalls: 0, connections: 0 },
+      // Connectors C2 (docs/connectors-plan.md §5.1): the testkit's own low-risk start, with
+      // updating records asking first.
       defaultAccess: {
-        source: "platform",
-        matrix: { read: "auto", create: "approval", update: "approval", delete: "off" },
+        source: "connector",
+        matrix: connectionDefaults(H.platform.connectors.get("testkit")?.manifest),
       },
     });
+    expect(testkit.defaultAccess.matrix).toMatchObject({ update: "approval", delete: "off" });
     expect(testkit.tools).toContainEqual(
       expect.objectContaining({ id: "testkit.record.update", entity: "record" }),
     );

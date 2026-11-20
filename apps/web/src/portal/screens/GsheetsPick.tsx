@@ -96,7 +96,7 @@ async function loadGoogle(): Promise<GoogleWindow> {
 
 /** Back to Connections with a full load, so this page's wider policy goes with it. */
 function backToConnections() {
-  window.location.assign("/accounts");
+  window.location.assign("/connectors/gsheets");
 }
 
 type Phase = "loading" | "ready" | "picking" | "saving" | "cancelled" | "failed";
@@ -227,7 +227,7 @@ export function GsheetsPickScreen() {
             </>
           )}
           {/* A plain link: a full load, so this page's wider policy goes with it. */}
-          <a href="/accounts" className={buttonClass("ghost")}>
+          <a href="/connectors/gsheets" className={buttonClass("ghost")}>
             {t("callback.back")}
           </a>
         </div>

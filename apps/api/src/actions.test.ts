@@ -29,6 +29,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
   admin,
+  allowForAgent,
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
@@ -183,6 +184,9 @@ describe.skipIf(!h)("action write steps through the API", () => {
     if (Object.keys(bindings).length > 0) {
       const op = await H.call(OPERATOR, "PATCH", `/api/ops/agents/${id}/operation`, { bindings });
       expect(op.status, JSON.stringify(op.json)).toBe(200);
+      // Connectors C4: each connection started low risk; the client admin allows what it needs.
+      const who = admin(tenantId === H.A.tenantId ? "a" : "b");
+      for (const c of new Set(Object.values(bindings))) await allowForAgent(H, who, c, id);
     }
     const pub = await H.call(OPERATOR, "POST", `/api/ops/agents/${id}/versions/${version}/publish`);
     return { id, version, pub };

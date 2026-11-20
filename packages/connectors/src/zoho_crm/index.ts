@@ -563,6 +563,11 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
 
   const connector = defineConnector({
     id: ZOHO_CRM_CONNECTOR_ID,
+    // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
+    askFirst: [
+      { verb: "create", entity: "note" },
+      { verb: "create", entity: "task" },
+    ],
     name: "Zoho CRM",
     description:
       "Leads, contacts, accounts and deals in your Zoho CRM. You sign in to Zoho yourself.",

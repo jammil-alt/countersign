@@ -5,7 +5,13 @@
 
 import { z } from "zod";
 import type { AgentStage } from "../lifecycle/stage";
-import { type SetupFacts, setupHolds, setupHoldText, setupItemDone } from "./checklist";
+import {
+  type SetupFacts,
+  setupHolds,
+  setupHoldText,
+  setupItemDone,
+  setupItemLabel,
+} from "./checklist";
 import { SetupGuard, type SetupItem, SetupItemKind, type SetupProgress } from "./item";
 
 export const SetupRowView = z.object({
@@ -54,7 +60,7 @@ export function setupView(
     const done = setupItemDone(i, p, facts);
     return {
       id: i.id,
-      label: i.label,
+      label: setupItemLabel(i, facts),
       kind: i.kind,
       hint: i.hint,
       guards: i.guards,

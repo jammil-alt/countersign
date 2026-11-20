@@ -6061,6 +6061,64 @@ Numbered 0070 because main took 0068 and 0069 while it was open. Core gains the 
 | Custom connectors | `connector_setting.clients uuid[]`: null is every client, else one to 200 clients. No foreign key (arrays have none); a purged client's id stays and matches nothing, since ids are never reused. `connector_setting` stays operator-only; the portal reads it as today, through `readOperatorCatalogue`. // DECISION |
 | The previous Worker | A new table and nullable columns only. The DB fixture now inserts `connection` and `connection_change` by named columns, as `membership`, so the migration tests stopped at earlier migrations still seed. // DECISION |
 
+**C2, low-risk starts (connectors only; no migration).** A connector's manifest says which writes a
+new connection asks first for (`askFirst`); `defineConnector` builds its `defaultPermissions` from
+them with `lowRiskPermissions`. The reviewed list is the snapshot in
+`apps/api/src/connector-defaults.test.ts`, which matches `docs/connectors-plan.md` §5.1.
+
+| Topic | Decision |
+|---|---|
+| Two fallbacks | `LOW_RISK_PERMISSIONS` (read on, every write off, delete off) is what a new connection starts with when neither the operator's default access nor the connector gives one. `DEFAULT_PERMISSIONS` (create and update ask first) is unchanged: it is still the gate's and `normalizeMatrix`'s fill for a verb a stored matrix leaves out, so no existing connection changes. // DECISION |
+| How a connector says it | `askFirst: [{ verb, entity?, scope? }]` rows, checked against its `permissionEntities` (a declared type with that verb, an existing scope, and a type named when it declares any); `askFirst` and `defaultPermissions` together are refused. Each asked verb goes to Needs approval and every other declared type of that verb is pinned off, so only the rows open. Reads-only connectors say `askFirst: []`. Never `auto`. // DECISION |
+| Tools whose input names the type | HubSpot's, Zoho's and Odoo's record tools open only for types a row names, so they start off; the snapshot checks each type such a tool can name, as the gate decides at run time. `describeAccess` still shows such a tool at its verb's level, with the type rows beside it (as before). // DECISION |
+| Beyond the §5.1 table | Calendars: create an event asks first, updates off. Twilio and WhatsApp: send a message. Podio: a comment or task; Odoo: a note or activity. Webhooks: send an event. Resend: send. Desktop: add a file or rows. Website, LinkedIn, website logins, Search Console, Bing, Hacker News, the bank feed and upload: reads only. The testkit asks for its update so its tests keep a write. // DECISION |
+| When it lands | With C4, not before (owner, 2026-11-20). Alone, a new QuickBooks or BILL connection would refuse to publish an agent that creates bills, vendors or POs until someone opened them; C4's connecting for an agent opens what it needs. Its `apps/api` tests are updated in C4. Existing connections never change. // DECISION |
+
+**C4, the change rules and the routes' contract (core only, phase 1).** The pure rules in
+`packages/core/src/permissions/change.ts` (`changeDirection`, `clientMayAllow`,
+`withinAuthorization`, `requestStale`, `requestExpired`, `requestExpiresAt`, the words for a row)
+and the contract in `packages/core/src/api/connector-access.ts` (in `allRoutes`, beside the
+registry, so its schemas load with the Connectors screens). The API (C4), the portal (C5) and the
+back office (C6) build against them.
+
+| Topic | Decision |
+|---|---|
+| A change's rows | A verb's level (the group's control, `entity` null), each record type's level as the gate reads it (the stricter of the verb's and its own; the connector's declared types for their own verbs, and any type a matrix names), each scope, and each setup key. Delete has only the verb's row. Rows carry their words (`describeRowChange`: "Create bills: Off → Ask me first"). Opening a verb without pins shows every record type it opens, so the connector's `permissionEntities` are passed wherever there are any. // DECISION |
+| Tighter or looser | Level order off < Ask me first < On its own. A record type's scope is tighter when it lets through no tool it didn't (none → one, or fewer declared tools); without the declared scopes a move between scopes is looser. The connection's own connector-specific scope is opaque: any change is looser. A change with both is mixed, and is sent whole. // DECISION |
+| Setup | A setup value that is a list (folders, channels, sheets) is compared by item (an object's `id`, else its JSON): any item added is looser, only items removed tighter, the same items reordered no change. Any other setup change (a Gmail query, a key added or dropped) is looser, since the platform can't judge it. // DECISION |
+| The client admin's rule (§5.4) | Any read on or off; any write between Off and Ask me first; On its own only lowered or kept; delete never on; the tool's setup is theirs. The connection's own connector-specific scope stays ours, as before. A record type's scope the client may set or widen, except where the row then runs on its own. // DECISION |
+| Our edits under the go-ahead (§7.2) | Only looser rows need covering; tighter rows always apply. Nothing covers On its own or delete. None, or `until` passed, covers nothing. `needs` covers a level row when a need of an agent bound to the connection has its verb and record type (a verb's own row: any need of that verb, as `allowNeeds` opens it and pins the rest), up to Ask me first; never a scope or a setup change. `any` covers every row and the setup, up to Ask me first. The reason it doesn't fit is in words for the footer ("Create vendors isn't something an agent needs"). // DECISION |
+| Out of date, expiry | A request is stale when the connection's settings no longer equal `against`, compared normalised (verbs left out read as the gate's defaults, empty `entities` as none, key order ignored). It expires 14 days after it was made; only an open one expires. A 30-day go-ahead ends 30 days after it is set. // DECISION |
+| Portal paths | The client's routes are under `/api/portal/` (`connectors`, `connectors/:connector`, `connections/:connectionId/allow-for/:agentId`, `.../access`, `.../mezonas-may`, `connection-requests`, `.../approve`, `.../decline`): `/api/connectors` is the shared catalog every role reads, and `/api/connections/...` the older Accounts routes, which stay until C5 replaces their screens. A connection is addressed by its id alone. Every write is the client admin's; reads are any client user's. // DECISION |
+| Back office paths | `GET /api/ops/clients/:id/connectors` (beside the existing `PUT` that offers connectors) and `.../connectors/:connector`; `POST .../connections/:connectionId/changes` (and `/preview`, which changes nothing, for the footer's button); `POST .../connection-requests/:requestId/withdraw`; the agent panels under `/api/ops/agents/:id` (`needs`, `readiness`, `readiness/send`), as grants are; a template's Readiness takes `?client=`. The old `PATCH /api/ops/connections/:id` becomes tighter-only in a real client (409 `send_for_approval`). No ops route sets Changes by Mezonas. // DECISION |
+| The inbox | The inbox's kinds are fixed by a database check, so a request is an `approval` item with subject `connection_change_request` (answered only by its own routes, as Sloan's drafted changes are), and our change applied at once is a `review` item with subject `connection_change_notice`. Their payloads are typed in core (`ConnectionRequestInboxPayload`, `ConnectionNoticeInboxPayload`). // DECISION |
+
+**C4, the API (phase 2).** Every route of `connectorAccessRoutes` is mounted in
+`apps/api/src/routes/connector-access.ts` (audited by `mount()`, in the request's scope), over
+`apps/api/src/connector-access/` (`service.ts`: a client's connections, agents with their needs and
+gaps, the connectors shown, settings, requests and notices; `views.ts`: the contract's shapes).
+`PATCH /api/ops/connections/:id` is tighter-only in a real client (409 `send_for_approval`); the
+inbox's generic answer refuses a request (409 `use_connection_request`) and stepping in on one
+(409 `client_approves`). C2's tests are updated: a test whose agent writes has the client admin
+press Allow what it needs (`allowForAgent` in `api.test-helper.ts`), and assertions on a new
+connection's matrix compare it with the connector's reviewed default. The contract tests are in
+`apps/api/src/connector-access.test.ts`. No contract shape changed.
+
+| Topic | Decision |
+|---|---|
+| Which connectors a client sees | Every registered one that is `live` or `beta` (with no status set, as the catalog reads it: live where it can be signed in to here), plus any we offered or the client already has; never a custom one built for other clients (`connector_setting.clients`), even if offered or in use; never one HIPAA mode refuses, unless already connected; test-only ones only where they show. `in_review` and `building` are hidden unless offered or in use: an offer stays ours to make. // DECISION |
+| Connecting | The same rule gates every sign-in path (`offeredTo` → `connectableTo`: the portal's authorize and callback, the Sandbox's, key forms, Sheets, Excel, website logins), so a custom connector is never connected for another client; withdrawing an offer no longer stops a live connector's sign-in, it stops recommending it. An offered connector this deployment lacks still answers 409 not available. // DECISION |
+| Expiry | Lazy, on every read and answer of a client's requests (and their inbox items close with them), and hourly in the lifecycle cron. A request is never answered past its end. // DECISION |
+| An agent's needs here | Read from its live version, else its latest; client agents that are active and not retired, test copies left out. A tool whose input names the record type (Odoo's, HubSpot's, Zoho's) needs the type the step's input names plainly; one left to a template stays on the verb (core `agentNeeds`). A connection with nothing to sign in to counts as connected once it exists. // DECISION |
+| Our edit under "what agents need" | The needs that count are those of the agents bound to the connection and of the agent the change is for (a Readiness send for an agent not bound yet). // DECISION |
+| What our change stores | A `connection_change` of kind `settings` with the whole settings before and after, `by`, the reason, the agent it was for, and, under the go-ahead, the authorization; an approved request's change is the approver's, with `requestedBy` and `request_id`. Changes by Mezonas is a change of kind `mezonas_may` with its words. History rows are worded from these and from older `permissions`, `config` and `status` changes. // DECISION |
+| Approving | Refused when no longer open (409 `closed`, also once expired) or out of date (409 `out_of_date`): nothing applies, nothing is marked applied, and the request stays open (shown Out of date) until we replace or withdraw it. A replaced request's inbox item closes as resolved with `replaced`. // DECISION |
+| Notices | Our tighter change in a real client and our change under the go-ahead each make a `review` item for the client admin; the Sandbox gets none. The old PATCH route writes none (it has no reason to show). // DECISION |
+| Built for you | Custom connectors for this client, and the website logins (browser connections) it has. Browse lists every non-custom connector shown, recommended (offered, or an agent can't run without connecting it) first. // DECISION |
+| Groups | Browse's group per connector is the web's map (`connections/groups.ts`), copied into `apps/api/src/connector-access/groups.ts`. // DECISION |
+| Setup checklist | A `connect` item is done when its connector is connected, bound and nothing the agent needs there is blocked (a row off, a scope, a grant); its label adds what is missing ("Connect QuickBooks: allow create bills"). Without the skill catalog (the hourly pass) only connected and bound count, as before. // DECISION |
+| Website logins in our changes | A request, like the direct edit, can never change a website login's site, version, identity or the client's stricter settings (422 `browser_login_locked`, PLATFORM_QA SEC-5): the lock is in `editedSettings`, which both paths use. Main's SEC-5 test now checks a real client's config change goes for approval (409) and keeps its "login fields kept" check in the Sandbox. // DECISION |
+
 ### 1.163 The client page's agents, and what the client sees of each (owner, 2026-11-20; no migration)
 
 The owner on `/ops/clients/:id`: "There is nowhere to see the client's agents and their status

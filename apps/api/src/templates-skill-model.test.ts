@@ -46,7 +46,13 @@ import { marketingManifest } from "@countersign/pack-marketing";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { latestSeededVersion } from "./account/templates";
-import { type ApiHarness, admin, createApiHarness, OPERATOR } from "./api.test-helper";
+import {
+  type ApiHarness,
+  admin,
+  allowForAgent,
+  createApiHarness,
+  OPERATOR,
+} from "./api.test-helper";
 import { createPlatform, deploymentConnectors } from "./platform";
 import { SPLIT_MODEL_TOOLS, stepTools } from "./routes/ops-lineage";
 
@@ -290,6 +296,8 @@ describe.skipIf(!h)("installing, offering and publishing the skill model's versi
     const id = j(fork.json).agent.id as string;
     const version = j(fork.json).version.id as string;
     await H.t.db.update(agent).set({ bindings }).where(eq(agent.id, id));
+    // Connectors C4: each connection started low risk; the client admin allows what it needs.
+    for (const c of new Set(Object.values(bindings))) await allowForAgent(H, admin("a"), c, id);
     const pub = await H.call(OPERATOR, "POST", `/api/ops/agents/${id}/versions/${version}/publish`);
     return { id, version, pub };
   }

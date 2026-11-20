@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
+import { NO_CONNECTORS } from "../../test/connectors";
 import { CLIENT_SESSION, fakeApi, Reply, tableView } from "../../test/fixtures";
 
 for (const level of ["warn", "error"] as const)
@@ -45,8 +46,9 @@ describe("FLOW: the portal", () => {
   it("(PLATFORM_QA FLOW-6) setting up a website login that fails shows our words, not Twilio's", async () => {
     // As apps/api answers today when the code service can't buy the agent a number
     // (routes/browser.ts codesError: 503 with the code service's message; see flow-browser.qa.ts).
-    renderAt("/accounts", {
-      "GET /api/connections": () => ({ connections: [] }),
+    renderAt("/connectors", {
+      "GET /api/portal/connectors": () => NO_CONNECTORS,
+      "GET /api/access/browser-scripts": () => ({ scripts: [], logins: [] }),
       "GET /api/access": () => ({
         items: [],
         setup: [],

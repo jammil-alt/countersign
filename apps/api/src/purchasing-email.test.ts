@@ -57,6 +57,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
   admin,
+  allowForAgent,
   createApiHarness,
   FakeWorkflowStep,
   forbiddenKeys,
@@ -926,6 +927,8 @@ describe.skipIf(!h)("a buyer that works by email, end to end", () => {
       bindings: { qbo: ids.qbo },
     });
     expect(bound.status, JSON.stringify(bound.json)).toBe(200);
+    // Connectors C4: QuickBooks started low risk; the client admin allows what the buyer needs.
+    await allowForAgent(H, admin("a"), ids.qbo, agentId);
     const pub = await H.call(
       OPERATOR,
       "POST",

@@ -1,5 +1,5 @@
-// The vault's parts (ARCHITECTURE §6.9, docs/plan.md §1.26), shown on the portal's Accounts page
-// (C4): each way into the client's tools (a connection), whether its secret is stored (never the
+// The vault's parts (ARCHITECTURE §6.9, docs/plan.md §1.26), shown on the portal's Connectors pages
+// (Connectors C5: website logins under Built for you, a tool's key and sign-in on its own page): each way into the client's tools (a connection), whether its secret is stored (never the
 // secret), and each agent that can use it with what. The client admin enters a login (write-only),
 // sets a website login up, tightens or revokes an agent's access (never loosens: only we do), and
 // disconnects; a client user sees all of it read-only. The API enforces the same rules.
@@ -103,18 +103,24 @@ function VaultStateChip({ item }: { item: Item }) {
 }
 
 /**
- * "Your vault" (C4's right rail): the logins for sites without a connection, each with its state
- * and the agents that use it, and (for the client admin) the sites a login can be set up on.
+ * Website logins (Connectors' Built for you; was C4's vault rail): the logins for sites without a
+ * connection, each with its state and the agents that use it, and (for the client admin) the sites
+ * a login can be set up on.
  */
 export function VaultCard({
   view,
   items,
   adding,
   site,
+  title,
+  subtitle,
   onAdding,
   onChanged,
 }: {
   view: View;
+  /** The card's heading; the vault's own words when left out. */
+  title?: string;
+  subtitle?: string;
   /** The items this card lists (the page shows signed-in tools on their own cards). */
   items: Item[];
   adding: boolean;
@@ -134,8 +140,8 @@ export function VaultCard({
     <div className="ds-card" data-testid="vault-card">
       <div className="ui-card__head">
         <div className="min-w-0">
-          <h2 className="type-subheading text-ink">{t("accounts.vault.title")}</h2>
-          <p className="text-sm text-ink-muted">{t("accounts.vault.subtitle")}</p>
+          <h2 className="type-subheading text-ink">{title ?? t("accounts.vault.title")}</h2>
+          <p className="text-sm text-ink-muted">{subtitle ?? t("accounts.vault.subtitle")}</p>
         </div>
         {view.canEdit ? (
           <Button

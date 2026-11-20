@@ -173,7 +173,7 @@ export function browserRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.portalSetUpBrowser, async ({ tx, tenantIds, body, session, services }) => {
     const tenantId = tenantIds[0] as string;
-    await offeredTo(tx, tenantId, BROWSER_CONNECTOR_ID);
+    await offeredTo(tx, tenantId, BROWSER_CONNECTOR_ID, services);
     const connector = services.platform.connectors.get(BROWSER_CONNECTOR_ID);
     if (!connector) throw notFound("connector");
     const [entry] = await catalogueForClient(tx, [body.site]);

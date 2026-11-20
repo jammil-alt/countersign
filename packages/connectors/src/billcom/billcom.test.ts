@@ -61,6 +61,15 @@ function documents(files: StoredFile[] = [PDF]): DocumentServices {
   return { read: async (id) => files.find((f) => f.id === id) ?? null };
 }
 
+/**
+ * A connection the operator has opened for the clerk: every write asks first, payments off. A new
+ * connection starts lower (Connectors C2: only attaching a document asks first).
+ */
+const OPENED: PermissionMatrix = {
+  ...DEFAULT_PERMISSIONS,
+  entities: { payment: { create: "off" } },
+};
+
 /** A connector over an existing fake. */
 const connectorOf = (bill: ReturnType<typeof fakeBillcom>) =>
   createBillcomConnector({ devKey: FAKE_BILLCOM.devKey, fetch: bill.fetch });
@@ -73,8 +82,7 @@ function setup(over: { devKey?: string | null; permissions?: Partial<PermissionM
     fetch: bill.fetch,
   });
   const logger = memoryLogger();
-  const permissions =
-    over.permissions ?? connector.manifest.defaultPermissions ?? DEFAULT_PERMISSIONS;
+  const permissions = over.permissions ?? OPENED;
   const ctx = (extra: Partial<ToolContext> = {}): ToolContext => ({
     tenantId: tenant,
     connection: {
@@ -174,21 +182,33 @@ describe("billcom connector: the manifest", () => {
     expect(billcomEnvironment("prod")).toBe("sandbox");
   });
 
-  it("starts with approval on every write, payments off, and delete off", () => {
+  it("starts low risk: only attaching a document asks first; payments and delete off", () => {
     const m = setup().connector.manifest;
     const matrix = connectionDefaults(m);
     expect(matrix).toMatchObject({
       read: "auto",
       create: "approval",
-      update: "approval",
+      update: "off",
       delete: "off",
-      entities: { payment: { create: "off" } },
     });
-    const level = (id: string) => {
+    const level = (id: string, at: PermissionMatrix = matrix) => {
       const spec = m.tools.find((t) => t.id === id);
       if (!spec) throw new Error(id);
-      return connectionLevel(m, spec, matrix);
+      return connectionLevel(m, spec, at);
     };
+    expect(level(BILLCOM_TOOLS.billAttach)).toBe("approval");
+    for (const id of [
+      BILLCOM_TOOLS.vendorCreate,
+      BILLCOM_TOOLS.vendorUpdate,
+      BILLCOM_TOOLS.billCreate,
+      BILLCOM_TOOLS.billUpdate,
+      BILLCOM_TOOLS.billArchive,
+      BILLCOM_TOOLS.paymentCreate,
+    ]) {
+      expect(level(id), id).toBe("off");
+    }
+    expect(level(BILLCOM_TOOLS.paymentList)).toBe("auto");
+    // Opened by the operator, every write asks first and payments stay off.
     for (const id of [
       BILLCOM_TOOLS.vendorCreate,
       BILLCOM_TOOLS.vendorUpdate,
@@ -197,10 +217,9 @@ describe("billcom connector: the manifest", () => {
       BILLCOM_TOOLS.billArchive,
       BILLCOM_TOOLS.billAttach,
     ]) {
-      expect(level(id), id).toBe("approval");
+      expect(level(id, OPENED), id).toBe("approval");
     }
-    expect(level(BILLCOM_TOOLS.paymentCreate)).toBe("off");
-    expect(level(BILLCOM_TOOLS.paymentList)).toBe("auto");
+    expect(level(BILLCOM_TOOLS.paymentCreate, OPENED)).toBe("off");
     // A client may tighten, never turn payments on.
     const loosen = applyMatrixChange({
       current: matrix,
@@ -242,8 +261,9 @@ describe("billcom connector: the manifest", () => {
     };
     expect(decide(spec, connectionDefaults(m))).toBe("refused");
     expect(decide(spec, loosest, "not_required")).toBe("approval");
-    // A bill create waits by default and runs alone only with the operator's step setting.
-    expect(decide(create, connectionDefaults(m))).toBe("approval");
+    // A bill create starts off, waits once opened, and runs alone only with the operator's step setting.
+    expect(decide(create, connectionDefaults(m))).toBe("refused");
+    expect(decide(create, OPENED)).toBe("approval");
     expect(decide(create, { ...DEFAULT_PERMISSIONS, create: "auto" })).toBe("approval");
     expect(decide(create, { ...DEFAULT_PERMISSIONS, create: "auto" }, "not_required")).toBe("run");
   });

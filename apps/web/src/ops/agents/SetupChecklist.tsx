@@ -113,11 +113,19 @@ function SetupRow({
         <Tag>{GUARD_LABEL[row.guards]}</Tag>
         {row.done ? (
           <Badge tone="positive">Done</Badge>
+        ) : row.byConnection ? (
+          // Connectors C6: connected, bound and nothing missing; the fix may be ours or theirs.
+          <Badge tone="warning">Waiting on a connector</Badge>
         ) : (
           <Badge tone="warning">Waiting on the client</Badge>
         )}
       </div>
       {row.hint ? <p className="text-sm text-ink-muted">{row.hint}</p> : null}
+      {row.byConnection && !row.done ? (
+        <p className="text-sm text-ink-muted" data-testid={`setup-readiness-${row.id}`}>
+          Readiness, in Settings, says what's missing and who fixes it.
+        </p>
+      ) : null}
       {who ? (
         <p className="text-sm text-ink-muted" data-testid={`setup-who-${row.id}`}>
           {who}

@@ -219,9 +219,10 @@ describe.skipIf(!h)("Send a test email from the connected Gmail", () => {
       },
     );
     expect(intoA.status).toBe(403);
-    // Client C has no Gmail: nothing to send from.
+    // Client C has no Gmail: nothing to send from (Connectors C4: Gmail is live for every client,
+    // so it says not connected rather than not found).
     const c = await H.call(admin("c"), "POST", PATH, {});
-    expect(c.status).toBe(404);
+    expect([c.status, j(c.json).error.code]).toEqual([409, "not_connected"]);
     expect(google.sent).toHaveLength(before + 1);
   });
 

@@ -1,6 +1,6 @@
 // The back-office client page's frame (docs/ui-plan.md "Client page", drafted in the prototype's
 // style for the owner to adjust): the client's name with how many of its agents are live, and five
-// tabs: Overview, Agents, Data (Documents, Records), Setup (Connections, Messaging, Directory,
+// tabs: Overview, Agents, Data (Documents, Records), Setup (Connectors, Messaging, Directory,
 // Knowledge) and Settings. Data and Setup each have a small switch between their pages instead of
 // more tabs. Every page keeps its own route (../routes.tsx), so old addresses keep working; each
 // renders inside this frame, which loads the client once and hands it down (`useClientPage`). The
@@ -63,7 +63,8 @@ export const CLIENT_TABS: {
     id: "setup",
     label: "Setup",
     pages: [
-      ["connections", "Connections"],
+      // Connectors C6: the client's Connectors (its address stays `connections`).
+      ["connections", "Connectors"],
       ["messaging", "Messaging"],
       ["directory", "Directory"],
       ["knowledge", "Knowledge"],
@@ -91,6 +92,8 @@ export function clientPageOf(
   const first = rest.split("/")[0] ?? "";
   if (first === "exports") return { tab: "settings", page: "settings" };
   if (first === "reports") return { tab: "packs", page: "packs" };
+  // A connector's own page is under Setup's Connectors.
+  if (first === "connectors") return { tab: "setup", page: "connections" };
   for (const tab of CLIENT_TABS) {
     if (tab.pages.some(([p]) => p === first)) return { tab: tab.id, page: first };
   }

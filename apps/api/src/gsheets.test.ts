@@ -7,6 +7,7 @@
 // sheet the client didn't pick is refused.
 
 import {
+  connectionDefaults,
   createGsheetsConnector,
   GSHEETS_TOOLS,
   generateEncryptionKey,
@@ -198,11 +199,11 @@ describe.skipIf(!h)("Google Sheets through the API", () => {
     const [row] = await H.t.db.select().from(connection).where(eq(connection.id, conn));
     expect(row).toMatchObject({ status: "connected", externalAccountId: ACCOUNT });
     expect(row?.config).toEqual({ address: ACCOUNT, scopes: ["drive.file"] });
-    expect(row?.permissions).toMatchObject({
-      read: "auto",
-      create: "approval",
-      update: "approval",
-    });
+    // Connectors C2 (docs/connectors-plan.md §5.1): adding rows asks first; updating is off.
+    expect(row?.permissions).toEqual(
+      connectionDefaults(H.platform.connectors.get("gsheets")?.manifest),
+    );
+    expect(row?.permissions).toMatchObject({ read: "auto", delete: "off" });
     // The tokens are in the vault, encrypted: none of them in the row as written.
     const stored = JSON.stringify(row?.credentialsEncrypted);
     for (const t of [...sheets.issued().accessTokens, ...sheets.issued().refreshTokens]) {

@@ -352,6 +352,8 @@ export function createResendConnector(options: ResendConnectorOptions = {}): Con
   const doFetch = (): FetchLike => options.fetch ?? globalFetch();
   return defineConnector({
     id: RESEND_CONNECTOR_ID,
+    // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
+    askFirst: [{ verb: "create", entity: "message" }],
     name: "Email sending",
     description: "Email your contacts from an address on your domain, through Mezonas.",
     icon: "mail",

@@ -214,6 +214,41 @@ describe("agentNeeds", () => {
     expect(create).toMatchObject({ level: "ask", wantsAuto: false, tool: "qbo.bill.create" });
   });
 
+  // Connectors C4: a record tool whose input names the type (Odoo's, HubSpot's) needs the type the
+  // step's input names plainly; one left to a template stays on the verb alone.
+  it("reads the record type a step's input names for a tool that takes it from its input", () => {
+    const odoo = {
+      ...ctx,
+      tools: {
+        ...tools,
+        "odoo.record.update": spec({
+          id: "odoo.record.update",
+          sideEffect: "external",
+          source: "odoo",
+          connector: "odoo",
+          verb: "update",
+          entityInput: { field: "model", values: { "purchase.order": "purchase_order" } },
+        }),
+      },
+      connectors: new Set([...ctx.connectors, "odoo"]),
+    };
+    const write = (id: string, model: string) =>
+      step({
+        id,
+        kind: "write",
+        tool: "odoo.record.update",
+        input: { model, id: "7" },
+      } as Partial<Step> as Step);
+    const needs = agentNeeds(
+      bundle([write("w1", "purchase.order"), write("w2", "{{trigger.model}}")]),
+      odoo,
+    );
+    expect(pick(needs, "odoo", "update", "purchase_order")?.because.map((b) => b.stepId)).toEqual([
+      "w1",
+    ]);
+    expect(pick(needs, "odoo", "update")?.because.map((b) => b.stepId)).toEqual(["w2"]);
+  });
+
   it("wants auto only for a write step set to skip approval in an act agent", () => {
     const steps = [
       step({ id: "w1", kind: "write", tool: "qbo.bill.create", ...auto } as Partial<Step> as Step),

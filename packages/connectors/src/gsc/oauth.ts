@@ -230,6 +230,8 @@ export function createGscOauthConnector(options: GscOauthOptions = {}): SearchCo
 
   const connector: Connector = defineConnector({
     id: GSC_OAUTH_CONNECTOR_ID,
+    // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
+    askFirst: [],
     name: "Google Search Console (Google sign-in)",
     description:
       "Your site's Google search figures, read only, by signing in with the Google account that has your site in Search Console: the searches it showed up for, its pages, clicks and positions, imported each night with 16 months of history.",

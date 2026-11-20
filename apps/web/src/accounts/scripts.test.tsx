@@ -1,4 +1,4 @@
-// Scripts on website logins (docs/plan.md §1.86 "Scripts (wave 4)"): the portal's Accounts page
+// Scripts on website logins (docs/plan.md §1.86 "Scripts (wave 4)"): the portal's Connectors page
 // shows the client admin where each script stands and records one action at a time (the page and
 // its screenshot come back; a submit is recorded, never clicked), in the client's language; the
 // back office's Websites screen lists every client's scripts, tests a version and publishes it;
@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../App";
 import { createTranslator } from "../i18n/catalog";
 import { VersionSteps } from "../ops/screens/BrowserScripts";
+import { NO_CONNECTORS } from "../test/connectors";
 import { CLIENT_SESSION, fakeApi, OPERATOR_SESSION } from "../test/fixtures";
 import { problemWords } from "./scripts";
 
@@ -114,6 +115,7 @@ function portalApi(routes: Parameters<typeof fakeApi>[0], session = CLIENT_SESSI
     "GET /api/session": () => session,
     "GET /api/overview": () => overview,
     "GET /api/access": () => ({ items: [], setup: [], canEdit: true, people: [] }),
+    "GET /api/portal/connectors": () => NO_CONNECTORS,
     ...routes,
   });
 }
@@ -145,7 +147,7 @@ describe("scripts in the portal", () => {
         logins: [login],
       }),
     });
-    renderAt("/accounts", api);
+    renderAt("/connectors", api);
     const card = await screen.findByTestId("portal-scripts");
     expect(within(card).getByTestId("script-row-place-order")).toHaveTextContent(
       "Waiting for us to publish",
@@ -175,7 +177,7 @@ describe("scripts in the portal", () => {
         return { script: current, step, page: page() };
       },
     });
-    renderAt("/accounts", api);
+    renderAt("/connectors", api);
     const card = await screen.findByTestId("portal-scripts");
     await userEvent.click(within(card).getByTestId("portal-scripts-record"));
     await userEvent.type(within(card).getByTestId("script-start-name"), "Place an order");
@@ -232,7 +234,7 @@ describe("scripts in the portal", () => {
       },
       { ...CLIENT_SESSION, language: { effective: "de", user: "de", client: null } },
     );
-    renderAt("/accounts", api);
+    renderAt("/connectors", api);
     const card = await screen.findByTestId("portal-scripts");
     await userEvent.click(within(card).getByTestId("script-row-place-order-open"));
     const recorder = await screen.findByTestId("script-place-order");
@@ -262,7 +264,7 @@ describe("scripts in the portal", () => {
       },
       { ...CLIENT_SESSION, language: { effective: "de", user: "de", client: null } },
     );
-    renderAt("/accounts", api);
+    renderAt("/connectors", api);
     const card = await screen.findByTestId("portal-scripts");
     expect(card).toHaveTextContent("Skripte");
     expect(within(card).getByTestId("script-row-place-order")).toHaveTextContent(
@@ -294,7 +296,7 @@ describe("where a script stands, and what stops it, in the client's words", () =
       },
       { ...CLIENT_SESSION, language: { effective: "fr", user: "fr", client: null } },
     );
-    renderAt("/accounts", api);
+    renderAt("/connectors", api);
     const card = await screen.findByTestId("portal-scripts");
     expect(within(card).getByTestId("script-row-place-order")).toHaveTextContent(
       "Publié · v1, v2 en attente de notre publication",

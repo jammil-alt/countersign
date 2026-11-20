@@ -483,6 +483,8 @@ export function createTeamsConnector(options: TeamsOptions = {}): TeamsConnector
 
   const base = defineConnector({
     id: TEAMS_CONNECTOR_ID,
+    // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
+    askFirst: [{ verb: "create", entity: "message" }],
     name: "Microsoft Teams",
     description:
       "Agents post updates to the Teams channels you connect. We can't read your messages.",

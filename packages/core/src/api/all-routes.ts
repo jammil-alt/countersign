@@ -6,6 +6,7 @@
 import { adjustRoutes } from "./adjust";
 import { clientFileRoutes, startRoutes } from "./client-files";
 import { codeRequestRoutes } from "./code-requests";
+import { connectorAccessRoutes } from "./connector-access";
 import { opsIntakeRoutes, portalIntakeRoutes, welcomeRoutes } from "./intake";
 import { inviteRoutes } from "./invite";
 import { manualRoutes } from "./manual";
@@ -35,4 +36,7 @@ export const allRoutes = {
   // docs/builder-plan.md §7 (B5): client adjustments on the agent's Settings, and feedback on a
   // line of its manual; both load with their tabs.
   ...adjustRoutes,
+  // docs/connectors-plan.md (C4): the client's Connectors place, our changes and their requests,
+  // the Needs and Readiness panels; they load with the Connectors screens.
+  ...connectorAccessRoutes,
 } as const;
