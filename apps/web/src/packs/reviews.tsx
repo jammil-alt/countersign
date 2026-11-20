@@ -1,6 +1,6 @@
 // Inbox cards that packs add (ARCHITECTURE §11, §12.2): an inbox item whose payload names a
 // `review` gets that pack's card in place of the plain question. The inbox itself names no pack.
-import type { ReactNode } from "react";
+import { lazy, type ReactNode, Suspense } from "react";
 import type { ResolveInput } from "../inbox/InboxCard";
 import { AccountQuestions } from "./bookkeeping/AccountQuestions";
 import { BookingsReview } from "./bookkeeping/BookingsReview";
@@ -11,9 +11,13 @@ import { MatchReview } from "./materials/MatchReview";
 import { RequestLinesReview } from "./materials/RequestLinesReview";
 import { MATCH_REVIEW, REQUEST_LINES_REVIEW, VENDOR_CHOICE_REVIEW } from "./materials/types";
 import { VendorChoiceReview } from "./materials/VendorChoiceReview";
-// §1.164: the Sales area's card.
-import { ConfirmMatches } from "./sales/ConfirmMatches";
 import { SALES_MATCH_REVIEW } from "./sales/types";
+
+// §1.164: the Sales area's card loads with the card, never in the first load (the web budget,
+// scripts/web-size.mjs).
+const ConfirmMatches = lazy(() =>
+  import("./sales/ConfirmMatches").then((m) => ({ default: m.ConfirmMatches })),
+);
 
 interface ReviewCardProps {
   itemId: string;
@@ -33,7 +37,11 @@ const CARDS: Record<string, (props: ReviewCardProps) => ReactNode> = {
   // R-1 (docs/plan.md §1.80): the reconciliation card.
   [RECONCILIATION_REVIEW]: (p) => <ReconciliationReview {...p} />,
   // §1.164: Confirm matches (the Sales area).
-  [SALES_MATCH_REVIEW]: (p) => <ConfirmMatches {...p} />,
+  [SALES_MATCH_REVIEW]: (p) => (
+    <Suspense fallback={null}>
+      <ConfirmMatches {...p} />
+    </Suspense>
+  ),
 };
 
 /** The pack card for an item's payload, or null for a plain item. */
