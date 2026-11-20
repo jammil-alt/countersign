@@ -1439,6 +1439,19 @@ async function move(
         "start the client test with the client it runs at",
       );
     }
+    if (to === "client_test" && !r.clientId && r.agentId && r.testAgentId !== r.agentId) {
+      // STATE-8: the client's copy of a template is from the version it was forked from; a
+      // template changed since goes back through the client test's own start, which updates it.
+      const copy = await latestVersion(scoped.tx, r.testAgentId as string);
+      const template = await latestVersion(scoped.tx, r.agentId);
+      if (template && copy?.basedOnTemplateVersionId !== template.id) {
+        throw new HttpError(
+          409,
+          "copy_behind",
+          "The client's copy is from an older version of the template, so its trial wouldn't run your changes. Start the client test again to update it.",
+        );
+      }
+    }
     const detail = await detailIn(scoped, ctx.services, r);
     const skip = r.phase === "client_test" && !!reason;
     // Moving into the draft makes it: the draft gate is the fit-gap's.
@@ -2101,10 +2114,63 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
     };
     let testAgentId = agentId;
     let blocked: { title: string; detail: string } | null = null;
-    if (!row.clientId) {
+    // An item made once per copy, and once per template version for a copy brought up to date.
+    let blockKey = "";
+    // STATE-8: a template build back at the client test after a fix brings the copy its first
+    // client test made up to the fixed template, so the trial runs the fix (a second fork
+    // conflicted with the first copy). A copy the client ran (it has a live version) gets the
+    // update merge any client agent gets from its template, and is published; a copy never
+    // published there is discarded and forked again.
+    // DECISION: a copy that ran is updated in place rather than replaced, so its trial, runs and
+    // what the client set up on it stay; a merge that conflicts becomes an open item, as a refused
+    // publish does.
+    const earlier =
+      !row.clientId && row.testAgentId && row.testClientId === clientId ? row.testAgentId : null;
+    const before = earlier
+      ? await ctx.inTx(async (scoped) => {
+          const copyRow = await getAgent(scoped.tx, earlier);
+          return {
+            latest: await latestVersion(scoped.tx, earlier),
+            live: copyRow.liveVersionId,
+            slug: await freeSlug(scoped.tx, clientId, (await getAgent(scoped.tx, agentId)).slug),
+          };
+        })
+      : null;
+    if (earlier && before && !before.live) {
+      await call(lc, routes.opsDiscardAgent, { params: { id: earlier } }).catch((e: unknown) =>
+        reportHandled("discarding a client's unpublished copy before forking again failed", e, {
+          kind: "build",
+          build: row.id,
+        }),
+      );
+    }
+    const copy = earlier && before?.live ? earlier : null;
+    if (copy && before) {
+      testAgentId = copy;
+      blockKey = `start:${copy}:${versionId}`;
+      let target: string | null = before.latest?.id ?? null;
+      if (before.latest?.basedOnTemplateVersionId !== versionId) {
+        try {
+          const updated = await call(lc, routes.opsUpdate, {
+            params: { id: copy },
+            body: { resolutions: [], changeNote: "The template's fix, for the client's trial" },
+          });
+          target = updated.version.id;
+        } catch (e) {
+          target = null;
+          blocked = { title: "Update the client's copy to the fixed template", detail: refused(e) };
+        }
+      }
+      if (target && target !== before.live) {
+        const vid = target;
+        blocked = await call(lc, routes.opsPublish, { params: { id: copy, vid } })
+          .then(() => null)
+          .catch((e: unknown) => ({ title: "Publish the client's copy", detail: refused(e) }));
+      }
+    } else if (!row.clientId) {
       const fork = await call(lc, routes.opsFork, {
         params: { id: agentId },
-        body: { clientId, versionId },
+        body: { clientId, versionId, ...(before ? { slug: before.slug } : {}) },
       });
       testAgentId = fork.agent.id;
       blocked = await call(lc, routes.opsPublish, {
@@ -2144,7 +2210,7 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
               kind: "precondition",
               title: blocked.title,
               detail: blocked.detail,
-              key: `start:${testAgentId}`,
+              key: blockKey || `start:${testAgentId}`,
             },
           ],
           userId,
