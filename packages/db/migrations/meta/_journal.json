@@ -484,6 +484,13 @@
       "when": 1795191769845,
       "tag": "0070_connector_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1795191769846,
+      "tag": "0071_operator_audit_rows",
+      "breakpoints": true
     }
   ]
 }
