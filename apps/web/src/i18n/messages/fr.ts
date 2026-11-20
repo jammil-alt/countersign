@@ -440,6 +440,8 @@ export const fr: Messages = {
   "desk.editHint":
     "Modifiez ce qu'il faut, puis enregistrez. Nous vérifions à nouveau avant que vous approuviez.",
   "desk.editSave": "Enregistrer",
+  "desk.edit.number": "Saisissez un nombre, par exemple 1200.",
+  "desk.edit.money": "Saisissez un montant, par exemple 1200.",
   "desk.snooze.until": "Le faire revenir",
   "desk.snooze.later": "Plus tard aujourd'hui",
   "desk.snooze.tomorrow": "Demain à 8:00",
@@ -782,6 +784,10 @@ export const fr: Messages = {
   "vault.browser.authenticatorHint":
     "Le lien otpauth:// que le site affiche quand vous activez une application d'authentification pour le compte de l'agent.",
   "vault.browser.setUp": "Configurer",
+  "vault.browser.setupFailed":
+    "Nous n'avons pas pu configurer cette connexion pour l'instant. Réessayez dans quelques minutes.",
+  "vault.browser.badLink":
+    "Nous n'avons pas pu utiliser ce lien de configuration. Copiez-le à nouveau depuis le site et collez-le ici.",
   "vault.browser.identity": "E-mail du compte de l'agent",
   "vault.browser.identityPhone": "Téléphone du compte de l'agent",
   "vault.browser.identityHint":
@@ -3321,6 +3327,10 @@ export const fr: Messages = {
   "start.adminConnects": "Votre admin connecte les outils.",
   "start.cantConnect": "Impossible pour l'instant",
   "start.answered": "Répondue",
+  "start.invalid.number":
+    "Nous n'avons pas pu lire ceci comme un nombre. Écrivez-le par exemple 340.",
+  "start.invalid.money":
+    "Nous n'avons pas pu lire ceci comme un montant. Écrivez-le par exemple 12500.",
   "start.choose": "Choisir…",
   "start.files.added": { one: "1 fichier ajouté", other: "{count} fichiers ajoutés" },
   "start.setup.title": "Configurer vos agents",

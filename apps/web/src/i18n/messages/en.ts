@@ -411,6 +411,8 @@ export const en = {
   "desk.form.required": "needed",
   "desk.editHint": "Change what you need, then save. We check it again before you approve.",
   "desk.editSave": "Save changes",
+  "desk.edit.number": "Type a number, like 1200.",
+  "desk.edit.money": "Type an amount, like 1200 or 1200.50.",
   "desk.snooze.until": "Bring it back",
   "desk.snooze.later": "Later today",
   "desk.snooze.tomorrow": "Tomorrow 8:00",
@@ -743,6 +745,10 @@ export const en = {
   "vault.browser.authenticatorHint":
     "The otpauth:// link the site shows when you turn on an authenticator app for the agent's account.",
   "vault.browser.setUp": "Set up",
+  "vault.browser.setupFailed":
+    "We couldn't set up this login just now. Try again in a few minutes.",
+  "vault.browser.badLink":
+    "We couldn't use that setup link. Copy it again from the site and paste it here.",
   "vault.browser.identity": "Agent account email",
   "vault.browser.identityPhone": "Agent account phone",
   "vault.browser.identityHint":
@@ -3182,6 +3188,8 @@ export const en = {
   "start.adminConnects": "Your admin connects tools.",
   "start.cantConnect": "Can't connect it now",
   "start.answered": "Answered",
+  "start.invalid.number": "We couldn't read this as a number. Type it like 340.",
+  "start.invalid.money": "We couldn't read this as an amount. Type it like 12500 or $12,500.",
   "start.choose": "Choose…",
   "start.files.added": { one: "1 file added", other: "{count} files added" },
   // docs/builder-plan.md §6 (B4): each agent's setup checklist on Getting started.

@@ -421,6 +421,8 @@ export const es: Messages = {
   "desk.editHint":
     "Cambie lo que necesite y guarde. Lo comprobamos de nuevo antes de que lo apruebe.",
   "desk.editSave": "Guardar cambios",
+  "desk.edit.number": "Escriba un número, por ejemplo 1200.",
+  "desk.edit.money": "Escriba un importe, por ejemplo 1200.",
   "desk.snooze.until": "Que vuelva",
   "desk.snooze.later": "Más tarde hoy",
   "desk.snooze.tomorrow": "Mañana a las 8:00",
@@ -762,6 +764,10 @@ export const es: Messages = {
   "vault.browser.authenticatorHint":
     "El enlace otpauth:// que muestra el sitio al activar una app de autenticación para la cuenta del agente.",
   "vault.browser.setUp": "Configurar",
+  "vault.browser.setupFailed":
+    "No pudimos configurar este acceso ahora. Inténtelo de nuevo en unos minutos.",
+  "vault.browser.badLink":
+    "No pudimos usar ese enlace de configuración. Cópielo de nuevo desde el sitio y péguelo aquí.",
   "vault.browser.identity": "Correo de la cuenta del agente",
   "vault.browser.identityPhone": "Teléfono de la cuenta del agente",
   "vault.browser.identityHint":
@@ -3270,6 +3276,8 @@ export const es: Messages = {
   "start.adminConnects": "Su administrador conecta las herramientas.",
   "start.cantConnect": "No puedo conectarlo ahora",
   "start.answered": "Respondida",
+  "start.invalid.number": "No pudimos leer esto como un número. Escríbalo así: 340.",
+  "start.invalid.money": "No pudimos leer esto como un importe. Escríbalo así: 12500.",
   "start.choose": "Elegir…",
   "start.files.added": { one: "1 archivo añadido", other: "{count} archivos añadidos" },
   "start.setup.title": "Configure sus agentes",
