@@ -1090,6 +1090,9 @@ function BuilderBody(
   // gone. The builder now moves onto it with them carried over, so its next save builds on it.
   // A version saved on top of another isn't taken: the edits stay, and a save of them is refused
   // by the API as stale rather than made over the newer version.
+  // DECISION: rebase onto the new version with core's three-way merge, rather than save the
+  // builder's edits first (a version the operator didn't ask for) or put the panel's triggers on
+  // the canvas unsaved (the panel says it saved a version, and the agent's other tabs read it).
   // biome-ignore lint/correctness/useExhaustiveDependencies: once per new version.
   useEffect(() => {
     if (from.id === saved.id || from.parentVersionId !== saved.id) return;
