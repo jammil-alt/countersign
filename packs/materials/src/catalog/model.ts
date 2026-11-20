@@ -1,9 +1,11 @@
 // The model's two jobs in matching (ARCHITECTURE §12.3): reading attributes the basic parsers
 // could not (step 3's fallback, strict schema), and adjudicating a line against its top
 // candidates (step 5). Both go through packages/llm's callTool, on the classification model.
-// The vendor's text is data: it is sent in the user message inside tags, never in instructions
-// (invariant 9), and the answer is checked with Zod, then by the hard rules (./match.ts).
+// The vendor's text is data: it is sent in the user message inside tags, escaped so it can't close
+// them (promptText, promptJson; PLATFORM_QA AI-1), never in instructions (invariant 9), and the
+// answer is checked with Zod, then by the hard rules (./match.ts).
 
+import { promptJson, promptText } from "@countersign/core";
 import { DEFAULT_MODELS, type LlmClient } from "@countersign/llm";
 import { z } from "zod";
 import { CATEGORIES, type Category } from "../schema";
@@ -56,7 +58,7 @@ export async function modelParse(
       `Categories and their attributes, with how to write each value:\n${formats}`,
       "Record only what the line states. Never guess a value it doesn't print.",
     ].join("\n\n"),
-    messages: [{ role: "user", content: `<line>${line.raw}</line>` }],
+    messages: [{ role: "user", content: `<line>${promptText(line.raw)}</line>` }],
     tool: {
       name: "record_attributes",
       description: "Record the line's category and the attributes it states.",
@@ -100,7 +102,7 @@ export async function adjudicate(
 ): Promise<Adjudication> {
   const list = candidates
     .slice(0, 5)
-    .map((c) => JSON.stringify({ id: c.id, name: c.name, attributes: c.attributes }))
+    .map((c) => promptJson({ id: c.id, name: c.name, attributes: c.attributes }))
     .join("\n");
   const { value } = await llm.callTool({
     model: MODEL,
@@ -116,9 +118,9 @@ export async function adjudicate(
       {
         role: "user",
         content: [
-          `<line>${line.raw}</line>`,
+          `<line>${promptText(line.raw)}</line>`,
           `<category>${line.parsed.category}</category>`,
-          `<parsed_attributes>${JSON.stringify(line.parsed.attributes)}</parsed_attributes>`,
+          `<parsed_attributes>${promptJson(line.parsed.attributes)}</parsed_attributes>`,
           `<candidates>\n${list || "(none)"}\n</candidates>`,
         ].join("\n"),
       },

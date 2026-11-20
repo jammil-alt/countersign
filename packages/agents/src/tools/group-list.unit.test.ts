@@ -103,4 +103,52 @@ describe("groupList", () => {
       expect.arrayContaining(["items", "keep", "groupBy", "totals"]),
     );
   });
+
+  it("(PLATFORM_QA INPUT-7) never totals two currencies into one figure", async () => {
+    // Open invoices as QuickBooks' tools give them: money as { amount, currency }.
+    const items = [
+      { customer: "Lakeside", balance: { amount: "400.00", currency: "USD" } },
+      { customer: "Lakeside", balance: { amount: "400.00", currency: "CAD" } },
+    ];
+    const run = groupListTool.run(
+      {
+        items,
+        groupBy: "customer",
+        totals: [{ field: "balance", as: "owed" }],
+        minTotal: { total: "owed", atLeast: "500" },
+      } as never,
+      {} as never,
+    );
+    await expect(run).rejects.toThrow(/more than one currency/);
+    // One currency still totals.
+    const usd = groupList({
+      items: [
+        { customer: "Lakeside", balance: { amount: "400.00", currency: "USD" } },
+        { customer: "Lakeside", balance: { amount: "1", currency: "usd" } },
+      ],
+      groupBy: "customer",
+      totals: [{ field: "balance", as: "owed" }],
+    });
+    expect(usd.groups[0]?.totals.owed).toBe("401");
+  });
+
+  it("(PLATFORM_QA INPUT-8) totals an amount written with a thousands separator, and refuses one it can't read", () => {
+    // A sheet's or a CSV's amounts as text, as people write them.
+    const out = groupList({
+      items: [
+        { vendor: "Rockler", amount: "1,250.00" },
+        { vendor: "Rockler", amount: "75.00" },
+        { vendor: "Rockler" },
+      ],
+      groupBy: "vendor",
+      totals: [{ field: "amount", as: "spent" }],
+    });
+    expect(out.groups.map((g) => g.totals.spent)).toEqual(["1325"]);
+    expect(() =>
+      groupList({
+        items: [{ amount: "12,50" }, { amount: "75.00" }],
+        totals: [{ field: "amount", as: "spent" }],
+      }),
+    ).toThrow(/"12,50", not a number/);
+  });
 });
