@@ -72,8 +72,8 @@ early. Adding one changes ARCHITECTURE's v1 scope, which is the owner's call.
 | E10 | **Nothing has run against a live provider.** | The QuickBooks sandbox pass (`docs/open.md` P3): the first real run of the write path (approval, once-only, undo), useful whichever system pilots use. Then the pilots' own system. |
 | E11 | No pilot onboarding checklist. | One checklist from the per-client list below, mapped to what exists (`docs/operations.md` §1.1, agent stages). |
 | E12 | No runbooks. | Connection dropped, run stuck, wrong write. |
-| E13 | No status page. | A hosted one. |
-| E14 | First quarterly restore test not done (control BCK-2). | Do it and record it (`docs/operations.md` §4). |
+| E13 | Done 2026-11-18: `https://status.mezonas.com` (Better Stack), with an outside uptime monitor. | — |
+| E14 | Done 2026-11-18 (`docs/operations.md` §4). | Every quarter. |
 | E15 | No tagged production release and no written rollback. | Cut the first `v*` release; write rollback (Worker versions roll back; migrations only go forward). |
 | E16 | Bulk approvals: not checked. The inbox and desk screens may have it. | Check. |
 

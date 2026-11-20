@@ -1609,6 +1609,10 @@ Test a restore every quarter (SOC 2 A1.3, HIPAA §164.308(a)(7)):
 3. Delete the branch.
 4. Note the date and the result.
 
+| Date | Restored to | Result |
+|---|---|---|
+| 2026-11-18 | `main` as of 10:56:12 ET | Counts equal to `main`'s: clients 2, memberships 3, external actions 0, documents 0, audit rows 492. Branch deleted |
+
 Set Neon's history retention to at least 7 days on the production project.
 
 ## 5. Events set aside
