@@ -565,7 +565,7 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     includedCredits: 500,
     priceSource: "override",
   });
-  // §1.160 (0068): a day the agent had a phone line of its own. Plain SQL, and only where the table
+  // §1.160 (0069): a day the agent had a phone line of its own. Plain SQL, and only where the table
   // exists, like the intake below.
   const [lines] = await db.$client<{ ok: boolean }[]>`
     select to_regclass('public.billing_phone_line_day') is not null as ok`;

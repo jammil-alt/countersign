@@ -6035,7 +6035,7 @@ export const TENANT_TABLES = [
   "intake_answer",
   "intake_scope",
   "intake_event",
-  // 0068: the days a number was one agent's own phone line (docs/plan.md §1.160).
+  // 0069: the days a number was one agent's own phone line (docs/plan.md §1.160).
   "billing_phone_line_day",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];

@@ -49,6 +49,8 @@ Two fixes took a different path from the fix direction in the table below, and t
   of the executor running it as that agent.
 - AI-3: a skill whose schema Zod can't read now fails the step, instead of re-asking the model.
 
+SEC-2, judged by design, was fixed afterwards at the owner's request, in its own PR with migration 0068.
+
 #450 also raised the web first-load budget to 495 kB, recorded as a DECISION in `scripts/web-size.mjs`.
 
 ## 1. Top 5: what would hurt a real client first
@@ -592,7 +594,7 @@ Skills table notes:
 |---|---|---|
 | AI-2 | DISPROVED | The facts in the charter draft are the client's own (`theirs` facts and confirmed `about` entries). The draft isn't used until the client admin confirms it (`apps/api/src/knowledge/charter.ts:1-6`). The only "attacker" is the client, editing their own charter. |
 | FLOW-3 | DISPROVED | `portalAuthorize` writes nothing. A connection is inserted only at the callback, which reuses an existing row (`connections.ts:130-143`). A double press fetches a second redirect URL and nothing more. |
-| SEC-2 | BY DESIGN | Recorded in migration `0042_second_factor.sql` and asserted by `second-factor.test.ts:107`. The only route to these rows checks that the operator serves the person's client (`second-factor.ts:424-429`). `user_factor` has no `tenant_id`, and recovery codes are HMACs. **Owner's call:** RLS gives no isolation behind that route check. |
+| SEC-2 | BY DESIGN | Recorded in migration `0042_second_factor.sql` and asserted by `second-factor.test.ts:107`. The only route to these rows checks that the operator serves the person's client (`second-factor.ts:424-429`). `user_factor` has no `tenant_id`, and recovery codes are HMACs. **Owner's call:** RLS gives no isolation behind that route check. **Fixed anyway, at the owner's request:** migration 0068 limits an operator session to the people of the clients it serves (`docs/plan.md` §1.157). |
 | SEC-4 | BY DESIGN | `plan.md:5074` (§1.122 "Not here"): "A limited user's document by id is checked by client, not by agent." Ids are UUIDv7. |
 | SEC-6 | BY DESIGN | DECISION at `plan.md:921` and the `0017_audit_log.sql:41-42` policy. Rows with no client belong to no tenant, and every operator is Mezonas staff. |
 | STATE-5 | BY DESIGN | DECISION at `hubspot/index.ts:813-816`, the twin check. The record holds that exact note, and the action records its id. Odoo has the same rule. |
