@@ -141,7 +141,19 @@ describe.skipIf(!h)("a template build's client test after a fix", () => {
         },
       }),
     );
-    await ok("POST", `/api/ops/builds/${id}/phase`, { to: "poc" });
+    const atPoc = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "poc" });
+    // The case names the draft's step by its id as stored (the Builder's "update" got a server
+    // id): a case naming a step the draft doesn't have is left out (BUILDER_QA AI-6).
+    const [drafted] = await H.t.db
+      .select({ bundle: agentVersion.bundle })
+      .from(agentVersion)
+      .where(eq(agentVersion.agentId, atPoc.build.agentId as string))
+      .orderBy(desc(agentVersion.version))
+      .limit(1);
+    const draftedBundle = drafted?.bundle as {
+      workflows: { workflow: { steps: { id: string }[] } }[];
+    };
+    const stepId = draftedBundle.workflows[0]?.workflow.steps[0]?.id as string;
     holder.model.push({
       toolUse: {
         name: "submit_test_cases",
@@ -151,7 +163,7 @@ describe.skipIf(!h)("a template build's client test after a fix", () => {
               name: "Wrong amount",
               dataset: "records",
               input: { workflow: "main", payload: {} },
-              expected: { update: {} },
+              expected: { [stepId]: {} },
             },
           ],
         },
