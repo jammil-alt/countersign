@@ -1,7 +1,8 @@
 // Your call in the back office (docs/plan.md §1.124.3; docs/design/pipelines.html `yourCall()`):
-// the KPIs, Yours as cards with Reggie's read, plan, why and draft; Do it waits five seconds for
-// Undo before a draft goes; Later; the kind chips and search; Reggie's list with Take it; Done
-// today with Flag; and the sidebar's places.
+// the KPIs, Yours as compact cards that open a side sheet with Reggie's read, plan, why and draft;
+// the keys; Do it waits five seconds for Undo before a draft goes; Later; the kind chips and
+// search, and the empty states; Reggie's list with Take it; Done today with Flag; and the sidebar's
+// places.
 import type { DoneToday, TodoList, TodoView } from "@countersign/core";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -123,7 +124,7 @@ const doneToday: DoneToday = {
   count: 1,
 };
 
-function setup() {
+function setup(opts: { empty?: boolean } = {}) {
   const acted: unknown[] = [];
   const taken: string[] = [];
   const flagged: string[] = [];
@@ -132,7 +133,10 @@ function setup() {
     "GET /api/session": () => OPERATOR_SESSION,
     "GET /api/ops/clients": () => ({ clients: [] }),
     "GET /api/ops/counts": () => ({ needsUs: 4, clients: [] }),
-    "GET /api/ops/todos": ({ url }) => list(url.searchParams.get("owner") ?? "operator"),
+    "GET /api/ops/todos": ({ url }) => {
+      const out = list(url.searchParams.get("owner") ?? "operator");
+      return opts.empty && out.items === yours ? { ...out, items: [] } : out;
+    },
     [`POST /api/ops/todos/${T1}/act`]: ({ init }) => {
       acted.push(JSON.parse(String(init.body)));
       return { todo: { ...yours[0], state: "done" }, done: "Sent.", href: null };
@@ -166,7 +170,7 @@ afterEach(() => {
 });
 
 describe("Your call", () => {
-  it("shows the KPIs and Yours as cards, with Reggie's read, plan, why and draft", async () => {
+  it("shows the KPIs and Yours as compact cards; one opens a sheet with Reggie's read, plan, why and draft", async () => {
     setup();
     const page = await screen.findByTestId("ops-call");
     expect(within(page).getByRole("heading", { level: 1, name: "Your call" })).toBeInTheDocument();
@@ -176,20 +180,39 @@ describe("Your call", () => {
     expect(kpis).toHaveTextContent("Reggie is on1");
     expect(kpis).toHaveTextContent("Questions this week23");
     expect(kpis).toHaveTextContent("Median answer 18 min");
+    // The card is compact: tag, title, client, due, the why word, and the one button.
     const card = await screen.findByTestId(`call-${T1}`);
     expect(card).toHaveTextContent("Issue · high");
-    expect(card).toHaveTextContent("Reggie's read");
-    expect(within(card).getByTestId("call-plan")).toHaveTextContent("Re-check the 11 held bills.");
-    expect(within(card).getByTestId("call-why")).toHaveTextContent("Changes how an agent works.");
-    expect(within(card).getByTestId("call-draft")).toHaveTextContent("the bills are right");
-    expect(within(card).getByRole("link", { name: /Ferguson bills/ })).toHaveAttribute(
+    expect(card).toHaveTextContent("Hartley Millwork");
+    expect(within(card).getByTestId("call-why-word")).toHaveTextContent(
+      "Changes how an agent works",
+    );
+    expect(within(card).getByTestId("call-act")).toHaveTextContent("Approve and send");
+    expect(card).not.toHaveTextContent("Reggie's read");
+    expect(within(card).queryByTestId("call-draft")).toBeNull();
+    expect(within(card).queryByTestId("call-later")).toBeNull();
+    // Opened, the sheet has everything and the decisions.
+    await userEvent.click(within(card).getByTestId("call-open"));
+    const sheet = await screen.findByTestId("call-sheet");
+    expect(sheet).toHaveTextContent("Reggie's read");
+    expect(within(sheet).getByTestId("call-plan")).toHaveTextContent("Re-check the 11 held bills.");
+    expect(within(sheet).getByTestId("call-why")).toHaveTextContent("Changes how an agent works.");
+    expect(within(sheet).getByTestId("call-draft")).toHaveTextContent("the bills are right");
+    expect(within(sheet).getByRole("link", { name: /Ferguson bills/ })).toHaveAttribute(
       "href",
       `/ops/issues/${ISSUE}`,
     );
+    expect(within(sheet).getByTestId("call-act")).toHaveTextContent("Approve and send");
+    expect(within(sheet).getByTestId("call-later")).toBeInTheDocument();
+    expect(within(sheet).getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    await userEvent.click(within(sheet).getByTestId("call-sheet-close"));
+    expect(screen.queryByTestId("call-sheet")).toBeNull();
     // An escalation is read from its own screen: no Later, its button opens it.
     const esc = screen.getByTestId(`call-${T2}`);
-    expect(within(esc).queryByTestId("call-later")).toBeNull();
     expect(within(esc).getByTestId("call-act")).toHaveTextContent("Open");
+    await userEvent.click(within(esc).getByTestId("call-open"));
+    expect(within(await screen.findByTestId("call-sheet")).queryByTestId("call-later")).toBeNull();
+    await userEvent.keyboard("{Escape}");
     // The sidebar: Your call with its count, and Work's places.
     expect(await screen.findByTestId("ops-nav-call")).toHaveTextContent("2");
     expect(screen.getByTestId("ops-nav-sales")).toHaveAttribute("href", "/ops/sales");
@@ -203,15 +226,79 @@ describe("Your call", () => {
     await userEvent.click(screen.getByTestId("work-filter-other"));
     expect(screen.queryByTestId(`call-${T1}`)).toBeNull();
     expect(screen.getByTestId(`call-${T2}`)).toBeInTheDocument();
-    await userEvent.type(screen.getByRole("textbox", { name: "Search" }), "nothing like it");
-    expect(screen.getByText("Nothing matches.")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Clear the filters" }));
+    // Sales has none of yours: the empty state says so, where the work is, and shows all again.
+    await userEvent.click(screen.getByTestId("work-filter-sales"));
+    const none = screen.getByTestId("call-nomatch");
+    expect(none).toHaveTextContent("No deals need you");
+    expect(none).toHaveTextContent("Reggie is on 1 thing, and 0 wait on clients.");
+    await userEvent.click(within(none).getByTestId("call-show-all"));
     expect(screen.getByTestId(`call-${T1}`)).toBeInTheDocument();
+    expect(screen.getByTestId(`call-${T2}`)).toBeInTheDocument();
+    await userEvent.type(screen.getByRole("textbox", { name: "Search" }), "nothing like it");
+    expect(screen.getByTestId("call-nomatch")).toHaveTextContent(
+      "Nothing of yours matches “nothing like it”",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Show all 2" }));
+    expect(screen.getByTestId(`call-${T1}`)).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Search" })).toHaveValue("");
+  });
+
+  it("says you're clear when nothing needs you", async () => {
+    setup({ empty: true });
+    const empty = await screen.findByTestId("call-empty");
+    expect(empty).toHaveTextContent("You're clear");
+    expect(empty).toHaveTextContent("Reggie is on 1 thing.");
+    await userEvent.click(within(empty).getByTestId("call-see-reggie"));
+    expect(await screen.findByTestId("call-reggie")).toHaveTextContent(
+      "Chase Alder's requirements",
+    );
+  });
+
+  it("J and K move between cards, O and Enter open the sheet, E edits, S does it", async () => {
+    const s = setup();
+    await screen.findByTestId(`call-${T1}`);
+    expect(screen.getByTestId(`call-${T1}`)).toHaveAttribute("data-focus", "true");
+    await userEvent.keyboard("j");
+    expect(screen.getByTestId(`call-${T2}`)).toHaveAttribute("data-focus", "true");
+    expect(screen.getByTestId(`call-${T1}`)).not.toHaveAttribute("data-focus");
+    await userEvent.keyboard("k");
+    expect(screen.getByTestId(`call-${T1}`)).toHaveAttribute("data-focus", "true");
+    await userEvent.keyboard("o");
+    let sheet = await screen.findByTestId("call-sheet");
+    expect(sheet).toHaveTextContent("Ferguson bills");
+    // J in the sheet: the sheet follows.
+    await userEvent.keyboard("j");
+    expect(await screen.findByTestId("call-sheet")).toHaveTextContent(
+      "An invoice we couldn't read",
+    );
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByTestId("call-sheet")).toBeNull();
+    // Enter on the focused card opens it.
+    await userEvent.keyboard("k");
+    await userEvent.keyboard("{Enter}");
+    sheet = await screen.findByTestId("call-sheet");
+    expect(sheet).toHaveTextContent("Ferguson bills");
+    await userEvent.keyboard("{Escape}");
+    // E opens the sheet with the draft to edit.
+    await userEvent.keyboard("e");
+    sheet = await screen.findByTestId("call-sheet");
+    expect(within(sheet).getByTestId("call-draft-edit")).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    // S does it from the list: the card waits five seconds with Undo.
+    await userEvent.keyboard("s");
+    expect(within(screen.getByTestId(`call-${T1}`)).getByRole("status")).toHaveTextContent(
+      "Sending in 5 seconds.",
+    );
+    await userEvent.click(
+      within(screen.getByTestId(`call-${T1}`)).getByRole("button", { name: "Undo" }),
+    );
+    expect(s.acted).toEqual([]);
   });
 
   it("waits five seconds before a draft goes, sends the edited words, and Undo stops it", async () => {
     const s = setup();
-    const card = await screen.findByTestId(`call-${T1}`);
+    await userEvent.click(within(await screen.findByTestId(`call-${T1}`)).getByTestId("call-open"));
+    const card = await screen.findByTestId("call-sheet");
     await userEvent.click(within(card).getByRole("button", { name: "Edit" }));
     const box = within(card).getByTestId("call-draft-edit");
     await userEvent.clear(box);
@@ -231,13 +318,17 @@ describe("Your call", () => {
       vi.advanceTimersByTime(5100);
     });
     await waitFor(() => expect(s.acted).toEqual([{ draftText: "Hi Dana, we're on it." }]));
+    // Done with it: the sheet closes.
+    await waitFor(() => expect(screen.queryByTestId("call-sheet")).toBeNull());
     expect(await screen.findByTestId("call-toast")).toHaveTextContent("Sent.");
   });
 
   it("Later snoozes a to-do", async () => {
     const s = setup();
-    const card = await screen.findByTestId(`call-${T1}`);
-    await userEvent.click(within(card).getByTestId("call-later"));
+    await userEvent.click(within(await screen.findByTestId(`call-${T1}`)).getByTestId("call-open"));
+    await userEvent.click(
+      within(await screen.findByTestId("call-sheet")).getByTestId("call-later"),
+    );
     await waitFor(() => expect(s.snoozed).toEqual([T1]));
   });
 
