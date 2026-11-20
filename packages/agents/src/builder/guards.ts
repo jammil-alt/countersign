@@ -179,10 +179,34 @@ function stepsOf(bundle: ProcessAgentBundle): Map<string, Step> {
   return out;
 }
 
-/** The same step in the operator's version: same id, same kind, and a read or write's same tool. */
+/**
+ * The same step in the operator's version: same id and kind, and it still does the same thing: a
+ * read's or write's tool, a write's action and connector (`via`), a skill step's skill (by id) and
+ * the agent that runs it, a process step's process. A loosening set on a step is for what that
+ * step did then (invariant 8): when the model keeps the id but changes what it does, it is a
+ * different step and its approval starts on again.
+ */
+// DECISION (AI-1): a skill step compares its skill by id, not by pinned version, as a revision may
+// keep a pin (`normalRef`); a process step compares its whole `slug@version` ref, since its
+// `approvals` overrides name the inner steps of that version.
 function sameStep(was: Step | undefined, s: Step): Step | undefined {
   if (!was || was.kind !== s.kind) return undefined;
-  if ((s.kind === "write" || s.kind === "read") && "tool" in was && was.tool !== s.tool) {
+  if (s.kind === "read" && was.kind === "read" && was.tool !== s.tool) return undefined;
+  if (
+    s.kind === "write" &&
+    was.kind === "write" &&
+    (was.tool !== s.tool || was.action !== s.action || was.via !== s.via)
+  ) {
+    return undefined;
+  }
+  if (
+    s.kind === "skill" &&
+    was.kind === "skill" &&
+    (parseSkillRef(was.skill).id !== parseSkillRef(s.skill).id || was.agent !== s.agent)
+  ) {
+    return undefined;
+  }
+  if (s.kind === "process" && was.kind === "process" && was.process !== s.process) {
     return undefined;
   }
   return was;
@@ -446,12 +470,15 @@ export function guardBundle(
     ),
   };
   const before = operatorSource ? stepsOf(operatorSource) : new Map<string, Step>();
+  const revised = source ? stepsOf(source) : new Map<string, Step>();
   let turnedOn = 0;
   bundle = mapBundleSteps(bundle, (s) => {
     const was = sameStep(before.get(s.id), s);
     let next = s;
-    // A new step that changes a client's tool or reaches people starts with approval on.
-    if (!keep.has(s.id) && next.checks?.approval === undefined) {
+    // A new step that changes a client's tool or reaches people starts with approval on; so does
+    // a kept id the model made do something else (a read turned into a write, another action).
+    const fresh = !keep.has(s.id) || sameStep(revised.get(s.id), s) === undefined;
+    if (fresh && next.checks?.approval === undefined) {
       const writes = processes.stepWrites(next, typing);
       const reaches =
         next.kind === "skill" &&
