@@ -14,6 +14,7 @@ import {
   MODEL_PROVIDER_NAMES,
   modelProvider,
   routes,
+  type ServiceDetail,
   type ServiceNow,
   toNumeric,
   USAGE_DAILY_MAX_DAYS,
@@ -33,6 +34,7 @@ import {
   externalAction,
   inboxItem,
   modelCall,
+  narrowToTenant,
   run,
   stepRun,
   type Tx,
@@ -57,7 +59,7 @@ import {
 } from "drizzle-orm";
 import type { Hono } from "hono";
 import { ensureSeesAgent } from "../assigned";
-import { type AppEnv, HttpError, mount, notFound } from "../http";
+import { type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
 import {
   agentKpisNow,
   clientViewSql,
@@ -1087,59 +1089,94 @@ export function usageRouteHandlers(app: Hono<AppEnv>): void {
   });
 
   mount(app, routes.portalService, async ({ tx, tenantIds, params, services, session, agents }) => {
-    const tenantId = tenantIds[0] as string;
     // §1.122: an agent off a limited client user's list is "not found", as another client's.
     ensureSeesAgent(agents, params.id);
-    // audit-plan 6.6: the agent with what it is doing now and one projection of its live bundle
-    // (its client view and whether it reads documents), never the whole bundle; then the rest
-    // asked together.
-    const [[row], t] = await Promise.all([
-      agentsNow(tx, tenantId, { service: params.id }),
-      tenantRow(tx, tenantId),
-    ]);
-    if (!row) throw notFound("service");
-    if (!t) throw notFound("client");
-    const a = row.agent;
-    const timezone = t.timezone;
-    const now = new Date();
-    const to = todayIn(timezone, now);
-    const from = monthStart(to);
-    const view = row.view;
-    const [report, recentRuns, kpis] = await Promise.all([
-      activity(tx, services.platform, { tenantId, timezone, from, to, service: a.id }),
-      runSummaries(tx, tenantId, [eq(run.agentId, a.id)], 10, services.platform),
-      view && view.kpis.length > 0
-        ? agentKpisNow(tx, a, view, { locale: readerLocale(t, session.user.id), timezone, now })
-        : Promise.resolve([]),
-    ]);
-    const mine = report.services.find((s) => s.id === a.id);
-    // UI cleanup: the template's slug (a name, never its bundle) keys the page's own view.
-    // DECISION: it is the slug the client agent carries: a fork takes its template's slug unless
-    // the operator names another (opsFork), and template rows are not readable under the client's
-    // RLS (tenant_id null is the operator's alone), so no lookup of the template row is made.
-    const template = a.templateId ? a.slug : null;
-    return {
-      service: {
-        id: a.id,
-        name: serviceName(a),
-        description: clientDescription(a),
-        status: a.runStatus ?? "draft",
-      },
-      thisMonth: {
-        from,
-        to,
-        runs: mine?.runs ?? noRuns(),
-        documentsRead: mine?.documentsRead ?? 0,
-        actions: mine?.actions ?? 0,
-      },
-      recentRuns,
-      packs: report.packs,
-      template,
-      readsDocuments: row.readsDocuments,
-      stage: a.stage,
-      now: serviceNow(row),
-      runsNow: row.runsNow,
-      kpis,
-    };
+    return serviceDetail(tx, services.platform, {
+      tenantId: tenantIds[0] as string,
+      serviceId: params.id,
+      readerId: session.user.id,
+    });
   });
+
+  // §1.163 (owner, 2026-11-20): what the client sees for one of its agents, opened in the back
+  // office. The portal's own answer, read with withTenant's scope for that one client.
+  // DECISION: the portal page's own function under narrowToTenant (the request already holds the
+  // one pooled connection, so no withTenant beside it), for a client the operator serves (another
+  // is "not found"). It only reads; its KPI labels are in the client's language (no reader), as
+  // the client's people see them unless one chose another.
+  mount(app, routes.opsClientAgentView, async (ctx) => {
+    ensureClient(ctx, ctx.params.id);
+    const { params, services } = ctx;
+    return narrowToTenant(ctx.tx, params.id, (tx) =>
+      serviceDetail(tx, services.platform, {
+        tenantId: params.id,
+        serviceId: params.agentId,
+        readerId: null,
+      }),
+    );
+  });
+}
+
+/**
+ * One service as the client's portal shows it (`portalService`): what it does, this month's
+ * activity, its recent runs, what it is doing now and its KPIs; never its bundle, instructions,
+ * prompts or cost (invariant 11). `tx` sees exactly the one client.
+ */
+export async function serviceDetail(
+  tx: Tx,
+  platform: Platform,
+  input: { tenantId: string; serviceId: string; readerId: string | null },
+): Promise<ServiceDetail> {
+  const { tenantId } = input;
+  // audit-plan 6.6: the agent with what it is doing now and one projection of its live bundle
+  // (its client view and whether it reads documents), never the whole bundle; then the rest
+  // asked together.
+  const [[row], t] = await Promise.all([
+    agentsNow(tx, tenantId, { service: input.serviceId }),
+    tenantRow(tx, tenantId),
+  ]);
+  if (!row) throw notFound("service");
+  if (!t) throw notFound("client");
+  const a = row.agent;
+  const timezone = t.timezone;
+  const now = new Date();
+  const to = todayIn(timezone, now);
+  const from = monthStart(to);
+  const view = row.view;
+  const [report, recentRuns, kpis] = await Promise.all([
+    activity(tx, platform, { tenantId, timezone, from, to, service: a.id }),
+    runSummaries(tx, tenantId, [eq(run.agentId, a.id)], 10, platform),
+    view && view.kpis.length > 0
+      ? agentKpisNow(tx, a, view, { locale: readerLocale(t, input.readerId), timezone, now })
+      : Promise.resolve([]),
+  ]);
+  const mine = report.services.find((s) => s.id === a.id);
+  // UI cleanup: the template's slug (a name, never its bundle) keys the page's own view.
+  // DECISION: it is the slug the client agent carries: a fork takes its template's slug unless
+  // the operator names another (opsFork), and template rows are not readable under the client's
+  // RLS (tenant_id null is the operator's alone), so no lookup of the template row is made.
+  const template = a.templateId ? a.slug : null;
+  return {
+    service: {
+      id: a.id,
+      name: serviceName(a),
+      description: clientDescription(a),
+      status: a.runStatus ?? "draft",
+    },
+    thisMonth: {
+      from,
+      to,
+      runs: mine?.runs ?? noRuns(),
+      documentsRead: mine?.documentsRead ?? 0,
+      actions: mine?.actions ?? 0,
+    },
+    recentRuns,
+    packs: report.packs,
+    template,
+    readsDocuments: row.readsDocuments,
+    stage: a.stage,
+    now: serviceNow(row),
+    runsNow: row.runsNow,
+    kpis,
+  };
 }

@@ -6135,6 +6135,21 @@ Connectors. The sidebar's Packs (the operator's library of packs) is unchanged.
 | The tab | Each area: its name, On or Switch on, a row per need (the connector, what it's for, a status chip: Connected, Needs reconnecting, Not connected, and §1.161's flags) with Open in Connectors (that connector's own page on Setup's Connectors) and, for a connector not yet recommended to the client, Recommend; then its reports and Materials' Import bill prices. // DECISION |
 | Old addresses | `…/packs` redirects to `…/areas` (query and hash kept). Areas' reports keep their `…/reports/<pack>/…` addresses under the tab. The report pages' "area is off" notice opens Areas. // DECISION |
 
+### 1.163 The client page's agents, and what the client sees of each (owner, 2026-11-20; no migration)
+
+The owner on `/ops/clients/:id`: "There is nowhere to see the client's agents and their status
+… and the ability to click into the agent and see where it is. It should take us to the agent UI
+that the client sees." Approved: an Agents section at the top of the client's Overview, and a
+read-only copy of the portal's agent page inside the back office.
+
+| Topic | Decision |
+|---|---|
+| The Overview's agents | The existing go-live rows move to the top of the Overview, above the client's work, as its Agents section. Each row: its status in words (Paused, Retired, Not started, In trial, Waiting on the client's sign-off, Running; the bench reads Not started, its bar and note say more), its last run (when, outcome) and runs in 7 days, its next scheduled run, what waits for approval (gold, with words), its 14 days, and "What the client sees". // DECISION |
+| The next scheduled run | `OpsAgentActivity.nextRunAt` (optional, so older answers parse) on `GET /api/ops/clients/:id`: the cron's own reading (`nextSchedules` in `packages/workflows`, beside `dueSchedules`): runnable agents only, each trigger in its own zone or the client's, a skipped holiday skipped, within 8 days; none for an agent someone paused. Read from the live bundles `goLiveViews` already reads, so the page's statement count is unchanged. // DECISION |
+| What the client sees | `/ops/clients/:clientId/agents/:slug/client-view`, its own page (not an agent-lab tab), reached from each started agent's row on the Overview and its card on the Agents tab; a draft or a test copy has no link, since the portal doesn't show it (the page says so if opened). A slate banner names the client ("What Harbor Millwork sees"), says it is read only, and links to the agent lab. // DECISION |
+| Its answer | `GET /api/ops/clients/:id/agents/:agentId/client-view` (`opsClientAgentView`): operator-only, and its response is the portal's `ServiceDetail` schema object itself, from the portal route's own function (`serviceDetail`) under `narrowToTenant` (withTenant's scope for that one client, inside the request's transaction), through `mount()` for the audit row. A client the operator doesn't serve, or another client's agent, is not found. KPI labels are in the client's language (no reader). Contract tests pin the shared schema and its lack of forbidden fields. // DECISION |
+| What it draws | The portal page's Overview drawn with the portal's own parts, moved to `portal/screens/agentParts.tsx` (its state chip, this month's figures, its run rows): the header, this month's figures, its recent runs, and on the rail how many runs wait on the client. No Pause, Run now, inbox items, upload or form; no link into the portal (figures are not links, runs open the back office's run page). The portal's other tabs (Runs, Manual, Settings) and its pack views are not copied: each asks portal routes of its own. // DECISION |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

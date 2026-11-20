@@ -1,6 +1,7 @@
-// The client page's Overview tab (`/ops/clients/:clientId`): the client at a glance, short. What
-// waits on us (only when something does), each agent with its go-live stage and a link to the
-// client's runs, the client's health (its supervisor and what it found), and on the rail its
+// The client page's Overview tab (`/ops/clients/:clientId`): the client at a glance, short. First
+// its agents (§1.163): each one's status in words, go-live stage, last and next run, what waits
+// on someone, and what the client sees of it; then the client's work, what waits on us (only when
+// something does), the client's health (its supervisor and what it found), and on the rail its
 // Mezonas lead (set here) and its threads with what is unread for you. Billing is in Settings.
 import type { AgentStage, GoLive, OpsAgentActivity } from "@countersign/core";
 import { useState } from "react";
@@ -24,6 +25,7 @@ import { runsLink } from "../run/links";
 import { plural, RUN_STATUS_WORDS } from "../run/words";
 import type { AgentLinkState } from "../screens/AgentPage";
 import { ClientHealthSection } from "../screens/ClientHealth";
+import { ClientViewLink } from "./ClientAgentView";
 import { ClientFrame, clientPagePath, type OpsClient, useClientPage } from "./ClientFrame";
 import { ClientWork } from "./ClientWork";
 
@@ -56,6 +58,9 @@ function Overview({ clientId }: { clientId: string }) {
 
   return (
     <>
+      {/* §1.163 (owner, 2026-11-20): the client's agents first, each with where it is and what
+          the client sees of it. */}
+      <AgentStages clientId={clientId} agents={agents} activity={data.activity} />
       {/* §1.124.3: the client's figures, Sales and Build work, activity and to-dos. */}
       <ClientWork clientId={clientId} clientName={data.client.name} />
       <PageGrid rail={<Rail clientId={clientId} data={data} threads={threads} />}>
@@ -85,7 +90,6 @@ function Overview({ clientId }: { clientId: string }) {
           </Section>
         ) : null}
 
-        <AgentStages clientId={clientId} agents={agents} activity={data.activity} />
         <ClientHealthSection clientId={clientId} onChanged={client.reload} />
       </PageGrid>
     </>
@@ -93,9 +97,10 @@ function Overview({ clientId }: { clientId: string }) {
 }
 
 /**
- * Each client agent on its way live (bench, trial, sign-off, live) with its work at a glance (runs
- * in 7 days and each day, its last run, what waits for approval), and the client's runs. How many
- * are live is in the header's line, not repeated here.
+ * The client's agents, a dashboard (§1.163): each one's status in words, its way live (bench,
+ * trial, sign-off, live), its work at a glance (runs in 7 days and each day, its last run, its next
+ * scheduled run, what waits for approval), and a link to what the client sees of it; and the
+ * client's runs. How many are live is in the header's line, not repeated here.
  */
 function AgentStages({
   clientId,
@@ -145,18 +150,34 @@ function AgentStages({
   );
 }
 
-function stageChip(g: GoLive): { state: ChipState; words: string } {
-  if (g.pause) return { state: "paused", words: "Paused" };
+/**
+ * An agent's status in words (§1.163): Paused (by the client or us, or switched off), Retired,
+ * Not started (a draft, or on the bench), In trial, Waiting on the client's sign-off, Running.
+ */
+// DECISION (§1.163): one chip says where the agent is, in the owner's words; the bench reads as
+// "Not started" (it makes test runs only), and the stage's bar and note beside it say more.
+export function agentStatus(
+  g: GoLive,
+  runStatus: string | null,
+): { state: ChipState; words: string } {
+  if (g.pause || runStatus === "paused") return { state: "paused", words: "Paused" };
+  if (runStatus === "retired") return { state: "idle", words: "Retired" };
+  if (runStatus === "draft" || runStatus === null) return { state: "setup", words: "Not started" };
   switch (g.stage) {
     case "live":
-      return { state: "done", words: "Live" };
+      return { state: "running", words: "Running" };
     case "signoff":
       return { state: "waiting", words: "Waiting on the client's sign-off" };
     case "trial":
-      return { state: "running", words: "Trial" };
+      return { state: "running", words: "In trial" };
     default:
-      return { state: "setup", words: "Bench" };
+      return { state: "setup", words: "Not started" };
   }
+}
+
+/** "Next run Nov 21, 9:00 AM", or null when no schedule starts it in the next 8 days. */
+export function nextRunLine(a: OpsAgentActivity): string | null {
+  return a.nextRunAt ? `Next run ${shortTime(a.nextRunAt)}` : null;
 }
 
 /** "Day 3 of 14 · 12 of 20 runs", "Asked Nov 4", "Paused by the client: …". */
@@ -222,7 +243,8 @@ function StageRow({
   const g = state.data?.goLive;
   const stage = g?.stage ?? "bench";
   const step = STAGES.indexOf(stage) + 1;
-  const chip = g ? stageChip(g) : null;
+  const chip = g ? agentStatus(g, agent.runStatus) : null;
+  const next = activity ? nextRunLine(activity) : null;
   const note = g ? stageNote(g) : null;
   const tone = stageTone(g, activity);
   const days = activity?.perDay;
@@ -268,6 +290,7 @@ function StageRow({
             data-testid={`ops-client-activity-${agent.slug}`}
           >
             <span>{activityLine(activity)}</span>
+            {next ? <span data-testid={`ops-client-next-run-${agent.slug}`}>{next}</span> : null}
             {activity.waitingRuns > 0 ? (
               <Link
                 to={runsLink({ statuses: ["waiting"], mode: "live", agents: [agent.id] })}
@@ -282,7 +305,11 @@ function StageRow({
         ) : null}
       </span>
       <span className="ui-activity__end flex-col items-end gap-2">
-        {chip ? <StatusChip state={chip.state}>{chip.words}</StatusChip> : null}
+        {chip ? (
+          <StatusChip state={chip.state} testId={`ops-client-status-${agent.slug}`}>
+            {chip.words}
+          </StatusChip>
+        ) : null}
         {hasRuns(days) ? (
           <Sparkline
             days={days}
@@ -290,6 +317,7 @@ function StageRow({
             testId={`ops-client-spark-${agent.slug}`}
           />
         ) : null}
+        <ClientViewLink clientId={clientId} agent={agent} />
       </span>
     </div>
   );

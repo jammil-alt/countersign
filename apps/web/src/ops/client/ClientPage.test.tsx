@@ -69,6 +69,8 @@ const ACTIVITY = [
       waiting: true,
     },
     perDay: Array.from({ length: 14 }, (_, i) => ({ runs: i % 3, failed: 0 })),
+    // A day that is never today, so the line always names it.
+    nextRunAt: "2026-01-15T15:00:00.000Z",
   },
   {
     agentId: "00000000-0000-4000-8000-00000000b002",
@@ -277,8 +279,28 @@ describe("the client page", () => {
     );
     expect(trial).toHaveAttribute("data-tone", "signal");
     expect(within(trial).getByTestId("ops-client-spark-material-costs")).toBeInTheDocument();
+    // §1.163: its status in words, its next scheduled run, and what the client sees of it.
+    expect(within(trial).getByTestId("ops-client-status-material-costs")).toHaveTextContent(
+      "In trial",
+    );
+    expect(within(trial).getByTestId("ops-client-next-run-material-costs")).toHaveTextContent(
+      /^Next run Jan 15, .+(AM|PM)$/,
+    );
+    expect(within(trial).getByTestId("ops-client-view-link-material-costs")).toHaveAttribute(
+      "href",
+      `/ops/clients/${CLIENT}/agents/material-costs/client-view`,
+    );
+    // The agents come first on the page, before the client's work and what waits on us.
+    const agentsFirst = screen.getByTestId("ops-client-go-live");
+    expect(
+      agentsFirst.compareDocumentPosition(screen.getByTestId("ops-client-waiting")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     const bench = screen.getByTestId("ops-client-stage-collections");
-    expect(await within(bench).findByText("Bench")).toBeInTheDocument();
+    expect(await within(bench).findByText("Not started")).toBeInTheDocument();
+    // Not started: the client's portal doesn't show it, so there is nothing to see as them.
+    expect(within(bench).queryByTestId("ops-client-view-link-collections")).toBeNull();
+    expect(within(bench).queryByTestId("ops-client-next-run-collections")).toBeNull();
     // No live version yet: it says so, rather than "goes straight to live" (fix 2).
     expect(await within(bench).findByTestId("ops-client-stage-note")).toHaveTextContent(
       "No live version yet · test runs only",
@@ -344,6 +366,12 @@ describe("the client page", () => {
       `/ops/clients/${CLIENT}/agents/material-costs`,
     );
     expect(within(list).getByTestId("ops-agent-card-collections")).toHaveTextContent("Not started");
+    // §1.163: a started agent's card opens what the client sees of it; a draft's has none.
+    expect(within(live).getByTestId("ops-client-view-link-material-costs")).toHaveAttribute(
+      "href",
+      `/ops/clients/${CLIENT}/agents/material-costs/client-view`,
+    );
+    expect(within(list).queryByTestId("ops-client-view-link-collections")).toBeNull();
     // How many are live is said once, in the frame's line.
     expect(screen.getByTestId("ops-client-agents-section")).not.toHaveTextContent("not live yet");
     expect(screen.getByTestId("ops-client-new-agent")).toHaveAttribute(

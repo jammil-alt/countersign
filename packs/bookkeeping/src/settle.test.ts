@@ -172,7 +172,8 @@ describe.skipIf(!online)("settling (database, as cs_worker)", () => {
       from generate_series(1, 600) g`);
     const r = await b.inA((tx) => settle(tx, b.who));
     const ids = await Promise.all([1, 2, 3, 4, 5].map(async (i) => (await b.txn(`new-${i}`)).id));
-    expect(r.open.sort()).toEqual(ids.sort());
+    // Sorted copies: `ids` stays in date order (new-1 to new-5) for the second settle below.
+    expect([...r.open].sort()).toEqual([...ids].sort());
     expect(r.checked).toBe(5);
     // A skipped one becomes bookable once booking starts earlier.
     await action(b.A, "link-account", {

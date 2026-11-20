@@ -26,6 +26,9 @@ export const OPS_PATHS = {
     `/ops/clients/${clientId}/agents/${slug}/workflow`,
   agentTriggers: (clientId: string, slug: string) =>
     `/ops/clients/${clientId}/agents/${slug}/triggers`,
+  /** §1.163: what the client sees for the agent in their portal, read only. */
+  agentClientView: (clientId: string, slug: string) =>
+    `/ops/clients/${clientId}/agents/${slug}/client-view`,
   // R8: the Library holds the banks the operator builds from (./library/paths.ts has each bank's).
   library: "/ops/library",
   skills: "/ops/library/skills",

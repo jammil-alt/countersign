@@ -12,12 +12,7 @@
 //   it runs, how to reach it, what it may do in each of your tools (read-only; the client admin
 //   tightens on Accounts) and who it contacts (the client admin chooses).
 // Never the agent's bundle, instructions, prompts or cost (invariant 11).
-import {
-  connectorAccessRoutes,
-  type DayRuns,
-  type RunForm,
-  type ServiceControl,
-} from "@countersign/core";
+import { connectorAccessRoutes, type RunForm, type ServiceControl } from "@countersign/core";
 import { type FormEvent, lazy, type ReactNode, Suspense, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { type AgentViewKey, defaultReports, viewsFor } from "../../agents/views";
@@ -32,14 +27,10 @@ import { StatusFilter } from "../../inbox/StatusFilter";
 import { packReportPath } from "../../packs/registry";
 import { PortalPeopleList } from "../../people/PeoplePanel";
 import { shortTime } from "../../runs/format";
-import { subjectTitle } from "../../runs/subject";
 import { usePoll } from "../../runs/usePoll";
 import { useAssignedAgents, useSession } from "../../session/session";
 import { HeaderSwitcher } from "../../shell/HeaderSwitcher";
-import { ActivityRow } from "../../ui/activity";
 import { AgentBadge } from "../../ui/badges";
-import { cx } from "../../ui/cx";
-import { hasRuns, KpiStrip, Sparkline, StatTile } from "../../ui/figures";
 import { Field, Select, TextArea, TextInput } from "../../ui/forms";
 import { Loaded, Page, PageGrid, Section } from "../../ui/page";
 import {
@@ -62,15 +53,13 @@ import {
   SkeletonStats,
 } from "../../ui/skeleton";
 import { type ChipState, StatusChip } from "../../ui/status";
-import { periodLabel } from "../../usage/format";
 import { stageWord } from "../agentState";
 import { useKnownAgent, useRememberRuns } from "../known";
 import { PORTAL_PATHS } from "../paths";
-import { agentChip, runChip, runOpen } from "../status";
+import { agentChip, runOpen } from "../status";
+import { AgentFiguresStrip, RunRows } from "./agentParts";
 import { APPROVED, KIND_LABEL } from "./Home";
-import { runsNote } from "./Reports";
 import { TAB_WORDS as RUN_TAB_WORDS, TABS as RUN_TABS, type Tab as RunTab } from "./Runs";
-import { RunTimes } from "./runsParts";
 import { DropZone, Forwarding, RecentDocuments } from "./Upload";
 
 const RUN_POLL_MS = 5_000;
@@ -236,9 +225,7 @@ export function AgentScreen({ tab: asked = "overview" }: { tab?: AgentTab }) {
 }
 
 type Detail = ResponseOf<typeof apiRoutes.portalService>;
-type ViewKpi = ResponseOf<typeof apiRoutes.portalServiceView>["kpis"][number];
 type FormList = ResponseOf<typeof apiRoutes.portalRunForms>["forms"];
-type PortalRun = ResponseOf<typeof apiRoutes.portalRuns>["runs"][number];
 
 function useIsAdmin(): boolean {
   const session = useSession();
@@ -862,49 +849,6 @@ function RunStatusRow({
   );
 }
 
-/** Run rows: its title (what it is about), how long it took, and its state. */
-function RunRows({ runs, prefix }: { runs: PortalRun[]; prefix: string }) {
-  const i18n = useI18n();
-  const { t } = i18n;
-  return (
-    <>
-      {runs.map((r) => {
-        const chip = runChip(r, t);
-        const title = subjectTitle(r.subject, i18n);
-        return (
-          <ActivityRow
-            key={r.id}
-            testId={`${prefix}-${r.id}`}
-            to={`/runs/${r.id}`}
-            end={
-              <StatusChip state={chip.state} testId={`${prefix}-${r.id}-state`}>
-                {chip.label}
-              </StatusChip>
-            }
-          >
-            <span className="flex flex-col">
-              {title ? <span className="line-clamp-2">{title}</span> : null}
-              {/* DECISION: when it ran goes in this line, not a time column: times of different
-                  lengths ("1:56 PM", "Nov 10, 12:36 PM") left the titles out of line. A run still
-                  going says when it started; a finished one, when, then how long it took. */}
-              <span className={cx("first-letter:uppercase", title && "text-sm text-ink-muted")}>
-                {r.startedAt ? (
-                  <>
-                    {r.finishedAt ? `${shortTime(r.startedAt, undefined, i18n)} · ` : null}
-                    <RunTimes run={r} />
-                  </>
-                ) : (
-                  t("run.notStarted")
-                )}
-              </span>
-            </span>
-          </ActivityRow>
-        );
-      })}
-    </>
-  );
-}
-
 /**
  * What waits on you from this agent: your open inbox items it asked for, oldest due first. Each
  * opens in the Inbox, where it is approved or answered.
@@ -974,110 +918,7 @@ function ActionItems({ id, name }: { id: string; name: string | null }) {
   );
 }
 
-// ── This month's figures, and what it may do in your tools ───────────────────────────────────────
-
-/**
- * The agent's own figures first (the owner's v1 agent page): runs this month (with its last 14
- * days), changes to your tools, documents read and what waits on you, then its template's own
- * KPIs. Runs always show; a figure at 0 is left out. Each links to its list.
- */
-function AgentFiguresStrip({
-  id,
-  detail,
-  kpis: allKpis,
-  perDay,
-  waiting,
-}: {
-  id: string;
-  detail: Detail;
-  kpis: readonly ViewKpi[];
-  perDay: readonly DayRuns[] | undefined;
-  waiting: number;
-}) {
-  const i18n = useI18n();
-  const { t, fmt } = i18n;
-  const { thisMonth } = detail;
-  // The client view's KPIs: labels and values, never their definition.
-  const kpis = allKpis.filter((k) => k.display !== null);
-  const runs14 = (perDay ?? []).reduce((n, d) => n + d.runs, 0);
-  const reportPath = `${PORTAL_PATHS.reports}?service=${id}`;
-  return (
-    <Section
-      title={t("service.thisMonth")}
-      meta={periodLabel(thisMonth.from, thisMonth.to, i18n.intl)}
-      action={
-        <Link
-          to={reportPath}
-          className="text-sm text-link hover:underline"
-          data-testid="agent-full-report"
-        >
-          {t("agent.fullReport")}
-        </Link>
-      }
-      testId="agent-month"
-    >
-      <KpiStrip testId="agent-figures">
-        <StatTile
-          testId="portal-service-runs"
-          to={PORTAL_PATHS.agentRuns(id)}
-          label={t("reports.runs")}
-          value={fmt.number(thisMonth.runs.total)}
-          tone={
-            thisMonth.runs.failed > 0 ? "risk" : thisMonth.runs.succeeded > 0 ? "positive" : "slate"
-          }
-          mark={
-            hasRuns(perDay) ? (
-              <Sparkline
-                days={perDay}
-                label={t("kpi.runsDays", { count: runs14, days: perDay.length })}
-                testId="agent-runs-spark"
-              />
-            ) : undefined
-          }
-          note={
-            thisMonth.runs.total === 0 ? t("service.nothingRan") : runsNote(thisMonth.runs, i18n)
-          }
-        />
-        {thisMonth.actions > 0 ? (
-          <StatTile
-            testId="portal-service-actions"
-            to={reportPath}
-            label={t("reports.changes")}
-            value={fmt.number(thisMonth.actions)}
-            tone="slate"
-          />
-        ) : null}
-        {thisMonth.documentsRead > 0 ? (
-          <StatTile
-            testId="portal-service-documents"
-            to={PORTAL_PATHS.upload}
-            label={t("reports.documentsRead")}
-            value={fmt.number(thisMonth.documentsRead)}
-            tone="slate"
-          />
-        ) : null}
-        {waiting > 0 ? (
-          <StatTile
-            testId="agent-kpi-waiting"
-            to={PORTAL_PATHS.inbox}
-            label={t("home.kpi.waiting")}
-            value={fmt.number(waiting)}
-            tone="signal"
-            note={t("home.kpi.waitingNote")}
-          />
-        ) : null}
-        {kpis.map((k) => (
-          <StatTile
-            key={k.id}
-            testId={`agent-kpi-${k.id}`}
-            label={k.label}
-            value={k.display ?? ""}
-          />
-        ))}
-      </KpiStrip>
-    </Section>
-  );
-}
+// ── What it may do in your tools (its figures and run rows are in ./agentParts.tsx) ──────────────────
 
 /**
  * Connectors this agent uses (Connectors C5, docs/connectors-plan.md §3.3): each connector it is

@@ -622,6 +622,41 @@ export async function dueSchedules(input: DueSchedulesInput): Promise<RouteResul
   return { runs, problems };
 }
 
+/**
+ * docs/plan.md §1.163: when each agent's schedules next start a run, as `dueSchedules` would start
+ * them (runnable agents only, each trigger in its own zone or the client's, a skipped holiday
+ * skipped), within `horizonMs` after `from`. Agents with no tick in that window are left out.
+ */
+// DECISION: a window that widens (an hour, a day, then the horizon), so an every-minute cron reads
+// a few ticks, not a week of them; a cron that cannot be read is left out, as dueSchedules reports it.
+export function nextSchedules(
+  input: Omit<DueSchedulesInput, "to" | "maxPerTrigger"> & { horizonMs: number },
+): Map<string, Date> {
+  const out = new Map<string, Date>();
+  const windows = [3_600_000, 86_400_000, input.horizonMs].filter((ms) => ms <= input.horizonMs);
+  for (const agent of input.agents) {
+    if (!isRunnable(agent)) continue;
+    for (const { on } of triggersOf(agent, "schedule")) {
+      const tz = on.tz ?? input.timezones[agent.tenantId] ?? "UTC";
+      const own = input.holidays?.[agent.tenantId] ?? [];
+      for (const ms of windows) {
+        let ticks: Date[];
+        try {
+          ticks = ticksBetween(on.cron, tz, input.from, new Date(input.from.getTime() + ms));
+        } catch {
+          break;
+        }
+        const first = ticks.find((t) => !on.skipHolidays || !isDayOff(t, tz, own));
+        if (!first) continue;
+        const known = out.get(agent.id);
+        if (!known || first < known) out.set(agent.id, first);
+        break;
+      }
+    }
+  }
+  return out;
+}
+
 // A guard against expressions like "* * * * * *" over a long window.
 const MAX_TICKS = 10_000;
 
