@@ -248,7 +248,7 @@ describe("the client page", () => {
       `/ops/clients/${CLIENT}/areas`,
       `/ops/clients/${CLIENT}/file`,
       `/ops/clients/${CLIENT}/documents`,
-      `/ops/clients/${CLIENT}/messaging`,
+      `/ops/clients/${CLIENT}/connections`,
       `/ops/clients/${CLIENT}/settings`,
     ]);
     // The client's runs: the Runs page filtered to it, from the Overview.
@@ -448,7 +448,7 @@ describe("the client page's tabs and addresses", () => {
       within(pages)
         .getAllByRole("link")
         .map((l) => l.textContent),
-    ).toEqual(["Messaging", "Directory", "Knowledge"]);
+    ).toEqual(["Connectors", "Messaging", "Directory", "Knowledge"]);
     expect(within(pages).getByRole("link", { name: "Directory" })).toHaveAttribute(
       "aria-current",
       "page",
@@ -460,7 +460,7 @@ describe("the client page's tabs and addresses", () => {
 
   it.each([
     ["data", "ops-client-data-pages", "Documents"],
-    ["setup", "ops-client-setup-pages", "Messaging"],
+    ["setup", "ops-client-setup-pages", "Connectors"],
   ])("sends /%s to its first page", async (old, pagesId, first) => {
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,

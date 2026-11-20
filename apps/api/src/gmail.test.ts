@@ -289,14 +289,15 @@ describe.skipIf(!h)("Gmail, send only, through the API", () => {
         .from(connection)
         .where(and(eq(connection.tenantId, A()), eq(connection.connector, "gmail"))),
     ).toEqual([]);
-    // Another client's admin can't land this state.
+    // Another client's admin can't land this state. Connectors C4: Gmail is live for every client,
+    // so the state (bound to client A and this person) is what refuses it.
     expect(
       (
         await call(admin("b"), "POST", "/api/connections/gmail/callback", {
           params: { code, state },
         })
       ).status,
-    ).toBe(404);
+    ).toBe(400);
 
     const done = await call(user("a"), "POST", "/api/connections/gmail/callback", {
       params: { code, state },

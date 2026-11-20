@@ -6,6 +6,7 @@
 
 import {
   CALENDAR_TOOLS,
+  connectionDefaults,
   createGcalConnector,
   createOutlookCalendarConnector,
   generateEncryptionKey,
@@ -24,6 +25,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
   admin,
+  allowForAgent,
   createApiHarness,
   FakeWorkflowStep,
   forbiddenKeys,
@@ -123,11 +125,11 @@ describe.skipIf(!h)("Calendars through the API", () => {
     expect(done.status, JSON.stringify(done.json)).toBe(200);
     const id = j(done.json).connection.connection.id;
     const [row] = await H.t.db.select().from(connection).where(eq(connection.id, id));
-    expect(row?.permissions).toMatchObject({
-      create: "approval",
-      update: "approval",
-      delete: "off",
-    });
+    // Connectors C2 (docs/connectors-plan.md §5.1): creating an event asks first, updates off.
+    expect(row?.permissions).toEqual(
+      connectionDefaults(H.platform.connectors.get(connector)?.manifest),
+    );
+    expect(row?.permissions).toMatchObject({ create: "approval", delete: "off" });
     return { id, scope: redirect.searchParams.get("scope") };
   }
 
@@ -140,6 +142,8 @@ describe.skipIf(!h)("Calendars through the API", () => {
     expect(j(created.json).errors ?? []).toEqual([]);
     const id = j(created.json).agent.id;
     await call(OPERATOR, "PATCH", `/api/ops/agents/${id}/operation`, { bindings });
+    // Connectors C4: the client admin allows what the scheduler needs.
+    for (const c of Object.values(bindings)) await allowForAgent(H, admin("a"), c, id);
     const pub = await call(
       OPERATOR,
       "POST",

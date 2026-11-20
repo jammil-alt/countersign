@@ -1,5 +1,5 @@
 // Where each portal page lives, for the sidebar and links (the routes: ./routes.tsx). The sidebar
-// lists places (Home, Inbox, Runs, Accounts, Contacts); everything else is reached from the thing
+// lists places (Home, Inbox, Runs, Connectors, Contacts); everything else is reached from the thing
 // it belongs to: an agent, a run, Settings, or the search box (Sloan).
 export const PORTAL_PATHS = {
   home: "/",
@@ -16,9 +16,14 @@ export const PORTAL_PATHS = {
   agentManual: (serviceId: string) => `/agents/${serviceId}/manual`,
   // The Access tab became Agent settings (2026-11-11); `/agents/:id/access` lands here.
   agentSettings: (serviceId: string) => `/agents/${serviceId}/settings`,
-  accounts: "/accounts",
-  // The vault is the Accounts page's right rail.
-  vault: "/accounts#vault",
+  // Connectors C5 (docs/connectors-plan.md §3): the client's one place for their tools. Accounts
+  // and its vault rail retired; `/accounts` and `/accounts#vault` land here.
+  connectors: "/connectors",
+  // Website logins (the vault's rows) are under Built for you.
+  vault: "/connectors#vault",
+  // A connector's page; `?for=` picks the agent whose needs it marks.
+  connector: (connector: string, forAgent?: string | null) =>
+    `/connectors/${encodeURIComponent(connector)}${forAgent ? `?for=${encodeURIComponent(forAgent)}` : ""}`,
   contacts: "/contacts",
   // Organizations are a filter of the Contacts list; import is an action on it.
   organizations: "/contacts?show=organizations",

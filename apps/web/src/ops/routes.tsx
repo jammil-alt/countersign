@@ -53,6 +53,7 @@ import { ClientLayout } from "./client/ClientFrame";
 import { OpsClientLedgerScreen } from "./client/ClientLedger";
 import { ClientOverviewScreen } from "./client/ClientOverview";
 import { CommandCenterScreen } from "./command/CommandCenter";
+import { OpsClientConnectorScreen } from "./connectors/ClientConnector";
 import { LabScreen } from "./lab/LabScreen";
 // R8: the Library (docs/plan.md §1.86)
 import { ConditionsBank } from "./library/ConditionsBank";
@@ -72,6 +73,7 @@ import { ClientDirectoryRoute } from "./screens/ClientDirectory";
 import { ClientKnowledgeRoute } from "./screens/ClientKnowledge";
 import { ClientSettingsScreen } from "./screens/ClientSettings";
 import { ClientsScreen } from "./screens/Clients";
+import { OpsConnectionsScreen } from "./screens/Connections";
 import { OpsDocumentScreen, OpsDocumentsScreen } from "./screens/Documents";
 import { OpsFeedbackScreen } from "./screens/Feedback";
 import { OpsInboxScreen } from "./screens/Inbox";
@@ -161,8 +163,8 @@ export const opsRoutes = (
     <Route element={<ClientLayout />}>
       <Route path="clients/:clientId" element={<ClientOverviewScreen />} />
       <Route path="clients/:clientId/agents" element={<ClientAgentsScreen />} />
-      {/* §1.162: Areas, the client's business areas with their connections (was Packs, and
-          Setup's Connections), and the client's other connections; its reports below. */}
+      {/* §1.162: Areas, the client's business areas with the connections each needs (was
+          Packs); its reports below. The connections themselves are Setup's Connectors. */}
       <Route path="clients/:clientId/areas" element={<OpsClientAreasScreen />} />
       {/* §1.149: the client file. */}
       <Route path="clients/:clientId/file" element={<ClientFileScreen />} />
@@ -171,7 +173,13 @@ export const opsRoutes = (
       <Route path="clients/:clientId/records" element={<OpsRecordsScreen />} />
       {/* The client's chart of accounts, classes and locations, changed only with a signature */}
       <Route path="clients/:clientId/ledger" element={<OpsClientLedgerScreen />} />
-      {/* Setup: Messaging, Directory and Knowledge (Connections moved to Areas, §1.162) */}
+      {/* Setup: Connections, Messaging, Directory and Knowledge */}
+      <Route path="clients/:clientId/connections" element={<OpsConnectionsScreen />} />
+      {/* Connectors C6 (docs/connectors-plan.md §7.1): one connector of the client, edited. */}
+      <Route
+        path="clients/:clientId/connectors/:connector"
+        element={<OpsClientConnectorScreen />}
+      />
       <Route path="clients/:clientId/messaging" element={<OpsMessagingScreen />} />
       <Route path="clients/:clientId/directory" element={<ClientDirectoryRoute />} />
       <Route path="clients/:clientId/knowledge" element={<ClientKnowledgeRoute />} />
@@ -327,19 +335,13 @@ export const opsRoutes = (
       path="clients/:clientId/data"
       element={<Redirect to="/ops/clients/:clientId/documents" />}
     />
-    {/* DECISION (§1.162): `/setup` opens the Setup tab's first page, Messaging, now that
-        Connections left it. */}
     <Route
       path="clients/:clientId/setup"
-      element={<Redirect to="/ops/clients/:clientId/messaging" />}
+      element={<Redirect to="/ops/clients/:clientId/connections" />}
     />
-    {/* §1.162: the Packs tab and Setup's Connections are the Areas tab now. */}
+    {/* §1.162: the Packs tab is the Areas tab now. */}
     <Route
       path="clients/:clientId/packs"
-      element={<Redirect to="/ops/clients/:clientId/areas" />}
-    />
-    <Route
-      path="clients/:clientId/connections"
       element={<Redirect to="/ops/clients/:clientId/areas" />}
     />
     <Route

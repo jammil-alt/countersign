@@ -64,7 +64,7 @@ export function escalationAction(e: Escalation): { to: string; label: string } {
         label: "Open item",
       };
     case "connection":
-      return { to: `/ops/clients/${e.client.id}/areas`, label: "Open connections" };
+      return { to: `/ops/clients/${e.client.id}/connections`, label: "Open connections" };
     case "low_confidence":
       return { to: `/ops/clients/${e.client.id}/documents`, label: "Open documents" };
     default:

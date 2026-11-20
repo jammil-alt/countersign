@@ -1,8 +1,7 @@
 // `/ops/connections/:connector/callback`: where a tool's sign-in returns the operator who started it
-// from the Sandbox client's Areas tab (docs/plan.md §1.5, §1.162). Passes the provider's parameters
-// to the API once, which checks the signed state (the client, this operator, a back-office sign-in),
-// then goes to that client's Areas tab, where its connections are. A refusal stays on the page with
-// a way back.
+// from the Sandbox client's Connections page (docs/plan.md §1.5). Passes the provider's parameters to
+// the API once, which checks the signed state (the client, this operator, a back-office sign-in),
+// then goes to that client's Connections. A refusal stays on the page with a way back.
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
@@ -25,7 +24,7 @@ export function OpsOAuthCallbackScreen() {
     api
       .call(apiRoutes.opsSandboxAuthorizeCallback, { params: { connector }, body: { params } })
       .then(
-        (res) => navigate(`/ops/clients/${res.clientId}/areas`, { replace: true }),
+        (res) => navigate(`/ops/clients/${res.clientId}/connections`, { replace: true }),
         (e: unknown) => setError(e),
       );
   }, [api, connector, search, navigate]);

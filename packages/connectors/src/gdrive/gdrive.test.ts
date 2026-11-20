@@ -236,7 +236,11 @@ describe("drive.file.upload", () => {
     const { connector } = await setup();
     const matrix = connectionDefaults(connector.manifest);
     expect(matrix).toMatchObject({ read: "auto", create: "approval", delete: "off" });
-    expect(connector.manifest.defaultPermissions).toBeUndefined();
+    // It starts low risk (Connectors C2): this one write asks first, nothing else is on.
+    expect(connector.manifest.defaultPermissions).toMatchObject({
+      create: "approval",
+      update: "off",
+    });
     expect(DEFAULT_PERMISSIONS.create).toBe("approval");
     expect(
       decideToolCall({ sideEffect: "external", verb: "create", matrix, agentMode: "act" }),

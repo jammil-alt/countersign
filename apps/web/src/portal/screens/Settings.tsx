@@ -404,7 +404,7 @@ function WhoApproves() {
       </p>
       <p className="mt-1 text-sm text-ink-muted">
         {t("settings.approvals.howToChange")}{" "}
-        <Link to={PORTAL_PATHS.accounts} className="text-link hover:underline">
+        <Link to={PORTAL_PATHS.connectors} className="text-link hover:underline">
           {t("settings.approvals.accountsLink")}
         </Link>
       </p>

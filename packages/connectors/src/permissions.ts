@@ -2,8 +2,10 @@ import {
   type ConnectorManifest,
   DEFAULT_PERMISSIONS,
   deepEqual,
+  type EntityPermissions,
   effectiveLevel,
   entityProblems,
+  LOW_RISK_PERMISSIONS,
   levelFor,
   loosenedEntities,
   loosenedVerbs,
@@ -83,9 +85,81 @@ export function defaultAccessProblems(
   return problems;
 }
 
+// ── Connectors C2: the low-risk start (docs/connectors-plan.md §5.1) ────────────────────────────
+
+/**
+ * A write a new connection starts at Needs approval: a verb, on one of the connector's record
+ * types (and, optionally, narrowed to one of its scopes), or the whole verb for a connector that
+ * declares none. Only writes that are cheap to take back and expected on connecting: a note, an
+ * attachment, a message a person reads first.
+ */
+export interface AskFirstRow {
+  verb: "create" | "update";
+  entity?: string;
+  scope?: string;
+}
+
+/** Problems with a connector's `askFirst` rows against the record types it declares. */
+export function askFirstProblems(
+  rows: readonly AskFirstRow[],
+  declared: readonly PermissionEntity[] | undefined,
+): string[] {
+  const problems: string[] = [];
+  for (const r of rows) {
+    const where = `askFirst ${r.verb}${r.entity ? ` ${r.entity}` : ""}`;
+    if (!r.entity) {
+      if (declared && declared.length > 0) {
+        problems.push(`${where}: name a record type (the connector declares them)`);
+      }
+      continue;
+    }
+    const e = declared?.find((d) => d.id === r.entity);
+    if (!e) problems.push(`${where}: not a record type the connector declares`);
+    else if (!e.verbs.includes(r.verb)) problems.push(`${where}: ${r.entity} has no ${r.verb}`);
+    if (r.scope && !e?.scopes?.some((s) => s.id === r.scope && s.verb === r.verb)) {
+      problems.push(`${where}: no ${r.verb} scope ${r.scope}`);
+    }
+  }
+  return problems;
+}
+
+/**
+ * The matrix a new connection of a connector starts with (docs/connectors-plan.md §5.1): reads on,
+ * the `askFirst` writes at Needs approval, every other write off, delete off. Where a verb opens
+ * for a row, each other declared record type of that verb is pinned off, so only the rows open.
+ */
+export function lowRiskPermissions(
+  askFirst: readonly AskFirstRow[],
+  declared: readonly PermissionEntity[] | undefined,
+): PermissionMatrix {
+  const out: PermissionMatrix = { ...LOW_RISK_PERMISSIONS };
+  const entities: EntityPermissions = {};
+  const opened = new Set<Verb>();
+  for (const r of askFirst) {
+    out[r.verb] = "approval";
+    opened.add(r.verb);
+    if (r.scope && r.entity) {
+      entities[r.entity] = {
+        ...entities[r.entity],
+        scope: { ...entities[r.entity]?.scope, [r.verb]: r.scope },
+      };
+    }
+  }
+  for (const verb of opened) {
+    for (const e of declared ?? []) {
+      if (!e.verbs.includes(verb)) continue;
+      if (askFirst.some((r) => r.verb === verb && r.entity === e.id)) continue;
+      entities[e.id] = { ...entities[e.id], [verb]: "off" };
+    }
+  }
+  if (Object.keys(entities).length > 0) out.entities = entities;
+  return out;
+}
+
 /**
  * The matrix a new connection starts with: the operator's default access for the connector
- * (v0.12 W2-A, when set and valid), else the connector's defaults, else the platform's.
+ * (v0.12 W2-A, when set and valid), else the connector's defaults, else the low-risk start
+ * (Connectors C2: reads on, writes off).
  */
 export function connectionDefaults(
   manifest?: Pick<ConnectorManifest, "defaultPermissions" | "permissionEntities">,
@@ -99,7 +173,8 @@ export function connectionDefaults(
   }
   const problems = manifest ? manifestDefaultProblems(manifest) : [];
   if (problems.length > 0) throw new Error(problems.join("; "));
-  return normalizeMatrix(manifest?.defaultPermissions ?? DEFAULT_PERMISSIONS);
+  // Connectors C2 (docs/connectors-plan.md §5.1): a connector that says nothing starts low-risk.
+  return normalizeMatrix(manifest?.defaultPermissions ?? LOW_RISK_PERMISSIONS);
 }
 
 /** Who is changing the matrix. Operators set it; client admins may only tighten it. */

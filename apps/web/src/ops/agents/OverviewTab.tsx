@@ -11,6 +11,7 @@ import { Card, ErrorNotice, SectionLabel, StepKindTag, Tag } from "../../ui/prim
 import { Skeleton, SkeletonLine } from "../../ui/skeleton";
 import { StatusChip } from "../../ui/status";
 import { toolTitle } from "../builder/model";
+import { NeedsPanel } from "../connectors/AgentPanels";
 import { ClientViewCard, WhereItRuns } from "../lab/TemplateParts";
 import { runChip } from "../run/words";
 import type { RunLinkState } from "../screens/RunView";
@@ -74,6 +75,8 @@ export function OverviewTab({
             <p className="text-lg text-ink">{mission}</p>
           </Card>
         ) : null}
+        {/* Connectors C6: per connector, the record types and verbs it reads and changes. */}
+        {agent.testCopy ? null : <NeedsPanel agentId={agent.id} />}
         {agent.kind === "client" ? (
           <LatestRuns agentId={agent.id} workflowNames={workflowNames} />
         ) : (

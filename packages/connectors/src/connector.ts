@@ -19,7 +19,12 @@ import type { DesktopServices } from "./desktop/index";
 import type { Logger } from "./logger";
 import type { MessagingServices } from "./messaging/services";
 import type { TokenRefresher } from "./oauth/tokens";
-import { manifestDefaultProblems } from "./permissions";
+import {
+  type AskFirstRow,
+  askFirstProblems,
+  lowRiskPermissions,
+  manifestDefaultProblems,
+} from "./permissions";
 import type { EmailServices } from "./resend/index";
 import type { VoiceServices } from "./voice/services";
 
@@ -687,7 +692,15 @@ type ConnectorHooks = Omit<Connector, "manifest" | "tools">;
  * the starting matrix is no looser than the platform defaults.
  */
 export function defineConnector(
-  def: Omit<ConnectorManifest, "tools"> & { tools: ToolDefinition[] } & ConnectorHooks,
+  def: Omit<ConnectorManifest, "tools"> & {
+    tools: ToolDefinition[];
+    /**
+     * Connectors C2 (docs/connectors-plan.md §5.1): the writes a new connection starts at Needs
+     * approval; every other write starts off and reads on. It makes `defaultPermissions` (give
+     * one or the other). `[]`: reads only.
+     */
+    askFirst?: readonly AskFirstRow[];
+  } & ConnectorHooks,
 ): Connector {
   const {
     id,
@@ -696,7 +709,7 @@ export function defineConnector(
     icon,
     auth,
     entities,
-    defaultPermissions,
+    defaultPermissions: _declaredDefault,
     events,
     sharedNamespaces,
     credentialFields,
@@ -704,9 +717,19 @@ export function defineConnector(
     testOnly,
     multiple,
     tools,
+    askFirst,
     ...hooks
   } = def;
   const problems: string[] = [];
+  // Connectors C2: the low-risk start, from the writes that ask first.
+  if (askFirst !== undefined && def.defaultPermissions !== undefined) {
+    problems.push("give askFirst or defaultPermissions, not both");
+  }
+  if (askFirst !== undefined) problems.push(...askFirstProblems(askFirst, permissionEntities));
+  const defaultPermissions =
+    askFirst !== undefined
+      ? lowRiskPermissions(askFirst, permissionEntities)
+      : def.defaultPermissions;
   const specs: ToolSpec[] = tools.map((t) => ({
     ...t.spec,
     source: id,

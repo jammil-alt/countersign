@@ -1058,10 +1058,16 @@ Connections page at the right connector.
 `approval` or `off`, plus a scope the connector understands (e.g. "AP folder only", "bills, purchases,
 vendors, items, attachments"). For writes, the matrix is a **ceiling**: `approval` means every write
 waits for a person; `auto` means a step **may** be set to run without approval (each step still
-defaults to approval, §9.5); `off` means agents can't do it at all. Defaults when a tool is connected:
-read `auto`, create and update `approval`, delete `off` (v1 has no delete tools). The operator sets the
-matrix; the client admin sees it in the portal and can tighten it, never loosen it; every change is a
-`connection_change` row.
+defaults to approval, §9.5); `off` means agents can't do it at all. A new connection starts from the
+connector's reviewed **low-risk default** (Connectors C2: reads on, writes off except a few that ask
+first; delete `off`; v1 has no delete tools), plus an agent's needs when it is connected for one.
+**Who may change it** (Connectors C4, `docs/connectors-plan.md` §5.4, §7): the client admin may turn
+any read on or off and set any write between Off and Ask me first (`approval`); only we propose On
+its own (`auto`), which the client approves; the client may always lower it. We never loosen a
+client's connection by ourselves: anything of ours that gives agents more is a change request a
+client admin approves, unless the client authorized that kind of change on that connection in
+advance (Changes by Mezonas, never On its own). Tightening by us applies at once and the client is
+told. Our Sandbox client is ours to change directly. Every change is a `connection_change` row.
 
 **Permissions per record type (v0.12).** A connector manifest declares the record types it touches
 (`permissionEntities: [{id: 'bill', label, verbs: [read, create, update], scopes?: [{id: 'notes_only',
@@ -1074,7 +1080,8 @@ scope's tools; any other tool for that entity and verb is `off`. Grants gain the
 The effective level is the strictest of: the connection's verb, the connection's entity, the grant's
 verb, the grant's entity, the step's approval, the agent's mode and stage (§10.9), and, for a message
 to a person, that person's autonomy for the channel (`docs/plan.md` §1.42). Delete stays off for every
-entity. The client admin tightens per entity; only the operator loosens. A tool without an entity (or
+entity. The client admin sets each entity between Off and Ask me first, as for verbs (C4, above); we
+loosen only by an approved request or under the client's go-ahead. A tool without an entity (or
 a connector without `permissionEntities`) is governed by the verb alone, as before.
 
 **Connectors catalog (v0.12).** The operator's view of every registered connector: its status

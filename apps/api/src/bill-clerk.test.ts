@@ -39,6 +39,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
   admin,
+  allowForAgent,
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
@@ -330,6 +331,16 @@ describe.skipIf(!h)("the Bill clerk", () => {
       bindings: { qbo: connectionId },
     });
     expect(bound.status, JSON.stringify(bound.json)).toBe(200);
+    // Bound, but QuickBooks started low risk: its bill updates are off until the client allows.
+    const held = await H.call(
+      OPERATOR,
+      "POST",
+      `/api/ops/agents/${clerkId}/versions/${clerkVersion}/publish`,
+    );
+    expect(held.status).toBe(422);
+    expect(JSON.stringify(held.json)).toContain("entity_off");
+    // Connectors C4: the client admin allows what the clerk needs, asking first.
+    await allowForAgent(H, admin("a"), connectionId, clerkId);
     const pub = await H.call(
       OPERATOR,
       "POST",

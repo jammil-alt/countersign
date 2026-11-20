@@ -292,7 +292,7 @@ describe("command center", () => {
     const conn = screen.getByTestId("ops-needs-00000000-0000-4000-8000-00000000c001");
     expect(within(conn).getByRole("link", { name: "Open connections" })).toHaveAttribute(
       "href",
-      `/ops/clients/${OTHER}/areas`,
+      `/ops/clients/${OTHER}/connections`,
     );
 
     // Filtered by type, then by client: only what matches stays.

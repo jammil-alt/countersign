@@ -679,6 +679,8 @@ export function createExcelConnector(options: ExcelOptions = {}): ExcelConnector
 
   const connector = defineConnector({
     id: EXCEL_CONNECTOR_ID,
+    // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
+    askFirst: [{ verb: "create", entity: "row" }],
     name: "Excel",
     description:
       "Read and add rows in the Excel workbooks you pick in your OneDrive. We use only the workbooks you choose.",

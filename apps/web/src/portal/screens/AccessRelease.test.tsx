@@ -8,6 +8,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
+import { connectionPage, connectorCard, connectorPageView } from "../../test/connectors";
 import { CLIENT_SESSION, fakeApi } from "../../test/fixtures";
 
 const DEMO = CLIENT_SESSION.activeTenantId as string;
@@ -82,36 +83,19 @@ function vault(on: boolean) {
   };
 }
 
-/** QuickBooks as the Accounts page lists it: connected, so it has its own card. */
-const QBO_OFFER = {
-  connector: "qbo",
-  name: "QuickBooks",
-  description: "Bills, vendors and items in QuickBooks Online.",
-  icon: null,
-  available: true,
-  credentialForm: false,
-  personal: false,
-  connection: {
-    id: CONN,
-    status: "connected",
-    externalAccountId: null,
-    accountName: null,
-    lastSyncAt: null,
-    permissions: { read: "auto", create: "approval", update: "approval", delete: "off" },
-    access: [],
-    usedBy: [],
-    connectedByYou: false,
-  },
-};
+/** QuickBooks's page: connected, with its sign-in and each agent's access on request. */
+const QBO_PAGE = connectorPageView(
+  connectorCard({ connector: "qbo", name: "QuickBooks", group: "money" }),
+  [connectionPage({ id: CONN })],
+);
 
-/** Human release is in the tool's card on the Accounts page, open on request. */
+/** Human release is with the sign-in and each agent's access on QuickBooks's page, on request. */
 async function openQuickBooks() {
-  const card = await screen.findByTestId("portal-connection-qbo");
-  await userEvent.click(within(card).getByTestId("portal-connection-permissions-toggle"));
+  await userEvent.click(await screen.findByTestId("connection-details-toggle"));
 }
 
 function renderAt(path: string, api: ReturnType<typeof fakeApi>) {
-  api.on("GET /api/connections", () => ({ connections: [QBO_OFFER] }));
+  api.on("GET /api/portal/connectors/qbo", () => QBO_PAGE);
   return render(
     <MemoryRouter initialEntries={[path]}>
       <AppProviders client={api.client}>
@@ -138,7 +122,7 @@ describe("human release on the Access page", () => {
         return { item: vault(true) };
       },
     });
-    renderAt("/access", api);
+    renderAt("/connectors/qbo", api);
     await openQuickBooks();
     const section = await screen.findByTestId("release-section");
     expect(within(section).getByTestId("release-summary")).toHaveTextContent(
@@ -187,7 +171,7 @@ describe("human release on the Access page", () => {
         return { item: vault(false) };
       },
     });
-    renderAt("/access", api);
+    renderAt("/connectors/qbo", api);
     await openQuickBooks();
     const live = await screen.findByTestId(`release-live-${LIVE}`);
     expect(live).toHaveTextContent("Intake · released by Ana Ruiz");
@@ -207,7 +191,7 @@ describe("human release on the Access page", () => {
       "GET /api/overview": () => overview,
       "GET /api/access": () => ({ items: [vault(true)], setup: [], canEdit: false, people: [] }),
     });
-    renderAt("/access", api);
+    renderAt("/connectors/qbo", api);
     await openQuickBooks();
     const section = await screen.findByTestId("release-section");
     expect(section).toHaveTextContent("Ana Ruiz releases it with a code by text, for one run.");

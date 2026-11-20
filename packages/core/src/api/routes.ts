@@ -1387,7 +1387,8 @@ export const opsRoutes = {
     path: "/api/ops/connections/:id",
     auth: "session",
     roles: OPS,
-    summary: "Set a connection's permissions (the operator may loosen) or configuration",
+    summary:
+      "Set a connection's permissions or configuration: in a real client only tighter changes apply (409 send_for_approval otherwise: use POST /api/ops/clients/:id/connections/:connectionId/changes); the Sandbox's apply directly",
     params: IdParams,
     body: z.strictObject({
       permissions: MatrixEdit.optional(),

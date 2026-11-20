@@ -206,6 +206,12 @@ describe.skipIf(!h)("access: the vault, write-only secrets and grants", () => {
 
   it("the operator sets a grant up to the connection's matrix, logged", async () => {
     const path = `/api/ops/agents/${agentA}/grants/${acmeA}`;
+    // Connectors C2/C4: the connection started with writes off; the client admin turns creating
+    // on, asking first (their own change).
+    const own = await call(admin("a"), "PUT", `/api/portal/connections/${acmeA}/access`, {
+      permissions: { create: "approval" },
+    });
+    expect(own.status, JSON.stringify(own.json)).toBe(200);
     // The matrix has create at approval: auto is beyond it.
     const beyond = await call(OPERATOR, "PUT", path, { limits: { verbs: { create: "auto" } } });
     expect(beyond.status).toBe(422);

@@ -19,6 +19,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
   admin,
+  allowForAgent,
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
@@ -110,6 +111,8 @@ describe.skipIf(!h)("QuickBooks ingredients through the API", () => {
     mode: "act" | "suggest_only",
     /** Runs after the version is published, before the run starts. */
     published: () => Promise<unknown> = async () => {},
+    /** Connectors C4: the client admin allows what it needs before it is published. */
+    allow = true,
   ) {
     bundleCount += 1;
     const b = AgentBundle.parse({
@@ -149,6 +152,8 @@ describe.skipIf(!h)("QuickBooks ingredients through the API", () => {
       bindings: { qbo: connectionId },
     });
     expect(bound.status, JSON.stringify(bound.json)).toBe(200);
+    // Connectors C4: QuickBooks started low risk; the client admin allows what it needs.
+    if (allow) await allowForAgent(H, admin("a"), connectionId, id);
     const pub = await H.call(
       OPERATOR,
       "POST",
@@ -309,9 +314,10 @@ describe.skipIf(!h)("QuickBooks ingredients through the API", () => {
     expect(posts()).toBe(start + 2);
     const items = await H.t.db.select().from(inboxItem).where(eq(inboxItem.runId, off.runId));
     expect(items.filter((i) => i.kind === "external_action")).toEqual([]);
-    // And a new agent that orders can't be published on that connection now (W4-B's check).
+    // And a new agent that orders can't be published on that connection now (W4-B's check),
+    // unless the client allows it again.
     await expect(
-      makeAgent([step("PO-2005")], [QBO_TOOLS.purchaseOrderCreate], "act"),
+      makeAgent([step("PO-2005")], [QBO_TOOLS.purchaseOrderCreate], "act", undefined, false),
     ).rejects.toThrow(/entity_off/);
   });
 });

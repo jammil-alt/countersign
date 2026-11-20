@@ -80,7 +80,7 @@ export function pageResource(pathname: string): PageResource {
       return at("conversation", { to: "/sloan", label: "errorPage.back.sloan" });
     case "connections":
     case "accounts":
-      return at("connection", { to: "/accounts", label: "errorPage.back.accounts" });
+      return at("connection", { to: "/connectors", label: "errorPage.back.accounts" });
     default:
       return at("page", PORTAL_HOME);
   }

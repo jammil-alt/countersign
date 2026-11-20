@@ -8,6 +8,7 @@
 import { undoAction } from "@countersign/agents";
 import {
   BILLCOM_TOOLS,
+  connectionDefaults,
   createBillcomConnector,
   generateEncryptionKey,
 } from "@countersign/connectors";
@@ -34,6 +35,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import {
   type ApiHarness,
   admin,
+  allowForAgent,
   createApiHarness,
   FakeWorkflowStep,
   OPERATOR,
@@ -93,15 +95,16 @@ describe.skipIf(!h)("BILL through the API", () => {
       name: "BILL",
       available: true,
       permissionEntities: [{ id: "vendor" }, { id: "bill" }, { id: "payment" }, { id: "document" }],
-      defaultAccess: {
-        matrix: {
-          read: "auto",
-          create: "approval",
-          update: "approval",
-          delete: "off",
-          entities: { payment: { create: "off" } },
-        },
-      },
+      // Connectors C2 (docs/connectors-plan.md §5.1): the reviewed low-risk start, payments off.
+      defaultAccess: { matrix: connectionDefaults(H.platform.connectors.get("billcom")?.manifest) },
+    });
+    expect(billcom.defaultAccess.matrix).toMatchObject({
+      read: "auto",
+      delete: "off",
+      entities: expect.objectContaining({
+        payment: expect.objectContaining({ create: "off" }),
+        bill: expect.objectContaining({ create: "off" }),
+      }),
     });
     expect(billcom.tools.map((t: { id: string }) => t.id)).toEqual(
       expect.arrayContaining(Object.values(BILLCOM_TOOLS)),
@@ -139,12 +142,11 @@ describe.skipIf(!h)("BILL through the API", () => {
     ]);
     const [row] = await H.t.db.select().from(connection).where(eq(connection.id, connectionId));
     expect(row?.connectedBy).toBe(H.B.admin);
-    expect(row?.permissions).toMatchObject({
-      create: "approval",
-      update: "approval",
-      delete: "off",
-      entities: { payment: { create: "off" } },
-    });
+    // Connectors C2: it starts at the reviewed low-risk default, payments off.
+    expect(row?.permissions).toEqual(
+      connectionDefaults(H.platform.connectors.get("billcom")?.manifest),
+    );
+    expect(row?.permissions.entities?.payment?.create).toBe("off");
     const seen = JSON.stringify([
       res.json,
       row,
@@ -224,6 +226,8 @@ describe.skipIf(!h)("BILL through the API", () => {
       bindings: { billcom: connectionId },
     });
     expect(op.status, JSON.stringify(op.json)).toBe(200);
+    // Connectors C4: the client admin allows what the agent needs on BILL.
+    await allowForAgent(H, admin("b"), connectionId, id);
     const pub = await H.call(
       OPERATOR,
       "POST",
@@ -299,6 +303,15 @@ describe.skipIf(!h)("BILL through the API", () => {
       .get("billcom")
       ?.manifest.tools.find((t) => t.id === BILLCOM_TOOLS.billArchive);
     expect(tool?.approval).toBe("always");
+    // Connectors C2/C4: a BILL connection starts with updating bills off, and archiving a bill is
+    // an update, so the client admin turns it on (Ask me first) before the undo can archive it.
+    const allowArchive = await H.call(
+      admin("b"),
+      "PUT",
+      `/api/portal/connections/${connectionId}/access`,
+      { permissions: { update: "approval", entities: { bill: { update: "approval" } } } },
+    );
+    expect(allowArchive.status, JSON.stringify(allowArchive.json)).toBe(200);
     const runtime = runtimeFor(forClient(deps, H.B.tenantId));
     const out = await undoAction(runtime, {
       tenantId: H.B.tenantId,

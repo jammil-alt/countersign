@@ -304,6 +304,8 @@ export function createOnedriveConnector(options: OnedriveOptions = {}): Connecto
 
   return defineConnector({
     id: ONEDRIVE_CONNECTOR_ID,
+    // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
+    askFirst: [{ verb: "create", entity: "file" }],
     name: "OneDrive",
     description:
       "File documents in a Mezonas folder in your OneDrive. We can't see anything else in it.",

@@ -241,7 +241,9 @@ describe("default access for new clients", () => {
       entities: { customer: { read: "off" } },
     };
     expect(connectionDefaults(qbo, operator)).toEqual(operator);
-    expect(connectionDefaults(qbo, null)).toEqual(DEFAULT_PERMISSIONS);
+    // With none set, the connector's own low-risk start (Connectors C2).
+    expect(connectionDefaults(qbo, null)).toEqual(qbo.defaultPermissions);
+    expect(qbo.defaultPermissions).toMatchObject({ create: "approval", update: "approval" });
     // Never looser than the platform's defaults; entities the connector's own.
     expect(defaultAccessProblems(qbo, { ...DEFAULT_PERMISSIONS, create: "auto" })).toHaveLength(1);
     expect(
@@ -249,7 +251,7 @@ describe("default access for new clients", () => {
     ).toEqual(["truck is not one of this connector's record types"]);
     // A default that no longer fits is passed over for the connector's.
     expect(connectionDefaults(qbo, { ...DEFAULT_PERMISSIONS, create: "auto" })).toEqual(
-      DEFAULT_PERMISSIONS,
+      qbo.defaultPermissions,
     );
   });
 });

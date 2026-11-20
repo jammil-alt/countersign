@@ -327,6 +327,11 @@ export function createPodioConnector(options: PodioOptions = {}): Connector {
 
   return defineConnector({
     id: PODIO_CONNECTOR_ID,
+    // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
+    askFirst: [
+      { verb: "create", entity: "comment" },
+      { verb: "create", entity: "task" },
+    ],
     name: "Podio",
     description: "Your Podio workspaces, apps and items. You sign in to Podio yourself.",
     icon: "grid",

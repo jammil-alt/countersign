@@ -1037,7 +1037,7 @@ function NextStep({ run }: { run: RunDetail["run"] }) {
     <Card pad testId="ops-run-next">
       <p className="text-sm text-ink">{text}</p>
       <Link
-        to={`/ops/clients/${run.tenantId}/areas`}
+        to={`/ops/clients/${run.tenantId}/connections`}
         className="mt-2 inline-block text-sm text-link underline"
       >
         Open the client's connections

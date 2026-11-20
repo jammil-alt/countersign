@@ -1,5 +1,4 @@
-// The back office's connections for the Sandbox client (docs/plan.md §1.5), on the client page's
-// Areas tab since §1.162: the operator
+// The back office's Connections page for the Sandbox client (docs/plan.md §1.5): the operator
 // connects a no-sign-in tool, signs in to an offered OAuth tool with their own account (the API
 // answers where the provider's sign-in starts), sees "Not available yet" for one this deployment
 // can't sign in to, and no Connect at all in a real client.
@@ -8,17 +7,16 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
-import { fakeApi, OPERATOR_SESSION, Reply, SANDBOX_DETAIL } from "../../test/fixtures";
+import {
+  fakeApi as baseFakeApi,
+  OPERATOR_SESSION,
+  Reply,
+  SANDBOX_DETAIL,
+} from "../../test/fixtures";
 import { operatorBlurb } from "./Connections";
 
 const SANDBOX = "00000000-0000-4000-8000-00000000a001";
 const DEMO = "00000000-0000-4000-8000-00000000a002";
-
-/** No business areas, so every connection is one of the client's other connections. */
-const NO_AREAS = {
-  [`GET /api/ops/clients/${SANDBOX}/packs`]: () => ({ packs: [] }),
-  [`GET /api/ops/clients/${DEMO}/packs`]: () => ({ packs: [] }),
-};
 
 const connector = (id: string, name: string, auth: string, available: boolean) => ({
   id,
@@ -44,6 +42,92 @@ function connections(over: Record<string, unknown> = {}) {
     sandbox: true,
     ...over,
   };
+}
+
+type Routes = Parameters<typeof baseFakeApi>[0];
+type Handler = Routes[string];
+const OLD = /^GET \/api\/ops\/clients\/([^/]+)\/connections$/;
+
+/**
+ * Connectors C6: the tab reads its connectors from `/connectors`; these tests describe the older
+ * list, so the tab's answer is made from it (one card per connection, its account as the API
+ * names it, never the realm id).
+ */
+function tabOf(old: ReturnType<typeof connections>) {
+  const list = old.connections as {
+    id: string;
+    connector: string;
+    status: string;
+    externalAccountId: string | null;
+    config: Record<string, unknown>;
+    lastSyncAt: string | null;
+  }[];
+  const usedBy = old.usedBy as Record<string, { id: string; name: string }[]>;
+  const names = Object.fromEntries(
+    (old.connectors as { id: string; name: string }[]).map((c) => [c.id, c.name]),
+  );
+  return {
+    connected: list.map((c) => ({
+      connector: c.connector,
+      name: names[c.connector] ?? c.connector,
+      description: "",
+      icon: null,
+      auth: "oauth2",
+      personal: false,
+      multiple: false,
+      available: true,
+      beta: false,
+      recommended: false,
+      custom: false,
+      group: "Other",
+      connections: [
+        {
+          id: c.id,
+          status: c.status,
+          accountName:
+            typeof c.config.accountName === "string"
+              ? c.config.accountName
+              : c.externalAccountId?.includes("@")
+                ? c.externalAccountId
+                : null,
+          lastSyncAt: c.lastSyncAt,
+          usedBy: usedBy[c.id] ?? [],
+          access: { reads: 1, changesAsk: 2, changesAuto: 0 },
+          needsSomething: false,
+          openRequest: false,
+          mezonasMay: null,
+        },
+      ],
+    })),
+    builtForYou: [],
+    recommended: [],
+    requests: [],
+    agents: [],
+    sandbox: old.sandbox,
+  };
+}
+
+const tabHandler =
+  (handler: Handler): Handler =>
+  (req) => {
+    const old = handler(req);
+    return old instanceof Reply ? old : tabOf(old as ReturnType<typeof connections>);
+  };
+
+function fakeApi(routes: Routes) {
+  const extra: Routes = {};
+  for (const [key, handler] of Object.entries(routes)) {
+    const m = OLD.exec(key);
+    if (m) extra[`GET /api/ops/clients/${m[1]}/connectors`] = tabHandler(handler);
+  }
+  const api = baseFakeApi({ ...routes, ...extra });
+  const on = api.on;
+  api.on = (route, handler) => {
+    on(route, handler);
+    const m = OLD.exec(route);
+    if (m) on(`GET /api/ops/clients/${m[1]}/connectors`, tabHandler(handler));
+  };
+  return api;
 }
 
 function renderAt(path: string, api: ReturnType<typeof fakeApi>) {
@@ -79,7 +163,6 @@ describe("a connector's description in the back office", () => {
   it("names the tools offered with the right plural and how the client connects", async () => {
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
-      ...NO_AREAS,
       [`GET /api/ops/clients/${SANDBOX}`]: () => SANDBOX_DETAIL,
       [`GET /api/ops/clients/${SANDBOX}/connections`]: () => ({
         ...connections({ offered: [] }),
@@ -95,7 +178,7 @@ describe("a connector's description in the back office", () => {
         ],
       }),
     });
-    renderAt(`/ops/clients/${SANDBOX}/areas`, api);
+    renderAt(`/ops/clients/${SANDBOX}/connections`, api);
     const offering = await screen.findByTestId("ops-connections-offering", {}, { timeout: 10_000 });
     expect(offering).toHaveTextContent("Bills in your QuickBooks Online.");
     expect(offering).not.toHaveTextContent("yourself");
@@ -110,14 +193,13 @@ describe("ops connections: the Sandbox client", () => {
     vi.stubGlobal("location", { ...window.location, assign });
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
-      ...NO_AREAS,
       [`GET /api/ops/clients/${SANDBOX}`]: () => SANDBOX_DETAIL,
       [`GET /api/ops/clients/${SANDBOX}/connections`]: () => connections(),
       [`POST /api/ops/clients/${SANDBOX}/connections/qbo/authorize`]: () => ({
         redirectUrl: "https://appcenter.intuit.com/connect/oauth2?client_id=x&state=s",
       }),
     });
-    renderAt(`/ops/clients/${SANDBOX}/areas`, api);
+    renderAt(`/ops/clients/${SANDBOX}/connections`, api);
     const offering = await screen.findByTestId("ops-connections-offering");
 
     // Configured and offered: Connect. Not configured: not available yet. Not offered: nothing.
@@ -138,7 +220,6 @@ describe("ops connections: the Sandbox client", () => {
   it("shows a connected OAuth tool as connected", async () => {
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
-      ...NO_AREAS,
       [`GET /api/ops/clients/${SANDBOX}`]: () => SANDBOX_DETAIL,
       [`GET /api/ops/clients/${SANDBOX}/connections`]: () =>
         connections({
@@ -164,7 +245,7 @@ describe("ops connections: the Sandbox client", () => {
           ],
         }),
     });
-    renderAt(`/ops/clients/${SANDBOX}/areas`, api);
+    renderAt(`/ops/clients/${SANDBOX}/connections`, api);
     const offering = await screen.findByTestId("ops-connections-offering");
     expect(within(offering).queryByTestId("ops-connections-connect-qbo")).toBeNull();
     expect(screen.getByTestId("ops-connections-list")).toHaveTextContent("Sandbox Company_US_1");
@@ -193,11 +274,10 @@ describe("ops connections: the Sandbox client", () => {
     });
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
-      ...NO_AREAS,
       [`GET /api/ops/clients/${DEMO}/connections`]: () =>
         connections({ sandbox: false, connections: [qbo({})] }),
     });
-    const view = renderAt(`/ops/clients/${DEMO}/areas`, api);
+    const view = renderAt(`/ops/clients/${DEMO}/connections`, api);
     const card = await screen.findByTestId(`ops-connection-${CONN}`);
     expect(within(card).getByTestId("ops-connection-account")).toHaveTextContent(
       /^Sandbox Company_US_1$/,
@@ -215,7 +295,7 @@ describe("ops connections: the Sandbox client", () => {
     api.on(`GET /api/ops/clients/${DEMO}/connections`, () =>
       connections({ sandbox: false, connections: [qbo({ config: {}, lastSyncAt: null })] }),
     );
-    renderAt(`/ops/clients/${DEMO}/areas`, api);
+    renderAt(`/ops/clients/${DEMO}/connections`, api);
     const bare = await screen.findByTestId(`ops-connection-${CONN}`);
     expect(within(bare).queryByTestId("ops-connection-account")).toBeNull();
     expect(bare).not.toHaveTextContent("9341458640918607");
@@ -240,7 +320,6 @@ describe("ops connections: the Sandbox client", () => {
     });
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
-      ...NO_AREAS,
       [`GET /api/ops/clients/${DEMO}/connections`]: () =>
         connections({
           sandbox: false,
@@ -249,7 +328,7 @@ describe("ops connections: the Sandbox client", () => {
           usedBy: { [UPLOAD]: [{ id: "a1", name: "Bill clerk" }] },
         }),
     });
-    const view = renderAt(`/ops/clients/${DEMO}/areas`, api);
+    const view = renderAt(`/ops/clients/${DEMO}/connections`, api);
     const card = await screen.findByTestId(`ops-connection-${UPLOAD}`);
     expect(card).toHaveTextContent("last document");
     expect(card).not.toHaveTextContent("never synced");
@@ -263,7 +342,7 @@ describe("ops connections: the Sandbox client", () => {
         connectors: [connector("upload", "Upload", "none", true)],
       }),
     );
-    renderAt(`/ops/clients/${DEMO}/areas`, api);
+    renderAt(`/ops/clients/${DEMO}/connections`, api);
     expect(await screen.findByTestId(`ops-connection-${UPLOAD}`)).toHaveTextContent(
       "no documents yet",
     );
@@ -287,7 +366,6 @@ describe("ops connections: the Sandbox client", () => {
     const bodies: unknown[] = [];
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
-      ...NO_AREAS,
       [`GET /api/ops/clients/${SANDBOX}`]: () => SANDBOX_DETAIL,
       [`GET /api/ops/clients/${SANDBOX}/connections`]: () =>
         connections({ offered: ["gmail"], connections: [gmail()] }),
@@ -296,7 +374,7 @@ describe("ops connections: the Sandbox client", () => {
         return { to: "operator@gmail.test", sentAt: "2026-11-05T18:05:00.000Z" };
       },
     });
-    const view = renderAt(`/ops/clients/${SANDBOX}/areas`, api);
+    const view = renderAt(`/ops/clients/${SANDBOX}/connections`, api);
     const card = await screen.findByTestId(`ops-connection-${GMAIL}`);
     const button = within(card).getByTestId("ops-gmail-test-send");
     expect(button).toHaveTextContent("Send a test email");
@@ -311,7 +389,6 @@ describe("ops connections: the Sandbox client", () => {
     // A refusal shows the plain error.
     const failing = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
-      ...NO_AREAS,
       [`GET /api/ops/clients/${SANDBOX}`]: () => SANDBOX_DETAIL,
       [`GET /api/ops/clients/${SANDBOX}/connections`]: () =>
         connections({ offered: ["gmail"], connections: [gmail()] }),
@@ -323,7 +400,7 @@ describe("ops connections: the Sandbox client", () => {
           },
         }),
     });
-    const second = renderAt(`/ops/clients/${SANDBOX}/areas`, failing);
+    const second = renderAt(`/ops/clients/${SANDBOX}/connections`, failing);
     const again = await screen.findByTestId(`ops-connection-${GMAIL}`);
     await userEvent.setup().click(within(again).getByTestId("ops-gmail-test-send"));
     expect(await within(again).findByRole("alert")).toHaveTextContent(
@@ -335,7 +412,7 @@ describe("ops connections: the Sandbox client", () => {
     failing.on(`GET /api/ops/clients/${SANDBOX}/connections`, () =>
       connections({ offered: ["gmail"], connections: [gmail({ status: "disconnected" })] }),
     );
-    renderAt(`/ops/clients/${SANDBOX}/areas`, failing);
+    renderAt(`/ops/clients/${SANDBOX}/connections`, failing);
     const off = await screen.findByTestId(`ops-connection-${GMAIL}`);
     expect(within(off).queryByTestId("ops-gmail-test-send")).toBeNull();
   });
@@ -344,7 +421,6 @@ describe("ops connections: the Sandbox client", () => {
     const GMAIL = "00000000-0000-4000-8000-0000000000e2";
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
-      ...NO_AREAS,
       [`GET /api/ops/clients/${DEMO}/connections`]: () =>
         connections({
           sandbox: false,
@@ -365,7 +441,7 @@ describe("ops connections: the Sandbox client", () => {
           ],
         }),
     });
-    renderAt(`/ops/clients/${DEMO}/areas`, api);
+    renderAt(`/ops/clients/${DEMO}/connections`, api);
     const card = await screen.findByTestId(`ops-connection-${GMAIL}`);
     expect(within(card).queryByTestId("ops-gmail-test-send")).toBeNull();
   });
@@ -387,7 +463,6 @@ describe("ops connections: the Sandbox client", () => {
     let status = "connected";
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
-      ...NO_AREAS,
       [`GET /api/ops/clients/${SANDBOX}`]: () => SANDBOX_DETAIL,
       [`GET /api/ops/clients/${SANDBOX}/connections`]: () =>
         connections({ offered: ["qbo"], connections: [row(SANDBOX, status)] }),
@@ -396,7 +471,7 @@ describe("ops connections: the Sandbox client", () => {
         return { connection: row(SANDBOX, status) };
       },
     });
-    const view = renderAt(`/ops/clients/${SANDBOX}/areas`, api);
+    const view = renderAt(`/ops/clients/${SANDBOX}/connections`, api);
     const card = await screen.findByTestId(`ops-connection-${QBO}`);
     const user = userEvent.setup();
 
@@ -423,11 +498,10 @@ describe("ops connections: the Sandbox client", () => {
 
     const real = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
-      ...NO_AREAS,
       [`GET /api/ops/clients/${DEMO}/connections`]: () =>
         connections({ sandbox: false, offered: ["qbo"], connections: [row(DEMO)] }),
     });
-    renderAt(`/ops/clients/${DEMO}/areas`, real);
+    renderAt(`/ops/clients/${DEMO}/connections`, real);
     const theirs = await screen.findByTestId(`ops-connection-${QBO}`);
     expect(within(theirs).queryByTestId("ops-connection-disconnect-start")).toBeNull();
   });
@@ -435,10 +509,9 @@ describe("ops connections: the Sandbox client", () => {
   it("offers no Connect in a real client", async () => {
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,
-      ...NO_AREAS,
       [`GET /api/ops/clients/${DEMO}/connections`]: () => connections({ sandbox: false }),
     });
-    renderAt(`/ops/clients/${DEMO}/areas`, api);
+    renderAt(`/ops/clients/${DEMO}/connections`, api);
     const offering = await screen.findByTestId("ops-connections-offering");
     expect(within(offering).queryByRole("button", { name: "Connect" })).toBeNull();
     expect(within(offering).queryByText("Not available yet")).toBeNull();

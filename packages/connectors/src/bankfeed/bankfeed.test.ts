@@ -117,13 +117,12 @@ describe("bankfeed: the manifest", () => {
       ["transaction", ["read"]],
       ["account", ["read"]],
     ]);
-    // Nothing loosens the platform's defaults: writes would wait for approval, delete is off.
-    expect(m.defaultPermissions).toBeUndefined();
+    // It starts read only (Connectors C2): every write is off, delete with them.
     const matrix = connectionDefaults(m);
-    expect(matrix).toMatchObject({ read: "auto", create: "approval", delete: "off" });
+    expect(matrix).toEqual({ read: "auto", create: "off", update: "off", delete: "off" });
     expect(
       decideToolCall({ sideEffect: "external", verb: "create", matrix, agentMode: "act" }),
-    ).toBe("approval");
+    ).toBe("refused");
     expect(m.events?.map((e) => e.type)).toEqual([CARD_CHARGE_CREATED, BANK_TRANSACTION_CREATED]);
     expect(m.sharedNamespaces).toEqual(["card", "bank"]);
     expect(PLAID_PRODUCTS).toEqual(["transactions"]);

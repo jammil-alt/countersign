@@ -1,10 +1,10 @@
 // The back-office client page's frame (docs/ui-plan.md "Client page", drafted in the prototype's
 // style for the owner to adjust): the client's name with how many of its agents are live, and its
-// tabs: Overview, Agents, Areas (the business areas with the connections each works through, and
-// the client's other connections; docs/plan.md §1.162), File, Data (Documents, Records, Chart of
-// accounts), Setup (Messaging, Directory, Knowledge) and Settings. Data and Setup each have a small
+// tabs: Overview, Agents, Areas (the business areas, each with the connections it needs and its
+// reports; docs/plan.md §1.162), File, Data (Documents, Records, Chart of accounts), Setup
+// (Connectors, Messaging, Directory, Knowledge) and Settings. Data and Setup each have a small
 // switch between their pages instead of more tabs. Every page keeps its own route (../routes.tsx),
-// and old addresses redirect (`packs` and `connections` to `areas`); each
+// and old addresses redirect (`packs` to `areas`); each
 // renders inside this frame, which loads the client once and hands it down (`useClientPage`). The
 // client's runs are on the Runs page, filtered to it, linked from the Overview.
 import { goLiveCounts } from "@countersign/core";
@@ -50,8 +50,9 @@ export const CLIENT_TABS: {
   { id: "overview", label: "Overview", pages: [["", "Overview"]] },
   { id: "agents", label: "Agents", pages: [["agents", "Agents"]] },
   // §1.162 (owner, 2026-11-20): the business areas switched on for the client (packs in the code),
-  // the connections each works through and the client's other connections; their reports open
-  // under it. It was the Packs tab, and Setup's Connections folded into it.
+  // the connections each needs with the client's status; their reports open under it. It was
+  // the Packs tab. Each area links to the client's one place for connections,
+  // Setup's Connectors (§1.161).
   { id: "areas", label: "Areas", pages: [["areas", "Areas"]] },
   // §1.149: what we know about the client, from the first call on (operator only).
   { id: "file", label: "File", pages: [["file", "Client file"]] },
@@ -69,6 +70,8 @@ export const CLIENT_TABS: {
     id: "setup",
     label: "Setup",
     pages: [
+      // Connectors C6: the client's Connectors (its address stays `connections`).
+      ["connections", "Connectors"],
       ["messaging", "Messaging"],
       ["directory", "Directory"],
       ["knowledge", "Knowledge"],
@@ -93,10 +96,10 @@ export function clientPageOf(
   const rest = pathname.startsWith(base) ? pathname.slice(base.length).replace(/^\//, "") : "";
   const first = rest.split("/")[0] ?? "";
   if (first === "exports") return { tab: "settings", page: "settings" };
-  // An area's reports, and the old Packs and Connections addresses (they redirect), are Areas'.
-  if (first === "reports" || first === "packs" || first === "connections") {
-    return { tab: "areas", page: "areas" };
-  }
+  // An area's reports, and the old Packs address (it redirects), are Areas'.
+  if (first === "reports" || first === "packs") return { tab: "areas", page: "areas" };
+  // A connector's own page is under Setup's Connectors.
+  if (first === "connectors") return { tab: "setup", page: "connections" };
   for (const tab of CLIENT_TABS) {
     if (tab.pages.some(([p]) => p === first)) return { tab: tab.id, page: first };
   }

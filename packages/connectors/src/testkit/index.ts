@@ -159,6 +159,8 @@ export function createTestkitConnector(
 } {
   const connector = defineConnector({
     id: TESTKIT_CONNECTOR_ID,
+    // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
+    askFirst: [{ verb: "update", entity: "record" }],
     name: "Testkit",
     description: "An in-memory system for tests and the Sandbox client. Never a real client tool.",
     icon: "flask",

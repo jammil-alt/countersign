@@ -306,6 +306,8 @@ export function createLinkedInConnector(options: LinkedInOptions = {}): Connecto
 
   return defineConnector({
     id: LINKEDIN_CONNECTOR_ID,
+    // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
+    askFirst: [],
     name: "LinkedIn",
     description:
       "Post to your LinkedIn company page, after a person signs each post. We can't read your messages or post as you.",

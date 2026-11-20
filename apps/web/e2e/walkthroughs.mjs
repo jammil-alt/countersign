@@ -1,6 +1,6 @@
 // The prototype's two walkthroughs (docs/design/prototype.html, `#Start`), clicked through the real
 // UI on the seeded data: the client's morning (Home, an agent and its tabs, the Inbox, Runs,
-// Accounts, Contacts, Settings and its sections, the Weekly Table, Ask Sloan in the top bar (a side
+// Connectors and a connector, Contacts, Settings and its sections, the Weekly Table, Ask Sloan in the top bar (a side
 // panel) and Sloan from the search box) and the back office's (Command center, Escalations,
 // Runs, a client and its tabs, Agent lab, an agent and its tabs, the workflow builder, triggers,
 // the Library with Skills and Connectors, Usage and billing). Each step moves by clicking a link
@@ -268,7 +268,13 @@ async function clientWalk(w) {
   await w.step("A run", () =>
     w.follow((p) => /^\/runs\/[^/]+$/.test(p), { scope: "main", skip: "the seed has no runs" }),
   );
-  await w.step("Accounts", () => w.follow("/accounts"));
+  await w.step("Connectors", () => w.follow("/connectors"));
+  await w.step("A connector", () =>
+    w.follow((p) => /^\/connectors\/[^/?#]+/.test(p), {
+      scope: "main",
+      skip: "the seed has no connectors to open",
+    }),
+  );
   await w.step("Contacts", () => w.follow("/contacts"));
   await w.step("Settings", () => w.follow("/settings"));
   for (const section of await w.links((p) => /^\/settings\/[a-z]+$/.test(p))) {

@@ -11,6 +11,7 @@ import {
   BANK_TRANSACTION_CREATED,
   BANKFEED_TRANSACTION_ENTITY,
   CARD_CHARGE_CREATED,
+  connectionDefaults,
   createBankfeedConnector,
   generateEncryptionKey,
   PLAID_VERIFICATION_HEADER,
@@ -126,7 +127,16 @@ describe.skipIf(!h)("bank and card feeds through the API", () => {
     expect(conn.connection.accountName).toBe("First Platypus Bank");
     connId = conn.connection.id;
     const r = await row();
-    expect(r.permissions).toMatchObject({ read: "auto", create: "approval", delete: "off" });
+    // Connectors C2 (docs/connectors-plan.md §5.1): the bank feed is read only.
+    expect(r.permissions).toEqual(
+      connectionDefaults(H.platform.connectors.get("bankfeed")?.manifest),
+    );
+    expect(r.permissions).toMatchObject({
+      read: "auto",
+      create: "off",
+      update: "off",
+      delete: "off",
+    });
     // The token is in the vault, encrypted: not in the row as text.
     expect(JSON.stringify(r.credentialsEncrypted)).not.toContain(plaid.accessTokens()[0]);
   });

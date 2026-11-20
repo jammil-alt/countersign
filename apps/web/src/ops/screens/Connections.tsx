@@ -1,34 +1,51 @@
-// A client's connections in the back office (design screen 2; ARCHITECTURE §6.1 "Who does what"):
-// the parts the client page's Areas tab (../client/ClientAreas.tsx) is built from, since §1.162
-// folded Setup's Connections into it (`/ops/clients/:clientId/connections` redirects there). Each
-// connection's card with its sync state and who uses it, the permission matrix (the operator may
-// loosen as well as tighten), each connection's configuration, and which connectors the client is
-// offered. The client signs in from the portal; the operator never connects a tool on a client's
-// behalf and never sees credentials. The one exception is the Sandbox client, the operator's own
-// test client: the operator connects its no-sign-in tools here, and signs in to its offered OAuth
-// tools with their own account (the provider returns to `/ops/connections/:connector/callback`).
-// The Sandbox's connected Gmail also sends a test email to itself from here (plan §1.31).
-import { connectionAccountName } from "@countersign/core";
+// `/ops/clients/:clientId/connections`, the client's Connectors tab (docs/connectors-plan.md §7,
+// §7.1, §7.2; design screen 2 in the back office): the same three parts as the portal (Connected,
+// Built for you, Recommended), each connection with its account, status, access, the agents using
+// it and their gaps, and the client's say over our changes; the open requests we sent (with
+// Withdraw); the agents still waiting on something; and what we recommend to the client. A
+// connector's own page (../connectors/ClientConnector.tsx) is where we change its access or setup:
+// tighter applies at once, anything looser goes to the client to approve. The client signs in from
+// the portal; we never connect a tool on a client's behalf and never see credentials. The one
+// exception is the Sandbox client, our own test client: we connect its no-sign-in tools here, and
+// sign in to its offered OAuth tools with our own account (the provider returns to
+// `/ops/connections/:connector/callback`). The Sandbox's connected Gmail also sends a test email to
+// itself from here (plan §1.31).
+import {
+  connectorAccessRoutes as access,
+  type ConnectionSummaryView,
+  type ConnectorCardView,
+  type OpsAgentNeedsState,
+} from "@countersign/core";
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import type { ApiClient, ResponseOf } from "../../api/client";
+import { Link, useParams } from "react-router-dom";
+import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { ConnectorMark, connectionStatusLabel } from "../../connections/ConnectorMark";
-import { MatrixTable } from "../../connections/MatrixTable";
 import { shortTime } from "../../runs/format";
-import { Badge, Button, Card, ErrorNotice, SectionLabel } from "../../ui/primitives";
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  ErrorNotice,
+  Loading,
+  SectionLabel,
+  Tag,
+} from "../../ui/primitives";
 import { plural } from "../../usage/format";
+import { ClientFrame } from "../client/ClientFrame";
+import { clientConnectorPath, OpenRequest } from "../connectors/ClientConnector";
+import {
+  AUTH_WORDS,
+  accessWords,
+  fixByWords,
+  GAP_WORDS,
+  mezonasMayWords,
+} from "../connectors/words";
 
-export type ClientConnections = ResponseOf<typeof apiRoutes.opsClientConnections>;
-export type ClientConnection = ClientConnections["connections"][number];
-
-/** How the client connects each kind of connector, in the operator's words. */
-const AUTH_LINE: Record<string, string> = {
-  oauth2: "the client signs in from their portal",
-  api_key: "the client adds a key from their portal",
-  none: "no sign-in needed",
-};
+type Data = ResponseOf<typeof apiRoutes.opsClientConnections>;
+type OldConnection = Data["connections"][number];
 
 /**
  * A connector's description for the back office: its manifest writes to the client ("You sign in
@@ -40,146 +57,328 @@ export function operatorBlurb(description: string): string {
   return (kept.length > 0 ? kept : sentences).join("").trim();
 }
 
-/** The client's connections, with the connectors' record types for the matrix's entity rows. */
-export function useClientConnections(clientId: string) {
-  const state = useApi(apiRoutes.opsClientConnections, { params: { id: clientId } });
-  // v0.12 W2-A: each connector's record types, for the matrix's entity rows.
-  const catalog = useApi(apiRoutes.opsConnectors);
-  const entitiesOf = Object.fromEntries(
-    (catalog.data?.connectors ?? []).map((c) => [c.id, c.permissionEntities]),
+export function OpsConnectionsScreen() {
+  const { clientId = "" } = useParams();
+  return (
+    <ClientFrame clientId={clientId}>
+      <Connections clientId={clientId} />
+    </ClientFrame>
   );
-  return { ...state, entitiesOf };
 }
 
-/** Connector id → its name, from the client's connections data. */
-export function connectorNames(data: ClientConnections): Record<string, string> {
-  return Object.fromEntries(data.connectors.map((c) => [c.id, c.name]));
-}
-
-/** The Sandbox only: connect a no-sign-in connector, or start the sign-in to an OAuth one. */
-export async function connectSandbox(
-  api: ApiClient,
-  clientId: string,
-  connector: { id: string; auth: string },
-  reload: () => void,
-): Promise<void> {
-  if (connector.auth === "none") {
-    await api.call(apiRoutes.opsConnectSandbox, {
-      params: { id: clientId, connector: connector.id },
-    });
-    reload();
-    return;
-  }
-  const res = await api.call(apiRoutes.opsSandboxAuthorize, {
-    params: { id: clientId, connector: connector.id },
+function Connections({ clientId }: { clientId: string }) {
+  const api = useApiClient();
+  const tab = useApi(access.opsClientConnectors, { params: { id: clientId } });
+  // The offering, and the Sandbox's own connect, disconnect and test email, read the connections'
+  // stored rows (last activity) beside the tab.
+  const { data, error, loading, reload } = useApi(apiRoutes.opsClientConnections, {
+    params: { id: clientId },
   });
-  // The provider's sign-in, then back to the back office's callback page.
-  window.location.assign(res.redirectUrl);
-}
+  const client = useApi(apiRoutes.opsClient, { params: { id: clientId } });
+  const clientName = client.data?.client.name ?? "the client";
 
-/** One of the client's connections as a card, with its configuration and actions. */
-export function ClientConnectionCard({
-  clientId,
-  data,
-  connection: c,
-  reload,
-}: {
-  clientId: string;
-  data: ClientConnections;
-  connection: ClientConnection;
-  reload: () => void;
-}) {
-  const api = useApiClient();
+  if ((loading && !data) || (tab.loading && !tab.data)) return <Loading />;
+  if (error && !data) return <ErrorNotice error={error} onRetry={reload} />;
+  if (!data) return null;
+  const reloadAll = () => {
+    reload();
+    tab.reload();
+  };
+
+  const sandbox = tab.data?.sandbox ?? data.sandbox;
+  const oldOf = (id: string) => data.connections.find((c) => c.id === id);
   return (
-    <ConnectionCard
-      connection={c}
-      name={connectorNames(data)[c.connector] ?? c.connector}
-      usedBy={data.usedBy[c.id] ?? []}
-      testEmail={
-        data.sandbox && c.connector === "gmail" && c.status === "connected" ? clientId : null
-      }
-      {...(data.sandbox && c.status !== "disconnected"
-        ? {
-            onDisconnect: async () => {
-              await api.call(apiRoutes.opsSandboxDisconnect, {
-                params: { id: clientId, connectionId: c.id },
-              });
-              reload();
-            },
-          }
-        : {})}
-      onSaveConfig={async (config) => {
-        await api.call(apiRoutes.opsUpdateConnection, {
-          params: { id: c.id },
-          body: { config },
-        });
-        reload();
-      }}
-    />
+    <div>
+      <p className="mb-6 text-ink-muted" data-testid="ops-connections-intro">
+        {sandbox
+          ? "Your own test client, so you connect its tools here. Test runs never write to them."
+          : `What ${clientName} has connected, what agents may do in each, and what they still need. ${clientName} signs in from their portal; you never connect on their behalf. Open a connector to change it: tighter applies at once, anything looser goes to ${clientName} to approve.`}
+      </p>
+      <div className="flex flex-col gap-8">
+        {tab.error ? <ErrorNotice error={tab.error} onRetry={tab.reload} /> : null}
+        {tab.data ? (
+          <>
+            {tab.data.requests.length > 0 ? (
+              <section data-testid="ops-connections-requests">
+                <SectionLabel>
+                  Requests waiting on {clientName} · {tab.data.requests.length}
+                </SectionLabel>
+                <div className="flex flex-col gap-2">
+                  {tab.data.requests.map((r) => (
+                    <OpenRequest
+                      key={r.id}
+                      clientId={clientId}
+                      clientName={clientName}
+                      request={r}
+                      onChanged={reloadAll}
+                      showConnector
+                    />
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {tab.data.agents.length > 0 ? (
+              <AgentsWaiting clientId={clientId} clientName={clientName} agents={tab.data.agents} />
+            ) : null}
+
+            <section>
+              <SectionLabel>
+                Connected · {tab.data.connected.reduce((n, c) => n + c.connections.length, 0)}
+              </SectionLabel>
+              {tab.data.connected.length === 0 ? (
+                <EmptyState>
+                  {sandbox
+                    ? "No connections yet. Connect a connector below."
+                    : "No connections yet. Recommend a connector below; the client admin signs in from their portal."}
+                </EmptyState>
+              ) : (
+                <ConnectorCards
+                  testId="ops-connections-list"
+                  clientId={clientId}
+                  clientName={clientName}
+                  cards={tab.data.connected}
+                  sandbox={sandbox}
+                  oldOf={oldOf}
+                  onChanged={reloadAll}
+                />
+              )}
+            </section>
+
+            {tab.data.builtForYou.length > 0 ? (
+              <section>
+                <SectionLabel>Built for {clientName}</SectionLabel>
+                <ConnectorCards
+                  testId="ops-connections-built"
+                  clientId={clientId}
+                  clientName={clientName}
+                  cards={tab.data.builtForYou}
+                  sandbox={sandbox}
+                  oldOf={oldOf}
+                  onChanged={reloadAll}
+                />
+              </section>
+            ) : null}
+
+            {tab.data.recommended.length > 0 ? (
+              <Recommended
+                clientId={clientId}
+                cards={tab.data.recommended}
+                agents={tab.data.agents}
+              />
+            ) : null}
+          </>
+        ) : null}
+
+        <Offering
+          clientId={clientId}
+          data={{ ...data, sandbox }}
+          onConnect={async (connector) => {
+            await api.call(apiRoutes.opsConnectSandbox, { params: { id: clientId, connector } });
+            reloadAll();
+          }}
+          onSignIn={async (connector) => {
+            const res = await api.call(apiRoutes.opsSandboxAuthorize, {
+              params: { id: clientId, connector },
+            });
+            // The provider's sign-in, then back to the back office's callback page.
+            window.location.assign(res.redirectUrl);
+          }}
+          onSave={async (offered) => {
+            await api.call(apiRoutes.opsOfferConnectors, {
+              params: { id: clientId },
+              body: { offered },
+            });
+            reloadAll();
+          }}
+        />
+      </div>
+    </div>
   );
 }
 
-/** What agents may do in each of the client's connections (the operator may loosen). */
-export function ClientConnectionsMatrix({
-  data,
-  entitiesOf,
-  reload,
+/** Each client agent still waiting on something, with its gaps and who fixes each. */
+function AgentsWaiting({
+  clientId,
+  clientName,
+  agents,
 }: {
-  data: ClientConnections;
-  entitiesOf: Record<
-    string,
-    ResponseOf<typeof apiRoutes.opsConnectors>["connectors"][number]["permissionEntities"]
-  >;
-  reload: () => void;
+  clientId: string;
+  clientName: string;
+  agents: readonly OpsAgentNeedsState[];
 }) {
-  const api = useApiClient();
-  if (data.connections.length === 0) return null;
-  const names = connectorNames(data);
   return (
-    <MatrixTable
-      editor="operator"
-      note="The client admin can tighten these from the portal; only you can loosen them."
-      rows={data.connections.map((c) => ({
-        id: c.id,
-        name: names[c.connector] ?? c.connector,
-        permissions: c.permissions,
-        entities: entitiesOf[c.connector],
-      }))}
-      onSave={async (id, edit) => {
-        await api.call(apiRoutes.opsUpdateConnection, {
-          params: { id },
-          body: { permissions: edit },
-        });
-        reload();
-      }}
-    />
+    <section data-testid="ops-connections-agents">
+      <SectionLabel>Agents waiting on connectors · {agents.length}</SectionLabel>
+      <Card>
+        <ul>
+          {agents.map((a) => (
+            <li
+              key={a.agent.id}
+              className="flex flex-col gap-1 border-b border-line px-4 py-3 last:border-b-0"
+            >
+              <p className="flex items-center gap-2">
+                <span className="font-medium text-ink">{a.agent.name}</span>
+                {a.ready ? (
+                  <Badge tone="positive">Ready</Badge>
+                ) : (
+                  <Badge tone="warning">Waiting</Badge>
+                )}
+              </p>
+              <ul className="text-sm text-ink">
+                {a.gaps.map((g) => (
+                  <li key={`${g.kind}:${g.connector}:${g.words}`} className="flex flex-wrap gap-2">
+                    <Link
+                      to={clientConnectorPath(clientId, g.connector, a.agent.id)}
+                      className="text-link hover:underline"
+                    >
+                      {g.words}
+                    </Link>
+                    <span className="text-ink-muted">
+                      {GAP_WORDS[g.kind]} · {fixByWords(g.fixBy, clientName)} fix
+                      {g.fixBy === "mezonas" ? "" : "es"} it
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      </Card>
+    </section>
   );
 }
 
-/** Which connectors the client is offered, with the Sandbox's Connect beside each. */
-export function ClientOffering({
+function ConnectorCards({
+  testId,
   clientId,
-  data,
-  reload,
+  clientName,
+  cards,
+  sandbox,
+  oldOf,
+  onChanged,
 }: {
+  testId: string;
   clientId: string;
-  data: ClientConnections;
-  reload: () => void;
+  clientName: string;
+  cards: readonly ConnectorCardView[];
+  sandbox: boolean;
+  oldOf(id: string): OldConnection | undefined;
+  onChanged(): void;
 }) {
   const api = useApiClient();
   return (
-    <Offering
-      clientId={clientId}
-      data={data}
-      onConnect={(connector) => connectSandbox(api, clientId, connector, reload)}
-      onSave={async (offered) => {
-        await api.call(apiRoutes.opsOfferConnectors, {
-          params: { id: clientId },
-          body: { offered },
-        });
-        reload();
-      }}
-    />
+    <div data-testid={testId} className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+      {cards.flatMap((card) =>
+        (card.connections.length > 0 ? card.connections : [null]).map((c) =>
+          c ? (
+            <ConnectionCard
+              key={c.id}
+              clientId={clientId}
+              clientName={clientName}
+              card={card}
+              connection={c}
+              old={oldOf(c.id)}
+              sandbox={sandbox}
+              {...(sandbox && c.status !== "disconnected"
+                ? {
+                    onDisconnect: async () => {
+                      await api.call(apiRoutes.opsSandboxDisconnect, {
+                        params: { id: clientId, connectionId: c.id },
+                      });
+                      onChanged();
+                    },
+                  }
+                : {})}
+            />
+          ) : (
+            <NotConnectedCard key={card.connector} clientId={clientId} card={card} />
+          ),
+        ),
+      )}
+    </div>
+  );
+}
+
+function NotConnectedCard({ clientId, card }: { clientId: string; card: ConnectorCardView }) {
+  return (
+    <Card testId={`ops-connector-${card.connector}`} className="flex flex-col p-4">
+      <div className="flex items-start gap-3">
+        <ConnectorMark name={card.name} connector={card.connector} />
+        <div className="min-w-0">
+          <p className="font-medium text-ink">{card.name}</p>
+          <p className="text-sm text-ink-muted">{operatorBlurb(card.description)}</p>
+        </div>
+      </div>
+      <p className="mt-3 text-sm text-ink-muted">
+        Not connected · {AUTH_WORDS[card.auth] ?? "the client connects it from their portal"}
+      </p>
+      <div className="mt-auto pt-4">
+        <Link
+          to={clientConnectorPath(clientId, card.connector)}
+          className="ds-btn ds-btn--link text-sm"
+        >
+          Open
+        </Link>
+      </div>
+    </Card>
+  );
+}
+
+/** The connectors recommended to the client and not connected, with the agents that need each. */
+function Recommended({
+  clientId,
+  cards,
+  agents,
+}: {
+  clientId: string;
+  cards: readonly ConnectorCardView[];
+  agents: readonly OpsAgentNeedsState[];
+}) {
+  const needing = (connector: string) =>
+    agents
+      .filter((a) => a.gaps.some((g) => g.connector === connector && g.kind === "not_connected"))
+      .map((a) => a.agent);
+  return (
+    <section data-testid="ops-connections-recommended">
+      <SectionLabel>Recommended</SectionLabel>
+      <Card>
+        <ul>
+          {cards.map((c) => {
+            const who = needing(c.connector);
+            return (
+              <li
+                key={c.connector}
+                data-testid={`ops-recommended-${c.connector}`}
+                className="flex items-start gap-3 border-b border-line px-4 py-3 last:border-b-0"
+              >
+                <ConnectorMark name={c.name} connector={c.connector} size="sm" />
+                <div className="min-w-0 flex-1">
+                  <p className="flex flex-wrap items-center gap-2">
+                    <Link
+                      to={clientConnectorPath(clientId, c.connector, who[0]?.id)}
+                      className="font-medium text-ink hover:underline"
+                    >
+                      {c.name}
+                    </Link>
+                    {c.beta ? <Tag>Beta</Tag> : null}
+                    {who.length > 0 ? (
+                      <Badge tone="warning">
+                        {who.map((a) => a.name).join(", ")} {who.length === 1 ? "needs" : "need"} it
+                      </Badge>
+                    ) : null}
+                  </p>
+                  <p className="text-sm text-ink-muted">
+                    {operatorBlurb(c.description)}{" "}
+                    {AUTH_WORDS[c.auth] ? `· ${AUTH_WORDS[c.auth]}` : ""}
+                  </p>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </Card>
+    </section>
   );
 }
 
@@ -235,31 +434,38 @@ function GmailTestSend({ clientId }: { clientId: string }) {
 const BUILT_IN_SOURCES = new Set(["upload"]);
 
 /** "synced 2 h ago", or for upload and forwarding "last document 2 h ago" (never "never synced"). */
-export function activityWords(c: ClientConnection): string {
-  const at = c.lastActivityAt === undefined ? c.lastSyncAt : c.lastActivityAt;
-  if (BUILT_IN_SOURCES.has(c.connector)) {
+function activityWords(
+  connector: string,
+  c: Pick<ConnectionSummaryView, "lastSyncAt">,
+  old: OldConnection | undefined,
+): string {
+  const at = old?.lastActivityAt === undefined ? c.lastSyncAt : old.lastActivityAt;
+  if (BUILT_IN_SOURCES.has(connector)) {
     return at ? `last document ${shortTime(at)}` : "no documents yet";
   }
   return at ? `synced ${shortTime(at)}` : "never synced";
 }
 
 function ConnectionCard({
+  clientId,
+  clientName,
+  card,
   connection: c,
-  name,
-  usedBy,
-  testEmail,
+  old,
+  sandbox,
   onDisconnect,
-  onSaveConfig,
 }: {
-  connection: ClientConnection;
-  name: string;
-  usedBy: { id: string; name: string }[];
-  /** The Sandbox client's id when its connected Gmail may send a test email; else null. */
-  testEmail: string | null;
+  clientId: string;
+  clientName: string;
+  card: ConnectorCardView;
+  connection: ConnectionSummaryView;
+  /** The connection's stored row (last activity), when the older list has loaded. */
+  old: OldConnection | undefined;
+  sandbox: boolean;
   /** The Sandbox only: the operator disconnects what they connected (after a confirm step). */
   onDisconnect?: () => Promise<void>;
-  onSaveConfig: (config: Record<string, unknown>) => Promise<void>;
 }) {
+  const name = card.name;
   const [confirming, setConfirming] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [disconnectProblem, setDisconnectProblem] = useState<unknown>(null);
@@ -277,126 +483,86 @@ function ConnectionCard({
       setDisconnecting(false);
     }
   }
-  const saved = JSON.stringify(c.config, null, 2);
-  // The company's name, as the portal shows it; the account id (a QuickBooks realm) under it.
-  const accountName = connectionAccountName(c.config);
-  const [text, setText] = useState(saved);
-  const [editing, setEditing] = useState(false);
-  const [problem, setProblem] = useState<unknown>(null);
-  useEffect(() => setText(saved), [saved]);
-
-  async function save() {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      setProblem(new Error("The configuration must be a JSON object."));
-      return;
-    }
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-      setProblem(new Error("The configuration must be a JSON object."));
-      return;
-    }
-    setProblem(null);
-    try {
-      await onSaveConfig(parsed as Record<string, unknown>);
-      setEditing(false);
-    } catch (e) {
-      setProblem(e);
-    }
-  }
+  const testEmail = sandbox && card.connector === "gmail" && c.status === "connected";
 
   return (
     <Card testId={`ops-connection-${c.id}`} className="flex flex-col p-4">
       <div className="flex items-start gap-3">
-        <ConnectorMark name={name} connector={c.connector} />
+        <ConnectorMark name={name} connector={card.connector} />
         <div className="min-w-0">
-          <p className="font-medium text-ink">{name}</p>
-          {accountName ? (
+          <p className="font-medium text-ink">
+            {name}
+            {card.beta ? <Tag className="ml-2">Beta</Tag> : null}
+          </p>
+          {/* The company or the mailbox's address; a provider's company id never shows. */}
+          {c.accountName ? (
             <p className="text-sm text-ink" data-testid="ops-connection-account">
-              {accountName}
-            </p>
-          ) : c.externalAccountId?.includes("@") ? (
-            // A mailbox's address names it; a provider's company id (a QuickBooks realm) never shows.
-            <p className="text-sm text-ink-muted" data-testid="ops-connection-account">
-              {c.externalAccountId}
+              {c.accountName}
             </p>
           ) : null}
         </div>
       </div>
-      <p className="mt-3 flex items-center gap-2 text-sm text-ink-muted">
+      <p className="mt-3 flex flex-wrap items-center gap-2 text-sm text-ink-muted">
         <Badge tone={c.status === "connected" ? "positive" : "warning"}>
           {connectionStatusLabel(c.status)}
         </Badge>
-        {activityWords(c)}
+        {activityWords(card.connector, c, old)}
       </p>
-      <p className="mt-2 text-sm text-ink-muted">
-        {usedBy.length === 0
+      <p className="mt-2 text-sm text-ink" data-testid="ops-connection-access">
+        {accessWords(c.access)}
+      </p>
+      <p className="mt-1 text-sm text-ink-muted">
+        {c.usedBy.length === 0
           ? "No agent uses it yet."
-          : `Used by ${usedBy.map((u) => u.name).join(", ")}`}
+          : `Used by ${c.usedBy.map((u) => u.name).join(", ")}`}
       </p>
-      {editing ? (
-        <div className="mt-3">
-          <label className="eyebrow text-ink-muted" htmlFor={`config-${c.id}`}>
-            Configuration
-          </label>
-          <textarea
-            id={`config-${c.id}`}
-            data-testid="ops-connection-config-input"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            rows={6}
-            spellCheck={false}
-            className="ds-textarea mt-1 font-mono text-xs"
-          />
-          {problem ? <ErrorNotice error={problem} /> : null}
-          <div className="mt-2 flex gap-2">
-            <Button
-              data-testid="ops-connection-config-save"
-              variant="primary"
-              onClick={() => void save()}
-            >
-              Save configuration
-            </Button>
-            <Button
-              data-testid="ops-connection-config-cancel"
-              variant="ghost"
-              onClick={() => {
-                setText(saved);
-                setProblem(null);
-                setEditing(false);
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <div className="mt-auto flex flex-wrap items-center gap-3 pt-4">
-          <Button data-testid="ops-connection-config-edit" onClick={() => setEditing(true)}>
-            Configuration
-          </Button>
-          {testEmail ? <GmailTestSend clientId={testEmail} /> : null}
-          {c.lastSyncAt ? (
-            <Link
-              to={`/ops/clients/${c.tenantId}/records?source=${c.id}`}
-              data-testid="ops-connection-records"
-              className="ds-btn ds-btn--link text-sm"
-            >
-              See what it synced
-            </Link>
+      {c.needsSomething || c.openRequest ? (
+        <p className="mt-2 flex flex-wrap gap-2">
+          {c.needsSomething ? (
+            <Badge tone="warning" testId="ops-connection-needs">
+              An agent needs something here
+            </Badge>
           ) : null}
-          {onDisconnect && !confirming ? (
-            <Button
-              data-testid="ops-connection-disconnect-start"
-              variant="ghost"
-              onClick={() => setConfirming(true)}
-            >
-              Disconnect
-            </Button>
+          {c.openRequest ? (
+            <Badge tone="warning" testId="ops-connection-open-request">
+              Waiting on {clientName}
+            </Badge>
           ) : null}
-        </div>
+        </p>
+      ) : null}
+      {sandbox ? null : (
+        <p className="mt-2 text-sm text-ink-muted" data-testid="ops-connection-may">
+          {mezonasMayWords(clientName, c.mezonasMay)}
+        </p>
       )}
+      <div className="mt-auto flex flex-wrap items-center gap-3 pt-4">
+        <Link
+          to={clientConnectorPath(clientId, card.connector)}
+          data-testid="ops-connection-open"
+          className="ds-btn ds-btn--secondary"
+        >
+          Access and setup
+        </Link>
+        {testEmail ? <GmailTestSend clientId={clientId} /> : null}
+        {c.lastSyncAt ? (
+          <Link
+            to={`/ops/clients/${clientId}/records?source=${c.id}`}
+            data-testid="ops-connection-records"
+            className="ds-btn ds-btn--link text-sm"
+          >
+            See what it synced
+          </Link>
+        ) : null}
+        {onDisconnect && !confirming ? (
+          <Button
+            data-testid="ops-connection-disconnect-start"
+            variant="ghost"
+            onClick={() => setConfirming(true)}
+          >
+            Disconnect
+          </Button>
+        ) : null}
+      </div>
       {onDisconnect && confirming ? (
         <div className="ds-banner mt-3 block" data-testid="ops-connection-disconnect-confirm-box">
           <p>
@@ -435,15 +601,15 @@ function Offering({
   data,
   onSave,
   onConnect,
+  onSignIn,
 }: {
   clientId: string;
-  data: ClientConnections;
+  data: Data;
   onSave: (offered: string[]) => Promise<void>;
-  /**
-   * The Sandbox only: the operator connects a connector that needs no sign-in, or signs in to an
-   * offered OAuth connector themselves.
-   */
-  onConnect: (connector: { id: string; auth: string }) => Promise<void>;
+  /** The Sandbox only: the operator connects a connector that needs no sign-in. */
+  onConnect: (connector: string) => Promise<void>;
+  /** The Sandbox only: the operator signs in to an offered OAuth connector themselves. */
+  onSignIn: (connector: string) => Promise<void>;
 }) {
   const known = data.offered.filter((id) => data.connectors.some((c) => c.id === id));
   const unknown = data.offered.filter((id) => !known.includes(id));
@@ -460,7 +626,7 @@ function Offering({
 
   return (
     <section>
-      <SectionLabel>Offered to this client</SectionLabel>
+      <SectionLabel>Recommended to this client</SectionLabel>
       <Card testId="ops-connections-offering">
         <ul>
           {data.connectors.map((c) => {
@@ -485,7 +651,7 @@ function Offering({
                   <span className="block text-sm text-ink">{operatorBlurb(c.description)}</span>
                   <span className="block text-xs text-ink-muted">
                     {plural(c.tools.length, "tool")} ·{" "}
-                    {AUTH_LINE[c.auth] ?? "the client connects it from their portal"}
+                    {AUTH_WORDS[c.auth] ?? "the client connects it from their portal"}
                   </span>
                 </label>
                 {data.sandbox &&
@@ -499,7 +665,7 @@ function Offering({
                       onClick={() => {
                         setBusy(true);
                         setProblem(null);
-                        onConnect(c)
+                        (c.auth === "none" ? onConnect(c.id) : onSignIn(c.id))
                           .catch(setProblem)
                           .finally(() => setBusy(false));
                       }}
@@ -523,7 +689,7 @@ function Offering({
               {unknown.length === 1
                 ? "One connector offered to this client isn't available here any more"
                 : `${unknown.length} connectors offered to this client aren't available here any more`}
-              ; saving the offering drops {unknown.length === 1 ? "it" : "them"}.
+              ; saving drops {unknown.length === 1 ? "it" : "them"}.
             </li>
           ) : null}
         </ul>
@@ -535,7 +701,8 @@ function Offering({
         {dirty ? (
           <div className="flex items-center justify-between gap-3 border-t border-line px-4 py-3">
             <p className="text-sm text-ink-muted">
-              Withdrawing an offer leaves an existing connection as it is.
+              Recommended connectors show first in the client's portal. Taking one off leaves an
+              existing connection as it is.
             </p>
             <Button
               data-testid="ops-connections-offering-save"
@@ -549,7 +716,7 @@ function Offering({
                   .finally(() => setBusy(false));
               }}
             >
-              Save offering
+              Save recommendations
             </Button>
           </div>
         ) : null}

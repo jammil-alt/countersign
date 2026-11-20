@@ -6,6 +6,7 @@
 
 import {
   ContentStore,
+  connectionDefaults,
   createExcelConnector,
   EXCEL_TOOLS,
   generateEncryptionKey,
@@ -120,11 +121,11 @@ describe.skipIf(!h)("Excel through the API", () => {
     expect(done.status, JSON.stringify(done.json)).toBe(200);
     conn = j(done.json).connection.connection.id;
     const [row] = await H.t.db.select().from(connection).where(eq(connection.id, conn));
-    expect(row?.permissions).toMatchObject({
-      create: "approval",
-      update: "approval",
-      delete: "off",
-    });
+    // Connectors C2 (docs/connectors-plan.md §5.1): adding rows asks first; updating is off.
+    expect(row?.permissions).toEqual(
+      connectionDefaults(H.platform.connectors.get("excel")?.manifest),
+    );
+    expect(row?.permissions).toMatchObject({ read: "auto", delete: "off" });
     const picker = await call(admin("a"), "GET", "/api/connections/excel/picker");
     expect(j(picker.json)).toMatchObject({ available: true, connectionId: conn, workbooks: [] });
   });

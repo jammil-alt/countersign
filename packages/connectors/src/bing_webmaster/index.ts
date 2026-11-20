@@ -208,6 +208,8 @@ export function createBingWebmasterConnector(
   const fetch = options.fetch ?? globalFetch;
   const connector: Connector = defineConnector({
     id: BING_WEBMASTER_CONNECTOR_ID,
+    // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
+    askFirst: [],
     name: "Bing Webmaster Tools",
     description:
       "Your site's Bing search figures, read only: the searches it showed up for, its pages, clicks and positions, imported each night.",

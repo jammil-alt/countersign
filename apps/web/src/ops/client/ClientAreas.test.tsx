@@ -1,19 +1,17 @@
 // The client page's Areas tab (docs/plan.md §1.162): each business area with its switch, the
-// connections it works through with this client's status and the way to connect or fix one, and
-// its reports; connections no area uses under Other connections. The old Packs and Connections
-// addresses open it.
+// connections it needs with this client's status (and the Connectors tab's flags), each linking to
+// its connector on Setup's Connectors (§1.161), Recommend for one not yet recommended, and its
+// reports. The old Packs address opens it; Connectors stays on Setup.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
-import { fakeApi, OPERATOR_SESSION, SANDBOX_DETAIL } from "../../test/fixtures";
+import { fakeApi, OPERATOR_SESSION } from "../../test/fixtures";
 
 const DEMO = "00000000-0000-4000-8000-00000000a002";
-const SANDBOX = SANDBOX_DETAIL.client.id;
 const QBO = "00000000-0000-4000-8000-0000000000b1";
 const GMAIL = "00000000-0000-4000-8000-0000000000b2";
-const SLACK = "00000000-0000-4000-8000-0000000000b3";
 
 const connector = (id: string, name: string, auth: string) => ({
   id,
@@ -31,20 +29,48 @@ const CONNECTORS = [
   connector("gmail", "Gmail", "oauth2"),
   connector("outlook", "Outlook", "oauth2"),
   connector("bankfeed", "Bank feed", "oauth2"),
-  connector("slack", "Slack", "oauth2"),
 ];
 
-const connection = (id: string, tenantId: string, kind: string, status: string) => ({
+const connection = (id: string, kind: string, status: string) => ({
   id,
-  tenantId,
+  tenantId: DEMO,
   connector: kind,
   status,
   externalAccountId: null,
-  config: kind === "qbo" ? { accountName: "Hartley Millwork LLC" } : {},
+  config: {},
   permissions: { read: "auto", create: "approval", update: "approval", delete: "off" },
   lastSyncAt: "2026-11-19T12:00:00.000Z",
   connectedBy: null,
   createdAt: "2026-11-01T12:00:00.000Z",
+});
+
+/** The Connectors tab's view of a connection (§1.161), with its flags. */
+const card = (kind: string, name: string, id: string, status: string, needsSomething: boolean) => ({
+  connector: kind,
+  name,
+  description: "",
+  icon: null,
+  auth: "oauth2",
+  personal: false,
+  multiple: false,
+  available: true,
+  beta: false,
+  recommended: false,
+  custom: false,
+  group: "Other",
+  connections: [
+    {
+      id,
+      status,
+      accountName: null,
+      lastSyncAt: null,
+      usedBy: [],
+      access: { reads: 1, changesAsk: 1, changesAuto: 0 },
+      needsSomething,
+      openRequest: false,
+      mezonasMay: null,
+    },
+  ],
 });
 
 const AREAS = [
@@ -83,14 +109,21 @@ function demoApi() {
     "GET /api/session": () => OPERATOR_SESSION,
     [`GET /api/ops/clients/${DEMO}/packs`]: () => ({ packs: AREAS }),
     [`GET /api/ops/clients/${DEMO}/connections`]: () => ({
-      connections: [
-        connection(QBO, DEMO, "qbo", "connected"),
-        connection(GMAIL, DEMO, "gmail", "error"),
-        connection(SLACK, DEMO, "slack", "connected"),
-      ],
-      offered: ["qbo", "gmail", "slack"],
+      connections: [connection(QBO, "qbo", "connected"), connection(GMAIL, "gmail", "error")],
+      offered: ["qbo", "gmail"],
       connectors: CONNECTORS,
       usedBy: {},
+      sandbox: false,
+    }),
+    [`GET /api/ops/clients/${DEMO}/connectors`]: () => ({
+      connected: [
+        card("qbo", "QuickBooks Online", QBO, "connected", true),
+        card("gmail", "Gmail", GMAIL, "error", false),
+      ],
+      builtForYou: [],
+      recommended: [],
+      requests: [],
+      agents: [],
       sandbox: false,
     }),
     [`PUT /api/ops/clients/${DEMO}/connectors`]: ({ init }) => {
@@ -113,7 +146,7 @@ function renderAt(path: string, api: ReturnType<typeof fakeApi>) {
 }
 
 describe("the client page's Areas tab", () => {
-  it("shows each area's switch, its connections with the client's status, and its reports", async () => {
+  it("shows each area's switch, the connections it needs with their status, and its reports", async () => {
     const { api, offers } = demoApi();
     renderAt(`/ops/clients/${DEMO}/areas`, api);
     const purchasing = await screen.findByTestId("ops-client-area-materials");
@@ -125,23 +158,29 @@ describe("the client page's Areas tab", () => {
     expect(qbo).toHaveTextContent("QuickBooks Online");
     expect(qbo).toHaveTextContent("Vendors, bills and their prices.");
     expect(qbo).toHaveTextContent("Connected");
-    // Its card (configuration, what it synced) opens in place.
-    expect(screen.queryByTestId(`ops-connection-${QBO}`)).toBeNull();
-    await userEvent.click(within(qbo).getByTestId("ops-area-connection-materials-qbo-manage"));
-    expect(within(qbo).getByTestId(`ops-connection-${QBO}`)).toHaveTextContent(
-      "Hartley Millwork LLC",
+    // The Connectors tab's flag, read from its route (§1.161), not worked out again.
+    expect(
+      await within(qbo).findByTestId("ops-area-connection-materials-qbo-needs"),
+    ).toHaveTextContent("An agent needs something here");
+    // Changes happen on the connector's own page, on Setup's Connectors.
+    expect(within(qbo).getByTestId("ops-area-connection-materials-qbo-open")).toHaveAttribute(
+      "href",
+      `/ops/clients/${DEMO}/connectors/qbo`,
     );
+    expect(within(qbo).queryByTestId("ops-area-connection-materials-qbo-recommend")).toBeNull();
 
     // Gmail or Outlook: the client's Gmail needs signing in again, which only the client can do.
     const email = within(purchasing).getByTestId("ops-area-connection-materials-gmail");
     expect(email).toHaveTextContent("Needs reconnecting");
     expect(email).toHaveTextContent("The client signs in again from their portal");
 
-    // Not offered yet: we offer it, and the client connects it from their portal.
+    // Not recommended yet: we recommend it, and the client connects it from their portal.
     const upload = within(purchasing).getByTestId("ops-area-connection-materials-upload");
     expect(upload).toHaveTextContent("Not connected");
-    await userEvent.click(within(upload).getByTestId("ops-area-connection-materials-upload-offer"));
-    await waitFor(() => expect(offers).toEqual([{ offered: ["qbo", "gmail", "slack", "upload"] }]));
+    await userEvent.click(
+      within(upload).getByTestId("ops-area-connection-materials-upload-recommend"),
+    );
+    await waitFor(() => expect(offers).toEqual([{ offered: ["qbo", "gmail", "upload"] }]));
 
     expect(within(purchasing).getByRole("link", { name: "Price watch" })).toHaveAttribute(
       "href",
@@ -156,59 +195,27 @@ describe("the client page's Areas tab", () => {
     const bank = within(books).getByTestId("ops-area-connection-bookkeeping-bankfeed");
     expect(bank).toHaveTextContent("Not connected");
     expect(
-      within(bank).getByTestId("ops-area-connection-bookkeeping-bankfeed-offer"),
-    ).toHaveTextContent("Offer Bank feed");
+      within(bank).getByTestId("ops-area-connection-bookkeeping-bankfeed-open"),
+    ).toHaveAttribute("href", `/ops/clients/${DEMO}/connectors/bankfeed`);
     expect(within(books).queryByRole("link", { name: "Bank transactions" })).toBeNull();
 
-    // A connection no area uses is under Other connections; the areas' are not.
-    const other = screen.getByTestId("ops-connections-other");
-    expect(other).toHaveTextContent("Other connections · 1");
-    expect(within(other).getByTestId(`ops-connection-${SLACK}`)).toBeInTheDocument();
-    expect(within(other).queryByTestId(`ops-connection-${GMAIL}`)).toBeNull();
-    // The matrix and the offering stay on the tab.
-    expect(screen.getByTestId("ops-connections-offering")).toBeInTheDocument();
+    // The client's connections themselves are not here: they are Setup's Connectors.
+    expect(screen.queryByTestId("ops-connections-offering")).toBeNull();
   });
 
-  it("opens from the old Packs and Connections addresses, with Setup keeping its other pages", async () => {
-    for (const old of ["packs", "connections"]) {
-      const { api } = demoApi();
-      const view = renderAt(`/ops/clients/${DEMO}/${old}`, api);
-      expect(await screen.findByTestId("ops-client-areas")).toBeInTheDocument();
-      const tabs = within(screen.getByTestId("ops-client-tabs"));
-      expect(tabs.getByRole("link", { name: "Areas" })).toHaveAttribute(
-        "href",
-        `/ops/clients/${DEMO}/areas`,
-      );
-      expect(tabs.queryByRole("link", { name: "Packs" })).toBeNull();
-      view.unmount();
-    }
-  });
-
-  it("connects a Sandbox area's no-sign-in connection here", async () => {
-    const api = fakeApi({
-      "GET /api/session": () => OPERATOR_SESSION,
-      [`GET /api/ops/clients/${SANDBOX}`]: () => SANDBOX_DETAIL,
-      [`GET /api/ops/clients/${SANDBOX}/packs`]: () => ({ packs: [AREAS[0]] }),
-      [`GET /api/ops/clients/${SANDBOX}/connections`]: () => ({
-        connections: [],
-        offered: [],
-        connectors: CONNECTORS,
-        usedBy: {},
-        sandbox: true,
-      }),
-      [`POST /api/ops/clients/${SANDBOX}/connections/upload/connect`]: () => ({
-        connection: connection(QBO, SANDBOX, "upload", "connected"),
-      }),
-    });
-    renderAt(`/ops/clients/${SANDBOX}/areas`, api);
-    const upload = await screen.findByTestId("ops-area-connection-materials-upload");
-    await userEvent.click(
-      within(upload).getByTestId("ops-area-connection-materials-upload-connect"),
+  it("opens from the old Packs address; Setup keeps Connectors", async () => {
+    const { api } = demoApi();
+    renderAt(`/ops/clients/${DEMO}/packs`, api);
+    expect(await screen.findByTestId("ops-client-areas")).toBeInTheDocument();
+    const tabs = within(screen.getByTestId("ops-client-tabs"));
+    expect(tabs.getByRole("link", { name: "Areas" })).toHaveAttribute(
+      "href",
+      `/ops/clients/${DEMO}/areas`,
     );
-    expect(api.calls).toContain(`POST /api/ops/clients/${SANDBOX}/connections/upload/connect`);
-    // An OAuth tool in the Sandbox is offered first, then the operator signs in.
-    expect(screen.getByTestId("ops-area-connection-materials-qbo-offer")).toHaveTextContent(
-      "Offer QuickBooks Online",
+    expect(tabs.queryByRole("link", { name: "Packs" })).toBeNull();
+    expect(tabs.getByRole("link", { name: "Setup" })).toHaveAttribute(
+      "href",
+      `/ops/clients/${DEMO}/connections`,
     );
   });
 });

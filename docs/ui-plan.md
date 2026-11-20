@@ -230,9 +230,9 @@ event trigger). Neither is a bundle or a prompt (invariant 11).
   - The Clients list, the sidebar badge and Escalations read the same count.
 - **Command center:** at most four tiles, each a link to its filtered list.
 - **Client page:** Overview, Agents, Areas (each business area with its switch, the connections it
-  works through and its reports, then the client's other connections; `docs/plan.md` §1.162),
-  File, Data (Documents, Records, Chart of accounts), Setup (Messaging, Directory, Knowledge) and
-  Settings. Settings shows one section at a time. Old addresses keep working.
+  needs with their status, linking to Setup's Connectors, and its reports; `docs/plan.md` §1.162),
+  File, Data (Documents, Records, Chart of accounts), Setup (Connectors, Messaging, Directory,
+  Knowledge) and Settings. Settings shows one section at a time. Old addresses keep working.
 - **Run page:** Timeline, Changes and Details (model calls, oversight, raw data). The waiting block
   sits at the top.
   - Runs are titled by what they're about (a derived `subject`).

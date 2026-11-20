@@ -73,6 +73,7 @@ import { clientViewRoutes } from "./routes/client-view";
 import { commandCenterRoutes } from "./routes/command-center";
 import { complianceRouteHandlers } from "./routes/compliance";
 import { connectionRoutes } from "./routes/connections";
+import { connectorAccessRouteHandlers } from "./routes/connector-access";
 import { contactRoutes } from "./routes/contacts";
 // v0.14 capture: WhatsApp conversations and their capture
 import { conversationRouteHandlers } from "./routes/conversations";
@@ -283,6 +284,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // v0.12 bankfeed: Plaid's webhook
   bankfeedRoutes(app);
   connectionRoutes(app);
+  // Connectors C4 (docs/connectors-plan.md §3, §7): the Connectors place and the back office's tab.
+  connectorAccessRouteHandlers(app);
   // v0.14 W4-D: Google Sheets' picking
   gsheetsRoutes(app);
   webhookSetupRoutes(app);
