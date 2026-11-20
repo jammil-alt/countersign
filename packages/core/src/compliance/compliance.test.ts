@@ -41,6 +41,28 @@ describe("card numbers", () => {
     expect(redactCardNumbersDeep({ client: { id } })).toEqual({ client: { id } });
   });
 
+  it("never takes a connected tool's record id for a card (§1.164)", () => {
+    // A 19-digit Zoho record id that passes Luhn: an update naming it was refused as a card.
+    const zoho = "4876876000000123455";
+    expect(luhnValid(zoho)).toBe(true);
+    const change = {
+      module: "Leads",
+      id: zoho,
+      recordIds: [zoho],
+      lead_id: zoho,
+      fields: { Region: "West", Notes: `paid with ${zoho}` },
+    };
+    expect(redactCardNumbersDeep(change)).toEqual({
+      ...change,
+      fields: { Region: "West", Notes: "paid with [card ending 3455]" },
+    });
+    // A card written as a card under an id field is still caught; so is any other field.
+    expect(redactCardNumbersDeep({ id: "4242 4242 4242 4242" })).toEqual({
+      id: "[card ending 4242]",
+    });
+    expect(redactCardNumbersDeep({ identity: zoho })).toEqual({ identity: "[card ending 3455]" });
+  });
+
   it("leaves numbers that aren't cards alone", () => {
     for (const text of [
       "Invoice 4242424242424241", // fails Luhn
