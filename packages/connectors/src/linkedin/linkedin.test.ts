@@ -12,9 +12,9 @@ import {
 } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import type { WriteAttemptServices, WriteAttemptState } from "../attempts";
-import { type ConnectionRef, UnconfirmedWriteError } from "../connector";
+import { type ConnectionRef, UnconfirmedWriteError, writeNotMade } from "../connector";
 import { memoryCredentials } from "../credentials-accessor";
-import { formDecode, parseUrl } from "../http";
+import { type FetchLike, formDecode, parseUrl } from "../http";
 import { captureBefore, executeWrite } from "../invoke";
 import { noopLogger } from "../logger";
 import { SignInRefusedError } from "../oauth/tokens";
@@ -24,6 +24,7 @@ import {
   createLinkedInConnector,
   LINKEDIN_AUTH_URL,
   LINKEDIN_POST_TOOL,
+  LINKEDIN_TOKEN_URL,
   LINKEDIN_VERSION,
   LinkedInNotConfiguredError,
   linkedInCommentary,
@@ -269,6 +270,79 @@ describe("linkedin.post", () => {
       executeWrite(lost.connector, LINKEDIN_POST_TOOL, { text: "Lost" }, lost.ctx),
     ).rejects.toThrow(UnconfirmedWriteError);
     expect(lost.li.posts).toHaveLength(1);
+  });
+
+  it("(PLATFORM_QA INTEG-4) a retry under the same key posts after a token refresh failed, since nothing reached LinkedIn", async () => {
+    const li = fakeLinkedIn();
+    let tokenDown = false;
+    const fetch: FetchLike = async (url, init) => {
+      if (tokenDown && url.startsWith(LINKEDIN_TOKEN_URL)) {
+        // LinkedIn's token endpoint has an incident (a 503 with OAuth's server_error).
+        return {
+          status: 503,
+          ok: false,
+          headers: { get: () => "application/json" },
+          text: async () => JSON.stringify({ error: "server_error" }),
+        };
+      }
+      return li.fetch(url, init);
+    };
+    const connector = createLinkedInConnector({ ...FAKE_LINKEDIN, fetch });
+    const grant = await connector.handleCallback?.(
+      { code: li.issueCode(), state: "s" },
+      { tenantId: TENANT, userId: "u1", redirectUri: REDIRECT },
+    );
+    if (!grant) throw new Error("no grant");
+    const credentials = memoryCredentials(grant.credentials);
+    // The access token has expired: the post needs a refresh first.
+    await credentials.set({
+      ...((await credentials.get()) as JsonObject),
+      expiresAt: "2026-11-08T11:00:00.000Z",
+    });
+    const ctx = {
+      tenantId: TENANT,
+      connection: {
+        id: "0192f7a0-0000-7000-8000-0000000000b5",
+        tenantId: TENANT,
+        connector: "linkedin",
+        status: "connected",
+        externalAccountId: grant.externalAccountId,
+        config: grant.config ?? {},
+        permissions: {},
+      } satisfies ConnectionRef,
+      credentials,
+      logger: noopLogger,
+      now: () => NOW,
+      services: { attempts: memoryAttempts() },
+      idempotencyKey: "run-1:post:0",
+    };
+    const input = { text: "Our spring hours start Monday." };
+
+    tokenDown = true;
+    const first = await executeWrite(connector, LINKEDIN_POST_TOOL, input, ctx).then(
+      () => null,
+      (e: Error & { notWritten?: boolean }) => e,
+    );
+    // The first try failed at the refresh, before anything was sent to LinkedIn's posts API.
+    expect(first?.name).toBe("TokenRefreshError");
+    expect(first?.notWritten).toBe(true);
+    expect(li.posts).toHaveLength(0);
+
+    // The token endpoint is back; the run's retry carries the approved write under its key.
+    tokenDown = false;
+    await executeWrite(connector, LINKEDIN_POST_TOOL, input, ctx);
+    expect(li.posts).toHaveLength(1);
+  });
+
+  it("(PLATFORM_QA INTEG-5) marks LinkedIn's 4xx refusal of a post as not written", async () => {
+    const { li, connector, ctx } = await setup(undefined, "run-4:post:0");
+    li.refuseNext(429);
+    const e = await executeWrite(connector, LINKEDIN_POST_TOOL, { text: "Busy" }, ctx).catch(
+      (x: unknown) => x,
+    );
+    expect(writeNotMade(e)).toBe(true);
+    await executeWrite(connector, LINKEDIN_POST_TOOL, { text: "Busy" }, ctx);
+    expect(li.posts).toHaveLength(1);
   });
 
   it("escapes every markup character", () => {

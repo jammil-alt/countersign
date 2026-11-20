@@ -5,7 +5,7 @@ import {
   type PermissionMatrix,
 } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import type { WriteContext } from "../connector";
+import { type WriteContext, writeNotMade } from "../connector";
 import { CredentialCipher, generateEncryptionKey, memoryTenantKeys } from "../credentials";
 import { memoryCredentials } from "../credentials-accessor";
 import { formDecode, parseUrl } from "../http";
@@ -431,6 +431,10 @@ describe("hubspot connector", () => {
     ).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(HubspotApiError);
     expect(err).toMatchObject({ status: 429, code: "RATE_LIMITS", retryable: true });
+    // (PLATFORM_QA INTEG-5) HubSpot's 4xx answer changed nothing; a 5xx or a 409 may have.
+    expect(writeNotMade(err)).toBe(true);
+    expect(writeNotMade(new HubspotApiError(503, "HTTP_503", "down", true))).toBe(false);
+    expect(writeNotMade(new HubspotApiError(409, "CONFLICT", "clash", false))).toBe(false);
     await connector.revoke?.(c);
     expect(hs.revoked()).toEqual([firstRefresh]);
     hs.expireAccessTokens();
