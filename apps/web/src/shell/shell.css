@@ -142,17 +142,24 @@
   height: calc(100vh - var(--header-h));
   flex-shrink: 0;
   justify-content: space-between;
-  overflow-y: auto;
+  overflow: hidden;
   background: var(--surface);
   padding: var(--space-4) var(--space-3);
 }
+/* Only the nav scrolls; the foot (Feedback, Collapse or Expand) stays in view however long the
+ * nav is, folded to a rail included (staging feedback, 2026-11-20). */
 .ui-sidebar__nav {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 .ui-sidebar__foot {
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
   gap: 2px;
   margin-top: var(--space-6);
 }

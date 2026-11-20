@@ -959,6 +959,16 @@ a.ui-stat--link:focus-visible {
   letter-spacing: 0.06em;
 }
 
+/* ── A page table (`dt dt--page`) whose table sits in a sideways-scrolling box (Sales, Build) ──
+ * The design system sticks the column heads under the toolbar (`top: --dt-bar-h`), against the
+ * page. A box that scrolls sideways is a scroll container of its own, so the heads stuck to it
+ * instead and were pushed that far down, under the first row (staging feedback, 2026-11-20).
+ * DECISION: keep the sideways scroll (wide tables stay whole at any width) and draw the heads at
+ * the table's top; they scroll with the rows while the toolbar above stays put. */
+.dt--page .ui-dtscroll thead th {
+  top: 0;
+}
+
 /* ── Empty states (EmptyState): centred, an icon in a soft tile, a title, a line and the next
  * step. A solid hairline on the surface, not the pattern's dashed box; inside a card, compact
  * and borderless. Good news (nothing waits) takes the positive tint. ── */

@@ -356,7 +356,7 @@ function SalesTable({
   const navigate = useNavigate();
   const head = { sort, onSort };
   return (
-    <div className="dt-ana overflow-x-auto">
+    <div className="dt-ana ui-dtscroll overflow-x-auto">
       <table data-testid="sales-table">
         <thead>
           <tr>
