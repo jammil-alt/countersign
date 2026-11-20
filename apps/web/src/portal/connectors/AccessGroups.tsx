@@ -28,8 +28,9 @@ function offered(row: Pick<AccessRowView, "level" | "choices">): PermissionLevel
 /** The refused rows of a 422 `not_allowed`, in the API's words, when it sent them. */
 function refusedWords(e: unknown): string[] {
   if (!isApiError(e) || e.status !== 422) return [];
-  const body = e.body as { refused?: { reason?: unknown }[] } | undefined;
-  return (body?.refused ?? [])
+  // The API's error body: { error: { code, message, details: { refused: [{ row, reason }] } } }.
+  const body = e.body as { error?: { details?: { refused?: { reason?: unknown }[] } } } | undefined;
+  return (body?.error?.details?.refused ?? [])
     .map((r) => r.reason)
     .filter((r): r is string => typeof r === "string");
 }

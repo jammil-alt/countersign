@@ -330,8 +330,11 @@ describe("a connector's page, connected", () => {
       [`PUT /api/portal/connections/${CONN}/access`]: ({ init }) => {
         puts.push(body(init));
         return new Reply(422, {
-          error: "not_allowed",
-          refused: [{ row: {}, reason: "Delete stays off." }],
+          error: {
+            code: "not_allowed",
+            message: "Delete stays off.",
+            details: { refused: [{ row: {}, reason: "Delete stays off." }] },
+          },
         });
       },
     });
