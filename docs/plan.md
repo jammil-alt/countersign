@@ -5990,7 +5990,7 @@ Below are the choices they made where the fix left a choice open, each with a `/
 | Web first-load budget (#450) | Raised to 495 kB (`scripts/web-size.mjs`): main was at 489.4 kB and the screen fixes add 2.5 kB to the first load. The follow-ups recorded there bring it back down. // DECISION |
 | Not in this pass | Bookkeeping templates don't yet pass the read-statement skill's currency to a given side (it is free text, not a currency code), so a given side takes the other side's currency. Google Chat's Retry-After is left to the step's backoff. SEC-4, SEC-6, STATE-5 and TOOL-4 were judged by design (`PLATFORM_QA.md` §4). |
 
-### 1.160 An agent's own phone line, $10 a month (owner, 2026-11-20; migration 0068)
+### 1.160 An agent's own phone line, $10 a month (owner, 2026-11-20; migration 0069)
 
 The owner: "For each agent, offer to add their own phone number, add $10 per month per line. This
 gives them access to a specific agent, even if they have one for Sloan, they can use it to

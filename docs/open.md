@@ -132,7 +132,7 @@ email and text is planned (§1.150), its own PR: it needs Mezonas' own number an
 
 ## 1d. An agent's own phone line, $10 a month (`docs/plan.md` §1.160)
 
-Built (migration 0068 in its own PR, then the feature): a client admin asks for a number of an
+Built (migration 0069 in its own PR, then the feature): a client admin asks for a number of an
 agent's own from the agent's card or the Channels page; we buy one on the client's Messaging page
 and pick the agent in the number's "Whose number" list. The agent then texts and calls from it,
 texts to it go to that agent only (never Sloan), and each active day is billed at the line price.
