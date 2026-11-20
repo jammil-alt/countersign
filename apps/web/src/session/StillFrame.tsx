@@ -18,6 +18,12 @@ export function StillFrame() {
       <p className="sr-only" role="status">
         {t("common.loading")}
       </p>
+      {/* Owner, 2026-11-20: shown alone, in place of the app's frame, to a browser not known to be
+          signed in (`html[data-frame="sign-in"]`, public/frame.js). */}
+      <span aria-hidden="true" className="ui-frame__signin">
+        <img src={logo} alt="" width="188" height="26" className="theme-light-only" />
+        <img src={logoPaper} alt="" width="188" height="26" className="theme-dark-only" />
+      </span>
       <div aria-hidden="true" className="ds-header ui-topbar">
         <span className="ui-skel ui-topbar__menu ui-frame__menu" />
         <span className="ui-topbar__logo">
