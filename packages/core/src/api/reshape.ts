@@ -59,6 +59,19 @@ const StepBody = {
   process: z.unknown(),
   /** The Reshape data step. */
   stepId: z.string().min(1).max(64),
+  /**
+   * §1.164: the agent's skills with their parameters (the builder's draft), so a Read table step
+   * before this one is typed by the agent's columns.
+   */
+  agentSkills: z
+    .array(
+      z.object({
+        skill: z.string().min(1).max(200),
+        parameters: z.record(z.string(), z.unknown()).optional(),
+      }),
+    )
+    .max(200)
+    .optional(),
 };
 
 export const reshapeRoutes = {

@@ -22,6 +22,18 @@ type SkillStep = Extract<Step, { kind: "skill" }>;
 type Field = processes.ReshapeField;
 type EditKind = "none" | "copy" | "value" | "expression";
 
+/** §1.164: the agent's skills with their parameters, so the server types Read table's rows too. */
+function agentSkillsOf(ctx: TypingContext) {
+  return ctx.agentSkills
+    ? {
+        agentSkills: ctx.agentSkills.map((s) => ({
+          skill: s.skill,
+          ...(s.parameters ? { parameters: { ...s.parameters } } : {}),
+        })),
+      }
+    : {};
+}
+
 const HOW_WORDS: Record<string, string> = {
   exact: "same name",
   name: "same name, other spelling",
@@ -189,7 +201,12 @@ export function ReshapeFields({
     if (!agentId) return;
     const res = await propose.call(apiRoutes.opsReshapePropose, {
       params: { id: agentId },
-      body: { process: workflow, stepId: step.id, ...(update ? { update: true } : {}) },
+      body: {
+        process: workflow,
+        stepId: step.id,
+        ...agentSkillsOf(ctx),
+        ...(update ? { update: true } : {}),
+      },
     });
     if (!res.ok) return;
     setProposal(res.data);
@@ -216,7 +233,7 @@ export function ReshapeFields({
     const t = window.setTimeout(async () => {
       const res = await sample.call(apiRoutes.opsReshapeSample, {
         params: { id: agentId },
-        body: { process: workflow, stepId: step.id },
+        body: { process: workflow, stepId: step.id, ...agentSkillsOf(ctx) },
       });
       if (res.ok) setSamples(res.data);
     }, 300);

@@ -214,7 +214,7 @@ async function runSteps(
         const file = await page.download(fillScriptUrl(step.url, values));
         if (!isDocumentType(file.mimeType)) {
           throw new BrowserRefused(
-            `${step.url} is ${file.mimeType || "an unknown type"}; documents are PDFs or images`,
+            `${step.url} is ${file.mimeType || "an unknown type"}; documents are PDFs, images or table files (.csv, .xlsx, .json)`,
           );
         }
         if (options.dryRun) {

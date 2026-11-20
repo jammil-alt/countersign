@@ -760,7 +760,7 @@ function jsonRows(value: unknown): unknown[] | null {
   // DECISION: an object's rows are its first top-level list of objects (`{ "items": [...] }`);
   // an object with none is one row.
   for (const v of Object.values(value)) {
-    if (Array.isArray(v) && v.length > 0 && v.every(isPlainObject)) return v;
+    if (Array.isArray(v) && v.some(isPlainObject)) return v;
   }
   return [value];
 }
