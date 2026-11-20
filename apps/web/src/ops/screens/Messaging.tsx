@@ -2,7 +2,13 @@
 // the client's Twilio subaccount, buys and releases its numbers (they cost money, so only here,
 // never by an agent), marks the WhatsApp sender once Twilio has registered it, records and checks
 // A2P 10DLC registration, sets quiet hours, and keeps the client's contacts.
-import type { A2pStatus, AvailableNumber, MessagingSetup, QuietHours } from "@countersign/core";
+import type {
+  A2pStatus,
+  AvailableNumber,
+  CallingStatus,
+  MessagingSetup,
+  QuietHours,
+} from "@countersign/core";
 import { formatAmount, numberFor } from "@countersign/core";
 import { type FormEvent, useState } from "react";
 import { useParams } from "react-router-dom";
@@ -113,6 +119,13 @@ function TwilioSetup({
             Texts and WhatsApp aren't set up for Mezonas yet. An engineer adds our Twilio key; then
             you can set up this client's numbers here.
           </p>
+        ) : twilio?.closedAt || twilio?.closeError ? (
+          // §1.160: a retired client's Twilio is given up hourly: numbers released, closed for good.
+          <p className="text-ink-muted" data-testid="ops-twilio-closed">
+            {twilio.closedAt
+              ? `The client is retired. We released its numbers and closed its subaccount on ${new Date(twilio.closedAt).toLocaleDateString()}. It can't be reopened.`
+              : `The client is retired. We're releasing its numbers and closing its subaccount; Twilio refused the last try (${twilio.closeError}), so we try again every hour.`}
+          </p>
         ) : twilio === null || twilio.status !== "connected" ? (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-ink-muted">
@@ -145,6 +158,7 @@ function TwilioSetup({
         <>
           <Numbers clientId={clientId} setup={setup} busy={busy} act={act} />
           <A2pPanel clientId={clientId} setup={setup} busy={busy} act={act} />
+          <CallerIdPanel clientId={clientId} setup={setup} busy={busy} act={act} />
         </>
       ) : null}
       <QuietHoursPanel clientId={clientId} setup={setup} busy={busy} act={act} />
@@ -444,6 +458,138 @@ function A2pPanel({
           Check status
         </Button>
       </form>
+    </Card>
+  );
+}
+
+const CALLING: Record<CallingStatus, { label: string; tone: Tone }> = {
+  not_started: { label: "Not started", tone: "neutral" },
+  pending: { label: "In review", tone: "warning" },
+  approved: { label: "Approved", tone: "positive" },
+  rejected: { label: "Refused", tone: "risk" },
+};
+
+/**
+ * §1.160: calls that carry the client's name. SHAKEN/STIR signs our calls so carriers don't mark
+ * them as spam; CNAM shows the client's name to the person called. Both sit on the business
+ * profile the texting registration made, so they wait for its approval.
+ */
+function CallerIdPanel({
+  clientId,
+  setup,
+  busy,
+  act,
+}: {
+  clientId: string;
+  setup: MessagingSetup;
+  busy: boolean;
+  act: Act;
+}) {
+  const api = useApiClient();
+  const calling = setup.twilio?.calling ?? null;
+  const [name, setName] = useState(calling?.displayName ?? calling?.suggestedName ?? "");
+  if (!calling) return null;
+  const shaken = CALLING[calling.shakenStir.status];
+  const cnam = CALLING[calling.cnam.status];
+  const started =
+    calling.shakenStir.status !== "not_started" || calling.cnam.status !== "not_started";
+  const voiceNumbers = (setup.twilio?.numbers ?? []).filter(
+    (n) => n.capabilities.voice && n.phoneNumber.startsWith("+1"),
+  );
+  const issues = [...calling.shakenStir.issues, ...calling.cnam.issues];
+  return (
+    <Card className="p-5" testId="ops-caller-id">
+      <SectionLabel>Calls that carry the client's name</SectionLabel>
+      <p className="mb-4 text-sm text-ink-muted">
+        Signed calls (SHAKEN/STIR) keep carriers from marking our calls as spam. The caller name
+        (CNAM) is what the person we call sees, up to 15 characters. Both are free. Twilio reviews
+        them in about three days, and the name can take a few more to reach every US carrier.
+      </p>
+      {!calling.profileReady ? (
+        <p className="text-sm" data-testid="ops-caller-id-waiting">
+          <Badge tone="warning">Waiting</Badge> These go on the client's business profile, which
+          Twilio approves as part of the US texting registration above. Register once it's approved.
+        </p>
+      ) : (
+        <>
+          <dl className="mb-4 grid grid-cols-1 gap-2 text-sm sm:grid-cols-[180px_minmax(0,1fr)]">
+            <dt className="text-ink-muted">Signed calls</dt>
+            <dd>
+              <Badge tone={shaken.tone} testId="ops-shaken-status">
+                {shaken.label}
+              </Badge>
+            </dd>
+            <dt className="text-ink-muted">Caller name</dt>
+            <dd>
+              <Badge tone={cnam.tone} testId="ops-cnam-status">
+                {cnam.label}
+              </Badge>
+              {calling.displayName ? ` ${calling.displayName}` : null}
+            </dd>
+            {started ? (
+              <>
+                <dt className="text-ink-muted">Numbers covered</dt>
+                <dd data-testid="ops-caller-id-covered">
+                  {calling.numbersCovered.length} of {voiceNumbers.length}
+                  {calling.numbersCovered.length < voiceNumbers.length
+                    ? ". The rest are added within the hour."
+                    : ""}
+                </dd>
+              </>
+            ) : null}
+          </dl>
+          {issues.length > 0 || calling.error ? (
+            <ul role="alert" className="ds-error mb-4 text-sm" data-testid="ops-caller-id-issues">
+              {calling.error ? <li>{calling.error}</li> : null}
+              {issues.map((i) => (
+                <li key={i}>{i}</li>
+              ))}
+            </ul>
+          ) : null}
+          <form
+            className="flex flex-wrap items-end gap-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void act(() =>
+                api.call(apiRoutes.opsTwilioCalling, {
+                  params: { id: clientId },
+                  body: { displayName: name.trim() },
+                }),
+              );
+            }}
+          >
+            <Field label="Caller name" className="w-64">
+              <TextInput
+                value={name}
+                maxLength={15}
+                onChange={(e) => setName(e.target.value)}
+                data-testid="ops-cnam-name"
+              />
+            </Field>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={busy || name.trim() === ""}
+              data-testid="ops-caller-id-register"
+            >
+              {started ? "Send again" : "Register"}
+            </Button>
+            {started ? (
+              <Button
+                disabled={busy}
+                onClick={() =>
+                  void act(() =>
+                    api.call(apiRoutes.opsTwilioCallingRefresh, { params: { id: clientId } }),
+                  )
+                }
+                data-testid="ops-caller-id-refresh"
+              >
+                Check status
+              </Button>
+            ) : null}
+          </form>
+        </>
+      )}
     </Card>
   );
 }

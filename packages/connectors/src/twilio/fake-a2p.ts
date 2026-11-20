@@ -25,6 +25,10 @@ export interface FakeBundle {
   email: string;
   assignments: string[];
   errors: unknown[];
+  /** The policy it was made with (A2P, SHAKEN/STIR, CNAM, secondary profile). */
+  policy?: string;
+  /** §1.160: numbers on it, by their assignment (RA… → PN…). */
+  channels?: Map<string, string>;
 }
 export interface FakeEndUser {
   sid: string;
@@ -198,6 +202,8 @@ export function fakeA2p(next: () => number) {
           email: form.Email,
           assignments: [],
           errors: [],
+          policy: form.PolicySid,
+          channels: new Map(),
         };
         bundles.set(b.sid, b);
         return json(201, bundleView(b));
@@ -230,6 +236,46 @@ export function fakeA2p(next: () => number) {
         const b = mine(bundles, evals[2], caller);
         if (!b) return notFound();
         return json(201, evaluate(b));
+      }
+      // §1.160: a number on a profile or trust product. A trust product takes only numbers already
+      // on a customer profile it holds (Twilio's SHAKEN/STIR guide).
+      const channels = path.match(
+        /^\/(CustomerProfiles|TrustProducts)\/(BU[0-9a-f]{32})\/ChannelEndpointAssignments(?:\/(RA[0-9a-f]{32}))?$/,
+      );
+      if (channels?.[2]) {
+        const b = mine(bundles, channels[2], caller);
+        if (!b) return notFound();
+        b.channels ??= new Map();
+        if (method === "POST" && !channels[3]) {
+          const pn = form.ChannelEndpointSid ?? "";
+          if (form.ChannelEndpointType !== "phone-number" || !/^PN[0-9a-f]{32}$/.test(pn)) {
+            return json(400, { code: 20001, message: "ChannelEndpointType and Sid are required" });
+          }
+          if (b.kind === "TrustProducts") {
+            const onProfile = b.assignments.some((s) =>
+              [...(bundles.get(s)?.channels?.values() ?? [])].includes(pn),
+            );
+            if (!onProfile) {
+              return json(400, {
+                code: 22218,
+                message: "the phone number must be assigned to the business profile first",
+              });
+            }
+          }
+          if ([...b.channels.values()].includes(pn)) {
+            return json(409, { code: 22219, message: "the phone number is already assigned" });
+          }
+          const sid = `RA${hex32(next())}`;
+          b.channels.set(sid, pn);
+          return json(201, {
+            sid,
+            channel_endpoint_sid: pn,
+            channel_endpoint_type: "phone-number",
+          });
+        }
+        if (method === "DELETE" && channels[3]) {
+          return b.channels.delete(channels[3]) ? json(204) : notFound();
+        }
       }
       if (path === "/EndUsers" && method === "POST") {
         let attributes: Record<string, unknown>;

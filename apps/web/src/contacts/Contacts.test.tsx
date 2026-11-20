@@ -271,4 +271,127 @@ describe("ops texting setup", () => {
     expect(screen.queryByTestId("ops-number-+15125550103-unused")).toBeNull();
     expect(screen.getByTestId("ops-number-+15125550104-unused")).toHaveTextContent("Not in use");
   });
+
+  it("registers the client's caller name and signed calls (§1.160)", async () => {
+    const calling = (over: Record<string, unknown> = {}) => ({
+      profileReady: true,
+      displayName: null,
+      suggestedName: "Demo client",
+      shakenStir: { status: "not_started", issues: [] },
+      cnam: { status: "not_started", issues: [] },
+      numbersCovered: [],
+      error: null,
+      submittedAt: null,
+      checkedAt: null,
+      ...over,
+    });
+    const PN = `PN${"2".repeat(32)}`;
+    const setup = (c: ReturnType<typeof calling>) => ({
+      available: true,
+      timezone: "America/Chicago",
+      quietHours: { start: "21:00", end: "08:00" },
+      webhooks: { messages: "https://x.test/m", status: "https://x.test/s" },
+      agents: [],
+      phoneLinePrice: "10.0000",
+      twilio: {
+        connectionId: "00000000-0000-4000-8000-0000000e0001",
+        status: "connected",
+        subaccountSid: `AC${"1".repeat(32)}`,
+        numbers: [
+          {
+            sid: PN,
+            phoneNumber: "+15125550101",
+            friendlyName: null,
+            capabilities: { sms: true, mms: true, voice: true },
+            whatsapp: false,
+            purchasedAt: "2026-11-04T12:00:00.000Z",
+          },
+        ],
+        a2p: {
+          brandSid: null,
+          messagingServiceSid: null,
+          brandStatus: null,
+          campaignStatus: null,
+          status: "pending",
+          checkedAt: null,
+        },
+        calling: c,
+      },
+    });
+    let sent: unknown = null;
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/clients/${DEMO}`]: () => ({
+        client: { id: DEMO, name: "Demo client", timezone: "America/Chicago" },
+        agents: [],
+      }),
+      [`GET /api/ops/clients/${DEMO}/messaging`]: () => ({ setup: setup(calling()) }),
+      [`GET /api/ops/clients/${DEMO}/contacts`]: () => ({ items: [] }),
+      [`POST /api/ops/clients/${DEMO}/messaging/calling`]: ({ init }) => {
+        sent = JSON.parse(String(init.body));
+        return {
+          setup: setup(
+            calling({
+              displayName: "Demo Supply",
+              shakenStir: { status: "pending", issues: [] },
+              cnam: { status: "pending", issues: [] },
+              numbersCovered: [PN],
+            }),
+          ),
+        };
+      },
+    });
+    renderAt(`/ops/clients/${DEMO}/messaging`, api);
+    const name = await screen.findByTestId("ops-cnam-name");
+    // The business's name is offered.
+    expect(name).toHaveValue("Demo client");
+    await userEvent.clear(name);
+    await userEvent.type(name, "Demo Supply");
+    await userEvent.click(screen.getByTestId("ops-caller-id-register"));
+    await waitFor(() =>
+      expect(screen.getByTestId("ops-cnam-status")).toHaveTextContent("In review"),
+    );
+    expect(sent).toEqual({ displayName: "Demo Supply" });
+    expect(screen.getByTestId("ops-shaken-status")).toHaveTextContent("In review");
+    expect(screen.getByTestId("ops-caller-id-covered")).toHaveTextContent("1 of 1");
+  });
+
+  it("says a retired client's subaccount is closed, with no way to reconnect (§1.160)", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/clients/${DEMO}`]: () => ({
+        client: { id: DEMO, name: "Demo client", timezone: "America/Chicago" },
+        agents: [],
+      }),
+      [`GET /api/ops/clients/${DEMO}/messaging`]: () => ({
+        setup: {
+          available: true,
+          timezone: "America/Chicago",
+          quietHours: { start: "21:00", end: "08:00" },
+          webhooks: { messages: "https://x.test/m", status: "https://x.test/s" },
+          agents: [],
+          twilio: {
+            connectionId: "00000000-0000-4000-8000-0000000e0001",
+            status: "disconnected",
+            subaccountSid: `AC${"1".repeat(32)}`,
+            numbers: [],
+            a2p: {
+              brandSid: null,
+              messagingServiceSid: null,
+              brandStatus: null,
+              campaignStatus: null,
+              status: "not_started",
+              checkedAt: null,
+            },
+            closedAt: "2026-11-20T12:07:00.000Z",
+            closeError: null,
+          },
+        },
+      }),
+      [`GET /api/ops/clients/${DEMO}/contacts`]: () => ({ items: [] }),
+    });
+    renderAt(`/ops/clients/${DEMO}/messaging`, api);
+    expect(await screen.findByTestId("ops-twilio-closed")).toHaveTextContent("can't be reopened");
+    expect(screen.queryByTestId("ops-twilio-provision")).toBeNull();
+  });
 });

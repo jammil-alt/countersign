@@ -7,6 +7,7 @@ import { Locale } from "../i18n/locale";
 import { isUuid } from "../ids";
 // P-8: US texting registration by API
 import { A2pCampaignText, A2pRegistrationState } from "../messaging/a2p";
+import { CallingSubmit, CallingView } from "../messaging/calling";
 import {
   CONSENT_SOURCE_MAX,
   ConsentChannel,
@@ -354,6 +355,12 @@ export const MessagingSetup = z.object({
       a2p: A2pRegistration,
       // P-8: the registration by API, as the operator reviews it.
       registration: A2pRegistrationView.nullable().optional(),
+      /** §1.160: a retired client's subaccount, closed and its numbers released. */
+      closedAt: z.string().nullable().optional(),
+      /** Why the last try at closing it failed (it is tried again hourly). */
+      closeError: z.string().nullable().optional(),
+      /** §1.160: calls that carry the client's name (SHAKEN/STIR and CNAM). */
+      calling: CallingView.nullable().optional(),
     })
     .nullable(),
   /** Where Twilio sends inbound messages and delivery status for this client. */
@@ -624,6 +631,27 @@ export const messagingRoutes = {
     auth: "session",
     roles: OPS,
     summary: "Ask Twilio for the A2P 10DLC brand and campaign status",
+    params: ClientParams,
+    response: SetupResponse,
+  }),
+  // §1.160: calls that carry the client's name.
+  opsTwilioCalling: defineRoute({
+    method: "POST",
+    path: "/api/ops/clients/:id/messaging/calling",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Register the client's numbers for signed calls (SHAKEN/STIR) and its caller name (CNAM)",
+    params: ClientParams,
+    body: CallingSubmit,
+    response: SetupResponse,
+  }),
+  opsTwilioCallingRefresh: defineRoute({
+    method: "POST",
+    path: "/api/ops/clients/:id/messaging/calling/refresh",
+    auth: "session",
+    roles: OPS,
+    summary: "Ask Twilio for the calls registration's review, and add numbers bought since",
     params: ClientParams,
     response: SetupResponse,
   }),

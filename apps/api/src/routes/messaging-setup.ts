@@ -32,6 +32,7 @@ import type { Bindings } from "../env";
 import { type AppContext, type AppEnv, ensureClient, HttpError, mount, notFound } from "../http";
 // P-8: US texting registration by API (docs/plan.md §1.70)
 import {
+  a2pSettings,
   a2pWithoutRegistration,
   joinService,
   opsView,
@@ -40,6 +41,13 @@ import {
   rollupFees,
   submitRegistration,
 } from "../messaging/a2p";
+import {
+  CallingRefused,
+  callingView,
+  followCalling,
+  registerCalling,
+  unassignBeforeRelease,
+} from "../messaging/calling";
 import { messagingSettingsOf } from "../messaging/contacts";
 import { cipherFor, connectionCredentials } from "../secrets";
 import { takeCalls } from "./calls-setup";
@@ -96,6 +104,9 @@ async function setupOf(
               // P-8: the stored registration stays out; its view is below.
               a2p: a2pWithoutRegistration(config.a2p),
               registration: opsView(config, env),
+              closedAt: config.closedAt ?? null,
+              closeError: config.closeError?.message ?? null,
+              calling: callingView(config, t.name),
             }
           : null,
       webhooks: config?.webhooks ?? twilioWebhookUrls(originOf(c, env), tenantId),
@@ -211,6 +222,9 @@ export function messagingSetupRoutes(app: Hono<AppEnv>): void {
         "already_provisioned",
         "this client already has its Twilio subaccount",
       );
+    }
+    if (t.retiredAt || existingConfig?.closedAt) {
+      throw new HttpError(409, "closed", "this client is retired: its Twilio subaccount is closed");
     }
     const fetch = fetchFor(services);
     // DECISION: a disconnected client keeps its subaccount and numbers; reconnecting reads the
@@ -346,13 +360,18 @@ export function messagingSetupRoutes(app: Hono<AppEnv>): void {
     const { row, config, auth } = await connected(ctx.tx, ctx.services.env, tenantId);
     const n = config.numbers.find((x) => x.sid === ctx.params.sid);
     if (!n) throw notFound("number");
+    // §1.160: off the caller name and SHAKEN/STIR first, so neither stays on a number Twilio may
+    // give to someone else.
+    const unassigned = await twilio(() =>
+      unassignBeforeRelease(fetchFor(ctx.services), auth, config, n.sid),
+    );
     await twilio(() => releaseNumber(fetchFor(ctx.services), auth, n.sid));
     const voice = readVoiceConfig(row.config);
     await saveConfig(
       ctx.tx,
       row,
       {
-        ...config,
+        ...unassigned,
         numbers: config.numbers.filter((x) => x.sid !== n.sid),
         // A released number no longer takes the client's calls.
         ...(voice
@@ -493,6 +512,54 @@ export function messagingSetupRoutes(app: Hono<AppEnv>): void {
       status: a2p.status,
       brandStatus: a2p.brandStatus,
       campaignStatus: a2p.campaignStatus,
+    });
+    return setupOf(ctx.c, ctx.tx, ctx.services.env, tenantId);
+  });
+
+  // §1.160: calls that carry the client's name (SHAKEN/STIR and CNAM), on the business profile
+  // the texting registration made.
+  mount(app, routes.opsTwilioCalling, async (ctx) => {
+    const tenantId = ctx.params.id;
+    ensureClient(ctx, tenantId);
+    const { row, config, auth } = await connected(ctx.tx, ctx.services.env, tenantId);
+    const settings = a2pSettings(ctx.services.env);
+    if (!settings) {
+      throw new HttpError(503, "not_configured", "Mezonas' Trust Hub email isn't set up here yet");
+    }
+    const [t] = await ctx.tx.select().from(tenant).where(eq(tenant.id, tenantId));
+    if (!t) throw notFound("client");
+    try {
+      await registerCalling(ctx.tx, {
+        row,
+        config,
+        auth,
+        fetch: fetchFor(ctx.services),
+        email: settings.email,
+        clientName: t.name,
+        displayName: ctx.body.displayName,
+        actorId: ctx.session.user.id,
+        now: new Date(),
+      });
+    } catch (error) {
+      if (!(error instanceof CallingRefused)) throw error;
+      // A refusal by Twilio is saved first, so the screen shows it and the next try goes on.
+      if (error.code === "twilio_error") return setupOf(ctx.c, ctx.tx, ctx.services.env, tenantId);
+      throw new HttpError(409, error.code, error.message);
+    }
+    return setupOf(ctx.c, ctx.tx, ctx.services.env, tenantId);
+  });
+
+  mount(app, routes.opsTwilioCallingRefresh, async (ctx) => {
+    const tenantId = ctx.params.id;
+    ensureClient(ctx, tenantId);
+    const { row, config, auth } = await connected(ctx.tx, ctx.services.env, tenantId);
+    await followCalling(ctx.tx, {
+      row,
+      config,
+      auth,
+      fetch: fetchFor(ctx.services),
+      actorId: ctx.session.user.id,
+      now: new Date(),
     });
     return setupOf(ctx.c, ctx.tx, ctx.services.env, tenantId);
   });
