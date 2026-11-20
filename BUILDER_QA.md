@@ -15,15 +15,24 @@ data. Staging wasn't driven by hand because this container can't sign in to it. 
 the same routes and screens the product uses. One exception, STATE-8, was reframed to the route
 the screen actually calls (see its row).
 
-```sh
-pnpm --filter @countersign/api exec vitest run --config vitest.qa.config.ts   # 53 failing
-pnpm --filter @countersign/web exec vitest run --config vitest.qa.config.ts   # 11 failing
-# one test: add  src/qa-builder/<file> -t "<test name>"
-```
+## Fix status (2026-11-20)
 
-The repros live in `apps/api/src/qa-builder/` and `apps/web/src/qa-builder/`. They run from their
-own configs, so `pnpm test` and CI never pick them up. Each asserts the correct behaviour, so a
-fix turns its test green.
+All 40 are fixed, in four draft PRs. Each PR brings its repros in as regular tests, so CI runs
+them. The decisions they made are in `docs/plan.md` §1.156.
+
+| PR | What it fixes |
+|---|---|
+| #444 Builder: approvals stay on, and untrusted text stays data | AI-1, CONS-3, CONS-4, AI-9 (with INPUT-6), INPUT-7 |
+| #442 Builds: moves and proposals run once, no save over a newer version, no pass on a failed run | STATE-1 (with FLOW-2b), STATE-2b, STATE-3, STATE-4, STATE-5, STATE-7, STATE-8, INPUT-8 (with STATE-6), FLOW-5 (with INTEG-3), INTEG-1, INTEG-2 |
+| #445 Builder: the model changes only what it may, and odd input gets a clear answer | STATE-2 (the turn), AI-2, AI-3a, AI-3b, AI-4, AI-5, AI-6, AI-7, AI-8, INPUT-1, INPUT-3, INPUT-4, CONS-1, CONS-5, CONS-6 |
+| #443 Builder screens: keep the operator's work, and say why | FLOW-1, FLOW-2, FLOW-3, FLOW-4, FLOW-6, FLOW-7, FLOW-8, FLOW-9, FLOW-10, CONS-2 |
+
+The four merge together, with one import-list conflict in `apps/api/src/build/store.ts`, between
+#444 and #445. Whichever merges second resolves it by keeping `sliceWhole` and dropping
+`SkillDefinition`. CONS-2 was fixed by relabelling the board's badge ("N open items"), not by a
+server-computed count; §1.156 says why.
+
+The repro folder that was first in this PR is gone: its tests now live in the fix PRs.
 
 ## Top 5: what would hurt a real client first
 
@@ -63,6 +72,10 @@ references are to `main` at `aed4bbb`.
 **Repro file shorthand:**
 - `api/` = `apps/api/src/qa-builder/`
 - `web/` = `apps/web/src/qa-builder/`
+
+These are the original repros, kept in this PR's history (commit `372727a`). The fix PRs carry
+them as regular tests: `apps/api/src/builder-qa-*.test.ts`, plus tests next to the code they
+cover.
 - `ops-builds.ts` = `apps/api/src/routes/ops-builds.ts`
 - `store.ts` = `apps/api/src/build/store.ts`
 - `BuildView.tsx` = `apps/web/src/ops/builds/BuildView.tsx`

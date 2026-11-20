@@ -5878,6 +5878,51 @@ v0.20 (§10.16) describes the result. What was left is in `docs/open.md`, "Build
 | Checked | core `build/build.test.ts`, `manual/manual.test.ts`, `setup/checklist.test.ts`, `setup/adjust.test.ts`, `governance/governance.test.ts`; apps/api `builds.test.ts`, `build-tries.test.ts`, `try-upload.test.ts`, `agent-manual.test.ts`, `knowledge-governance.test.ts`, `setup-checklist.test.ts`, `client-adjust.test.ts`, `contract.test.ts` (invariant 11 for every new portal route); apps/web `ops/builds/*.test.tsx`, `manual/manual.test.tsx`, `ops/agents/SetupChecklist.test.tsx`, `portal/screens/SetupChecklists.test.tsx`, `portal/screens/AdjustSettings.test.tsx`, `ops/agents/adjustable-form.test.ts`, `ops/agents/DefinitionEditor.test.tsx`. |
 | Not in this pass | `docs/open.md`, "Builds that work first". |
 
+### 1.156 The Agent Builder's QA fixes (2026-11-20; no migration)
+
+A hostile QA pass on the Builder (`BUILDER_QA.md`, PR #441) found 40 defects that survived an
+adversarial verification, each with a failing test. They are fixed in four PRs, split so no two
+edit the same function. Each brings its repros in as regular tests:
+
+- #444: approvals stay on, and untrusted text stays data (AI-1, CONS-3, CONS-4, AI-9, INPUT-7)
+- #442: moves and proposals run once, no save over a newer version, no pass on a failed run
+  (STATE-1–8, INPUT-8, FLOW-5, INTEG-1, INTEG-2)
+- #445: the model changes only what it may, and odd input gets a clear answer (STATE-2, AI-2–8,
+  INPUT-1, 3, 4, CONS-1, 5, 6)
+- #443: the screens keep the operator's work and say why (FLOW-1–10, CONS-2)
+
+Below are the choices they made where the fix left a choice open, each with a `// DECISION`.
+
+| Topic | Decision |
+|---|---|
+| **Prompts (#444)** | Every value placed inside a prompt tag goes through core `prompt-data.ts`. `promptText` writes `<` and `>` as entities and escapes only an `&` that would start an entity, so "PO & invoice" stays as typed and nothing piles up when the model echoes text back. `promptJson` writes `<`, `>` and `&` as `\u` escapes, which still parse to the same value. It covers the build's state block, the draft, revise, conversation and skill prompts, the brief review, the reuse check, test-case making and a reach-out's data. // DECISION |
+| Approval on a changed step (#444) | The guard keeps an operator's `not_required` only on the same step doing the same thing. A write is the same by its tool, action and via; a skill step by its skill id (not its pinned version); a process step by its whole `slug@version` ref. A kept id that changed gets the default approval. // DECISION |
+| QA's approvals check (#444) | It counts every loosening core counts (`processes.bundleLoosenings`): a step's approval, conversation messages sent without a person's yes, and a process step's `approvals` overrides. // DECISION |
+| Decision risk on a skill step (#444) | A skill the registries don't know counts as writing, as the validator's `outputBeforeChecks` does. The build looks up the client's custom and shared skills, so a known one that reads is not raised. // DECISION |
+| **A move into the draft (#442)** | It is claimed by setting the phase first (no new column). A second press gets 409 `same_phase`. A draft that fails puts the phase back. The last transaction re-checks phase, status and the draft ids (409 `moved` or `build_closed`). A build stopped while its draft is being made goes back to where it was, and the agent made for it is discarded. If a Worker dies mid-move, the build shows "There is no draft yet"; going back and on again recovers it. // DECISION |
+| Agreeing a proposal (#442) | The operator's decision message is inserted in the check transaction, so a second Agree gets 409 `decided`. A change that fails puts the proposal back with a Builder message ("Press Agree to try again"), because messages are insert-only. // DECISION |
+| A draft kept after the fit-gap changed (#442) | Flagged, not redrafted, so edits made to the draft aren't lost: an open item and a `draft_stale` problem hold the draft gate. The Builder says whether it drafted or kept the draft, and what changed. // DECISION |
+| A discarded draft (#442) | A `draft_discarded` problem holds the gate. The discard isn't refused, because the agents registry knows nothing about builds. // DECISION |
+| A save from an older version (#442) | Refused with 409 `stale_parent` ("v3 was saved after v2… Reload to start from v3"), not merged; the same for skill versions. A Builder conversation's base moves forward with each save. Rollback, update merge, promotion, relink and a client's setup answers opt out and behave as before. // DECISION |
+| The client test again (#442) | `/client-test` again at the same client brings a copy the client ran up to the template by update merge and publishes it, keeping its trial, runs and setup. A conflicting merge becomes an open item. A copy never published is replaced by a new fork. `/phase` into `client_test` is 409 `copy_behind` while the copy is from an older template version. // DECISION |
+| A skill build's first draft (#442) | A failed first draft fails the move (503) and the build stays in the fit-gap, as an agent build does. // DECISION |
+| Test runs (#442) | A template case whose run failed on a step error is an `error`, not a pass. The bench's own wait timeouts are the exception. A sign-in or connection error says to reconnect. A suite job that can't start marks its run failed. A run still `running` past 15 minutes per case, plus one minute, reads as finished, and a running try can be discarded. // DECISION |
+| **The brief (#445)** | A Builder turn never lowers a field's state, so a confirmed field isn't replaced by an assumed one; the operator changes a field by saying so. // DECISION |
+| The fit-gap (#445) | `dropped` is the operator's only. "What needs to be true" is merged like the setup form, and lines the operator added or changed carry `byOperator` (in the existing jsonb). // DECISION |
+| Decisions at the cap (#445) | A high-risk decision at 60 replaces the oldest never-discussed normal one that shapes no step. If there is none, it is left out and the turn doesn't list it as made. // DECISION |
+| What the Builder may propose or close (#445) | A proposal must name a code request that exists, with its ref (an approve: one this build waits on, in triage), and a step in the draft. Generated test cases must name the draft's workflow and steps. An opening turn closes no question. A refusal keeps its own code and words (`refusal`, `builder_refused`). // DECISION |
+| Text that can't be stored (#445) | One rule, core `text.ts` (`storable`): no U+0000, well-formed unicode, giving a 400 that names the field. Postgres 22021, 22P05 and 22P02 map to 400 `invalid_text`. Text is cut on whole characters (`sliceWhole`), and a turn whose save fails is a failed Builder message with Retry. // DECISION |
+| A drafted skill's id (#445) | Made free at its first save (`custom:skill`, `custom:skill-2`), when its scope is certain. // DECISION |
+| What holds the next move (#445) | Open items hold only QA, and draft problems only the draft phase, as `gateReasons`. // DECISION |
+| Reuse search words (#445) | A few suffix rules on both sides (es after s/x/z/ch/sh, ies→y, ss and us kept). Letters outside ASCII are kept. // DECISION |
+| A draft's problems (#445) | Grouped in core (`problemGroupKey`), so the build and the workflow builder count the same. A key keeps `workflow\|step\|field\|code` when unique; otherwise it adds its reference, then a number. // DECISION |
+| **The build page (#443)** | A panel keeps a working copy. A real change on the server is merged into unsaved edits by top-level key, and the server's value wins a key both changed. Each request in flight is tracked on its own, so a move or Agree stays off until its own answer. // DECISION |
+| The workflow builder (#443) | A version made outside the builder (the triggers panel, the build) is taken in by three-way merge, and unsaved edits carry across. The Builder's answer is merged onto the canvas as it is now. On a conflict the canvas is kept and the screen says so, and nothing is saved over a newer version. // DECISION |
+| New skill (#443) | The form stays, with the words, the examples and the error, until a turn answers. The skill turn's model call runs in one transaction, so its words aren't saved before the model answers. // DECISION |
+| The board's count (#443) | The badge says "N open items", the page's word for items, and nothing at zero. A server-computed open-issue count would need each build's full detail (validation, tests, trial) on every board read. // DECISION |
+| Not in this pass | The guard doesn't yet compare a conversation step's channel or contact. Saves that opt out of the stale check (update merge, promotion, relink, setup answers) can still save over a newer draft, as before. Two `.slice` cuts still split characters: the approve summary in the proposal path, and `reasonOf` in the client-test facts. |
+| Checked | Each PR's own suites. The four branches merged together on `main` with one import-list conflict in `apps/api/src/build/store.ts`: keep `sliceWhole`, drop the unused `SkillDefinition`. On that merge, lint, layering and typecheck pass. |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
