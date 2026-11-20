@@ -27,6 +27,7 @@ import {
   docExtraction,
   docLine,
   document,
+  inboxItem,
   type Tx,
   transaction,
   vendor,
@@ -35,7 +36,13 @@ import {
 import { lineArithmetic } from "@countersign/documents";
 import { emit } from "@countersign/senses";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
-import { type ParsedLine, parseLine, parseNormalized, withCompleteness } from "../catalog/keys";
+import {
+  type ParsedLine,
+  parseLine,
+  parseNormalized,
+  scorePair,
+  withCompleteness,
+} from "../catalog/keys";
 import { descriptionHash, normalize } from "../catalog/normalize";
 import type { Attributes } from "../catalog/parsers";
 import {
@@ -45,6 +52,7 @@ import {
   type LookedUpLine,
   type OpenLine,
   openLines,
+  VETOED_CONFIDENCE,
   withModelReading,
 } from "../catalog/split";
 import {
@@ -797,9 +805,14 @@ export interface RegisterInput {
   vendorItemHints?:
     | readonly { lineNo: number; vendorItemId?: string | null | undefined }[]
     | undefined;
-  /** A person's answers (step 6), registered as theirs. */
+  /**
+   * A person's answers (step 6), registered as theirs only when `decidedBy` gave them in this
+   * run's inbox (`personAnswered`).
+   */
   answers?: readonly PersonAnswer[] | undefined;
   decidedBy?: string | null | undefined;
+  /** The run the call belongs to: where a person's answers are looked for. */
+  runId?: string | null | undefined;
   testRun: boolean;
 }
 
@@ -892,6 +905,57 @@ export async function registerLines(db: Db, input: RegisterInput): Promise<Regis
   }
 }
 
+/** Every `{ lineNo, … }` in a person's stored answer, wherever the step put them. */
+function answerLines(value: unknown, depth = 0): Record<string, unknown>[] {
+  if (depth > 4 || typeof value !== "object" || value === null) return [];
+  if (Array.isArray(value)) return value.flatMap((v) => answerLines(v, depth + 1));
+  const o = value as Record<string, unknown>;
+  if (typeof o.lineNo === "number") return [o];
+  return Object.values(o).flatMap((v) => answerLines(v, depth + 1));
+}
+
+/**
+ * PLATFORM_QA AI-6 (invariants 9, 10): answers are registered as a person's (method human,
+ * `decided_by`) only when that person gave them: an inbox item of this run resolved by `by`
+ * whose answer holds each one. A model's call that names a person is refused.
+ */
+// DECISION: the check reads the run's resolved inbox items, not the tool's input, so the shipped
+// flow (a person step, then Save to records with `answer.lines` and `by`) is unchanged and an
+// agent-mode skill offered the tool can't claim a person decided. Outside a run, none is a person's.
+async function personAnswered(
+  tx: Tx,
+  tenantId: string,
+  runId: string | null,
+  by: string,
+  answers: readonly PersonAnswer[],
+): Promise<void> {
+  const refused = new VendorMatchError(
+    "bad_input",
+    "answers are registered as a person's only when that person gave them in this run's inbox; leave answers out to register the agent's decisions",
+  );
+  if (!runId) throw refused;
+  const items = await tx
+    .select({ resolution: inboxItem.resolution })
+    .from(inboxItem)
+    .where(
+      and(
+        eq(inboxItem.tenantId, tenantId),
+        eq(inboxItem.runId, runId),
+        eq(inboxItem.status, "resolved"),
+        eq(inboxItem.resolvedBy, by),
+      ),
+    );
+  const given = items.flatMap((i) => answerLines((i.resolution as { answer?: unknown })?.answer));
+  for (const a of answers) {
+    const theirs = given.some(
+      (g) =>
+        g.lineNo === a.lineNo &&
+        (a.newItem ? g.newItem === true : (g.catalogItemId ?? null) === (a.catalogItemId ?? null)),
+    );
+    if (!theirs) throw refused;
+  }
+}
+
 async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
   const registry = materialsEventRegistry();
   const { tenantId } = input;
@@ -901,6 +965,22 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
   if (human && !input.decidedBy) {
     throw new VendorMatchError("bad_input", "a person's answer names who gave it (decidedBy)");
   }
+  if (human) {
+    await personAnswered(tx, tenantId, input.runId ?? null, input.decidedBy as string, [
+      ...(input.answers ?? []),
+    ]);
+  }
+  // What step 2 settles by the vendor's own SKU or wording: the one agent decision the hard rules
+  // don't check again here (as Look up existing doesn't). Read once, when needed.
+  let settled: Map<number, string> | null = null;
+  const settledBySku = async () => {
+    settled ??= new Map(
+      (
+        await lookupBySku(tx, tenantId, { documentId: input.documentId, vendorId: input.vendorId })
+      ).known.map((k) => [k.lineNo, k.catalogItemId]),
+    );
+    return settled;
+  };
   const decisions = new Map<number, Decision>();
   for (const l of input.lines ?? []) decisions.set(l.lineNo, fromChecked(l));
   for (const l of input.resolved ?? []) decisions.set(l.lineNo, fromChecked(l));
@@ -932,9 +1012,36 @@ async function register(tx: Tx, input: RegisterInput): Promise<RegisterResult> {
     testRun: input.testRun,
   };
   for (const line of doc.lines) {
-    const d = decisions.get(line.lineNo);
-    if (!d) continue;
+    const decided = decisions.get(line.lineNo);
+    if (!decided) continue;
     const normalized = lineText(line.rawDescription, abbreviations);
+    // PLATFORM_QA AI-5 (invariant 7): an agent's match the hard rules veto is a person's to decide,
+    // whoever sent it (Check matches, or a model's answer wired straight in).
+    let d = decided;
+    if (d.decision === "matched" && d.method !== "human" && d.catalogItemId) {
+      const item = await liveItem(tx, tenantId, d.catalogItemId);
+      if (item && (await settledBySku()).get(line.lineNo) !== item.id) {
+        const rules = parseNormalized(normalized);
+        const read = withModelReading(
+          { description: normalized, category: rules.category, attributes: rules.attributes },
+          d.attributes ?? undefined,
+        );
+        const differ = scorePair(read, {
+          category: item.category,
+          attributes: item.attributes as Record<string, string>,
+        }).comparison.differ[0];
+        if (differ) {
+          d = {
+            ...d,
+            decision: "unsure",
+            catalogItemId: null,
+            confidence: Math.min(d.confidence, VETOED_CONFIDENCE),
+            hinge: differ,
+            vetoed: `${differ} differs from ${item.canonicalName}`,
+          };
+        }
+      }
+    }
     // A special-order or short code is no SKU: not a vendor item's, not an alias (audit 7.10).
     const sku = identifyingSku(cleanSku(line.sku), line.lineNo);
     const hash = await descriptionHash(normalized);

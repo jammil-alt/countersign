@@ -6,7 +6,7 @@
 
 import type { ContentStore } from "@countersign/connectors";
 import { lazy, lazyObject, type ToolSpec } from "@countersign/core";
-import { type Db, docExtraction, docLine, withTenant } from "@countersign/db";
+import { type Db, docExtraction, docLine, type Tx, withTenant } from "@countersign/db";
 import {
   createLlmClient,
   type LlmCallRecord,
@@ -43,6 +43,34 @@ export interface PackToolContext {
   // P-5: the client's document storage, for a document a tool makes (a purchase order PDF); null
   // where the caller passed none.
   content: ContentStore | null;
+}
+
+/** Thrown inside a test run's transaction to roll it back; carries what the work answered. */
+class TestRunRollBack extends Error {
+  constructor(readonly result: unknown) {
+    super("a test run keeps nothing");
+  }
+}
+
+/**
+ * A Save to records write in one client transaction. A test run does the same work and rolls it
+ * back, answering what it would have saved (invariant 8; PLATFORM_QA TOOL-5), as
+ * `vendor_items.register` and `contract.save` do.
+ */
+export async function savedUnlessTest<T>(
+  ctx: Pick<PackToolContext, "db" | "tenantId" | "mode">,
+  work: (tx: Tx) => Promise<T>,
+): Promise<T> {
+  if (ctx.mode !== "test") return withTenant(ctx.db, ctx.tenantId, work);
+  try {
+    await withTenant(ctx.db, ctx.tenantId, async (tx) => {
+      throw new TestRunRollBack(await work(tx));
+    });
+  } catch (error) {
+    if (error instanceof TestRunRollBack) return error.result as T;
+    throw error;
+  }
+  throw new Error("a test run's write neither answered nor failed");
 }
 
 export interface PackTool {
@@ -226,7 +254,7 @@ export const catalogCreateItem = defineTool({
         `the description doesn't state ${parsed.missing.join(", ")}; a ${parsed.category} item needs them`,
       );
     }
-    const made = await withTenant(ctx.db, ctx.tenantId, (tx) =>
+    const made = await savedUnlessTest(ctx, (tx) =>
       createItem(tx, ctx.tenantId, parsed, { agentVersionId: ctx.agentVersionId }),
     );
     return { item: itemView(made.item), created: made.created, sources: [made.item.id] };

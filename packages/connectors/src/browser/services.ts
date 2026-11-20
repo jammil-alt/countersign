@@ -33,6 +33,8 @@ export interface BrowserCodesPort {
         },
   ): Promise<z.output<typeof OpenWaitResult>>;
   claim(input: { identityId: string; waitId: string }): Promise<z.output<typeof ClaimResult>>;
+  /** Closes a wait the sign-in gave up on, so a later sign-in's code can't land in it. */
+  cancel(input: { identityId: string; waitId: string }): Promise<void>;
 }
 
 /** One browser session (one tool call): what it did, kept on the connection's log. */

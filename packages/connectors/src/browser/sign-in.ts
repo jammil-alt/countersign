@@ -29,6 +29,30 @@ export class SignInFailed extends Error {
   override name = "SignInFailed";
 }
 
+/**
+ * Our own code service (apps/mfa) could not give the sign-in its code: it is down, an RPC failed,
+ * or it reached its daily cap of code requests. Not the client's failed sign-in, so it never counts
+ * toward the two-failure stop; the step may try again (PLATFORM_QA INTEG-1).
+ */
+export class CodesUnavailable extends Error {
+  override name = "CodesUnavailable";
+}
+
+/** The code service's own error code on a thrown error (apps/api's CodesServiceError), if any. */
+function codesErrorCode(error: unknown): unknown {
+  return typeof error === "object" && error !== null
+    ? (error as { code?: unknown }).code
+    : undefined;
+}
+
+function codesUnavailable(error: unknown): CodesUnavailable {
+  return new CodesUnavailable(
+    codesErrorCode(error) === "daily_cap"
+      ? "our code service reached its daily limit of codes for this login; this is not a failed sign-in, and it can try again tomorrow"
+      : "our code service did not answer; this is not a failed sign-in, and it can try again",
+  );
+}
+
 /** Refused before anything was typed or opened (tier, caps, rules, setup). */
 export class BrowserRefused extends ToolRefused {
   override name = "BrowserRefused";
@@ -160,31 +184,61 @@ async function openWait(input: SignInInput) {
     throw new BrowserRefused("this browser login has no agent identity for its codes");
   }
   const base = { identityId: input.identityId, siteKey: input.siteKey, ttlSeconds: WAIT_SECONDS };
-  const wait = await input.codes.openWait(
-    factor.kind === "totp"
-      ? { ...base, channel: "totp" }
-      : { ...base, channel: factor.kind, sender: factor.sender, pattern: factor.pattern },
-  );
+  let wait: Awaited<ReturnType<BrowserCodesPort["openWait"]>>;
+  try {
+    wait = await input.codes.openWait(
+      factor.kind === "totp"
+        ? { ...base, channel: "totp" }
+        : { ...base, channel: factor.kind, sender: factor.sender, pattern: factor.pattern },
+    );
+  } catch (error) {
+    throw codesUnavailable(error);
+  }
   return { waitId: wait.waitId, identityId: input.identityId, codes: input.codes };
 }
 
-/** Claims the wait's code, polling a bounded number of times; null when none came. */
-async function claimCode(
-  wait: { waitId: string; identityId: string; codes: BrowserCodesPort },
-  input: SignInInput,
-): Promise<string | null> {
+type OpenWait = { waitId: string; identityId: string; codes: BrowserCodesPort };
+
+/**
+ * Claims the wait's code, polling a bounded number of times; null when none came. A claim the code
+ * service fails to answer is polled past; if no code came and one did fail, the code service is
+ * the trouble (CodesUnavailable), not the site.
+ */
+async function claimCode(wait: OpenWait, input: SignInInput): Promise<string | null> {
+  let failed: unknown = null;
   for (let i = 0; i < input.poll.attempts; i++) {
-    const r = await wait.codes.claim({ identityId: wait.identityId, waitId: wait.waitId });
-    if (r.status === "code") return r.code;
-    if (r.status === "expired") return null;
+    try {
+      const r = await wait.codes.claim({ identityId: wait.identityId, waitId: wait.waitId });
+      if (r.status === "code") return r.code;
+      if (r.status === "expired") break;
+    } catch (error) {
+      failed = error;
+    }
     await input.sleep(input.poll.intervalMs);
   }
+  if (failed !== null) throw codesUnavailable(failed);
   return null;
 }
 
 /**
- * Signs in. Throws BrowserStop (stop and ask a person), SignInFailed (counts as a failed sign-in)
- * or BrowserRefused (nothing was tried). Error messages never carry what was typed.
+ * Closes a wait the sign-in did not get its code from, so a code the site sends a later sign-in
+ * never lands in it (PLATFORM_QA INTEG-2). Best effort: the wait expires on its own anyway.
+ */
+// DECISION: a cancel at the code service on every way out of a sign-in that didn't claim its code,
+// rather than a wait as short as the poll: it also covers the failures before the poll (a refused
+// password, a form that couldn't be filled), and concurrent sign-ins keep their own waits.
+async function cancelWait(wait: OpenWait): Promise<void> {
+  try {
+    await wait.codes.cancel({ identityId: wait.identityId, waitId: wait.waitId });
+  } catch {
+    // An older code service without the call, or one that is down: the wait times out.
+  }
+}
+
+/**
+ * Signs in. Throws BrowserStop (stop and ask a person), SignInFailed (counts as a failed sign-in),
+ * CodesUnavailable (our code service's trouble: never counted) or BrowserRefused (nothing was
+ * tried). Error messages never carry what was typed. A wait whose code it didn't claim is closed.
  */
 export async function signIn(input: SignInInput): Promise<void> {
   const { tab, profile } = input;
@@ -202,6 +256,22 @@ export async function signIn(input: SignInInput): Promise<void> {
   // The wait opens before anything is submitted, so the code that sign-in triggers has a wait to
   // land in (a code with no wait open is an alert at the code service, never handed out).
   const wait = await openWait(input);
+  const got = { code: false };
+  try {
+    await submitLogin(input, wait, got);
+  } finally {
+    if (wait && !got.code) await cancelWait(wait);
+  }
+}
+
+/** Submits the login and, when asked, the code (`got.code` once the wait's code is claimed). */
+async function submitLogin(
+  input: SignInInput,
+  wait: OpenWait | null,
+  got: { code: boolean },
+): Promise<void> {
+  const { tab, profile } = input;
+  const login = profile.login;
   try {
     await fillOnLogin(tab, login, login.usernameField, input.username);
     await fillOnLogin(tab, login, login.passwordField, input.password);
@@ -227,6 +297,7 @@ export async function signIn(input: SignInInput): Promise<void> {
     }
     const code = await claimCode(wait, input);
     if (code === null) throw new SignInFailed("no sign-in code arrived in time");
+    got.code = true;
     input.onCode?.(code);
     try {
       await fillOnLogin(tab, login, factor.codeField, code);

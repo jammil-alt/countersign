@@ -36,6 +36,7 @@ import {
   type ToolContext,
   UnconfirmedWriteError,
   type WriteContext,
+  writeNotMade,
 } from "../connector";
 import { requireCredentials } from "../credentials-accessor";
 import { type FetchLike, globalFetch } from "../http";
@@ -111,6 +112,8 @@ export const TWILIO_MESSAGE_ENTITY = "Message";
 export const TWILIO_STATUS_ENTITY = "MessageStatus";
 /** A send started (by the action's key), recorded before Twilio is called: our own fact. */
 export const TWILIO_ATTEMPT_ENTITY = "MessageAttempt";
+/** PLATFORM_QA INTEG-6: a started send the provider refused (it answered and sent nothing). */
+export const TWILIO_ATTEMPT_REFUSED_ENTITY = "MessageAttemptRefused";
 
 // ── What is stored ───────────────────────────────────────────────────────────────────────────────
 
@@ -852,9 +855,10 @@ async function send(
   // stop every message not yet sent (docs/plan.md §1.22).
   const already = await services.sentFor(ctx.idempotencyKey);
   if (already) return sentOutput(already);
-  // Started but never recorded: Twilio may have it. Look for it rather than send again.
+  // Started but never recorded: Twilio may have it. Look for it rather than send again. A try
+  // Twilio refused (it answered, and sent nothing) is sent again under the next try's number.
   const attempt = await services.attemptFor(ctx.idempotencyKey);
-  if (attempt) return reconcile(fetch, ctx, services, attempt);
+  if (attempt && !attempt.refused) return reconcile(fetch, ctx, services, attempt);
 
   const checked = await checkSend(ctx, input.channel, input.to, { forSending: true });
   const { contact, from, lastInboundAt } = checked;
@@ -907,7 +911,11 @@ async function send(
   // attempt is recorded, with its time, before Twilio is called. A re-run that finds an attempt
   // and no message never sends again: it adopts the one matching message Twilio lists, or fails
   // the action for the operator to check (`reconcile`, docs/plan.md §1.22).
+  // DECISION: a try Twilio answered with a 4xx (a 20429 rate limit, a refused number) made no
+  // message: it is recorded as refused, so the run's retry sends under the next try's number
+  // instead of failing as unconfirmed (PLATFORM_QA INTEG-6, as Gmail's `refuseAttempt`).
   const startedAt = ctx.now();
+  const tryNumber = attempt ? (attempt.attempt ?? 1) + 1 : 1;
   await services.startAttempt({
     idempotencyKey: ctx.idempotencyKey,
     connectionId: ctx.connection.id,
@@ -919,14 +927,35 @@ async function send(
     text,
     templateId,
     startedAt,
+    attempt: tryNumber,
   });
   ctx.logger.info("sending a message", { channel: input.channel });
-  const created = MessageCreated.parse(
-    await twilioRequest(fetch, auth, "POST", `${accountUrl(auth.accountSid)}/Messages.json`, {
-      form,
-      ...(media.length ? { repeated: { name: "MediaUrl", values: media.map((m) => m.url) } } : {}),
-    }),
-  );
+  let answer: unknown;
+  try {
+    answer = await twilioRequest(
+      fetch,
+      auth,
+      "POST",
+      `${accountUrl(auth.accountSid)}/Messages.json`,
+      {
+        form,
+        ...(media.length
+          ? { repeated: { name: "MediaUrl", values: media.map((m) => m.url) } }
+          : {}),
+      },
+    );
+  } catch (error) {
+    if (writeNotMade(error)) {
+      await services.refuseAttempt?.({
+        idempotencyKey: ctx.idempotencyKey,
+        attempt: tryNumber,
+        reason: `HTTP_${(error as TwilioError).status}`,
+        at: ctx.now(),
+      });
+    }
+    throw error;
+  }
+  const created = MessageCreated.parse(answer);
   const status = created.status ?? "queued";
   await services.recordOutbound({
     connectionId: ctx.connection.id,
