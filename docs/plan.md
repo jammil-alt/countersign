@@ -6205,6 +6205,22 @@ and they can approve suggested or remap … a look up to remap"). The Sales pack
 | Why not a confer | Confer is advice only (ARCHITECTURE §10.14): it never changes a step's output, and a remap must. So the card is a person step's. A confer on the match step (a second model, or a person's agree or disagree) still works as advice before it. // DECISION |
 | Colours and words | Waiting rows are signal with "Waiting on you"; a person's decisions copper; the agent's matches ink (brand book). Sheet values and Zoho names show as written (data). |
 
+**As built (PR #483, stacked on #482).** The card is `packs/sales/src/review.ts` and
+`apps/web/src/packs/sales/ConfirmMatches.tsx` (lazy, on the Desk and Escalations), with
+`sales.review.*` strings in all six languages. The platform's `PackReviewHandler` gained two optional
+hooks, `lookup` (the look-up routes) and `answer` (Finish: the person step's answer is the confirmed
+matches as recorded, never what the browser sent; refused while a row waits), so apps/api names no
+pack. A new read tool, `sales.matches.confirmed`, is what the updates read. Decisions made building it:
+
+| Topic | Decision |
+|---|---|
+| The match is a write | `sales.match_records` records decisions, so it is a write step ("Save to records", internal, no approval), not a skill step: the validator refuses a skill step whose tool records. // DECISION |
+| Leads first | The template matches Leads and its update names `module: "Leads"`, so the client's connection matrix sees a lead update. A client whose sheets are deals gets a Deals path from the operator. // DECISION |
+| What an update never changes | Email, First_Name, Last_Name and Company are left out of the update, so a sheet's spelling ("Liv") never renames a lead. // DECISION |
+| One approval group | One batch per run and loop; a file with more than 50 matched rows is signed 50 at a time (the `for_each`'s concurrency). // DECISION |
+| The area's onboarding | `AREA_OF_PACK` maps `sales`; the pack has its own intake questions. // DECISION |
+| Record ids are not cards | A 19-digit Zoho id passes Luhn about one time in ten, and the card guard refused the update naming it. Fixed in its own PR, #484: a bare digit run under an id field is never redacted; cards written with spaces or dashes, and every other field, still are. // DECISION |
+
 **The happy path (done when)**, with fakes on staging: a client's `.xlsx` of 20 rows is uploaded
 → Read table reads it with the agent's columns → Reshape maps the rows to Zoho fields, one of them
 custom (proposed from Zoho's field list) → the match finds 15 by key, 3 by meaning and the model,
