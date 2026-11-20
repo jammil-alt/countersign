@@ -3180,6 +3180,8 @@ export const billingSetting = pgTable(
     creditPrice: money("credit_price").notNull().default("0.0200"),
     /** Send each month's statements to Stripe as soon as they are built (off: the operator sends). */
     autoSend: boolean("auto_send").notNull().default(false),
+    /** The monthly price of a phone number that is one agent's own (§1.160). */
+    phoneLinePrice: money("phone_line_price").notNull().default("10.0000"),
     updatedAt: ts("updated_at").notNull().defaultNow(),
     updatedBy: uuid("updated_by").references(() => appUser.id),
   },
@@ -3191,6 +3193,7 @@ export const billingSetting = pgTable(
       "billing_setting_prices_check",
       sql`${t.defaultAgentPrice} >= 0 and ${t.creditPrice} >= 0`,
     ),
+    check("billing_setting_phone_line_price_check", sql`${t.phoneLinePrice} >= 0`),
   ],
 );
 
@@ -3290,7 +3293,8 @@ export const BILLING_STATEMENT_STATUSES = [
   "void",
   "nothing_due",
 ] as const;
-export const BILLING_LINE_KINDS = ["agent", "usage", "adjustment"] as const;
+// Agent phone lines (docs/plan.md §1.160): a number of the client's that is one agent's own.
+export const BILLING_LINE_KINDS = ["agent", "phone_line", "usage", "adjustment"] as const;
 
 /**
  * A template's monthly price and included credits: the default for every client agent forked from
@@ -3378,6 +3382,37 @@ export const billingAgentDay = pgTable(
       "billing_agent_day_amounts_check",
       sql`${t.monthlyPrice} >= 0 and ${t.includedCredits} >= 0`,
     ),
+  ],
+);
+
+/**
+ * One day a number of the client's was one agent's own (§1.160), with the line's price that day.
+ * Recorded by the same hourly pass as `billing_agent_day`, for numbers whose agent was active;
+ * the first price seen in a day sticks. Insert only.
+ */
+export const billingPhoneLineDay = pgTable(
+  "billing_phone_line_day",
+  {
+    tenantId: tenantId(),
+    day: date("day").notNull(),
+    /** E.164. */
+    phoneNumber: text("phone_number").notNull(),
+    agentId: uuid("agent_id").notNull(),
+    /** The name the client knows the agent by, as it was that day. */
+    agentName: text("agent_name").notNull(),
+    monthlyPrice: money("monthly_price").notNull(),
+    currency: currency(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.tenantId, t.day, t.phoneNumber] }),
+    foreignKey({
+      name: "billing_phone_line_day_agent_fk",
+      columns: [t.agentId, t.tenantId],
+      foreignColumns: [agent.id, agent.tenantId],
+    }),
+    check("billing_phone_line_day_price_check", sql`${t.monthlyPrice} >= 0`),
+    check("billing_phone_line_day_number_check", sql`${t.phoneNumber} ~ '^\\+[1-9][0-9]{6,14}$'`),
   ],
 );
 
@@ -3472,7 +3507,7 @@ export const billingStatementLine = pgTable(
     check("billing_statement_line_kind_check", oneOf(t.kind, BILLING_LINE_KINDS)),
     check(
       "billing_statement_line_agent_check",
-      sql`(${t.kind} = 'agent') = (${t.agentId} is not null)`,
+      sql`(${t.kind} in ('agent', 'phone_line')) = (${t.agentId} is not null)`,
     ),
   ],
 );
@@ -6000,6 +6035,8 @@ export const TENANT_TABLES = [
   "intake_answer",
   "intake_scope",
   "intake_event",
+  // 0069: the days a number was one agent's own phone line (docs/plan.md §1.160).
+  "billing_phone_line_day",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 
