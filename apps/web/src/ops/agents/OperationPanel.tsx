@@ -22,6 +22,7 @@ import {
   SectionLabel,
   type Tone,
 } from "../../ui/primitives";
+import { BIND_ANCHOR, GRANTS_ANCHOR, ReadinessPanel } from "../connectors/AgentPanels";
 import { GoLivePanel } from "./GoLivePanel";
 import { GrantsPanel } from "./GrantsPanel";
 import {
@@ -123,24 +124,36 @@ export function ServicePanel({
   const [grantsVersion, setGrantsVersion] = useState(0);
   return (
     <div className="flex flex-col gap-5">
-      <ServiceForm
-        key={agent.id}
-        agent={agent}
-        connections={connections}
-        names={names}
-        required={activation.data?.requiredConnectors ?? []}
-        onSaved={() => {
-          activation.reload();
-          onChanged();
-          setGrantsVersion((n) => n + 1);
-        }}
-      />
+      <div id={BIND_ANCHOR} className="scroll-mt-4">
+        <ServiceForm
+          key={agent.id}
+          agent={agent}
+          connections={connections}
+          names={names}
+          required={activation.data?.requiredConnectors ?? []}
+          onSaved={() => {
+            activation.reload();
+            onChanged();
+            setGrantsVersion((n) => n + 1);
+          }}
+        />
+      </div>
+      {/* Connectors C6: per connector, ready or what's missing, our fixes and the client's. */}
+      {agent.tenantId && !agent.testCopy ? (
+        <ReadinessPanel
+          key={`readiness:${agent.id}:${grantsVersion}`}
+          agentId={agent.id}
+          clientId={agent.tenantId}
+        />
+      ) : null}
       {/* Remounted after a binding change, so it lists what the agent is bound to now. */}
-      <GrantsPanel
-        key={`${agent.id}:${grantsVersion}`}
-        agentId={agent.id}
-        clientId={agent.tenantId ?? null}
-      />
+      <div id={GRANTS_ANCHOR} className="scroll-mt-4">
+        <GrantsPanel
+          key={`${agent.id}:${grantsVersion}`}
+          agentId={agent.id}
+          clientId={agent.tenantId ?? null}
+        />
+      </div>
     </div>
   );
 }

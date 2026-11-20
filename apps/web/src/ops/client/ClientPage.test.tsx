@@ -448,7 +448,7 @@ describe("the client page's tabs and addresses", () => {
       within(pages)
         .getAllByRole("link")
         .map((l) => l.textContent),
-    ).toEqual(["Connections", "Messaging", "Directory", "Knowledge"]);
+    ).toEqual(["Connectors", "Messaging", "Directory", "Knowledge"]);
     expect(within(pages).getByRole("link", { name: "Directory" })).toHaveAttribute(
       "aria-current",
       "page",
@@ -460,7 +460,7 @@ describe("the client page's tabs and addresses", () => {
 
   it.each([
     ["data", "ops-client-data-pages", "Documents"],
-    ["setup", "ops-client-setup-pages", "Connections"],
+    ["setup", "ops-client-setup-pages", "Connectors"],
   ])("sends /%s to its first page", async (old, pagesId, first) => {
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,

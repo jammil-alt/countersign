@@ -53,6 +53,7 @@ import { ClientLayout } from "./client/ClientFrame";
 import { OpsClientLedgerScreen } from "./client/ClientLedger";
 import { ClientOverviewScreen } from "./client/ClientOverview";
 import { CommandCenterScreen } from "./command/CommandCenter";
+import { OpsClientConnectorScreen } from "./connectors/ClientConnector";
 import { LabScreen } from "./lab/LabScreen";
 // R8: the Library (docs/plan.md §1.86)
 import { ConditionsBank } from "./library/ConditionsBank";
@@ -171,6 +172,11 @@ export const opsRoutes = (
       <Route path="clients/:clientId/ledger" element={<OpsClientLedgerScreen />} />
       {/* Setup: Connections, Messaging, Directory and Knowledge */}
       <Route path="clients/:clientId/connections" element={<OpsConnectionsScreen />} />
+      {/* Connectors C6 (docs/connectors-plan.md §7.1): one connector of the client, edited. */}
+      <Route
+        path="clients/:clientId/connectors/:connector"
+        element={<OpsClientConnectorScreen />}
+      />
       <Route path="clients/:clientId/messaging" element={<OpsMessagingScreen />} />
       <Route path="clients/:clientId/directory" element={<ClientDirectoryRoute />} />
       <Route path="clients/:clientId/knowledge" element={<ClientKnowledgeRoute />} />

@@ -7,7 +7,12 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
-import { fakeApi, OPERATOR_SESSION, Reply, SANDBOX_DETAIL } from "../../test/fixtures";
+import {
+  fakeApi as baseFakeApi,
+  OPERATOR_SESSION,
+  Reply,
+  SANDBOX_DETAIL,
+} from "../../test/fixtures";
 import { operatorBlurb } from "./Connections";
 
 const SANDBOX = "00000000-0000-4000-8000-00000000a001";
@@ -37,6 +42,92 @@ function connections(over: Record<string, unknown> = {}) {
     sandbox: true,
     ...over,
   };
+}
+
+type Routes = Parameters<typeof baseFakeApi>[0];
+type Handler = Routes[string];
+const OLD = /^GET \/api\/ops\/clients\/([^/]+)\/connections$/;
+
+/**
+ * Connectors C6: the tab reads its connectors from `/connectors`; these tests describe the older
+ * list, so the tab's answer is made from it (one card per connection, its account as the API
+ * names it, never the realm id).
+ */
+function tabOf(old: ReturnType<typeof connections>) {
+  const list = old.connections as {
+    id: string;
+    connector: string;
+    status: string;
+    externalAccountId: string | null;
+    config: Record<string, unknown>;
+    lastSyncAt: string | null;
+  }[];
+  const usedBy = old.usedBy as Record<string, { id: string; name: string }[]>;
+  const names = Object.fromEntries(
+    (old.connectors as { id: string; name: string }[]).map((c) => [c.id, c.name]),
+  );
+  return {
+    connected: list.map((c) => ({
+      connector: c.connector,
+      name: names[c.connector] ?? c.connector,
+      description: "",
+      icon: null,
+      auth: "oauth2",
+      personal: false,
+      multiple: false,
+      available: true,
+      beta: false,
+      recommended: false,
+      custom: false,
+      group: "Other",
+      connections: [
+        {
+          id: c.id,
+          status: c.status,
+          accountName:
+            typeof c.config.accountName === "string"
+              ? c.config.accountName
+              : c.externalAccountId?.includes("@")
+                ? c.externalAccountId
+                : null,
+          lastSyncAt: c.lastSyncAt,
+          usedBy: usedBy[c.id] ?? [],
+          access: { reads: 1, changesAsk: 2, changesAuto: 0 },
+          needsSomething: false,
+          openRequest: false,
+          mezonasMay: null,
+        },
+      ],
+    })),
+    builtForYou: [],
+    recommended: [],
+    requests: [],
+    agents: [],
+    sandbox: old.sandbox,
+  };
+}
+
+const tabHandler =
+  (handler: Handler): Handler =>
+  (req) => {
+    const old = handler(req);
+    return old instanceof Reply ? old : tabOf(old as ReturnType<typeof connections>);
+  };
+
+function fakeApi(routes: Routes) {
+  const extra: Routes = {};
+  for (const [key, handler] of Object.entries(routes)) {
+    const m = OLD.exec(key);
+    if (m) extra[`GET /api/ops/clients/${m[1]}/connectors`] = tabHandler(handler);
+  }
+  const api = baseFakeApi({ ...routes, ...extra });
+  const on = api.on;
+  api.on = (route, handler) => {
+    on(route, handler);
+    const m = OLD.exec(route);
+    if (m) on(`GET /api/ops/clients/${m[1]}/connectors`, tabHandler(handler));
+  };
+  return api;
 }
 
 function renderAt(path: string, api: ReturnType<typeof fakeApi>) {
