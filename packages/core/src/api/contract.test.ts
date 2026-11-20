@@ -129,7 +129,7 @@ describe("route contract", () => {
     expect(r.params?.safeParse({ id: "x", connectionId: "y" }).success).toBe(false);
   });
 
-  // §1.162: what a client sees for one agent, opened in the back office: operator-only, and the
+  // §1.163: what a client sees for one agent, opened in the back office: operator-only, and the
   // portal's own answer (the same schema), so it never carries what the portal may not.
   it("keeps the back office's client view of an agent to operators, as the portal's answer", () => {
     const r = routes.opsClientAgentView;

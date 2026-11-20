@@ -1,4 +1,4 @@
-// §1.162: what the client sees for one agent, inside the back office and read only
+// §1.163: what the client sees for one agent, inside the back office and read only
 // (`/ops/clients/:clientId/agents/:slug/client-view`): a banner says whose view it is and links to
 // the agent lab; the portal page's header, this month's figures and recent runs come from the
 // operator's copy of the portal's answer; nothing on it acts as the client or opens the portal.

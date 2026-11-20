@@ -165,7 +165,7 @@ function validTimezone(tz: string): boolean {
   }
 }
 
-/** How far ahead the client page looks for an agent's next scheduled run (§1.162). */
+/** How far ahead the client page looks for an agent's next scheduled run (§1.163). */
 const NEXT_RUN_HORIZON_MS = 8 * 86_400_000;
 
 /**
@@ -253,7 +253,7 @@ async function agentActivity(
  * from `agentActivity`'s count, the sign-off items in one read, the versions `writes` is read from
  * in one read, and their skills and automations once for all of them (`writesContext`).
  * src/ops-client-views.test.ts pins it to `goLiveView` for each kind of agent. It also hands back
- * the bundles it read (each agent's live one, else its latest), so the page's next runs (§1.162)
+ * the bundles it read (each agent's live one, else its latest), so the page's next runs (§1.163)
  * read none again.
  */
 async function goLiveViews(
@@ -365,7 +365,7 @@ async function goLiveViews(
 }
 
 /**
- * §1.162: when each agent's schedules next start a run, as the cron reads them (`nextSchedules`):
+ * §1.163: when each agent's schedules next start a run, as the cron reads them (`nextSchedules`):
  * agents that run (active, with a live version) and nobody paused, from the live bundles
  * `goLiveViews` read, in the client's zone with its holidays, within NEXT_RUN_HORIZON_MS.
  */

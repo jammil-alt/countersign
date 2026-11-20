@@ -1,4 +1,4 @@
-// What a client sees for one agent, opened in the back office (docs/plan.md §1.162, owner
+// What a client sees for one agent, opened in the back office (docs/plan.md §1.163, owner
 // 2026-11-20): `GET /api/ops/clients/:id/agents/:agentId/client-view` answers exactly what the
 // client's portal page for that agent gets (`GET /api/services/:id`), only to an operator who
 // serves the client, with its audit row; never bundles, instructions, prompts or cost. The client

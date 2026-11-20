@@ -65,7 +65,7 @@ describe("route contract (static)", () => {
     expect(manualRoutes.opsAgentManual.roles).toEqual(["operator"]);
   });
 
-  // §1.162: what a client sees for one agent, opened in the back office: operator-only, and the
+  // §1.163: what a client sees for one agent, opened in the back office: operator-only, and the
   // portal page's own answer, so it carries nothing the portal may not. The running route is
   // checked in ops-client-agent-view.test.ts.
   it("keeps the back office's client view of an agent to operators, as the portal's answer", () => {

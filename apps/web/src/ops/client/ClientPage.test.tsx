@@ -279,7 +279,7 @@ describe("the client page", () => {
     );
     expect(trial).toHaveAttribute("data-tone", "signal");
     expect(within(trial).getByTestId("ops-client-spark-material-costs")).toBeInTheDocument();
-    // §1.162: its status in words, its next scheduled run, and what the client sees of it.
+    // §1.163: its status in words, its next scheduled run, and what the client sees of it.
     expect(within(trial).getByTestId("ops-client-status-material-costs")).toHaveTextContent(
       "In trial",
     );
@@ -366,7 +366,7 @@ describe("the client page", () => {
       `/ops/clients/${CLIENT}/agents/material-costs`,
     );
     expect(within(list).getByTestId("ops-agent-card-collections")).toHaveTextContent("Not started");
-    // §1.162: a started agent's card opens what the client sees of it; a draft's has none.
+    // §1.163: a started agent's card opens what the client sees of it; a draft's has none.
     expect(within(live).getByTestId("ops-client-view-link-material-costs")).toHaveAttribute(
       "href",
       `/ops/clients/${CLIENT}/agents/material-costs/client-view`,

@@ -623,7 +623,7 @@ export async function dueSchedules(input: DueSchedulesInput): Promise<RouteResul
 }
 
 /**
- * docs/plan.md §1.162: when each agent's schedules next start a run, as `dueSchedules` would start
+ * docs/plan.md §1.163: when each agent's schedules next start a run, as `dueSchedules` would start
  * them (runnable agents only, each trigger in its own zone or the client's, a skipped holiday
  * skipped), within `horizonMs` after `from`. Agents with no tick in that window are left out.
  */

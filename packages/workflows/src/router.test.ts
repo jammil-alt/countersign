@@ -182,7 +182,7 @@ describe("routeEvent", () => {
   });
 });
 
-// §1.162: the client page's next scheduled run, as the cron would start it.
+// §1.163: the client page's next scheduled run, as the cron would start it.
 describe("nextSchedules", () => {
   const DAY = 86_400_000;
   const from = new Date("2026-11-03T13:30:00Z");

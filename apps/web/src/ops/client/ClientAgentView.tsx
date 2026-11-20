@@ -1,11 +1,11 @@
-// `/ops/clients/:clientId/agents/:slug/client-view` (docs/plan.md §1.162, owner 2026-11-20): what
+// `/ops/clients/:clientId/agents/:slug/client-view` (docs/plan.md §1.163, owner 2026-11-20): what
 // the client sees for one agent in their portal, inside the back office and read only. The page
 // is the portal agent page's Overview drawn with the portal's own parts (../../portal/screens/
 // agentParts.tsx) from the portal's own answer, which the back office reads for a client it
 // serves (`opsClientAgentView`). Nothing on it acts as the client: no Pause, no Run now, no
 // approving or signing, and no link into the portal; its runs open the back office's run page.
 // A banner says whose view it is and links to the agent lab to change the agent.
-// DECISION (§1.162): the Overview tab only, from one back-office call: the portal's other tabs
+// DECISION (§1.163): the Overview tab only, from one back-office call: the portal's other tabs
 // and its pack views each ask portal routes of their own, which an operator never calls as the
 // client. What waits on the client shows as a count (no item, so nothing to approve or sign).
 import { Link, useLocation, useParams } from "react-router-dom";

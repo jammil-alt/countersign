@@ -1,6 +1,6 @@
 // Parts of the portal's agent page (`./Agent.tsx`) that draw from its answer alone, so the back
 // office can show what the client sees for an agent with the portal's own pieces (docs/plan.md
-// §1.162): its state chip, this month's figures and its run rows. Each link into the portal can be
+// §1.163): its state chip, this month's figures and its run rows. Each link into the portal can be
 // turned off, or pointed elsewhere, for a copy shown outside the portal.
 import type { DayRuns } from "@countersign/core";
 import { Link } from "react-router-dom";

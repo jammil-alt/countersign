@@ -1098,7 +1098,7 @@ export function usageRouteHandlers(app: Hono<AppEnv>): void {
     });
   });
 
-  // §1.162 (owner, 2026-11-20): what the client sees for one of its agents, opened in the back
+  // §1.163 (owner, 2026-11-20): what the client sees for one of its agents, opened in the back
   // office. The portal's own answer, read with withTenant's scope for that one client.
   // DECISION: the portal page's own function under narrowToTenant (the request already holds the
   // one pooled connection, so no withTenant beside it), for a client the operator serves (another

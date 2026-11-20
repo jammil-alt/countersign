@@ -6061,7 +6061,7 @@ Numbered 0070 because main took 0068 and 0069 while it was open. Core gains the 
 | Custom connectors | `connector_setting.clients uuid[]`: null is every client, else one to 200 clients. No foreign key (arrays have none); a purged client's id stays and matches nothing, since ids are never reused. `connector_setting` stays operator-only; the portal reads it as today, through `readOperatorCatalogue`. // DECISION |
 | The previous Worker | A new table and nullable columns only. The DB fixture now inserts `connection` and `connection_change` by named columns, as `membership`, so the migration tests stopped at earlier migrations still seed. // DECISION |
 
-### 1.162 The client page's agents, and what the client sees of each (owner, 2026-11-20; no migration)
+### 1.163 The client page's agents, and what the client sees of each (owner, 2026-11-20; no migration)
 
 The owner on `/ops/clients/:id`: "There is nowhere to see the client's agents and their status
 … and the ability to click into the agent and see where it is. It should take us to the agent UI

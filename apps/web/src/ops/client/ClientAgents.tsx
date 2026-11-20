@@ -1,7 +1,7 @@
 // The client page's Agents tab (`/ops/clients/:clientId/agents`): the client's own agents as cards
 // in the prototype's style (badge, name, what it does, its status in words, its version and the
 // tools it is bound to), drafts dashed, and New agent. Each card opens the agent's page.
-// Each started one also links to what the client sees of it (§1.162).
+// Each started one also links to what the client sees of it (§1.163).
 import { Link, useParams } from "react-router-dom";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
@@ -143,7 +143,7 @@ function AgentCard({
             <Tag key={c}>{names[c] ?? connectorName(c)}</Tag>
           ))}
         </div>
-        {/* §1.162: the agent's page in the client's portal, read only. */}
+        {/* §1.163: the agent's page in the client's portal, read only. */}
         <ClientViewLink
           clientId={clientId}
           agent={agent}

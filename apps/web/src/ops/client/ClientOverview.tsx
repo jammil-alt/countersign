@@ -1,5 +1,5 @@
 // The client page's Overview tab (`/ops/clients/:clientId`): the client at a glance, short. First
-// its agents (§1.162): each one's status in words, go-live stage, last and next run, what waits
+// its agents (§1.163): each one's status in words, go-live stage, last and next run, what waits
 // on someone, and what the client sees of it; then the client's work, what waits on us (only when
 // something does), the client's health (its supervisor and what it found), and on the rail its
 // Mezonas lead (set here) and its threads with what is unread for you. Billing is in Settings.
@@ -58,7 +58,7 @@ function Overview({ clientId }: { clientId: string }) {
 
   return (
     <>
-      {/* §1.162 (owner, 2026-11-20): the client's agents first, each with where it is and what
+      {/* §1.163 (owner, 2026-11-20): the client's agents first, each with where it is and what
           the client sees of it. */}
       <AgentStages clientId={clientId} agents={agents} activity={data.activity} />
       {/* §1.124.3: the client's figures, Sales and Build work, activity and to-dos. */}
@@ -97,7 +97,7 @@ function Overview({ clientId }: { clientId: string }) {
 }
 
 /**
- * The client's agents, a dashboard (§1.162): each one's status in words, its way live (bench,
+ * The client's agents, a dashboard (§1.163): each one's status in words, its way live (bench,
  * trial, sign-off, live), its work at a glance (runs in 7 days and each day, its last run, its next
  * scheduled run, what waits for approval), and a link to what the client sees of it; and the
  * client's runs. How many are live is in the header's line, not repeated here.
@@ -151,10 +151,10 @@ function AgentStages({
 }
 
 /**
- * An agent's status in words (§1.162): Paused (by the client or us, or switched off), Retired,
+ * An agent's status in words (§1.163): Paused (by the client or us, or switched off), Retired,
  * Not started (a draft, or on the bench), In trial, Waiting on the client's sign-off, Running.
  */
-// DECISION (§1.162): one chip says where the agent is, in the owner's words; the bench reads as
+// DECISION (§1.163): one chip says where the agent is, in the owner's words; the bench reads as
 // "Not started" (it makes test runs only), and the stage's bar and note beside it say more.
 export function agentStatus(
   g: GoLive,
