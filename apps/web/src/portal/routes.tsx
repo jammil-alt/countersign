@@ -11,8 +11,6 @@ import { ConnectClaudeScreen } from "../session/ConnectClaude";
 import { Redirect } from "../shell/Redirect";
 import { Loading } from "../ui/primitives";
 import { AgentScreen } from "./screens/Agent";
-import { ConnectorPageScreen } from "./screens/ConnectorPage";
-import { ConnectorsScreen } from "./screens/Connectors";
 import { ContactsScreen } from "./screens/Contacts";
 import { PortalDocumentScreen } from "./screens/Document";
 import { GsheetsPickScreen } from "./screens/GsheetsPick";
@@ -49,6 +47,14 @@ const GettingStartedScreen = lazy(() =>
 const PortalKnowledgeScreen = lazy(() =>
   import("./screens/Knowledge").then((m) => ({ default: m.PortalKnowledgeScreen })),
 );
+// Connectors C5: the list and a connector's page load when opened, so the first load stays in its
+// budget (scripts/web-size.mjs).
+const ConnectorsScreen = lazy(() =>
+  import("./screens/Connectors").then((m) => ({ default: m.ConnectorsScreen })),
+);
+const ConnectorPageScreen = lazy(() =>
+  import("./screens/ConnectorPage").then((m) => ({ default: m.ConnectorPageScreen })),
+);
 /** `/access`, `/accounts/access`: the vault's old pages, now Connectors' website logins. */
 function VaultRedirect() {
   const { search } = useLocation();
@@ -67,8 +73,22 @@ export const portalRoutes = (
     <Route path="runs" element={<PortalRunsScreen />} />
     <Route path="runs/:id" element={<PortalRunScreen />} />
     {/* Connectors C5 (docs/connectors-plan.md §3): the client's tools, and each one's page */}
-    <Route path="connectors" element={<ConnectorsScreen />} />
-    <Route path="connectors/:connector" element={<ConnectorPageScreen />} />
+    <Route
+      path="connectors"
+      element={
+        <OnDemand>
+          <ConnectorsScreen />
+        </OnDemand>
+      }
+    />
+    <Route
+      path="connectors/:connector"
+      element={
+        <OnDemand>
+          <ConnectorPageScreen />
+        </OnDemand>
+      }
+    />
     <Route path="contacts" element={<ContactsScreen />} />
 
     {/* An agent: Overview, Runs, Access */}
