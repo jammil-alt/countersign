@@ -1,6 +1,7 @@
 import { DEFAULT_PERMISSIONS, type JsonObject } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import type { WriteContext } from "../connector";
+import type { WriteAttemptServices, WriteAttemptState } from "../attempts";
+import { UnconfirmedWriteError, type WriteContext, writeNotMade } from "../connector";
 import { CredentialCipher, generateEncryptionKey, memoryTenantKeys } from "../credentials";
 import { memoryCredentials } from "../credentials-accessor";
 import { captureBefore, executeWrite, runReadTool } from "../invoke";
@@ -37,7 +38,39 @@ function creds(over: Record<string, unknown> = {}): JsonObject {
   } as JsonObject;
 }
 
-function ctx(credentials: JsonObject | null, now = NOW) {
+/** The platform's record of write attempts, in memory (as slack.test.ts keeps it). */
+function memoryAttempts() {
+  const started = new Map<string, { details: JsonObject; at: Date }>();
+  const refused = new Set<string>();
+  const done = new Map<string, JsonObject>();
+  const s: WriteAttemptServices = {
+    async stateFor(key): Promise<WriteAttemptState> {
+      const mine = [...started.entries()].filter(([k]) => k.startsWith(`${key}#`));
+      const last = mine.at(-1)?.[1];
+      return {
+        done: done.get(key) ?? null,
+        started: mine.length,
+        refused: [...refused].filter((k) => k.startsWith(`${key}#`)).length,
+        last: last ? { details: last.details, startedAt: last.at } : null,
+      };
+    },
+    async start({ idempotencyKey, attempt, details, at }) {
+      const k = `${idempotencyKey}#${attempt}`;
+      if (started.has(k)) return false;
+      started.set(k, { details, at });
+      return true;
+    },
+    async refused({ idempotencyKey, attempt }) {
+      refused.add(`${idempotencyKey}#${attempt}`);
+    },
+    async done({ idempotencyKey, output }) {
+      if (!done.has(idempotencyKey)) done.set(idempotencyKey, output);
+    },
+  };
+  return s;
+}
+
+function ctx(credentials: JsonObject | null, now = NOW, attempts = memoryAttempts()) {
   const store = memoryCredentials(credentials);
   const c: WriteContext = {
     tenantId: tenant,
@@ -53,6 +86,7 @@ function ctx(credentials: JsonObject | null, now = NOW) {
     credentials: store,
     logger: memoryLogger(),
     now: () => now,
+    services: { attempts },
     idempotencyKey: "run-1:create:0",
   };
   return { c, store };
@@ -279,18 +313,19 @@ describe("zoho_crm connector", () => {
       data: [{ Last_Name: "Okafor", Company: "Okafor Joinery" }],
     });
 
+    // Each write is its own external action, under its own key.
     const note = await executeWrite(
       connector,
       ZOHO_TOOLS.note,
       { module: "Leads", recordId: LEAD, title: "Call", content: "Asked for a quote." },
-      c,
+      { ...c, idempotencyKey: "run-1:note:0" },
     );
     expect(note.output).toEqual({ module: "Leads", recordId: LEAD, id: "5843104000000426010" });
     const task = await executeWrite(
       connector,
       ZOHO_TOOLS.task,
       { subject: "Send quote", dueDate: "2026-11-10", module: "Deals", recordId: "123" },
-      c,
+      { ...c, idempotencyKey: "run-1:task:0" },
     );
     expect(task.output).toEqual({ id: "5843104000000427020" });
     const taskBody = JSON.parse(zoho.apiCalls().at(-1)?.body ?? "");
@@ -305,12 +340,80 @@ describe("zoho_crm connector", () => {
         connector,
         ZOHO_TOOLS.create,
         { module: "Leads", fields: { Company: "No name" } },
-        c,
+        { ...c, idempotencyKey: "run-1:create:1" },
       ),
     ).rejects.toThrow(/required field not found/);
     await expect(
-      executeWrite(connector, ZOHO_TOOLS.create, { module: "Leads", fields: { id: "1" } }, c),
+      executeWrite(
+        connector,
+        ZOHO_TOOLS.create,
+        { module: "Leads", fields: { id: "1" } },
+        { ...c, idempotencyKey: "run-1:create:2" },
+      ),
     ).rejects.toThrow(/invalid input/);
+  });
+
+  it("(PLATFORM_QA STATE-4) a create, note or task taken over after a stopped try (same key) is not made a second time", async () => {
+    const zoho = fakeZoho();
+    const connector = createZohoCrmConnector(options(zoho.fetch));
+    const { c } = ctx(creds());
+    const posts = () => zoho.apiCalls().filter((r) => r.method === "POST");
+    const writes: [string, JsonObject][] = [
+      [
+        ZOHO_TOOLS.create,
+        { module: "Leads", fields: { Last_Name: "Okafor", Company: "Okafor Joinery" } },
+      ],
+      [ZOHO_TOOLS.note, { module: "Leads", recordId: LEAD, content: "Asked for a quote." }],
+      [ZOHO_TOOLS.task, { subject: "Send quote" }],
+    ];
+    for (const [i, [tool, input]] of writes.entries()) {
+      const key = `run-1:write:${i}`;
+      // The first try made it; then the Worker stopped before `complete` recorded the action.
+      const first = await executeWrite(connector, tool, input, { ...c, idempotencyKey: key });
+      // 25 minutes later the step's retry takes the action over and runs it again, same key.
+      const again = await executeWrite(
+        connector,
+        tool,
+        input,
+        { ...c, idempotencyKey: key },
+        { recheck: false },
+      );
+      expect(again.output).toEqual(first.output);
+      expect(posts()).toHaveLength(i + 1);
+    }
+
+    // A try whose answer was lost (no result recorded) is never sent again: the operator checks.
+    const lost = fakeZoho();
+    const lostConnector = createZohoCrmConnector(options(lost.fetch));
+    const attempts = memoryAttempts();
+    const lc = ctx(creds(), NOW, attempts).c;
+    await attempts.start({ idempotencyKey: lc.idempotencyKey, attempt: 1, details: {}, at: NOW });
+    const input = { module: "Leads", fields: { Last_Name: "Okafor", Company: "Okafor Joinery" } };
+    const err = await executeWrite(lostConnector, ZOHO_TOOLS.create, input, lc, {
+      recheck: false,
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UnconfirmedWriteError);
+    expect(lost.apiCalls().filter((r) => r.method === "POST")).toHaveLength(0);
+  });
+
+  it("(PLATFORM_QA STATE-4) a create Zoho refused is not written, and the retry under the same key makes it", async () => {
+    const zoho = fakeZoho();
+    const connector = createZohoCrmConnector(options(zoho.fetch));
+    const { c } = ctx(creds());
+    const refused = await executeWrite(
+      connector,
+      ZOHO_TOOLS.create,
+      { module: "Leads", fields: { Company: "No name" } },
+      c,
+    ).catch((e: unknown) => e);
+    expect(writeNotMade(refused)).toBe(true);
+    const made = await executeWrite(
+      connector,
+      ZOHO_TOOLS.create,
+      { module: "Leads", fields: { Last_Name: "Okafor", Company: "Okafor Joinery" } },
+      c,
+    );
+    expect(made.output).toMatchObject({ module: "Leads" });
   });
 
   it("updates with the fields' before state, and refuses when the record changed since it was read", async () => {
