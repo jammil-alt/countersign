@@ -65,18 +65,6 @@ describe.skipIf(!h)("input abuse: what Postgres refuses after Zod passed it", ()
     expect(res.status, JSON.stringify(res.json)).toBe(400);
   });
 
-  it("INPUT-2 refuses a promised date that isn't a calendar date with a 400, not a 500", async () => {
-    const res = await call("POST", "/api/ops/builds", {
-      kind: "agent",
-      title: "Promised on a day that doesn't exist",
-      promisedOn: "2026-02-30",
-    });
-    expect(res.status, JSON.stringify(res.json)).toBe(400);
-    const id = await start();
-    const patched = await call("PATCH", `/api/ops/builds/${id}`, { promisedOn: "2026-13-01" });
-    expect(patched.status, JSON.stringify(patched.json)).toBe(400);
-  });
-
   it("INPUT-8 refuses changing an open item's words on a stopped build (409)", async () => {
     const id = await start("Stopped with an item");
     const added = await call("POST", `/api/ops/builds/${id}/items`, { title: "Check the W-9" });

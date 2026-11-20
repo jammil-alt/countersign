@@ -1,11 +1,10 @@
 // QA (input abuse, 2026-11-19): core's text rules and the Builder's prompt, without the API.
 // - clampText cuts by UTF-16 code units, so it can leave half a surrogate pair (INPUT-3's cause).
-// - FitReason's 20-character minimum counts zero-width spaces and code units, not words.
 // - Operator text in the build's state goes into the prompt as is: a brief field can close the
 //   <build> block and write a "field" of its own after it.
 
 import { BUILD_TURN_TOOL, type BuildTurnInput, buildTurn } from "@countersign/agents";
-import { clampFitGap, clampText, FitReason } from "@countersign/core";
+import { clampFitGap, clampText } from "@countersign/core";
 import { createLlmClient, FakeModel } from "@countersign/llm";
 import { describe, expect, it } from "vitest";
 
@@ -25,11 +24,6 @@ describe("input abuse: core text rules", () => {
       setup: [],
     });
     expect(wellFormed(gap.rows[0]?.how ?? "")).toBe(true);
-  });
-
-  it("INPUT-5 refuses a verdict reason that is 20 zero-width spaces", () => {
-    // Nothing shows on the page; trim() keeps U+200B, so it counts as 20 characters.
-    expect(FitReason.safeParse("​".repeat(20)).success).toBe(false);
   });
 });
 

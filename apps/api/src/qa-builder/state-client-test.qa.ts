@@ -167,7 +167,7 @@ describe.skipIf(!h)("a template build's client test: state and persistence", () 
     return b;
   }
 
-  it("STATE-8: a template changed after its client test doesn't go back to the client as the old copy", async () => {
+  it("STATE-8: a template fixed after its client test can go back to the client test with the fix", async () => {
     let b = await readyForClientTest("Changed after the fork", "changed-after-fork");
     const id = b.build.id;
     const templateId = b.build.agentId as string;
@@ -207,8 +207,12 @@ describe.skipIf(!h)("a template build's client test: state and persistence", () 
     }
     const fixedVersion = b.draft?.versionId as string;
 
-    // On to the client test again.
-    const moved = await call("POST", `/api/ops/builds/${id}/phase`, { to: "client_test" });
+    // On to the client test again, the way the build page does it ("Promote to ready to test"
+    // sends /client-test; no screen sends /phase with client_test). Verification found the
+    // fork of the fixed template conflicts with the first copy: 409 "that already exists".
+    const moved = await call("POST", `/api/ops/builds/${id}/client-test`, {
+      clientId: H.A.tenantId,
+    });
     const [copyLatest] = await H.t.db
       .select({ basedOn: agentVersion.basedOnTemplateVersionId, bundle: agentVersion.bundle })
       .from(agentVersion)
@@ -216,14 +220,26 @@ describe.skipIf(!h)("a template build's client test: state and persistence", () 
       .orderBy(desc(agentVersion.version))
       .limit(1);
     const copyAmount = JSON.stringify(copyLatest?.bundle).includes('"15.00"') ? "15.00" : "12.00";
-    // Either the move is refused (start the client test again, so the fix is forked), or the
-    // client's copy is the fixed template.
-    const refreshed = copyLatest?.basedOn === fixedVersion && copyAmount === "15.00";
+    // The fixed template goes back to the client: the build is in the client test again and the
+    // client's trial runs the fix (the copy updated, or a new copy that the build now points at).
+    const trialAgent = moved.json?.build?.testAgentId ?? copy;
+    const [trialLatest] = await H.t.db
+      .select({ basedOn: agentVersion.basedOnTemplateVersionId, bundle: agentVersion.bundle })
+      .from(agentVersion)
+      .where(eq(agentVersion.agentId, trialAgent))
+      .orderBy(desc(agentVersion.version))
+      .limit(1);
+    const trialRunsFix =
+      trialLatest?.basedOn === fixedVersion &&
+      JSON.stringify(trialLatest?.bundle).includes('"15.00"');
     expect(
-      { moveStatus: moved.status, refreshed, copyAmount },
-      "what the client's trial runs after the template was fixed",
-    ).toSatisfy(
-      (r: { moveStatus: number; refreshed: boolean }) => r.moveStatus === 409 || r.refreshed,
-    );
+      {
+        status: moved.status,
+        phase: moved.json?.build?.phase,
+        trialRunsFix,
+        firstCopyAmount: copyAmount,
+      },
+      `back to the client test after the fix: ${JSON.stringify(moved.json).slice(0, 200)}`,
+    ).toMatchObject({ status: 200, phase: "client_test", trialRunsFix: true });
   });
 });
