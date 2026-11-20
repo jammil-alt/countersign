@@ -115,8 +115,10 @@ pnpm format           # Biome (pinned to Plenary Labs' version; it leaves Markdo
    `external_action` executed once (idempotency key) with its before state. Every step that can write
    defaults to `approval: 'required'`; it runs without approval only if the operator set that step to
    `not_required`, the client's connection matrix allows `auto` for the verb, and the agent's mode is
-   `act`. New steps, Builder drafts and pack templates always start with approval on. Only the operator
-   loosens; clients can tighten their matrix, which overrides steps at once. Delete is off. Clients sign in
+   `act`. New steps, Builder drafts and pack templates always start with approval on. The client may
+   set a write between Off and Ask me first; only we propose On its own; we never loosen a client's
+   connection by ourselves except under their authorization (Connectors C4). Clients can tighten their
+   matrix, which overrides steps at once. Delete is off. Clients sign in
    to their own tools, or, for a browser connection on a site the operator allows, the client admin
    enters the login of a dedicated agent account into the vault; the operator never sees a client's
    credentials. Test runs never write. An agent in its trial or sign-off stage has every write signed;
