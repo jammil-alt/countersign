@@ -41,6 +41,7 @@ import {
   sql,
 } from "drizzle-orm";
 import type { Hono } from "hono";
+import { returnAgentLine } from "../channels/agent-line";
 import type { Bindings } from "../env";
 import { type AppEnv, ensureClient, HttpError, iso, mount, notFound, type Services } from "../http";
 import { disconnect } from "./connections";
@@ -380,7 +381,10 @@ export async function retireClient(
         or(isNull(agent.runStatus), ne(agent.runStatus, "retired")),
       ),
     );
-  for (const a of agents) await retireAgent(tx, { agentId: a.id, actorId });
+  for (const a of agents) {
+    await retireAgent(tx, { agentId: a.id, actorId });
+    await returnAgentLine(tx, { tenantId, agentId: a.id, actorId, reason: "client retired" });
+  }
   const connections = await tx
     .select()
     .from(connection)

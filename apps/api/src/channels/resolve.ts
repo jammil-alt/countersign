@@ -343,6 +343,8 @@ export async function agentsListeningOn(
   to?: string | null,
 ): Promise<string[]> {
   const state = await channelState(tx, tenantId);
+  const conn = state.connections.find((c) => c.id === connectionId);
+  const owner = to && conn ? lineOwner(conn, to) : null;
   const agents = await tx
     .select({ id: agent.id, channels: agent.channels })
     .from(agent)
@@ -356,9 +358,12 @@ export async function agentsListeningOn(
         ...state,
       });
       if (l?.connectionId !== connectionId) return false;
-      // DECISION: compared only where both are known; a line with no number yet keeps listening
-      // on its connection, as before §1.160.
-      return !to || !l.address || l.address === to;
+      // An agent's own line is heard by that agent alone.
+      if (owner) return a.id === owner;
+      // DECISION: any other number on the connection is the account's, heard as before §1.160
+      // by every agent listening there except one with its own line on it: a spare number, or
+      // a line given back when its agent was retired, still reaches the account's agents.
+      return !conn || !l.address || lineOwner(conn, l.address) === null;
     })
     .map((a) => a.id);
 }

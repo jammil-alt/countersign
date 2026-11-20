@@ -45,6 +45,7 @@ import {
 import { agent, connection, run, skill, skillVersion, type Tx, tenant } from "@countersign/db";
 import { and, desc, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import type { Hono } from "hono";
+import { returnAgentLine } from "../channels/agent-line";
 import { type AppEnv, type HandlerCtx, HttpError, mount, notFound } from "../http";
 import type { Platform } from "../platform";
 import { agentSummary, versionSummary } from "./mappers";
@@ -306,6 +307,15 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsRetire, async (ctx) => {
     const row = await agentInScope(ctx, ctx.params.id);
     const updated = await retire(ctx.tx, { agentId: row.id, actorId: ctx.session.user.id });
+    // §1.160: its own phone line goes back to the account.
+    if (row.tenantId) {
+      await returnAgentLine(ctx.tx, {
+        tenantId: row.tenantId,
+        agentId: row.id,
+        actorId: ctx.session.user.id,
+        reason: "agent retired",
+      });
+    }
     return { agent: agentSummary(updated) };
   });
 

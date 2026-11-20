@@ -3,7 +3,7 @@
 // never by an agent), marks the WhatsApp sender once Twilio has registered it, records and checks
 // A2P 10DLC registration, sets quiet hours, and keeps the client's contacts.
 import type { A2pStatus, AvailableNumber, MessagingSetup, QuietHours } from "@countersign/core";
-import { formatAmount } from "@countersign/core";
+import { formatAmount, numberFor } from "@countersign/core";
 import { type FormEvent, useState } from "react";
 import { useParams } from "react-router-dom";
 import { isApiError } from "../../api/client";
@@ -173,6 +173,14 @@ function Numbers({
   const linePrice = setup.phoneLinePrice
     ? `US$${formatAmount(setup.phoneLinePrice)}`
     : "set in Billing";
+  // §1.160: the account sends texts and calls from the first number nobody owns. Any other number
+  // nobody owns (not a WhatsApp sender) only receives: spare, and still paid for at Twilio.
+  const sendsFrom = new Set(
+    [numberFor(numbers, "sms")?.sid, numberFor(numbers, "voice")?.sid].filter(Boolean),
+  );
+  type Num = (typeof numbers)[number];
+  const spare = (n: Num) => !n.agentId && !n.whatsapp && !sendsFrom.has(n.sid);
+  const ownerGone = (n: Num) => !!n.agentId && !setup.agents.some((a) => a.id === n.agentId);
 
   async function search(e: FormEvent) {
     e.preventDefault();
@@ -193,7 +201,10 @@ function Numbers({
       <SectionLabel>Numbers</SectionLabel>
       <p className="mb-3 text-sm text-ink-muted" data-testid="ops-number-lines-help">
         A number can be one agent's own line: it texts and calls only for that agent, and the client
-        is billed the line price ({linePrice}) a month for it. Keep one number for the account.
+        is billed the line price ({linePrice}) a month for it. Keep one number for the account. When
+        an agent is retired, its line goes back to the account. A spare number is the account's but
+        nothing sends from it: texts to it still reach the account, and we pay Twilio for it until
+        it's released.
       </p>
       {numbers.length === 0 ? (
         <p className="mb-4 text-ink-muted">No numbers yet. Find one below.</p>
@@ -208,6 +219,16 @@ function Numbers({
               <span className="figures text-ink">{n.phoneNumber}</span>
               <span className="flex flex-wrap items-center gap-2">
                 {n.whatsapp ? <Badge tone="positive">WhatsApp sender</Badge> : null}
+                {spare(n) ? (
+                  <Badge tone="warning" testId={`ops-number-${n.phoneNumber}-spare`}>
+                    Spare
+                  </Badge>
+                ) : null}
+                {ownerGone(n) ? (
+                  <Badge tone="warning" testId={`ops-number-${n.phoneNumber}-unused`}>
+                    Not in use
+                  </Badge>
+                ) : null}
                 {/* §1.160: the account's, or one agent's own line (billed per line). */}
                 <Select
                   className="w-56"
@@ -225,6 +246,11 @@ function Numbers({
                   data-testid={`ops-number-${n.phoneNumber}-agent`}
                 >
                   <option value="">The account's number</option>
+                  {ownerGone(n) ? (
+                    <option value={n.agentId ?? ""} disabled>
+                      An agent no longer in use
+                    </option>
+                  ) : null}
                   {setup.agents.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.name}'s own line

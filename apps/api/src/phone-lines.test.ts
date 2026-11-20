@@ -5,7 +5,13 @@
 
 import { generateEncryptionKey } from "@countersign/connectors";
 import { FAKE_TWILIO_MAIN, fakeTwilio } from "@countersign/connectors/testing";
-import { agent, billingPhoneLineDay, connection, withTenant } from "@countersign/db";
+import {
+  agent,
+  billingPhoneLineDay,
+  connection,
+  connectionChange,
+  withTenant,
+} from "@countersign/db";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { isAccountTextLine } from "./account/reach";
@@ -258,5 +264,44 @@ describe.skipIf(!h)("agent phone lines through the API", () => {
     const [row] = await H.t.db.select().from(connection).where(eq(connection.id, connectionId));
     const numbers = (row?.config as J | undefined)?.numbers ?? [];
     expect(numbers.every((n: J) => !n.agentId)).toBe(true);
+  });
+
+  it("hears a spare number as the account's", async () => {
+    // LINE is now nobody's and not the one the account sends from: texts to it still arrive.
+    await withTenant(H.t.db, A(), async (tx) => {
+      const heard = await agentsListeningOn(tx, A(), "sms", connectionId, LINE);
+      expect(heard).toContain(orders);
+      expect(heard).toContain(invoices);
+      expect(await isAccountTextLine(tx, A(), connectionId, LINE)).toBe(true);
+    });
+  });
+
+  it("gives a retired agent's line back to the account", async () => {
+    const set = await H.call(OPERATOR, "PUT", ops(`/numbers/${lineSid}/agent`), {
+      agentId: orders,
+    });
+    expect(set.status).toBe(200);
+    const retired = await H.call(OPERATOR, "POST", `/api/ops/agents/${orders}/retire`);
+    expect(retired.status, JSON.stringify(retired.json)).toBe(200);
+
+    const setup = await H.call(OPERATOR, "GET", ops());
+    const line = (setup.json as J).setup.twilio.numbers.find((n: J) => n.sid === lineSid);
+    expect(line.agentId ?? null).toBeNull();
+    const changes = await H.t.db
+      .select()
+      .from(connectionChange)
+      .where(eq(connectionChange.connectionId, connectionId));
+    expect(changes.map((c) => c.change)).toContainEqual(
+      expect.objectContaining({ kind: "phone_line", number: LINE, from: orders, to: null }),
+    );
+    await withTenant(H.t.db, A(), async (tx) => {
+      // Heard by the account's agents (the retired one is dropped later, by its run status).
+      expect(await agentsListeningOn(tx, A(), "sms", connectionId, LINE)).toContain(invoices);
+      expect(await isAccountTextLine(tx, A(), connectionId, LINE)).toBe(true);
+      // Nothing more to bill for it.
+      expect(await recordLineDays(tx, { tenantId: A(), day: "2026-11-03", price: "10.0000" })).toBe(
+        0,
+      );
+    });
   });
 });

@@ -137,8 +137,12 @@ agent's own from the agent's card or the Channels page; we buy one on the client
 and pick the agent in the number's "Whose number" list. The agent then texts and calls from it,
 texts to it go to that agent only (never Sloan), and each active day is billed at the line price.
 To use it on staging: the client's Twilio subaccount, two numbers (the account keeps one), and the
-line price on `/ops/billing` if not $10. Open for the owner: whether the account's own number
-should be billed too, and the five non-English portal strings' review.
+line price on `/ops/billing` if not $10. Retiring an agent gives its line back to the account
+(Messaging marks it Spare until it's given to another agent or released). Open for the owner:
+whether the account's own number should be billed too, and the five non-English portal strings'
+review. Open to build: retiring a client releases none of its Twilio numbers and doesn't close its
+subaccount, so we keep paying Twilio until someone does it in the console; caller name (CNAM) and
+SHAKEN/STIR registration for calls are by hand in the Twilio console (`docs/plan.md` §1.23).
 
 ## 2. The marketing site (mezonas.com)
 

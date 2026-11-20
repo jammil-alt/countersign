@@ -52,7 +52,7 @@ import type { EventRow, EventTypeRegistry } from "@countersign/senses";
 import { channelAccountThread, postAsPerson, senseEmitPosted } from "@countersign/threads";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { auditInTx } from "../audit";
-import { channelFor } from "../channels/resolve";
+import { channelFor, channelState, lineOwner } from "../channels/resolve";
 import type { ContactRow } from "../messaging/contacts";
 import { tenantLocale } from "../routes/language";
 import { type InboundReply, noteStranger, strangerReply } from "../triggers/replies";
@@ -384,7 +384,10 @@ export async function isAccountTextLine(
 ): Promise<boolean> {
   const sms = await channelFor(tx, tenantId, null, "sms");
   if (sms?.connectionId !== connectionId) return false;
-  return !to || !sms.address || sms.address === to;
+  if (!to) return true;
+  // Any number on it that is no agent's own line is the account's (a spare, or a line given back).
+  const conn = (await channelState(tx, tenantId)).connections.find((c) => c.id === connectionId);
+  return !conn || lineOwner(conn, to) === null;
 }
 
 /**
