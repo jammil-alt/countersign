@@ -11,6 +11,9 @@ import { MatchReview } from "./materials/MatchReview";
 import { RequestLinesReview } from "./materials/RequestLinesReview";
 import { MATCH_REVIEW, REQUEST_LINES_REVIEW, VENDOR_CHOICE_REVIEW } from "./materials/types";
 import { VendorChoiceReview } from "./materials/VendorChoiceReview";
+// §1.164: the Sales area's card.
+import { ConfirmMatches } from "./sales/ConfirmMatches";
+import { SALES_MATCH_REVIEW } from "./sales/types";
 
 interface ReviewCardProps {
   itemId: string;
@@ -29,6 +32,8 @@ const CARDS: Record<string, (props: ReviewCardProps) => ReactNode> = {
   [ACCOUNT_QUESTIONS]: (p) => <AccountQuestions {...p} />,
   // R-1 (docs/plan.md §1.80): the reconciliation card.
   [RECONCILIATION_REVIEW]: (p) => <ReconciliationReview {...p} />,
+  // §1.164: Confirm matches (the Sales area).
+  [SALES_MATCH_REVIEW]: (p) => <ConfirmMatches {...p} />,
 };
 
 /** The pack card for an item's payload, or null for a plain item. */
