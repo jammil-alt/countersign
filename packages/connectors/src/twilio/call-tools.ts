@@ -4,6 +4,7 @@
 // the platform (`ctx.services.voice`) whether the contact agreed to calls, hasn't opted out and
 // isn't in quiet hours, before Twilio is called; without those services nothing is placed.
 
+import { numberFor } from "@countersign/core";
 import {
   defineReadTool,
   defineWriteTool,
@@ -50,7 +51,7 @@ function voiceOf(ctx: ToolContext): VoiceServices {
 }
 
 interface CallNumbers {
-  numbers?: { phoneNumber: string; capabilities: { voice: boolean } }[];
+  numbers?: { phoneNumber: string; capabilities: { voice: boolean }; agentId?: string | null }[];
 }
 
 function voiceConfigOf(ctx: ToolContext): TwilioVoiceConfig {
@@ -59,10 +60,10 @@ function voiceConfigOf(ctx: ToolContext): TwilioVoiceConfig {
   return v;
 }
 
-/** The client's number that places calls. */
+/** The client's number that places calls: the agent's own line, else the account's (§1.160). */
 function callerNumber(ctx: ToolContext): string {
   const numbers = (ctx.connection.config as CallNumbers).numbers ?? [];
-  const n = numbers.find((x) => x.capabilities?.voice);
+  const n = numberFor(numbers, "voice", ctx.agentId);
   if (!n) throw new CallBlockedError("no_sender", "the client has no number that makes calls yet");
   return n.phoneNumber;
 }

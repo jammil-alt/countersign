@@ -54,6 +54,7 @@ describe("CONS: the web's number rules against the server's", () => {
       defaultAgentPrice: "250",
       defaultIncludedCredits: "2000",
       creditPrice: "0.01",
+      phoneLinePrice: "10",
       autoSend: false,
       daysUntilDue: "30",
       unitCosts: [],

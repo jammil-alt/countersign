@@ -52,7 +52,7 @@ import type { EventRow, EventTypeRegistry } from "@countersign/senses";
 import { channelAccountThread, postAsPerson, senseEmitPosted } from "@countersign/threads";
 import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { auditInTx } from "../audit";
-import { channelFor } from "../channels/resolve";
+import { channelFor, channelState, lineOwner } from "../channels/resolve";
 import type { ContactRow } from "../messaging/contacts";
 import { tenantLocale } from "../routes/language";
 import { type InboundReply, noteStranger, strangerReply } from "../triggers/replies";
@@ -383,9 +383,15 @@ export async function isAccountTextLine(
   tx: Tx,
   tenantId: string,
   connectionId: string,
+  /** §1.160: the number it came in on; an agent's own line is never Sloan's. */
+  to?: string | null,
 ): Promise<boolean> {
   const sms = await channelFor(tx, tenantId, null, "sms");
-  return sms?.connectionId === connectionId;
+  if (sms?.connectionId !== connectionId) return false;
+  if (!to) return true;
+  // Any number on it that is no agent's own line is the account's (a spare, or a line given back).
+  const conn = (await channelState(tx, tenantId)).connections.find((c) => c.id === connectionId);
+  return !conn || lineOwner(conn, to) === null;
 }
 
 /**

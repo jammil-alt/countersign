@@ -56,7 +56,7 @@ export async function routeInboundText(
   const { tenantId } = input;
   // R4: the agents listening on this number, by the same resolver that picks what they send on.
   const listening = new Set(
-    await agentsListeningOn(tx, tenantId, input.channel, input.connectionId),
+    await agentsListeningOn(tx, tenantId, input.channel, input.connectionId, input.to),
   );
   const rows = await tx
     .select({

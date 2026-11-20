@@ -6,8 +6,10 @@
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
+import { AskForLine, hasOwnNumber } from "../../channels/AskForLine";
 import { ChannelLines } from "../../channels/ChannelLines";
 import { useI18n } from "../../i18n/i18n";
+import { useSession } from "../../session/session";
 import { AgentBadge } from "../../ui/badges";
 import { Loaded } from "../../ui/page";
 import { Card, EmptyState } from "../../ui/primitives";
@@ -15,9 +17,15 @@ import { askSloan } from "../paths";
 
 // DECISION (R8): read-only for the client admin too: the channels routes give the portal nothing
 // to change (the account's and each agent's are bound by the operator), so the page asks Sloan.
+// §1.160: the client admin may ask for a number of an agent's own (a request we act on).
 export function PortalChannels() {
   const { t } = useI18n();
   const state = useApi(apiRoutes.portalChannels);
+  const session = useSession();
+  const client =
+    session.tenants.find((c) => c.id === session.activeTenantId) ?? session.tenants[0] ?? null;
+  // §1.160: only the client admin asks for a number of an agent's own, since it is billed.
+  const isAdmin = client?.role === "client_admin";
   return (
     <Loaded state={state}>
       {(data) => (
@@ -67,6 +75,14 @@ export function PortalChannels() {
                           {t("channels.agentUsesAccount")}
                         </p>
                       )}
+                      {isAdmin && data.phoneLinePrice && !hasOwnNumber(a.channels) ? (
+                        <AskForLine
+                          agentId={a.agentId}
+                          name={a.name}
+                          price={data.phoneLinePrice}
+                          testId={`portal-channels-agent-${a.agentId}-line`}
+                        />
+                      ) : null}
                     </li>
                   );
                 })}

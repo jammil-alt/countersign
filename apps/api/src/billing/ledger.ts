@@ -5,9 +5,11 @@
 // same code serves the back office (operator scope), the portal (one client) and the cron (one
 // client).
 
+import { readTwilioConfig, TWILIO_CONNECTOR_ID } from "@countersign/connectors";
 import {
   type AgentPrice,
   type BilledDay,
+  type BilledLineDay,
   type BuiltStatement,
   billingPeriod,
   buildStatement,
@@ -26,9 +28,11 @@ import {
   agent,
   billingAgentDay,
   billingAgentPrice,
+  billingPhoneLineDay,
   billingSetting,
   billingTemplatePrice,
   billingUnitCost,
+  connection,
   type Tx,
   tenant,
   usageDaily,
@@ -309,6 +313,98 @@ export async function billedDays(
   }));
 }
 
+// ── Agent phone lines (docs/plan.md §1.160) ───────────────────────────────────────────────────────
+
+/** Each number in the client's Twilio account that is a client agent's own line now. */
+export async function agentLines(
+  tx: Tx,
+  tenantId: string,
+): Promise<{ phoneNumber: string; agentId: string }[]> {
+  const rows = await tx
+    .select({ config: connection.config })
+    .from(connection)
+    .where(
+      and(
+        eq(connection.tenantId, tenantId),
+        eq(connection.connector, TWILIO_CONNECTOR_ID),
+        eq(connection.status, "connected"),
+      ),
+    );
+  return rows.flatMap((r) =>
+    (readTwilioConfig(r.config)?.numbers ?? []).flatMap((n) =>
+      n.agentId ? [{ phoneNumber: n.phoneNumber, agentId: n.agentId }] : [],
+    ),
+  );
+}
+
+/**
+ * Records today's row for each number that is an active client agent's own line, at the line
+ * price now. The first price seen in a day sticks (`on conflict do nothing`). Returns the rows
+ * it added.
+ */
+// DECISION: a line is billed on the days its agent is billed (active at an hourly pass), so a
+// paused or retired agent's number costs nothing those days; the operator releases a number that
+// is no longer wanted (§1.160).
+export async function recordLineDays(
+  tx: Tx,
+  input: { tenantId: string; day: string; price: string },
+): Promise<number> {
+  const lines = await agentLines(tx, input.tenantId);
+  if (lines.length === 0) return 0;
+  const active = new Map(
+    (await clientAgents(tx, input.tenantId))
+      .filter((r) => isActive(r.agent))
+      .map((r) => [r.agent.id, agentLabel(r.agent)]),
+  );
+  const values = lines.flatMap((l) => {
+    const name = active.get(l.agentId);
+    return name === undefined
+      ? []
+      : [
+          {
+            tenantId: input.tenantId,
+            day: input.day,
+            phoneNumber: l.phoneNumber,
+            agentId: l.agentId,
+            agentName: name,
+            monthlyPrice: input.price,
+          },
+        ];
+  });
+  if (values.length === 0) return 0;
+  const added = await tx
+    .insert(billingPhoneLineDay)
+    .values(values)
+    .onConflictDoNothing()
+    .returning({ phoneNumber: billingPhoneLineDay.phoneNumber });
+  return added.length;
+}
+
+/** The days a client's agent phone lines were billed in a month, up to `through`. */
+export async function billedLineDays(
+  tx: Tx,
+  input: { tenantId: string; period: string; through?: string },
+): Promise<BilledLineDay[]> {
+  const { start, end } = billingPeriod(input.period);
+  const rows = await tx
+    .select()
+    .from(billingPhoneLineDay)
+    .where(
+      and(
+        eq(billingPhoneLineDay.tenantId, input.tenantId),
+        gte(billingPhoneLineDay.day, start),
+        lte(billingPhoneLineDay.day, input.through && input.through < end ? input.through : end),
+      ),
+    );
+  return rows.map((r) => ({
+    phoneNumber: r.phoneNumber,
+    agentId: r.agentId,
+    agentName: r.agentName,
+    day: r.day,
+    monthlyPrice: r.monthlyPrice,
+  }));
+}
+
 /** The first day usage is billed for a client: the later of the month's start and its set-up. */
 export function usageFrom(period: string, billing: TenantBilling | null): string {
   const start = billingPeriod(period).start;
@@ -332,6 +428,7 @@ export async function monthFor(
   table?: UsageTable,
 ): Promise<{ built: BuiltStatement; cost: string }> {
   const days = await billedDays(tx, input);
+  const lineDays = await billedLineDays(tx, input);
   const used = await creditsBetween(
     tx,
     {
@@ -345,6 +442,7 @@ export async function monthFor(
   const built = buildStatement({
     period: input.period,
     days,
+    lineDays,
     creditsUsed: used.credits,
     creditPrice: input.config.settings.creditPrice,
   });

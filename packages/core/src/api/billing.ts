@@ -51,13 +51,18 @@ export type StatementStatus = z.infer<typeof StatementStatus>;
 /** One line of a statement (or of the month so far, where lines have no id yet). */
 export const StatementLine = z.object({
   id: z.string().nullable(),
-  kind: z.enum(["agent", "usage", "adjustment"]),
+  kind: z.enum(["agent", "phone_line", "usage", "adjustment"]),
   agentId: z.string().nullable(),
-  /** The agent's name, "Extra usage", or the operator's words for an adjustment. */
+  /**
+   * The agent's name, "Phone line <number> (<agent>)" (§1.160), "Extra usage", or the operator's
+   * words for an adjustment.
+   */
   description: z.string(),
   amount: MoneySchema,
-  /** Agent lines: days billed this month, and each monthly price with its days. */
+  /** Agent and phone lines: days billed this month, and each monthly price with its days. */
   days: z.number().int().nullable(),
+  /** §1.160: a phone line's number (E.164); null for every other line. */
+  phoneNumber: z.string().nullable().default(null),
   prices: z.array(z.object({ monthlyPrice: MoneySchema, days: z.number().int() })),
 });
 export type StatementLine = z.infer<typeof StatementLine>;
@@ -122,6 +127,11 @@ export const BillingSettings = z.object({
   defaultIncludedCredits: Credits,
   /** The price of one credit beyond a client's included credits (USD). */
   creditPrice: Price,
+  /**
+   * §1.160: the monthly price of a phone number that is one agent's own (USD). Left out: kept as
+   * it is.
+   */
+  phoneLinePrice: Price.optional(),
   /** Send each month's statements as soon as they are built. */
   autoSend: z.boolean(),
   daysUntilDue: z.number().int().min(1).max(365),
@@ -129,7 +139,10 @@ export const BillingSettings = z.object({
 });
 export type BillingSettings = z.infer<typeof BillingSettings>;
 
-export const BillingSettingsView = BillingSettings.extend({ updatedAt: z.string() });
+export const BillingSettingsView = BillingSettings.extend({
+  phoneLinePrice: Price,
+  updatedAt: z.string(),
+});
 export type BillingSettingsView = z.infer<typeof BillingSettingsView>;
 
 export const BillingMeasure = z.object({

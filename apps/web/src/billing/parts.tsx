@@ -3,7 +3,7 @@
 // without floats. They read in the reader's language (docs/plan.md §1.18); the back office reads
 // English, as outside any provider.
 import type { Money, StatementLine, StatementStatus } from "@countersign/core";
-import { formatAmount } from "@countersign/core";
+import { formatAmount, phoneLineNumber } from "@countersign/core";
 import type { ReactNode } from "react";
 import type { PlainKey } from "../i18n/catalog";
 import { type I18n, useI18n } from "../i18n/i18n";
@@ -133,7 +133,8 @@ function lineDetail(
   i18n: I18n,
 ): ReactNode {
   const { t } = i18n;
-  if (line.kind === "agent") {
+  // §1.160: a phone line is priced by its days, as an agent is.
+  if (line.kind === "agent" || line.kind === "phone_line") {
     const prices =
       line.prices.length === 1 && line.prices[0]
         ? t("billing.pricePerMonth", { price: localAmount(line.prices[0].monthlyPrice, i18n) })
@@ -208,7 +209,11 @@ export function StatementLines({
                 <td>
                   <span className="flex flex-col py-1">
                     <span className="text-ink">
-                      {l.kind === "usage" ? t("billing.extraUsage") : l.description}
+                      {l.kind === "usage"
+                        ? t("billing.extraUsage")
+                        : l.kind === "phone_line" && l.phoneNumber
+                          ? t("billing.phoneLine", { number: phoneLineNumber(l.phoneNumber) })
+                          : l.description}
                     </span>
                     {detail ? <span className="text-sm text-ink-muted">{detail}</span> : null}
                   </span>

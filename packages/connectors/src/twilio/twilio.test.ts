@@ -43,6 +43,7 @@ import {
   parseInbound,
   parseStatus,
   releaseNumber,
+  releaseTextSender,
   searchNumbers,
   type TwilioConfig,
   twilioSignature,
@@ -735,6 +736,48 @@ describe("twilio connector", () => {
 export type _Channel = MessagingChannel;
 
 // P-8: texts through the client's Messaging Service once its campaign is verified (plan §1.70).
+// docs/plan.md §1.160: a number that is one agent's own line sends that agent's texts, and only
+// its; the account's texts and every other agent's go from the account's number.
+describe("twilio sends from an agent's own line", () => {
+  const ORDERS = "0190f0c8-0000-7000-8000-00000000a001";
+
+  it("sends from the agent's line for that agent, and from the account's number otherwise", async () => {
+    const { twilio, connector, ctx, config } = await setup();
+    const account = config.numbers[0];
+    if (!account) throw new Error("no number");
+    config.numbers = [
+      { ...account, sid: `PN${"2".repeat(32)}`, phoneNumber: "+15125550199", agentId: ORDERS },
+      account,
+    ];
+    const m = memoryMessaging();
+    const input = { to: PAT, text: "Your order is ready." };
+    const asOrders = await executeWrite(connector, SMS_SEND_TOOL, input, {
+      ...ctx({ messaging: m.services }, "run-1:send:0"),
+      agentId: ORDERS,
+    });
+    expect(asOrders.output).toMatchObject({ from: "+15125550199" });
+    const asAccount = await executeWrite(
+      connector,
+      SMS_SEND_TOOL,
+      input,
+      ctx({ messaging: m.services }, "run-2:send:0"),
+    );
+    expect(asAccount.output).toMatchObject({ from: "+15125550101" });
+    const asOther = await executeWrite(connector, SMS_SEND_TOOL, input, {
+      ...ctx({ messaging: m.services }, "run-3:send:0"),
+      agentId: "0190f0c8-0000-7000-8000-00000000a002",
+    });
+    expect(asOther.output).toMatchObject({ from: "+15125550101" });
+    expect(twilio.sends().map((x) => x.form.From)).toEqual([
+      "+15125550199",
+      "+15125550101",
+      "+15125550101",
+    ]);
+    // A release code always goes from the account's number.
+    expect(releaseTextSender(config)).toBe("+15125550101");
+  });
+});
+
 describe("twilio sends through the Messaging Service once registered", () => {
   it("adds MessagingServiceSid (with From) only when ready and the number is in the service", async () => {
     const { twilio, sub, connector, ctx, config } = await setup();

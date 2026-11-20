@@ -261,8 +261,57 @@ export const TwilioNumber = z.object({
   /** Registered as the client's WhatsApp sender (Twilio's self sign-up, done by the operator). */
   whatsapp: z.boolean(),
   purchasedAt: z.string(),
+  /**
+   * docs/plan.md §1.160: the client agent whose own line this number is (it sends and answers
+   * only for that agent, billed per line). Absent or null: the account's number. Set by the
+   * operator only.
+   */
+  agentId: Id.nullable().optional(),
 });
 export type TwilioNumber = z.infer<typeof TwilioNumber>;
+
+/** What a number may carry, as a channel kind asks it. */
+export type NumberUse = "sms" | "whatsapp" | "voice";
+
+/** The parts of a stored number `numberFor` reads (a call config keeps fewer fields). */
+export interface OwnableNumber {
+  phoneNumber: string;
+  capabilities?: { sms?: boolean; voice?: boolean } | undefined;
+  whatsapp?: boolean | undefined;
+  agentId?: string | null | undefined;
+}
+
+const carries = (n: OwnableNumber, use: NumberUse): boolean =>
+  use === "whatsapp"
+    ? !!n.whatsapp
+    : use === "sms"
+      ? !!n.capabilities?.sms
+      : !!n.capabilities?.voice;
+
+/**
+ * The number `use` goes from or to, for an agent or the account (§1.160): the agent's own line
+ * when it has one that carries it, else the first number that is no agent's own. An agent's own
+ * number never speaks for the account or for another agent.
+ */
+// DECISION: an agent whose own line can't carry a use (a number with no WhatsApp sender) falls
+// back to the account's number for that use, as an agent with no line does: §10.14's "its own
+// first, else the account's", kind by kind.
+export function numberFor<T extends OwnableNumber>(
+  numbers: readonly T[],
+  use: NumberUse,
+  agentId?: string | null,
+): T | null {
+  if (agentId) {
+    const own = numbers.find((n) => n.agentId === agentId && carries(n, use));
+    if (own) return own;
+  }
+  return numbers.find((n) => !n.agentId && carries(n, use)) ?? null;
+}
+
+/** The agent whose own line `phoneNumber` is, or null for the account's (or an unknown) number. */
+export function numberOwner(numbers: readonly OwnableNumber[], phoneNumber: string): string | null {
+  return numbers.find((n) => n.phoneNumber === phoneNumber)?.agentId ?? null;
+}
 
 export const A2pStatus = z.enum(["not_started", "pending", "approved", "failed"]);
 export type A2pStatus = z.infer<typeof A2pStatus>;
@@ -309,6 +358,12 @@ export const MessagingSetup = z.object({
     .nullable(),
   /** Where Twilio sends inbound messages and delivery status for this client. */
   webhooks: z.object({ messages: z.string(), status: z.string() }),
+  /**
+   * §1.160: the client's agents a number can be the own line of (not test copies, not retired),
+   * and the price of a line a month.
+   */
+  agents: z.array(z.object({ id: z.string(), name: z.string() })).default([]),
+  phoneLinePrice: z.string().optional(),
 });
 export type MessagingSetup = z.infer<typeof MessagingSetup>;
 
@@ -514,6 +569,17 @@ export const messagingRoutes = {
     summary: "Mark a number as the client's WhatsApp sender, once registered with Twilio",
     params: NumberParams,
     body: z.strictObject({ enabled: z.boolean() }),
+    response: SetupResponse,
+  }),
+  // §1.160: a number becomes one agent's own phone line (billed per line), or the account's again.
+  opsTwilioNumberAgent: defineRoute({
+    method: "PUT",
+    path: "/api/ops/clients/:id/messaging/numbers/:sid/agent",
+    auth: "session",
+    roles: OPS,
+    summary: "Make a number one agent's own phone line, or the account's again (agentId null)",
+    params: NumberParams,
+    body: z.strictObject({ agentId: Id.nullable() }),
     response: SetupResponse,
   }),
   opsTwilioA2p: defineRoute({

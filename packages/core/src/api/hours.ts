@@ -13,6 +13,7 @@
 
 import { z } from "zod";
 import { isUuid } from "../ids";
+import { MoneySchema } from "../money";
 import { BusinessHours, PersonHours } from "../process/hours";
 import { ReachChannel } from "../reach/rules";
 import { defineRoute } from "./contract";
@@ -111,6 +112,8 @@ export const PortalChannels = z.object({
   /** The account's number and email, kind by kind (a kind with nothing to carry it is left out). */
   account: z.array(ChannelLine),
   agents: z.array(AgentChannelLines),
+  /** §1.160: what a phone number of an agent's own costs a month, for the client admin's ask. */
+  phoneLinePrice: MoneySchema.optional(),
 });
 export type PortalChannels = z.infer<typeof PortalChannels>;
 

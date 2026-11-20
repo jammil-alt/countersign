@@ -10,6 +10,7 @@ import {
   type MessagingChannel,
   needsIntroduction,
   normalizePhone,
+  numberFor,
   RELEASE_TEXT_PREFIXES,
   type StoredMedia,
   sendBlockMessage,
@@ -496,7 +497,8 @@ export function agentVisibleText(body: string): string {
 /** The client's number that can text a release code now, or null (then the code goes by email). */
 export function releaseTextSender(config: TwilioConfig | null): string | null {
   if (!config) return null;
-  const n = config.numbers.find((x) => x.capabilities.sms);
+  // §1.160: the account's number, never an agent's own line.
+  const n = numberFor(config.numbers, "sms");
   if (!n) return null;
   // US texts need A2P 10DLC approved, as for any send.
   if (isNanpNumber(n.phoneNumber) && config.a2p.status !== "approved") return null;
@@ -580,9 +582,13 @@ function configOf(ctx: ToolContext): TwilioConfig {
   return c;
 }
 
-/** The client's number that sends on this channel. */
-function senderFor(config: TwilioConfig, channel: MessagingChannel): string {
-  const n = config.numbers.find((x) => (channel === "sms" ? x.capabilities.sms : x.whatsapp));
+/** The client's number that sends on this channel: the agent's own line, else the account's. */
+export function senderFor(
+  config: TwilioConfig,
+  channel: MessagingChannel,
+  agentId?: string | null,
+): string {
+  const n = numberFor(config.numbers, channel, agentId);
   if (!n) {
     throw new SendBlockedError(
       "no_sender",
@@ -622,7 +628,7 @@ async function checkSend(
   client: string | undefined;
 }> {
   const config = configOf(ctx);
-  const from = senderFor(config, channel);
+  const from = senderFor(config, channel, ctx.agentId);
   if (channel === "sms" && isNanpNumber(from) && config.a2p.status !== "approved") {
     throw new SendBlockedError("a2p_pending", sendBlockMessage("a2p_pending"));
   }

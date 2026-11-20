@@ -9,6 +9,7 @@ import { type OpsClientChannels, type PortalChannels, routes } from "@countersig
 import { agent, type Tx } from "@countersign/db";
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { Hono } from "hono";
+import { loadBillingConfig } from "../billing/ledger";
 import { accountLines, agentLines, channelState, setAccountBindings } from "../channels/resolve";
 import { type AppEnv, ensureClient, HttpError, mount } from "../http";
 import { forwardingAddress } from "../reach/replies";
@@ -51,6 +52,7 @@ async function channelsOf(
       agentId: a.id,
       name: a.serviceName ?? a.name,
       channels: agentLines(a.channels as Record<string, string>, state.account, state.connections, {
+        agentId: a.id,
         agentEmail: emails.agents.get(a.id) ?? null,
         accountEmail: emails.account,
       }),
@@ -81,7 +83,13 @@ export function channelRoutes(app: Hono<AppEnv>): void {
       tenantId,
       services.env.EMAIL_FORWARDING_DOMAIN,
     );
-    return { account, agents };
+    // §1.160: the line price, so the client admin's ask for a number says what it costs.
+    const { settings } = await loadBillingConfig(tx);
+    return {
+      account,
+      agents,
+      phoneLinePrice: { amount: settings.phoneLinePrice, currency: settings.currency },
+    };
   });
 
   mount(app, routes.opsClientChannels, async (ctx) => {

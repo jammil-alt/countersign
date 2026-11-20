@@ -218,6 +218,27 @@ export interface AgentLineDetail {
   credits: string;
 }
 
+/**
+ * One day a number was an active agent's own phone line (`billing_phone_line_day`, §1.160), with
+ * the line's price that day.
+ */
+export interface BilledLineDay {
+  phoneNumber: string;
+  agentId: string;
+  agentName: string;
+  day: string;
+  monthlyPrice: string;
+}
+
+export interface PhoneLineDetail {
+  phoneNumber: string;
+  /** Days the line was billed this month. */
+  days: number;
+  daysInMonth: number;
+  /** Each price it had, with its days (one entry unless the price changed). */
+  prices: { monthlyPrice: string; days: number }[];
+}
+
 export interface UsageLineDetail {
   creditsUsed: number;
   creditsIncluded: number;
@@ -232,6 +253,13 @@ export type BuiltLine =
       description: string;
       amount: string;
       detail: AgentLineDetail;
+    }
+  | {
+      kind: "phone_line";
+      agentId: string;
+      description: string;
+      amount: string;
+      detail: PhoneLineDetail;
     }
   | {
       kind: "usage";
@@ -255,6 +283,17 @@ export interface BuiltStatement {
 
 export const EXTRA_USAGE_DESCRIPTION = "Extra usage";
 
+/** "+1 555-555-0123" for a North American number, else the number as stored. */
+export function phoneLineNumber(e164: string): string {
+  const m = /^\+1(\d{3})(\d{3})(\d{4})$/.exec(e164);
+  return m ? `+1 ${m[1]}-${m[2]}-${m[3]}` : e164;
+}
+
+/** A phone line's statement description: the number, and whose line it is. */
+export function phoneLineDescription(phoneNumber: string, agentName: string): string {
+  return `Phone line ${phoneLineNumber(phoneNumber)} (${agentName})`;
+}
+
 /**
  * A month's statement lines from the days its agents were billed and the credits it used:
  * one line per agent (the sum of its daily prices ÷ days in the month, half up to cents), and one
@@ -266,6 +305,8 @@ export const EXTRA_USAGE_DESCRIPTION = "Extra usage";
 export function buildStatement(input: {
   period: string;
   days: readonly BilledDay[];
+  /** §1.160: the days each agent's own phone line was billed. */
+  lineDays?: readonly BilledLineDay[];
   creditsUsed: number;
   creditPrice: string;
 }): BuiltStatement {
@@ -309,6 +350,7 @@ export function buildStatement(input: {
   agentLines.sort(
     (a, b) => a.description.localeCompare(b.description) || a.agentId.localeCompare(b.agentId),
   );
+  const phoneLines = buildPhoneLines(input.lineDays ?? [], period, dim);
   const creditsIncluded = pooled.toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toNumber();
   const creditsUsed = Math.max(0, input.creditsUsed);
   const extraCredits = overageCredits(creditsUsed, creditsIncluded);
@@ -320,7 +362,7 @@ export function buildStatement(input: {
     amount: toCents(new Decimal(extraCredits).times(dec(creditPrice))),
     detail: { creditsUsed, creditsIncluded, extraCredits, creditPrice },
   };
-  const lines: BuiltLine[] = [...agentLines, usage];
+  const lines: BuiltLine[] = [...agentLines, ...phoneLines, usage];
   return {
     period,
     daysInMonth: dim,
@@ -331,6 +373,55 @@ export function buildStatement(input: {
     creditPrice,
     total: sumAmounts(lines.map((l) => l.amount)),
   };
+}
+
+/**
+ * One line per number and agent (§1.160): the sum of the line's daily prices ÷ days in the month,
+ * half up to cents once, as an agent line is. A number given to another agent mid-month makes a
+ * second line, each for its own days.
+ */
+// DECISION: a phone line brings no credits; its texts and calls count as usage like any other.
+function buildPhoneLines(
+  lineDays: readonly BilledLineDay[],
+  period: { start: string; end: string },
+  dim: number,
+): Extract<BuiltLine, { kind: "phone_line" }>[] {
+  const byLine = new Map<string, BilledLineDay[]>();
+  for (const d of lineDays) {
+    if (d.day < period.start || d.day > period.end) continue;
+    const key = `${d.phoneNumber} ${d.agentId}`;
+    const list = byLine.get(key) ?? [];
+    list.push(d);
+    byLine.set(key, list);
+  }
+  const out: Extract<BuiltLine, { kind: "phone_line" }>[] = [];
+  for (const days of byLine.values()) {
+    days.sort((a, b) => a.day.localeCompare(b.day));
+    const last = days[days.length - 1];
+    if (!last) continue;
+    let priceDays = new Decimal(0);
+    const prices = new Map<string, number>();
+    for (const d of days) {
+      const p = toNumeric(d.monthlyPrice);
+      priceDays = priceDays.plus(dec(p));
+      prices.set(p, (prices.get(p) ?? 0) + 1);
+    }
+    out.push({
+      kind: "phone_line",
+      agentId: last.agentId,
+      description: phoneLineDescription(last.phoneNumber, last.agentName),
+      amount: toCents(priceDays.div(dim)),
+      detail: {
+        phoneNumber: last.phoneNumber,
+        days: days.length,
+        daysInMonth: dim,
+        prices: [...prices].map(([monthlyPrice, n]) => ({ monthlyPrice, days: n })),
+      },
+    });
+  }
+  return out.sort(
+    (a, b) => a.description.localeCompare(b.description) || a.agentId.localeCompare(b.agentId),
+  );
 }
 
 /** Line amounts summed, `numeric(14,4)` text. */

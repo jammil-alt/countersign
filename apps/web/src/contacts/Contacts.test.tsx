@@ -211,4 +211,64 @@ describe("ops texting setup", () => {
     await waitFor(() => expect(screen.getByTestId("ops-number-+15125550101")).toBeInTheDocument());
     expect(api.calls).toContain(`GET /api/ops/clients/${DEMO}/messaging/numbers/available`);
   });
+
+  it("marks spare numbers and lines whose agent is gone (§1.160)", async () => {
+    const num = (phoneNumber: string, sid: string, agentId?: string) => ({
+      sid: `PN${sid.repeat(32)}`,
+      phoneNumber,
+      friendlyName: null,
+      capabilities: { sms: true, mms: true, voice: true },
+      whatsapp: false,
+      purchasedAt: "2026-11-04T12:00:00.000Z",
+      ...(agentId ? { agentId } : {}),
+    });
+    const ORDERS = "00000000-0000-4000-8000-00000000a001";
+    const setup = {
+      available: true,
+      timezone: "America/Chicago",
+      quietHours: { start: "21:00", end: "08:00" },
+      webhooks: {
+        messages: `https://app.mezonas.test/api/twilio/${DEMO}/messages`,
+        status: `https://app.mezonas.test/api/twilio/${DEMO}/status`,
+      },
+      agents: [{ id: ORDERS, name: "Orders" }],
+      phoneLinePrice: "10.0000",
+      twilio: {
+        connectionId: "00000000-0000-4000-8000-0000000e0001",
+        status: "connected",
+        subaccountSid: `AC${"1".repeat(32)}`,
+        numbers: [
+          num("+15125550101", "2"),
+          num("+15125550102", "3"),
+          num("+15125550103", "4", ORDERS),
+          num("+15125550104", "5", "00000000-0000-4000-8000-00000000a0ff"),
+        ],
+        a2p: {
+          brandSid: null,
+          messagingServiceSid: null,
+          brandStatus: null,
+          campaignStatus: null,
+          status: "not_started",
+          checkedAt: null,
+        },
+      },
+    };
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      [`GET /api/ops/clients/${DEMO}`]: () => ({
+        client: { id: DEMO, name: "Demo client", timezone: "America/Chicago" },
+        agents: [],
+      }),
+      [`GET /api/ops/clients/${DEMO}/messaging`]: () => ({ setup }),
+      [`GET /api/ops/clients/${DEMO}/contacts`]: () => ({ items: [] }),
+    });
+    renderAt(`/ops/clients/${DEMO}/messaging`, api);
+    await screen.findByTestId("ops-number-+15125550101");
+    // The account sends from the first; the second only receives.
+    expect(screen.queryByTestId("ops-number-+15125550101-spare")).toBeNull();
+    expect(screen.getByTestId("ops-number-+15125550102-spare")).toHaveTextContent("Spare");
+    expect(screen.queryByTestId("ops-number-+15125550103-spare")).toBeNull();
+    expect(screen.queryByTestId("ops-number-+15125550103-unused")).toBeNull();
+    expect(screen.getByTestId("ops-number-+15125550104-unused")).toHaveTextContent("Not in use");
+  });
 });
