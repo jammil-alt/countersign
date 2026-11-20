@@ -68,14 +68,16 @@ describe("buildIssues", () => {
         messages: [{ about: "item:b" }, { about: "item:b" }, {}] as BuildDetail["messages"],
       }),
     );
+    // In the POC test the failing case holds the move and the draft problem doesn't, as the gate
+    // says (BUILDER_QA CONS-1): the case comes first.
     expect(issues.map((i) => i.key)).toEqual([
-      "problem:p1",
       "case:k1",
+      "problem:p1",
       "item:b",
       "item:c",
       "item:a",
     ]);
-    expect(issues[0]?.detail).toBe("In “Pay” of “Main”");
+    expect(issues.find((i) => i.key === "problem:p1")?.detail).toBe("In “Pay” of “Main”");
     expect(issues.find((i) => i.key === "item:a")).toMatchObject({ open: false, state: "Done" });
     expect(issues.find((i) => i.key === "item:b")?.talk).toBe(2);
     // QA's checklist is an issue only in QA.
