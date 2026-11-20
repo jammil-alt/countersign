@@ -149,8 +149,26 @@ export const YOUR_CALL_WORDS = {
   empty: "Nothing needs you right now.",
   emptyNote: (reggie: number) =>
     `Reggie is on ${reggie} thing${reggie === 1 ? "" : "s"}. You'll see one here when it needs a person.`,
+  /** Nothing at all waits on you (the done-tone empty state). */
+  clear: "You're clear",
+  seeReggie: (reggie: number) => `See what Reggie is on (${reggie})`,
+  /** A kind chip or a search that leaves Yours empty: what is empty, and where the work is. */
+  noneOfKind: {
+    all: "Nothing needs you",
+    issues: "No issues need you",
+    builds: "No agent builds need you",
+    sales: "No deals need you",
+    enh: "No enhancements need you",
+    other: "No questions or runs need you",
+  } satisfies Record<CallKind, string>,
+  noSearchMatch: (q: string) => `Nothing of yours matches “${q}”`,
+  elsewhere: (reggie: number, client: number) =>
+    `Reggie is on ${reggie} thing${reggie === 1 ? "" : "s"}, and ${client} ${client === 1 ? "waits" : "wait"} on clients.`,
+  showAll: (n: number) => `Show all ${n}`,
   noMatch: "Nothing matches.",
   clearFilters: "Clear the filters",
+  draftHead: "The draft",
+  optionsHead: "Pick one",
   readHead: "Reggie's read",
   later: "Later",
   edit: "Edit",
