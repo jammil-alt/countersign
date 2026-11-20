@@ -13,7 +13,7 @@ import {
   type PackReviewHandler,
 } from "../pack";
 import { RECONCILIATION_LABELS, RECONCILIATION_SIDES, reconciliation } from "../schema";
-import { decideReconciliation, type PersonDecision, reconciliationView } from "./store";
+import { decideReconciliation, type PersonDecision, ReconMoney, reconciliationView } from "./store";
 
 export const RECONCILIATION_REVIEW = "bookkeeping.reconciliation";
 
@@ -44,7 +44,8 @@ const Decision = z.discriminatedUnion("action", [
         .regex(/^\d{4}-\d{2}-\d{2}$/, "a date, yyyy-mm-dd")
         .nullable()
         .optional(),
-      effect: z.string().regex(/^-?\d{1,12}(\.\d{1,4})?$/, "an amount, like -12.50"),
+      // PLATFORM_QA INPUT-4: what `numeric(14,4)` holds.
+      effect: ReconMoney,
       description: z.string().min(1).max(500),
     }),
   }),
