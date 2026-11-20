@@ -1,13 +1,20 @@
 // The test databases themselves (docs/audit-plan.md 9.5): each is a copy of one migrated template,
 // the copies don't share data, nothing connects to the template, and a template dropped under a
 // running process (another checkout's clean-up) is built again. Building it again also drops other
-// checkouts' templates built more than a week ago, and keeps newer ones.
+// checkouts' templates built more than a week ago, and keeps newer ones. The test that drops a
+// template drops one of its own, never the one the other test files are copying.
 
 import { randomBytes } from "node:crypto";
 import { sql } from "drizzle-orm";
 import postgres from "postgres";
 import { afterAll, describe, expect, it } from "vitest";
-import { adminUrl, createTestDatabase, databaseAvailable, type TestDatabase } from "./testing";
+import {
+  adminUrl,
+  createTestDatabase,
+  databaseAvailable,
+  type TestDatabase,
+  templateName,
+} from "./testing";
 
 const online = await databaseAvailable();
 
@@ -16,8 +23,8 @@ afterAll(async () => {
   for (const t of made) await t.drop();
 });
 
-async function fresh(): Promise<TestDatabase> {
-  const t = await createTestDatabase();
+async function fresh(ownTemplate?: string): Promise<TestDatabase> {
+  const t = await createTestDatabase(ownTemplate ? { ownTemplate } : {});
   if (!t) throw new Error("no test database");
   made.push(t);
   return t;
@@ -49,13 +56,12 @@ describe.skipIf(!online)("test databases from a template", () => {
   it("takes no connections to the template", async () => {
     const admin = postgres(adminUrl(), { max: 1, onnotice: () => {} });
     try {
-      const names = await templates(admin);
-      expect(names.length).toBeGreaterThan(0);
-      for (const name of names) {
-        const [row] = await admin<{ allowed: boolean }[]>`
-          select datallowconn as allowed from pg_database where datname = ${name}`;
-        expect(row?.allowed).toBe(false);
-      }
+      // One read: a template another process drops between two reads would read as missing.
+      const rows = await admin<{ datname: string; allowed: boolean }[]>`
+        select datname, datallowconn as allowed from pg_database
+        where datistemplate and starts_with(datname, 'cs_template_')`;
+      expect(rows.length).toBeGreaterThan(0);
+      for (const row of rows) expect(row, row.datname).toMatchObject({ allowed: false });
     } finally {
       await admin.end();
     }
@@ -67,8 +73,15 @@ describe.skipIf(!online)("test databases from a template", () => {
     const recent = `cs_template_recent_${tag}`;
     const old = `cs_template_old_${tag}`;
     const weekAgo = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+    // DECISION: this test drops a template of its own (`cs_template_<hash>_t<tag>`), built and
+    // rebuilt exactly as the shared one is. Dropping the shared `cs_template_<hash>`, or picking
+    // "the" template by its name's shape (another checkout's, or this one's from before the
+    // migrations changed), broke the test files copying it at the same moment, here and in
+    // apps/api, and failed this test when it picked a template this process doesn't use.
+    const own = `t${tag}`;
+    const current = templateName(own);
     try {
-      await fresh();
+      await fresh(own);
       for (const [name, built] of [
         [recent, new Date().toISOString()],
         [old, weekAgo],
@@ -77,20 +90,17 @@ describe.skipIf(!online)("test databases from a template", () => {
         await admin.unsafe(`COMMENT ON DATABASE ${name} IS 'built ${built}'`);
       }
       // As another checkout's clean-up would: the template this process found is gone.
-      const [current] = (await templates(admin)).filter((n) =>
-        /^cs_template_[0-9a-f]{16}$/.test(n),
-      );
-      expect(current).toBeDefined();
+      expect(await templates(admin)).toContain(current);
       await admin.unsafe(`ALTER DATABASE ${current} WITH IS_TEMPLATE false`);
       await admin.unsafe(`DROP DATABASE ${current} WITH (FORCE)`);
 
-      await fresh();
+      await fresh(own);
       const after = await templates(admin);
       expect(after).toContain(current);
       expect(after).toContain(recent);
       expect(after).not.toContain(old);
     } finally {
-      for (const name of [recent, old]) {
+      for (const name of [recent, old, current]) {
         if ((await admin`select 1 from pg_database where datname = ${name}`).length === 0) continue;
         await admin.unsafe(`ALTER DATABASE ${name} WITH IS_TEMPLATE false`);
         await admin.unsafe(`DROP DATABASE ${name}`);
