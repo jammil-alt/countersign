@@ -59,6 +59,9 @@ export const ASSIGNED_USER_ROUTES: readonly string[] = [
   "GET /api/inbox/:id/pack-review",
   "POST /api/inbox/:id/pack-review",
   // A document an item or a run shows (by its id; the list of documents stays closed).
+  // DECISION (PLATFORM_QA SEC-4, owner 2026-11-20): checked by agent, not only by client: it opens
+  // only when a run, step or inbox item of one of their agents names it, else 404
+  // (apps/api `ensureSeesDocument`).
   "GET /api/documents/:id",
 ];
 
