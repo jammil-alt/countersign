@@ -4,7 +4,7 @@
 // matches. Then the model's proposals and a person's decisions on the card, the residual worked
 // out again after each, and the sign-off, only when explained.
 
-import { CurrencyCode, DECIMAL_RE, dec, isoToday, toNumeric } from "@countersign/core";
+import { CurrencyCode, DECIMAL_RE, dec, isoToday, once, toNumeric } from "@countersign/core";
 import { type Tx, tenant } from "@countersign/db";
 import { and, asc, desc, eq, gt, inArray, lte, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -42,6 +42,28 @@ export const GivenItem = z.object({
   description: z.string().max(500).nullable().optional(),
 });
 
+// The codes a given side's currency may name: ISO 4217's, as the runtime knows them (made on first
+// use), else any three capital letters (CurrencyCode).
+const knownCurrencies = once((): ReadonlySet<string> | null =>
+  typeof Intl.supportedValuesOf === "function" ? new Set(Intl.supportedValuesOf("currency")) : null,
+);
+
+/**
+ * A given side's currency as a code, or null. The statement reader gives free text ("cad", "CAD ",
+ * "Canadian dollars"), so it is trimmed and upper-cased; anything that isn't then a known ISO 4217
+ * code is no currency, and the side takes the other side's (PLATFORM_QA INPUT-2).
+ */
+// DECISION: normalised at `bookkeeping.reconcile`'s input, not by holding the read-statement skills'
+// output to a code: a model that writes "cad" or "Canadian dollars" doesn't fail the run, the input
+// is still checked (text or null, then a code or nothing), and the step template passes it as read.
+// A code that names a different currency from the other side's is refused, as before.
+export function givenCurrency(value: string | null | undefined): string | null {
+  const code = value?.trim().toUpperCase() ?? "";
+  if (!CurrencyCode.safeParse(code).success) return null;
+  const known = knownCurrencies();
+  return known && !known.has(code) ? null : code;
+}
+
 /** Where a side's balance and items come from. */
 export const SideInput = z.discriminatedUnion("source", [
   z.object({
@@ -60,8 +82,8 @@ export const SideInput = z.discriminatedUnion("source", [
     label: z.string().min(1).max(100),
     opening: Money.nullable().optional(),
     closing: Money,
-    /** The figures' currency (a statement read gives it); absent: the other side's. */
-    currency: CurrencyCode.nullable().optional(),
+    /** The figures' currency (a statement read gives it); absent or not a code: the other side's. */
+    currency: z.string().nullable().optional().transform(givenCurrency),
     items: z.array(GivenItem).max(2000),
   }),
   z.object({

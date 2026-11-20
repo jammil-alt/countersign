@@ -272,6 +272,8 @@ export * from "./permissions/decide";
 export * from "./permissions/entities";
 export * from "./permissions/explain";
 export * from "./permissions/grants";
+// Connectors C1 (docs/connectors-plan.md §4): an agent's needs, the gaps, allowing what it needs.
+export * from "./permissions/needs";
 export * from "./permissions/release";
 // R1: processes, workflow schemaVersion 4 (docs/plan.md §1.86, §9), as the `processes` namespace.
 export * as processes from "./process";
@@ -289,6 +291,8 @@ export * from "./schemas/approval";
 // v0.12 W2-B
 export * from "./schemas/automation";
 export * from "./schemas/common";
+// Connectors C3: change requests and Changes by Mezonas (docs/plan.md §1.161)
+export * from "./schemas/connection-requests";
 export * from "./schemas/connector";
 // v0.14 capture
 export * from "./schemas/conversation";

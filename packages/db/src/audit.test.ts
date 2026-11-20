@@ -1,4 +1,4 @@
-// The audit log (migrations 0017 and 0070, docs/plan.md §1.35) as the Worker's role sees it:
+// The audit log (migrations 0017 and 0071, docs/plan.md §1.35) as the Worker's role sees it:
 // append-only, written into the scope's own client or into no client, and read back only within
 // scope. A row with no client reaches an operator session only when its actor is none, the session's
 // own user, a person of a client it serves, or in no client at all (PLATFORM_QA SEC-6).

@@ -112,7 +112,7 @@ export function complianceRouteHandlers(app: Hono<AppEnv>): void {
   mount(app, routes.opsAudit, async ({ tx, query }) => {
     // Row-level security already limits rows to the clients this operator serves (and `?client=`
     // narrows the scope), plus rows with no client whose actor is none, a person of those clients,
-    // or in no client at all (migration 0070, PLATFORM_QA SEC-6).
+    // or in no client at all (migration 0071, PLATFORM_QA SEC-6).
     const where: SQL[] = [];
     if (query.client) where.push(eq(auditEvent.tenantId, query.client));
     if (query.user) where.push(eq(auditEvent.actorUserId, query.user));

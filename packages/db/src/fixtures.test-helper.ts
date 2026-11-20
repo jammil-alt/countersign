@@ -28,8 +28,6 @@ import {
   browserScriptVersion,
   builderSession,
   builderTurn,
-  connection,
-  connectionChange,
   connectorSetting,
   contact,
   contactChange,
@@ -181,11 +179,14 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     sql`insert into ${membership} (tenant_id, user_id, role) values (${tenantId}, ${u.id}, 'client_admin')`,
   );
 
-  const [c] = await db.insert(connection).values({ tenantId, connector: "test" }).returning();
+  // Named columns only, as membership above: later connection columns (0070's `mezonas_may`,
+  // `connection_change.request_id`) are missing on a database stopped at an earlier migration.
+  const [c] = await db.$client<{ id: string }[]>`
+    insert into connection (tenant_id, connector) values (${tenantId}, 'test') returning id`;
   if (!c) throw new Error("no connection");
-  await db
-    .insert(connectionChange)
-    .values({ tenantId, connectionId: c.id, change: { status: "x" } });
+  await db.$client`
+    insert into connection_change (tenant_id, connection_id, change)
+    values (${tenantId}, ${c.id}, ${JSON.stringify({ status: "x" })}::jsonb)`;
   const [rr] = await db
     .insert(rawRecord)
     .values({
@@ -939,6 +940,22 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
     ]);
     ownerId = o.id;
     ownerVersionId = ov.id;
+  }
+  // Connectors C3 (0070): our open request to change the connection, for the agent. Plain SQL, and
+  // only where the table exists, like the form above.
+  const [requests] = await db.$client<{ ok: boolean }[]>`
+    select to_regclass('public.connection_change_request') is not null as ok`;
+  if (requests?.ok) {
+    const settings = {
+      permissions: { read: "auto", create: "off", update: "off", delete: "off" },
+      config: {},
+    };
+    await db.$client`
+      insert into connection_change_request
+        (tenant_id, connection_id, against, proposed, reason, requested_by, for_agent_id, expires_at)
+      values (${tenantId}, ${c.id}, ${JSON.stringify(settings)}::jsonb,
+        ${JSON.stringify({ ...settings, permissions: { ...settings.permissions, create: "approval" } })}::jsonb,
+        'The agent adds bills.', ${u.id}, ${a.id}, now() + interval '14 days')`;
   }
 
   return {

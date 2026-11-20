@@ -293,6 +293,8 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "deal_activity",
       "play_setting",
       "play_log",
+      // Connectors C3 (0069): a change request is answered, replaced, expired or withdrawn.
+      "connection_change_request",
     ]) {
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
     }

@@ -85,9 +85,9 @@ async function pairs(): Promise<Pair[]> {
   for (const m of [bookkeepingManifest, marketingManifest]) {
     for (const t of m.templates) {
       // Skill model (2026-11-10): a v3 follows (templates-skill-model.test.ts holds it); the
-      // Bookkeeper's v4 (2026-11-17) follows its v3.
+      // Bookkeeper's v4 (2026-11-17) and v5 (2026-11-20, a statement's currency) follow its v3.
       const [v2, ...more] = t.versions ?? [];
-      expect(more, t.slug).toHaveLength(t.slug === "bookkeeper" ? 2 : 1);
+      expect(more, t.slug).toHaveLength(t.slug === "bookkeeper" ? 3 : 1);
       if (!v2) throw new Error(`${t.slug} has no v2`);
       out.push({ name: `${m.id} ${t.slug} v2`, v3: t.bundle, v4: v2 });
     }
@@ -318,9 +318,9 @@ describe.skipIf(!h)("installing the v4 versions", () => {
 
     const packs = await H.call(OPERATOR, "GET", "/api/ops/packs");
     const listed = j(packs.json).packs.find((p: { id: string }) => p.id === "bookkeeping");
-    // Skill model (2026-11-10): the pack's v2, v3 and v4 all wait.
+    // Skill model (2026-11-10): the pack's v2, v3, v4 and v5 all wait.
     expect(listed.templates).toEqual([
-      expect.objectContaining({ slug: "bookkeeper", templateId: tpl.id, newVersions: 3 }),
+      expect.objectContaining({ slug: "bookkeeper", templateId: tpl.id, newVersions: 4 }),
     ]);
 
     const update = await H.call(OPERATOR, "POST", "/api/ops/packs/bookkeeping/templates/update");
@@ -329,19 +329,21 @@ describe.skipIf(!h)("installing the v4 versions", () => {
       { slug: "bookkeeper", templateId: tpl.id, version: 2, published: true },
       { slug: "bookkeeper", templateId: tpl.id, version: 3, published: true },
       { slug: "bookkeeper", templateId: tpl.id, version: 4, published: true },
+      { slug: "bookkeeper", templateId: tpl.id, version: 5, published: true },
     ]);
     const { live, versions } = await versionsOf("bookkeeper");
     expect(versions.map((v) => [v.version, v.status, v.authorType])).toEqual([
       [1, "retired", "pack"],
       [2, "retired", "pack"],
       [3, "retired", "pack"],
-      [4, "live", "pack"],
+      [4, "retired", "pack"],
+      [5, "live", "pack"],
     ]);
-    expect(live).toBe(versions[3]?.id);
+    expect(live).toBe(versions[4]?.id);
     const v2 = versions[1]?.bundle;
     expect(v2?.workflows.map((w) => w.workflow.schemaVersion)).toEqual([4, 4, 4, 4]);
 
-    // The fork is offered the later versions as an update (three versions behind); nothing of it
+    // The fork is offered the later versions as an update (four versions behind); nothing of it
     // moved: it changes only by its own reviewed merge (packages/agents readers-v4.test.ts takes
     // one).
     const usedBy = await H.call(OPERATOR, "GET", `/api/ops/templates/${tpl.id}/used-by`);
@@ -349,7 +351,7 @@ describe.skipIf(!h)("installing the v4 versions", () => {
     const entry = j(usedBy.json).agents.find(
       (x: { agent: { id: string } }) => x.agent.id === forkId,
     );
-    expect(entry).toMatchObject({ baseVersion: 1, behind: 3 });
+    expect(entry).toMatchObject({ baseVersion: 1, behind: 4 });
     const [forkVersion] = await H.t.db
       .select()
       .from(agentVersion)
@@ -367,7 +369,7 @@ describe.skipIf(!h)("installing the v4 versions", () => {
       `/api/ops/clients/${H.B.tenantId}/packs/bookkeeping/enable`,
     );
     expect(j(other.json).installed).toEqual([]);
-    expect((await versionsOf("bookkeeper")).versions).toHaveLength(4);
+    expect((await versionsOf("bookkeeper")).versions).toHaveLength(5);
   });
 
   it("never retires an operator's own live version: the pack's later version waits as a draft", async () => {

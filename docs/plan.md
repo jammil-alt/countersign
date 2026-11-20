@@ -6018,6 +6018,41 @@ v0.15's §1 scope: it goes into ARCHITECTURE v0.16 with the other areas.
 | Calls that carry the client's name | SHAKEN/STIR (calls signed "A", so carriers don't mark them as spam) and CNAM (the name the person called sees), two Trust Hub trust products in the client's subaccount on the business profile its texting registration made (P-8, §1.70), once Twilio has approved that profile. The operator's Register on Messaging (`POST /api/ops/clients/:id/messaging/calling`, `{displayName}`: up to 15 letters, digits, periods, commas and spaces, starting with a letter; the business's legal name, cut to fit, is offered) makes what is missing, the CNAM end user with the name, puts each `+1` number that takes calls on the profile and on both products, and sends each for review unless approved or with Twilio. Free (CNAM by Twilio's page; SHAKEN/STIR names no fee). Stored as `config.calling` (core `CallingRegistration`), with each assignment's RA… so a retry skips what's done. The hourly texting-registration pass (and Check status) reads each review and puts numbers bought since on both. Sending again after a rejection changes the name and resubmits CNAM; a name can't change while Twilio reviews one (`in_review`). Releasing a number takes it off both products and the profile first, so the name doesn't stay on a number Twilio may give someone else. A refusal from Twilio is saved and shown, and the next try goes on. Facts and what's unchecked: `twilio/NOTES.md`, "Calls that carry the client's name". // DECISION |
 | Tests | `apps/api/src/twilio-close.test.ts` (nothing before retirement, nothing inside it, a refusal part way then the rest, done once, no reconnect), `apps/api/src/calling.test.ts` (the caller name's rules, waiting for the profile, both products and their numbers, the hourly review and a later number, a new name after a rejection, a number taken off before release), `apps/web/src/contacts/Contacts.test.tsx` (Register, Closed). `packages/db/src/phone-line-migration.test.ts`, `packages/core/src/api/numbers.test.ts`, `packages/core/src/billing.test.ts` ("agent phone lines"), `packages/connectors/src/twilio/twilio.test.ts` ("sends from an agent's own line"), `apps/api/src/phone-lines.test.ts` (operator only, the account keeps a number, one line per agent, the portal's lines and price, texts in and Sloan, billing days and the month, a spare heard as the account's, a retired agent's line given back), `apps/web/src/contacts/Contacts.test.tsx` (Messaging's Spare and Not in use), `apps/web/src/portal/screens/Channels.test.tsx` (the ask, its price, client users), `apps/web/src/ops/screens/Billing.test.tsx` (the price field). |
 
+### 1.161 Connectors: one client place, low-risk defaults, agents' needs (owner, 2026-11-20)
+
+The design is `docs/connectors-plan.md`, agreed by the owner with its seven decisions and two
+additions: our changes to a client's connection go to the client to approve (§7.1), and the
+client may authorize them in advance per connector (§7.2). It is built in six steps, C1–C6
+(its §9); C3 is the only migration.
+
+**C1, needs and gaps (core only; no migration).** `SkillDefinition.needs` and
+`packages/core/src/permissions/needs.ts`: `skillNeeds`, `agentNeeds`, `accessGaps`, `needsMet`,
+`allowNeeds`. Nothing reads them yet; C4 and later do.
+
+| Topic | Decision |
+|---|---|
+| A skill's needs | Its tools' (`tools`, `handler`, `reads`: connector, verb, record type), plus its declared `needs`. A connector in `requiresConnectors` that neither covers reads as a read on that connector, so stored skills keep asking for it without a guessed write. Built-in skills cover all of theirs (`apps/api/src/connector-needs.test.ts`); `marketing.write-forum-reply` declares its Hacker News read. // DECISION |
+| Need levels | A read needs `on`, a write `ask` (Needs approval). A write wants `auto` only where its step is set `not_required`, the agent is in `act` mode and the tool isn't always signed; that is a suggestion (`could_run_alone`), never a blocker. Nothing may need delete. // DECISION |
+| A write action without `via` | One need per connector it can resolve to, in one `anyOf` group: met when any one is. // DECISION |
+| Automations | A v4 automation's steps are walked with the use step's approval overrides; a v3 one counts its required tools, read without approvals. Stored v3 workflows are skipped: callers read bundles with `toProcessBundle` first. // DECISION |
+| Gaps | Per connector: not connected, broken, not bound, off on the connection, a scope that leaves the tool out, off in the agent's grant, and could run alone. Levels come from the gate's own `effectiveLevel`, so no blocking gap means no call is refused. With no agent yet (a template checked against a client), any connection of the connector counts and binding isn't asked. // DECISION |
+| Allowing what an agent needs | Rows open at their least level (reads on, writes Needs approval), never On its own. Where a verb is off for the whole connection, the verb opens and each other declared record type of that verb is pinned off; a tool of that connector with no record type opens with the verb, since the matrix has nothing finer. A scope that leaves the tool out, and delete, stay unresolved for a person. // DECISION |
+
+
+**C3, the migration (0070, alone).** What C4 stores, and nothing else: no route reads it yet.
+Numbered 0070 because main took 0068 and 0069 while it was open. Core gains the stored shapes
+(`schemas/connection-requests.ts`: the request statuses, `ConnectionSettings`, `MezonasMay`, the
+14 days).
+
+| Topic | Decision |
+|---|---|
+| A change request | `connection_change_request`, a tenant table with forced RLS like every other. It keeps `against` and `proposed` as whole settings (the matrix and the tool's setup), not row diffs: approving sets `proposed`, and it is Out of date when the connection's settings are no longer `against`. The rows shown to the client are their diff. `reason` is required, `for_agent_id` optional. // DECISION |
+| Its life | Statuses open, approved, declined, replaced, expired, withdrawn. `closed_at` is set exactly when it leaves open; approved, declined and withdrawn name who (`closed_by`); only an answer carries a note. One open request per connection (a partial unique index). Only the status and answer columns may change (trigger); nothing is deleted (no grant, and the trigger). `expires_at` is stored, set by the API. // DECISION |
+| Changes by Mezonas | `connection.mezonas_may`, one jsonb (`choice`, `until`, `setBy`, `setAt`), null for Ask me each time; a check holds its shape. Each change to it is a `connection_change`. // DECISION |
+| The history | `connection_change.request_id` names the request a change applied (a foreign key within the client). A change made under Changes by Mezonas carries the authorization in its `change` JSON rather than a column: it is a snapshot read with the change, never joined. // DECISION |
+| Custom connectors | `connector_setting.clients uuid[]`: null is every client, else one to 200 clients. No foreign key (arrays have none); a purged client's id stays and matches nothing, since ids are never reused. `connector_setting` stays operator-only; the portal reads it as today, through `readOperatorCatalogue`. // DECISION |
+| The previous Worker | A new table and nullable columns only. The DB fixture now inserts `connection` and `connection_change` by named columns, as `membership`, so the migration tests stopped at earlier migrations still seed. // DECISION |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
