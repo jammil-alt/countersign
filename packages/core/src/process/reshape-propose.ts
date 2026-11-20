@@ -35,11 +35,32 @@ export interface ReshapeSource {
   label: string;
 }
 
+/**
+ * docs/plan.md §1.164 step 3: an input property marked `"x-record": true` is the one record the
+ * step writes (a CRM write's `fields`, typed from the client's own fields). Reshape right before
+ * such a step maps that record's fields, and the step reads the whole Reshape output into it.
+ */
+export const RECORD_HINT = "x-record";
+
+/** The input property a step's input marks as its record (RECORD_HINT), when it types one. */
+export function recordInputKey(schema: JsonSchema | undefined): string | null {
+  const props = isPlainObject(schema?.properties)
+    ? (schema.properties as Record<string, JsonSchema>)
+    : {};
+  for (const [k, s] of Object.entries(props)) {
+    if (isPlainObject(s) && s[RECORD_HINT] === true && isPlainObject(s.properties)) return k;
+  }
+  return null;
+}
+
 /** Where a Reshape step sits: what it can read, and what the step after it takes. */
 export interface ReshapeContext {
   sources: ReshapeSource[];
-  /** The step right after it on its path, when it takes an input the builder knows. */
-  next: { stepId: string; name: string; schema: JsonSchema } | null;
+  /**
+   * The step right after it on its path, when it takes an input the builder knows. When that input
+   * marks a record (RECORD_HINT), `schema` is the record's and `into` its input key.
+   */
+  next: { stepId: string; name: string; schema: JsonSchema; into?: string } | null;
   /** The step's own input as typed (what `input.<key>…` reads). */
   input: JsonSchema;
 }
@@ -111,9 +132,18 @@ export function reshapeContext(
   }
   const next = nextStepOf(process, stepId);
   const nextSchema = next ? stepInputSchema(next, ctx) : undefined;
+  // DECISION (docs/plan.md §1.164): before a step that writes one record (a Zoho update typed
+  // from the client's fields), Reshape maps the record itself, so the proposer offers the
+  // client's own fields, by API name and by label; the step's other inputs (which module, which
+  // record) stay the operator's.
+  const into = recordInputKey(nextSchema);
+  const target = into ? props(nextSchema)[into] : nextSchema;
   return {
     sources,
-    next: next && nextSchema ? { stepId: next.id, name: next.name, schema: nextSchema } : null,
+    next:
+      next && target
+        ? { stepId: next.id, name: next.name, schema: target, ...(into ? { into } : {}) }
+        : null,
     input: reshapeInputSchema(existing, sources),
   };
 }
@@ -171,19 +201,27 @@ const SYNONYMS: readonly (readonly string[])[] = [
   ["name", "fullname", "displayname"],
 ];
 
-/** How a source field's name matches a target's: 0 exact, 1 any case or spelling, 2 a synonym. */
-function nameTier(target: string, path: readonly string[]): number | null {
+/**
+ * How a source field's name matches a target's: 0 exact, 1 any case or spelling, 2 a synonym. A
+ * target with a `title` (a CRM field's label: `Region` titled "Sales region") matches by its title
+ * too, as well as by its name (docs/plan.md §1.164).
+ */
+function nameTier(target: string, path: readonly string[], title?: string): number | null {
   const last = path.at(-1);
   if (last === undefined) return null;
   if (last === target) return 0;
-  const t = norm(target);
-  if (norm(last) === t) return 1;
-  // `vendor.name` reads as `vendorName`.
-  if (path.length >= 2 && norm(`${path.at(-2)}${last}`) === t) return 1;
+  const names = [norm(target), ...(title ? [norm(title)] : [])].filter(Boolean);
   const l = norm(last);
-  if (SYNONYMS.some((g) => g.includes(t) && g.includes(l))) return 2;
+  if (names.includes(l)) return 1;
+  // `vendor.name` reads as `vendorName`.
+  if (path.length >= 2 && names.includes(norm(`${path.at(-2)}${last}`))) return 1;
+  if (SYNONYMS.some((g) => names.some((t) => g.includes(t)) && g.includes(l))) return 2;
   return null;
 }
+
+/** A target schema's title (a label), when it has one. */
+const titleOf = (s: JsonSchema | undefined): string | undefined =>
+  typeof s?.title === "string" && s.title.trim() ? s.title : undefined;
 
 /** How a match was found, for the builder ("same name", "a synonym", …). */
 export type ReshapeMatch = "exact" | "name" | "synonym" | "kept";
@@ -323,7 +361,7 @@ function proposeFields(
   for (const [name, schema] of Object.entries(targets)) {
     let best: { expr: ReshapeExpr; key: number[]; tier: number; nested: string[] } | null = null;
     for (const c of candidates) {
-      const tier = nameTier(name, c.path);
+      const tier = nameTier(name, c.path, titleOf(schema));
       if (tier === null) continue;
       const tried: string[] = [];
       const f = fill(name, schema, c, tried);
@@ -451,7 +489,8 @@ export function proposeReshape(options: {
 
 /**
  * The next step's input wired to the Reshape step's output: each field it takes that the mapping
- * gives reads `{{steps.<reshape>.output.<field>}}`; anything else it had stays.
+ * gives reads `{{steps.<reshape>.output.<field>}}`; anything else it had stays. When it takes one
+ * record (RECORD_HINT), that input reads the whole output (`{{steps.<reshape>.output}}`).
  */
 export function wireToReshape(
   next: Record<string, unknown>,
@@ -459,8 +498,13 @@ export function wireToReshape(
   mapping: ReshapeMapping,
   takes: JsonSchema | undefined,
 ): Record<string, unknown> {
-  const accepted = takes ? props(takes) : null;
   const out: Record<string, unknown> = { ...next };
+  const into = recordInputKey(takes);
+  if (into) {
+    out[into] = `{{steps.${reshapeId}.output}}`;
+    return out;
+  }
+  const accepted = takes ? props(takes) : null;
   for (const f of mapping.fields) {
     if (accepted && !Object.hasOwn(accepted, f.name)) continue;
     out[f.name] = `{{steps.${reshapeId}.output.${f.name}}}`;

@@ -12,16 +12,22 @@ import {
   type CredentialsAccessor,
   noopLogger,
   ReconnectRequiredError,
+  readZohoFieldCache,
   ZOHO_CRM_CONNECTOR_ID,
+  ZOHO_FIELD_CACHE_KEY,
+  ZOHO_FIELD_CACHE_MS,
   ZOHO_RECORD_CHANGED_EVENT,
   type ZohoCrmConnector,
+  type ZohoFieldCache,
   type ZohoRecordChangedPayload,
   type ZohoSyncedModule,
+  zohoFieldCacheStale,
   zohoNotifyToken,
+  zohoVersionTime,
 } from "@countersign/connectors";
-import { connection, type Db, rawRecord, tenant, withTenant } from "@countersign/db";
+import { connection, type Db, rawRecord, type Tx, tenant, withTenant } from "@countersign/db";
 import { type EventRow, emit } from "@countersign/senses";
-import { and, eq, ne } from "drizzle-orm";
+import { and, desc, eq, ne } from "drizzle-orm";
 import { reportHandled } from "../observability/report";
 import type { Platform } from "../platform";
 import { senseEmitter } from "../runs/dispatch";
@@ -46,7 +52,7 @@ export function zohoConnectorOf(platform: Platform): ZohoCrmConnector | null {
   return c && typeof c.syncPage === "function" ? c : null;
 }
 
-function refOf(row: typeof connection.$inferSelect): ConnectionRef {
+export function refOf(row: typeof connection.$inferSelect): ConnectionRef {
   return {
     id: row.id,
     tenantId: row.tenantId,
@@ -58,7 +64,7 @@ function refOf(row: typeof connection.$inferSelect): ConnectionRef {
   };
 }
 
-async function connectedRow(deps: ZohoSyncDeps, tenantId: string, connectionId: string) {
+export async function connectedRow(deps: ZohoSyncDeps, tenantId: string, connectionId: string) {
   const row = await withTenant(deps.db, tenantId, async (tx) => {
     const [r] = await tx
       .select()
@@ -71,7 +77,7 @@ async function connectedRow(deps: ZohoSyncDeps, tenantId: string, connectionId: 
   return { row };
 }
 
-function contextOf(deps: ZohoSyncDeps, row: typeof connection.$inferSelect) {
+export function contextOf(deps: ZohoSyncDeps, row: typeof connection.$inferSelect) {
   const ref = refOf(row);
   return {
     tenantId: row.tenantId,
@@ -148,8 +154,8 @@ export async function zohoSyncStep(
       // DECISION: a first sync is history (as QuickBooks' initial sync): its records raise no
       // events, so connecting Zoho doesn't start a run for every old lead.
       if (page.initial) continue;
-      const [earlier] = await tx
-        .select({ id: rawRecord.id })
+      const earlier = await tx
+        .select({ version: rawRecord.externalVersion })
         .from(rawRecord)
         .where(
           and(
@@ -160,14 +166,19 @@ export async function zohoSyncStep(
             ne(rawRecord.id, raw.id),
           ),
         )
-        .limit(1);
+        .orderBy(desc(rawRecord.syncedAt))
+        .limit(5);
+      const modifiedTime = zohoVersionTime(record.externalVersion);
+      // docs/plan.md §1.164: a record read again only because the connection now reads more of
+      // its fields (the same modification time as a version we hold) changed nothing in Zoho.
+      if (earlier.some((e) => zohoVersionTime(e.version) === modifiedTime)) continue;
       const payload: ZohoRecordChangedPayload = {
         connectionId,
         rawRecordId: raw.id,
         module: record.entityType as ZohoSyncedModule,
         recordId: record.externalId,
-        change: earlier ? "updated" : "created",
-        modifiedTime: record.externalVersion,
+        change: earlier.length > 0 ? "updated" : "created",
+        modifiedTime,
       };
       const event = await emit(
         tx,
@@ -290,6 +301,70 @@ export async function renewZohoWatch(
   return outcome;
 }
 
+// ── Field metadata (docs/plan.md §1.164 step 3) ─────────────────────────────────────────────────
+
+/**
+ * Keeps a connection's field list beside its cursor (`sync_cursor.zohoFields`), in the caller's
+ * transaction for the connection's one client.
+ */
+// DECISION (docs/plan.md §1.164): the field list is kept in `sync_cursor`, beside the poll's cursor
+// and the watch, not in `config`: it is what we read from Zoho, not a setting, so it never shows
+// as a change to the connection's setup (Connectors C4), and the sync reads it from the cursor it
+// is handed. No migration.
+export async function storeZohoFieldCache(
+  tx: Tx,
+  params: { tenantId: string; connectionId: string },
+  cache: ZohoFieldCache,
+): Promise<void> {
+  const where = and(
+    eq(connection.id, params.connectionId),
+    eq(connection.tenantId, params.tenantId),
+  );
+  const [current] = await tx
+    .select({ cursor: connection.syncCursor })
+    .from(connection)
+    .where(where)
+    .for("update");
+  await tx
+    .update(connection)
+    .set({
+      syncCursor: {
+        ...((current?.cursor ?? {}) as Record<string, unknown>),
+        [ZOHO_FIELD_CACHE_KEY]: cache,
+      },
+    })
+    .where(where);
+}
+
+/**
+ * Reads the connection's fields from Zoho when the kept list is older than `maxAgeMs` (or there is
+ * none) and keeps them. A sign-in without the field scope is kept as `needs_sign_in` and asked
+ * again a day later; a sign-in Zoho no longer takes is the poll's to report.
+ */
+export async function refreshZohoFields(
+  deps: ZohoSyncDeps,
+  params: { tenantId: string; connectionId: string },
+  maxAgeMs = ZOHO_FIELD_CACHE_MS,
+): Promise<"fresh" | "read" | "needs_sign_in" | "skipped"> {
+  const connector = zohoConnectorOf(deps.platform);
+  if (!connector) return "skipped";
+  const found = await connectedRow(deps, params.tenantId, params.connectionId);
+  if (!found.row) return "skipped";
+  const now = (deps.now ?? (() => new Date()))();
+  if (!zohoFieldCacheStale(readZohoFieldCache(found.row.syncCursor), now, maxAgeMs)) {
+    return "fresh";
+  }
+  let cache: ZohoFieldCache;
+  try {
+    cache = await connector.fieldCache(contextOf(deps, found.row));
+  } catch (error) {
+    if (error instanceof ReconnectRequiredError) return "skipped";
+    throw error;
+  }
+  await withTenant(deps.db, params.tenantId, (tx) => storeZohoFieldCache(tx, params, cache));
+  return cache.status === "ok" ? "read" : "needs_sign_in";
+}
+
 // ── The cron ────────────────────────────────────────────────────────────────────────────────────
 
 /** Every connected Zoho, client by client (each in its own withTenant, as QuickBooks'). */
@@ -331,6 +406,14 @@ export async function zohoCronTick(
   for (const c of await zohoConnections(deps.db)) {
     try {
       await renewZohoWatch(deps, c);
+      // docs/plan.md §1.164: the field list, once a day, before the poll that reads by it. A
+      // failure here never stops the poll.
+      await refreshZohoFields(deps, c).catch((error: unknown) =>
+        reportHandled(`zoho fields of connection ${c.connectionId} failed`, error, {
+          job: "zoho_sync",
+          client: c.tenantId,
+        }),
+      );
       await runZohoSync(deps, c, (ids) => dispatch(c.tenantId, ids));
       synced += 1;
     } catch (error) {

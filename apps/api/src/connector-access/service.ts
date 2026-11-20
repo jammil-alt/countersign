@@ -79,6 +79,7 @@ import type { Platform } from "../platform";
 import { offeredConnectors } from "../routes/ops-clients";
 import { catalogStatus } from "../routes/ops-connectors";
 import { canSignIn } from "../routes/portal";
+import { checkZohoSetup } from "../zoho/fields";
 
 export type ConnectionRow = typeof connection.$inferSelect;
 export type RequestRow = typeof connectionChangeRequest.$inferSelect;
@@ -647,6 +648,8 @@ export function editedSettings(
       ? browserConfigEdit(row.config, edit.config)
       : { ...edit.config }
     : before.config;
+  // docs/plan.md §1.164: a Zoho connection's added sync fields are checked against its fields.
+  if (edit.config) checkZohoSetup(row, config);
   return { permissions, config };
 }
 

@@ -27,7 +27,13 @@ import {
   type SkillRuleContext,
 } from "../skills/rules";
 import { resolvePath } from "../template/template";
-import { lookupSkill, schemaAtPath, type TypingContext, typesCompatible } from "../template/typer";
+import {
+  lookupSkill,
+  schemaAtPath,
+  type TypingContext,
+  toolInputSchema,
+  typesCompatible,
+} from "../template/typer";
 import { convertUnits, unitOf } from "../units";
 import { actionInputSchema } from "./actions";
 import type { Process, Step } from "./schema";
@@ -275,14 +281,17 @@ export function nextStepOf(process: Pick<Process, "steps">, id: string): Step | 
   return visit(process.steps) ?? null;
 }
 
-/** What a step takes as input, when known: its tool's, its action's or its skill's input. */
+/**
+ * What a step takes as input, when known: its tool's (typed from the client's connection when the
+ * context has it, `toolInputSchema`), its action's or its skill's input.
+ */
 export function stepInputSchema(step: Step, ctx: TypingContext): JsonSchema | undefined {
   switch (step.kind) {
     case "read":
-      return ctx.tools?.[step.tool]?.input;
+      return toolInputSchema(step.tool, step.input, ctx);
     case "write":
       if (step.action !== undefined) return actionInputSchema(step.action);
-      return step.tool === undefined ? undefined : ctx.tools?.[step.tool]?.input;
+      return step.tool === undefined ? undefined : toolInputSchema(step.tool, step.input, ctx);
     case "skill":
       return lookupSkill(step.skill, ctx)?.input;
     default:

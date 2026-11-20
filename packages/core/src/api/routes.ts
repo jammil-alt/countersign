@@ -17,7 +17,7 @@ import { JsonSchema } from "../schemas/common";
 import { ConnectorAuth } from "../schemas/connector";
 import { EntityPermissions, PermissionEntity, PermissionLevel } from "../schemas/permissions";
 import { SkillBrowse, SkillDefinition, SkillMethod } from "../schemas/skill";
-import { ToolSpec } from "../schemas/tool";
+import { ToolInputVariants, ToolSpec } from "../schemas/tool";
 import { ToolDisplay } from "../schemas/tool-display";
 // P-8: US texting registration
 import { a2pRoutes } from "./a2p";
@@ -1039,6 +1039,9 @@ export const BuilderCatalog = z.object({
   stepTools: z.array(z.string()).optional(),
   // v0.12 W2-B: the automations a use step can pin (live versions, and those the agent pins).
   automations: z.array(BuilderAutomation).default([]),
+  // docs/plan.md §1.164 step 3: a client agent's tool inputs typed from its client's own
+  // connections (a Zoho write's `fields` per module), by tool id; absent for a template.
+  toolInputs: z.record(z.string(), ToolInputVariants).optional(),
 });
 export type BuilderCatalog = z.infer<typeof BuilderCatalog>;
 

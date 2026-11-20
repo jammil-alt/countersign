@@ -5,21 +5,81 @@
 
 import {
   credentialKeysFromEnv,
+  noopLogger,
   parseZohoNotification,
+  ReconnectRequiredError,
+  readZohoFieldCache,
   verifyZohoNotification,
+  ZOHO_CRM_CONNECTOR_ID,
   ZOHO_NOTIFY_MAX_BYTES,
+  ZohoApiError,
+  type ZohoFieldCache,
+  zohoFieldCacheStale,
 } from "@countersign/connectors";
 import { routes } from "@countersign/core";
+import { connection } from "@countersign/db";
+import { and, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { readBodyLimited } from "../body";
-import { type AppEnv, errorResponse, HttpError } from "../http";
+import { type AppEnv, errorResponse, HttpError, mount, notFound } from "../http";
 import { dispatchByIds } from "../runs/dispatch";
 import { credentialsFor } from "../runs/execute";
-import { runZohoSync, ZOHO_NOTIFY_PAGES, zohoConnectorOf } from "../zoho/sync";
+import { connectionCredentials } from "../secrets";
+import { zohoFieldsView } from "../zoho/fields";
+import {
+  refOf,
+  runZohoSync,
+  storeZohoFieldCache,
+  ZOHO_NOTIFY_PAGES,
+  zohoConnectorOf,
+} from "../zoho/sync";
 
 const spec = routes.zohoNotify;
 
 export function zohoRoutes(app: Hono<AppEnv>): void {
+  // docs/plan.md §1.164 step 3: a connection's fields, read from Zoho when asked or a day old, for
+  // the back office's sync-fields setup. The operator sees field names and types, never data.
+  mount(app, routes.opsZohoFields, async (ctx) => {
+    const { tx, params, query, services, tenantIds } = ctx;
+    if (!tenantIds.includes(params.id)) throw notFound("client");
+    const [row] = await tx
+      .select()
+      .from(connection)
+      .where(and(eq(connection.id, params.connectionId), eq(connection.tenantId, params.id)));
+    if (row?.connector !== ZOHO_CRM_CONNECTOR_ID) throw notFound("connection");
+    let cache: ZohoFieldCache | null = readZohoFieldCache(row.syncCursor);
+    const connector = zohoConnectorOf(services.platform);
+    const now = new Date();
+    const due = query.refresh === "true" || zohoFieldCacheStale(cache, now);
+    if (
+      due &&
+      connector &&
+      row.status === "connected" &&
+      row.credentialsEncrypted &&
+      services.env.ENCRYPTION_KEY
+    ) {
+      try {
+        cache = await connector.fieldCache({
+          tenantId: row.tenantId,
+          connection: refOf(row),
+          credentials: await connectionCredentials(tx, services.env, row),
+          logger: noopLogger,
+          now: () => now,
+        });
+      } catch (error) {
+        if (error instanceof ReconnectRequiredError) {
+          throw new HttpError(409, "reconnect", "the client needs to sign in to Zoho again");
+        }
+        if (error instanceof ZohoApiError) {
+          throw new HttpError(502, "zoho_unavailable", `Zoho didn't answer: ${error.message}`);
+        }
+        throw error;
+      }
+      await storeZohoFieldCache(tx, { tenantId: row.tenantId, connectionId: row.id }, cache);
+    }
+    return zohoFieldsView(row, cache);
+  });
+
   app.post(spec.path, async (c) => {
     try {
       const services = c.get("req").services();
