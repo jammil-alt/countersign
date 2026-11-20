@@ -112,6 +112,7 @@ action and footer on every page, has a `data-track` name, unique on its page. A 
 | `footer-terms` | Footer: Terms of service |
 | `footer-privacy` | Footer: Privacy policy |
 | `footer-subprocessors` | Footer: Subprocessors |
+| `footer-status` | Footer: Status (the status page, status.mezonas.com) |
 | `footer-sms-terms` | Footer: Text message terms |
 | `footer-no-measure` | Footer: How we measure (only while measuring) |
 | `footer-contact` | Footer: Contact |
