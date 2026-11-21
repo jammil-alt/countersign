@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent SOP</title>
+<!-- The agent's SOP (docs/sop-plan.md), a mock-up to agree before building: the portal's SOP tab
+     for a sample agent, "Bills in" at a sample client. Static: every name and figure is made up,
+     no route is called. Click a person, system or control to filter; type in Find; Print prints the
+     print layout. Tags S2 and S3 mark what comes in later streams. -->
+<link rel="stylesheet" href="../../packages/design-system/tokens.css">
+<link rel="icon" href="../../packages/design-system/assets/Logos/favicon.svg">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 400 14px/1.5 var(--font-sans); }
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  h1 { margin: 0; font: 500 26px/32px var(--font-sans); letter-spacing: -0.02em; }
+  h2 { margin: 0; font: 500 19px/26px var(--font-sans); letter-spacing: -0.01em; }
+  h3 { margin: 0; font: 600 14px/20px var(--font-sans); }
+  p { margin: 0; }
+  .muted { color: var(--ink-muted); }
+  .faint { color: var(--ink-faint); }
+  .small { font-size: 12px; }
+  .mono { font-family: var(--font-mono); }
+
+  /* Shell */
+  .bar { display: flex; align-items: center; gap: var(--space-4); height: var(--header-h, 56px); padding: 0 var(--space-6); border-bottom: 1px solid var(--line); background: var(--surface); position: sticky; top: 0; z-index: 5; }
+  .bar .brand { font: 500 13px/1 var(--font-sans); letter-spacing: 0.3em; text-transform: uppercase; }
+  .bar .client { color: var(--ink-muted); }
+  .bar .sp { flex: 1; }
+  .page { max-width: 1240px; margin: 0 auto; padding: var(--space-6) var(--space-6) var(--space-24); }
+  .crumbs { font-size: 13px; color: var(--ink-muted); margin-bottom: var(--space-2); }
+  .agent-head { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+  .tabs { display: flex; gap: var(--space-5); border-bottom: 1px solid var(--line); margin: var(--space-4) 0 var(--space-5); }
+  .tabs a { padding: var(--space-2) 0; color: var(--ink-muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tabs a.on { color: var(--ink); border-color: var(--slate); }
+
+  /* Pills and chips */
+  .pill { display: inline-flex; align-items: center; gap: 5px; font: 500 11px/1 var(--font-sans); padding: 4px 8px; border-radius: var(--radius-pill); border: 1px solid var(--line); background: var(--surface); color: var(--ink-muted); white-space: nowrap; }
+  .pill--live { color: var(--positive); border-color: var(--positive); background: var(--positive-tint); }
+  .pill--wait { color: var(--signal-ink); background: var(--signal-tint); border-color: var(--signal); }
+  .pill--risk { color: var(--risk-ink); background: var(--risk-tint); border-color: var(--risk-line); }
+  .pill--later { color: var(--slate); background: var(--slate-tint); border-color: var(--slate-tint); font-family: var(--font-mono); }
+  .chip { display: inline-flex; align-items: center; gap: 5px; font: 500 12px/1 var(--font-sans); padding: 4px 8px; border-radius: var(--radius-pill); border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; white-space: nowrap; }
+  .chip:hover { border-color: var(--line-strong); }
+  .chip::before { content: ""; width: 6px; height: 6px; border-radius: 99px; background: var(--ink-faint); }
+  .chip--person { color: var(--copper-ink); background: var(--copper-tint); border-color: var(--copper-tint); }
+  .chip--person::before { background: var(--copper); }
+  .chip--agent::before { background: var(--slate); }
+  .chip--system::before { border-radius: 2px; background: var(--ink-muted); }
+  .chip--data::before { border-radius: 1px; width: 7px; height: 5px; background: var(--ink-faint); }
+  .chip--control::before { content: none; }
+  .chip--control { font-family: var(--font-mono); font-size: 11px; }
+  @media (max-width: 700px) { .chip { white-space: normal; line-height: 1.3; max-width: 100%; } .step.nested, .path { margin-left: var(--space-4); } .step { grid-template-columns: 32px minmax(0, 1fr); } .step .facts { grid-template-columns: minmax(0, 1fr); } .step .facts dt { margin-top: var(--space-1); } }
+  .chip.sel { outline: 2px solid var(--focus-ring, var(--slate)); outline-offset: 1px; }
+
+  .btn { display: inline-flex; align-items: center; gap: 6px; height: var(--control-h, 32px); padding: 0 var(--space-3); border-radius: var(--radius-md); border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); font: 500 13px/1 var(--font-sans); cursor: pointer; }
+  .btn:hover { background: var(--surface-subtle); }
+  .btn--primary { background: var(--slate); color: var(--on-slate); border-color: var(--slate); }
+  .btn--primary:hover { background: var(--slate-hover); }
+
+  /* Toolbar */
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); margin-bottom: var(--space-4); position: sticky; top: calc(var(--header-h, 56px) + 8px); z-index: 4; }
+  .find { flex: 1 1 260px; height: var(--control-h, 32px); padding: 0 var(--space-3); border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--paper); color: var(--ink); font: 400 13px var(--font-sans); }
+  .find:focus { outline: 2px solid var(--focus-ring, var(--slate)); outline-offset: 0; }
+  .filter-note { display: none; width: 100%; font-size: 12px; color: var(--ink-muted); }
+  .filter-note.on { display: flex; gap: var(--space-2); align-items: center; }
+
+  /* Layout */
+  .layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: var(--space-8); align-items: start; }
+  @media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } .toc { display: none; } .bar { padding: 0 var(--space-4); } .page { padding: var(--space-4) var(--space-4) var(--space-16); } }
+  .toc { position: sticky; top: calc(var(--header-h, 56px) + 80px); font-size: 13px; }
+  .toc a { display: flex; gap: var(--space-2); padding: 5px var(--space-2); border-radius: var(--radius-sm); color: var(--ink-muted); }
+  .toc a:hover { background: var(--surface-subtle); text-decoration: none; color: var(--ink); }
+  .toc .n { font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); width: 18px; padding-top: 2px; }
+
+  .doc > section { padding: var(--space-6) 0; border-top: 1px solid var(--line); }
+  .doc > section:first-of-type { border-top: 0; padding-top: 0; }
+  .sec-head { display: flex; align-items: baseline; gap: var(--space-3); margin-bottom: var(--space-3); }
+  .sec-n { font: 500 12px/1 var(--font-mono); color: var(--ink-faint); }
+  .sec-lede { color: var(--ink-muted); margin-bottom: var(--space-4); max-width: 760px; }
+  .card { border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
+
+  /* Document control */
+  .control { padding: var(--space-5); }
+  .control-top { display: flex; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; margin-bottom: var(--space-4); }
+  .kv { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4) var(--space-5); }
+  @media (max-width: 700px) { .kv { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .kv dt { font-size: 11px; color: var(--ink-muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 2px; }
+  .kv dd { margin: 0; }
+  .banner { display: flex; gap: var(--space-3); align-items: flex-start; padding: var(--space-3) var(--space-4); border: 1px solid var(--signal); background: var(--signal-tint); border-radius: var(--radius-md); margin-top: var(--space-4); color: var(--ink); }
+  .banner .sp { flex: 1; }
+
+  /* Procedure */
+  .trigger { display: flex; gap: var(--space-3); align-items: center; padding: var(--space-3) var(--space-4); border: 1px dashed var(--line-strong); border-radius: var(--radius-md); color: var(--ink-muted); margin-bottom: var(--space-3); }
+  .step { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); margin-bottom: var(--space-2); }
+  .step:target, .row-target:target { outline: 2px solid var(--slate); outline-offset: 2px; }
+  .step.nested { margin-left: var(--space-8); }
+  .step .num { font: 500 13px/20px var(--font-mono); color: var(--ink-muted); }
+  .step .kind { font-size: 12px; color: var(--ink-muted); margin-top: 2px; }
+  .step .facts { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 6px var(--space-3); margin-top: var(--space-3); font-size: 13px; }
+  .step .facts dt { color: var(--ink-muted); }
+  .step .facts dd { margin: 0; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .step .actions { display: flex; gap: var(--space-3); margin-top: var(--space-3); font-size: 12px; }
+  .step .actions a { color: var(--ink-muted); }
+  .path { margin: var(--space-1) 0 var(--space-2) var(--space-8); font-size: 13px; color: var(--ink-muted); display: flex; gap: var(--space-2); align-items: center; }
+  .path b { color: var(--ink); font-weight: 600; }
+  .hidden { display: none !important; }
+  mark { background: var(--signal-tint); color: inherit; border-radius: 2px; padding: 0 1px; }
+
+  /* Tables */
+  .tbl-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font: 500 11px/1.3 var(--font-sans); text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-muted); padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--line); background: var(--surface-subtle); white-space: nowrap; }
+  td { padding: var(--space-2-5, 10px) var(--space-3); border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  td .sub { display: block; font-size: 12px; color: var(--ink-muted); }
+  .matrix td, .matrix th { text-align: center; }
+  .matrix td:first-child, .matrix th:first-child { text-align: left; }
+  .cell { display: inline-block; font: 500 11px/1 var(--font-sans); padding: 3px 6px; border-radius: var(--radius-sm); }
+  .cell--does { background: var(--slate-tint); color: var(--slate); }
+  .cell--approves { background: var(--copper-tint); color: var(--copper-ink); }
+  .cell--checks { border: 1px solid var(--line-strong); color: var(--ink); }
+  .cell--told { color: var(--ink-muted); }
+  .lvl { font-size: 12px; white-space: nowrap; }
+  .lvl--off { color: var(--ink-faint); }
+  .lvl--ask { color: var(--copper-ink); }
+  .lvl--auto { color: var(--ink); }
+
+  .roles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin-bottom: var(--space-5); }
+  @media (max-width: 700px) { .roles { grid-template-columns: 1fr; } }
+  .role { padding: var(--space-3) var(--space-4); }
+  .role h3 { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
+  .list { margin: 0; padding-left: 18px; }
+  .list li { margin: 4px 0; }
+  .two { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3); }
+  @media (max-width: 700px) { .two { grid-template-columns: 1fr; } }
+  .stat { padding: var(--space-4); }
+  .stat .v { font: 500 24px/1.2 var(--font-sans); margin-top: 4px; }
+
+  /* Side panel (Ask) and dialog (Share) */
+  .sheet { position: fixed; right: 0; top: 0; bottom: 0; width: min(420px, 100vw); background: var(--surface); border-left: 1px solid var(--line); z-index: 20; padding: var(--space-5); display: none; flex-direction: column; gap: var(--space-3); }
+  .sheet.on { display: flex; }
+  .msg { padding: var(--space-3); border-radius: var(--radius-md); border: 1px solid var(--line); font-size: 13px; }
+  .msg--you { background: var(--surface-subtle); align-self: flex-end; max-width: 85%; }
+  .dialog { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; z-index: 30; }
+  .dialog.on { display: flex; }
+  .dialog .scrim { position: absolute; inset: 0; background: var(--ink); opacity: var(--scrim-opacity, 0.3); }
+  .dialog .box { position: relative; width: min(480px, calc(100vw - 32px)); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-3); }
+  .field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+  .field select, .field input[type=text] { height: var(--control-h, 32px); border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: var(--paper); color: var(--ink); padding: 0 var(--space-2); font: inherit; }
+
+  .about { margin-top: var(--space-12); padding: var(--space-5); border: 1px dashed var(--line-strong); border-radius: var(--radius-lg); color: var(--ink-muted); font-size: 13px; }
+  .print-only { display: none; }
+
+  /* Print: document control first, every section open, no controls, a running footer. */
+  @page { size: auto; margin: 16mm 14mm 18mm; @bottom-left { content: "SOP-PUR-03 · Bills in · Revision 7.2"; font: 9px sans-serif; color: #666; } @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 9px sans-serif; color: #666; } }
+  @media print {
+    body { background: #fff; color: #000; font-size: 11px; }
+    .bar, .tabs, .toolbar, .toc, .crumbs, .step .actions, .sheet, .dialog, .about, .banner .btn, [data-print="hide"] { display: none !important; }
+    .layout { display: block; }
+    .page { padding: 0; max-width: none; }
+    .hidden { display: revert !important; }
+    .step, .card, .tbl-wrap { break-inside: avoid; }
+    .doc > section { break-before: auto; }
+    #s5, #s6 { break-before: page; }
+    .chip { cursor: default; }
+    a { color: inherit; }
+    .print-only { display: block; }
+    mark { background: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <span class="brand">Mezonas</span>
+  <span class="client">Harbor Millwork</span>
+  <span class="sp"></span>
+  <button class="btn" type="button" id="theme" data-print="hide">Dark</button>
+</header>
+
+<main class="page">
+  <div class="crumbs">Home / Agents / Bills in</div>
+  <div class="agent-head">
+    <h1>Bills in</h1>
+    <span class="pill pill--live">Live</span>
+    <span class="pill">Owner: Pia (Purchasing)</span>
+  </div>
+  <nav class="tabs" aria-label="Agent">
+    <a href="#">Overview</a><a href="#">Runs</a><a href="#" class="on">SOP</a><a href="#">Settings</a>
+  </nav>
+
+  <div class="toolbar" role="search">
+    <input class="find" id="find" type="search" placeholder="Find in this SOP: a step, a person, a system, a record" aria-label="Find in this SOP">
+    <button class="btn" type="button" id="ask">Ask about this SOP <span class="pill pill--later">S2</span></button>
+    <button class="btn" type="button" id="share">Share <span class="pill pill--later">S3</span></button>
+    <button class="btn btn--primary" type="button" id="print">Print or save as PDF</button>
+    <div class="filter-note" id="filterNote"><span id="filterText"></span><a href="#" id="clearFilter">Show everything</a></div>
+  </div>
+
+  <div class="layout">
+    <nav class="toc" aria-label="Sections">
+      <a href="#control"><span class="n">0</span>Document control</a>
+      <a href="#s1"><span class="n">1</span>Purpose</a>
+      <a href="#s2"><span class="n">2</span>Scope</a>
+      <a href="#s3"><span class="n">3</span>Roles</a>
+      <a href="#s4"><span class="n">4</span>How it starts</a>
+      <a href="#s5"><span class="n">5</span>Procedure</a>
+      <a href="#s6"><span class="n">6</span>Controls</a>
+      <a href="#s7"><span class="n">7</span>Systems</a>
+      <a href="#s8"><span class="n">8</span>Data</a>
+      <a href="#s9"><span class="n">9</span>Exceptions</a>
+      <a href="#s10"><span class="n">10</span>Decisions and settings</a>
+      <a href="#s11"><span class="n">11</span>Measures</a>
+      <a href="#s12"><span class="n">12</span>References and history</a>
+    </nav>
+
+    <article class="doc">
+      <!-- 0. Document control -->
+      <section id="control" class="searchable">
+        <div class="card control">
+          <div class="control-top">
+            <div>
+              <div class="small muted mono">SOP-PUR-03</div>
+              <h2>Bills in: standard operating procedure</h2>
+              <p class="muted small">Made from how Bills in is set up today. It changes when its setup changes.</p>
+            </div>
+            <div class="small muted" style="text-align:right">Made 21 Nov 2026, 09:14<br>Harbor Millwork</div>
+          </div>
+          <dl class="kv">
+            <div><dt>Revision</dt><dd>7.2 <span class="faint small">(version 7, setup a3f9c1)</span></dd></div>
+            <div><dt>Effective since</dt><dd>18 Nov 2026</dd></div>
+            <div><dt>Stage</dt><dd>Live</dd></div>
+            <div><dt>Area</dt><dd>Purchasing</dd></div>
+            <div><dt>Accountable</dt><dd><span class="chip chip--person" data-person="ada">Ada Ruiz</span></dd></div>
+            <div><dt>Area owner</dt><dd><span class="chip chip--agent" data-person="pia">Pia</span></dd></div>
+            <div><dt>Your Mezonas lead</dt><dd><span class="chip chip--person" data-person="sam">Sam Patel</span></dd></div>
+            <div><dt>Approved</dt><dd>Ada Ruiz, 15 Nov (rev. 7.1) <span class="pill pill--later">S3</span></dd></div>
+          </dl>
+          <div class="banner" data-print="hide">
+            <span class="pill pill--wait">Waiting on you</span>
+            <div class="sp">
+              <b>Changed since Ada approved it on 15 Nov.</b>
+              <div class="small muted">Bills over $5,000 now need Ada's approval (it was over $10,000). Changed by Ada Ruiz on 18 Nov.</div>
+            </div>
+            <button class="btn" type="button">Review and approve</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 1. Purpose -->
+      <section id="s1" class="searchable">
+        <div class="sec-head"><span class="sec-n">1</span><h2>Purpose</h2></div>
+        <p style="max-width:760px">Enter every vendor bill Harbor Millwork receives into QuickBooks, matched to the right vendor and catalog items, with each price checked against the vendor's contract. Done well means: every bill entered within two business days of arriving, and no overcharge paid without someone seeing it first.</p>
+      </section>
+
+      <!-- 2. Scope -->
+      <section id="s2" class="searchable">
+        <div class="sec-head"><span class="sec-n">2</span><h2>Scope</h2></div>
+        <div class="two">
+          <div class="card role"><h3>Covers</h3><ul class="list"><li>Bills from vendors, sent or forwarded to your bills address, or uploaded by your team</li><li>Bills in US dollars</li><li>Material, freight and service lines</li></ul></div>
+          <div class="card role"><h3>Not covered</h3><ul class="list"><li>Bills in another currency: a person handles them <span class="faint">(known risk, 9.4)</span></li><li>Credit memos: a person handles them</li><li>Paying bills</li></ul></div>
+          <div class="card role"><h3>Never</h3><ul class="list"><li>Deletes anything in your tools</li><li>Moves money</li><li>Changes its own permissions or steps</li></ul></div>
+        </div>
+      </section>
+
+      <!-- 3. Roles -->
+      <section id="s3" class="searchable">
+        <div class="sec-head"><span class="sec-n">3</span><h2>Roles</h2></div>
+        <p class="sec-lede">Who does each part. Click a name to see only their steps.</p>
+        <div class="roles">
+          <div class="card role"><h3>Does the work <span class="chip chip--agent" data-person="agent">Bills in</span></h3><p class="small muted">Reads each bill, matches it, checks prices and prepares the bill for QuickBooks. An agent: it works only through the steps below.</p></div>
+          <div class="card role"><h3>Watches each run <span class="chip chip--agent" data-person="pia">Pia</span></h3><p class="small muted">Your Purchasing owner, an agent. When a step fails it may try again or correct the input. It never adds, skips or reorders a step, or changes an approval.</p></div>
+          <div class="card role"><h3>Accountable <span class="chip chip--person" data-person="ada">Ada Ruiz</span></h3><p class="small muted">Controller. Answers for this process, approves bills over $5,000, connects your tools and sets what the agent may do in them.</p></div>
+          <div class="card role"><h3>Approves bills <span class="chip chip--person" data-person="ben">Ben Ortiz</span></h3><p class="small muted">Accounts payable. Approves each bill before it goes into QuickBooks, up to $5,000.</p></div>
+          <div class="card role"><h3>Reviews price alerts <span class="chip chip--person" data-person="cara">Cara Lin</span></h3><p class="small muted">Purchasing manager. Decides on bills with a price alert or a new vendor.</p></div>
+          <div class="card role"><h3>Escalations <span class="chip chip--person" data-person="sam">Sam Patel</span></h3><p class="small muted">Your Mezonas lead. Told when nobody answers in time; steps in when needed.</p></div>
+          <div class="card role"><h3>Builds and changes it <span class="chip">Mezonas</span></h3><p class="small muted">Changes to the steps are made by us and recorded as a new revision. You can adjust the settings in 10.3 yourself.</p></div>
+        </div>
+
+        <h3 style="margin-bottom:var(--space-2)">Who does what, by step</h3>
+        <div class="tbl-wrap">
+          <table class="matrix">
+            <thead><tr><th>Step</th><th>Bills in</th><th>Pia</th><th>Ben Ortiz</th><th>Ada Ruiz</th><th>Cara Lin</th><th>Sam Patel</th></tr></thead>
+            <tbody>
+              <tr><td><a href="#step-1">1 Read the bill</a></td><td><span class="cell cell--does">Does</span></td><td><span class="cell cell--checks">Checks</span></td><td></td><td></td><td></td><td></td></tr>
+              <tr><td><a href="#step-2">2 Find the vendor</a></td><td><span class="cell cell--does">Does</span></td><td><span class="cell cell--checks">Checks</span></td><td></td><td></td><td></td><td></td></tr>
+              <tr><td><a href="#step-3">3 Match each line</a></td><td><span class="cell cell--does">Does</span></td><td><span class="cell cell--checks">Checks</span></td><td></td><td></td><td></td><td></td></tr>
+              <tr><td><a href="#step-4">4 Check prices</a></td><td><span class="cell cell--does">Does</span></td><td><span class="cell cell--checks">Checks</span></td><td></td><td></td><td></td><td></td></tr>
+              <tr><td><a href="#step-5-1">5.1 Review the alert</a></td><td></td><td></td><td></td><td></td><td><span class="cell cell--does">Does</span></td><td><span class="cell cell--told">Told</span></td></tr>
+              <tr><td><a href="#step-6">6 Create the bill</a></td><td><span class="cell cell--does">Does</span></td><td><span class="cell cell--checks">Checks</span></td><td><span class="cell cell--approves">Approves</span></td><td><span class="cell cell--approves">Over $5,000</span></td><td></td><td><span class="cell cell--told">Told</span></td></tr>
+              <tr><td><a href="#step-7">7 Attach the PDF</a></td><td><span class="cell cell--does">Does</span></td><td><span class="cell cell--checks">Checks</span></td><td></td><td></td><td></td><td></td></tr>
+              <tr><td><a href="#step-8">8 Tell the team</a></td><td><span class="cell cell--does">Does</span></td><td></td><td><span class="cell cell--told">Told</span></td><td></td><td><span class="cell cell--told">Told</span></td><td></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 4. How it starts -->
+      <section id="s4" class="searchable">
+        <div class="sec-head"><span class="sec-n">4</span><h2>How it starts</h2></div>
+        <ul class="list">
+          <li>A bill arrives at <span class="mono">bills-harbor@in.mezonas.com</span>, sent by a vendor or forwarded by your team. <a href="#system-email">S2</a></li>
+          <li>Someone on your team uploads a bill on this agent's page (Run now).</li>
+          <li>It works in your business hours: Monday to Friday, 8:00 to 17:00 Central. Bills that arrive later wait for the next morning.</li>
+        </ul>
+      </section>
+
+      <!-- 5. Procedure -->
+      <section id="s5">
+        <div class="sec-head"><span class="sec-n">5</span><h2>Procedure</h2></div>
+        <p class="sec-lede">The steps in the order they run. Each one says who does it, what it touches and what holds it.</p>
+
+        <div class="trigger searchable">Starts when a bill arrives or is uploaded <span class="chip chip--system" data-system="email">Email forwarding</span></div>
+
+        <div class="step searchable" id="step-1" data-people="agent pia" data-systems="email mezonas" data-controls="c8 c10">
+          <span class="num">1</span>
+          <div>
+            <h3>Read the bill</h3>
+            <div class="kind">Works it out. An AI model reads the PDF.</div>
+            <dl class="facts">
+              <dt>Who</dt><dd><span class="chip chip--agent" data-person="agent">Bills in</span></dd>
+              <dt>Data</dt><dd><span class="chip chip--data" data-data="d1">Bills: saves what it read</span></dd>
+              <dt>Controls</dt><dd><span class="chip chip--control" data-control="c8">C8</span><span class="chip chip--control" data-control="c10">C10</span></dd>
+              <dt>If it fails</dt><dd>Pia tries again once; then the run stops and Ben is told.</dd>
+            </dl>
+            <div class="actions"><a href="#">Ask about this</a><a href="#">This is wrong</a></div>
+          </div>
+        </div>
+
+        <div class="step searchable" id="step-2" data-people="agent pia" data-systems="qbo" data-controls="c3 c8">
+          <span class="num">2</span>
+          <div>
+            <h3>Find the vendor</h3>
+            <div class="kind">Reads from your tools.</div>
+            <dl class="facts">
+              <dt>Who</dt><dd><span class="chip chip--agent" data-person="agent">Bills in</span></dd>
+              <dt>System</dt><dd><span class="chip chip--system" data-system="qbo">QuickBooks Online</span><span class="lvl lvl--auto">Read: On its own</span></dd>
+              <dt>Data</dt><dd><span class="chip chip--data" data-data="d2">Vendors: reads</span></dd>
+              <dt>Controls</dt><dd><span class="chip chip--control" data-control="c3">C3</span><span class="chip chip--control" data-control="c8">C8</span></dd>
+            </dl>
+            <div class="actions"><a href="#">Ask about this</a><a href="#">This is wrong</a></div>
+          </div>
+        </div>
+
+        <div class="step searchable" id="step-3" data-people="agent pia" data-systems="mezonas" data-controls="c8 c9">
+          <span class="num">3</span>
+          <div>
+            <h3>Match each line to your catalog</h3>
+            <div class="kind">Works it out. Fixed rules first; an AI model only for what the rules leave open.</div>
+            <dl class="facts">
+              <dt>Who</dt><dd><span class="chip chip--agent" data-person="agent">Bills in</span></dd>
+              <dt>Data</dt><dd><span class="chip chip--data" data-data="d3">Catalog items and matches: reads and saves</span></dd>
+              <dt>Controls</dt><dd><span class="chip chip--control" data-control="c9">C9</span><span class="chip chip--control" data-control="c8">C8</span></dd>
+            </dl>
+            <div class="actions"><a href="#">Ask about this</a><a href="#">This is wrong</a></div>
+          </div>
+        </div>
+
+        <div class="step searchable" id="step-4" data-people="agent pia" data-systems="mezonas" data-controls="c8">
+          <span class="num">4</span>
+          <div>
+            <h3>Check prices against the contract</h3>
+            <div class="kind">Works it out.</div>
+            <dl class="facts">
+              <dt>Who</dt><dd><span class="chip chip--agent" data-person="agent">Bills in</span></dd>
+              <dt>Data</dt><dd><span class="chip chip--data" data-data="d4">Prices and price alerts: saves</span></dd>
+              <dt>Setting</dt><dd>Price tolerance 3% <a href="#s10" class="small">(you can adjust, 10.3)</a></dd>
+              <dt>Controls</dt><dd><span class="chip chip--control" data-control="c8">C8</span></dd>
+            </dl>
+            <div class="actions"><a href="#">Ask about this</a><a href="#">This is wrong</a></div>
+          </div>
+        </div>
+
+        <div class="step searchable" id="step-5" data-people="agent" data-systems="" data-controls="c6">
+          <span class="num">5</span>
+          <div>
+            <h3>Does a person need to look first?</h3>
+            <div class="kind">Chooses a path by fixed rules.</div>
+            <dl class="facts">
+              <dt>Controls</dt><dd><span class="chip chip--control" data-control="c6">C6</span></dd>
+            </dl>
+          </div>
+        </div>
+        <div class="path searchable"><b>If</b> a price is over the contract by more than 3%, or the vendor is new</div>
+        <div class="step nested searchable" id="step-5-1" data-people="cara sam" data-systems="" data-controls="c7">
+          <span class="num">5.1</span>
+          <div>
+            <h3>Review the price alert</h3>
+            <div class="kind">A person answers: go ahead, or stop the bill.</div>
+            <dl class="facts">
+              <dt>Who</dt><dd><span class="chip chip--person" data-person="cara">Cara Lin</span></dd>
+              <dt>By when</dt><dd>1 business day. A reminder after 4 hours; if nobody answers, <span class="chip chip--person" data-person="sam">Sam Patel</span> is told.</dd>
+              <dt>Controls</dt><dd><span class="chip chip--control" data-control="c7">C7</span></dd>
+              <dt>If stopped</dt><dd>The run stops; nothing goes into QuickBooks.</dd>
+            </dl>
+            <div class="actions"><a href="#">Ask about this</a><a href="#">This is wrong</a></div>
+          </div>
+        </div>
+        <div class="path searchable"><b>Otherwise</b> go on to step 6</div>
+
+        <div class="step searchable" id="step-6" data-people="agent pia ben ada sam" data-systems="qbo" data-controls="c1 c2 c3 c5 c7 c8">
+          <span class="num">6</span>
+          <div>
+            <h3>Create the bill in QuickBooks</h3>
+            <div class="kind">Updates your tools, after a person approves.</div>
+            <dl class="facts">
+              <dt>Who</dt><dd><span class="chip chip--agent" data-person="agent">Bills in</span></dd>
+              <dt>Approves</dt><dd><span class="chip chip--person" data-person="ben">Ben Ortiz</span><span class="muted small">up to $5,000;</span><span class="chip chip--person" data-person="ada">Ada Ruiz</span><span class="muted small">over $5,000</span></dd>
+              <dt>By when</dt><dd>2 business days; then <span class="chip chip--person" data-person="sam">Sam Patel</span> is told.</dd>
+              <dt>System</dt><dd><span class="chip chip--system" data-system="qbo">QuickBooks Online</span><span class="lvl lvl--ask">Create: Ask me first</span></dd>
+              <dt>Data</dt><dd><span class="chip chip--data" data-data="d5">Bills in QuickBooks: creates</span></dd>
+              <dt>Controls</dt><dd><span class="chip chip--control" data-control="c1">C1</span><span class="chip chip--control" data-control="c2">C2</span><span class="chip chip--control" data-control="c3">C3</span><span class="chip chip--control" data-control="c5">C5</span><span class="chip chip--control" data-control="c7">C7</span></dd>
+              <dt>If rejected</dt><dd>The bill is not created; Cara is told with the reason.</dd>
+            </dl>
+            <div class="actions"><a href="#">Ask about this</a><a href="#">This is wrong</a></div>
+          </div>
+        </div>
+
+        <div class="step searchable" id="step-7" data-people="agent pia" data-systems="qbo" data-controls="c3 c5 c8">
+          <span class="num">7</span>
+          <div>
+            <h3>Attach the PDF to the bill</h3>
+            <div class="kind">Updates your tools, on its own.</div>
+            <dl class="facts">
+              <dt>Who</dt><dd><span class="chip chip--agent" data-person="agent">Bills in</span></dd>
+              <dt>System</dt><dd><span class="chip chip--system" data-system="qbo">QuickBooks Online</span><span class="lvl lvl--auto">Update: On its own</span></dd>
+              <dt>Why on its own</dt><dd class="small muted">We set this step to run without approval, and Ada allowed updates on their own in QuickBooks on 12 Nov. Ask me first there, and this step asks again.</dd>
+              <dt>Controls</dt><dd><span class="chip chip--control" data-control="c3">C3</span><span class="chip chip--control" data-control="c5">C5</span></dd>
+            </dl>
+            <div class="actions"><a href="#">Ask about this</a><a href="#">This is wrong</a></div>
+          </div>
+        </div>
+
+        <div class="step searchable" id="step-8" data-people="agent ben cara" data-systems="" data-controls="">
+          <span class="num">8</span>
+          <div>
+            <h3>Tell the team</h3>
+            <div class="kind">Tells your team: a short note in Mezonas and by email.</div>
+            <dl class="facts">
+              <dt>Told</dt><dd><span class="chip chip--person" data-person="ben">Ben Ortiz</span><span class="chip chip--person" data-person="cara">Cara Lin</span></dd>
+            </dl>
+          </div>
+        </div>
+      </section>
+
+      <!-- 6. Controls -->
+      <section id="s6">
+        <div class="sec-head"><span class="sec-n">6</span><h2>Controls</h2></div>
+        <p class="sec-lede">What keeps this process right, where it applies and where to find the proof.</p>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>#</th><th>Control</th><th>Kind</th><th>How</th><th>Steps</th><th>Owner</th><th>Evidence</th></tr></thead>
+            <tbody>
+              <tr class="searchable row-target" id="control-c1" data-control-row="c1"><td class="mono">C1</td><td>A person approves each bill before it goes into QuickBooks</td><td>Prevents</td><td>By a person</td><td><a href="#step-6">6</a></td><td>Ben Ortiz</td><td>The approval in each run's audit trail</td></tr>
+              <tr class="searchable row-target" id="control-c2" data-control-row="c2"><td class="mono">C2</td><td>Bills over $5,000 need Ada's approval</td><td>Prevents</td><td>By a person</td><td><a href="#step-6">6</a></td><td>Ada Ruiz</td><td>Your approval rules; the run's audit trail</td></tr>
+              <tr class="searchable row-target" id="control-c3" data-control-row="c3"><td class="mono">C3</td><td>What the agent may do in QuickBooks <span class="sub">Read on its own, create ask me first, update on its own, delete off</span></td><td>Prevents</td><td>Automatic</td><td><a href="#step-2">2</a>, <a href="#step-6">6</a>, <a href="#step-7">7</a></td><td>Ada Ruiz</td><td>QuickBooks' change history on Connectors</td></tr>
+              <tr class="searchable row-target" id="control-c4" data-control-row="c4"><td class="mono">C4</td><td>Nothing is ever deleted in your tools</td><td>Prevents</td><td>Automatic</td><td>All</td><td>Mezonas</td><td>Platform</td></tr>
+              <tr class="searchable row-target" id="control-c5" data-control-row="c5"><td class="mono">C5</td><td>Each change is made once, with what it was before</td><td>Prevents</td><td>Automatic</td><td><a href="#step-6">6</a>, <a href="#step-7">7</a></td><td>Mezonas</td><td>Changes to your tools, in each run</td></tr>
+              <tr class="searchable row-target" id="control-c6" data-control-row="c6"><td class="mono">C6</td><td>Price alerts and new vendors go to a person</td><td>Prevents</td><td>Automatic (rules)</td><td><a href="#step-5">5</a></td><td>Cara Lin</td><td>The run timeline</td></tr>
+              <tr class="searchable row-target" id="control-c7" data-control-row="c7"><td class="mono">C7</td><td>Deadlines, reminders and escalation to your lead</td><td>Catches</td><td>Automatic</td><td><a href="#step-5-1">5.1</a>, <a href="#step-6">6</a></td><td>Sam Patel</td><td>The item's history in your inbox</td></tr>
+              <tr class="searchable row-target" id="control-c8" data-control-row="c8"><td class="mono">C8</td><td>Pia reviews failed steps and steps that lead to a change</td><td>Catches</td><td>By AI</td><td>1–4, 6, 7</td><td>Pia</td><td>Pia's decisions in each run</td></tr>
+              <tr class="searchable row-target" id="control-c9" data-control-row="c9"><td class="mono">C9</td><td>Prices in different units are never compared without a conversion <span class="pill pill--later">S3</span></td><td>Prevents</td><td>Automatic</td><td><a href="#step-3">3</a></td><td>Mezonas</td><td>Each match's reasons</td></tr>
+              <tr class="searchable row-target" id="control-c10" data-control-row="c10"><td class="mono">C10</td><td>Text in bills and emails is read as data, never as instructions</td><td>Prevents</td><td>Automatic</td><td><a href="#step-1">1</a></td><td>Mezonas</td><td>Platform</td></tr>
+              <tr class="searchable row-target" id="control-c11" data-control-row="c11"><td class="mono">C11</td><td>The agent can't change its own permissions or steps</td><td>Prevents</td><td>Automatic</td><td>All</td><td>Mezonas</td><td>Platform</td></tr>
+              <tr class="searchable row-target" id="control-c12" data-control-row="c12"><td class="mono">C12</td><td>Everything a person does is logged</td><td>Catches</td><td>Automatic</td><td>All</td><td>Mezonas</td><td>Your audit export</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 7. Systems -->
+      <section id="s7">
+        <div class="sec-head"><span class="sec-n">7</span><h2>Systems</h2></div>
+        <p class="sec-lede">The tools this agent uses and what it may do in each: the stricter of your connection's setting and the access we gave this agent.</p>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>#</th><th>System</th><th>Read</th><th>Create</th><th>Update</th><th>Delete</th><th>Steps</th></tr></thead>
+            <tbody>
+              <tr class="searchable row-target" id="system-qbo" data-system-row="qbo"><td class="mono">S1</td><td>QuickBooks Online<span class="sub">Harbor Millwork LLC. Connected by Ada Ruiz on 4 Nov 2026.</span></td><td class="lvl lvl--auto">On its own</td><td class="lvl lvl--ask">Ask me first</td><td class="lvl lvl--auto">On its own</td><td class="lvl lvl--off">Off</td><td><a href="#step-2">2</a>, <a href="#step-6">6</a>, <a href="#step-7">7</a></td></tr>
+              <tr class="searchable row-target" id="system-email" data-system-row="email"><td class="mono">S2</td><td>Email forwarding<span class="sub">bills-harbor@in.mezonas.com. Only mail that passes the sender's checks is read.</span></td><td class="lvl lvl--auto">On its own</td><td class="lvl lvl--off">n/a</td><td class="lvl lvl--off">n/a</td><td class="lvl lvl--off">n/a</td><td>Start, <a href="#step-1">1</a></td></tr>
+              <tr class="searchable row-target" id="system-mezonas" data-system-row="mezonas"><td class="mono">S3</td><td>Your Mezonas records: Purchasing<span class="sub">Your catalog, vendors' prices and alerts, kept for you in Mezonas.</span></td><td class="lvl lvl--auto">On its own</td><td class="lvl lvl--auto">On its own</td><td class="lvl lvl--auto">On its own</td><td class="lvl lvl--off">Off</td><td><a href="#step-1">1</a>, <a href="#step-3">3</a>, <a href="#step-4">4</a></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 8. Data -->
+      <section id="s8">
+        <div class="sec-head"><span class="sec-n">8</span><h2>Data</h2></div>
+        <p class="sec-lede">What the agent reads, saves and changes, where it lives and how long it is kept.</p>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>#</th><th>Record</th><th>Lives in</th><th>The agent</th><th>Steps</th><th>Read by AI</th><th>Kept</th></tr></thead>
+            <tbody>
+              <tr class="searchable row-target" id="data-d1" data-data-row="d1"><td class="mono">D1</td><td>Bills: the PDF and what was read from it</td><td>Your documents in Mezonas</td><td>Saves</td><td><a href="#step-1">1</a>, <a href="#step-7">7</a></td><td>Yes</td><td>While you're a client; deleted 30 days after you leave</td></tr>
+              <tr class="searchable row-target" id="data-d2" data-data-row="d2"><td class="mono">D2</td><td>Vendors</td><td>Your QuickBooks</td><td>Reads</td><td><a href="#step-2">2</a></td><td>Yes</td><td>In QuickBooks</td></tr>
+              <tr class="searchable row-target" id="data-d3" data-data-row="d3"><td class="mono">D3</td><td>Catalog items and line matches</td><td>Your Mezonas records: Purchasing</td><td>Reads and saves</td><td><a href="#step-3">3</a></td><td>Only lines the rules leave open</td><td>While you're a client</td></tr>
+              <tr class="searchable row-target" id="data-d4" data-data-row="d4"><td class="mono">D4</td><td>Prices and price alerts</td><td>Your Mezonas records: Purchasing</td><td>Saves</td><td><a href="#step-4">4</a>, <a href="#step-5">5</a></td><td>No</td><td>While you're a client</td></tr>
+              <tr class="searchable row-target" id="data-d5" data-data-row="d5"><td class="mono">D5</td><td>Bills in QuickBooks</td><td>Your QuickBooks</td><td>Creates; attaches the PDF</td><td><a href="#step-6">6</a>, <a href="#step-7">7</a></td><td>No</td><td>In QuickBooks</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="small muted" style="margin-top:var(--space-3)">AI models read data only to do the steps marked "Works it out", and never train on it. Our providers are listed at mezonas.com/subprocessors. What the agent learned for you (3 notes) is on this page for your admin.</p>
+      </section>
+
+      <!-- 9. Exceptions -->
+      <section id="s9" class="searchable">
+        <div class="sec-head"><span class="sec-n">9</span><h2>Exceptions</h2></div>
+        <ul class="list">
+          <li><b>9.1 A step fails.</b> Pia may try it again or correct its input, and the approval is asked again for a corrected change. Otherwise the run stops and Ben is told.</li>
+          <li><b>9.2 Nobody answers.</b> A reminder, then Sam Patel is told (5.1 after 1 business day, 6 after 2).</li>
+          <li><b>9.3 A bill is rejected.</b> Nothing goes into QuickBooks; Cara is told with the reason.</li>
+          <li><b>9.4 Known risk: bills in another currency.</b> Not built in this version: when it happens, a person handles it.</li>
+          <li><b>9.5 Pausing it.</b> Ada can pause Bills in at any time from its page; bills wait until it resumes. We may hold it while we fix a problem, and we tell you when we do.</li>
+        </ul>
+      </section>
+
+      <!-- 10. Decisions and settings -->
+      <section id="s10">
+        <div class="sec-head"><span class="sec-n">10</span><h2>Decisions and settings</h2></div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>#</th><th>Decision</th><th>Kind</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr class="searchable"><td class="mono">10.1</td><td>Freight lines stay out of the catalog<span class="sub">Step 3</span></td><td>Assumption</td><td>Confirmed</td></tr>
+              <tr class="searchable"><td class="mono">10.2</td><td>Credit memos are handled by a person<span class="sub">Not on a step</span></td><td>Decision point</td><td><span class="pill pill--wait">Never discussed</span></td></tr>
+              <tr class="searchable"><td class="mono">10.3</td><td>Price tolerance: 3%<span class="sub">You can set 1% to 5%. Changed by Ada Ruiz on 15 Nov (was 2%).</span></td><td>You can adjust</td><td>Changed</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- 11. Measures -->
+      <section id="s11" class="searchable">
+        <div class="sec-head"><span class="sec-n">11</span><h2>Measures</h2></div>
+        <div class="two">
+          <div class="card stat"><div class="small muted">Bills entered, this month</div><div class="v">142</div></div>
+          <div class="card stat"><div class="small muted">Lines matched on their own, 30 days</div><div class="v">91%</div></div>
+          <div class="card stat"><div class="small muted">Overcharges caught, this month</div><div class="v">$3,214.50</div></div>
+        </div>
+      </section>
+
+      <!-- 12. References and history -->
+      <section id="s12">
+        <div class="sec-head"><span class="sec-n">12</span><h2>References and history</h2></div>
+        <div class="two" style="margin-bottom:var(--space-5)">
+          <div class="card role searchable"><h3>What it follows</h3><ul class="list small"><li>How Mezonas agents work</li><li>Your charter (confirmed 6 Nov)</li><li>Policies: writing into your tools; money; data handling; purchasing</li></ul></div>
+          <div class="card role searchable"><h3>Hands over to</h3><ul class="list small"><li>Vendor follow-ups, when a price alert is stopped</li></ul></div>
+          <div class="card role searchable"><h3>Knowledge</h3><ul class="list small"><li>Your knowledge base: 4 vendor contracts</li></ul></div>
+        </div>
+        <h3 style="margin-bottom:var(--space-2)">Revision history <span class="pill pill--later">S2</span></h3>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>Revision</th><th>Date</th><th>What changed</th><th>By</th></tr></thead>
+            <tbody>
+              <tr class="searchable"><td class="mono">7.2</td><td>18 Nov 2026</td><td>Bills over $5,000 need Ada's approval (was over $10,000). <a href="#control-c2">C2</a></td><td>Ada Ruiz</td></tr>
+              <tr class="searchable"><td class="mono">7.1</td><td>15 Nov 2026</td><td>Price tolerance 3% (was 2%). <a href="#s10">10.3</a> Approved by Ada Ruiz.</td><td>Ada Ruiz</td></tr>
+              <tr class="searchable"><td class="mono">7.0</td><td>12 Nov 2026</td><td>New step 4, Check prices against the contract. Step 7 runs on its own: QuickBooks updates allowed on their own.</td><td>Us; Ada Ruiz</td></tr>
+              <tr class="searchable"><td class="mono">6.0</td><td>4 Nov 2026</td><td>Went live.</td><td>Us</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <p class="print-only small" style="margin-top:16px">SOP-PUR-03 · Bills in · Revision 7.2 · Made 21 Nov 2026, 09:14 from the setup that runs. The current version is at app.mezonas.com.</p>
+
+      <div class="about">
+        <b>About this mock-up.</b> The portal's SOP tab as planned in <span class="mono">docs/sop-plan.md</span>, for a made-up agent at a made-up client. S1 is everything without a tag: the twelve sections, links, Find, the filters and the print layout. <span class="pill pill--later">S2</span> adds revisions with what changed and Ask. <span class="pill pill--later">S3</span> adds share links, approving a revision, and a pack's own controls. Try: click Ben Ortiz, QuickBooks Online or C1; type "QuickBooks" in Find; Print.
+      </div>
+    </article>
+  </div>
+</main>
+
+<aside class="sheet" id="askSheet" aria-label="Ask Sloan">
+  <div style="display:flex;justify-content:space-between;align-items:center"><h2>Ask Sloan</h2><button class="btn" type="button" data-close>Close</button></div>
+  <p class="small muted">About Bills in's SOP, revision 7.2.</p>
+  <div class="msg msg--you">Who approves a $7,200 bill from a new vendor?</div>
+  <div class="msg">First Cara Lin reviews it, because the vendor is new (step 5.1, control C6). Then Ada Ruiz approves it before it goes into QuickBooks, because it is over $5,000 (step 6, control C2). <a href="#step-5-1">5.1</a> · <a href="#step-6">6</a></div>
+  <input class="find" type="text" placeholder="Ask about this SOP" aria-label="Ask about this SOP">
+</aside>
+
+<div class="dialog" id="shareDialog" role="dialog" aria-modal="true" aria-label="Share this SOP">
+  <div class="scrim" data-close></div>
+  <div class="box">
+    <h2>Share this SOP</h2>
+    <p class="small muted">Inside your team: anyone who can see Bills in can open it at its address. Outside your team: a link that shows revision 7.2 as it is now, read only. What the agent learned is never shown.</p>
+    <label class="field">Expires after<select><option>7 days</option><option>14 days</option><option>30 days</option></select></label>
+    <label class="field"><span><input type="checkbox" checked> Show people's names (else their roles)</span></label>
+    <label class="field">Who it's for (for your records)<input type="text" placeholder="Our auditor, Lee and Co."></label>
+    <p class="small muted">Each time it's opened is in your audit log. You can turn the link off at any time.</p>
+    <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" type="button" data-close>Cancel</button><button class="btn btn--primary" type="button" data-close>Make the link</button></div>
+  </div>
+</div>
+
+<script>
+  // Mock behaviour only: find, filter by a person, system, data or control, ask, share, print, theme.
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const note = $("#filterNote"), noteText = $("#filterText");
+  const names = { agent: "Bills in", pia: "Pia", ada: "Ada Ruiz", ben: "Ben Ortiz", cara: "Cara Lin", sam: "Sam Patel",
+                  qbo: "QuickBooks Online", email: "Email forwarding", mezonas: "your Mezonas records" };
+
+  function clearAll() {
+    $$(".hidden").forEach((e) => e.classList.remove("hidden"));
+    $$(".chip.sel").forEach((e) => e.classList.remove("sel"));
+    $$("mark").forEach((m) => m.replaceWith(document.createTextNode(m.textContent)));
+    note.classList.remove("on");
+  }
+
+  function showSteps(test, label, key) {
+    clearAll();
+    $("#find").value = "";
+    $$(".step").forEach((s) => s.classList.toggle("hidden", !test(s)));
+    $$(".path").forEach((p) => p.classList.add("hidden"));
+    $$(`.chip[data-person="${key}"], .chip[data-system="${key}"], .chip[data-control="${key}"]`).forEach((c) => c.classList.add("sel"));
+    noteText.textContent = label;
+    note.classList.add("on");
+    $("#s5").scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  document.addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (chip?.dataset.person) {
+      const k = chip.dataset.person;
+      showSteps((s) => (s.dataset.people || "").split(" ").includes(k), `Showing the steps ${names[k] || k} is in.`, k);
+    } else if (chip?.dataset.system) {
+      const k = chip.dataset.system;
+      showSteps((s) => (s.dataset.systems || "").split(" ").includes(k), `Showing the steps that use ${names[k] || k}.`, k);
+    } else if (chip?.dataset.control) {
+      location.hash = `control-${chip.dataset.control}`;
+    } else if (chip?.dataset.data) {
+      location.hash = `data-${chip.dataset.data}`;
+    }
+    if (e.target.closest("[data-close]")) { $("#askSheet").classList.remove("on"); $("#shareDialog").classList.remove("on"); }
+  });
+
+  $("#clearFilter").addEventListener("click", (e) => { e.preventDefault(); clearAll(); $("#find").value = ""; });
+
+  function highlight(el, q) {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const hits = [];
+    while (walker.nextNode()) if (walker.currentNode.nodeValue.toLowerCase().includes(q)) hits.push(walker.currentNode);
+    for (const node of hits) {
+      const i = node.nodeValue.toLowerCase().indexOf(q);
+      const mark = document.createElement("mark");
+      const rest = node.splitText(i);
+      rest.splitText(q.length);
+      mark.textContent = rest.nodeValue;
+      rest.replaceWith(mark);
+    }
+  }
+
+  $("#find").addEventListener("input", (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    clearAll();
+    if (q.length < 2) return;
+    let n = 0;
+    $$(".searchable").forEach((el) => {
+      const hit = el.textContent.toLowerCase().includes(q);
+      el.classList.toggle("hidden", !hit);
+      if (hit) { n++; highlight(el, q); }
+    });
+    $$(".doc > section").forEach((sec) => {
+      const any = sec.classList.contains("searchable") ? !sec.classList.contains("hidden") : $$(".searchable", sec).some((x) => !x.classList.contains("hidden"));
+      sec.classList.toggle("hidden", !any);
+    });
+    noteText.textContent = n ? `${n} places match "${e.target.value.trim()}".` : `Nothing matches "${e.target.value.trim()}".`;
+    note.classList.add("on");
+  });
+
+  $("#ask").addEventListener("click", () => $("#askSheet").classList.add("on"));
+  $("#share").addEventListener("click", () => $("#shareDialog").classList.add("on"));
+  $("#print").addEventListener("click", () => window.print());
+  $("#theme").addEventListener("click", (e) => {
+    const dark = document.documentElement.dataset.theme !== "dark";
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    e.target.textContent = dark ? "Light" : "Dark";
+  });
+</script>
+</body>
+</html>

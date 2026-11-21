@@ -408,6 +408,20 @@ client). Left:
 | F-D | An automation has no Builder chat or Try it of its own, old-format automations don't open in the editor, and renaming an input doesn't rewrite the steps that read it. | Code, if wanted. |
 | F-E | "Ask an agent" and "Report to an agent" from the mock-up need new step kinds. | Not planned. |
 
+### The agent's SOP (owner, 2026-11-21; `docs/sop-plan.md`, mock-up `docs/design/sop.html`)
+
+Planned and designed, not built: each client agent's manual grows into a formal SOP made by code from
+its current setup (process, roles, controls, systems, data), clickable, searchable, printable and
+shareable, in the portal. Left:
+
+| # | What | Notes |
+|---|---|---|
+| SOP-Q | **The owner's answers** to `docs/sop-plan.md` §7: the tab's name, an accountable person per agent, share links outside the client's team, sign-off of each revision, the back office's view. | Owner. Then ARCHITECTURE v0.21 §10.17. |
+| SOP-0 | **Bug:** `GET /api/services/:id/manual` is missing from `ASSIGNED_USER_ROUTES`, so a limited client user gets 403 on the Manual tab. | Code, one line and a test, its own PR. |
+| SOP-1 | S1: the SOP view in core, its portal and ops routes, the SOP tab with Find, filters and the print layout. | Code, no migration. |
+| SOP-2 | S2: revisions with what changed, Sloan's `sop.read`, the Procedures page. | Migration (`sop_revision`), own PR. |
+| SOP-3 | S3: share links, sign-off, the accountable person, packs' own controls; only what the owner agrees. | Migrations, own PRs; a security review for share links. |
+
 ### Sign-in codes and the Claude connector (owner, 2026-11-10)
 
 | # | Step | Notes |

@@ -13,6 +13,12 @@
 > and click a step for its setup, what is left to settle on it and the Builder. Design only: its answers and its
 > try are scripted and no route is called. Its own "About this prototype" says what it stands on.
 
+> **The agent's SOP** (owner, 2026-11-21): [`sop.html`](sop.html) is a clickable mock-up of the
+> portal's SOP tab for a made-up agent: a standard operating procedure made by code from the agent's
+> setup (purpose, scope, roles and who does what by step, how it starts, the procedure, controls,
+> systems, data, exceptions, decisions, measures, references and history), with Find, filters by
+> person or system, and a print layout. Design only; the plan is [`docs/sop-plan.md`](../sop-plan.md).
+
 ## v1 screens (2026-11-03, superseded by the prototype)
 
 > **The design system is now Mezonas** (`packages/design-system`, owner, 2026-11-03): its tokens,
