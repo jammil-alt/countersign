@@ -18,8 +18,10 @@ Every client agent gets an **SOP**: one formal document, made by code from what 
 to do right now, in the client's portal. It names the process step by step, who does, approves and
 is told about each step, the controls that hold it, the systems it reaches and what it may do in
 each, and the data it reads, saves and changes. Every line links to the things it names. It can be
-searched, filtered, asked about, printed and shared, and every change to the setup makes a new
-revision with what changed. Nothing in it is written by a model, so it is always true to the setup.
+searched, filtered, asked about, printed and shared. It carries its revision and the revision's date,
+and every change to the setup makes a new revision with what changed, who changed it and when.
+Nothing in it is written by a model, so it is always true to the setup, and nothing in it waits on
+anyone: it says how the process runs, never what is still to do (owner, 2026-11-21).
 
 ## 2. What we already have, and what this adds
 
@@ -53,13 +55,19 @@ with a test, in its own PR, whatever is decided here (S0 below).
 | Topic | Decision |
 |---|---|
 | One document, not two | The SOP **is** the client's manual, made formal. The portal's Manual tab becomes the **SOP** tab and keeps every manual section, "Ask about this" and "This is wrong". The back office keeps its Manual tab for building, plus "See the client's SOP". Agents keep reading the manual through `manual.read` (tier 3, §10.16): the SOP is a view, never what an agent reads. // DECISION |
-| Made by code, never by a model | `sopView` in `packages/core/src/sop/` is pure, like `manualView`: same inputs, same SOP. The only text people wrote is what they already write (step names, "what it does", decisions, the operator's path descriptions). No model call, no cost, nothing to replay. // DECISION |
+| Made by code, never by a model | `sopView` in `packages/core/src/sop/` is pure, like `manualView`: same inputs, same SOP. The only text people wrote is what they already write (step names, "what it does", decisions, the operator's path descriptions) and each step's purpose (below). No model call when it is read, no cost, nothing to replay. // DECISION |
+| Rules, AI or a person, on every step (owner, 2026-11-21) | Each step says how it works, so a reader sees where the process is deterministic and where AI decides: **Rules** (same input, same result: reads, writes, notices, waits, `if` steps that decide by rules, a skill whose method is `rules`, a tool with no `usesModel`); **AI** (a skill whose method is `ai`, an `if` or `repeat` the agent decides, a conversation, a tool that declares `usesModel`); **Rules, then AI** (`rules_then_ai`: the rules settle what they can and only the rest goes to the model); **A person** (person steps). A step's checks say the same of themselves (an AI check, a person's check), and the area owner's review is AI. Worked out by code from the skill's method (`skillMethod`) and the tools' specs. // DECISION |
+| The model on each AI step (owner, 2026-11-21) | Each AI step names the model it runs on, resolved in the runtime's own order (the step's `model`, else its skill's, else the agent's), by one shared function the runtime and the SOP both call, so they can't disagree. The area owner's model is named in Roles and on its control. Shown by name and maker ("Claude Sonnet 5.5, Anthropic"; "GPT-5.5, OpenAI"), from a client-facing list beside `MODEL_LABELS` in `packages/llm`, passed into core by `apps/api` (core doesn't import `llm`). A model with no client-facing name reads "An AI model" rather than an id. Never its price, effort, tokens or prompt. Each maker is already on the public subprocessors list. // DECISION |
+| The point of each step (owner, 2026-11-21) | Every step carries one sentence on why it is there ("Looks the vendor up in QuickBooks so the bill goes to the right vendor, not a duplicate"): a new optional `purpose` on core's step schemas (v3 and v4, at most 200 characters, no default, so stored bundles parse and hash as before). The Builder writes it when it drafts a step, the operator reads and edits it in the step panel, and it is versioned and merged with the step like its name. A step without one reads a plain line made by code from its kind, tool and data ("Reads vendors from QuickBooks Online."), never one made by a model when the SOP is read. // DECISION |
+| People and agents told apart by icon (owner, 2026-11-21) | Every name in the SOP carries an icon: a person (the icon set's `mz-lead`, in copper), an agent (an agent icon, in ink), the client's team (`mz-team`, copper), Mezonas' people (copper). Rules and AI carry their own icons beside the step's method. The icon set has no agent, AI or rules icon yet: the mock-up draws provisional ones on the set's grid (24px, 1.5px stroke, square caps), and the owner asks the designer for `mz-agent`, `mz-ai` and `mz-rules` in the design system's next delivery (CLAUDE.md: the design system isn't edited here). // DECISION |
+| Steps read as a list, not cards | The procedure is one list: a line per step with its number, name, how it works (Rules, AI with its model, or a person) and who; under it the step's purpose; under that one line of facts (approvers and by when, the system and what it may do, data, controls). Nested steps are indented under their path's condition. What happens on an error or a rejection is one short clause on the step, with the detail in Exceptions. // DECISION |
 | "Current set up" means the setup that runs | The **live version** of the agent (else the latest, as the manual does), plus what is set outside the version and changes what happens: the agent row (`bindings`, `people`, `channels`, `approver`, `stage`, `pause`, `hold`, `area`), each bound connection's permissions and the agent's grant, the client's approver rules, business hours and compliance mode, the area owner's name and the lead. Changing any of them changes the SOP. // DECISION |
 | Controls say what happens now | A write step's control line is worked out by the **gate's own code** (`decideWrite` with the agent's mode, stage, matrix and grant), never a copy of its logic, so the SOP can't say "runs on its own" where the gate would ask. What only a run knows (an amount over an approver rule, a person who asked to see changes first, a hold) is shown as a condition: "Ada approves when the bill is over $5,000". // DECISION |
-| Names, not ids | The client's own people and contacts are named (the portal already shows them on Team and People). Ours: the lead by name (as the audit export does), everyone else as "Mezonas". An id that no longer resolves reads "A person no longer on your team" (gold, waiting on you). Area owners are agents: ink, with the agent marker, never copper. // DECISION |
-| What is never in it | The bundle, instructions, prompts, skill internals, model names, budgets and cost (invariant 11); tool ids (a tool reads by its connector and what it does); another client's anything; what the agent learned, except for the client admin, as on the manual today. `FORBIDDEN_PORTAL_FIELD` and the contract tests cover the new routes as they do the manual's. // DECISION |
-| Numbering | Sections are fixed and numbered 1 to 12 (§4). Steps are numbered by run order with nesting (5, 5.1, 5.2); controls `C1…`, systems `S1…`, data `D1…`, all by order in the document. Links use stable anchors from ids (`#step-<stepId>`, `#control-<key>`, `#system-<connectionId>`), so a printed number can change between revisions but a link never breaks. // DECISION |
-| Revisions | S1: "Version 7 (setup a3f9c1)", the agent version plus a short hash of the SOP's content, so a print says exactly what it shows. S2 stores a revision row whenever that hash changes (§6), numbered 7.1, 7.2…, each with what changed, worked out by code. // DECISION |
+| No open items (owner, 2026-11-21) | The SOP states how the process runs. Nothing in it waits on anyone: no "Waiting on you", no pending approval of the SOP, no "never discussed", no setup still to answer, no gold. A decision shows what was decided and who set it ("Us, 4 Nov 2026", "Confirmed with you", "Ada Ruiz, 15 Nov 2026"). What is still open stays where it is worked on: the back office's Manual tab and build page, the setup checklist, the agent's Settings and the Desk. A person step in the process ("Cara reviews the price alert") is part of how it runs, not an open item. // DECISION |
+| Names, not ids | The client's own people and contacts are named (the portal already shows them on Team and People). Ours: the lead by name (as the audit export does), everyone else as "Mezonas". An id that no longer resolves reads "A person no longer on your team", in plain ink; fixing it is the Settings page's, not the SOP's. Area owners are agents: ink, with the agent marker, never copper. // DECISION |
+| What is never in it | The bundle, instructions, prompts, skill internals, budgets and cost (invariant 11); a model's price, effort or tokens (its name is shown, above); tool ids (a tool reads by its connector and what it does); another client's anything; what the agent learned, except for the client admin, as on the manual today. `FORBIDDEN_PORTAL_FIELD` and the contract tests cover the new routes as they do the manual's. // DECISION |
+| Numbering | Sections are fixed and numbered 1 to 13 (§4). Steps are numbered by run order with nesting (5, 5.1, 5.2); controls `C1…`, systems `S1…`, data `D1…`, all by order in the document. Links use stable anchors from ids (`#step-<stepId>`, `#control-<key>`, `#system-<connectionId>`), so a printed number can change between revisions but a link never breaks. // DECISION |
+| Revisions, in the first build (owner, 2026-11-21) | Every SOP shows its **revision** and the **revision date**, the previous revision, and **what changed in this revision**; section 13 is the whole **revision history**, newest first. A revision is a stored, immutable row (`sop_revision`, §6), so S1 starts with its migration. Numbered by the agent's version and a count of setup changes since it (7.0 when version 7 goes live, 7.1 and 7.2 for later changes to its people, approvals, connections or settings), so the number says whether we changed the agent or its setup changed. // DECISION |
 | Languages | Section titles, labels, control and platform text in the portal's six languages; what people wrote stays as written, as the manual does (`docs/open.md` G9 covers the copy review). // DECISION |
 | Older processes | v3 workflows get their data from their action steps' tools and their skills' tools: `stepDataUse` gains a v3 walk. Where a skill isn't known the step reads "Data not listed" rather than guessing. // DECISION |
 | Pack controls | The Materials hard veto, price alerts and booking rules are real controls, but the platform never imports a pack (invariant 2). A pack declares its controls as data (`SkillDefinition.controls?: {name, kind, how}[]`, localized, in the pack's manifest) and core renders them on the steps that use the skill. S3. // DECISION |
@@ -71,9 +79,12 @@ for a sample agent ("Bills in" at a sample client).
 
 **Document control** (the header, first on a print): the SOP's title ("Bills in: standard operating
 procedure"), its code (`SOP-PUR-03`: the area's three letters and the agent's place in that area),
-the client, the area and its owner (Pia, Purchasing), the revision, effective since (when that
-version went live or the setup last changed), the stage (Bench, Trial, Sign-off, Live, Paused),
-the accountable person (§7, question 2), approved by (S3) and when it was made.
+the client, the area and its owner (Pia, Purchasing), the **revision** and the **revision date**, the
+previous revision (a link to section 13), the stage (Bench, Trial, Sign-off, Live, Paused), the
+accountable person (§7, question 2), the lead, and when it was read or printed ("As of"). Under them,
+**what changed in this revision**: each change with its old value, the steps and controls it touched,
+who made it, where (approval rules, connections, this agent's settings, a new version of the agent)
+and when. Plain ink on a subtle surface, never gold: it reports, it asks nothing.
 
 | # | Section | What it holds | From |
 |---|---|---|---|
@@ -81,14 +92,15 @@ the accountable person (§7, question 2), approved by (S3) and when it was made.
 | 2 | Scope | What starts it, what it covers, what it never does (from the guardrails: never deletes, never moves money, never changes its own permissions), what is out of scope (known risks, steps not built yet) | Triggers, known risks, `missing` steps, `HOW_AGENTS_WORK` |
 | 3 | Roles | Each role, who holds it and what they do: the agent (does the work), the area owner (watches, may retry or correct, never changes the plan), the accountable person, approvers, people who answer, people told, your admin (connections, settings), your Mezonas lead (escalations), Mezonas (builds and changes it). Then **the people matrix**: steps down the side, people across, cells Does, Approves, Checks or Told | Person steps, approval checks, approver rules, `notify`, `agent.people`, area owner, lead, `OWNER_MAY` and `OWNER_NEVER` |
 | 4 | How it starts | Each trigger in words, the schedule and business hours, who may run it by hand | Triggers, `scheduleText`, business hours, `manual.client` |
-| 5 | Procedure | The steps in run order, numbered and nested. Each step: its name, what kind of step it is in words, who does it, the system and data it touches, its controls (approval, who, by when, what happens if nobody answers), its paths with their rules in words, what happens on an error. Each line links to its role, control, system and data | `howItWorks`, step fields, `ruleText` (moved to core), `stepDataUse`, the gate |
+| 5 | Procedure | The steps in run order, numbered and nested, as a list. Each step: its name; how it works (Rules, AI with its model, Rules then AI, or a person) and who, with their icons; its purpose in one sentence; one line of facts: approvers and by when, the system and what the agent may do there, data, controls, and a short clause for an error or a rejection. Paths show their rules in words. Each fact links to its role, control, system and data | `howItWorks`, step fields and `purpose`, `skillMethod`, the model resolver, `ruleText` (moved to core), `stepDataUse`, the gate |
 | 6 | Controls | The control register. Each control: number, name, what it prevents or catches, kind (Prevents or Catches), how (automatic or by a person), the steps it covers, who owns it, and where the evidence is (a run's audit trail, the changes to your tools with their before state, the audit export) | §5 below |
 | 7 | Systems | Each connection the agent uses: the tool and account, connected or not, who connected it, and for read, create, update and delete what the agent may do there in the client's words (Off, Ask me first, On its own), the strictest of the connection and the agent's grant. The steps that use it | Bindings, `connection`, `agent_grant`, `levelWords` |
 | 8 | Data | Each kind of record: what it is, where it lives (your QuickBooks, your Mezonas records in Purchasing, your documents), whether the agent reads, saves or changes it, in which steps, who can see it, how long it is kept, and whether an AI model reads it to do a step (with the link to our subprocessors). Then what it learned (the client admin only) | `stepDataUse`, the business area (§12.0), `docs/policies/data-retention.md`, the site's subprocessors page |
 | 9 | Exceptions | What happens when something goes wrong: errors, no answer, a rejection, a known risk, a step not built yet, a hold or a pause, and who can pause it | Steps' `onError`, `onReject`, `ifNoAnswer`, known risks, `missing`, `pause`, `hold` |
-| 10 | Decisions and settings | The manual's decisions (with "never discussed" as it is today), what we set up with you, what you can adjust and its limits | The manual, `definition.setup`, `definition.adjustable` |
+| 10 | Decisions and settings | The manual's decisions, each with who set it and when (no status), what we set up with you (answered items only), what you can adjust and its limits | The manual, `definition.setup`, `definition.adjustable` |
 | 11 | Measures | The agent's KPIs, what each counts and over what period, with this period's value | `clientView.kpis` (§9.9) |
-| 12 | References and history | What it reads (the guardrails as "How Mezonas agents work", your charter, the policies that apply to its steps by title, your knowledge base), the agents it hands over to or from, and the revision history (S2) | `MANUAL_READS`, `governance/select.ts`, hand-offs, §6 |
+| 12 | References | What it reads (the guardrails as "How Mezonas agents work", your charter, the policies that apply to its steps by title, your knowledge base) and the agents it hands over to or from | `MANUAL_READS`, `governance/select.ts`, hand-offs |
+| 13 | Revision history | Every revision, newest first: its number, its date, what changed (old and new values, linked to the steps, controls and systems), who changed it and where | `sop_revision` (§6) |
 
 ## 5. Controls
 
@@ -132,8 +144,8 @@ Out of the SOP, links go only to portal pages the reader can already open.
   answered from the SOP with the section it came from. Sloan already sees only what the portal shows;
   this is one more portal view. Its fixtures are re-recorded (`LLM_MODE=record`).
 - **Across agents** (S2): a **Procedures** page in the portal lists every agent's SOP with its stage,
-  revision, last change and (S3) approval, with the same filters across all of them ("which agents
-  change QuickBooks?").
+  revision, revision date and what changed last, with the same filters across all of them ("which
+  agents change QuickBooks?").
 
 **Printable** (S1). A "Print or save as PDF" button and a print layout: document control on the first
 page, every section open, links shown as section numbers, buttons and filters hidden, a footer with
@@ -152,12 +164,31 @@ same way.
   the app's shell, and drawn by the same React components from a public read of the frozen revision,
   so there is one renderer.
 
-**Signed off** (S3, owner to agree). The client admin can mark a revision "Reviewed and approved",
-which makes the SOP a controlled document. When a later revision changes it, the SOP says "Changed
-since Ada approved it on 19 Nov" with what changed, gold with "Waiting on you", until it is approved
-again. Approving never changes the agent.
+**Revisions** (S1). `sop_revision` (tenant, RLS forced): `agent_id`, `number` (7.2), `agent_version_id`,
+`fingerprint` (a hash of the SOP's content), `view` (the SOP as it was, JSON), `changes` (what changed
+from the revision before, worked out by code: `sopChanges(before, after)`, each change a section, the
+step, control or system it touches, the old and new value in words), `changed_by` (a person, or
+Mezonas), `where` (approval rules, connections, the agent's settings, a new version, the stage),
+`created_at`. Never updated or deleted (invariant 3's rule, applied here).
+- **Recorded at the change**, in the same transaction, with who made it: one function,
+  `recordSopRevision(tx, agentIds, {by, where})`, called where the setup changes (a version goes
+  live or is rolled back; the agent's people, bindings, approver, area or stage; a connection's
+  permissions; a grant; the client's approver rules or business hours; an area owner's name; a client
+  adjustment). It makes the SOP, compares its fingerprint with the last revision's and adds a row only
+  when they differ, so a change that alters nothing in the SOP makes no revision.
+- **A safety net, not a source**: the hourly pass compares each live agent's SOP with its last
+  revision. A difference means a change site doesn't call `recordSopRevision`; it records the
+  revision as "Recorded by our hourly check" and reports the gap to Sentry, so we fix the call site.
+- **The first revision**: when S1 ships, each agent's SOP is recorded as its first revision ("First
+  revision of this SOP"), dated that day. Earlier history isn't rebuilt: older settings changes have no
+  SOP to compare with.
+- **Printing and sharing name a revision**: a print says "Revision 7.2 of 18 Nov 2026" on every page,
+  and a share link (S3) shows the revision it was made from.
 
 ## 7. Questions for the owner
+
+Answered (owner, 2026-11-21): **no open items in an SOP, and no sign-off of revisions.** An SOP
+carries its revision, the revision's date and its history instead (§3, §6). Still open:
 
 1. **The tab's name.** "SOP" in place of "Manual" on the portal's agent page, one document
    (recommended); or both tabs.
@@ -169,8 +200,7 @@ again. Approving never changes the agent.
 3. **Share links outside the client's team.** Yes or no, the default expiry, and whether names show
    by default. They hold no client records, only the setup, but they are the first client page
    anyone without a sign-in can open.
-4. **Sign-off of each revision** by the client admin: yes in S3 (recommended), or not at all.
-5. **The back office.** Show the client's SOP on the agent's page (recommended), and a template's
+4. **The back office.** Show the client's SOP on the agent's page (recommended), and a template's
    sample SOP for sales, with "the person you name" in place of people (later).
 
 ## 8. The build, in streams
@@ -180,21 +210,25 @@ Each ends green (`pnpm check`). Migrations go in their own PR and keep the previ
 | Stream | What | Migration |
 |---|---|---|
 | **S0** | Fix: the manual's route on `ASSIGNED_USER_ROUTES`, with a test that a limited client user opens their agent's manual and gets 404 for another's | None |
-| **S1: the SOP** | ARCHITECTURE v0.21 §10.17 and a `docs/plan.md` §1 entry. Core `sop/`: `SopView` (Zod), `sopView()` and its parts (`sopRoles`, `sopControls`, `sopSystems`, `sopData`, `sopExceptions`), `ruleText` moved from the web into core, `stepDataUse` for v3. API: `GET /api/services/:id/sop` (portal, on `ASSIGNED_USER_ROUTES`) and `GET /api/ops/agents/:id/sop`, gathering the inputs in one transaction inside `withTenant()`, names resolved within the client. Web: `apps/web/src/sop/` (shared sections, from `ManualSections`), the portal's SOP tab in place of Manual, find and filter, the print layout. Six languages. Contract tests for both routes. | None |
-| **S2: revisions, ask, across agents** | `sop_revision` (tenant, RLS forced; `agent_id`, `number`, `fingerprint`, `view` json, `agent_version_id`, `created_at`; never updated or deleted). A revision is recorded when the SOP is read and its fingerprint is new, and by the hourly pass for live agents, so a change nobody opened is still dated within the hour. "What changed" between two revisions by code (`sopChanges`). The history in section 12. Sloan's `sop.read`. The Procedures page. | `sop_revision`, own PR |
-| **S3: share, sign-off, owners, pack controls** | `sop_share` (token hash, revision, expiry, revoked, who made it, names on or off) and its public page, with a security review and a row in `docs/security.md`; `sop_approval` (revision, who, when); the accountable person on the agent row; `SkillDefinition.controls` and the Materials and Bookkeeping packs' controls. Only what the owner agrees in §7. | One per table, own PRs |
+| **S1a: revisions' table** | `sop_revision` (§6): tenant, RLS forced, never updated or deleted. Nothing reads or writes it yet, so the Worker before it keeps working. | `sop_revision`, own PR |
+| **S1: the SOP** | ARCHITECTURE v0.21 §10.17 and a `docs/plan.md` §1 entry. Core `sop/`: `SopView` (Zod), `sopView()` and its parts (`sopRoles`, `sopSteps` with each step's method and model, `sopControls`, `sopSystems`, `sopData`, `sopExceptions`), `sopChanges()`, `ruleText` moved from the web into core, `stepDataUse` for v3. The step's `purpose` in core's schemas, the Builder asked to write it (fixtures re-recorded), and a box for it in the builder's step panel. Revisions: `recordSopRevision` at every change site with a test listing them, the hourly check, each agent's first revision. API: `GET /api/services/:id/sop` (portal, on `ASSIGNED_USER_ROUTES`) and `GET /api/ops/agents/:id/sop`, gathering the inputs in one transaction inside `withTenant()`, names resolved within the client. Web: `apps/web/src/sop/` (shared sections, from `ManualSections`), the portal's SOP tab in place of Manual, the revision header and history, find and filter, the print layout. Six languages. Contract tests for both routes. | None beyond S1a |
+| **S2: ask, across agents** | Sloan's `sop.read` (its fixtures re-recorded). The Procedures page with filters across every agent's SOP. | None |
+| **S3: share, owners, pack controls** | `sop_share` (token hash, revision, expiry, revoked, who made it, names on or off) and its public page, with a security review and a row in `docs/security.md`; the accountable person on the agent row; `SkillDefinition.controls` and the Materials and Bookkeeping packs' controls. Only what the owner agrees in §7. No sign-off of revisions (owner, 2026-11-21). | One per table, own PRs |
 
 **Done when (S1).** At a sample client with "Bills in" live: a client user opens the SOP tab and sees
-all twelve sections; every write step's control line matches what the gate decides (a test runs the
-gate and the SOP on the same setup, for each mode, stage, matrix level and grant); turning a
-connection's create from Ask me first to On its own on a step set to not required changes that step's
-line and the hash; filtering by Ben shows only his steps; the printed page carries the code, revision
-and every section; the portal route's response has no forbidden field; a limited user sees only their
-agents' SOPs.
+all thirteen sections with nothing waiting on anyone; every write step's control line matches what
+the gate decides (a test runs the gate and the SOP on the same setup, for each mode, stage, matrix
+level and grant); every step says whether it runs on rules, AI or a person, and each AI step names the
+model the runtime would call (a test resolves both the same way); turning a connection's create from
+Ask me first to On its own, on a step set to not required, changes that step's line and makes revision
+7.1 dated today, "Changed by" the person who did it, with the old and new value; filtering by Ben shows
+only his steps; the printed page carries the code, revision and revision date on every page; the
+portal route's response has no forbidden field; a limited user sees only their agents' SOPs.
 
 **Invariants held.** 1: one client per request, names resolved within it, learned notes per client.
-2: core computes; packs reach the SOP only through their manifests' data. 3: S2's revisions are
-immutable; nothing in an agent version changes. 4: the SOP reads version rows and settings, never
+2: core computes; packs reach the SOP only through their manifests' data. 3: revisions are
+immutable; a step's `purpose` is part of the version, changed only by a new version. 4: the SOP reads version rows and settings, never
 code. 8 and 13: controls are read from the gate and the grants, never restated. 9: no untrusted text
-becomes an instruction; nothing a model wrote is shown. 11: no bundle, instructions, prompts or cost;
-contract tests. 14: every route is `mount()`ed; share-link opens write their own audit rows.
+becomes an instruction; nothing a model writes at view time is shown (a step's purpose is written
+when the step is built and the operator reviews it, like its name). 11: no bundle, instructions, prompts or cost (the
+owner chose to show each AI step's model, 2026-11-21); contract tests. 14: every route is `mount()`ed; share-link opens write their own audit rows.
