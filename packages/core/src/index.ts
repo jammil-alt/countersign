@@ -165,6 +165,7 @@ export * from "./build/build";
 export * from "./build/code-request-words";
 export * from "./build/code-requests";
 export * from "./build/decisions";
+export * from "./build/gap-steps";
 export * from "./build/issues";
 // BUILDER_QA CONS-6: a draft's problems counted the same on the build and in the builder
 export * from "./build/problems";
