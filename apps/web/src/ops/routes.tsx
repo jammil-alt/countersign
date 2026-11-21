@@ -56,6 +56,7 @@ import { OpsClientLedgerScreen } from "./client/ClientLedger";
 import { ClientOverviewScreen } from "./client/ClientOverview";
 import { CommandCenterScreen } from "./command/CommandCenter";
 import { OpsClientConnectorScreen } from "./connectors/ClientConnector";
+import { CheckStepsScreen } from "./flow/CheckSteps";
 import { LabScreen } from "./lab/LabScreen";
 // R8: the Library (docs/plan.md §1.86)
 import { ConditionsBank } from "./library/ConditionsBank";
@@ -173,6 +174,8 @@ export const opsRoutes = (
     {/* Owner (2026-11-17): the Builder board is the Agent lab's Drafts tab. */}
     <Route path="builds" element={<Redirect to="/ops/lab?tab=drafts" />} />
     <Route path="builds/:id" element={<BuildScreen />} />
+    {/* docs/plan.md §1.170: a new agent build's Check the steps, after Describe it in the lab. */}
+    <Route path="builds/:id/check" element={<CheckStepsScreen />} />
     <Route path="clients" element={<ClientsScreen />} />
     <Route path="clients/new" element={<NewClientScreen />} />
     {/* 1.4 (docs/audit-plan.md): the client page's tabs under one frame (client/ClientFrame.tsx),
