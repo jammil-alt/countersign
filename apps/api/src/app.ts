@@ -328,7 +328,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   welcomeRoutes(app);
   // docs/plan.md §1.109: voice typing
   voiceRoutes(app);
-  // docs/plan.md §1.166: Draft for long text fields
+  // docs/plan.md §1.168: Draft for long text fields
   assistDraftRoutes(app);
   directoryRoutes(app);
   // The back office's chart of accounts (docs/plan.md §1.79).

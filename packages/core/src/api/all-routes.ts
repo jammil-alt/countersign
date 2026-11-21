@@ -40,6 +40,6 @@ export const allRoutes = {
   // docs/connectors-plan.md (C4): the client's Connectors place, our changes and their requests,
   // the Needs and Readiness panels; they load with the Connectors screens.
   ...connectorAccessRoutes,
-  // docs/plan.md §1.166: Draft for long text fields; its sheet loads lazily with the field.
+  // docs/plan.md §1.168: Draft for long text fields; its sheet loads lazily with the field.
   ...assistRoutes,
 } as const;

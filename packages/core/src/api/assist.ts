@@ -1,4 +1,4 @@
-// Draft (docs/plan.md §1.166): a long text field in the back office drafted from the operator's
+// Draft (docs/plan.md §1.168): a long text field in the back office drafted from the operator's
 // notes. Operator only. The request names the field and the records it is about by id; the server
 // loads them itself, within the operator's clients, and never takes their text from the browser.
 // Served beside the registry (`allRoutes`): its screen part loads lazily, so the schema stays out

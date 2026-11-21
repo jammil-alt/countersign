@@ -45,7 +45,7 @@ export const DEFAULT_MODELS = {
    */
   research: MODELS.haiku,
   /**
-   * §1.166: Draft, one long text field written from the operator's notes. The Builder's vendor
+   * §1.168: Draft, one long text field written from the operator's notes. The Builder's vendor
    * on its faster model: a field is short and the operator reads it before using it.
    */
   // DECISION: Sonnet, not the Builder's Opus: a draft is waited on in a sheet, and is a short

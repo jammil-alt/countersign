@@ -18,6 +18,8 @@ describe("the fields Draft knows", () => {
     for (const k of BRIEF_FIELDS) expect(isAssistField(`build.brief.${k}`)).toBe(true);
     for (const id of [
       "build.answer",
+      "build.item.answer",
+      "build.decision.change",
       "build.fit.reason",
       "build.setup.hint",
       "deal.description",
@@ -30,7 +32,7 @@ describe("the fields Draft knows", () => {
       expect(isAssistField(id), id).toBe(true);
     }
     expect(isAssistField("toString")).toBe(false);
-    expect(ASSIST_FIELD_IDS).toHaveLength(BRIEF_FIELDS.length + 9);
+    expect(ASSIST_FIELD_IDS).toHaveLength(BRIEF_FIELDS.length + 11);
   });
 
   it("describes each field: a label, its purpose, a length, its sources and what it needs", () => {

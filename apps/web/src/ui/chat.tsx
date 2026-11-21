@@ -25,9 +25,10 @@ import {
 } from "react";
 import { type Attach, AttachButton, type AttachedFile, ENGLISH_ATTACH, FileChip } from "./attach";
 import { cx } from "./cx";
+import { joinWords } from "./dictation";
 import { Thinking as ThinkingLoop } from "./motion";
 import { Button } from "./primitives";
-import { type Voice, VoiceButton } from "./voice";
+import { type Voice, VoiceButton, type VoiceLive } from "./voice";
 
 // ── An agent's words ────────────────────────────────────────────────────────────────────────────
 
@@ -423,7 +424,8 @@ export interface ComposerProps {
   tools?: ReactNode | undefined;
   /**
    * §1.109: voice typing. A Dictate button beside Send; what is written out joins the words in
-   * the box, to read and change before sending. Left out: no button.
+   * the box while the person speaks, to read and change before sending, and a live line under the
+   * box says it's listening. Left out: no button.
    */
   voice?: Voice | undefined;
   /**
@@ -510,6 +512,7 @@ export function Composer({
   const [uploading, setUploading] = useState<string[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [live, setLive] = useState<VoiceLive | null>(null);
   const empty = !text.trim();
   const off = disabled || busy || uploading.length > 0 || (empty && !allowEmpty);
   const room = (attach?.max ?? 5) - files.length - uploading.length;
@@ -589,6 +592,18 @@ export function Composer({
           onChange={(e) => setText(e.target.value)}
           onSend={() => void send()}
         />
+        {live ? (
+          // Dictation under way: words back early wait here (muted, in italics) for an earlier
+          // segment's; the rest are in the box already.
+          <p
+            className="ui-voice__live"
+            aria-live="polite"
+            data-testid={testId ? `${testId}-voice-live` : undefined}
+          >
+            {live.held ? <span className="ui-voice__held">{live.held} </span> : null}
+            {live.status}
+          </p>
+        ) : null}
         {extra}
         {files.length > 0 || uploading.length > 0 ? (
           <div className="ui-chat-files" data-testid={testId ? `${testId}-files` : undefined}>
@@ -630,10 +645,12 @@ export function Composer({
               voice={voice}
               disabled={disabled}
               testId={testId ? `${testId}-voice` : "composer-voice"}
-              onText={(said) => {
-                const now = latest.current.trimEnd();
-                setText(now ? `${now} ${said}` : said);
-                box.current?.focus();
+              onText={(said) => setText(joinWords(latest.current, said))}
+              onLive={setLive}
+              // Focus goes to the box only at the end: moved there mid-dictation, while the Stop
+              // button has it, the next Enter would be a Send.
+              onDone={(wrote) => {
+                if (wrote) box.current?.focus();
               }}
             />
           ) : null}

@@ -68,8 +68,10 @@ import { AssistScope } from "../../ui/assist-scope";
 import { AgentBadge } from "../../ui/badges";
 import { AgentSaid, ChatLog, Composer, Pending, Thinking, YouSaid } from "../../ui/chat";
 import { ErrorNotice } from "../../ui/ErrorState";
-import { Select, TextArea, TextInput } from "../../ui/forms";
+import { Field, Select, TextArea, TextInput } from "../../ui/forms";
 import { Badge, Button, Card, Count, cx, Loading, Tag } from "../../ui/primitives";
+import type { Voice } from "../../ui/voice";
+import { CloseMenu, ReplyBox } from "./closeout";
 import { DecisionsCard } from "./decisions";
 import { type Fold, useFirstRows, useFold } from "./fold";
 import { AboutLink, FocusBar, ProposalCard } from "./issues";
@@ -79,13 +81,18 @@ import { TryCard } from "./TryCard";
 import {
   BRIEF_STATE_TONE,
   BRIEF_STATE_WORDS,
+  CLOSE_CHOICES,
+  GAP_CHOICES,
   ITEM_KIND_WORDS,
   ITEM_TONE,
+  NOT_NEEDED_NOTE,
   plural,
   QA_STATE_WORDS,
   QA_TONE,
   SOURCE_WORDS,
+  TO_BUILDER,
   VERDICT_TONE,
+  withNote,
 } from "./words";
 
 type Act = <R extends RouteSpec>(route: R, opts: CallOptions<R>) => Promise<boolean>;
@@ -255,6 +262,14 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
     setFocus(null);
     setThreadOnly(false);
   };
+  // Owner (2026-11-21): an answer or a choice made on an issue's row goes to the Builder in that
+  // issue's thread, as the conversation's words do when it is on that issue.
+  const sayAbout = (text: string, key: string) => {
+    setFocus(key);
+    setThreadOnly(false);
+    return say(text, key);
+  };
+  const rowVoice = voiceFor("ops", detail.build.client?.id ?? detail.build.testClient?.id);
 
   /** One change: the answer is the build as it is now. */
   const act: Act = async (route, opts) => {
@@ -554,9 +569,7 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
               ) : null}
               <Composer
                 label="Message to the Builder"
-                placeholder={
-                  focused ? `Ask about “${focused.title}”, or say what to do` : PLACEHOLDER[b.phase]
-                }
+                placeholder={focused ? FOCUSED_PLACEHOLDER : PLACEHOLDER[b.phase]}
                 busy={!!pending}
                 value={draftText}
                 onValueChange={setDraftText}
@@ -645,14 +658,8 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
               }
               busy={busy}
               act={act}
-              onAnswer={
-                open
-                  ? (title) => {
-                      setDraftText((t) => aboutStart(title, t));
-                      box.current?.focus();
-                    }
-                  : undefined
-              }
+              onSay={open ? sayAbout : undefined}
+              voice={rowVoice}
             />
           </div>
           {/* docs/builder-plan.md §4: the Builder's decisions, beside the issues and known risks. */}
@@ -663,6 +670,8 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
                 detail={detail}
                 focus={focused?.key ?? null}
                 onTalk={open ? onIssue : undefined}
+                onSay={open ? sayAbout : undefined}
+                voice={rowVoice}
                 busy={isBusy(busy)}
                 act={act}
               />
@@ -766,6 +775,12 @@ const PLACEHOLDER: Record<BuildPhase, string> = {
   client_test: "Ask how the trial is going",
   qa: "Ask about a check",
 };
+
+/**
+ * The box's hint while it is on an issue. Owner (2026-11-21): the whole question in it read as
+ * text already typed. The "About" line over the box names the issue, so the hint stays short.
+ */
+export const FOCUSED_PLACEHOLDER = "Type your answer, or ask the Builder";
 
 function BuildHeader({ detail }: { detail: BuildDetail }) {
   const b = detail.build;
@@ -924,23 +939,28 @@ function BuildBar({ links, children }: { links: JumpLink[]; children: ReactNode 
       document.getElementById(l.id)?.scrollIntoView?.({ behavior: "smooth", block: "start" }),
     );
   };
+  // DECISION (owner, 2026-11-21, plan §1.167): the page showed through the gap over the bar as
+  // it scrolled. The bar's holder sticks right under the header and fills that gap with the
+  // page's own ground.
   return (
-    <div className="ui-build-bar" data-testid="build-bar">
-      <nav aria-label="Sections of the build" className="ui-build-bar__links">
-        {links.map((l) => (
-          <button
-            key={l.id}
-            type="button"
-            className="ui-build-bar__link"
-            onClick={() => jump(l)}
-            data-testid={`build-jump-${l.id.replace("build-at-", "")}`}
-          >
-            {l.label}
-            {l.count ? <Count n={l.count} tone="warning" /> : null}
-          </button>
-        ))}
-      </nav>
-      {children}
+    <div className="ui-build-stick">
+      <div className="ui-build-bar" data-testid="build-bar">
+        <nav aria-label="Sections of the build" className="ui-build-bar__links">
+          {links.map((l) => (
+            <button
+              key={l.id}
+              type="button"
+              className="ui-build-bar__link"
+              onClick={() => jump(l)}
+              data-testid={`build-jump-${l.id.replace("build-at-", "")}`}
+            >
+              {l.label}
+              {l.count ? <Count n={l.count} tone="warning" /> : null}
+            </button>
+          ))}
+        </nav>
+        {children}
+      </div>
     </div>
   );
 }
@@ -1032,7 +1052,7 @@ function Next({
   );
 }
 
-/** Draft (§1.166): the phase's long fields are about this build and its client. */
+/** Draft (§1.168): the phase's long fields are about this build and its client. */
 function PhasePanel(props: Parameters<typeof PhaseBody>[0]) {
   const b = props.detail.build;
   return (
@@ -1087,8 +1107,9 @@ export function busyPath(paths: readonly string[]): string | null {
 }
 
 /**
- * The conversation's box after an issue's "Answer it" or a try's "Wrong": the "About …" start put
- * before what's typed there (FLOW-10, QA 2026-11-19: it replaced it). An earlier start is swapped.
+ * The conversation's box after a try's "Wrong": the "About …" start put before what's typed there
+ * (FLOW-10, QA 2026-11-19: it replaced it). An earlier start is swapped. An issue's "Answer it"
+ * opens its own box under the issue (owner, 2026-11-21).
  */
 export function aboutStart(title: string, typed: string): string {
   return `About “${title}”: ${typed.replace(/^About “[^”]*”: /, "")}`;
@@ -1164,64 +1185,69 @@ function IntakePanel({ detail, current, busy, act }: PanelProps) {
         ) : null
       }
     >
-      <dl className="flex flex-col">
+      {/* DECISION (owner, 2026-11-21, plan §1.167): "lets redesign this side". Each field's name
+          and how sure we are share a line; its words sit below at full width, in a box as tall
+          as they are. */}
+      <div className="flex flex-col">
         {BRIEF_FIELDS.map((k) => {
           const f = brief[k];
           return (
             <div
               key={k}
-              className="grid gap-2 border-b border-line px-6 py-3 last:border-b-0 md:grid-cols-[140px_minmax(0,1fr)_auto]"
+              className="flex flex-col gap-2 border-b border-line px-6 py-4 last:border-b-0"
+              data-testid={`build-brief-row-${k}`}
             >
-              <dt className="pt-1.5 text-sm text-ink-muted">{BRIEF_LABELS[k]}</dt>
-              <dd className="min-w-0">
-                {current ? (
-                  <TextArea
-                    aria-label={BRIEF_LABELS[k]}
-                    rows={Math.min(5, Math.max(1, Math.ceil((f?.text.length ?? 0) / 48)))}
-                    className="w-full"
-                    placeholder={BRIEF_HINTS[k]}
-                    value={f?.text ?? ""}
-                    data-testid={`build-brief-${k}`}
-                    assist={`build.brief.${k}`}
-                    onChange={(e) => set(k, { text: e.target.value })}
-                  />
-                ) : (
-                  <p className="pt-1.5 text-sm whitespace-pre-wrap text-ink">
-                    {f?.text || <span className="text-ink-muted">Not asked</span>}
-                  </p>
-                )}
-              </dd>
-              <dd className="pt-1">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-sm font-medium text-ink">{BRIEF_LABELS[k]}</span>
                 {current && f ? (
-                  <Select
-                    aria-label={`${BRIEF_LABELS[k]}: how sure`}
-                    value={f.state}
-                    // QA (2026-11-17, fourth run): a status change left the brief unsaved and
-                    // Confirm looked dead until "Save the brief". A status is one choice, not
-                    // typing: it saves at once, with the brief as it reads on screen.
-                    onChange={(e) => {
-                      const next: Brief = {
-                        ...brief,
-                        [k]: { ...f, state: e.target.value as BriefFieldState },
-                      };
-                      setBrief(next);
-                      void act(apiRoutes.opsUpdateBuild, { params: { id }, body: { brief: next } });
-                    }}
-                  >
+                  <fieldset className="ds-seg" aria-label={`${BRIEF_LABELS[k]}: how sure`}>
                     {BRIEF_STATES.map((s) => (
-                      <option key={s} value={s}>
+                      <button
+                        key={s}
+                        type="button"
+                        aria-pressed={f.state === s}
+                        data-testid={`build-brief-${k}-${s}`}
+                        // QA (2026-11-17, fourth run): a status change left the brief unsaved and
+                        // Confirm looked dead until "Save the brief". A status is one choice, not
+                        // typing: it saves at once, with the brief as it reads on screen.
+                        onClick={() => {
+                          if (f.state === s) return;
+                          const next: Brief = { ...brief, [k]: { ...f, state: s } };
+                          setBrief(next);
+                          void act(apiRoutes.opsUpdateBuild, {
+                            params: { id },
+                            body: { brief: next },
+                          });
+                        }}
+                      >
                         {BRIEF_STATE_WORDS[s]}
-                      </option>
+                      </button>
                     ))}
-                  </Select>
+                  </fieldset>
                 ) : f ? (
                   <Badge tone={BRIEF_STATE_TONE[f.state]}>{BRIEF_STATE_WORDS[f.state]}</Badge>
                 ) : null}
-              </dd>
+              </div>
+              {current ? (
+                <TextArea
+                  autoSize
+                  aria-label={BRIEF_LABELS[k]}
+                  rows={2}
+                  placeholder={BRIEF_HINTS[k]}
+                  value={f?.text ?? ""}
+                  data-testid={`build-brief-${k}`}
+                  assist={`build.brief.${k}`}
+                  onChange={(e) => set(k, { text: e.target.value })}
+                />
+              ) : (
+                <p className="text-sm leading-relaxed whitespace-pre-wrap text-ink">
+                  {f?.text || <span className="text-ink-muted">Not asked</span>}
+                </p>
+              )}
             </div>
           );
         })}
-      </dl>
+      </div>
     </Card>
   );
 }
@@ -1444,6 +1470,35 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
   );
 }
 
+/** An intake field's kind, the three side by side (Connect a tool, Answer, File). */
+function SetupKindChoice({
+  label,
+  value,
+  testId,
+  onChange,
+}: {
+  label: string;
+  value: SetupKind;
+  testId: string;
+  onChange: (kind: SetupKind) => void;
+}) {
+  return (
+    <fieldset className="ds-seg" aria-label={label} data-testid={testId}>
+      {SETUP_KINDS.map((k) => (
+        <button
+          key={k}
+          type="button"
+          aria-pressed={value === k}
+          data-testid={`${testId}-${k}`}
+          onClick={() => onChange(k)}
+        >
+          {SETUP_WORDS[k]}
+        </button>
+      ))}
+    </fieldset>
+  );
+}
+
 /**
  * A template's client intake form: what we get from each client to set up their copy. The Builder
  * drafts it in the fit-gap; the operator edits, adds and takes fields out, and saves with the
@@ -1492,23 +1547,17 @@ function SetupFormCard({
             <TextInput
               aria-label="New intake field"
               placeholder="Something to ask each client"
-              className="w-auto min-w-0 flex-1"
+              className="w-auto min-w-60 flex-1"
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               data-testid="build-setup-new"
             />
-            <Select
-              aria-label="Kind of field"
-              className="w-44"
+            <SetupKindChoice
+              label="Kind of field"
               value={kind}
-              onChange={(e) => setKind(e.target.value as SetupKind)}
-            >
-              {SETUP_KINDS.map((k) => (
-                <option key={k} value={k}>
-                  {SETUP_WORDS[k]}
-                </option>
-              ))}
-            </Select>
+              testId="build-setup-new-kind"
+              onChange={setKind}
+            />
             <Button size="sm" type="submit" disabled={!label.trim()} data-testid="build-setup-add">
               Add
             </Button>
@@ -1518,84 +1567,95 @@ function SetupFormCard({
     >
       {fields.length === 0 ? (
         <p className="px-6 py-5 text-sm text-ink-muted">
-          The Builder drafts the form with the fit-gap: the tools each client connects, the packs
-          they need, and the answers and files we ask for.
+          The Builder drafts the form with the fit-gap: the tools each client connects, and the
+          answers and files we ask for.
         </p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-line bg-surface-subtle text-left text-xs text-ink-muted">
-                <th className="px-4 py-2.5 font-medium">What we ask</th>
-                <th className="px-4 py-2.5 font-medium">Kind</th>
-                <th className="px-4 py-2.5 font-medium">Why, or an example</th>
-                <th className="px-4 py-2.5 font-medium">Ask it</th>
-              </tr>
-            </thead>
-            <tbody>
-              {fields.map((f) => (
-                <tr
-                  key={f.id}
-                  className="border-b border-line align-top last:border-b-0"
-                  data-testid={`build-setup-${f.id}`}
-                >
-                  <td className={cx("px-4 py-3", f.dropped && "text-ink-muted line-through")}>
-                    {current && !f.dropped ? (
-                      <TextInput
-                        aria-label={`Field: ${f.label}`}
-                        value={f.label}
-                        onChange={(e) => edit(f.id, { label: e.target.value })}
-                      />
-                    ) : (
-                      f.label
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    {current && !f.dropped ? (
-                      <Select
-                        aria-label={`Kind: ${f.label}`}
-                        className="w-40"
-                        value={f.kind}
-                        onChange={(e) => edit(f.id, { kind: e.target.value as SetupKind })}
-                      >
-                        {SETUP_KINDS.map((k) => (
-                          <option key={k} value={k}>
-                            {SETUP_WORDS[k]}
-                          </option>
-                        ))}
-                      </Select>
-                    ) : (
-                      <Tag>{SETUP_WORDS[f.kind]}</Tag>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-ink-muted">
-                    {current && !f.dropped ? (
-                      <TextInput
-                        aria-label={`Hint: ${f.label}`}
-                        value={f.hint}
-                        assist={{ field: "build.setup.hint", ref: `setup:${f.id}` }}
-                        onChange={(e) => edit(f.id, { hint: e.target.value })}
-                      />
-                    ) : (
-                      f.hint
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <input
-                      type="checkbox"
-                      className="size-4 accent-[var(--slate)]"
-                      aria-label={`Ask it: ${f.label}`}
-                      checked={!f.dropped}
-                      disabled={!current}
-                      data-testid={`build-setup-${f.id}-ask`}
-                      onChange={(e) => edit(f.id, { dropped: !e.target.checked })}
+        // DECISION (owner, 2026-11-21, plan §1.167): "you can't read the fields". One block per
+        // field, each part at full width: the question, its kind, why we ask (or an example), and
+        // whether we ask it.
+        <ul className="flex flex-col">
+          {fields.map((f) => {
+            const editing = current && !f.dropped;
+            return (
+              <li
+                key={f.id}
+                className="flex flex-col gap-3 border-b border-line px-6 py-4 last:border-b-0"
+                data-testid={`build-setup-${f.id}`}
+              >
+                {editing ? (
+                  <Field label="What we ask">
+                    <TextArea
+                      autoSize
+                      rows={1}
+                      aria-label={`Field: ${f.label}`}
+                      value={f.label}
+                      onChange={(e) => edit(f.id, { label: e.target.value })}
+                      data-testid={`build-setup-${f.id}-label`}
                     />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  </Field>
+                ) : (
+                  <p
+                    className={cx(
+                      "text-sm font-medium text-ink",
+                      f.dropped && "text-ink-muted line-through",
+                    )}
+                  >
+                    {f.label}
+                  </p>
+                )}
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  {editing ? (
+                    <SetupKindChoice
+                      label={`Kind: ${f.label}`}
+                      value={f.kind}
+                      testId={`build-setup-${f.id}-kind`}
+                      onChange={(kind) => edit(f.id, { kind })}
+                    />
+                  ) : (
+                    <Tag>{SETUP_WORDS[f.kind]}</Tag>
+                  )}
+                  <button
+                    type="button"
+                    className="ds-choice text-sm disabled:cursor-default disabled:opacity-60"
+                    role="switch"
+                    aria-checked={!f.dropped}
+                    aria-label={`Ask it: ${f.label}`}
+                    disabled={!current}
+                    data-testid={`build-setup-${f.id}-ask`}
+                    onClick={() => edit(f.id, { dropped: !f.dropped })}
+                  >
+                    <span className="ds-switch" />
+                    {f.dropped ? "Not asked" : "Ask it"}
+                  </button>
+                </div>
+                {editing ? (
+                  <Field label="Why, or an example">
+                    <TextArea
+                      autoSize
+                      rows={1}
+                      aria-label={`Hint: ${f.label}`}
+                      placeholder="Why we need it, or an example answer"
+                      value={f.hint}
+                      onChange={(e) => edit(f.id, { hint: e.target.value })}
+                      data-testid={`build-setup-${f.id}-hint`}
+                      assist={{ field: "build.setup.hint", ref: `setup:${f.id}` }}
+                    />
+                  </Field>
+                ) : f.hint ? (
+                  <p
+                    className={cx(
+                      "text-sm leading-relaxed text-ink-muted",
+                      f.dropped && "line-through",
+                    )}
+                  >
+                    {f.hint}
+                  </p>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
       )}
     </Card>
   );
@@ -2594,10 +2654,17 @@ function QaPanel({ detail, current, busy, act }: PanelProps) {
 const OWNERS: BuildItemOwner[] = ["operator", "builder", "client", "engineering"];
 const STATES: BuildItemState[] = ["open", "in_progress", "waiting", "done", "deferred"];
 
+/** A select in a row's meta line: as wide as its longest choice, so its words are never cut. */
+const META_SELECT = "h-7 w-auto text-xs";
+
+type Item = BuildDetail["items"][number];
+
 /**
  * The build's issues (core's `buildIssues`): its open items, the draft's problems, failing tests,
  * the client's rejected writes and QA's failing checks, open ones first. Owner (2026-11-17): each
  * can be talked about in the conversation, its thread shown again, or all walked through in turn.
+ * Owner (2026-11-21): one row each, its words at full width, and closed out where it's listed: a
+ * question answered under it, a gap's choice sent to the Builder, a note or precondition done.
  */
 function ItemsPanel({
   fold,
@@ -2608,7 +2675,8 @@ function ItemsPanel({
   onWalk,
   busy,
   act,
-  onAnswer,
+  onSay,
+  voice,
 }: {
   /** Folds the card (the page keeps it, so its jump link can open it). */
   fold?: Fold | undefined;
@@ -2622,22 +2690,40 @@ function ItemsPanel({
   onWalk?: (() => void) | undefined;
   busy: string | null;
   act: Act;
-  /** Starts an answer to an open question in the conversation's box. */
-  onAnswer?: ((title: string) => void) | undefined;
+  /** Says something to the Builder about an issue (its key), as the conversation does. */
+  onSay?: ((text: string, key: string) => Promise<boolean>) | undefined;
+  /** Dictation for the answer box. */
+  voice?: Voice | undefined;
 }) {
   const id = detail.build.id;
   const [title, setTitle] = useState("");
   const [owner, setOwner] = useState<BuildItemOwner>("operator");
+  // The one answer box open (its issue's key) and its words.
+  const [answering, setAnswering] = useState<{ key: string; text: string } | null>(null);
   // Open ones first, then the first few of them; the one the conversation is on always shows.
   const rows = useFirstRows([...issues.filter((i) => i.open), ...issues.filter((i) => !i.open)], {
-    keep: (i) => i.key === focus,
+    keep: (i) => i.key === focus || i.key === answering?.key,
     noun: "issues",
     testId: "build-issues-more",
   });
   const openCount = issues.filter((i) => i.open).length;
   const closed = issues.length - openCount;
   const editable = detail.build.status === "open";
+  const off = isBusy(busy);
   const items = new Map(detail.items.map((i) => [i.id, i]));
+  const update = (
+    i: Item,
+    body: NonNullable<CallOptions<typeof apiRoutes.opsUpdateBuildItem>["body"]>,
+  ) => void act(apiRoutes.opsUpdateBuildItem, { params: { id, itemId: i.id }, body });
+  // DECISION (docs/plan.md §1.166): an answer is a turn about the issue (`about: item:<id>`), as
+  // the conversation's own words are when it is on that issue; the Builder fills the brief and
+  // closes the question. The box closes at once; if the Builder couldn't take the words, they
+  // come back.
+  const answer = async (key: string, text: string, typed: string) => {
+    if (!onSay) return;
+    setAnswering(null);
+    if (!(await onSay(text, key))) setAnswering((now) => now ?? { key, text: typed });
+  };
   const talk = (issue: BuildIssue) =>
     onTalk ? (
       <span className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
@@ -2662,6 +2748,76 @@ function ItemsPanel({
         ) : null}
       </span>
     ) : null;
+  /** What closes an open item, by its kind, then the conversation's links. */
+  const actions = (issue: BuildIssue, i: Item) => {
+    const live = editable && itemOpen(i.state);
+    const say = live ? onSay : undefined;
+    const buttons = !say ? null : i.kind === "question" ? (
+      <>
+        {answering?.key === issue.key ? null : (
+          <Button
+            size="sm"
+            disabled={off}
+            onClick={() => setAnswering({ key: issue.key, text: "" })}
+            data-testid={`build-item-${i.id}-answer`}
+          >
+            Answer it
+          </Button>
+        )}
+        <CloseMenu
+          choices={CLOSE_CHOICES}
+          disabled={off}
+          testId={`build-item-${i.id}-close`}
+          onPick={(c) =>
+            update(
+              i,
+              c === "deferred"
+                ? { state: "deferred" }
+                : c === "done"
+                  ? { state: "done" }
+                  : { state: "done", detail: withNote(i.detail, NOT_NEEDED_NOTE) },
+            )
+          }
+        />
+      </>
+    ) : i.kind === "gap" ? (
+      GAP_CHOICES.map((c) => (
+        <Button
+          key={c.key}
+          size="sm"
+          disabled={off}
+          onClick={() => void say(TO_BUILDER.gap[c.key](i.title), issue.key)}
+          data-testid={`build-item-${i.id}-gap-${c.key}`}
+        >
+          {c.label}
+        </Button>
+      ))
+    ) : null;
+    // A note or a precondition is done by a click, whoever settled it.
+    const done =
+      live && (i.kind === "note" || i.kind === "precondition") ? (
+        <Button
+          size="sm"
+          disabled={off}
+          onClick={() => update(i, { state: "done" })}
+          data-testid={`build-item-${i.id}-done`}
+        >
+          Done
+        </Button>
+      ) : null;
+    if (!buttons && !done && !onTalk) return null;
+    return (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        {buttons || done ? (
+          <span className="flex flex-wrap items-center gap-2">
+            {buttons}
+            {done}
+          </span>
+        ) : null}
+        {talk(issue)}
+      </div>
+    );
+  };
   return (
     <Card
       testId="build-items"
@@ -2675,7 +2831,7 @@ function ItemsPanel({
             <Button
               size="sm"
               variant="ghost"
-              disabled={isBusy(busy)}
+              disabled={off}
               onClick={onWalk}
               data-testid="build-issues-walk"
             >
@@ -2703,7 +2859,7 @@ function ItemsPanel({
             <TextInput
               aria-label="New issue"
               placeholder="Something left to do"
-              className="w-auto min-w-0 flex-1"
+              className="w-auto min-w-0 flex-1 basis-full sm:basis-0"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               data-testid="build-item-new"
@@ -2723,7 +2879,7 @@ function ItemsPanel({
             <Button
               size="sm"
               type="submit"
-              disabled={isBusy(busy) || !title.trim()}
+              disabled={off || !title.trim()}
               working={busy === apiRoutes.opsAddBuildItem.path}
               data-testid="build-item-add"
             >
@@ -2738,123 +2894,96 @@ function ItemsPanel({
           Nothing left to settle yet. The Builder and the phases add issues as they go.
         </p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-line bg-surface-subtle text-left text-xs text-ink-muted">
-                <th className="px-4 py-2.5 font-medium">Issue</th>
-                <th className="px-4 py-2.5 font-medium">From</th>
-                <th className="px-4 py-2.5 font-medium">Who has it</th>
-                <th className="px-4 py-2.5 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.shown.map((issue) => {
-                const i = issue.itemId ? items.get(issue.itemId) : undefined;
-                if (!i) {
-                  return (
-                    <tr
-                      key={issue.key}
-                      className={cx(
-                        "border-b border-line align-top last:border-b-0",
-                        focus === issue.key && "bg-slate-tint",
-                      )}
-                      data-testid={`build-issue-${issue.key}`}
-                    >
-                      <td className="px-4 py-3">
-                        <div className="flex flex-col gap-1">
-                          <span className="flex flex-wrap items-center gap-2">
-                            <Tag>{ISSUE_SOURCE_WORDS[issue.source]}</Tag>
-                            <span className="font-medium text-ink">{issue.title}</span>
-                          </span>
-                          {issue.detail ? (
-                            <p className="text-xs text-ink-muted">{issue.detail}</p>
-                          ) : null}
-                          {talk(issue)}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-ink-muted">{PHASE_WORDS[issue.phase].label}</td>
-                      <td className="px-4 py-3 text-ink-muted">
-                        {issue.source === "problem" || issue.source === "case" ? "Builder" : "You"}
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge
-                          tone={
-                            !issue.open
-                              ? "positive"
-                              : issue.source === "rejection"
-                                ? "person"
-                                : issue.source === "decision"
-                                  ? "warning"
-                                  : "risk"
-                          }
-                        >
-                          {issue.state}
-                        </Badge>
-                      </td>
-                    </tr>
-                  );
-                }
+        <>
+          <ul className="flex flex-col" aria-label="Issues">
+            {rows.shown.map((issue) => {
+              const i = issue.itemId ? items.get(issue.itemId) : undefined;
+              const row = cx(
+                "flex min-w-0 flex-col gap-1.5 border-b border-line px-4 py-3 last:border-b-0 sm:px-5",
+                focus === issue.key && "bg-slate-tint",
+              );
+              if (!i) {
                 return (
-                  <tr
-                    key={i.id}
-                    id={`build-item-${i.id}`}
-                    className={cx(
-                      "border-b border-line align-top last:border-b-0",
-                      focus === issue.key && "bg-slate-tint",
-                    )}
-                    data-testid={`build-item-${i.id}`}
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex flex-col gap-1">
-                        <span className="flex flex-wrap items-center gap-2">
-                          <Tag testId={`build-item-${i.id}-kind`}>
-                            {ITEM_KIND_WORDS[i.kind]?.label ?? i.kind}
-                          </Tag>
-                          <span
-                            className={cx(
-                              "font-medium text-ink",
-                              !itemOpen(i.state) && "text-ink-muted line-through",
-                            )}
-                          >
-                            {i.title}
-                          </span>
+                  <li key={issue.key} className={row} data-testid={`build-issue-${issue.key}`}>
+                    <span className="flex flex-wrap items-center gap-2">
+                      <Tag>{ISSUE_SOURCE_WORDS[issue.source]}</Tag>
+                      <span className="min-w-0 font-medium break-words text-ink">
+                        {issue.title}
+                      </span>
+                    </span>
+                    {issue.detail ? (
+                      <p className="text-sm break-words text-ink-muted">{issue.detail}</p>
+                    ) : null}
+                    <MetaLine>
+                      <span>From {PHASE_WORDS[issue.phase].label}</span>
+                      <span>
+                        Who has it:{" "}
+                        <span className="text-ink">
+                          {issue.source === "problem" || issue.source === "case"
+                            ? "Builder"
+                            : "You"}
                         </span>
-                        {i.detail ? <p className="text-xs text-ink-muted">{i.detail}</p> : null}
-                        {itemOpen(i.state) ? (
-                          <p className="text-xs text-ink" data-testid={`build-item-${i.id}-how`}>
-                            <span className="text-ink-muted">To settle it: </span>
-                            {ITEM_KIND_WORDS[i.kind]?.how}
-                            {i.kind === "question" && onAnswer ? (
-                              <>
-                                {" "}
-                                <button
-                                  type="button"
-                                  className="ds-btn ds-btn--link text-xs"
-                                  data-testid={`build-item-${i.id}-answer`}
-                                  onClick={() => onAnswer(i.title)}
-                                >
-                                  Answer it
-                                </button>
-                              </>
-                            ) : null}
-                          </p>
-                        ) : null}
-                        {talk(issue)}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-ink-muted">{PHASE_WORDS[i.phase].label}</td>
-                    <td className="px-4 py-3">
-                      {editable ? (
+                      </span>
+                      <Badge
+                        tone={
+                          !issue.open
+                            ? "positive"
+                            : issue.source === "rejection"
+                              ? "person"
+                              : issue.source === "decision"
+                                ? "warning"
+                                : "risk"
+                        }
+                      >
+                        {issue.state}
+                      </Badge>
+                    </MetaLine>
+                    {talk(issue)}
+                  </li>
+                );
+              }
+              return (
+                <li
+                  key={i.id}
+                  id={`build-item-${i.id}`}
+                  className={row}
+                  data-testid={`build-item-${i.id}`}
+                >
+                  <span className="flex flex-wrap items-center gap-2">
+                    <Tag testId={`build-item-${i.id}-kind`}>
+                      {ITEM_KIND_WORDS[i.kind]?.label ?? i.kind}
+                    </Tag>
+                    <span
+                      className={cx(
+                        "min-w-0 font-medium break-words text-ink",
+                        !itemOpen(i.state) && "text-ink-muted line-through",
+                      )}
+                    >
+                      {i.title}
+                    </span>
+                  </span>
+                  {i.detail ? (
+                    <p className="text-sm break-words whitespace-pre-line text-ink-muted">
+                      {i.detail}
+                    </p>
+                  ) : null}
+                  {itemOpen(i.state) ? (
+                    <p className="text-xs text-ink" data-testid={`build-item-${i.id}-how`}>
+                      <span className="text-ink-muted">To settle it: </span>
+                      {ITEM_KIND_WORDS[i.kind]?.how}
+                    </p>
+                  ) : null}
+                  <MetaLine>
+                    <span>From {PHASE_WORDS[i.phase].label}</span>
+                    {editable ? (
+                      <span className="flex items-center gap-1.5">
+                        Who has it
                         <Select
                           aria-label={`Who has it: ${i.title}`}
+                          className={META_SELECT}
                           value={i.owner}
-                          onChange={(e) =>
-                            void act(apiRoutes.opsUpdateBuildItem, {
-                              params: { id, itemId: i.id },
-                              body: { owner: e.target.value as BuildItemOwner },
-                            })
-                          }
+                          data-testid={`build-item-${i.id}-owner`}
+                          onChange={(e) => update(i, { owner: e.target.value as BuildItemOwner })}
                         >
                           {OWNERS.map((o) => (
                             <option key={o} value={o}>
@@ -2862,24 +2991,21 @@ function ItemsPanel({
                             </option>
                           ))}
                         </Select>
-                      ) : (
-                        <Badge tone={i.owner === "client" ? "person" : "neutral"}>
-                          {OWNER_WORDS[i.owner]}
-                        </Badge>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {editable ? (
+                      </span>
+                    ) : (
+                      <span>
+                        Who has it: <span className="text-ink">{OWNER_WORDS[i.owner]}</span>
+                      </span>
+                    )}
+                    {editable ? (
+                      <span className="flex items-center gap-1.5">
+                        Status
                         <Select
                           aria-label={`Status: ${i.title}`}
+                          className={META_SELECT}
                           value={i.state}
                           data-testid={`build-item-${i.id}-state`}
-                          onChange={(e) =>
-                            void act(apiRoutes.opsUpdateBuildItem, {
-                              params: { id, itemId: i.id },
-                              body: { state: e.target.value as BuildItemState },
-                            })
-                          }
+                          onChange={(e) => update(i, { state: e.target.value as BuildItemState })}
                         >
                           {STATES.map((s) => (
                             <option key={s} value={s}>
@@ -2887,18 +3013,63 @@ function ItemsPanel({
                             </option>
                           ))}
                         </Select>
-                      ) : (
-                        <Badge tone={ITEM_TONE[i.state]}>{ITEM_STATE_WORDS[i.state]}</Badge>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      </span>
+                    ) : (
+                      <Badge tone={ITEM_TONE[i.state]}>{ITEM_STATE_WORDS[i.state]}</Badge>
+                    )}
+                  </MetaLine>
+                  {actions(issue, i)}
+                  {answering?.key === issue.key ? (
+                    <ReplyBox
+                      label={`Your answer: ${i.title}`}
+                      placeholder="Your answer. The Builder puts it in the brief."
+                      send="Send answer"
+                      value={answering.text}
+                      onChange={(text) => setAnswering({ key: issue.key, text })}
+                      onSend={(text) =>
+                        void answer(issue.key, TO_BUILDER.answer(i.title, text), text)
+                      }
+                      onCancel={() => setAnswering(null)}
+                      voice={voice}
+                      busy={off}
+                      testId={`build-item-${i.id}-answer-box`}
+                      assist={{
+                        field: "build.item.answer",
+                        ref: `item:${i.id}`,
+                        context: {
+                          buildId: id,
+                          clientId: detail.build.client?.id ?? detail.build.testClient?.id,
+                        },
+                      }}
+                    />
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
           {rows.more}
-        </div>
+        </>
       )}
     </Card>
+  );
+}
+
+/** A row's meta line: where it came from · who has it · its status, in full words. */
+function MetaLine({ children }: { children: ReactNode[] }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-ink-muted sm:gap-x-2">
+      {children.map((c, n) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: a fixed list of three parts
+        <span key={n} className="flex items-center gap-2">
+          {/* On a phone the parts wrap, and a dot would start a line. */}
+          {n > 0 ? (
+            <span aria-hidden className="hidden sm:inline">
+              ·
+            </span>
+          ) : null}
+          {c}
+        </span>
+      ))}
+    </div>
   );
 }

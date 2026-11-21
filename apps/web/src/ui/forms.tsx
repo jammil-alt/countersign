@@ -4,21 +4,24 @@ import {
   type InputHTMLAttributes,
   lazy,
   type ReactNode,
+  type Ref,
   type RefObject,
   type SelectHTMLAttributes,
   Suspense,
   type TextareaHTMLAttributes,
+  useEffect,
+  useLayoutEffect,
   useRef,
 } from "react";
 import type { AssistSpec } from "./assist-scope";
 import { cx } from "./cx";
 import { Icon } from "./icons";
 
-// docs/plan.md §1.166: Draft loads with the first field that turns it on, not in the first load.
+// docs/plan.md §1.168: Draft loads with the first field that turns it on, not in the first load.
 const FieldDraft = lazy(() => import("./assist").then((m) => ({ default: m.FieldDraft })));
 
 /**
- * A control with Draft (`assist`, docs/plan.md §1.166): the control, then a Draft button under it
+ * A control with Draft (`assist`, docs/plan.md §1.168): the control, then a Draft button under it
  * on the right. The button's place is kept while it loads, so nothing moves.
  */
 function Assisted({
@@ -91,7 +94,7 @@ export function Field({
   );
 }
 
-/** Draft for this field (docs/plan.md §1.166): its id, and what it is about. Off when left out. */
+/** Draft for this field (docs/plan.md §1.168): its id, and what it is about. Off when left out. */
 type WithAssist = { assist?: AssistSpec | undefined };
 
 export function TextInput({
@@ -127,20 +130,63 @@ export function TextInput({
   );
 }
 
+/** A textarea as tall as what's in it: no inner scroll, no clipped lines. */
+export function fitHeight(el: HTMLTextAreaElement): void {
+  const style = getComputedStyle(el);
+  const border =
+    (Number.parseFloat(style.borderTopWidth) || 0) +
+    (Number.parseFloat(style.borderBottomWidth) || 0);
+  // With the height let go, scrollHeight is the words' height or `rows` lines, whichever is more.
+  el.style.height = "auto";
+  el.style.height = `${el.scrollHeight + border}px`;
+}
+
+/**
+ * DECISION (plan §1.167): `autoSize`: the box grows and shrinks with its words, `rows` lines at
+ * least (owner, 2026-11-21: a brief capped at five lines cut long text off mid-line). It fits
+ * again when its width changes, since the words wrap differently.
+ */
 export function TextArea({
   invalid,
   className,
+  autoSize = false,
   assist,
+  ref: outer,
   ...rest
-}: TextareaHTMLAttributes<HTMLTextAreaElement> & { invalid?: boolean } & WithAssist) {
-  const ref = useRef<HTMLTextAreaElement>(null);
+}: TextareaHTMLAttributes<HTMLTextAreaElement> & {
+  invalid?: boolean;
+  autoSize?: boolean;
+  ref?: Ref<HTMLTextAreaElement> | undefined;
+} & WithAssist) {
+  const own = useRef<HTMLTextAreaElement | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fit again when the words change.
+  useLayoutEffect(() => {
+    if (autoSize && own.current) fitHeight(own.current);
+  }, [autoSize, rest.value, rest.rows]);
+  useEffect(() => {
+    const el = own.current;
+    if (!autoSize || !el || typeof ResizeObserver === "undefined") return;
+    let wide = el.offsetWidth;
+    const watch = new ResizeObserver(() => {
+      if (el.offsetWidth === wide) return;
+      wide = el.offsetWidth;
+      fitHeight(el);
+    });
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [autoSize]);
   const area = (
     <textarea
       {...rest}
-      ref={assist ? ref : undefined}
+      ref={(el) => {
+        own.current = el;
+        if (typeof outer === "function") outer(el);
+        else if (outer) outer.current = el;
+      }}
       aria-invalid={invalid || undefined}
       className={cx(
         "ds-textarea leading-relaxed disabled:opacity-60",
+        autoSize && "resize-none overflow-hidden",
         width(className),
         invalid && "ds-input--error",
         className,
@@ -151,7 +197,7 @@ export function TextArea({
   return (
     <Assisted
       assist={assist}
-      target={ref}
+      target={own}
       testId={(rest as { "data-testid"?: string })["data-testid"]}
       className={className}
     >

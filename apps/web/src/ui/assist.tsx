@@ -1,4 +1,4 @@
-// Draft (docs/plan.md §1.166): a long text field's "Draft" button. It opens a small sheet to jot
+// Draft (docs/plan.md §1.168): a long text field's "Draft" button. It opens a small sheet to jot
 // notes in (or dictate them, where the browser can record); Write it asks the API for the field's
 // text in its own format and length, from the notes and what the field holds now. The draft shows
 // as a suggestion with Use it, Try again and Cancel: nothing in the field changes until Use it.

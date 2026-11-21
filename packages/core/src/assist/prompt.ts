@@ -1,4 +1,4 @@
-// Draft (docs/plan.md §1.166): the model's prompt for one field. The system prompt is made only
+// Draft (docs/plan.md §1.168): the model's prompt for one field. The system prompt is made only
 // from the field's descriptor and the language; the operator's notes, the field's text and the
 // records the server loaded go in the user message, each inside its own tag and escaped, as data
 // (invariant 9). The model answers through one tool, `write_field`, checked with Zod.

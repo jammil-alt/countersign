@@ -1,4 +1,4 @@
-// Draft (docs/plan.md §1.166): a long text field in the back office written from the operator's
+// Draft (docs/plan.md §1.168): a long text field in the back office written from the operator's
 // notes. The field's descriptor (core's `ASSIST_FIELDS`) makes the system prompt; the records the
 // field may use are loaded here by id, inside the operator's own clients (row-level security and
 // the scope checks the field's own routes use), never taken as text from the browser. The notes,

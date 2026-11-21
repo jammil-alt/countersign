@@ -1,6 +1,6 @@
 // Per-person limits on the portal routes that call a paid model on each request (audit 5.9):
 // plain-words questions (POST /api/runs/ask) and voice typing (POST /api/transcribe), and the back
-// office's Draft (POST /api/ops/assist/draft, docs/plan.md §1.166). Each call a
+// office's Draft (POST /api/ops/assist/draft, docs/plan.md §1.168). Each call a
 // person makes is first claimed as an `audit_event` row (`metered <kind>`, the person and the
 // client), in a short transaction that commits before the model is called; past the minute's or
 // the day's allowance the request is refused with 429 and the model is never called.
@@ -17,14 +17,19 @@ export type MeteredKind = "runs.ask" | "transcribe" | "assist.draft";
 /**
  * Each person's allowance per client: a short burst, then a rolling day.
  */
-// DECISION: 10 a minute and 200 in any 24 hours, per person, per client, per kind: a person asking
-// or dictating by hand stays far below both, a script is stopped within a minute. Rolling windows,
-// so no client's time zone decides when a day starts.
+// DECISION: questions: 10 a minute and 200 in any 24 hours, per person, per client: a person asking
+// by hand stays far below both, a script is stopped within a minute. Rolling windows, so no
+// client's time zone decides when a day starts.
+// DECISION (2026-11-21, live dictation, docs/plan.md §1.109): voice typing sends a recording in
+// segments of five to eight seconds while the person speaks (apps/web/src/ui/dictation.ts), at most
+// 12 a minute from one composer, so a call is now a segment, not a dictation (it was 10 a minute
+// and 200 a day). 30 a minute leaves room for the 12 and a second tab; 1,500 a day is about two
+// hours of speech in five-second segments. A script is still stopped within a minute.
 export const METERED_LIMITS: Record<MeteredKind, { perMinute: number; perDay: number }> = {
   "runs.ask": { perMinute: 10, perDay: 200 },
-  transcribe: { perMinute: 10, perDay: 200 },
-  // DECISION (§1.166): more a minute for Draft, since a brief has nine fields drafted one after
-  // another, each with a Try again; a script is still stopped within a minute.
+  transcribe: { perMinute: 30, perDay: 1500 },
+  // DECISION (§1.168): more a minute for Draft than for questions, since a brief has nine fields
+  // drafted one after another, each with a Try again; a script is still stopped within a minute.
   "assist.draft": { perMinute: 20, perDay: 300 },
 };
 

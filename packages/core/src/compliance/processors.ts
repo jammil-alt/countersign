@@ -186,7 +186,7 @@ export const VOICE_FEATURE = {
 } as const;
 
 /**
- * Draft (docs/plan.md §1.166): a long text field in the back office drafted from the operator's
+ * Draft (docs/plan.md §1.168): a long text field in the back office drafted from the operator's
  * notes. The notes, the field's text and the records it is about (a build's brief, a deal, a
  * client file) go to the model's vendor, Anthropic on Mezonas' key, as the Builder's do. A client
  * in HIPAA mode is refused it until `anthropic` is covered; a field about no client (a template's

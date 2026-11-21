@@ -1,4 +1,4 @@
-// Draft (docs/plan.md §1.166) through the API, with a scripted model: a field is drafted from the
+// Draft (docs/plan.md §1.168) through the API, with a scripted model: a field is drafted from the
 // operator's notes with the records it may use loaded by id; the notes go in as data, never in the
 // system prompt; the draft is cut to the field's length; a client's field is written in the
 // client's language; only operators reach it, an unserved client or build is not found, a client

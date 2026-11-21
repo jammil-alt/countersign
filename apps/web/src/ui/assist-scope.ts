@@ -1,4 +1,4 @@
-// Draft (docs/plan.md §1.166): what a long text field turns Draft on with, and the records a part
+// Draft (docs/plan.md §1.168): what a long text field turns Draft on with, and the records a part
 // of a page is about. A page sets the scope once (a build's page: the build and its client), and
 // each field names only its own id and, where it has one, the thing it is about (`ref`). Types
 // only from core, so the forms that take `assist` add nothing to the first load.

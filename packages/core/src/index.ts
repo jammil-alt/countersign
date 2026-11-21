@@ -19,7 +19,7 @@ export * from "./api/adjust";
 export * from "./api/all-routes";
 export * from "./api/approver-rules";
 export * from "./api/assigned";
-// docs/plan.md §1.166: Draft for long text fields
+// docs/plan.md §1.168: Draft for long text fields
 export * from "./api/assist";
 // v0.12 W2-B: automations
 export * from "./api/automations";

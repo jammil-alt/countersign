@@ -1,4 +1,4 @@
-// Draft (docs/plan.md §1.166): the back office's long text fields that can be drafted from the
+// Draft (docs/plan.md §1.168): the back office's long text fields that can be drafted from the
 // operator's notes. One descriptor per field id: what the field is called, what it is for and what
 // good looks like, its format, its most characters, who reads it (the client's language when a
 // client does) and which records the server may load as context for it. The API's system prompt is
@@ -146,6 +146,34 @@ const OTHER_FIELDS = {
     shape: "message",
     rules: ["Write as the operator talking to the Builder, in the first person."],
     maxLength: 2000,
+    audience: "operator",
+    uses: ["build", "brief", "ref"],
+    needs: "buildId",
+  },
+  "build.item.answer": {
+    label: "Your answer to the Builder's question",
+    purpose:
+      "The operator's answer to one open question on a build, typed in the box under the question; the Builder puts it in the brief and closes the question. Good: the answer first, then the facts, numbers, names and tools from the notes, so the question needs no follow-up.",
+    shape: "paragraph",
+    rules: [
+      "Answer only the question in <about>, as the operator, in the first person.",
+      "Don't repeat the question.",
+    ],
+    maxLength: 2000,
+    audience: "operator",
+    uses: ["build", "brief", "ref"],
+    needs: "buildId",
+  },
+  "build.decision.change": {
+    label: "What the decision should be",
+    purpose:
+      "On one of the Builder's decisions, what it should be instead, sent to the Builder to rewrite the decision. Good: the new choice or value first (a number, a person, a rule), then why in one sentence, so the Builder can rewrite it without asking.",
+    shape: "paragraph",
+    rules: [
+      "Say what the decision in <about> should be, not what it is now.",
+      "Two or three sentences at most.",
+    ],
+    maxLength: 1000,
     audience: "operator",
     uses: ["build", "brief", "ref"],
     needs: "buildId",

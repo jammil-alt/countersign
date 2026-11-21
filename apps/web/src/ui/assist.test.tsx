@@ -1,4 +1,4 @@
-// Draft (docs/plan.md §1.166) on a long text field: the button opens a sheet for notes; Write it
+// Draft (docs/plan.md §1.168) on a long text field: the button opens a sheet for notes; Write it
 // sends the field's id, the notes, what the field holds and the page's records by id; the draft
 // shows as a suggestion, and only Use it puts it in the field (through the screen's own onChange).
 // Cancel leaves the field as it was; Try again asks again; a refusal is said in the sheet.
@@ -7,6 +7,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 import { ApiProvider } from "../api/useApi";
+import { ReplyBox } from "../ops/builds/closeout";
 import { fakeApi, Reply } from "../test/fixtures";
 import { AssistScope, type AssistSpec } from "./assist-scope";
 import { Field, TextArea, TextInput } from "./forms";
@@ -147,5 +148,55 @@ describe("Draft", () => {
     expect(await screen.findByText(/HIPAA mode/)).toBeInTheDocument();
     expect(screen.queryByTestId("goal-draft-use")).toBeNull();
     expect(screen.getByTestId("saved")).toHaveTextContent("Old goal");
+  });
+
+  it("drafts the answer under a question, about that item, and Use it fills the box", async () => {
+    const u = userEvent.setup();
+    const bodies: unknown[] = [];
+    const api = fakeApi({
+      [PATH]: ({ init }) => {
+        bodies.push(JSON.parse(String(init.body)));
+        return { text: "Net 30, from the invoice date." };
+      },
+    });
+    function Answer() {
+      const [text, setText] = useState("");
+      return (
+        <ReplyBox
+          label="Your answer"
+          placeholder="Your answer"
+          send="Send answer"
+          value={text}
+          onChange={setText}
+          onSend={() => {}}
+          onCancel={() => {}}
+          busy={false}
+          testId="answer"
+          assist={{
+            field: "build.item.answer",
+            ref: "item:0190a0b0-0000-7000-8000-000000000002",
+            context: { buildId: BUILD },
+          }}
+        />
+      );
+    }
+    render(
+      <ApiProvider client={api.client}>
+        <Answer />
+      </ApiProvider>,
+    );
+    await u.click(await screen.findByTestId("answer-input-draft"));
+    await u.type(await screen.findByTestId("answer-input-draft-notes"), "net 30 from invoice");
+    await u.click(screen.getByTestId("answer-input-draft-write"));
+    await screen.findByTestId("answer-input-draft-suggestion");
+    await u.click(screen.getByTestId("answer-input-draft-use"));
+    expect(screen.getByTestId("answer-input")).toHaveValue("Net 30, from the invoice date.");
+    expect(bodies).toEqual([
+      {
+        field: "build.item.answer",
+        notes: "net 30 from invoice",
+        context: { buildId: BUILD, ref: "item:0190a0b0-0000-7000-8000-000000000002" },
+      },
+    ]);
   });
 });
