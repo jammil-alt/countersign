@@ -103,7 +103,7 @@ export function Rail(props: RailProps) {
         aria-label="Add a step"
         data-testid="flow-rail"
         data-folded=""
-        className="flex h-full w-10 flex-col items-center gap-3 border-r border-line bg-surface py-3"
+        className="flex h-full w-10 flex-col items-center gap-3 border-r border-line bg-surface py-3 max-[900px]:w-full max-[900px]:flex-row max-[900px]:border-r-0 max-[900px]:px-4"
       >
         <button
           type="button"
@@ -118,7 +118,7 @@ export function Rail(props: RailProps) {
         <button
           type="button"
           onClick={() => fold(false)}
-          className="flex items-center gap-1.5 text-xs text-ink-muted [writing-mode:vertical-rl] hover:text-ink"
+          className="flex items-center gap-1.5 text-xs text-ink-muted [writing-mode:vertical-rl] hover:text-ink max-[900px]:[writing-mode:horizontal-tb]"
         >
           <Icon name="add" />
           Add a step
@@ -136,7 +136,7 @@ export function Rail(props: RailProps) {
     <aside
       aria-label="Add a step"
       data-testid="flow-rail"
-      className="flex h-full min-h-0 w-64 flex-col border-r border-line bg-surface"
+      className="flex h-full min-h-0 w-64 flex-col border-r border-line bg-surface max-[900px]:w-full max-[900px]:border-r-0"
     >
       <div className="flex flex-col gap-2 border-b border-line px-4 pt-3 pb-3">
         <div className="flex items-center justify-between">

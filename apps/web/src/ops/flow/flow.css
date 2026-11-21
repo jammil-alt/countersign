@@ -799,12 +799,20 @@
     .flow-host__body {
       flex-direction: column;
     }
+    /* The chart comes first on a phone, then the step's panel, then the rail to add from. */
     .flow-host__stage {
       flex: none;
       height: 70vh;
+      order: 1;
     }
     .flow-host__side {
       width: 100%;
+      order: 2;
+    }
+    .flow-host__rail {
+      width: 100%;
+      order: 3;
+      border-top: 1px solid var(--line);
     }
     .flow-host__sheet {
       border-top: 1px solid var(--line);
