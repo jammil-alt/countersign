@@ -1395,7 +1395,7 @@ a.ui-stat--link:focus-visible {
  * waits in it, and, while the Builder works, what it is doing, with a slate line running along the
  * bar's foot. It stays in sight wherever the page is scrolled, so the faded buttons read as "wait",
  * not "broken".
- * DECISION (plan §1.165): its holder (`.ui-build-stick`) is what sticks (owner, 2026-11-21: the
+ * DECISION (plan §1.167): its holder (`.ui-build-stick`) is what sticks (owner, 2026-11-21: the
  * page showed through the gap over the bar): right under the header, with the gap filled by the
  * page's own ground. Its negative margin keeps the bar where it sat. On a wide screen the ground runs left over the
  * gutter and the conversation's column too, whose card sticks the same gap below the header. */

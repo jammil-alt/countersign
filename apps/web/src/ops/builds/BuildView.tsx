@@ -913,7 +913,7 @@ function BuildBar({ links, children }: { links: JumpLink[]; children: ReactNode 
       document.getElementById(l.id)?.scrollIntoView?.({ behavior: "smooth", block: "start" }),
     );
   };
-  // DECISION (owner, 2026-11-21, plan §1.165): the page showed through the gap over the bar as
+  // DECISION (owner, 2026-11-21, plan §1.167): the page showed through the gap over the bar as
   // it scrolled. The bar's holder sticks right under the header and fills that gap with the
   // page's own ground.
   return (
@@ -1148,7 +1148,7 @@ function IntakePanel({ detail, current, busy, act }: PanelProps) {
         ) : null
       }
     >
-      {/* DECISION (owner, 2026-11-21, plan §1.165): "lets redesign this side". Each field's name
+      {/* DECISION (owner, 2026-11-21, plan §1.167): "lets redesign this side". Each field's name
           and how sure we are share a line; its words sit below at full width, in a box as tall
           as they are. */}
       <div className="flex flex-col">
@@ -1533,7 +1533,7 @@ function SetupFormCard({
           answers and files we ask for.
         </p>
       ) : (
-        // DECISION (owner, 2026-11-21, plan §1.165): "you can't read the fields". One block per
+        // DECISION (owner, 2026-11-21, plan §1.167): "you can't read the fields". One block per
         // field, each part at full width: the question, its kind, why we ask (or an example), and
         // whether we ask it.
         <ul className="flex flex-col">

@@ -6150,7 +6150,7 @@ read-only copy of the portal's agent page inside the back office.
 | Its answer | `GET /api/ops/clients/:id/agents/:agentId/client-view` (`opsClientAgentView`): operator-only, and its response is the portal's `ServiceDetail` schema object itself, from the portal route's own function (`serviceDetail`) under `narrowToTenant` (withTenant's scope for that one client, inside the request's transaction), through `mount()` for the audit row. A client the operator doesn't serve, or another client's agent, is not found. KPI labels are in the client's language (no reader). Contract tests pin the shared schema and its lack of forbidden fields. // DECISION |
 | What it draws | The portal page's Overview drawn with the portal's own parts, moved to `portal/screens/agentParts.tsx` (its state chip, this month's figures, its run rows): the header, this month's figures, its recent runs, and on the rail how many runs wait on the client. No Pause, Run now, inbox items, upload or form; no link into the portal (figures are not links, runs open the back office's run page). The portal's other tabs (Runs, Manual, Settings) and its pack views are not copied: each asks portal routes of its own. // DECISION |
 
-### 1.165 The build page's forms, read at full width (owner, 2026-11-21; no migration)
+### 1.167 The build page's forms, read at full width (owner, 2026-11-21; no migration)
 
 The owner on `/ops/builds/:id` (staging feedback): the brief ("lets redesign this side"), the client
 intake form ("you can't read the fields"), the gap over the sticky bar, and the composer's hint

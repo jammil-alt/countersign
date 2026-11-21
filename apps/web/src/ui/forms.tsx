@@ -83,7 +83,7 @@ export function fitHeight(el: HTMLTextAreaElement): void {
 }
 
 /**
- * DECISION (plan §1.165): `autoSize`: the box grows and shrinks with its words, `rows` lines at
+ * DECISION (plan §1.167): `autoSize`: the box grows and shrinks with its words, `rows` lines at
  * least (owner, 2026-11-21: a brief capped at five lines cut long text off mid-line). It fits
  * again when its width changes, since the words wrap differently.
  */
