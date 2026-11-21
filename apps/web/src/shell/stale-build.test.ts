@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { isStaleBuildError, reloadForNewBuild } from "./stale-build";
+import {
+  isReloadingForNewBuild,
+  isStaleBuildError,
+  reloadForNewBuild,
+  watchForNewBuild,
+} from "./stale-build";
 
 function memoryStore() {
   const map = new Map<string, string>();
@@ -48,5 +53,23 @@ describe("reloadForNewBuild", () => {
     };
     expect(reloadForNewBuild(broken, reload, 1)).toBe(false);
     expect(reload).not.toHaveBeenCalled();
+  });
+});
+
+describe("watchForNewBuild", () => {
+  it("starts the reload but leaves Vite's event uncancelled, so the import fails as itself", () => {
+    // Cancelled, Vite resolves the import with undefined and React.lazy crashes (MEZONAS-WEB-5).
+    const target = new EventTarget();
+    const reload = vi.fn(() => true);
+    watchForNewBuild(target as unknown as Window, reload);
+    const event = new Event("vite:preloadError", { cancelable: true });
+    target.dispatchEvent(event);
+    expect(reload).toHaveBeenCalledOnce();
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it("knows the page is reloading once a reload has started", () => {
+    reloadForNewBuild(memoryStore(), vi.fn(), 5_000_000);
+    expect(isReloadingForNewBuild()).toBe(true);
   });
 });
