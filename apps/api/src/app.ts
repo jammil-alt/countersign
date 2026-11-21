@@ -55,6 +55,7 @@ import { accessRoutes } from "./routes/access";
 // v0.12 W2-D: Sloan, the account agent
 import { accountRoutes } from "./routes/account";
 import { approverRuleRoutes } from "./routes/approver-rules";
+import { assistDraftRoutes } from "./routes/assist";
 import { auditExportRoutes } from "./routes/audit-export";
 // §1.124 back office work: Reggie and Autopilot
 import { autopilotRoutes } from "./routes/autopilot";
@@ -330,6 +331,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   welcomeRoutes(app);
   // docs/plan.md §1.109: voice typing
   voiceRoutes(app);
+  // docs/plan.md §1.168: Draft for long text fields
+  assistDraftRoutes(app);
   directoryRoutes(app);
   // The back office's chart of accounts (docs/plan.md §1.79).
   ledgerRoutes(app);

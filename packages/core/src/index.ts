@@ -19,6 +19,8 @@ export * from "./api/adjust";
 export * from "./api/all-routes";
 export * from "./api/approver-rules";
 export * from "./api/assigned";
+// docs/plan.md §1.168: Draft for long text fields
+export * from "./api/assist";
 // v0.12 W2-B: automations
 export * from "./api/automations";
 // docs/plan.md §1.124.4: Reggie and Autopilot.
@@ -152,6 +154,8 @@ export * from "./api/work";
 // v0.14 W4-B
 export * from "./api/zoho";
 export * from "./approvals/rules";
+export * from "./assist/fields";
+export * from "./assist/prompt";
 // P-3: attachments both ways
 export * from "./attachments";
 export * from "./billing";
