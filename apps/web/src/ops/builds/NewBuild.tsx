@@ -2,12 +2,16 @@
 // in the agent lab ... they do the same thing now"): every new template, client agent or skill
 // starts as a build (docs/plan.md §1.108), so it gets its brief, fit-gap, draft and tests. The
 // build's page takes it from there.
+// Owner (2026-11-21, docs/plan.md §1.164): "we are taking a few simple steps and making it into a
+// huge challenge". An agent described here is drafted at once: the build opens on its page and the
+// Builder drafts it from these words, with no questions first. Left empty, the build starts with
+// the Builder's questions as before.
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { ErrorNotice } from "../../ui/ErrorState";
-import { Field, Select, TextInput } from "../../ui/forms";
+import { Field, Select, TextArea, TextInput } from "../../ui/forms";
 import { Button, Card } from "../../ui/primitives";
 import { buildPath } from "./words";
 
@@ -27,6 +31,13 @@ const PLACEHOLDER: Record<NewKind, string> = {
   skill: "Group invoices by customer",
 };
 
+/** What the build's page reads from the router to draft at once (`BuildView`'s intake). */
+export interface DraftNowState {
+  draftNow: string;
+}
+
+export const DESCRIPTION_MAX = 4000;
+
 export function isNewKind(v: string | null): v is NewKind {
   return (NEW_KINDS as readonly string[]).includes(v ?? "");
 }
@@ -44,11 +55,15 @@ export function NewBuild({
   const [kind, setKind] = useState<NewKind>(initial);
   const [title, setTitle] = useState("");
   const [clientId, setClientId] = useState("");
+  const [description, setDescription] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   // A client agent is for one client; a template is for every client; a skill may be either.
   const needsClient = kind === "client" && !clientId;
   const ready = !!title.trim() && !needsClient;
+  // A skill is drafted in its own Builder conversation, so it has no description here.
+  const describes = kind !== "skill";
+  const words = describes ? description.trim() : "";
   const clientList = clients.data?.clients ?? [];
   // FLOW-8 (QA 2026-11-19): Start was off for a client agent with no client picked, and the only
   // word why was a tooltip. Said on the form: the clients couldn't be read, there's none to pick,
@@ -77,7 +92,10 @@ export function NewBuild({
           ...(kind !== "template" && clientId ? { clientId } : {}),
         },
       });
-      navigate(buildPath(out.build.id));
+      navigate(
+        buildPath(out.build.id),
+        words ? { state: { draftNow: words } satisfies DraftNowState } : undefined,
+      );
     } catch (e) {
       setError(e);
     } finally {
@@ -94,8 +112,9 @@ export function NewBuild({
         }}
       >
         <p className="text-sm text-ink-muted">
-          It starts as a build: the brief, the fit-gap, the draft, a test on synthetic data, a
-          client's trial and QA. It shows under Drafts until it goes live.
+          {describes
+            ? "Say what it should do and the Builder drafts it at once. It decides what you leave open and lists each decision, and you change it after. It shows under Drafts until it goes live."
+            : "It starts as a build: the brief, the fit-gap, the draft and a test. It shows under Drafts until it goes live."}
         </p>
         <div className="flex flex-wrap gap-4">
           <fieldset className="ds-seg self-end" aria-label="What it builds">
@@ -138,6 +157,22 @@ export function NewBuild({
             </Field>
           )}
         </div>
+        {describes ? (
+          <Field
+            label="What should it do?"
+            hint="In your own words: what starts it, what it reads, what it does and who approves. Skip what you don't know. Leave it empty to start with the Builder's questions."
+          >
+            <TextArea
+              rows={5}
+              className="w-full"
+              maxLength={DESCRIPTION_MAX}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Every weekday at 4 pm, text each field person and ask how their open tasks are going. Turn each answer into a task update and ask the project manager to approve it."
+              data-testid="builds-start-description"
+            />
+          </Field>
+        ) : null}
         {clientsFailed ? <ErrorNotice error={clients.error} onRetry={clients.reload} /> : null}
         {error ? <ErrorNotice error={error} /> : null}
         <div className="flex flex-wrap items-center gap-2">
@@ -147,7 +182,13 @@ export function NewBuild({
             disabled={busy || !ready}
             data-testid="builds-start-go"
           >
-            {busy ? "Starting…" : "Start the build"}
+            {busy
+              ? "Starting…"
+              : words
+                ? "Build it"
+                : describes
+                  ? "Start with questions"
+                  : "Start the build"}
           </Button>
           <Button variant="ghost" onClick={onCancel}>
             Cancel

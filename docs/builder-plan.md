@@ -208,3 +208,81 @@ fit-gap record (as the intake form is), the manual and the checklist's items in 
 definition, a client's answers as a new version of its copy (the "client settings" class), the
 confirmations that guard a stage in the copy's `agent.stage_state`, client charters and policies in
 the knowledge base.
+
+## 11. Simplify: describe, draft, try, turn on (2026-11-21)
+
+Owner, 2026-11-21: "Simplify, simplify, simplify... apply defaults to the settings and make
+decisions and tweak after it is built." What was found is in `docs/plan.md` §1.164. Sections 3 to
+9 above kept the six phases and changed what happens inside them. This section changes the flow.
+
+### 11.1 Where it goes
+
+One page, three steps, and the build ends when the client's trial starts:
+
+| Step | The operator | The platform |
+|---|---|---|
+| **Describe** | Says what it should do, in a few sentences. | Drafts it at once, with the defaults below. Nothing is asked. |
+| **Try** | Gives one real example and reads what each step did. Says what is wrong in the conversation. | Runs it as a test (nothing is written). Changes the draft from what the operator says, with Undo. |
+| **Turn on** | Picks the client and presses one button. | Publishes, copies, binds, runs a test at the client and starts the trial. What the client still owes is one short list. |
+
+After that the agent's own lifecycle takes over, as it does today: the trial (every write signed),
+the client's sign-off, live (§1.36).
+
+### 11.2 The defaults
+
+Decided for the operator, written down as decisions, changed after if wanted:
+
+| Setting | Default | Already so |
+|---|---|---|
+| Approval | On for every write | Yes (the guards, invariant 8) |
+| Mode | Suggests only | Yes |
+| A part the catalog lacks | A person does it for now; it is a gap, put off | Step 1 |
+| What starts it | What the description says; else by hand | Step 1 (the Builder decides) |
+| Who is asked, who approves | The client's team (the client's default approver) | Step 1 (the Builder decides) |
+| A threshold nobody gave | Strict: more goes to a person | Yes |
+| A deadline nobody gave | The Builder's choice, stopping when nobody answers | Yes (the schema's `ifNoAnswer: stop`) |
+| Models | The platform's default; a step's own only when needed | Yes |
+| Budgets | 12 steps and $0.50 a run | Yes (the schema) |
+| Oversight | Reviews its failed steps | Yes |
+| Connections | The client's own, bound for it | Step 1 |
+| What the client is asked at setup | Worked out by code from the draft: the tools it uses, the people it names | Step 4 |
+| The trial | 14 days and 25 runs, every write signed | Yes |
+
+### 11.3 What leaves the operator's path
+
+| Today | After |
+|---|---|
+| The brief: nine fields, three states each, and its second look | The description. "What it does" in the manual is written from it. |
+| The fit-gap: five verdicts, three scopes, overrides, challenges | The draft's gaps: "a person does this for now". |
+| The client intake form, edited by hand | The setup checklist, by code from the draft (§6). |
+| Open items: seven kinds, four owners, five states | One list of what holds turning it on. |
+| Decisions with four statuses | A plain list with Change. (The high-risk check: 11.5, question 2.) |
+| Proposals to agree one at a time | A change to the draft is made when asked for, with Undo. (11.5, question 3.) |
+| The test data plan and made-up cases | Tries on real examples. Made-up cases stay behind a link. |
+| Client test, QA checklist, go / no-go | The agent's trial and the client's sign-off, which exist. |
+
+### 11.4 Steps
+
+| # | What | Size | Status |
+|---|---|---|---|
+| S1 | **Draft it now**: a description, one model call, a draft that runs; a client's agent bound to its connections; the way past the questions for builds in intake. | Small, no migration | Built 2026-11-21 (`docs/plan.md` §1.164) |
+| S2 | **Try on the build's page for a client's agent** (today only a template has the Try card; a client build needs a test run the page can't start), and a try as soon as the draft exists, with no move to a POC phase first. | Medium | Waits on 11.5 |
+| S3 | **Change it by saying so**: a draft edit asked for in the conversation is made at once and can be undone, with no card to agree. | Small | Waits on 11.5, question 3 |
+| S4 | **Turn on in one button**: publish, copy, bind, the test run at the client and the trial's start in one action; what is missing shown as one list (connect, allow, who), by code from the draft and the agent's readiness (§1.161). | Medium | Waits on 11.5 |
+| S5 | **One page**: Draft, Try, Turn on. The brief, fit-gap, test plan and QA cards leave the page for new builds; the build closes when the trial starts. | Large (the build page) | Waits on 11.5, question 1 |
+| S6 | Run the Progress updating and invoice intake builds again on staging and count the actions (G1). Target: under 10. | Owner | After S2 |
+
+### 11.5 For the owner
+
+1. **One page, three steps (S5).** This retires the intake, fit-gap, POC plan and QA screens for
+   new builds, which §1.108 set as the flow on 2026-11-15. Recommended: yes.
+2. **The high-risk check.** Agreed on 2026-11-19 (§4.2): a high-risk decision must be looked at
+   before the client test. Every template that writes has at least one, so every build stops
+   there. Approval is on by default and the trial signs every write whatever the draft says.
+   Recommended: show high-risk decisions first, and stop holding the build on them.
+3. **Agree cards for draft edits (S3).** Recommended: make the change when asked and offer Undo;
+   keep the card for what can't be undone (a code request, going back a phase).
+4. **Where a quick build's Try runs (S2).** A template tries in the Sandbox. A client's agent would
+   try at that client, as a test run, which reads the client's real tools and writes nothing.
+   Recommended: yes, as test runs already do.
+

@@ -116,6 +116,7 @@ import {
   toHttpError,
 } from "../http";
 import { reportHandled, reportProblem } from "../observability/report";
+import { bindTestCopy } from "./ops-agents";
 import { builderContext, builderHttpError } from "./ops-builder";
 
 /**
@@ -1423,14 +1424,34 @@ function doneText(summary: string, next: BuildIssue | undefined, changed: string
 async function makeDraft(
   ctx: LongCtx,
   row: BuildRow,
-): Promise<{ set: Partial<BuildRow>; decisions: DecisionDraft[]; kept: boolean }> {
-  const description = draftDescription(row, readBrief(row.brief), readFitGap(row.fitgap));
+  // docs/plan.md §1.164: draft it now gives its own description and asks for a draft that runs.
+  atOnce: { description: string } | null = null,
+): Promise<{
+  set: Partial<BuildRow>;
+  decisions: DecisionDraft[];
+  kept: boolean;
+  summary?: string;
+  gaps?: string[];
+}> {
+  const description =
+    atOnce?.description ?? draftDescription(row, readBrief(row.brief), readFitGap(row.fitgap));
   if (row.kind === "agent") {
     if (row.agentId) return { set: {}, decisions: [], kept: true };
     const out = await call(ctx, routes.opsDraftAgent, {
-      body: { description, name: row.title, ...(row.clientId ? { clientId: row.clientId } : {}) },
+      body: {
+        description,
+        name: row.title,
+        ...(row.clientId ? { clientId: row.clientId } : {}),
+        ...(atOnce ? { worksFirst: true } : {}),
+      },
     });
-    return { set: { agentId: out.agent.id }, decisions: out.decisions ?? [], kept: false };
+    return {
+      set: { agentId: out.agent.id },
+      decisions: out.decisions ?? [],
+      kept: false,
+      summary: out.summary,
+      gaps: out.gaps,
+    };
   }
   if (row.sessionId) return { set: {}, decisions: [], kept: true };
   const started = await call(ctx, routes.opsStartBuilderSession, {
@@ -1586,6 +1607,219 @@ async function writeDraftFromBuild(ctx: LongCtx, id: string, phase: BuildPhase):
       build: id,
     });
   }
+}
+
+/** Draft it now: the description the Builder drafts from, with whatever the brief already says. */
+export function nowDescription(
+  row: Pick<BuildRow, "title" | "kind" | "clientId">,
+  brief: Brief,
+  fitgap: FitGap,
+  given: string | null,
+): string {
+  if (!given) return draftDescription(row, brief, fitgap);
+  // The operator's own words stand in for the goal; anything else the brief holds follows them.
+  const { goal: _goal, ...rest } = brief;
+  const more = draftDescription(row, rest, fitgap).split("\n").slice(1).join("\n").trim();
+  const text = [`${row.title}.`, given, more].filter(Boolean).join("\n\n");
+  return text.length > 4000 ? `${sliceWhole(text, 3990)}…` : text;
+}
+
+/** What the Builder says after a draft made at once: what it built, what it decided, what's next. */
+export function draftedNowText(o: {
+  summary: string;
+  decisions: number;
+  gaps: readonly string[];
+  bound: number;
+  problems: number;
+}): string {
+  const lines = [`I drafted it from your description. ${o.summary.trim()}`];
+  if (o.decisions > 0) {
+    lines.push(
+      `I made ${o.decisions === 1 ? "1 decision" : `${o.decisions} decisions`} to get it running instead of asking: ${o.decisions === 1 ? "it is" : "they are"} under Decisions, and you can change any of them by telling me.`,
+    );
+  }
+  if (o.gaps.length > 0) {
+    lines.push(
+      `${o.gaps.length === 1 ? "One part has" : `${o.gaps.length} parts have`} nothing in the catalog yet, so a person does ${o.gaps.length === 1 ? "it" : "them"} for now: ${o.gaps.join(" ")}`,
+    );
+  }
+  if (o.bound > 0) {
+    lines.push(
+      `I bound it to ${o.bound === 1 ? "the client's connection it uses" : `the client's ${o.bound} connections it uses`}.`,
+    );
+  }
+  lines.push(
+    o.problems === 0
+      ? "It has no problems. Next: move to the POC test and try it on a real example, then tell me what to change."
+      : `${o.problems === 1 ? "1 problem is" : `${o.problems} problems are`} left before it can be tried; ask me about ${o.problems === 1 ? "it" : "them"}, or open the workflow.`,
+  );
+  return lines.join("\n\n");
+}
+
+/**
+ * Draft it now (docs/plan.md §1.164): an agent build goes from its intake or fit-gap straight to
+ * its draft, made from the operator's description (or the brief as it is). No questions, no brief
+ * review and no fit-gap: the Builder decides what it can and records each decision, a person does
+ * what the catalog can't (a gap, put off), and a client's agent is bound to that client's
+ * connections. Nothing here loosens anything: the draft's writes keep approval on (the guards),
+ * and what it may do at a client is still that client's connection settings.
+ */
+// DECISION (owner, 2026-11-21): "we are taking a few simple steps and making it into a huge
+// challenge... apply defaults to the settings and make decisions and tweak after it is built".
+// The phases stay (a build can still go back to its intake or fit-gap with a reason); this is the
+// way past them. Agent builds only: a skill is drafted in its own Builder conversation.
+async function draftNow(ctx: LongCtx, id: string, given: string | null): Promise<void> {
+  const userId = ctx.session.user.id;
+  // 1. The build is an open agent build with no draft yet, and there is something to draft from.
+  //    The move is claimed by the phase, as a move into the draft is (STATE-1).
+  const row = await ctx.inTx(async (scoped) => {
+    const r = await readBuild(scoped.tx, id, true);
+    refuseClosed(r);
+    if (r.kind !== "agent") {
+      throw new HttpError(422, "not_an_agent", "a skill is drafted in its own conversation");
+    }
+    if (r.phase !== "intake" && r.phase !== "fitgap") {
+      throw new HttpError(409, "same_phase", "this build already has its draft");
+    }
+    if (r.agentId) {
+      throw new HttpError(409, "has_draft", "this build already has a draft: move on to it");
+    }
+    const brief = readBrief(r.brief);
+    if (!given && !brief.goal?.text.trim()) {
+      throw new HttpError(400, "nothing_to_draft", "say what it should do first");
+    }
+    // The operator's words are kept: in the conversation whole, and as the brief's goal (as far
+    // as a field holds) when it has none, so the manual's "What it does" has them.
+    const next: Brief =
+      given && !brief.goal?.text.trim()
+        ? { ...brief, goal: { text: sliceWhole(given, 1000), state: "assumed" } }
+        : brief;
+    // Messages are insert only, so a second try after a failed draft doesn't say them twice.
+    if (given) {
+      const [last] = await scoped.tx
+        .select({ role: buildMessage.role, text: buildMessage.text })
+        .from(buildMessage)
+        .where(eq(buildMessage.buildId, r.id))
+        .orderBy(desc(buildMessage.createdAt), desc(buildMessage.id))
+        .limit(1);
+      if (last?.role !== "operator" || last.text !== given) {
+        await addMessage(scoped.tx, r, { role: "operator", text: given });
+      }
+    }
+    await scoped.tx.update(build).set({ brief: next, phase: "draft" }).where(eq(build.id, r.id));
+    return { ...r, brief: next };
+  });
+  const from = row.phase;
+  const unchanged = (r: BuildRow) => r.phase === "draft" && r.agentId === row.agentId;
+  const putBack = async (tx: Tx, r: BuildRow) => {
+    if (unchanged(r)) await tx.update(build).set({ phase: from }).where(eq(build.id, id));
+  };
+  // 2. The draft, outside any transaction.
+  let made: Awaited<ReturnType<typeof makeDraft>>;
+  try {
+    made = await makeDraft(ctx, row, {
+      description: nowDescription(row, readBrief(row.brief), readFitGap(row.fitgap), given),
+    });
+  } catch (error) {
+    await ctx.inTx(async (scoped) => putBack(scoped.tx, await readBuild(scoped.tx, id, true)));
+    throw error;
+  }
+  const gaps = (made.gaps ?? []).slice(0, 10);
+  // 3. The move, its record, the decisions and the gaps a person covers for now.
+  const done = await ctx.inTx(async (scoped) => {
+    const r = await readBuild(scoped.tx, id, true);
+    if (r.status !== "open" || !unchanged(r)) {
+      await putBack(scoped.tx, r);
+      return { refused: r.status !== "open" ? r.status : "moved", bound: 0 };
+    }
+    const fitgap = readFitGap(r.fitgap);
+    await scoped.tx
+      .update(build)
+      .set({
+        ...made.set,
+        ...(made.decisions.length > 0
+          ? { fitgap: { ...fitgap, decisions: mergeDecisions(fitgap.decisions, made.decisions) } }
+          : {}),
+        phase: "draft",
+        phaseAt: now(),
+      })
+      .where(eq(build.id, id));
+    await addEvent(scoped.tx, r, {
+      kind: "phase",
+      from,
+      to: "draft",
+      reason: "Drafted at once from the description, without the questions or the fit-gap.",
+      userId,
+    });
+    await addEvent(scoped.tx, r, {
+      kind: "record",
+      payload: { brief: readBrief(r.brief) },
+      userId,
+    });
+    await addItems(
+      scoped.tx,
+      r,
+      gaps.map((g, i) => ({
+        phase: "draft" as const,
+        kind: "gap" as const,
+        title: clip(g, 300),
+        detail:
+          "Not in the catalog yet, so a person does this part in the first version. Build it when the runs show it is worth it.",
+        owner: "builder" as const,
+        state: "deferred" as const,
+        key: `now:gap:${i}`,
+      })),
+      userId,
+    );
+    // A client's agent is bound to that client's connections, as its operator would bind it.
+    let bound = 0;
+    const agentId = made.set.agentId;
+    if (r.clientId && agentId) {
+      const agentRow = await getAgent(scoped.tx, agentId);
+      const latest = await latestVersion(scoped.tx, agentId);
+      const parsed = latest ? AnyAgentBundle.safeParse(latest.bundle) : null;
+      if (parsed?.success) {
+        const after = await bindTestCopy(
+          { tx: scoped.tx, services: ctx.services, session: ctx.session },
+          agentRow,
+          parsed.data,
+        );
+        bound = Object.keys(after.bindings).length - Object.keys(agentRow.bindings).length;
+      }
+    }
+    return { refused: null, bound };
+  });
+  if (done.refused) {
+    const orphan = made.set.agentId;
+    if (orphan) {
+      await call(ctx, routes.opsDiscardAgent, { params: { id: orphan } }).catch((error: unknown) =>
+        reportHandled("discarding a draft made for a refused draft-now failed", error, {
+          kind: "build",
+          build: id,
+        }),
+      );
+    }
+    throw done.refused === "moved"
+      ? new HttpError(409, "moved", "the build moved while this ran: look at it again")
+      : new HttpError(409, "build_closed", `this build is ${done.refused}`);
+  }
+  // 4. The manual and a template's setup checklist, as any move into the draft writes them.
+  await writeDraftFromBuild(ctx, id, "draft");
+  await ctx.inTx(async (scoped) => {
+    const r = await readBuild(scoped.tx, id, true);
+    if (r.status !== "open" || r.phase !== "draft") return;
+    const detail = await detailIn(scoped, ctx.services, r);
+    await addMessage(scoped.tx, r, {
+      role: "builder",
+      text: draftedNowText({
+        summary: made.summary ?? "",
+        decisions: made.decisions.length,
+        gaps,
+        bound: done.bound,
+        problems: detail.draft?.problems.length ?? 0,
+      }),
+    });
+  });
 }
 
 async function move(
@@ -2186,6 +2420,15 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
       ctx.params.id,
       ctx.body.to,
       ctx.body.reason ?? null,
+    );
+    return detailOf(ctx, ctx.params.id);
+  });
+
+  mountLong(app, routes.opsDraftBuildNow, async (ctx) => {
+    await draftNow(
+      long(ctx.c, ctx.session, ctx.services, ctx.inTx),
+      ctx.params.id,
+      ctx.body.description ?? null,
     );
     return detailOf(ctx, ctx.params.id);
   });

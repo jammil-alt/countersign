@@ -366,6 +366,19 @@ agent manual, the setup checklist, client adjustments and feedback, and governan
 | G12 | Feedback on the manual and requests past the bounds arrive as issues with what they are about on their created event; the **area owner's suggestions** (§10.15) don't read that link yet, so the operator turns them into a change by hand. | Code. |
 | G13 | A client user who isn't limited reads "What you can adjust"; only the client admin changes it. Owner to confirm the client user may read it. | Owner decision. |
 
+### Builds, simplified (owner, 2026-11-21; `docs/plan.md` §1.164, `docs/builder-plan.md` §11)
+
+Step 1 is built: an agent described in the lab's New is drafted at once (one model call, a draft
+that runs, a client's agent bound to its connections), and a build in intake can skip the
+questions. Left:
+
+| # | What | Notes |
+|---|---|---|
+| S-A | **Owner: the four answers** in `docs/builder-plan.md` §11.5 (one page with three steps; the high-risk check; agree cards for draft edits; where a client build's try runs). | S2 to S5 wait on them. |
+| S-B | **Try it on staging**: New → Template → describe it → "Build it", on the Progress updating agent. The works-first rules have run against a scripted model only; the Builder's evals (§1.108) have no case for them yet. | Owner, once merged. Code: an eval case. |
+| S-C | A client build's draft is still held by what its connection doesn't allow, and its POC by a test run the build's page can't start. | Code: S2 and S4. |
+| S-D | A skill build has no draft-it-now. | Code, if wanted. |
+
 ### Sign-in codes and the Claude connector (owner, 2026-11-10)
 
 | # | Step | Notes |

@@ -3343,6 +3343,16 @@ rules and tighten, never loosen an approval, change a permission or change the p
 as "How Mezonas agents work". Each document has a version, and what a step read (tier, source, id,
 version) is recorded on its model call.
 
+**Draft it now (owner, 2026-11-21; `docs/plan.md` §1.164).** An agent build can skip its intake
+and fit-gap: the operator describes the work and the Builder drafts it at once, in one model
+call. The drafter is asked for a draft that runs: it decides what the description leaves open
+and records each decision, and where the catalog has no part a person step does that piece (a
+gap, put off), never a missing step. A client's agent drafted this way is bound to that client's
+connections. Nothing is loosened: its writes keep approval on, and what it may do at a client is
+still the connection's settings, the grant and the gate (invariants 8 and 13). The phases and
+gates after the draft are unchanged; the plan to fold them into one page (describe, try, turn
+on) is `docs/builder-plan.md` §11.
+
 #### Not in v0.20
 
 Counting how often runs hit each known risk; deleting learned notes from the manual; marking a

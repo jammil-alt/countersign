@@ -58,7 +58,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { type CallOptions, isApiError } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
@@ -71,6 +71,7 @@ import { Badge, Button, Card, Count, cx, Loading, Tag } from "../../ui/primitive
 import { DecisionsCard } from "./decisions";
 import { type Fold, useFirstRows, useFold } from "./fold";
 import { AboutLink, FocusBar, ProposalCard } from "./issues";
+import type { DraftNowState } from "./NewBuild";
 import { problemAdvice, problemWhere } from "./problems";
 import { RequirementsCard } from "./RequirementsCard";
 import { TryCard } from "./TryCard";
@@ -866,15 +867,19 @@ function WorkingStrip({
   }, [busy]);
   if (!busy || !shown) return null;
   const label =
-    busy === apiRoutes.opsMoveBuild.path
-      ? NEXT_WORKING[phase]
-      : busy === apiRoutes.opsBuildTurn.path || busy === apiRoutes.opsBuildProposal.path || talking
-        ? "The Builder is working on it…"
-        : busy === apiRoutes.opsBuildCases.path
-          ? "The Builder is making the test cases…"
-          : busy === apiRoutes.opsBuildRunTests.path
-            ? "Starting the test cases…"
-            : "Saving…";
+    busy === apiRoutes.opsDraftBuildNow.path
+      ? DRAFTING_NOW
+      : busy === apiRoutes.opsMoveBuild.path
+        ? NEXT_WORKING[phase]
+        : busy === apiRoutes.opsBuildTurn.path ||
+            busy === apiRoutes.opsBuildProposal.path ||
+            talking
+          ? "The Builder is working on it…"
+          : busy === apiRoutes.opsBuildCases.path
+            ? "The Builder is making the test cases…"
+            : busy === apiRoutes.opsBuildRunTests.path
+              ? "Starting the test cases…"
+              : "Saving…";
   return (
     <div className="ui-build-bar__working" data-testid="build-working">
       <Thinking
@@ -929,6 +934,10 @@ function BuildBar({ links, children }: { links: JumpLink[]; children: ReactNode 
     </div>
   );
 }
+
+/** What the Builder is doing while it drafts at once (docs/plan.md §1.164). */
+const DRAFTING_NOW =
+  "The Builder is drafting it from your description. It decides what's open; this takes a minute or two…";
 
 /** What the Builder is doing while a phase's move runs. */
 const NEXT_WORKING: Record<BuildPhase, string> = {
@@ -1049,6 +1058,7 @@ const isBusy = (busy: string | null) => busy !== null;
 /** Moves between phases: the longest requests, and the one the page says it's working on first. */
 const MOVES: readonly string[] = [
   apiRoutes.opsMoveBuild.path,
+  apiRoutes.opsDraftBuildNow.path,
   apiRoutes.opsBuildClientTest.path,
   apiRoutes.opsBuildDecision.path,
 ];
@@ -1075,6 +1085,22 @@ function IntakePanel({ detail, current, busy, act }: PanelProps) {
   const id = detail.build.id;
   const [brief, setBrief] = useWorkingCopy<Brief>(detail.build.brief);
   const dirty = JSON.stringify(brief) !== JSON.stringify(detail.build.brief);
+  // docs/plan.md §1.164: a build started with a description (the lab's New) is drafted as its page
+  // opens, once: the words leave the router's state first, so a reload doesn't ask again (the
+  // server would refuse it anyway: the build has its draft).
+  const location = useLocation();
+  const navigate = useNavigate();
+  const wanted = (location.state as Partial<DraftNowState> | null)?.draftNow;
+  const asked = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: asked once, when the page opens.
+  useEffect(() => {
+    if (!wanted || asked.current || !current || detail.build.kind !== "agent") return;
+    asked.current = true;
+    navigate({ pathname: location.pathname, search: location.search }, { replace: true });
+    void act(apiRoutes.opsDraftBuildNow, { params: { id }, body: { description: wanted } });
+  }, [wanted, current]);
+  const draftingNow = busy === apiRoutes.opsDraftBuildNow.path;
+  const canDraftNow = detail.build.kind === "agent" && !!brief.goal?.text.trim();
   const counts = BRIEF_STATES.map(
     (s) => [s, BRIEF_FIELDS.filter((k) => brief[k]?.state === s).length] as const,
   );
@@ -1135,6 +1161,33 @@ function IntakePanel({ detail, current, busy, act }: PanelProps) {
                 void act(apiRoutes.opsMoveBuild, { params: { id }, body: { to: "fitgap" } });
               }}
             />
+            {/* Owner (2026-11-21): the way past the questions. The Builder drafts from the brief
+                as it reads on screen, decides what is still open and lists each decision. */}
+            {detail.build.kind === "agent" ? (
+              <div className="flex flex-wrap items-center gap-3 border-t border-line pt-3">
+                <Button
+                  size="sm"
+                  disabled={isBusy(busy) || !canDraftNow}
+                  working={draftingNow}
+                  onClick={async () => {
+                    if (
+                      dirty &&
+                      !(await act(apiRoutes.opsUpdateBuild, { params: { id }, body: { brief } }))
+                    )
+                      return;
+                    void act(apiRoutes.opsDraftBuildNow, { params: { id }, body: {} });
+                  }}
+                  data-testid="build-draft-now"
+                >
+                  {draftingNow ? "Drafting…" : "Skip the questions and draft it now"}
+                </Button>
+                <span className="text-sm text-ink-muted" data-testid="build-draft-now-hint">
+                  {canDraftNow
+                    ? "The Builder decides what's still open, lists each decision, and you change it after."
+                    : "Say what it should do in Goal first."}
+                </span>
+              </div>
+            ) : null}
           </div>
         ) : null
       }

@@ -259,6 +259,111 @@ describe("Builds", () => {
     expect(await screen.findByTestId("build-view")).toBeInTheDocument();
   });
 
+  // Owner (2026-11-21, docs/plan.md §1.164): describe it and the Builder drafts it at once.
+  const intake = (over: Partial<BuildDetail> = {}): BuildDetail => {
+    const d = detail(over);
+    return {
+      ...d,
+      build: { ...d.build, phase: "intake", brief: {}, ...over.build },
+      phases: d.phases.map((p, i) => ({
+        ...p,
+        state: i === 0 ? ("current" as const) : ("todo" as const),
+      })),
+      gate: over.gate ?? { next: "fitgap", reasons: ["The brief has no goal yet."] },
+      messages: over.messages ?? [],
+      items: over.items ?? [],
+    };
+  };
+  const drafted = (): BuildDetail => {
+    const d = detail();
+    return {
+      ...d,
+      build: { ...d.build, phase: "draft", agentId: DRAFT_AGENT },
+      phases: d.phases.map((p, i) => ({
+        ...p,
+        state: i < 2 ? ("done" as const) : i === 2 ? ("current" as const) : ("todo" as const),
+      })),
+      gate: { next: "poc", reasons: [] },
+    };
+  };
+
+  it("drafts a described agent at once: the build opens and the Builder drafts it", async () => {
+    const started: unknown[] = [];
+    const asked: unknown[] = [];
+    const api = fakeApi({
+      ...common,
+      ...lab,
+      "GET /api/ops/builds": () => ({ builds: [], items: [] }),
+      "POST /api/ops/builds": ({ init }) => {
+        started.push(JSON.parse(String(init.body)));
+        return intake();
+      },
+      [`GET /api/ops/builds/${ID}`]: () => intake(),
+      [`POST /api/ops/builds/${ID}/draft-now`]: ({ init }) => {
+        asked.push(JSON.parse(String(init.body)));
+        return drafted();
+      },
+    });
+    renderAt("/ops/templates/new", api);
+    await screen.findByTestId("builds-start");
+    // With nothing described, the build starts with the Builder's questions, as before.
+    expect(screen.getByTestId("builds-start-go")).toHaveTextContent("Start with questions");
+    await userEvent.type(screen.getByTestId("builds-start-title"), "Field check-in");
+    await userEvent.type(
+      screen.getByTestId("builds-start-description"),
+      "Text each field person at 4 pm and ask about their tasks.",
+    );
+    expect(screen.getByTestId("builds-start-go")).toHaveTextContent("Build it");
+    await userEvent.click(screen.getByTestId("builds-start-go"));
+    // The build is started as any build is; its page then asks for the draft, once.
+    await waitFor(() => expect(started).toEqual([{ kind: "agent", title: "Field check-in" }]));
+    await waitFor(() =>
+      expect(asked).toEqual([
+        { description: "Text each field person at 4 pm and ask about their tasks." },
+      ]),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("build-phase-draft")).toHaveAttribute("aria-current", "step"),
+    );
+  });
+
+  it("lets a build in intake skip the questions once it says what it should do", async () => {
+    const asked: unknown[] = [];
+    const saved: unknown[] = [];
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: () => intake(),
+      [`PATCH /api/ops/builds/${ID}`]: ({ init }) => {
+        const body = JSON.parse(String(init.body)) as { brief: BuildDetail["build"]["brief"] };
+        saved.push(body);
+        const d = intake();
+        return { ...d, build: { ...d.build, brief: body.brief } };
+      },
+      [`POST /api/ops/builds/${ID}/draft-now`]: ({ init }) => {
+        asked.push(JSON.parse(String(init.body)));
+        return drafted();
+      },
+    });
+    renderAt(`/ops/builds/${ID}`, api);
+    const button = await screen.findByTestId("build-draft-now");
+    // Nothing to draft from yet, and the page says what is needed.
+    expect(button).toBeDisabled();
+    expect(screen.getByTestId("build-draft-now-hint")).toHaveTextContent(
+      "Say what it should do in Goal first.",
+    );
+    await userEvent.type(screen.getByTestId("build-brief-goal"), "Check in with the field team");
+    expect(button).toBeEnabled();
+    await userEvent.click(button);
+    // The brief as it reads on screen is saved first, then the draft is asked for with no words.
+    await waitFor(() => expect(asked).toEqual([{}]));
+    expect(saved).toEqual([
+      { brief: { goal: { text: "Check in with the field team", state: "confirmed" } } },
+    ]);
+    await waitFor(() =>
+      expect(screen.getByTestId("build-phase-draft")).toHaveAttribute("aria-current", "step"),
+    );
+  });
+
   it("shows a build: its phases, the conversation, the fit-gap and its items", async () => {
     const turns: unknown[] = [];
     const moves: unknown[] = [];

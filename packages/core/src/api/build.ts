@@ -311,6 +311,14 @@ export const StartBuild = z
     path: ["templateId"],
   });
 
+/**
+ * Draft it now (docs/plan.md §1.164): the operator's description of the work, in their own words.
+ * Left out, the draft is made from the brief as it is.
+ */
+export const DraftBuildNow = z.strictObject({
+  description: storable(z.string().trim().min(1).max(4000)).optional(),
+});
+
 export const UpdateBuild = z.strictObject({
   title: storable(z.string().trim().min(1).max(200)).optional(),
   brief: Brief.optional(),
@@ -460,6 +468,17 @@ export const buildRoutes = {
       "Move a build to the next phase when its gate passes (into the draft, the Builder drafts it; a client test may move on with a reason), or back to any earlier phase with a reason",
     params: IdParams,
     body: z.strictObject({ to: BuildPhase, reason: Reason.optional() }),
+    response: BuildDetail,
+  }),
+  opsDraftBuildNow: defineRoute({
+    method: "POST",
+    path: "/api/ops/builds/:id/draft-now",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Draft an agent build at once from a description (or the brief as it is), without the intake questions or the fit-gap: the Builder decides what it can, a person does what the catalog can't, and the build lands in its draft",
+    params: IdParams,
+    body: DraftBuildNow,
     response: BuildDetail,
   }),
   opsBuildCases: defineRoute({
