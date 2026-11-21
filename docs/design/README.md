@@ -6,9 +6,10 @@
 > page by page, is in [`docs/ui-plan.md`](../ui-plan.md). The v1 screens below are history.
 
 > **The builder is being redesigned** (owner, 2026-11-21): [`builder.html`](builder.html) is a clickable
-> mock-up of one screen that replaces the build page and the workflow builder for a new agent: describe
-> it, the steps are put together one by one, then drag them, add decisions between them, and click a
-> step for its setup, what is left to settle on it and the Builder. Design only: its answers and its
+> mock-up of one screen that replaces the build page and the workflow builder for a new agent: say how
+> it starts, list the steps (a decision is a line of its own: If, Or if, Otherwise), they are put
+> together one by one, then drag them, add decisions between them, and click a step for its setup,
+> what is left to settle on it and the Builder. Design only: its answers and its
 > try are scripted and no route is called. Its own "About this prototype" says what it stands on.
 
 ## v1 screens (2026-11-03, superseded by the prototype)
