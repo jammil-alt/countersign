@@ -1424,7 +1424,7 @@ function doneText(summary: string, next: BuildIssue | undefined, changed: string
 async function makeDraft(
   ctx: LongCtx,
   row: BuildRow,
-  // docs/plan.md §1.164: draft it now gives its own description and asks for a draft that runs.
+  // docs/plan.md §1.165: draft it now gives its own description and asks for a draft that runs.
   atOnce: { description: string } | null = null,
 ): Promise<{
   set: Partial<BuildRow>;
@@ -1657,7 +1657,7 @@ export function draftedNowText(o: {
 }
 
 /**
- * Draft it now (docs/plan.md §1.164): an agent build goes from its intake or fit-gap straight to
+ * Draft it now (docs/plan.md §1.165): an agent build goes from its intake or fit-gap straight to
  * its draft, made from the operator's description (or the brief as it is). No questions, no brief
  * review and no fit-gap: the Builder decides what it can and records each decision, a person does
  * what the catalog can't (a gap, put off), and a client's agent is bound to that client's

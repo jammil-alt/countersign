@@ -2042,7 +2042,7 @@ export const opsRoutes = {
       name: z.string().max(200).optional(),
       role: z.string().max(200).optional(),
       /**
-       * docs/plan.md §1.164: a draft that runs as it is. Where the catalog lacks a part, a person
+       * docs/plan.md §1.165: a draft that runs as it is. Where the catalog lacks a part, a person
        * does it in this version (a person step, never a missing step), and the part is a gap.
        */
       worksFirst: z.boolean().optional(),

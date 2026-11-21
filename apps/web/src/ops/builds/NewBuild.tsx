@@ -2,7 +2,7 @@
 // in the agent lab ... they do the same thing now"): every new template, client agent or skill
 // starts as a build (docs/plan.md §1.108), so it gets its brief, fit-gap, draft and tests. The
 // build's page takes it from there.
-// Owner (2026-11-21, docs/plan.md §1.164): "we are taking a few simple steps and making it into a
+// Owner (2026-11-21, docs/plan.md §1.165): "we are taking a few simple steps and making it into a
 // huge challenge". An agent described here is drafted at once: the build opens on its page and the
 // Builder drafts it from these words, with no questions first. Left empty, the build starts with
 // the Builder's questions as before.

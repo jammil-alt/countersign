@@ -212,7 +212,7 @@ the knowledge base.
 ## 11. Simplify: describe, draft, try, turn on (2026-11-21)
 
 Owner, 2026-11-21: "Simplify, simplify, simplify... apply defaults to the settings and make
-decisions and tweak after it is built." What was found is in `docs/plan.md` §1.164. Sections 3 to
+decisions and tweak after it is built." What was found is in `docs/plan.md` §1.165. Sections 3 to
 9 above kept the six phases and changed what happens inside them. This section changes the flow.
 
 ### 11.1 Where it goes
@@ -265,7 +265,7 @@ Decided for the operator, written down as decisions, changed after if wanted:
 
 | # | What | Size | Status |
 |---|---|---|---|
-| S1 | **Draft it now**: a description, one model call, a draft that runs; a client's agent bound to its connections; the way past the questions for builds in intake. | Small, no migration | Built 2026-11-21 (`docs/plan.md` §1.164) |
+| S1 | **Draft it now**: a description, one model call, a draft that runs; a client's agent bound to its connections; the way past the questions for builds in intake. | Small, no migration | Built 2026-11-21 (`docs/plan.md` §1.165) |
 | S2 | **Try on the build's page for a client's agent** (today only a template has the Try card; a client build needs a test run the page can't start), and a try as soon as the draft exists, with no move to a POC phase first. | Medium | Waits on 11.5 |
 | S3 | **Change it by saying so**: a draft edit asked for in the conversation is made at once and can be undone, with no card to agree. | Small | Waits on 11.5, question 3 |
 | S4 | **Turn on in one button**: publish, copy, bind, the test run at the client and the trial's start in one action; what is missing shown as one list (connect, allow, who), by code from the draft and the agent's readiness (§1.161). | Medium | Waits on 11.5 |

@@ -935,7 +935,7 @@ function BuildBar({ links, children }: { links: JumpLink[]; children: ReactNode 
   );
 }
 
-/** What the Builder is doing while it drafts at once (docs/plan.md §1.164). */
+/** What the Builder is doing while it drafts at once (docs/plan.md §1.165). */
 const DRAFTING_NOW =
   "The Builder is drafting it from your description. It decides what's open; this takes a minute or two…";
 
@@ -1085,7 +1085,7 @@ function IntakePanel({ detail, current, busy, act }: PanelProps) {
   const id = detail.build.id;
   const [brief, setBrief] = useWorkingCopy<Brief>(detail.build.brief);
   const dirty = JSON.stringify(brief) !== JSON.stringify(detail.build.brief);
-  // docs/plan.md §1.164: a build started with a description (the lab's New) is drafted as its page
+  // docs/plan.md §1.165: a build started with a description (the lab's New) is drafted as its page
   // opens, once: the words leave the router's state first, so a reload doesn't ask again (the
   // server would refuse it anyway: the build has its draft).
   const location = useLocation();

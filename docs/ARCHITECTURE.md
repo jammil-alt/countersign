@@ -3343,7 +3343,7 @@ rules and tighten, never loosen an approval, change a permission or change the p
 as "How Mezonas agents work". Each document has a version, and what a step read (tier, source, id,
 version) is recorded on its model call.
 
-**Draft it now (owner, 2026-11-21; `docs/plan.md` §1.164).** An agent build can skip its intake
+**Draft it now (owner, 2026-11-21; `docs/plan.md` §1.165).** An agent build can skip its intake
 and fit-gap: the operator describes the work and the Builder drafts it at once, in one model
 call. The drafter is asked for a draft that runs: it decides what the description leaves open
 and records each decision, and where the catalog has no part a person step does that piece (a

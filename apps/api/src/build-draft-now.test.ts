@@ -1,4 +1,4 @@
-// Draft it now (docs/plan.md §1.164), through the API with scripted model answers: an agent build
+// Draft it now (docs/plan.md §1.165), through the API with scripted model answers: an agent build
 // goes from its intake straight to a draft made from the operator's description. No questions, no
 // brief review, no fit-gap; the Builder is asked for a draft that runs (a person does what the
 // catalog can't), its decisions and gaps are kept, a client's agent is bound to that client's

@@ -259,7 +259,7 @@ describe("Builds", () => {
     expect(await screen.findByTestId("build-view")).toBeInTheDocument();
   });
 
-  // Owner (2026-11-21, docs/plan.md §1.164): describe it and the Builder drafts it at once.
+  // Owner (2026-11-21, docs/plan.md §1.165): describe it and the Builder drafts it at once.
   const intake = (over: Partial<BuildDetail> = {}): BuildDetail => {
     const d = detail(over);
     return {

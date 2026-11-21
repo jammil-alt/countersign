@@ -210,7 +210,7 @@ export const OPERATOR_FIXES = new Set([
 ]);
 
 /**
- * Works first (docs/plan.md §1.164): added to the rules of a draft that must run as it is. The
+ * Works first (docs/plan.md §1.165): added to the rules of a draft that must run as it is. The
  * Builder decides what the description leaves open and a person does what the catalog can't, so
  * nothing waits on an answer, a skill build or new code before the draft can be tried.
  */
@@ -364,7 +364,7 @@ export async function draftAgent(
     name?: string;
     role?: string;
     ctx: BuilderContext;
-    /** docs/plan.md §1.164: a draft that runs as it is (`WORKS_FIRST`). */
+    /** docs/plan.md §1.165: a draft that runs as it is (`WORKS_FIRST`). */
     worksFirst?: boolean;
   },
   options: BuilderOptions,

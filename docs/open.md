@@ -366,7 +366,7 @@ agent manual, the setup checklist, client adjustments and feedback, and governan
 | G12 | Feedback on the manual and requests past the bounds arrive as issues with what they are about on their created event; the **area owner's suggestions** (§10.15) don't read that link yet, so the operator turns them into a change by hand. | Code. |
 | G13 | A client user who isn't limited reads "What you can adjust"; only the client admin changes it. Owner to confirm the client user may read it. | Owner decision. |
 
-### Builds, simplified (owner, 2026-11-21; `docs/plan.md` §1.164, `docs/builder-plan.md` §11)
+### Builds, simplified (owner, 2026-11-21; `docs/plan.md` §1.165, `docs/builder-plan.md` §11)
 
 Step 1 is built: an agent described in the lab's New is drafted at once (one model call, a draft
 that runs, a client's agent bound to its connections), and a build in intake can skip the

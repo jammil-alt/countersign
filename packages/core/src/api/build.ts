@@ -312,7 +312,7 @@ export const StartBuild = z
   });
 
 /**
- * Draft it now (docs/plan.md §1.164): the operator's description of the work, in their own words.
+ * Draft it now (docs/plan.md §1.165): the operator's description of the work, in their own words.
  * Left out, the draft is made from the brief as it is.
  */
 export const DraftBuildNow = z.strictObject({
