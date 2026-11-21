@@ -6,13 +6,16 @@
 // huge challenge". An agent described here is drafted at once: the build opens on its page and the
 // Builder drafts it from these words, with no questions first. Left empty, the build starts with
 // the Builder's questions as before.
+// Owner (2026-11-21, docs/plan.md §1.170): a new template or client agent opens on Describe it
+// (../flow/DescribeScreen), then Check the steps, then the chart. A skill keeps this form.
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { ErrorNotice } from "../../ui/ErrorState";
-import { Field, Select, TextArea, TextInput } from "../../ui/forms";
+import { Field, Select, TextInput } from "../../ui/forms";
 import { Button, Card } from "../../ui/primitives";
+import { DescribeScreen, readDescribeAgain } from "../flow/DescribeScreen";
 import { buildPath } from "./words";
 
 /** What a new build makes: a template (an agent for every client), one client's agent, a skill. */
@@ -25,18 +28,15 @@ const KIND_WORDS: Record<NewKind, string> = {
   skill: "Skill",
 };
 
-const PLACEHOLDER: Record<NewKind, string> = {
-  template: "Invoice intake reviewer",
-  client: "Harbor Millwork's bill review",
-  skill: "Group invoices by customer",
-};
+const PLACEHOLDER = "Group invoices by customer";
 
-/** What the build's page reads from the router to draft at once (`BuildView`'s intake). */
+/**
+ * What the build's page reads from the router to draft at once (`BuildView`'s intake). New agent
+ * builds draft on Describe it now (../flow/DescribeScreen); the page still honours it.
+ */
 export interface DraftNowState {
   draftNow: string;
 }
-
-export const DESCRIPTION_MAX = 4000;
 
 export function isNewKind(v: string | null): v is NewKind {
   return (NEW_KINDS as readonly string[]).includes(v ?? "");
@@ -51,19 +51,17 @@ export function NewBuild({
 }) {
   const api = useApiClient();
   const navigate = useNavigate();
+  // "Back to the description" from Check the steps: the words, and the client, as they were.
+  const again = readDescribeAgain(useLocation().state);
   const clients = useApi(apiRoutes.opsClients, { query: { view: "names" } });
   const [kind, setKind] = useState<NewKind>(initial);
   const [title, setTitle] = useState("");
-  const [clientId, setClientId] = useState("");
-  const [description, setDescription] = useState("");
+  const [clientId, setClientId] = useState(again?.clientId ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   // A client agent is for one client; a template is for every client; a skill may be either.
   const needsClient = kind === "client" && !clientId;
   const ready = !!title.trim() && !needsClient;
-  // A skill is drafted in its own Builder conversation, so it has no description here.
-  const describes = kind !== "skill";
-  const words = describes ? description.trim() : "";
   const clientList = clients.data?.clients ?? [];
   // FLOW-8 (QA 2026-11-19): Start was off for a client agent with no client picked, and the only
   // word why was a tooltip. Said on the form: the clients couldn't be read, there's none to pick,
@@ -87,20 +85,80 @@ export function NewBuild({
     try {
       const out = await api.call(apiRoutes.opsStartBuild, {
         body: {
-          kind: kind === "skill" ? "skill" : "agent",
+          kind: "skill",
           title: title.trim(),
           ...(kind !== "template" && clientId ? { clientId } : {}),
         },
       });
-      navigate(
-        buildPath(out.build.id),
-        words ? { state: { draftNow: words } satisfies DraftNowState } : undefined,
-      );
+      navigate(buildPath(out.build.id));
     } catch (e) {
       setError(e);
     } finally {
       setBusy(false);
     }
+  }
+  const kindSwitch = (
+    <fieldset className="ds-seg self-end" aria-label="What it builds">
+      {NEW_KINDS.map((k) => (
+        <button
+          key={k}
+          type="button"
+          aria-pressed={kind === k}
+          data-testid={`builds-start-kind-${k}`}
+          onClick={() => setKind(k)}
+        >
+          {KIND_WORDS[k]}
+        </button>
+      ))}
+    </fieldset>
+  );
+  const clientPicker =
+    kind === "template" ? null : (
+      <Field label="For">
+        <Select
+          value={clientId}
+          onChange={(e) => setClientId(e.target.value)}
+          data-testid="builds-start-client"
+        >
+          <option value="">{kind === "skill" ? "Every agent (shared)" : "Pick a client"}</option>
+          {clientList.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name} only
+            </option>
+          ))}
+        </Select>
+      </Field>
+    );
+  if (kind !== "skill") {
+    return (
+      <section data-testid="builds-start">
+        <DescribeScreen
+          kind={kind}
+          clientId={clientId || null}
+          blocked={needsClient}
+          initialName={again?.name}
+          initialWords={again?.words}
+          buildId={again?.buildId ?? null}
+          onCancel={onCancel}
+          header={
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-end gap-4">
+                {kindSwitch}
+                {clientPicker}
+              </div>
+              {why ? (
+                <span className="text-sm text-ink-muted" data-testid="builds-start-why">
+                  {why}
+                </span>
+              ) : null}
+              {clientsFailed ? (
+                <ErrorNotice error={clients.error} onRetry={clients.reload} />
+              ) : null}
+            </div>
+          }
+        />
+      </section>
+    );
   }
   return (
     <Card pad testId="builds-start">
@@ -112,67 +170,20 @@ export function NewBuild({
         }}
       >
         <p className="text-sm text-ink-muted">
-          {describes
-            ? "List the steps. The Builder drafts them at once and you change them after."
-            : "It starts as a build: the brief, the fit-gap, the draft and a test."}
+          It starts as a build: the brief, the fit-gap, the draft and a test.
         </p>
         <div className="flex flex-wrap gap-4">
-          <fieldset className="ds-seg self-end" aria-label="What it builds">
-            {NEW_KINDS.map((k) => (
-              <button
-                key={k}
-                type="button"
-                aria-pressed={kind === k}
-                data-testid={`builds-start-kind-${k}`}
-                onClick={() => setKind(k)}
-              >
-                {KIND_WORDS[k]}
-              </button>
-            ))}
-          </fieldset>
+          {kindSwitch}
           <Field label="What it's called" className="min-w-0 flex-1">
             <TextInput
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder={PLACEHOLDER[kind]}
+              placeholder={PLACEHOLDER}
               data-testid="builds-start-title"
             />
           </Field>
-          {kind === "template" ? null : (
-            <Field label="For">
-              <Select
-                value={clientId}
-                onChange={(e) => setClientId(e.target.value)}
-                data-testid="builds-start-client"
-              >
-                <option value="">
-                  {kind === "skill" ? "Every agent (shared)" : "Pick a client"}
-                </option>
-                {clientList.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} only
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          )}
+          {clientPicker}
         </div>
-        {describes ? (
-          <Field
-            label="What should it do?"
-            hint="A few steps, in order. Leave it empty to start with questions."
-          >
-            <TextArea
-              rows={5}
-              className="w-full"
-              maxLength={DESCRIPTION_MAX}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="1. Every weekday at 4 pm, text each field person. 2. Ask how their open tasks are going. 3. Turn each answer into a task update. 4. The project manager approves it."
-              data-testid="builds-start-description"
-            />
-          </Field>
-        ) : null}
         {clientsFailed ? <ErrorNotice error={clients.error} onRetry={clients.reload} /> : null}
         {error ? <ErrorNotice error={error} /> : null}
         <div className="flex flex-wrap items-center gap-2">
@@ -182,13 +193,7 @@ export function NewBuild({
             disabled={busy || !ready}
             data-testid="builds-start-go"
           >
-            {busy
-              ? "Starting…"
-              : words
-                ? "Build it"
-                : describes
-                  ? "Start with questions"
-                  : "Start the build"}
+            {busy ? "Starting…" : "Start the build"}
           </Button>
           <Button variant="ghost" onClick={onCancel}>
             Cancel

@@ -324,13 +324,13 @@ function saved(sent: { path: string; body: Record<string, unknown> }[]) {
 describe("Reshape data in the builder", () => {
   it("adds a Reshape step before a write it can't fill, proposes, edits a field and saves", async () => {
     const { sent, user } = setup([READ_STEP, BILL_STEP]);
-    await screen.findByTestId("builder-canvas");
-    await user.click(screen.getByTestId("builder-step-bill-select"));
+    await screen.findByTestId("flow-chart");
+    await user.click(screen.getByTestId("flow-box-bill"));
     // Create bill's inputs can't be filled from Read document's output as it is.
     await user.click(await screen.findByTestId("builder-offer-reshape-before"));
-    const inspector = screen.getByTestId("builder-inspector");
-    expect(inspector).toHaveTextContent("Reshape data");
-    expect(inspector).toHaveTextContent("Deterministic");
+    // The new step is open: the panel says its kind.
+    expect(screen.getByTestId("flow-panel-name")).toHaveValue("Reshape data");
+    expect(screen.getByTestId("flow-panel-eyebrow")).toHaveTextContent("Deterministic");
     // The proposal by name and type is there at once, before any model is asked.
     expect(screen.getByTestId("builder-reshape-from-invoiceNumber")).toHaveTextContent(
       "readDocument.header.invoiceNumber",
@@ -369,7 +369,7 @@ describe("Reshape data in the builder", () => {
     await user.click(within(editor).getByTestId("builder-reshape-save-field"));
     expect(screen.getByTestId("builder-reshape-from-vendorId")).toHaveTextContent("56");
 
-    await user.click(screen.getByTestId("builder-save"));
+    await user.click(screen.getByTestId("flow-bar-save"));
     await waitFor(() => expect(sent.some((s) => s.path === "save")).toBe(true));
     const { bundle, process } = saved(sent);
     const shape = process.steps[1];
@@ -417,8 +417,8 @@ describe("Reshape data in the builder", () => {
       },
     };
     const { sent, user } = setup([READ_STEP, stale, bill]);
-    await screen.findByTestId("builder-canvas");
-    await user.click(screen.getByTestId("builder-step-shape-select"));
+    await screen.findByTestId("flow-chart");
+    await user.click(screen.getByTestId("flow-box-shape"));
     expect(await screen.findByTestId("builder-reshape-problem-invoiceNumber")).toHaveTextContent(
       'invoiceNumber reads input.readDocument.header.number: no field "number"',
     );
@@ -458,8 +458,8 @@ describe("records and webhook samples in the builder", () => {
       },
     };
     const { sent, user } = setup([READ_STEP, shape]);
-    await screen.findByTestId("builder-canvas");
-    await user.click(screen.getByTestId("builder-step-shape-select"));
+    await screen.findByTestId("flow-chart");
+    await user.click(screen.getByTestId("flow-box-shape"));
     await user.click(await screen.findByTestId("builder-reshape-edit-vendor"));
     const editor = screen.getByTestId("builder-reshape-editor-vendor");
     await user.selectOptions(within(editor).getByTestId("builder-reshape-kind"), "record");
@@ -488,7 +488,7 @@ describe("records and webhook samples in the builder", () => {
       "a record: name ← readDocument.header.vendorName",
     );
 
-    await user.click(screen.getByTestId("builder-save"));
+    await user.click(screen.getByTestId("flow-bar-save"));
     await waitFor(() => expect(sent.some((s) => s.path === "save")).toBe(true));
     const step = processes.findStep(saved(sent).process, "shape")?.step;
     if (step?.kind !== "skill") throw new Error("no Reshape step");
@@ -504,8 +504,8 @@ describe("records and webhook samples in the builder", () => {
     };
     const read = { ...READ_STEP, input: { documentId: "{{trigger.data.documentId}}" } };
     const { sent, user } = setup([read], [hook]);
-    await screen.findByTestId("builder-canvas");
-    await user.click(screen.getByTestId("builder-trigger-t1-select"));
+    await screen.findByTestId("flow-chart");
+    await user.click(screen.getByTestId("flow-start"));
     const box = await screen.findByTestId("builder-webhook-sample");
     expect(within(box).getByTestId("builder-webhook-sample-none")).toBeInTheDocument();
 
@@ -532,7 +532,7 @@ describe("records and webhook samples in the builder", () => {
       "data.customer.email",
     );
 
-    await user.click(screen.getByTestId("builder-save"));
+    await user.click(screen.getByTestId("flow-bar-save"));
     await waitFor(() => expect(sent.some((s) => s.path === "save")).toBe(true));
     const body = JSON.stringify(sent.filter((s) => s.path === "save").at(-1)?.body);
     expect(body).not.toMatch(/Pat Lee|pat@example\.com|doc-881|A-1/);
