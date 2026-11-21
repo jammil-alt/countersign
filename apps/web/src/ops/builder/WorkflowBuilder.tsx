@@ -23,6 +23,7 @@ import {
   type AnyAgentBundle,
   AnyAgentBundle as AnyAgentBundleSchema,
   agentSkillEntry,
+  type BuildDetail,
   type BuilderCatalog,
   canonicalJson,
   codeRequestRoutes,
@@ -82,6 +83,7 @@ import {
   TextArea,
   useAction,
 } from "../agents/ui";
+import { automationStepsPath } from "../flow/automation/paths";
 import { Chart } from "../flow/Chart";
 import { dispatchFlowDrop, flowCollision, resolveFlowDrop } from "../flow/dnd";
 import { FlowBar, type FlowView } from "../flow/FlowBar";
@@ -90,10 +92,6 @@ import {
   agentEnds,
   chartLabel,
   devQueuePath,
-  type FlowBuildMarks,
-  type FlowRun,
-  type FlowTry,
-  type FlowTurnOn,
   hostPoint,
   isLoop,
   loopEnds,
@@ -102,13 +100,19 @@ import {
   setupItems,
   withCodeRequests,
 } from "../flow/frame";
+import { fromBuild } from "../flow/fromBuild";
 import { FLOW_GIVES_BACK_ID, FLOW_START_ID } from "../flow/layout";
+import { CustomizationsList, StepDiff } from "../flow/lineage/CustomizationsList";
+import { LineageStrip } from "../flow/lineage/LineageStrip";
 import { Rail } from "../flow/Rail";
 import { type BuilderSize, StepPanel } from "../flow/StepPanel";
 import { StepTable } from "../flow/StepTable";
 import { buildStatuses, nextOpen, counts as openCounts, stepOrder } from "../flow/status";
-import type { InsertPoint, SettleItem, StatusMap } from "../flow/types";
+import { TryPanel } from "../flow/TryPanel";
+import { TurnOnSheet } from "../flow/TurnOnSheet";
+import type { InsertPoint, SettleItem, StatusMap, TryMark } from "../flow/types";
 import { useOpsClients } from "../OpsLayout";
+import { OPS_PATHS } from "../paths";
 import { PROCESS_KIND_LABEL, type StepLabels, triggerTitle } from "../workflow/describe";
 import { BuilderPanel, SaveAsAutomation, useBuilderSession } from "./BuilderPanel";
 import {
@@ -195,6 +199,7 @@ import { readStepChatSize, StepChat, writeStepChatSize } from "./step-chat";
 import { WhatsLeft } from "./whats-left";
 
 type Connection = ResponseOf<typeof apiRoutes.opsClient>["connections"][number];
+type AgentDetail = ResponseOf<typeof apiRoutes.opsAgent>;
 
 /** What the right side shows: the selected step, the whole-flow Builder, or the test run. */
 type Side = "step" | "builder" | "test" | null;
@@ -224,17 +229,20 @@ export interface WorkflowBuilderProps {
    * the chart, the same side panel on the step clicked. Default the chart.
    */
   view?: "canvas" | "steps";
-  // ── The slots for the parts built next (docs/builder-plan.md §12.5; types in ../flow/frame) ──
+  // ── What the agent page knows that the one screen shows (docs/builder-plan.md §12) ──
   /**
-   * F3: a build's issues and questions on their steps, the defaults the Builder chose ("Decided
-   * for you") and the last try's marks. They join the validator's problems, missing steps and the
-   * Customized and Added marks in the one status map the chart, the List, the bar and the panel read.
+   * GET /api/ops/agents/:id for this agent: its live and latest versions and the template update
+   * it is offered. With it the line under the bar says whose agent this is and what it owes its
+   * template (F8, ../flow/lineage). Absent (a part rendered on its own): no line.
    */
-  build?: FlowBuildMarks | undefined;
-  /** F3: "Try it" on the chart. Absent: Try it opens today's test run form. */
-  tryIt?: FlowTry | undefined;
-  /** F4: Turn on in one button, in place of Publish. Absent: the bar's primary action is Publish. */
-  turnOn?: FlowTurnOn | undefined;
+  detail?: AgentDetail | undefined;
+  /** A client agent's template (GET /api/ops/agents/:templateId), once the page has it. */
+  templateDetail?: Pick<AgentDetail, "agent" | "versions"> | null | undefined;
+  /**
+   * The agent's open build, if it has one: its issues, questions and decisions sit on their steps
+   * (F3, ../flow/fromBuild), and a try of its draft is the build's own.
+   */
+  buildId?: string | null | undefined;
 }
 
 export default function WorkflowBuilder(props: WorkflowBuilderProps) {
@@ -246,10 +254,16 @@ export default function WorkflowBuilder(props: WorkflowBuilderProps) {
   // types the step with the version it now names (the server resolves it the same way).
   const [moved, setMoved] = useState<BuilderCatalog["skills"]>([]);
   const events = useApi(apiRoutes.opsEventCatalog, { life: "catalog" });
+  // F8: the template version the agent is based on (the one an update merge starts from), never
+  // the template's latest.
+  const baseVersionId =
+    props.detail?.update?.baseVersionId ??
+    props.detail?.live?.basedOnTemplateVersionId ??
+    props.from.basedOnTemplateVersionId;
   const templateVersion = useApi(
     apiRoutes.opsAgentVersion,
-    props.agent.kind === "client" && props.agent.templateId && props.from.basedOnTemplateVersionId
-      ? { params: { id: props.agent.templateId, vid: props.from.basedOnTemplateVersionId } }
+    props.agent.kind === "client" && props.agent.templateId && baseVersionId
+      ? { params: { id: props.agent.templateId, vid: baseVersionId } }
       : null,
   );
   const template = useMemo(() => {
@@ -1051,7 +1065,9 @@ function BuilderBody(
     edit((w) => moveStep(w, toId, from.container, from.index + 1));
     setSelection({ type: "step", id: toId });
   };
-  /** A loop opens its own steps in the frame; an automation opens its page (its editor is next). */
+  // F7: the automations by slug, asked for once, when the first one is opened.
+  const automationIds = useRef<Promise<ReadonlyMap<string, string>> | null>(null);
+  /** A loop opens its own steps in the frame; an automation opens in its own editor. */
   const openGroup = async (id: string) => {
     const step = workflow ? locate(workflow, id)?.step : undefined;
     if (!step) return;
@@ -1061,21 +1077,29 @@ function BuilderBody(
     }
     if (step.kind !== "process") return;
     // DECISION (F6): the catalog names an automation by its pinned `slug@version`, not its id, so
-    // its page is found through the automations list; the Library's list when it isn't there.
+    // its editor is found through the automations list (the client's own before a shared one of
+    // the same slug); the Library's list when it isn't there.
     const used = data.catalog.automations?.find((a) => a.ref === step.process);
     const automation = used?.slug ?? step.process.split("@")[0];
-    // The builder's draft is kept on this device now, so nothing is lost by leaving.
-    if (dirty) writeDraft(draftKey, { from: saved.id, at: Date.now(), bundle });
+    automationIds.current ??= api.call(apiRoutes.opsAutomations, { query: {} }).then((list) => {
+      const ids = new Map<string, string>();
+      for (const a of list.automations) {
+        if (a.clientId !== null && a.clientId !== agent.tenantId) continue;
+        if (a.clientId !== null || !ids.has(a.slug)) ids.set(a.slug, a.id);
+      }
+      return ids;
+    });
     let found: string | undefined;
     try {
-      const list = await api.call(apiRoutes.opsAutomations, { query: {} });
-      found = list.automations.find(
-        (a) => a.slug === automation && (a.clientId === null || a.clientId === agent.tenantId),
-      )?.id;
+      found = (await automationIds.current).get(automation ?? "");
     } catch {
-      // The list didn't answer: the Library's automations it is.
+      // The list didn't answer: ask again next time, and go to the Library's automations.
+      automationIds.current = null;
     }
-    navigate(found ? `/ops/skills/automations/${found}` : "/ops/library/skills?tab=automations");
+    // The builder's draft is kept on this device first, so nothing is lost by leaving: it comes
+    // back, unsaved, when this workflow is opened again.
+    if (dirty) writeDraft(draftKey, { from: saved.id, at: Date.now(), bundle });
+    navigate(found ? automationStepsPath(found) : "/ops/library/skills?tab=automations");
   };
   const chartEvents = {
     onSelect: (id: string | null) => {
@@ -1392,7 +1416,18 @@ function BuilderBody(
 
   // ── Each step's status: what the chart, the List, the bar and the side panel all read ──
   const requests = codeRequests.data?.steps;
-  const marks = props.build;
+  // F3: the open build's issues, questions and decisions, on the steps they name. The validator's
+  // problems are the live ones here, so the build's copy of them is left out.
+  const buildAsked = useApi(
+    apiRoutes.opsBuild,
+    props.buildId ? { params: { id: props.buildId } } : null,
+  );
+  const [buildNow, setBuildNow] = useState<BuildDetail | null>(null);
+  const build = buildNow ?? buildAsked.data ?? null;
+  const marks = useMemo(() => (build ? fromBuild(build, { problems: false }) : null), [build]);
+  // F3: Try it on the chart: the bar at its top while a try runs, and what each step did.
+  const [trying, setTrying] = useState<{ clientId: string | null } | null>(null);
+  const [tried, setTried] = useState<TryMark[]>([]);
   const statuses = useMemo<StatusMap>(() => {
     if (!workflow) return new Map();
     // A connection the client lacks reads as the validator says it where it finds it; the setup
@@ -1411,12 +1446,12 @@ function BuilderBody(
         items: [...setup, ...(marks?.items ?? [])],
         decided: marks?.decided,
         customized,
-        tried: marks?.tried,
+        tried,
       }),
       requests ?? [],
       slug,
     );
-  }, [workflow, workflowErrors, slug, leftItems, marks, customized, requests]);
+  }, [workflow, workflowErrors, slug, leftItems, marks, customized, requests, tried]);
   const order = useMemo(
     () => (workflow ? stepOrder(workflow, { triggers: true }) : []),
     [workflow],
@@ -1446,11 +1481,45 @@ function BuilderBody(
     return step ? label(step).title : "";
   };
 
-  // ── F3 and F4: what "Try it" and "Turn on" act on ──
-  const run: FlowRun = {
-    workflow: slug,
-    valid: result.valid,
-    ensureSaved: async () => (dirty ? await save() : saved),
+  // ── F3 and F4: Try it and Turn on ──
+  const startTry = (clientId: string | null = null) => {
+    setTried([]);
+    setTrying({ clientId });
+    if (side === "test") setSide(null);
+  };
+  /** Unsaved changes are saved as a draft first; the version a try or Turn on acts on. */
+  const ensureSaved = async () => (dirty ? await save() : saved);
+  // F4: Turn on is the bar's action while the agent is new: a template never published, a client's
+  // agent still on the bench (or with no stage and nothing live). After that it is Publish.
+  const isNew =
+    agent.kind === "template"
+      ? !agent.liveVersionId
+      : agent.stage === "bench" || (!agent.stage && !agent.liveVersionId);
+  const [turningOn, setTurningOn] = useState(false);
+  // A template is turned on for a client: the ones the operator serves, asked for with the sheet.
+  const turnOnClients = useApi(
+    apiRoutes.opsClients,
+    turningOn && agent.kind === "template" && frameClients === null
+      ? { query: { view: "names" }, life: "catalog" }
+      : null,
+  );
+  const openTurnOn = async () => {
+    setNotice(null);
+    if (await ensureSaved()) setTurningOn(true);
+  };
+
+  // ── Leaving the page from inside the builder ──
+  /**
+   * The line under the bar links to the merge screen and the template. A merge makes a new version
+   * of this agent, which a draft kept on this device would not survive, so unsaved changes are
+   * saved as a draft first; if that fails the builder stays, and says why.
+   */
+  const guardLeave = async (e: React.MouseEvent) => {
+    const link = (e.target as HTMLElement).closest?.("a[href]");
+    const href = link?.getAttribute("href");
+    if (!dirty || !href || href.startsWith("http") || e.metaKey || e.ctrlKey) return;
+    e.preventDefault();
+    if (await save()) navigate(href);
   };
 
   // ── The side panel's parts ──
@@ -1496,7 +1565,22 @@ function BuilderBody(
         </Link>
       );
     }
-    return marks?.itemActions?.(item) ?? null;
+    if ((item.source === "build_item" || item.source === "decision") && props.buildId) {
+      return (
+        <Link
+          to={OPS_PATHS.build(props.buildId)}
+          className="text-sm font-medium text-link underline"
+          data-testid={`builder-item-build-${item.stepId}`}
+          onClick={() => {
+            // The builder's draft is kept on this device, so nothing is lost by going there.
+            if (dirty) writeDraft(draftKey, { from: saved.id, at: Date.now(), bundle });
+          }}
+        >
+          Settle it on the build
+        </Link>
+      );
+    }
+    return null;
   };
 
   const inspector = workflow ? (
@@ -1590,8 +1674,6 @@ function BuilderBody(
     if (!workflow || !selection) return null;
     const settle = {
       itemActions,
-      onChangeItem: marks?.onChangeItem,
-      onChangeDecided: marks?.onChangeDecided,
       onNext: (id: string) =>
         workflow.triggers.some((t) => t.id === id) ? selectTrigger(id) : selectStep(id),
     };
@@ -1684,21 +1766,30 @@ function BuilderBody(
         removeLabel={step.kind === "missing" ? "Remove it" : undefined}
         onClose={closeSide}
       >
+        {agent.kind === "client" ? (
+          <StepDiff
+            step={step}
+            process={workflow}
+            template={templateWorkflow}
+            onChange={(next) => edit(() => next)}
+          />
+        ) : null}
         {inspector}
       </StepPanel>
     );
   })();
 
-  const publish = props.turnOn ? (
+  const publish = isNew ? (
     // F4: Turn on in one button (publish, the copy for a template, the bindings, the trial).
     <Button
       variant="primary"
       size="sm"
       data-testid="flow-bar-turn-on"
-      working={props.turnOn.busy}
-      onClick={() => props.turnOn?.onTurnOn(run)}
+      disabled={invalidReason !== null || action.busy}
+      title={invalidReason ?? undefined}
+      onClick={() => void openTurnOn()}
     >
-      {props.turnOn.label ?? "Turn on"}
+      Turn on
     </Button>
   ) : !dirty && saved.status === "live" ? null : (
     // A live version with nothing new offers no publish: its badge says Live.
@@ -1812,18 +1903,38 @@ function BuilderBody(
             onUndo={() => setHistory(undo)}
             onRedo={() => setHistory(redo)}
             onAskBuilder={() => setSide(side === "builder" ? null : "builder")}
-            onTry={
-              workflow
-                ? () =>
-                    props.tryIt ? props.tryIt.onTry(run) : setSide(side === "test" ? null : "test")
-                : undefined
-            }
-            trying={props.tryIt?.trying}
+            onTry={workflow ? () => startTry() : undefined}
             tryBlocked={invalidReason}
             onSave={onSave}
             saved={!dirty}
             primary={publish}
           />
+          {props.detail ? (
+            // F8: whose agent this is and what it owes its template. Its links leave the page.
+            // biome-ignore lint/a11y/noStaticElementInteractions: it only watches for a link being followed.
+            // biome-ignore lint/a11y/useKeyWithClickEvents: Enter on a link is a click.
+            <div data-testid="builder-lineage" onClickCapture={(e) => void guardLeave(e)}>
+              <LineageStrip
+                agent={agent}
+                detail={props.detail}
+                template={props.templateDetail}
+                customized={customized}
+                customizations={
+                  workflow ? (
+                    <CustomizationsList
+                      process={workflow}
+                      template={templateWorkflow}
+                      onSelect={selectStep}
+                      onChange={(next) => edit(() => next)}
+                      label={label}
+                      selected={side === "step" ? selectedId : null}
+                    />
+                  ) : null
+                }
+                onChanged={props.onChanged}
+              />
+            </div>
+          ) : null}
           {shownLoop && entry ? (
             <nav className="flow-host__crumb" aria-label="Where this is" data-testid="flow-crumb">
               <button
@@ -1937,7 +2048,7 @@ function BuilderBody(
                   }
                   summary={dataSummary}
                   onSelect={selectLeft}
-                  onTest={() => (props.tryIt ? props.tryIt.onTry(run) : setSide("test"))}
+                  onTest={() => startTry()}
                 />
                 <Advice warnings={result.warnings.filter((w) => w.workflow === slug)} />
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -1984,6 +2095,19 @@ function BuilderBody(
                   ) : (
                     <span />
                   )}
+                  {workflow?.triggers[0] ? (
+                    // Today's test run form: a recent event of the client's, or a template's client.
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      data-testid="builder-test-run"
+                      disabled={invalidReason !== null}
+                      title={invalidReason ?? undefined}
+                      onClick={() => setSide(side === "test" ? null : "test")}
+                    >
+                      Test-run on a recent event
+                    </Button>
+                  ) : null}
                   {dirty ? (
                     <span className="text-xs text-ink-muted" data-testid="builder-draft-status">
                       {draftAt
@@ -1994,6 +2118,30 @@ function BuilderBody(
                 </div>
               </div>
 
+              {trying && workflow ? (
+                <div className="flow-host__try" data-testid="builder-try">
+                  <TryPanel
+                    process={workflow}
+                    agent={agent}
+                    workflow={slug}
+                    versionId={saved.id}
+                    prepare={async () => {
+                      const v = await ensureSaved();
+                      if (v) setTestedHere(v.id);
+                      return v?.id ?? null;
+                    }}
+                    build={build}
+                    clientId={trying.clientId}
+                    sample={samplePayload(workflow, data.events)}
+                    onMarks={setTried}
+                    onDone={() => {
+                      setTrying(null);
+                      setTried([]);
+                    }}
+                    onBuild={setBuildNow}
+                  />
+                </div>
+              ) : null}
               <div className="flow-host__stage" data-view={view}>
                 {shown && view === "list" ? (
                   <div className="flow-host__list">
@@ -2099,6 +2247,33 @@ function BuilderBody(
             </div>
           </div>
         </div>
+        {turningOn ? (
+          <TurnOnSheet
+            agentId={agent.id}
+            template={agent.kind === "template"}
+            clients={(frameClients ?? turnOnClients.data?.clients ?? [])
+              .filter((c) => !c.sandbox)
+              .map((c) => ({ id: c.id, name: c.name }))}
+            clientId={build?.build.client?.id ?? null}
+            versionId={saved.id}
+            toSettle={openCounts(statuses).issues + openCounts(statuses).questions}
+            onTry={(clientId) => {
+              setTurningOn(false);
+              startTry(clientId);
+            }}
+            onNextOpen={() => {
+              setTurningOn(false);
+              openNext();
+            }}
+            onStarted={() => {
+              // What it turned on is published; the agent page follows (its stage, its versions).
+              setSaved((v) => ({ ...v, status: "live" }));
+              props.onChanged();
+            }}
+            onChanged={() => props.onChanged()}
+            onClose={() => setTurningOn(false)}
+          />
+        ) : null}
         {fixing ? (
           <FixDialog
             fix={fixing}

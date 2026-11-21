@@ -3,15 +3,12 @@
 // it gives back), each step's words on the chart, the statuses the builder adds to the validator's
 // (a client's missing setup, a Dev queue request on a step that requires code), and where a place
 // in a loop's own view sits in the whole workflow. Pure: no React, so it holds in tests.
-// It also names the slots the parts built next fill: a build's issues, decided notes and try marks
-// (F3) and Turn on (F4).
 import {
   processes,
   type StepCodeRequest,
   stepCodeStatus,
   type TypingContext,
 } from "@countersign/core";
-import type { ReactNode } from "react";
 import type { LeftItem } from "../builder/data-use";
 import {
   type ApprovalEnv,
@@ -35,63 +32,7 @@ import {
   triggerTitle,
 } from "../workflow/describe";
 import type { SettleEntry } from "./status";
-import type {
-  ChartProps,
-  DecidedNote,
-  FlowEnds,
-  InsertPoint,
-  SettleItem,
-  StatusMap,
-  StepStatus,
-  TryMark,
-} from "./types";
-
-// ── The slots for the parts built next ───────────────────────────────────────────────────────────
-
-/**
- * F3: what a build adds to the steps (docs/builder-plan.md §12.4). Its issues and questions sit on
- * their step with the validator's, its defaults read "Decided for you", and the last try's marks
- * show on the chart and the List. The builder passes them to `buildStatuses` untouched.
- */
-export interface FlowBuildMarks {
-  /** The build's items and decisions to settle, each on its step (`fromBuild`). */
-  items?: readonly SettleEntry[] | undefined;
-  /** Defaults the Builder chose, each on the step it shapes. */
-  decided?: readonly DecidedNote[] | undefined;
-  /** What each step did in the last try (`tryMarks`). */
-  tried?: readonly TryMark[] | undefined;
-  /** How one of the build's open items is settled in the side panel: its buttons. */
-  itemActions?: ((item: SettleItem) => ReactNode) | undefined;
-  /** Change on a settled item. */
-  onChangeItem?: ((item: SettleItem) => void) | undefined;
-  /** Change on a default the Builder chose. */
-  onChangeDecided?: ((note: DecidedNote) => void) | undefined;
-}
-
-/** What "Try it" and "Turn on" get from the builder: the version to act on, saved first. */
-export interface FlowRun {
-  /** The workflow in the frame, by slug. */
-  workflow: string;
-  /** Whether the validator finds nothing wrong with the whole agent. */
-  valid: boolean;
-  /** Saves unsaved changes as a draft first; null when the save failed (the builder says why). */
-  ensureSaved(): Promise<{ id: string; version: number } | null>;
-}
-
-/** F3: "Try it" on the chart. Absent: the bar's Try it opens today's test run form. */
-export interface FlowTry {
-  onTry(run: FlowRun): void;
-  /** A try is under way. */
-  trying?: boolean | undefined;
-}
-
-/** F4: Turn on in one button, in place of Publish. Absent: the bar's primary action is Publish. */
-export interface FlowTurnOn {
-  onTurnOn(run: FlowRun): void;
-  busy?: boolean | undefined;
-  /** The button's words; "Turn on" when absent. */
-  label?: string | undefined;
-}
+import type { ChartProps, FlowEnds, InsertPoint, StatusMap, StepStatus } from "./types";
 
 // ── What the frame starts and ends with ──────────────────────────────────────────────────────────
 

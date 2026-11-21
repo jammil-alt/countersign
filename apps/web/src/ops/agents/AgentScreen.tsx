@@ -444,7 +444,6 @@ export function AgentScreen({
             // The workflow's first step is how it starts: the agent's triggers, then the canvas.
             <div className="flex flex-col gap-4" data-testid="agent-workflow-top">
               {openBuild ? <BackToBuild build={openBuild} /> : null}
-              {lineage}
               <TriggersPanel
                 agent={view}
                 latest={latest}
@@ -457,6 +456,11 @@ export function AgentScreen({
           members={members}
           onChanged={reload}
           view={stepsTab ? "steps" : "canvas"}
+          // F6: the line under the builder's bar (whose agent this is, what it owes its template),
+          // and the open build's issues on their steps.
+          detail={data}
+          templateDetail={template.data ?? null}
+          buildId={openBuild?.id ?? null}
         />
       </Suspense>
     );
