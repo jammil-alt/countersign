@@ -1,0 +1,24 @@
+{
+  "name": "@countersign/pack-sales",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Sales pack (the Sales area): the client's synced CRM records kept as match keys, and rows matched to them, deterministic first, then by meaning and a small model, then a person",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@countersign/core": "workspace:*",
+    "@countersign/db": "workspace:*",
+    "@countersign/llm": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "zod": "^4.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2"
+  }
+}

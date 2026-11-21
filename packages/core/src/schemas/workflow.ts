@@ -5,6 +5,7 @@ import { LocalizedString, localizedText } from "../i18n/locale";
 import { StepReview } from "../oversight/decision";
 // v0.12 W2-E: who may start a message trigger.
 import { PeopleFilter } from "../triggers/people";
+import { WebhookDataSchema } from "../triggers/sample";
 import { Approval } from "./approval";
 import {
   JsonSchema,
@@ -275,6 +276,11 @@ export const WebhookTriggerOn = z.object({
   /** A template over the delivery: the same key twice starts one run. */
   dedupeKey: TemplateString.optional(),
   rateLimit: TriggerRateLimit.optional(),
+  /**
+   * §1.164: the shape of the delivery's data (`{{trigger.data.…}}`), inferred from a sample the
+   * operator pasted: field names and types only, never the sample's values. Absent: any path reads.
+   */
+  dataSchema: WebhookDataSchema.optional(),
 });
 
 export const MessageTriggerOn = z.object({

@@ -117,6 +117,19 @@ export const EMBEDDING_FEATURE = {
 } as const;
 
 /**
+ * §1.164: the Sales area's search by meaning: a synced CRM record's match text (the names a client
+ * matches on: a person's, a company's, a deal's) and a matched row's are sent to the embedding
+ * model's provider. A client in HIPAA mode is refused it until that provider's BAA is recorded, as
+ * its model calls are (apps/api's `guardModels` holds `embed` to it); matching then goes on with
+ * keys, text and the model, without meaning.
+ */
+export const CRM_EMBEDDING_FEATURE = {
+  id: "sales.embeddings",
+  what: "The Sales area's search by meaning (embeddings of CRM records' names)",
+  model: "openai:text-embedding-3-large",
+} as const;
+
+/**
  * §1.98: texting invitations, which send a client's contact's name and email address to Resend
  * (Mezonas' own mail). The sign-up's confirmation text goes through the client's Twilio, which a
  * client in HIPAA mode has only once `twilio` is covered.

@@ -156,12 +156,20 @@
   overflow-x: hidden;
   overflow-y: auto;
 }
+/* The foot sits on a line of its own, close under the nav (staging feedback, 2026-11-21: the
+ * old 24px gap read as empty space). While rows are hidden below, the nav's last visible rows
+ * fade into the line, so the list reads as going on under it. Borders, not shadows. */
 .ui-sidebar__foot {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
   gap: 2px;
-  margin-top: var(--space-6);
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--line);
+}
+.ui-sidebar__nav[data-more="true"] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 32px), transparent);
 }
 .ui-shell__scrim {
   display: none;
@@ -265,9 +273,17 @@
   white-space: nowrap;
   pointer-events: none;
 }
+/* On the rail the nav reaches into the sidebar's side padding, so a count riding on an icon's
+ * corner (5px past the row) isn't clipped by the nav's own scroll box (staging feedback,
+ * 2026-11-21: "26" was cut off). */
+.ui-sidebar[data-collapsed="true"] .ui-sidebar__nav {
+  margin: calc(var(--space-2) * -1);
+  margin-bottom: 0;
+  padding: var(--space-2);
+  padding-bottom: 0;
+}
 .ui-sidebar[data-collapsed="true"] .ui-sidebar__foot {
   padding-top: var(--space-3);
-  border-top: 1px solid var(--line);
 }
 .ui-sidebar[data-collapsed="true"] .ui-navsection {
   margin-top: var(--space-3);

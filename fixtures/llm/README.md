@@ -83,3 +83,14 @@ longer appears:
 WRITE_RESHAPE_FIXTURES=1 COUNTERSIGN_REQUIRE_DB=1 \
   pnpm --filter @countersign/api exec vitest run src/reshape.test.ts
 ```
+
+## The Sales area's choice among candidates (hand-written)
+
+The two answers to the CRM match's model step (`packs/sales/src/match/model.ts`, docs/plan.md
+§1.164) are **written by hand**, marked `"handWritten": true`: a nickname matched to its lead, and
+a namesake at another business answered none. Rebuild them after changing the prompt or the
+schema, then delete the files whose hashes no longer appear:
+
+```sh
+WRITE_SALES_FIXTURES=1 pnpm --filter @countersign/pack-sales exec vitest run src/match/model.test.ts
+```
