@@ -281,6 +281,37 @@ describe("Chart", () => {
     expect(screen.queryByTestId("flow-tip-runs")).toBeNull();
   });
 
+  it("marks each box with what it is, and opens a key that says what the marks mean", () => {
+    setup({
+      label: (step) =>
+        step.id === "a"
+          ? {
+              title: step.name,
+              kind: "Read",
+              detail: "QuickBooks Online · Find bills",
+              connector: { id: "qbo", name: "QuickBooks Online" },
+            }
+          : { title: step.name, kind: "Read", detail: null },
+    });
+    // A read on a connector carries its logo; one on none, the reading icon.
+    expect(screen.getByTestId("flow-mark-a")).toHaveAttribute("data-connector", "qbo");
+    expect(screen.getByTestId("flow-mark-b")).toHaveAttribute("data-mark", "search");
+    // An automation and a loop have their own; a decision and a Stop are their shapes.
+    expect(screen.getByTestId("flow-mark-auto")).toHaveAttribute("data-mark", "worksheet");
+    expect(screen.getByTestId("flow-mark-f")).toHaveAttribute("data-mark", "copy");
+    expect(screen.queryByTestId("flow-mark-d")).toBeNull();
+    expect(screen.queryByTestId("flow-mark-s")).toBeNull();
+
+    expect(screen.queryByTestId("flow-key")).toBeNull();
+    fireEvent.click(screen.getByTestId("flow-key-toggle"));
+    const key = screen.getByTestId("flow-key");
+    expect(key).toHaveTextContent("Reads from or changes a connected tool");
+    expect(key).toHaveTextContent("Reads");
+    expect(key).toHaveTextContent("An automation: saved steps");
+    fireEvent.click(screen.getByTestId("flow-key-toggle"));
+    expect(screen.queryByTestId("flow-key")).toBeNull();
+  });
+
   it("folds a loop and opens an automation", () => {
     const props = setup();
     fireEvent.click(screen.getByTestId("flow-fold-f"));

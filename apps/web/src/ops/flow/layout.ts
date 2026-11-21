@@ -24,7 +24,9 @@ export const FLOW_START_ID = "flow:start";
 /** The end box's id: what the flow gives back. */
 export const FLOW_GIVES_BACK_ID = "flow:gives-back";
 
-export const BOX_W = 212;
+// 24px wider than its first 212, for the mark at the box's left (./BoxMark), so a title keeps
+// about the room it had.
+export const BOX_W = 236;
 export const BOX_H = 54;
 export const DIAMOND_W = 168;
 export const DIAMOND_H = 84;

@@ -704,6 +704,17 @@ function BuilderBody(
         const c = toolConnector(toolId, data);
         return c ? connectorName(data, c) : undefined;
       },
+      // The chart's mark on a read or a write: the connector its tool is on, or an action's own.
+      connectorOf: (step) => {
+        if (step.kind !== "read" && step.kind !== "write") return undefined;
+        const id =
+          step.kind === "write" && step.action !== undefined
+            ? (step.via ?? null)
+            : step.tool !== undefined
+              ? toolConnector(step.tool, data)
+              : null;
+        return id ? { id, name: connectorName(data, id) } : undefined;
+      },
       changesClientTool: (toolId) => {
         const tool = ctx.tools?.[toolId];
         return tool ? tool.sideEffect === "external" : undefined;

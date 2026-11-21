@@ -151,6 +151,49 @@
     text-transform: uppercase;
     margin-right: 5px;
   }
+  /* What a step is, at a glance (./BoxMark): a small tile at the box's left, then its two lines.
+   * The connector's logo sits on its own white tile; "AI" and the kinds' icons are ink on the
+   * subtle surface, a person's are copper. The design system's tokens only. */
+  .flow-box--marked {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 9px;
+    padding-left: 9px;
+  }
+  .flow-box__text {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .flow-box__mark {
+    display: inline-flex;
+    flex: none;
+    width: 24px;
+    height: 24px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface-subtle);
+    color: var(--ink-muted);
+  }
+  .flow-box__mark--logo {
+    border: 0;
+    background: none;
+  }
+  .flow-box__mark--ai {
+    color: var(--ink);
+    font: 600 9.5px / 1 var(--font-mono);
+    letter-spacing: 0.04em;
+  }
+  .flow-box__mark--person {
+    border-color: transparent;
+    background: var(--surface);
+    color: var(--copper-ink);
+  }
   .flow-box--end {
     background: var(--slate-tint);
     border-color: var(--slate-tint);
@@ -463,6 +506,29 @@
     color: var(--ink-muted);
     font-size: 11.5px;
     line-height: 16px;
+  }
+
+  /* ── The key: what each mark on the chart means, above the zoom bar. ── */
+  .flow-key {
+    position: absolute;
+    z-index: 7;
+    right: 16px;
+    bottom: 60px;
+    margin: 0;
+    padding: 10px 12px;
+    list-style: none;
+    display: grid;
+    gap: 8px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    font: 400 12.5px / 17px var(--font-sans);
+    color: var(--ink);
+  }
+  .flow-key li {
+    display: flex;
+    align-items: center;
+    gap: 9px;
   }
 
   /* ── Zoom: −, the percent, +, Fit. ── */
