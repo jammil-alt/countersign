@@ -4,6 +4,7 @@
 // access tests walk this whole list, so none of them skips a check.
 
 import { adjustRoutes } from "./adjust";
+import { assistRoutes } from "./assist";
 import { clientFileRoutes, startRoutes } from "./client-files";
 import { codeRequestRoutes } from "./code-requests";
 import { connectorAccessRoutes } from "./connector-access";
@@ -39,4 +40,6 @@ export const allRoutes = {
   // docs/connectors-plan.md (C4): the client's Connectors place, our changes and their requests,
   // the Needs and Readiness panels; they load with the Connectors screens.
   ...connectorAccessRoutes,
+  // docs/plan.md §1.166: Draft for long text fields; its sheet loads lazily with the field.
+  ...assistRoutes,
 } as const;

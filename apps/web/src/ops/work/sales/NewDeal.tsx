@@ -160,6 +160,10 @@ export function NewDeal({
             onChange={(e) => setDescription(e.target.value)}
             placeholder="4 offices, about 300 supplier invoices a month. From the Hire page."
             data-testid="sales-start-description"
+            assist={{
+              field: "deal.description",
+              context: clientId ? { clientId } : undefined,
+            }}
           />
         </Field>
         <div className="flex flex-wrap gap-4">
