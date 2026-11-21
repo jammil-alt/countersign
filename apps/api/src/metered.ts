@@ -16,12 +16,17 @@ export type MeteredKind = "runs.ask" | "transcribe";
 /**
  * Each person's allowance per client: a short burst, then a rolling day.
  */
-// DECISION: 10 a minute and 200 in any 24 hours, per person, per client, per kind: a person asking
-// or dictating by hand stays far below both, a script is stopped within a minute. Rolling windows,
-// so no client's time zone decides when a day starts.
+// DECISION: questions: 10 a minute and 200 in any 24 hours, per person, per client: a person asking
+// by hand stays far below both, a script is stopped within a minute. Rolling windows, so no
+// client's time zone decides when a day starts.
+// DECISION (2026-11-21, live dictation, docs/plan.md §1.109): voice typing sends a recording in
+// segments of five to eight seconds while the person speaks (apps/web/src/ui/dictation.ts), at most
+// 12 a minute from one composer, so a call is now a segment, not a dictation (it was 10 a minute
+// and 200 a day). 30 a minute leaves room for the 12 and a second tab; 1,500 a day is about two
+// hours of speech in five-second segments. A script is still stopped within a minute.
 export const METERED_LIMITS: Record<MeteredKind, { perMinute: number; perDay: number }> = {
   "runs.ask": { perMinute: 10, perDay: 200 },
-  transcribe: { perMinute: 10, perDay: 200 },
+  transcribe: { perMinute: 30, perDay: 1500 },
 };
 
 export const meteredAction = (kind: MeteredKind) => `metered ${kind}`;

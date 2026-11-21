@@ -1230,6 +1230,47 @@ a.ui-stat--link:focus-visible {
     animation: none;
   }
 }
+/* The live sound level while recording (dictation.ts's meter): it takes the dot's place where
+   there is a meter; with reduced motion the still dot stays and the moving bar is left out. */
+.ui-voice__level {
+  display: none;
+  width: 18px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.ui-voice__level > span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--slate);
+  transform: scaleX(0.08);
+  transform-origin: left center;
+  transition: transform 100ms linear;
+}
+.ui-voice__button[data-meter="on"] .ui-voice__level {
+  display: block;
+}
+.ui-voice__button[data-meter="on"] .ui-voice__dot {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ui-voice__button[data-meter="on"] .ui-voice__level {
+    display: none;
+  }
+  .ui-voice__button[data-meter="on"] .ui-voice__dot {
+    display: block;
+  }
+}
+/* Under the box while dictating: "Listening…", and words back early that wait for earlier ones. */
+.ui-voice__live {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 12px;
+  font-style: italic;
+  line-height: 16px;
+}
 .ui-voice__error {
   color: var(--risk);
   font-size: 12px;

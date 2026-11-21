@@ -203,7 +203,8 @@ Status, 2026-11-20:
   under `/api/*`, so the Cloudflare rule doesn't cover it: a request there with no token is
   answered and not recorded, and refused sign-ins are recorded only up to 120 a minute per IP
   (`MCP_RATE_LIMIT`, key `ip:<address>`). Plain-words questions and voice typing in the portal,
-  which each call a paid model, are limited per person and client to 10 a minute and 200 a day
+  which each call a paid model, are limited per person and client: questions to 10 a minute and
+  200 a day, voice typing (a call per segment of a few seconds) to 30 a minute and 1,500 a day
   (`apps/api/src/metered.ts`). The public beacon route (`/api/in/`) has its own too: 120 a minute
   per sending address (an IPv6 address by its /64), checked before any database work
   (`apps/api/src/routes/pack-inbound.ts`).
