@@ -116,6 +116,10 @@ export interface ChartProps extends ChartEvents {
     skillKind?: string;
     /** The model the step runs on, in a word ("claude-sonnet-5-5"), when it runs one. */
     model?: string;
+    /** The connector a read or a write step is on, for its mark: its id and its name. */
+    connector?: { id: string; name: string };
+    /** The agent a hand-off goes to, for its mark: the agent's own avatar. */
+    agent?: { name: string };
   };
   /** Read only: no +, no dragging (an older version, the merge screen). */
   readOnly?: boolean;

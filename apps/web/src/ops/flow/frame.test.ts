@@ -204,6 +204,15 @@ describe("a step's words on the chart", () => {
     expect(plain.skillKind).toBeUndefined();
     expect(plain.model).toBeUndefined();
   });
+
+  it("carries the connector a step is on, for the mark on its box", () => {
+    const on = chartLabel(
+      { ...labels, connectorOf: () => ({ id: "testkit", name: "Testkit" }) },
+      env(),
+    )(step("fix"));
+    expect(on.connector).toEqual({ id: "testkit", name: "Testkit" });
+    expect(chartLabel(labels, env())(step("fix")).connector).toBeUndefined();
+  });
 });
 
 describe("the statuses the builder adds", () => {

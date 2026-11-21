@@ -6382,6 +6382,42 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.176 The Builder in the step panel: the conversation has the room (owner, 2026-11-21; no migration)
+
+The owner on the step panel (staging feedback): "there is too much lost space here… in the whole
+screen only 3 lines are the conversation with the Builder. We need to rethink this layout"; and
+"when you type it into the box there is no spot for a response… let's go to a collapse, half and
+full… find icons to make this not the tabs, make it smaller, it is too prevalent."
+
+| Topic | Decision |
+|---|---|
+| Three states | Folded to one line, half the panel, or the whole panel (`line`, `beside`, `max`). The box-only size is gone: it had no room for an answer. A browser that last chose it gets half, and half is the default. // DECISION |
+| One head line | "Builder" folds and opens it. Beside it, small icon buttons: the previous and next step (they were a row of the chat) and the two sizes, each a picture of how much of the panel it takes. No tabs. |
+| What left the chat | The "Builder" title row and the "Working on … · step 1 of 15" banner: the panel's own title names the step. Each turn still says which step it was about. |
+| The message box | The shared composer has a `compact` form: one line that grows, its shortcuts, Dictate and Send on one line under it, and the "Enter to send" hint in Send's title. About 72px, where it was about 180. Other conversations keep the full box. |
+| One part scrolls | The conversation, and nothing around it (it was a scrolling box inside a scrolling box). On a 781px window the whole panel now gives the conversation about 400px; it had about 90. |
+| Checked | `apps/web/src/ops/flow/StepPanel.test.tsx` (half by default, icons with their names, folding, previous and next), `apps/web/src/ops/builder/step-chat.builder.test.tsx` (a turn carries its step; next and previous from the head; sizes remembered). Measured in a browser on the seeded Bill clerk. Not seen with a real conversation: the local app has no model key. |
+
+### 1.175 A step's mark on the chart, and a connector named with its vendor (owner, 2026-11-21; no migration)
+
+The owner: "for all connectors in the workflow, let's call it by vendor name as well and let's
+visually add the logo on the step so that we know what it is… Also in each of the steps let's add
+visual cues to what they are, e.g. some are AI, skills, connectors, so you can follow
+understanding what they are."
+
+| Topic | Decision |
+|---|---|
+| A connector's vendor | `ConnectorManifest.vendor` (optional): the service behind a connector whose name doesn't say it. Set for the bank feed (Plaid), texts and WhatsApp (Twilio) and email sending (Resend); the rest are named for their provider or are ours. `connectorTitle` (core) says "Bank and card feeds (Plaid)": the name first, the vendor in brackets, so both words find it. // DECISION |
+| Where it is said | The workflow builder's catalog (`opsBuilderCatalog`'s connectors, so the rail, the steps, the inspector and "Choose a connector") and what the Builder reads (§1.174). A client's portal and the connections screens keep the plain name. // DECISION |
+| The mark on a box | A 24px tile at the left of every step's box (`apps/web/src/ops/flow/BoxMark.tsx`). A read or a write on a connector shows the connector's own mark, the one the connections screens draw (`ConnectorMark`, now with an `xs` size): the provider's logo where we have its file. A skill a model does says "AI"; one that runs by rules shows the gear. Every other kind has the nearest icon of the design system's set: a person (copper), a conversation, a notice, a wait, a loop, an automation, a hand off, a missing step. A decision is its diamond and a Stop its pill. No icon is drawn for this and no colour added. // DECISION |
+| Avatars where there is no logo | A connector with no logo of its own keeps the mark the connections screens give it: a Mezonas icon for ours, else its initials on the plain tile (an area's tools read "BO" for Bookkeeping). A hand-off shows the other agent's own avatar (`AgentBadge`: its initials in its colour, as agents are drawn everywhere). // DECISION |
+| AI on a connector's step | A read or a write on a connector whose tool calls a model inside carries a small "AI" on the logo, so every step a model does says so. |
+| The box | 24px wider (236), so a title keeps about the room it had. Positions are still worked out, never stored. |
+| The key | "Key" in the chart's zoom bar lists what each mark on this chart means, every connector under one line. A mark's tooltip and the details on hover say it for one step, with the connector's mark and name. |
+| No logo files yet | Plaid, Twilio and Resend have no logo file, so their steps show the Mezonas icon the connections screens give them (the bank, the message, the envelope). The owner's files go in `apps/web/src/connections/logos` and `brands.ts`. |
+| Not changed | The List view and the rail's items, which carry their kinds in words. |
+| Checked | `apps/web/src/ops/flow/BoxMark.test.tsx` (which mark each kind gets; the key), `Chart.test.tsx` (the marks on the boxes; the key opens), `frame.test.ts` (the label carries the connector), `packages/connectors/src/bankfeed/bankfeed.test.ts` (the vendor and the title). Looked at in a browser on the seeded Bill clerk. |
+
 ### 1.174 The Builder finds a service by what its connector does (owner, 2026-11-21; no migration)
 
 The owner, drafting a bookkeeping agent that pulls transactions "via Plaid": "where is the Plaid

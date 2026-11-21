@@ -28,10 +28,12 @@ import {
   useRef,
   useState,
 } from "react";
+import { ConnectorMark } from "../../connections/ConnectorMark";
 import { Icon } from "../../ui/icons";
 import { cx, pillClass, type Tone } from "../../ui/primitives";
 import { containersWithin, type Step } from "../builder/model";
 import { PROCESS_KIND_LABEL, processStepDetail } from "../workflow/describe";
+import { BoxMark, type BoxMarkSpec, boxMark, chartKey } from "./BoxMark";
 import {
   boxDragId,
   dotDragId,
@@ -273,6 +275,20 @@ export function Chart(props: ChartProps) {
 
   const tipBox = tipFor && !dragging ? layout.boxes.find((b) => b.id === tipFor) : undefined;
 
+  // The key: what each mark on this chart means, opened from the zoom bar.
+  const [keyOpen, setKeyOpen] = useState(false);
+  const keyLines = useMemo(
+    () =>
+      chartKey(
+        layout.boxes.flatMap((b): BoxMarkSpec[] => {
+          if (b.role !== "step" || b.shape !== "box" || !b.step) return [];
+          const m = boxMark(b.step, label(b.step));
+          return m ? [m] : [];
+        }),
+      ),
+    [layout.boxes, label],
+  );
+
   return (
     <div
       className={cx("flow-chart", dragging && "is-dragging", panning && "is-panning")}
@@ -456,6 +472,16 @@ export function Chart(props: ChartProps) {
         </div>
       </div>
 
+      {keyOpen && keyLines.length > 0 ? (
+        <ul className="flow-key" aria-label="What the marks mean" data-testid="flow-key">
+          {keyLines.map((line) => (
+            <li key={line.key}>
+              <BoxMark mark={line.mark} />
+              {line.words}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <div className="flow-zoom" data-testid="flow-zoom">
         <button
           type="button"
@@ -487,6 +513,16 @@ export function Chart(props: ChartProps) {
         <button type="button" data-testid="flow-zoom-fit" onClick={fit}>
           Fit
         </button>
+        {keyLines.length > 0 ? (
+          <button
+            type="button"
+            aria-expanded={keyOpen}
+            data-testid="flow-key-toggle"
+            onClick={() => setKeyOpen((o) => !o)}
+          >
+            Key
+          </button>
+        ) : null}
         <span className="flow-zoom__hint">Drag the background to move</span>
       </div>
     </div>
@@ -558,6 +594,8 @@ function StepBox(p: {
   const tryWord = mark && mark.status !== "skipped" ? TRY_WORD[mark.status] : null;
   const kind = step.kind;
   const canDot = !readOnly && !box.unreachable && kind !== "if" && kind !== "stop";
+  // What it is at a glance: its connector's logo, "AI", or its kind's icon (./BoxMark).
+  const glyph = box.shape === "box" ? boxMark(step, words) : null;
 
   const t = drag.transform;
   const style = {
@@ -594,6 +632,7 @@ function StepBox(p: {
         `flow-box--${kind}`,
         box.shape === "pill" && "flow-box--pill",
         box.shape === "diamond" && "flow-box--diamond",
+        glyph && "flow-box--marked",
         box.fold && "has-fold",
         issues > 0 || status?.level === "issue" ? "has-issue" : null,
         selected && "is-sel",
@@ -613,13 +652,16 @@ function StepBox(p: {
         <span className="flow-box__t">{words.title}</span>
       ) : (
         <>
-          <span className="flow-box__t">
-            {box.number ? <span className="flow-box__n">{box.number}</span> : null}
-            {words.title}
-          </span>
-          <span className="flow-box__s">
-            <b>{words.kind}</b>
-            {words.detail ?? ""}
+          {glyph ? <BoxMark mark={glyph} testId={`flow-mark-${step.id}`} /> : null}
+          <span className="flow-box__text">
+            <span className="flow-box__t">
+              {box.number ? <span className="flow-box__n">{box.number}</span> : null}
+              {words.title}
+            </span>
+            <span className="flow-box__s">
+              <b>{words.kind}</b>
+              {words.detail ?? ""}
+            </span>
           </span>
         </>
       )}
@@ -906,6 +948,12 @@ function Tip(p: {
       <>
         <span className="ds-eyebrow">{kind}</span>
         <span className="flow-tip__h">{words.title}</span>
+        {words.connector ? (
+          <div className="flow-tip__runs" data-testid="flow-tip-connector">
+            <ConnectorMark name={words.connector.name} connector={words.connector.id} size="xs" />
+            <span>{words.connector.name}</span>
+          </div>
+        ) : null}
         {how || runs ? (
           <div className="flow-tip__runs" data-testid="flow-tip-runs">
             {how ? <span className={pillClass("neutral")}>{how}</span> : null}

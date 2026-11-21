@@ -196,12 +196,21 @@ export function chartLabel(labels: StepLabels, env: ApprovalEnv): NonNullable<Ch
       .join(" · ");
     // The chart's details say these on a line of their own (owner, 2026-11-21).
     const model = labels.stepModel?.(step);
+    // The connector a read or a write is on, for the box's mark (its logo).
+    const connector = labels.connectorOf?.(step);
+    // The agent a hand-off goes to, for its avatar.
+    const agent =
+      step.kind === "handoff" && step.to.agent
+        ? { name: labels.handoff?.(step.to)?.name ?? step.to.agent }
+        : undefined;
     return {
       title: step.name.trim() || kind,
       kind: skillKind ? `${kind} · ${skillKind}` : kind,
       detail: detail || null,
       ...(skillKind ? { skillKind } : {}),
       ...(model ? { model } : {}),
+      ...(connector ? { connector } : {}),
+      ...(agent ? { agent } : {}),
     };
   };
 }

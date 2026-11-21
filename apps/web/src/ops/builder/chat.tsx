@@ -148,8 +148,11 @@ export function Composer({
   onSend,
   testId = "builder-composer",
   clientId,
+  compact = false,
 }: {
   placeholder: string;
+  /** The small box of the step panel. */
+  compact?: boolean | undefined;
   /** §1.109: the client the conversation is about, for voice typing's HIPAA check. */
   clientId?: string | null | undefined;
   busy: boolean;
@@ -161,6 +164,7 @@ export function Composer({
   const box = useRef<HTMLTextAreaElement>(null);
   return (
     <ChatComposer
+      compact={compact}
       label="Message to the Builder"
       placeholder={placeholder}
       busy={busy}

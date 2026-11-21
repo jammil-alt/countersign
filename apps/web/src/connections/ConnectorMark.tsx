@@ -16,15 +16,16 @@ export function ConnectorMark({
   name: string;
   /** The connector's id (`qbo`, `gmail`); without one, or for an unknown id, the initials. */
   connector?: string | undefined;
-  size?: "sm" | "md";
+  /** `xs`: on a step's box in the workflow builder's chart. */
+  size?: "xs" | "sm" | "md";
 }) {
   const brand = connectorBrand(connector);
   const tile = cx(
     "inline-flex shrink-0 items-center justify-center rounded-sm",
-    size === "sm" ? "size-9 text-xs" : "size-10 text-sm",
+    size === "xs" ? "size-6 text-[9px]" : size === "sm" ? "size-9 text-xs" : "size-10 text-sm",
   );
   const neutral = "border border-line bg-surface-subtle text-ink";
-  const glyph = size === "sm" ? 18 : 20;
+  const glyph = size === "xs" ? 14 : size === "sm" ? 18 : 20;
 
   if (brand?.kind === "image") {
     return (
@@ -70,7 +71,7 @@ export function ConnectorMark({
   if (brand?.kind === "icon") {
     return (
       <span aria-hidden data-mark="icon" className={cx(tile, neutral, "text-ink-muted")}>
-        <Icon name={brand.icon} size={20} />
+        <Icon name={brand.icon} size={size === "xs" ? 14 : 20} />
       </span>
     );
   }

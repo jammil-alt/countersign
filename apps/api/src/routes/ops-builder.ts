@@ -55,6 +55,7 @@ import {
   type ClosestTemplate,
   classifyChange,
   closestBundles,
+  connectorTitle,
   diffBundles,
   isToolWrapper,
   newStepSkillReason,
@@ -289,7 +290,7 @@ export function platformBuilderContext(
       // With each one's description: it names the service behind it (the bank feed's says Plaid).
       connectors: platform.connectors.list().map((c) => ({
         id: c.manifest.id,
-        name: c.manifest.name,
+        name: connectorTitle(c.manifest),
         description: c.manifest.description,
       })),
       // P-9: the packs this deployment registers (docs/plan.md §1.71); a client's own are in

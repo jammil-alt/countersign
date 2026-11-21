@@ -26,6 +26,7 @@ import {
   type BuilderCatalog,
   type BundleChange,
   connectorShown,
+  connectorTitle,
   diffBundles,
   flattenBundle,
   isToolWrapper,
@@ -418,9 +419,10 @@ export async function builderCatalogFor(
     connectors: platform.connectors
       .list()
       .filter((c) => !hidden.has(c.manifest.id))
+      // The builder names a connector with the service behind it: "Bank and card feeds (Plaid)".
       .map((c) => ({
         id: c.manifest.id,
-        name: c.manifest.name,
+        name: connectorTitle(c.manifest),
         icon: c.manifest.icon || null,
       })),
     // v0.12 W2-B: automations a use step can pin (ARCHITECTURE §10.7).

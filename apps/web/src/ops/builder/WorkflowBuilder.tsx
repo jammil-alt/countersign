@@ -704,6 +704,17 @@ function BuilderBody(
         const c = toolConnector(toolId, data);
         return c ? connectorName(data, c) : undefined;
       },
+      // The chart's mark on a read or a write: the connector its tool is on, or an action's own.
+      connectorOf: (step) => {
+        if (step.kind !== "read" && step.kind !== "write") return undefined;
+        const id =
+          step.kind === "write" && step.action !== undefined
+            ? (step.via ?? null)
+            : step.tool !== undefined
+              ? toolConnector(step.tool, data)
+              : null;
+        return id ? { id, name: connectorName(data, id) } : undefined;
+      },
       changesClientTool: (toolId) => {
         const tool = ctx.tools?.[toolId];
         return tool ? tool.sideEffect === "external" : undefined;
@@ -1776,19 +1787,14 @@ function BuilderBody(
         }
         builder={
           stepFocus
-            ? (size) => (
-                <StepChat
-                  session={session}
-                  step={stepFocus.step}
-                  size={size}
-                  onPrevious={((id) => (id ? () => selectStep(id) : undefined))(stepFocus.previous)}
-                  onNext={((id) => (id ? () => selectStep(id) : undefined))(stepFocus.next)}
-                />
-              )
+            ? (size) => <StepChat session={session} step={stepFocus.step} size={size} />
             : undefined
         }
         builderSize={chatSize}
         onBuilderSize={setChatSize}
+        // The step before and after, from the Builder's head (they were a row of the chat).
+        onPreviousStep={((id) => (id ? () => selectStep(id) : undefined))(stepFocus?.previous)}
+        onNextStep={((id) => (id ? () => selectStep(id) : undefined))(stepFocus?.next)}
         // An if and a missing step say how they are removed among their own settings.
         onRemove={step.kind === "if" ? undefined : () => remove(step.id)}
         removeLabel={step.kind === "missing" ? "Remove it" : undefined}

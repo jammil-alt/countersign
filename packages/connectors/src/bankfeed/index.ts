@@ -561,6 +561,7 @@ export function createBankfeedConnector(options: BankfeedOptions = {}): Bankfeed
     // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
     askFirst: [],
     name: "Bank and card feeds",
+    vendor: "Plaid",
     description:
       "Read the transactions of your bank accounts and cards, through Plaid. You connect them yourself. Nothing here can move money.",
     icon: "bank",

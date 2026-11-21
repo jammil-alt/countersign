@@ -356,6 +356,7 @@ export function createResendConnector(options: ResendConnectorOptions = {}): Con
     // Connectors C2 (docs/connectors-plan.md §5.1): writes a new connection starts asking first.
     askFirst: [{ verb: "create", entity: "message" }],
     name: "Email sending",
+    vendor: "Resend",
     description: "Email your contacts from an address on your domain, through Mezonas.",
     icon: "mail",
     auth: "api_key",

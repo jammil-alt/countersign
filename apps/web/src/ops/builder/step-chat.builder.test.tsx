@@ -211,16 +211,23 @@ const nameField = () => screen.getByTestId("flow-panel-name") as HTMLInputElemen
 describe("working on steps with the Builder", () => {
   beforeEach(() => window.localStorage.clear());
 
-  it("is the message box under the step's setup by default, and the whole-flow Builder names no step", async () => {
+  it("sits under the step's setup with room for the answer, and the whole-flow Builder names no step", async () => {
     const { bodies, user } = setup();
     await screen.findByTestId("flow-chart");
     await user.click(screen.getByTestId("flow-box-tell"));
     expect(nameField().value).toBe("Tell");
-    // Under the setup, on this step: the message box alone, the conversation folded away.
-    expect(screen.getByTestId("flow-panel")).toHaveAttribute("data-builder-size", "min");
+    // Under the setup, on this step: half the panel, the conversation above a small message box.
+    expect(screen.getByTestId("flow-panel")).toHaveAttribute("data-builder-size", "beside");
     const chat = within(screen.getByTestId("flow-panel-builder")).getByTestId("builder-step-chat");
+    expect(chat).toHaveAttribute("data-step", "tell");
     expect(within(chat).getByTestId("builder-step-chat-composer-input")).toBeInTheDocument();
-    expect(within(chat).queryByTestId("builder-step-chat-focus")).toBeNull();
+    expect(within(chat).getByTestId("builder-step-chat-composer")).toHaveClass(
+      "ui-chat-composer--compact",
+    );
+    // No title row and no "Working on" banner: the panel's own title names the step.
+    expect(within(chat).queryByText(/^Working on/)).toBeNull();
+    // A browser that last chose the box-only size, which is gone, gets half.
+    expect(window.localStorage.getItem(STEP_CHAT_KEY)).toBeNull();
 
     // "Ask the Builder" is the whole flow's: its turns name no step.
     await user.click(screen.getByTestId("flow-bar-builder"));
@@ -234,17 +241,15 @@ describe("working on steps with the Builder", () => {
     const { bodies, user } = setup();
     await screen.findByTestId("flow-chart");
     await user.click(screen.getByTestId("flow-box-tell"));
-    // Given half the panel, the conversation shows; the size is remembered in this browser.
-    await user.click(screen.getByTestId("flow-panel-builder-beside"));
-    expect(screen.getByTestId("flow-panel")).toHaveAttribute("data-builder-size", "beside");
-    expect(window.localStorage.getItem(STEP_CHAT_KEY)).toBe("beside");
+    // Given the whole panel; the size is remembered in this browser.
+    await user.click(screen.getByTestId("flow-panel-builder-max"));
+    expect(screen.getByTestId("flow-panel")).toHaveAttribute("data-builder-size", "max");
+    expect(window.localStorage.getItem(STEP_CHAT_KEY)).toBe("max");
 
     const chat = await screen.findByTestId("builder-step-chat");
-    expect(within(chat).getByTestId("builder-step-chat-focus")).toHaveTextContent(
-      "Working on Tell · step 1 of 2",
-    );
+    expect(chat).toHaveAttribute("data-step", "tell");
     expect(nameField().value).toBe("Tell");
-    expect(within(chat).getByTestId("builder-step-chat-previous")).toBeDisabled();
+    expect(screen.getByTestId("flow-panel-builder-previous")).toBeDisabled();
 
     // A turn carries the step; the change shows in the step's setup at once.
     await user.type(
@@ -252,29 +257,31 @@ describe("working on steps with the Builder", () => {
       "Say hello instead",
     );
     await user.click(within(chat).getByTestId("builder-step-chat-composer-send"));
+    await waitFor(() =>
+      expect(bodies[0]?.body).toEqual({ text: "Say hello instead", focusStepId: "tell" }),
+    );
+    expect(await within(chat).findByTestId("builder-turn-1-focus")).toHaveTextContent("On “Tell”");
+    await user.click(screen.getByTestId("flow-panel-builder-beside"));
     await waitFor(() => expect(nameField().value).toBe("Say hello"));
-    expect(bodies[0]?.body).toEqual({ text: "Say hello instead", focusStepId: "tell" });
-    expect(within(chat).getByTestId("builder-turn-1-focus")).toHaveTextContent("On “Tell”");
 
     // Each change undoes on its own.
     await user.click(within(chat).getByTestId("builder-change-undo"));
     await waitFor(() => expect(nameField().value).toBe("Tell"));
     expect(bodies[1]).toEqual({ path: "undo", body: { turnId: TURN, changeId: "step:tell" } });
 
-    // Next moves the conversation, and the setup, to the next step, in the same size.
-    await user.click(within(chat).getByTestId("builder-step-chat-next"));
-    expect(screen.getByTestId("builder-step-chat-focus")).toHaveTextContent(
-      "Working on Wrap up · step 2 of 2",
-    );
+    // Next, in the Builder's head, moves the conversation and the setup to the next step, in the
+    // same size.
+    await user.click(screen.getByTestId("flow-panel-builder-next"));
+    expect(screen.getByTestId("builder-step-chat")).toHaveAttribute("data-step", "wrap");
     expect(nameField().value).toBe("Wrap up");
     expect(screen.getByTestId("flow-panel")).toHaveAttribute("data-builder-size", "beside");
-    expect(screen.getByTestId("builder-step-chat-next")).toBeDisabled();
-    await user.click(screen.getByTestId("builder-step-chat-previous"));
-    expect(screen.getByTestId("builder-step-chat-focus")).toHaveTextContent("Working on Tell");
+    expect(screen.getByTestId("flow-panel-builder-next")).toBeDisabled();
+    await user.click(screen.getByTestId("flow-panel-builder-previous"));
+    expect(screen.getByTestId("builder-step-chat")).toHaveAttribute("data-step", "tell");
 
-    // Back to the message box: the setup has the panel again.
-    await user.click(screen.getByTestId("flow-panel-builder-min"));
-    expect(screen.queryByTestId("builder-step-chat-focus")).toBeNull();
-    expect(window.localStorage.getItem(STEP_CHAT_KEY)).toBe("min");
+    // Folded to its line: the setup has the panel again, and the Builder keeps its place.
+    await user.click(screen.getByTestId("flow-panel-builder-fold"));
+    expect(screen.getByTestId("flow-panel")).toHaveAttribute("data-builder-size", "line");
+    expect(window.localStorage.getItem(STEP_CHAT_KEY)).toBe("line");
   });
 });
