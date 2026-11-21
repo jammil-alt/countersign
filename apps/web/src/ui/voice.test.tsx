@@ -1,7 +1,8 @@
 // Voice typing in the composer (docs/plan.md §1.109), against a fake microphone and recorder:
 // Dictate records, Stop writes it out into the box (after what's there, never sent on its own), a
 // blocked microphone or a failure says so, and the button is absent where the browser can't record.
-import { act, render, screen, waitFor } from "@testing-library/react";
+// Since 2026-11-21 the words arrive while the person speaks, a segment at a time (./dictation.ts).
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Composer } from "./chat";
@@ -123,6 +124,123 @@ describe("voice typing", () => {
     view.unmount();
     expect(stopTrack).toHaveBeenCalled();
     expect(transcribe).not.toHaveBeenCalled();
+  });
+
+  describe("words while speaking (2026-11-21)", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** Each segment's answer waits for the test. */
+    function segments() {
+      const answers: { resolve(t: string): void; reject(e: unknown): void }[] = [];
+      const transcribe = vi.fn(
+        () =>
+          new Promise<string>((resolve, reject) => {
+            answers.push({ resolve, reject });
+          }),
+      );
+      return { answers, transcribe };
+    }
+    const settle = () => act(async () => vi.advanceTimersByTimeAsync(0));
+    const wait = (ms: number) => act(async () => vi.advanceTimersByTimeAsync(ms));
+
+    it("shows the timer at once and puts each segment's words in the box, in spoken order", async () => {
+      const { answers, transcribe } = segments();
+      const { onSend } = setup(transcribe);
+      const button = screen.getByTestId("c-voice");
+      fireEvent.click(button);
+      await settle();
+      expect(button).toHaveTextContent("Stop · 0:00");
+      expect(screen.getByTestId("c-voice-live")).toHaveTextContent("Listening…");
+      // No AudioContext here: the dot, no level bar.
+      expect(button).not.toHaveAttribute("data-meter");
+
+      await wait(10_000);
+      expect(button).toHaveTextContent("Stop · 0:10");
+      expect(transcribe).toHaveBeenCalledTimes(2);
+      // The second segment's words come back first: they wait under the box.
+      answers[1]?.resolve("that emails AP");
+      await settle();
+      expect(screen.getByTestId("c-input")).toHaveValue("");
+      expect(screen.getByTestId("c-voice-live")).toHaveTextContent("that emails AP Listening…");
+      answers[0]?.resolve("Add a step");
+      await settle();
+      expect(screen.getByTestId("c-input")).toHaveValue("Add a step that emails AP");
+      expect(screen.getByTestId("c-voice-live")).toHaveTextContent(/^Listening…$/);
+
+      // Stop: the last segment is written out, then it's over; nothing was sent.
+      fireEvent.click(button);
+      await settle();
+      expect(button).toHaveTextContent("Writing it out…");
+      expect(screen.getByTestId("c-voice-live")).toHaveTextContent("Writing it out…");
+      expect(transcribe).toHaveBeenCalledTimes(3);
+      answers[2]?.resolve("every Monday.");
+      await settle();
+      expect(screen.getByTestId("c-input")).toHaveValue("Add a step that emails AP every Monday.");
+      expect(screen.queryByTestId("c-voice-live")).toBeNull();
+      expect(button).toHaveTextContent("Dictate");
+      expect(stopTrack).toHaveBeenCalled();
+      expect(onSend).not.toHaveBeenCalled();
+    });
+
+    it("keeps what's written when a segment fails, says so, and stops", async () => {
+      const { answers, transcribe } = segments();
+      setup(transcribe);
+      fireEvent.change(screen.getByTestId("c-input"), { target: { value: "Please" } });
+      fireEvent.click(screen.getByTestId("c-voice"));
+      await settle();
+      await wait(10_000);
+      answers[0]?.resolve("add a step");
+      await settle();
+      expect(screen.getByTestId("c-input")).toHaveValue("Please add a step");
+      answers[1]?.reject(new Error("we couldn't write that out: try again"));
+      await settle();
+      expect(screen.getByTestId("c-voice-error")).toHaveTextContent(
+        "We couldn't write that out: try again.",
+      );
+      expect(screen.getByTestId("c-input")).toHaveValue("Please add a step");
+      expect(screen.getByTestId("c-voice")).toHaveTextContent("Dictate");
+      expect(stopTrack).toHaveBeenCalled();
+      // The segment under way when it failed isn't sent.
+      expect(transcribe).toHaveBeenCalledTimes(2);
+    });
+
+    it("shows the sound level where the browser can measure it", async () => {
+      class FakeAudioContext {
+        state = "running";
+        createAnalyser() {
+          return {
+            fftSize: 0,
+            getByteTimeDomainData(wave: Uint8Array) {
+              wave.fill(128);
+              wave[0] = 255;
+            },
+          };
+        }
+        createMediaStreamSource() {
+          return { connect() {} };
+        }
+        resume() {
+          return Promise.resolve();
+        }
+        close() {
+          return Promise.resolve();
+        }
+      }
+      vi.stubGlobal("AudioContext", FakeAudioContext);
+      setup(async () => "x");
+      const button = screen.getByTestId("c-voice");
+      fireEvent.click(button);
+      await settle();
+      expect(button).toHaveAttribute("data-meter", "on");
+      await wait(200);
+      const bar = screen.getByTestId("c-voice-level").firstElementChild as HTMLElement;
+      expect(bar.style.transform).toMatch(/^scaleX\(0\.\d+\)$/);
+    });
   });
 
   it("isn't offered where the browser can't record", () => {

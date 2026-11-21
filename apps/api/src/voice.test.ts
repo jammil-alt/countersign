@@ -9,6 +9,10 @@ import { TranscribeError, type Transcriber } from "@countersign/llm";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, describe, expect, it } from "vitest";
 import { admin, createApiHarness, OPERATOR, OTHER_OPERATOR, user } from "./api.test-helper";
+import { METERED_LIMITS } from "./metered";
+
+// Live dictation (2026-11-21) sends a segment every five seconds or more: 12 a minute at most.
+const LIMIT = METERED_LIMITS.transcribe;
 
 const heard: { bytes: number; type: string; language?: string | undefined }[] = [];
 let failNext = false;
@@ -109,24 +113,32 @@ describe.skipIf(!h)("voice typing", () => {
     expect(ok.status, JSON.stringify(ok.json)).toBe(200);
   });
 
-  it("limits each person's recordings in the portal: 10 a minute, sent at once or not", async () => {
+  it("limits each person's recordings in the portal: 30 a minute, sent at once or not", async () => {
+    // Room for a minute of live dictation (12 segments) and more.
+    expect(LIMIT.perMinute).toBe(30);
     const before = heard.length;
     const sent = await Promise.all(
-      Array.from({ length: 12 }, () => post(user("b"), "/api/transcribe", AUDIO)),
+      Array.from({ length: LIMIT.perMinute + 2 }, () => post(user("b"), "/api/transcribe", AUDIO)),
     );
-    expect(sent.map((r) => r.status).sort()).toEqual([...Array(10).fill(200), 429, 429]);
+    expect(sent.map((r) => r.status).sort()).toEqual([
+      ...Array(LIMIT.perMinute).fill(200),
+      429,
+      429,
+    ]);
     expect(sent.find((r) => r.status === 429)?.json.error?.code).toBe("rate_limited");
-    // Only the ten allowed reached OpenAI.
-    expect(heard.length - before).toBe(10);
+    // Only the ones allowed reached OpenAI.
+    expect(heard.length - before).toBe(LIMIT.perMinute);
   });
 
-  it("limits each person's recordings in the portal to 200 a day", async () => {
+  it("limits each person's recordings in the portal to 1,500 a day", async () => {
+    expect(LIMIT.perDay).toBe(1500);
     const [person] = await H.t.db.execute<{ id: string }>(
       sql`select id from app_user where email = ${admin("b")}`,
     );
-    // Earlier today: 199 recordings two hours ago, beside the one written out above.
+    // Earlier today: the rest of the day's allowance, two hours ago, beside the one written out
+    // above.
     await H.t.db.insert(auditEvent).values(
-      Array.from({ length: 199 }, () => ({
+      Array.from({ length: LIMIT.perDay - 1 }, () => ({
         tenantId: H.B.tenantId,
         actorKind: "user" as const,
         actorUserId: person?.id ?? null,
