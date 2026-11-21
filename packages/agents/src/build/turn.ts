@@ -418,6 +418,23 @@ export async function buildTurn(
         );
         continue;
       }
+      // QA on staging (2026-11-17, MEZONAS-API-6): an answer in plain text, without the tool. The
+      // models always think, so the call can't be forced (`ANSWER_TOOL_CHOICE`); asked again with
+      // what it wrote, it answers through the tool. The same single repair as above.
+      if (error instanceof LlmToolError && error.code === "no_tool_call" && repairs > 0) {
+        repairs -= 1;
+        calls.push(error.result.record);
+        const said = error.result.message.content
+          .flatMap((b) => (b.type === "text" ? [b.text] : []))
+          .join("\n")
+          .trim();
+        if (said) merged.push({ role: "assistant", content: said.slice(0, 20_000) });
+        merged.push({
+          role: "user",
+          content: `${said ? "That answer" : "Your last answer"} did not call the \`${BUILD_TURN_TOOL}\` tool, so it can't be used. Answer again by calling \`${BUILD_TURN_TOOL}\` exactly once, with the whole answer in it.`,
+        });
+        continue;
+      }
       throw asBuilderError(error);
     }
   }
