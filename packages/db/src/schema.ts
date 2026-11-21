@@ -392,6 +392,11 @@ export const BUILD_PHASES = ["intake", "fitgap", "draft", "poc", "client_test", 
 export const BUILD_STATUSES = ["open", "live", "stopped"] as const;
 /** §1.124: how a build makes its agent; a fork of a template skips the build phases. */
 export const BUILD_PATHS = ["new", "template"] as const;
+/**
+ * Where a build opens (docs/plan.md §1.172): `phases`, on its build page, through intake, fit-gap,
+ * draft and the tests; `describe`, started on the lab's Describe it, in the one-screen builder.
+ */
+export const BUILD_FLOWS = ["phases", "describe"] as const;
 /** §1.124: what a build or a deal came from. */
 export const WORK_ORIGIN_KINDS = ["deal", "ask", "enhancement", "issue"] as const;
 /** §1.124: whose move an item of back office work waits on. */
@@ -436,6 +441,8 @@ export const build = pgTable(
     promisedOn: date("promised_on"),
     /** `new`: built through the phases; `template`: forked from `template_id` for the client. */
     path: text("path").$type<(typeof BUILD_PATHS)[number]>().notNull().default("new"),
+    /** Migration 0073: which screens the build opens on. Builds before it are `phases`. */
+    flow: text("flow").$type<(typeof BUILD_FLOWS)[number]>().notNull().default("phases"),
     templateId: uuid("template_id").references((): AnyPgColumn => agent.id),
     /** What the build came from: a deal, a client's ask, an enhancement or an issue. */
     originKind: text("origin_kind").$type<(typeof WORK_ORIGIN_KINDS)[number]>(),
@@ -454,6 +461,7 @@ export const build = pgTable(
     index("build_phase_idx").on(t.status, t.phase, t.updatedAt),
     index("build_origin_idx").on(t.originKind, t.originId),
     check("build_path_check", oneOf(t.path, BUILD_PATHS)),
+    check("build_flow_check", oneOf(t.flow, BUILD_FLOWS)),
     check(
       "build_origin_kind_check",
       sql`${t.originKind} is null or ${oneOf(t.originKind, WORK_ORIGIN_KINDS)}`,
