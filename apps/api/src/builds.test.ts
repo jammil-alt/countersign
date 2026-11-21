@@ -149,9 +149,10 @@ describe.skipIf(!h)("builds", () => {
     const skill = await ok("POST", "/api/ops/builds", { kind: "skill", title: "A skill" });
     expect(skill.build.flow).toBe("phases");
     // The board's list says it too.
-    const list = await ok("GET", "/api/ops/builds?status=open");
+    const list = await H.call(OPERATOR, "GET", "/api/ops/builds?status=open");
+    expect(list.status).toBe(200);
     const flows = new Map(
-      (list.builds as { id: string; flow: string }[]).map((b) => [b.id, b.flow]),
+      (list.json as { builds: { id: string; flow: string }[] }).builds.map((b) => [b.id, b.flow]),
     );
     expect(flows.get(agent.build.id)).toBe("describe");
     expect(flows.get(skill.build.id)).toBe("phases");
@@ -161,7 +162,9 @@ describe.skipIf(!h)("builds", () => {
     const again = await ok("PATCH", `/api/ops/builds/${agent.build.id}`, { flow: "describe" });
     expect(again.build.flow).toBe("describe");
     // A skill build has no builder to open in.
-    const refused = await call("PATCH", `/api/ops/builds/${skill.build.id}`, { flow: "describe" });
+    const refused = await H.call(OPERATOR, "PATCH", `/api/ops/builds/${skill.build.id}`, {
+      flow: "describe",
+    });
     expect(refused.status).toBe(422);
     expect((refused.json as { error: { code: string } }).error.code).toBe("no_builder");
   });
