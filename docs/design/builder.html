@@ -155,17 +155,35 @@ h1,h2,h3,p{margin:0}
 .pv__n{font:500 12px/18px var(--font-mono);color:var(--ink-faint)}
 .pv__sub{grid-column:3;font-size:12px;line-height:17px;color:var(--ink-muted)}
 
-/* Work area */
-.work{display:grid;grid-template-columns:var(--rail-w) minmax(0,1fr)}
-.rail{position:sticky;top:calc(var(--bar-h) + env(safe-area-inset-top,0px));align-self:start;max-height:calc(100vh - var(--bar-h));overflow:auto;padding:16px 12px 24px;padding-left:max(16px,env(safe-area-inset-left,0px));border-right:1px solid var(--line);background:var(--surface);min-height:calc(100vh - var(--bar-h));display:grid;gap:6px;align-content:start}
-.rail__list{display:grid;gap:6px}
-.block{box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:7px 8px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);cursor:grab;font:500 13px/18px var(--font-sans)}
+/* Work area: the canvas is its own viewport. Scroll or drag the background to move, zoom with the buttons. */
+html.is-build,html.is-build body{height:100%;overflow:hidden}
+html.is-build #app{height:100%;display:flex;flex-direction:column}
+html.is-build .bar{position:static;flex:none}
+.work{display:grid;grid-template-columns:var(--rail-w) minmax(0,1fr);flex:1 1 auto;min-height:0}
+.rail{height:100%;overflow:auto;padding:16px 12px 72px;padding-left:max(16px,env(safe-area-inset-left,0px));border-right:1px solid var(--line);background:var(--surface);display:grid;gap:8px;align-content:start}
+.rail__list{display:grid;gap:6px;padding-top:6px}
+.rgrp{border-top:1px solid var(--line);padding-top:8px}
+.rgrp summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;font:500 10px/14px var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted)}
+.rgrp summary::-webkit-details-marker{display:none}
+.rgrp summary span{letter-spacing:0;color:var(--ink-faint)}
+.rgrp summary:focus-visible{outline:2px solid var(--slate);outline-offset:2px}
+.block{box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);cursor:grab;font:500 13px/17px var(--font-sans)}
 .block:hover{border-color:var(--line-strong)}
 .block .kico{width:24px;height:24px}
 .block small{display:block;font:400 11px/14px var(--font-sans);color:var(--ink-muted)}
-.canvas{min-width:0;padding-block:20px 120px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));background-image:radial-gradient(var(--line) 1px,transparent 1px);background-size:18px 18px;min-height:calc(100vh - var(--bar-h));transition:padding-right 200ms}
-.col{max-width:860px;margin:0 auto;display:grid;gap:0}
-body.has-sheet .canvas{padding-right:calc(var(--sheet-w) + 16px)}
+.block .pill{padding:1px 6px;font-size:10px}
+.canvas{min-width:0;height:100%;overflow:auto;cursor:grab;background-image:radial-gradient(var(--line) 1px,transparent 1px);background-size:18px 18px;background-attachment:local;transition:margin-right 200ms;overscroll-behavior:contain}
+.canvas.is-panning{cursor:grabbing;user-select:none}
+.stage{display:flex;justify-content:center;min-width:max-content;padding:20px 480px 45vh}
+.col{width:760px;display:grid;grid-template-columns:minmax(0,1fr);gap:0;cursor:default}
+.lane .card__top{flex-direction:column;gap:4px}.lane .card__tags{max-width:none;justify-content:flex-start}
+body.has-sheet .canvas{margin-right:var(--sheet-w)}
+.zoomer{position:fixed;z-index:25;right:max(16px,env(safe-area-inset-right,0px));bottom:max(16px,env(safe-area-inset-bottom,0px));display:flex;align-items:center;gap:2px;padding:3px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);box-shadow:var(--shadow-pop);transition:right 200ms}
+.zoomer button{all:unset;box-sizing:border-box;min-width:30px;height:28px;padding:0 8px;border-radius:var(--radius-sm);font:500 12px/28px var(--font-sans);text-align:center;cursor:pointer;font-variant-numeric:tabular-nums}
+.zoomer button:hover{background:var(--surface-subtle)}
+.zoomer button:focus-visible{outline:2px solid var(--slate);outline-offset:1px}
+.zoomer i{width:1px;height:18px;background:var(--line);margin:0 2px}
+body.has-sheet .zoomer{right:calc(var(--sheet-w) + 16px)}
 
 .note{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;padding:12px 14px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);font-size:13px;line-height:19px;margin-bottom:16px}
 .note>:first-child{flex:1 1 0;min-width:0}.note>:last-child{flex:none}
@@ -176,7 +194,8 @@ body.has-sheet .canvas{padding-right:calc(var(--sheet-w) + 16px)}
 .filechip{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--surface);font:500 12px/16px var(--font-mono)}
 
 /* Flow */
-.flow{display:flex;flex-direction:column;min-height:8px}
+.flow{display:flex;flex-direction:column;align-items:center;min-height:8px}
+.flow>*{width:100%;flex:none}
 .lane>.flow{flex:1 1 auto;padding:10px 10px 4px}
 .lane__empty{display:flex;align-items:center;justify-content:center;min-height:46px;border:1px dashed var(--line-strong);border-radius:var(--radius-sm);font-size:12px;color:var(--ink-muted);margin-top:8px}
 .flow:has(>.node)>.lane__empty,.flow:has(>.block)>.lane__empty{display:none}
@@ -197,12 +216,13 @@ body.has-sheet .canvas{padding-right:calc(var(--sheet-w) + 16px)}
 .kico{width:28px;height:28px;border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;background:var(--surface-subtle);color:var(--ink-muted);flex:none;position:relative}
 .kico--write{background:var(--slate);color:var(--on-slate)}
 .kico--person{background:var(--copper-tint);color:var(--copper-ink)}
-.kico--decision,.kico--each{background:var(--slate-tint);color:var(--slate)}
+.kico--person,.kico--talk{background:var(--copper-tint);color:var(--copper-ink)}
+.kico--decision,.kico--each,.kico--repeat{background:var(--slate-tint);color:var(--slate)}
 .card__main{display:grid;gap:2px;min-width:0}
 .card__top{display:flex;gap:8px;align-items:flex-start;justify-content:space-between}
 .card__name{font:500 14px/20px var(--font-sans);overflow-wrap:anywhere}
 .card__name .n{font:500 12px/20px var(--font-mono);color:var(--ink-faint);margin-right:8px}
-.node--person>.card .card__name b{color:var(--copper-ink)}
+.node--person>.card .card__name b,.node--talk>.card .card__name b{color:var(--copper-ink)}
 .card__name b{font-weight:500}
 .card__sub{font-size:12px;line-height:17px;color:var(--ink-muted);overflow-wrap:anywhere}
 .card__sub .eyebrow{margin-right:6px}
@@ -254,6 +274,10 @@ body.has-sheet .canvas{padding-right:calc(var(--sheet-w) + 16px)}
 .node.is-sel>.fork--split>.card{border-color:var(--slate);box-shadow:0 0 0 1px var(--slate)}
 .node.is-dead>.card,.node.is-dead>.fork{opacity:.55}
 .end--closed{padding-top:14px}.end--closed::before{display:none}
+.addpath{all:unset;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:9px 12px;border:1px dashed var(--slate);border-radius:var(--radius-sm);color:var(--slate);font:500 13px/18px var(--font-sans);cursor:pointer;background:var(--surface)}
+.addpath:hover{background:var(--slate-tint)}
+.addpath:focus-visible{outline:2px solid var(--slate);outline-offset:2px}
+.addpath span{font-weight:400;color:var(--ink-muted)}
 .dnote{border:1px solid var(--signal);background:var(--signal-tint);border-radius:var(--radius-sm);padding:8px 10px;font-size:13px;line-height:19px}
 .end{position:relative;padding-top:26px;display:flex;flex-direction:column;align-items:center;gap:8px}
 .end::before{content:"";position:absolute;left:50%;top:0;height:26px;width:1px;background:var(--line-strong)}
@@ -334,12 +358,14 @@ details.more summary span{font-weight:400;color:var(--ink-muted)}
 .tbl th{text-align:left;font:500 10px/14px var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);padding:6px 8px 6px 0;border-bottom:1px solid var(--line)}
 .tbl td{padding:8px 8px 8px 0;border-bottom:1px solid var(--line);vertical-align:top}
 .notes ul{margin:0;padding-left:18px;display:grid;gap:6px;font-size:13px;line-height:19px}
-.fab{position:fixed;z-index:25;left:max(16px,env(safe-area-inset-left,0px));bottom:max(16px,env(safe-area-inset-bottom,0px));box-shadow:var(--shadow-pop)}
+.fab{position:fixed;z-index:26;left:max(16px,env(safe-area-inset-left,0px));bottom:max(16px,env(safe-area-inset-bottom,0px));box-shadow:var(--shadow-pop)}
 .toast{position:fixed;z-index:50;left:50%;bottom:max(24px,env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:10px 16px;border-radius:var(--radius-sm);font:500 13px/18px var(--font-sans);box-shadow:var(--shadow-pop);max-width:calc(100% - 32px)}
 
-@media (max-width:1180px){body.has-sheet .canvas{padding-right:max(16px,env(safe-area-inset-right,0px))}}
+@media (max-width:1180px){body.has-sheet .canvas{margin-right:0}body.has-sheet .zoomer{right:max(16px,env(safe-area-inset-right,0px))}}
 @media (max-width:900px){
   .work{grid-template-columns:minmax(0,1fr)}.rail{display:none}
+  .stage{display:block;min-width:0;padding:16px max(16px,env(safe-area-inset-right,0px)) 40vh max(16px,env(safe-area-inset-left,0px))}.col{width:auto}
+  .flow>.node{width:100%!important}.zoomer .zhide{display:none}
   .describe__grid{grid-template-columns:minmax(0,1fr)}
   .sheet{top:0;z-index:45;width:100%;border-left:0;padding-top:env(safe-area-inset-top,0px)}
   .bar__sum,.crumb{display:none}
@@ -360,6 +386,7 @@ details.more summary span{font-weight:400;color:var(--ink-muted)}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
 <script>
 "use strict";
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 /* ── Sample data: Harbor Millwork, Purchasing. Everything here is an example. ── */
 const CLIENT = "Harbor Millwork", SIGNER = "Dana Whitfield";
 const STARTS = [
@@ -369,7 +396,7 @@ const STARTS = [
   { starts: "A message arrives", hint: "An email, a text, a WhatsApp", name: "When someone on the team sends a message", detail: "Texts and WhatsApp" },
   { starts: "A person starts it", hint: "By hand, when they choose", name: "When someone starts it by hand", detail: "From the agent's page" },
 ];
-const PARA = "When a vendor invoice arrives by email, read the invoice and match each line to our item list. If the invoice is a duplicate, tell Dana it is a duplicate and stop. If a line doesn't match, ask Dana which item it is. Code each line to a job, then check each price against the last price we paid. If the document is a credit memo, apply the credit to the vendor's open bill and tell Dana, otherwise create the bill in QuickBooks and tell Dana what changed.";
+const PARA = "When a vendor invoice arrives by email, read the invoice and match each line to our item list. If the invoice is a duplicate, tell Dana it is a duplicate and stop. If a line doesn't match, ask Dana which item it is. Code each line to a job, then check each price against the last price we paid. If the document is a credit memo, apply the credit to the vendor's open bill and tell Dana; if it is a statement, save it to the vendor's folder; otherwise create the bill in QuickBooks and tell Dana what changed.";
 const row = (text) => ({ id: nid(), t: "step", text: text || "" });
 const decRow = (cond, then) => ({ id: nid(), t: "decision", paths: [{ cond: cond || "", steps: [row(then)], end: "on" }], otherwise: [], oend: "on" });
 const PEOPLE = [SIGNER, "Lisa Park", "Harbor Millwork's admins", "Your Mezonas lead"];
@@ -382,17 +409,35 @@ const FIELDS = ["Match confidence", "Price change", "Total", "Vendor", "How the 
 const OPS = [">", "≥", "<", "≤", "is", "is not", "contains"];
 const K = {
   trigger: { label: "Starts when", ico: "arrow" },
-  read: { label: "Read", ico: "search", hint: "Looks something up. Changes nothing.", blank: "Look something up" },
-  skill: { label: "Skill", ico: "worksheet", hint: "Does a piece of work from the library.", blank: "Do a piece of work" },
-  write: { label: "Change a tool", ico: "sign", hint: "Writes into the client's tool. Approval starts on.", blank: "Change something in a tool" },
+  skill: { label: "Skill", ico: "worksheet", hint: "A piece of work from the Skills library.", blank: "Do a piece of work" },
+  auto: { label: "Automation", ico: "copy", hint: "A saved set of steps, run as one.", blank: "Run an automation" },
+  read: { label: "Tool · reads", ico: "search", hint: "Looks something up in a connected tool. Changes nothing.", blank: "Look something up" },
+  write: { label: "Tool · writes", ico: "sign", hint: "Writes into a connected tool. Approval starts on.", blank: "Write to a tool" },
   person: { label: "Person", ico: "lead", hint: "Someone approves or answers.", blank: "Ask a person" },
-  notify: { label: "Tell someone", ico: "message", hint: "Your team or the client's.", blank: "Tell someone" },
-  decision: { label: "Decision", ico: "fork", hint: "Paths with rules. The first that matches runs.", blank: "Decide what happens" },
+  talk: { label: "Conversation", ico: "message", hint: "Talks with a person until it has what it needs.", blank: "Talk with a person" },
+  notify: { label: "Notify", ico: "bell", hint: "Tells your team or the client's.", blank: "Tell someone" },
+  decision: { label: "Decision", ico: "fork", hint: "Paths with rules. The first that fits runs.", blank: "Decide what happens" },
   each: { label: "For each", ico: "loop", hint: "Runs its steps once per item.", blank: "For each item" },
+  repeat: { label: "Repeat", ico: "undo", hint: "Runs its steps again until it is done.", blank: "Repeat until done" },
   wait: { label: "Wait", ico: "clock", hint: "Pauses for a while.", blank: "Wait" },
   stop: { label: "Stop", ico: "stop", hint: "Ends the run here.", blank: "Stop here" },
+  askagent: { label: "Ask an agent", ico: "team", hint: "Asks another of this client's agents and waits for its answer.", blank: "Ask another agent" },
+  tellagent: { label: "Report to an agent", ico: "team", hint: "Sends another agent what this run found. Doesn't wait.", blank: "Report to another agent" },
+  handoff: { label: "Hand off", ico: "team", hint: "Passes the work to another agent. This run ends there.", blank: "Hand off to another agent" },
 };
-const ADDABLE = ["read", "skill", "write", "person", "notify", "decision", "each", "wait", "stop"];
+const AUTOS = { "Polite follow-up": [2, 4], "Vendor invoice intake": [3, 5], "Portal document pull": [1, 3] };
+const AGENTS = ["AP invoice review", "Collections follow-up", "The Purchasing area owner"];
+const toolItem = (kind) => (p) => { const [tool, what] = p.split(" · "); return { kind, label: cap(what), hint: tool, part: p, tag: kind === "read" ? "Reads" : "Writes", name: `${cap(what)} in ${tool}` }; };
+// The rail, grouped the way the app's palette is: skills, automations, tools, people, logic, other agents.
+const RAIL = () => [
+  { g: "Skills", open: 1, items: PARTS.skill.map((p) => ({ kind: "skill", label: p, part: p, name: p })) },
+  { g: "Automations", items: Object.keys(AUTOS).map((p) => ({ kind: "auto", label: p, part: p, name: p, hint: `Version ${AUTOS[p][0]} · ${AUTOS[p][1]} steps` })) },
+  { g: "Tools", open: 1, note: `Only the tools ${CLIENT} has connected show here.`, items: [...PARTS.read.map(toolItem("read")), ...PARTS.write.map(toolItem("write"))] },
+  { g: "People", items: [{ kind: "person", label: "Approve", hint: "A person approves before it goes on", mode: "Approve", name: "Approve this" }, { kind: "person", label: "Ask", hint: "A person answers a question", mode: "Answer" }, { kind: "talk", label: "Talk with a person", hint: "By WhatsApp, text or email" }, { kind: "notify", label: "Notify", hint: "Tell your team or theirs" }] },
+  { g: "Logic", open: 1, items: ["decision", "each", "repeat", "wait", "stop"].map((k) => ({ kind: k, label: K[k].label, hint: K[k].hint })) },
+  { g: "Other agents", open: 1, note: `Only ${CLIENT}'s own agents.`, items: [{ kind: "askagent", label: "Ask another agent", hint: "Waits for its answer, then goes on" }, { kind: "tellagent", label: "Report to another agent", hint: "Sends what it found. Doesn't wait" }, { kind: "handoff", label: "Hand off to another agent", hint: "Passes the work on. This run ends" }] },
+];
+const MENU = [["Work", ["skill", "auto", "read", "write"]], ["People", ["person", "talk", "notify"]], ["Logic", ["decision", "each", "repeat", "wait", "stop"]], ["Other agents", ["askagent", "tellagent", "handoff"]]];
 const ICONS = {
   add: '<path d="M12 5v14 M5 12h14"/>', alert: '<path d="M12 3.5l9.5 16.5h-19z M12 10v4.5"/><circle fill="currentColor" stroke="none" cx="12" cy="17.25" r="1"/>',
   arrow: '<path d="M4 12h16 M14 6l6 6-6 6"/>', check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>', close: '<path d="M6 6l12 12 M18 6L6 18"/>',
@@ -402,7 +447,7 @@ const ICONS = {
   loop: '<path d="M5 11a7 7 0 0 1 12.5-3.5L19 9 M19 5v4h-4 M19 13a7 7 0 0 1-12.5 3.5L5 15 M5 19v-4h4"/>',
   clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>', stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="1"/>',
   grip: '<circle fill="currentColor" stroke="none" cx="9" cy="6" r="1.3"/><circle fill="currentColor" stroke="none" cx="15" cy="6" r="1.3"/><circle fill="currentColor" stroke="none" cx="9" cy="12" r="1.3"/><circle fill="currentColor" stroke="none" cx="15" cy="12" r="1.3"/><circle fill="currentColor" stroke="none" cx="9" cy="18" r="1.3"/><circle fill="currentColor" stroke="none" cx="15" cy="18" r="1.3"/>',
-  undo: '<path d="M8 6l-4 4 4 4 M4 10h10.5a4.5 4.5 0 0 1 0 9H11"/>', info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5"/><circle fill="currentColor" stroke="none" cx="12" cy="7.75" r="1"/>',
+  undo: '<path d="M8 6l-4 4 4 4 M4 10h10.5a4.5 4.5 0 0 1 0 9H11"/>', bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z M10 20.5h4"/>', team: '<circle cx="9" cy="8.5" r="3"/><path d="M3 19.5c0-3 2.7-5 6-5s6 2 6 5"/><circle cx="16.5" cy="7.5" r="2.5"/><path d="M16.5 12.5c2.8 0 4.5 1.8 4.5 4.5"/>', copy: '<rect x="8" y="8" width="12" height="12" rx="1.5"/><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8"/>', info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5"/><circle fill="currentColor" stroke="none" cx="12" cy="7.75" r="1"/>',
   upload: '<path d="M12 15V4 M7 9l5-5 5 5 M4 15v5h16v-5"/>', send: '<path d="M12 19V5 M6 11l6-6 6 6"/>',
 };
 const ic = (n, c = "") => `<svg class="ico ${c}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ""}</svg>`;
@@ -412,12 +457,12 @@ let uid = 0;
 const nid = () => "s" + ++uid;
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
 const plural = (n, w, ws) => `${n} ${n === 1 ? w : ws || w + "s"}`;
 const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const S = {
-  view: "describe", name: "Invoice intake", para: PARA, fromPara: false, drafting: false, start: { starts: STARTS[0].starts, name: STARTS[0].name }, list: [], trigger: null, steps: [], sel: null, sheet: null, menu: null,
+  view: "describe", zoom: 1, q: "", name: "Invoice intake", para: PARA, fromPara: false, drafting: false, start: { starts: STARTS[0].starts, name: STARTS[0].name }, list: [], trigger: null, steps: [], sel: null, sheet: null, menu: null,
   hist: [], chat: [], busy: false, try: null, tried: false, live: false, note: null, building: null, file: "Baltic-Lumber-INV-4471.pdf",
 };
 const fresh = new Set();
@@ -432,6 +477,12 @@ function mk(kind, name, x = {}) {
   if (kind === "notify") Object.assign(s, { to: SIGNER, where: "Inbox", message: "" });
   if (kind === "decision") Object.assign(s, { decide: "A rule", who: SIGNER, paths: [{ id: nid(), name: "Path A", rule: { field: "", op: ">", value: "" }, steps: [] }, { id: nid(), name: "Otherwise", rule: null, steps: [] }] });
   if (kind === "each") Object.assign(s, { over: "the list from the step before", paths: [{ id: nid(), name: "Each item", rule: null, each: true, steps: [] }] });
+  if (kind === "auto") Object.assign(s, { part: "Polite follow-up" });
+  if (kind === "talk") Object.assign(s, { who: SIGNER, where: "WhatsApp", goal: "", turns: 4, deadline: "3 days" });
+  if (kind === "handoff") Object.assign(s, { agent: AGENTS[0] });
+  if (kind === "askagent") Object.assign(s, { agent: AGENTS[0], ask: "", deadline: "1 hour", noAnswer: "Ask a person" });
+  if (kind === "tellagent") Object.assign(s, { agent: AGENTS[0], message: "" });
+  if (kind === "repeat") Object.assign(s, { until: "The agent says it is done", max: "3", paths: [{ id: nid(), name: "Each time", rule: null, each: true, steps: [] }] });
   if (kind === "wait") s.dur = "2 days";
   if (kind === "stop") s.as = "Succeeded";
   return Object.assign(s, x);
@@ -446,6 +497,11 @@ function guess(words) {
     e.paths[0].steps.push(guess(m[2]));
     return e;
   }
+  const ag = () => AGENTS.find((a) => l.includes(a.replace(/^The /, "").toLowerCase().split(" ")[0])) || AGENTS[0];
+  if (/^(ask|check with)\b.*\bagent\b/.test(l) || /^(ask|check with) the .*owner\b/.test(l)) return mk("askagent", cap(t), { from: t, agent: ag(), ask: cap(t.replace(/^.*?\bagent\b\s*/i, "")) });
+  if (/^(report|send|pass)\b.*\bto\b.*\b(agent|owner)\b/.test(l) || /^(tell|let)\b.*\b(agent|owner)\b/.test(l)) return mk("tellagent", cap(t), { from: t, agent: ag() });
+  if (/^(follow up|chase)\b/.test(l)) return mk("auto", cap(t), { from: t, part: "Polite follow-up" });
+  if (/^hand\b.*\b(off|over)\b/.test(l)) return mk("handoff", cap(t), { from: t });
   if (/^wait\b/.test(l)) return mk("wait", cap(t), { from: t, dur: (l.match(/\d+ \w+/) || ["2 days"])[0] });
   if (/^(stop|end)\b/.test(l)) return mk("stop", cap(t), { from: t });
   if (/^(ask|have .+ (approve|review|check|sign)|get .+ (approval|sign))/.test(l)) {
@@ -463,9 +519,7 @@ function guess(words) {
     else if (/folder|drive/.test(l)) part = "Google Drive · save a file";
     else if (/item|catalog|price/.test(l)) part = "Purchasing · save to the item list";
     const tool = part.split(" · ")[0];
-    const open = [{ k: "who", type: "Question", text: "Who signs this?", why: `Approval is on, so someone signs each one. ${SIGNER.split(" ")[0]} is ${CLIENT}'s default approver.`, opts: [SIGNER, "Lisa Park", "Your Mezonas lead"], using: SIGNER, f: "who" }];
-    if (tool === "Gmail") open.push(gmailIssue());
-    return mk("write", cap(t), { from: t, part, tool, open, decided: [{ what: "Approval is on", why: "Every step that changes a tool starts with approval.", f: "" }] });
+    return mk("write", cap(t), { from: t, part, tool, ...writeDefaults(tool) });
   }
   if (/^(find|look|get|pull|fetch|list|search)\b/.test(l)) {
     const part = /bill/.test(l) ? PARTS.read[2] : /vendor/.test(l) ? PARTS.read[3] : /price/.test(l) ? PARTS.read[1] : /item/.test(l) ? PARTS.read[0] : PARTS.read[4];
@@ -478,6 +532,13 @@ function guess(words) {
   }
   // Nothing in the library does it: a person does this part for now (works first).
   return mk("person", cap(t), { from: t, gap: true, mode: "Answer", who: SIGNER, open: [{ k: "gap", type: "Issue", text: "Nothing in the library does this yet.", why: `So ${SIGNER} does it for now and the run waits for them. It works today.`, opts: ["Keep a person", "Build a skill", "Needs code"] }] });
+}
+const writeDefaults = (tool) => ({ open: [{ k: "who", type: "Question", text: "Who signs this?", why: `Approval is on, so someone signs each one. ${SIGNER.split(" ")[0]} is ${CLIENT}'s default approver.`, opts: [SIGNER, "Lisa Park", "Your Mezonas lead"], using: SIGNER, f: "who" }, ...(tool === "Gmail" ? [gmailIssue()] : [])], decided: [{ what: "Approval is on", why: "Every step that writes to a tool starts with approval.", f: "" }] });
+function fromItem(el) {
+  const G = RAIL()[+el.dataset.g], it = G && G.items[+el.dataset.i];
+  if (!it) return mk(el.dataset.kind);
+  const tool = it.kind === "read" || it.kind === "write" ? it.part.split(" · ")[0] : "";
+  return mk(it.kind, it.name, { ...(it.part ? { part: it.part, tool } : {}), ...(it.mode ? { mode: it.mode } : {}), ...(it.kind === "write" ? writeDefaults(tool) : {}) });
 }
 const gmailIssue = () => ({ k: "gmail", type: "Issue", text: `Gmail isn't connected for ${CLIENT}.`, why: "They sign in to their own Gmail. This step waits until they do.", opts: [`Ask ${CLIENT} to connect it`, "Send by text instead"] });
 const openOf = (st) => (st.open || []).filter((o) => !o.done);
@@ -537,13 +598,17 @@ function parsePara(text) {
     if (!start && (m = sn.match(/^((?:when|whenever|every|each (?:day|week|morning|month)|once a|daily|weekly|at \d)[^,]*),\s*(.*)$/i))) { start = startFrom(m[1]); sn = m[2]; }
     else if (!start && !list.length && /^(when|whenever|every|each |once a|daily|weekly)/i.test(sn)) { start = startFrom(sn); return; }
     if (!sn) return;
-    if ((m = sn.match(/^(?:but |and )?if (.+?)(?:,| then) (.+)$/i))) {
-      let then = m[2], other = "";
-      const o = then.match(/^(.*?)(?:[;,]\s*|\s+)(?:otherwise|or else|else|if not),?\s*(.*)$/i);
-      if (o) { then = o[1]; other = o[2]; }
-      const a = pathOf(then), z = goesOn(other) ? { steps: [], end: "on" } : pathOf(other);
-      list.push({ id: nid(), t: "decision", paths: [{ cond: clean(m[1]), steps: a.steps, end: a.end }], otherwise: z.steps, oend: z.end });
-      return;
+    if ((m = sn.match(/^(?:but |and )?if\s+(.+)$/i))) {
+      let body = m[1], other = "";
+      const o = body.match(/^(.*?)(?:[;,]\s*|\s+)(?:otherwise|or else|else|if not),?\s*(.*)$/i);
+      if (o) { body = o[1]; other = o[2]; }
+      // "If A, …; if B, …; otherwise …" is one decision with a path each.
+      const parts = body.split(/[;,]\s*(?:or\s+|and\s+)?if\s+/i).map((x) => x.match(/^(.+?)(?:,| then) (.+)$/i)).filter(Boolean);
+      if (parts.length) {
+        const z = goesOn(other) ? { steps: [], end: "on" } : pathOf(other);
+        list.push({ id: nid(), t: "decision", paths: parts.map((q) => { const a = pathOf(q[2]); return { cond: clean(q[1]), steps: a.steps, end: a.end }; }), otherwise: z.steps, oend: z.end });
+        return;
+      }
     }
     const last = list[list.length - 1];
     if ((m = sn.match(/^(?:otherwise|or else|if not),?\s*(.*)$/i)) && last && last.t === "decision") { if (!goesOn(m[1])) { const z = pathOf(m[1]); last.otherwise.push(...z.steps); last.oend = z.end; } return; }
@@ -644,9 +709,11 @@ function rowsHTML(anim) {
   return S.list.map((r, i) => r.t === "step"
     ? `<div class="drow${fx(i)}" data-rid="${r.id}"><span class="grip" title="Drag to move">${ic("grip")}</span><span class="drow__n">${i + 1}</span><input class="input" data-row="${r.id}" value="${esc(r.text)}" placeholder="What happens next" aria-label="Step ${i + 1}">${kindPill(r.text, r.id)}${xBtn("drm", `data-id="${r.id}"`, "Remove this step")}</div>`
     : `<div class="drow drow--dec${fx(i)}" data-rid="${r.id}"><span class="grip" title="Drag to move">${ic("grip")}</span><span class="drow__n">${i + 1}</span><div class="dec">
-        <div class="row" style="justify-content:space-between"><span class="row"><span class="kico kico--decision" style="width:24px;height:24px">${ic("fork")}</span><b style="font-weight:500">Decision</b><span class="help">The first path that fits runs.</span></span>${xBtn("drm", `data-id="${r.id}"`, "Remove this decision")}</div>
-        ${r.paths.map((q, pi) => pathHTML(r, pi, q)).join("")}${pathHTML(r, "o")}
-        <div class="row wrap" style="justify-content:space-between"><button class="btn btn--sec btn--sm" data-act="dpathadd" data-id="${r.id}">${ic("add")}Or if…</button>
+        <div class="row" style="justify-content:space-between"><span class="row"><span class="kico kico--decision" style="width:24px;height:24px">${ic("fork")}</span><b style="font-weight:500">Decision</b><span class="help">The first path that fits runs. Add as many paths as it needs.</span></span>${xBtn("drm", `data-id="${r.id}"`, "Remove this decision")}</div>
+        ${r.paths.map((q, pi) => pathHTML(r, pi, q)).join("")}
+        <button class="addpath" data-act="dpathadd" data-id="${r.id}">${ic("add")}Add a path <span>Or if …</span></button>
+        ${pathHTML(r, "o")}
+        <div class="row wrap" style="justify-content:flex-end">
           <span class="row wrap small muted">After the paths <span class="seg"><button data-act="dafter" data-id="${r.id}" data-v="on" aria-pressed="${rowEnds(r) === 0}">they come back together</button><button data-act="dafter" data-id="${r.id}" data-v="stop" aria-pressed="${rowEnds(r) === r.paths.length + 1}">they go separate ways</button></span></span></div>
         ${rowEnds(r) === r.paths.length + 1 && S.list.slice(i + 1).some((x) => x.t === "step") ? `<div class="dnote">Every path here ends, so the lines below never run. Move them onto ${r.paths.map((q, pi) => `<button class="linkbtn" data-act="dmove" data-k="${r.id}|${pi}">path ${String.fromCharCode(65 + pi)}</button>`).join(", ")} or <button class="linkbtn" data-act="dmove" data-k="${r.id}|o">Otherwise</button>.</div>` : ""}
       </div></div>`).join("");
@@ -700,7 +767,7 @@ const subList = (k) => { const [rid, pk] = k.split("|"), r = S.list.find((x) => 
 /* ── Build view ── */
 function barHTML() {
   const c = counts();
-  const sum = [plural(c.steps, "step"), c.decisions ? plural(c.decisions, "decision") : "", c.writes ? `${c.writes} change${c.writes === 1 ? "s" : ""} a tool` : "", c.approvals ? `${c.approvals} need${c.approvals === 1 ? "s" : ""} approval` : ""].filter(Boolean).join(" · ");
+  const sum = [plural(c.steps, "step"), c.decisions ? plural(c.decisions, "decision") : "", c.writes ? `${c.writes} write${c.writes === 1 ? "s" : ""} to a tool` : "", c.approvals ? `${c.approvals} need${c.approvals === 1 ? "s" : ""} approval` : ""].filter(Boolean).join(" · ");
   return `<div class="bar__in">${MARK}<span class="crumb">Back office</span><span class="pill pill--accent">${CLIENT}</span>
     <span class="av">${esc(S.name.trim().slice(0, 2).toUpperCase() || "AG")}</span>
     <div style="display:grid;min-width:0"><div class="row"><input class="bar__name" id="aname2" value="${esc(S.name)}" aria-label="Agent name"><span class="pill ${S.live ? "pill--ok" : "pill--neutral"}">${S.live ? "In trial · v1" : "Draft"}</span></div><span class="bar__sum">${sum}</span></div>
@@ -713,16 +780,27 @@ function barHTML() {
     </div></div>`;
 }
 function railHTML() {
-  return `<span class="eyebrow">Add a step</span><p class="help" style="margin-bottom:6px">Drag one onto the flow, or press + between two steps.</p>
-  <div class="rail__list" id="pal">${ADDABLE.map((k) => `<div class="block" role="button" tabindex="0" data-kind="${k}" data-act="paladd" title="${esc(K[k].hint)}"><span class="kico kico--${k}">${ic(K[k].ico)}</span><span>${K[k].label}<small>${esc(K[k].hint)}</small></span></div>`).join("")}</div>
-  <p class="help" style="margin-top:10px">Which skill or tool a step uses is picked on the step. The Builder picks one from its name.</p>`;
+  const q = (S.q || "").toLowerCase().trim();
+  const groups = RAIL().map((G, gi) => {
+    const items = G.items.map((it, ii) => ({ it, ii })).filter(({ it }) => !q || `${it.label} ${it.hint || ""} ${it.tag || ""} ${G.g}`.toLowerCase().includes(q));
+    if (!items.length) return "";
+    return `<details class="rgrp" ${q || G.open ? "open" : ""}><summary>${G.g}<span>${items.length}</span></summary><div class="rail__list" data-pal="1">${items.map(({ it, ii }) => `<div class="block" role="button" tabindex="0" data-act="paladd" data-g="${gi}" data-i="${ii}" data-kind="${it.kind}" title="${esc(K[it.kind].hint)}"><span class="kico kico--${it.kind}">${ic(K[it.kind].ico)}</span><span class="grow">${esc(it.label)}<small>${esc(it.hint || "")}</small></span>${it.tag ? `<span class="pill pill--neutral">${it.tag}</span>` : ""}</div>`).join("")}</div>${G.note ? `<p class="help" style="margin-top:6px">${G.note}</p>` : ""}</details>`;
+  }).join("");
+  return `<span class="eyebrow">Add a step</span><input class="input" id="palq" placeholder="Search steps" value="${esc(S.q || "")}" aria-label="Search steps" style="height:32px;font-size:13px"><p class="help">Drag one onto the flow, or press + between two steps.</p>${groups || `<p class="muted small">Nothing matches.</p>`}`;
 }
+function renderRail() { const r = $(".rail"); if (!r) return; r.innerHTML = railHTML(); wire(); const q = $("#palq"); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
 function subOf(st) {
   if (st.kind === "read" || st.kind === "skill" || st.kind === "write") return esc(st.part);
   if (st.kind === "person") return `${st.gap ? "Does this for now" : st.mode === "Approve" ? "Approves" : "Answers"} · ${esc(st.who)} · waits up to ${esc(st.deadline)}`;
   if (st.kind === "notify") return `${esc(st.to)} · ${esc(st.where.toLowerCase())}`;
   if (st.kind === "decision") return `${st.decide === "A person" ? esc(st.who) + " decides" : st.decide === "The agent" ? "The agent decides" : "A rule decides"} · ${plural(st.paths.length, "path")}${allEnd(st) ? " that go separate ways" : st.paths.some(pathEnds) ? `, ${st.paths.filter(pathEnds).length} ends here` : ", then they come back together"}`;
   if (st.kind === "each") return `Over ${esc(st.over)}`;
+  if (st.kind === "auto") return `${esc(st.part)} · version ${(AUTOS[st.part] || [1, 3])[0]} · ${(AUTOS[st.part] || [1, 3])[1]} steps inside`;
+  if (st.kind === "talk") return `${esc(st.who)} · ${esc(st.where)} · up to ${esc(st.turns)} messages`;
+  if (st.kind === "handoff") return `Starts “${esc(st.agent)}” · this run ends there`;
+  if (st.kind === "askagent") return `“${esc(st.agent)}” · waits up to ${esc(st.deadline)} for its answer`;
+  if (st.kind === "tellagent") return `“${esc(st.agent)}” · doesn't wait`;
+  if (st.kind === "repeat") return `Until ${esc(st.until.charAt(0).toLowerCase() + st.until.slice(1))} · up to ${esc(st.max)} times`;
   if (st.kind === "wait") return `For ${esc(st.dur)}`;
   if (st.kind === "stop") return `Ends the run as ${esc(st.as.toLowerCase())}`;
   return "";
@@ -737,6 +815,7 @@ function resHTML(id) {
 }
 function tagsOf(st) {
   const t = [];
+  if (st.kind === "decision") t.push(`<button class="btn btn--sec btn--sm" data-act="addpathto" data-id="${st.id}" title="Add another path: Or if…">${ic("add")}Add a path</button>`);
   if (st.kind === "write") t.push(st.approval === "Ask first" ? `<span class="pill pill--person">Needs approval</span>` : `<span class="pill pill--accent">On its own</span>`);
   return t.join("");
 }
@@ -764,8 +843,9 @@ function nodeHTML(st, label, lid, i, dead) {
   const join = split
     ? `<div class="join"><span class="eyebrow">These paths don't come back together</span><button class="linkbtn" data-act="unsplit" data-id="${st.id}">Bring them back together</button></div>`
     : `<div class="join"><span class="eyebrow">${!endHere.length ? "Paths come back together here" : `${goOn.map(nm).join(" and ")} ${goOn.length === 1 ? "goes" : "join and go"} on · ${endHere.map(nm).join(" and ")} ${endHere.length === 1 ? "ends" : "end"}`}</span><button class="linkbtn" data-act="split" data-id="${st.id}">Keep them apart instead</button></div>`;
-  const cols = st.kind === "decision" && st.paths.length <= 3 ? ` lanes--split" style="grid-template-columns:repeat(${st.paths.length},minmax(0,1fr))` : "";
-  return `<div class="${cls}" data-id="${st.id}">${plus}<div class="fork${split ? " fork--split" : ""}">${card}<div class="lanes${cols}">${lanes}</div>${st.kind === "decision" ? join : ""}</div></div>`;
+  const cols = st.kind === "decision" ? ` lanes--split" style="grid-template-columns:repeat(${st.paths.length},minmax(0,1fr))` : "";
+  const wide = st.kind === "decision" && lid === "root" && st.paths.length > 2 ? ` style="width:${st.paths.length * 300 + 16}px"` : "";
+  return `<div class="${cls}" data-id="${st.id}"${wide}>${plus}<div class="fork${split ? " fork--split" : ""}">${card}<div class="lanes${cols}">${lanes}</div>${st.kind === "decision" ? join : ""}</div></div>`;
 }
 function noteHTML() {
   if (S.building) return `<div class="note"><span class="agentline">Putting it together: step ${S.steps.length + 1} of ${S.building.total}</span><span class="muted">${esc(S.building.queue[0] ? "“" + S.building.queue[0].from + "”" : "")}</span></div>`;
@@ -779,16 +859,17 @@ function noteHTML() {
 }
 function canvasHTML() {
   const g = S.trigger;
-  return `<div class="col">${noteHTML()}
+  return `<div class="stage" id="stage" style="zoom:${S.zoom}"><div class="col">${noteHTML()}
     <div class="card trig${S.sel === "trigger" ? " is-sel" : ""}" role="button" tabindex="0" data-act="open" data-id="trigger"><span class="kico">${ic("arrow")}</span>
       <span class="card__main"><span class="card__name"><b>${esc(g.name)}</b></span><span class="card__sub"><span class="eyebrow">Starts when</span>${esc(g.starts)} · ${esc(g.detail)}${g.decided.length ? ` · ${g.decided.length} decided for you` : ""}</span>${resHTML("trigger")}</span></div>
     <div class="flow" data-list="root">${nodesHTML(S.steps, "root", (i) => String(i + 1))}</div>
     ${S.building ? "" : S.steps.length && deadEnd(S.steps[S.steps.length - 1]) ? `<div class="end end--closed"><span class="muted small">The flow ends on the paths above.</span><button class="linkbtn" data-act="sheet" data-type="builder">Tell the Builder what to change</button></div>` : `<div class="end"><button class="end__add" data-act="plus" data-list="root" data-index="${S.steps.length}">+ Add a step</button><button class="linkbtn" data-act="sheet" data-type="builder">or tell the Builder what comes next</button></div>`}
-  </div>`;
+  </div></div>`;
 }
 function buildHTML() {
   return `<header class="bar" id="bar">${barHTML()}</header><div class="work"><aside class="rail" aria-label="Add a step">${railHTML()}</aside><main class="canvas" id="canvas">${canvasHTML()}</main></div>
-  <button class="btn btn--sec btn--sm fab" data-act="sheet" data-type="notes">${ic("info")}About this prototype</button>`;
+  <button class="btn btn--sec btn--sm fab" data-act="sheet" data-type="notes">${ic("info")}About this prototype</button>
+  <div class="zoomer" role="group" aria-label="Zoom and move"><button data-act="zoom" data-d="-1" aria-label="Zoom out" title="Zoom out">−</button><button data-act="zoom" data-d="0" id="zlabel" title="Back to 100%">${Math.round(S.zoom * 100)}%</button><button data-act="zoom" data-d="1" aria-label="Zoom in" title="Zoom in">+</button><i></i><button data-act="fit" title="Fit the whole flow">Fit</button><i class="zhide"></i><span class="help zhide" style="padding:0 8px 0 4px">Drag the background to move</span></div>`;
 }
 
 /* ── Sheet ── */
@@ -824,8 +905,8 @@ function setupHTML(st) {
       <div class="field"><label>Only when <span class="muted" style="font-weight:400">optional</span></label><input class="input" data-f="only" value="${esc(st.only || "")}" placeholder="It has a PDF attached"></div></div>`);
   }
   if (k === "read" || k === "skill" || k === "write") {
-    g.push(`<div class="grp"><div class="field"><label>${k === "write" ? "Changes" : k === "read" ? "Reads" : "Skill"}</label>${sel("part", PARTS[k], st.part, 'data-re="1"')}
-      <span class="help">${k === "write" ? `It changes ${esc(st.tool || "a tool")} behind its approval. Every change is recorded with what was there before.` : k === "read" ? "It reads and changes nothing." : "Picked from the step's name. Choose another, or tell the Builder what it should do."}</span></div></div>`);
+    g.push(`<div class="grp"><div class="field"><label>${k === "write" ? "Writes to" : k === "read" ? "Reads from" : "Skill"}</label>${sel("part", PARTS[k], st.part, 'data-re="1"')}
+      <span class="help">${k === "write" ? `This is the only kind of step that changes something in ${CLIENT}'s own tool. That is why it asks first, and why each change is recorded with what was there before.` : k === "read" ? "It looks something up in the tool and changes nothing, so it needs no approval." : "From the Skills library. Picked from the step's name; choose another, or tell the Builder what it should do."}</span></div></div>`);
     g.push(`<div class="grp"><span class="label">What it works from</span>${wires(st)}</div>`);
   }
   if (k === "write") {
@@ -855,13 +936,26 @@ function setupHTML(st) {
         ${st.decide === "A rule" ? `<div class="rule"><select class="select" data-f="field" data-p="${p.id}" data-r="1" aria-label="Field">${["", ...FIELDS].concat(FIELDS.includes(p.rule.field) || !p.rule.field ? [] : [p.rule.field]).map((v) => `<option value="${esc(v)}" ${v === p.rule.field ? "selected" : ""}>${esc(v || "Choose a field")}</option>`).join("")}</select>
         <select class="select" data-f="op" data-p="${p.id}" data-r="1" aria-label="Is">${OPS.map((v) => opt(v, p.rule.op)).join("")}</select><input class="input" data-f="value" data-p="${p.id}" data-r="1" value="${esc(p.rule.value)}" placeholder="Value" aria-label="Value"></div>` : ""}
         ${after(p)}</div>`
-        : `<div class="pathcard"><div class="row"><span class="ltr ltr--else">·</span><b style="font-weight:500">Otherwise</b><span class="help">when none of the paths above fit</span></div>${after(p)}</div>`).join("")}
-      <div><button class="btn btn--sec btn--sm" data-act="addpath">${ic("add")}Or if…</button></div></div>`);
+        : `<button class="addpath" data-act="addpath">${ic("add")}Add a path <span>Or if …</span></button><div class="pathcard"><div class="row"><span class="ltr ltr--else">·</span><b style="font-weight:500">Otherwise</b><span class="help">when none of the paths above fit</span></div>${after(p)}</div>`).join("")}</div>`);
   }
+  if (k === "auto") g.push(`<div class="grp"><div class="field"><label>Automation</label>${sel("part", Object.keys(AUTOS), st.part, 'data-re="1"')}<span class="help">A set of steps saved once and used by many agents. ${(AUTOS[st.part] || [1, 3])[1]} steps inside, version ${(AUTOS[st.part] || [1, 3])[0]}. Any step inside that writes to a tool keeps its approval.</span></div></div>`);
+  if (k === "talk") g.push(`<div class="grp"><div class="field"><label>With</label>${sel("who", PEOPLE, st.who)}</div><div class="field"><label>By</label>${seg("where", ["WhatsApp", "Text", "Email"], st.where)}</div>
+    <div class="field"><label>What it needs from them</label><textarea class="textarea" rows="3" data-f="goal" placeholder="Which job each line belongs to">${esc(st.goal)}</textarea></div>
+    <div class="field"><label>Waits up to</label>${sel("deadline", ["1 day", "3 days", "1 week"], st.deadline)}</div><span class="help">It stops after ${esc(st.turns)} messages, and every message it sends needs a yes first.</span></div>`);
+  if (k === "handoff") g.push(`<div class="grp"><div class="field"><label>Agent</label>${sel("agent", AGENTS, st.agent)}<span class="help">One of ${CLIENT}'s own agents. It starts with what this run produced; this run ends here.</span></div></div>`);
+  if (k === "askagent") g.push(`<div class="grp"><div class="field"><label>Agent</label>${sel("agent", AGENTS, st.agent)}</div>
+    <div class="field"><label>What it asks</label><textarea class="textarea" rows="3" data-f="ask" placeholder="Is this vendor on hold?">${esc(st.ask)}</textarea></div>
+    <div class="field"><label>Waits up to</label>${sel("deadline", ["10 minutes", "1 hour", "1 day"], st.deadline)}</div>
+    <div class="field"><label>If it can't answer</label>${sel("noAnswer", ["Ask a person", "Go on without it", "Stop the run"], st.noAnswer)}</div>
+    <span class="help">The other agent answers from what it knows and can read, and the answer comes back with its sources. It changes nothing for this one. Only ${CLIENT}'s own agents can be asked.</span></div>`);
+  if (k === "tellagent") g.push(`<div class="grp"><div class="field"><label>Agent</label>${sel("agent", AGENTS, st.agent)}</div>
+    <div class="field"><label>What it sends</label><textarea class="textarea" rows="3" data-f="message" placeholder="What this run found, and the records it came from">${esc(st.message)}</textarea></div>
+    <span class="help">It arrives as a note the other agent reads on its next run. This run doesn't wait for it.</span></div>`);
+  if (k === "repeat") g.push(`<div class="grp"><div class="field"><label>Done when</label>${seg("until", ["A rule holds", "The agent says it is done"], st.until)}</div><div class="field"><label>At most</label>${sel("max", ["2", "3", "5", "10"], st.max)}</div><span class="help">Its steps run again until then. If it never gets there, the run stops.</span></div>`);
   if (k === "each") g.push(`<div class="grp"><div class="field"><label>Over the list</label><input class="input" data-f="over" value="${esc(st.over)}"></div><span class="help">Its steps run once per item, up to 10 at a time.</span></div>`);
   if (k === "wait") g.push(`<div class="grp"><div class="field"><label>Wait for</label><input class="input" data-f="dur" value="${esc(st.dur)}"></div></div>`);
   if (k === "stop") g.push(`<div class="grp"><div class="field"><label>End the run as</label>${seg("as", ["Succeeded", "Failed", "Cancelled"], st.as)}</div></div>`);
-  if (k !== "trigger" && k !== "decision" && k !== "each" && k !== "wait" && k !== "stop") {
+  if (!["trigger", "decision", "each", "repeat", "wait", "stop", "handoff"].includes(k)) {
     g.push(`<div class="grp"><span class="label">If it fails</span>${seg("onError", ["Stop the run", "Carry on"], st.onError)}</div>`);
     g.push(`<details class="more"><summary>More settings <span>all on their defaults</span></summary>
       ${k === "skill" ? `<div class="kv"><span>Model</span><select class="select"><option>As the agent runs it</option><option>A faster model</option><option>A stronger model</option></select></div><div class="kv"><span>Version</span><select class="select"><option>Follows the live version</option><option>Pinned to v3</option></select></div>` : ""}
@@ -878,6 +972,7 @@ function chipsFor(st) {
     const out = [];
     if (!hasDecisionAfter(/match/)) out.push("If a line doesn't match, ask Dana");
     if (!hasDecisionAfter(/price/)) out.push("If a price is up more than 5%, ask Dana to approve it");
+    out.push("Add a step to ask the AP invoice review agent if the vendor is on hold");
     out.push("Why is approval on?");
     return out;
   }
@@ -947,11 +1042,15 @@ function notesHTML() {
       <li><b style="font-weight:500">Add anywhere:</b> + between two steps, drag a block in, or say it.</li>
       <li><b style="font-weight:500">One panel per step:</b> its setup in three or four groups with the rest folded, and the Builder underneath, already on that step.</li>
       <li><b style="font-weight:500">Decisions come after it works.</b> A try shows where one is missing and adds it in one press.</li>
-      <li><b style="font-weight:500">The left rail is nine kinds of step.</b> The skill or tool is picked on the step.</li></ul></div>
+      <li><b style="font-weight:500">A decision takes as many paths as it needs.</b> "Add a path" is on the decision itself. Each path is a column; four or more grow sideways.</li>
+      <li><b style="font-weight:500">Agents work together three ways:</b> ask another agent and wait for its answer, report to it without waiting, or hand the work off.</li>
+      <li><b style="font-weight:500">The canvas zooms and moves.</b> Drag the background, or scroll; zoom with the buttons or Ctrl and the wheel; Fit shows the whole flow.</li>
+      <li><b style="font-weight:500">The steps are the app's own:</b> Skills, Automations, Tools (reads and writes), People, Logic, Other agents, with search. A tool step that writes is what the first versions called "Change a tool".</li></ul></div>
     <div class="grp"><span class="eyebrow">What it stands on that is built</span>
     <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Here</th><th>Today</th></tr></thead><tbody>
       <tr><td>Draft the steps</td><td>Draft it now: the stated steps from a description, one model call; the draft's steps listed in words. Editing that list before the draft is saved is new.</td></tr>
       <tr><td>Build it</td><td>The same draft, opened on the canvas, defaults recorded as decisions</td></tr>
+      <tr><td>Other agents</td><td>Hand off exists. Ask another agent and Report to another agent are new kinds of step; reading another agent's manual exists today.</td></tr>
       <tr><td>Paths that never merge</td><td>Every path ending in Stop, as the canvas reads "Ends here" today. The format has no step that jumps elsewhere, so a path can end or rejoin, nothing else.</td></tr>
       <tr><td>Who decides</td><td>The if step: rules, or the agent chooses; a person step with choices</td></tr>
       <tr><td>The canvas and dragging</td><td>The workflow builder's canvas and its moves, same schema and validator</td></tr>
@@ -1002,17 +1101,44 @@ function renderSheet() {
 function renderMenu() {
   const m = S.menu, el = $("#menu");
   if (!m) { el.innerHTML = ""; return; }
-  el.innerHTML = `<div class="menu" role="menu" style="left:${m.x}px;top:${m.y}px">${ADDABLE.map((k) => `<button role="menuitem" data-act="addkind" data-kind="${k}"><span class="kico kico--${k}">${ic(K[k].ico)}</span><span>${K[k].label}<small>${esc(K[k].hint)}</small></span></button>`).join("")}</div>`;
+  el.innerHTML = `<div class="menu" role="menu" style="left:${m.x}px;top:${m.y}px">${MENU.map(([g, ks]) => `<span class="eyebrow" style="padding:6px 8px 2px">${g}</span>${ks.map((k) => `<button role="menuitem" data-act="addkind" data-kind="${k}"><span class="kico kico--${k}">${ic(K[k].ico)}</span><span>${K[k].label}<small>${esc(K[k].hint)}</small></span></button>`).join("")}`).join("")}</div>`;
   const box = el.firstChild.getBoundingClientRect();
   if (box.bottom > innerHeight - 8) el.firstChild.style.top = Math.max(8, innerHeight - box.height - 8) + "px";
 }
 function renderAll() {
+  const oc = $("#canvas"), keep = oc ? [oc.scrollLeft, oc.scrollTop] : null;
+  document.documentElement.classList.toggle("is-build", S.view === "build");
   if (S.view === "describe") $("#app").innerHTML = describeHTML();
   else if (S.view === "steps") { $("#app").innerHTML = stepsHTML(renderAll.anim); renderAll.anim = false; wireList(); }
   else { checkTails(); $("#app").innerHTML = buildHTML(); wire(); if (fresh.size) setTimeout(() => fresh.clear(), 400); }
   renderSheet();
   renderMenu();
+  const nc = $("#canvas");
+  if (nc) { if (keep) { nc.scrollLeft = keep[0]; nc.scrollTop = keep[1]; } else centre(); }
 }
+/* ── Zoom and move ── */
+function centre() { const c = $("#canvas"); if (c) { c.scrollLeft = (c.scrollWidth - c.clientWidth) / 2; c.scrollTop = 0; } }
+function setZoom(z, px, py) {
+  const c = $("#canvas"), st = $("#stage"), old = S.zoom;
+  z = Math.max(0.4, Math.min(1.6, Math.round(z * 20) / 20));
+  if (!c || !st || z === old) return;
+  if (px == null) { px = c.clientWidth / 2; py = c.clientHeight / 3; }
+  const fx = (c.scrollLeft + px) / old, fy = (c.scrollTop + py) / old;
+  S.zoom = z; st.style.zoom = z;
+  c.scrollLeft = fx * z - px; c.scrollTop = fy * z - py;
+  const l = $("#zlabel"); if (l) l.textContent = Math.round(z * 100) + "%";
+}
+function fit() {
+  const c = $("#canvas"), col = $(".col");
+  if (!c || !col) return;
+  let l = Infinity, r = -Infinity;
+  const box = col.getBoundingClientRect();
+  col.querySelectorAll(".node,.trig").forEach((n) => { const b = n.getBoundingClientRect(); l = Math.min(l, b.left); r = Math.max(r, b.right); });
+  const w = (r - l) / S.zoom, h = box.height / S.zoom;
+  setZoom(Math.min(1, (c.clientWidth - 48) / w, (c.clientHeight - 48) / h));
+  centre();
+}
+function focusNode(id) { const el = id === "trigger" ? $(".trig") : document.querySelector(`.node[data-id="${id}"]`); if (el) el.scrollIntoView({ block: "nearest", inline: "center", behavior: calm ? "auto" : "smooth" }); }
 function toast(t) { const el = $("#toast"); el.textContent = t; el.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (el.hidden = true), 3200); }
 
 /* ── Drag and drop (SortableJS): reorder, move between paths, drag a kind in from the rail ── */
@@ -1025,8 +1151,7 @@ function wire() {
   const base = { group: "steps", animation: 150, fallbackOnBody: true, swapThreshold: 0.65, invertedSwapThreshold: 0.8, delay: 140, delayOnTouchOnly: true, ghostClass: "is-ghost", chosenClass: "is-chosen", onStart: () => { dragged = true; S.menu = null; renderMenu(); },
     onMove: (e, oe) => { const l = oe && oe.target && oe.target.closest && oe.target.closest(".lanes"); if (l && l.parentNode.parentNode === e.related) return false; } };
   document.querySelectorAll(".flow").forEach((el) => sortables.push(Sortable.create(el, { ...base, draggable: ".node", filter: "button,input,.res", preventOnFilter: false, onEnd: onMove })));
-  const pal = $("#pal");
-  if (pal) sortables.push(Sortable.create(pal, { ...base, group: { name: "steps", pull: "clone", put: false }, sort: false, draggable: ".block", onEnd: onPalDrop }));
+  document.querySelectorAll("[data-pal]").forEach((pal) => sortables.push(Sortable.create(pal, { ...base, group: { name: "steps", pull: "clone", put: false }, sort: false, draggable: ".block", onEnd: onPalDrop })));
 }
 function onMove(e) {
   setTimeout(() => (dragged = false), 60);
@@ -1041,7 +1166,7 @@ function onMove(e) {
 function onPalDrop(e) {
   setTimeout(() => (dragged = false), 60);
   if (!e.to.classList.contains("flow")) return;
-  addStep(e.item.dataset.kind, e.to.dataset.list, nodesBefore(e.item));
+  addStep(e.item.dataset.kind, e.to.dataset.list, nodesBefore(e.item), fromItem(e.item));
 }
 function addStep(kind, lid, index, st) {
   const list = listOf(lid);
@@ -1053,7 +1178,8 @@ function addStep(kind, lid, index, st) {
   S.sel = s.id; S.sheet = { type: "step" }; S.menu = null; S.try = null;
   renderAll();
   const n = $(".sheet__name");
-  if (n && !st) { n.focus(); n.select(); }
+  if (n) { n.focus(); n.select(); }
+  focusNode(s.id);
   return s;
 }
 
@@ -1159,6 +1285,12 @@ function startTry() {
       else if (st.kind === "write") put(st.id, `${/bill/.test(st.part) ? "Create the bill for $4,218.40 in QuickBooks" : "Make this change in " + (st.tool || "the tool")}${st.approval === "Ask first" ? `, once ${st.who} signs` : ""}. Nothing was written.`, { would: 1 });
       else if (st.kind === "notify") put(st.id, `Tell ${st.to}: 2 prices changed on Baltic Lumber INV-4471.`, { would: 1 });
       else if (st.kind === "wait") put(st.id, `Wait ${st.dur}. Skipped in a try.`, { would: 1 });
+      else if (st.kind === "auto") put(st.id, `Ran its ${(AUTOS[st.part] || [1, 3])[1]} steps. Nothing was sent.`);
+      else if (st.kind === "talk") put(st.id, `Message ${st.who} on ${st.where} and wait for an answer. In a try we answer for them.`, { would: 1 });
+      else if (st.kind === "askagent") put(st.id, `Ask “${st.agent}”${st.ask ? ": " + st.ask.charAt(0).toLowerCase() + st.ask.slice(1) : ""}. In a try it answers from its last run.`, { would: 1 });
+      else if (st.kind === "tellagent") put(st.id, `Send “${st.agent}” what this run found. Not sent in a try.`, { would: 1 });
+      else if (st.kind === "handoff") { put(st.id, `Start “${st.agent}”. Not started in a try.`, { would: 1 }); halted = true; }
+      else if (st.kind === "repeat") { put(st.id, "Ran its steps once. Done on the first go."); run(st.paths[0].steps); }
       else if (st.kind === "stop") { put(st.id, "The run ends here."); halted = true; }
       else if (st.kind === "each") { put(st.id, "6 items. Its steps ran for each."); run(st.paths[0].steps); }
       else if (st.kind === "decision") { const p = st.paths.find((q) => q.rule && holds(q)) || st.paths[st.paths.length - 1]; taken.push(p.id); if (!p.rule) { put(st.id, "Took Otherwise. None of the paths above fit this example."); run(p.steps); } else if (st.decide === "A person") put(st.id, `Ask ${st.who} to pick a path. In a try we pick the one that fits: “${p.name}”.`, { would: 1 }); else put(st.id, `Took “${p.name}”${st.decide === "The agent" ? ". The agent judged it from the step before" : p.rule && p.rule.field ? ` (${p.rule.field} ${p.rule.op} ${p.rule.value})` : ""}.`); run(p.steps); }
@@ -1168,7 +1300,7 @@ function startTry() {
   S.menu = null;
   if (S.sheet && S.sheet.type === "turnon") S.sheet = null;
   renderAll();
-  scrollTo({ top: 0, behavior: calm ? "auto" : "smooth" });
+  const cv = $("#canvas"); if (cv) cv.scrollTo({ top: 0, behavior: calm ? "auto" : "smooth" });
   clearInterval(startTry.t);
   const step = () => {
     const t = S.try;
@@ -1229,7 +1361,7 @@ const ACT = {
   dsubrm: (d) => { const k = d.k.split("|"), { list } = subList(d.k); list.splice(+k[2], 1); renderList(); },
   dpathadd: (d) => { const r = S.list.find((x) => x.id === d.id); r.paths.push({ cond: "", steps: [row()], end: "on" }); renderList(`[data-cond="${r.id}|${r.paths.length - 1}"]`); },
   dpathrm: (d) => { const k = d.k.split("|"), r = S.list.find((x) => x.id === k[0]); r.paths.splice(+k[1], 1); renderList(); },
-  open: (d) => { S.sel = d.id; S.sheet = { type: "step" }; renderCanvas(); renderSheet(); },
+  open: (d) => { S.sel = d.id; S.sheet = { type: "step" }; renderCanvas(); renderSheet(); focusNode(d.id); },
   close: () => { S.sheet = null; S.sel = null; if (S.view === "build") renderCanvas(); renderSheet(); },
   sheet: (d) => { S.sheet = { type: d.type }; S.sel = null; if (S.view === "build") renderCanvas(); renderSheet(); if (d.type === "builder") { const s = $("#say"); if (s) s.focus(); } },
   plus: (d, el) => {
@@ -1238,7 +1370,9 @@ const ACT = {
     renderMenu();
   },
   addkind: (d) => { const m = S.menu; if (m) addStep(d.kind, m.list, m.index); },
-  paladd: (d) => { if (!dragged) addStep(d.kind, "root", S.steps.length); },
+  paladd: (d, el) => { if (!dragged) { const dead = S.steps.length && deadEnd(S.steps[S.steps.length - 1]); addStep(d.kind, "root", dead ? S.steps.length - 1 : S.steps.length, fromItem(el)); } },
+  zoom: (d) => setZoom(+d.d ? S.zoom + 0.1 * +d.d : 1),
+  fit: () => fit(),
   undo: () => undo(),
   chatundo: () => undo(),
   dismiss: () => { S.note = null; renderCanvas(); },
@@ -1249,6 +1383,7 @@ const ACT = {
   sw: (d, el) => el.setAttribute("aria-checked", el.getAttribute("aria-checked") !== "true"),
   focusf: (d) => { const el = document.querySelector(`#sbody [data-f="${d.f}"]`); if (el) { el.scrollIntoView({ block: "center" }); el.focus(); } },
   addpath: () => { const st = find(S.sel); if (!st) return; commit(); st.paths.splice(st.paths.length - 1, 0, { id: nid(), name: `Path ${String.fromCharCode(64 + st.paths.length)}`, rule: { field: "", op: ">", value: "" }, steps: [] }); renderCanvas(); renderSheet(); const ins = document.querySelectorAll('#sbody [data-f="name"]'), el = ins[ins.length - 1]; if (el) { el.focus(); el.select(); } },
+  addpathto: (d) => { S.sel = d.id; S.sheet = { type: "step" }; ACT.addpath(); focusNode(d.id); },
   rmpath: (d) => { const st = find(S.sel); if (!st) return; commit(); st.paths = st.paths.filter((p) => p.id !== d.p); renderCanvas(); renderSheet(); },
   settle: (d) => {
     const st = find(S.sel), o = st && st.open[+d.i], v = d.v;
@@ -1270,7 +1405,7 @@ const ACT = {
     renderCanvas(); renderBar(); renderSheet();
   },
   reopen: (d) => { const st = find(S.sel); if (!st || !st.open[+d.i]) return; commit(); st.open[+d.i].done = null; renderCanvas(); renderBar(); renderSheet(); },
-  nextopen: () => { const n = allOpen().find((x) => x.st.id !== S.sel) || allOpen()[0]; if (!n) return; S.sel = n.st.id; S.sheet = { type: "step" }; renderCanvas(); renderSheet(); const el = document.querySelector(`.node[data-id="${n.st.id}"]`); if (el) el.scrollIntoView({ block: "center", behavior: calm ? "auto" : "smooth" }); },
+  nextopen: () => { const n = allOpen().find((x) => x.st.id !== S.sel) || allOpen()[0]; if (!n) return; S.sel = n.st.id; S.sheet = { type: "step" }; renderCanvas(); renderSheet(); const el = document.querySelector(`.node[data-id="${n.st.id}"]`); if (el) el.scrollIntoView({ block: "center", inline: "center", behavior: calm ? "auto" : "smooth" }); },
   try: () => { if (!S.building) startTry(); },
   endtry: () => { S.try = null; renderCanvas(); },
   adddecision: (d) => {
@@ -1299,6 +1434,7 @@ document.addEventListener("focusin", (e) => { if (e.target.dataset && e.target.d
 document.addEventListener("input", (e) => {
   const t = e.target;
   if (t.id === "swhen") { S.start.name = t.value; return; }
+  if (t.id === "palq") { S.q = t.value; renderRail(); return; }
   if (t.id === "para") { S.para = t.value; return; }
   const ds = t.dataset || {};
   if (ds.row) {
@@ -1356,6 +1492,28 @@ document.addEventListener("keydown", (e) => {
   if ((e.key === "Enter" || e.key === " ") && (t.classList.contains("card") || t.classList.contains("block"))) { e.preventDefault(); t.click(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" && !typing && S.view === "build") { e.preventDefault(); undo(); }
 });
+// Grab the background to move; Ctrl or ⌘ and the wheel to zoom. A touch screen pans by itself.
+let pan = null;
+document.addEventListener("pointerdown", (e) => {
+  const c = e.target.closest && e.target.closest("#canvas");
+  if (!c || e.pointerType === "touch" || (e.button !== 0 && e.button !== 1)) return;
+  if (e.button === 0 && e.target.closest(".card,.plus,button,input,select,textarea,a,label,.note,.res,.lane__h")) return;
+  pan = { x: e.clientX, y: e.clientY, l: c.scrollLeft, t: c.scrollTop, c };
+  c.classList.add("is-panning");
+  e.preventDefault();
+});
+document.addEventListener("pointermove", (e) => { if (pan) { pan.c.scrollLeft = pan.l - (e.clientX - pan.x); pan.c.scrollTop = pan.t - (e.clientY - pan.y); } });
+const endPan = () => { if (pan) { pan.c.classList.remove("is-panning"); pan = null; } };
+document.addEventListener("pointerup", endPan);
+document.addEventListener("pointercancel", endPan);
+document.addEventListener("wheel", (e) => {
+  const c = e.target.closest && e.target.closest("#canvas");
+  if (!c || !(e.ctrlKey || e.metaKey)) return;
+  e.preventDefault();
+  const b = c.getBoundingClientRect();
+  setZoom(S.zoom + (e.deltaY < 0 ? 0.1 : -0.1), e.clientX - b.left, e.clientY - b.top);
+}, { passive: false });
+document.addEventListener("scroll", (e) => { if (S.menu && e.target.id === "canvas") { S.menu = null; renderMenu(); } }, true);
 document.addEventListener("paste", (e) => {
   const t = e.target, id = t.dataset && t.dataset.row, text = (e.clipboardData || { getData: () => "" }).getData("text");
   if (!id || !/\n/.test(text)) return;
