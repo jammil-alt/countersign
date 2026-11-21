@@ -106,6 +106,25 @@ describe("buildTurn", () => {
     expect(out.calls).toHaveLength(2);
   });
 
+  // QA on staging (2026-11-17, MEZONAS-API-6): the model answered in text, without the tool.
+  it("asks once more when the answer doesn't call the tool", async () => {
+    const model = new FakeModel([
+      { text: "Here is the fit-gap you asked for." },
+      { toolUse: { name: BUILD_TURN_TOOL, input: { text: "Where do invoices arrive?" } } },
+    ]);
+    const out = await buildTurn(base, { llm: createLlmClient({ transport: model }) });
+    expect(out.answer.text).toBe("Where do invoices arrive?");
+    expect(lastUser(model.requests[1])).toContain(`did not call the \`${BUILD_TURN_TOOL}\` tool`);
+    expect(out.calls).toHaveLength(2);
+  });
+
+  it("fails after one more answer without the tool", async () => {
+    const model = new FakeModel([{ text: "First." }, { text: "Second." }]);
+    await expect(buildTurn(base, { llm: createLlmClient({ transport: model }) })).rejects.toThrow(
+      `the model answered without calling ${BUILD_TURN_TOOL}`,
+    );
+  });
+
   it("fills the brief in intake, and drops a fit-gap it wasn't asked for", async () => {
     const model = new FakeModel([
       {
