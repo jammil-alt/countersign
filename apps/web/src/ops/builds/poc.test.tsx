@@ -89,6 +89,7 @@ function detail(p: BuildPocView = poc()): BuildDetail {
       versionId: VERSION,
       version: 2,
       live: false,
+      steps: [],
       problems: [],
     },
     poc: p,

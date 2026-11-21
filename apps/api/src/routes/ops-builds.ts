@@ -57,8 +57,11 @@ import {
   readQa,
   readTestPlan,
   routes,
+  SETTLE_WORDS,
   SETUP_WORDS,
+  type SettleWay,
   setDecisionStatus,
+  settleFits,
   sliceWhole,
   testCaseProblems,
 } from "@countersign/core";
@@ -620,6 +623,9 @@ async function turn(
           model: result.calls[0]?.model ?? null,
           ...(about ? { about } : {}),
           ...(proposal ? { proposal: { ...proposal, state: "proposed" } } : {}),
+          // docs/plan.md §1.165: the Builder's word that the operator asked for this change. Only
+          // on a turn with the operator's words: one the Builder opens asks for nothing.
+          ...(proposal && answer.asked && prep.said ? { asked: true } : {}),
         },
       });
     });
@@ -638,6 +644,42 @@ async function turn(
       error,
     );
   }
+}
+
+/**
+ * Made at once (docs/plan.md §1.165): the change the Builder just proposed, when it is one the
+ * operator asked for. With a way chosen on the issue (`settle`), the proposal that way asks for
+ * (a draft edit, a skill, a code request); with none, a draft edit the Builder says the operator's
+ * words asked for. It is made by the proposal's own decision (`decideProposal`), so its checks, its claim
+ * and its undo are the same. Anything else stays a proposal to agree.
+ */
+// DECISION (owner, 2026-11-21: "if we get it written then we can see the flows and keep editing
+// it"): a change asked for doesn't wait for a second yes. A draft edit can be undone; a skill
+// build or a code request made by an issue's own button is the operator's choice already. A
+// change that can't be made is put back as a proposal with the Builder's reason (the route's own
+// `guarded`), and the turn's answer stands.
+async function makeAtOnce(ctx: LongCtx, id: string, settle: SettleWay | null): Promise<void> {
+  const found = await ctx.inTx(async (scoped) => {
+    const [last] = await scoped.tx
+      .select({ id: buildMessage.id, role: buildMessage.role, meta: buildMessage.meta })
+      .from(buildMessage)
+      .where(eq(buildMessage.buildId, id))
+      .orderBy(desc(buildMessage.createdAt), desc(buildMessage.id))
+      .limit(1);
+    if (last?.role !== "builder") return null;
+    const meta = (last.meta ?? {}) as { proposal?: unknown; asked?: unknown };
+    const stored = StoredProposal.safeParse(meta.proposal);
+    if (!stored.success || stored.data.state !== "proposed") return null;
+    if (!settle && meta.asked !== true) return null;
+    return settleFits(settle, stored.data.action.do) ? last.id : null;
+  });
+  if (!found) return;
+  await decideProposal(ctx, id, found, "agree", true).catch((error: unknown) =>
+    reportHandled("a change asked for in a build couldn't be made at once", error, {
+      kind: "build",
+      build: id,
+    }),
+  );
 }
 
 /** A failed Builder turn, said in the conversation and reported (Sentry). */
@@ -2002,7 +2044,23 @@ async function move(
   //     decisions and the draft's writes), when it is drafted and when it goes to the POC test.
   if (forward && (to === "draft" || to === "poc")) await writeDraftFromBuild(ctx, id, to);
   // 4. The Builder opens the phases it has work in.
-  if (forward && (to === "fitgap" || to === "poc")) await turn(ctx, id, null);
+  // DECISION (docs/plan.md §1.165): a build drafted at once (it has no fit-gap) opens its POC
+  // test with the try, not with the Builder writing a plan of made-up data first: real examples
+  // come first (builder-plan.md §3), and a plan can still be asked for in the conversation.
+  const atOnce = to === "poc" && readFitGap(row.fitgap).rows.length === 0;
+  if (forward && (to === "fitgap" || to === "poc") && !atOnce) await turn(ctx, id, null);
+  if (forward && atOnce) {
+    await ctx.inTx(async (scoped) => {
+      const r = await readBuild(scoped.tx, id, true);
+      if (r.status !== "open" || r.phase !== to) return;
+      await addMessage(scoped.tx, r, {
+        role: "builder",
+        text: r.clientId
+          ? "Try it now: test-run it from the workflow (nothing is written), then tell me what it got wrong and I'll change it."
+          : "Try it now on a real example: upload a document or give the input it starts from. It runs as a test, so nothing is written. Mark the result right or wrong, and tell me what to change.",
+      });
+    });
+  }
   if (claimed) {
     await ctx.inTx(async (scoped) => {
       const r = await readBuild(scoped.tx, id, true);
@@ -2015,6 +2073,245 @@ async function move(
       });
     });
   }
+}
+
+/**
+ * The operator's decision on a proposal: agreed (the change is made, as the operator, through the
+ * build's own routes), declined, or an agreed one undone. `asked` (docs/plan.md §1.165): the
+ * change was asked for in words or by an issue's button and is made at once, so the claim is the
+ * Builder's own line, not an "Agreed." the operator never said. Its own function, not only the
+ * route: a slow route isn't reachable through `invokeRoute`, and a turn makes such a change itself.
+ */
+async function decideProposal(
+  lc: LongCtx,
+  id: string,
+  messageId: string,
+  decide: "agree" | "decline" | "undo",
+  asked = false,
+): Promise<void> {
+  const found = await lc.inTx(async (scoped) => {
+    const row = await readBuild(scoped.tx, id, true);
+    refuseClosed(row);
+    const [m] = await scoped.tx
+      .select()
+      .from(buildMessage)
+      .where(and(eq(buildMessage.id, messageId), eq(buildMessage.buildId, row.id)));
+    if (!m) throw notFound("message");
+    const meta = (m.meta ?? {}) as Record<string, unknown>;
+    const stored = StoredProposal.safeParse(meta.proposal);
+    if (!stored.success) throw new HttpError(409, "no_proposal", "this message proposes nothing");
+    // Its state is the latest decision about it (messages are insert only).
+    const decisions = await scoped.tx
+      .select({ id: buildMessage.id, meta: buildMessage.meta })
+      .from(buildMessage)
+      .where(eq(buildMessage.buildId, row.id))
+      .orderBy(asc(buildMessage.createdAt), asc(buildMessage.id));
+    const decided = withDecisions(decisions).find(([r]) => r.id === m.id)?.[1] ?? null;
+    const p = {
+      ...stored.data,
+      state: decided?.decision ?? stored.data.state,
+      before: decided?.before ?? null,
+    };
+    const wanted = decide === "undo" ? "agreed" : "proposed";
+    if (p.state !== wanted) {
+      throw new HttpError(409, "decided", `this proposal is ${p.state} already`);
+    }
+    if (decide === "undo") {
+      const undoable = isDevQueueAction(p.action)
+        ? false
+        : p.action.do === "edit_draft"
+          ? (decided?.edit?.changeIds.length ?? 0) > 0
+          : !!proposalUndo(p.action, p.before);
+      if (!undoable) throw new HttpError(409, "no_undo", "this change has no undo here");
+    }
+    const itemId = "itemId" in p.action ? p.action.itemId : null;
+    const [item] = itemId
+      ? await scoped.tx
+          .select({ state: buildItem.state })
+          .from(buildItem)
+          .where(and(eq(buildItem.id, itemId), eq(buildItem.buildId, row.id)))
+      : [];
+    const before = item?.state ?? null;
+    const about = metaAbout(meta);
+    // STATE-3: the decision is claimed here, as the operator's message, in the transaction that
+    // found the proposal still open (the build row locked): a second Agree (another tab, a
+    // double click) finds it decided and is refused 409 `decided`. What the change did is
+    // settled on the Builder's message after it; a change that fails puts the proposal back.
+    const simple = !isDevQueueAction(p.action) && p.action.do !== "edit_draft";
+    await addMessage(scoped.tx, row, {
+      role: asked ? "builder" : "operator",
+      text: asked
+        ? "Making the change you asked for."
+        : { agree: "Agreed.", decline: "Not this.", undo: "Undo that." }[decide],
+      meta: {
+        decides: messageId,
+        decision: ({ agree: "agreed", decline: "declined", undo: "undone" } as const)[decide],
+        ...(decide === "agree" && simple && before ? { before } : {}),
+        ...(about ? { about } : {}),
+      },
+    });
+    return { p, about, decided, edit: decided?.edit ?? null };
+  });
+  const { p, about } = found;
+  if (decide === "decline") return;
+  // The Builder's own message after a decision.
+  const say = (text: string, meta: Record<string, unknown>) =>
+    lc.inTx(async (scoped) => {
+      const fresh = await readBuild(scoped.tx, id, true);
+      await addMessage(scoped.tx, fresh, { role: "builder", text: clip(text, 3000), meta });
+    });
+  /** What the change did, settled on the Builder's message after it (the latest decision). */
+  const settle = (decision: "agreed" | "unchanged", extra: Record<string, unknown>) => ({
+    decides: messageId,
+    decision,
+    ...extra,
+  });
+  /**
+   * Makes the agreed change (or its undo). One that fails puts the proposal back as it was, the
+   * Builder saying why, so it can be agreed (or undone) again.
+   */
+  // DECISION (STATE-3): the proposal is put back by a decision on the Builder's message (the
+  // decision before the claim, else "proposed"), never by removing the claim: messages are
+  // insert only, and the conversation keeps why it didn't go through.
+  const guarded = async <T>(change: () => Promise<T>): Promise<T> => {
+    try {
+      return await change();
+    } catch (error) {
+      const err = toHttpError(error);
+      const why =
+        err.status < 500 || err.status === 503
+          ? err.message
+          : "something went wrong on our side, and we've logged it";
+      await lc
+        .inTx(async (scoped) => {
+          const fresh = await readBuild(scoped.tx, id, true);
+          if (fresh.status !== "open") return;
+          await addMessage(scoped.tx, fresh, {
+            role: "builder",
+            text: clip(
+              `That didn't go through: ${why.trim().replace(/[.\s]+$/, "")}. Press ${decide === "agree" ? "Agree" : "Undo"} to try again.`,
+              3000,
+            ),
+            meta: {
+              ...(found.decided ?? {}),
+              decides: messageId,
+              decision: found.decided?.decision ?? "proposed",
+              ...(about ? { about } : {}),
+            },
+          });
+        })
+        .catch((e: unknown) =>
+          reportHandled("putting a build's proposal back failed", e, {
+            kind: "build",
+            build: id,
+          }),
+        );
+      throw error;
+    }
+  };
+  // docs/plan.md §1.125: filing, linking, approving a request, or starting a skill build.
+  if (isDevQueueAction(p.action)) {
+    const action = p.action;
+    const out = await guarded(() => runDevQueueAction(lc, id, action));
+    await say(out.text, {
+      ...(about ? { about } : {}),
+      ...(out.proposal ? { proposal: { ...out.proposal, state: "proposed" } } : {}),
+      ...settle("agreed", { result: clip(out.text, 1000) }),
+    });
+    return;
+  }
+  let changed: string[] = [];
+  let settled: Record<string, unknown> = {};
+  if (p.action.do === "edit_draft") {
+    // Owner (2026-11-17): the draft changes in the build's conversation, made by the workflow's
+    // Builder (its guards, its labelled changes) and saved as a draft version; undo is its own.
+    const action = p.action;
+    if (decide === "agree") {
+      const edit = await guarded(() => applyEdit(lc, id, action, p.summary));
+      const said = firstSentences(edit.text, 2);
+      if (edit.changes.length === 0) {
+        await say(`I tried, and the draft didn't change: ${said}`, {
+          ...(about ? { about } : {}),
+          ...settle("unchanged", { result: clip(`Nothing changed: ${said}`, 500) }),
+        });
+        return;
+      }
+      // QA on staging (2026-11-17): "Done: Build the filter skill" was said when only a step's
+      // description had changed and the step was still missing. What an edit did is checked
+      // against the build after it, never taken from the proposal's own words.
+      const left = await lc.inTx(async (scoped) =>
+        stillOpen(
+          await detailIn(scoped, lc.services, await readBuild(scoped.tx, id, true)),
+          about,
+          action.stepId ?? null,
+        ),
+      );
+      settled = settle("agreed", {
+        result: clip(left ? `Changed, still open: ${said}` : `Changed: ${said}`, 1000),
+        changes: edit.changes.map((c) => clip(c.label, 300)).slice(0, 20),
+        ...(left ? { unresolved: true } : {}),
+        edit: {
+          sessionId: edit.sessionId,
+          turnId: edit.turnId,
+          changeIds: edit.changes.map((c) => c.id),
+          versionId: edit.versionId,
+        },
+      });
+      if (left) {
+        await say(
+          `I changed the draft, but it isn't fixed: “${left.title}” is still open${left.detail ? ` (${left.detail})` : ""}. What I changed: ${said}`,
+          { ...(about ? { about } : {}), chips: ["What would fix it?"], ...settled },
+        );
+        return;
+      }
+      changed = [said];
+      // A part a request shipped, put in its step: the gap item closes once the step validates.
+      const shipped = await lc.inTx(async (scoped) =>
+        settleShipped(scoped.tx, lc.services.platform, await readBuild(scoped.tx, id, true), now()),
+      );
+      if (shipped.length > 0) {
+        changed.push(`That settles ${shipped.map((t) => `“${t}”`).join(", ")}, so I closed it.`);
+      }
+    } else {
+      const edit = found.edit;
+      if (!edit) throw new HttpError(409, "no_undo", "this change has no undo here");
+      await guarded(() => undoEdit(lc, id, edit, p.summary));
+    }
+  } else {
+    const action = decide === "agree" ? p.action : proposalUndo(p.action, p.before);
+    if (!action) throw new HttpError(409, "no_undo", "this change has no undo here");
+    await guarded(() => runAction(lc, id, action));
+  }
+  await lc.inTx(async (scoped) => {
+    const fresh = await readBuild(scoped.tx, id, true);
+    const issues = buildIssues(await detailIn(scoped, lc.services, fresh));
+    const next = issues.find((i) => i.open && i.key !== about);
+    const item = issues.find((i) => i.key === about && i.source === "item" && i.open);
+    if (decide === "agree" && changed.length > 0 && item) {
+      // A draft edit for an open item: whether it settles the item is the operator's to say.
+      await addMessage(scoped.tx, fresh, {
+        role: "builder",
+        text: `Changed the draft: ${changed.join(" ")} “${item.title}” stays open until you close it. Does this settle it?`,
+        meta: { about: item.key, chips: ["Yes, close it", "Not yet"], ...settled },
+      });
+      return;
+    }
+    const text =
+      decide === "agree"
+        ? doneText(p.summary, next, changed)
+        : `Undone: ${p.summary}. It's as it was.`;
+    await addMessage(scoped.tx, fresh, {
+      role: "builder",
+      text,
+      meta: {
+        // The thread moves to the next issue, so "yes" there carries on with it.
+        ...(decide === "agree" && next ? { about: next.key } : about ? { about } : {}),
+        chips: decide === "agree" && next ? ["Yes, take it", "What's left?"] : [],
+        ...settled,
+      },
+    });
+  });
+  return;
 }
 
 export function opsBuildRoutes(app: Hono<AppEnv>): void {
@@ -2122,246 +2419,29 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
   });
 
   mountLong(app, routes.opsBuildTurn, async (ctx) => {
-    const text = ctx.body.text ?? null;
-    await turn(long(ctx.c, ctx.session, ctx.services, ctx.inTx), ctx.params.id, text, {
-      retry: !text,
-      about: ctx.body.about ?? null,
-    });
+    const lc = long(ctx.c, ctx.session, ctx.services, ctx.inTx);
+    // docs/plan.md §1.165: a way chosen on an issue speaks for itself when no words come with it.
+    const settle = ctx.body.settle ?? null;
+    if (settle && !ctx.body.about) {
+      throw new HttpError(400, "settle_needs_issue", "say which issue it settles");
+    }
+    const text = ctx.body.text ?? (settle ? SETTLE_WORDS[settle].ask : null);
+    await turn(lc, ctx.params.id, text, { retry: !text, about: ctx.body.about ?? null });
+    await makeAtOnce(lc, ctx.params.id, settle);
     return detailOf(ctx, ctx.params.id);
   });
 
   // Owner (2026-11-17): the Builder proposes, the operator agrees, the change is made through the
   // build's own route as the operator (its checks and audit row), then the Builder offers the next.
   mountLong(app, routes.opsBuildProposal, async (ctx) => {
-    const lc = long(ctx.c, ctx.session, ctx.services, ctx.inTx);
-    const { id, messageId } = ctx.params;
-    const { decide } = ctx.body;
-    const found = await ctx.inTx(async (scoped) => {
-      const row = await readBuild(scoped.tx, id, true);
-      refuseClosed(row);
-      const [m] = await scoped.tx
-        .select()
-        .from(buildMessage)
-        .where(and(eq(buildMessage.id, messageId), eq(buildMessage.buildId, row.id)));
-      if (!m) throw notFound("message");
-      const meta = (m.meta ?? {}) as Record<string, unknown>;
-      const stored = StoredProposal.safeParse(meta.proposal);
-      if (!stored.success) throw new HttpError(409, "no_proposal", "this message proposes nothing");
-      // Its state is the latest decision about it (messages are insert only).
-      const decisions = await scoped.tx
-        .select({ id: buildMessage.id, meta: buildMessage.meta })
-        .from(buildMessage)
-        .where(eq(buildMessage.buildId, row.id))
-        .orderBy(asc(buildMessage.createdAt), asc(buildMessage.id));
-      const decided = withDecisions(decisions).find(([r]) => r.id === m.id)?.[1] ?? null;
-      const p = {
-        ...stored.data,
-        state: decided?.decision ?? stored.data.state,
-        before: decided?.before ?? null,
-      };
-      const wanted = decide === "undo" ? "agreed" : "proposed";
-      if (p.state !== wanted) {
-        throw new HttpError(409, "decided", `this proposal is ${p.state} already`);
-      }
-      if (decide === "undo") {
-        const undoable = isDevQueueAction(p.action)
-          ? false
-          : p.action.do === "edit_draft"
-            ? (decided?.edit?.changeIds.length ?? 0) > 0
-            : !!proposalUndo(p.action, p.before);
-        if (!undoable) throw new HttpError(409, "no_undo", "this change has no undo here");
-      }
-      const itemId = "itemId" in p.action ? p.action.itemId : null;
-      const [item] = itemId
-        ? await scoped.tx
-            .select({ state: buildItem.state })
-            .from(buildItem)
-            .where(and(eq(buildItem.id, itemId), eq(buildItem.buildId, row.id)))
-        : [];
-      const before = item?.state ?? null;
-      const about = metaAbout(meta);
-      // STATE-3: the decision is claimed here, as the operator's message, in the transaction that
-      // found the proposal still open (the build row locked): a second Agree (another tab, a
-      // double click) finds it decided and is refused 409 `decided`. What the change did is
-      // settled on the Builder's message after it; a change that fails puts the proposal back.
-      const simple = !isDevQueueAction(p.action) && p.action.do !== "edit_draft";
-      await addMessage(scoped.tx, row, {
-        role: "operator",
-        text: { agree: "Agreed.", decline: "Not this.", undo: "Undo that." }[decide],
-        meta: {
-          decides: messageId,
-          decision: ({ agree: "agreed", decline: "declined", undo: "undone" } as const)[decide],
-          ...(decide === "agree" && simple && before ? { before } : {}),
-          ...(about ? { about } : {}),
-        },
-      });
-      return { p, about, decided, edit: decided?.edit ?? null };
-    });
-    const { p, about } = found;
-    if (decide === "decline") return detailOf(ctx, id);
-    // The Builder's own message after a decision.
-    const say = (text: string, meta: Record<string, unknown>) =>
-      ctx.inTx(async (scoped) => {
-        const fresh = await readBuild(scoped.tx, id, true);
-        await addMessage(scoped.tx, fresh, { role: "builder", text: clip(text, 3000), meta });
-      });
-    /** What the change did, settled on the Builder's message after it (the latest decision). */
-    const settle = (decision: "agreed" | "unchanged", extra: Record<string, unknown>) => ({
-      decides: messageId,
-      decision,
-      ...extra,
-    });
-    /**
-     * Makes the agreed change (or its undo). One that fails puts the proposal back as it was, the
-     * Builder saying why, so it can be agreed (or undone) again.
-     */
-    // DECISION (STATE-3): the proposal is put back by a decision on the Builder's message (the
-    // decision before the claim, else "proposed"), never by removing the claim: messages are
-    // insert only, and the conversation keeps why it didn't go through.
-    const guarded = async <T>(change: () => Promise<T>): Promise<T> => {
-      try {
-        return await change();
-      } catch (error) {
-        const err = toHttpError(error);
-        const why =
-          err.status < 500 || err.status === 503
-            ? err.message
-            : "something went wrong on our side, and we've logged it";
-        await ctx
-          .inTx(async (scoped) => {
-            const fresh = await readBuild(scoped.tx, id, true);
-            if (fresh.status !== "open") return;
-            await addMessage(scoped.tx, fresh, {
-              role: "builder",
-              text: clip(
-                `That didn't go through: ${why.trim().replace(/[.\s]+$/, "")}. Press ${decide === "agree" ? "Agree" : "Undo"} to try again.`,
-                3000,
-              ),
-              meta: {
-                ...(found.decided ?? {}),
-                decides: messageId,
-                decision: found.decided?.decision ?? "proposed",
-                ...(about ? { about } : {}),
-              },
-            });
-          })
-          .catch((e: unknown) =>
-            reportHandled("putting a build's proposal back failed", e, {
-              kind: "build",
-              build: id,
-            }),
-          );
-        throw error;
-      }
-    };
-    // docs/plan.md §1.125: filing, linking, approving a request, or starting a skill build.
-    if (isDevQueueAction(p.action)) {
-      const action = p.action;
-      const out = await guarded(() => runDevQueueAction(lc, id, action));
-      await say(out.text, {
-        ...(about ? { about } : {}),
-        ...(out.proposal ? { proposal: { ...out.proposal, state: "proposed" } } : {}),
-        ...settle("agreed", { result: clip(out.text, 1000) }),
-      });
-      return detailOf(ctx, id);
-    }
-    let changed: string[] = [];
-    let settled: Record<string, unknown> = {};
-    if (p.action.do === "edit_draft") {
-      // Owner (2026-11-17): the draft changes in the build's conversation, made by the workflow's
-      // Builder (its guards, its labelled changes) and saved as a draft version; undo is its own.
-      const action = p.action;
-      if (decide === "agree") {
-        const edit = await guarded(() => applyEdit(lc, id, action, p.summary));
-        const said = firstSentences(edit.text, 2);
-        if (edit.changes.length === 0) {
-          await say(`I tried, and the draft didn't change: ${said}`, {
-            ...(about ? { about } : {}),
-            ...settle("unchanged", { result: clip(`Nothing changed: ${said}`, 500) }),
-          });
-          return detailOf(ctx, id);
-        }
-        // QA on staging (2026-11-17): "Done: Build the filter skill" was said when only a step's
-        // description had changed and the step was still missing. What an edit did is checked
-        // against the build after it, never taken from the proposal's own words.
-        const left = await ctx.inTx(async (scoped) =>
-          stillOpen(
-            await detailIn(scoped, ctx.services, await readBuild(scoped.tx, id, true)),
-            about,
-            action.stepId ?? null,
-          ),
-        );
-        settled = settle("agreed", {
-          result: clip(left ? `Changed, still open: ${said}` : `Changed: ${said}`, 1000),
-          changes: edit.changes.map((c) => clip(c.label, 300)).slice(0, 20),
-          ...(left ? { unresolved: true } : {}),
-          edit: {
-            sessionId: edit.sessionId,
-            turnId: edit.turnId,
-            changeIds: edit.changes.map((c) => c.id),
-            versionId: edit.versionId,
-          },
-        });
-        if (left) {
-          await say(
-            `I changed the draft, but it isn't fixed: “${left.title}” is still open${left.detail ? ` (${left.detail})` : ""}. What I changed: ${said}`,
-            { ...(about ? { about } : {}), chips: ["What would fix it?"], ...settled },
-          );
-          return detailOf(ctx, id);
-        }
-        changed = [said];
-        // A part a request shipped, put in its step: the gap item closes once the step validates.
-        const shipped = await ctx.inTx(async (scoped) =>
-          settleShipped(
-            scoped.tx,
-            ctx.services.platform,
-            await readBuild(scoped.tx, id, true),
-            now(),
-          ),
-        );
-        if (shipped.length > 0) {
-          changed.push(`That settles ${shipped.map((t) => `“${t}”`).join(", ")}, so I closed it.`);
-        }
-      } else {
-        const edit = found.edit;
-        if (!edit) throw new HttpError(409, "no_undo", "this change has no undo here");
-        await guarded(() => undoEdit(lc, id, edit, p.summary));
-      }
-    } else {
-      const action = decide === "agree" ? p.action : proposalUndo(p.action, p.before);
-      if (!action) throw new HttpError(409, "no_undo", "this change has no undo here");
-      await guarded(() => runAction(lc, id, action));
-    }
-    await ctx.inTx(async (scoped) => {
-      const fresh = await readBuild(scoped.tx, id, true);
-      const issues = buildIssues(await detailIn(scoped, ctx.services, fresh));
-      const next = issues.find((i) => i.open && i.key !== about);
-      const item = issues.find((i) => i.key === about && i.source === "item" && i.open);
-      if (decide === "agree" && changed.length > 0 && item) {
-        // A draft edit for an open item: whether it settles the item is the operator's to say.
-        await addMessage(scoped.tx, fresh, {
-          role: "builder",
-          text: `Changed the draft: ${changed.join(" ")} “${item.title}” stays open until you close it. Does this settle it?`,
-          meta: { about: item.key, chips: ["Yes, close it", "Not yet"], ...settled },
-        });
-        return;
-      }
-      const text =
-        decide === "agree"
-          ? doneText(p.summary, next, changed)
-          : `Undone: ${p.summary}. It's as it was.`;
-      await addMessage(scoped.tx, fresh, {
-        role: "builder",
-        text,
-        meta: {
-          // The thread moves to the next issue, so "yes" there carries on with it.
-          ...(decide === "agree" && next ? { about: next.key } : about ? { about } : {}),
-          chips: decide === "agree" && next ? ["Yes, take it", "What's left?"] : [],
-          ...settled,
-        },
-      });
-    });
-    return detailOf(ctx, id);
+    await decideProposal(
+      long(ctx.c, ctx.session, ctx.services, ctx.inTx),
+      ctx.params.id,
+      ctx.params.messageId,
+      ctx.body.decide,
+      ctx.body.decide === "agree" && ctx.body.asked === true,
+    );
+    return detailOf(ctx, ctx.params.id);
   });
 
   mountLong(app, routes.opsBuildVerdict, async (ctx) => {

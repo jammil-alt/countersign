@@ -368,13 +368,15 @@ agent manual, the setup checklist, client adjustments and feedback, and governan
 
 ### Builds, simplified (owner, 2026-11-21; `docs/plan.md` §1.165, `docs/builder-plan.md` §11)
 
-Step 1 is built: an agent described in the lab's New is drafted at once (one model call, a draft
-that runs, a client's agent bound to its connections), and a build in intake can skip the
-questions. Left:
+Steps 1 and 2 are built: an agent described in the lab's New is drafted at once (one model call,
+the stated steps and nothing more, a client's agent bound to its connections); the draft's steps
+show on the build's page; a change asked for is made at once with Undo; and an issue is settled
+from the issue (change the process, build a skill, needs code). Left:
 
 | # | What | Notes |
 |---|---|---|
-| S-A | **Owner: the four answers** in `docs/builder-plan.md` §11.5 (one page with three steps; the high-risk check; agree cards for draft edits; where a client build's try runs). | S2 to S5 wait on them. |
+| S-A | **Owner: three answers** in `docs/builder-plan.md` §11.5 (one page with three steps; the high-risk check; where a client build's try runs). The fourth, agree cards, is answered. | S2, S4 and S5 wait on them. |
+| S-E | A skill started from an issue is its own build with no link back from the issue, and a code request has no link to the Dev queue on the build's page. | Code. |
 | S-B | **Try it on staging**: New → Template → describe it → "Build it", on the Progress updating agent. The works-first rules have run against a scripted model only; the Builder's evals (§1.108) have no case for them yet. | Owner, once merged. Code: an eval case. |
 | S-C | A client build's draft is still held by what its connection doesn't allow, and its POC by a test run the build's page can't start. | Code: S2 and S4. |
 | S-D | A skill build has no draft-it-now. | Code, if wanted. |

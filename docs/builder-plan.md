@@ -266,8 +266,9 @@ Decided for the operator, written down as decisions, changed after if wanted:
 | # | What | Size | Status |
 |---|---|---|---|
 | S1 | **Draft it now**: a description, one model call, a draft that runs; a client's agent bound to its connections; the way past the questions for builds in intake. | Small, no migration | Built 2026-11-21 (`docs/plan.md` §1.165) |
+| S1b | **The stated steps, on the page**: the drafter builds the steps the description states and nothing more; the draft card lists the steps in words; the POC opens with the try, not a plan of made-up data. | Small | Built 2026-11-21 |
 | S2 | **Try on the build's page for a client's agent** (today only a template has the Try card; a client build needs a test run the page can't start), and a try as soon as the draft exists, with no move to a POC phase first. | Medium | Waits on 11.5 |
-| S3 | **Change it by saying so**: a draft edit asked for in the conversation is made at once and can be undone, with no card to agree. | Small | Waits on 11.5, question 3 |
+| S3 | **Change it by saying so, and settle an issue from the issue**: a draft edit asked for in the conversation is made at once and can be undone; each issue has Change the process, Build a skill and Needs code. | Small | Built 2026-11-21 (owner's yes to question 3) |
 | S4 | **Turn on in one button**: publish, copy, bind, the test run at the client and the trial's start in one action; what is missing shown as one list (connect, allow, who), by code from the draft and the agent's readiness (§1.161). | Medium | Waits on 11.5 |
 | S5 | **One page**: Draft, Try, Turn on. The brief, fit-gap, test plan and QA cards leave the page for new builds; the build closes when the trial starts. | Large (the build page) | Waits on 11.5, question 1 |
 | S6 | Run the Progress updating and invoice intake builds again on staging and count the actions (G1). Target: under 10. | Owner | After S2 |
@@ -280,8 +281,9 @@ Decided for the operator, written down as decisions, changed after if wanted:
    before the client test. Every template that writes has at least one, so every build stops
    there. Approval is on by default and the trial signs every write whatever the draft says.
    Recommended: show high-risk decisions first, and stop holding the build on them.
-3. **Agree cards for draft edits (S3).** Recommended: make the change when asked and offer Undo;
-   keep the card for what can't be undone (a code request, going back a phase).
+3. **Agree cards for draft edits (S3).** Answered 2026-11-21: yes. A change asked for is made at
+   once with Undo, and an issue is settled three ways from the issue (change the process, build a
+   skill, needs code). The card stays for the Builder's own suggestions.
 4. **Where a quick build's Try runs (S2).** A template tries in the Sandbox. A client's agent would
    try at that client, as a test run, which reads the client's real tools and writes nothing.
    Recommended: yes, as test runs already do.

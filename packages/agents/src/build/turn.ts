@@ -133,6 +133,13 @@ export const BuildTurnAnswer = z.object({
   proposal: BuildProposal.optional().describe(
     "One change that settles the issue this answer is about. Nothing changes until the operator agrees",
   ),
+  // docs/plan.md §1.165: a change the operator asked for is made at once, with Undo.
+  asked: z
+    .boolean()
+    .default(false)
+    .describe(
+      "True only when the operator's words this turn ask for the change in your proposal (a change to the draft they named, or their yes to one you offered). It is then made at once and they can undo it, so say what you are changing. False when the change is your own suggestion: that one waits for their Agree",
+    ),
   decisions: z
     .array(DecisionAnswer)
     .max(30)
@@ -429,6 +436,8 @@ function cleanAnswer(phase: BuildPhase, answer: BuildTurnAnswer): BuildTurnAnswe
     chips,
     items: answer.items,
     answered: answer.answered,
+    // Only a proposal can have been asked for.
+    asked: answer.asked && !!answer.proposal,
     // docs/builder-plan.md §4: the Builder starts its decisions in the fit-gap and adds to them
     // while it drafts and tests; later phases change the process only by going back.
     decisions: DECISION_PHASES.has(phase) ? clampDecisions(answer.decisions) : [],

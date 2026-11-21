@@ -27,6 +27,7 @@ import {
   type DraftProblem,
   gateReasons,
   groupProblems,
+  howItWorks,
   itemOpen,
   nextPhase,
   orderProblem,
@@ -566,6 +567,9 @@ export async function draftOutline(ctx: StoreCtx, row: BuildRow): Promise<string
   return lines;
 }
 
+/** The most steps of a draft the build's page lists; the workflow shows the rest. */
+const DRAFT_STEPS_SHOWN = 60;
+
 /** STATE-4: the key of an open item for a fit-gap change made after the draft (the move adds it). */
 export const STALE_DRAFT_KEY = "draft:fitgap:";
 
@@ -638,6 +642,7 @@ async function bundleDraftFacts(ctx: StoreCtx, row: BuildRow): Promise<DraftFact
         versionId: null,
         version: null,
         live: false,
+        steps: [],
         problems: skillId
           ? []
           : [
@@ -667,6 +672,7 @@ async function bundleDraftFacts(ctx: StoreCtx, row: BuildRow): Promise<DraftFact
         versionId: null,
         version: null,
         live: false,
+        steps: [],
         problems: [],
       },
     };
@@ -693,6 +699,8 @@ async function bundleDraftFacts(ctx: StoreCtx, row: BuildRow): Promise<DraftFact
       version: latest.version,
       live: agentRow.liveVersionId === latest.id,
       problems: draftProblems(errors, bundle),
+      // docs/plan.md §1.165: the flow as written, in words, for the build's page.
+      steps: bundle ? howItWorks(bundle).slice(0, DRAFT_STEPS_SHOWN) : [],
     },
     bundle,
     liveVersions: agentRow.liveVersionId !== null,

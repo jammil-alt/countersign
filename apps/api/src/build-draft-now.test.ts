@@ -5,9 +5,9 @@
 // connection, and a draft that fails leaves the build where it was.
 import { TESTKIT_UPDATE_TOOL } from "@countersign/connectors";
 import type { BuildDetail } from "@countersign/core";
-import { agent } from "@countersign/db";
-import { FakeModel } from "@countersign/llm";
-import { eq } from "drizzle-orm";
+import { agent, agentVersion } from "@countersign/db";
+import { FakeModel, type LlmRequest } from "@countersign/llm";
+import { desc, eq } from "drizzle-orm";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { createApiHarness, OPERATOR } from "./api.test-helper";
 
@@ -69,6 +69,35 @@ function draftAnswer(steps: StepDraft[] = [update], more: Record<string, unknown
     },
   };
 }
+
+const turnAnswer = (input: Record<string, unknown>) => ({
+  toolUse: { name: "submit_build_turn", input: { chips: [], items: [], ...input } },
+});
+
+type Draft = { workflows: { workflow: { steps: Record<string, unknown>[] } }[] };
+
+/** The workflow Builder's turn: the draft it was shown, with the first step's amount set. */
+function setsAmount(text: string, amount: string) {
+  return (req: LlmRequest) => {
+    const content = req.messages[0]?.content as string;
+    const start = content.indexOf("<current_bundle>") + "<current_bundle>".length;
+    const d = JSON.parse(content.slice(start, content.indexOf("</current_bundle>"))) as Draft;
+    const step = d.workflows[0]?.workflow.steps[0] as { input: { amount: string } } | undefined;
+    if (step) step.input.amount = amount;
+    return { toolUse: { name: "submit_turn", input: { text, bundle: d } } };
+  };
+}
+
+/** An edit of the draft, proposed by the Builder in the build's conversation. */
+const editProposal = (amount: string, more: Record<string, unknown> = {}) =>
+  turnAnswer({
+    text: `I'm setting the amount to ${amount} on the update step.`,
+    proposal: {
+      summary: `Set the amount on “Update the record” to ${amount}`,
+      action: { do: "edit_draft", request: `On “Update the record”, set the amount to ${amount}.` },
+    },
+    ...more,
+  });
 
 describe.skipIf(!h)("draft it now", () => {
   const H = h as NonNullable<typeof h>;
@@ -142,10 +171,30 @@ describe.skipIf(!h)("draft it now", () => {
     expect(b.items[0]).toMatchObject({ kind: "gap", state: "deferred" });
     expect(b.items[0]?.title).toContain("No connector reads the vendor's portal");
 
+    // The flow as drafted is on the build: its steps in order, in plain words.
+    expect(b.draft?.steps).toEqual([
+      {
+        workflow: "Fix a record",
+        stepId: expect.any(String),
+        depth: 0,
+        kind: "write",
+        name: "Update the record",
+        words: "Updates your tools, after a person approves",
+      },
+    ]);
+
     // Asked again, it is refused: the build has its draft.
     const again = await call("POST", `/api/ops/builds/${id}/draft-now`, { description: "More" });
     expect(again.status).toBe(409);
     expect(errorOf(again.json)).toBe("same_phase");
+
+    // On to the POC test: it opens with the try, and the Builder writes no plan of made-up data.
+    const calls = model.requests.length;
+    const poc = await ok("POST", `/api/ops/builds/${id}/phase`, { to: "poc" });
+    expect(poc.build.phase).toBe("poc");
+    expect(model.requests.length).toBe(calls);
+    expect(poc.build.testPlan.datasets).toEqual([]);
+    expect(poc.messages.at(-1)?.text).toContain("Try it now on a real example");
   });
 
   it("has the Builder put a person where it left a missing step", async () => {
@@ -243,6 +292,93 @@ describe.skipIf(!h)("draft it now", () => {
     expect(b.messages.at(-1)?.text).toContain("I bound it to the client's connection it uses.");
     // Bound, it is checked against the connection's own settings: no "no connection is bound".
     expect(b.draft?.problems.map((p) => p.code)).not.toContain("connection_missing");
+  });
+
+  // Owner (2026-11-21): "if we get it written then we can see the flows and keep editing it".
+  describe("changes asked for are made at once", () => {
+    const versionsOf = async (agentId: string) =>
+      H.t.db
+        .select({ version: agentVersion.version, bundle: agentVersion.bundle })
+        .from(agentVersion)
+        .where(eq(agentVersion.agentId, agentId))
+        .orderBy(desc(agentVersion.version));
+    const drafted = async (title: string, gaps: string[] = []) => {
+      const started = await ok("POST", "/api/ops/builds", { kind: "agent", title });
+      model.push(draftAnswer([update], { gaps }));
+      return ok("POST", `/api/ops/builds/${started.build.id}/draft-now`, {
+        description: DESCRIPTION,
+      });
+    };
+
+    it("makes a draft edit the operator asked for in words, and undoes it", async () => {
+      let b = await drafted("Asked edits");
+      const id = b.build.id;
+      const agentId = b.build.agentId as string;
+      const before = (await versionsOf(agentId)).length;
+
+      model.push(editProposal("15.00", { asked: true }), setsAmount("Set it to 15.00.", "15.00"));
+      b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "Make the amount 15.00." });
+      // No Agree: the change is made, saved as a new version, and can be undone.
+      const proposed = b.messages.find((m) => m.proposal);
+      expect(proposed?.proposal).toMatchObject({ state: "agreed", undo: true });
+      expect(proposed?.proposal?.result).toMatch(/^Changed: /);
+      let saved = await versionsOf(agentId);
+      expect(saved).toHaveLength(before + 1);
+      expect(JSON.stringify(saved[0]?.bundle)).toContain('"15.00"');
+      // The conversation says what happened in the Builder's words, never an "Agreed." of ours.
+      const texts = b.messages.map((m) => `${m.role}: ${m.text}`);
+      expect(texts).toContain("builder: Making the change you asked for.");
+      expect(texts).not.toContain("operator: Agreed.");
+      expect(b.messages.at(-1)?.text).toContain("Changed the draft");
+
+      b = await ok("POST", `/api/ops/builds/${id}/messages/${proposed?.id}/proposal`, {
+        decide: "undo",
+      });
+      saved = await versionsOf(agentId);
+      expect(JSON.stringify(saved[0]?.bundle)).toContain('"12.00"');
+      expect(b.messages.find((m) => m.id === proposed?.id)?.proposal?.state).toBe("undone");
+    });
+
+    it("leaves the Builder's own suggestion as a proposal to agree", async () => {
+      let b = await drafted("Suggested edits");
+      const agentId = b.build.agentId as string;
+      const before = (await versionsOf(agentId)).length;
+      model.push(editProposal("20.00"));
+      b = await ok("POST", `/api/ops/builds/${b.build.id}/turns`, { text: "What would you fix?" });
+      expect(b.messages.at(-1)?.proposal).toMatchObject({ state: "proposed" });
+      expect(await versionsOf(agentId)).toHaveLength(before);
+    });
+
+    it("settles an issue the way its button says, with no second yes", async () => {
+      let b = await drafted("Settled issues", ["No connector reads the vendor's portal."]);
+      const id = b.build.id;
+      const agentId = b.build.agentId as string;
+      const issue = `item:${b.items[0]?.id}`;
+      const before = (await versionsOf(agentId)).length;
+
+      // A way needs its issue.
+      const bare = await call("POST", `/api/ops/builds/${id}/turns`, { settle: "process" });
+      expect(bare.status).toBe(400);
+      expect(errorOf(bare.json)).toBe("settle_needs_issue");
+
+      // Change the process: the way's own words go to the Builder, and its edit is made at once
+      // whether or not it says the operator asked.
+      model.push(editProposal("18.00"), setsAmount("Set it to 18.00.", "18.00"));
+      b = await ok("POST", `/api/ops/builds/${id}/turns`, { about: issue, settle: "process" });
+      const said = b.messages.find((m) => m.role === "operator" && m.about === issue);
+      expect(said?.text).toContain("Settle this by changing the process");
+      expect(b.messages.find((m) => m.proposal)?.proposal).toMatchObject({ state: "agreed" });
+      const saved = await versionsOf(agentId);
+      expect(saved).toHaveLength(before + 1);
+      expect(JSON.stringify(saved[0]?.bundle)).toContain('"18.00"');
+
+      // Needs code, but the Builder proposes a draft edit instead: not what was chosen, so it
+      // waits for the operator.
+      model.push(editProposal("19.00"));
+      b = await ok("POST", `/api/ops/builds/${id}/turns`, { about: issue, settle: "code" });
+      expect(b.messages.at(-1)?.proposal).toMatchObject({ state: "proposed" });
+      expect(await versionsOf(agentId)).toHaveLength(before + 1);
+    });
   });
 
   it("is for agent builds", async () => {

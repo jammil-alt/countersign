@@ -220,7 +220,8 @@ export const OPERATOR_FIXES = new Set([
 export const WORKS_FIRST = `Works first: this draft must run as it is, so the operator can try it today and change it after.
 - Never use a missing step: this replaces the rule above about them. Where the catalog has no part for a piece of the work, a person does that piece in this version: put a person step there (mode "ask") whose title says what to do and whose payload shows what they need to do it, and name the missing part in "gaps", one plain sentence each ("No connector reads card charges, so a person enters them for now."). Later steps use that person's answer.
 - Don't leave anything for the operator to answer first. Where the description doesn't say (what starts it, how often, who is asked, a threshold, a deadline), decide: the simplest choice that works, strict where it is a threshold, the client's team for who is asked, and record it in "decisions" with its starting value.
-- Keep it small: the fewest steps that do the normal case end to end.`;
+- Build the steps the description states, in the order it states them, one step for each. Add nothing it doesn't state: no extra checks, branches, notes to the team, waits or handling of cases it doesn't mention. The only additions are the ones the rules require: approval on a step that changes a client's tool, and a person where a stated step can't be done. More is added later, when the operator asks for it.
+- Keep the decisions few: one only where you chose something the description left open and a step depends on it.`;
 
 /** With `WORKS_FIRST`, a missing step is the model's to repair: a person step takes its place. */
 const WORKS_FIRST_OPERATOR_FIXES = new Set([...OPERATOR_FIXES].filter((c) => c !== "missing_step"));
