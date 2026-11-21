@@ -1731,7 +1731,11 @@ describe("WorkflowBuilder on processes", () => {
     // The v3 fork is an if, the action a write with its approval; the canvas words follow.
     expect(screen.getByTestId("flow-box-confidence")).toHaveAccessibleName(/: If$/);
     // Skill model (2026-11-10): a write to a client's tool reads "Change in <its name>".
-    expect(screen.getByTestId("flow-box-update")).toHaveTextContent("Change in Testkit");
+    // On the box its badge says "Change"; where it writes is the badge's full words and the
+    // line under the name (docs/plan.md §1.178).
+    expect(screen.getByTestId("flow-badge-update")).toHaveTextContent("Change");
+    expect(screen.getByTestId("flow-badge-update")).toHaveAttribute("title", "Change in Testkit");
+    expect(screen.getByTestId("flow-box-update")).toHaveAccessibleName(/Change in Testkit/);
     await select(user, "find");
     await user.type(screen.getByTestId("flow-panel-name"), "!");
     await save(user, sent);

@@ -6382,6 +6382,25 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.178 A step's box: a badge, who does it, and a coloured top edge (owner, 2026-11-21; no migration)
+
+The owner, shown four step cards (A to D) and then four places for colour on D: "let's go with D2",
+and of the boxes filled with the copper tint, "what do the red cards mean?" He also asked for "the
+model that does it and the tools in small icons, like this step has Sonnet, Email, WhatsApp and
+Voice".
+
+| Topic | Decision |
+|---|---|
+| The box | 248 by 76 (it was 236 by 54). The kind is a badge on the top-left corner: its icon and a word or two (`badgeWord`: a write says "Change" or "Save", a skill "AI skill" or "Rules skill"; the full words are the badge's title, the box's name for a screen reader and the hover details). The name has two lines. The badge never passes the middle of the box, where the arrow from the step before arrives. // DECISION |
+| Who does it | At the right, behind a hairline: a chip with the model in a word ("Sonnet", its full name in the title), "code" for a step no model does, "person" for a person's (`boxDoer`). A model step whose model we can't name has no chip, never "code". With the chip there, the line under the name no longer says "runs on …". |
+| What it works through | Under the chip, small marks (`boxTools`): the connector's logo for a read or a write, the channel for a conversation or a person's step (the inbox, email, a text, WhatsApp's logo, a call). A conversation has one channel in the format, so one mark. A loop's and an automation's own buttons keep that place. |
+| The colour | The top edge, 3px, says whose work the step is (`boxFamily`), in the brand's colours only: ink for the agent's own work (a skill a model does), slate for a client's tool (the lighter `--data-seq-4` for a read, full slate for a write, which keeps its heavier border), copper for people (a person's step, a conversation, a notice), the strong line for rules, waits, loops, automations and hand-offs. Gold, red and green stay for waiting on you, issues and done. // DECISION |
+| The red cards | A person's step and a conversation were filled with the copper tint, which read as red beside a real issue. The fill is gone; copper is their edge and their badge. |
+| States | Unchanged: the border (selected, an issue) and the flags (top right, bottom right). The edge keeps its colour under them. "Customized" and "Added" moved from the top-left corner, which is the badge's, to the foot of the box. |
+| Icons | Today's, in the badge (`KIND_ICON`). The owner is choosing his own; they swap in there. |
+| Not done | The model of a conversation's turns (the agent's own, or the step's) isn't on its box yet: `stepModel` names a skill step's only. |
+| Checked | `apps/web/src/ops/flow/BoxMark.test.tsx` (the families, the doer, the tools, the badge's words), `Chart.test.tsx` (the badge, the side and the edge's class on the boxes; none on a decision), `layout.test.ts` (sizes by their constants). Looked at in a browser on the seeded Bill clerk, light and dark. |
+
 ### 1.177 Times, reminders and schedules picked in words; the step panel says what is open (owner, 2026-11-21; no migration)
 
 The owner on the step panel and the trigger: "when there is an issue or decision for the step it
