@@ -6,7 +6,12 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { reportScreenCrash, startErrorTracking } from "./observability";
 import { startSessionEarly } from "./session/early";
-import { isStaleBuildError, reloadForNewBuild, watchForNewBuild } from "./shell/stale-build";
+import {
+  isReloadingForNewBuild,
+  isStaleBuildError,
+  reloadForNewBuild,
+  watchForNewBuild,
+} from "./shell/stale-build";
 import { applyStoredTheme } from "./shell/theme";
 import "./styles.css";
 
@@ -20,9 +25,10 @@ startSessionEarly();
 const root = document.getElementById("root");
 if (!root) throw new Error("index.html has no #root");
 // A screen that throws while rendering reaches Sentry with its component stack (a no-op where
-// error tracking is off), unless it is a screen's file from an old build: then the page reloads.
+// error tracking is off), unless it is a screen's file from an old build: then the page reloads
+// (or already is, started by `vite:preloadError`).
 const onScreenError = (error: unknown, info: { componentStack?: string | undefined }) => {
-  if (isStaleBuildError(error) && reloadForNewBuild()) return;
+  if (isStaleBuildError(error) && (isReloadingForNewBuild() || reloadForNewBuild())) return;
   reportScreenCrash(error, info.componentStack);
 };
 createRoot(root, {

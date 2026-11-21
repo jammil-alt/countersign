@@ -12,6 +12,7 @@ import {
   agentChange,
   agentVersion,
   type Db,
+  isDatabaseDrop,
   run,
   type Tx,
   tenant,
@@ -36,7 +37,7 @@ import {
   type StepRunner,
 } from "@countersign/workflows";
 import { and, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
-import { reportHandled, reportProblem } from "../observability/report";
+import { reportDrop, reportHandled, reportProblem } from "../observability/report";
 import { matchRepliesIn, wakeAll } from "../reach/replies";
 // v0.12 W2-E
 import { countLimited, overLimit } from "../triggers/limits";
@@ -499,6 +500,18 @@ export async function cronTick(deps: DispatchDeps, scheduledTime: Date): Promise
       // the sweep's, and the claim keeps a concurrent dispatch from taking any twice.
       await dispatchTenant(deps, client.id, { newerThanSeconds: 60 });
     } catch (error) {
+      // The database went away mid-pass: the next tick's 15-minute lookback does this pass's work.
+      if (isDatabaseDrop(error)) {
+        reportDrop(
+          "the database connection dropped during a client's cron pass; the next tick catches up",
+          error,
+          {
+            job: "schedules",
+            client: client.id,
+          },
+        );
+        continue;
+      }
       reportHandled(`cron for client ${client.id} failed`, error, {
         job: "schedules",
         client: client.id,
