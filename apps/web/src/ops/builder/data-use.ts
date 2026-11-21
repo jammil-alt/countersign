@@ -52,6 +52,9 @@ const ENTITY_WORDS: Readonly<Record<string, string>> = {
   quote: "quotes",
   booking: "bookings",
   reconciliation: "reconciliations",
+  // §1.164: the Sales area's synced CRM records and the rows matched to them.
+  crm_record: "CRM records",
+  crm_match: "record matches",
   bill: "bills",
   purchase: "purchases",
   purchase_order: "purchase orders",

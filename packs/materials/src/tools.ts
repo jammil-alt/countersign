@@ -34,6 +34,9 @@ export interface PackToolContext {
   agentVersionId: string;
   /** The run the call belongs to (alerts record it); null outside a run. */
   runId: string | null;
+  // §1.164: the workflow step (node id) the call belongs to, for a decision that records its step
+  // (the Sales area's matches); null outside a run's step.
+  stepId?: string | null;
   mode: "live" | "test";
   /** The settings of the skill the step runs (e.g. `match_confidence_auto`). */
   settings: Readonly<Record<string, unknown>>;
@@ -84,6 +87,8 @@ export interface ToolContextSource {
   tenantId: string;
   agentVersionId: string;
   runId?: string | null | undefined;
+  // §1.164
+  stepId?: string | null | undefined;
   mode: "live" | "test";
   settings?: Readonly<Record<string, unknown>> | undefined;
   db: Db;
@@ -130,6 +135,7 @@ export function packToolContext(source: ToolContextSource): PackToolContext {
     tenantId: source.tenantId,
     agentVersionId: source.agentVersionId,
     runId: source.runId ?? null,
+    stepId: source.stepId ?? null,
     mode: source.mode,
     settings: source.settings ?? {},
     db: source.db,

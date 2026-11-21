@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { luhnValid, redactCardNumbers, redactCardNumbersDeep } from "./card-numbers";
 import {
+  CRM_EMBEDDING_FEATURE,
   complianceOf,
   EMBEDDING_FEATURE,
   hipaaReadiness,
@@ -187,6 +188,18 @@ describe("processors", () => {
         "x",
       ),
     ).toBeNull();
+  });
+
+  it("declares the Sales area's embeddings as OpenAI's, refused in HIPAA mode until covered", () => {
+    expect(processorForEmbedding(CRM_EMBEDDING_FEATURE.model)).toBe("openai");
+    expect(
+      processingRefusal(
+        { hipaa: true },
+        all,
+        [processorForEmbedding(CRM_EMBEDDING_FEATURE.model)],
+        CRM_EMBEDDING_FEATURE.what,
+      ),
+    ).toMatch(/OpenAI, which has no signed BAA/);
   });
 
   it("declares onboarding's emails as Resend's, refused in HIPAA mode until covered", () => {

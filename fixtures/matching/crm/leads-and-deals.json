@@ -1,0 +1,1230 @@
+{
+  "description": "A client's synced Zoho leads, contacts, accounts and deals, and spreadsheet rows to match to them (docs/plan.md §1.164). Synthetic. `expect`: the records the row is (any of them is right; two when the CRM holds a duplicate), [] when it is none of them, null when the row can't say. Labels are a salesperson's truth, not what the rules can prove.",
+  "keys": {
+    "name": "Name",
+    "company": "Company",
+    "email": "Email",
+    "phone": "Phone",
+    "website": "Website",
+    "deal": "Deal"
+  },
+  "records": [
+    {
+      "id": "L01",
+      "module": "Leads",
+      "payload": {
+        "First_Name": "Jane",
+        "Last_Name": "Doe",
+        "Company": "Blue Ridge Millwork",
+        "Lead_Status": "Contacted",
+        "Lead_Source": "Web Form",
+        "Email": "jane.doe@blueridgemillwork.com",
+        "Phone": "(828) 555-0101",
+        "Website": "blueridgemillwork.com"
+      }
+    },
+    {
+      "id": "L02",
+      "module": "Leads",
+      "payload": {
+        "First_Name": "John",
+        "Last_Name": "Smith",
+        "Company": "Acme Corporation",
+        "Lead_Status": "Contacted",
+        "Lead_Source": "Web Form",
+        "Email": "jsmith@acmecorp.com",
+        "Phone": "512-555-0102"
+      }
+    },
+    {
+      "id": "L03",
+      "module": "Leads",
+      "payload": {
+        "First_Name": "John",
+        "Last_Name": "Smith",
+        "Company": "Atlas Fitness",
+        "Lead_Status": "Contacted",
+        "Lead_Source": "Web Form",
+        "Email": "john@atlasfitness.co",
+        "Phone": "737-555-0103"
+      }
+    },
+    {
+      "id": "L04",
+      "module": "Leads",
+      "payload": {
+        "First_Name": "Robert",
+        "Last_Name": "Chen",
+        "Company": "Harbor Logistics LLC",
+        "Lead_Status": "Contacted",
+        "Lead_Source": "Web Form",
+        "Email": "robert.chen@harborlogistics.com",
+        "Phone": "(206) 555-0104"
+      }
+    },
+    {
+      "id": "L05",
+      "module": "Leads",
+      "payload": {
+        "First_Name": "Maria",
+        "Last_Name": "Gonzalez",
+        "Company": "Summit Dental Group",
+        "Lead_Status": "Contacted",
+        "Lead_Source": "Web Form",
+        "Email": "maria@summitdental.com",
+        "Phone": "303-555-0105"
+      }
+    },
+    {
+      "id": "L06",
+      "module": "Leads",
+      "payload": {
+        "First_Name": "Luis",
+        "Last_Name": "Ortega",
+        "Company": "Summit Dental Group",
+        "Lead_Status": "Contacted",
+        "Lead_Source": "Web Form",
+        "Email": "luis@summitdental.com",
+        "Phone": "303-555-0106"
+      }
+    },
+    {
+      "id": "L07",
+      "module": "Leads",
+      "payload": {
+        "First_Name": "Priya",
+        "Last_Name": "Patel",
+        "Company": "Brightway Electric",
+        "Lead_Status": "Contacted",
+        "Lead_Source": "Web Form",
+        "Email": "priya.patel@gmail.com",
+        "Phone": "919-555-0107"
+      }
+    },
+    {
+      "id": "L08",
+      "module": "Leads",
+      "payload": {
+        "First_Name": "Priya",
+        "Last_Name": "Patel",
+        "Company": "Brightway Electric",
+        "Lead_Status": "Contacted",
+        "Lead_Source": "Web Form",
+        "Email": "ppatel@brightwayelectric.com",
+        "Phone": "919-555-0107",
+        "Website": "Qualified"
+      }
+    },
+    {
+      "id": "L09",
+      "module": "Leads",
+      "payload": {
+        "First_Name": "Thomas",
+        "Last_Name": "Wright",
+        "Company": "Lakeside Cabinets",
+        "Lead_Status": "Contacted",
+        "Lead_Source": "Web Form",
+        "Email": "tom@lakesidecabinets.com",
+        "Phone": "616-555-0109"
+      }
+    },
+    {
+      "id": "L10",
+      "module": "Leads",
+      "payload": {
+        "First_Name": "Thomas",
+        "Last_Name": "Wright",
+        "Company": "Lakeside Cabinetry",
+        "Lead_Status": "Contacted",
+        "Lead_Source": "Web Form",
+        "Email": "twright@lakesidecabinetry.net",
+        "Phone": "616-555-0190"
+      }
+    },
+    {
+      "id": "L11",
+      "module": "Leads",
+      "payload": {
+        "First_Name": "Emily",
+        "Last_Name": "Nguyen",
+        "Company": "Greenleaf Landscaping",
+        "Lead_Status": "Contacted",
+        "Lead_Source": "Web Form",
+        "Email": "emily@greenleaf-landscaping.com"
+      }
+    },
+    {
+      "id": "L12",
+      "module": "Leads",
+      "payload": {
+        "First_Name": "Michael",
+        "Last_Name": "O'Brien",
+        "Company": "Pinnacle Roofing Inc",
+        "Lead_Status": "Contacted",
+        "Lead_Source": "Web Form",
+        "Email": "mobrien@pinnacleroofing.com",
+        "Phone": "405-555-0112"
+      }
+    },
+    {
+      "id": "L13",
+      "module": "Leads",
+      "payload": {
+        "First_Name": "Sarah",
+        "Last_Name": "Kim",
+        "Company": "Riverbend Veterinary",
+        "Lead_Status": "Contacted",
+        "Lead_Source": "Web Form",
+        "Phone": "541-555-0113"
+      }
+    },
+    {
+      "id": "L14",
+      "module": "Leads",
+      "payload": {
+        "First_Name": "David",
+        "Last_Name": "Miller",
+        "Company": "Oakridge Construction",
+        "Lead_Status": "Contacted",
+        "Lead_Source": "Web Form",
+        "Email": "dmiller@oakridgeconstruction.com",
+        "Phone": "615-555-0114"
+      }
+    },
+    {
+      "id": "L15",
+      "module": "Leads",
+      "payload": {
+        "First_Name": "David",
+        "Last_Name": "Miller",
+        "Company": "Silver Creek Plumbing",
+        "Lead_Status": "Contacted",
+        "Lead_Source": "Web Form",
+        "Email": "david@silvercreekplumbing.com",
+        "Phone": "615-555-0115"
+      }
+    },
+    {
+      "id": "L16",
+      "module": "Leads",
+      "payload": {
+        "First_Name": "Katherine",
+        "Last_Name": "Lee",
+        "Company": "Keystone Insurance Agency",
+        "Lead_Status": "Contacted",
+        "Lead_Source": "Web Form",
+        "Email": "klee@keystoneins.com",
+        "Phone": "717-555-0116"
+      }
+    },
+    {
+      "id": "L17",
+      "module": "Leads",
+      "payload": {
+        "First_Name": "Ahmed",
+        "Last_Name": "Hassan",
+        "Company": "Horizon Solar",
+        "Lead_Status": "Contacted",
+        "Lead_Source": "Web Form",
+        "Email": "ahmed.hassan@horizonsolar.energy",
+        "Phone": "480-555-0117"
+      }
+    },
+    {
+      "id": "L18",
+      "module": "Leads",
+      "payload": {
+        "First_Name": "Olivia",
+        "Last_Name": "Brown",
+        "Company": "Golden Gate Bakery",
+        "Lead_Status": "Contacted",
+        "Lead_Source": "Web Form",
+        "Email": "olivia@goldengatebakery.com",
+        "Phone": "415-555-0118"
+      }
+    },
+    {
+      "id": "L19",
+      "module": "Leads",
+      "payload": {
+        "First_Name": "William",
+        "Last_Name": "Davis",
+        "Company": "Metro HVAC Services",
+        "Lead_Status": "Contacted",
+        "Lead_Source": "Web Form",
+        "Email": "bill.davis@metrohvac.com",
+        "Phone": "214-555-0119"
+      }
+    },
+    {
+      "id": "L20",
+      "module": "Leads",
+      "payload": {
+        "First_Name": "Anna",
+        "Last_Name": "Kowalski",
+        "Company": "Redwood Realty",
+        "Lead_Status": "Contacted",
+        "Lead_Source": "Web Form",
+        "Email": "anna.k@redwoodrealty.com",
+        "Phone": "707-555-0120"
+      }
+    },
+    {
+      "id": "L21",
+      "module": "Leads",
+      "payload": {
+        "First_Name": "José",
+        "Last_Name": "Álvarez",
+        "Company": "Cedar & Pine Builders",
+        "Lead_Status": "Contacted",
+        "Lead_Source": "Web Form",
+        "Email": "jose@cedarandpine.com",
+        "Phone": "505-555-0121"
+      }
+    },
+    {
+      "id": "L22",
+      "module": "Leads",
+      "payload": {
+        "First_Name": "Jennifer",
+        "Last_Name": "Walsh",
+        "Lead_Status": "Contacted",
+        "Lead_Source": "Web Form",
+        "Email": "jen.walsh@outlook.com",
+        "Phone": "312-555-0122"
+      }
+    },
+    {
+      "id": "C01",
+      "module": "Contacts",
+      "payload": {
+        "First_Name": "Rachel",
+        "Last_Name": "Green",
+        "Account_Name": {
+          "name": "Northwind Traders",
+          "id": "acct-northwind-traders"
+        },
+        "Email": "rachel.green@northwindtraders.com",
+        "Phone": "(206) 555-0131",
+        "Title": "Operations Manager"
+      }
+    },
+    {
+      "id": "C02",
+      "module": "Contacts",
+      "payload": {
+        "First_Name": "Mark",
+        "Last_Name": "Taylor",
+        "Account_Name": {
+          "name": "Northwind Traders",
+          "id": "acct-northwind-traders"
+        },
+        "Email": "mark.taylor@northwindtraders.com",
+        "Phone": "(206) 555-0130",
+        "Title": "Buyer"
+      }
+    },
+    {
+      "id": "C03",
+      "module": "Contacts",
+      "payload": {
+        "First_Name": "Lisa",
+        "Last_Name": "Turner",
+        "Account_Name": {
+          "name": "Northwind Traders",
+          "id": "acct-northwind-traders"
+        },
+        "Email": "lisa.turner@northwindtraders.com",
+        "Phone": "(206) 555-0130",
+        "Title": "Accounts Payable"
+      }
+    },
+    {
+      "id": "C04",
+      "module": "Contacts",
+      "payload": {
+        "First_Name": "Daniel",
+        "Last_Name": "Park",
+        "Account_Name": {
+          "name": "Acme Corporation",
+          "id": "acct-acme-corporation"
+        },
+        "Email": "dpark@acmecorp.com",
+        "Phone": "512-555-0134",
+        "Title": "CTO"
+      }
+    },
+    {
+      "id": "C05",
+      "module": "Contacts",
+      "payload": {
+        "First_Name": "Laura",
+        "Last_Name": "Scott",
+        "Account_Name": {
+          "name": "Harbor Logistics LLC",
+          "id": "acct-harbor-logistics-llc"
+        },
+        "Email": "lscott@harborlogistics.com",
+        "Phone": "206-555-0135"
+      }
+    },
+    {
+      "id": "C06",
+      "module": "Contacts",
+      "payload": {
+        "First_Name": "Kevin",
+        "Last_Name": "Murphy",
+        "Account_Name": {
+          "name": "Maple Street Dental",
+          "id": "acct-maple-street-dental"
+        },
+        "Email": "kevin@maplestreetdental.com",
+        "Phone": "503-555-0136",
+        "Title": "Office Manager"
+      }
+    },
+    {
+      "id": "A01",
+      "module": "Accounts",
+      "payload": {
+        "Account_Name": "Northwind Traders",
+        "Phone": "(206) 555-0130",
+        "Website": "www.northwindtraders.com",
+        "Industry": "Wholesale"
+      }
+    },
+    {
+      "id": "A02",
+      "module": "Accounts",
+      "payload": {
+        "Account_Name": "Acme Corporation",
+        "Phone": "512-555-0100",
+        "Website": "https://acmecorp.com",
+        "Industry": "Manufacturing"
+      }
+    },
+    {
+      "id": "A03",
+      "module": "Accounts",
+      "payload": {
+        "Account_Name": "Harbor Logistics LLC",
+        "Phone": "206-555-0140",
+        "Website": "harborlogistics.com",
+        "Industry": "Logistics"
+      }
+    },
+    {
+      "id": "A04",
+      "module": "Accounts",
+      "payload": {
+        "Account_Name": "Maple Street Dental",
+        "Phone": "503-555-0160",
+        "Website": "maplestreetdental.com",
+        "Industry": "Healthcare"
+      }
+    },
+    {
+      "id": "A05",
+      "module": "Accounts",
+      "payload": {
+        "Account_Name": "Acme Industries",
+        "Phone": "312-555-0150",
+        "Website": "acmeindustries.com",
+        "Industry": "Manufacturing"
+      }
+    },
+    {
+      "id": "D01",
+      "module": "Deals",
+      "payload": {
+        "Deal_Name": "Acme - Website Redesign",
+        "Stage": "Proposal/Price Quote",
+        "Account_Name": {
+          "name": "Acme Corporation",
+          "id": "acct-acme-corporation"
+        },
+        "Contact_Name": {
+          "name": "Daniel Park",
+          "id": "cont-daniel-park"
+        },
+        "Amount": 18000,
+        "Closing_Date": "2026-12-15"
+      }
+    },
+    {
+      "id": "D02",
+      "module": "Deals",
+      "payload": {
+        "Deal_Name": "Atlas Fitness - Website Redesign",
+        "Stage": "Qualification",
+        "Account_Name": {
+          "name": "Atlas Fitness",
+          "id": "acct-atlas-fitness"
+        },
+        "Contact_Name": {
+          "name": "John Smith",
+          "id": "cont-john-smith"
+        },
+        "Amount": 9500,
+        "Closing_Date": "2026-12-15"
+      }
+    },
+    {
+      "id": "D03",
+      "module": "Deals",
+      "payload": {
+        "Deal_Name": "Northwind Q3 Renewal",
+        "Stage": "Negotiation/Review",
+        "Account_Name": {
+          "name": "Northwind Traders",
+          "id": "acct-northwind-traders"
+        },
+        "Contact_Name": {
+          "name": "Rachel Green",
+          "id": "cont-rachel-green"
+        },
+        "Amount": 42000,
+        "Closing_Date": "2026-12-15"
+      }
+    },
+    {
+      "id": "D04",
+      "module": "Deals",
+      "payload": {
+        "Deal_Name": "Northwind Q4 Renewal",
+        "Stage": "Qualification",
+        "Account_Name": {
+          "name": "Northwind Traders",
+          "id": "acct-northwind-traders"
+        },
+        "Contact_Name": {
+          "name": "Rachel Green",
+          "id": "cont-rachel-green"
+        },
+        "Amount": 45000,
+        "Closing_Date": "2026-12-15"
+      }
+    },
+    {
+      "id": "D05",
+      "module": "Deals",
+      "payload": {
+        "Deal_Name": "Harbor Logistics Fleet Tracking",
+        "Stage": "Needs Analysis",
+        "Account_Name": {
+          "name": "Harbor Logistics LLC",
+          "id": "acct-harbor-logistics-llc"
+        },
+        "Contact_Name": {
+          "name": "Laura Scott",
+          "id": "cont-laura-scott"
+        },
+        "Amount": 61000,
+        "Closing_Date": "2026-12-15"
+      }
+    },
+    {
+      "id": "D06",
+      "module": "Deals",
+      "payload": {
+        "Deal_Name": "Maple Street Dental - Patient Portal",
+        "Stage": "Proposal/Price Quote",
+        "Account_Name": {
+          "name": "Maple Street Dental",
+          "id": "acct-maple-street-dental"
+        },
+        "Contact_Name": {
+          "name": "Kevin Murphy",
+          "id": "cont-kevin-murphy"
+        },
+        "Amount": 12500,
+        "Closing_Date": "2026-12-15"
+      }
+    },
+    {
+      "id": "D07",
+      "module": "Deals",
+      "payload": {
+        "Deal_Name": "Summit Dental Expansion",
+        "Stage": "Qualification",
+        "Account_Name": {
+          "name": "Summit Dental Group",
+          "id": "acct-summit-dental-group"
+        },
+        "Contact_Name": {
+          "name": "Maria Gonzalez",
+          "id": "cont-maria-gonzalez"
+        },
+        "Amount": 30000,
+        "Closing_Date": "2026-12-15"
+      }
+    },
+    {
+      "id": "D08",
+      "module": "Deals",
+      "payload": {
+        "Deal_Name": "Blue Ridge Millwork CNC Upgrade",
+        "Stage": "Value Proposition",
+        "Account_Name": {
+          "name": "Blue Ridge Millwork",
+          "id": "acct-blue-ridge-millwork"
+        },
+        "Contact_Name": {
+          "name": "Jane Doe",
+          "id": "cont-jane-doe"
+        },
+        "Amount": 75000,
+        "Closing_Date": "2026-12-15"
+      }
+    },
+    {
+      "id": "D09",
+      "module": "Deals",
+      "payload": {
+        "Deal_Name": "Pinnacle Roofing Annual Service",
+        "Stage": "Closed Won",
+        "Account_Name": {
+          "name": "Pinnacle Roofing Inc",
+          "id": "acct-pinnacle-roofing-inc"
+        },
+        "Contact_Name": {
+          "name": "Michael O'Brien",
+          "id": "cont-michael-o'brien"
+        },
+        "Amount": 8000,
+        "Closing_Date": "2026-12-15"
+      }
+    },
+    {
+      "id": "D10",
+      "module": "Deals",
+      "payload": {
+        "Deal_Name": "Acme Industries Website Redesign",
+        "Stage": "Qualification",
+        "Account_Name": {
+          "name": "Acme Industries",
+          "id": "acct-acme-industries"
+        },
+        "Amount": 22000,
+        "Closing_Date": "2026-12-15"
+      }
+    }
+  ],
+  "rows": [
+    {
+      "values": {
+        "Name": "Jane Doe",
+        "Company": "Blue Ridge Millwork",
+        "Email": "Jane.Doe@BlueRidgeMillwork.com"
+      },
+      "modules": ["Leads"],
+      "expect": ["L01"],
+      "note": "email in another case"
+    },
+    {
+      "values": {
+        "Name": "Doe, Jane",
+        "Company": "Blue Ridge Millwork Inc.",
+        "Phone": "828.555.0101"
+      },
+      "modules": ["Leads"],
+      "expect": ["L01"],
+      "note": "last name first, a legal form, the phone written with dots"
+    },
+    {
+      "values": {
+        "Name": "John Smith",
+        "Company": "Acme Corp"
+      },
+      "modules": ["Leads"],
+      "expect": ["L02"],
+      "note": "a common name, told apart by the company"
+    },
+    {
+      "values": {
+        "Name": "John Smith"
+      },
+      "modules": ["Leads"],
+      "expect": null,
+      "note": "two John Smiths and nothing else to tell them apart"
+    },
+    {
+      "values": {
+        "Name": "Jon Smyth",
+        "Company": "Atlas Fitness",
+        "Email": "john@atlasfitness.co"
+      },
+      "modules": ["Leads"],
+      "expect": ["L03"],
+      "note": "misspelled name, the email decides"
+    },
+    {
+      "values": {
+        "Name": "Bob Chen",
+        "Company": "Harbor Logistics",
+        "Phone": "(206) 555-0104"
+      },
+      "modules": ["Leads"],
+      "expect": ["L04"],
+      "note": "nickname, same phone"
+    },
+    {
+      "values": {
+        "Name": "Robert Chen",
+        "Company": "Harbor Logistics LLC",
+        "Email": "robert.chen@harborlogistics.com"
+      },
+      "modules": ["Leads"],
+      "expect": ["L04"],
+      "note": "exact"
+    },
+    {
+      "values": {
+        "Name": "Maria Gonzales",
+        "Company": "Summit Dental",
+        "Email": "maria@summitdental.com"
+      },
+      "modules": ["Leads"],
+      "expect": ["L05"],
+      "note": "misspelled surname, the email decides"
+    },
+    {
+      "values": {
+        "Name": "Luis Ortega",
+        "Company": "Summit Dental Group"
+      },
+      "modules": ["Leads"],
+      "expect": ["L06"],
+      "note": "name and company only"
+    },
+    {
+      "values": {
+        "Name": "Mario Gonzalez",
+        "Company": "Summit Dental Group",
+        "Email": "mario@summitdental.com"
+      },
+      "modules": ["Leads"],
+      "expect": [],
+      "note": "a colleague at the same practice, one letter from Maria, another email"
+    },
+    {
+      "values": {
+        "Name": "Priya Patel",
+        "Company": "Brightway Electric",
+        "Email": "priya.patel@gmail.com"
+      },
+      "modules": ["Leads"],
+      "expect": ["L07"],
+      "note": "duplicate leads in the CRM; the free-mail address is this one's"
+    },
+    {
+      "values": {
+        "Name": "Priya Patel",
+        "Company": "Brightway Electric",
+        "Phone": "919-555-0107"
+      },
+      "modules": ["Leads"],
+      "expect": ["L07", "L08"],
+      "note": "duplicate leads with one phone: either is her, a person picks"
+    },
+    {
+      "values": {
+        "Name": "Tom Wright",
+        "Company": "Lakeside Cabinets",
+        "Phone": "616 555 0109"
+      },
+      "modules": ["Leads"],
+      "expect": ["L09"],
+      "note": "nickname and phone"
+    },
+    {
+      "values": {
+        "Name": "Thomas Wright",
+        "Company": "Lakeside Cabinetry",
+        "Email": "twright@lakesidecabinetry.net"
+      },
+      "modules": ["Leads"],
+      "expect": ["L10"],
+      "note": "the same name at a similarly named company, by email"
+    },
+    {
+      "values": {
+        "Name": "Thomas Wright",
+        "Company": "Lakeside Cabinets"
+      },
+      "modules": ["Leads"],
+      "expect": ["L09"],
+      "note": "name and company; the other Thomas Wright's company differs by a word"
+    },
+    {
+      "values": {
+        "Name": "Emily Nguyen",
+        "Company": "Greenleaf Landscaping",
+        "Email": "emily@greenleaf-landscaping.com"
+      },
+      "modules": ["Leads"],
+      "expect": ["L11"],
+      "note": "exact"
+    },
+    {
+      "values": {
+        "Name": "Emily Nguyen",
+        "Company": "Greenleaf"
+      },
+      "modules": ["Leads"],
+      "expect": ["L11"],
+      "note": "short company name"
+    },
+    {
+      "values": {
+        "Name": "Mike O'Brien",
+        "Company": "Pinnacle Roofing",
+        "Email": "mobrien@pinnacleroofing.com"
+      },
+      "modules": ["Leads"],
+      "expect": ["L12"],
+      "note": "nickname and email"
+    },
+    {
+      "values": {
+        "Name": "Michael OBrien",
+        "Company": "Pinnacle Roofing Inc.",
+        "Phone": "405-555-0112"
+      },
+      "modules": ["Leads"],
+      "expect": ["L12"],
+      "note": "apostrophe dropped, phone"
+    },
+    {
+      "values": {
+        "Name": "Sarah Kim",
+        "Company": "Riverbend Vet Clinic",
+        "Phone": "541-555-0113"
+      },
+      "modules": ["Leads"],
+      "expect": ["L13"],
+      "note": "company written differently, the phone and name agree"
+    },
+    {
+      "values": {
+        "Name": "Sarah Kim",
+        "Company": "Riverbend Veterinary",
+        "Phone": "541-555-0199"
+      },
+      "modules": ["Leads"],
+      "expect": null,
+      "note": "same name and company, another phone: a new number or another Sarah Kim"
+    },
+    {
+      "values": {
+        "Name": "David Miller",
+        "Company": "Oakridge Construction"
+      },
+      "modules": ["Leads"],
+      "expect": ["L14"],
+      "note": "a common name, told apart by the company"
+    },
+    {
+      "values": {
+        "Name": "David Miller",
+        "Phone": "615-555-0115"
+      },
+      "modules": ["Leads"],
+      "expect": ["L15"],
+      "note": "a common name, told apart by the phone"
+    },
+    {
+      "values": {
+        "Name": "David Miller"
+      },
+      "modules": ["Leads"],
+      "expect": null,
+      "note": "two David Millers and nothing else"
+    },
+    {
+      "values": {
+        "Name": "Kate Lee",
+        "Company": "Keystone Insurance",
+        "Email": "klee@keystoneins.com"
+      },
+      "modules": ["Leads"],
+      "expect": ["L16"],
+      "note": "nickname, email"
+    },
+    {
+      "values": {
+        "Name": "Katherine Lee",
+        "Company": "Keystone Insurance Agency"
+      },
+      "modules": ["Leads"],
+      "expect": ["L16"],
+      "note": "name and company"
+    },
+    {
+      "values": {
+        "Name": "Ahmed Hassan",
+        "Company": "Horizon Solar",
+        "Email": "ahmed@horizonsolar.energy"
+      },
+      "modules": ["Leads"],
+      "expect": ["L17"],
+      "note": "another address at the same domain: him, but the emails differ"
+    },
+    {
+      "values": {
+        "Name": "Olivia Brown",
+        "Company": "Golden Gate Bakery",
+        "Phone": "415-555-0118"
+      },
+      "modules": ["Leads"],
+      "expect": ["L18"],
+      "note": "phone and name"
+    },
+    {
+      "values": {
+        "Name": "Bill Davis",
+        "Company": "Metro HVAC",
+        "Email": "bill.davis@metrohvac.com"
+      },
+      "modules": ["Leads"],
+      "expect": ["L19"],
+      "note": "nickname, email"
+    },
+    {
+      "values": {
+        "Name": "Anna Kowalska",
+        "Company": "Redwood Realty",
+        "Email": "anna.k@redwoodrealty.com"
+      },
+      "modules": ["Leads"],
+      "expect": ["L20"],
+      "note": "surname spelled the Polish way, the email decides"
+    },
+    {
+      "values": {
+        "Name": "Jose Alvarez",
+        "Company": "Cedar and Pine Builders"
+      },
+      "modules": ["Leads"],
+      "expect": ["L21"],
+      "note": "no accents, ampersand written out"
+    },
+    {
+      "values": {
+        "Name": "Jennifer Walsh",
+        "Email": "jen.walsh@outlook.com"
+      },
+      "modules": ["Leads"],
+      "expect": ["L22"],
+      "note": "free-mail email"
+    },
+    {
+      "values": {
+        "Name": "Jenny Walsh"
+      },
+      "modules": ["Leads"],
+      "expect": ["L22"],
+      "note": "nickname only, no company"
+    },
+    {
+      "values": {
+        "Name": "Grace Hopper",
+        "Company": "Navy Yard Consulting",
+        "Email": "grace@navyyard.example"
+      },
+      "modules": ["Leads"],
+      "expect": [],
+      "note": "new lead"
+    },
+    {
+      "values": {
+        "Name": "Ethan Brooks",
+        "Company": "Acme Corporation",
+        "Email": "ebrooks@acmecorp.com"
+      },
+      "modules": ["Leads"],
+      "expect": [],
+      "note": "new person at a known company's domain"
+    },
+    {
+      "values": {
+        "Name": "Hannah Lee",
+        "Company": "Keystone Insurance Agency",
+        "Email": "hlee@keystoneins.com"
+      },
+      "modules": ["Leads"],
+      "expect": [],
+      "note": "new person sharing a surname and the domain"
+    },
+    {
+      "values": {
+        "Name": "Marcus Reed",
+        "Company": "Brightway Electric",
+        "Email": "marcus@brightwayelectric.com"
+      },
+      "modules": ["Leads"],
+      "expect": [],
+      "note": "new person at a known domain"
+    },
+    {
+      "values": {
+        "Name": "Linda Park",
+        "Company": "Lakeside Cabinets",
+        "Email": "linda@lakesidecabinets.com"
+      },
+      "modules": ["Leads"],
+      "expect": [],
+      "note": "new person at a known domain"
+    },
+    {
+      "values": {
+        "Name": "Jane Dough",
+        "Company": "Blue Ridge Millwork"
+      },
+      "modules": ["Leads"],
+      "expect": ["L01"],
+      "note": "misspelled surname, no email or phone"
+    },
+    {
+      "values": {
+        "Name": "Olivia Browne",
+        "Company": "Golden Gate Bakery",
+        "Email": "olivia@goldengatebakery.com"
+      },
+      "modules": ["Leads"],
+      "expect": ["L18"],
+      "note": "misspelled surname, the email decides"
+    },
+    {
+      "values": {
+        "Name": "Rachel Green",
+        "Company": "Northwind Traders",
+        "Email": "rachel.green@northwindtraders.com"
+      },
+      "modules": ["Contacts"],
+      "expect": ["C01"],
+      "note": "exact"
+    },
+    {
+      "values": {
+        "Name": "Mark Taylor",
+        "Company": "Northwind",
+        "Phone": "(206) 555-0130"
+      },
+      "modules": ["Contacts"],
+      "expect": ["C02"],
+      "note": "the company's main line, shared by two contacts; the name decides"
+    },
+    {
+      "values": {
+        "Name": "Lisa Turner",
+        "Company": "Northwind Traders",
+        "Phone": "206-555-0130"
+      },
+      "modules": ["Contacts"],
+      "expect": ["C03"],
+      "note": "the shared main line, the name decides"
+    },
+    {
+      "values": {
+        "Name": "Peter Hall",
+        "Company": "Northwind Traders",
+        "Phone": "206-555-0130"
+      },
+      "modules": ["Contacts"],
+      "expect": [],
+      "note": "new person calling from the main line"
+    },
+    {
+      "values": {
+        "Name": "Dan Park",
+        "Company": "Acme Corp",
+        "Email": "dpark@acmecorp.com"
+      },
+      "modules": ["Contacts"],
+      "expect": ["C04"],
+      "note": "nickname, email"
+    },
+    {
+      "values": {
+        "Name": "Laura Scott",
+        "Company": "Harbor Logistics LLC"
+      },
+      "modules": ["Contacts"],
+      "expect": ["C05"],
+      "note": "name and company"
+    },
+    {
+      "values": {
+        "Name": "Kevin Murphy",
+        "Company": "Maple St Dental"
+      },
+      "modules": ["Contacts"],
+      "expect": ["C06"],
+      "note": "abbreviated street"
+    },
+    {
+      "values": {
+        "Company": "Northwind Traders Inc.",
+        "Website": "northwindtraders.com"
+      },
+      "modules": ["Accounts"],
+      "expect": ["A01"],
+      "note": "legal form, website"
+    },
+    {
+      "values": {
+        "Company": "Acme Corp",
+        "Website": "acmecorp.com"
+      },
+      "modules": ["Accounts"],
+      "expect": ["A02"],
+      "note": "short form and website"
+    },
+    {
+      "values": {
+        "Company": "Acme Industries LLC"
+      },
+      "modules": ["Accounts"],
+      "expect": ["A05"],
+      "note": "name only, beside Acme Corporation"
+    },
+    {
+      "values": {
+        "Company": "Harbor Logistics",
+        "Phone": "206-555-0140"
+      },
+      "modules": ["Accounts"],
+      "expect": ["A03"],
+      "note": "phone and name"
+    },
+    {
+      "values": {
+        "Company": "Maple Street Dental",
+        "Website": "https://www.maplestreetdental.com/contact"
+      },
+      "modules": ["Accounts"],
+      "expect": ["A04"],
+      "note": "website with a path"
+    },
+    {
+      "values": {
+        "Company": "Acme Holdings",
+        "Website": "acmeholdings.com"
+      },
+      "modules": ["Accounts"],
+      "expect": [],
+      "note": "another Acme"
+    },
+    {
+      "values": {
+        "Company": "Acme Corporation",
+        "Deal": "Acme - Website Redesign"
+      },
+      "modules": ["Deals"],
+      "expect": ["D01"],
+      "note": "exact"
+    },
+    {
+      "values": {
+        "Company": "Atlas Fitness",
+        "Deal": "Website Redesign"
+      },
+      "modules": ["Deals"],
+      "expect": ["D02"],
+      "note": "the deal's name without the company in it"
+    },
+    {
+      "values": {
+        "Name": "John Smith",
+        "Company": "Atlas Fitness",
+        "Deal": "Atlas Fitness - Website Redesign"
+      },
+      "modules": ["Deals"],
+      "expect": ["D02"],
+      "note": "exact"
+    },
+    {
+      "values": {
+        "Company": "Northwind Traders",
+        "Deal": "Northwind Q3 Renewal"
+      },
+      "modules": ["Deals"],
+      "expect": ["D03"],
+      "note": "next to the Q4 renewal"
+    },
+    {
+      "values": {
+        "Company": "Northwind",
+        "Deal": "Northwind Q4 Renewal"
+      },
+      "modules": ["Deals"],
+      "expect": ["D04"],
+      "note": "next to the Q3 renewal"
+    },
+    {
+      "values": {
+        "Company": "Harbor Logistics",
+        "Deal": "Harbor Logistics - Fleet Tracking"
+      },
+      "modules": ["Deals"],
+      "expect": ["D05"],
+      "note": "punctuation"
+    },
+    {
+      "values": {
+        "Name": "Kevin Murphy",
+        "Company": "Maple Street Dental",
+        "Deal": "Patient Portal"
+      },
+      "modules": ["Deals"],
+      "expect": ["D06"],
+      "note": "part of the deal's name"
+    },
+    {
+      "values": {
+        "Company": "Summit Dental Group",
+        "Deal": "Summit Dental Expansion"
+      },
+      "modules": ["Deals"],
+      "expect": ["D07"],
+      "note": "exact"
+    },
+    {
+      "values": {
+        "Company": "Blue Ridge Millwork",
+        "Deal": "Blue Ridge Millwork CNC Upgrade"
+      },
+      "modules": ["Deals"],
+      "expect": ["D08"],
+      "note": "exact"
+    },
+    {
+      "values": {
+        "Company": "Pinnacle Roofing",
+        "Deal": "Pinnacle Roofing Annual Service"
+      },
+      "modules": ["Deals"],
+      "expect": ["D09"],
+      "note": "legal form dropped"
+    },
+    {
+      "values": {
+        "Company": "Acme Industries",
+        "Deal": "Acme Website Redesign"
+      },
+      "modules": ["Deals"],
+      "expect": ["D10"],
+      "note": "the same deal name as Acme Corporation's, another Acme"
+    },
+    {
+      "values": {
+        "Company": "Greenleaf Landscaping",
+        "Deal": "Greenleaf Spring Contract"
+      },
+      "modules": ["Deals"],
+      "expect": [],
+      "note": "new deal"
+    }
+  ]
+}
