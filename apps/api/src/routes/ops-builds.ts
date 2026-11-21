@@ -38,6 +38,7 @@ import {
   type FitRow,
   fitChangeKind,
   fitScope,
+  gapSteps,
   issueByKey,
   issueLine,
   isUuid,
@@ -1496,6 +1497,21 @@ async function makeDraft(
   return { set: { sessionId: started.session.id }, decisions: [], kept: false };
 }
 
+/** The draft's step standing for each gap (a person step that asks, or a missing step), or null. */
+async function draftGapSteps(
+  tx: Tx,
+  agentId: string | null | undefined,
+  gaps: readonly string[],
+): Promise<(string | null)[]> {
+  const latest = agentId ? await latestVersion(tx, agentId) : null;
+  const parsed = latest ? AnyAgentBundle.safeParse(latest.bundle) : null;
+  if (!parsed?.success) return gaps.map(() => null);
+  const drafted = parsed.data.workflows.flatMap((w) =>
+    w.workflow.schemaVersion === 4 ? [w.workflow] : [],
+  );
+  return gapSteps(gaps, drafted);
+}
+
 /** A short, stable fingerprint of a fit-gap's first version. */
 function fitGapHash(fitgap: FitGap): string {
   const rows = fitgap.rows
@@ -1784,6 +1800,8 @@ async function draftNow(ctx: LongCtx, id: string, given: string | null): Promise
       payload: { brief: readBrief(r.brief) },
       userId,
     });
+    // docs/builder-plan.md §12.4: each gap names the step that stands for it, when one clearly does.
+    const onSteps = gaps.length > 0 ? await draftGapSteps(scoped.tx, made.set.agentId, gaps) : [];
     await addItems(
       scoped.tx,
       r,
@@ -1795,6 +1813,7 @@ async function draftNow(ctx: LongCtx, id: string, given: string | null): Promise
           "Not in the catalog yet, so a person does this part in the first version. Build it when the runs show it is worth it.",
         owner: "builder" as const,
         state: "deferred" as const,
+        stepId: onSteps[i] ?? null,
         key: `now:gap:${i}`,
       })),
       userId,
