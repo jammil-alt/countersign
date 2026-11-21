@@ -6254,6 +6254,77 @@ metadata and custom-field sync; (4) the Sales area's migration; (5) its keys, em
 Confirm matches card and its look-up; (7) the webhook sample payload and Reshape's `object`; (8) the
 template and the happy path end to end. Steps 1–3 and 7 need no migration.
 
+### 1.165 Builds: describe it, draft it at once, change it after (owner, 2026-11-21; no migration)
+
+Owner: "The agent builder process is still too long and difficult... we have not been able to
+figure out a single simple agent yet because there are too many permutations to build. Simplify,
+simplify, simplify. We are taking a few simple steps and making it into a huge challenge. Let's
+apply defaults to the settings and make decisions and tweak after it is built."
+
+What the code and staging showed (2026-11-21):
+
+- **20 to 23 operator actions at best** from New to a live agent, and eight places the operator
+  must leave the build's page (the workflow builder, Settings → Access, Versions, the skill
+  conversation, the Dev queue, the client's portal).
+- **About fourteen states with no way forward on the page**: a challenged verdict, a missing step
+  waiting on engineering, a skill started as a second build with no link back, a client build's
+  POC that needs a test run the page can't start, "Go live" that the server then refuses.
+- **The draft waited on things that are not the draft's.** Every validation error held it: a
+  missing step (new code or a second build), and, for a client's agent, a connection nobody had
+  bound, because nothing binds one.
+- **Everything uncertain became a tracked record with a status.** Nine brief fields with three
+  states, a second look, fit-gap rows (five verdicts, three scopes, overrides, challenges), a
+  client intake form, open items (seven kinds, four owners, five states), decisions (three kinds,
+  two risks, four statuses), proposals of twelve kinds, a test data plan, a QA checklist. The
+  "Progress updating" build on staging had 14 decisions, a 10-field client intake form and open
+  questions about Podio's data model before one step had run.
+- §1.153 and §1.155 kept the phases and added lists inside them, as asked then. The phases
+  themselves are what asks the operator to specify before anything is built.
+
+The direction: **describe it, the Builder drafts it with defaults, try it, change it.** Built in
+steps; this section records step 1. The steps after it are in `docs/builder-plan.md` §11 and wait
+on the owner's answers there.
+
+**Step 1, built: draft it now.**
+
+| Topic | Decision |
+|---|---|
+| Draft it now | `POST /api/ops/builds/:id/draft-now` (`opsDraftBuildNow`, core `api/build.ts`): an agent build in its intake or fit-gap goes straight to its draft, made from the operator's description (up to 4,000 characters) or, with none, from the brief as it is. One model call: no intake turn, no second look, no fit-gap. The build's phases stay, and it can go back to an earlier one with a reason. Refused for a skill build (422 `not_an_agent`: a skill is drafted in its own conversation), a build past its fit-gap (409 `same_phase`), one that already has a draft (409 `has_draft`) and one with nothing to draft from (400 `nothing_to_draft`). // DECISION |
+| The move | Claimed by the phase, as a move into the draft is (§1.156): a second press is refused, and a draft that fails puts the phase back. Its record is one phase event (from the phase it left, with the reason "Drafted at once…") and the brief. // DECISION |
+| The operator's words | Kept whole as the operator's message in the build's conversation (said once: a second try after a failed draft doesn't repeat them), and, as far as a field holds (1,000 characters), as the brief's goal when it has none, marked assumed, so the manual's "What it does" has them. A goal already there is left alone. // DECISION |
+| A draft that runs | The drafter's `worksFirst` (`opsDraftAgent`, `packages/agents` `draftAgent`): its own paragraph of rules (`WORKS_FIRST`) added to the Builder's. Never a missing step: where the catalog has no part, a person does that piece in this version (a person step) and the part is named in the gaps. What the description leaves open the Builder decides (the simplest choice that works, strict for a threshold, the client's team for who is asked) and records as a decision. The fewest steps that do the normal case. Added only when asked for, so every other draft's rules and recorded answers are unchanged. // DECISION |
+| Repairs | A works-first draft's missing step goes back to the Builder to repair (it is left alone otherwise, §1.103), and it gets two repair rounds instead of one. A missing step that survives both is a draft problem, as before. // DECISION |
+| Why not by code | A missing step isn't turned into a person step by code: later steps read a missing step's output untyped and a person step's typed, so the swap would leave references that don't validate. The Builder writes the person step and what follows it together. // DECISION |
+| Gaps | Each gap the drafter names (at most 10) becomes a gap item put off from the start, as a known risk is (§1.153): listed, holding nothing. // DECISION |
+| Connections | A client's agent drafted this way is bound to that client's connection for each connector it needs (`bindTestCopy`, as a template's test copy already is): a client has one connection per connector, so there is nothing to choose. A binding gives no access by itself: what the agent may do is still the connection's settings, the grant and the gate (invariants 8 and 13), and the draft's writes keep approval on (the guards). // DECISION |
+| What the Builder says | One message, by code from what happened: its summary, how many decisions it made instead of asking, the parts a person does for now, the connections bound, and what is next (try it, or the problems left). // DECISION |
+| The lab's New | A template or a client agent has "What should it do?". Described, the button reads "Build it": the build starts, its page opens and asks for the draft once (the words travel in the router's state and leave it before the request, so a reload asks nothing). Left empty, it reads "Start with questions" and the build starts in intake as before. A skill has no description. // DECISION |
+| Builds already in intake | The brief card has "Skip the questions and draft it now", on once the brief has a goal: the brief as it reads on screen is saved, then the draft is asked for. // DECISION |
+| The stated steps (owner, 2026-11-21: "start with the stated steps and we can make it more and more complex after") | The works-first rules hold the drafter to the steps the description states, in its order, one step each, and nothing it doesn't state: no extra checks, branches, notes, waits or handling of cases it doesn't mention. The only additions are the ones the rules require (approval on a write, a person where a stated step can't be done). Decisions are few: one only where it chose something left open that a step depends on. // DECISION |
+| The flow on the page | `BuildDetail.draft.steps` (default none, so older answers parse): the draft's steps in run order, each with its name and its kind in plain words, by code (core `howItWorks`, as the manual's "How it works"), at most 60. The draft card lists them first, numbered and indented by nesting, so the flow is read the moment it is written. // DECISION |
+| The POC opens with the try | A build drafted at once (no fit-gap rows) moves into its POC test with no Builder turn: no plan of made-up data is written, and one line says to try a real example. A plan can still be asked for in the conversation. A build that went through its fit-gap opens as before. // DECISION |
+
+**Step 2, built: an issue is settled from the issue, and a change asked for is made at once.**
+
+Owner, 2026-11-21: "if we get it written then we can see the flows and keep editing it", and
+"issues should be decided in a few ways: change the process, build a skill or code a new step if
+it needs code and not a skill."
+
+| Topic | Decision |
+|---|---|
+| Three ways | Core `SETTLE_WAYS`: `process` (the Builder changes the steps with what the catalog has, or has a person do the part: an `edit_draft`), `skill` (a skill from catalog parts: `draft_skill`) and `code` (a Dev queue request for a new tool or operation, or a link to the open one: `file_code_request`, `link_code_request`). `settleFits` says which change each way asks for. // DECISION |
+| On the issue | The Issues card shows "Settle it: Change the process · Build a skill · Needs code" on an open draft problem, failing test, rejected write and on a gap, test or feedback item, while the build is in its draft or POC test (there is a draft to change). A question is answered; a decision and a QA check keep their own controls. // DECISION |
+| What a button sends | `POST …/turns` with `{ about, settle }` and no words: the way's own words (`SETTLE_WORDS[way].ask`) are the operator's message, about that issue. `settle` without `about` is 400 `settle_needs_issue`. // DECISION |
+| Made at once | After a turn, the change the Builder proposed is made without a second yes when it is the one asked for: with a way chosen, the proposal that way asks for; with none, a draft edit the Builder marks `asked` (its word that the operator's words asked for it; only a proposal can be, and never on a turn the Builder opens). Anything else stays a proposal with Agree. A draft edit made at once has its Undo, as an agreed one. // DECISION |
+| How it is made | By the proposal's own decision (`decideProposal`, taken out of the route so a turn can call it: a slow route isn't reachable through `invokeRoute`), so its checks, its claim against a second press and its undo are the same. The claim is the Builder's line "Making the change you asked for.", never an "Agreed." the operator didn't say. A change that can't be made is put back as a proposal with the Builder's reason, and the turn's answer stands. // DECISION |
+| What the Builder may be wrong about | It may mark as asked a change the operator only wondered about. It is a draft edit, so Undo puts it back; a skill build or a code request is only ever made at once by its own button. // DECISION |
+| To the point (owner, 2026-11-21: "remove some of the context, make the conversation more to the point: what is it, why... we talk 5 steps, you bring in dozens of questions") | The Builder's rules for a build's conversation open with it: what it is, why it matters and what it would do in two or three short sentences; no background nobody asked for; one question at most, and only when a step can't be built or changed without the answer; a decision, an item and each one's why are one short sentence. A turn leaves three new open items at most (`TURN_ITEMS_MAX`; the rest are dropped, to be raised when they come up). The works-first draft's summary is one or two sentences. // DECISION |
+| The line after a draft | `draftedNowText` is three short paragraphs: what it drafted (the summary's first two sentences), what was decided for the operator in one line (how many decisions, how many parts a person does, that it is bound), and what is next. A gap's own sentence stays on its item. // DECISION |
+| Short first on the page | The paragraph under an open issue and under a decision shows its first sentence (140 characters at most), with More to open the rest (`short.tsx`); nothing stored is cut. A closed item keeps its whole detail, which ends with how it was closed (§1.166). // DECISION |
+| The New form | One line of introduction ("List the steps. The Builder drafts them at once and you change them after."), a one-line hint, and an example written as numbered steps. // DECISION |
+| Not changed | The gates, the Decisions card and its high-risk check before the client test, the client test and QA. A client build's draft is still held by what its connection doesn't allow (`verb_off`), which is the client's to allow (§1.161). |
+| Checked | `apps/api/src/build-draft-now.test.ts` (one model call; the works-first rules sent; the steps on the draft; the POC opened with no model call; a missing step repaired; a failed draft leaves the build in intake; a client's agent bound; a skill refused; an asked edit made at once and undone; a suggestion left to agree; an issue settled by its button, and a change that isn't the way chosen left to agree), `apps/web/src/ops/builds/builds.test.tsx` (Build it; the skip button; the steps listed; the three ways on an issue). |
+
 ### 1.167 The build page's forms, read at full width (owner, 2026-11-21; no migration)
 
 The owner on `/ops/builds/:id` (staging feedback): the brief ("lets redesign this side"), the client

@@ -401,6 +401,7 @@ export function opsBuilderRoutes(app: Hono<AppEnv>): void {
         description: body.description,
         ...(body.name ? { name: body.name } : {}),
         ...(body.role ? { role: body.role } : {}),
+        ...(body.worksFirst ? { worksFirst: true } : {}),
         ctx: bctx,
       },
       {

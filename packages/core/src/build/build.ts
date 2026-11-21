@@ -1173,6 +1173,48 @@ export const BuildProposal = z.object({
 });
 export type BuildProposal = z.infer<typeof BuildProposal>;
 
+// ── Three ways to settle an issue (owner, 2026-11-21; docs/plan.md §1.165) ──────────────────────
+
+/**
+ * How the operator settles an issue from the issue itself: change the process with what the
+ * catalog has (or have a person do the part), build a skill from catalog parts, or ask for new
+ * code when a skill can't do it.
+ */
+export const SETTLE_WAYS = ["process", "skill", "code"] as const;
+export const SettleWay = z.enum(SETTLE_WAYS);
+export type SettleWay = z.infer<typeof SettleWay>;
+
+/** Each way: its button, what the page says it does, and the operator's words to the Builder. */
+export const SETTLE_WORDS: Record<SettleWay, { label: string; does: string; ask: string }> = {
+  process: {
+    label: "Change the process",
+    does: "The Builder changes the steps with what the catalog has, or has a person do this part. Made at once; you can undo it.",
+    ask: "Settle this by changing the process: use what the catalog already has, or have a person do this part. Make the change now.",
+  },
+  skill: {
+    label: "Build a skill",
+    does: "The Builder starts a skill made from catalog parts (rules, or an AI step over tools that exist). No new code.",
+    ask: "Settle this by building a skill from catalog parts. Start it now.",
+  },
+  code: {
+    label: "Needs code",
+    does: "The Builder files a request for the new tool or operation in the Dev queue, or links the one that already covers it.",
+    ask: "This needs new code, not a skill. File the request for it now, or link the open request that already covers it.",
+  },
+};
+
+/** Whether a proposed change is the one the chosen way asks for. With no way: a draft edit. */
+export function settleFits(way: SettleWay | null, action: BuildAction["do"]): boolean {
+  switch (way) {
+    case "skill":
+      return action === "draft_skill";
+    case "code":
+      return action === "file_code_request" || action === "link_code_request";
+    default:
+      return action === "edit_draft";
+  }
+}
+
 /** `unchanged`: agreed, but the workflow's Builder made no change (it said why). */
 export const PROPOSAL_STATES = ["proposed", "agreed", "unchanged", "declined", "undone"] as const;
 export const ProposalState = z.enum(PROPOSAL_STATES);

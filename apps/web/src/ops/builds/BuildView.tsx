@@ -41,8 +41,11 @@ import {
   OWNER_WORDS,
   PHASE_WORDS,
   type QaCheckId,
+  SETTLE_WAYS,
+  SETTLE_WORDS,
   SETUP_KINDS,
   SETUP_WORDS,
+  type SettleWay,
   type SetupField,
   type SetupKind,
   type TestPlan,
@@ -58,7 +61,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { type CallOptions, isApiError } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
@@ -75,8 +78,10 @@ import { CloseMenu, ReplyBox } from "./closeout";
 import { DecisionsCard } from "./decisions";
 import { type Fold, useFirstRows, useFold } from "./fold";
 import { AboutLink, FocusBar, ProposalCard } from "./issues";
+import type { DraftNowState } from "./NewBuild";
 import { problemAdvice, problemWhere } from "./problems";
 import { RequirementsCard } from "./RequirementsCard";
+import { ShortText } from "./short";
 import { TryCard } from "./TryCard";
 import {
   BRIEF_STATE_TONE,
@@ -303,12 +308,18 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
   };
 
   /** The operator's words (about the issue in focus), or none to try the Builder's last turn again. */
-  async function say(text?: string, about: string | null = focused?.key ?? null): Promise<boolean> {
+  async function say(
+    text?: string,
+    about: string | null = focused?.key ?? null,
+    // docs/plan.md §1.165: a way chosen on the issue itself; its words are the way's own.
+    settle?: SettleWay,
+  ): Promise<boolean> {
     if (text) setPending({ text, since: Date.now() });
     try {
       const done = await act(apiRoutes.opsBuildTurn, {
         params: { id },
-        body: text ? { text, ...(about ? { about } : {}) } : {},
+        body:
+          settle && about ? { about, settle } : text ? { text, ...(about ? { about } : {}) } : {},
       });
       // QA (2026-11-16): the words are saved before the Builder answers, so after a failure the
       // conversation is shown as it is now, with them in it, not as it was before they were sent.
@@ -648,6 +659,14 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
               issues={issues}
               focus={focused?.key ?? null}
               onTalk={open ? onIssue : undefined}
+              onSettle={
+                open && (b.phase === "draft" || b.phase === "poc")
+                  ? (key, way) => {
+                      onIssue(key);
+                      void say(SETTLE_WORDS[way].ask, key, way);
+                    }
+                  : undefined
+              }
               onWalk={
                 open
                   ? () => {
@@ -896,15 +915,19 @@ function WorkingStrip({
   }, [busy]);
   if (!busy || !shown) return null;
   const label =
-    busy === apiRoutes.opsMoveBuild.path
-      ? NEXT_WORKING[phase]
-      : busy === apiRoutes.opsBuildTurn.path || busy === apiRoutes.opsBuildProposal.path || talking
-        ? "The Builder is working on it…"
-        : busy === apiRoutes.opsBuildCases.path
-          ? "The Builder is making the test cases…"
-          : busy === apiRoutes.opsBuildRunTests.path
-            ? "Starting the test cases…"
-            : "Saving…";
+    busy === apiRoutes.opsDraftBuildNow.path
+      ? DRAFTING_NOW
+      : busy === apiRoutes.opsMoveBuild.path
+        ? NEXT_WORKING[phase]
+        : busy === apiRoutes.opsBuildTurn.path ||
+            busy === apiRoutes.opsBuildProposal.path ||
+            talking
+          ? "The Builder is working on it…"
+          : busy === apiRoutes.opsBuildCases.path
+            ? "The Builder is making the test cases…"
+            : busy === apiRoutes.opsBuildRunTests.path
+              ? "Starting the test cases…"
+              : "Saving…";
   return (
     <div className="ui-build-bar__working" data-testid="build-working">
       <Thinking
@@ -964,6 +987,10 @@ function BuildBar({ links, children }: { links: JumpLink[]; children: ReactNode 
     </div>
   );
 }
+
+/** What the Builder is doing while it drafts at once (docs/plan.md §1.165). */
+const DRAFTING_NOW =
+  "The Builder is drafting it from your description. It decides what's open; this takes a minute or two…";
 
 /** What the Builder is doing while a phase's move runs. */
 const NEXT_WORKING: Record<BuildPhase, string> = {
@@ -1094,6 +1121,7 @@ const isBusy = (busy: string | null) => busy !== null;
 /** Moves between phases: the longest requests, and the one the page says it's working on first. */
 const MOVES: readonly string[] = [
   apiRoutes.opsMoveBuild.path,
+  apiRoutes.opsDraftBuildNow.path,
   apiRoutes.opsBuildClientTest.path,
   apiRoutes.opsBuildDecision.path,
 ];
@@ -1121,6 +1149,22 @@ function IntakePanel({ detail, current, busy, act }: PanelProps) {
   const id = detail.build.id;
   const [brief, setBrief] = useWorkingCopy<Brief>(detail.build.brief);
   const dirty = JSON.stringify(brief) !== JSON.stringify(detail.build.brief);
+  // docs/plan.md §1.165: a build started with a description (the lab's New) is drafted as its page
+  // opens, once: the words leave the router's state first, so a reload doesn't ask again (the
+  // server would refuse it anyway: the build has its draft).
+  const location = useLocation();
+  const navigate = useNavigate();
+  const wanted = (location.state as Partial<DraftNowState> | null)?.draftNow;
+  const asked = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: asked once, when the page opens.
+  useEffect(() => {
+    if (!wanted || asked.current || !current || detail.build.kind !== "agent") return;
+    asked.current = true;
+    navigate({ pathname: location.pathname, search: location.search }, { replace: true });
+    void act(apiRoutes.opsDraftBuildNow, { params: { id }, body: { description: wanted } });
+  }, [wanted, current]);
+  const draftingNow = busy === apiRoutes.opsDraftBuildNow.path;
+  const canDraftNow = detail.build.kind === "agent" && !!brief.goal?.text.trim();
   const counts = BRIEF_STATES.map(
     (s) => [s, BRIEF_FIELDS.filter((k) => brief[k]?.state === s).length] as const,
   );
@@ -1181,6 +1225,33 @@ function IntakePanel({ detail, current, busy, act }: PanelProps) {
                 void act(apiRoutes.opsMoveBuild, { params: { id }, body: { to: "fitgap" } });
               }}
             />
+            {/* Owner (2026-11-21): the way past the questions. The Builder drafts from the brief
+                as it reads on screen, decides what is still open and lists each decision. */}
+            {detail.build.kind === "agent" ? (
+              <div className="flex flex-wrap items-center gap-3 border-t border-line pt-3">
+                <Button
+                  size="sm"
+                  disabled={isBusy(busy) || !canDraftNow}
+                  working={draftingNow}
+                  onClick={async () => {
+                    if (
+                      dirty &&
+                      !(await act(apiRoutes.opsUpdateBuild, { params: { id }, body: { brief } }))
+                    )
+                      return;
+                    void act(apiRoutes.opsDraftBuildNow, { params: { id }, body: {} });
+                  }}
+                  data-testid="build-draft-now"
+                >
+                  {draftingNow ? "Drafting…" : "Skip the questions and draft it now"}
+                </Button>
+                <span className="text-sm text-ink-muted" data-testid="build-draft-now-hint">
+                  {canDraftNow
+                    ? "The Builder decides what's still open, lists each decision, and you change it after."
+                    : "Say what it should do in Goal first."}
+                </span>
+              </div>
+            ) : null}
           </div>
         ) : null
       }
@@ -1925,6 +1996,9 @@ function DraftPanel({ detail, current, busy, act }: PanelProps) {
         ) : null
       }
     >
+      {/* Owner (2026-11-21): "if we get it written then we can see the flows and keep editing
+          it". The steps as drafted, in run order and in plain words, before anything else. */}
+      {d && d.steps.length > 0 ? <DraftSteps steps={d.steps} /> : null}
       {!d ? (
         <p className="px-6 py-5 text-sm text-ink-muted">
           The draft is made when the direction is agreed.
@@ -1932,7 +2006,9 @@ function DraftPanel({ detail, current, busy, act }: PanelProps) {
       ) : d.problems.length === 0 ? (
         <p className="px-6 py-5 text-sm text-ink" data-testid="build-draft-clean">
           No missing or invalid steps.{" "}
-          {b.kind === "agent" ? "Look it over on the agent's Steps tab." : null}
+          {b.kind === "agent"
+            ? "To change a step, say so in the conversation, or open the workflow."
+            : null}
         </p>
       ) : (
         // Feedback (2026-11-16): each problem in plain words, where it is, what would fix it and
@@ -1979,6 +2055,42 @@ function DraftPanel({ detail, current, busy, act }: PanelProps) {
         </>
       )}
     </Card>
+  );
+}
+
+/** The draft's steps in run order: each one's name, and what kind of step it is in plain words. */
+function DraftSteps({ steps }: { steps: NonNullable<BuildDetail["draft"]>["steps"] }) {
+  const workflows = [...new Set(steps.map((s) => s.workflow))];
+  return (
+    <div className="border-b border-line px-6 py-4" data-testid="build-draft-steps">
+      {workflows.map((w) => (
+        <div key={w} className="flex flex-col gap-1.5 [&+&]:mt-4">
+          {workflows.length > 1 ? (
+            <span className="text-xs font-medium text-ink-muted">{w}</span>
+          ) : null}
+          <ol className="flex flex-col gap-1.5">
+            {steps
+              .filter((s) => s.workflow === w)
+              .map((s, i) => (
+                <li
+                  key={s.stepId}
+                  className="flex items-baseline gap-2.5 text-sm"
+                  style={{ paddingLeft: `${Math.min(s.depth, 4) * 20}px` }}
+                  data-testid="build-draft-step"
+                >
+                  <span className="w-5 shrink-0 text-right font-mono text-xs text-ink-muted">
+                    {i + 1}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="font-medium text-ink">{s.name || "A step"}</span>
+                    <span className="text-ink-muted"> · {s.words}</span>
+                  </span>
+                </li>
+              ))}
+          </ol>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -2672,12 +2784,18 @@ function ItemsPanel({
   issues,
   focus,
   onTalk,
+  onSettle,
   onWalk,
   busy,
   act,
   onSay,
   voice,
 }: {
+  /**
+   * Settles an issue one of three ways, from the issue itself (docs/plan.md §1.165): the Builder
+   * makes that change at once. Offered while the build has a draft to change.
+   */
+  onSettle?: ((key: string, way: SettleWay) => void) | undefined;
   /** Folds the card (the page keeps it, so its jump link can open it). */
   fold?: Fold | undefined;
   detail: BuildDetail;
@@ -2748,6 +2866,39 @@ function ItemsPanel({
         ) : null}
       </span>
     ) : null;
+  // Owner (2026-11-21): "issues should be decided in a few ways: change the process, build a skill
+  // or code a new step if it needs code and not a skill". On what is wrong with the draft or its
+  // tests and on gaps; a question is answered, and a decision or a QA check has its own control.
+  const settle = (issue: BuildIssue) => {
+    if (!onSettle || !issue.open) return null;
+    const kind = issue.itemId ? items.get(issue.itemId)?.kind : null;
+    const fits =
+      issue.source === "problem" ||
+      issue.source === "case" ||
+      issue.source === "rejection" ||
+      (issue.source === "item" && (kind === "gap" || kind === "test" || kind === "feedback"));
+    if (!fits) return null;
+    return (
+      <span
+        className="flex flex-wrap items-center gap-1.5"
+        data-testid={`build-issue-${issue.key}-settle`}
+      >
+        <span className="text-xs text-ink-muted">Settle it:</span>
+        {SETTLE_WAYS.map((way) => (
+          <Button
+            key={way}
+            size="sm"
+            disabled={isBusy(busy)}
+            title={SETTLE_WORDS[way].does}
+            onClick={() => onSettle(issue.key, way)}
+            data-testid={`build-issue-${issue.key}-settle-${way}`}
+          >
+            {SETTLE_WORDS[way].label}
+          </Button>
+        ))}
+      </span>
+    );
+  };
   /** What closes an open item, by its kind, then the conversation's links. */
   const actions = (issue: BuildIssue, i: Item) => {
     const live = editable && itemOpen(i.state);
@@ -2781,7 +2932,9 @@ function ItemsPanel({
         />
       </>
     ) : i.kind === "gap" ? (
-      GAP_CHOICES.map((c) => (
+      // docs/plan.md §1.165: once there is a draft to change, a gap's "build it" and "a person
+      // does it" are the three ways above it (Settle it); dropping it stays here.
+      GAP_CHOICES.filter((c) => !onSettle || c.key === "drop").map((c) => (
         <Button
           key={c.key}
           size="sm"
@@ -2912,7 +3065,7 @@ function ItemsPanel({
                       </span>
                     </span>
                     {issue.detail ? (
-                      <p className="text-sm break-words text-ink-muted">{issue.detail}</p>
+                      <ShortText text={issue.detail} className="text-sm text-ink-muted" />
                     ) : null}
                     <MetaLine>
                       <span>From {PHASE_WORDS[issue.phase].label}</span>
@@ -2938,6 +3091,7 @@ function ItemsPanel({
                         {issue.state}
                       </Badge>
                     </MetaLine>
+                    {settle(issue)}
                     {talk(issue)}
                   </li>
                 );
@@ -2962,11 +3116,19 @@ function ItemsPanel({
                       {i.title}
                     </span>
                   </span>
-                  {i.detail ? (
+                  {/* An open item's detail is short first; a closed one keeps its whole detail,
+                      which ends with how it was closed (§1.166). */}
+                  {!i.detail ? null : itemOpen(i.state) ? (
+                    <ShortText
+                      text={i.detail}
+                      className="text-sm text-ink-muted"
+                      testId={`build-item-${i.id}-detail`}
+                    />
+                  ) : (
                     <p className="text-sm break-words whitespace-pre-line text-ink-muted">
                       {i.detail}
                     </p>
-                  ) : null}
+                  )}
                   {itemOpen(i.state) ? (
                     <p className="text-xs text-ink" data-testid={`build-item-${i.id}-how`}>
                       <span className="text-ink-muted">To settle it: </span>
@@ -3018,6 +3180,7 @@ function ItemsPanel({
                       <Badge tone={ITEM_TONE[i.state]}>{ITEM_STATE_WORDS[i.state]}</Badge>
                     )}
                   </MetaLine>
+                  {settle(issue)}
                   {actions(issue, i)}
                   {answering?.key === issue.key ? (
                     <ReplyBox

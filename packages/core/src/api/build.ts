@@ -19,6 +19,7 @@ import {
   QaCheck,
   QaCheckId,
   QaRecord,
+  SettleWay,
   TestPlan,
 } from "../build/build";
 import { isUuid } from "../ids";
@@ -159,6 +160,23 @@ export const BuildDraftView = z.object({
   version: z.number().int().nullable(),
   live: z.boolean(),
   problems: z.array(DraftProblem),
+  /**
+   * docs/plan.md §1.165: the draft's steps in run order, each with its name and its kind in plain
+   * words (core's `howItWorks`, by code from the process), so the build's page shows the flow the
+   * moment it is written. Defaults to none, so older answers parse.
+   */
+  steps: z
+    .array(
+      z.object({
+        workflow: z.string(),
+        stepId: z.string(),
+        depth: z.number().int().min(0),
+        kind: z.string(),
+        name: z.string(),
+        words: z.string(),
+      }),
+    )
+    .default([]),
 });
 export type BuildDraftView = z.infer<typeof BuildDraftView>;
 
@@ -311,6 +329,14 @@ export const StartBuild = z
     path: ["templateId"],
   });
 
+/**
+ * Draft it now (docs/plan.md §1.165): the operator's description of the work, in their own words.
+ * Left out, the draft is made from the brief as it is.
+ */
+export const DraftBuildNow = z.strictObject({
+  description: storable(z.string().trim().min(1).max(4000)).optional(),
+});
+
 export const UpdateBuild = z.strictObject({
   title: storable(z.string().trim().min(1).max(200)).optional(),
   brief: Brief.optional(),
@@ -422,6 +448,12 @@ export const buildRoutes = {
       text: storable(z.string().trim().min(1).max(BUILD_TEXT_MAX)).optional(),
       /** The issue the words are about (the conversation's focus). */
       about: z.string().min(1).max(160).optional(),
+      /**
+       * docs/plan.md §1.165: the way the operator chose to settle the issue in `about`, from the
+       * issue itself. Its words are the way's own when none are given, and the change the Builder
+       * proposes for it is made at once.
+       */
+      settle: SettleWay.optional(),
     }),
     response: BuildDetail,
   }),
@@ -433,7 +465,14 @@ export const buildRoutes = {
     summary:
       "Agree the Builder's proposed change (it is made, as you, through the build's own routes), decline it, or undo an agreed one",
     params: z.object({ id: Id, messageId: Id }),
-    body: z.strictObject({ decide: z.enum(["agree", "decline", "undo"]) }),
+    body: z.strictObject({
+      decide: z.enum(["agree", "decline", "undo"]),
+      /**
+       * docs/plan.md §1.165: the change is one the operator asked for in words (or by an issue's
+       * button), made at once: the conversation says so instead of "Agreed.". Only with `agree`.
+       */
+      asked: z.boolean().optional(),
+    }),
     response: BuildDetail,
   }),
   opsBuildVerdict: defineRoute({
@@ -460,6 +499,17 @@ export const buildRoutes = {
       "Move a build to the next phase when its gate passes (into the draft, the Builder drafts it; a client test may move on with a reason), or back to any earlier phase with a reason",
     params: IdParams,
     body: z.strictObject({ to: BuildPhase, reason: Reason.optional() }),
+    response: BuildDetail,
+  }),
+  opsDraftBuildNow: defineRoute({
+    method: "POST",
+    path: "/api/ops/builds/:id/draft-now",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Draft an agent build at once from a description (or the brief as it is), without the intake questions or the fit-gap: the Builder decides what it can, a person does what the catalog can't, and the build lands in its draft",
+    params: IdParams,
+    body: DraftBuildNow,
     response: BuildDetail,
   }),
   opsBuildCases: defineRoute({

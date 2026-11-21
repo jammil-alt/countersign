@@ -95,7 +95,11 @@ async function sandboxClient(ctx: Pick<HandlerCtx<never>, "tx" | "tenantIds">): 
 // DECISION: a template's test copy is bound to its client's connections on each test run where
 // it is not bound yet, so a test run on the Sandbox or a chosen client reaches that client's tools
 // without a trip to the copy's Settings. Bindings the operator set are kept (docs/plan.md §1.16).
-async function bindTestCopy(
+// DECISION (docs/plan.md §1.165): a client agent drafted by its build is bound the same way, as
+// the operator who builds it for that client would bind it: the client has one connection per
+// connector, so there is nothing to choose. What the agent may do there is still the connection's
+// own settings, the grant and the gate (invariants 8 and 13); a binding gives no access by itself.
+export async function bindTestCopy(
   ctx: Pick<HandlerCtx<never>, "tx" | "services" | "session">,
   copy: AgentRow,
   bundle: AnyAgentBundle,

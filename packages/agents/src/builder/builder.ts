@@ -209,6 +209,24 @@ export const OPERATOR_FIXES = new Set([
   "missing_step",
 ]);
 
+/**
+ * Works first (docs/plan.md §1.165): added to the rules of a draft that must run as it is. The
+ * Builder decides what the description leaves open and a person does what the catalog can't, so
+ * nothing waits on an answer, a skill build or new code before the draft can be tried.
+ */
+// DECISION (owner, 2026-11-21, "apply defaults to the settings and make decisions and tweak after
+// it is built"): its own paragraph, added only when asked for, so the rules every other draft and
+// revision reads (and their recorded answers) are unchanged.
+export const WORKS_FIRST = `Works first: this draft must run as it is, so the operator can try it today and change it after.
+- Never use a missing step: this replaces the rule above about them. Where the catalog has no part for a piece of the work, a person does that piece in this version: put a person step there (mode "ask") whose title says what to do and whose payload shows what they need to do it, and name the missing part in "gaps", one plain sentence each ("No connector reads card charges, so a person enters them for now."). Later steps use that person's answer.
+- Don't leave anything for the operator to answer first. Where the description doesn't say (what starts it, how often, who is asked, a threshold, a deadline), decide: the simplest choice that works, strict where it is a threshold, the client's team for who is asked, and record it in "decisions" with its starting value.
+- Build the steps the description states, in the order it states them, one step for each. Add nothing it doesn't state: no extra checks, branches, notes to the team, waits or handling of cases it doesn't mention. The only additions are the ones the rules require: approval on a step that changes a client's tool, and a person where a stated step can't be done. More is added later, when the operator asks for it.
+- Keep the decisions few: one only where you chose something the description left open and a step depends on it. Each is one short sentence, and so is its why.
+- The summary is one or two sentences: what it does, in the operator's own words where you can. Each gap is one short sentence.`;
+
+/** With `WORKS_FIRST`, a missing step is the model's to repair: a person step takes its place. */
+const WORKS_FIRST_OPERATOR_FIXES = new Set([...OPERATOR_FIXES].filter((c) => c !== "missing_step"));
+
 /** v0.12 W3-A: an error by where it is and what it is, to tell an old error from a new one. */
 export function errorKey(e: ValidationError): string {
   return [e.workflow ?? "", e.stepId ?? "", e.field, e.code].join("|");
@@ -250,6 +268,8 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
     known?: ReadonlySet<string>;
     /** Asked once when an answer is cut off at the token limit: how to answer smaller. */
     shorter?: string;
+    /** Error codes left out of a repair round (default `OPERATOR_FIXES`). */
+    operatorFixes?: ReadonlySet<string>;
   },
   options: BuilderOptions,
 ): Promise<{
@@ -312,8 +332,9 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
     }
     const guarded = input.guard(answer);
     const errors = await options.validate(guarded.bundle);
+    const notRepaired = input.operatorFixes ?? OPERATOR_FIXES;
     const fixable = errors.filter(
-      (e) => !OPERATOR_FIXES.has(e.code) && !(input.known?.has(errorKey(e)) ?? false),
+      (e) => !notRepaired.has(e.code) && !(input.known?.has(errorKey(e)) ?? false),
     );
     if (fixable.length > 0 && repairs > 0) {
       repairs -= 1;
@@ -340,7 +361,14 @@ export async function ask<T extends { bundle: ProcessAgentBundle; gaps: string[]
 
 /** draft-agent: a new agent bundle from a description (a template, or a client agent). */
 export async function draftAgent(
-  input: { description: string; name?: string; role?: string; ctx: BuilderContext },
+  input: {
+    description: string;
+    name?: string;
+    role?: string;
+    ctx: BuilderContext;
+    /** docs/plan.md §1.165: a draft that runs as it is (`WORKS_FIRST`). */
+    worksFirst?: boolean;
+  },
   options: BuilderOptions,
 ): Promise<
   BuilderResult & {
@@ -373,6 +401,9 @@ ${promptText(input.description)}
       label: "builder.draft-agent",
       ctx,
       first,
+      ...(input.worksFirst
+        ? { system: `${RULES}\n\n${WORKS_FIRST}`, operatorFixes: WORKS_FIRST_OPERATOR_FIXES }
+        : {}),
       guard: (a) => {
         const g = guardBundle(a.bundle, ctx, {
           mode: "draft",
@@ -381,7 +412,8 @@ ${promptText(input.description)}
         return { ...g, gaps: [...new Set([...a.gaps, ...g.gaps])] };
       },
     },
-    options,
+    // A works-first draft gets a second repair round: a draft that validates is the point.
+    input.worksFirst ? { ...options, repairs: options.repairs ?? 2 } : options,
   );
   const template = out.answer.startFromTemplate ?? null;
   return {
