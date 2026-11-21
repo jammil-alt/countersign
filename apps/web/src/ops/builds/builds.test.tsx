@@ -37,6 +37,7 @@ const summary: BuildSummary = {
   updatedAt: at,
   phaseAt: at,
   path: "new",
+  flow: "phases",
   templateId: null,
   promisedOn: null,
   origin: null,
@@ -1216,5 +1217,51 @@ describe("Builds", () => {
     const open = await screen.findByTestId("build-open-draft");
     expect(open).toHaveTextContent("Open the workflow");
     expect(open).toHaveAttribute("href", `/ops/agents/${AGENT}/workflow`);
+  });
+
+  // docs/plan.md §1.172: a build started on this page keeps it until someone moves it.
+  it("moves a build to the builder for Drafts, and back", async () => {
+    const AGENT = "00000000-0000-4000-8000-0000000a0001";
+    const sent: unknown[] = [];
+    let flow: "phases" | "describe" = "phases";
+    const drafted = () =>
+      detail({
+        build: { ...detail().build, phase: "draft", agentId: AGENT, flow },
+        phases: detail().phases.map((p, i) => ({
+          ...p,
+          state: i < 2 ? "done" : i === 2 ? "current" : "todo",
+        })),
+        gate: { next: "poc", reasons: [] },
+        draft: {
+          agentId: AGENT,
+          skillId: null,
+          sessionId: null,
+          versionId: null,
+          version: 1,
+          live: false,
+          steps: [],
+          problems: [],
+        },
+      });
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: drafted,
+      [`PATCH /api/ops/builds/${ID}`]: ({ init }) => {
+        const body = JSON.parse(String(init.body)) as { flow: "phases" | "describe" };
+        sent.push(body);
+        flow = body.flow;
+        return drafted();
+      },
+    });
+    renderAt(`/ops/builds/${ID}`, api);
+    const move = await screen.findByTestId("build-flow");
+    expect(move).toHaveTextContent("Open it in the builder from Drafts");
+    await userEvent.click(move);
+    await waitFor(() => expect(sent).toEqual([{ flow: "describe" }]));
+    await waitFor(() =>
+      expect(screen.getByTestId("build-flow")).toHaveTextContent("Open it here from Drafts"),
+    );
+    await userEvent.click(screen.getByTestId("build-flow"));
+    await waitFor(() => expect(sent.at(-1)).toEqual({ flow: "phases" }));
   });
 });

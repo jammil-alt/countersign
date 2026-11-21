@@ -65,6 +65,7 @@ function detail(items: Item[] = ITEMS): BuildDetail {
       updatedAt: at,
       phaseAt: at,
       path: "new",
+      flow: "phases",
       templateId: null,
       promisedOn: null,
       origin: null,

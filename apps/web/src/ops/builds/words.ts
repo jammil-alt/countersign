@@ -12,6 +12,20 @@ import type { Tone } from "../../ui/primitives";
 export const BUILDS_PATH = "/ops/builds";
 export const buildPath = (id: string) => `${BUILDS_PATH}/${id}`;
 
+/**
+ * Where a build opens from the lab's Drafts (docs/plan.md §1.172): one started on Describe it, in
+ * the one-screen builder once it has a draft and on Check the steps until then; any other, on its
+ * build page.
+ */
+export function buildHref(b: {
+  id: string;
+  flow?: "phases" | "describe" | undefined;
+  agentId: string | null;
+}): string {
+  if (b.flow !== "describe") return buildPath(b.id);
+  return b.agentId ? `/ops/agents/${b.agentId}/workflow` : `/ops/lab/check/${b.id}`;
+}
+
 export const phaseLabel = (p: BuildPhase) => PHASE_WORDS[p].label;
 
 export const VERDICT_TONE: Record<FitVerdict, Tone> = {

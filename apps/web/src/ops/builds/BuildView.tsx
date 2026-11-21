@@ -1971,13 +1971,40 @@ function DraftPanel({ detail, current, busy, act }: PanelProps) {
       title={d?.version ? `The draft · v${d.version}` : "The draft"}
       meta={
         link ? (
-          <Link
-            to={link}
-            className="text-sm font-medium text-slate hover:underline"
-            data-testid="build-open-draft"
-          >
-            {b.kind === "skill" ? "Open the skill's conversation" : "Open the workflow"}
-          </Link>
+          <span className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
+            {/* §1.172: where the lab's Drafts opens this build. A build started on its build page
+                keeps it until someone moves it to the builder here; it can be moved back. */}
+            {b.kind === "agent" && b.status === "open" ? (
+              <button
+                type="button"
+                className="ds-btn ds-btn--link text-sm"
+                data-testid="build-flow"
+                disabled={isBusy(busy)}
+                title={
+                  b.flow === "describe"
+                    ? "Drafts opens this build in the builder. Open it on this page instead."
+                    : "From now on, Drafts opens this build in the builder, not on this page."
+                }
+                onClick={() =>
+                  void act(apiRoutes.opsUpdateBuild, {
+                    params: { id: b.id },
+                    body: { flow: b.flow === "describe" ? "phases" : "describe" },
+                  })
+                }
+              >
+                {b.flow === "describe"
+                  ? "Open it here from Drafts"
+                  : "Open it in the builder from Drafts"}
+              </button>
+            ) : null}
+            <Link
+              to={link}
+              className="text-sm font-medium text-slate hover:underline"
+              data-testid="build-open-draft"
+            >
+              {b.kind === "skill" ? "Open the skill's conversation" : "Open the workflow"}
+            </Link>
+          </span>
         ) : null
       }
       footer={

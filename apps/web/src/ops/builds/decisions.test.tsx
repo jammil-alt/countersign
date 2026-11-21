@@ -73,6 +73,7 @@ function detail(list: Decision[]): BuildDetail {
       updatedAt: at,
       phaseAt: at,
       path: "new",
+      flow: "phases",
       templateId: null,
       promisedOn: null,
       origin: null,

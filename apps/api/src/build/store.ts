@@ -175,6 +175,7 @@ export async function summaries(tx: Tx, rows: BuildRow[]): Promise<BuildSummary[
       updatedAt: iso(r.updatedAt) as string,
       phaseAt: iso(r.phaseAt) as string,
       path: r.path,
+      flow: r.flow,
       templateId: r.templateId,
       promisedOn: r.promisedOn,
       origin: r.originKind && r.originId ? { kind: r.originKind, id: r.originId } : null,
