@@ -347,10 +347,11 @@ agent" are not built: they would be new step kinds in the format, the validator 
 
 | # | What | Status |
 |---|---|---|
-| F1 | The chart: layout, boxes, decisions, loop frames, automation boxes, zoom, move, Fit, hover, + on arrows, dragging a box and the dot, folding | Building |
-| F2 | The side panel, the rail, the bar and the List with each step's status | Building |
-| F3 | Issues and questions on their step; Try it on the chart | Building |
-| F4 | Turn on in one button | Building |
-| F5 | A new build: Describe, Check the steps, then the chart. Builds already open keep today's page | Building |
-| F6 | The new view as the default for templates and client agents; the old canvas and Steps list retired | After F1–F4 |
-| F7 | Automations and loops in the same view, with Takes in and Gives back | After F6 |
+| F1 | The chart: layout, boxes, decisions, loop frames, automation boxes, zoom, move, Fit, hover, + on arrows, dragging a box and the dot, folding | Built 2026-11-21 |
+| F2 | The side panel, the rail, the bar and the List with each step's status | Built 2026-11-21 |
+| F3 | Issues and questions on their step; Try it on the chart | Built 2026-11-21 |
+| F4 | Turn on in one button | Built 2026-11-21 |
+| F5 | A new build: Describe, Check the steps (in the Agent lab), then the chart. Builds already open keep today's page | Built 2026-11-21 |
+| F6 | The new view as the default for templates and client agents, loops opened in the frame; the old canvas and Steps list retired | Building |
+| F7 | Automations in the same view, with Takes in and Gives back | Built 2026-11-21 |
+| F8 | Templates and client agents: the lineage strip, customized steps with Put back, a step's differences, the merge screen on the chart | Built 2026-11-21 |

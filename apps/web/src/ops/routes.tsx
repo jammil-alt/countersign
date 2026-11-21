@@ -174,8 +174,8 @@ export const opsRoutes = (
     {/* Owner (2026-11-17): the Builder board is the Agent lab's Drafts tab. */}
     <Route path="builds" element={<Redirect to="/ops/lab?tab=drafts" />} />
     <Route path="builds/:id" element={<BuildScreen />} />
-    {/* docs/plan.md §1.170: a new agent build's Check the steps, after Describe it in the lab. */}
-    <Route path="builds/:id/check" element={<CheckStepsScreen />} />
+    {/* docs/plan.md §1.170: a new agent build's Check the steps, in the Agent lab after Describe it (owner, 2026-11-21: new agents stay in the lab). */}
+    <Route path="lab/check/:id" element={<CheckStepsScreen />} />
     <Route path="clients" element={<ClientsScreen />} />
     <Route path="clients/new" element={<NewClientScreen />} />
     {/* 1.4 (docs/audit-plan.md): the client page's tabs under one frame (client/ClientFrame.tsx),

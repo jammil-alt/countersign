@@ -43,11 +43,11 @@ function ids() {
 
 function renderCheck(api: ReturnType<typeof fakeApi>, words: string | undefined = WORDS) {
   render(
-    <MemoryRouter initialEntries={[`/ops/builds/${BUILD_ID}/check`]}>
+    <MemoryRouter initialEntries={[`/ops/lab/check/${BUILD_ID}`]}>
       <ApiProvider client={api.client}>
         <Routes>
           <Route
-            path="/ops/builds/:id/check"
+            path="/ops/lab/check/:id"
             element={<CheckSteps buildId={BUILD_ID} words={words} newId={ids()} />}
           />
           <Route path="*" element={<Landed />} />

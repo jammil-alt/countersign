@@ -393,6 +393,22 @@ from the issue (change the process, build a skill, needs code). Left:
 | S-C | A client build's draft is still held by what its connection doesn't allow, and its POC by a test run the build's page can't start. | Code: S2 and S4. |
 | S-D | A skill build has no draft-it-now. | Code, if wanted. |
 
+### The builder on one screen (owner, 2026-11-21; `docs/plan.md` §1.170, `docs/builder-plan.md` §12)
+
+The agreed design (PR #498) built on today's builder: the chart, the step panel, the rail, the List,
+Try it, Turn on, Describe and Check the steps in the Agent lab, automations with Takes in and Gives
+back, and templates and client agents with their lineage. It answers §11.5's three questions as
+recommended (one page; high-risk decisions listed first, never holding; a client's try at that
+client). Left:
+
+| # | What | Notes |
+|---|---|---|
+| F-A | **Try it on staging**: a new template from the lab (Describe, Check, Build it), a try, Turn on at a test client; then a client's agent customized and its template updated. Tweak from there (owner: "we can tweak it once we are testing"). | Owner, after merge. |
+| F-B | **Owner:** a trial whose client hasn't connected a tool yet doesn't start; Turn on says so and waits. The mock-up says "a step that needs it waits", which would change the activation check. | Owner decision. |
+| F-C | Draft-now's gaps find their step by a word match; the drafter should name the step. | Code, `packages/agents`. |
+| F-D | An automation has no Builder chat or Try it of its own, old-format automations don't open in the editor, and renaming an input doesn't rewrite the steps that read it. | Code, if wanted. |
+| F-E | "Ask an agent" and "Report to an agent" from the mock-up need new step kinds. | Not planned. |
+
 ### Sign-in codes and the Claude connector (owner, 2026-11-10)
 
 | # | Step | Notes |
