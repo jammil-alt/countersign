@@ -288,3 +288,69 @@ Decided for the operator, written down as decisions, changed after if wanted:
    try at that client, as a test run, which reads the client's real tools and writes nothing.
    Recommended: yes, as test runs already do.
 
+
+## 12. One screen: the builder on a chart (2026-11-21)
+
+Owner, 2026-11-21: the builder flow is too complicated; start from the UI. The design agreed that
+day is `docs/design/builder.html` (PR #498, "let's go with this"). The owner on the plan: "Let's
+follow the existing steps that we have today in terms of skills, tools, automations, loops while
+recreating this experience. Automations and loops should also use this view and this builder; it
+should just have a clearer input and output so it can be embedded into a process." And: "The above
+looks fine… let's go through it and we can tweak it once we are testing." What was decided is in
+`docs/plan.md` §1.170.
+
+### 12.1 One view in five places
+
+The new screen is the workflow builder's new face. Today's builder is already the one component
+behind a template's and a client agent's Workflow and Steps tabs, and a build's draft is the same
+agent version it saves, so it replaces that builder in place.
+
+| Where | In the frame | Starts with | Ends with | Its button |
+|---|---|---|---|---|
+| A new build | The draft, after Describe and Check the steps | Starts when | Stop, or the last step | Turn on |
+| A template | Its workflow | Starts when | The same | Publish; Assign to a client |
+| A client's agent | Its own copy, marked Customized and Added against the template | Starts when | The same | Publish (Turn on while it is new) |
+| An automation | Its saved steps | **Takes in**: its input fields | **Gives back**: its output | Publish |
+| A loop (For each, Repeat) | Its steps, opened from its frame | **For each** item of the list, or **Repeat until** | **Gives back**: what later steps can use | None: it is part of the flow |
+
+At the client level only that client's connected tools are offered, a save is the client agent's own
+new version, and template updates still come through the merge screen.
+
+### 12.2 The steps are today's
+
+The rail holds the catalog the builder has now, nothing more: Skills; Automations; Tools, by tool,
+with their reads and writes; People (Approve, Ask, Talk with a person, Notify); Logic (If, For
+each, Repeat, Wait, Stop); Other agents (Hand off). The mock-up's "Ask an agent" and "Report to an
+agent" are not built: they would be new step kinds in the format, the validator and the runtime.
+
+### 12.3 What stays and what is redrawn
+
+- **Stays:** the step format and its validator, the editing model (ids made once, undo, save,
+  publish, rebasing onto a newer version), the catalog, the inspector's fields, the Builder session
+  with a step in focus and its Undo, test runs, drag and drop (`@dnd-kit`).
+- **Redrawn:** the canvas becomes a chart of boxes and arrows (positions worked out from the nested
+  steps and never stored, so merges are untouched and no graph library is needed); the inspector
+  becomes the step's side panel with the Builder underneath; the Steps tab becomes the List with each
+  step's status; the tabs and toolbar become one bar.
+
+### 12.4 Where the API changes
+
+| Part | Change |
+|---|---|
+| Issues and questions on their step | A build's issue carries the step it belongs to; the gaps "Draft it now" records name their step. No migration. |
+| Turn on | One new route: publish, copy to the client for a template, bind the client's connections, start the trial; what is missing comes back as one list. Each piece exists; the one button is new. High-risk decisions are listed first and don't hold it (§11.5, question 2). |
+| Try it | None: the test run's steps (`GET /api/ops/runs/:id`) are read back onto the chart. |
+| Plain-words search | None: today's word match, and the words sent to the Builder. |
+| An automation's Builder chat and try | Not yet: Builder sessions are for agents and skills. An automation is tried through an agent that uses it. |
+
+### 12.5 Steps
+
+| # | What | Status |
+|---|---|---|
+| F1 | The chart: layout, boxes, decisions, loop frames, automation boxes, zoom, move, Fit, hover, + on arrows, dragging a box and the dot, folding | Building |
+| F2 | The side panel, the rail, the bar and the List with each step's status | Building |
+| F3 | Issues and questions on their step; Try it on the chart | Building |
+| F4 | Turn on in one button | Building |
+| F5 | A new build: Describe, Check the steps, then the chart. Builds already open keep today's page | Building |
+| F6 | The new view as the default for templates and client agents; the old canvas and Steps list retired | After F1–F4 |
+| F7 | Automations and loops in the same view, with Takes in and Gives back | After F6 |

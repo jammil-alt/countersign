@@ -6363,6 +6363,22 @@ and 1.165 belong to another open branch; 1.166 and 1.167 are the build page's cl
 | Limits and cost | Each operator's drafts are claimed per client (or no client) before the model is called (`claimMetered`, `assist.draft`): 20 a minute and 300 a day, more a minute than questions since a brief has nine fields (live dictation's own allowance is per segment, §1.109). The cost is the operator's, never a client's: logged (`assist.draft.cost`), not recorded as a client's usage, as the back office's questions are. // DECISION |
 | Not yet | Other long fields (skill and agent editors, step instructions, the portal's own forms) take the prop when the owner wants them; Draft in the portal; drafts in a client's language for templates' intake forms. |
 
+### 1.170 The builder on one screen: a chart of the steps (owner, 2026-11-21; no migration)
+
+The design agreed on 2026-11-21 (`docs/design/builder.html`, PR #498), built on today's builder
+and build flow. The plan, its table of places and its steps are `docs/builder-plan.md` §12.
+
+| Topic | Decision |
+|---|---|
+| One view | The workflow builder's new face, in five places: a new build's draft, a template, a client's agent, an automation, a loop. The state, saving, undo, Builder session and test runs are today's builder's; only how it is drawn and laid out changes. // DECISION |
+| Steps | Today's kinds only: skills, automations, tools (reads and writes), people, logic, hand off. "Ask an agent" and "Report to an agent" wait for a format change. // DECISION |
+| The chart | Laid out by code from the nested steps; positions are never stored, so merges and ids are untouched. A path ends (its last step is Stop) or comes back to its decision's next step; nothing else is offered. No graph library. // DECISION |
+| Automations and loops | Open in the same view, framed by what they take in and what they give back. An automation's input and output are its definition's own `input` and `output`; a loop's are worked out from its steps and shown, not stored. // DECISION |
+| Check the steps | The draft is made as today ("Draft it now", saved); the list is shown over that saved draft and edits it. A line added by hand is a `missing` step with its words, filled by the Builder on Build it. No route changes. // DECISION (owner, 2026-11-21: the plan's recommendation) |
+| High-risk decisions | Listed first on Turn on; they don't hold the trial. Approval stays on and the trial signs every write (`docs/builder-plan.md` §11.5, question 2). // DECISION (owner, 2026-11-21) |
+| Builds already open | Keep today's build page; only new builds open on Describe. // DECISION (owner, 2026-11-21) |
+| Turn on | One route does publish, the copy for a template, binding the client's connections and the trial's start, and answers what is still missing as one list. // DECISION |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and
