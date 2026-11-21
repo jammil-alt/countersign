@@ -6382,6 +6382,23 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.173 Clearing the lab's Drafts on a test environment (owner, 2026-11-21; no migration)
+
+The owner: "is there a way to remove the agents in progress from staging so that we can test
+through some of these basic agents again? That is all test work." Asked where: "staging only … we
+should have an archive … this will not necessarily be a thing going forward, it is more now that
+we are trying to test and rebuild."
+
+| Topic | Decision |
+|---|---|
+| What it does | One press on the lab's Drafts, confirmed in place: every build in progress on the board (new agents and skills; a build from a template is Build's and stays) is stopped, and the drafts never published are discarded: those builds' own agents, and the templates with no build. |
+| Nothing is deleted | Invariant 3 holds: a stopped build keeps its page, records and events (its event says "Cleared from Drafts to test again."), and a discarded draft keeps its versions and restores from its page, as Discard draft always worked. A published template, a client's live agent and a test copy are untouched. |
+| Staging only | By the environment's name, not a setting: `clearsDrafts` is true where `ENVIRONMENT` is `staging` or `development`. In production the preview answers `allowed: false`, the button never shows, and the action is refused (403 `not_here`). // DECISION |
+| The routes | `GET` and `POST /api/ops/lab/drafts/clear` (`opsClearDraftsPreview`, `opsClearDrafts`), operator only, through `mount()` for the audit row, in the operator's own scope: a client's build or draft only for a client the operator serves. In a file of its own (`apps/api/src/routes/ops-lab-clear.ts`), so it can be taken out when testing is done. |
+| The Archive | Under the board on Drafts: "Stopped builds" (each opens its build page) above the "Discarded drafts" the lab already listed. |
+| Not built | Opening a stopped build again. A cleared build stays stopped; the work is started again from New. |
+| Checked | `apps/api/src/ops-lab-clear.test.ts` (where it runs; operators only; builds stopped with their reason, drafts discarded, a published template kept, a draft restored), `apps/web/src/ops/lab/ClearDrafts.test.tsx` (not offered where it isn't allowed; asks first; the board empties and the Archive lists it). |
+
 ### 1.172 Where a build opens from Drafts (owner, 2026-11-21; migration 0073)
 
 The owner: "When you leave the builder and come back to the drafts it takes you back to the old

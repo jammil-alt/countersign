@@ -24,6 +24,7 @@ import { BuildsBoard, buildKindLine } from "../builds/BuildsBoard";
 import { isNewKind, NewBuild, type NewKind } from "../builds/NewBuild";
 import { TableCard } from "../screens/business";
 import { rememberLabQuery } from "./back";
+import { ClearDrafts, StoppedBuilds } from "./ClearDrafts";
 import { handOver } from "./TemplateParts";
 
 export { useSlow } from "./TemplateParts";
@@ -243,6 +244,19 @@ export function LabScreen() {
     [templates.data],
   );
   const discarded = (templates.data?.templates ?? []).filter((t) => t.status === "disabled");
+  // §1.173: on a test environment the Drafts can be cleared; what was cleared is the Archive.
+  const clearing = useApi(apiRoutes.opsClearDraftsPreview, tab === "drafts" ? {} : null);
+  const stopped = useApi(
+    apiRoutes.opsBuilds,
+    tab === "drafts" ? { query: { status: "stopped" } } : null,
+  );
+  const cleared = () => {
+    lab.reload();
+    builds.reload();
+    templates.reload();
+    clearing.reload();
+    stopped.reload();
+  };
   const open = builds.data?.builds ?? [];
   const buildsFailed = tab === "drafts" && !!builds.error;
   const building = useMemo(
@@ -337,6 +351,9 @@ export function LabScreen() {
               {/* FLOW-7 (QA 2026-11-19): a failed read of the builds showed "No drafts", and the
                   operator might start one again. It says the builds couldn't be read. */}
               {buildsFailed ? <ErrorNotice error={builds.error} onRetry={builds.reload} /> : null}
+              {tab === "drafts" ? (
+                <ClearDrafts preview={clearing.data} onCleared={cleared} />
+              ) : null}
               {board.length > 0 ? (
                 <section className="flex flex-col gap-2" aria-label="Builds in progress">
                   <h2 className="type-subheading text-ink">
@@ -400,6 +417,8 @@ export function LabScreen() {
                 <AgentTable items={shown} />
               )}
 
+              {/* The Archive: what was stopped or discarded stays here, and opens as it was. */}
+              {tab === "drafts" ? <StoppedBuilds builds={stopped.data?.builds ?? []} /> : null}
               {tab === "drafts" && discarded.length > 0 ? (
                 <DiscardedList agents={discarded} />
               ) : null}
