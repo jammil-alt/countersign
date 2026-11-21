@@ -100,7 +100,7 @@ export const CLOSE_CHOICES = [
 ] as const;
 
 /** The line a question closed as not needed keeps in its detail. */
-// DECISION (docs/plan.md §1.164): items have no note field, so "Not needed" is Done with this line
+// DECISION (docs/plan.md §1.166): items have no note field, so "Not needed" is Done with this line
 // added to the item's detail; no schema change.
 export const NOT_NEEDED_NOTE = "Closed as not needed.";
 

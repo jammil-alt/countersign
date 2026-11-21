@@ -5923,7 +5923,7 @@ Below are the choices they made where the fix left a choice open, each with a `/
 | Not in this pass | The guard doesn't yet compare a conversation step's channel or contact. Saves that opt out of the stale check (update merge, promotion, relink, setup answers) can still save over a newer draft, as before. Two `.slice` cuts still split characters: the approve summary in the proposal path, and `reasonOf` in the client-test facts. |
 | Checked | Each PR's own suites, then the four branches merged together on `main`. There was one import-list conflict, in `apps/api/src/build/store.ts`: keep `sliceWhole`, drop the unused `SkillDefinition`. On that merge, lint, layering and typecheck pass. The tests pass in every package (API 1758, web 1580, core 1623, agents 429 and the rest). The merge showed one interaction: #442's client-test fixture named a step the draft doesn't have, which #445's AI-6 check now leaves out. #442's fixture now names the stored step id. Two failures are this environment's, and fail the same way on `main`: `apps/desktop` `controller.test.ts` and `apps/browser` `chromium.test.ts` (no matching Chromium build). |
 
-### 1.164 The build page: issues and decisions closed out where they're listed (owner, 2026-11-21; no migration)
+### 1.166 The build page: issues and decisions closed out where they're listed (owner, 2026-11-21; no migration)
 
 Owner feedback on staging (2026-11-20/21): "There is no way to answer this question here"; on
 Decisions, "We can't close these"; and the Issues table cut its Who-has-it and Status selects to a

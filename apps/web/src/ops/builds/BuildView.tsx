@@ -2639,7 +2639,7 @@ function ItemsPanel({
     i: Item,
     body: NonNullable<CallOptions<typeof apiRoutes.opsUpdateBuildItem>["body"]>,
   ) => void act(apiRoutes.opsUpdateBuildItem, { params: { id, itemId: i.id }, body });
-  // DECISION (docs/plan.md §1.164): an answer is a turn about the issue (`about: item:<id>`), as
+  // DECISION (docs/plan.md §1.166): an answer is a turn about the issue (`about: item:<id>`), as
   // the conversation's own words are when it is on that issue; the Builder fills the brief and
   // closes the question. The box closes at once; if the Builder couldn't take the words, they
   // come back.
