@@ -18,7 +18,7 @@
 > for the routes that change what an SOP says, with who made the change and where; a read and an
 > hourly check record any the change sites missed, and report them. Find, filters by person or
 > system, and a print layout; "Ask about this" and "This is wrong" as on the manual. Changed:
-> §10.17 (new); `docs/sop-plan.md`; `docs/plan.md` §1.177.
+> §10.17 (new); `docs/sop-plan.md`; `docs/plan.md` §1.179.
 
 > **v0.20, builds that work first (2026-11-19, owner):** **A build makes the normal case work on
 > real examples first, writes down every decision it takes, and the agent carries a manual.** In
@@ -3381,7 +3381,7 @@ of the governance versions. `docs/open.md`, "Builds that work first", lists them
 The owner's ask: "a documented SOP for each of the agents… clickable, readable, queryable… look
 and print and share based on the current set up of their agent… a process, owners, controls,
 systems, data". The plan and its decisions are `docs/sop-plan.md`; what was built is
-`docs/plan.md` §1.177. The SOP is the client's manual made formal (§10.16): the portal's Manual
+`docs/plan.md` §1.179. The SOP is the client's manual made formal (§10.16): the portal's Manual
 tab became the SOP tab; the back office keeps its Manual tab, and agents keep reading manuals with
 `manual.read`, never the SOP.
 

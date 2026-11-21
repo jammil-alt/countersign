@@ -408,7 +408,7 @@ client). Left:
 | F-D | An automation has no Builder chat or Try it of its own, old-format automations don't open in the editor, and renaming an input doesn't rewrite the steps that read it. | Code, if wanted. |
 | F-E | "Ask an agent" and "Report to an agent" from the mock-up need new step kinds. | Not planned. |
 
-### The agent's SOP (owner, 2026-11-21; `docs/sop-plan.md`, `docs/plan.md` §1.177, ARCHITECTURE v0.21 §10.17)
+### The agent's SOP (owner, 2026-11-21; `docs/sop-plan.md`, `docs/plan.md` §1.179, ARCHITECTURE v0.21 §10.17)
 
 Built: S0 (PR #510), the `sop_revision` table (S1a, migration 0074, PR #511) and S1 (PR #508): each
 client agent's SOP in the portal's SOP tab (the Manual tab's place), made by code from its setup,

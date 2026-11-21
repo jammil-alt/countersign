@@ -8,7 +8,7 @@ data. Plan this and design this before building it."
 This page is the plan and the design. The mock-up is [`docs/design/sop.html`](design/sop.html)
 (open it in a browser; it prints). **S0, S1a and S1 are built** (owner, 2026-11-21: "Rename Manual
 to SOP, yes; start building S0 and S1"): ARCHITECTURE v0.21 §10.17 describes them and
-`docs/plan.md` §1.177 records each choice made while building, where some details below changed
+`docs/plan.md` §1.179 records each choice made while building, where some details below changed
 (model names without their maker, a pause or a hold not in the SOP, a connection's errors not a
 change, revisions recorded by `mount()` for the routes listed in `SOP_CHANGE_ROUTES`). What is left
 is in `docs/open.md`, "The agent's SOP".
