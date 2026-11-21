@@ -1109,6 +1109,9 @@ describe.skipIf(!h)("builds", () => {
     );
     b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "And again?" });
     expect(b.messages.at(-1)?.proposal).toBeUndefined();
+    // Staging (2026-11-21, MEZONAS-API-9 again): said in the message, not dropped in silence.
+    expect(b.messages.at(-1)?.text).toContain("I'd draft it again.");
+    expect(b.messages.at(-1)?.text).toContain("already has a skill build under way");
   });
 
   // QA on staging (2026-11-16): the fit-gap failed three times out of three. The raw validation
