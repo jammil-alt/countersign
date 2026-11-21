@@ -4,7 +4,13 @@
 import { type JsonSchema, processes } from "@countersign/core";
 import { createLlmClient, FakeModel } from "@countersign/llm";
 import { describe, expect, it } from "vitest";
-import { RESHAPE_SUGGEST_TOOL, reshapeSuggestPrompt, suggestReshape } from "./reshape";
+import {
+  checkSuggestions,
+  RESHAPE_SUGGEST_RULES,
+  RESHAPE_SUGGEST_TOOL,
+  reshapeSuggestPrompt,
+  suggestReshape,
+} from "./reshape";
 
 const READ: JsonSchema = {
   type: "object",
@@ -120,6 +126,47 @@ describe("the Builder AI's suggestion", () => {
     ]);
     expect(model.requests).toHaveLength(1);
     expect(s.calls).toHaveLength(1);
+  });
+
+  it("accepts a record built field by field, and names the field a bad one fails on", () => {
+    // §1.164: the object expression is in the allowed set the AI is told about.
+    expect(RESHAPE_SUGGEST_RULES).toContain('{"object": {"fields"');
+    const vendor: processes.ReshapeField = {
+      name: "vendor",
+      schema: {
+        type: "object",
+        properties: { name: { type: "string" }, invoice: { type: "string" } },
+        required: ["name"],
+      },
+    };
+    const request = {
+      context,
+      mapping: { fields: [...proposal.mapping.fields, vendor] },
+      unmapped: ["vendor", "memo"],
+    };
+    const r = checkSuggestions(request, {
+      fields: [
+        {
+          name: "vendor",
+          expression: {
+            object: {
+              fields: {
+                name: { input: "readDocument.header.vendorName" },
+                invoice: { input: "readDocument.header.invoiceNumber" },
+              },
+            },
+          },
+        },
+        {
+          name: "memo",
+          expression: { object: { fields: { po: { input: "readDocument.header.poNo" } } } },
+        },
+      ],
+    });
+    expect(Object.keys(r.fields)).toEqual(["vendor"]);
+    expect(r.dropped).toEqual([
+      { field: "memo", reason: 'memo.po reads input.readDocument.header.poNo: no field "poNo"' },
+    ]);
   });
 
   it("asks nothing when nothing is unmapped", async () => {

@@ -303,8 +303,12 @@ export const SetupFieldDraft = z.object({
     .min(1)
     .max(200)
     .describe("What we ask the client, as a question or a short label"),
+  // DECISION (owner, 2026-11-21): a Podio check-in template's form came back with every field
+  // "Connect a tool", "Who is the project manager" and "What time should…" too. The kinds read
+  // fine on screen (the stored kind is what shows); the Builder chose connect for anything about a
+  // tool. connect is now only the connection itself, named by the tool.
   kind: SetupKind.describe(
-    "connect (a tool they connect, by name), answer (a value: a tolerance, an address, a person), file (contracts, a vendor list)",
+    "connect: only connecting a tool, one field per tool, its label the tool's name (Podio, QuickBooks Online). answer: any value we ask for, including anything about a tool they connect (which workspace, which fields, a person, a time, a tolerance, an address). file: what they upload (contracts, a vendor list)",
   ),
   hint: z
     .string()

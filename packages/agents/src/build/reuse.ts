@@ -81,6 +81,7 @@ const RESHAPE_WORDS: Partial<Record<processes.ReshapeExprKind, string>> = {
   pick: "Pick one field of a record",
   pluck: "One field from each item of a list",
   mapList: "Reshape each item of a list",
+  object: "Build a record field by field (a customer with a name and an email)",
   join: "Join texts into one",
   split: "Split a text into a list",
 };

@@ -178,6 +178,13 @@ function operandText(o: processes.ReshapeOperand): string {
   return JSON.stringify(o.value);
 }
 
+/** A mapped list item's or a record's fields: "name ← data.name; email ← data.email". */
+function recordText(fields: Record<string, processes.ReshapeExpr>): string {
+  return Object.entries(fields)
+    .map(([k, v]) => `${k} ← ${exprText(v)}`)
+    .join("; ");
+}
+
 /** An expression in a few words: "readDocument.total as money", "each of lines: …". */
 export function exprText(e: processes.ReshapeExpr): string {
   if ("input" in e || "item" in e || "value" in e || "today" in e) {
@@ -214,12 +221,61 @@ export function exprText(e: processes.ReshapeExpr): string {
   }
   if ("pluck" in e) return `${e.pluck.field} of each in ${operandText(e.pluck.list)}`;
   if ("mapList" in e) {
-    const fields = Object.entries(e.mapList.fields)
-      .map(([k, v]) => `${k} ← ${exprText(v)}`)
-      .join("; ");
-    return `each of ${operandText(e.mapList.list)}: ${fields}`;
+    return `each of ${operandText(e.mapList.list)}: ${recordText(e.mapList.fields)}`;
   }
+  // §1.164: a record built field by field.
+  if ("object" in e) return `a record: ${recordText(e.object.fields)}`;
   return `${operandText(e.convertUnit.value)} from ${e.convertUnit.from} to ${e.convertUnit.to}`;
+}
+
+/** A sub-field of a record field, as the mapping editor lists it. */
+export interface RecordField {
+  name: string;
+  schema: JsonSchema;
+  required: boolean;
+}
+
+/** The record type a field takes, when it takes one (`anyOf: [record, null]` read as the record). */
+export function recordSchema(schema: JsonSchema | undefined): JsonSchema | null {
+  if (!schema) return null;
+  for (const k of ["anyOf", "oneOf"] as const) {
+    const alts = schema[k];
+    if (Array.isArray(alts)) {
+      const records = alts.filter(
+        (a) =>
+          a &&
+          typeof a === "object" &&
+          processes.schemaTypeNames(a as JsonSchema).includes("object"),
+      );
+      return records.length === 1 ? (records[0] as JsonSchema) : null;
+    }
+  }
+  return processes.schemaTypeNames(schema).includes("object") ? schema : null;
+}
+
+/**
+ * §1.164: the fields a record is built from in the editor: those its type names, in order, then
+ * any the mapping fills that its type doesn't name (so nothing mapped is hidden).
+ */
+export function recordFields(
+  schema: JsonSchema | undefined,
+  mapped: Record<string, processes.ReshapeExpr>,
+): RecordField[] {
+  const record = recordSchema(schema);
+  const props =
+    record?.properties && typeof record.properties === "object"
+      ? (record.properties as Record<string, JsonSchema>)
+      : {};
+  const required = Array.isArray(record?.required) ? (record.required as string[]) : [];
+  const out: RecordField[] = Object.entries(props).map(([name, s]) => ({
+    name,
+    schema: s,
+    required: required.includes(name),
+  }));
+  for (const name of Object.keys(mapped)) {
+    if (!Object.hasOwn(props, name)) out.push({ name, schema: {}, required: false });
+  }
+  return out;
 }
 
 /** The fields a Copy can read: every path of every source, by input key. */

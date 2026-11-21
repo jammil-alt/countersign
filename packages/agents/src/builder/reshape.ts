@@ -53,6 +53,7 @@ An expression is JSON, one of these and nothing else (no code, no templates):
 - {"pick": {"list": <operand>, "index": 0, "where": {"field": "<item field>", "equals": <operand>}, "field": "<item field>"}}.
 - {"pluck": {"list": <operand>, "field": "<item field>"}}: one field of every item.
 - {"mapList": {"list": <operand>, "fields": {"<name>": <expression>, ...}}}: a list of records, field by field; inside it {"item": "<item field>"} reads the item.
+- {"object": {"fields": {"<name>": <expression>, ...}}}: one record built field by field, for a field that takes a record (e.g. a customer with a name and an email); it may sit inside mapList and inside another object.
 - {"convertUnit": {"value": <operand>, "from": "ft", "to": "in"}}.
 An operand is {"input": "<path>"}, {"item": "<item field>"} (inside mapList), {"value": ...} or {"today": true}.
 
@@ -196,9 +197,11 @@ export function checkSuggestions(
       dropped.push({ field: s.name, reason: "not an expression from the allowed set" });
       continue;
     }
-    const typed = processes.reshapeExprSchema(parsed.data, { input: request.context.input });
+    const typed = processes.reshapeFieldTyping(s.name, parsed.data, {
+      input: request.context.input,
+    });
     if (typed.problems.length > 0) {
-      dropped.push({ field: s.name, reason: `${s.name} ${typed.problems[0]}` });
+      dropped.push({ field: s.name, reason: typed.problems[0] as string });
       continue;
     }
     const fit = processes.schemaFitProblems(f.schema, typed.schema, s.name);

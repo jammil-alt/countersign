@@ -9,6 +9,7 @@ import type { SkillDefinition } from "../schemas/skill";
 import type { ToolSpec } from "../schemas/tool";
 import type { Step, TriggerOn, Workflow } from "../schemas/workflow";
 import { allTriggers, HANDOFF_PAYLOAD, MESSAGE_PAYLOAD } from "../triggers/kinds";
+import { webhookPayloadWithData } from "../triggers/sample";
 import { mergeTriggerSchemas } from "../triggers/typing";
 import { type StepLocation, walkSteps } from "../workflow/walk";
 import { singleRef } from "./template";
@@ -73,8 +74,11 @@ export function triggerOnSchema(on: TriggerOn, ctx: TypingContext): JsonSchema |
   switch (on.type) {
     // v0.12 W2-E: a webhook trigger is sugar over `webhook.received`; messages and handoffs have
     // their own payloads.
-    case "webhook":
-      return ctx.events?.["webhook.received"]?.payload;
+    case "webhook": {
+      const payload = ctx.events?.["webhook.received"]?.payload;
+      // §1.164: a pasted sample's shape types the delivery's data.
+      return on.dataSchema ? webhookPayloadWithData(payload, on.dataSchema) : payload;
+    }
     case "message":
       return MESSAGE_PAYLOAD;
     case "handoff":

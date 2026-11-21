@@ -302,6 +302,7 @@ export function Conversation({
           voice={voiceFor("portal", null, {
             dictate: t("voice.dictate"),
             stop: t("voice.stop"),
+            listening: t("voice.listening"),
             writing: t("voice.writing"),
             blocked: t("voice.blocked"),
             failed: t("voice.failed"),
