@@ -587,7 +587,7 @@ async function turn(
           : null) ??
         prep.focused?.key ??
         null;
-      const proposal = answer.proposal
+      const fit = answer.proposal
         ? fitProposal(
             answer.proposal,
             prep.detail,
@@ -595,10 +595,18 @@ async function turn(
             await proposalFacts(scoped.tx, ctx.services, fresh, answer.proposal),
           )
         : null;
-      if (answer.proposal && !proposal) {
+      const proposal = fit && "proposal" in fit ? fit.proposal : null;
+      // Staging (2026-11-21, Sentry MEZONAS-API-9 again): "Build a skill" on an issue whose step
+      // already had its skill build. The Builder proposed it anyway; the card was dropped, the
+      // Builder's words said it was started, and nothing happened. A change that is already under
+      // way is said so in the message, not reported: nothing is wrong. Anything else is reported
+      // with why, so the next one says which rule it broke.
+      const already = fit && "why" in fit && fit.why === "already_settled" ? fit.said : null;
+      if (answer.proposal && fit && "why" in fit && fit.why !== "already_settled") {
         reportProblem("the Builder proposed a change that doesn't fit the build", {
           kind: "build",
           action: answer.proposal.action.do,
+          why: fit.why,
           build: id,
         });
       }
@@ -607,7 +615,7 @@ async function turn(
         fresh.phase === row.phase ? readFitGap(set.fitgap ?? fresh.fitgap).decisions : [];
       await addMessage(scoped.tx, fresh, {
         role: "builder",
-        text: answer.text,
+        text: already ? `${answer.text}\n\n${already}` : answer.text,
         meta: {
           chips: answer.chips,
           changes: [
@@ -941,6 +949,23 @@ async function proposalFacts(
   return out;
 }
 
+/** Why a proposal doesn't fit the build. `already_settled`: what it asks for is already under way. */
+type ProposalMiss =
+  | "already_settled"
+  | "not_an_open_item"
+  | "not_a_closed_item"
+  | "not_a_failed_check"
+  | "not_an_earlier_phase"
+  | "wrong_phase"
+  | "unknown_step"
+  | "unknown_request";
+
+/** A proposal as it fits the build, or why it doesn't (and, when already settled, what to say). */
+type ProposalFit =
+  | { proposal: BuildProposal }
+  | { why: Exclude<ProposalMiss, "already_settled"> }
+  | { why: "already_settled"; said: string };
+
 /**
  * The Builder's proposal if it fits the build: an item it names is this build's and in the state
  * the change needs, a check is failing in QA, going back is to an earlier phase, tests run in the
@@ -953,46 +978,54 @@ function fitProposal(
   d: BuildDetail,
   phase: BuildPhase,
   f: ProposalFacts,
-): BuildProposal | null {
+): ProposalFit {
   const a = p.action;
   const itemOf = (raw: string) => d.items.find((i) => i.id === raw.replace(/^item:/, ""));
+  const ok = (proposal: BuildProposal): ProposalFit => ({ proposal });
+  const no = (why: Exclude<ProposalMiss, "already_settled">): ProposalFit => ({ why });
   switch (a.do) {
     case "close_item": {
       const item = itemOf(a.itemId);
-      return item && itemOpen(item.state) ? { ...p, action: { ...a, itemId: item.id } } : null;
+      return item && itemOpen(item.state)
+        ? ok({ ...p, action: { ...a, itemId: item.id } })
+        : no("not_an_open_item");
     }
     case "reopen_item": {
       const item = itemOf(a.itemId);
-      return item && !itemOpen(item.state) ? { ...p, action: { ...a, itemId: item.id } } : null;
+      return item && !itemOpen(item.state)
+        ? ok({ ...p, action: { ...a, itemId: item.id } })
+        : no("not_a_closed_item");
     }
     case "accept_check":
       return phase === "qa" && d.qaChecks.some((c) => c.id === a.check && c.state === "fail")
-        ? p
-        : null;
+        ? ok(p)
+        : no("not_a_failed_check");
     case "go_back":
       return phaseIndex(d.build.kind, a.to) >= 0 &&
         phaseIndex(d.build.kind, a.to) < phaseIndex(d.build.kind, phase)
-        ? p
-        : null;
+        ? ok(p)
+        : no("not_an_earlier_phase");
     case "run_tests":
-      return phase === "poc" && d.draft ? p : null;
+      return phase === "poc" && d.draft ? ok(p) : no("wrong_phase");
     case "edit_draft":
       // BUILDER_QA AI-4: a step it names is one of the draft's.
-      if (a.stepId && f.stepIds && !f.stepIds.has(a.stepId)) return null;
+      if (a.stepId && f.stepIds && !f.stepIds.has(a.stepId)) return no("unknown_step");
       // The draft is what the POC tests; from the client test on, the change goes back first.
       return (phase === "draft" || phase === "poc") &&
         (d.build.kind === "agent" ? !!d.draft?.versionId : !!d.draft?.sessionId)
-        ? p
-        : null;
+        ? ok(p)
+        : no("wrong_phase");
     // docs/plan.md §1.125: a gap's two buckets, and the Dev queue's link and approval.
     case "file_code_request":
     case "link_code_request":
     case "draft_skill": {
-      if (phase !== "fitgap" && phase !== "draft" && phase !== "poc") return null;
+      if (phase !== "fitgap" && phase !== "draft" && phase !== "poc") return no("wrong_phase");
       // BUILDER_QA AI-4: the request to link is there, under the ref it names, and still open.
       if (a.do === "link_code_request") {
         const r = f.request;
-        if (!r || parseDqNumber(a.ref) !== r.number || r.status === "closed") return null;
+        if (!r || parseDqNumber(a.ref) !== r.number || r.status === "closed") {
+          return no("unknown_request");
+        }
       }
       // A step that already has its skill build is settled that way.
       if (
@@ -1000,7 +1033,10 @@ function fitProposal(
         a.stepId &&
         d.items.some((i) => i.stepId === a.stepId && i.ref.buildId && itemOpen(i.state))
       ) {
-        return null;
+        return {
+          why: "already_settled",
+          said: "That step already has a skill build under way, so I didn't start another. It's in the issues list.",
+        };
       }
       const item = a.itemId ? itemOf(a.itemId) : undefined;
       // QA on staging (2026-11-19, Sentry MEZONAS-API-9): in the draft the issues are the draft's
@@ -1009,16 +1045,25 @@ function fitProposal(
       // open gap is left out instead; the change makes its own gap item, as a request's link does.
       if (!item || !itemOpen(item.state) || item.kind !== "gap") {
         const { itemId: _, ...rest } = a;
-        return { ...p, action: rest };
+        return ok({ ...p, action: rest });
       }
       // A gap already waiting on a request, or with its skill build, is settled that way.
-      if (item.ref.codeRequestId || (a.do === "draft_skill" && item.ref.buildId)) return null;
-      return { ...p, action: { ...a, itemId: item.id } };
+      if (item.ref.codeRequestId || (a.do === "draft_skill" && item.ref.buildId)) {
+        return {
+          why: "already_settled",
+          said: item.ref.codeRequestId
+            ? `“${item.title}” is already waiting on a code request, so I left it as it is.`
+            : `“${item.title}” already has a skill build under way, so I didn't start another.`,
+        };
+      }
+      return ok({ ...p, action: { ...a, itemId: item.id } });
     }
     case "approve_code_request": {
       // BUILDER_QA AI-4: only a request this build waits on, under its own ref, still in triage.
       const r = f.request;
-      return r?.waitedOn && r.status === "triage" && parseDqNumber(a.ref) === r.number ? p : null;
+      return r?.waitedOn && r.status === "triage" && parseDqNumber(a.ref) === r.number
+        ? ok(p)
+        : no("unknown_request");
     }
   }
 }
