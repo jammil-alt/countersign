@@ -31,6 +31,25 @@ export function openItems(status: StepStatus | undefined): SettleItem[] {
     .sort((a, b) => (a.level === b.level ? 0 : a.level === "issue" ? -1 : 1));
 }
 
+/**
+ * What a decision's path with no condition yet asks. It is a question, not an issue: a path just
+ * added has nothing wrong with it, it hasn't been said yet when a run takes it. The validator
+ * still holds the workflow from being published until it is.
+ */
+// DECISION (owner, 2026-11-21: "I added a path and… it starts as an issue… make it ask what it
+// is first"): the validator's `rules_empty` on a decision's path reads as this question, in gold,
+// with the validator's own words under it.
+export function pathQuestion(name: string): string {
+  const n = name.trim();
+  return n ? `When does a run take “${n}”?` : "When does a run take this path?";
+}
+
+/** A decision's path by its id. */
+function pathOf(process: Process, pathId: string) {
+  const owner = ifOfBranch(process, pathId);
+  return owner?.kind === "if" ? (owner.paths.find((p) => p.id === pathId) ?? null) : null;
+}
+
 export interface StatusInput {
   process: Process;
   /** The validator's errors (pass `readableErrors` from ../builder/problems for plain words). */
@@ -99,13 +118,19 @@ export function buildStatuses(input: StatusInput): StatusMap {
     const key = `problem:${e.code}:${e.stepId}:${e.field}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    entry(owner).items.push({
-      key,
-      stepId: owner,
-      level: "issue",
-      title: e.message,
-      source: "problem",
-    });
+    const unsaid = e.code === "rules_empty" ? pathOf(process, e.stepId) : null;
+    entry(owner).items.push(
+      unsaid
+        ? {
+            key,
+            stepId: owner,
+            level: "question",
+            title: pathQuestion(unsaid.name),
+            detail: e.message,
+            source: "problem",
+          }
+        : { key, stepId: owner, level: "issue", title: e.message, source: "problem" },
+    );
   }
 
   for (const item of input.items ?? []) {

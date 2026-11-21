@@ -96,6 +96,8 @@ export interface FocusRequest {
   node: string;
   field: string;
   nonce: number;
+  /** Select the field's words too, so typing replaces them (a new path's "Path 2"). */
+  select?: boolean;
 }
 
 export interface InspectorProps {
@@ -187,6 +189,7 @@ function useFocus(root: React.RefObject<HTMLElement | null>, focus: FocusRequest
       const el = scope.querySelector<HTMLElement>(`[data-field="${CSS.escape(field)}"]`);
       if (el) {
         el.focus();
+        if (focus.select && el instanceof HTMLInputElement) el.select();
         return;
       }
       const cut = field.lastIndexOf(".");
@@ -1568,7 +1571,10 @@ function IfEditor(
       ) : null}
       {step.paths.map((p, i) => {
         const pathErrors = errorsFor(errors, p.id);
-        const invalid = errors.some((e) => e.stepId === p.id);
+        const mine = errors.filter((e) => e.stepId === p.id);
+        const invalid = mine.length > 0;
+        // Only its condition still to say: a question (gold), as the panel's top says it.
+        const unsaid = invalid && mine.every((e) => e.code === "rules_empty");
         return (
           <section
             key={p.id}
@@ -1576,7 +1582,7 @@ function IfEditor(
             data-testid={`builder-path-${p.id}`}
             className={cx(
               "flex flex-col gap-2 rounded-md border bg-surface-subtle p-3",
-              invalid ? "border-risk" : "border-line",
+              unsaid ? "border-signal" : invalid ? "border-risk" : "border-line",
             )}
           >
             <div className="flex items-center gap-2">
@@ -1592,6 +1598,12 @@ function IfEditor(
                 {p.steps.length} {p.steps.length === 1 ? "step" : "steps"}
               </span>
             </div>
+            {/^Path \d+$/.test(p.name.trim()) && p.when.rules.length === 0 ? (
+              // A path just added: what it is first, then when a run takes it.
+              <p className="text-xs text-ink-muted" data-testid={`builder-path-${p.id}-new`}>
+                Name this path for what it is, then say when a run takes it.
+              </p>
+            ) : null}
             {byAgent ? (
               <Row label="Take this when" field="describe" errors={pathErrors}>
                 <SmallInput

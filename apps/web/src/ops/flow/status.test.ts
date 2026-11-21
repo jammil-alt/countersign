@@ -113,6 +113,29 @@ describe("buildStatuses", () => {
     expect([...s.keys()].sort()).toEqual(["code", "dup", "read"]);
   });
 
+  it("a path with no condition yet is a question on its decision, not an issue", () => {
+    const s = buildStatuses({
+      process,
+      problems: [
+        problem("pa", {
+          code: "rules_empty",
+          field: "when.rules",
+          message: "Add a condition, or use otherwise.",
+        }),
+      ],
+      workflow: "intake",
+    });
+    expect(s.get("dup")?.level).toBe("question");
+    expect(s.get("dup")?.items[0]).toMatchObject({
+      key: "problem:rules_empty:pa:when.rules",
+      level: "question",
+      title: "When does a run take “The invoice is a duplicate”?",
+      detail: "Add a condition, or use otherwise.",
+    });
+    // The bar counts it with the questions (the one issue is the fixture's missing step).
+    expect(counts(s)).toEqual({ issues: 1, questions: 1 });
+  });
+
   it("an issue wins over a question; a settled item no longer counts", () => {
     const items: SettleEntry[] = [
       { key: "item:1", stepId: "else", level: "question", title: "How big?", source: "build_item" },
