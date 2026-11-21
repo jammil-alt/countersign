@@ -5923,6 +5923,23 @@ Below are the choices they made where the fix left a choice open, each with a `/
 | Not in this pass | The guard doesn't yet compare a conversation step's channel or contact. Saves that opt out of the stale check (update merge, promotion, relink, setup answers) can still save over a newer draft, as before. Two `.slice` cuts still split characters: the approve summary in the proposal path, and `reasonOf` in the client-test facts. |
 | Checked | Each PR's own suites, then the four branches merged together on `main`. There was one import-list conflict, in `apps/api/src/build/store.ts`: keep `sliceWhole`, drop the unused `SkillDefinition`. On that merge, lint, layering and typecheck pass. The tests pass in every package (API 1758, web 1580, core 1623, agents 429 and the rest). The merge showed one interaction: #442's client-test fixture named a step the draft doesn't have, which #445's AI-6 check now leaves out. #442's fixture now names the stored step id. Two failures are this environment's, and fail the same way on `main`: `apps/desktop` `controller.test.ts` and `apps/browser` `chromium.test.ts` (no matching Chromium build). |
 
+### 1.164 The build page: issues and decisions closed out where they're listed (owner, 2026-11-21; no migration)
+
+Owner feedback on staging (2026-11-20/21): "There is no way to answer this question here"; on
+Decisions, "We can't close these"; and the Issues table cut its Who-has-it and Status selects to a
+letter. The build page's Issues card is now one row per issue, and both cards close out on the row.
+Web only: the items and decisions routes are as they were.
+
+| Topic | Decision |
+|---|---|
+| An issue's row | Its kind and title, its detail at full width, then one line: where it came from · who has it · its status, both still changeable from selects as wide as their longest choice (`h-7 w-auto`). The actions go under it. Open first, the first few, the focused one always shown, Talk about it, the thread link and the Add footer are as before. // DECISION |
+| Answering a question | "Answer it" opens a box under the question (with Dictate). Send puts the conversation on the issue and sends `About “<title>”: <answer>` with `about: item:<id>`, the same turn the conversation sends when it is on that issue; the Builder fills the brief and closes the question as before. The box shuts at once and its words come back if the turn fails. The conversation's own box is left alone. // DECISION |
+| Closing a question another way | A Close menu: Done (answered elsewhere), Put off, Not needed. Items have no note field, so Not needed is Done with "Closed as not needed." added to the item's detail (within its 2,000 characters; `withNote`). // DECISION |
+| Gaps, notes, preconditions | A gap's Build it, A person does it and Drop it each send that choice to the Builder in the gap's thread, naming it. A note and a precondition have Done. Tests, QA and client feedback keep their own paths and their "To settle it". // DECISION |
+| A decision's row | Its status is a chip in full words, with "By …". Confirm sets `confirmed`; Undo, on a confirmed or discussed row, sets it back to never discussed. Change it… opens "What should it be?", sent to the Builder in `decision:<id>` asking it to rewrite the decision. A client setup decision adds Ask each client (into the client intake form), a decision point A person decides each run (a person step). // DECISION |
+| Asking the Builder to change a decision | A never-discussed decision is marked discussed before the words go, so the Builder's rewrite reads as Changed (core `mergeDecisions` marks a rewrite changed only on a row someone looked at). Ask about it marks nothing. // DECISION |
+| The Decisions card staying open | Its default (shut when nothing waits on a check) is read on every render, so confirming the last check folded the card under the operator's hand. An action on a row now holds the card as it is for that visit (`Fold.hold`), without keeping a choice for the browser. // DECISION |
+
 ### 1.157 The platform QA fixes (2026-11-20; no migration)
 
 A hostile QA pass on the platform outside the Builder (`PLATFORM_QA.md`, PR #446) found 49 defects
