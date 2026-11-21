@@ -1787,19 +1787,14 @@ function BuilderBody(
         }
         builder={
           stepFocus
-            ? (size) => (
-                <StepChat
-                  session={session}
-                  step={stepFocus.step}
-                  size={size}
-                  onPrevious={((id) => (id ? () => selectStep(id) : undefined))(stepFocus.previous)}
-                  onNext={((id) => (id ? () => selectStep(id) : undefined))(stepFocus.next)}
-                />
-              )
+            ? (size) => <StepChat session={session} step={stepFocus.step} size={size} />
             : undefined
         }
         builderSize={chatSize}
         onBuilderSize={setChatSize}
+        // The step before and after, from the Builder's head (they were a row of the chat).
+        onPreviousStep={((id) => (id ? () => selectStep(id) : undefined))(stepFocus?.previous)}
+        onNextStep={((id) => (id ? () => selectStep(id) : undefined))(stepFocus?.next)}
         // An if and a missing step say how they are removed among their own settings.
         onRemove={step.kind === "if" ? undefined : () => remove(step.id)}
         removeLabel={step.kind === "missing" ? "Remove it" : undefined}

@@ -12,21 +12,42 @@ import { isOpen, openItems, type SettleEntry, TRY_WORD } from "./status";
 import type { DecidedNote, SettleItem, StepStatus } from "./types";
 
 /**
- * How much of the panel the Builder takes: folded to its one line ("line"), the message box, half
- * beside the setup, or all of it.
+ * How much of the panel the Builder takes: folded to its one line ("line"), half beside the
+ * setup, or all of it.
  */
 // DECISION (owner, 2026-11-21: "allow it to be collapsed into a single line… the buttons take 4
-// lines"): the Builder's head is one line, its name folds and opens it, and the sizes are one
-// word each. Folded, the setup has the whole panel; what was typed to the Builder is kept.
-export type BuilderSize = "line" | "min" | "beside" | "max";
+// lines", then "let's go to a collapse, half and full… find icons to make this not the tabs, make
+// it smaller"): the Builder's head is one line. Its name folds and opens it; two small icons choose
+// half or the whole panel; the previous and next step are beside them. The box-only size is gone:
+// it had no room for an answer. Folded, the setup has the whole panel and what was typed is kept.
+export type BuilderSize = "line" | "beside" | "max";
 /** A size the Builder is drawn at: every one but folded. */
 export type BuilderOpenSize = Exclude<BuilderSize, "line">;
 
-const SIZES: { size: BuilderOpenSize; label: string; title: string }[] = [
-  { size: "min", label: "Box", title: "The message box alone" },
-  { size: "beside", label: "Half", title: "The setup and the Builder, half each" },
-  { size: "max", label: "Full", title: "Fill the panel with the Builder" },
+const SIZES: { size: BuilderOpenSize; label: string }[] = [
+  { size: "beside", label: "Half the panel: the setup above, the Builder below" },
+  { size: "max", label: "The whole panel" },
 ];
+
+/** How much of a panel, as a picture: a frame with its lower half, or all of it, filled. */
+function SizeGlyph({ size }: { size: BuilderOpenSize }) {
+  return (
+    <svg width={14} height={14} viewBox="0 0 16 16" aria-hidden className="shrink-0">
+      <rect x={2.5} y={2.5} width={11} height={11} rx={2} fill="none" stroke="currentColor" />
+      <rect
+        x={2.5}
+        y={size === "max" ? 2.5 : 8}
+        width={11}
+        height={size === "max" ? 11 : 5.5}
+        rx={size === "max" ? 2 : 0}
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
+
+const HEAD_BUTTON =
+  "ds-btn ds-btn--ghost ds-btn--icon ds-btn--sm text-ink-muted hover:text-ink disabled:opacity-40";
 
 export interface StepPanelProps {
   stepId: string;
@@ -59,6 +80,9 @@ export interface StepPanelProps {
   builderSize?: BuilderSize | undefined;
   defaultBuilderSize?: BuilderSize | undefined;
   onBuilderSize?: ((size: BuilderSize) => void) | undefined;
+  /** The step before and after this one, from the Builder's head; absent at the first or last. */
+  onPreviousStep?: (() => void) | undefined;
+  onNextStep?: (() => void) | undefined;
   /** "Remove this step" (or "Remove this decision" with `removeLabel`). Absent: not offered. */
   onRemove?: (() => void) | undefined;
   removeLabel?: string | undefined;
@@ -67,14 +91,14 @@ export interface StepPanelProps {
 
 export function StepPanel(props: StepPanelProps) {
   const { status } = props;
-  const [ownSize, setOwnSize] = useState<BuilderSize>(props.defaultBuilderSize ?? "min");
+  const [ownSize, setOwnSize] = useState<BuilderSize>(props.defaultBuilderSize ?? "beside");
   const size = props.builderSize ?? ownSize;
   const setSize = (s: BuilderSize) => {
     setOwnSize(s);
     props.onBuilderSize?.(s);
   };
   // Folded, the Builder stays mounted at the size it opens back to, so its words are kept.
-  const [lastOpen, setLastOpen] = useState<BuilderOpenSize>(size === "line" ? "min" : size);
+  const [lastOpen, setLastOpen] = useState<BuilderOpenSize>(size === "line" ? "beside" : size);
   if (size !== "line" && size !== lastOpen) setLastOpen(size);
   const folded = size === "line";
   const openSize: BuilderOpenSize = size === "line" ? lastOpen : size;
@@ -135,13 +159,12 @@ export function StepPanel(props: StepPanelProps) {
           data-testid="flow-panel-builder"
           className={cx(
             "flex min-h-0 flex-col border-t border-line px-5",
-            folded ? "shrink-0 py-1.5" : "gap-3 py-3",
-            size === "min" && "shrink-0",
+            folded ? "shrink-0 py-1" : "gap-2 pt-1 pb-3",
             size === "beside" && "flex-1 basis-1/2",
             size === "max" && "flex-1",
           )}
         >
-          <div className="flex min-h-8 items-center justify-between gap-3">
+          <div className="flex h-8 shrink-0 items-center justify-between gap-2">
             <button
               type="button"
               aria-expanded={!folded}
@@ -151,27 +174,56 @@ export function StepPanel(props: StepPanelProps) {
               className="eyebrow -ml-1 flex min-w-0 items-center gap-1 rounded-sm px-1 py-1 whitespace-nowrap text-ink-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-slate"
             >
               <Icon name={folded ? "chevron-right" : "chevron-down"} size={14} />
-              Builder · on this step
+              Builder
             </button>
             {folded ? null : (
-              <fieldset className="ds-seg shrink-0" aria-label="Builder size">
+              <span className="flex shrink-0 items-center gap-0.5">
+                {props.onPreviousStep || props.onNextStep ? (
+                  <>
+                    <button
+                      type="button"
+                      className={HEAD_BUTTON}
+                      aria-label="Previous step"
+                      title="Previous step"
+                      data-testid="flow-panel-builder-previous"
+                      disabled={!props.onPreviousStep}
+                      onClick={() => props.onPreviousStep?.()}
+                    >
+                      <Icon name="chevron-right" size={14} className="rotate-180" />
+                    </button>
+                    <button
+                      type="button"
+                      className={HEAD_BUTTON}
+                      aria-label="Next step"
+                      title="Next step"
+                      data-testid="flow-panel-builder-next"
+                      disabled={!props.onNextStep}
+                      onClick={() => props.onNextStep?.()}
+                    >
+                      <Icon name="chevron-right" size={14} />
+                    </button>
+                    <span aria-hidden className="mx-1 h-4 w-px bg-line" />
+                  </>
+                ) : null}
                 {SIZES.map((s) => (
                   <button
                     key={s.size}
                     type="button"
-                    title={s.title}
+                    className={cx(HEAD_BUTTON, size === s.size && "bg-surface-subtle text-ink")}
+                    aria-label={s.label}
+                    title={s.label}
                     aria-pressed={size === s.size}
                     data-testid={`flow-panel-builder-${s.size}`}
-                    className="whitespace-nowrap"
                     onClick={() => setSize(s.size)}
                   >
-                    {s.label}
+                    <SizeGlyph size={s.size} />
                   </button>
                 ))}
-              </fieldset>
+              </span>
             )}
           </div>
-          <div className={cx("relative min-h-0 flex-1 overflow-y-auto", folded && "hidden")}>
+          {/* The Builder lays itself out in what is left: its conversation scrolls, nothing else. */}
+          <div className={cx("flex min-h-0 min-w-0 flex-1 flex-col", folded && "hidden")}>
             {builder}
           </div>
         </section>

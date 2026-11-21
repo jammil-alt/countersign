@@ -1337,6 +1337,32 @@ a.ui-stat--link:focus-visible {
     display: none;
   }
 }
+/* Compact (the step panel's Builder; owner, 2026-11-21: "too much lost space"): one line that
+ * grows, tighter padding, the buttons on one line, and the hint in Send's title instead. After
+ * the composer's own rules, which these refine. */
+.ui-chat-composer--compact .ui-chat-composer__box {
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-2-5);
+}
+.ui-chat-composer--compact .ui-chat-composer__foot {
+  flex-wrap: nowrap;
+}
+.ui-chat-composer--compact .ui-chat-composer__tools {
+  min-width: 0;
+  flex: 1;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.ui-chat-composer--compact .ui-chat-composer__tools > button {
+  padding-right: var(--space-1-5);
+  padding-left: var(--space-1-5);
+}
+.ui-chat-composer--compact .ui-chat-composer__hint {
+  display: none;
+}
+.ui-chat-composer--compact .ui-chat-composer__foot > .ds-btn--icon:last-child {
+  margin-left: auto;
+}
 .ui-chat-text {
   display: flex;
   min-width: 0;

@@ -171,16 +171,20 @@ describe("StepPanel", () => {
       </StepPanel>,
     );
     const panel = screen.getByTestId("flow-panel");
-    expect(panel).toHaveAttribute("data-builder-size", "min");
-    expect(screen.getByText("Builder at min")).toBeTruthy();
-    expect(screen.getByTestId("flow-panel-builder-min")).toHaveAttribute("aria-pressed", "true");
-
-    fireEvent.click(screen.getByTestId("flow-panel-builder-beside"));
-    expect(onBuilderSize).toHaveBeenLastCalledWith("beside");
+    // Half by default: the setup above, the Builder below, with room for its answer.
+    expect(panel).toHaveAttribute("data-builder-size", "beside");
     expect(screen.getByText("Builder at beside")).toBeTruthy();
+    expect(screen.getByTestId("flow-panel-builder-beside")).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("flow-panel-body")).toBeTruthy();
+    // The sizes are small icons with their words for a name, not tabs; the box-only size is gone.
+    expect(screen.getByTestId("flow-panel-builder-beside")).toHaveAccessibleName(
+      "Half the panel: the setup above, the Builder below",
+    );
+    expect(screen.getByTestId("flow-panel-builder-max")).toHaveAccessibleName("The whole panel");
+    expect(screen.queryByTestId("flow-panel-builder-min")).toBeNull();
 
     fireEvent.click(screen.getByTestId("flow-panel-builder-max"));
+    expect(onBuilderSize).toHaveBeenLastCalledWith("max");
     expect(panel).toHaveAttribute("data-builder-size", "max");
     // The whole panel: the setup steps aside.
     expect(screen.queryByTestId("flow-panel-body")).toBeNull();
@@ -195,7 +199,7 @@ describe("StepPanel", () => {
         kind="Skill"
         title="Read"
         builder={(size) => <p>Builder at {size}</p>}
-        defaultBuilderSize="beside"
+        defaultBuilderSize="max"
         onBuilderSize={onBuilderSize}
         onClose={() => {}}
       >
@@ -205,23 +209,37 @@ describe("StepPanel", () => {
     const panel = screen.getByTestId("flow-panel");
     const fold = screen.getByTestId("flow-panel-builder-fold");
     expect(fold).toHaveAttribute("aria-expanded", "true");
-    // The sizes are one word each, so the head stays one line.
-    expect(screen.getByTestId("flow-panel-builder-min")).toHaveTextContent(/^Box$/);
-    expect(screen.getByTestId("flow-panel-builder-beside")).toHaveTextContent(/^Half$/);
-    expect(screen.getByTestId("flow-panel-builder-max")).toHaveTextContent(/^Full$/);
 
     fireEvent.click(fold);
     expect(onBuilderSize).toHaveBeenLastCalledWith("line");
     expect(panel).toHaveAttribute("data-builder-size", "line");
     expect(fold).toHaveAttribute("aria-expanded", "false");
     // One line: no sizes, the setup has the panel, and the Builder is kept, out of sight.
-    expect(screen.queryByTestId("flow-panel-builder-min")).toBeNull();
+    expect(screen.queryByTestId("flow-panel-builder-max")).toBeNull();
     expect(screen.getByText("The setup")).toBeTruthy();
-    expect(screen.getByText("Builder at beside").parentElement).toHaveClass("hidden");
+    expect(screen.getByText("Builder at max").parentElement).toHaveClass("hidden");
 
     fireEvent.click(fold);
-    expect(onBuilderSize).toHaveBeenLastCalledWith("beside");
-    expect(panel).toHaveAttribute("data-builder-size", "beside");
-    expect(screen.getByText("Builder at beside").parentElement).not.toHaveClass("hidden");
+    expect(onBuilderSize).toHaveBeenLastCalledWith("max");
+    expect(panel).toHaveAttribute("data-builder-size", "max");
+    expect(screen.getByText("Builder at max").parentElement).not.toHaveClass("hidden");
+  });
+
+  it("moves to the step before and after from the Builder's head", () => {
+    const onNextStep = vi.fn();
+    render(
+      <StepPanel
+        stepId="s1"
+        kind="Skill"
+        title="Read"
+        builder={<p>The Builder</p>}
+        onNextStep={onNextStep}
+        onClose={() => {}}
+      />,
+    );
+    // The first step has none before it.
+    expect(screen.getByTestId("flow-panel-builder-previous")).toBeDisabled();
+    fireEvent.click(screen.getByTestId("flow-panel-builder-next"));
+    expect(onNextStep).toHaveBeenCalledTimes(1);
   });
 });

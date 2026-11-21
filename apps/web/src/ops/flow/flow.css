@@ -181,8 +181,28 @@
     color: var(--ink-muted);
   }
   .flow-box__mark--logo {
+    position: relative;
     border: 0;
     background: none;
+  }
+  /* An agent's avatar on a hand-off, at the mark's size. */
+  .flow-box__mark--logo .ui-agentbadge {
+    width: 24px;
+    height: 24px;
+    font-size: 9.5px;
+  }
+  /* "AI" on a connector's logo: the step's tool calls a model inside. */
+  .flow-box__mark-ai {
+    position: absolute;
+    right: -5px;
+    bottom: -4px;
+    padding: 1px 2px;
+    border-radius: 3px;
+    background: var(--ink);
+    color: var(--paper);
+    font: 600 7.5px / 1 var(--font-mono);
+    font-style: normal;
+    letter-spacing: 0.02em;
   }
   .flow-box__mark--ai {
     color: var(--ink);

@@ -401,6 +401,11 @@ export function Pending({
 // ── The composer ────────────────────────────────────────────────────────────────────────────────
 
 export interface ComposerProps {
+  /**
+   * A small box for a narrow panel (the step panel's Builder): one line that grows, its buttons
+   * on the line under it, and no hint (Send's own title says how).
+   */
+  compact?: boolean | undefined;
   /** The box's name for screen readers ("Message to Reggie"). */
   label: string;
   placeholder: string;
@@ -474,6 +479,7 @@ function ReturnArrow() {
 }
 
 export function Composer({
+  compact = false,
   label,
   placeholder,
   onSend,
@@ -553,7 +559,10 @@ export function Composer({
   }
 
   return (
-    <div className="ui-chat-composer" data-testid={testId}>
+    <div
+      className={cx("ui-chat-composer", compact && "ui-chat-composer--compact")}
+      data-testid={testId}
+    >
       {above}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: dropping files is a pointer shortcut; Attach is the keyboard's way */}
       <div
@@ -585,6 +594,7 @@ export function Composer({
           aria-label={label}
           data-testid={inputTestId}
           className="ui-chat-input--bare"
+          minRows={compact ? 1 : 2}
           maxLength={maxLength}
           value={text}
           placeholder={placeholder}
@@ -662,7 +672,7 @@ export function Composer({
             className="ds-btn--icon"
             data-testid={sendTestId}
             aria-label={busy ? w.sending : w.send}
-            title={busy ? w.sending : w.send}
+            title={busy ? w.sending : compact ? `${w.send}. ${w.hint}` : w.send}
             disabled={off}
             onClick={() => void send()}
           >

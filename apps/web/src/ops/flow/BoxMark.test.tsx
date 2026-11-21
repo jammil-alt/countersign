@@ -33,6 +33,23 @@ describe("boxMark", () => {
     expect(boxMark(step("read"), { skillKind: "AI" })).toMatchObject({ type: "ai" });
   });
 
+  it("puts AI on a connector's logo when its tool calls a model, and an agent's avatar on a hand-off", () => {
+    expect(
+      boxMark(step("read", { tool: "qbo.bill.query" }), { connector: QBO, skillKind: "AI" }),
+    ).toMatchObject({
+      type: "connector",
+      ai: true,
+      words: "Reads from QuickBooks Online, with a model",
+    });
+    expect(boxMark(step("handoff"), { agent: { name: "Price checker" } })).toEqual({
+      type: "agent",
+      name: "Price checker",
+      words: "Hands off to Price checker",
+    });
+    // A hand-off with no agent chosen yet keeps the arrow.
+    expect(boxMark(step("handoff"))).toMatchObject({ icon: "arrow" });
+  });
+
   it("gives every other kind its icon, a person's in copper, and none to a decision or a Stop", () => {
     expect(boxMark(step("person"))).toMatchObject({ icon: "lead", person: true });
     expect(boxMark(step("conversation"))).toMatchObject({ icon: "message", person: true });
