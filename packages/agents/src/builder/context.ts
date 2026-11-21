@@ -37,7 +37,13 @@ export interface BuilderClient {
 export interface BuilderContext {
   tools: ToolSpec[];
   skills: BuilderSkill[];
-  connectors: { id: string; name: string }[];
+  /**
+   * Each connector with what it does in its own words. The description names the service behind
+   * it (the bank feed's says Plaid), so a service the operator names can be found by it (owner,
+   * 2026-11-21: "where is the Plaid connector? I am asking for it but it says that we don't have
+   * one": the Builder saw only "bankfeed" and "Bank and card feeds").
+   */
+  connectors: { id: string; name: string; description?: string }[];
   /** Packs the platform has registered (none yet). */
   packs: { id: string; name: string }[];
   events: EventTypeSpec[];
