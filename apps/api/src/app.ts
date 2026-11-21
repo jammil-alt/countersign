@@ -123,6 +123,7 @@ import { opsCodeRequestRoutes } from "./routes/ops-code-requests";
 // v0.12 W2-A: the connectors catalog
 import { opsConnectorRoutes } from "./routes/ops-connectors";
 import { opsEventRoutes } from "./routes/ops-events";
+import { opsLabClearRoutes } from "./routes/ops-lab-clear";
 import { opsLineageRoutes } from "./routes/ops-lineage";
 import { opsMergeRoutes } from "./routes/ops-merge";
 import { opsModelRoutes } from "./routes/ops-models";
@@ -318,6 +319,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   reggieRoutes(app);
   // docs/plan.md §1.108: builds, from intake to go-live
   opsBuildRoutes(app);
+  opsLabClearRoutes(app);
   // builder-plan.md B1: try the draft on real examples in the POC test
   buildTryRoutes(app);
   // docs/plan.md §1.125: the Dev queue
