@@ -22,7 +22,7 @@ CREATE TABLE "sop_revision" (
 	CONSTRAINT "sop_revision_major_check" CHECK ("sop_revision"."major" >= 0),
 	CONSTRAINT "sop_revision_minor_check" CHECK ("sop_revision"."minor" >= 0),
 	CONSTRAINT "sop_revision_side_check" CHECK ("sop_revision"."changed_by_side" in ('client', 'operator', 'system')),
-	CONSTRAINT "sop_revision_source_check" CHECK ("sop_revision"."source" in ('first', 'version', 'agent', 'connection', 'grant', 'approver_rules', 'business_hours', 'owner', 'adjust', 'stage', 'check')),
+	CONSTRAINT "sop_revision_source_check" CHECK ("sop_revision"."source" in ('first', 'version', 'agent', 'connection', 'grant', 'approver_rules', 'business_hours', 'owner', 'adjust', 'stage', 'check', 'format')),
 	CONSTRAINT "sop_revision_fingerprint_check" CHECK (length("sop_revision"."fingerprint") = 64)
 );
 --> statement-breakpoint

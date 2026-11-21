@@ -1362,6 +1362,8 @@ export const SOP_REVISION_SOURCES = [
   "adjust",
   "stage",
   "check",
+  // Only how Mezonas writes SOPs changed (core's SOP_FORMAT), not how the agent works.
+  "format",
 ] as const;
 
 /**
@@ -1406,7 +1408,7 @@ export const sopRevision = pgTable(
     check("sop_revision_side_check", sql`${t.changedBySide} in ('client', 'operator', 'system')`),
     check(
       "sop_revision_source_check",
-      sql`${t.source} in ('first', 'version', 'agent', 'connection', 'grant', 'approver_rules', 'business_hours', 'owner', 'adjust', 'stage', 'check')`,
+      sql`${t.source} in ('first', 'version', 'agent', 'connection', 'grant', 'approver_rules', 'business_hours', 'owner', 'adjust', 'stage', 'check', 'format')`,
     ),
     check("sop_revision_fingerprint_check", sql`length(${t.fingerprint}) = 64`),
   ],
