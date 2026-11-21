@@ -293,7 +293,8 @@ export function JsonInput({
     if (error === null) setText(shown);
   }
   return (
-    <div className="flex flex-col gap-1">
+    // Positioned, so the textarea hidden under the view (sr-only: position absolute) stays here.
+    <div className="relative flex flex-col gap-1">
       <TextArea
         id={inputId}
         onFocus={() => setEditing(true)}

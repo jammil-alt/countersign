@@ -3,7 +3,9 @@
 // frames are one SVG layer; the boxes, path labels and + points are HTML on top of it.
 //
 // Click a box to open it (onSelect); point at one for its details; press + on an arrow to add a
-// step there (onInsert); "+ Add a path" beside a decision (onAddPath). Drag a box onto a + or
+// step there (onInsert); "+ Add a path" beside a decision (onAddPath). The details sit on the
+// stage beside the box, outside the zoomed chart: they shrink with it, far more slowly, and stay
+// readable at any zoom (tipScale), on whichever side of the box has the room. Drag a box onto a + or
 // another box to move it, or the dot under it onto the step that should come next (./dnd: the
 // host's DndContext, so the rail's items drag onto the chart too). Zoom with the buttons or Ctrl
 // or Cmd and the wheel; drag the background to move around. Marks come from the host's statuses:
@@ -17,6 +19,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
   type ReactNode,
+  type RefObject,
   useCallback,
   useEffect,
   useId,
@@ -55,7 +58,27 @@ const ZOOM_STEP = 0.1;
 /** How long the pointer rests on a box before its details show. */
 export const TIP_DELAY_MS = 400;
 
+/** The smallest and the largest a box's details are drawn, against their size at 100%. */
+export const TIP_SCALE_MIN = 0.85;
+export const TIP_SCALE_MAX = 1.15;
+/** The space between a box and its details, and between the details and the chart's edge. */
+const TIP_GAP = 12;
+const TIP_EDGE = 8;
+/** Kept clear at the bottom of the chart: the zoom buttons sit there, over everything. */
+const TIP_FOOT = 60;
+
 const clampZoom = (z: number) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(z * 100) / 100));
+
+/**
+ * How big a box's details are drawn at a zoom. They follow the chart, but far less than it does:
+ * a little smaller zoomed out, a little larger zoomed in, and never too small to read.
+ */
+// DECISION (owner, 2026-11-21): the square root of the zoom, held between 85% and 115%: at 25% the
+// chart's boxes are a quarter their size and the details still read at 85%.
+export function tipScale(zoom: number): number {
+  const s = Math.min(TIP_SCALE_MAX, Math.max(TIP_SCALE_MIN, Math.sqrt(zoom)));
+  return Math.round(s * 100) / 100;
+}
 
 function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -417,17 +440,19 @@ export function Chart(props: ChartProps) {
                 {layout.tail ? <TailButton tail={layout.tail} onInsert={props.onInsert} /> : null}
               </>
             )}
-
-            {tipBox ? (
-              <Tip
-                box={tipBox}
-                ends={ends}
-                status={statuses.get(tipBox.id)}
-                label={label}
-                readOnly={readOnly}
-              />
-            ) : null}
           </div>
+          {tipBox ? (
+            <Tip
+              key={tipBox.id}
+              box={tipBox}
+              ends={ends}
+              status={statuses.get(tipBox.id)}
+              label={label}
+              readOnly={readOnly}
+              zoom={zoom}
+              viewport={viewport}
+            />
+          ) : null}
         </div>
       </div>
 
@@ -806,28 +831,88 @@ function TailButton({
   );
 }
 
-/** A box's details on hover: what it is, what is left to settle, what was decided, what a try did. */
+/**
+ * A box's details on hover: what it is, whether a model does it and which, what is left to settle,
+ * what was decided, what a try did. Drawn on the stage at the box's zoomed place and its own size
+ * (tipScale): right of the box, or left of it when only that side has the room, and moved up when
+ * it would run under the chart's bottom edge.
+ */
 function Tip(p: {
   box: FlowBox;
   ends: FlowEnds;
   status: StepStatus | undefined;
   label: Labeller;
   readOnly: boolean;
+  zoom: number;
+  viewport: RefObject<HTMLDivElement | null>;
 }) {
-  const { box, status } = p;
-  const right = box.x + box.w + 12;
-  const style = { left: right, top: box.y };
+  const { box, status, zoom, viewport } = p;
+  const scale = tipScale(zoom);
+  const el = useRef<HTMLDivElement | null>(null);
+  const right = (box.x + box.w) * zoom + TIP_GAP;
+  const top = box.y * zoom;
+  const [place, setPlace] = useState({ left: right, top });
+  // Once it has a size: the side with the room, and inside the part of the chart in view.
+  useLayoutEffect(() => {
+    const tip = el.current;
+    const v = viewport.current;
+    const stage = tip?.parentElement;
+    let next = { left: right, top };
+    if (tip && v && stage && v.clientWidth > 0 && v.clientHeight > 0) {
+      const vr = v.getBoundingClientRect();
+      const sr = stage.getBoundingClientRect();
+      // The part of the stage in view, in the stage's own coordinates.
+      const viewLeft = vr.left - sr.left;
+      const viewTop = vr.top - sr.top;
+      const w = tip.offsetWidth * scale;
+      const h = tip.offsetHeight * scale;
+      const left = box.x * zoom - TIP_GAP - w;
+      const fitsRight = right + w <= viewLeft + v.clientWidth - TIP_EDGE;
+      const fitsLeft = left >= viewLeft + TIP_EDGE;
+      next = {
+        left: !fitsRight && fitsLeft ? left : right,
+        top: Math.max(viewTop + TIP_EDGE, Math.min(top, viewTop + v.clientHeight - TIP_FOOT - h)),
+      };
+    }
+    setPlace((was) => (was.left === next.left && was.top === next.top ? was : next));
+  }, [box.x, right, top, zoom, scale, viewport]);
+  const style = {
+    left: place.left,
+    top: place.top,
+    transform: scale === 1 ? undefined : `scale(${scale})`,
+  };
   let body: ReactNode;
   if (box.step) {
     const words = p.label(box.step);
     const mark = status?.tried;
     const tryWord = mark && mark.status !== "skipped" ? TRY_WORD[mark.status] : null;
     const canDot = box.step.kind !== "if" && box.step.kind !== "stop";
+    // A line of its own for the model: "AI" or "Deterministic", then the model it runs on. What
+    // that line says is left out of the eyebrow and the detail, which said it among other things.
+    const how = words.skillKind ?? null;
+    const runs = words.model ? `runs on ${words.model}` : null;
+    const kind =
+      how && words.kind.endsWith(` · ${how}`)
+        ? words.kind.slice(0, -` · ${how}`.length)
+        : words.kind;
+    const detail =
+      runs && words.detail
+        ? words.detail
+            .split(" · ")
+            .filter((part) => part !== runs)
+            .join(" · ") || null
+        : words.detail;
     body = (
       <>
-        <span className="ds-eyebrow">{words.kind}</span>
+        <span className="ds-eyebrow">{kind}</span>
         <span className="flow-tip__h">{words.title}</span>
-        {words.detail ? <span className="flow-tip__d">{words.detail}</span> : null}
+        {how || runs ? (
+          <div className="flow-tip__runs" data-testid="flow-tip-runs">
+            {how ? <span className={pillClass("neutral")}>{how}</span> : null}
+            {runs ? <span>{how ? runs : `R${runs.slice(1)}`}</span> : null}
+          </div>
+        ) : null}
+        {detail ? <span className="flow-tip__d">{detail}</span> : null}
         {box.unreachable ? (
           <div>
             <span className={pillClass("risk")}>Never runs</span> Every path above it ends first.
@@ -872,7 +957,14 @@ function Tip(p: {
     );
   }
   return (
-    <div className="flow-tip" role="tooltip" data-testid="flow-tip" style={style}>
+    <div
+      ref={el}
+      className="flow-tip"
+      role="tooltip"
+      data-testid="flow-tip"
+      data-scale={scale}
+      style={style}
+    >
       {body}
     </div>
   );

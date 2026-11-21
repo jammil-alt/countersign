@@ -173,7 +173,7 @@ export function Rail(props: RailProps) {
             : "Try “email the vendor” or “wait two days”. Drag a step onto the flow, or press + on an arrow."}
         </p>
       </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-3">
+      <div className="relative flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-3">
         {words && props.onSay ? (
           <button
             type="button"

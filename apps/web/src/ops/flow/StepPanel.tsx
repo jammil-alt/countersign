@@ -81,7 +81,9 @@ export function StepPanel(props: StepPanelProps) {
         <div
           data-testid="flow-panel-body"
           className={cx(
-            "flex min-h-0 flex-col gap-5 overflow-y-auto px-5 py-4",
+            // Positioned: a field hidden for screen readers only (position absolute) then scrolls
+            // with the panel and is clipped by it, where it would otherwise lengthen the page.
+            "relative flex min-h-0 flex-col gap-5 overflow-y-auto px-5 py-4",
             hasBuilder && size === "beside" ? "flex-1 basis-1/2" : "flex-1",
           )}
         >
@@ -141,7 +143,7 @@ export function StepPanel(props: StepPanelProps) {
               ))}
             </fieldset>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto">{builder}</div>
+          <div className="relative min-h-0 flex-1 overflow-y-auto">{builder}</div>
         </section>
       ) : null}
     </aside>

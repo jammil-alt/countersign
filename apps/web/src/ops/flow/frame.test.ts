@@ -189,6 +189,21 @@ describe("a step's words on the chart", () => {
     expect(words.title).toBe("Read");
     expect(words.detail).toContain("Checked with a person · Urgent notice");
   });
+
+  it("says whether a model does the step and which, for the chart's details", () => {
+    const skill = { id: "s", name: "Read the request", kind: "skill", skill: "read-request" };
+    const words = chartLabel(
+      { skillKind: () => "ai", stepModel: () => "claude-sonnet-5-5" },
+      env(),
+    )(skill as unknown as Step);
+    expect(words.kind).toBe("Skill · AI");
+    expect(words.skillKind).toBe("AI");
+    expect(words.model).toBe("claude-sonnet-5-5");
+    // A step that runs no model has neither.
+    const plain = chartLabel(labels, env())(step("fix"));
+    expect(plain.skillKind).toBeUndefined();
+    expect(plain.model).toBeUndefined();
+  });
 });
 
 describe("the statuses the builder adds", () => {

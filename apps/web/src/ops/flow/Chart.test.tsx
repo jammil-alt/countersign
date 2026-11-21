@@ -4,7 +4,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { Process, Step } from "../builder/model";
-import { Chart } from "./Chart";
+import { Chart, TIP_SCALE_MAX, TIP_SCALE_MIN, tipScale } from "./Chart";
 import { FlowDndContext } from "./dnd";
 import type { ChartProps, FlowEnds, StatusMap, StepStatus } from "./types";
 
@@ -220,6 +220,65 @@ describe("Chart", () => {
     expect(tip).toHaveTextContent("It reads the last 90 days");
     fireEvent.mouseLeave(screen.getByTestId("flow-box-b"));
     expect(screen.queryByTestId("flow-tip")).toBeNull();
+  });
+
+  it("keeps the details readable however far the chart is zoomed out", async () => {
+    // They follow the zoom, far less than the chart does, and never under what reads.
+    expect(tipScale(1)).toBe(1);
+    expect(tipScale(0.25)).toBe(TIP_SCALE_MIN);
+    expect(tipScale(1.6)).toBe(TIP_SCALE_MAX);
+    expect(tipScale(0.8)).toBeLessThan(1);
+    expect(tipScale(0.8)).toBeGreaterThan(0.8);
+
+    setup();
+    for (let i = 0; i < 8; i++) fireEvent.click(screen.getByTestId("flow-zoom-out"));
+    expect(screen.getByTestId("flow-zoom-level")).toHaveTextContent("25%");
+    fireEvent.mouseEnter(screen.getByTestId("flow-box-b"));
+    const tip = await screen.findByTestId("flow-tip");
+    // On the stage beside the zoomed chart, not inside it: the chart's own scale never reaches it.
+    expect(tip.closest(".flow-graph")).toBeNull();
+    expect(tip.closest(".flow-chart__stage")).not.toBeNull();
+    expect(tip).toHaveAttribute("data-scale", String(TIP_SCALE_MIN));
+    expect(tip.style.transform).toBe(`scale(${TIP_SCALE_MIN})`);
+  });
+
+  it("says in the details whether a model does the step, and which", async () => {
+    setup({
+      label: (step) =>
+        step.id === "a"
+          ? {
+              title: step.name,
+              kind: "Skill · AI",
+              detail: "Read a request to buy · runs on claude-sonnet-5-5",
+              skillKind: "AI",
+              model: "claude-sonnet-5-5",
+            }
+          : step.id === "b"
+            ? {
+                title: step.name,
+                kind: "Skill · Deterministic",
+                detail: null,
+                skillKind: "Deterministic",
+              }
+            : { title: step.name, kind: "Read", detail: "Testkit · Find records" },
+    });
+    fireEvent.mouseEnter(screen.getByTestId("flow-box-a"));
+    const tip = await screen.findByTestId("flow-tip");
+    // A line of its own, said once: not again in the eyebrow or the detail.
+    expect(screen.getByTestId("flow-tip-runs")).toHaveTextContent("AIruns on claude-sonnet-5-5");
+    expect(tip.querySelector(".ds-eyebrow")).toHaveTextContent(/^Skill$/);
+    expect(tip.querySelector(".flow-tip__d")).toHaveTextContent(/^Read a request to buy$/);
+    fireEvent.mouseLeave(screen.getByTestId("flow-box-a"));
+
+    // A skill that runs no model says so, with no model beside it.
+    fireEvent.mouseEnter(screen.getByTestId("flow-box-b"));
+    expect(await screen.findByTestId("flow-tip-runs")).toHaveTextContent(/^Deterministic$/);
+    fireEvent.mouseLeave(screen.getByTestId("flow-box-b"));
+
+    // A step with neither has no such line.
+    fireEvent.mouseEnter(screen.getByTestId("flow-box-i"));
+    await screen.findByTestId("flow-tip");
+    expect(screen.queryByTestId("flow-tip-runs")).toBeNull();
   });
 
   it("folds a loop and opens an automation", () => {
