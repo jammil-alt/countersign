@@ -6382,6 +6382,20 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.174 The Builder finds a service by what its connector does (owner, 2026-11-21; no migration)
+
+The owner, drafting a bookkeeping agent that pulls transactions "via Plaid": "where is the Plaid
+connector? I am asking for it but it says that we don't have one." Plaid is the bank feed
+(`packages/connectors/src/bankfeed`, "Bank and card feeds"), but the Builder's catalog gave each
+connector's id and name only, and none of its tools' words say Plaid.
+
+| Topic | Decision |
+|---|---|
+| What the Builder reads | Each connector with its own description (`BuilderContext.connectors[].description`, from the manifest), in the short catalog and the full one. The bank feed's says "through Plaid". About 60 one-line descriptions: little beside the tools. // DECISION |
+| Its rules | A service named in the request may be in the catalog under another name: look for it by what a connector does before calling it missing, and use that connector's tools. The rules' example of a missing part said "There is no card feed connector", which the catalog has had since the bank feed; it now names one we don't have (payroll). |
+| Not changed | The connector's name on screen ("Bank and card feeds") and the rail's "Choose a connector" list, which still doesn't say Plaid. |
+| Checked | `packages/agents/src/builder/builder.test.ts` (the description is in both catalogs; the rule is there and the old example is gone); the API's Builder session and draft-now tests pass. Not tried against a live model. |
+
 ### 1.173 Clearing the lab's Drafts on a test environment (owner, 2026-11-21; no migration)
 
 The owner: "is there a way to remove the agents in progress from staging so that we can test

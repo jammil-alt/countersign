@@ -18,8 +18,8 @@ import { createLlmClient, FakeModel, type FakeTurn, fakeMessage } from "@counter
 import { describe, expect, it } from "vitest";
 import { ToolRegistry } from "../registry/tools";
 import { PLATFORM_TOOLS } from "../tools/platform";
-import { BUILDER_ANSWER_TOKENS, BuilderError, draftAgent, reviseAgent } from "./builder";
-import type { BuilderContext } from "./context";
+import { BUILDER_ANSWER_TOKENS, BuilderError, draftAgent, RULES, reviseAgent } from "./builder";
+import { type BuilderContext, catalogBriefForPrompt, catalogForPrompt } from "./context";
 import { guardBundle, replaceTemplates } from "./guards";
 
 type Step = processes.Step;
@@ -180,6 +180,35 @@ const cardChargesAnswer = {
     ],
   },
 };
+
+// Owner, 2026-11-21: "where is the Plaid connector? I am asking for it but it says that we don't
+// have one." The bank feed is Plaid; the Builder saw only its id and name.
+describe("what the Builder is told about connectors", () => {
+  const ctx: BuilderContext = {
+    ...context(),
+    connectors: [
+      {
+        id: "bankfeed",
+        name: "Bank and card feeds",
+        description: "Read the transactions of your bank accounts and cards, through Plaid.",
+      },
+    ],
+  };
+
+  it("reads each connector's description, in the short catalog and the full one", () => {
+    for (const catalog of [catalogBriefForPrompt(ctx), catalogForPrompt(ctx)]) {
+      expect(JSON.stringify(catalog.connectors)).toContain("through Plaid");
+    }
+  });
+
+  it("is told to find a named service by what a connector does before calling it missing", () => {
+    expect(RULES).toContain(
+      "A service named in the request may be in the catalog under another name",
+    );
+    // The old example said the catalog had no card feed, which it has.
+    expect(RULES).not.toContain("no card feed connector");
+  });
+});
 
 describe("draftAgent", () => {
   it("drafts a valid v4 agent with gaps for 'flag card charges over $500 missing receipts'", async () => {

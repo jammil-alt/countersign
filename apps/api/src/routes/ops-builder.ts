@@ -286,9 +286,12 @@ export function platformBuilderContext(
             !(SPLIT_MODEL_TOOLS.has(t.id) || t.id.startsWith(ACCOUNT_TOOL_PREFIX)),
         ),
       skills,
-      connectors: platform.connectors
-        .list()
-        .map((c) => ({ id: c.manifest.id, name: c.manifest.name })),
+      // With each one's description: it names the service behind it (the bank feed's says Plaid).
+      connectors: platform.connectors.list().map((c) => ({
+        id: c.manifest.id,
+        name: c.manifest.name,
+        description: c.manifest.description,
+      })),
       // P-9: the packs this deployment registers (docs/plan.md §1.71); a client's own are in
       // `client`.
       packs: platform.packs.map((p) => ({ id: p.manifest.id, name: p.manifest.name })),
