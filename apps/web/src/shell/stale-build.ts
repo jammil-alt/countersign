@@ -22,6 +22,14 @@ export function isStaleBuildError(error: unknown): boolean {
 
 type Store = Pick<Storage, "getItem" | "setItem">;
 
+/** Set once this page has asked to reload: anything that fails while the reload lands is expected. */
+let reloading = false;
+
+/** Whether this page is already reloading for the new build. */
+export function isReloadingForNewBuild(): boolean {
+  return reloading;
+}
+
 /**
  * Reload the page for the new build, unless it already did so in the last 30 seconds. True when it
  * reloads.
@@ -39,6 +47,7 @@ export function reloadForNewBuild(
   } catch {
     return false;
   }
+  reloading = true;
   reload();
   return true;
 }
@@ -52,12 +61,18 @@ function tabStore(): Store | null {
 }
 
 /**
- * Vite's own signal that a screen's file failed to load (`vite:preloadError`): reload instead of
- * throwing. A failure it doesn't cover reaches React's root error handlers, which check
- * `isStaleBuildError` (main.tsx).
+ * Vite's own signal that a screen's file failed to load (`vite:preloadError`): start the reload.
+ * The event is not cancelled. Cancelling it makes Vite resolve the import with `undefined`, so
+ * React.lazy reads `.default` of nothing and the screen crashes before the reload lands (Sentry
+ * MEZONAS-WEB-5, "Cannot read properties of undefined (reading 'default')"). Left alone, the import
+ * fails with the browser's own error, which React's root error handlers recognise
+ * (`isStaleBuildError`) and don't report while this page is reloading (main.tsx).
  */
-export function watchForNewBuild(target: Pick<Window, "addEventListener"> = window): void {
-  target.addEventListener("vite:preloadError", (event) => {
-    if (reloadForNewBuild()) event.preventDefault();
+export function watchForNewBuild(
+  target: Pick<Window, "addEventListener"> = window,
+  reload: () => boolean = () => reloadForNewBuild(),
+): void {
+  target.addEventListener("vite:preloadError", () => {
+    reload();
   });
 }
