@@ -425,6 +425,14 @@ printing. Merge #510 and #511 before #508. Left:
 | SOP-2 | S2: Sloan's `sop.read`, the Procedures page. | Code. |
 | SOP-3 | S3: share links, the accountable person, packs' own controls; only what the owner agrees. | Migrations, own PRs; a security review for share links. |
 
+### Agent assurance (owner, 2026-11-21; `docs/agent-assurance-plan.md`, mock-up screens 4 and 5 of `docs/design/sop.html`)
+
+Planned and designed, not built: each agent's architecture drawn from its setup, and its security
+controls proved by checks of its setup, its runs and planted attacks, kept as history and tied to
+the register (`AGT-1`, `ISO-1`, …) with their SOC 2 and HIPAA references. Left: the owner's answers
+(`docs/agent-assurance-plan.md` §7), then streams A1 (architecture), A2a (`control_check`, own PR),
+A2 (setup and run checks), A3 (attacks), A4 (evidence export).
+
 ### Sign-in codes and the Claude connector (owner, 2026-11-10)
 
 | # | Step | Notes |

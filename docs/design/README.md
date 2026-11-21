@@ -20,7 +20,9 @@
 > person or system, and a print layout. Each step says whether it runs on rules, AI (with its model) or a
 > person, and why it is there; icons tell people from agents; nothing in it waits on anyone, and it carries
 > its revision, revision date and history. Three screens (the SOP tab, Procedures across every agent, and a
-> shared link as an auditor sees it); captures of each are in
+> shared link as an auditor sees it), and two more for agent assurance (`docs/agent-assurance-plan.md`):
+> each agent's architecture and its checked controls in the SOP, and the back office's Security tab;
+> captures of each are in
 > [`screens/sop/`](screens/sop/). Design only; the plan is [`docs/sop-plan.md`](../sop-plan.md).
 
 ## v1 screens (2026-11-03, superseded by the prototype)
