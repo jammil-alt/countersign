@@ -29,7 +29,7 @@
   --radius-sm:6px;--radius-md:10px;--radius-lg:14px;--radius-pill:999px;
   --shadow-xs:0 1px 2px rgba(21,26,33,.08);--shadow-pop:0 8px 24px rgba(21,26,33,.12);--focus-halo:0 0 0 4px rgba(35,65,94,.18);
   --scrim:rgba(21,26,33,.4);
-  --bar-h:56px;--rail-w:212px;--sheet-w:452px;
+  --bar-h:56px;--rail-w:236px;--sheet-w:452px;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --paper:#0F1318;--surface:#171C23;--surface-subtle:#1D232B;--line:#2A313A;--line-strong:#6B747E;
@@ -163,11 +163,28 @@ html.is-build .bar{position:static;flex:none}
 .work{display:grid;grid-template-columns:var(--rail-w) minmax(0,1fr);flex:1 1 auto;min-height:0}
 .rail{height:100%;overflow:auto;padding:16px 12px 72px;padding-left:max(16px,env(safe-area-inset-left,0px));border-right:1px solid var(--line);background:var(--surface);display:grid;gap:8px;align-content:start}
 .rail__list{display:grid;gap:6px;padding-top:6px}
+.work.is-railoff{grid-template-columns:44px minmax(0,1fr)}
+.work.is-railoff .rail{padding:10px 6px;justify-items:center}
+.rail__h{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.rail__tab{all:unset;box-sizing:border-box;writing-mode:vertical-rl;font:500 12px/1 var(--font-sans);color:var(--ink-muted);padding:10px 8px;border-radius:var(--radius-sm);cursor:pointer;display:flex;align-items:center;gap:8px}
+.rail__tab:hover{background:var(--surface-subtle);color:var(--ink)}
+.rail__tab:focus-visible{outline:2px solid var(--slate);outline-offset:2px}
+.tgrp{border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface)}
+.tgrp>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;padding:6px 8px;font:500 13px/17px var(--font-sans)}
+.tgrp>summary::-webkit-details-marker{display:none}
+.tgrp>summary small{display:block;font:400 11px/14px var(--font-sans);color:var(--ink-muted)}
+.tgrp>summary .ico{margin-left:auto;color:var(--ink-faint);transition:transform 120ms}
+.tgrp[open]>summary .ico{transform:rotate(90deg)}
+.tgrp>summary:focus-visible{outline:2px solid var(--slate);outline-offset:2px}
+.tgrp .rail__list{padding:0 6px 6px}
+.tgrp .block{padding:5px 8px;border-color:transparent;background:var(--surface-subtle)}
+.tgrp .block:hover{border-color:var(--line-strong)}
+.tool-logo{width:24px;height:24px;border-radius:var(--radius-sm);background:var(--slate-tint);color:var(--slate);font:600 11px/24px var(--font-sans);text-align:center;flex:none}
 .rgrp{border-top:1px solid var(--line);padding-top:8px}
-.rgrp summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;font:500 10px/14px var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted)}
-.rgrp summary::-webkit-details-marker{display:none}
-.rgrp summary span{letter-spacing:0;color:var(--ink-faint)}
-.rgrp summary:focus-visible{outline:2px solid var(--slate);outline-offset:2px}
+.rgrp>summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;font:500 10px/14px var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted)}
+.rgrp>summary::-webkit-details-marker{display:none}
+.rgrp>summary>span{letter-spacing:0;color:var(--ink-faint)}
+.rgrp>summary:focus-visible{outline:2px solid var(--slate);outline-offset:2px}
 .block{box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);cursor:grab;font:500 13px/17px var(--font-sans)}
 .block:hover{border-color:var(--line-strong)}
 .block .kico{width:24px;height:24px}
@@ -222,7 +239,16 @@ body.has-sheet .zoomer{right:calc(var(--sheet-w) + 16px)}
 .gsvg polygon{fill:var(--surface);stroke:var(--line-strong);stroke-width:1.25}
 .gsvg polygon.is-sel{stroke:var(--slate);stroke-width:2.5}
 .gsvg polygon.is-dead{opacity:.45}
-.gsvg rect{fill:none;stroke:var(--line-strong);stroke-dasharray:4 4}
+.gsvg rect{fill:var(--paper);stroke:var(--line-strong);stroke-dasharray:4 4}
+.gsvg rect.solid{fill:var(--surface-subtle);stroke:var(--line);stroke-dasharray:none}
+.gsvg rect.is-dead{opacity:.45}
+.gnode--ghost,.gnode--ghost:hover{border-style:dashed;border-color:var(--line-strong);border-width:1px;background:var(--surface);padding-right:12px}
+.gnode--ghost .gnode__t{color:var(--ink-muted)}
+.gnode.has-fold{padding-right:50px}
+.gfold{all:unset;box-sizing:border-box;position:absolute;right:6px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:1px;padding:3px 4px 3px 6px;border-radius:var(--radius-sm);font:500 11px/14px var(--font-mono);color:var(--ink-muted);cursor:pointer}
+.gfold:hover{background:var(--surface-subtle);color:var(--ink)}
+.gfold:focus-visible{outline:2px solid var(--slate);outline-offset:1px}
+.gfold .ico{width:13px;height:13px}
 .gsvg text{font:500 9.5px var(--font-mono);fill:var(--ink-muted);letter-spacing:.1em;text-transform:uppercase}
 .gnode{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;gap:2px;padding:6px 12px;background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--radius-sm);cursor:pointer;user-select:none;-webkit-user-select:none}
 .gnode:hover{border-color:var(--slate)}
@@ -304,6 +330,11 @@ details.more summary span{font-weight:400;color:var(--ink-muted)}
 /* Chat dock */
 .chat{border-top:1px solid var(--line);background:var(--paper);display:flex;flex-direction:column;max-height:56%;flex:none}
 .sheet--builder .chat{max-height:none;flex:1 1 auto;border-top:0;min-height:0}
+.sheet.is-chat-max .sheet__body{display:none}
+.sheet.is-chat-max .chat{max-height:none;flex:1 1 auto;min-height:0;border-top:0}
+.sheet.is-chat-min .chat__log,.sheet.is-chat-min .chips{display:none}
+.chat__size{margin-left:auto;display:flex;gap:2px}
+.chat__size .btn{width:26px;height:26px}
 .chat__h{display:flex;align-items:center;gap:8px;padding:10px 16px 0}
 .chat__log{overflow:auto;padding:10px 16px 4px;display:grid;gap:12px;align-content:start;flex:1 1 auto;min-height:0}
 .msg{display:grid;grid-template-columns:24px minmax(0,1fr);gap:8px;font-size:13px;line-height:19px}
@@ -344,7 +375,7 @@ details.more summary span{font-weight:400;color:var(--ink-muted)}
 
 @media (max-width:1180px){body.has-sheet .canvas{margin-right:0}body.has-sheet .zoomer{right:max(16px,env(safe-area-inset-right,0px))}}
 @media (max-width:900px){
-  .work{grid-template-columns:minmax(0,1fr)}.rail{display:none}
+  .work,.work.is-railoff{grid-template-columns:minmax(0,1fr)}.rail{display:none}
   .stage{display:block;min-width:0;padding:16px max(16px,env(safe-area-inset-right,0px)) 40vh max(16px,env(safe-area-inset-left,0px))}.col{width:auto}
   .flow>.node{width:100%!important}.zoomer .zhide{display:none}
   .describe__grid{grid-template-columns:minmax(0,1fr)}
@@ -384,7 +415,7 @@ const row = (text) => ({ id: nid(), t: "step", text: text || "" });
 const decRow = (cond, then) => ({ id: nid(), t: "decision", paths: [{ cond: cond || "", steps: [row(then)], end: "on" }], otherwise: [], oend: "on" });
 const PEOPLE = [SIGNER, "Lisa Park", "Harbor Millwork's admins", "Your Mezonas lead"];
 const PARTS = {
-  read: ["Purchasing · read the item list", "Purchasing · read last prices", "QuickBooks · find a bill", "QuickBooks · find a vendor", "Documents · find a document"],
+  read: ["Purchasing · read the item list", "Purchasing · read last prices", "QuickBooks · find a bill", "QuickBooks · find a vendor", "Documents · find a document", "Gmail · find an email", "Google Drive · find a file"],
   skill: ["Read a document", "Match items across vendors", "Track price changes", "Find supporting document", "Reconcile two lists", "Write a summary"],
   write: ["QuickBooks · create bill", "QuickBooks · update bill", "QuickBooks · create vendor", "Gmail · send email", "Texts · send text", "Google Drive · save a file", "Purchasing · save to the item list"],
 };
@@ -408,14 +439,30 @@ const K = {
   tellagent: { label: "Report to an agent", ico: "team", hint: "Sends another agent what this run found. Doesn't wait.", blank: "Report to another agent" },
   handoff: { label: "Hand off", ico: "team", hint: "Passes the work to another agent. This run ends there.", blank: "Hand off to another agent" },
 };
-const AUTOS = { "Polite follow-up": [2, 4], "Vendor invoice intake": [3, 5], "Portal document pull": [1, 3] };
+// An automation is a group of steps saved once and run as one step.
+const AUTOS = {
+  "Polite follow-up": { v: 2, steps: [["write", "Send a text", "Texts · send text"], ["wait", "Wait 2 days", ""], ["write", "Send an email", "Gmail · send email"], ["wait", "Wait 3 days", ""]] },
+  "Vendor invoice intake": { v: 3, steps: [["skill", "Read the invoice", "Read a document"], ["read", "Find the vendor", "QuickBooks · find a vendor"], ["skill", "Match the lines", "Match items across vendors"], ["person", "Ask about unsure lines", "Answers"], ["write", "Create the bill", "QuickBooks · create bill"]] },
+  "Portal document pull": { v: 1, steps: [["read", "Sign in to the portal", "Browser"], ["read", "Download the statement", "Browser"], ["write", "Save it to the folder", "Google Drive · save a file"]] },
+};
+const autoOf = (part) => AUTOS[part] || { v: 1, steps: [] };
+const TOOLS = {};
+for (const kind of ["read", "write"]) for (const pt of PARTS[kind]) { const [tool, what] = pt.split(" · "); (TOOLS[tool] = TOOLS[tool] || { reads: [], writes: [] })[kind + "s"].push(what); }
+const WORDS = {
+  skill: "work do", auto: "automation saved group steps follow up reminder chase sequence", read: "find look up get fetch search check read lookup", write: "send create update post save change add write make file",
+  person: "ask approve review sign human someone check confirm", talk: "conversation whatsapp chat call talk message back forth", notify: "tell alert let know notify inform message",
+  decision: "if branch fork choose rule condition decide either otherwise path", each: "loop every all each items list lines", repeat: "loop again retry until repeat keep trying", wait: "pause delay later days hours wait hold",
+  stop: "end finish halt stop done", handoff: "pass transfer hand off another agent", askagent: "ask question another agent check with collaborate", tellagent: "report tell send another agent update collaborate",
+  "Read a document": "extract parse invoice pdf receipt scan ocr", "Match items across vendors": "match item catalog line product", "Track price changes": "price cost increase compare cheaper", "Find supporting document": "receipt proof attachment backup", "Reconcile two lists": "compare lists differences reconcile", "Write a summary": "summarize summary report draft recap",
+  QuickBooks: "bill vendor invoice accounting books qbo expense", Gmail: "email mail inbox", Texts: "sms text message phone", "Google Drive": "file folder drive save upload document", Purchasing: "items prices catalog materials", Documents: "document file pdf",
+};
 const AGENTS = ["AP invoice review", "Collections follow-up", "The Purchasing area owner"];
 const toolItem = (kind) => (p) => { const [tool, what] = p.split(" · "); return { kind, label: cap(what), hint: tool, part: p, tag: kind === "read" ? "Reads" : "Writes", name: `${cap(what)} in ${tool}` }; };
 // The rail, grouped the way the app's palette is: skills, automations, tools, people, logic, other agents.
 const RAIL = () => [
   { g: "Skills", open: 1, items: PARTS.skill.map((p) => ({ kind: "skill", label: p, part: p, name: p })) },
-  { g: "Automations", items: Object.keys(AUTOS).map((p) => ({ kind: "auto", label: p, part: p, name: p, hint: `Version ${AUTOS[p][0]} · ${AUTOS[p][1]} steps` })) },
-  { g: "Tools", open: 1, note: `Only the tools ${CLIENT} has connected show here.`, items: [...PARTS.read.map(toolItem("read")), ...PARTS.write.map(toolItem("write"))] },
+  { g: "Automations", note: "A saved group of steps, run as one. Open it on the chart to see inside.", items: Object.keys(AUTOS).map((p) => ({ kind: "auto", label: p, part: p, name: p, hint: `Version ${AUTOS[p].v} · ${AUTOS[p].steps.length} steps inside` })) },
+  { g: "Tools", open: 1, note: `Only the tools ${CLIENT} has connected show here.`, tools: Object.keys(TOOLS).map((tool) => ({ tool, items: [{ kind: "read", label: `Any ${tool} step`, hint: "Choose what it reads or writes on the step", pick: tool }, ...TOOLS[tool].reads.map((w) => ({ kind: "read", label: `Read: ${w.replace(/^read /, "")}`, part: `${tool} · ${w}`, name: `${cap(w)} in ${tool}` })), ...TOOLS[tool].writes.map((w) => ({ kind: "write", label: `Write: ${w}`, part: `${tool} · ${w}`, name: `${cap(w)} in ${tool}` }))] })) },
   { g: "People", items: [{ kind: "person", label: "Approve", hint: "A person approves before it goes on", mode: "Approve", name: "Approve this" }, { kind: "person", label: "Ask", hint: "A person answers a question", mode: "Answer" }, { kind: "talk", label: "Talk with a person", hint: "By WhatsApp, text or email" }, { kind: "notify", label: "Notify", hint: "Tell your team or theirs" }] },
   { g: "Logic", open: 1, items: ["decision", "each", "repeat", "wait", "stop"].map((k) => ({ kind: k, label: K[k].label, hint: K[k].hint })) },
   { g: "Other agents", open: 1, note: `Only ${CLIENT}'s own agents.`, items: [{ kind: "askagent", label: "Ask another agent", hint: "Waits for its answer, then goes on" }, { kind: "tellagent", label: "Report to another agent", hint: "Sends what it found. Doesn't wait" }, { kind: "handoff", label: "Hand off to another agent", hint: "Passes the work on. This run ends" }] },
@@ -430,7 +477,7 @@ const ICONS = {
   loop: '<path d="M5 11a7 7 0 0 1 12.5-3.5L19 9 M19 5v4h-4 M19 13a7 7 0 0 1-12.5 3.5L5 15 M5 19v-4h4"/>',
   clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>', stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="1"/>',
   grip: '<circle fill="currentColor" stroke="none" cx="9" cy="6" r="1.3"/><circle fill="currentColor" stroke="none" cx="15" cy="6" r="1.3"/><circle fill="currentColor" stroke="none" cx="9" cy="12" r="1.3"/><circle fill="currentColor" stroke="none" cx="15" cy="12" r="1.3"/><circle fill="currentColor" stroke="none" cx="9" cy="18" r="1.3"/><circle fill="currentColor" stroke="none" cx="15" cy="18" r="1.3"/>',
-  undo: '<path d="M8 6l-4 4 4 4 M4 10h10.5a4.5 4.5 0 0 1 0 9H11"/>', bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z M10 20.5h4"/>', team: '<circle cx="9" cy="8.5" r="3"/><path d="M3 19.5c0-3 2.7-5 6-5s6 2 6 5"/><circle cx="16.5" cy="7.5" r="2.5"/><path d="M16.5 12.5c2.8 0 4.5 1.8 4.5 4.5"/>', copy: '<rect x="8" y="8" width="12" height="12" rx="1.5"/><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8"/>', info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5"/><circle fill="currentColor" stroke="none" cx="12" cy="7.75" r="1"/>',
+  undo: '<path d="M8 6l-4 4 4 4 M4 10h10.5a4.5 4.5 0 0 1 0 9H11"/>', sidebar: '<rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M9 4v16 M15.5 10l-2 2 2 2"/>', chev: '<path d="M9.5 6l6 6-6 6"/>', chevd: '<path d="M6 9.5l6 6 6-6"/>', chevu: '<path d="M6 14.5l6-6 6 6"/>', bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z M10 20.5h4"/>', team: '<circle cx="9" cy="8.5" r="3"/><path d="M3 19.5c0-3 2.7-5 6-5s6 2 6 5"/><circle cx="16.5" cy="7.5" r="2.5"/><path d="M16.5 12.5c2.8 0 4.5 1.8 4.5 4.5"/>', copy: '<rect x="8" y="8" width="12" height="12" rx="1.5"/><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8"/>', info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5"/><circle fill="currentColor" stroke="none" cx="12" cy="7.75" r="1"/>',
   upload: '<path d="M12 15V4 M7 9l5-5 5 5 M4 15v5h16v-5"/>', send: '<path d="M12 19V5 M6 11l6-6 6 6"/>',
 };
 const ic = (n, c = "") => `<svg class="ico ${c}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ""}</svg>`;
@@ -445,7 +492,7 @@ const plural = (n, w, ws) => `${n} ${n === 1 ? w : ws || w + "s"}`;
 const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const S = {
-  view: "describe", zoom: 1, q: "", name: "Invoice intake", para: PARA, fromPara: false, drafting: false, start: { starts: STARTS[0].starts, name: STARTS[0].name }, list: [], trigger: null, steps: [], sel: null, sheet: null, menu: null,
+  view: "describe", zoom: 1, q: "", railOff: false, chatSize: "mid", name: "Invoice intake", para: PARA, fromPara: false, drafting: false, start: { starts: STARTS[0].starts, name: STARTS[0].name }, list: [], trigger: null, steps: [], sel: null, sheet: null, menu: null,
   hist: [], chat: [], busy: false, try: null, tried: false, live: false, note: null, building: null, file: "Baltic-Lumber-INV-4471.pdf",
 };
 const fresh = new Set();
@@ -477,7 +524,7 @@ function guess(words) {
   if ((m = t.match(/^if (.+?)(?:,| then) (.+)$/i))) return decisionFrom(m[1], m[2], t);
   if ((m = t.match(/^for each ([^,]+),? (.+)$/i))) {
     const e = mk("each", cap(`For each ${m[1]}`), { from: t, over: m[1] });
-    e.paths[0].steps.push(guess(m[2]));
+    splitActs(m[2]).forEach((a) => e.paths[0].steps.push(guess(a)));
     return e;
   }
   const ag = () => AGENTS.find((a) => l.includes(a.replace(/^The /, "").toLowerCase().split(" ")[0])) || AGENTS[0];
@@ -517,11 +564,24 @@ function guess(words) {
   return mk("person", cap(t), { from: t, gap: true, mode: "Answer", who: SIGNER, open: [{ k: "gap", type: "Issue", text: "Nothing in the library does this yet.", why: `So ${SIGNER} does it for now and the run waits for them. It works today.`, opts: ["Keep a person", "Build a skill", "Needs code"] }] });
 }
 const writeDefaults = (tool) => ({ open: [{ k: "who", type: "Question", text: "Who signs this?", why: `Approval is on, so someone signs each one. ${SIGNER.split(" ")[0]} is ${CLIENT}'s default approver.`, opts: [SIGNER, "Lisa Park", "Your Mezonas lead"], using: SIGNER, f: "who" }, ...(tool === "Gmail" ? [gmailIssue()] : [])], decided: [{ what: "Approval is on", why: "Every step that writes to a tool starts with approval.", f: "" }] });
+let RAILMAP = {};
 function fromItem(el) {
-  const G = RAIL()[+el.dataset.g], it = G && G.items[+el.dataset.i];
+  const it = RAILMAP[el.dataset.item];
   if (!it) return mk(el.dataset.kind);
+  if (it.words) return guess(it.words);
+  if (it.pick) { const tl = TOOLS[it.pick]; return mk("read", `Use ${it.pick}`, { tool: it.pick, part: "", open: [{ k: "does", type: "Question", text: `What should it do in ${it.pick}?`, why: "A read looks something up and changes nothing. A write changes the tool, so it asks first.", opts: [...tl.reads.map((w) => `Read: ${w}`), ...tl.writes.map((w) => `Write: ${w}`)] }] }); }
   const tool = it.kind === "read" || it.kind === "write" ? it.part.split(" · ")[0] : "";
   return mk(it.kind, it.name, { ...(it.part ? { part: it.part, tool } : {}), ...(it.mode ? { mode: it.mode } : {}), ...(it.kind === "write" ? writeDefaults(tool) : {}) });
+}
+// A tool step is a read or a write, by what it does there. Switching to a write brings approval with it.
+function setPart(st, part) {
+  const write = PARTS.write.includes(part), auto = (pt) => (pt ? `${cap(pt.split(" · ")[1])} in ${pt.split(" · ")[0]}` : "");
+  if (/^Use /.test(st.name) || st.name === auto(st.part)) st.name = auto(part);
+  st.part = part; st.tool = part.split(" · ")[0];
+  st.open = (st.open || []).filter((o) => o.k !== "gmail" && o.k !== "does" && (write || o.k !== "who"));
+  if (write && st.kind !== "write") { st.kind = "write"; st.approval = "Ask first"; st.who = st.who || SIGNER; const d = writeDefaults(st.tool); st.open.push(...d.open); st.decided = d.decided; }
+  else if (!write && st.kind === "write") { st.kind = "read"; st.decided = []; }
+  else if (write && st.tool === "Gmail") st.open.push(gmailIssue());
 }
 const gmailIssue = () => ({ k: "gmail", type: "Issue", text: `Gmail isn't connected for ${CLIENT}.`, why: "They sign in to their own Gmail. This step waits until they do.", opts: [`Ask ${CLIENT} to connect it`, "Send by text instead"] });
 const openOf = (st) => (st.open || []).filter((o) => !o.done);
@@ -595,6 +655,8 @@ function parsePara(text) {
     }
     const last = list[list.length - 1];
     if ((m = sn.match(/^(?:otherwise|or else|if not),?\s*(.*)$/i)) && last && last.t === "decision") { if (!goesOn(m[1])) { const z = pathOf(m[1]); last.otherwise.push(...z.steps); last.oend = z.end; } return; }
+    // "For each line, do this and that" stays one line: it becomes a loop with those steps inside.
+    if (/^for each\b[^,]+,/i.test(sn)) return list.push(row(cap(sn)));
     splitActs(sn).forEach((a) => list.push(row(a)));
   });
   // The last thing it says is a decision with work on both sides: nothing is left to come back to, so the paths stay apart.
@@ -763,23 +825,59 @@ function barHTML() {
       <button class="btn btn--pri btn--sm" data-act="sheet" data-type="turnon" ${S.building || S.live ? "disabled" : ""}>Turn on</button>
     </div></div>`;
 }
-function railHTML() {
-  const q = (S.q || "").toLowerCase().trim();
-  const groups = RAIL().map((G, gi) => {
-    const items = G.items.map((it, ii) => ({ it, ii })).filter(({ it }) => !q || `${it.label} ${it.hint || ""} ${it.tag || ""} ${G.g}`.toLowerCase().includes(q));
-    if (!items.length) return "";
-    return `<details class="rgrp" ${q || G.open ? "open" : ""}><summary>${G.g}<span>${items.length}</span></summary><div class="rail__list" data-pal="1">${items.map(({ it, ii }) => `<div class="block" role="button" tabindex="0" draggable="true" data-act="paladd" data-g="${gi}" data-i="${ii}" data-kind="${it.kind}" title="${esc(K[it.kind].hint)}"><span class="kico kico--${it.kind}">${ic(K[it.kind].ico)}</span><span class="grow">${esc(it.label)}<small>${esc(it.hint || "")}</small></span>${it.tag ? `<span class="pill pill--neutral">${it.tag}</span>` : ""}</div>`).join("")}</div>${G.note ? `<p class="help" style="margin-top:6px">${G.note}</p>` : ""}</details>`;
-  }).join("");
-  return `<span class="eyebrow">Add a step</span><input class="input" id="palq" placeholder="Search steps" value="${esc(S.q || "")}" aria-label="Search steps" style="height:32px;font-size:13px"><p class="help">Drag one onto the flow, or press + between two steps.</p>${groups || `<p class="muted small">Nothing matches.</p>`}`;
+const stem = (w) => w.replace(/(ing|ed|es|s)$/, "");
+function smart(q) {
+  const stop = new Set(["a", "an", "the", "to", "of", "it", "and", "then", "for", "in", "on", "with", "that", "this", "is", "me", "my", "our", "us", "we", "i"]);
+  const toks = q.toLowerCase().match(/[a-z0-9$%]+/g) || [], keys = toks.filter((w) => !stop.has(w)).map(stem).filter((w) => w.length > 1), hits = [];
+  RAIL().forEach((G) => {
+    const list = G.tools ? G.tools.flatMap((T) => T.items.map((it) => ({ it, tool: T.tool }))) : G.items.map((it) => ({ it }));
+    list.forEach(({ it, tool }) => {
+      const words = (t) => t.toLowerCase().split(/[^a-z0-9$%]+/).map(stem), own = words(`${it.label} ${it.part || ""} ${tool || ""}`), near = words(`${it.hint || ""} ${G.g} ${WORDS[it.kind] || ""} ${WORDS[it.part] || ""} ${WORDS[tool] || ""}`);
+      let n = 0;
+      // Its own name counts most, then words that mean the same; the first word you type counts double.
+      keys.forEach((k, ki) => { const hit = (list) => list.some((h) => h === k || (h.length > 3 && (h.startsWith(k) || k.startsWith(h)))); n += (ki ? 1 : 2) * (hit(own) ? 3 : hit(near) ? 1 : 0); });
+      if (n) hits.push({ it: tool && !it.pick ? { ...it, hint: tool } : it, n });
+    });
+  });
+  hits.sort((a, b) => b.n - a.n);
+  return hits.slice(0, 7).map((h) => h.it);
 }
-function renderRail() { const r = $(".rail"); if (!r) return; r.innerHTML = railHTML(); wire(); const q = $("#palq"); q.focus(); q.setSelectionRange(q.value.length, q.value.length); }
+function blockHTML(it) {
+  const key = "i" + Object.keys(RAILMAP).length;
+  RAILMAP[key] = it;
+  return `<div class="block" role="button" tabindex="0" draggable="true" data-act="paladd" data-item="${key}" data-kind="${it.kind}" title="${esc(K[it.kind].hint)}"><span class="kico kico--${it.kind}">${ic(K[it.kind].ico)}</span><span class="grow">${esc(it.label)}<small>${esc(it.hint || "")}</small></span>${it.tag ? `<span class="pill pill--neutral">${it.tag}</span>` : ""}</div>`;
+}
+function railHTML() {
+  RAILMAP = {};
+  if (S.railOff) return `<button class="btn btn--ghost btn--icon" data-act="rail" aria-label="Show the steps you can add" title="Show the steps you can add">${ic("sidebar")}</button><button class="rail__tab" data-act="rail">${ic("add")}Add a step</button>`;
+  const q = (S.q || "").trim();
+  let body;
+  if (q) {
+    const g = guess(q), hits = smart(q);
+    body = `<div class="rgrp"><span class="eyebrow">As you wrote it</span><div class="rail__list" data-pal="1">${blockHTML({ kind: g.kind, words: q, label: cap(clean(q)), hint: g.gap ? "No step does this yet. A person does it for now." : `${K[g.kind].label}${g.part ? " · " + g.part : ""}` })}</div><p class="help" style="margin-top:6px">The Builder reads your words and picks the kind of step and the part.</p></div>
+      ${hits.length ? `<div class="rgrp"><span class="eyebrow">Closest steps</span><div class="rail__list" data-pal="1">${hits.map(blockHTML).join("")}</div></div>` : ""}`;
+  } else {
+    body = RAIL().map((G) => {
+      const n = G.tools ? G.tools.length : G.items.length;
+      const inner = G.tools
+        ? G.tools.map((T) => `<details class="tgrp"><summary><span class="tool-logo">${esc(T.tool.slice(0, 2))}</span><span>${esc(T.tool)}<small>${plural(TOOLS[T.tool].reads.length, "read")} · ${plural(TOOLS[T.tool].writes.length, "write")}</small></span>${ic("chev")}</summary><div class="rail__list" data-pal="1">${T.items.map(blockHTML).join("")}</div></details>`).join("")
+        : G.items.map(blockHTML).join("");
+      return `<details class="rgrp" ${G.open ? "open" : ""}><summary>${G.g}<span>${n}</span></summary><div class="rail__list" ${G.tools ? "" : 'data-pal="1"'}>${inner}</div>${G.note ? `<p class="help" style="margin-top:6px">${G.note}</p>` : ""}</details>`;
+    }).join("");
+  }
+  return `<div class="rail__h"><span class="eyebrow">Add a step</span><button class="btn btn--ghost btn--icon" data-act="rail" aria-label="Hide this list" title="Hide this list">${ic("sidebar")}</button></div>
+    <input class="input" id="palq" placeholder="Search, or say what it should do" value="${esc(S.q || "")}" aria-label="Search steps, or say what the step should do" style="height:32px;font-size:13px">
+    <p class="help">${q ? "Drag a result onto the flow, or press it to add it at the end." : "Try “email the vendor” or “wait two days”. Drag a step onto the flow, or press + on an arrow."}</p>${body}`;
+}
+function renderRail(focus) { const r = $(".rail"), w = $(".work"); if (!r) return; w.classList.toggle("is-railoff", !!S.railOff); r.innerHTML = railHTML(); const q = $("#palq"); if (q && focus) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
 function subOf(st) {
   if (st.kind === "read" || st.kind === "skill" || st.kind === "write") return esc(st.part);
   if (st.kind === "person") return `${st.gap ? "Does this for now" : st.mode === "Approve" ? "Approves" : "Answers"} · ${esc(st.who)} · waits up to ${esc(st.deadline)}`;
   if (st.kind === "notify") return `${esc(st.to)} · ${esc(st.where.toLowerCase())}`;
   if (st.kind === "decision") return `${st.decide === "A person" ? esc(st.who) + " decides" : st.decide === "The agent" ? "The agent decides" : "A rule decides"} · ${plural(st.paths.length, "path")}${allEnd(st) ? " that go separate ways" : st.paths.some(pathEnds) ? `, ${st.paths.filter(pathEnds).length} ends here` : ", then they come back together"}`;
-  if (st.kind === "each") return `Over ${esc(st.over)}`;
-  if (st.kind === "auto") return `${esc(st.part)} · version ${(AUTOS[st.part] || [1, 3])[0]} · ${(AUTOS[st.part] || [1, 3])[1]} steps inside`;
+  if (st.kind === "each") return `Over ${esc(st.over)} · ${plural(st.paths[0].steps.length, "step")} inside`;
+  if (st.kind === "auto") return `${esc(st.part)} · ${autoOf(st.part).steps.length} steps inside`;
+  if ((st.kind === "read" || st.kind === "write") && !st.part) return `${esc(st.tool)} · choose what it does`;
   if (st.kind === "talk") return `${esc(st.who)} · ${esc(st.where)} · up to ${esc(st.turns)} messages`;
   if (st.kind === "handoff") return `Starts “${esc(st.agent)}” · this run ends there`;
   if (st.kind === "askagent") return `“${esc(st.agent)}” · waits up to ${esc(st.deadline)} for its answer`;
@@ -802,7 +900,8 @@ function size(st) {
     const ps = st.paths.map((q) => measure(q.steps)), ph = Math.max(28, ...ps.map((m) => m.h));
     return { w: Math.max(NW, ps.reduce((a, m) => a + m.w, 0) + GX * (ps.length - 1)), h: DH + GB + ph + (allEnd(st) ? 0 : GJ), ps, ph };
   }
-  if (st.paths) { const m = measure(st.paths[0].steps); return { w: Math.max(NW, m.w) + 28, h: NH + GY + Math.max(m.h, 28) + 16, ps: [m] }; }
+  if (st.kind === "auto" && st.folded === false) { const n = autoOf(st.part).steps.length; return { w: NW + 56, h: 10 + NH + GY + n * NH + (n - 1) * 22 + 30 }; }
+  if (st.paths) { if (st.folded) return { w: NW, h: NH }; const m = measure(st.paths[0].steps); return { w: Math.max(NW, m.w) + 56, h: 10 + NH + GY + Math.max(m.h, 28) + 44, ps: [m] }; }
   return { w: NW, h: st.kind === "stop" ? SH : NH };
 }
 function measure(list) { let w = NW, h = 0; list.forEach((st, i) => { const m = size(st); w = Math.max(w, m.w); h += m.h + (i ? GY : 0); }); return { w, h }; }
@@ -841,16 +940,29 @@ function layout() {
         });
         if (live) { const ax = cx + Math.max(W, NW) / 2 + 12; L.edges.push({ pts: [[px - GX - m.ps[m.ps.length - 1].w / 2, barY], [ax, barY]], dash: true }); L.adds.push({ x: ax, y: barY - 11, id: st.id }); }
         at = exits.length ? { x: cx, y: joinY, srcs: exits } : null;
+      } else if (st.kind === "auto" && st.folded === false) {
+        // An automation, opened: its saved steps, shown but not changed here.
+        const a = autoOf(st.part), hy = y + 10;
+        L.frames.push({ x: cx - m.w / 2, y, w: m.w, h: m.h, solid: true, dead: !live, text: `saved automation · version ${a.v}` });
+        L.nodes.push({ ...base, x: cx - NW / 2, y: hy, w: NW, h: NH, fold: "open", inside: a.steps.length });
+        let py = hy + NH, yy = hy + NH + GY;
+        a.steps.forEach(([gk, name, sub]) => { if (live) edge([[cx, py], [cx, yy]], true, false); L.nodes.push({ st, ghost: { kind: gk, name, sub }, label: "", x: cx - NW / 2, y: yy, w: NW, h: NH, dead: !live }); py = yy + NH; yy += NH + 22; });
+        at = live ? { x: cx, y: y + m.h, srcs: me } : null;
+      } else if (st.paths && st.folded) {
+        L.nodes.push({ ...base, x: cx - NW / 2, y, w: NW, h: NH, fold: "closed", inside: st.paths[0].steps.length });
+        at = live ? { x: cx, y: y + NH, srcs: me } : null;
       } else if (st.paths) {
-        L.nodes.push({ ...base, x: cx - NW / 2, y, w: NW, h: NH });
-        const q = st.paths[0], top = y + NH + GY, bh = Math.max(m.ps[0].h, 28);
-        L.frames.push({ x: cx - m.w / 2, y: y + NH + GY / 2 - 2, w: m.w, h: bh + GY / 2 + 14, text: st.kind === "each" ? "once for each item" : "again until it is done" });
-        const ex = seq(q.steps, q.id, cx, top, live ? { x: cx, y: y + NH, srcs: [{ id: null, label: `inside “${st.name}”` }] } : null, (xi) => String(xi + 1), false);
-        if (live) L.plus.push(q.steps.length && ex ? { x: ex.x, y: ex.y + 13, lid: q.id, index: q.steps.length } : { x: cx, y: top + 8, lid: q.id, index: 0 });
+        // A loop: a frame around its steps, with an arrow back to the top.
+        const q = st.paths[0], fx = cx - m.w / 2, hy = y + 10, top = hy + NH + GY;
+        L.frames.push({ x: fx, y, w: m.w, h: m.h, dead: !live, text: st.kind === "each" ? "once for each item" : `again until done · up to ${st.max}` });
+        L.nodes.push({ ...base, x: cx - NW / 2, y: hy, w: NW, h: NH, fold: "open", inside: q.steps.length });
+        const ex = seq(q.steps, q.id, cx, top, live ? { x: cx, y: hy + NH, srcs: [{ id: null, label: `inside “${st.name}”` }] } : null, (xi) => String(xi + 1), false);
+        if (live) L.plus.push(q.steps.length && ex ? { x: ex.x, y: ex.y + 11, lid: q.id, index: q.steps.length } : { x: cx, y: top + 8, lid: q.id, index: 0 });
+        if (live && ex && q.steps.length) L.edges.push({ pts: [[ex.x, ex.y], [ex.x, ex.y + 24], [fx + 13, ex.y + 24], [fx + 13, hy + NH / 2], [cx - NW / 2, hy + NH / 2]], head: true });
         at = live ? { x: cx, y: y + m.h, srcs: me } : null;
       } else {
         const w = st.kind === "stop" ? 108 : NW;
-        L.nodes.push({ ...base, x: cx - w / 2, y, w, h: m.h });
+        L.nodes.push({ ...base, x: cx - w / 2, y, w, h: m.h, ...(st.kind === "auto" ? { fold: "closed", inside: autoOf(st.part).steps.length } : {}) });
         at = live && st.kind !== "stop" ? { x: cx, y: y + m.h, srcs: me } : null;
       }
       y += m.h + GY;
@@ -870,18 +982,19 @@ function layout() {
 let LAY = null;
 function graphHTML() {
   const L = (LAY = layout()), X = (x) => Math.round(x + L.dx), Y = (y) => Math.round(y + L.dy), t = S.try;
-  const svg = L.edges.map((e) => `<path class="${e.on ? "on" : e.dash ? "dash" : ""}" d="M${e.pts.map((q) => `${X(q[0])} ${Y(q[1])}`).join(" L")}" ${e.head ? `marker-end="url(#${e.on ? "ah-on" : "ah"})"` : ""}/>`).join("")
-    + L.nodes.filter((n) => n.st.kind === "decision").map((n) => `<polygon class="${S.sel === n.st.id ? "is-sel" : ""}${n.dead ? " is-dead" : ""}${n.on ? " on" : ""}" points="${X(n.x + n.w / 2)},${Y(n.y)} ${X(n.x + n.w)},${Y(n.y + n.h / 2)} ${X(n.x + n.w / 2)},${Y(n.y + n.h)} ${X(n.x)},${Y(n.y + n.h / 2)}"/>`).join("")
-    + L.frames.map((f) => `<rect x="${X(f.x)}" y="${Y(f.y)}" width="${f.w}" height="${f.h}" rx="8"/><text x="${X(f.x) + 10}" y="${Y(f.y) + 14}">${f.text}</text>`).join("");
+  const svg = L.frames.map((f) => `<rect class="${f.solid ? "solid" : ""}${f.dead ? " is-dead" : ""}" x="${X(f.x)}" y="${Y(f.y)}" width="${f.w}" height="${f.h}" rx="10"/><text x="${X(f.x) + 12}" y="${Y(f.y + f.h) - 9}">${f.text}</text>`).join("") + L.edges.map((e) => `<path class="${e.on ? "on" : e.dash ? "dash" : ""}" d="M${e.pts.map((q) => `${X(q[0])} ${Y(q[1])}`).join(" L")}" ${e.head ? `marker-end="url(#${e.on ? "ah-on" : "ah"})"` : ""}/>`).join("")
+    + L.nodes.filter((n) => n.st.kind === "decision").map((n) => `<polygon class="${S.sel === n.st.id ? "is-sel" : ""}${n.dead ? " is-dead" : ""}${n.on ? " on" : ""}" points="${X(n.x + n.w / 2)},${Y(n.y)} ${X(n.x + n.w)},${Y(n.y + n.h / 2)} ${X(n.x + n.w / 2)},${Y(n.y + n.h)} ${X(n.x)},${Y(n.y + n.h / 2)}"/>`).join("");
   const nodes = L.nodes.map((n) => {
+    if (n.ghost) return `<div class="gnode gnode--ghost${n.dead ? " is-dead" : ""}" data-act="open" data-id="${n.st.id}" style="left:${X(n.x)}px;top:${Y(n.y)}px;width:${n.w}px;height:${n.h}px"><span class="gnode__t">${esc(n.ghost.name)}</span><span class="gnode__s"><b>${K[n.ghost.kind].label}</b>${esc(n.ghost.sub)}</span></div>`;
     const st = n.st, k = st.kind, open = openOf(st).length, r = t && t.res[st.id], seen = r && t.order.indexOf(st.id) < t.shown;
-    const cls = `gnode gnode--${k}${S.sel === st.id ? " is-sel" : ""}${fresh.has(st.id) ? " is-fresh" : ""}${n.dead ? " is-dead" : ""}${t && t.done && !r && !n.dead ? " is-off" : ""}`;
+    const fold = n.fold ? `<button class="gfold" data-act="fold" data-id="${st.id}" title="${n.fold === "open" ? "Fold it to one box" : `Show the ${plural(n.inside, "step")} inside`}" aria-label="${n.fold === "open" ? "Fold" : "Show what is inside"}">${n.fold === "open" ? "" : n.inside}${ic(n.fold === "open" ? "chevd" : "chev")}</button>` : "";
+    const cls = `gnode gnode--${k}${n.fold ? " has-fold" : ""}${S.sel === st.id ? " is-sel" : ""}${fresh.has(st.id) ? " is-fresh" : ""}${n.dead ? " is-dead" : ""}${t && t.done && !r && !n.dead ? " is-off" : ""}`;
     const flag = n.dead ? `<span class="gflag pill pill--wait">Never runs</span>` : open ? `<span class="gflag pill pill--wait">${open} to settle</span>` : "";
     const mark = seen ? `<span class="gmark pill ${r.tone === "wait" ? "pill--wait" : "pill--ok"}">${r.tone === "wait" ? "Look" : r.would ? "Would" : "Did"}</span>` : "";
     const body = k === "stop" ? `${ic("stop")}Stop` : k === "decision" ? `<span class="gnode__t">${esc(st.name)}</span>`
       : `<span class="gnode__t">${n.label ? `<span class="n">${n.label}</span>` : ""}${esc(st.name)}</span><span class="gnode__s"><b>${K[k].label}</b>${k === "trigger" ? esc(st.starts) : subOf(st)}</span>${k === "write" && st.approval === "Ask first" ? `<span class="gsign">${ic("sign")}</span>` : ""}`;
     const handle = k === "decision" || k === "stop" || n.dead ? "" : `<span class="ghandle" data-h="${st.id}"></span>`;
-    return `<div class="${cls}" role="button" tabindex="0" data-act="open" data-id="${st.id}" ${k === "trigger" ? "" : 'draggable="true"'} aria-label="${esc(st.name)}: open its setup" style="left:${X(n.x)}px;top:${Y(n.y)}px;width:${n.w}px;height:${n.h}px">${body}${flag}${mark}${handle}</div>`;
+    return `<div class="${cls}" role="button" tabindex="0" data-act="open" data-id="${st.id}" ${k === "trigger" ? "" : 'draggable="true"'} aria-label="${esc(st.name)}: open its setup" style="left:${X(n.x)}px;top:${Y(n.y)}px;width:${n.w}px;height:${n.h}px">${body}${fold}${flag}${mark}${handle}</div>`;
   }).join("");
   const chips = L.chips.map((c) => `<button class="gchip${c.on ? " on" : ""}" data-act="open" data-id="${c.did}" style="left:${X(c.x)}px;top:${Y(c.y)}px;max-width:${c.max}px${c.dead ? ";opacity:.45" : ""}" title="${esc(c.text)}">${c.letter ? `<b>${c.letter}</b>` : ""}${esc(c.text)}</button>`).join("");
   const plus = L.plus.map((q) => `<button class="gplus" data-act="plus" data-list="${q.lid}" data-index="${q.index}" style="left:${X(q.x)}px;top:${Y(q.y)}px" aria-label="Add a step here" aria-expanded="${!!(S.menu && S.menu.list === q.lid && S.menu.index === q.index)}">${ic("add")}</button>`).join("");
@@ -893,7 +1006,9 @@ function tipHTML(st) {
   const k = st.kind, L = LAY || layout(), rows = [], t = S.try, r = t && t.res[st.id], seen = r && t.order.indexOf(st.id) < t.shown;
   const row = (a, b) => rows.push(`<div class="tip__r"><span>${a}</span><span>${b}</span></div>`);
   if (k === "trigger") { row("Starts", esc(st.starts)); row("Where", esc(st.detail)); }
-  if (k === "skill" || k === "read" || k === "write" || k === "auto") row(k === "write" ? "Writes to" : k === "read" ? "Reads from" : K[k].label, esc(st.part));
+  if (k === "skill" || k === "read" || k === "write" || k === "auto") row(k === "write" ? "Writes to" : k === "read" ? "Reads from" : K[k].label, esc(st.part || `${st.tool}: not chosen yet`));
+  if (k === "auto") row("Inside", autoOf(st.part).steps.map((x) => esc(x[1])).join(" → "));
+  if (k === "each" || k === "repeat") row("Inside", st.paths[0].steps.length ? st.paths[0].steps.map((x) => esc(x.name)).join(" → ") : "nothing yet");
   if (k === "write") row("Approval", st.approval === "Ask first" ? `Asks first. ${esc(st.who)} signs.` : "Runs on its own");
   if (k === "person") row(st.mode === "Approve" ? "Approves" : "Answers", `${esc(st.who)}, within ${esc(st.deadline)}`);
   if (k === "notify") row("Tells", `${esc(st.to)}, by ${esc(st.where.toLowerCase())}`);
@@ -920,7 +1035,7 @@ function canvasHTML() {
   return `<div class="stage" id="stage" style="zoom:${S.zoom}"><div class="gwrap">${noteHTML()}${graphHTML()}</div></div>`;
 }
 function buildHTML() {
-  return `<header class="bar" id="bar">${barHTML()}</header><div class="work"><aside class="rail" aria-label="Add a step">${railHTML()}</aside><main class="canvas" id="canvas">${canvasHTML()}</main></div>
+  return `<header class="bar" id="bar">${barHTML()}</header><div class="work${S.railOff ? " is-railoff" : ""}"><aside class="rail" aria-label="Add a step">${railHTML()}</aside><main class="canvas" id="canvas">${canvasHTML()}</main></div>
   <button class="btn btn--sec btn--sm fab" data-act="sheet" data-type="notes">${ic("info")}About this prototype</button>
   <div class="zoomer" role="group" aria-label="Zoom and move"><button data-act="zoom" data-d="-1" aria-label="Zoom out" title="Zoom out">−</button><button data-act="zoom" data-d="0" id="zlabel" title="Back to 100%">${Math.round(S.zoom * 100)}%</button><button data-act="zoom" data-d="1" aria-label="Zoom in" title="Zoom in">+</button><i></i><button data-act="fit" title="Fit the whole flow">Fit</button><i class="zhide"></i><span class="help zhide" style="padding:0 8px 0 4px">Drag the background to move</span></div>`;
 }
@@ -972,8 +1087,13 @@ function setupHTML(st) {
       <div class="field"><label>Only when <span class="muted" style="font-weight:400">optional</span></label><input class="input" data-f="only" value="${esc(st.only || "")}" placeholder="It has a PDF attached"></div></div>`);
   }
   if (k === "read" || k === "skill" || k === "write") {
-    g.push(`<div class="grp"><div class="field"><label>${k === "write" ? "Writes to" : k === "read" ? "Reads from" : "Skill"}</label>${sel("part", PARTS[k], st.part, 'data-re="1"')}
-      <span class="help">${k === "write" ? `This is the only kind of step that changes something in ${CLIENT}'s own tool. That is why it asks first, and why each change is recorded with what was there before.` : k === "read" ? "It looks something up in the tool and changes nothing, so it needs no approval." : "From the Skills library. Picked from the step's name; choose another, or tell the Builder what it should do."}</span></div></div>`);
+    if (k === "skill") g.push(`<div class="grp"><div class="field"><label>Skill</label>${sel("part", PARTS.skill, st.part, 'data-re="1"')}<span class="help">From the Skills library. Picked from the step's name; choose another, or tell the Builder what it should do.</span></div></div>`);
+    else {
+      const tl = TOOLS[st.tool] || { reads: [], writes: [] }, og = (label, list) => (list.length ? `<optgroup label="${label}">${list.map((w) => `<option value="${esc(st.tool + " · " + w)}" ${st.part === st.tool + " · " + w ? "selected" : ""}>${label === "Reads" ? "Read" : "Write"}: ${esc(w)}</option>`).join("")}</optgroup>` : "");
+      g.push(`<div class="grp"><div class="field"><label>Tool</label>${sel("tool", Object.keys(TOOLS), st.tool, 'data-re="1"')}</div>
+        <div class="field"><label>What it does there</label><select class="select" data-f="part" data-re="1" aria-label="What it does there">${st.part ? "" : `<option value="" selected disabled>Choose a read or a write</option>`}${og("Reads", tl.reads)}${og("Writes", tl.writes)}</select>
+        <span class="help">${k === "write" ? `A write is the only kind of step that changes something in ${CLIENT}'s own tool. That is why it asks first, and why each change is recorded with what was there before.` : "A read looks something up and changes nothing, so it needs no approval."}</span></div></div>`);
+    }
     g.push(`<div class="grp"><span class="label">What it works from</span>${wires(st)}</div>`);
   }
   if (k === "write") {
@@ -1005,7 +1125,9 @@ function setupHTML(st) {
         ${after(p)}</div>`
         : `<button class="addpath" data-act="addpath">${ic("add")}Add a path <span>Or if …</span></button><div class="pathcard"><div class="row"><span class="ltr ltr--else">·</span><b style="font-weight:500">Otherwise</b><span class="help">when none of the paths above fit</span></div>${after(p)}</div>`).join("")}</div>`);
   }
-  if (k === "auto") g.push(`<div class="grp"><div class="field"><label>Automation</label>${sel("part", Object.keys(AUTOS), st.part, 'data-re="1"')}<span class="help">A set of steps saved once and used by many agents. ${(AUTOS[st.part] || [1, 3])[1]} steps inside, version ${(AUTOS[st.part] || [1, 3])[0]}. Any step inside that writes to a tool keeps its approval.</span></div></div>`);
+  if (k === "auto") g.push(`<div class="grp"><div class="field"><label>Automation</label>${sel("part", Object.keys(AUTOS), st.part, 'data-re="1"')}<span class="help">A group of steps saved once and run as one. Version ${autoOf(st.part).v}. Changing it is done on the automation, and changes it wherever it is used.</span></div>
+    <div class="decided"><span class="eyebrow">${plural(autoOf(st.part).steps.length, "step")} inside</span>${autoOf(st.part).steps.map((x, xi) => `<div class="decided__i"><span>${xi + 1}. ${esc(x[1])}</span><span class="muted" style="font-size:12px">${K[x[0]].label}${x[2] ? " · " + esc(x[2]) : ""}</span></div>`).join("")}</div>
+    <div><button class="btn btn--sec btn--sm" data-act="fold" data-id="${st.id}">${st.folded === false ? "Fold it to one box" : "Show its steps on the chart"}</button></div><span class="help">Any step inside that writes to a tool keeps its own approval.</span></div>`);
   if (k === "talk") g.push(`<div class="grp"><div class="field"><label>With</label>${sel("who", PEOPLE, st.who)}</div><div class="field"><label>By</label>${seg("where", ["WhatsApp", "Text", "Email"], st.where)}</div>
     <div class="field"><label>What it needs from them</label><textarea class="textarea" rows="3" data-f="goal" placeholder="Which job each line belongs to">${esc(st.goal)}</textarea></div>
     <div class="field"><label>Waits up to</label>${sel("deadline", ["1 day", "3 days", "1 week"], st.deadline)}</div><span class="help">It stops after ${esc(st.turns)} messages, and every message it sends needs a yes first.</span></div>`);
@@ -1068,7 +1190,7 @@ function chatHTML(about) {
     return `<div class="msg"><span class="av av--builder">B</span><div>${ab}${m.text.split("\n").map((p) => `<p>${esc(p)}</p>`).join("")}${diffs}</div></div>`;
   }).join("");
   const empty = `<p class="muted small">${st ? "Say what this step should do differently, or ask why it is set this way. Changes land on the canvas, each with Undo." : "Ask for a step or a decision, or ask why something is there."}</p>`;
-  return `<div class="chat"><div class="chat__h"><span class="av av--builder" style="width:20px;height:20px;font-size:9px">B</span><span class="eyebrow">Builder${st ? " · on this step" : ""}</span></div>
+  return `<div class="chat"><div class="chat__h"><span class="av av--builder" style="width:20px;height:20px;font-size:9px">B</span><span class="eyebrow">Builder${st ? " · on this step" : ""}</span>${st ? `<span class="chat__size"><button class="btn btn--ghost btn--icon" data-act="chatsize" data-d="1" ${S.chatSize === "max" ? "disabled" : ""} aria-label="Make the Builder bigger" title="${S.chatSize === "min" ? "Show the conversation" : "Fill the panel with the Builder"}">${ic("chevu")}</button><button class="btn btn--ghost btn--icon" data-act="chatsize" data-d="-1" ${S.chatSize === "min" ? "disabled" : ""} aria-label="Make the Builder smaller" title="${S.chatSize === "max" ? "Back to the setup and the Builder" : "Shrink it to the message box"}">${ic("chevd")}</button></span>` : ""}</div>
     <div class="chat__log" id="log">${log || empty}${S.busy ? `<div class="msg"><span class="av av--builder">B</span><span class="agentline">Working on it</span></div>` : ""}</div>
     <div class="chips">${chipsFor(st).map((c) => `<button class="chip" data-act="chip">${esc(c)}</button>`).join("")}</div>
     <div class="composer"><textarea id="say" rows="1" placeholder="${st ? "Tell the Builder what to change on this step" : "Add a step, add a decision, or ask why"}" aria-label="Message the Builder"></textarea><button class="btn btn--pri btn--icon" data-act="send" aria-label="Send">${ic("send")}</button></div></div>`;
@@ -1111,6 +1233,10 @@ function notesHTML() {
       <li><b style="font-weight:500">Decisions come after it works.</b> A try shows where one is missing and adds it in one press.</li>
       <li><b style="font-weight:500">The flow is a chart of small boxes and arrows.</b> Point at a box for its details; click it to set it up.</li>
       <li><b style="font-weight:500">Decisions branch sideways, as a tree.</b> Each path is a column under the decision; a decision on a path splits it again, so two paths become four. Paths come back together or run to their own end. "Add a path" sits beside the decision.</li>
+      <li><b style="font-weight:500">A group of steps is a frame.</b> A loop (for each, repeat) is a frame around its steps with an arrow back to the top. An automation is one box you can open to see its saved steps. Either folds back to a single box.</li>
+      <li><b style="font-weight:500">The Builder in the side panel has three sizes:</b> just the message box, beside the setup, or the whole panel.</li>
+      <li><b style="font-weight:500">The list of steps folds away,</b> and its search reads plain words: say what the step should do and it offers that, plus the closest steps.</li>
+      <li><b style="font-weight:500">Tools are grouped by tool.</b> Open QuickBooks for its reads and writes, or drop QuickBooks in and choose the read or write on the step.</li>
       <li><b style="font-weight:500">Every step has a "comes after" and a "goes to".</b> Change where it comes after in its panel, drag the box onto a + or another box, or drag the dot under a step onto the one that should come next.</li>
       <li><b style="font-weight:500">Agents work together three ways:</b> ask another agent and wait for its answer, report to it without waiting, or hand the work off.</li>
       <li><b style="font-weight:500">The canvas zooms and moves.</b> Drag the background, or scroll; zoom with the buttons or Ctrl and the wheel; Fit shows the whole flow.</li>
@@ -1123,6 +1249,8 @@ function notesHTML() {
       <tr><td>Paths that never merge</td><td>Every path ending in Stop, as the canvas reads "Ends here" today. The format has no step that jumps elsewhere, so a path can end or rejoin, nothing else.</td></tr>
       <tr><td>Who decides</td><td>The if step: rules, or the agent chooses; a person step with choices</td></tr>
       <tr><td>The chart</td><td>The same steps in the same format, drawn as boxes and arrows instead of a list. Each path still either ends or comes back to its decision's next step.</td></tr>
+      <tr><td>Groups</td><td>For each and Repeat hold their own steps today; an automation step runs a saved set of steps. Folding is only how it is drawn.</td></tr>
+      <tr><td>Smart search</td><td>Scripted here from keywords. In the app it would be the Builder reading the words against the catalog.</td></tr>
       <tr><td>Comes after, goes to</td><td>The inspector's Connections (prior step, next step), which move a step today</td></tr>
       <tr><td>+ on an arrow</td><td>The insert that today sits in the inspector's Connections</td></tr>
       <tr><td>The step panel</td><td>The inspector's fields, regrouped, with the defaults new steps already get</td></tr>
@@ -1143,7 +1271,7 @@ function sheetHTML() {
   const st = find(S.sel);
   if (!st) return "";
   const loc = st.kind === "trigger" ? null : locate(st.id);
-  return `<aside class="sheet" aria-label="Step setup"><div class="sheet__h"><div class="row" style="justify-content:space-between"><span class="eyebrow">${K[st.kind].label}${loc ? ` · step ${loc.index + 1} of ${loc.list.length}` : ""}</span><button class="btn btn--ghost btn--icon" data-act="close" aria-label="Close">${ic("close")}</button></div>
+  return `<aside class="sheet is-chat-${S.chatSize}" aria-label="Step setup"><div class="sheet__h"><div class="row" style="justify-content:space-between"><span class="eyebrow">${K[st.kind].label}${loc ? ` · step ${loc.index + 1} of ${loc.list.length}` : ""}</span><button class="btn btn--ghost btn--icon" data-act="close" aria-label="Close">${ic("close")}</button></div>
     <input class="sheet__name" data-f="name" value="${esc(st.name)}" aria-label="Step name">${st.from ? `<span class="sheet__from">From your list: “${esc(st.from)}”</span>` : ""}</div>
     <div class="sheet__body" id="sbody">${setupHTML(st)}</div>${chatHTML(st.id)}</aside>`;
 }
@@ -1374,6 +1502,7 @@ function ask(text, about) {
   text = text.trim();
   if (!text || S.busy) return;
   S.chat.push({ me: 1, text, about });
+  if (S.chatSize === "min") S.chatSize = "mid";
   S.busy = true;
   renderSheet();
   setTimeout(() => {
@@ -1414,7 +1543,7 @@ function startTry() {
       else if (st.kind === "write") put(st.id, `${/bill/.test(st.part) ? "Create the bill for $4,218.40 in QuickBooks" : "Make this change in " + (st.tool || "the tool")}${st.approval === "Ask first" ? `, once ${st.who} signs` : ""}. Nothing was written.`, { would: 1 });
       else if (st.kind === "notify") put(st.id, `Tell ${st.to}: 2 prices changed on Baltic Lumber INV-4471.`, { would: 1 });
       else if (st.kind === "wait") put(st.id, `Wait ${st.dur}. Skipped in a try.`, { would: 1 });
-      else if (st.kind === "auto") put(st.id, `Ran its ${(AUTOS[st.part] || [1, 3])[1]} steps. Nothing was sent.`);
+      else if (st.kind === "auto") put(st.id, `Ran its ${autoOf(st.part).steps.length} steps: ${autoOf(st.part).steps.map((x) => x[1].charAt(0).toLowerCase() + x[1].slice(1)).join(", ")}. Nothing was sent.`);
       else if (st.kind === "talk") put(st.id, `Message ${st.who} on ${st.where} and wait for an answer. In a try we answer for them.`, { would: 1 });
       else if (st.kind === "askagent") put(st.id, `Ask “${st.agent}”${st.ask ? ": " + st.ask.charAt(0).toLowerCase() + st.ask.slice(1) : ""}. In a try it answers from its last run.`, { would: 1 });
       else if (st.kind === "tellagent") put(st.id, `Send “${st.agent}” what this run found. Not sent in a try.`, { would: 1 });
@@ -1499,7 +1628,10 @@ const ACT = {
     renderMenu();
   },
   addkind: (d) => { const m = S.menu; if (m) addStep(d.kind, m.list, m.index); },
-  paladd: (d, el) => { if (!dragged) { const dead = S.steps.length && deadEnd(S.steps[S.steps.length - 1]); addStep(d.kind, "root", dead ? S.steps.length - 1 : S.steps.length, fromItem(el)); } },
+  paladd: (d, el) => { if (!dragged && RAILMAP[d.item]) { const dead = S.steps.length && deadEnd(S.steps[S.steps.length - 1]); addStep(d.kind, "root", dead ? S.steps.length - 1 : S.steps.length, fromItem(el)); } },
+  chatsize: (d) => { const o = ["min", "mid", "max"]; S.chatSize = o[Math.max(0, Math.min(2, o.indexOf(S.chatSize) + +d.d))]; renderSheet(); if (S.chatSize !== "min") { const x = $("#say"); if (x) x.focus(); } },
+  rail: () => { S.railOff = !S.railOff; try { localStorage.setItem("mz.builder.rail", S.railOff ? "off" : "on"); } catch (e) {} renderRail(); },
+  fold: (d) => { const st = find(d.id); if (!st) return; st.folded = st.kind === "auto" ? (st.folded === false ? true : false) : !st.folded; renderCanvas(); renderSheet(); focusNode(d.id); },
   zoom: (d) => setZoom(+d.d ? S.zoom + 0.1 * +d.d : 1),
   fit: () => fit(),
   undo: () => undo(),
@@ -1531,6 +1663,7 @@ const ACT = {
     if (o.f) st[o.f] = v;
     if (o.k === "gap") { st.gap = v !== "Keep a person"; if (v === "Needs code") toast("Request filed in the Dev queue. A person does it until it ships."); }
     if (o.k === "gmail" && v === "Send by text instead") { st.part = "Texts · send text"; st.tool = "Texts"; }
+    if (o.k === "does") setPart(st, `${st.tool} · ${v.replace(/^(Read|Write): /, "")}`);
     renderCanvas(); renderBar(); renderSheet();
   },
   reopen: (d) => { const st = find(S.sel); if (!st || !st.open[+d.i]) return; commit(); st.open[+d.i].done = null; renderCanvas(); renderBar(); renderSheet(); },
@@ -1564,7 +1697,7 @@ document.addEventListener("focusin", (e) => { if (e.target.dataset && e.target.d
 document.addEventListener("input", (e) => {
   const t = e.target;
   if (t.id === "swhen") { S.start.name = t.value; return; }
-  if (t.id === "palq") { S.q = t.value; renderRail(); return; }
+  if (t.id === "palq") { S.q = t.value; renderRail(true); return; }
   if (t.id === "para") { S.para = t.value; return; }
   const ds = t.dataset || {};
   if (ds.row) {
@@ -1584,8 +1717,10 @@ document.addEventListener("input", (e) => {
   if (!st) return;
   if (t.dataset.p) { const p = st.paths.find((x) => x.id === t.dataset.p); if (t.dataset.r) p.rule[t.dataset.f] = t.value; else p[t.dataset.f] = t.value; }
   else {
-    st[t.dataset.f] = t.value;
-    if (t.dataset.f === "part" && st.kind !== "skill") { st.tool = t.value.split(" · ")[0]; st.open = (st.open || []).filter((o) => o.k !== "gmail"); if (st.tool === "Gmail") st.open.push(gmailIssue()); }
+    const tf = t.dataset.f, isTool = st.kind === "read" || st.kind === "write";
+    if (isTool && tf === "tool") { const tl = TOOLS[t.value], same = st.kind === "write" ? tl.writes[0] || tl.reads[0] : tl.reads[0] || tl.writes[0]; setPart(st, `${t.value} · ${same}`); }
+    else if (isTool && tf === "part") setPart(st, t.value);
+    else st[tf] = t.value;
     if (t.dataset.f === "who") (st.open || []).forEach((o) => { if (o.k === "who") o.done = t.value; });
   }
   renderCanvas(); renderBar();
@@ -1679,6 +1814,7 @@ document.addEventListener("paste", (e) => {
   S.list.splice(i, S.list[i].text.trim() ? 0 : 1, ...lines.map(rowFrom));
   renderList();
 });
+try { S.railOff = localStorage.getItem("mz.builder.rail") === "off"; } catch (e) {}
 renderAll();
 </script>
 </body>
