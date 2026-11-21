@@ -1,4 +1,5 @@
-// The merge view: a template update with a conflict (marked on the step list and in the fields
+// The merge view: a template update with a conflict (the merged steps on the builder's chart, read
+// only, with what each side changed tagged on it and listed under it; the conflict in the fields
 // table, Save held until it is resolved, the resolution sent), and a promotion with one change
 // left unpicked (only the picked change is sent; client-specific values are listed as staying).
 import {
@@ -165,6 +166,23 @@ describe("merge view: template update", () => {
     expect(screen.getByTestId("merge-open-conflicts").textContent).toBe("1 conflict to resolve");
     expect(screen.getByTestId("step-ask-marks").textContent).toContain("This client: changed");
     expect(screen.getByTestId("step-pause-marks").textContent).toContain("Template update: added");
+    // F8: the merged steps are drawn on the builder's chart, read only, each changed step tagged.
+    const chart = within(screen.getByTestId("merge-chart"));
+    expect(chart.getByTestId("flow-start").textContent).toContain("Started by hand");
+    expect(chart.getByTestId("flow-box-ask").textContent).toContain("Ask Jammil");
+    expect(chart.getByTestId("flow-tag-ask").textContent).toBe("Changed");
+    expect(chart.getByTestId("flow-tag-pause").textContent).toBe("Added");
+    expect(chart.queryByTestId("flow-tag-tell")).toBeNull();
+    expect(screen.queryByTestId("step-tell")).toBeNull();
+    // Nothing to add or drag on it.
+    expect(chart.queryByTestId("flow-tail")).toBeNull();
+    expect(chart.queryByTestId("flow-dot-ask")).toBeNull();
+    // A step's row opens it on the chart, and a box on the chart marks its row.
+    await userEvent.click(screen.getByTestId("step-pause-open"));
+    expect(chart.getByTestId("flow-box-pause").getAttribute("aria-pressed")).toBe("true");
+    await userEvent.click(chart.getByTestId("flow-box-ask"));
+    expect(chart.getByTestId("flow-box-ask").getAttribute("aria-pressed")).toBe("true");
+    expect(chart.getByTestId("flow-box-pause").getAttribute("aria-pressed")).toBe("false");
     const row = screen.getByTestId("merge-field-bundle#/definition/instructions");
     expect(row.textContent).toContain("Conflict");
     expect(row.textContent).toContain("Waiting on you");
@@ -262,8 +280,12 @@ describe("merge view: v4 process and a v3 template update", () => {
     expect(row.textContent).toContain("Step “Ask Jammil”: deadline: time to answer");
     expect(row.textContent).toContain("2 days");
     expect(row.textContent).toContain("3 days");
+    // The conflict waits on its step on the chart, in a word, until it is settled.
+    const chart = within(screen.getByTestId("merge-chart"));
+    expect(chart.getByTestId("flow-tag-ask").textContent).toBe("1 conflict");
     await userEvent.click(screen.getByTestId("merge-conflict-0-theirs"));
     expect(screen.getByTestId("step-ask").textContent).toContain("3 days in business hours");
+    expect(chart.getByTestId("flow-tag-ask").textContent).toBe("Changed");
     const save = screen.getByTestId("merge-save-button") as HTMLButtonElement;
     await waitFor(() => expect(save.disabled).toBe(false));
     await userEvent.click(save);
@@ -322,6 +344,9 @@ describe("merge view: promotion", () => {
     await userEvent.click(screen.getByTestId("merge-promote-0"));
     expect(screen.queryByTestId("merge-field-bundle#/definition/instructions")).toBeNull();
     expect(screen.getByTestId("step-pause-marks").textContent).toContain("Client's changes: added");
+    expect(
+      within(screen.getByTestId("merge-chart")).getByTestId("flow-tag-pause").textContent,
+    ).toBe("Added");
 
     await userEvent.type(screen.getByTestId("merge-release-note"), "A pause");
     await userEvent.click(screen.getByTestId("merge-save-button"));

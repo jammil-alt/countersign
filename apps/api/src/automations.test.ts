@@ -10,7 +10,7 @@ import {
   AgentBundle as AgentBundleSchema,
   type UseAutomationStep,
 } from "@countersign/core";
-import { agentVersion, automation, inboxItem, run, stepRun } from "@countersign/db";
+import { agentVersion, auditEvent, automation, inboxItem, run, stepRun } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -432,5 +432,81 @@ describe.skipIf(!h)("automations", () => {
     });
     expect(refused.status).toBe(422);
     expect(j(refused.json).error.code).toBe("named_person");
+  });
+
+  // The builder on one screen, F7 (docs/plan.md §1.170): an automation opens in the builder.
+  it("answers the builder's catalog for an automation's own steps, to operators only", async () => {
+    const path = (id: string) => `/api/ops/automations/${id}/builder-catalog`;
+    const ids = (list: { id: string }[]) => list.map((x) => x.id);
+
+    // A shared automation with no steps: the platform's skills and tools, nothing test-only, and
+    // no automations (one can't use another).
+    const plain = await H.call(OPERATOR, "POST", "/api/ops/automations", {
+      definition: { schemaVersion: 2, slug: "plain", name: "Plain", steps: [] },
+    });
+    expect(plain.status, JSON.stringify(plain.json)).toBe(200);
+    const plainId = j(plain.json).automation.id;
+    const shared = await H.call(OPERATOR, "GET", path(plainId));
+    expect(shared.status, JSON.stringify(shared.json)).toBe(200);
+    const catalog = j(shared.json);
+    expect(catalog.skills.length).toBeGreaterThan(0);
+    expect(catalog.tools.length).toBeGreaterThan(0);
+    expect(catalog.automations).toEqual([]);
+    expect(ids(catalog.connectors)).not.toContain("testkit");
+    expect(ids(catalog.tools)).not.toContain(TESTKIT_UPDATE_TOOL);
+    // Skills come without their instructions, as for an agent.
+    expect(JSON.stringify(catalog.skills)).not.toContain('"instructions"');
+
+    // The same parts an agent's builder gets (the test template itself names the testkit).
+    const tpl = await H.call(OPERATOR, "POST", "/api/ops/templates", {
+      slug: "catalog-twin",
+      bundle: { ...testBundle("Twin"), workflows: [] },
+    });
+    expect(tpl.status, JSON.stringify(tpl.json)).toBe(200);
+    const agents = await H.call(
+      OPERATOR,
+      "GET",
+      `/api/ops/agents/${j(tpl.json).agent.id}/builder-catalog`,
+    );
+    expect(ids(catalog.connectors)).toEqual(
+      ids(j(agents.json).connectors).filter((id) => id !== "testkit"),
+    );
+    expect(catalog.stepTools).toEqual(
+      j(agents.json).stepTools.filter((id: string) => !id.startsWith("testkit.")),
+    );
+    expect(ids(catalog.skills.map((s: { ref: string }) => ({ id: s.ref })))).toEqual(
+      expect.arrayContaining(["data.reshape"]),
+    );
+
+    // One whose steps already call a testkit tool keeps it, so its stored steps still type.
+    const uses = j((await H.call(OPERATOR, "GET", path(automationId))).json);
+    expect(ids(uses.connectors)).toContain("testkit");
+    expect(ids(uses.tools)).toContain(TESTKIT_UPDATE_TOOL);
+
+    // A client's own: for the operators who serve that client, and by that client's connections
+    // (client A connected the testkit).
+    const own = await H.call(OPERATOR, "POST", "/api/ops/automations", {
+      clientId: H.A.tenantId,
+      definition: { schemaVersion: 2, slug: "a-plain", name: "A plain", steps: [] },
+    });
+    const ownId = j(own.json).automation.id;
+    const mine = await H.call(OPERATOR, "GET", path(ownId));
+    expect(mine.status).toBe(200);
+    expect(ids(j(mine.json).connectors)).toContain("testkit");
+    expect((await H.call(OTHER_OPERATOR, "GET", path(ownId))).status).toBe(404);
+
+    // Never a client's person; an unknown id is not found.
+    expect((await H.call(admin("a"), "GET", path(plainId))).status).toBe(403);
+    expect(
+      (await H.call(OPERATOR, "GET", path("0190a3c4-1111-7000-8000-00000000dead"))).status,
+    ).toBe(404);
+
+    // Audited through mount(), refusals included.
+    const rows = await H.t.db
+      .select({ outcome: auditEvent.outcome, tenantId: auditEvent.tenantId })
+      .from(auditEvent)
+      .where(eq(auditEvent.action, "GET /api/ops/automations/:id/builder-catalog"));
+    expect(rows.filter((r) => r.outcome === "ok").length).toBe(3);
+    expect(rows.some((r) => r.outcome !== "ok")).toBe(true);
   });
 });

@@ -190,7 +190,7 @@ export function ClientViewCard({ agentId }: { agentId: string }) {
   );
 }
 
-function AssignForm({
+export function AssignForm({
   templateId,
   version,
   onCancel,

@@ -17,6 +17,8 @@ export const OPS_PATHS = {
   labDrafts: "/ops/lab?tab=drafts",
   labNew: (kind: "template" | "client" | "skill" = "template") => `/ops/lab?tab=drafts&new=${kind}`,
   build: (id: string) => `/ops/builds/${id}`,
+  /** docs/plan.md §1.170: a new agent build's Check the steps, after Describe it. */
+  buildCheck: (id: string) => `/ops/builds/${id}/check`,
   // O5 New agent, O6 Workflow builder, O7 Triggers (UI-2c), under the agent page (UI-2b).
   newTemplate: "/ops/templates/new",
   newAgent: (clientId: string) => `/ops/clients/${clientId}/agents/new`,

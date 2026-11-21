@@ -37,7 +37,10 @@ export function processPathsAt(
   const depth = options.depth ?? 4;
   const scope = processScopes(process, ctx).get(stepId);
   if (!scope) return [];
-  const out: PathOption[] = [...pathOptions(scope.trigger, "trigger", depth)];
+  // F7: an automation's steps read what it takes in; it has no trigger.
+  const out: PathOption[] = scope.input
+    ? [...pathOptions(scope.input.schema, "input", depth)]
+    : [...pathOptions(scope.trigger, "trigger", depth)];
   for (const [id, { step, output }] of Object.entries(scope.steps)) {
     out.push(...pathOptions(output, `steps.${id}.output`, depth, id));
     for (const f of stepOutcomeFields(step)) {

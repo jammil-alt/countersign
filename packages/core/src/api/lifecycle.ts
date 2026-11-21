@@ -113,6 +113,76 @@ export type RunForm = z.infer<typeof RunForm>;
 export const PauseAllBody = PauseBody;
 export { MAX_PAUSE_REASON };
 
+// ── Turn on in one button (docs/builder-plan.md §11.4 S4, §12.4; docs/plan.md §1.170) ──────────
+
+/**
+ * What a Turn on lists: the try (`tried`) and the validator's errors (`invalid`) are ours and hold
+ * the button; what the client still owes (`connect`, `allow`, `who`, `setup`) never does; a build's
+ * high-risk decisions (`decision`) come first and hold nothing (owner, 2026-11-21).
+ */
+export const TURN_ON_ITEM_KINDS = [
+  "tried",
+  "invalid",
+  "connect",
+  "allow",
+  "who",
+  "setup",
+  "decision",
+] as const;
+export const TurnOnItemKind = z.enum(TURN_ON_ITEM_KINDS);
+export type TurnOnItemKind = z.infer<typeof TurnOnItemKind>;
+
+export const TurnOnItem = z.object({
+  /** Stable across answers: `tried`, `invalid:<n>`, `connect:<connector>`, `decision:<id>`, … */
+  key: z.string().min(1).max(300),
+  kind: TurnOnItemKind,
+  title: z.string(),
+  detail: z.string().optional(),
+  /** Whose move it is: ours, or the client's (it goes to their setup list). */
+  owner: z.enum(["operator", "client"]),
+  /** It keeps the button from starting the trial. Only ours ever do. */
+  holds: z.boolean(),
+  /** The step it is about, when it is about one. */
+  stepId: z.string().optional(),
+  /** Already so (shown with a check): tried, connected, allowed. */
+  done: z.boolean().optional(),
+  /**
+   * A client item the trial's start waits on (the activation check refuses without it: a tool
+   * not connected, a required role with nobody, a setup item that guards the trial). It doesn't
+   * hold the button: Turn on does the rest, and the trial starts when it is pressed again.
+   */
+  waits: z.boolean().optional(),
+});
+export type TurnOnItem = z.infer<typeof TurnOnItem>;
+
+/** Turn on's answer, the preview's and the button's alike. */
+export const TurnOnAnswer = z.object({
+  /** The client's agent that runs: the agent itself, or a template's copy at the client (null in a preview before the copy is made). */
+  agentId: Id.nullable(),
+  clientId: Id,
+  clientName: z.string().optional(),
+  /** The version turned on (the agent's own); after a start, the copy's live version. */
+  versionId: Id,
+  /** Its number, for "it publishes v3". */
+  version: z.number().int().optional(),
+  /** The trial (or live, for an agent that writes nothing) has started. */
+  started: z.boolean(),
+  stage: AgentStage,
+  /** High-risk decisions first, then ours, then the client's. */
+  items: z.array(TurnOnItem),
+  /** Why the trial didn't start this time, as the activation check says it. */
+  refused: z.array(z.string()).optional(),
+});
+export type TurnOnAnswer = z.infer<typeof TurnOnAnswer>;
+
+export const TurnOnBody = z.strictObject({
+  /** Required for a template: the client it is turned on for. */
+  clientId: Id.optional(),
+  /** The version to turn on; the latest when left out. */
+  versionId: Id.optional(),
+});
+export type TurnOnBody = z.infer<typeof TurnOnBody>;
+
 export const lifecycleRoutes = {
   opsAgentGoLive: defineRoute({
     method: "GET",
@@ -134,6 +204,28 @@ export const lifecycleRoutes = {
     params: IdParams,
     body: z.strictObject({ to: AgentStage, reason: StageReason.optional() }),
     response: z.object({ goLive: GoLive }),
+  }),
+  opsAgentTurnOnPreview: defineRoute({
+    method: "GET",
+    path: "/api/ops/agents/:id/turn-on",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "What Turn on would do for a template (at `?client=`) or a client agent, and what holds it: never tried, the validator's errors; what the client owes is listed and holds nothing. Changes nothing",
+    params: IdParams,
+    query: z.object({ client: Id.optional() }),
+    response: TurnOnAnswer,
+  }),
+  opsAgentTurnOn: defineRoute({
+    method: "POST",
+    path: "/api/ops/agents/:id/turn-on",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Turn on in one button: publish the version, copy a template to the client (or update its copy), bind the client's connections, activate and start the trial (every write signed); 409 with the items when something of ours holds it",
+    params: IdParams,
+    body: TurnOnBody,
+    response: TurnOnAnswer,
   }),
   opsAgentTrial: defineRoute({
     method: "PUT",

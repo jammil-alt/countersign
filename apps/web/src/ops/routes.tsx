@@ -9,6 +9,7 @@
 //
 // The route sweep (#141, apps/web/e2e/route-sweep.mjs) reads the `path="…"` lines of this file.
 
+import { lazy, Suspense } from "react";
 import { Route } from "react-router-dom";
 // §1.73: the Marketing area, one file per screen (packs/marketing/ops).
 import { MarketingAudienceScreen } from "../packs/marketing/ops/Audience";
@@ -43,7 +44,7 @@ import {
 import { OpsRecordScreen } from "../records/RecordScreens";
 import { ConnectClaudeScreen } from "../session/ConnectClaude";
 import { Redirect } from "../shell/Redirect";
-import { Placeholder } from "../ui/primitives";
+import { Loading, Placeholder } from "../ui/primitives";
 import { NewClientAgentScreen } from "./agents/NewClientAgentScreen";
 import { TemplatePage } from "./agents/TemplateScreens";
 import { BuildScreen } from "./builds/BuildsScreen";
@@ -55,6 +56,7 @@ import { OpsClientLedgerScreen } from "./client/ClientLedger";
 import { ClientOverviewScreen } from "./client/ClientOverview";
 import { CommandCenterScreen } from "./command/CommandCenter";
 import { OpsClientConnectorScreen } from "./connectors/ClientConnector";
+import { CheckStepsScreen } from "./flow/CheckSteps";
 import { LabScreen } from "./lab/LabScreen";
 // R8: the Library (docs/plan.md §1.86)
 import { ConditionsBank } from "./library/ConditionsBank";
@@ -110,6 +112,9 @@ import { ClientFileScreen } from "./work/onboarding/ClientFileTab";
 import { DealScreen } from "./work/sales/DealPage";
 import { SalesScreen } from "./work/sales/SalesSection";
 
+// F7: the builder's parts load with the first automation opened in it, as an agent's builder does.
+const AutomationEditor = lazy(() => import("./flow/automation/AutomationEditor"));
+
 export const opsRoutes = (
   <>
     {/* O1 Command center (UI-2a) */}
@@ -150,6 +155,15 @@ export const opsRoutes = (
     <Route path="skills/new" element={<NewSkillScreen />} />
     <Route path="skills/:id" element={<SkillPage />} />
     <Route path="skills/automations/:id" element={<AutomationPage />} />
+    {/* F7 (docs/builder-plan.md §12.1): an automation's steps in the one-screen builder */}
+    <Route
+      path="skills/automations/:id/steps"
+      element={
+        <Suspense fallback={<Loading />}>
+          <AutomationEditor />
+        </Suspense>
+      }
+    />
 
     {/* Clients: the client page with its tabs (client/ClientFrame.tsx) and new client. Each
         page of the Data and Setup tabs keeps its own address. */}
@@ -160,6 +174,8 @@ export const opsRoutes = (
     {/* Owner (2026-11-17): the Builder board is the Agent lab's Drafts tab. */}
     <Route path="builds" element={<Redirect to="/ops/lab?tab=drafts" />} />
     <Route path="builds/:id" element={<BuildScreen />} />
+    {/* docs/plan.md §1.170: a new agent build's Check the steps, after Describe it in the lab. */}
+    <Route path="builds/:id/check" element={<CheckStepsScreen />} />
     <Route path="clients" element={<ClientsScreen />} />
     <Route path="clients/new" element={<NewClientScreen />} />
     {/* 1.4 (docs/audit-plan.md): the client page's tabs under one frame (client/ClientFrame.tsx),
