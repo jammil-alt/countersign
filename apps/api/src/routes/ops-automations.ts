@@ -58,6 +58,9 @@ import {
   notFound,
 } from "../http";
 import type { Platform } from "../platform";
+// F7: the builder's catalog, shared with the agents' route (the two files name each other's
+// functions, used only inside handlers).
+import { builderCatalogFor } from "./ops-lineage";
 
 type Scope = Pick<HandlerCtx<never>, "tx" | "tenantIds">;
 type AutomationRow = typeof automation.$inferSelect;
@@ -397,6 +400,35 @@ export function opsAutomationRoutes(app: Hono<AppEnv>): void {
       versions: entry.versions.map(automationVersionView),
       usedBy,
     };
+  });
+
+  // The builder on one screen, F7 (docs/plan.md §1.170): an automation's steps open in the same
+  // builder as an agent's, so it asks for the same catalog. An automation has no agent, so it
+  // can't ask through the agent's route.
+  // DECISION: one read-only route answering the agent route's own shape from the same function
+  // (`builderCatalogFor`), rather than the web borrowing some agent's catalog: a shared automation
+  // gets the platform's and the shared skills and tools; a client's own gets that client's skills
+  // and (for the testkit and Zoho's fields) its connections. No automations: one can't use another.
+  mount(app, routes.opsAutomationBuilderCatalog, async (ctx) => {
+    const row = await automationInScope(ctx, ctx.params.id);
+    const [latest] = await ctx.tx
+      .select({ definition: automationVersion.definition })
+      .from(automationVersion)
+      .where(eq(automationVersion.automationId, row.id))
+      .orderBy(desc(automationVersion.version))
+      .limit(1);
+    const def = latest?.definition ?? null;
+    const requires = def ? processes.anyAutomationRequires(def, {}) : null;
+    return builderCatalogFor(ctx, {
+      tenantId: row.tenantId,
+      testCopy: false,
+      bindings: null,
+      latest: def,
+      skillRefs: requires?.skills ?? [],
+      stepTools: new Set(requires?.tools ?? []),
+      bundle: null,
+      automations: false,
+    });
   });
 
   mount(app, routes.opsSaveAutomationVersion, async (ctx) => {

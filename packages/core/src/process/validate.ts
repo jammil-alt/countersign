@@ -250,6 +250,12 @@ export interface ProcessValidationContext extends TypingContext {
   // trigger payload: any path reads.
   settings?: JsonSchema;
   /**
+   * The builder on one screen, F7 (docs/plan.md §1.170): the steps are an automation's, opened in
+   * the builder. Their scopes read `{{input.…}}` typed by this schema in place of a trigger, as
+   * `validateProcessAutomation` types them.
+   */
+  input?: JsonSchema;
+  /**
    * Skill model (2026-11-10): the step ids of the version this one was made from. A skill step
    * whose id isn't among them is new, and a new step may not use a retired kind of skill
    * (`rules_then_ai`, agent mode). Absent: no step counts as new (stored versions, templates).
@@ -581,8 +587,10 @@ function itemSchemaOf(over: string, scope: ProcessScope): JsonSchema | undefined
 function scopeList(
   process: Pick<Process, "triggers" | "steps">,
   ctx: ProcessValidationContext,
-  input?: ProcessScope["input"],
+  given?: ProcessScope["input"],
 ): { step: Step; scope: ProcessScope }[] {
+  // F7: an automation's steps opened in the builder say so through the context.
+  const input = given ?? (ctx.input ? { schema: ctx.input } : undefined);
   const trigger = input ? undefined : processTriggerSchema(process, ctx);
   // A duplicated id (an error anyway) reads as its last step, as v3 does.
   const byId = new Map<string, Step>();

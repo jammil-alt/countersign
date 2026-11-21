@@ -1,7 +1,8 @@
 // The merge view (ARCHITECTURE §10.5, §15 `/ops/agents/[id]/merge`): a template update into a
 // client agent (`?mode=update`), or a client agent's changes promoted into its template
-// (`?mode=promote`). It shows the merged workflow as the builder lays it out, each step marked
-// added, removed, changed or moved per side; the conflicts, each resolved as one side, the
+// (`?mode=promote`). It shows the merged workflow on the builder's chart (read only; F8,
+// docs/builder-plan.md §12.1), the steps either side changed tagged on it and listed under it per
+// side (added, changed or moved; removed ones named below); the conflicts, each resolved as one side, the
 // original or an edited value; the agent fields and settings side by side; and, for a promotion,
 // which changes go (client-specific values never do). Merging and validation run in the browser
 // with core's code on every change; Save asks the server, which runs both again.
@@ -17,12 +18,13 @@ import {
   holdsProcess,
   type MergeConflict,
   mergeBundles,
+  processes,
   type Resolution,
   readBundles,
   selectableBetween,
   selectChanges,
 } from "@countersign/core";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionDetail } from "../../api/routes";
@@ -54,8 +56,12 @@ import {
 import { typingContext, validateLikeServer, validateProcessesLikeServer } from "../builder/catalog";
 
 import { JsonInput } from "../builder/fields";
+import { type Process, readProcessBundle } from "../builder/model";
+import { Chart, defaultLabel } from "../flow/Chart";
+import type { FlowEnds, StatusMap, StepStatus } from "../flow/types";
 import { usePageClient } from "../pickedClient";
-import { StepList, type StepMark } from "../workflow/StepList";
+import { checksLines } from "../workflow/checks";
+import { triggerTitle } from "../workflow/describe";
 import {
   activeResolutions,
   catalogLookup,
@@ -259,6 +265,37 @@ const MARK_WORD: Record<Mark, string> = {
   moved: "moved",
 };
 
+/** The chart's tag for a step either side touched, the strongest change first. */
+const TAG_WORD: Record<Mark, string> = {
+  added: "Added",
+  removed: "Removed",
+  changed: "Changed",
+  moved: "Moved",
+};
+const TAG_RANK: Record<Mark, number> = { added: 4, removed: 3, changed: 2, moved: 1 };
+
+/** What a step, path or trigger of the merged workflow carries: each side's mark, its conflicts. */
+interface StepMark {
+  badges: ReactNode[];
+  /** Conflicts on it still waiting for a choice. */
+  waiting: number;
+  /** The strongest change either side made to it. */
+  mark: Mark | null;
+}
+
+/** A marked row under the chart: a trigger, a step, or a decision's path. */
+interface ChangeRow {
+  id: string;
+  /** The step the chart opens for it: itself, or a path's decision. Null for a trigger. */
+  stepId: string | null;
+  title: string;
+  kind: string;
+  detail: string | null;
+  checks: string[];
+}
+
+const NOTHING = () => {};
+
 function MergeBody({
   mode,
   agent,
@@ -330,9 +367,11 @@ function MergeBody({
 
   const stepMark = (stepId: string): StepMark | undefined => {
     const badges: ReactNode[] = [];
+    let mark: Mark | null = null;
     for (const side of ["ours", "theirs"] as const) {
       const m = marks[side].get(stepId);
       if (m) {
+        if (!mark || TAG_RANK[m] > TAG_RANK[mark]) mark = m;
         badges.push(
           <Badge key={side} tone={m === "added" ? "positive" : "neutral"}>
             {names[side]}: {MARK_WORD[m]}
@@ -351,12 +390,108 @@ function MergeBody({
         </button>,
       );
     }
-    return badges.length ? { badges, attention: waiting > 0 } : undefined;
+    return badges.length ? { badges, waiting, mark } : undefined;
   };
 
   const [slug, setSlug] = useState<string | null>(null);
   const workflows = result.bundle.workflows;
   const shownWorkflow = workflows.find((w) => w.slug === slug) ?? workflows[0];
+
+  // ── The merged workflow on the chart ──
+  // DECISION (F8): a v3 workflow is read as a v4 process to draw it, as the builder opens one
+  // (`readProcessBundle`: every step, path and trigger id kept). Only the drawing reads it; the
+  // merge, its conflicts and what is saved stay on the bundles as they are.
+  const drawn = useMemo(() => {
+    try {
+      return readProcessBundle(result.bundle, ctx);
+    } catch {
+      return null;
+    }
+  }, [result.bundle, ctx]);
+  const shown: Process | null =
+    drawn?.workflows.find((w) => w.slug === shownWorkflow?.slug)?.workflow ?? null;
+  const ends = useMemo<FlowEnds>(
+    () => ({
+      start: shown ? { title: "Starts when", lines: shown.triggers.map(triggerTitle) } : null,
+      givesBack: null,
+    }),
+    [shown],
+  );
+  const [selectedStep, setSelectedStep] = useState<string | null>(null);
+  const [folded, setFolded] = useState<ReadonlySet<string>>(new Set());
+  const onFold = useCallback((stepId: string, fold: boolean) => {
+    setFolded((f) => {
+      const next = new Set(f);
+      if (fold) next.add(stepId);
+      else next.delete(stepId);
+      return next;
+    });
+  }, []);
+  const changeRows: ChangeRow[] = [];
+  const statuses = new Map<string, StepStatus>();
+  if (shown) {
+    for (const t of shown.triggers) {
+      if (!stepMark(t.id)) continue;
+      changeRows.push({
+        id: t.id,
+        stepId: null,
+        title: triggerTitle(t),
+        kind: "Starts when",
+        detail: null,
+        checks: [],
+      });
+    }
+    for (const { step } of processes.allSteps(shown)) {
+      const own = stepMark(step.id);
+      const words = defaultLabel(step);
+      if (own) {
+        changeRows.push({
+          id: step.id,
+          stepId: step.id,
+          title: words.title,
+          kind: words.kind,
+          detail: words.detail,
+          checks: checksLines(step.checks),
+        });
+      }
+      // A decision carries its paths' changes on the chart; each path has a row of its own.
+      const paths = step.kind === "if" ? step.paths : [];
+      let waiting = own?.waiting ?? 0;
+      let mark = own?.mark ?? null;
+      for (const p of paths) {
+        const m = stepMark(p.id);
+        if (!m) continue;
+        changeRows.push({
+          id: p.id,
+          stepId: step.id,
+          title: `Path “${p.name}”`,
+          kind: `On “${words.title}”`,
+          detail: null,
+          checks: [],
+        });
+        waiting += m.waiting;
+        mark = mark ?? "changed";
+      }
+      if (waiting > 0) {
+        statuses.set(step.id, {
+          stepId: step.id,
+          level: "ok",
+          items: [],
+          decided: [],
+          tag: { word: plural(waiting, "conflict"), tone: "warning" },
+        });
+      } else if (mark) {
+        statuses.set(step.id, {
+          stepId: step.id,
+          level: "ok",
+          items: [],
+          decided: [],
+          tag: { word: TAG_WORD[mark], tone: mark === "added" ? "positive" : "neutral" },
+        });
+      }
+    }
+  }
+  const statusMap: StatusMap = statuses;
   const removed = [
     ...removedSteps(oursChanges, result.bundle, labels).map((r) => ({
       ...r,
@@ -545,10 +680,82 @@ function MergeBody({
             ) : null
           }
         >
-          {shownWorkflow ? (
-            <StepList workflow={shownWorkflow.workflow} marks={stepMark} />
-          ) : (
+          {!shownWorkflow ? (
             <p className="text-sm text-ink-muted">No workflows.</p>
+          ) : shown ? (
+            <>
+              <div className="flow-merge-chart" data-testid="merge-chart">
+                <Chart
+                  readOnly
+                  process={shown}
+                  ends={ends}
+                  statuses={statusMap}
+                  selected={selectedStep}
+                  folded={folded}
+                  onFold={onFold}
+                  onSelect={setSelectedStep}
+                  onInsert={NOTHING}
+                  onMove={NOTHING}
+                  onConnect={NOTHING}
+                />
+              </div>
+              {changeRows.length > 0 ? (
+                <div className="mt-5" data-testid="merge-changed">
+                  <p className="eyebrow mb-2 text-ink-muted">Changed in this merge</p>
+                  <ul className="flex flex-col divide-y divide-line">
+                    {changeRows.map((r) => (
+                      <li
+                        key={r.id}
+                        data-testid={`step-${r.id}`}
+                        className={cx(
+                          "flex flex-col gap-1 py-2",
+                          r.stepId !== null &&
+                            r.stepId === selectedStep &&
+                            "rounded-sm bg-slate-tint px-3",
+                        )}
+                      >
+                        <span className="flex flex-wrap items-baseline gap-2">
+                          {r.stepId ? (
+                            <button
+                              type="button"
+                              className="font-medium text-ink hover:underline"
+                              data-testid={`step-${r.id}-open`}
+                              onClick={() => setSelectedStep(r.stepId)}
+                            >
+                              {r.title}
+                            </button>
+                          ) : (
+                            <span className="font-medium text-ink">{r.title}</span>
+                          )}
+                          <span className="text-sm text-ink-muted">
+                            {[r.kind, r.detail].filter(Boolean).join(" · ")}
+                          </span>
+                        </span>
+                        {r.checks.length > 0 ? (
+                          <ul
+                            className="text-sm text-ink-muted"
+                            data-testid={`step-${r.id}-checks`}
+                          >
+                            {r.checks.map((line) => (
+                              <li key={line}>{line}</li>
+                            ))}
+                          </ul>
+                        ) : null}
+                        <div className="flex flex-wrap gap-1" data-testid={`step-${r.id}-marks`}>
+                          {stepMark(r.id)?.badges}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-ink-muted" data-testid="merge-changed-none">
+                  Neither side changed a step of this workflow.
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-ink-muted">We can't draw this workflow.</p>
           )}
           {removed.length > 0 ? (
             <div className="mt-5" data-testid="merge-removed">

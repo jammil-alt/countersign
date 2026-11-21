@@ -38,6 +38,7 @@ import {
   type FitRow,
   fitChangeKind,
   fitScope,
+  gapSteps,
   issueByKey,
   issueLine,
   isUuid,
@@ -70,7 +71,6 @@ import {
   withNote,
 } from "@countersign/core";
 import {
-  agent,
   build,
   buildEvent,
   buildItem,
@@ -81,8 +81,9 @@ import {
   type Tx,
 } from "@countersign/db";
 import { createLlmClient, DEFAULT_MODELS, type LlmTransport } from "@countersign/llm";
-import { and, asc, desc, eq, inArray, like, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Hono } from "hono";
+import { freeSlug, moveToClientTest } from "../build/client-test";
 import { withBuildManual } from "../build/manual";
 import { draftSetupItems, withSetupItems } from "../build/setup";
 import {
@@ -139,21 +140,6 @@ function transport(services: Pick<Services, "deps" | "env" | "db">, row: BuildRo
 }
 
 const now = () => new Date();
-
-/** The template's slug in the client, or the first free `<slug>-2`, `-3`, … */
-async function freeSlug(tx: Tx, clientId: string, slug: string): Promise<string> {
-  const taken = new Set(
-    (
-      await tx
-        .select({ slug: agent.slug })
-        .from(agent)
-        .where(and(eq(agent.tenantId, clientId), like(agent.slug, `${slug}%`)))
-    ).map((r) => r.slug),
-  );
-  if (!taken.has(slug)) return slug;
-  for (let n = 2; n < 100; n++) if (!taken.has(`${slug}-${n}`)) return `${slug}-${n}`;
-  throw new HttpError(409, "slug_taken", "the client has too many agents from this template");
-}
 
 function refuseClosed(row: BuildRow): void {
   if (row.status !== "open") {
@@ -1548,6 +1534,21 @@ async function makeDraft(
   return { set: { sessionId: started.session.id }, decisions: [], kept: false };
 }
 
+/** The draft's step standing for each gap (a person step that asks, or a missing step), or null. */
+async function draftGapSteps(
+  tx: Tx,
+  agentId: string | null | undefined,
+  gaps: readonly string[],
+): Promise<(string | null)[]> {
+  const latest = agentId ? await latestVersion(tx, agentId) : null;
+  const parsed = latest ? AnyAgentBundle.safeParse(latest.bundle) : null;
+  if (!parsed?.success) return gaps.map(() => null);
+  const drafted = parsed.data.workflows.flatMap((w) =>
+    w.workflow.schemaVersion === 4 ? [w.workflow] : [],
+  );
+  return gapSteps(gaps, drafted);
+}
+
 /** A short, stable fingerprint of a fit-gap's first version. */
 function fitGapHash(fitgap: FitGap): string {
   const rows = fitgap.rows
@@ -1836,6 +1837,8 @@ async function draftNow(ctx: LongCtx, id: string, given: string | null): Promise
       payload: { brief: readBrief(r.brief) },
       userId,
     });
+    // docs/builder-plan.md §12.4: each gap names the step that stands for it, when one clearly does.
+    const onSteps = gaps.length > 0 ? await draftGapSteps(scoped.tx, made.set.agentId, gaps) : [];
     await addItems(
       scoped.tx,
       r,
@@ -1847,6 +1850,7 @@ async function draftNow(ctx: LongCtx, id: string, given: string | null): Promise
           "Not in the catalog yet, so a person does this part in the first version. Build it when the runs show it is worth it.",
         owner: "builder" as const,
         state: "deferred" as const,
+        stepId: onSteps[i] ?? null,
         key: `now:gap:${i}`,
       })),
       userId,
@@ -2806,38 +2810,12 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
     }
     await ctx.inTx(async (scoped) => {
       const r = await readBuild(scoped.tx, ctx.params.id, true);
-      await scoped.tx
-        .update(build)
-        .set({ phase: "client_test", phaseAt: now(), testClientId: clientId, testAgentId })
-        .where(eq(build.id, r.id));
-      await addEvent(scoped.tx, r, { kind: "phase", from: "poc", to: "client_test", userId });
-      await addEvent(scoped.tx, r, {
-        kind: "record",
-        payload: { testPlan: readTestPlan(r.testPlan) },
+      await moveToClientTest(scoped.tx, r, {
+        clientId,
+        testAgentId,
         userId,
-      });
-      const moved = { ...r, phase: "client_test" as const };
-      if (blocked) {
-        await addItems(
-          scoped.tx,
-          moved,
-          [
-            {
-              phase: "client_test",
-              kind: "precondition",
-              title: blocked.title,
-              detail: blocked.detail,
-              key: blockKey || `start:${testAgentId}`,
-            },
-          ],
-          userId,
-        );
-      }
-      await addMessage(scoped.tx, moved, {
-        role: "builder",
-        text: blocked
-          ? "It's at the client, but its trial hasn't started: it needs one thing first, now an open item."
-          : "It's published and at the client, in its trial: every write it makes waits for the client's signature until sign-off.",
+        blocked,
+        key: blockKey,
       });
     });
     return detailOf(ctx, ctx.params.id);

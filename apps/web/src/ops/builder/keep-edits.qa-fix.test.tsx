@@ -99,13 +99,13 @@ describe("the Workflow tab keeps the canvas's edits", () => {
       </MemoryRouter>,
     );
     const user = userEvent.setup();
-    await screen.findByTestId("builder-canvas", {}, { timeout: 10_000 });
+    await screen.findByTestId("flow-chart", {}, { timeout: 10_000 });
 
     // The operator deletes a step in the builder: an unsaved change.
-    await user.click(screen.getByTestId("builder-step-read-select"));
-    await user.click(screen.getByTestId("builder-inspector-delete"));
-    expect(screen.queryByTestId("builder-step-read")).toBeNull();
-    expect(screen.getByTestId("builder-unsaved")).toBeInTheDocument();
+    await user.click(screen.getByTestId("flow-box-read"));
+    await user.click(screen.getByTestId("flow-panel-remove"));
+    expect(screen.queryByTestId("flow-box-read")).toBeNull();
+    expect(screen.getByTestId("flow-bar-version")).toHaveTextContent("Unsaved");
 
     // Then adds a schedule trigger in "Starts when", above the builder.
     const top = screen.getByTestId("agent-workflow-top");
@@ -116,15 +116,15 @@ describe("the Workflow tab keeps the canvas's edits", () => {
     await waitFor(() =>
       expect(api.calls.filter((c) => c === `GET /api/ops/agents/${ID}`).length).toBeGreaterThan(1),
     );
-    await screen.findByTestId("builder-canvas");
+    await screen.findByTestId("flow-chart");
     await new Promise((r) => setTimeout(r, 200));
 
     // Expected: the deleted step is still deleted (or the change is still marked unsaved).
-    expect(screen.queryByTestId("builder-step-read")).toBeNull();
-    expect(screen.getByTestId("builder-unsaved")).toBeInTheDocument();
+    expect(screen.queryByTestId("flow-box-read")).toBeNull();
+    expect(screen.getByTestId("flow-bar-version")).toHaveTextContent("Unsaved");
 
     // The builder's next save builds on the trigger's version: the trigger stays, the step goes.
-    await user.click(screen.getByTestId("builder-save"));
+    await user.click(screen.getByTestId("flow-bar-save"));
     await waitFor(() => expect(saves).toHaveLength(2));
     const [withTrigger, next] = saves as [(typeof saves)[0], (typeof saves)[0]];
     expect(next.parentVersionId).toBe(versionId(3));
@@ -223,7 +223,8 @@ describe("the Workflow tab keeps the canvas's edits", () => {
       </MemoryRouter>,
     );
     const user = userEvent.setup();
-    await screen.findByTestId("builder-canvas", {}, { timeout: 10_000 });
+    await screen.findByTestId("flow-chart", {}, { timeout: 10_000 });
+    await user.click(screen.getByTestId("flow-bar-builder"));
     await user.type(screen.getByTestId("builder-chat-composer-input"), "Drop the update step");
     await user.click(screen.getByTestId("builder-chat-composer-send"));
     await waitFor(() =>
@@ -231,14 +232,14 @@ describe("the Workflow tab keeps the canvas's edits", () => {
     );
 
     // While the Builder works, the operator deletes another step on the canvas.
-    await user.click(screen.getByTestId("builder-step-read-select"));
-    await user.click(screen.getByTestId("builder-inspector-delete"));
-    expect(screen.queryByTestId("builder-step-read")).toBeNull();
+    await user.click(screen.getByTestId("flow-box-read"));
+    await user.click(screen.getByTestId("flow-panel-remove"));
+    expect(screen.queryByTestId("flow-box-read")).toBeNull();
 
     answer({ ...session(withoutUpdate, [turn]), turn });
-    await waitFor(() => expect(screen.queryByTestId("builder-step-update")).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId("flow-box-update")).toBeNull());
 
     // Expected: the operator's own deletion is still there (or the canvas was locked meanwhile).
-    expect(screen.queryByTestId("builder-step-read")).toBeNull();
+    expect(screen.queryByTestId("flow-box-read")).toBeNull();
   });
 });

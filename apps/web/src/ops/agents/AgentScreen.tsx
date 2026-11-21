@@ -47,7 +47,6 @@ import { OPS_PATHS } from "../paths";
 import { TriggersPanel } from "../triggers/TriggersScreen";
 import { liveAndDraft, parseAnyBundle, versionBadges } from "../versions";
 import { workflowStats } from "../workflow/describe";
-import { StepList } from "../workflow/StepList";
 import { ReviseTab } from "./BuilderParts";
 import { DefinitionEditor, type SaveResult } from "./DefinitionEditor";
 import { canDiscard, DiscardButton, DiscardedNotice } from "./DiscardDraft";
@@ -65,6 +64,9 @@ export type AgentDetail = ResponseOf<typeof apiRoutes.opsAgent>;
 
 // The builder (with drag and drop) is its own chunk inside /ops, fetched when a workflow opens.
 const WorkflowBuilder = lazy(() => import("../builder/WorkflowBuilder"));
+// F6: an older version's workflow as the chart, read only (with the builder's drag-and-drop code,
+// so fetched only when one is opened).
+const ReadOnlyFlow = lazy(() => import("../flow/ReadOnlyFlow"));
 // B3: the Manual tab is its own chunk (with its route's schema), fetched when it opens.
 const OpsManualTab = lazy(() => import("./ManualTab").then((m) => ({ default: m.OpsManualTab })));
 
@@ -442,7 +444,6 @@ export function AgentScreen({
             // The workflow's first step is how it starts: the agent's triggers, then the canvas.
             <div className="flex flex-col gap-4" data-testid="agent-workflow-top">
               {openBuild ? <BackToBuild build={openBuild} /> : null}
-              {lineage}
               <TriggersPanel
                 agent={view}
                 latest={latest}
@@ -455,6 +456,11 @@ export function AgentScreen({
           members={members}
           onChanged={reload}
           view={stepsTab ? "steps" : "canvas"}
+          // F6: the line under the builder's bar (whose agent this is, what it owes its template),
+          // and the open build's issues on their steps.
+          detail={data}
+          templateDetail={template.data ?? null}
+          buildId={openBuild?.id ?? null}
         />
       </Suspense>
     );
@@ -856,9 +862,9 @@ function WorkflowTab({ bundle, version }: { bundle: AnyAgentBundle; version: Ver
   return (
     <div className="flex flex-col gap-8">
       <p className="text-sm text-ink-muted">
-        Steps run top to bottom; a fork takes the first path whose rules match, then continues after
-        the fork. This is v{version.version} as it was saved; the workflow builder edits the latest
-        version.
+        Steps run top to bottom; a decision takes the first path whose rules match, then goes on
+        after it unless that path stops. This is v{version.version} as it was saved; the workflow
+        builder edits the latest version.
       </p>
       {bundle.workflows.map((w) => (
         <section key={w.slug} data-testid={`workflow-${w.slug}`}>
@@ -866,9 +872,15 @@ function WorkflowTab({ bundle, version }: { bundle: AnyAgentBundle; version: Ver
             {w.name}
             {w.enabled ? "" : " · off"}
           </SectionLabel>
-          <div className="rounded-lg border border-line bg-surface-subtle px-6 py-6">
-            <StepList workflow={w.workflow} />
-          </div>
+          <Suspense
+            fallback={
+              <Skeleton label="Opening the workflow…">
+                <SkeletonBlock height={520} />
+              </Skeleton>
+            }
+          >
+            <ReadOnlyFlow workflow={w} />
+          </Suspense>
         </section>
       ))}
     </div>

@@ -13,6 +13,7 @@ import {
   stepsToProcessAutomation,
   validateAnyAutomation,
 } from "./automation";
+import { processPathsAt } from "./paths";
 import { Process, type Step } from "./schema";
 import { approvalLoosenings, tightenedApproval, validateProcess } from "./validate";
 
@@ -350,5 +351,23 @@ describe("a process step pins a v3 or a v4 automation; a v3 use step only a v3 o
       ctx,
     );
     expect(codes(r)).toEqual(["unknown_automation@u:automation"]);
+  });
+});
+
+// The builder on one screen, F7: an automation's steps opened in the builder.
+describe("an automation's steps in the builder", () => {
+  it("offers what it takes in, and earlier steps, at a step", () => {
+    const def = followUp();
+    const process = { triggers: [], steps: def.steps };
+    const paths = processPathsAt(process, "a1", { ...baseCtx, input: def.input }).map(
+      (p) => p.path,
+    );
+    expect(paths).toEqual(expect.arrayContaining(["input.customer", "input.documentId"]));
+    expect(paths.some((p) => p.startsWith("steps.d1.output"))).toBe(true);
+    expect(paths.some((p) => p.startsWith("trigger"))).toBe(false);
+    // Without it, a process has no input to offer.
+    expect(processPathsAt(process, "a1", baseCtx).some((p) => p.path.startsWith("input"))).toBe(
+      false,
+    );
   });
 });
