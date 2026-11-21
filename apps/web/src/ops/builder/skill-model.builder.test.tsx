@@ -313,8 +313,13 @@ describe("the builder under the skill model", () => {
   it("says the step's kind, the model it runs on and where from, and its parameters", async () => {
     const { sent, user } = setup();
     await screen.findByTestId("flow-chart");
-    expect(screen.getByTestId("flow-box-match")).toHaveTextContent("Skill · AI");
-    // The chart says the model it runs on too, on the box and in full on hover.
+    // Its badge says a model does it (the full words are the badge's title); the chip at the
+    // box's right names the model in a word (docs/plan.md §1.178).
+    expect(screen.getByTestId("flow-badge-match")).toHaveTextContent("AI skill");
+    expect(screen.getByTestId("flow-badge-match")).toHaveAttribute("title", "Skill · AI");
+    expect(screen.getByTestId("flow-doer-match")).toHaveTextContent("Sonnet");
+    expect(screen.getByTestId("flow-box-match")).toHaveClass("flow-box--by-agent");
+    // The chart says the model it runs on in full on hover.
     await user.hover(screen.getByTestId("flow-box-match"));
     expect(await screen.findByTestId("flow-tip")).toHaveTextContent("runs on claude-sonnet-5-5");
     await user.unhover(screen.getByTestId("flow-box-match"));

@@ -17,7 +17,8 @@ import { Badge, Button } from "../../ui/primitives";
 import { toolLabel } from "../workflow/labels";
 import { type BuilderData, connectorName } from "./catalog";
 import { DeadlineEditor, ThenSelect } from "./deadline";
-import { type FieldErrors, Row, SmallInput, SmallSelect, TemplateInput } from "./fields";
+import { DurationPicker } from "./duration";
+import { type FieldErrors, Row, SmallSelect, TemplateInput } from "./fields";
 import {
   type ApprovalCheck,
   type ApprovalEnv,
@@ -216,25 +217,17 @@ export function NotifyEditor({
           <p className="text-xs text-ink-muted">
             Sent at once whatever the hours, by text too. Someone must mark it Seen in time.
           </p>
-          <Row
+          <DurationPicker
             label="Must be seen within"
             field={`${prefix}.urgent.ackWithin`}
+            testId={`${testId}-ack`}
             errors={errors}
-            hint='e.g. "30 minutes"'
-          >
-            <SmallInput
-              data-field={`${prefix}.urgent.ackWithin`}
-              data-testid={`${testId}-ack`}
-              value={value.urgent.ackWithin}
-              onChange={(e) =>
-                value.urgent &&
-                set(
-                  { urgent: { ...value.urgent, ackWithin: e.target.value } },
-                  `${prefix}.urgent.ackWithin`,
-                )
-              }
-            />
-          </Row>
+            value={value.urgent.ackWithin}
+            onChange={(ackWithin) =>
+              value.urgent &&
+              set({ urgent: { ...value.urgent, ackWithin } }, `${prefix}.urgent.ackWithin`)
+            }
+          />
           <ThenSelect
             label="If nobody marks it Seen"
             value={value.urgent.ifNoAnswer}

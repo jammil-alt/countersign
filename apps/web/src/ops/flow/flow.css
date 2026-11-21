@@ -151,22 +151,128 @@
     text-transform: uppercase;
     margin-right: 5px;
   }
-  /* What a step is, at a glance (./BoxMark): a small tile at the box's left, then its two lines.
-   * The connector's logo sits on its own white tile; "AI" and the kinds' icons are ink on the
-   * subtle surface, a person's are copper. The design system's tokens only. */
+  /* A step's box (D2, docs/plan.md §1.178): its kind is a badge on the top-left corner, its name
+   * has two lines, who does it (the model, "code", "person") and what it works through sit at the
+   * right behind a hairline, and the top edge is the colour of whose work it is. The design
+   * system's tokens only: ink for the agent's own work, slate for a client's tool (lighter for a
+   * read), copper for people, the strong line for rules and plumbing. A step's state keeps the
+   * border and the flags; this never fills the box. */
   .flow-box--marked {
     flex-direction: row;
-    align-items: center;
+    align-items: stretch;
     justify-content: flex-start;
-    gap: 9px;
-    padding-left: 9px;
+    gap: 8px;
+    padding: 12px 9px 7px 11px;
+    border-top: 3px solid var(--by, var(--line-strong));
+  }
+  .flow-box--by-agent {
+    --by: var(--ink);
+    --by-ink: var(--ink);
+  }
+  .flow-box--by-rules,
+  .flow-box--by-flow {
+    --by: var(--line-strong);
+    --by-ink: var(--ink-muted);
+  }
+  .flow-box--by-read {
+    --by: var(--data-seq-4);
+    --by-ink: var(--slate);
+  }
+  .flow-box--by-write {
+    --by: var(--slate);
+    --by-ink: var(--slate);
+  }
+  .flow-box--by-people {
+    --by: var(--copper);
+    --by-ink: var(--copper-ink);
+  }
+  /* The top edge keeps its colour whatever the rest of the border says (hover, selected, an issue). */
+  .flow-box--marked,
+  .flow-box--marked:hover,
+  .flow-box--marked.is-sel,
+  .flow-box--marked.has-issue,
+  .flow-box--marked.has-issue:hover {
+    border-top-color: var(--by, var(--line-strong));
+    border-top-width: 3px;
+  }
+  .flow-box__badge {
+    position: absolute;
+    top: -12px;
+    left: 8px;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 19px;
+    /* Never past the box's middle, where the arrow from the step before arrives. */
+    max-width: calc(50% - 14px);
+    padding: 0 7px 0 5px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-pill);
+    background: var(--surface);
+    color: var(--ink-muted);
+    pointer-events: none;
+  }
+  .flow-box__kind {
+    min-width: 0;
+    overflow: hidden;
+    font: 500 10px / 1 var(--font-mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .flow-box__text {
     display: flex;
     flex: 1;
     min-width: 0;
     flex-direction: column;
-    gap: 2px;
+    justify-content: center;
+    gap: 3px;
+  }
+  .flow-box--marked .flow-box__t {
+    display: -webkit-box;
+    white-space: normal;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+  .flow-box__side {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: center;
+    gap: 5px;
+    max-width: 78px;
+    padding-left: 8px;
+    border-left: 1px solid var(--line);
+  }
+  .flow-box__doer {
+    box-sizing: border-box;
+    display: inline-block;
+    max-width: 100%;
+    height: 18px;
+    padding: 0 6px;
+    overflow: hidden;
+    border: 1px solid var(--line-strong);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--ink);
+    font: 500 10px / 16px var(--font-mono);
+    letter-spacing: 0.02em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .flow-box__doer--none {
+    border-color: var(--line);
+    border-style: dashed;
+    background: none;
+    color: var(--ink-muted);
+  }
+  .flow-box__tools {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
   }
   .flow-box__mark {
     display: inline-flex;
@@ -214,6 +320,41 @@
     background: var(--surface);
     color: var(--copper-ink);
   }
+  /* In the corner badge: the kind's icon or "AI", in the colour of whose work it is, no tile. */
+  .flow-box__mark--badge {
+    width: 14px;
+    height: 14px;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    color: var(--by-ink, var(--ink-muted));
+  }
+  .flow-box__mark--badge.flow-box__mark--ai {
+    font-size: 9px;
+    letter-spacing: 0.02em;
+  }
+  .flow-box__mark--badge.flow-box__mark--logo .ui-agentbadge {
+    width: 14px;
+    height: 14px;
+    font-size: 6.5px;
+  }
+  /* At the box's right: a connector's logo or a channel's icon, 18px. */
+  .flow-box__mark--tool {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+  }
+  .flow-box__mark--tool > span[data-mark] {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+    font-size: 7.5px;
+  }
+  .flow-box__mark--tool img,
+  .flow-box__mark--tool svg {
+    width: 12px;
+    height: 12px;
+  }
   .flow-box--end {
     background: var(--slate-tint);
     border-color: var(--slate-tint);
@@ -225,15 +366,8 @@
     border-color: var(--slate);
     border-width: 1.5px;
   }
-  .flow-box--person,
-  .flow-box--conversation {
-    background: var(--copper-tint);
-    border-color: var(--copper-tint);
-  }
-  .flow-box--person .flow-box__t,
-  .flow-box--conversation .flow-box__t {
-    color: var(--copper-ink);
-  }
+  /* A person's step and a conversation were filled with the copper tint, which read as red
+   * (owner, 2026-11-21: "what do the red cards mean?"). Copper is now their top edge and badge. */
   .flow-box--missing {
     background: var(--signal-tint);
     border-color: var(--signal);
@@ -312,6 +446,11 @@
   .flow-tag {
     top: -9px;
     left: 8px;
+  }
+  /* The badge has the top-left corner of a step's box: "Customized" sits under it, at the foot. */
+  .flow-box--marked .flow-tag {
+    top: auto;
+    bottom: -9px;
   }
   .flow-mark {
     bottom: -9px;

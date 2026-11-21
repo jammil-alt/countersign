@@ -57,7 +57,9 @@ describe("StepPanel", () => {
     );
     const settle = screen.getByTestId("flow-panel-settle");
     expect(settle).toHaveAttribute("data-tone", "issue");
-    expect(within(settle).getByText("To settle on this step")).toBeTruthy();
+    expect(screen.getByTestId("flow-panel-settle-title")).toHaveTextContent(
+      "1 issue and 1 question on this step",
+    );
     const keys = [...settle.querySelectorAll("[data-testid^='flow-panel-item-']")].map((e) =>
       e.getAttribute("data-testid"),
     );

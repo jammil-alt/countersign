@@ -301,6 +301,17 @@ describe("Chart", () => {
     expect(screen.getByTestId("flow-mark-f")).toHaveAttribute("data-mark", "copy");
     expect(screen.queryByTestId("flow-mark-d")).toBeNull();
     expect(screen.queryByTestId("flow-mark-s")).toBeNull();
+    // D2 (docs/plan.md §1.178): the kind is a badge on the corner, the connector's logo sits at
+    // the right with who does the step, and the top edge is the colour of whose work it is.
+    expect(screen.getByTestId("flow-badge-a")).toHaveTextContent("Read");
+    expect(screen.getByTestId("flow-side-a")).toContainElement(screen.getByTestId("flow-mark-a"));
+    expect(screen.getByTestId("flow-doer-a")).toHaveTextContent("code");
+    expect(screen.getByTestId("flow-box-a")).toHaveClass("flow-box--by-read");
+    expect(screen.getByTestId("flow-badge-b")).toContainElement(screen.getByTestId("flow-mark-b"));
+    // A loop and an automation keep their own buttons at the right: no chip there.
+    expect(screen.queryByTestId("flow-side-auto")).toBeNull();
+    expect(screen.getByTestId("flow-box-auto")).toHaveClass("flow-box--by-flow");
+    expect(screen.queryByTestId("flow-badge-d")).toBeNull();
 
     expect(screen.queryByTestId("flow-key")).toBeNull();
     fireEvent.click(screen.getByTestId("flow-key-toggle"));

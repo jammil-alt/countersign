@@ -107,12 +107,13 @@ import { LineageStrip } from "../flow/lineage/LineageStrip";
 import { Rail } from "../flow/Rail";
 import { type BuilderSize, StepPanel } from "../flow/StepPanel";
 import { StepTable } from "../flow/StepTable";
-import { buildStatuses, nextOpen, counts as openCounts, stepOrder } from "../flow/status";
+import { buildStatuses, FIX_HINT, nextOpen, counts as openCounts, stepOrder } from "../flow/status";
 import { TryPanel } from "../flow/TryPanel";
 import { TurnOnSheet } from "../flow/TurnOnSheet";
 import type { InsertPoint, SettleItem, StatusMap, TryMark } from "../flow/types";
 import { useOpsClients } from "../OpsLayout";
 import { OPS_PATHS } from "../paths";
+import { SchedulePicker, type ScheduleValue } from "../triggers/SchedulePicker";
 import { PROCESS_KIND_LABEL, type StepLabels, triggerTitle } from "../workflow/describe";
 import { BuilderPanel, SaveAsAutomation, useBuilderSession } from "./BuilderPanel";
 import {
@@ -1539,58 +1540,47 @@ function BuilderBody(
   };
 
   // ── The side panel's parts ──
-  /** How an open item on a step is settled there: Fix for a problem, the Dev queue for a request. */
+  /** The validator's problem a settle item stands for, and its place among the step's problems. */
+  const problemOf = (item: SettleItem) => {
+    if (item.source !== "problem" || !item.key.startsWith("problem:")) return null;
+    const hit = workflowErrors.find((e) => `problem:${e.code}:${e.stepId}:${e.field}` === item.key);
+    if (!hit) return null;
+    const n = (statuses.get(item.stepId)?.items ?? [])
+      .filter((i) => i.key.startsWith("problem:"))
+      .findIndex((i) => i.key === item.key);
+    return { hit, n };
+  };
+  /**
+   * How an open item on a step is settled there: one button (owner, 2026-11-21: "provide
+   * suggested fixes or options for the decisions… one button"). A problem's is Fix it, which has
+   * the Builder draft the change to check; a path with no rule yet is answered in its own field.
+   * "Show me where" beside it is the panel's (`onShowItem`).
+   */
   const itemActions = (item: SettleItem): ReactNode => {
-    if (item.source === "problem" && item.key.startsWith("problem:")) {
-      const hit = workflowErrors.find(
-        (e) => `problem:${e.code}:${e.stepId}:${e.field}` === item.key,
-      );
-      if (!hit) return null;
-      const n = (statuses.get(item.stepId)?.items ?? [])
-        .filter((i) => i.key.startsWith("problem:"))
-        .findIndex((i) => i.key === item.key);
-      // A path with no condition yet is a question: answer it in its field, or ask the Builder.
+    const problem = problemOf(item);
+    if (problem) {
+      const { hit, n } = problem;
       if (item.level === "question") {
         return (
-          <>
-            <button
-              type="button"
-              className="ds-btn ds-btn--secondary ds-btn--sm"
-              data-testid={`builder-inspector-error-${n}-show`}
-              onClick={() => showError({ ...hit, workflow: slug })}
-            >
-              Say when
-            </button>
-            <button
-              type="button"
-              className="ds-btn ds-btn--ghost ds-btn--sm"
-              data-testid={`builder-inspector-error-${n}-fix`}
-              onClick={() => fixError(hit)}
-            >
-              Ask the Builder
-            </button>
-          </>
-        );
-      }
-      return (
-        <>
           <button
             type="button"
             className="ds-btn ds-btn--secondary ds-btn--sm"
-            data-testid={`builder-inspector-error-${n}-fix`}
-            onClick={() => fixError(hit)}
-          >
-            Fix
-          </button>
-          <button
-            type="button"
-            className="ds-btn ds-btn--ghost ds-btn--sm"
-            data-testid={`builder-inspector-error-${n}-show`}
+            data-testid={`builder-inspector-error-${n}-answer`}
             onClick={() => showError({ ...hit, workflow: slug })}
           >
-            Go to the field
+            Say when
           </button>
-        </>
+        );
+      }
+      return (
+        <button
+          type="button"
+          className="ds-btn ds-btn--secondary ds-btn--sm"
+          data-testid={`builder-inspector-error-${n}-fix`}
+          onClick={() => fixError(hit)}
+        >
+          Fix it
+        </button>
       );
     }
     if (item.source === "missing" && item.refId) {
@@ -1620,6 +1610,21 @@ function BuilderBody(
       );
     }
     return null;
+  };
+
+  /** What an item's button does, in a line: the suggested fix. */
+  const itemHint = (item: SettleItem): string | null => {
+    const problem = problemOf(item);
+    if (!problem) return null;
+    return item.level === "question"
+      ? "Suggested: say when in its rule below, or ask the Builder to write it from the path's name."
+      : (FIX_HINT[problem.hit.code] ??
+          "Suggested: let the Builder draft the fix. You see the change before it is kept.");
+  };
+  /** "Show me where": the field of a problem, opened and focused in the setup. */
+  const onShowItem = (item: SettleItem) => {
+    const problem = problemOf(item);
+    if (problem) showError({ ...problem.hit, workflow: slug });
   };
 
   const inspector = workflow ? (
@@ -1713,6 +1718,9 @@ function BuilderBody(
     if (!workflow || !selection) return null;
     const settle = {
       itemActions,
+      itemHint,
+      // Only a validator's problem has a field to show.
+      onShowItem: (item: SettleItem) => onShowItem(item),
       onNext: (id: string) =>
         workflow.triggers.some((t) => t.id === id) ? selectTrigger(id) : selectStep(id),
     };
@@ -2593,7 +2601,7 @@ function AddWorkflowForm({
   const [slug, setSlug] = useState<string | null>(null);
   const [type, setType] = useState<TriggerOn["type"]>("manual");
   const [event, setEvent] = useState(events[0] ?? "");
-  const [cron, setCron] = useState("0 7 * * 1-5");
+  const [schedule, setSchedule] = useState<ScheduleValue>({ cron: "0 7 * * 1-5" });
   const [command, setCommand] = useState("");
   const [touched, setTouched] = useState(false);
   const effectiveSlug = slug ?? slugify(name);
@@ -2615,7 +2623,7 @@ function AddWorkflowForm({
       case "event":
         return { type, event };
       case "schedule":
-        return { type, cron };
+        return { type, ...schedule };
       case "command":
         return { type, command: command.trim().replace(/^\//, "") };
       // v0.12 W2-E: the new kinds aren't offered here yet; anything else starts by hand.
@@ -2682,14 +2690,13 @@ function AddWorkflowForm({
         </Field>
       ) : null}
       {type === "schedule" ? (
-        <Field label="Cron">
-          <SmallInput
-            data-testid="builder-workflow-cron"
-            value={cron}
-            className="font-mono"
-            onChange={(e) => setCron(e.target.value)}
-          />
-        </Field>
+        <SchedulePicker
+          small
+          testId="builder-workflow-schedule"
+          cronTestId="builder-workflow-cron"
+          value={schedule}
+          onChange={setSchedule}
+        />
       ) : null}
       {type === "command" ? (
         <Field label="Command">

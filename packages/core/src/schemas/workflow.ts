@@ -307,6 +307,17 @@ export const TriggerOn = z.discriminatedUnion("type", [
     tz: z.string().optional(),
     // v0.12 W2-E: skip US federal holidays (observed) and the client's own dates, in its zone.
     skipHolidays: z.boolean().optional(),
+    // DECISION (owner, 2026-11-21: "every other Monday"; docs/plan.md §1.177): cron cannot say
+    // "every other week", so the trigger says it beside its cron: of the cron's ticks, only those
+    // in every `weeks`th week run, in whole weeks counted from `from` (a date in the trigger's
+    // zone; the builder writes the Sunday that starts the first week). Optional, so stored
+    // versions parse and hash as before.
+    every: z
+      .object({
+        weeks: z.number().int().min(2).max(8),
+        from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date such as 2026-11-22"),
+      })
+      .optional(),
   }),
   z.object({
     type: z.literal("manual"),
