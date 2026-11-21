@@ -776,15 +776,17 @@
   <text class="t2" x="506" y="385">Kept 6 years</text>
 
   <!-- AI providers -->
-  <rect class="box" x="738" y="48" width="242" height="104" rx="8" />
+  <rect class="box" x="738" y="48" width="242" height="98" rx="8" />
   <text class="t1" x="750" y="70">Anthropic</text>
-  <text class="t2" x="750" y="88">Sonnet 5.5 (step 1)</text>
-  <text class="t2" x="750" y="103">Haiku 5.5 (step 3)</text>
-  <text class="t2" x="750" y="118">Opus 5.5 (Pia's reviews)</text>
-  <text class="t2" x="750" y="140">No training on your data (API terms)</text>
-  <text class="t2" x="738" y="178">Receives invoice text and lines, as</text>
-  <text class="t2" x="738" y="193">data; never your secrets</text>
-  <text class="t2" x="738" y="214">BAA: not needed (HIPAA mode off)</text>
+  <text class="t2" x="750" y="88">Sonnet 5.5 (1), Haiku 5.5 (3), Opus 5.5 (Pia)</text>
+  <text class="t2" x="750" y="104">Gets invoice text and lines, as data</text>
+  <text class="t2" x="750" y="120">TLS · no training (API terms)</text>
+  <text class="t2" x="750" y="136">BAA: not needed (HIPAA mode off)</text>
+  <rect class="box" x="738" y="156" width="242" height="78" rx="8" />
+  <text class="t1" x="750" y="178">OpenAI</text>
+  <text class="t2" x="750" y="196">Embeddings for search by meaning (3)</text>
+  <text class="t2" x="750" y="212">Gets item names only</text>
+  <text class="t2" x="750" y="227">TLS · no training (API terms)</text>
 
   <!-- Outside -->
   <rect class="box" x="738" y="298" width="242" height="56" rx="8" />
@@ -805,6 +807,9 @@
   <text class="label" x="642" y="84">invoice text,</text>
   <text class="label" x="642" y="108">as data</text>
   <text class="ctl" x="642" y="122">C10</text>
+  <path class="flow flow-ai" d="M626 196 H738" />
+  <text class="label" x="642" y="188">item names</text>
+  <text class="ctl" x="642" y="212">VEN-1</text>
   <path class="flow" d="M420 258 V276" />
   <path class="flow" d="M560 276 V258" />
   <text class="ctl" x="568" y="271">DAT-3</text>
@@ -813,9 +818,9 @@
     <p class="small muted" style="margin-top:var(--space-2)">Dashed lines are trust boundaries. C1, C3… are the controls in section 6; DAT-3 and the like are Mezonas' security controls (mezonas.com/security).</p>
 
     <div class="stat-row" style="margin-top:var(--space-5)">
-      <div class="card stat"><div class="small muted">Checks</div><div class="v">15</div></div>
-      <div class="card stat"><div class="small muted">Passed</div><div class="v" style="color:var(--positive)">13</div></div>
-      <div class="card stat"><div class="small muted">Not applicable</div><div class="v">2</div></div>
+      <div class="card stat"><div class="small muted">Checks</div><div class="v">22</div></div>
+      <div class="card stat"><div class="small muted">Passed</div><div class="v" style="color:var(--positive)">19</div></div>
+      <div class="card stat"><div class="small muted">Not applicable</div><div class="v">3</div></div>
       <div class="card stat"><div class="small muted">Last checked</div><div class="v" style="font-size:18px">21 Nov, 03:00</div></div>
     </div>
     <div class="tbl-wrap">
@@ -837,10 +842,61 @@
 <tr class="searchable"><td class="mono">K13</td><td>No sign-in to blocked sites<span class="sub refs">AGT-2</span></td><td><span class="kindtag">Setup</span></td><td><span class="result result--na">Not applicable</span></td><td>It has no browser connection</td><td class="small muted">21 Nov, 03:00</td></tr>
 <tr class="searchable"><td class="mono">K14</td><td>Its version is the one approved<span class="sub refs">AGT-3</span></td><td><span class="kindtag">Setup</span></td><td><span class="result result--pass">Passed</span></td><td>Version 7's stored hash matches; published by Mezonas on 12 Nov</td><td class="small muted">21 Nov, 03:00</td></tr>
 <tr class="searchable"><td class="mono">K15</td><td>Every approval is in the audit log<span class="sub refs">LOG-1</span></td><td><span class="kindtag">Runs</span></td><td><span class="result result--pass">Passed</span></td><td>52 approvals, 52 audit rows</td><td class="small muted">21 Nov, 03:00</td></tr>
+        <tr class="searchable"><td class="mono">K16</td><td>Reads only what it needs<span class="sub refs">DAT-6</span></td><td><span class="kindtag">Setup</span></td><td><span class="result result--pass">Passed</span></td><td>Every tool it may call is used by one of its steps; email forwarding keeps headers and attachments only</td><td class="small muted">21 Nov, 03:00</td></tr>
+<tr class="searchable"><td class="mono">K17</td><td>No secret reaches a model<span class="sub refs">DAT-3 · AGT-2</span></td><td><span class="kindtag">Runs</span></td><td><span class="result result--pass">Passed</span></td><td>412 stored model requests: none holds a value from your vault (matched by fingerprint, never the secret)</td><td class="small muted">21 Nov, 03:00</td></tr>
+<tr class="searchable"><td class="mono">K18</td><td>Only your client's data in its AI calls<span class="sub refs">ISO-1</span></td><td><span class="kindtag">Runs</span></td><td><span class="result result--pass">Passed</span></td><td>412 calls, all from Harbor Millwork's runs</td><td class="small muted">21 Nov, 03:00</td></tr>
+<tr class="searchable"><td class="mono">K19</td><td>Approvers sign in with a second factor<span class="sub refs">ACC-2</span></td><td><span class="kindtag">Runs and setup</span></td><td><span class="result result--pass">Passed</span></td><td>Ben Ortiz, Ada Ruiz: a second factor on every sign-in; both approvals in the period followed one</td><td class="small muted">21 Nov, 03:00</td></tr>
+<tr class="searchable"><td class="mono">K20</td><td>Approvers are current<span class="sub refs">ACC-6</span></td><td><span class="kindtag">Runs</span></td><td><span class="result result--pass">Passed</span></td><td>No approval by anyone removed from your team before it</td><td class="small muted">21 Nov, 03:00</td></tr>
+<tr class="searchable"><td class="mono">K21</td><td>OAuth asks for no more than needed<span class="sub refs">ACC-4</span></td><td><span class="kindtag">Setup</span></td><td><span class="result result--pass">Passed</span></td><td>QuickBooks Online: com.intuit.quickbooks.accounting, the connector's one declared scope</td><td class="small muted">21 Nov, 03:00</td></tr>
+<tr class="searchable"><td class="mono">K22</td><td>Nothing kept past its period<span class="sub refs">LIF-1</span></td><td><span class="kindtag">Runs</span></td><td><span class="result result--na">Not applicable</span></td><td>You are a current client; periods start when a client leaves</td><td class="small muted">21 Nov, 03:00</td></tr>
         </tbody>
       </table>
     </div>
     <p class="small muted" style="margin-top:var(--space-3)">Setup checks read how the agent is set up now. Runs checks read its last 30 days. Attack checks run planted inputs through a copy of it on test data, which never writes and never reaches a person.</p>
+    <h3 style="margin:var(--space-8) 0 var(--space-1)">Every control, accounted for</h3>
+    <p class="small muted" style="margin-bottom:var(--space-3)">Each Mezonas security control that touches this agent's work, in one of three states.</p>
+    <div class="two">
+      <div class="card role"><h3><span class="result result--pass">Checked for this agent</span> 14</h3><p class="small muted" style="margin-top:6px">AGT-1, AGT-2, AGT-3, AGT-4, ACC-2, ACC-4, ACC-6, DAT-3, DAT-6, ISO-1, ISO-2, VEN-1, VEN-3, LOG-1: by the checks above.</p></div>
+      <div class="card role"><h3><span class="kindtag">Inherited from the platform</span> 22</h3><p class="small muted" style="margin-top:6px">The same for every agent, shown with their status at mezonas.com/security: DAT-1 TLS 1.2+ in transit, DAT-2 AES-256 at rest, DAT-4, ACC-1, ACC-3, ISO-3, LOG-2, LOG-3, CHG-1 to CHG-8, BCK-1, BCK-2, INC-1, LIF-2.</p></div>
+      <div class="card role"><h3><span class="result result--na">Not applicable</span> 2</h3><p class="small muted" style="margin-top:6px">DAT-5: it takes no card payments. LIF-1: checked when a client leaves.</p></div>
+    </div>
+
+    <h3 style="margin:var(--space-8) 0 var(--space-1)">Data: what it pulls, what it keeps, and where</h3>
+    <p class="small muted" style="margin-bottom:var(--space-3)">Field names, never values. At rest everything is encrypted (AES-256); in transit, TLS 1.2 or later.</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Data</th><th>Pulled from</th><th>Kept where</th><th>Kept for</th><th>Who can see it</th></tr></thead>
+      <tbody>
+        <tr><td>Bill PDFs<span class="sub">file, sender, subject</span></td><td>Email forwarding</td><td>Your documents (R2)</td><td>While you're a client; deleted 30 days after you leave</td><td>Your team; Mezonas operators who serve you</td></tr>
+        <tr><td>What was read from each bill<span class="sub">vendor, number, date, lines, totals</span></td><td>The bill, read by AI (step 1)</td><td>Your records (Postgres at Neon, US)</td><td>As above</td><td>As above</td></tr>
+        <tr><td>Vendors<span class="sub">id, name, tax id, terms</span></td><td>QuickBooks Online</td><td>Your records, a synced copy</td><td>As above</td><td>As above</td></tr>
+        <tr><td>Catalog matches and prices<span class="sub">item, vendor item, unit, price</span></td><td>The bills and your contracts</td><td>Your records: Purchasing</td><td>As above</td><td>As above</td></tr>
+        <tr><td>Each run's step results</td><td>The run</td><td>Your records, with the run's history</td><td>As above</td><td>Your team sees summaries; operators see the run</td></tr>
+        <tr><td>AI requests and answers</td><td>The run</td><td>Your documents' store (R2, model-calls)</td><td><b>Not yet in the retention policy</b> (to add)</td><td>Mezonas operators who serve you</td></tr>
+        <tr><td>Bills created in QuickBooks</td><td>Step 6</td><td>Your QuickBooks; what changed, with its before state, in your records</td><td>In QuickBooks as you keep it; the change record as above</td><td>Your team; operators</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3 style="margin:var(--space-8) 0 var(--space-1)">What goes to AI, and how it is protected</h3>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Used for</th><th>Provider and model</th><th>What is sent</th><th>Protection</th><th>Kept by the provider</th></tr></thead>
+      <tbody>
+        <tr><td>Step 1, Read the bill</td><td>Anthropic, Claude Sonnet 5.5</td><td>The bill's text and pages, as data</td><td>TLS; never your secrets or another client's data; no training</td><td>Per its API terms (<b>to record</b>)</td></tr>
+        <tr><td>Step 3, lines the rules can't place</td><td>Anthropic, Claude Haiku 5.5</td><td>Those lines and candidate items</td><td>As above</td><td>As above</td></tr>
+        <tr><td>Step 3, search by meaning</td><td>OpenAI, embeddings</td><td>Item names only</td><td>As above</td><td>Per its API terms (<b>to record</b>)</td></tr>
+        <tr><td>Pia's reviews</td><td>Anthropic, Claude Opus 5.5</td><td>A failed step's input and output</td><td>As above</td><td>As above</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3 style="margin:var(--space-8) 0 var(--space-1)">Access to each of your tools</h3>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Tool</th><th>Signs in by</th><th>The credential</th><th>The agent may</th><th>Who may change it</th></tr></thead>
+      <tbody>
+        <tr><td>QuickBooks Online<span class="sub">Connected by Ada Ruiz, 4 Nov · last used today</span></td><td>OAuth; scope com.intuit.quickbooks.accounting</td><td>In the vault, encrypted with your key, given to one step at a time; never shown or sent to AI. Disconnecting deletes and revokes it</td><td>Read on its own · Create ask first · Update on its own · Delete off (the stricter of your setting and its access)</td><td>Ada Ruiz (your admin); our changes only as you allow</td></tr>
+        <tr><td>Email forwarding<span class="sub">Your address since 4 Nov</span></td><td>Your mail server forwards; senders checked</td><td>None</td><td>Receive only</td><td>Your admin</td></tr>
+        <tr><td>Your people<span class="sub">Ben Ortiz, Ada Ruiz, Cara Lin</span></td><td>WorkOS with a second factor; sessions end after 30 minutes idle</td><td>None kept by us</td><td>Approve and answer as section 3 says</td><td>Your admin, on Team</td></tr>
+      </tbody>
+    </table></div>
+
   </section>
 </main>
 

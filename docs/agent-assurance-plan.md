@@ -83,6 +83,97 @@ A check that has nothing to look at (no writes in the period) says "Not applicab
 result is **Passed**, **Failed** or **Not applicable**, with its evidence: counts and the ids of the
 records it read, never their contents (invariant 13: no secrets, no message bodies).
 
+## 4a. Every control accounted for (owner, 2026-11-21: "Are all controls highlighted?")
+
+Not with §4 alone: it checks the controls that differ per agent. Every control in the register that
+touches an agent's work is now listed for each agent, in one of three states, so none is missing:
+
+| State | Meaning | Examples |
+|---|---|---|
+| **Checked for this agent** | A check of §4 or §4b proves it for this agent, with evidence | AGT-1 to AGT-4, ACC-4, DAT-3, ISO-1, ISO-2, VEN-1, VEN-3, LOG-1, DAT-6, ACC-2 (its approvers) |
+| **Inherited from the platform** | It holds the same way for every agent; shown with the register's status and its evidence, never re-checked per agent | DAT-1 (TLS 1.2+ in transit), DAT-2 (AES-256 at rest), DAT-4, ACC-1, ACC-3, ISO-3, LOG-2, LOG-3, CHG-1 to CHG-8, BCK-1, BCK-2, INC-1, GOV-1 to GOV-6, LIF-1, LIF-2 |
+| **Not applicable** | Says why | DAT-5 (it takes no card payments), a browser check for an agent with no browser connection |
+
+A core test holds the list to the register: a new register control in the areas agents touch
+(`agents`, `isolation`, `data`, `access`, `logging`, `vendors`, `lifecycle`) must be placed in one
+state, or the test fails.
+
+## 4b. Data, AI and access, per agent (owner, 2026-11-21)
+
+Three more parts, made by code from the same inputs, each with the checks that prove it.
+
+**What data it pulls, what it stores, and where.** One row per kind of data the agent touches:
+
+| Column | From |
+|---|---|
+| What (a record type and its fields) | The tool's `entity` and the top-level fields of its output schema (`ToolSpec.output`), never values |
+| Pulled from | The system and connection (QuickBooks Online, Harbor Millwork LLC), or your documents |
+| Stored where | Your records (Postgres at Neon, the region named), your documents (R2), a run's step results (`step_run`, kept with the run's history), the model calls' stored copies (R2, `tenants/<client>/model-calls/`), or not stored |
+| Encrypted | At rest AES-256 (Neon, R2); secrets also under your client's own key; in transit TLS 1.2+ |
+| Kept | The retention policy's period for that kind (`docs/policies/data-retention.md` §3) |
+| Who can see it | Your roles (admin, users, limited users by agent), and Mezonas' operators who serve you |
+
+Checks: **Reads only what it needs** (DAT-6: every tool it can call is one its steps use; email
+connections sync only their query, invariant 12); **Nothing kept past its period** (LIF-1: none of
+its stored rows or files is older than its kind's retention for a retired client).
+
+**What goes to AI, and how it is protected.** One row per AI use, from the agent's AI steps, the
+area owner's reviews, and the tools that call a model inside (the Materials pack's search by
+meaning sends item names to OpenAI's embeddings; `EMBEDDING_FEATURE`):
+
+| Column | From |
+|---|---|
+| Step and model | The step and `runModel`; embeddings by their feature |
+| Provider | `processorForModel`, with what it receives (`PROCESSOR_RECEIVES`) |
+| What is sent | The step's input fields (its skill's input schema), document text as data, never secrets, never other clients' data |
+| In transit | TLS to the provider's API |
+| Kept by the provider | Its API terms, per provider: how long, where, no training (§9, gaps) |
+| Kept by us | Each call's request and answer in R2 (`model-calls/`), encrypted at rest, with the run |
+| HIPAA | A BAA recorded (`BAA_PROCESSORS`), or refused in HIPAA mode |
+
+Checks: **AI providers allowed for you** (§4, now including embeddings); **No secret reaches a
+model** (the stored requests of the period hold no value from the client's vault; checked by
+matching each secret's fingerprint, never the secret); **Only this client's data in its calls**
+(every stored call of the period belongs to runs of this client).
+
+**Access to each tool.** One block per connection, and one for people:
+
+| For each connection | From |
+|---|---|
+| How it signs in | The connector's auth: OAuth and the scopes we ask for (QuickBooks: accounting), an API key, a browser login kept in the vault, a signed webhook |
+| Where the credential is | The vault, encrypted with your client's key, write-only, given to tool code for one step; never shown, logged or sent to a model |
+| Who connected it, when, last used | `connection.connected_by`, its change history, its last call |
+| What the agent may do | Per verb and record type: the connection's setting, the agent's grant, the stricter of the two |
+| Who may change that | Your admin; our changes only as you allow ("Changes by Mezonas") |
+| What disconnecting does | Stops access at once, deletes the token, revokes it at the provider |
+
+| For people | From |
+|---|---|
+| Who sees this agent and its runs | Roles; limited users by their agent list |
+| Who may approve its changes | Approvers by step and rule; `can_sign` |
+| How they sign in | A second factor on every sign-in (ACC-2), sessions that end (ACC-3) |
+
+Checks: **Approvers sign in with a second factor** (ACC-2: everyone who approved in the period, and
+every current approver, has a second factor); **Approvers are current** (ACC-6: no approval in the
+period by someone removed before it); **OAuth asks for no more than needed** (each connection's
+granted scopes are the connector's declared ones); **Connections in use only** (no binding to a
+connection no step uses).
+
+## 4c. Gaps this found
+
+Writing this plan against the code found three things to settle before the checks can pass
+honestly. Each is a task, not a design choice:
+
+1. **Our stored model calls and step results have no retention line.** Model-call requests and
+   answers (R2, `model-calls/`) and step outputs (`step_run`) are kept with run history, but the
+   retention policy's table names neither. Add them, with a period.
+2. **Providers' own retention and region aren't recorded.** The policy says "as its API terms
+   state". Record, per provider, how long it keeps API data, where, and whether zero retention is
+   on, beside `PROCESSOR_RECEIVES`, so the AI section can say it.
+3. **The embeddings provider differs from the agent's model.** A Materials agent on Claude still
+   sends item names to OpenAI. The SOP's data section and the AI section must name it; today the
+   SOP lists only the steps' models.
+
 ## 5. Where it shows
 
 | Who | Where | What |
@@ -122,7 +213,8 @@ Each ends green (`pnpm check`). The migration goes in its own PR.
 
 | Stream | What | Migration |
 |---|---|---|
-| **A1: the architecture** | Core `agentArchitecture`, the SVG diagram in the web, section 14 of the SOP (diagram only) | None |
+| **A0: the gaps** | §4c: the retention lines, providers' retention and region, the embeddings provider in the SOP | None |
+| **A1: the architecture** | Core `agentArchitecture`, the SVG diagram, the data map, what goes to AI and access to each tool (§4b), the coverage list (§4a), section 14 of the SOP | None |
 | **A2a: results' table** | `control_check` | Own PR |
 | **A2: setup and run checks** | The checks of §4 that read setup and runs; nightly pass; the back office's Security tab; "Checked" on the SOP's controls; failures as issues | After A2a |
 | **A3: attacks** | Planted cases in the test bench, their pass rules, before-trial and monthly runs; recorded fixtures with a key | None (test cases have a home) |
