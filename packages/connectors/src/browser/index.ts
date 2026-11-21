@@ -230,7 +230,7 @@ export function createBrowserConnector(options: BrowserConnectorOptions = {}): C
               const file = await page.download(input.url);
               if (!isDocumentType(file.mimeType)) {
                 throw new BrowserRefused(
-                  `${input.url} is ${file.mimeType || "an unknown type"}; documents are PDFs or images`,
+                  `${input.url} is ${file.mimeType || "an unknown type"}; documents are PDFs, images or table files (.csv, .xlsx, .json)`,
                 );
               }
               const services = ctx.services?.browser;

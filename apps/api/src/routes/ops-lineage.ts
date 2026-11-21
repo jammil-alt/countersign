@@ -199,6 +199,10 @@ export function stepTools(platform: Platform, used: ReadonlySet<string> = new Se
   }
   // Reshape data (2026-11-11): its handler runs only as the Reshape step's (with its mapping).
   stepOnly.add(processes.RESHAPE_TOOL);
+  // §1.164: Read table's and Write table's handlers run as their skills' steps, with the
+  // parameters (the columns) those steps carry.
+  stepOnly.add(processes.READ_TABLE_TOOL);
+  stepOnly.add(processes.WRITE_TABLE_TOOL);
   for (const t of Object.values(platform.tools.specs())) {
     if (stepOnly.has(t.id) || connectors.has(t.connector ?? t.source)) continue;
     out.add(t.id);

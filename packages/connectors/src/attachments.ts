@@ -1,7 +1,7 @@
 // P-3: attachments both ways (docs/plan.md §1.65). The documents a send tool carries: each one is a
 // stored document of the call's own client, read through `ctx.services.documents` (which answers
 // null for an id of another client), for that one send. Its name and type come from the document
-// record, never from the input. PDFs and images only; at most five; the total within the provider's
+// record, never from the input. PDFs and images (email also spreadsheets, §1.164); at most five; the total within the provider's
 // limit. Approval cards and before states get the names and sizes (`describeOutbound`); the send
 // gets the bytes (`loadOutbound`) or a five-minute link (`linkOutbound`) for a provider that fetches
 // the file itself.
@@ -11,9 +11,11 @@ import {
   bytesMatchType,
   describeAttachments,
   formatBytes,
-  isSendableType,
   OUTBOUND_ATTACHMENTS_MAX,
   type OutboundAttachment,
+  SENDABLE_TYPES,
+  sendableIn,
+  XLSX_MIME_TYPE,
 } from "@countersign/core";
 import type { DocumentFacts, StoredFile, ToolContext } from "./connector";
 
@@ -43,6 +45,8 @@ export interface AttachmentLimits {
   maxCount: number;
   /** The attachments' total, in bytes as stored (before any encoding). */
   maxTotalBytes: number;
+  /** The types it may carry; default PDFs and images (`SENDABLE_TYPES`). Email adds spreadsheets. */
+  types?: readonly string[];
 }
 
 export interface LoadedAttachment extends AttachmentSummary {
@@ -69,15 +73,22 @@ function checkCount(list: readonly OutboundAttachment[], limits: AttachmentLimit
   }
 }
 
-function checkFacts(facts: DocumentFacts | null, documentId: string): AttachmentSummary {
+function checkFacts(
+  facts: DocumentFacts | null,
+  documentId: string,
+  limits: AttachmentLimits,
+): AttachmentSummary {
   // DECISION: an unknown id and another client's id get the same answer (no hint that it exists).
   if (!facts) {
     throw new AttachmentRefusedError("not_found", `document ${documentId} is not this client's`);
   }
-  if (!isSendableType(facts.mimeType)) {
+  if (!sendableIn(facts.mimeType, limits.types ?? SENDABLE_TYPES)) {
+    const what = limits.types?.includes(XLSX_MIME_TYPE)
+      ? "a PDF, an image or a spreadsheet"
+      : "a PDF or an image";
     throw new AttachmentRefusedError(
       "type_not_allowed",
-      `${facts.filename} is not a PDF or an image, so it can't be attached`,
+      `${facts.filename} is not ${what}, so ${limits.provider} can't attach it`,
     );
   }
   return {
@@ -119,7 +130,7 @@ export async function describeOutbound(
     const facts = docs.describe
       ? await docs.describe(a.documentId)
       : await docs.read(a.documentId).then((f) => (f ? factsOf(f) : null));
-    out.push(checkFacts(facts, a.documentId));
+    out.push(checkFacts(facts, a.documentId, limits));
   }
   checkTotal(out, limits);
   return out;
@@ -137,7 +148,7 @@ export async function loadOutbound(
   const out: LoadedAttachment[] = [];
   for (const a of list) {
     const file = await docs.read(a.documentId);
-    const summary = checkFacts(file ? factsOf(file) : null, a.documentId);
+    const summary = checkFacts(file ? factsOf(file) : null, a.documentId, limits);
     const bytes = (file as StoredFile).bytes;
     // The bytes must be what the record says (a PDF starts %PDF-, a PNG with its signature).
     if (!bytesMatchType(bytes, summary.mimeType)) {

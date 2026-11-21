@@ -21,6 +21,8 @@ import {
   type RegistryContext,
   SkillCatalog,
   SUPERVISOR_SKILLS,
+  // Read table and Write table (2026-11-20)
+  TABLE_SKILLS,
   ToolRegistry,
   // P-7
   TRANSLATE_SKILLS,
@@ -181,6 +183,9 @@ export function createPlatform(options: PlatformOptions = {}): Platform {
       ...RESHAPE_SKILLS,
       // Filter, group and total a list (2026-11-17): data.group-list, deterministic.
       ...GROUP_LIST_SKILLS,
+      // Read table and Write table (2026-11-20, docs/plan.md §1.164): data.read-table and
+      // data.write-table, deterministic: table files in and out, read and written in code.
+      ...TABLE_SKILLS,
       ...SUPERVISOR_SKILLS,
       // v0.12 W2-D: Sloan's conversation (account.chat)
       ...ACCOUNT_SKILLS,

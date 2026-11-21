@@ -55,6 +55,7 @@ const PDF_ID = "0192f7a0-0000-7000-8000-00000000d001";
 const PNG_ID = "0192f7a0-0000-7000-8000-00000000d002";
 const TXT_ID = "0192f7a0-0000-7000-8000-00000000d003";
 const FAKE_PDF_ID = "0192f7a0-0000-7000-8000-00000000d004";
+const CSV_ID = "0192f7a0-0000-7000-8000-00000000d005";
 /** Client B's document: the documents service of client A doesn't know it. */
 const OTHER_CLIENTS = "0192f7a0-0000-7000-8000-00000000db01";
 
@@ -65,6 +66,13 @@ const FILES: StoredFile[] = [
   { id: PDF_ID, bytes: pdf, filename: "PO-1042.pdf", mimeType: "application/pdf", sha256: "a" },
   { id: PNG_ID, bytes: png, filename: "Plano — cocina.png", mimeType: "image/png", sha256: "b" },
   { id: TXT_ID, bytes: utf8("hello"), filename: "notes.txt", mimeType: "text/plain", sha256: "c" },
+  {
+    id: CSV_ID,
+    bytes: utf8("Company,Email\nAcme,ap@acme.example\n"),
+    filename: "matches.csv",
+    mimeType: "text/csv",
+    sha256: "e",
+  },
   // Says PDF, isn't one.
   {
     id: FAKE_PDF_ID,
@@ -212,6 +220,23 @@ describe("outbound attachments: the checks", () => {
       expect(err).toBeInstanceOf(AttachmentRefusedError);
       expect((err as AttachmentRefusedError).code).toBe("not_found");
     }
+  });
+
+  it("lets email carry a spreadsheet (§1.164), never a text or WhatsApp message", async () => {
+    const docs = documents();
+    const [csv] = await describeOutbound(
+      ctxBase(docs),
+      [{ documentId: CSV_ID }],
+      GMAIL_ATTACHMENT_LIMITS,
+    );
+    expect(csv).toMatchObject({ filename: "matches.csv", mimeType: "text/csv" });
+    const err = await describeOutbound(
+      ctxBase(docs),
+      [{ documentId: CSV_ID }],
+      META_WHATSAPP_LIMITS,
+    ).catch((e: unknown) => e);
+    expect((err as AttachmentRefusedError).code).toBe("type_not_allowed");
+    expect((err as Error).message).toContain("is not a PDF or an image");
   });
 
   it("refuses other types, bytes that aren't their type, too many and too large", async () => {

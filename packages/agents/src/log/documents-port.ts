@@ -16,6 +16,8 @@ import {
   readingFile,
   recordPurchase,
   recordReading,
+  storeTableFile,
+  tableFile,
 } from "@countersign/documents";
 import { createLlmClient, type LlmCallRecord, type LlmTransport } from "@countersign/llm";
 import type { DocumentForTool, DocumentsPort } from "../tools/types";
@@ -152,6 +154,21 @@ export function dbDocumentsPort(db: Db, options: DbDocumentsOptions): DocumentsP
         mimeType: f.mimeType,
         bytes: f.bytes,
       };
+    },
+
+    // §1.164: a table file for Read table's code, and one Write table made.
+    async table(tenantId, documentId) {
+      const f = await tableFile({ db, content: options.content }, tenantId, documentId);
+      return {
+        documentId: f.documentId,
+        filename: f.filename,
+        mimeType: f.mimeType,
+        bytes: f.bytes,
+      };
+    },
+
+    storeTable(tenantId, input) {
+      return storeTableFile({ db, content: options.content }, { tenantId, ...input });
     },
 
     async record(tenantId, input) {

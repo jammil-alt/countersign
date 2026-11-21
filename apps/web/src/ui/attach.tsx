@@ -34,7 +34,9 @@ export interface Attach {
   words?: Partial<AttachWords> | undefined;
 }
 
-export const ATTACH_ACCEPT = "application/pdf,image/png,image/jpeg,image/gif,image/webp";
+// §1.164: table files (.csv, .xlsx, .json) are documents too; they are read in code, never by a model.
+export const ATTACH_ACCEPT =
+  "application/pdf,image/png,image/jpeg,image/gif,image/webp,.csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.json,application/json";
 
 export function AttachButton({
   attach,

@@ -489,11 +489,11 @@ export class FakeSupplierPortal {
         status: 200,
       };
     }
-    if (u.pathname === "/invoices/statement.csv") {
+    if (u.pathname === "/invoices/statement.zip") {
       return {
         bytes: utf8("a,b"),
-        filename: "statement.csv",
-        mimeType: "text/csv",
+        filename: "statement.zip",
+        mimeType: "application/zip",
         finalUrl: url,
         status: 200,
       };

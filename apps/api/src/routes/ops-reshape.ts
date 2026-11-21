@@ -84,7 +84,8 @@ export function opsReshapeRoutes(app: Hono<AppEnv>): void {
     const { body } = ctx;
     const row = await agentInScope(ctx, ctx.params.id);
     const { process, step } = reshapeStep(body);
-    const typing = await typingFor(ctx, row, process);
+    // §1.164: a Read table step before it is typed by the agent's columns (the builder's draft).
+    const typing = { ...(await typingFor(ctx, row, process)), agentSkills: body.agentSkills };
     const context = processes.reshapeContext(process, step.id, typing);
     if (!context) throw new HttpError(422, "not_a_reshape_step", "the step isn't in the workflow");
     const proposal = processes.proposeReshape({
@@ -153,7 +154,8 @@ export function opsReshapeRoutes(app: Hono<AppEnv>): void {
     const { tx, body } = ctx;
     const row = await agentInScope(ctx, ctx.params.id);
     const { process, step } = reshapeStep(body);
-    const typing = await typingFor(ctx, row, process);
+    // §1.164: a Read table step before it is typed by the agent's columns (the builder's draft).
+    const typing = { ...(await typingFor(ctx, row, process)), agentSkills: body.agentSkills };
     const context = processes.reshapeContext(process, step.id, typing);
     if (!context) throw new HttpError(422, "not_a_reshape_step", "the step isn't in the workflow");
 

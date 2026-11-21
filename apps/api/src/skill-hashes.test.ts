@@ -34,9 +34,12 @@ const builtins = platform.catalog.list();
 // §1.121: forms.request (a step-only skill on its handler, counted as a wrapper like
 // comms.reach-out) and forms.draft (an AI task skill).
 // §1.123: data.group-list, a built-in code skill (its handler in `tools`, not a wrapper).
-// §1.164: Zoho CRM's field list (zoho_crm.field.list), a connector read, so a wrapper.
-const BUILTINS = 143;
-const WRAPPERS = 99;
+// §1.164: the Sales pack's three tool skills (Match to CRM, Refresh CRM records for matching,
+// Look up CRM records), each a wrapper of its tool; data.read-table and data.write-table, built-in
+// code skills (not wrappers); Zoho CRM's field list (zoho_crm.field.list), a connector read, so a
+// wrapper.
+const BUILTINS = 148;
+const WRAPPERS = 102;
 
 describe("built-in skills under the R2 skill schema", () => {
   it("registers the platform's, the packs' and each connector's read skills, once each", () => {

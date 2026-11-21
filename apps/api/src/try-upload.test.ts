@@ -65,7 +65,8 @@ describe.skipIf(!h)("a document uploaded to try a draft on", () => {
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     const [pdf, csv] = res.json.results;
     expect(pdf).toMatchObject({ kind: "document", created: true });
-    expect(csv).toMatchObject({ kind: "refused" });
+    // §1.164: a CSV that isn't a purchases export is a document, kept quietly for the try too.
+    expect(csv).toMatchObject({ kind: "document", created: true, purchases: null });
     await settle();
     const [doc] = await H.t.db.select().from(document).where(eq(document.id, pdf.document.id));
     expect(doc).toMatchObject({ tenantId: sandbox, status: "extracted" });

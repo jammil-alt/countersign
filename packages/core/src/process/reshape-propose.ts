@@ -10,6 +10,7 @@ import type { JsonSchema } from "../schemas/common";
 import type { TypingContext } from "../template/typer";
 import {
   nextStepOf,
+  RESHAPE_MAX_NESTING,
   type ReshapeExpr,
   type ReshapeField,
   type ReshapeMapping,
@@ -224,7 +225,9 @@ const titleOf = (s: JsonSchema | undefined): string | undefined =>
   typeof s?.title === "string" && s.title.trim() ? s.title : undefined;
 
 /** How a match was found, for the builder ("same name", "a synonym", …). */
-export type ReshapeMatch = "exact" | "name" | "synonym" | "kept";
+// §1.164: "fields" is a record built field by field from the sources (`object`), no field of
+// that name being there to copy.
+export type ReshapeMatch = "exact" | "name" | "synonym" | "kept" | "fields";
 const TIER_MATCH: readonly ReshapeMatch[] = ["exact", "name", "synonym"];
 
 // ── Candidates ───────────────────────────────────────────────────────────────────────────────
@@ -298,12 +301,46 @@ const requiredOf = (s: JsonSchema | undefined): string[] =>
 const itemsOf = (s: JsonSchema | undefined): JsonSchema | undefined =>
   isPlainObject(s?.items) ? (s.items as JsonSchema) : undefined;
 
+/** The fields inside a candidate record, as candidates read through it. */
+function innerCandidates(c: Candidate): Candidate[] {
+  const fields: { path: string[]; schema: JsonSchema | undefined }[] = [];
+  fieldsOf(c.schema, [], 0, fields);
+  return fields.map((f) => ({
+    operand: (p) => c.operand([...c.path, ...p]),
+    path: f.path,
+    schema: f.schema,
+    rank: c.rank,
+  }));
+}
+
+/** The alternative of `anyOf: [X, {type: null}]` that isn't null. */
+function nonNullAlt(s: JsonSchema | undefined): JsonSchema | undefined {
+  for (const k of ["anyOf", "oneOf"] as const) {
+    const list = s?.[k];
+    if (Array.isArray(list)) {
+      const alts = list.filter(
+        (a) => isPlainObject(a) && schemaTypeNames(a as JsonSchema).join() !== "null",
+      ) as JsonSchema[];
+      if (alts.length === 1) return alts[0];
+    }
+  }
+  return s;
+}
+
+/** A record target's fields, when it has any (`customer: { name, email }`). */
+function recordFields(target: JsonSchema | undefined): Record<string, JsonSchema> | null {
+  if (!schemaTypeNames(target).includes("object")) return null;
+  const p = props(nonNullAlt(target));
+  return Object.keys(p).length > 0 ? p : null;
+}
+
 /** An expression that fills `name` (of `target`'s type) from the candidate, or null. */
 function fill(
   name: string,
   target: JsonSchema | undefined,
   c: Candidate,
   unmapped: string[],
+  depth: number,
 ): { expr: ReshapeExpr; converted: boolean } | null {
   const operand = c.operand(c.path);
   const want = schemaTypeNames(target);
@@ -317,13 +354,22 @@ function fill(
     schemaTypeNames(targetItems).includes("object") &&
     schemaTypeNames(sourceItems).includes("object")
   ) {
-    const inner = proposeFields(props(targetItems), itemCandidates(sourceItems));
+    if (depth >= RESHAPE_MAX_NESTING) return null;
+    const inner = proposeFields(props(targetItems), itemCandidates(sourceItems), depth + 1);
     if (Object.keys(inner.fields).length === 0) return null;
     for (const u of inner.unmapped) unmapped.push(`${name}.${u}`);
     return { expr: { mapList: { list: operand, fields: inner.fields } }, converted: false };
   }
   const fits = schemaFitProblems(target, c.schema, name).length === 0;
   if (fits && have.length > 0) return { expr: operand, converted: false };
+  // §1.164: a record of another shape into a record: built field by field from its fields.
+  const record = recordFields(target);
+  if (record && have.includes("object") && depth < RESHAPE_MAX_NESTING) {
+    const inner = proposeFields(record, innerCandidates(c), depth + 1);
+    if (Object.keys(inner.fields).length === 0) return null;
+    for (const u of inner.unmapped) unmapped.push(`${name}.${u}`);
+    return { expr: { object: { fields: inner.fields } }, converted: false };
+  }
   if (
     want.includes("string") &&
     have.length > 0 &&
@@ -354,6 +400,7 @@ function fill(
 function proposeFields(
   targets: Record<string, JsonSchema>,
   candidates: readonly Candidate[],
+  depth = 0,
 ): { fields: Record<string, ReshapeExpr>; unmapped: string[]; how: Record<string, ReshapeMatch> } {
   const fields: Record<string, ReshapeExpr> = {};
   const how: Record<string, ReshapeMatch> = {};
@@ -364,7 +411,7 @@ function proposeFields(
       const tier = nameTier(name, c.path, titleOf(schema));
       if (tier === null) continue;
       const tried: string[] = [];
-      const f = fill(name, schema, c, tried);
+      const f = fill(name, schema, c, tried, depth);
       if (!f) continue;
       // An unknown type matches on the exact name only.
       if (f.converted && schemaTypeNames(c.schema).length === 0 && tier !== 0) continue;
@@ -376,11 +423,44 @@ function proposeFields(
       fields[name] = best.expr;
       how[name] = TIER_MATCH[best.tier] as ReshapeMatch;
       unmapped.push(...best.nested);
+      continue;
+    }
+    const built = buildRecord(name, schema, candidates, depth);
+    if (built) {
+      fields[name] = built.expr;
+      how[name] = "fields";
+      unmapped.push(...built.unmapped);
     } else {
       unmapped.push(name);
     }
   }
   return { fields, unmapped, how };
+}
+
+/**
+ * A record no source has under its name, built from the fields the sources have (`customer:
+ * { name, email }` from a form's flat `name` and `email`).
+ */
+// DECISION (§1.164): built only when it fills at least one of the record's fields, and one of its
+// required fields when it has any: a record of one stray optional field is no proposal worth the
+// operator's check.
+function buildRecord(
+  name: string,
+  target: JsonSchema | undefined,
+  candidates: readonly Candidate[],
+  depth: number,
+): { expr: ReshapeExpr; unmapped: string[] } | null {
+  const record = recordFields(target);
+  if (!record || depth >= RESHAPE_MAX_NESTING) return null;
+  const inner = proposeFields(record, candidates, depth + 1);
+  const mapped = Object.keys(inner.fields);
+  if (mapped.length === 0) return null;
+  const required = requiredOf(nonNullAlt(target));
+  if (required.length > 0 && !mapped.some((m) => required.includes(m))) return null;
+  return {
+    expr: { object: { fields: inner.fields } },
+    unmapped: inner.unmapped.map((u) => `${name}.${u}`),
+  };
 }
 
 function compareKeys(a: readonly number[], b: readonly number[]): number {

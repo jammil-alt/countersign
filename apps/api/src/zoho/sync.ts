@@ -29,6 +29,7 @@ import { connection, type Db, rawRecord, type Tx, tenant, withTenant } from "@co
 import { type EventRow, emit } from "@countersign/senses";
 import { and, desc, eq, ne } from "drizzle-orm";
 import { reportHandled } from "../observability/report";
+import type { RegisteredPack } from "../packs";
 import type { Platform } from "../platform";
 import { senseEmitter } from "../runs/dispatch";
 
@@ -132,7 +133,8 @@ export async function zohoSyncStep(
     throw error;
   }
   const now = (deps.now ?? (() => new Date()))();
-  return withTenant(deps.db, tenantId, async (tx) => {
+  const storedIds: string[] = [];
+  const result = await withTenant(deps.db, tenantId, async (tx) => {
     const events: EventRow[] = [];
     let stored = 0;
     for (const record of page.records) {
@@ -151,6 +153,7 @@ export async function zohoSyncStep(
         .returning({ id: rawRecord.id });
       if (!raw) continue;
       stored += 1;
+      storedIds.push(raw.id);
       // DECISION: a first sync is history (as QuickBooks' initial sync): its records raise no
       // events, so connecting Zoho doesn't start a run for every old lead.
       if (page.initial) continue;
@@ -208,6 +211,38 @@ export async function zohoSyncStep(
       .where(and(eq(connection.id, connectionId), eq(connection.tenantId, tenantId)));
     return { done: page.done, stored, events };
   });
+  await packsSynced(deps.db, deps.platform.packs, {
+    tenantId,
+    connectionId,
+    connector: ZOHO_CRM_CONNECTOR_ID,
+    rawRecordIds: storedIds,
+  });
+  return result;
+}
+
+/**
+ * §1.164: after a sync page committed, each registered pack that keys this connector's records
+ * (the Sales area) builds them, for a client with it on. A first sync's history counts too: it
+ * raises no events, but its records are what a match searches. A pack's failure is reported and
+ * the sync goes on; the next match brings the keys up to date anyway.
+ */
+export async function packsSynced(
+  db: Db,
+  packs: readonly RegisteredPack[],
+  input: { tenantId: string; connectionId: string; connector: string; rawRecordIds: string[] },
+): Promise<void> {
+  if (input.rawRecordIds.length === 0) return;
+  for (const pack of packs) {
+    if (!pack.synced?.connectors.includes(input.connector)) continue;
+    try {
+      await pack.synced.run(db, input);
+    } catch (error) {
+      reportHandled(`${pack.manifest.id} keys after a ${input.connector} sync failed`, error, {
+        job: "pack_synced",
+        client: input.tenantId,
+      });
+    }
+  }
 }
 
 /** Pages one sync reads at most; the next one goes on from the stored cursor. */

@@ -9,7 +9,7 @@
 
 import type { JsonObject } from "@countersign/core";
 // P-3: attachments both ways
-import { AttachmentSummary } from "@countersign/core";
+import { AttachmentSummary, EMAIL_SENDABLE_TYPES } from "@countersign/core";
 import { z } from "zod";
 import {
   type AttachmentLimits,
@@ -113,6 +113,7 @@ export const OUTLOOK_ATTACHMENT_LIMITS: AttachmentLimits = {
   provider: "Outlook",
   maxCount: 5,
   maxTotalBytes: 3 * 1000 * 1000,
+  types: EMAIL_SENDABLE_TYPES,
 };
 
 export interface OutlookOptions {

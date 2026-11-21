@@ -75,6 +75,9 @@ describe("tool registry", () => {
       "data.list.group",
       // Reshape data (2026-11-11): its pure handler.
       "data.reshape",
+      // §1.164: Read table and Write table
+      "data.table.read",
+      "data.table.write",
       "demo.thing.find",
       "directory.get",
       "directory.search",

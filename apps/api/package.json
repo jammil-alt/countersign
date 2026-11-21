@@ -21,6 +21,7 @@
     "@countersign/pack-bookkeeping": "workspace:*",
     "@countersign/pack-marketing": "workspace:*",
     "@countersign/pack-materials": "workspace:*",
+    "@countersign/pack-sales": "workspace:*",
     "@countersign/senses": "workspace:*",
     "@countersign/threads": "workspace:*",
     "@countersign/workflows": "workspace:*",
