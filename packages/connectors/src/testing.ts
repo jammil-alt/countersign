@@ -16,6 +16,8 @@ import podioTask from "../../../fixtures/podio/task-create.json";
 import podioTokenCode from "../../../fixtures/podio/token-authorization-code.json";
 import podioTokenInvalid from "../../../fixtures/podio/token-invalid-grant.json";
 import podioTokenRefresh from "../../../fixtures/podio/token-refresh.json";
+import fieldsDeals from "../../../fixtures/zoho_crm/fields-deals.json";
+import fieldsLeads from "../../../fixtures/zoho_crm/fields-leads.json";
 import invalidToken from "../../../fixtures/zoho_crm/invalid-token.json";
 import leadCreate from "../../../fixtures/zoho_crm/lead-create.json";
 import leadCreateInvalid from "../../../fixtures/zoho_crm/lead-create-invalid.json";
@@ -25,6 +27,7 @@ import leadsSearch from "../../../fixtures/zoho_crm/leads-search.json";
 import noteCreate from "../../../fixtures/zoho_crm/note-create.json";
 import org from "../../../fixtures/zoho_crm/org.json";
 import rateLimited from "../../../fixtures/zoho_crm/rate-limited.json";
+import scopeMismatch from "../../../fixtures/zoho_crm/scope-mismatch.json";
 import taskCreate from "../../../fixtures/zoho_crm/task-create.json";
 import tokenCode from "../../../fixtures/zoho_crm/token-authorization-code.json";
 import tokenInvalid from "../../../fixtures/zoho_crm/token-invalid-code.json";
@@ -69,7 +72,53 @@ export const ZOHO_FIXTURES = {
   taskCreate,
   rateLimited,
   invalidToken,
+  // docs/plan.md §1.164: field metadata, and the refusal of a grant without its scope.
+  fieldsLeads,
+  fieldsDeals,
+  scopeMismatch,
 } as const;
+
+/** What the fake answers for Contacts' and Accounts' fields (Leads and Deals have fixtures). */
+const SMALL_FIELDS: Record<string, unknown> = {
+  Contacts: {
+    fields: [
+      {
+        api_name: "Last_Name",
+        field_label: "Last Name",
+        data_type: "text",
+        length: 80,
+        system_mandatory: true,
+        custom_field: false,
+        read_only: false,
+        visible: true,
+      },
+      {
+        api_name: "Email",
+        field_label: "Email",
+        data_type: "email",
+        length: 100,
+        system_mandatory: false,
+        custom_field: false,
+        read_only: false,
+        visible: true,
+      },
+    ],
+  },
+  Accounts: {
+    fields: [
+      {
+        api_name: "Account_Name",
+        field_label: "Account Name",
+        data_type: "text",
+        length: 200,
+        system_mandatory: true,
+        custom_field: false,
+        read_only: false,
+        visible: true,
+      },
+    ],
+  },
+};
 
 /**
  * A fake Zoho (EU data center): the accounts server's token and revoke endpoints and the CRM API,
@@ -88,6 +137,10 @@ export function fakeZoho(opts: { acceptAccessTokens?: string[]; rateLimitNext?: 
     // v0.14 W4-B: records the sync's list calls answer from, by module; and the watches asked.
     listed: {} as Record<string, Record<string, unknown>[]>,
     watches: [] as unknown[],
+    // docs/plan.md §1.164: a grant made before the field scope (Zoho refuses `settings/fields`).
+    fieldsScopeMissing: false,
+    /** The scopes a new sign-in's token answer names (default: the fixture's, an older grant). */
+    grantScope: undefined as string | undefined,
   };
 
   const fetch: FetchLike = async (url: string, init: HttpRequestInit = {}) => {
@@ -99,7 +152,11 @@ export function fakeZoho(opts: { acceptAccessTokens?: string[]; rateLimitNext?: 
       if (u.pathname === "/oauth/v2/token" && method === "POST") {
         const form = formDecode(init.body ?? "");
         if (form.grant_type === "authorization_code") {
-          return jsonResponse(200, form.code === "fixture-code" ? tokenCode : tokenInvalid);
+          if (form.code !== "fixture-code") return jsonResponse(200, tokenInvalid);
+          return jsonResponse(
+            200,
+            state.grantScope ? { ...tokenCode, scope: state.grantScope } : tokenCode,
+          );
         }
         if (form.grant_type === "refresh_token") {
           if (refreshFails || form.refresh_token !== tokenCode.refresh_token) {
@@ -130,7 +187,13 @@ export function fakeZoho(opts: { acceptAccessTokens?: string[]; rateLimitNext?: 
       const all = (state.listed[listedModule] ?? [])
         .filter((r) => Date.parse(String(r.Modified_Time)) > since)
         .sort((a, b) => Date.parse(String(a.Modified_Time)) - Date.parse(String(b.Modified_Time)));
-      const slice = all.slice((page - 1) * per, page * per);
+      // Only the fields asked for (v8's `fields`), with the id.
+      const asked = q.fields ? new Set(["id", ...q.fields.split(",")]) : null;
+      const slice = all
+        .slice((page - 1) * per, page * per)
+        .map((r) =>
+          asked ? Object.fromEntries(Object.entries(r).filter(([k]) => asked.has(k))) : r,
+        );
       if (slice.length === 0) return jsonResponse(304, undefined);
       return jsonResponse(200, {
         data: slice,
@@ -144,6 +207,20 @@ export function fakeZoho(opts: { acceptAccessTokens?: string[]; rateLimitNext?: 
           { code: "SUCCESS", status: "success", message: "Successfully subscribed", details: {} },
         ],
       });
+    }
+    // docs/plan.md §1.164: field metadata per module (UNCHECKED shape, NOTES.md).
+    if (path === "/crm/v8/settings/fields" && method === "GET") {
+      if (state.fieldsScopeMissing) return jsonResponse(401, scopeMismatch);
+      const module = formDecode(url.split("?")[1] ?? "").module ?? "";
+      if (module === "Leads") return jsonResponse(200, fieldsLeads);
+      if (module === "Deals") return jsonResponse(200, fieldsDeals);
+      const small = SMALL_FIELDS[module];
+      return small
+        ? jsonResponse(200, small)
+        : jsonResponse(400, {
+            code: "INVALID_MODULE",
+            message: "the module name given seems to be invalid",
+          });
     }
     if (path === "/crm/v8/Leads/search") {
       return url.includes("nobody") ? jsonResponse(204, undefined) : jsonResponse(200, leadsSearch);

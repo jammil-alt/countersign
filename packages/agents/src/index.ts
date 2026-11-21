@@ -100,6 +100,8 @@ export * from "./tools/platform";
 export * from "./tools/reach";
 export * from "./tools/reshape";
 export * from "./tools/supervisor";
+// §1.164: Read table and Write table.
+export * from "./tools/tables";
 export * from "./tools/threads";
 // P-7
 export * from "./tools/translate";

@@ -12,7 +12,14 @@ import {
   type WriteContext,
   writeNotMade,
 } from "../connector";
-import { type FetchLike, formEncode, globalFetch, parseUrl, timeoutSignal } from "../http";
+import {
+  type FetchLike,
+  formEncode,
+  globalFetch,
+  type HttpResponseLike,
+  parseUrl,
+  timeoutSignal,
+} from "../http";
 import {
   OAuthTokens,
   ReconnectRequiredError,
@@ -20,21 +27,35 @@ import {
   type TokenRefresher,
   tokenManager,
 } from "../oauth/tokens";
+// docs/plan.md §1.164 step 3: the org's fields per module (./fields.ts).
+import {
+  parseZohoFields,
+  readZohoFieldCache,
+  readZohoSyncFieldsConfig,
+  ZOHO_FIELDS_SCOPE,
+  ZohoField,
+  type ZohoFieldCache,
+  type ZohoSyncFieldsConfig,
+  zohoScopeReadsFields,
+} from "./fields";
 // v0.14 W4-B: sync and notifications (./sync.ts).
 import {
   afterZohoPage,
-  readZohoSyncCursor,
-  startZohoSync,
   ZOHO_RECORD_CHANGED_EVENT,
   ZOHO_SYNC_PAGE_SIZE,
+  ZOHO_SYNCED_MODULES,
   ZohoRecordChangedPayload,
+  type ZohoSyncedModule,
   type ZohoSyncPage,
+  zohoCursorFor,
   zohoPageRequest,
   zohoRawRecord,
   zohoSyncFields,
+  zohoSyncFieldsKey,
   zohoWatchBody,
 } from "./sync";
 
+export * from "./fields";
 export * from "./sync";
 
 /**
@@ -52,6 +73,8 @@ export const ZOHO_TOOLS = {
   update: "zoho_crm.record.update",
   note: "zoho_crm.note.create",
   task: "zoho_crm.task.create",
+  // docs/plan.md §1.164: the module's fields (API names, labels, types).
+  fields: "zoho_crm.field.list",
 } as const;
 
 /** The modules agents may work in. */
@@ -81,6 +104,9 @@ export const ZOHO_SCOPES: readonly string[] = [
   // sign-in for them; the cursor poll works without.
   "ZohoCRM.notifications.READ",
   "ZohoCRM.notifications.CREATE",
+  // docs/plan.md §1.164: the org's field metadata, for typed writes and custom-field sync. A
+  // connection signed in before needs a new sign-in for it; everything else works without.
+  ZOHO_FIELDS_SCOPE,
 ];
 
 const API_VERSION = "v8";
@@ -154,6 +180,46 @@ export class ZohoApiError extends Error {
     this.notWritten = status >= 400 && status < 500 && status !== 408 && status !== 409;
   }
 }
+
+/**
+ * Zoho refused a call for a scope the grant lacks (a connection signed in before the scope was
+ * added). Not a dead grant: nothing is refreshed and the connection stays as it is; the feature
+ * that needs the scope waits for a new sign-in.
+ */
+export class ZohoScopeMissingError extends ZohoApiError {
+  constructor(message = "this Zoho sign-in doesn't allow that: sign in to Zoho again") {
+    super(401, "OAUTH_SCOPE_MISMATCH", message, false);
+    this.name = "ZohoScopeMissingError";
+  }
+}
+
+/** A 401 read through, marked when it is Zoho's scope refusal rather than a dead token. */
+type MarkedResponse = HttpResponseLike & { scopeMissing?: boolean };
+
+// UNCHECKED (NOTES.md): Zoho answers a call outside the grant's scopes with 401 and the code
+// `OAUTH_SCOPE_MISMATCH`, as in v2–v7.
+async function markScope(res: HttpResponseLike): Promise<MarkedResponse> {
+  if (res.status !== 401) return res;
+  const text = await res.text();
+  let code: unknown;
+  try {
+    code = (JSON.parse(text) as { code?: unknown } | null)?.code;
+  } catch {
+    code = undefined;
+  }
+  return {
+    status: res.status,
+    ok: res.ok,
+    headers: res.headers,
+    text: async () => text,
+    scopeMissing: code === "OAUTH_SCOPE_MISMATCH",
+  };
+}
+
+/** What the field metadata call gives: the fields, or that the grant can't read them. */
+export type ZohoFieldsResult =
+  | { status: "ok"; fields: ZohoField[] }
+  | { status: "needs_sign_in"; fields: [] };
 
 // ── Records ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -364,7 +430,7 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
       async (token) => {
         // The API domain can change on refresh: read it again each try.
         const domain = ZohoCredentials.parse(await ctx.credentials.get()).apiDomain;
-        return doFetch()(`${trimTrailingSlashes(domain)}/crm/${API_VERSION}${path}`, {
+        const answer = await doFetch()(`${trimTrailingSlashes(domain)}/crm/${API_VERSION}${path}`, {
           method,
           headers: {
             authorization: `Zoho-oauthtoken ${token}`,
@@ -376,10 +442,13 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
           redirect: "manual",
           signal: timeoutSignal(20_000),
         });
+        // docs/plan.md §1.164: a scope the grant lacks is not a token to refresh.
+        return markScope(answer);
       },
-      (r) => r.status === 401,
+      (r) => r.status === 401 && r.scopeMissing !== true,
       { write: method !== "GET" },
     );
+    if (res.scopeMissing) throw new ZohoScopeMissingError();
     // v0.14 W4-B: 304, nothing modified since (the sync's list calls).
     if (res.status === 204 || res.status === 304) return null;
     const text = await res.text();
@@ -510,12 +579,33 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
     info: z.looseObject({ more_records: z.boolean().optional() }).optional(),
   });
 
+  /**
+   * The connection's extra sync fields (`config.syncFields`), less any the stored field list no
+   * longer has (a field deleted in Zoho since they were chosen), so the list call still reads.
+   */
+  function extraSyncFields(config: unknown, stored: unknown): ZohoSyncFieldsConfig {
+    const extra = readZohoSyncFieldsConfig(config);
+    const cache = readZohoFieldCache(stored);
+    if (cache?.status !== "ok") return extra;
+    const out: ZohoSyncFieldsConfig = {};
+    for (const m of ZOHO_SYNCED_MODULES) {
+      const known = cache.modules[m];
+      const own = extra[m];
+      if (!own) continue;
+      out[m] = known ? own.filter((f) => known.some((k) => k.apiName === f)) : own;
+    }
+    return out;
+  }
+
   async function syncPage(ctx: ConnectionContext, stored: unknown): Promise<ZohoSyncPage> {
     const now = ctx.now();
-    const cursor = readZohoSyncCursor(stored) ?? startZohoSync(now);
+    // docs/plan.md §1.164: the connection's own fields, beside the standard ones.
+    const extra = extraSyncFields(ctx.connection.config, stored);
+    const fieldsKey = zohoSyncFieldsKey(extra);
+    const cursor = zohoCursorFor(stored, now, fieldsKey);
     const req = zohoPageRequest(cursor);
     const query = formEncode({
-      fields: zohoSyncFields(req.module),
+      fields: zohoSyncFields(req.module, extra[req.module] ?? []),
       sort_by: "Modified_Time",
       sort_order: "asc",
       page: String(req.page),
@@ -530,9 +620,39 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
       throw new ZohoApiError(502, "BAD_LIST", "Zoho's list answer has an unexpected shape", false);
     }
     const records = answer.data.data
-      .map((r) => zohoRawRecord(req.module, r))
+      .map((r) => zohoRawRecord(req.module, r, fieldsKey))
       .filter((r): r is NonNullable<typeof r> => r !== null);
     return afterZohoPage(cursor, { records, more: answer.data.info?.more_records === true }, now);
+  }
+
+  // docs/plan.md §1.164: the org's fields per module.
+  async function fields(ctx: ConnectionContext, module: ZohoModule): Promise<ZohoFieldsResult> {
+    const stored = ZohoCredentials.safeParse(await ctx.credentials.get());
+    if (!stored.success)
+      throw new ReconnectRequiredError("the Zoho connection has no valid credentials");
+    // The stored grant says it can't: no call (a call would only be refused).
+    if (zohoScopeReadsFields(stored.data.scope) === false) {
+      return { status: "needs_sign_in", fields: [] };
+    }
+    try {
+      const body = await api(ctx, "GET", `/settings/fields?${formEncode({ module })}`);
+      return { status: "ok", fields: parseZohoFields(body) };
+    } catch (error) {
+      if (error instanceof ZohoScopeMissingError) return { status: "needs_sign_in", fields: [] };
+      throw error;
+    }
+  }
+
+  async function fieldCache(ctx: ConnectionContext): Promise<ZohoFieldCache> {
+    const at = ctx.now().toISOString();
+    const modules: ZohoFieldCache["modules"] = {};
+    for (const m of ZOHO_SYNCED_MODULES) {
+      const r = await fields(ctx, m);
+      // One refusal says it for every module: the grant has no field scope.
+      if (r.status === "needs_sign_in") return { v: 1, at, status: "needs_sign_in", modules: {} };
+      modules[m] = r.fields;
+    }
+    return { v: 1, at, status: "ok", modules };
   }
 
   async function watch(
@@ -762,6 +882,33 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
           return { record: await getRecord(ctx, input.module, input.id) };
         },
       }),
+      // docs/plan.md §1.164 step 3: what a module's fields are called and take.
+      defineReadTool({
+        id: ZOHO_TOOLS.fields,
+        entityInput: ZOHO_MODULE_ENTITY,
+        description:
+          "List a Zoho CRM module's fields: API name, label, type, whether custom or read-only, picklist values and the longest text.",
+        summary: "Read {{fields.length}} {{module}} fields",
+        input: z.object({ module: ZohoModule }),
+        output: z.object({
+          module: ZohoModule,
+          /** False when the sign-in can't read fields (made before the scope was added). */
+          available: z.boolean(),
+          fields: z.array(ZohoField),
+          reason: z.string().optional(),
+        }),
+        async run(input, ctx) {
+          const r = await fields(ctx, input.module);
+          return r.status === "ok"
+            ? { module: input.module, available: true, fields: r.fields }
+            : {
+                module: input.module,
+                available: false,
+                fields: [],
+                reason: "The client needs to sign in to Zoho again so we can read its fields.",
+              };
+        },
+      }),
       defineWriteTool({
         id: ZOHO_TOOLS.create,
         entityInput: ZOHO_MODULE_ENTITY,
@@ -950,15 +1097,24 @@ export function createZohoCrmConnector(options: ZohoCrmOptions = {}): ZohoCrmCon
       }),
     ],
   });
-  // v0.14 W4-B
-  return Object.assign(connector, { syncPage, watch });
+  // v0.14 W4-B; docs/plan.md §1.164 (fields, fieldCache)
+  return Object.assign(connector, { syncPage, watch, fields, fieldCache });
 }
 
 // v0.14 W4-B
 /** The Zoho connector with its sync: one page of the cursor poll, and turning notifications on. */
 export interface ZohoCrmConnector extends Connector {
-  /** The next page from the stored `sync_cursor` (or a first sync), and the cursor to store. */
+  /**
+   * The next page from the stored `sync_cursor` (or a first sync), and the cursor to store. The
+   * connection's `config.syncFields` adds fields to read; the stored cursor's field list
+   * (`zohoFields`) drops any Zoho no longer has.
+   */
   syncPage(ctx: ConnectionContext, storedCursor: unknown): Promise<ZohoSyncPage>;
   /** Asks Zoho to notify `notifyUrl` of changes in the synced modules, with `token`. */
   watch(ctx: ConnectionContext, input: { notifyUrl: string; token: string }): Promise<void>;
+  // docs/plan.md §1.164 step 3
+  /** One module's fields, or `needs_sign_in` when the grant has no field scope. */
+  fields(ctx: ConnectionContext, module: ZohoSyncedModule): Promise<ZohoFieldsResult>;
+  /** Every synced module's fields, as the connection keeps them (`sync_cursor.zohoFields`). */
+  fieldCache(ctx: ConnectionContext): Promise<ZohoFieldCache>;
 }

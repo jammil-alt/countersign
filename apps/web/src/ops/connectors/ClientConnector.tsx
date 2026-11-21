@@ -40,6 +40,7 @@ import {
   requestState,
   resultWords,
 } from "./words";
+import { ZohoSyncFields } from "./ZohoSyncFields";
 
 type Page = ResponseOf<typeof access.opsClientConnector>;
 type Row = OpsConnectionPageView["read"][number];
@@ -133,6 +134,7 @@ function ClientConnector({ clientId, connector }: { clientId: string; connector:
             clientId={clientId}
             clientName={clientName}
             connectorName={data.connector.name}
+            connector={data.connector.connector}
             connection={c}
             raw={rawOf(c.id)}
             sandbox={data.sandbox}
@@ -220,6 +222,9 @@ export function matrixEditOf(
 }
 
 /** The setup as text, and what it parses to (an object, or why not). */
+/** docs/plan.md §1.164: Zoho CRM's connections choose the fields their sync reads. */
+const ZOHO_CRM = "zoho_crm";
+
 function parseConfig(text: string): { ok: true; value: Record<string, unknown> } | { ok: false } {
   try {
     const v: unknown = JSON.parse(text);
@@ -234,6 +239,7 @@ function ConnectionEditor({
   clientId,
   clientName,
   connectorName,
+  connector,
   connection: c,
   raw,
   sandbox,
@@ -243,6 +249,7 @@ function ConnectionEditor({
   clientId: string;
   clientName: string;
   connectorName: string;
+  connector: string;
   connection: OpsConnectionPageView;
   raw: RawPermissions | undefined;
   sandbox: boolean;
@@ -430,6 +437,19 @@ function ConnectionEditor({
             </p>
           )}
         </section>
+
+        {connector === ZOHO_CRM ? (
+          <ZohoSyncFields
+            clientId={clientId}
+            clientName={clientName}
+            connectionId={c.id}
+            config={config.ok ? config.value : c.config}
+            onConfig={(next) => {
+              setResult(null);
+              setConfigText(JSON.stringify(next, null, 2));
+            }}
+          />
+        ) : null}
 
         {dirty ? (
           <ChangeFooter

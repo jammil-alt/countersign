@@ -6,9 +6,10 @@ import type { JsonSchema } from "../schemas/common";
 import { parseSkillRef } from "../schemas/common";
 import type { EventTypeSpec } from "../schemas/event";
 import type { SkillDefinition } from "../schemas/skill";
-import type { ToolSpec } from "../schemas/tool";
+import type { ToolInputVariants, ToolSpec } from "../schemas/tool";
 import type { Step, TriggerOn, Workflow } from "../schemas/workflow";
 import { allTriggers, HANDOFF_PAYLOAD, MESSAGE_PAYLOAD } from "../triggers/kinds";
+import { webhookPayloadWithData } from "../triggers/sample";
 import { mergeTriggerSchemas } from "../triggers/typing";
 import { type StepLocation, walkSteps } from "../workflow/walk";
 import { singleRef } from "./template";
@@ -26,6 +27,42 @@ export interface TypingContext {
   // v0.12 W2-B
   /** Automation versions by their pinned reference (`slug@version`). */
   automations?: Record<string, AnyAutomationDefinition>;
+  /**
+   * The owning agent's skills with its parameter values (`definition.skills`), when known: a Read
+   * table step's output is typed by its effective columns, the step's own over the agent's
+   * (docs/plan.md §1.164). A process's validation context gives them as its `agent`; absent
+   * both, only the step's own and the skill's default count.
+   */
+  agentSkills?:
+    | readonly {
+        skill: string;
+        parameters?: Readonly<Record<string, unknown>> | undefined;
+      }[]
+    | undefined;
+  // docs/plan.md §1.164 step 3
+  /**
+   * Tool inputs typed from a client's own connection (a CRM's fields per module), by tool id: the
+   * builder's and Reshape's typing of a step's input (`toolInputSchema`). Validation at publish
+   * types with the tools' own inputs.
+   */
+  toolInputs?: Record<string, ToolInputVariants>;
+}
+
+/**
+ * What a step calling `toolId` with `input` takes: the variant its literal `by` input picks
+ * (`ctx.toolInputs`), else the tool's own input.
+ */
+export function toolInputSchema(
+  toolId: string,
+  input: Record<string, unknown> | undefined,
+  ctx: TypingContext,
+): JsonSchema | undefined {
+  const variants = ctx.toolInputs?.[toolId];
+  const value = variants ? input?.[variants.by] : undefined;
+  if (variants && typeof value === "string" && Object.hasOwn(variants.schemas, value)) {
+    return variants.schemas[value];
+  }
+  return ctx.tools?.[toolId]?.input;
 }
 
 export type PathType =
@@ -73,8 +110,11 @@ export function triggerOnSchema(on: TriggerOn, ctx: TypingContext): JsonSchema |
   switch (on.type) {
     // v0.12 W2-E: a webhook trigger is sugar over `webhook.received`; messages and handoffs have
     // their own payloads.
-    case "webhook":
-      return ctx.events?.["webhook.received"]?.payload;
+    case "webhook": {
+      const payload = ctx.events?.["webhook.received"]?.payload;
+      // §1.164: a pasted sample's shape types the delivery's data.
+      return on.dataSchema ? webhookPayloadWithData(payload, on.dataSchema) : payload;
+    }
     case "message":
       return MESSAGE_PAYLOAD;
     case "handoff":

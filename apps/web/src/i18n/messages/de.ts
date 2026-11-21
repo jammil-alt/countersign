@@ -16,6 +16,7 @@ export const de: Messages = {
   "common.enterToSend": "Eingabe zum Senden, Umschalt+Eingabe für eine neue Zeile",
   "voice.dictate": "Diktieren",
   "voice.stop": "Stopp",
+  "voice.listening": "Aufnahme läuft…",
   "voice.writing": "Wird aufgeschrieben…",
   "voice.blocked": "Ihr Browser hat das Mikrofon nicht freigegeben.",
   "voice.failed": "Das konnten wir nicht aufschreiben. Bitte versuchen Sie es noch einmal.",

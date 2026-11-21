@@ -426,6 +426,9 @@ function BuilderBody(
   const [restored] = useState(() => restoredDraft(draftKey, from, start, ctx));
   const [history, setHistory] = useState<History>(() => startHistory(restored?.bundle ?? start));
   const bundle = history.present;
+  // §1.164: the inspector types a Read table step's rows by the agent's columns too (its Settings).
+  const agentSkills = bundle.definition.skills;
+  const inspectorCtx = useMemo(() => ({ ...ctx, agentSkills }), [ctx, agentSkills]);
   const [saved, setSaved] = useState<Saved>(() => ({
     id: from.id,
     version: from.version,
@@ -1761,7 +1764,7 @@ function BuilderBody(
                     bundle={bundle}
                     selection={selection}
                     data={data}
-                    ctx={ctx}
+                    ctx={inspectorCtx}
                     env={env}
                     errors={workflowErrors}
                     template={template ? { bundle: template, workflow: templateWorkflow } : null}

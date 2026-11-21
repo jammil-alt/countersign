@@ -141,7 +141,9 @@
 
 /* Keyboard focus is the brand's focus ring: a solid 2px slate ring with a 2px paper gap. The
  * component CSS clears outlines and draws its own on buttons, choices and fields; everything else
- * (links, nav items, tabs, cards that open something) gets the ring here. Unlayered, so it wins. */
+ * (links, nav items, tabs, cards that open something) gets the ring here. Unlayered, so it wins.
+ * A conversation's box shows focus on its frame (`.ui-chat-composer__box:focus-within`), so its
+ * bare text box draws no second ring inside it (2026-11-21). */
 :focus-visible:where(
   :not(
     .ds-btn,
@@ -151,7 +153,8 @@
     .ds-select,
     .ds-textarea,
     .dt-sort,
-    .ui-search__input
+    .ui-search__input,
+    .ui-chat-input--bare
   )
 ) {
   outline: 2px solid var(--focus-ring);

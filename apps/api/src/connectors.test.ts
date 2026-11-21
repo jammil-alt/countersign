@@ -626,6 +626,153 @@ describe.skipIf(!h)("connectors through the API", () => {
       expect(j(row?.syncCursor).zoho).toMatchObject({ initial: false, module: 0 });
     });
 
+    // docs/plan.md §1.164 step 3 ("Zoho's fields").
+    it("reads Zoho's fields after a new sign-in, types the builder's writes, and syncs chosen custom fields", async () => {
+      const fieldsPath = `/api/ops/clients/${H.B.tenantId}/connections/${connectionId}/zoho-fields`;
+      const preview = (config: Record<string, unknown>) =>
+        H.call(
+          OPERATOR,
+          "POST",
+          `/api/ops/clients/${H.B.tenantId}/connections/${connectionId}/changes/preview`,
+          { config },
+        );
+      const [signedIn] = await H.t.db
+        .select()
+        .from(connection)
+        .where(eq(connection.id, connectionId));
+      const baseConfig = j(signedIn?.config) as Record<string, unknown>;
+
+      // Signed in before the field scope: no call to Zoho, a new sign-in asked, the rest as before.
+      const old = await H.call(OPERATOR, "GET", fieldsPath);
+      expect(old.status, JSON.stringify(old.json)).toBe(200);
+      expect(j(old.json)).toMatchObject({ status: "needs_sign_in" });
+      expect(zoho.apiCalls().some((r) => r.url.includes("/settings/fields"))).toBe(false);
+      const early = await preview({ ...baseConfig, syncFields: { Leads: ["Region"] } });
+      expect(early.status).toBe(422);
+      expect(j(early.json).error.message).toMatch(/sign in to Zoho again/);
+      // A client's session never reaches the back office's route.
+      expect((await H.call(admin("b"), "GET", fieldsPath)).status).toBe(403);
+
+      // The client signs in again; the new grant has the field scope.
+      zoho.state.grantScope = "ZohoCRM.modules.leads.ALL ZohoCRM.settings.fields.READ";
+      const start = await H.call(admin("b"), "POST", "/api/connections/zoho_crm/authorize");
+      expect(new URL(j(start.json).redirectUrl).searchParams.get("scope")).toContain(
+        "ZohoCRM.settings.fields.READ",
+      );
+      const again = await H.call(admin("b"), "POST", "/api/connections/zoho_crm/callback", {
+        params: {
+          code: "fixture-code",
+          state: new URL(j(start.json).redirectUrl).searchParams.get("state") ?? "",
+          location: "eu",
+          "accounts-server": "https://accounts.zoho.eu",
+        },
+      });
+      expect(again.status, JSON.stringify(again.json)).toBe(200);
+      expect(j(again.json).connection.connection.id).toBe(connectionId);
+
+      const read = await H.call(OPERATOR, "GET", `${fieldsPath}?refresh=true`);
+      expect(read.status, JSON.stringify(read.json)).toBe(200);
+      const view = j(read.json);
+      expect(view.status).toBe("ok");
+      const leads = view.modules.find((m: { module: string }) => m.module === "Leads");
+      expect(leads.fields.find((f: { apiName: string }) => f.apiName === "Region")).toMatchObject({
+        label: "Sales region",
+        custom: true,
+        picklist: ["North", "South", "West"],
+      });
+      expect(leads.standard).toContain("Email");
+      expect(leads.room).toBe(40);
+      // Kept beside the cursor: a second read within the day asks Zoho nothing.
+      const calls = zoho.apiCalls().length;
+      expect((await H.call(OPERATOR, "GET", fieldsPath)).status).toBe(200);
+      expect(zoho.apiCalls().length).toBe(calls);
+
+      // The builder types the client agent's Zoho writes from the client's fields.
+      const [clerk] = await H.t.db.select().from(agent).where(eq(agent.slug, "crm-clerk"));
+      const catalog = await H.call(OPERATOR, "GET", `/api/ops/agents/${clerk?.id}/builder-catalog`);
+      expect(catalog.status, JSON.stringify(catalog.json)).toBe(200);
+      const typed = j(catalog.json).toolInputs[ZOHO_TOOLS.update];
+      expect(typed.by).toBe("module");
+      expect(typed.schemas.Leads.properties.fields.properties.Region).toMatchObject({
+        title: "Sales region",
+        enum: ["North", "South", "West"],
+      });
+
+      // A sync field must be one of Zoho's; one that is goes to the client to approve (looser).
+      const unknown = await preview({ ...baseConfig, syncFields: { Leads: ["Nope"] } });
+      expect(unknown.status).toBe(422);
+      expect(j(unknown.json).error.message).toBe("Leads has no field Nope in Zoho");
+      const fine = await preview({
+        ...baseConfig,
+        syncFields: { Leads: ["Region", "Last_Import_Date"] },
+      });
+      expect(fine.status, JSON.stringify(fine.json)).toBe(200);
+      expect(j(fine.json)).toMatchObject({ direction: "looser", outcome: "request" });
+
+      // Once the client approved it (written here as the approval would), the sync reads them.
+      await H.t.db
+        .update(connection)
+        .set({
+          config: { ...baseConfig, syncFields: { Leads: ["Region", "Last_Import_Date"] } },
+        })
+        .where(eq(connection.id, connectionId));
+      zoho.state.listed.Leads = [
+        {
+          id: "5843104000000424999",
+          Last_Name: "Ortiz",
+          Region: "North",
+          Last_Import_Date: "2026-11-01",
+          Modified_Time: "2026-11-06T12:31:00+00:00",
+        },
+        {
+          id: "5843104000000425000",
+          Last_Name: "Ng",
+          Region: "West",
+          Modified_Time: "2026-11-20T09:00:00+00:00",
+        },
+      ];
+      const zdeps = {
+        db: H.db,
+        platform: H.platform,
+        credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
+        now: () => new Date("2026-11-20T10:00:00Z"),
+      };
+      const changedBefore = await H.t.db
+        .select()
+        .from(event)
+        .where(and(eq(event.tenantId, H.B.tenantId), eq(event.type, ZOHO_RECORD_CHANGED_EVENT)));
+      await runZohoSync(zdeps, { tenantId: H.B.tenantId, connectionId });
+      const ortiz = await H.t.db
+        .select()
+        .from(rawRecord)
+        .where(
+          and(
+            eq(rawRecord.connectionId, connectionId),
+            eq(rawRecord.externalId, "5843104000000424999"),
+          ),
+        );
+      // Read again with the new fields: a new version beside the old one, never an update.
+      expect(ortiz).toHaveLength(2);
+      const withFields = ortiz.find((r) => r.externalVersion?.includes("~"));
+      expect(j(withFields?.payload)).toMatchObject({
+        Region: "North",
+        Last_Import_Date: "2026-11-01",
+      });
+      const changed = await H.t.db
+        .select()
+        .from(event)
+        .where(and(eq(event.tenantId, H.B.tenantId), eq(event.type, ZOHO_RECORD_CHANGED_EVENT)));
+      const news = changed.filter((e) => !changedBefore.some((b) => b.id === e.id));
+      // Ortiz was only read again for its fields: no event. Ng is new.
+      expect(news.map((e) => j(e.payload))).toEqual([
+        expect.objectContaining({
+          recordId: "5843104000000425000",
+          change: "created",
+          modifiedTime: "2026-11-20T09:00:00+00:00",
+        }),
+      ]);
+    });
+
     it("takes Zoho's notifications only with the connection's token, and renews the watch", async () => {
       const path = `/api/hooks/zoho_crm/${H.B.tenantId}/${connectionId}`;
       const token = await zohoNotifyToken(H.env.OAUTH_STATE_SECRET as string, connectionId);

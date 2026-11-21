@@ -16,6 +16,7 @@
     "@countersign/core": "workspace:*",
     "@countersign/db": "workspace:*",
     "aws4fetch": "^1.0.20",
+    "fflate": "^0.8.3",
     "drizzle-orm": "^0.45.4",
     "postal-mime": "^4.2.1",
     "zod": "^4.6.2"

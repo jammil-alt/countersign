@@ -16,6 +16,7 @@ export const en = {
   "common.enterToSend": "Enter to send, Shift+Enter for a new line",
   "voice.dictate": "Dictate",
   "voice.stop": "Stop",
+  "voice.listening": "Listening…",
   "voice.writing": "Writing it out…",
   "voice.blocked": "Your browser didn't let us use the microphone.",
   "voice.failed": "We couldn't write that out. Try again.",

@@ -87,6 +87,7 @@ export const TOOL_TITLES: Record<string, string> = {
   "website.meta": "Change a page's search title",
   "zoho_crm.record.search": "Find records",
   "zoho_crm.record.get": "Read a record",
+  "zoho_crm.field.list": "Read a module's fields",
   "podio.space.list": "List workspaces",
   "podio.app.list": "List apps",
   "podio.app.get": "Read an app's fields",

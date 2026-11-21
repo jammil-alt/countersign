@@ -13,13 +13,21 @@ import {
   forwardingStatsOf,
   importPurchasesCsv,
   isDocumentType,
+  isPurchasesCsv,
   newForwardingSecret,
   normalizeSender,
   PurchasesCsvError,
   type UploadConnectionRow,
   updateForwarding,
 } from "@countersign/connectors";
-import { connectorShown, type ExtractedHeader, routes } from "@countersign/core";
+import {
+  bytesMatchType,
+  connectorShown,
+  type ExtractedHeader,
+  isExtractable,
+  isTableType,
+  routes,
+} from "@countersign/core";
 import {
   docExtraction,
   document,
@@ -258,7 +266,13 @@ export async function extractInBackground(
         if (!read.duplicateOf) await linkToTransaction(tx, tenantId, documentId);
       });
     } catch (error) {
-      if (!(error instanceof DocumentError && error.code === "not_due")) {
+      // §1.164: a table file (forwarded or replied with) is kept, never read by a model.
+      if (
+        !(
+          error instanceof DocumentError &&
+          (error.code === "not_due" || error.code === "not_extractable")
+        )
+      ) {
         reportHandled("extracting a document failed", error, { kind: "extraction" });
       }
     } finally {
@@ -425,7 +439,9 @@ async function receiveUploads(
       purchases: null,
       error: null,
     };
-    if (isCsv(file) && !forChat && !forTry) {
+    // DECISION (§1.164): a CSV whose header row is a purchases export's is imported as before;
+    // any other CSV is kept as a document, for Read table, as .xlsx and .json files are.
+    if (isCsv(file) && !forChat && !forTry && isPurchasesCsv(bytes)) {
       try {
         const r = await importPurchasesCsv(tx, {
           tenantId,
@@ -472,8 +488,17 @@ async function receiveUploads(
         kind: "refused" as const,
         error:
           forChat || forTry
-            ? "Attach PDFs or images (PNG, JPEG, GIF, WebP)."
-            : "Upload PDFs, images (PNG, JPEG, GIF, WebP) or a CSV of purchases.",
+            ? "Attach PDFs, images (PNG, JPEG, GIF, WebP) or spreadsheets (.csv, .xlsx, .json)."
+            : "Upload PDFs, images (PNG, JPEG, GIF, WebP) or spreadsheets (.csv, .xlsx, .json).",
+      });
+      continue;
+    }
+    // A table file is read in code (Read table), so its bytes must be what its type says.
+    if (isTableType(mimeType) && !bytesMatchType(bytes, mimeType)) {
+      results.push({
+        ...base,
+        kind: "refused" as const,
+        error: "The file is not what its type says.",
       });
       continue;
     }
@@ -492,7 +517,8 @@ async function receiveUploads(
         ...(forChat || forTry ? { announce: false } : {}),
       });
       if (stored.event) events.push(stored.event);
-      if (stored.created && !forChat) extract.push(stored.document.id);
+      // Table files are never read by a model (§1.164): only PDFs and images are.
+      if (stored.created && !forChat && isExtractable(mimeType)) extract.push(stored.document.id);
       results.push({
         ...base,
         kind: "document" as const,

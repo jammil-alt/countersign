@@ -35,6 +35,19 @@ export interface ImportResult {
 /** At most this many rows per file. */
 export const MAX_CSV_ROWS = 5000;
 
+/**
+ * Whether a CSV file's header row is a purchases export's (every column `importPurchasesCsv`
+ * needs). §1.164: any other CSV is kept as a document, for Read table.
+ */
+export function isPurchasesCsv(bytes: Uint8Array): boolean {
+  try {
+    const [header] = parseCsv(fromUtf8(bytes));
+    return header !== undefined && missingPurchaseColumns(header).length === 0;
+  } catch {
+    return false;
+  }
+}
+
 export async function importPurchasesCsv(
   tx: Tx,
   input: { tenantId: string; connectionId: string; filename: string; bytes: Uint8Array },

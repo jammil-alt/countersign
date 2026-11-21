@@ -93,6 +93,8 @@ export function AppShell({
   const menuCount = !deskInHeader && desk.count ? desk.count : 0;
   const asideRef = useRef<HTMLElement>(null);
   const tip = useRailTip(asideRef, rail, pathname);
+  const navRef = useRef<HTMLDivElement>(null);
+  const moreBelow = useMoreBelow(navRef, rail, pathname);
   useEffect(() => {
     document.title = tabTitle(place, desk.count);
   }, [place, desk.count]);
@@ -175,7 +177,13 @@ export function AppShell({
           className="ds-sidebar ui-sidebar"
         >
           <SidebarRail.Provider value={{ rail }}>
-            <div className="ui-sidebar__nav">{sidebar}</div>
+            <div
+              ref={navRef}
+              className="ui-sidebar__nav"
+              data-more={moreBelow ? "true" : undefined}
+            >
+              {sidebar}
+            </div>
             {sidebarFooter || wide || startFeedback ? (
               <div className="ui-sidebar__foot">
                 {sidebarFooter}
@@ -603,4 +611,32 @@ export function SidebarAgent({
       </span>
     </NavLink>
   );
+}
+
+/**
+ * Whether the sidebar's nav has rows below what shows (staging feedback, 2026-11-21: the pinned
+ * foot needs a mark that the list goes on under it). Read on scroll and whenever its size changes.
+ */
+function useMoreBelow(
+  navRef: { current: HTMLElement | null },
+  rail: boolean,
+  pathname: string,
+): boolean {
+  const [more, setMore] = useState(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: measured again when the rail folds or the page changes.
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    const read = () => setMore(nav.scrollTop + nav.clientHeight < nav.scrollHeight - 1);
+    read();
+    nav.addEventListener("scroll", read, { passive: true });
+    const seen = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(read);
+    seen?.observe(nav);
+    for (const child of nav.children) seen?.observe(child);
+    return () => {
+      nav.removeEventListener("scroll", read);
+      seen?.disconnect();
+    };
+  }, [navRef, rail, pathname]);
+  return more;
 }

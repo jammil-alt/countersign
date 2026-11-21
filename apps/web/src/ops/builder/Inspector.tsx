@@ -79,11 +79,13 @@ import {
 import { type People, PersonPicker } from "./people";
 import { fieldLabel, stepNamer } from "./problems";
 import { ReachOutFields } from "./ReachOutFields";
+import { ReadTableSample } from "./read-table-step";
 // Reshape data (2026-11-11)
 import { inputsUnfilled, isReshape, type ReshapeOffer, reshapeOffers } from "./reshape";
 import { ReshapeFields } from "./reshape-step";
 import { RulesEditor } from "./rules";
 import { RunsOnRow, type SkillMove, StepParameters, VersionSection } from "./skill-step";
+import { WebhookSample } from "./webhook-sample";
 
 export type { Member } from "./people";
 export { parseRuleValue, ruleValueText } from "./rules";
@@ -790,6 +792,15 @@ function KindFields(
               )}
             </Section>
           )}
+          {/* §1.164: Read table's sample-file check (its columns are in Parameters). */}
+          {id === processes.READ_TABLE_SKILL ? (
+            <ReadTableSample
+              step={step}
+              workflow={props.workflow}
+              bundle={props.bundle}
+              agentId={props.agentId}
+            />
+          ) : null}
         </>
       );
     }
@@ -1694,6 +1705,9 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
             onChange={(v) => set({ ...on, input: isRecord(v) ? v : {} }, "trigger:input")}
           />
         </Row>
+      ) : null}
+      {on.type === "webhook" ? (
+        <WebhookSample on={on} errors={fieldErrors} onChange={(next, key) => set(next, key)} />
       ) : null}
       {on.type === "command" ? (
         <Row label="Command" field="on.command" errors={fieldErrors}>

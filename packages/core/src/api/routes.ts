@@ -17,7 +17,7 @@ import { JsonSchema } from "../schemas/common";
 import { ConnectorAuth } from "../schemas/connector";
 import { EntityPermissions, PermissionEntity, PermissionLevel } from "../schemas/permissions";
 import { SkillBrowse, SkillDefinition, SkillMethod } from "../schemas/skill";
-import { ToolSpec } from "../schemas/tool";
+import { ToolInputVariants, ToolSpec } from "../schemas/tool";
 import { ToolDisplay } from "../schemas/tool-display";
 // P-8: US texting registration
 import { a2pRoutes } from "./a2p";
@@ -91,6 +91,8 @@ import { peopleRoutes, voiceSampleRoutes } from "./people";
 import { phoneApprovalRoutes } from "./phone-approval";
 import { qboRoutes } from "./qbo";
 import { reachRoutes } from "./reach";
+// §1.164: the builder's sample-file check for a Read table step.
+import { readTableRoutes } from "./read-table";
 import { recordRoutes } from "./records";
 import { reggieRoutes } from "./reggie";
 import { requestRoutes } from "./requests";
@@ -1039,6 +1041,9 @@ export const BuilderCatalog = z.object({
   stepTools: z.array(z.string()).optional(),
   // v0.12 W2-B: the automations a use step can pin (live versions, and those the agent pins).
   automations: z.array(BuilderAutomation).default([]),
+  // docs/plan.md §1.164 step 3: a client agent's tool inputs typed from its client's own
+  // connections (a Zoho write's `fields` per module), by tool id; absent for a template.
+  toolInputs: z.record(z.string(), ToolInputVariants).optional(),
 });
 export type BuilderCatalog = z.infer<typeof BuilderCatalog>;
 
@@ -2546,6 +2551,8 @@ export const routes = {
   ...skillModelRoutes,
   // Reshape data (owner, 2026-11-11): propose a Reshape step's mapping, and its sample values.
   ...reshapeRoutes,
+  // Data in and out of files (owner, 2026-11-20): a Read table step's sample-file check.
+  ...readTableRoutes,
   // docs/plan.md §1.124: back office work
   ...workRoutes,
   // docs/plan.md §1.124.3: Your call

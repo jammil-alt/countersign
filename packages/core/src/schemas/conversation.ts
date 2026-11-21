@@ -4,6 +4,7 @@
 // capture job and the screens.
 
 import { z } from "zod";
+import { isTableType, tableBytesMatch } from "../documents/tables";
 import { isUuid } from "../ids";
 import { isPlainObject } from "../json";
 
@@ -138,11 +139,13 @@ function hasPdfHeader(bytes: Uint8Array): boolean {
 
 /**
  * Whether the bytes start as their declared type does. PDFs (`%PDF-` within the first 1024
- * bytes) and images are checked by their magic bytes; the other types on the `all` list are taken
- * as declared (they are stored, never read).
+ * bytes) and images are checked by their magic bytes, table files as `tableBytesMatch` says; the
+ * other types on the `all` list are taken as declared (they are stored, never read).
  */
 export function bytesMatchType(bytes: Uint8Array, contentType: string): boolean {
   const t = normalizeContentType(contentType);
+  // §1.164: a table file (.csv, .xlsx, .json) is read in code (Read table), so it is checked too.
+  if (isTableType(t)) return tableBytesMatch(bytes, t);
   const known = DOCUMENT_TYPES.get(t);
   if (!known) return OTHER_TYPES.has(t);
   // DECISION: a PDF's `%PDF-` may follow other bytes within the first 1024 (the PDF spec allows

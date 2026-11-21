@@ -3,5 +3,6 @@ export * from "./address";
 export * from "./inbound";
 export * from "./kinds";
 export * from "./people";
+export * from "./sample";
 export * from "./schedule";
 export * from "./typing";

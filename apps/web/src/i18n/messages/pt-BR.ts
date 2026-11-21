@@ -16,6 +16,7 @@ export const ptBR: Messages = {
   "common.enterToSend": "Enter para enviar, Shift+Enter para uma nova linha",
   "voice.dictate": "Ditar",
   "voice.stop": "Parar",
+  "voice.listening": "Ouvindo…",
   "voice.writing": "Transcrevendo…",
   "voice.blocked": "Seu navegador não liberou o microfone.",
   "voice.failed": "Não conseguimos transcrever. Tente de novo.",

@@ -14,6 +14,17 @@ function Folded({ fallback }: { fallback?: boolean }) {
   );
 }
 
+/** A card whose default follows the build, with a row action that holds it. */
+function FoldedHeld({ fallback }: { fallback: boolean }) {
+  const fold = useFold("decisions", fallback);
+  return (
+    <Card testId="card" title="Decisions" fold={fold}>
+      <Button onClick={fold.hold}>Hold</Button>
+      <p>Body</p>
+    </Card>
+  );
+}
+
 function List({ n, keep }: { n: number; keep?: number }) {
   const rows = Array.from({ length: n }, (_, i) => i);
   const { shown, more } = useFirstRows(rows, {
@@ -54,6 +65,18 @@ describe("folding a section", () => {
     unmount();
     render(<Folded fallback />);
     expect(screen.queryByText("Body")).toBeNull();
+  });
+
+  it("follows its default until held, so closing out the last check doesn't shut it", () => {
+    const { rerender } = render(<FoldedHeld fallback />);
+    rerender(<FoldedHeld fallback={false} />);
+    expect(screen.queryByText("Body")).toBeNull();
+    rerender(<FoldedHeld fallback />);
+    fireEvent.click(screen.getByText("Hold"));
+    rerender(<FoldedHeld fallback={false} />);
+    expect(screen.getByText("Body")).toBeTruthy();
+    // Held for this visit only: nothing is kept for the browser.
+    expect(localStorage.getItem("mezonas.build.folded")).toBeNull();
   });
 });
 

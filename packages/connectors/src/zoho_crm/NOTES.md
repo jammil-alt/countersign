@@ -65,7 +65,7 @@ follow-up if clients hit the cap.
   at most once per key through the platform's record of attempts (PLATFORM_QA STATE-4): a try
   started without Zoho's answer fails as unconfirmed and is never sent again.
 - Per-DC client secrets from env (`ZOHO_CLIENT_SECRETS`).
-- Field metadata (`/settings/fields`) for typed inputs in the builder.
+- Field metadata: built 2026-11-20, below.
 
 ## Sync and notifications (W4-B, 2026-11-06; nothing below was checked against live docs)
 
@@ -77,6 +77,34 @@ follow-up if clients hit the cap.
 | Notifications: `POST /crm/v8/actions/watch` `{watch:[{channel_id (number), events:["Leads.all",…], channel_expiry (≤ 1 day), token (≤ 50 chars), notify_url}]}`, answered under `watch` | **UNCHECKED**: the shapes, the one-day expiry, the token length; we renew after 20 hours |
 | A notification is a POST to `notify_url` with `channel_id`, `token` (as given), `module`, `operation`, `ids` | **UNCHECKED** shape; we only check the token and channel, then poll |
 | Scopes `ZohoCRM.notifications.READ` and `.CREATE` for the watch | **UNCHECKED**; added to the sign-in, so connections made before need a new sign-in for notifications (the poll works without) |
+
+## Field metadata and custom-field sync (docs/plan.md §1.164 step 3, 2026-11-20; nothing below was checked against live docs)
+
+What we built: `fields.ts` reads a module's fields (`connector.fields`, `connector.fieldCache`, the
+read tool `zoho_crm.field.list`); apps/api keeps them per connection in `sync_cursor.zohoFields`
+(read daily by the cron, or at once from the back office) and types the builder's
+`zoho_crm.record.create` / `.update` `fields` input from them (labels as titles, so Reshape data
+proposes a custom field by its label). A connection's `config.syncFields` (`{ "Leads": ["Region"] }`)
+adds fields to the sync's list call, checked against the field list and the 50-field limit.
+
+| Fact | Status |
+|---|---|
+| Field metadata: `GET /crm/v8/settings/fields?module=<Module>` → `{fields:[{api_name, field_label, display_label, data_type, custom_field, read_only, field_read_only, system_mandatory, visible, length, view_type:{edit}, pick_list_values:[{actual_value, display_value}]}]}` | **UNCHECKED**: the path, every key's name and meaning (fixtures `fields-leads.json`, `fields-deals.json` follow v2–v7 docs). A field with `visible: false` is left out; `-None-` is dropped from picklists |
+| Read-only: `read_only` or `field_read_only` true, `view_type.edit` false, or a `formula`, `autonumber`, `rollup_summary` or `aggregate` type | **UNCHECKED** which flag v8 sets for system fields (`Created_Time`) and formulas |
+| Required on a create: `system_mandatory` | **UNCHECKED**; a layout's own mandatory fields aren't read (Zoho refuses the create, which fails the step) |
+| A picklist's write value is `actual_value` (else `display_value`) | **UNCHECKED** |
+| `data_type` values (`text`, `textarea`, `email`, `phone`, `website`, `picklist`, `multiselectpicklist`, `date`, `datetime`, `integer`, `bigint`, `double`, `decimal`, `currency`, `percent`, `boolean`, `lookup`, `ownerlookup`, `userlookup`, `formula`, `autonumber`, `fileupload`, `subform`, …) and the JSON a write takes for each (a lookup as `{id}`, a currency as a number) | **UNCHECKED**; an unknown type is typed "any" in the builder |
+| Scope `ZohoCRM.settings.fields.READ` (and that `ZohoCRM.settings.fields.ALL` / `ZohoCRM.settings.ALL` grant it) | **UNCHECKED**; added to the sign-in, so connections made before need a new sign-in for field metadata (sync, tools and writes work without) |
+| A call outside the grant's scopes answers 401 `{"code":"OAUTH_SCOPE_MISMATCH"}` | **UNCHECKED**; we read that code on any 401 and then don't refresh the token (it isn't expired) and don't count it towards the connection's attention; the token answer's `scope`, when stored, already says whether to call at all |
+| The token answer's `scope` lists the granted scopes, comma- or space-separated | **UNCHECKED** (the fixtures carry one); without it, the call itself tells |
+| v8's list call reads at most 50 `fields` | **UNCHECKED** (as above); the check counts the standard fields and `Owner`, `Created_Time`, `Modified_Time` |
+| A field named in `fields` that the org doesn't have | **UNCHECKED** whether v8 refuses the call or leaves it out; we leave out of the call any extra field the kept field list no longer has |
+
+Fields chosen after records were synced: a record is read again with them (raw records are never
+updated). The extra fields' key is part of the record's version (`<Modified_Time>~f1a2b3c4`), and a
+change of fields starts a pass over every module from the first sync's window; a record read again
+only for its fields (same `Modified_Time` as a version we hold) raises no event. Records older than
+that window keep what they were read with until they change.
 
 ## Live setup (owner, 2026-11-12)
 

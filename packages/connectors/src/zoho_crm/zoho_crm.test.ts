@@ -106,12 +106,15 @@ describe("zoho_crm connector", () => {
     expect(c.manifest.tools.map((t) => [t.id, t.sideEffect, t.verb])).toEqual([
       [ZOHO_TOOLS.search, "none", "read"],
       [ZOHO_TOOLS.get, "none", "read"],
+      [ZOHO_TOOLS.fields, "none", "read"],
       [ZOHO_TOOLS.create, "external", "create"],
       [ZOHO_TOOLS.update, "external", "update"],
       [ZOHO_TOOLS.note, "external", "create"],
       [ZOHO_TOOLS.task, "external", "create"],
     ]);
     expect(ZOHO_SCOPES.some((s) => /DELETE|ALL/.test(s))).toBe(false);
+    // docs/plan.md §1.164: the field metadata scope, read only.
+    expect(ZOHO_SCOPES).toContain("ZohoCRM.settings.fields.READ");
     expect(c.isConfigured?.()).toBe(false);
     expect(createZohoCrmConnector({ clientId: "x", clientSecret: "y" }).isConfigured?.()).toBe(
       true,

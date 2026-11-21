@@ -107,8 +107,8 @@ describe("browser connector: signing in by code", () => {
       { kind: "download", url: `${ORIGIN}/invoices/INV-1001.pdf`, documentId: "doc-1" },
     ]);
     // A file that is not a document is refused, and the browser still signs out.
-    expect(await failure(s.download(`${ORIGIN}/invoices/statement.csv`))).toMatch(
-      /documents are PDFs or images/,
+    expect(await failure(s.download(`${ORIGIN}/invoices/statement.zip`))).toMatch(
+      /documents are PDFs, images or table files/,
     );
     expect(s.portal.signOuts).toBe(2);
   });

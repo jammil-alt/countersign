@@ -5,7 +5,7 @@
 // stored step outputs, else samples from the schemas). Operator only; each request is audited by
 // `mount`. The model call is the Builder's (the operator's cost), never a client run's.
 
-import { resolveCustomSkill, suggestReshape } from "@countersign/agents";
+import { type AgentRow, resolveCustomSkill, suggestReshape } from "@countersign/agents";
 import {
   ComplianceRefusal,
   isoToday,
@@ -24,7 +24,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
 import { clientModels } from "../compliance/models";
 import { type AppEnv, type HandlerCtx, HttpError, mount } from "../http";
-import { agentInScope } from "./ops-lineage";
+import { agentInScope, builderToolInputs } from "./ops-lineage";
 
 type Ctx = HandlerCtx<never>;
 
@@ -50,12 +50,16 @@ function reshapeStep(body: { process: unknown; stepId: string }) {
   return { process, step };
 }
 
-/** What the validator types with: the platform's tools and events, and every skill it names. */
+/**
+ * What the validator types with: the platform's tools and events, every skill it names, and a
+ * client agent's tool inputs typed from its client's connections (docs/plan.md §1.164).
+ */
 async function typingFor(
   ctx: Pick<Ctx, "tx" | "services">,
-  tenantId: string | null,
+  row: Pick<AgentRow, "tenantId" | "bindings">,
   process: processes.Process,
 ): Promise<TypingContext> {
+  const tenantId = row.tenantId;
   const { platform } = ctx.services;
   const skills: Record<string, SkillDefinition> = {};
   const refs = new Set<string>();
@@ -71,6 +75,7 @@ async function typingFor(
     skills,
     tools: platform.tools.specs(),
     ...(platform.ctx.events ? { events: platform.ctx.events } : {}),
+    ...(await builderToolInputs(ctx.tx, platform, row)),
   };
 }
 
@@ -79,7 +84,8 @@ export function opsReshapeRoutes(app: Hono<AppEnv>): void {
     const { body } = ctx;
     const row = await agentInScope(ctx, ctx.params.id);
     const { process, step } = reshapeStep(body);
-    const typing = await typingFor(ctx, row.tenantId, process);
+    // §1.164: a Read table step before it is typed by the agent's columns (the builder's draft).
+    const typing = { ...(await typingFor(ctx, row, process)), agentSkills: body.agentSkills };
     const context = processes.reshapeContext(process, step.id, typing);
     if (!context) throw new HttpError(422, "not_a_reshape_step", "the step isn't in the workflow");
     const proposal = processes.proposeReshape({
@@ -148,7 +154,8 @@ export function opsReshapeRoutes(app: Hono<AppEnv>): void {
     const { tx, body } = ctx;
     const row = await agentInScope(ctx, ctx.params.id);
     const { process, step } = reshapeStep(body);
-    const typing = await typingFor(ctx, row.tenantId, process);
+    // §1.164: a Read table step before it is typed by the agent's columns (the builder's draft).
+    const typing = { ...(await typingFor(ctx, row, process)), agentSkills: body.agentSkills };
     const context = processes.reshapeContext(process, step.id, typing);
     if (!context) throw new HttpError(422, "not_a_reshape_step", "the step isn't in the workflow");
 

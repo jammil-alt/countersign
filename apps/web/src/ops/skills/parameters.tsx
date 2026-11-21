@@ -4,13 +4,19 @@
 // (the agent's value) and the step inspector (a step's own value over the agent's): a number, text,
 // a date, an amount and its currency, or a list of buckets ("0–15 Current, 16–30 Due, 31+ Past
 // due"). Values are typed as they are typed in; core's `parameterValueProblem` says what's wrong.
+// §1.164 adds on or off (`boolean`), a table file's expected columns (`columns`) and a JSON file's
+// expected shape (`json_schema`); clients never adjust these (B5's adjustable types stay four).
 import {
   parameterValueProblem,
   SKILL_PARAMETER_TYPES,
   type SkillBucket,
   type SkillParameter,
+  TABLE_COLUMN_TYPES,
+  TABLE_DATE_STYLES,
+  type TableColumnInput,
 } from "@countersign/core";
-import { Select, TextInput } from "../../ui/forms";
+import { useState } from "react";
+import { Select, TextArea, TextInput } from "../../ui/forms";
 import { Button, cx } from "../../ui/primitives";
 import { Field } from "../agents/ui";
 import type { ParameterRow, SkillFormErrors } from "./skill-form";
@@ -21,6 +27,23 @@ export const PARAMETER_TYPE_LABEL: Record<SkillParameter["type"], string> = {
   date: "Date",
   money: "Amount",
   buckets: "Buckets",
+  boolean: "On or off",
+  columns: "Columns",
+  json_schema: "Expected shape (JSON)",
+};
+
+const COLUMN_TYPE_LABEL: Record<(typeof TABLE_COLUMN_TYPES)[number], string> = {
+  text: "Text",
+  number: "Number",
+  money: "Amount",
+  date: "Date",
+  boolean: "Yes or no",
+};
+
+const DATE_STYLE_LABEL: Record<(typeof TABLE_DATE_STYLES)[number], string> = {
+  iso: "2026-11-20",
+  mdy: "11/20/2026",
+  dmy: "20/11/2026",
 };
 
 /** A number as typed: a number when it reads as one, else the text (its problem shows). */
@@ -42,6 +65,16 @@ export function parameterText(type: SkillParameter["type"], value: unknown): str
     return (value as SkillBucket[])
       .map((b) => `${b.from}${b.to === undefined ? "+" : `–${b.to}`} ${b.label}`)
       .join(", ");
+  }
+  if (type === "boolean" && typeof value === "boolean") return value ? "on" : "off";
+  if (type === "columns" && Array.isArray(value)) {
+    if (value.length === 0) return "none: every header, as it is";
+    return (value as Partial<TableColumnInput>[])
+      .map((c) => `${c.field ?? "?"}${c.required ? "*" : ""}`)
+      .join(", ");
+  }
+  if (type === "json_schema" && typeof value === "object" && value !== null) {
+    return Object.keys(value).length === 0 ? "none" : "a JSON Schema";
   }
   return typeof value === "string" ? value : JSON.stringify(value);
 }
@@ -143,6 +176,216 @@ function BucketsInput({
   );
 }
 
+/** A list typed as text: "Vendor, Payee" → ["Vendor", "Payee"]; kept as typed while focused. */
+function ListText({
+  value,
+  label,
+  testId,
+  onChange,
+}: {
+  value: readonly string[];
+  label: string;
+  testId: string;
+  onChange(next: string[]): void;
+}) {
+  const shown = value.join(", ");
+  const [text, setText] = useState(shown);
+  const [last, setLast] = useState(shown);
+  if (shown !== last) {
+    setLast(shown);
+    if (
+      text
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean)
+        .join(", ") !== shown
+    )
+      setText(shown);
+  }
+  return (
+    <TextInput
+      aria-label={label}
+      className={SMALL}
+      placeholder="Vendor, Payee, Supplier"
+      data-testid={testId}
+      value={text}
+      onChange={(e) => {
+        setText(e.target.value);
+        onChange(
+          e.target.value
+            .split(",")
+            .map((t) => t.trim())
+            .filter(Boolean),
+        );
+      }}
+    />
+  );
+}
+
+/**
+ * A table file's expected columns (§1.164): each one's field name, the headers a file may give it,
+ * its type (a date with how the file writes it) and whether a file must have it.
+ */
+function ColumnsInput({
+  value,
+  testId,
+  onChange,
+}: {
+  value: unknown;
+  testId: string;
+  onChange(next: unknown): void;
+}) {
+  const rows = Array.isArray(value) ? (value as Partial<TableColumnInput>[]) : [];
+  const set = (i: number, patch: Partial<TableColumnInput>) =>
+    onChange(
+      rows.map((r, j) => {
+        if (j !== i) return r;
+        const next: Partial<TableColumnInput> = { ...r, ...patch };
+        if (next.type !== "date") delete next.dateStyle;
+        if (next.required !== true) delete next.required;
+        return next;
+      }),
+    );
+  return (
+    <div className="flex flex-col gap-2" data-testid={testId}>
+      {rows.length > 0 ? (
+        <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_auto_auto] gap-2 text-xs text-ink-muted md:grid">
+          <span>Field</span>
+          <span>Headers it accepts</span>
+          <span>Type</span>
+          <span>Written as</span>
+          <span>Required</span>
+          <span />
+        </div>
+      ) : null}
+      {rows.map((c, i) => (
+        <div
+          // biome-ignore lint/suspicious/noArrayIndexKey: columns are a list; their order is the file's.
+          key={i}
+          className="grid grid-cols-1 items-center gap-2 border-b border-line pb-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_auto_auto] md:border-0 md:pb-0"
+          data-testid={`${testId}-${i}`}
+        >
+          <TextInput
+            aria-label="Field"
+            className={SMALL}
+            placeholder="vendor"
+            data-testid={`${testId}-${i}-field`}
+            value={c.field ?? ""}
+            onChange={(e) => set(i, { field: e.target.value.trim() })}
+          />
+          <ListText
+            label="Headers it accepts"
+            testId={`${testId}-${i}-headers`}
+            value={c.headers ?? []}
+            onChange={(headers) => set(i, { headers })}
+          />
+          <Select
+            aria-label="Type"
+            className={SMALL}
+            data-testid={`${testId}-${i}-type`}
+            value={c.type ?? "text"}
+            onChange={(e) => set(i, { type: e.target.value as TableColumnInput["type"] })}
+          >
+            {TABLE_COLUMN_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {COLUMN_TYPE_LABEL[t]}
+              </option>
+            ))}
+          </Select>
+          {c.type === "date" ? (
+            <Select
+              aria-label="Written as"
+              className={SMALL}
+              data-testid={`${testId}-${i}-style`}
+              value={c.dateStyle ?? "iso"}
+              onChange={(e) =>
+                set(i, { dateStyle: e.target.value as TableColumnInput["dateStyle"] })
+              }
+            >
+              {TABLE_DATE_STYLES.map((d) => (
+                <option key={d} value={d}>
+                  {DATE_STYLE_LABEL[d]}
+                </option>
+              ))}
+            </Select>
+          ) : (
+            <span className="hidden md:block" />
+          )}
+          <label className="flex items-center gap-2 text-sm text-ink">
+            <input
+              type="checkbox"
+              className="size-4 accent-slate"
+              data-testid={`${testId}-${i}-required`}
+              checked={c.required === true}
+              onChange={(e) => set(i, { required: e.target.checked })}
+            />
+            <span className="md:sr-only">Required</span>
+          </label>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-label={`Remove column ${c.field || i + 1}`}
+            onClick={() => onChange(rows.filter((_, j) => j !== i))}
+          >
+            Remove
+          </Button>
+        </div>
+      ))}
+      <div>
+        <Button
+          size="sm"
+          data-testid={`${testId}-add`}
+          onClick={() => onChange([...rows, { field: "", headers: [], type: "text" }])}
+        >
+          Add a column
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** A JSON Schema as JSON text: an object when it reads as one, else the text (its problem shows). */
+function JsonSchemaInput({
+  value,
+  testId,
+  invalid,
+  onChange,
+}: {
+  value: unknown;
+  testId: string;
+  invalid?: boolean | undefined;
+  onChange(next: unknown): void;
+}) {
+  const shown =
+    value === undefined ? "" : typeof value === "string" ? value : JSON.stringify(value, null, 2);
+  const [text, setText] = useState(shown);
+  const [last, setLast] = useState(shown);
+  if (shown !== last) {
+    setLast(shown);
+    if (typeof value !== "string") setText(shown);
+  }
+  return (
+    <TextArea
+      rows={4}
+      className="font-mono text-xs"
+      placeholder='{ "type": "array", "items": { "type": "object" } }'
+      data-testid={testId}
+      invalid={invalid === true}
+      value={text}
+      onChange={(e) => {
+        const t = e.target.value;
+        setText(t);
+        if (t.trim() === "") return onChange(undefined);
+        try {
+          onChange(JSON.parse(t));
+        } catch {
+          onChange(t);
+        }
+      }}
+    />
+  );
+}
+
 /**
  * A parameter's value. Empty means unset (`undefined`): the next layer down applies (the step's
  * falls back to the agent's, the agent's to the skill's default).
@@ -228,6 +471,26 @@ export function ParameterValueInput({
     }
     case "buckets":
       return <BucketsInput value={value} testId={testId} onChange={onChange} />;
+    case "boolean":
+      return (
+        <Select
+          className={SMALL}
+          data-testid={testId}
+          invalid={invalid === true}
+          value={value === true ? "on" : value === false ? "off" : ""}
+          onChange={(e) => onChange(e.target.value === "" ? undefined : e.target.value === "on")}
+        >
+          <option value="">{placeholder ? `As set: ${placeholder}` : "Not set"}</option>
+          <option value="on">On</option>
+          <option value="off">Off</option>
+        </Select>
+      );
+    case "columns":
+      return <ColumnsInput value={value} testId={testId} onChange={onChange} />;
+    case "json_schema":
+      return (
+        <JsonSchemaInput value={value} testId={testId} invalid={invalid} onChange={onChange} />
+      );
   }
 }
 
@@ -292,7 +555,11 @@ export function ParametersEditor({
           </Field>
           <Field
             label="Default"
-            className={cx(p.type === "buckets" ? "md:col-span-3" : "md:col-span-2")}
+            className={cx(
+              p.type === "buckets" || p.type === "columns" || p.type === "json_schema"
+                ? "md:col-span-3"
+                : "md:col-span-2",
+            )}
             error={errors[`parameters.${i}.default`]}
             hint="Empty: every agent that uses the skill must set it."
           >

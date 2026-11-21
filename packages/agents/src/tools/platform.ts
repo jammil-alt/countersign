@@ -25,6 +25,7 @@ import { memoryScope } from "./memory-scope";
 import { reachOutTool } from "./reach";
 import { reshapeTool } from "./reshape";
 import { SUPERVISOR_TOOLS } from "./supervisor";
+import { TABLE_TOOLS } from "./tables";
 import { THREADS_TOOLS } from "./threads";
 // P-7: message translation
 import { translateTool } from "./translate";
@@ -132,4 +133,6 @@ export const PLATFORM_TOOLS: readonly InternalTool[] = [
   reshapeTool,
   // Filter, group and total a list (2026-11-17): its pure handler.
   groupListTool,
+  // Read table and Write table (2026-11-20, docs/plan.md §1.164).
+  ...TABLE_TOOLS,
 ];
