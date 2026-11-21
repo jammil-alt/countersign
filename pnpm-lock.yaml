@@ -721,6 +721,25 @@ importers:
         specifier: ^24.19.2
         version: 24.19.2
 
+  packs/sales:
+    dependencies:
+      '@countersign/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@countersign/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.4(@opentelemetry/api@1.10.0)(postgres@4.1.1)
+      zod:
+        specifier: ^4.6.2
+        version: 4.6.7
+    devDependencies:
+      '@types/node':
+        specifier: ^24.19.2
+        version: 24.19.2
+
 packages:
 
   2g@1.0.1:

@@ -491,6 +491,13 @@
       "when": 1795191769846,
       "tag": "0071_operator_audit_rows",
       "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1795211657019,
+      "tag": "0072_sales",
+      "breakpoints": true
     }
   ]
 }

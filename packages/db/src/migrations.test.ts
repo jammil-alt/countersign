@@ -181,6 +181,10 @@ describe.skipIf(!online)("migrations on an empty database", () => {
         "vendor_item",
         // §1.104 (0051): vendor contracts.
         "vendor_contract",
+        // §1.164 (0072): the Sales area's record keys, match decisions and aliases.
+        "crm_alias",
+        "crm_match",
+        "crm_record_key",
       ].sort(),
     );
     expect(
