@@ -3,6 +3,7 @@
 // the Builder in that issue's thread, and a small Close menu for an issue settled some other way.
 
 import { useState } from "react";
+import type { AssistSpec } from "../../ui/assist-scope";
 import { TextArea } from "../../ui/forms";
 import { Button } from "../../ui/primitives";
 import { type Voice, VoiceButton } from "../../ui/voice";
@@ -19,6 +20,7 @@ export function ReplyBox({
   voice,
   busy,
   testId,
+  assist,
 }: {
   /** The box's name for screen readers. */
   label: string;
@@ -32,6 +34,8 @@ export function ReplyBox({
   voice?: Voice | undefined;
   busy: boolean;
   testId: string;
+  /** Draft for the box (docs/plan.md §1.168): its field id and what it is about. */
+  assist?: AssistSpec | undefined;
 }) {
   const empty = !value.trim();
   const go = () => {
@@ -58,6 +62,7 @@ export function ReplyBox({
           }
         }}
         data-testid={`${testId}-input`}
+        assist={assist}
       />
       <div className="flex flex-wrap items-center gap-2">
         <Button

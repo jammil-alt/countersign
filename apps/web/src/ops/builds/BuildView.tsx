@@ -63,6 +63,8 @@ import { type CallOptions, isApiError } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { voiceFor } from "../../api/voice";
+import { DraftButton } from "../../ui/assist";
+import { AssistScope } from "../../ui/assist-scope";
 import { AgentBadge } from "../../ui/badges";
 import { AgentSaid, ChatLog, Composer, Pending, Thinking, YouSaid } from "../../ui/chat";
 import { ErrorNotice } from "../../ui/ErrorState";
@@ -576,6 +578,19 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
                 inputTestId="build-input"
                 sendTestId="build-send"
                 voice={voiceFor("ops", b.client?.id ?? b.testClient?.id)}
+                tools={
+                  <DraftButton
+                    field="build.answer"
+                    context={{
+                      buildId: b.id,
+                      clientId: b.client?.id ?? b.testClient?.id,
+                      ref: focused?.key,
+                    }}
+                    current={() => draftText}
+                    onUse={setDraftText}
+                    testId="build-input-draft"
+                  />
+                }
               />
             </div>
           ) : null}
@@ -1037,7 +1052,17 @@ function Next({
   );
 }
 
-function PhasePanel(props: {
+/** Draft (§1.168): the phase's long fields are about this build and its client. */
+function PhasePanel(props: Parameters<typeof PhaseBody>[0]) {
+  const b = props.detail.build;
+  return (
+    <AssistScope value={{ buildId: b.id, clientId: b.client?.id ?? b.testClient?.id }}>
+      <PhaseBody {...props} />
+    </AssistScope>
+  );
+}
+
+function PhaseBody(props: {
   phase: BuildPhase;
   detail: BuildDetail;
   current: boolean;
@@ -1211,6 +1236,7 @@ function IntakePanel({ detail, current, busy, act }: PanelProps) {
                   placeholder={BRIEF_HINTS[k]}
                   value={f?.text ?? ""}
                   data-testid={`build-brief-${k}`}
+                  assist={`build.brief.${k}`}
                   onChange={(e) => set(k, { text: e.target.value })}
                 />
               ) : (
@@ -1613,6 +1639,7 @@ function SetupFormCard({
                       value={f.hint}
                       onChange={(e) => edit(f.id, { hint: e.target.value })}
                       data-testid={`build-setup-${f.id}-hint`}
+                      assist={{ field: "build.setup.hint", ref: `setup:${f.id}` }}
                     />
                   </Field>
                 ) : f.hint ? (
@@ -1827,6 +1854,7 @@ function VerdictChange({
             : "e.g. Their contracts are scanned images, and read document hasn't been checked on scans."
         }
         data-testid={`build-fit-${row.id}-reason`}
+        assist={{ field: "build.fit.reason", ref: `fit:${row.id}` }}
       />
       <div className="flex items-center gap-3">
         <Button
@@ -3005,6 +3033,14 @@ function ItemsPanel({
                       voice={voice}
                       busy={off}
                       testId={`build-item-${i.id}-answer-box`}
+                      assist={{
+                        field: "build.item.answer",
+                        ref: `item:${i.id}`,
+                        context: {
+                          buildId: id,
+                          clientId: detail.build.client?.id ?? detail.build.testClient?.id,
+                        },
+                      }}
                     />
                   ) : null}
                 </li>

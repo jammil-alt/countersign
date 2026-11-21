@@ -620,6 +620,7 @@ function Composer({ id, isLead, onDone }: { id: string; isLead: boolean; onDone(
                 : "What was said"
           }
           data-testid="deal-composer-text"
+          assist={{ field: `deal.${tab}`, context: { dealId: id } }}
         />
         {error ? <ErrorNotice error={error} /> : null}
         <div className="flex items-center justify-between gap-2">

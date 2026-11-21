@@ -44,6 +44,13 @@ export const DEFAULT_MODELS = {
    * tools; the agent that asked reasons over the results on its own model.
    */
   research: MODELS.haiku,
+  /**
+   * §1.168: Draft, one long text field written from the operator's notes. The Builder's vendor
+   * on its faster model: a field is short and the operator reads it before using it.
+   */
+  // DECISION: Sonnet, not the Builder's Opus: a draft is waited on in a sheet, and is a short
+  // rewrite of the operator's own notes rather than a build.
+  assist: MODELS.sonnet,
 } as const;
 
 export type ModelPurpose = keyof typeof DEFAULT_MODELS;

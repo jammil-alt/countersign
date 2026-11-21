@@ -2,16 +2,58 @@
 // the mz-chevron-down icon), shared by the back office and the portal; no raw colours.
 import {
   type InputHTMLAttributes,
+  lazy,
   type ReactNode,
   type Ref,
+  type RefObject,
   type SelectHTMLAttributes,
+  Suspense,
   type TextareaHTMLAttributes,
   useEffect,
   useLayoutEffect,
   useRef,
 } from "react";
+import type { AssistSpec } from "./assist-scope";
 import { cx } from "./cx";
 import { Icon } from "./icons";
+
+// docs/plan.md §1.168: Draft loads with the first field that turns it on, not in the first load.
+const FieldDraft = lazy(() => import("./assist").then((m) => ({ default: m.FieldDraft })));
+
+/**
+ * A control with Draft (`assist`, docs/plan.md §1.168): the control, then a Draft button under it
+ * on the right. The button's place is kept while it loads, so nothing moves.
+ */
+function Assisted({
+  assist,
+  target,
+  testId,
+  className,
+  children,
+}: {
+  assist: AssistSpec;
+  target: RefObject<HTMLTextAreaElement | HTMLInputElement | null>;
+  testId: string | undefined;
+  className: string | undefined;
+  children: ReactNode;
+}) {
+  return (
+    <span className={cx("flex min-w-0 flex-col gap-1", width(className))}>
+      {children}
+      <span className="flex justify-end">
+        <Suspense
+          fallback={
+            <span className="ds-btn ds-btn--link invisible text-xs" aria-hidden="true">
+              Draft
+            </span>
+          }
+        >
+          <FieldDraft spec={assist} target={target} testId={testId ? `${testId}-draft` : "draft"} />
+        </Suspense>
+      </span>
+    </span>
+  );
+}
 
 /**
  * Controls fill their container unless the caller gives a width (`w-28`): `cx` doesn't merge
@@ -52,14 +94,20 @@ export function Field({
   );
 }
 
+/** Draft for this field (docs/plan.md §1.168): its id, and what it is about. Off when left out. */
+type WithAssist = { assist?: AssistSpec | undefined };
+
 export function TextInput({
   invalid,
   className,
+  assist,
   ...rest
-}: InputHTMLAttributes<HTMLInputElement> & { invalid?: boolean }) {
-  return (
+}: InputHTMLAttributes<HTMLInputElement> & { invalid?: boolean } & WithAssist) {
+  const ref = useRef<HTMLInputElement>(null);
+  const input = (
     <input
       {...rest}
+      ref={assist ? ref : undefined}
       aria-invalid={invalid || undefined}
       className={cx(
         "ds-input disabled:opacity-60",
@@ -68,6 +116,17 @@ export function TextInput({
         className,
       )}
     />
+  );
+  if (!assist) return input;
+  return (
+    <Assisted
+      assist={assist}
+      target={ref}
+      testId={(rest as { "data-testid"?: string })["data-testid"]}
+      className={className}
+    >
+      {input}
+    </Assisted>
   );
 }
 
@@ -91,13 +150,14 @@ export function TextArea({
   invalid,
   className,
   autoSize = false,
+  assist,
   ref: outer,
   ...rest
 }: TextareaHTMLAttributes<HTMLTextAreaElement> & {
   invalid?: boolean;
   autoSize?: boolean;
   ref?: Ref<HTMLTextAreaElement> | undefined;
-}) {
+} & WithAssist) {
   const own = useRef<HTMLTextAreaElement | null>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: fit again when the words change.
   useLayoutEffect(() => {
@@ -115,7 +175,7 @@ export function TextArea({
     watch.observe(el);
     return () => watch.disconnect();
   }, [autoSize]);
-  return (
+  const area = (
     <textarea
       {...rest}
       ref={(el) => {
@@ -132,6 +192,17 @@ export function TextArea({
         className,
       )}
     />
+  );
+  if (!assist) return area;
+  return (
+    <Assisted
+      assist={assist}
+      target={own}
+      testId={(rest as { "data-testid"?: string })["data-testid"]}
+      className={className}
+    >
+      {area}
+    </Assisted>
   );
 }
 
