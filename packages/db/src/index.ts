@@ -23,6 +23,8 @@ export {
   withUser,
 } from "./client";
 export * from "./directory";
+// A connection that went away under a query (Neon restarting, Hyperdrive moving it).
+export { isDatabaseDrop } from "./drops";
 export * from "./ledger";
 export {
   accountIn,
