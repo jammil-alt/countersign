@@ -427,6 +427,9 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     expect(await can("billing_event", "UPDATE")).toBe(false);
     expect(await can("billing_agent_day", "UPDATE")).toBe(false);
     expect(await can("connection_change", "UPDATE")).toBe(false);
+    // 0074: an SOP's revisions are history (docs/sop-plan.md §6).
+    expect(await can("sop_revision", "UPDATE")).toBe(false);
+    expect(await can("sop_revision", "DELETE")).toBe(false);
     expect(await can("agent_change", "UPDATE")).toBe(false);
     expect(await can("doc_extraction", "UPDATE")).toBe(false);
     expect(await can("doc_line", "UPDATE")).toBe(false);
