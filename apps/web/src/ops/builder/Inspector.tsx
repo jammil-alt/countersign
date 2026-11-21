@@ -84,6 +84,7 @@ import { inputsUnfilled, isReshape, type ReshapeOffer, reshapeOffers } from "./r
 import { ReshapeFields } from "./reshape-step";
 import { RulesEditor } from "./rules";
 import { RunsOnRow, type SkillMove, StepParameters, VersionSection } from "./skill-step";
+import { WebhookSample } from "./webhook-sample";
 
 export type { Member } from "./people";
 export { parseRuleValue, ruleValueText } from "./rules";
@@ -1694,6 +1695,9 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
             onChange={(v) => set({ ...on, input: isRecord(v) ? v : {} }, "trigger:input")}
           />
         </Row>
+      ) : null}
+      {on.type === "webhook" ? (
+        <WebhookSample on={on} errors={fieldErrors} onChange={(next, key) => set(next, key)} />
       ) : null}
       {on.type === "command" ? (
         <Row label="Command" field="on.command" errors={fieldErrors}>

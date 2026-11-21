@@ -246,6 +246,14 @@ export function DecisionsCard({
                       voice={voice}
                       busy={busy}
                       testId={`build-decision-${d.id}-change-box`}
+                      assist={{
+                        field: "build.decision.change",
+                        ref: `decision:${d.id}`,
+                        context: {
+                          buildId: id,
+                          clientId: detail.build.client?.id ?? detail.build.testClient?.id,
+                        },
+                      }}
                     />
                   ) : null}
                 </li>

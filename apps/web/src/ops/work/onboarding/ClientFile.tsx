@@ -391,6 +391,7 @@ function FactForm({
           onChange={(e) => setText(e.target.value)}
           maxLength={2000}
           data-testid="fact-text"
+          assist={{ field: "clientFile.fact", context: { fileId } }}
         />
       </Field>
       <div className="grid gap-3 sm:grid-cols-3">

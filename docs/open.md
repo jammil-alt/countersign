@@ -146,6 +146,18 @@ name (CNAM) once its texting registration's business profile is approved. Open: 
 against a real subaccount (`packages/connectors/src/twilio/NOTES.md`, "Calls that carry the
 client's name"), before the first client's calls.
 
+## 1e. Spreadsheets in and out, and a spreadsheet matched to Zoho (`docs/plan.md` §1.164)
+
+Built (owner, 2026-11-20), in PRs to merge in this order: #478 (migration 0072, the Sales area's
+tables), #482 (the Sales area: keys, embeddings, `sales.match_records`), #479 (Reshape's `object`,
+a webhook's sample payload), #480 (Read table and Write table: CSV, XLSX, JSON), #481 (Zoho's
+fields), #484 (record ids aren't card numbers), #483 (Confirm matches, its look-up, the template
+"Spreadsheet to Zoho" and the happy path). Open for the owner: Zoho's field list, its scope and the
+50-field limit checked on the Mezonas Dev org before a client connects (existing Zoho connections
+sign in again for field lists); which client first, the fields matched on, and whether rows with no
+match make new leads; the portal's "attach PDFs or images" message, which doesn't name spreadsheets
+yet.
+
 ## 2. The marketing site (mezonas.com)
 
 This session's network can't reach `mezonas.com`, so whether it is live is **not checked here**.

@@ -105,6 +105,8 @@ export type ReshapeExpr =
     }
   | { pluck: { list: ReshapeOperand; field: string } }
   | { mapList: { list: ReshapeOperand; fields: Record<string, ReshapeExpr> } }
+  // §1.164: a record built field by field (`mapList` without the list).
+  | { object: { fields: Record<string, ReshapeExpr> } }
   | { convertUnit: { value: ReshapeOperand; from: string; to: string } };
 
 /** An output field's name (top level, or a mapped list item's field). */
@@ -113,78 +115,118 @@ export const ReshapeFieldName = z
   .regex(/^[A-Za-z_][A-Za-z0-9_]{0,63}$/, "letters, digits and underscores, from a letter");
 
 /**
+ * How deep records and lists may nest in one field's expression: a `mapList` or an `object` inside
+ * another counts one level each.
+ */
+// DECISION (§1.164): five levels, the depth the proposer and the builder's path pickers already
+// look into (`fieldsOf`, `copyPaths`: depth 0 to 4); `object` and `mapList` share it.
+export const RESHAPE_MAX_NESTING = 5;
+
+/** How many levels of `mapList` and `object` an expression nests (0 for anything else). */
+export function reshapeNesting(e: ReshapeExpr): number {
+  const fields =
+    "mapList" in e && isPlainObject(e.mapList)
+      ? e.mapList.fields
+      : "object" in e && isPlainObject(e.object)
+        ? e.object.fields
+        : null;
+  if (!isPlainObject(fields)) return 0;
+  let inner = 0;
+  for (const f of Object.values(fields)) {
+    if (isPlainObject(f)) inner = Math.max(inner, reshapeNesting(f as ReshapeExpr));
+  }
+  return 1 + inner;
+}
+
+/**
  * One expression. The set is small and typed on purpose (owner, 2026-11-11): every value is data
  * the builder shows and the validator types; anything more is a skill of its own.
  */
 export const ReshapeExpr: z.ZodType<ReshapeExpr> = z.lazy(() =>
-  z.union([
-    ReshapeOperand,
-    z.strictObject({
-      daysBetween: z.strictObject({ from: ReshapeOperand, to: ReshapeOperand }),
-    }),
-    z.strictObject({ sum: z.array(ReshapeOperand).min(1).max(20) }),
-    z.strictObject({ difference: z.tuple([ReshapeOperand, ReshapeOperand]) }),
-    z.strictObject({
-      percentChange: z.strictObject({ from: ReshapeOperand, to: ReshapeOperand }),
-    }),
-    z.strictObject({ bucket: z.strictObject({ value: ReshapeOperand, buckets: Buckets }) }),
-    z.strictObject({
-      formatDate: z.strictObject({
-        value: ReshapeOperand,
-        from: ReshapeDateStyle.optional(),
-        to: ReshapeDateStyle,
+  z
+    .union([
+      ReshapeOperand,
+      z.strictObject({
+        daysBetween: z.strictObject({ from: ReshapeOperand, to: ReshapeOperand }),
       }),
-    }),
-    z.strictObject({
-      formatNumber: z.strictObject({
-        value: ReshapeOperand,
-        places: Places.optional(),
-        as: z.enum(["text", "number"]).optional(),
+      z.strictObject({ sum: z.array(ReshapeOperand).min(1).max(20) }),
+      z.strictObject({ difference: z.tuple([ReshapeOperand, ReshapeOperand]) }),
+      z.strictObject({
+        percentChange: z.strictObject({ from: ReshapeOperand, to: ReshapeOperand }),
       }),
-    }),
-    z.strictObject({
-      formatMoney: z.strictObject({
-        value: ReshapeOperand,
-        places: Places.optional(),
-        currency: ReshapeOperand.optional(),
+      z.strictObject({ bucket: z.strictObject({ value: ReshapeOperand, buckets: Buckets }) }),
+      z.strictObject({
+        formatDate: z.strictObject({
+          value: ReshapeOperand,
+          from: ReshapeDateStyle.optional(),
+          to: ReshapeDateStyle,
+        }),
       }),
-    }),
-    z.strictObject({
-      join: z.strictObject({
-        values: z.array(ReshapeOperand).min(1).max(20),
-        separator: z.string().max(20).optional(),
+      z.strictObject({
+        formatNumber: z.strictObject({
+          value: ReshapeOperand,
+          places: Places.optional(),
+          as: z.enum(["text", "number"]).optional(),
+        }),
       }),
-    }),
-    z.strictObject({
-      split: z.strictObject({
-        value: ReshapeOperand,
-        separator: z.string().min(1).max(20),
-        index: z.number().int().min(-100).max(100).optional(),
+      z.strictObject({
+        formatMoney: z.strictObject({
+          value: ReshapeOperand,
+          places: Places.optional(),
+          currency: ReshapeOperand.optional(),
+        }),
       }),
-    }),
-    z.strictObject({
-      pick: z.strictObject({
-        list: ReshapeOperand,
-        index: z.number().int().min(-1000).max(1000).optional(),
-        where: z.strictObject({ field: FieldPath, equals: ReshapeOperand }).optional(),
-        field: FieldPath.optional(),
+      z.strictObject({
+        join: z.strictObject({
+          values: z.array(ReshapeOperand).min(1).max(20),
+          separator: z.string().max(20).optional(),
+        }),
       }),
-    }),
-    z.strictObject({ pluck: z.strictObject({ list: ReshapeOperand, field: FieldPath }) }),
-    z.strictObject({
-      mapList: z.strictObject({
-        list: ReshapeOperand,
-        fields: z.record(ReshapeFieldName, ReshapeExpr),
+      z.strictObject({
+        split: z.strictObject({
+          value: ReshapeOperand,
+          separator: z.string().min(1).max(20),
+          index: z.number().int().min(-100).max(100).optional(),
+        }),
       }),
-    }),
-    z.strictObject({
-      convertUnit: z.strictObject({
-        value: ReshapeOperand,
-        from: z.string().min(1).max(40),
-        to: z.string().min(1).max(40),
+      z.strictObject({
+        pick: z.strictObject({
+          list: ReshapeOperand,
+          index: z.number().int().min(-1000).max(1000).optional(),
+          where: z.strictObject({ field: FieldPath, equals: ReshapeOperand }).optional(),
+          field: FieldPath.optional(),
+        }),
       }),
+      z.strictObject({ pluck: z.strictObject({ list: ReshapeOperand, field: FieldPath }) }),
+      z.strictObject({
+        mapList: z.strictObject({
+          list: ReshapeOperand,
+          fields: z.record(ReshapeFieldName, ReshapeExpr),
+        }),
+      }),
+      z.strictObject({
+        object: z.strictObject({
+          fields: z
+            .record(ReshapeFieldName, ReshapeExpr)
+            .refine((f) => Object.keys(f).length <= 100, "at most 100 fields in a record"),
+        }),
+      }),
+      z.strictObject({
+        convertUnit: z.strictObject({
+          value: ReshapeOperand,
+          from: z.string().min(1).max(40),
+          to: z.string().min(1).max(40),
+        }),
+      }),
+    ])
+    .superRefine((e, ctx) => {
+      if (reshapeNesting(e as ReshapeExpr) > RESHAPE_MAX_NESTING) {
+        ctx.addIssue({
+          code: "custom",
+          message: `records and lists nest at most ${RESHAPE_MAX_NESTING} deep`,
+        });
+      }
     }),
-  ]),
 ) as z.ZodType<ReshapeExpr>;
 
 /** The expression kinds, as the builder names them. */
@@ -206,6 +248,7 @@ export const RESHAPE_EXPR_KINDS = [
   "pick",
   "pluck",
   "mapList",
+  "object",
   "convertUnit",
 ] as const;
 export type ReshapeExprKind = (typeof RESHAPE_EXPR_KINDS)[number];
@@ -623,6 +666,26 @@ function evalExpr(
     });
     return failed ? no("") : ok(out);
   }
+  if ("object" in e) {
+    // A record built field by field, in the same place (inside a list map it reads the item too);
+    // its fields typed and required by the field's own schema, as a mapped list's items are.
+    const shape = nonNull(item);
+    const r = evaluateFields(
+      Object.entries(e.object.fields).map(([name, from]) => ({
+        name,
+        from,
+        schema: propertySchema(shape, name),
+        required: requiredIn(shape, name),
+      })),
+      env,
+      where,
+      problems,
+    );
+    if (r.failed) return no("");
+    // DECISION (§1.164): a record none of whose fields has a value is empty, like a missing
+    // field: an optional one is left out, a required one is named.
+    return Object.keys(r.out).length === 0 ? ok(undefined) : ok(r.out);
+  }
   if ("convertUnit" in e) {
     const got = operandValue(e.convertUnit.value, env);
     if (!got.ok) return got;
@@ -806,6 +869,20 @@ interface Typed {
   problems: string[];
 }
 
+/** A typing problem at a field inside the expression (`[]`: the expression itself). */
+interface TypeProblem {
+  path: string[];
+  message: string;
+}
+
+interface TypedAt {
+  schema: JsonSchema | undefined;
+  problems: TypeProblem[];
+}
+
+const atPath = (p: TypeProblem) =>
+  p.path.length > 0 ? `${p.path.join(".")} ${p.message}` : p.message;
+
 function typeOperand(o: ReshapeOperand, env: TypeEnv): Typed {
   if ("input" in o) {
     const t = schemaAtPath(env.input, o.input.split("."));
@@ -830,18 +907,55 @@ function numeric(schema: JsonSchema | undefined): boolean {
   return t.length > 0 && t.every((x) => x === "number" || x === "integer");
 }
 
-/** The schema an expression gives, and what it reads that isn't there. */
+/**
+ * The schema an expression gives, and what it reads that isn't there. A problem inside a mapped
+ * list's item or a record starts with its field's path (`email reads …`, `address.zip reads …`).
+ */
 export function reshapeExprSchema(e: ReshapeExpr, env: TypeEnv): Typed {
-  if ("input" in e || "item" in e || "value" in e || "today" in e) {
-    return typeOperand(e as ReshapeOperand, env);
+  const t = typeExpr(e, env);
+  return { schema: t.schema, problems: t.problems.map(atPath) };
+}
+
+/**
+ * The same for the expression that fills the output field `name`: each problem starts with the
+ * field's whole path (`customer.email reads …`, `lines.amount reads …`).
+ */
+export function reshapeFieldTyping(name: string, e: ReshapeExpr, env: TypeEnv): Typed {
+  const t = typeExpr(e, env);
+  return {
+    schema: t.schema,
+    problems: t.problems.map((p) => atPath({ path: [name, ...p.path], message: p.message })),
+  };
+}
+
+/** The fields of a mapped list's item or of a record, typed in `env`. */
+function typeFields(
+  fields: Record<string, ReshapeExpr>,
+  env: TypeEnv,
+  problems: TypeProblem[],
+): Record<string, JsonSchema> {
+  const properties: Record<string, JsonSchema> = {};
+  for (const [name, from] of Object.entries(fields)) {
+    const t = typeExpr(from, env);
+    problems.push(...t.problems.map((p) => ({ path: [name, ...p.path], message: p.message })));
+    properties[name] = t.schema ?? {};
   }
-  const problems: string[] = [];
+  return properties;
+}
+
+function typeExpr(e: ReshapeExpr, env: TypeEnv): TypedAt {
+  if ("input" in e || "item" in e || "value" in e || "today" in e) {
+    const t = typeOperand(e as ReshapeOperand, env);
+    return { schema: t.schema, problems: t.problems.map((message) => ({ path: [], message })) };
+  }
+  const problems: TypeProblem[] = [];
+  const say = (message: string) => problems.push({ path: [], message });
   const read = (o: ReshapeOperand) => {
     const t = typeOperand(o, env);
-    problems.push(...t.problems);
+    for (const m of t.problems) say(m);
     return t.schema;
   };
-  const done = (schema: JsonSchema | undefined): Typed => ({ schema, problems });
+  const done = (schema: JsonSchema | undefined): TypedAt => ({ schema, problems });
   if ("daysBetween" in e) {
     read(e.daysBetween.from);
     read(e.daysBetween.to);
@@ -890,26 +1004,36 @@ export function reshapeExprSchema(e: ReshapeExpr, env: TypeEnv): Typed {
     const s = read(e.convertUnit.value);
     const from = unitOf(e.convertUnit.from);
     const to = unitOf(e.convertUnit.to);
-    if (!from) problems.push(`no unit "${e.convertUnit.from}" in the unit table`);
-    if (!to) problems.push(`no unit "${e.convertUnit.to}" in the unit table`);
+    if (!from) say(`no unit "${e.convertUnit.from}" in the unit table`);
+    if (!to) say(`no unit "${e.convertUnit.to}" in the unit table`);
     if (from && to && from.kind !== to.kind) {
-      problems.push(`${e.convertUnit.from} and ${e.convertUnit.to} measure different things`);
+      say(`${e.convertUnit.from} and ${e.convertUnit.to} measure different things`);
     }
     return done(numeric(s) ? NUMBER : TEXT);
+  }
+  if ("object" in e) {
+    // §1.164: a record, each field typed where the record is (inside a list map, with its item).
+    const properties = typeFields(e.object.fields, env, problems);
+    return done({
+      type: "object",
+      properties,
+      required: Object.keys(properties),
+      additionalProperties: false,
+    });
   }
   // Lists.
   const listOperand = "pick" in e ? e.pick.list : "pluck" in e ? e.pluck.list : e.mapList.list;
   const list = read(listOperand);
   const types = schemaTypeNames(list);
   if (types.length > 0 && !types.includes("array")) {
-    problems.push(`${operandWords(listOperand)} isn't a list`);
+    say(`${operandWords(listOperand)} isn't a list`);
     return done(UNKNOWN);
   }
   const items = isPlainObject(list?.items) ? (list.items as JsonSchema) : undefined;
   const at = (path: string): JsonSchema | undefined => {
     const t = schemaAtPath(items, path.split("."));
     if (!t.ok) {
-      problems.push(`reads ${path} of each item in ${operandWords(listOperand)}: ${t.message}`);
+      say(`reads ${path} of each item in ${operandWords(listOperand)}: ${t.message}`);
       return UNKNOWN;
     }
     return nonNull(t.schema);
@@ -925,12 +1049,11 @@ export function reshapeExprSchema(e: ReshapeExpr, env: TypeEnv): Typed {
     const s = at(e.pluck.field);
     return done({ type: "array", ...(s ? { items: s } : {}) });
   }
-  const properties: Record<string, JsonSchema> = {};
-  for (const [name, from] of Object.entries(e.mapList.fields)) {
-    const t = reshapeExprSchema(from, { input: env.input, item: { schema: items } });
-    problems.push(...t.problems.map((p) => `${name} ${p}`));
-    properties[name] = t.schema ?? {};
-  }
+  const properties = typeFields(
+    e.mapList.fields,
+    { input: env.input, item: { schema: items } },
+    problems,
+  );
   return done({
     type: "array",
     items: { type: "object", properties, required: Object.keys(properties) },
@@ -996,8 +1119,8 @@ export function reshapeProblems(
       if (isRequired(f)) out.push({ field: f.name, message: `${f.name} isn't mapped` });
       continue;
     }
-    const t = reshapeExprSchema(f.from, { input });
-    for (const p of t.problems) out.push({ field: f.name, message: `${f.name} ${p}` });
+    const t = reshapeFieldTyping(f.name, f.from, { input });
+    for (const p of t.problems) out.push({ field: f.name, message: p });
     if (t.problems.length > 0) continue;
     for (const p of schemaFitProblems(f.schema, t.schema, f.name)) {
       out.push({ field: f.name, message: p });

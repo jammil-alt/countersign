@@ -54,16 +54,32 @@ export function redactCardNumbers(text: string): string {
   return out + redactRun(text.slice(last));
 }
 
+/** A field that holds a record's id or ids: `id`, `recordId`, `external_id`, `ids`, `leadIds`. */
+const ID_KEY = /^(?:id|ids|[A-Za-z0-9]*(?:Id|Ids)|[a-z0-9_]*_ids?)$/;
+/** A bare run of digits, as a connected tool writes its ids (Zoho's are 19). */
+const DIGITS_ONLY = /^\d{1,30}$/;
+
 /** Every string in a JSON value, redacted; other values as they are. */
+// DECISION (docs/plan.md §1.164): a bare run of digits under an id field is a record's id, never a
+// card: Zoho's 19-digit record ids pass Luhn about one time in ten, and redacting one refused the
+// update that names it. Only a plain digit run is spared (a card is written with spaces or dashes
+// as often as not, and those are still caught); every other string, and every other field, is
+// checked as before.
 export function redactCardNumbersDeep<T>(value: T): T {
-  if (typeof value === "string") return redactCardNumbers(value) as T;
-  if (Array.isArray(value)) return value.map((v) => redactCardNumbersDeep(v)) as T;
+  return redactDeep(value, false) as T;
+}
+
+function redactDeep(value: unknown, idField: boolean): unknown {
+  if (typeof value === "string") {
+    return idField && DIGITS_ONLY.test(value) ? value : redactCardNumbers(value);
+  }
+  if (Array.isArray(value)) return value.map((v) => redactDeep(v, idField));
   if (value !== null && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = redactCardNumbersDeep(v);
+      out[k] = redactDeep(v, ID_KEY.test(k));
     }
-    return out as T;
+    return out;
   }
   return value;
 }

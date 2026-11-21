@@ -6168,9 +6168,93 @@ read-only copy of the portal's agent page inside the back office.
 | Its answer | `GET /api/ops/clients/:id/agents/:agentId/client-view` (`opsClientAgentView`): operator-only, and its response is the portal's `ServiceDetail` schema object itself, from the portal route's own function (`serviceDetail`) under `narrowToTenant` (withTenant's scope for that one client, inside the request's transaction), through `mount()` for the audit row. A client the operator doesn't serve, or another client's agent, is not found. KPI labels are in the client's language (no reader). Contract tests pin the shared schema and its lack of forbidden fields. // DECISION |
 | What it draws | The portal page's Overview drawn with the portal's own parts, moved to `portal/screens/agentParts.tsx` (its state chip, this month's figures, its run rows): the header, this month's figures, its recent runs, and on the rail how many runs wait on the client. No Pause, Run now, inbox items, upload or form; no link into the portal (figures are not links, runs open the back office's run page). The portal's other tabs (Runs, Manual, Settings) and its pack views are not copied: each asks portal routes of its own. // DECISION |
 
-### 1.165 Builds: describe it, draft it at once, change it after (owner, 2026-11-21; no migration)
+### 1.164 Data in and out of files, and a spreadsheet matched to Zoho (owner, 2026-11-20; migration 0072; PRs #478–#484)
 
-(§1.164 is the Sales area's, in its own PRs.)
+The owner: "We need to add a skill that can intake a spreadsheet or csv file, modify it and
+transform to a preset format either to come out as a reformed csv/xlsx or as a JSON … map the
+fields on each agent or even each step." Then the first client's use: an Excel file in, reshaped
+into custom fields in Zoho, each row matched by meaning to the client's Zoho leads and deals on a
+handful of fields, and the matches updated in Zoho. Outside ARCHITECTURE v0.15 §1 until v0.16 is
+written, like the Marketing and Bookkeeping areas.
+
+**The mapping is Reshape data's** (§1.86, `processes.ReshapeMapping`): versioned with the agent,
+one per step, proposed by name and type then by the Builder AI, previewed on a sample. Nothing new
+maps fields. What is new is the file at each end, a few gaps, and the Sales area's first tables.
+
+| Topic | Decision |
+|---|---|
+| Read table | `data.read-table`, a built-in deterministic skill like Reshape (no model, `sideEffect: none`; not `pure`: it reads the file through the documents port, so it doesn't run on the test bench, rather than log up to 5 MB of bytes in its input). Input: a document id. Output: `{ columns, rows: [{ <field>: cell }], sheet, problems }`. Reads `.csv` (the upload connector's `parseCsv`), `.xlsx` and `.json`. Parameters: sheet, header row, rows to skip, range, most rows, skip blank and total rows, skip rows where a named column is empty. CSV, XLSX and JSON are read in code, never by a model. Built: PR #480 (skill `data.read-table`, tool `data.table.read`; a CSV that looks like a purchases export is still imported as purchases). // DECISION |
+| The expected columns | A new skill parameter type, `columns`: each column's field name, the header names it accepts ("Vendor", "Payee", "Supplier"), its type (text, number, money, date with its style, boolean) and whether it is required. It types Read table's output, so Reshape's proposer maps from it; a file missing a required column fails the step naming it, never half-mapped. For `.json`, an optional expected shape (a JSON Schema) does the same. // DECISION |
+| Per agent, per step | The existing cascade (`skills/parameters.ts`): the agent sets Read table's and Write table's parameters once (`definition.skills[].parameters`), a step overrides them. Reshape's mapping is always per step. A template ships the formats; columns only one client has are marked `clientSpecific`; a promotion carries no client's parameter values at all (`stripForPromotion` keeps the template's), so they never reach the template. Clients don't adjust columns (B5's adjustable types stay number, money, text, date). // DECISION |
+| Write table | `data.write-table`, built-in and deterministic: rows and an output format (columns in order, header labels, types; `csv` or `xlsx`) → a new `document` in the client's storage, its `sources` the input documents. Making the file is internal (logged, no approval); sending it anywhere (email, Drive, the desktop app's folder or workbook, Zoho) is a write step, approval on (invariant 8). Email may attach a `.csv` or `.xlsx` (`EMAIL_SENDABLE_TYPES`); texts, WhatsApp and reach-outs keep PDFs and images. JSON needs no step: Reshape's output is the JSON. Built: PR #480 (skill `data.write-table`, tool `data.table.write`, `output.documentId`). // DECISION |
+| XLSX in the Worker | A small reader and writer on `fflate` (already `apps/desktop`'s): shared and inline strings, numbers, booleans, date serials by number format, one sheet at a time; formulas read as their cached values. Not the npm `xlsx` package (stale, open advisories) nor `exceljs` (Node streams). // DECISION |
+| Limits | At most 10,000 rows and 5 MB per file (Worker memory); past that the step fails saying so. // DECISION |
+| Documents | The document store, uploads, chat attachments and forwarding accept `.csv`, `.xlsx` and `.json` beside PDFs and images (forwarding skips `.xlsx` today, `forwarding.test.ts`). They are never sent to a model as files. // DECISION |
+| Webhook JSON | The operator may paste a sample payload on a webhook trigger; its shape is inferred (`triggers/sample.ts`) and only the shape is stored, as `WebhookTriggerOn.dataSchema`, never the pasted values (a delivery may hold client data, versions are kept forever and a definition can become a template). `{{trigger.data.…}}` is then typed and Reshape's proposer works on webhook JSON. Without one it stays "any path reads". Built: PR #479. // DECISION |
+| Reshape gaps | An `object` expression (`{ object: { fields } }`, `mapList` without the list) so a step can build a nested object (built: PR #479; `object` and `mapList` nest 5 levels). Filtering, sorting and grouping a list stay out of Reshape (owner, 2026-11-11); Read table's row skips cover files. // DECISION |
+| PDFs and images to data | Unchanged: `docs.read` for invoices and quotes, or an AI task skill whose input marks the document (`x-document`) and whose output schema is the fields wanted, then checks, Reshape and Write table. Reading long tables page by page is not in this entry. |
+
+**The Zoho use: a spreadsheet matched to leads and deals.** One client agent, five steps:
+Read table → Reshape (rows to the client's Zoho field names) → Match to Zoho → a person answers
+the unsure rows → update the matched records (`zoho_crm.update_record`, approval on, one approval
+group per run).
+
+| Topic | Decision |
+|---|---|
+| Zoho's fields | The connector reads the org's fields (`GET /crm/v8/settings/fields?module=`, NOTES.md's follow-up "field metadata"): API names, labels, types, custom or not. The builder types `zoho_crm.*` inputs from them, so Reshape proposes the client's custom fields by label. Scope `ZohoCRM.settings.fields.READ`, which connections made before need a new sign-in for. UNCHECKED against the live API. Built: PR #481 (`zoho_crm.field.list`; the list is cached in the connection's `sync_cursor`, read again daily; older grants without the scope answer "needs sign-in"). // DECISION |
+| Syncing custom fields | Sync reads a fixed standard list per module (`ZOHO_SYNC_FIELDS`). A connection may add fields to read per module (its config, checked against the field metadata, within v8's 50), so the fields the match uses are in `raw_record`. Built: PR #481 (`config.syncFields`, the back office's "Fields we sync"; adding fields is a looser change, so the client admin approves it; records are read again as new `raw_record` versions `<Modified_Time>~<key>`). // DECISION |
+| Where matching happens | In our Postgres, on synced records: Zoho's API search is one credit a call, `equals`/`starts_with` only, with no search by meaning we can use. So Leads and Deals sync into `raw_record` (built, W4-B) and the match reads our copy. Before any update, the record is read again from Zoho and the update carries `expectedModifiedTime` (built), so a stale copy never writes. // DECISION |
+| The Sales area, first tables | Per §12.0 rule 5, a match index that lasts and is searched is an area's: the **Sales** pack (designed, not built), first version. `crm_record_key`: per client, connector, module and external id, the record's normalised keys (email, phone in E.164, website domain, company and person names), its match text, a trigram index and an `embedding vector(1024)` (`packages/llm` embeddings, as the vendor catalog's). `crm_match`: each input row's decision (the record, how: key, alias, text, meaning, model or person; the score; the agent version; sources). `crm_alias`: a person's answer, so the same value matches next time. Migration in its own PR. // DECISION |
+| The match | `sales.match_records`, internal: deterministic first (exact email, phone, domain, then aliases), then candidates by trigram and by meaning on the fields the step names, then a small model chooses among at most 5 candidates or says none, then a person for anything under the step's threshold (invariant 7). Hard rules veto the model (two different emails, or phones, is never the same lead; vetoed records never reach the model). Decisions are `matched`, `unsure` or `none` (no candidate, or the model sure there is none). The fields matched on and the threshold are the step's settings; the tool's input may only raise the threshold or narrow the fields. Goldens (`fixtures/matching/crm`, 65 rows against 43 records): 100% precision on "same", 77% recall. // DECISION |
+| Embeddings and compliance | Embedding a lead sends its match text to OpenAI (already named in compliance; HIPAA mode refuses it, and matching then stops at keys, text and the model). Keys are built when records sync (a pack `synced` hook after each Zoho page); embeddings are made by the match or `sales.keys.refresh` when the match text changed, since sync has no model transport or step to carry the cost. Cost is recorded on the step. Built: PRs #478 (migration 0072) and #482. // DECISION |
+| Updates | Each matched row becomes one `zoho_crm.update_record` with only the fields the step maps, its before state kept for undo (built). New leads for unmatched rows only if the operator adds a create step, approval on. // DECISION |
+
+**Confirm matches** (owner, 2026-11-20: "a data matching confirmation form … show low confidence
+and they can approve suggested or remap … a look up to remap"). The Sales pack's review card
+`sales.match`, on a person step after the match (payload `review: "sales.match"`, as Materials'
+`materials.match`), shown on the client's Desk and the back office's Escalations.
+
+| Topic | Decision |
+|---|---|
+| What it shows | The rows the match wasn't sure of first, then the rest folded under "Matched" with their count. Each row: the sheet's values beside the suggested Zoho record's values for the fields matched on, differences marked; the confidence in words (High, Medium, Low) with its number; how it was found (same email, a name you confirmed before, similar name, similar meaning, the model's pick). // DECISION |
+| What a person does | Per row: **Approve** the suggestion, **pick another** of the candidates, **Look up** any synced lead or deal (a search box over name, company, email, phone and deal name, the module chosen), or **No match**. "Approve all High" for the folded rows. **Finish** sends the answers back to the waiting run; the step's output is the confirmed matches. // DECISION |
+| What it teaches | A person's Approve, pick or look-up is a `crm_match` with method `human` and a `crm_alias` (the row's key values → the record), so the same row matches by itself next time. No match teaches nothing. // DECISION |
+| The look-up | `GET /api/inbox/:id/pack-review/lookup?module=&q=` and its back-office twin: the client's synced records only (withTenant), at most 20, by trigram on the match text and exact email or phone; the record's id, name, company, email and the deal's stage and amount. // DECISION |
+| Why not a confer | Confer is advice only (ARCHITECTURE §10.14): it never changes a step's output, and a remap must. So the card is a person step's. A confer on the match step (a second model, or a person's agree or disagree) still works as advice before it. // DECISION |
+| Colours and words | Waiting rows are signal with "Waiting on you"; a person's decisions copper; the agent's matches ink (brand book). Sheet values and Zoho names show as written (data). |
+
+**As built (PR #483, stacked on #482).** The card is `packs/sales/src/review.ts` and
+`apps/web/src/packs/sales/ConfirmMatches.tsx` (lazy, on the Desk and Escalations), with
+`sales.review.*` strings in all six languages. The platform's `PackReviewHandler` gained two optional
+hooks, `lookup` (the look-up routes) and `answer` (Finish: the person step's answer is the confirmed
+matches as recorded, never what the browser sent; refused while a row waits), so apps/api names no
+pack. A new read tool, `sales.matches.confirmed`, is what the updates read. Decisions made building it:
+
+| Topic | Decision |
+|---|---|
+| The match is a write | `sales.match_records` records decisions, so it is a write step ("Save to records", internal, no approval), not a skill step: the validator refuses a skill step whose tool records. // DECISION |
+| Leads first | The template matches Leads and its update names `module: "Leads"`, so the client's connection matrix sees a lead update. A client whose sheets are deals gets a Deals path from the operator. // DECISION |
+| What an update never changes | Email, First_Name, Last_Name and Company are left out of the update, so a sheet's spelling ("Liv") never renames a lead. // DECISION |
+| One approval group | One batch per run and loop; a file with more than 50 matched rows is signed 50 at a time (the `for_each`'s concurrency). // DECISION |
+| The area's onboarding | `AREA_OF_PACK` maps `sales`; the pack has its own intake questions. // DECISION |
+| Record ids are not cards | A 19-digit Zoho id passes Luhn about one time in ten, and the card guard refused the update naming it. Fixed in its own PR, #484: a bare digit run under an id field is never redacted; cards written with spaces or dashes, and every other field, still are. // DECISION |
+
+**The happy path (done when)**, with fakes on staging: a client's `.xlsx` of 20 rows is uploaded
+→ Read table reads it with the agent's columns → Reshape maps the rows to Zoho fields, one of them
+custom (proposed from Zoho's field list) → the match finds 15 by key, 3 by meaning and the model,
+and 2 unsure → Confirm matches: one approved, one remapped through the look-up → 20 updates go to
+one approval group → approved → the fake Zoho holds the new values, each with its before state →
+the same file again matches all 20 with no person (the aliases). The Sales pack ships it as the
+template "Spreadsheet to Zoho".
+
+**Order** (each ends green): (1) Read table with CSV and JSON, the `columns` parameter, documents
+taking the types, the builder's sample-file check; (2) XLSX reading and Write table; (3) Zoho field
+metadata and custom-field sync; (4) the Sales area's migration; (5) its keys, embeddings and
+`sales.match_records`, with goldens in `fixtures/matching/crm` (≥ 95% precision on "same"); (6) the
+Confirm matches card and its look-up; (7) the webhook sample payload and Reshape's `object`; (8) the
+template and the happy path end to end. Steps 1–3 and 7 need no migration.
+
+### 1.165 Builds: describe it, draft it at once, change it after (owner, 2026-11-21; no migration)
 
 Owner: "The agent builder process is still too long and difficult... we have not been able to
 figure out a single simple agent yet because there are too many permutations to build. Simplify,
@@ -6255,6 +6339,29 @@ intake form ("you can't read the fields"), the gap over the sticky bar, and the 
 | "Connect a tool" on every field | Not a display bug: the kind shown is the stored one (a stored kind outside the three fails the fit-gap's parse, and a test checks each field shows its own). The Builder chose `connect` for anything about a tool (the Podio check-in's "Who is the project manager", "What time should…"). The field's `.describe()` (`SetupFieldDraft.kind`) and the template's fit-gap rule (`FITGAP_FOR_TEMPLATE`) now say `connect` is only the connection, one field per tool labelled with its name, and every question about a tool is an answer. Stored forms are not rewritten; the operator changes a kind with one press. // DECISION |
 | The gap over the bar | `.ui-build-stick`, the bar's holder, sticks at `--header-h` (not 16px below it) with `padding-top` in `--paper` and a matching negative margin, so the bar sits where it did and nothing shows through above it. On a wide screen its `::before` runs the same ground left over the gutter and the conversation's column, whose card keeps its own sticky place. `.ui-build-anchor`'s scroll margin is unchanged, as the bar is. // DECISION |
 | The composer's hint | On an issue the hint is "Type your answer, or ask the Builder" (the About line over the box names the issue). Every conversation's hint is the design system's placeholder colour (`--ink-faint`, as `.ds-input` and `.ds-textarea`), and its bare text box draws no focus ring of its own inside the box's slate frame. // DECISION |
+
+### 1.168 Draft: long text fields written from your notes (owner, 2026-11-21; no migration)
+
+The owner on the build page's brief: "let's add a draft by AI on each of these with a pop up that
+we can use to jot some notes and it puts it in the right format and completes it in correct
+language… Look throughout the tool, let's design all long text forms and have this feature… We
+should make it field aware so it knows what it is filling out and can use that context." (1.164
+and 1.165 belong to another open branch; 1.166 and 1.167 are the build page's close-out and forms.)
+
+| Topic | Decision |
+|---|---|
+| What it does | A small **Draft** button under a long text field opens a sheet: jot notes (or Dictate them, §1.109, where the browser can record), then **Write it**. The draft shows as a suggestion with **Use it**, **Try again** and **Cancel**; nothing in the field changes until Use it, which puts the text in as typing would (the screen's own `onChange`), so saving stays the screen's. With no notes, Write it improves what the field holds. The button is called Draft; no "AI" in the words. |
+| Field aware | A registry in core (`packages/core/src/assist/fields.ts`, `ASSIST_FIELDS`), one descriptor per field id: its label, what it is for and what good looks like, its shape (a sentence, a paragraph, a list, a message) and own rules, its most characters (never more than the field stores), who reads it, and which records it may use (`build`, `brief`, `ref`, `deal`, `file`). The system prompt is made from the descriptor alone, with the brand's voice rules (plain words, short sentences, sentence case, "we" and "you", no exclamation marks, emoji, hype or "AI-powered"). // DECISION |
+| Where | The build page: the brief's nine fields (`build.brief.<key>`), the message to the Builder (`build.answer`, the composer's Draft beside Dictate, with the issue the conversation is on: answering a question is a message there), a fit-gap row's "Why" behind **Change it** (`build.fit.reason`), the client intake form's "Why, or an example" (`build.setup.hint`, §1.167's block per field), and §1.166's two boxes under a row: the answer to an open question (`build.item.answer`, with `item:<id>`) and a decision's "Change it…" (`build.decision.change`, with `decision:<id>`), both through `ReplyBox`'s `assist`. Sales: the deal composer's email, internal note, call and meeting (`deal.email`, `deal.note`, `deal.call`, `deal.meeting`) and a new deal's "What we know" (`deal.description`). Onboarding: a client file's fact (`clientFile.fact`). A field turns it on with `assist` on the shared `TextArea` or `TextInput` (its id, and a `ref` such as `fit:<row>`); the build page sets its build and client once (`AssistScope`), so the panels' edits are one prop each. More fields join by adding a descriptor and the prop. // DECISION |
+| The route | `POST /api/ops/assist/draft` (`opsAssistDraft`, operator only, a slow route through `mountLong`: the model runs outside any transaction; the audit row is the route's own, with no body). Body `{ field, notes, current?, context: { buildId?, clientId?, dealId?, fileId?, ref? } }`, answer `{ text }`. Served beside the registry (`allRoutes`) and its sheet loaded lazily, so neither is in the web app's first load. |
+| What is sent | The field's descriptor; the operator's notes and the field's current text; and only the records the field uses, loaded by the server by id inside the operator's scope (row-level security for a build; the deal's and the file's own scope rules; a named client must be served), never as text from the browser: a build's title and kind, its brief's other fields, the one thing `ref` names on it (an open item, a decision, a fit-gap row, an intake question), a deal's title, company, stage, description, next step and first person's name, a client file's name, website and up to 20 current facts, and the client's name. A build, deal, file or client the operator doesn't serve is not found. // DECISION |
+| What isn't | Anything else of the client's: runs, documents, records, connections, other builds, agents' bundles. A draft is not stored; nothing is logged but its cost. |
+| As data | The notes, the current text and every record go in the user message, each in its own tag and escaped (`promptText`), never in the system prompt, which tells the model to follow no instructions found in them (invariant 9). The model answers through one tool (`write_field`), checked with Zod (`AssistAnswer`); the text is cut to the field's length at its last sentence or line end (`fitToLength`) rather than refused. // DECISION |
+| Language | A field a client reads (`build.setup.hint`, `deal.email`) is written in the language the client chose for the portal (`clientLanguage`) when the field is about one client that has chosen one (the build's own client, the deal's or the file's client, else the named client); everything else, and a field about no client (a template's build, a prospect), in English, the back office's language. A template's intake form is therefore drafted in English. // DECISION |
+| Vendor | Anthropic on Mezonas' key, the Builder's vendor, on Sonnet (`DEFAULT_MODELS.assist`): a field is short and waited on in a sheet. `DRAFT_ASSIST_FEATURE` in `packages/core/src/compliance/processors.ts` names it; a test holds the model's provider to its list. // DECISION |
+| HIPAA mode | A draft about a client in HIPAA mode (the build's client or test client, the deal's, the file's, or the named client) is refused with 409 `hipaa` before anything is sent, until `anthropic` is in `BAA_PROCESSORS`; the model's transport is held to the same clients as well (`clientModels`). A field about no client isn't checked, as voice typing isn't. Dictate in the sheet goes through voice typing's own check, with the page's client. |
+| Limits and cost | Each operator's drafts are claimed per client (or no client) before the model is called (`claimMetered`, `assist.draft`): 20 a minute and 300 a day, more a minute than questions since a brief has nine fields (live dictation's own allowance is per segment, §1.109). The cost is the operator's, never a client's: logged (`assist.draft.cost`), not recorded as a client's usage, as the back office's questions are. // DECISION |
+| Not yet | Other long fields (skill and agent editors, step instructions, the portal's own forms) take the prop when the owner wants them; Draft in the portal; drafts in a client's language for templates' intake forms. |
 
 ## 2. Package layering
 

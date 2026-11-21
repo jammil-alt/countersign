@@ -117,6 +117,19 @@ export const EMBEDDING_FEATURE = {
 } as const;
 
 /**
+ * §1.164: the Sales area's search by meaning: a synced CRM record's match text (the names a client
+ * matches on: a person's, a company's, a deal's) and a matched row's are sent to the embedding
+ * model's provider. A client in HIPAA mode is refused it until that provider's BAA is recorded, as
+ * its model calls are (apps/api's `guardModels` holds `embed` to it); matching then goes on with
+ * keys, text and the model, without meaning.
+ */
+export const CRM_EMBEDDING_FEATURE = {
+  id: "sales.embeddings",
+  what: "The Sales area's search by meaning (embeddings of CRM records' names)",
+  model: "openai:text-embedding-3-large",
+} as const;
+
+/**
  * §1.98: texting invitations, which send a client's contact's name and email address to Resend
  * (Mezonas' own mail). The sign-up's confirmation text goes through the client's Twilio, which a
  * client in HIPAA mode has only once `twilio` is covered.
@@ -183,6 +196,21 @@ export const VOICE_FEATURE = {
   what: "Voice typing",
   processors: ["openai"] as readonly Processor[],
   model: "gpt-4o-mini-transcribe",
+} as const;
+
+/**
+ * Draft (docs/plan.md §1.168): a long text field in the back office drafted from the operator's
+ * notes. The notes, the field's text and the records it is about (a build's brief, a deal, a
+ * client file) go to the model's vendor, Anthropic on Mezonas' key, as the Builder's do. A client
+ * in HIPAA mode is refused it until `anthropic` is covered; a field about no client (a template's
+ * build, a prospect's deal) isn't checked.
+ */
+// DECISION: the Builder's vendor (the owner's "the same model provider"), on its fast model
+// (apps/api's `DEFAULT_MODELS.assist`); a test holds the model's provider to this list.
+export const DRAFT_ASSIST_FEATURE = {
+  id: "backoffice.draft",
+  what: "Draft",
+  processors: ["anthropic"] as readonly Processor[],
 } as const;
 
 /** The processor an embedding model's provider is: `openai:` ids go to OpenAI. */

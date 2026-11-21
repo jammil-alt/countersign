@@ -12,7 +12,8 @@ const OPS = ["operator"] as const;
 const ApiId = z.string().min(1).max(200);
 
 /** How a field's mapping was found: by name, kept, the Builder AI's, or by hand (absent). */
-export const RESHAPE_MATCHES = ["exact", "name", "synonym", "kept", "ai"] as const;
+// §1.164: "fields", a record built field by field from what the sources have.
+export const RESHAPE_MATCHES = ["exact", "name", "synonym", "kept", "fields", "ai"] as const;
 export const ReshapeMatchView = z.enum(RESHAPE_MATCHES);
 
 export const ReshapeProposalView = z.object({

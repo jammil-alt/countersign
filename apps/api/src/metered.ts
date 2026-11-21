@@ -1,17 +1,18 @@
 // Per-person limits on the portal routes that call a paid model on each request (audit 5.9):
-// plain-words questions (POST /api/runs/ask) and voice typing (POST /api/transcribe). Each call a
+// plain-words questions (POST /api/runs/ask) and voice typing (POST /api/transcribe), and the back
+// office's Draft (POST /api/ops/assist/draft, docs/plan.md §1.168). Each call a
 // person makes is first claimed as an `audit_event` row (`metered <kind>`, the person and the
 // client), in a short transaction that commits before the model is called; past the minute's or
 // the day's allowance the request is refused with 429 and the model is never called.
 
 import type { Session } from "@countersign/auth";
 import { auditEvent, type Tx } from "@countersign/db";
-import { and, count, eq, gte, sql } from "drizzle-orm";
+import { and, count, eq, gte, isNull, sql } from "drizzle-orm";
 import type { Context } from "hono";
 import { auditInTx } from "./audit";
 import { HttpError } from "./http";
 
-export type MeteredKind = "runs.ask" | "transcribe";
+export type MeteredKind = "runs.ask" | "transcribe" | "assist.draft";
 
 /**
  * Each person's allowance per client: a short burst, then a rolling day.
@@ -27,6 +28,9 @@ export type MeteredKind = "runs.ask" | "transcribe";
 export const METERED_LIMITS: Record<MeteredKind, { perMinute: number; perDay: number }> = {
   "runs.ask": { perMinute: 10, perDay: 200 },
   transcribe: { perMinute: 30, perDay: 1500 },
+  // DECISION (§1.168): more a minute for Draft than for questions, since a brief has nine fields
+  // drafted one after another, each with a Try again; a script is still stopped within a minute.
+  "assist.draft": { perMinute: 20, perDay: 300 },
 };
 
 export const meteredAction = (kind: MeteredKind) => `metered ${kind}`;
@@ -43,14 +47,15 @@ export const meteredAction = (kind: MeteredKind) => `metered ${kind}`;
 export async function claimMetered(
   tx: Tx,
   c: Context | null,
-  input: { kind: MeteredKind; tenantId: string; session: Session; role: string },
+  /** `tenantId` null: an operator's call about no client (a template's build, a prospect). */
+  input: { kind: MeteredKind; tenantId: string | null; session: Session; role: string },
 ): Promise<void> {
   const { kind, tenantId, session } = input;
   const userId = session.user.id;
   const limits = METERED_LIMITS[kind];
   const action = meteredAction(kind);
   await tx.execute(
-    sql`select pg_advisory_xact_lock(hashtextextended(${`metered:${kind}:${tenantId}:${userId}`}, 0))`,
+    sql`select pg_advisory_xact_lock(hashtextextended(${`metered:${kind}:${tenantId ?? "none"}:${userId}`}, 0))`,
   );
   // The database's clock, as the rows' created_at is.
   const since = (window: "1 minute" | "24 hours") =>
@@ -60,7 +65,7 @@ export async function claimMetered(
       .where(
         and(
           eq(auditEvent.actorUserId, userId),
-          eq(auditEvent.tenantId, tenantId),
+          tenantId ? eq(auditEvent.tenantId, tenantId) : isNull(auditEvent.tenantId),
           eq(auditEvent.action, action),
           gte(auditEvent.createdAt, sql`now() - ${window}::interval`),
         ),
@@ -80,6 +85,6 @@ export async function claimMetered(
     actorRole: input.role,
     action,
     outcome: "ok",
-    target: { client: tenantId },
+    target: tenantId ? { client: tenantId } : {},
   });
 }

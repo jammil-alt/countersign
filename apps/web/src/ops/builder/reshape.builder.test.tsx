@@ -8,6 +8,7 @@ import {
   AnyAgentBundle,
   type AnyAgentBundleInput,
   type BuilderCatalog,
+  inferSampleSchema,
   processes,
   type SkillDefinition,
 } from "@countersign/core";
@@ -122,7 +123,7 @@ const BILL_STEP = {
   checks: { approval: { required: "required" } },
 };
 
-function bundleWith(steps: unknown[]): AnyAgentBundleInput {
+function bundleWith(steps: unknown[], triggers: unknown[] = [TRIGGER]): AnyAgentBundleInput {
   return {
     schemaVersion: 1,
     definition: {
@@ -144,7 +145,7 @@ function bundleWith(steps: unknown[]): AnyAgentBundleInput {
       {
         slug: "main",
         name: "Main",
-        workflow: { schemaVersion: 4, triggers: [TRIGGER], steps },
+        workflow: { schemaVersion: 4, triggers, steps },
       },
     ],
   } as AnyAgentBundleInput;
@@ -250,9 +251,9 @@ function proposal(stepId: string) {
   };
 }
 
-function setup(steps: unknown[]) {
+function setup(steps: unknown[], triggers?: unknown[]) {
   const sent: { path: string; body: Record<string, unknown> }[] = [];
-  const BUNDLE = bundleWith(steps);
+  const BUNDLE = bundleWith(steps, triggers);
   const api = fakeApi({
     [`GET /api/ops/agents/${AGENT_ID}/builder-catalog`]: () => CATALOG,
     "GET /api/ops/catalog/events": () => ({ events: [] }),
@@ -433,5 +434,112 @@ describe("Reshape data in the builder", () => {
     expect(screen.getByTestId("builder-reshape-from-invoiceNumber")).toHaveTextContent(
       "readDocument.header.invoiceNumber",
     );
+  });
+});
+
+// §1.164: a record built field by field, and a webhook trigger's sample payload.
+describe("records and webhook samples in the builder", () => {
+  it("builds a record field by field in the mapping editor", async () => {
+    const shape = {
+      id: "shape",
+      kind: "skill",
+      name: "Reshape data",
+      skill: RESHAPE.id,
+      input: { readDocument: "{{steps.read.output}}" },
+      reshape: {
+        fields: [
+          field("total", { input: "readDocument.total" }),
+          field(
+            "vendor",
+            null,
+            io({ name: { type: "string" }, invoice: { type: "string" } }, ["name"]),
+          ),
+        ],
+      },
+    };
+    const { sent, user } = setup([READ_STEP, shape]);
+    await screen.findByTestId("builder-canvas");
+    await user.click(screen.getByTestId("builder-step-shape-select"));
+    await user.click(await screen.findByTestId("builder-reshape-edit-vendor"));
+    const editor = screen.getByTestId("builder-reshape-editor-vendor");
+    await user.selectOptions(within(editor).getByTestId("builder-reshape-kind"), "record");
+    const record = within(editor).getByTestId("builder-reshape-record-vendor");
+    expect(within(record).getByTestId("builder-reshape-from-vendor.name")).toHaveTextContent(
+      "Not mapped",
+    );
+    expect(within(record).getByTestId("builder-reshape-from-vendor.invoice")).toHaveTextContent(
+      "Not mapped (left out)",
+    );
+    // Nothing mapped yet: nothing to use.
+    expect(within(editor).getByTestId("builder-reshape-save-field")).toBeDisabled();
+    await user.click(within(record).getByTestId("builder-reshape-edit-vendor.name"));
+    const inner = within(record).getByTestId("builder-reshape-editor-vendor.name");
+    await user.selectOptions(within(inner).getByTestId("builder-reshape-kind"), "copy");
+    await user.selectOptions(
+      within(inner).getByTestId("builder-reshape-path"),
+      "readDocument.header.vendorName",
+    );
+    await user.click(within(inner).getByTestId("builder-reshape-save-field"));
+    expect(within(record).getByTestId("builder-reshape-from-vendor.name")).toHaveTextContent(
+      "readDocument.header.vendorName",
+    );
+    await user.click(within(editor).getByTestId("builder-reshape-save-field"));
+    expect(screen.getByTestId("builder-reshape-from-vendor")).toHaveTextContent(
+      "a record: name ← readDocument.header.vendorName",
+    );
+
+    await user.click(screen.getByTestId("builder-save"));
+    await waitFor(() => expect(sent.some((s) => s.path === "save")).toBe(true));
+    const step = processes.findStep(saved(sent).process, "shape")?.step;
+    if (step?.kind !== "skill") throw new Error("no Reshape step");
+    expect(step.reshape?.fields.find((f) => f.name === "vendor")?.from).toEqual({
+      object: { fields: { name: { input: "readDocument.header.vendorName" } } },
+    });
+  });
+
+  it("types a webhook trigger from a pasted sample, keeping no values", async () => {
+    const hook = {
+      id: "t1",
+      on: { type: "webhook", hookId: "0192f7a0-0000-7000-8000-000000000002" },
+    };
+    const read = { ...READ_STEP, input: { documentId: "{{trigger.data.documentId}}" } };
+    const { sent, user } = setup([read], [hook]);
+    await screen.findByTestId("builder-canvas");
+    await user.click(screen.getByTestId("builder-trigger-t1-select"));
+    const box = await screen.findByTestId("builder-webhook-sample");
+    expect(within(box).getByTestId("builder-webhook-sample-none")).toBeInTheDocument();
+
+    const text = within(box).getByTestId("builder-webhook-sample-text");
+    await user.click(text);
+    await user.paste("{ not json");
+    await user.click(within(box).getByTestId("builder-webhook-sample-use"));
+    expect(within(box).getByTestId("builder-webhook-sample-problem")).toHaveTextContent(
+      "The sample isn't JSON.",
+    );
+
+    const sample = {
+      documentId: "doc-881",
+      customer: { name: "Pat Lee", email: "pat@example.com" },
+      lines: [{ sku: "A-1", qty: 2 }],
+    };
+    await user.clear(text);
+    await user.paste(JSON.stringify(sample));
+    await user.click(within(box).getByTestId("builder-webhook-sample-use"));
+    expect(within(box).getByTestId("builder-webhook-sample-count")).toHaveTextContent(
+      "7 fields from the sample.",
+    );
+    expect(within(box).getByTestId("builder-webhook-sample-fields")).toHaveTextContent(
+      "data.customer.email",
+    );
+
+    await user.click(screen.getByTestId("builder-save"));
+    await waitFor(() => expect(sent.some((s) => s.path === "save")).toBe(true));
+    const body = JSON.stringify(sent.filter((s) => s.path === "save").at(-1)?.body);
+    expect(body).not.toMatch(/Pat Lee|pat@example\.com|doc-881|A-1/);
+    const trigger = saved(sent).process.triggers[0];
+    expect(trigger?.on).toEqual({ ...hook.on, dataSchema: inferSampleSchema(sample) });
+
+    await user.click(within(box).getByTestId("builder-webhook-sample-clear"));
+    expect(within(box).getByTestId("builder-webhook-sample-none")).toBeInTheDocument();
   });
 });

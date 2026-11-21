@@ -16,7 +16,7 @@ export const RESHAPE_SKILL = processes.RESHAPE_SKILL;
 export const reshapeTool = defineInternalTool({
   id: processes.RESHAPE_TOOL,
   description:
-    "Reshapes data into the fields a step defines: copies, literals and small typed calculations (sums, dates, money, text, units). With a list it can pick one item, pluck a field from each item, or map each item field by field; it can't filter, sort, group or total a list by a key. Reads only its input; no model.",
+    "Reshapes data into the fields a step defines: copies, literals and small typed calculations (sums, dates, money, text, units), and records built field by field. With a list it can pick one item, pluck a field from each item, or map each item field by field; it can't filter, sort, group or total a list by a key. Reads only its input; no model.",
   sideEffect: "none",
   pure: true,
   summary: "Reshaped into {{fieldCount}} fields",
@@ -43,7 +43,7 @@ export const RESHAPE_SKILL_DEF: SkillDefinition = {
   id: RESHAPE_SKILL,
   name: "Reshape data",
   description:
-    "Turns what earlier steps found into what the next step takes: each field copied, fixed, or worked out (sums, dates, money, text, units). With a list it can pick one item, pluck a field from each item, or map each item field by field; it can't filter, sort, group or total a list by a key (by customer, by vendor). The same every time; no model.",
+    "Turns what earlier steps found into what the next step takes: each field copied, fixed, or worked out (sums, dates, money, text, units), and a record built field by field (a customer with a name and an email). With a list it can pick one item, pluck a field from each item, or map each item field by field; it can't filter, sort, group or total a list by a key (by customer, by vendor). The same every time; no model.",
   category: "data",
   mode: "tool",
   handler: processes.RESHAPE_TOOL,

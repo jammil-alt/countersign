@@ -13,6 +13,7 @@ export default defineConfig({
     "../../packs/materials/src/schema.ts",
     "../../packs/marketing/src/schema.ts",
     "../../packs/bookkeeping/src/schema.ts",
+    "../../packs/sales/src/schema.ts",
   ],
   out: "./migrations",
   dbCredentials: { url: process.env.DIRECT_DATABASE_URL ?? "" },
