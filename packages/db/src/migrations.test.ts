@@ -8,7 +8,7 @@ import { is } from "drizzle-orm";
 import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as schema from "./schema";
-import { OPERATOR_ONLY_TABLES, OPERATOR_TABLES, TENANT_TABLES } from "./schema";
+import { BUILD_FLOWS, OPERATOR_ONLY_TABLES, OPERATOR_TABLES, TENANT_TABLES } from "./schema";
 import {
   createTestDatabase,
   databaseAvailable,
@@ -533,5 +533,17 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       where table_name = 'connection' and column_name = 'permissions'`;
     const json = /^'(.*)'::jsonb$/.exec(row?.d ?? "")?.[1];
     expect(JSON.parse(json ?? "null")).toEqual(DEFAULT_PERMISSIONS);
+  });
+
+  // 0073: a build made by a Worker that doesn't know the column opens on its build page, as before.
+  it("default a build's flow to its build page, and take only the two flows", async () => {
+    const [col] = await t.db.$client<{ d: string; n: string }[]>`
+      select column_default as d, is_nullable as n from information_schema.columns
+      where table_name = 'build' and column_name = 'flow'`;
+    expect(col).toEqual({ d: "'phases'::text", n: "NO" });
+    const [check] = await t.db.$client<{ def: string }[]>`
+      select pg_get_constraintdef(oid) as def from pg_constraint where conname = 'build_flow_check'`;
+    for (const flow of BUILD_FLOWS) expect(check?.def).toContain(`'${flow}'`);
+    expect(BUILD_FLOWS).toEqual(["phases", "describe"]);
   });
 });
