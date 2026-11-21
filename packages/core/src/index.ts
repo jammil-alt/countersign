@@ -78,7 +78,6 @@ export * from "./api/library";
 // v0.12 W1-A: go-live stages and client controls
 export * from "./api/lifecycle";
 export * from "./api/manual";
-export * from "./api/sop";
 export * from "./api/messaging";
 // §1.116: the phone app
 export * from "./api/mobile";
@@ -126,6 +125,7 @@ export * from "./api/skill-model";
 export * from "./api/slack";
 // §1.150
 export * from "./api/sloan-reach";
+export * from "./api/sop";
 export * from "./api/step-code-request";
 export * from "./api/step-data";
 // P-6
@@ -260,8 +260,6 @@ export * from "./lifecycle/pause";
 export * from "./lifecycle/stage";
 // docs/builder-plan.md §5 (B3): the agent manual
 export * from "./manual/manual";
-// docs/sop-plan.md: the agent's SOP, made by code from its setup, and its revisions
-export * from "./sop/index";
 export * from "./mappers/qbo";
 export * from "./mappers/upload";
 // P-8: US texting registration
@@ -332,6 +330,8 @@ export * from "./setup/checklist";
 export * from "./setup/item";
 export * from "./setup/view";
 export * from "./skills/index";
+// docs/sop-plan.md: the agent's SOP, made by code from its setup, and its revisions
+export * from "./sop/index";
 export * from "./supervisor/health";
 // §1.164: reading and writing table files, outside `processes` (kept out of the web first load).
 export * as tableFiles from "./tables";

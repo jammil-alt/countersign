@@ -64,14 +64,15 @@ import { DropZone, Forwarding, RecentDocuments } from "./Upload";
 
 const RUN_POLL_MS = 5_000;
 
-// B3: the Manual tab is its own chunk (with its route's schema), fetched when it opens.
-const AgentManual = lazy(() => import("./AgentManual").then((m) => ({ default: m.AgentManual })));
+// docs/sop-plan.md S1: the SOP tab (in the Manual tab's place) is its own chunk, with its route's
+// schema, fetched when it opens.
+const AgentSop = lazy(() => import("./AgentSop").then((m) => ({ default: m.AgentSop })));
 // B5: what the client may adjust, with its route's schema, fetched with the Settings tab.
 const AdjustSettings = lazy(() =>
   import("./AdjustSettings").then((m) => ({ default: m.AdjustSettings })),
 );
 
-export type AgentTab = "overview" | "runs" | "manual" | "settings";
+export type AgentTab = "overview" | "runs" | "sop" | "settings";
 
 /**
  * The page: its header and tabs draw at once from what the frame's overview already says of the
@@ -175,8 +176,9 @@ export function AgentScreen({ tab: asked = "overview" }: { tab?: AgentTab }) {
         items={[
           { to: PORTAL_PATHS.agent(id), label: t("agent.tab.overview"), end: true },
           { to: PORTAL_PATHS.agentRuns(id), label: t("agent.tab.runs") },
-          // docs/builder-plan.md §5 (B3): the agent's manual, read only, for everyone who sees it.
-          { to: PORTAL_PATHS.agentManual(id), label: t("agent.tab.manual") },
+          // docs/sop-plan.md S1: the agent's SOP, read only, for everyone who sees it; it holds
+          // what the manual did (owner, 2026-11-21: "Rename Manual to SOP").
+          { to: PORTAL_PATHS.agentSop(id), label: t("agent.tab.sop") },
           ...(limited
             ? []
             : [{ to: PORTAL_PATHS.agentSettings(id), label: t("agent.tab.settings") }]),
@@ -187,9 +189,9 @@ export function AgentScreen({ tab: asked = "overview" }: { tab?: AgentTab }) {
         <Loaded state={detail}>{() => null}</Loaded>
       ) : tab === "runs" ? (
         <AgentRuns id={id} />
-      ) : tab === "manual" ? (
+      ) : tab === "sop" ? (
         <Suspense fallback={<SkeletonRows rows={6} columns={1} />}>
-          <AgentManual id={id} isAdmin={isAdmin} />
+          <AgentSop id={id} />
         </Suspense>
       ) : tab === "settings" ? (
         <AgentSettings

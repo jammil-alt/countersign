@@ -5,10 +5,13 @@ queryable SOP that clients can look at, print and share based on the current set
 agent… at the client agent side. Formalize it, including a process, owners, controls, systems,
 data. Plan this and design this before building it."
 
-This page is the plan and the design, agreed before any code. The mock-up is
-[`docs/design/sop.html`](design/sop.html) (open it in a browser; it prints). Nothing here is built
-yet. It is outside ARCHITECTURE v0.20, so it goes into v0.21 as §10.17 once the owner agrees
-(§8 below).
+This page is the plan and the design. The mock-up is [`docs/design/sop.html`](design/sop.html)
+(open it in a browser; it prints). **S0, S1a and S1 are built** (owner, 2026-11-21: "Rename Manual
+to SOP, yes; start building S0 and S1"): ARCHITECTURE v0.21 §10.17 describes them and
+`docs/plan.md` §1.177 records each choice made while building, where some details below changed
+(model names without their maker, a pause or a hold not in the SOP, a connection's errors not a
+change, revisions recorded by `mount()` for the routes listed in `SOP_CHANGE_ROUTES`). What is left
+is in `docs/open.md`, "The agent's SOP".
 
 Last updated 2026-11-21.
 
@@ -188,20 +191,19 @@ Mezonas), `where` (approval rules, connections, the agent's settings, a new vers
 
 ## 7. Questions for the owner
 
-Answered (owner, 2026-11-21): **no open items in an SOP, and no sign-off of revisions.** An SOP
-carries its revision, the revision's date and its history instead (§3, §6). Still open:
+Answered (owner, 2026-11-21): **no open items in an SOP, and no sign-off of revisions**; an SOP
+carries its revision, the revision's date and its history instead (§3, §6). **The tab is "SOP"**, in
+the Manual tab's place. Still open:
 
-1. **The tab's name.** "SOP" in place of "Manual" on the portal's agent page, one document
-   (recommended); or both tabs.
-2. **An accountable person per agent.** A formal SOP names one person who answers for the process.
+1. **An accountable person per agent.** A formal SOP names one person who answers for the process.
    Recommended: the client admin picks one of their own people per agent (a field on the agent row,
    like renaming the area owner: it changes nothing the agent does). Until then it reads the agent's
    approver ("Your admins: Ada Ruiz, Ben Ortiz"). CLAUDE.md says clients never edit agents except to
    rename an owner, so this needs the owner's yes.
-3. **Share links outside the client's team.** Yes or no, the default expiry, and whether names show
+2. **Share links outside the client's team.** Yes or no, the default expiry, and whether names show
    by default. They hold no client records, only the setup, but they are the first client page
    anyone without a sign-in can open.
-4. **The back office.** Show the client's SOP on the agent's page (recommended), and a template's
+3. **The back office.** Show the client's SOP on the agent's page (recommended), and a template's
    sample SOP for sales, with "the person you name" in place of people (later).
 
 ## 8. The build, in streams
@@ -210,9 +212,9 @@ Each ends green (`pnpm check`). Migrations go in their own PR and keep the previ
 
 | Stream | What | Migration |
 |---|---|---|
-| **S0** | Fix: the manual's route on `ASSIGNED_USER_ROUTES`, with a test that a limited client user opens their agent's manual and gets 404 for another's | None |
-| **S1a: revisions' table** | `sop_revision` (§6): tenant, RLS forced, never updated or deleted. Nothing reads or writes it yet, so the Worker before it keeps working. | `sop_revision`, own PR |
-| **S1: the SOP** | ARCHITECTURE v0.21 §10.17 and a `docs/plan.md` §1 entry. Core `sop/`: `SopView` (Zod), `sopView()` and its parts (`sopRoles`, `sopSteps` with each step's method and model, `sopControls`, `sopSystems`, `sopData`, `sopExceptions`), `sopChanges()`, `ruleText` moved from the web into core, `stepDataUse` for v3. The step's `purpose` in core's schemas, the Builder asked to write it (fixtures re-recorded), and a box for it in the builder's step panel. Revisions: `recordSopRevision` at every change site with a test listing them, the hourly check, each agent's first revision. API: `GET /api/services/:id/sop` (portal, on `ASSIGNED_USER_ROUTES`) and `GET /api/ops/agents/:id/sop`, gathering the inputs in one transaction inside `withTenant()`, names resolved within the client. Web: `apps/web/src/sop/` (shared sections, from `ManualSections`), the portal's SOP tab in place of Manual, the revision header and history, find and filter, the print layout. Six languages. Contract tests for both routes. | None beyond S1a |
+| **S0** (built, PR #510) | Fix: the manual's route on `ASSIGNED_USER_ROUTES`, with a test that a limited client user opens their agent's manual and gets 404 for another's | None |
+| **S1a: revisions' table** (built, PR #511) | `sop_revision` (§6): tenant, RLS forced, never updated or deleted. Nothing reads or writes it yet, so the Worker before it keeps working. | `sop_revision`, own PR |
+| **S1: the SOP** (built, PR #508) | ARCHITECTURE v0.21 §10.17 and a `docs/plan.md` §1 entry. Core `sop/`: `SopView` (Zod), `sopView()` and its parts (`sopRoles`, `sopSteps` with each step's method and model, `sopControls`, `sopSystems`, `sopData`, `sopExceptions`), `sopChanges()`, paths in plain words in core (`pathWords`; the builder keeps its `ruleText`), v3 steps read for their tools as v4's are. The step's `purpose` in core's schemas and a box for it in the builder's step panel (the Builder writing it is SOP-B). Revisions: `recordSopRevision` at every change site with a test listing them, the hourly check, each agent's first revision. API: `GET /api/services/:id/sop` (portal, on `ASSIGNED_USER_ROUTES`) and `GET /api/ops/agents/:id/sop`, gathering the inputs in one transaction inside `withTenant()`, names resolved within the client. Web: `apps/web/src/sop/` (shared sections, from `ManualSections`), the portal's SOP tab in place of Manual, the revision header and history, find and filter, the print layout. Six languages. Contract tests for both routes. | None beyond S1a |
 | **S2: ask, across agents** | Sloan's `sop.read` (its fixtures re-recorded). The Procedures page with filters across every agent's SOP. | None |
 | **S3: share, owners, pack controls** | `sop_share` (token hash, revision, expiry, revoked, who made it, names on or off) and its public page, with a security review and a row in `docs/security.md`; the accountable person on the agent row; `SkillDefinition.controls` and the Materials and Bookkeeping packs' controls. Only what the owner agrees in §7. No sign-off of revisions (owner, 2026-11-21). | One per table, own PRs |
 

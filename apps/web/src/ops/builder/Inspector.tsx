@@ -599,6 +599,24 @@ function StepInspector(props: InspectorProps & { step: Step }) {
           onChange={(e) => set("name", (s) => ({ ...s, name: e.target.value }))}
         />
       </Row>
+      {/* docs/sop-plan.md §3: why the step is there, one sentence the client reads in the agent's
+          SOP. Empty removes it, and the SOP writes a plain line from the step instead. */}
+      <Row label="Purpose" field="purpose" errors={fieldErrors}>
+        <SmallInput
+          data-field="purpose"
+          data-testid="builder-inspector-purpose"
+          maxLength={200}
+          placeholder="Why this step is there, in one sentence the client reads in its SOP"
+          value={(step as { purpose?: string }).purpose ?? ""}
+          onChange={(e) => {
+            const purpose = e.target.value;
+            set("purpose", (s) => {
+              const { purpose: _old, ...rest } = s as typeof s & { purpose?: string };
+              return (purpose.trim() ? { ...rest, purpose } : rest) as typeof s;
+            });
+          }}
+        />
+      </Row>
       {connections}
 
       {kindFields}

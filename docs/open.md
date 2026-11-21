@@ -408,18 +408,20 @@ client). Left:
 | F-D | An automation has no Builder chat or Try it of its own, old-format automations don't open in the editor, and renaming an input doesn't rewrite the steps that read it. | Code, if wanted. |
 | F-E | "Ask an agent" and "Report to an agent" from the mock-up need new step kinds. | Not planned. |
 
-### The agent's SOP (owner, 2026-11-21; `docs/sop-plan.md`, mock-up `docs/design/sop.html`)
+### The agent's SOP (owner, 2026-11-21; `docs/sop-plan.md`, `docs/plan.md` §1.177, ARCHITECTURE v0.21 §10.17)
 
-Planned and designed, not built: each client agent's manual grows into a formal SOP made by code from
-its current setup (process, roles, controls, systems, data), clickable, searchable, printable and
-shareable, in the portal. Left:
+Built: S0 (PR #510), the `sop_revision` table (S1a, migration 0074, PR #511) and S1 (PR #508): each
+client agent's SOP in the portal's SOP tab (the Manual tab's place), made by code from its setup,
+with each step's method, model and purpose, its revision, date and history, Find, filters and
+printing. Merge #510 and #511 before #508. Left:
 
 | # | What | Notes |
 |---|---|---|
-| SOP-Q | **The owner's answers** to `docs/sop-plan.md` §7: the tab's name, an accountable person per agent, share links outside the client's team, the back office's view. (Answered 2026-11-21: no open items in an SOP and no sign-off; it carries its revision, date and history; each step shows rules or AI with its model, and its purpose.) | Owner. Then ARCHITECTURE v0.21 §10.17. |
-| SOP-I | Icons for an agent, AI and rules (`mz-agent`, `mz-ai`, `mz-rules`) in the design system's next delivery; the mock-up draws provisional ones. | Owner, with the designer. |
-| SOP-0 | **Bug:** `GET /api/services/:id/manual` is missing from `ASSIGNED_USER_ROUTES`, so a limited client user gets 403 on the Manual tab. | Code, one line and a test, its own PR. |
-| SOP-1 | S1a: the `sop_revision` table. S1: the SOP view in core with each step's method, model and purpose, revisions recorded at every change, its portal and ops routes, the SOP tab with the revision history, Find, filters and the print layout. | Migration first (own PR), then code. |
+| SOP-Q | **The owner's answers** to `docs/sop-plan.md` §7: an accountable person per agent (today: the agent's approver, else the client's admins), share links outside the client's team, the back office's view of the SOP (its route is built; no screen yet). | Owner. |
+| SOP-I | Icons for an agent, AI and rules (`mz-agent`, `mz-ai`, `mz-rules`) in the design system's next delivery; the portal draws provisional ones (`apps/web/src/sop/icons.tsx`). | Owner, with the designer. |
+| SOP-B | The Builder writes each step's purpose when it drafts (today the operator writes it in the step panel, else the SOP writes a plain line). Changes the Builder's requests, so its fixtures are re-recorded with a key (`LLM_MODE=record`). | Code, with a key. |
+| SOP-R | References: the client's own tagged policies by title, the agents it takes over from, its knowledge base; a step's entity-level settings and a person's own "show me first" on its line. | Code. |
+| SOP-T | Try it on staging after the merge: open an agent's SOP, change a connection's permission or the approval rules, and see revision n.1 with what changed and who. | Owner, after deploy. |
 | SOP-2 | S2: Sloan's `sop.read`, the Procedures page. | Code. |
 | SOP-3 | S3: share links, the accountable person, packs' own controls; only what the owner agrees. | Migrations, own PRs; a security review for share links. |
 
