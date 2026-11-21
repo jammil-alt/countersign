@@ -17,7 +17,9 @@
 > portal's SOP tab for a made-up agent: a standard operating procedure made by code from the agent's
 > setup (purpose, scope, roles and who does what by step, how it starts, the procedure, controls,
 > systems, data, exceptions, decisions, measures, references and history), with Find, filters by
-> person or system, and a print layout. Design only; the plan is [`docs/sop-plan.md`](../sop-plan.md).
+> person or system, and a print layout. It has four screens (the SOP tab, Procedures across every agent,
+> reviewing and approving a revision, and a shared link as an auditor sees it); captures of each are in
+> [`screens/sop/`](screens/sop/). Design only; the plan is [`docs/sop-plan.md`](../sop-plan.md).
 
 ## v1 screens (2026-11-03, superseded by the prototype)
 
