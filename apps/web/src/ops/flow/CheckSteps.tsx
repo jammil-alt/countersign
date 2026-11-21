@@ -78,7 +78,7 @@ import {
 } from "./DescribeScreen";
 import type { Process, Step } from "./types";
 
-/** The route's screen: `/ops/builds/:id/check`, with the words Describe passed in its state. */
+/** The route's screen: `/ops/lab/check/:id`, with the words Describe passed in its state. */
 export function CheckStepsScreen() {
   const { id = "" } = useParams();
   const location = useLocation();

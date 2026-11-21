@@ -21,7 +21,7 @@ function renderDescribe(api: ReturnType<typeof fakeApi>, props: Partial<Describe
       <ApiProvider client={api.client}>
         <Routes>
           <Route path="/ops/lab" element={<DescribeScreen kind="template" {...props} />} />
-          <Route path="/ops/builds/:id/check" element={<Check />} />
+          <Route path="/ops/lab/check/:id" element={<Check />} />
         </Routes>
       </ApiProvider>
     </MemoryRouter>,
