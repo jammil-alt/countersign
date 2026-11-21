@@ -372,19 +372,20 @@
           <div class="card role"><h3>Builds and changes it <span class="chip chip--team">Mezonas</span></h3><p class="small muted">Changes to the steps are made by us and recorded as a new revision. You can adjust the settings in 10.3 yourself.</p></div>
         </div>
 
-        <h3 style="margin-bottom:var(--space-2)">Who does what, by step</h3>
+        <h3 style="margin-bottom:var(--space-1)">Who else takes part, by step</h3>
+        <p class="small muted" style="margin-bottom:var(--space-2)">Bills in does every step except 5.1. This shows who checks, approves, does or is told besides it.</p>
         <div class="tbl-wrap">
           <table class="matrix">
-            <thead><tr><th>Step</th><th><i class="ic ic-agent"></i>Bills in</th><th><i class="ic ic-agent"></i>Pia</th><th><i class="ic ic-person"></i>Ben Ortiz</th><th><i class="ic ic-person"></i>Ada Ruiz</th><th><i class="ic ic-person"></i>Cara Lin</th><th><i class="ic ic-person"></i>Sam Patel</th></tr></thead>
+            <thead><tr><th>Step</th><th><i class="ic ic-agent"></i>Pia</th><th><i class="ic ic-person"></i>Ben Ortiz</th><th><i class="ic ic-person"></i>Ada Ruiz</th><th><i class="ic ic-person"></i>Cara Lin</th><th><i class="ic ic-person"></i>Sam Patel</th></tr></thead>
             <tbody>
-              <tr><td><a href="#step-1">1 Read the bill</a></td><td><span class="cell cell--does">Does</span></td><td><span class="cell cell--checks">Checks</span></td><td></td><td></td><td></td><td></td></tr>
-              <tr><td><a href="#step-2">2 Find the vendor</a></td><td><span class="cell cell--does">Does</span></td><td><span class="cell cell--checks">Checks</span></td><td></td><td></td><td></td><td></td></tr>
-              <tr><td><a href="#step-3">3 Match each line</a></td><td><span class="cell cell--does">Does</span></td><td><span class="cell cell--checks">Checks</span></td><td></td><td></td><td></td><td></td></tr>
-              <tr><td><a href="#step-4">4 Check prices</a></td><td><span class="cell cell--does">Does</span></td><td><span class="cell cell--checks">Checks</span></td><td></td><td></td><td></td><td></td></tr>
-              <tr><td><a href="#step-5-1">5.1 Review the alert</a></td><td></td><td></td><td></td><td></td><td><span class="cell cell--does">Does</span></td><td><span class="cell cell--told">Told</span></td></tr>
-              <tr><td><a href="#step-6">6 Create the bill</a></td><td><span class="cell cell--does">Does</span></td><td><span class="cell cell--checks">Checks</span></td><td><span class="cell cell--approves">Approves</span></td><td><span class="cell cell--approves">Over $5,000</span></td><td></td><td><span class="cell cell--told">Told</span></td></tr>
-              <tr><td><a href="#step-7">7 Attach the PDF</a></td><td><span class="cell cell--does">Does</span></td><td><span class="cell cell--checks">Checks</span></td><td></td><td></td><td></td><td></td></tr>
-              <tr><td><a href="#step-8">8 Tell the team</a></td><td><span class="cell cell--does">Does</span></td><td></td><td><span class="cell cell--told">Told</span></td><td></td><td><span class="cell cell--told">Told</span></td><td></td></tr>
+              <tr><td><a href="#step-1">1 Read the bill</a></td><td><span class="cell cell--checks">Checks</span></td><td></td><td></td><td></td><td></td></tr>
+              <tr><td><a href="#step-2">2 Find the vendor</a></td><td><span class="cell cell--checks">Checks</span></td><td></td><td></td><td></td><td></td></tr>
+              <tr><td><a href="#step-3">3 Match each line</a></td><td><span class="cell cell--checks">Checks</span></td><td></td><td></td><td></td><td></td></tr>
+              <tr><td><a href="#step-4">4 Check prices</a></td><td><span class="cell cell--checks">Checks</span></td><td></td><td></td><td></td><td></td></tr>
+              <tr><td><a href="#step-5-1">5.1 Review the alert</a></td><td></td><td></td><td></td><td><span class="cell cell--does">Does</span></td><td><span class="cell cell--told">Told</span></td></tr>
+              <tr><td><a href="#step-6">6 Create the bill</a></td><td><span class="cell cell--checks">Checks</span></td><td><span class="cell cell--approves">Approves</span></td><td><span class="cell cell--approves">Over $5,000</span></td><td></td><td><span class="cell cell--told">Told</span></td></tr>
+              <tr><td><a href="#step-7">7 Attach the PDF</a></td><td><span class="cell cell--checks">Checks</span></td><td></td><td></td><td></td><td></td></tr>
+              <tr><td><a href="#step-8">8 Tell the team</a></td><td></td><td><span class="cell cell--told">Told</span></td><td></td><td><span class="cell cell--told">Told</span></td><td></td></tr>
             </tbody>
           </table>
         </div>
@@ -410,11 +411,11 @@
           <span><i class="ic ic-ai"></i>AI: a model works it out; the model is named</span>
         </div>
         <div class="card proc">
-          <div class="proc-sum searchable">Starts when a bill arrives at <span class="mono">bills-harbor@in.mezonas.com</span> or someone uploads one. 9 steps: 6 by rules, 1 by AI, 1 by rules then AI, 1 by a person. Every write to QuickBooks is made by rules. <span class="chip chip--sm chip--agent" data-person="pia">Pia</span> reviews failed steps and steps that lead to a change, on AI (Claude Opus 5.5).</div>
+          <div class="proc-sum searchable">Starts when a bill arrives at <span class="mono">bills-harbor@in.mezonas.com</span> or someone uploads one. <span class="chip chip--sm chip--agent" data-person="agent">Bills in</span> does every step unless one names a person or another agent. 9 steps: 6 by rules, 1 by AI, 1 by rules then AI, 1 by a person. Every write to QuickBooks is made by rules. <span class="chip chip--sm chip--agent" data-person="pia">Pia</span> reviews failed steps and steps that lead to a change, on AI (Claude Opus 5.5).</div>
           <div class="ps searchable" id="step-1" data-people="agent pia" data-systems="email mezonas">
             <span class="ps-n">1</span>
             <div>
-              <div class="ps-head"><span class="ps-name">Read the bill</span><span class="method method--ai"><i class="ic ic-ai"></i>AI <span class="model">Claude Sonnet 5.5</span></span><span class="chip chip--sm chip--agent" data-person="agent">Bills in</span></div>
+              <div class="ps-head"><span class="ps-name">Read the bill</span><span class="method method--ai"><i class="ic ic-ai"></i>AI <span class="model">Claude Sonnet 5.5</span></span></div>
               <p class="ps-why">Turns the PDF into vendor, date, lines and totals, so every later step works from the same figures.</p>
               <div class="ps-facts"><span class="chip chip--sm chip--system" data-system="email">Email forwarding</span> <span class="sep">·</span> Saves <a href="#data-d1">bills</a> <span class="sep">·</span> Controls <a href="#control-c8">C8</a> <a href="#control-c10">C10</a> <span class="sep">·</span> If it fails: Pia tries once more, then Ben is told<span class="ps-act"><a href="#">Ask about this</a><a href="#">This is wrong</a></span></div>
             </div>
@@ -422,7 +423,7 @@
           <div class="ps searchable" id="step-2" data-people="agent pia" data-systems="qbo">
             <span class="ps-n">2</span>
             <div>
-              <div class="ps-head"><span class="ps-name">Find the vendor</span><span class="method"><i class="ic ic-rules"></i>Rules</span><span class="chip chip--sm chip--agent" data-person="agent">Bills in</span></div>
+              <div class="ps-head"><span class="ps-name">Find the vendor</span><span class="method"><i class="ic ic-rules"></i>Rules</span></div>
               <p class="ps-why">Looks the vendor up in QuickBooks by name and tax ID, so the bill goes to the right vendor and never makes a duplicate.</p>
               <div class="ps-facts"><span class="chip chip--sm chip--system" data-system="qbo">QuickBooks Online</span> <span class="sep">·</span> <b>Read: On its own</b> <span class="sep">·</span> Reads <a href="#data-d2">vendors</a> <span class="sep">·</span> Controls <a href="#control-c3">C3</a> <a href="#control-c8">C8</a><span class="ps-act"><a href="#">Ask about this</a><a href="#">This is wrong</a></span></div>
             </div>
@@ -430,7 +431,7 @@
           <div class="ps searchable" id="step-3" data-people="agent pia" data-systems="mezonas">
             <span class="ps-n">3</span>
             <div>
-              <div class="ps-head"><span class="ps-name">Match each line to your catalog</span><span class="method method--ai"><i class="ic ic-rules"></i>Rules, then <i class="ic ic-ai"></i>AI <span class="model">Claude Haiku 5.5</span></span><span class="chip chip--sm chip--agent" data-person="agent">Bills in</span></div>
+              <div class="ps-head"><span class="ps-name">Match each line to your catalog</span><span class="method method--ai"><i class="ic ic-rules"></i>Rules, then <i class="ic ic-ai"></i>AI <span class="model">Claude Haiku 5.5</span></span></div>
               <p class="ps-why">Places each line on one of your catalog items by fixed rules; only the lines the rules can't place go to AI, so prices are compared like for like.</p>
               <div class="ps-facts"><span class="chip chip--sm chip--system" data-system="mezonas">Your Purchasing records</span> <span class="sep">·</span> Reads and saves <a href="#data-d3">catalog matches</a> <span class="sep">·</span> Controls <a href="#control-c8">C8</a> <a href="#control-c9">C9</a><span class="ps-act"><a href="#">Ask about this</a><a href="#">This is wrong</a></span></div>
             </div>
@@ -438,7 +439,7 @@
           <div class="ps searchable" id="step-4" data-people="agent pia" data-systems="mezonas">
             <span class="ps-n">4</span>
             <div>
-              <div class="ps-head"><span class="ps-name">Check prices against the contract</span><span class="method"><i class="ic ic-rules"></i>Rules</span><span class="chip chip--sm chip--agent" data-person="agent">Bills in</span></div>
+              <div class="ps-head"><span class="ps-name">Check prices against the contract</span><span class="method"><i class="ic ic-rules"></i>Rules</span></div>
               <p class="ps-why">Compares each price with the vendor's contract and raises an alert when it is more than 3% over, so an overcharge is caught before the bill goes in.</p>
               <div class="ps-facts"><span class="chip chip--sm chip--system" data-system="mezonas">Your Purchasing records</span> <span class="sep">·</span> Saves <a href="#data-d4">prices and alerts</a> <span class="sep">·</span> Tolerance 3% (<a href="#s10">10.3</a>) <span class="sep">·</span> Controls <a href="#control-c8">C8</a><span class="ps-act"><a href="#">Ask about this</a><a href="#">This is wrong</a></span></div>
             </div>
@@ -446,7 +447,7 @@
           <div class="ps searchable" id="step-5" data-people="agent" data-systems="">
             <span class="ps-n">5</span>
             <div>
-              <div class="ps-head"><span class="ps-name">Does a person need to look first?</span><span class="method"><i class="ic ic-rules"></i>Rules</span><span class="chip chip--sm chip--agent" data-person="agent">Bills in</span></div>
+              <div class="ps-head"><span class="ps-name">Does a person need to look first?</span><span class="method"><i class="ic ic-rules"></i>Rules</span></div>
               <p class="ps-why">Sends a bill with a price alert or from a new vendor to a person before anything is written to QuickBooks.</p>
               <div class="ps-facts">Controls <a href="#control-c6">C6</a><span class="ps-act"><a href="#">Ask about this</a><a href="#">This is wrong</a></span></div>
             </div>
@@ -455,16 +456,16 @@
           <div class="ps searchable nested" id="step-5-1" data-people="cara sam" data-systems="">
             <span class="ps-n">5.1</span>
             <div>
-              <div class="ps-head"><span class="ps-name">Review the price alert</span><span class="method method--person"><i class="ic ic-person"></i>A person</span><span class="chip chip--sm chip--person" data-person="cara">Cara Lin</span></div>
+              <div class="ps-head"><span class="ps-name">Review the price alert</span><span class="chip chip--person" data-person="cara">Cara Lin</span></div>
               <p class="ps-why">Cara decides whether a flagged bill goes ahead or stops.</p>
-              <div class="ps-facts">Within 1 business day; a reminder after 4 hours, then <span class="chip chip--sm chip--person" data-person="sam">Sam Patel</span> is told <span class="sep">·</span> If stopped: nothing goes into QuickBooks <span class="sep">·</span> Controls <a href="#control-c7">C7</a><span class="ps-act"><a href="#">Ask about this</a><a href="#">This is wrong</a></span></div>
+              <div class="ps-facts">Within 1 business day; a reminder after 4 hours, then <span class="chip chip--sm chip--person" data-person="sam">Sam Patel</span> is told <span class="sep">·</span> If stopped: nothing goes into QuickBooks, and <span class="chip chip--sm chip--agent">Vendor follow-ups</span> takes it up with the vendor <span class="sep">·</span> Controls <a href="#control-c7">C7</a><span class="ps-act"><a href="#">Ask about this</a><a href="#">This is wrong</a></span></div>
             </div>
           </div>
           <div class="ps-path searchable"><b>Otherwise</b> straight to 6</div>
           <div class="ps searchable" id="step-6" data-people="agent pia ben ada sam" data-systems="qbo">
             <span class="ps-n">6</span>
             <div>
-              <div class="ps-head"><span class="ps-name">Create the bill in QuickBooks</span><span class="method"><i class="ic ic-rules"></i>Rules</span><span class="chip chip--sm chip--agent" data-person="agent">Bills in</span></div>
+              <div class="ps-head"><span class="ps-name">Create the bill in QuickBooks</span><span class="method"><i class="ic ic-rules"></i>Rules</span></div>
               <p class="ps-why">Writes the bill into QuickBooks exactly as it was approved. No AI takes part in the write.</p>
               <div class="ps-facts">Approves <span class="chip chip--sm chip--person" data-person="ben">Ben Ortiz</span> up to $5,000, <span class="chip chip--sm chip--person" data-person="ada">Ada Ruiz</span> over <span class="sep">·</span> within 2 business days, then <span class="chip chip--sm chip--person" data-person="sam">Sam Patel</span> is told <span class="sep">·</span> <span class="chip chip--sm chip--system" data-system="qbo">QuickBooks Online</span> <span class="sep">·</span> <b>Create: Ask me first</b> <span class="sep">·</span> Creates <a href="#data-d5">bills</a> <span class="sep">·</span> Controls <a href="#control-c1">C1</a> <a href="#control-c2">C2</a> <a href="#control-c3">C3</a> <a href="#control-c5">C5</a> <a href="#control-c7">C7</a> <span class="sep">·</span> If rejected: not created, and Cara is told why<span class="ps-act"><a href="#">Ask about this</a><a href="#">This is wrong</a></span></div>
             </div>
@@ -472,7 +473,7 @@
           <div class="ps searchable" id="step-7" data-people="agent pia" data-systems="qbo">
             <span class="ps-n">7</span>
             <div>
-              <div class="ps-head"><span class="ps-name">Attach the PDF to the bill</span><span class="method"><i class="ic ic-rules"></i>Rules</span><span class="chip chip--sm chip--agent" data-person="agent">Bills in</span></div>
+              <div class="ps-head"><span class="ps-name">Attach the PDF to the bill</span><span class="method"><i class="ic ic-rules"></i>Rules</span></div>
               <p class="ps-why">Keeps the original bill with its QuickBooks record, so anyone can check it later.</p>
               <div class="ps-facts"><span class="chip chip--sm chip--system" data-system="qbo">QuickBooks Online</span> <span class="sep">·</span> <b>Update: On its own</b> (since <a href="#s13">6.1</a>) <span class="sep">·</span> Controls <a href="#control-c3">C3</a> <a href="#control-c5">C5</a><span class="ps-act"><a href="#">Ask about this</a><a href="#">This is wrong</a></span></div>
             </div>
@@ -480,7 +481,7 @@
           <div class="ps searchable" id="step-8" data-people="agent ben cara" data-systems="">
             <span class="ps-n">8</span>
             <div>
-              <div class="ps-head"><span class="ps-name">Tell the team</span><span class="method"><i class="ic ic-rules"></i>Rules</span><span class="chip chip--sm chip--agent" data-person="agent">Bills in</span></div>
+              <div class="ps-head"><span class="ps-name">Tell the team</span><span class="method"><i class="ic ic-rules"></i>Rules</span></div>
               <p class="ps-why">Lets Ben and Cara see each bill that went in.</p>
               <div class="ps-facts">Told <span class="chip chip--sm chip--person" data-person="ben">Ben Ortiz</span> <span class="chip chip--sm chip--person" data-person="cara">Cara Lin</span> <span class="sep">·</span> In Mezonas and by email<span class="ps-act"><a href="#">Ask about this</a><a href="#">This is wrong</a></span></div>
             </div>
