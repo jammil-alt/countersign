@@ -404,7 +404,6 @@ client). Left:
 | # | What | Notes |
 |---|---|---|
 | F-A | **Try it on staging**: a new template from the lab (Describe, Check, Build it), a try, Turn on at a test client; then a client's agent customized and its template updated. Tweak from there (owner: "we can tweak it once we are testing"). | Owner, after merge. |
-| F-B | **Owner:** a trial whose client hasn't connected a tool yet doesn't start; Turn on says so and waits. The mock-up says "a step that needs it waits", which would change the activation check. | Owner decision. |
 | F-C | Draft-now's gaps find their step by a word match; the drafter should name the step. | Code, `packages/agents`. |
 | F-D | An automation has no Builder chat or Try it of its own, old-format automations don't open in the editor, and renaming an input doesn't rewrite the steps that read it. | Code, if wanted. |
 | F-E | "Ask an agent" and "Report to an agent" from the mock-up need new step kinds. | Not planned. |
