@@ -2,7 +2,8 @@
 // with the Builder. F6 (docs/builder-plan.md §12.3): it sits under the step's setup in the side
 // panel, its message box alone until it is given more room; the whole-flow Builder's turns name no
 // step. With room, each turn carries the step that is open, the change shows in the setup at once
-// and undoes on its own, and previous and next move the conversation from step to step.
+// and undoes on its own, and previous and next move the conversation from step to step, where
+// what was said about another step is a folded thread.
 import { AnyAgentBundle, type AnyAgentBundleInput, type BuilderCatalog } from "@countersign/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -150,6 +151,7 @@ const change = {
 
 function setup() {
   const bodies: { path: string; body: Record<string, unknown> }[] = [];
+  let asked: ReturnType<typeof turn> | null = null;
   const api = fakeApi({
     [`GET /api/ops/agents/${AGENT_ID}/builder-catalog`]: () => CATALOG,
     [`GET /api/ops/clients/${CLIENT_ID}/handoff-agents`]: () => ({ agents: [] }),
@@ -168,13 +170,23 @@ function setup() {
         text: body.text,
         ...(body.focusStepId ? { focus: { stepId: body.focusStepId, name: "Tell" } } : {}),
       });
+      asked = operator;
       const answer = turn({ changes: [change] });
       return { ...detail(AnyAgentBundle.parse(RENAMED), [operator, answer]), turn: answer };
     },
     [`POST /api/ops/builder/sessions/${SESSION}/undo`]: ({ init }) => {
       bodies.push({ path: "undo", body: JSON.parse(String(init.body)) });
       const undone = turn({ changes: [{ ...change, undone: true }] });
-      return { ...detail(AnyAgentBundle.parse(BUNDLE), [undone]), turn: undone };
+      // As the API answers: the whole conversation, with the undo as a turn of its own.
+      const undo = turn({
+        id: "00000000-0000-4000-8000-0000000c6103",
+        seq: 3,
+        role: "operator",
+        text: "Undo: ~ step “Say hello”",
+        command: "/undo",
+        changes: [{ ...change, undone: false, undoes: { turnId: TURN, changeId: change.id } }],
+      });
+      return { ...detail(AnyAgentBundle.parse(BUNDLE), [asked, undone, undo]), turn: undo };
     },
   });
   const bundle = AnyAgentBundle.parse(BUNDLE);
@@ -260,7 +272,12 @@ describe("working on steps with the Builder", () => {
     await waitFor(() =>
       expect(bodies[0]?.body).toEqual({ text: "Say hello instead", focusStepId: "tell" }),
     );
-    expect(await within(chat).findByTestId("builder-turn-1-focus")).toHaveTextContent("On “Tell”");
+    // This step's thread is open, so the turn needs no "On Tell" over it.
+    expect(await within(chat).findByTestId("builder-turn-1")).toHaveTextContent(
+      "Say hello instead",
+    );
+    expect(within(chat).queryByTestId("builder-turn-1-focus")).toBeNull();
+    expect(within(chat).queryByTestId("builder-thread")).toBeNull();
     await user.click(screen.getByTestId("flow-panel-builder-beside"));
     await waitFor(() => expect(nameField().value).toBe("Say hello"));
 
@@ -269,10 +286,19 @@ describe("working on steps with the Builder", () => {
     await waitFor(() => expect(nameField().value).toBe("Tell"));
     expect(bodies[1]).toEqual({ path: "undo", body: { turnId: TURN, changeId: "step:tell" } });
 
-    // Next, in the Builder's head, moves the conversation and the setup to the next step, in the
-    // same size.
+    // Next, at the foot of the panel, moves the conversation and the setup to the next step, in
+    // the same size.
     await user.click(screen.getByTestId("flow-panel-builder-next"));
     expect(screen.getByTestId("builder-step-chat")).toHaveAttribute("data-step", "wrap");
+    // What was said about the step before is a folded thread with its name, opened by a click.
+    const thread = within(screen.getByTestId("builder-step-chat")).getByTestId("builder-thread");
+    expect(thread).toHaveAttribute("data-step", "tell");
+    expect(thread).toHaveAttribute("data-open", "false");
+    expect(within(thread).getByTestId("builder-thread-toggle")).toHaveTextContent("On “Tell”");
+    expect(within(thread).queryByTestId("builder-turn-1")).toBeNull();
+    expect(screen.getByTestId("builder-step-chat-empty")).toBeInTheDocument();
+    await user.click(within(thread).getByTestId("builder-thread-toggle"));
+    expect(within(thread).getByTestId("builder-turn-1")).toHaveTextContent("Say hello instead");
     expect(nameField().value).toBe("Wrap up");
     expect(screen.getByTestId("flow-panel")).toHaveAttribute("data-builder-size", "beside");
     expect(screen.getByTestId("flow-panel-builder-next")).toBeDisabled();

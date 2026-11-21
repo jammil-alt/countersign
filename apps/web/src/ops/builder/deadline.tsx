@@ -5,9 +5,11 @@
 // and who is told when it passes. Going ahead on a write's approval is loosening (invariant 8):
 // it is offered only where the operator may loosen, with the reason when not.
 import type { processes } from "@countersign/core";
-import { useState } from "react";
-import { type FieldErrors, Row, SmallInput, SmallSelect } from "./fields";
+import { DurationPicker, RemindersPicker } from "./duration";
+import { type FieldErrors, Row, SmallSelect } from "./fields";
 import { type People, PeopleList, PersonPicker } from "./people";
+
+export { ListInput } from "./duration";
 
 type Deadline = processes.Deadline;
 type DeadlineThen = processes.DeadlineThen;
@@ -26,51 +28,6 @@ const THEN_LABEL: Record<"stop" | "proceed" | "skip" | "escalate", string> = {
 
 function thenKind(then: DeadlineThen): keyof typeof THEN_LABEL {
   return typeof then === "object" ? "escalate" : then;
-}
-
-/** A list typed as "1 day, 2 days". */
-function listOf(text: string): string[] {
-  return text
-    .split(",")
-    .map((x) => x.trim())
-    .filter(Boolean);
-}
-
-/**
- * A comma-separated list as it is typed: the text is kept while it is written ("1 hour, " is on
- * its way to a second item) and the list goes on at every change; an outside change (undo) shows.
- */
-export function ListInput({
-  value,
-  onChange,
-  field,
-  testId,
-}: {
-  value: readonly string[];
-  onChange(value: string[]): void;
-  field: string;
-  testId: string;
-}) {
-  const shown = value.join(", ");
-  const [text, setText] = useState(shown);
-  const [last, setLast] = useState(shown);
-  if (shown !== last) {
-    setLast(shown);
-    if (listOf(text).join(", ") !== shown) setText(shown);
-  }
-  return (
-    <SmallInput
-      data-field={field}
-      data-testid={testId}
-      value={text}
-      onChange={(e) => {
-        setText(e.target.value);
-        const next = listOf(e.target.value);
-        setLast(next.join(", "));
-        onChange(next);
-      }}
-    />
-  );
 }
 
 export interface ThenProps {
@@ -200,54 +157,48 @@ export function DeadlineEditor(props: DeadlineProps) {
   const set = (patch: Partial<Deadline>, key: string) => onChange({ ...value, ...patch }, key);
   return (
     <div className="flex flex-col gap-3" data-testid={testId}>
-      <div className="grid grid-cols-2 gap-3">
-        <Row
-          label={props.afterLabel ?? "Waits up to"}
-          field={`${prefix}.after`}
-          errors={errors}
-          hint='e.g. "30 minutes" or "2 days"'
-        >
-          <SmallInput
-            data-field={`${prefix}.after`}
-            data-testid={`${testId}-after`}
-            value={value.after}
-            onChange={(e) => set({ after: e.target.value }, `${prefix}.after`)}
-          />
-        </Row>
-        <Row label="Counted in" field={`${prefix}.hours`} errors={errors}>
-          <SmallSelect
-            data-field={`${prefix}.hours`}
-            data-testid={`${testId}-hours`}
-            value={value.hours}
-            onChange={(e) => set({ hours: e.target.value as Deadline["hours"] }, `${prefix}.hours`)}
-          >
-            <option value="clock">Clock time</option>
-            <option value="business">Their business hours</option>
-          </SmallSelect>
-        </Row>
-      </div>
+      <DurationPicker
+        label={props.afterLabel ?? "Waits up to"}
+        field={`${prefix}.after`}
+        testId={`${testId}-after`}
+        errors={errors}
+        value={value.after}
+        business={value.hours === "business"}
+        onChange={(after) => set({ after }, `${prefix}.after`)}
+        beside={
+          <Row label="Counted in" field={`${prefix}.hours`} errors={errors}>
+            <SmallSelect
+              data-field={`${prefix}.hours`}
+              data-testid={`${testId}-hours`}
+              value={value.hours}
+              onChange={(e) =>
+                set({ hours: e.target.value as Deadline["hours"] }, `${prefix}.hours`)
+              }
+            >
+              <option value="clock">Clock time</option>
+              <option value="business">Their business hours</option>
+            </SmallSelect>
+          </Row>
+        }
+      />
       {value.hours === "business" ? (
         <p className="text-xs text-ink-muted" data-testid={`${testId}-business`}>
           Counts only while the person asked is working: their own hours, else the client's. Someone
           away is skipped at once.
         </p>
       ) : null}
-      <Row
-        label="Remind them after"
+      <RemindersPicker
         field={`${prefix}.remind`}
+        testId={`${testId}-remind`}
         errors={errors}
-        hint='Up to five, e.g. "1 hour, 4 hours". Empty: no reminders.'
-      >
-        <ListInput
-          field={`${prefix}.remind`}
-          testId={`${testId}-remind`}
-          value={value.remind ?? []}
-          onChange={(remind) => {
-            const { remind: _r, ...rest } = value;
-            onChange(remind.length ? { ...rest, remind } : rest, `${prefix}.remind`);
-          }}
-        />
-      </Row>
+        value={value.remind}
+        business={value.hours === "business"}
+        after={value.after}
+        onChange={(remind) => {
+          const { remind: _r, ...rest } = value;
+          onChange(remind.length ? { ...rest, remind } : rest, `${prefix}.remind`);
+        }}
+      />
       <ThenSelect
         value={value.ifNoAnswer}
         onChange={(ifNoAnswer, key) => set({ ifNoAnswer }, key)}

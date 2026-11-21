@@ -248,6 +248,52 @@ describe("nextSchedules", () => {
 describe("dueSchedules", () => {
   const nine = { type: "schedule", cron: "0 9 * * *" };
 
+  // Owner, 2026-11-21 (docs/plan.md §1.177): "every other Monday", "the first Monday of the month".
+  it("runs every other week only in its weeks, in the schedule's zone", async () => {
+    const on = {
+      type: "schedule",
+      cron: "0 9 * * 1",
+      tz: "America/Chicago",
+      every: { weeks: 2, from: "2026-11-22" },
+    };
+    const a = agent({ liveBundle: bundle([{ slug: "fortnight", on }]) });
+    const due = async (from: string, to: string) =>
+      (
+        await dueSchedules({ agents: [a], timezones: {}, from: new Date(from), to: new Date(to) })
+      ).runs.map((r) => (r.payload as { scheduledAt: string }).scheduledAt);
+    // Monday 23 Nov is in the first week; the 30th is skipped; 7 Dec runs.
+    expect(await due("2026-11-23T14:59:00Z", "2026-11-23T15:00:00Z")).toEqual([
+      "2026-11-23T15:00:00.000Z",
+    ]);
+    expect(await due("2026-11-30T14:59:00Z", "2026-11-30T15:00:00Z")).toEqual([]);
+    expect(await due("2026-12-07T14:59:00Z", "2026-12-07T15:00:00Z")).toEqual([
+      "2026-12-07T15:00:00.000Z",
+    ]);
+    // What it says comes next is the same: from the 24th, the next run is 7 Dec, not the 30th.
+    const next = nextSchedules({
+      agents: [a],
+      timezones: {},
+      from: new Date("2026-11-24T00:00:00Z"),
+      horizonMs: 30 * 86_400_000,
+    });
+    expect(next.get(a.id)?.toISOString()).toBe("2026-12-07T15:00:00.000Z");
+  });
+
+  it("runs on the first Monday of the month", async () => {
+    const on = { type: "schedule", cron: "0 9 * * 1#1", tz: "UTC" };
+    const a = agent({ liveBundle: bundle([{ slug: "monthly", on }]) });
+    const r = await dueSchedules({
+      agents: [a],
+      timezones: {},
+      from: new Date("2026-11-21T00:00:00Z"),
+      to: new Date("2026-12-31T00:00:00Z"),
+      maxPerTrigger: 5,
+    });
+    expect(r.runs.map((x) => (x.payload as { scheduledAt: string }).scheduledAt)).toEqual([
+      "2026-12-07T09:00:00.000Z",
+    ]);
+  });
+
   it("fires in the client's timezone", async () => {
     const a = agent({ liveBundle: bundle([{ slug: "daily", on: nine }]) });
     const timezones = { [CLIENT_A]: "America/New_York" };

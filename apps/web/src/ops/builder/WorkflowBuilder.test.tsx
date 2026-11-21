@@ -1876,9 +1876,7 @@ describe("WorkflowBuilder on processes", () => {
     await user.type(screen.getByTestId("builder-confer-0-focus"), "Do the amounts match?");
     await user.click(screen.getByTestId("builder-confer-add-person"));
     await user.selectOptions(screen.getByTestId("builder-confer-1-person"), "lead");
-    const after = screen.getByTestId("builder-confer-1-deadline-after");
-    await user.clear(after);
-    await user.type(after, "4 hours");
+    await user.selectOptions(screen.getByTestId("builder-confer-1-deadline-after"), "4 hours");
     await user.selectOptions(screen.getByTestId("builder-confer-1-deadline-hours"), "business");
     expect(screen.getByTestId("builder-confer-1-deadline-business")).toHaveTextContent(
       "Counts only while the person asked is working",
@@ -2022,9 +2020,7 @@ describe("WorkflowBuilder on processes", () => {
     await user.type(screen.getByTestId("builder-notify-0-message"), "The bill changed");
     await user.selectOptions(screen.getByTestId("builder-notify-0-to-add"), "lead");
     await user.click(screen.getByTestId("builder-notify-0-urgent"));
-    const ack = screen.getByTestId("builder-notify-0-ack");
-    await user.clear(ack);
-    await user.type(ack, "15 minutes");
+    await user.selectOptions(screen.getByTestId("builder-notify-0-ack"), "15 minutes");
     expect(screen.getByTestId("flow-box-update")).toHaveTextContent("Urgent notice");
     await save(user, sent);
     expect(savedStep(sent, "update")?.checks?.notify).toEqual([
@@ -2042,6 +2038,8 @@ describe("WorkflowBuilder on processes", () => {
     const user = userEvent.setup();
     await select(user, "ask");
     await user.selectOptions(screen.getByTestId("builder-person-deadline-hours"), "business");
+    // Reminders that aren't evenly apart are written out.
+    await user.selectOptions(screen.getByTestId("builder-person-deadline-remind-times"), "set");
     await user.type(screen.getByTestId("builder-person-deadline-remind"), "1 hour, 4 hours");
     await user.selectOptions(screen.getByTestId("builder-person-deadline-then"), "skip");
     await user.selectOptions(screen.getByTestId("builder-person-deadline-tell-add"), "operator");
@@ -2057,6 +2055,35 @@ describe("WorkflowBuilder on processes", () => {
         ifNoAnswer: "skip",
         tell: ["operator"],
       },
+    });
+  });
+
+  // Owner, 2026-11-21 (docs/plan.md §1.177): "a time picker not an open field… custom should have
+  // weeks, days, hours, minutes… how many times to remind them".
+  it("picks a wait and its reminders: a common time, a custom one, so many times so far apart", async () => {
+    const { sent } = setup();
+    const user = userEvent.setup();
+    await select(user, "ask");
+    const after = screen.getByTestId("builder-person-deadline-after");
+    // The stored "2 days" is one of the common times.
+    expect(after).toHaveValue("2 days");
+    expect(screen.queryByTestId("builder-person-deadline-after-custom")).toBeNull();
+    await user.selectOptions(after, "custom");
+    await user.clear(screen.getByTestId("builder-person-deadline-after-days"));
+    await user.type(screen.getByTestId("builder-person-deadline-after-days"), "1");
+    await user.type(screen.getByTestId("builder-person-deadline-after-hours"), "12");
+    // Five reminders, one every 30 minutes; then three, an hour apart.
+    const times = screen.getByTestId("builder-person-deadline-remind-times");
+    expect(times).toHaveValue("none");
+    await user.selectOptions(times, "5");
+    expect(screen.getByTestId("builder-person-deadline-remind-words")).toHaveTextContent(
+      "Reminds them 5 times, every 30 minutes: the last 2 hours 30 minutes after asking.",
+    );
+    await user.selectOptions(times, "3");
+    await user.selectOptions(screen.getByTestId("builder-person-deadline-remind-every"), "1 hour");
+    await save(user, sent);
+    expect(savedStep(sent, "ask")).toMatchObject({
+      deadline: { after: "36 hours", remind: ["1 hour", "2 hours", "3 hours"] },
     });
   });
 
