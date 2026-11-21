@@ -53,6 +53,7 @@
   color-scheme:dark}
 
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{margin:0;background:var(--paper);color:var(--ink);font:400 14px/20px var(--font-sans);-webkit-font-smoothing:antialiased}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:40;background:var(--surface)}
 button{font:inherit;color:inherit;cursor:pointer}
@@ -193,101 +194,81 @@ body.has-sheet .zoomer{right:calc(var(--sheet-w) + 16px)}
 @keyframes pulse{50%{opacity:.25}}
 .filechip{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--surface);font:500 12px/16px var(--font-mono)}
 
-/* Flow */
-.flow{display:flex;flex-direction:column;align-items:center;min-height:8px}
-.flow>*{width:100%;flex:none}
-.lane>.flow{flex:1 1 auto;padding:10px 10px 4px}
-.lane__empty{display:flex;align-items:center;justify-content:center;min-height:46px;border:1px dashed var(--line-strong);border-radius:var(--radius-sm);font-size:12px;color:var(--ink-muted);margin-top:8px}
-.flow:has(>.node)>.lane__empty,.flow:has(>.block)>.lane__empty{display:none}
-.node{position:relative;padding-top:26px}
-.node::before{content:"";position:absolute;left:50%;top:0;height:26px;width:1px;background:var(--line-strong)}
-.lane .node{padding-top:20px}.lane .node::before{height:20px}
-.lane__h+.node{padding-top:8px}.lane__h+.node::before{display:none}
-.lane__h+.node>.plus{display:none}
-.plus{all:unset;box-sizing:border-box;position:absolute;left:50%;top:3px;transform:translateX(-50%);width:20px;height:20px;border-radius:50%;background:var(--surface);border:1px solid var(--line-strong);color:var(--ink-muted);display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:1}
-.lane .plus{top:0}
-.plus:hover,.plus[aria-expanded="true"]{background:var(--slate);border-color:var(--slate);color:var(--on-slate)}
-.plus .ico{width:12px;height:12px}
-.card{all:unset;box-sizing:border-box;display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:10px;align-items:start;width:100%;padding:12px 14px 12px 8px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);cursor:pointer;position:relative}
-.card:hover{border-color:var(--line-strong)}
-.node.is-sel>.card,.node.is-sel>.fork>.card,.trig.is-sel{border-color:var(--slate);box-shadow:0 0 0 1px var(--slate)}
+/* Flow: small boxes, arrows between them, decisions that branch sideways */
 .grip{width:14px;height:28px;display:flex;align-items:center;justify-content:center;color:var(--ink-faint);cursor:grab}
 .grip .ico{width:14px;height:14px}
 .kico{width:28px;height:28px;border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;background:var(--surface-subtle);color:var(--ink-muted);flex:none;position:relative}
 .kico--write{background:var(--slate);color:var(--on-slate)}
-.kico--person{background:var(--copper-tint);color:var(--copper-ink)}
 .kico--person,.kico--talk{background:var(--copper-tint);color:var(--copper-ink)}
 .kico--decision,.kico--each,.kico--repeat{background:var(--slate-tint);color:var(--slate)}
-.card__main{display:grid;gap:2px;min-width:0}
-.card__top{display:flex;gap:8px;align-items:flex-start;justify-content:space-between}
-.card__name{font:500 14px/20px var(--font-sans);overflow-wrap:anywhere}
-.card__name .n{font:500 12px/20px var(--font-mono);color:var(--ink-faint);margin-right:8px}
-.node--person>.card .card__name b,.node--talk>.card .card__name b{color:var(--copper-ink)}
-.card__name b{font-weight:500}
-.card__sub{font-size:12px;line-height:17px;color:var(--ink-muted);overflow-wrap:anywhere}
-.card__sub .eyebrow{margin-right:6px}
-.card__tags{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;flex:none;max-width:50%}
-.res{margin-top:8px;padding:8px 10px;border-radius:var(--radius-sm);background:var(--surface-subtle);font-size:13px;line-height:18px;display:grid;gap:6px;animation:rise 260ms ease-out both}
-.res__h{display:flex;gap:8px;align-items:flex-start}
-.res--wait{background:var(--signal-tint);color:var(--ink)}
-.res__acts{display:flex;gap:12px;flex-wrap:wrap}
-.node.is-off{opacity:.45}
-.trig{background:var(--slate-tint);border-color:var(--slate-tint);grid-template-columns:auto minmax(0,1fr);padding-left:14px}
-.trig:hover{border-color:var(--slate)}
-.trig .kico{background:var(--surface);color:var(--slate)}
-.fork{border:1px solid var(--line-strong);border-radius:var(--radius-md);background:var(--surface)}
-.fork>.card{border:0;border-radius:var(--radius-md) var(--radius-md) 0 0;background:transparent}
-.node.is-sel>.fork{border-color:var(--slate);box-shadow:0 0 0 1px var(--slate)}
-.node.is-sel>.fork>.card{box-shadow:none}
-.lanes{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px;padding:0 8px 8px;position:relative}
-.lanes--split{padding-top:18px}
-.lanes--split::before{content:"";position:absolute;left:50%;top:0;height:9px;width:1px;background:var(--line-strong)}
-.lanes--split>.lane{position:relative}
-.lanes--split>.lane::before{content:"";position:absolute;left:50%;top:-9px;height:9px;width:1px;background:var(--line-strong)}
-.lanes--split>.lane::after{content:"";position:absolute;top:-9px;left:-4px;right:-4px;height:1px;background:var(--line-strong)}
-.lanes--split>.lane:first-child::after{left:50%}.lanes--split>.lane:last-child::after{right:50%}
-.lane .lanes{grid-template-columns:minmax(0,1fr)!important;padding-top:0}
-.lane .lanes--split::before,.lane .lanes--split>.lane::before,.lane .lanes--split>.lane::after{display:none}
-.lane .lane{border-left:2px solid var(--slate);border-radius:0 var(--radius-sm) var(--radius-sm) 0}
-.lane.is-taken{box-shadow:inset 0 0 0 1px var(--positive)}
-.lane__foot{display:flex;justify-content:space-between;align-items:center;gap:6px 12px;flex-wrap:wrap;padding:6px 10px 10px;font-size:12px;line-height:16px}
-.lane__foot .linkbtn{font-size:12px;line-height:16px}
-.lane__end{display:inline-flex;gap:8px;align-items:center;color:var(--ink-muted)}
-.lane__end .ico{width:12px;height:12px}
-.lane__end--stop b{font-weight:500;color:var(--ink);display:inline-flex;gap:5px;align-items:center}
-.lane{background:var(--surface-subtle);border-radius:var(--radius-sm);min-width:0;display:flex;flex-direction:column}
-.lane__h{display:grid;gap:2px}
-.lane__t{display:flex;gap:8px;align-items:center;font:500 13px/18px var(--font-sans)}
 .ltr{width:18px;height:18px;border-radius:50%;background:var(--slate);color:var(--on-slate);font:600 10px/18px var(--font-sans);text-align:center;flex:none}
 .ltr--else{background:var(--surface);color:var(--ink-muted);border:1px solid var(--line-strong);line-height:16px}
-.lane__rule{font:500 11px/16px var(--font-mono);color:var(--ink-muted);padding-left:26px}
-.lane__add{all:unset;font:500 12px/16px var(--font-sans);color:var(--slate);cursor:pointer;align-self:flex-start}
-.lane__add:hover{text-decoration:underline}
-.join{display:flex;gap:6px 14px;justify-content:center;align-items:center;flex-wrap:wrap;padding:4px 12px 10px}
-.join .linkbtn{font-size:12px;line-height:16px}
-.fork--split{border:0;background:transparent}
-.fork--split>.card{border:1px solid var(--line-strong);border-radius:var(--radius-md);background:var(--surface)}
-.fork--split>.lanes{padding-left:0;padding-right:0}
-.fork--split>.lanes>.lane{border:1px solid var(--line)}
-.fork--split>.join{padding-bottom:0}
-.node.is-sel>.fork--split{border:0;box-shadow:none}
-.node.is-sel>.fork--split>.card{border-color:var(--slate);box-shadow:0 0 0 1px var(--slate)}
-.node.is-dead>.card,.node.is-dead>.fork{opacity:.55}
-.end--closed{padding-top:14px}.end--closed::before{display:none}
-.addpath{all:unset;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:9px 12px;border:1px dashed var(--slate);border-radius:var(--radius-sm);color:var(--slate);font:500 13px/18px var(--font-sans);cursor:pointer;background:var(--surface)}
-.addpath:hover{background:var(--slate-tint)}
-.addpath:focus-visible{outline:2px solid var(--slate);outline-offset:2px}
-.addpath span{font-weight:400;color:var(--ink-muted)}
-.dnote{border:1px solid var(--signal);background:var(--signal-tint);border-radius:var(--radius-sm);padding:8px 10px;font-size:13px;line-height:19px}
-.end{position:relative;padding-top:26px;display:flex;flex-direction:column;align-items:center;gap:8px}
-.end::before{content:"";position:absolute;left:50%;top:0;height:26px;width:1px;background:var(--line-strong)}
-.end__add{all:unset;box-sizing:border-box;width:100%;text-align:center;padding:12px;border:1px dashed var(--line-strong);border-radius:var(--radius-md);font:500 13px/18px var(--font-sans);color:var(--ink-muted);cursor:pointer;background:var(--paper)}
-.end__add:hover{border-color:var(--slate);color:var(--slate)}
 .is-ghost{opacity:.35}
-.is-chosen>.card,.is-chosen>.fork{border-color:var(--slate)}
-.flow>.block{margin-top:10px;border-color:var(--slate);background:var(--slate-tint)}
 .is-fresh{animation:rise 320ms ease-out both}
 @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.res{padding:10px 12px;border-radius:var(--radius-sm);background:var(--surface-subtle);font-size:13px;line-height:18px;display:grid;gap:6px}
+.res__h{display:flex;gap:8px;align-items:flex-start}
+.res--wait{background:var(--signal-tint)}
+.res__acts{display:flex;gap:12px;flex-wrap:wrap}
+.gwrap{display:grid;justify-items:center;gap:16px}
+.gwrap>.note{width:560px;max-width:100%;margin:0;cursor:default}
+.graph{position:relative;cursor:default}
+.gsvg{position:absolute;inset:0;overflow:visible;pointer-events:none}
+.gsvg path{fill:none;stroke:var(--line-strong);stroke-width:1.25}
+.gsvg path.on{stroke:var(--positive);stroke-width:2}
+.gsvg path.dash{stroke:var(--slate);stroke-dasharray:3 3}
+.gsvg.is-tried path:not(.on),.gsvg.is-tried polygon:not(.on){opacity:.4}
+.gsvg .ah{fill:var(--line-strong);stroke:none}.gsvg .ah-on{fill:var(--positive);stroke:none}
+.gsvg polygon{fill:var(--surface);stroke:var(--line-strong);stroke-width:1.25}
+.gsvg polygon.is-sel{stroke:var(--slate);stroke-width:2.5}
+.gsvg polygon.is-dead{opacity:.45}
+.gsvg rect{fill:none;stroke:var(--line-strong);stroke-dasharray:4 4}
+.gsvg text{font:500 9.5px var(--font-mono);fill:var(--ink-muted);letter-spacing:.1em;text-transform:uppercase}
+.gnode{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;gap:2px;padding:6px 12px;background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--radius-sm);cursor:pointer;user-select:none;-webkit-user-select:none}
+.gnode:hover{border-color:var(--slate)}
+.gnode:focus-visible{outline:2px solid var(--slate);outline-offset:2px}
+.gnode.is-sel{border-color:var(--slate);box-shadow:0 0 0 1.5px var(--slate)}
+.gnode__t{font:500 13px/17px var(--font-sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gnode__t .n{font:500 11px/17px var(--font-mono);color:var(--ink-faint);margin-right:6px}
+.gnode__s{font:500 10.5px/14px var(--font-mono);color:var(--ink-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gnode__s b{font-weight:500;letter-spacing:.08em;text-transform:uppercase;margin-right:5px}
+.gnode--trigger{background:var(--slate-tint);border-color:var(--slate-tint)}
+.gnode--write{border-color:var(--slate);border-width:1.5px;padding-right:32px}
+.gnode--person,.gnode--talk{background:var(--copper-tint);border-color:var(--copper-tint)}
+.gnode--person .gnode__t,.gnode--talk .gnode__t{color:var(--copper-ink)}
+.gnode--decision,.gnode--decision:hover,.gnode--decision.is-sel{background:none;border-color:transparent;box-shadow:none;align-items:center;text-align:center;padding:0 44px}
+.gnode--decision .gnode__t{white-space:normal;font-size:12px;line-height:15px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
+.gnode--stop{border-radius:var(--radius-pill);flex-direction:row;align-items:center;justify-content:center;gap:6px;background:var(--surface-subtle);padding:0 10px;font:500 12px/1 var(--font-sans)}
+.gnode--stop .ico{width:11px;height:11px}
+.gnode.is-dead,.gnode.is-off{opacity:.45}
+.gsign{position:absolute;right:9px;top:50%;transform:translateY(-50%);color:var(--copper);display:flex}
+.gflag{position:absolute;top:-9px;right:8px;padding:0 7px;font-size:10px;line-height:15px}
+.gmark{position:absolute;bottom:-9px;right:8px;padding:0 7px;font-size:10px;line-height:15px}
+.ghandle{position:absolute;left:50%;bottom:-7px;width:13px;height:13px;margin-left:-6.5px;border-radius:50%;background:var(--surface);border:1.5px solid var(--line-strong);cursor:crosshair;opacity:0;transition:opacity 120ms;z-index:2}
+.gnode:hover .ghandle,.gnode.is-sel .ghandle,.is-linking .ghandle{opacity:1}
+.ghandle:hover{background:var(--slate);border-color:var(--slate)}
+@media (hover:none){.ghandle{opacity:1}}
+.gplus{all:unset;box-sizing:border-box;position:absolute;transform:translate(-50%,-50%);width:16px;height:16px;border-radius:50%;background:var(--surface);border:1px solid var(--line-strong);color:var(--ink-muted);display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:1}
+.gplus .ico{width:10px;height:10px}
+.gplus:hover,.gplus[aria-expanded="true"],.gplus.is-over{background:var(--slate);border-color:var(--slate);color:var(--on-slate)}
+.gplus:focus-visible,.gchip:focus-visible,.gadd:focus-visible,.gtail:focus-visible{outline:2px solid var(--slate);outline-offset:2px}
+.is-dragging .gplus{width:24px;height:24px;border-color:var(--slate);color:var(--slate)}
+.gchip{all:unset;box-sizing:border-box;position:absolute;transform:translateX(-50%);height:19px;padding:0 9px;border-radius:var(--radius-pill);border:1px solid var(--line-strong);background:var(--surface);font:500 11px/17px var(--font-sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;z-index:1}
+.gchip b{font:600 10px/17px var(--font-sans);color:var(--slate);margin-right:5px}
+.gchip.on{border-color:var(--positive);color:var(--positive)}
+.gadd{all:unset;box-sizing:border-box;position:absolute;height:22px;padding:0 9px;border:1px dashed var(--slate);border-radius:var(--radius-pill);background:var(--surface);color:var(--slate);font:500 11px/20px var(--font-sans);white-space:nowrap;cursor:pointer}
+.gadd:hover{background:var(--slate-tint)}
+.gtail{all:unset;box-sizing:border-box;position:absolute;border:1px dashed var(--line-strong);border-radius:var(--radius-sm);background:var(--paper);color:var(--ink-muted);font:500 12px/34px var(--font-sans);text-align:center;cursor:pointer}
+.gtail:hover,.gtail.is-over{border-color:var(--slate);color:var(--slate)}
+.gnode.is-over{outline:2px solid var(--slate);outline-offset:3px}
+.tip{position:fixed;z-index:36;width:292px;max-width:calc(100vw - 24px);background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);box-shadow:var(--shadow-pop);padding:12px;display:grid;gap:8px;font-size:12.5px;line-height:17px;pointer-events:none}
+.tip b{font-weight:500}
+.tip__h{font:500 14px/19px var(--font-sans)}
+.tip__r{display:grid;grid-template-columns:76px minmax(0,1fr);gap:8px}
+.tip__r>span:first-child{color:var(--ink-muted)}
+.tip__f{border-top:1px solid var(--line);padding-top:8px;color:var(--ink-muted);font-size:11.5px;line-height:16px}
+#linker{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:37}
+#linker path{fill:none;stroke:var(--slate);stroke-width:2;stroke-dasharray:5 4}
 
 /* Add menu */
 .menu{position:fixed;z-index:35;width:248px;max-height:70vh;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);box-shadow:var(--shadow-pop);padding:6px;display:grid;gap:2px}
@@ -382,6 +363,8 @@ details.more summary span{font-weight:400;color:var(--ink-muted)}
 <div id="app"></div>
 <div id="menu"></div>
 <div id="sheet"></div>
+<div id="tip" class="tip" hidden></div>
+<svg id="linker" hidden><path d=""/></svg>
 <div id="toast" class="toast" hidden></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
 <script>
@@ -561,7 +544,7 @@ function decisionFrom(cond, then, from) {
   d.paths[0].name = cap(clean(cond));
   d.paths[0].rule = ruleFrom(cond);
   d.decide = d.paths[0].rule.field ? "A rule" : "The agent";
-  if (then) d.paths[0].steps.push(guess(then));
+  if (then) d.paths[0].steps.push(guess(then.replace(/^(?:then\s+)?add (?:a step )?(?:to |that |which )?/i, "")));
   return d;
 }
 function fromForm(blank) {
@@ -642,7 +625,8 @@ function checkTails() {
     if (allEnd(st) && below) st.open.push({ k: "tail", type: "Issue", text: `${plural(below, "step")} below this never ${below === 1 ? "runs" : "run"} now.`, why: "Every path ends, so nothing after this decision is reached. Which path do they belong on?", opts: [...st.paths.map((q, i) => (q.rule ? `${String.fromCharCode(65 + i)}: ${q.name}` : "Otherwise")), "Remove them"] });
   });
 }
-function nodesHTML(steps, lid, lab) { let dead = false; return steps.map((x, i) => { const h = nodeHTML(x, lab(i), lid, i, dead); if (deadEnd(x)) dead = true; return h; }).join(""); }
+function listIdOf(list) { if (list === S.steps) return "root"; let id = null; walk(S.steps, (x) => { if (x.paths) x.paths.forEach((q) => { if (q.steps === list) id = q.id; }); }); return id; }
+const holdsStep = (st, id) => { let y = false; if (st.paths) st.paths.forEach((q) => walk(q.steps, (z) => { if (z.id === id) y = true; })); return y; };
 function pathById(pid) { let hit = null; walk(S.steps, (st) => { if (st.paths) for (const q of st.paths) if (q.id === pid) hit = q; }); return hit; }
 function walk(list, fn, depth = 0) {
   for (const st of list) {
@@ -784,7 +768,7 @@ function railHTML() {
   const groups = RAIL().map((G, gi) => {
     const items = G.items.map((it, ii) => ({ it, ii })).filter(({ it }) => !q || `${it.label} ${it.hint || ""} ${it.tag || ""} ${G.g}`.toLowerCase().includes(q));
     if (!items.length) return "";
-    return `<details class="rgrp" ${q || G.open ? "open" : ""}><summary>${G.g}<span>${items.length}</span></summary><div class="rail__list" data-pal="1">${items.map(({ it, ii }) => `<div class="block" role="button" tabindex="0" data-act="paladd" data-g="${gi}" data-i="${ii}" data-kind="${it.kind}" title="${esc(K[it.kind].hint)}"><span class="kico kico--${it.kind}">${ic(K[it.kind].ico)}</span><span class="grow">${esc(it.label)}<small>${esc(it.hint || "")}</small></span>${it.tag ? `<span class="pill pill--neutral">${it.tag}</span>` : ""}</div>`).join("")}</div>${G.note ? `<p class="help" style="margin-top:6px">${G.note}</p>` : ""}</details>`;
+    return `<details class="rgrp" ${q || G.open ? "open" : ""}><summary>${G.g}<span>${items.length}</span></summary><div class="rail__list" data-pal="1">${items.map(({ it, ii }) => `<div class="block" role="button" tabindex="0" draggable="true" data-act="paladd" data-g="${gi}" data-i="${ii}" data-kind="${it.kind}" title="${esc(K[it.kind].hint)}"><span class="kico kico--${it.kind}">${ic(K[it.kind].ico)}</span><span class="grow">${esc(it.label)}<small>${esc(it.hint || "")}</small></span>${it.tag ? `<span class="pill pill--neutral">${it.tag}</span>` : ""}</div>`).join("")}</div>${G.note ? `<p class="help" style="margin-top:6px">${G.note}</p>` : ""}</details>`;
   }).join("");
   return `<span class="eyebrow">Add a step</span><input class="input" id="palq" placeholder="Search steps" value="${esc(S.q || "")}" aria-label="Search steps" style="height:32px;font-size:13px"><p class="help">Drag one onto the flow, or press + between two steps.</p>${groups || `<p class="muted small">Nothing matches.</p>`}`;
 }
@@ -805,66 +789,135 @@ function subOf(st) {
   if (st.kind === "stop") return `Ends the run as ${esc(st.as.toLowerCase())}`;
   return "";
 }
-function resHTML(id) {
-  const t = S.try;
-  if (!t) return "";
-  const r = t.res[id];
+function resPanel(id) {
+  const t = S.try, r = t && t.res[id];
   if (!r || t.order.indexOf(id) >= t.shown) return "";
-  return `<div class="res ${r.tone === "wait" ? "res--wait" : ""}"><div class="res__h"><span class="pill ${r.tone === "wait" ? "pill--wait" : "pill--ok"}">${r.tone === "wait" ? "Look" : r.would ? "Would" : "Did"}</span><span>${esc(r.text)}</span></div>
+  return `<div class="res ${r.tone === "wait" ? "res--wait" : ""}"><span class="eyebrow">On ${esc(S.file)}</span><div class="res__h"><span class="pill ${r.tone === "wait" ? "pill--wait" : "pill--ok"}">${r.tone === "wait" ? "Look" : r.would ? "Would" : "Did"}</span><span>${esc(r.text)}</span></div>
     ${id === "trigger" ? "" : `<div class="res__acts">${r.offer ? `<button class="linkbtn" data-act="adddecision" data-id="${id}" data-offer="${r.offer}">Add a decision here</button>` : ""}<button class="linkbtn" data-act="fixwith" data-id="${id}">Not right? Tell the Builder</button></div>`}</div>`;
 }
-function tagsOf(st) {
-  const t = [];
-  if (st.kind === "decision") t.push(`<button class="btn btn--sec btn--sm" data-act="addpathto" data-id="${st.id}" title="Add another path: Or if…">${ic("add")}Add a path</button>`);
-  if (st.kind === "write") t.push(st.approval === "Ask first" ? `<span class="pill pill--person">Needs approval</span>` : `<span class="pill pill--accent">On its own</span>`);
-  return t.join("");
+/* ── The chart: where each box and arrow goes. Steps run down; a decision's paths spread sideways, as wide as they need. ── */
+const NW = 212, NH = 54, DH = 84, SH = 30, GX = 32, GY = 38, GB = 58, GJ = 30;
+function size(st) {
+  if (st.kind === "decision") {
+    const ps = st.paths.map((q) => measure(q.steps)), ph = Math.max(28, ...ps.map((m) => m.h));
+    return { w: Math.max(NW, ps.reduce((a, m) => a + m.w, 0) + GX * (ps.length - 1)), h: DH + GB + ph + (allEnd(st) ? 0 : GJ), ps, ph };
+  }
+  if (st.paths) { const m = measure(st.paths[0].steps); return { w: Math.max(NW, m.w) + 28, h: NH + GY + Math.max(m.h, 28) + 16, ps: [m] }; }
+  return { w: NW, h: st.kind === "stop" ? SH : NH };
 }
-function nodeHTML(st, label, lid, i, dead) {
-  const off = S.try && S.try.done && !S.try.res[st.id] ? " is-off" : "";
-  const cls = `node node--${st.kind}${S.sel === st.id ? " is-sel" : ""}${fresh.has(st.id) ? " is-fresh" : ""}${off}${dead ? " is-dead" : ""}`;
-  const dec = st.decided.length ? ` · ${st.decided.length} decided for you` : "";
-  const card = `<div class="card" role="button" tabindex="0" data-act="open" data-id="${st.id}" aria-label="${esc(st.name)}: open its setup">
-      <span class="grip" title="Drag to move">${ic("grip")}</span><span class="kico kico--${st.kind}">${ic(K[st.kind].ico)}</span>
-      <span class="card__main"><span class="card__top"><span class="card__name"><span class="n">${label}</span><b>${esc(st.name)}</b></span><span class="card__tags">${dead ? `<span class="pill pill--wait">Never runs</span>` : ""}${tagsOf(st)}</span></span>
-      <span class="card__sub"><span class="eyebrow">${K[st.kind].label}</span>${subOf(st)}${dec}</span>${openOf(st).slice(0, 2).map((o) => `<span class="ask"><span class="pill pill--wait">${o.type}</span><span>${esc(o.text)}</span></span>`).join("")}${resHTML(st.id)}</span></div>`;
-  const plus = `<button class="plus" data-act="plus" data-list="${lid}" data-index="${i}" aria-label="Add a step before ${esc(st.name)}" aria-expanded="${!!(S.menu && S.menu.list === lid && S.menu.index === i)}">${ic("add")}</button>`;
-  if (!st.paths) return `<div class="${cls}" data-id="${st.id}">${plus}${card}</div>`;
-  const shown = S.try && S.try.order.indexOf(st.id) > -1 && S.try.order.indexOf(st.id) < S.try.shown, split = allEnd(st);
-  const lanes = st.paths.map((p, pi) => {
-    const letter = p.each ? "" : p.rule ? String.fromCharCode(65 + pi) : "";
-    const rule = p.each ? "" : !p.rule ? "None of the above" : st.decide === "The agent" ? "The agent judges" : st.decide === "A person" ? `${st.who} picks` : p.rule.field ? `${p.rule.field} ${p.rule.op} ${p.rule.value}` : "No rule yet";
-    const ends = pathEnds(p), taken = shown && S.try.taken.includes(p.id);
-    return `<div class="lane${taken ? " is-taken" : ""}"><div class="flow" data-list="${p.id}"><div class="lane__h"><span class="lane__t">${p.each ? "" : `<span class="ltr ${p.rule ? "" : "ltr--else"}">${letter || "·"}</span>`}${p.rule ? `<span class="muted" style="font-weight:400">${pi ? "Or if" : "If"}</span>` : ""}${esc(p.rule ? p.name.charAt(0).toLowerCase() + p.name.slice(1) : p.name)}</span>${rule ? `<span class="lane__rule" ${p.each ? 'style="padding-left:0"' : ""}>${esc(rule)}</span>` : ""}${taken ? `<span style="padding-left:26px"><span class="pill pill--ok">Taken on this example</span></span>` : ""}</div>${nodesHTML(p.steps, p.id, (xi) => `${letter}${xi + 1}`)}<div class="lane__empty">${p.each ? "Drop its steps here." : "Nothing here."}</div></div>
-      <div class="lane__foot"><button class="lane__add" data-act="plus" data-list="${p.id}" data-index="${ends ? p.steps.length - 1 : p.steps.length}">+ Add a step</button>${p.each ? "" : ends
-        ? `<span class="lane__end lane__end--stop"><b>${ic("stop")}${split ? "End of this path" : "Ends here"}</b><button class="linkbtn" data-act="pathend" data-p="${p.id}" data-v="on">Rejoin instead</button></span>`
-        : `<span class="lane__end"><span>${ic("arrow")} Rejoins below</span><button class="linkbtn" data-act="pathend" data-p="${p.id}" data-v="stop">End here instead</button></span>`}</div></div>`;
+function measure(list) { let w = NW, h = 0; list.forEach((st, i) => { const m = size(st); w = Math.max(w, m.w); h += m.h + (i ? GY : 0); }); return { w, h }; }
+function layout() {
+  const L = { nodes: [], edges: [], plus: [], chips: [], frames: [], adds: [], prev: {}, next: {}, tail: null };
+  const t = S.try, shown = (id) => !!t && t.order.indexOf(id) > -1 && t.order.indexOf(id) < t.shown;
+  const edge = (pts, head, on) => L.edges.push({ pts, head, on });
+  const link = (at, st) => { L.prev[st.id] = at.srcs.map((x) => x.label).join(" and "); at.srcs.forEach((x) => { if (x.id) L.next[x.id] = `“${st.name}”`; }); };
+  // Lays a list out under `at` (the point the arrow comes from). Returns the point the flow leaves from, or null when it ends.
+  function seq(list, lid, cx, y, at, lab, pre) {
+    list.forEach((st, i) => {
+      const m = size(st), live = !!at;
+      if (live) {
+        if (!(pre && i === 0)) edge([[at.x, at.y], [cx, y]], true, shown(st.id));
+        L.plus.push({ x: cx, y: pre && i === 0 ? y - 12 : (at.y + y) / 2, lid, index: i });
+        link(at, st);
+      }
+      const base = { st, label: lab(i), dead: !live, on: live && shown(st.id) };
+      const me = [{ id: st.id, label: `“${st.name}”` }];
+      if (st.kind === "decision") {
+        L.nodes.push({ ...base, x: cx - NW / 2, y, w: NW, h: DH });
+        const W = m.ps.reduce((a, q) => a + q.w, 0) + GX * (m.ps.length - 1), barY = y + DH + 14, top = y + DH + GB, joinY = top + m.ph + GJ / 2, exits = [];
+        let px = cx - W / 2;
+        st.paths.forEach((q, pi) => {
+          const pw = m.ps[pi].w, pcx = px + pw / 2, letter = q.rule ? String.fromCharCode(65 + pi) : "", on = live && shown(st.id) && t.taken.includes(q.id);
+          px += pw + GX;
+          if (live) edge([[cx, y + DH], [cx, barY], [pcx, barY], [pcx, top]], q.steps.length > 0, on);
+          L.chips.push({ x: pcx, y: barY + 7, did: st.id, letter, text: q.rule ? `${pi ? "or if" : "if"} ${q.name.charAt(0).toLowerCase() + q.name.slice(1)}` : "otherwise", on, max: Math.min(pw, 240), dead: !live });
+          const ex = seq(q.steps, q.id, pcx, top, live ? { x: pcx, y: top, srcs: [{ id: null, label: `“${st.name}” · ${q.rule ? "path " + letter : "otherwise"}` }] } : null, (xi) => `${letter}${xi + 1}`, true);
+          if (live && !q.steps.length) L.plus.push({ x: pcx, y: top - 12, lid: q.id, index: 0 });
+          if (ex) {
+            if (q.steps.length) L.plus.push({ x: ex.x, y: ex.y + 13, lid: q.id, index: q.steps.length });
+            edge([[ex.x, ex.y], [ex.x, joinY], [cx, joinY]], false, on);
+            exits.push(...ex.srcs);
+          }
+        });
+        if (live) { const ax = cx + Math.max(W, NW) / 2 + 12; L.edges.push({ pts: [[px - GX - m.ps[m.ps.length - 1].w / 2, barY], [ax, barY]], dash: true }); L.adds.push({ x: ax, y: barY - 11, id: st.id }); }
+        at = exits.length ? { x: cx, y: joinY, srcs: exits } : null;
+      } else if (st.paths) {
+        L.nodes.push({ ...base, x: cx - NW / 2, y, w: NW, h: NH });
+        const q = st.paths[0], top = y + NH + GY, bh = Math.max(m.ps[0].h, 28);
+        L.frames.push({ x: cx - m.w / 2, y: y + NH + GY / 2 - 2, w: m.w, h: bh + GY / 2 + 14, text: st.kind === "each" ? "once for each item" : "again until it is done" });
+        const ex = seq(q.steps, q.id, cx, top, live ? { x: cx, y: y + NH, srcs: [{ id: null, label: `inside “${st.name}”` }] } : null, (xi) => String(xi + 1), false);
+        if (live) L.plus.push(q.steps.length && ex ? { x: ex.x, y: ex.y + 13, lid: q.id, index: q.steps.length } : { x: cx, y: top + 8, lid: q.id, index: 0 });
+        at = live ? { x: cx, y: y + m.h, srcs: me } : null;
+      } else {
+        const w = st.kind === "stop" ? 108 : NW;
+        L.nodes.push({ ...base, x: cx - w / 2, y, w, h: m.h });
+        at = live && st.kind !== "stop" ? { x: cx, y: y + m.h, srcs: me } : null;
+      }
+      y += m.h + GY;
+    });
+    return at;
+  }
+  L.nodes.push({ st: S.trigger, label: "", x: -NW / 2, y: 0, w: NW, h: NH, on: shown("trigger") });
+  const ex = seq(S.steps, "root", 0, NH + GY, { x: 0, y: NH, srcs: [{ id: "trigger", label: "the start" }] }, (i) => String(i + 1), false);
+  if (ex && !S.building) { edge([[ex.x, ex.y], [ex.x, ex.y + GY - 6]], false, false); L.tail = { x: ex.x - NW / 2, y: ex.y + GY - 6, w: NW, h: 36 }; }
+  let x0 = -NW / 2, x1 = NW / 2, y1 = NH;
+  const grow = (x, w, y, h) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x + w); y1 = Math.max(y1, y + h); };
+  L.nodes.forEach((n) => grow(n.x, n.w, n.y, n.h)); L.frames.forEach((f) => grow(f.x, f.w, f.y, f.h)); L.adds.forEach((a) => grow(a.x, 96, a.y, 22));
+  if (L.tail) grow(L.tail.x, L.tail.w, L.tail.y, L.tail.h);
+  L.dx = 16 - x0; L.dy = 14; L.w = x1 - x0 + 32; L.h = y1 + 30;
+  return L;
+}
+let LAY = null;
+function graphHTML() {
+  const L = (LAY = layout()), X = (x) => Math.round(x + L.dx), Y = (y) => Math.round(y + L.dy), t = S.try;
+  const svg = L.edges.map((e) => `<path class="${e.on ? "on" : e.dash ? "dash" : ""}" d="M${e.pts.map((q) => `${X(q[0])} ${Y(q[1])}`).join(" L")}" ${e.head ? `marker-end="url(#${e.on ? "ah-on" : "ah"})"` : ""}/>`).join("")
+    + L.nodes.filter((n) => n.st.kind === "decision").map((n) => `<polygon class="${S.sel === n.st.id ? "is-sel" : ""}${n.dead ? " is-dead" : ""}${n.on ? " on" : ""}" points="${X(n.x + n.w / 2)},${Y(n.y)} ${X(n.x + n.w)},${Y(n.y + n.h / 2)} ${X(n.x + n.w / 2)},${Y(n.y + n.h)} ${X(n.x)},${Y(n.y + n.h / 2)}"/>`).join("")
+    + L.frames.map((f) => `<rect x="${X(f.x)}" y="${Y(f.y)}" width="${f.w}" height="${f.h}" rx="8"/><text x="${X(f.x) + 10}" y="${Y(f.y) + 14}">${f.text}</text>`).join("");
+  const nodes = L.nodes.map((n) => {
+    const st = n.st, k = st.kind, open = openOf(st).length, r = t && t.res[st.id], seen = r && t.order.indexOf(st.id) < t.shown;
+    const cls = `gnode gnode--${k}${S.sel === st.id ? " is-sel" : ""}${fresh.has(st.id) ? " is-fresh" : ""}${n.dead ? " is-dead" : ""}${t && t.done && !r && !n.dead ? " is-off" : ""}`;
+    const flag = n.dead ? `<span class="gflag pill pill--wait">Never runs</span>` : open ? `<span class="gflag pill pill--wait">${open} to settle</span>` : "";
+    const mark = seen ? `<span class="gmark pill ${r.tone === "wait" ? "pill--wait" : "pill--ok"}">${r.tone === "wait" ? "Look" : r.would ? "Would" : "Did"}</span>` : "";
+    const body = k === "stop" ? `${ic("stop")}Stop` : k === "decision" ? `<span class="gnode__t">${esc(st.name)}</span>`
+      : `<span class="gnode__t">${n.label ? `<span class="n">${n.label}</span>` : ""}${esc(st.name)}</span><span class="gnode__s"><b>${K[k].label}</b>${k === "trigger" ? esc(st.starts) : subOf(st)}</span>${k === "write" && st.approval === "Ask first" ? `<span class="gsign">${ic("sign")}</span>` : ""}`;
+    const handle = k === "decision" || k === "stop" || n.dead ? "" : `<span class="ghandle" data-h="${st.id}"></span>`;
+    return `<div class="${cls}" role="button" tabindex="0" data-act="open" data-id="${st.id}" ${k === "trigger" ? "" : 'draggable="true"'} aria-label="${esc(st.name)}: open its setup" style="left:${X(n.x)}px;top:${Y(n.y)}px;width:${n.w}px;height:${n.h}px">${body}${flag}${mark}${handle}</div>`;
   }).join("");
-  const goOn = st.paths.filter((p) => !pathEnds(p)), endHere = st.paths.filter(pathEnds), nm = (p) => (p.rule ? String.fromCharCode(65 + st.paths.indexOf(p)) : "Otherwise");
-  const join = split
-    ? `<div class="join"><span class="eyebrow">These paths don't come back together</span><button class="linkbtn" data-act="unsplit" data-id="${st.id}">Bring them back together</button></div>`
-    : `<div class="join"><span class="eyebrow">${!endHere.length ? "Paths come back together here" : `${goOn.map(nm).join(" and ")} ${goOn.length === 1 ? "goes" : "join and go"} on · ${endHere.map(nm).join(" and ")} ${endHere.length === 1 ? "ends" : "end"}`}</span><button class="linkbtn" data-act="split" data-id="${st.id}">Keep them apart instead</button></div>`;
-  const cols = st.kind === "decision" ? ` lanes--split" style="grid-template-columns:repeat(${st.paths.length},minmax(0,1fr))` : "";
-  const wide = st.kind === "decision" && lid === "root" && st.paths.length > 2 ? ` style="width:${st.paths.length * 300 + 16}px"` : "";
-  return `<div class="${cls}" data-id="${st.id}"${wide}>${plus}<div class="fork${split ? " fork--split" : ""}">${card}<div class="lanes${cols}">${lanes}</div>${st.kind === "decision" ? join : ""}</div></div>`;
+  const chips = L.chips.map((c) => `<button class="gchip${c.on ? " on" : ""}" data-act="open" data-id="${c.did}" style="left:${X(c.x)}px;top:${Y(c.y)}px;max-width:${c.max}px${c.dead ? ";opacity:.45" : ""}" title="${esc(c.text)}">${c.letter ? `<b>${c.letter}</b>` : ""}${esc(c.text)}</button>`).join("");
+  const plus = L.plus.map((q) => `<button class="gplus" data-act="plus" data-list="${q.lid}" data-index="${q.index}" style="left:${X(q.x)}px;top:${Y(q.y)}px" aria-label="Add a step here" aria-expanded="${!!(S.menu && S.menu.list === q.lid && S.menu.index === q.index)}">${ic("add")}</button>`).join("");
+  const adds = L.adds.map((a) => `<button class="gadd" data-act="addpathto" data-id="${a.id}" style="left:${X(a.x)}px;top:${Y(a.y)}px" title="Add another path: Or if …">+ Add a path</button>`).join("");
+  const tail = L.tail ? `<button class="gtail" data-act="plus" data-list="root" data-index="${S.steps.length}" style="left:${X(L.tail.x)}px;top:${Y(L.tail.y)}px;width:${L.tail.w}px;height:${L.tail.h}px">+ Add a step</button>` : "";
+  return `<div class="graph" style="width:${Math.round(L.w)}px;height:${Math.round(L.h)}px"><svg class="gsvg${t && t.done ? " is-tried" : ""}" width="${Math.round(L.w)}" height="${Math.round(L.h)}"><defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah" d="M0 0L10 5L0 10z"/></marker><marker id="ah-on" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path class="ah-on" d="M0 0L10 5L0 10z"/></marker></defs>${svg}</svg>${nodes}${chips}${plus}${adds}${tail}</div>`;
+}
+function tipHTML(st) {
+  const k = st.kind, L = LAY || layout(), rows = [], t = S.try, r = t && t.res[st.id], seen = r && t.order.indexOf(st.id) < t.shown;
+  const row = (a, b) => rows.push(`<div class="tip__r"><span>${a}</span><span>${b}</span></div>`);
+  if (k === "trigger") { row("Starts", esc(st.starts)); row("Where", esc(st.detail)); }
+  if (k === "skill" || k === "read" || k === "write" || k === "auto") row(k === "write" ? "Writes to" : k === "read" ? "Reads from" : K[k].label, esc(st.part));
+  if (k === "write") row("Approval", st.approval === "Ask first" ? `Asks first. ${esc(st.who)} signs.` : "Runs on its own");
+  if (k === "person") row(st.mode === "Approve" ? "Approves" : "Answers", `${esc(st.who)}, within ${esc(st.deadline)}`);
+  if (k === "notify") row("Tells", `${esc(st.to)}, by ${esc(st.where.toLowerCase())}`);
+  if (k === "talk") row("With", `${esc(st.who)}, by ${esc(st.where)}`);
+  if (k === "askagent" || k === "tellagent" || k === "handoff") row("Agent", esc(st.agent));
+  if (k === "decision") { row("Decides", st.decide === "A person" ? esc(st.who) : esc(st.decide)); st.paths.forEach((q, i) => row(q.rule ? `Path ${String.fromCharCode(65 + i)}` : "Otherwise", `${q.rule ? esc(q.name) + (st.decide === "A rule" && q.rule.field ? ` <span class="muted">(${esc(q.rule.field)} ${esc(q.rule.op)} ${esc(q.rule.value)})</span>` : "") + " · " : ""}${pathEnds(q) ? "ends there" : "comes back"}`)); }
+  if (k !== "trigger") row("Comes after", esc(L.prev[st.id] || "nothing: it never runs"));
+  if (k !== "decision" && k !== "stop") row("Goes to", esc(L.next[st.id] || "the end"));
+  const notes = [...st.decided.slice(0, 2).map((d) => `<div><span class="muted">Decided for you:</span> ${esc(d.what)}</div>`), ...openOf(st).map((o) => `<div><span class="pill pill--wait">${o.type}</span> ${esc(o.text)}</div>`), ...(seen ? [`<div><span class="pill ${r.tone === "wait" ? "pill--wait" : "pill--ok"}">${r.tone === "wait" ? "Look" : r.would ? "Would" : "Did"}</span> ${esc(r.text)}</div>`] : [])];
+  return `<span class="eyebrow">${K[k].label}</span><span class="tip__h">${esc(st.name)}</span>${K[k].hint ? `<span class="muted">${esc(K[k].hint)}</span>` : ""}${rows.join("")}${notes.join("")}
+    <div class="tip__f">Click to set it up.${k === "trigger" ? "" : " Drag the box to move it."}${k === "decision" || k === "stop" ? "" : " Drag the dot under it onto another step to make that step come next."}</div>`;
 }
 function noteHTML() {
   if (S.building) return `<div class="note"><span class="agentline">Putting it together: step ${S.steps.length + 1} of ${S.building.total}</span><span class="muted">${esc(S.building.queue[0] ? "“" + S.building.queue[0].from + "”" : "")}</span></div>`;
   if (S.try) {
     const t = S.try;
-    return `<div class="note note--try"><div style="display:grid;gap:4px"><span class="row wrap"><b style="font-weight:500">${t.done ? "Tried it on" : "Trying it on"}</b><span class="filechip">${ic("upload")}${esc(S.file)}</span></span><span class="muted">${t.done ? "Each step shows what it did. Nothing was written to QuickBooks." : "Reading real data. Nothing is written."}</span></div>
+    return `<div class="note note--try"><div style="display:grid;gap:4px"><span class="row wrap"><b style="font-weight:500">${t.done ? "Tried it on" : "Trying it on"}</b><span class="filechip">${ic("upload")}${esc(S.file)}</span></span><span class="muted">${t.done ? "The green line is the path this example took. Point at a step to see what it did. Nothing was written to QuickBooks." : "Reading real data. Nothing is written."}</span></div>
       <div class="row wrap"><label class="btn btn--sec btn--sm" style="cursor:pointer">Use another file<input type="file" id="tryfile" hidden></label><button class="btn btn--sec btn--sm" data-act="try">Try again</button><button class="btn btn--ghost btn--sm" data-act="endtry">Done</button></div></div>`;
   }
   if (S.note) return `<div class="note"><span>${S.note}</span><div class="row">${allOpen().length ? `<button class="linkbtn" data-act="nextopen" style="white-space:nowrap">Start with the first</button>` : `<button class="linkbtn" data-act="sheet" data-type="builder" style="white-space:nowrap">What was decided</button>`}<button class="btn btn--ghost btn--icon" data-act="dismiss" aria-label="Dismiss">${ic("close")}</button></div></div>`;
   return "";
 }
 function canvasHTML() {
-  const g = S.trigger;
-  return `<div class="stage" id="stage" style="zoom:${S.zoom}"><div class="col">${noteHTML()}
-    <div class="card trig${S.sel === "trigger" ? " is-sel" : ""}" role="button" tabindex="0" data-act="open" data-id="trigger"><span class="kico">${ic("arrow")}</span>
-      <span class="card__main"><span class="card__name"><b>${esc(g.name)}</b></span><span class="card__sub"><span class="eyebrow">Starts when</span>${esc(g.starts)} · ${esc(g.detail)}${g.decided.length ? ` · ${g.decided.length} decided for you` : ""}</span>${resHTML("trigger")}</span></div>
-    <div class="flow" data-list="root">${nodesHTML(S.steps, "root", (i) => String(i + 1))}</div>
-    ${S.building ? "" : S.steps.length && deadEnd(S.steps[S.steps.length - 1]) ? `<div class="end end--closed"><span class="muted small">The flow ends on the paths above.</span><button class="linkbtn" data-act="sheet" data-type="builder">Tell the Builder what to change</button></div>` : `<div class="end"><button class="end__add" data-act="plus" data-list="root" data-index="${S.steps.length}">+ Add a step</button><button class="linkbtn" data-act="sheet" data-type="builder">or tell the Builder what comes next</button></div>`}
-  </div></div>`;
+  return `<div class="stage" id="stage" style="zoom:${S.zoom}"><div class="gwrap">${noteHTML()}${graphHTML()}</div></div>`;
 }
 function buildHTML() {
   return `<header class="bar" id="bar">${barHTML()}</header><div class="work"><aside class="rail" aria-label="Add a step">${railHTML()}</aside><main class="canvas" id="canvas">${canvasHTML()}</main></div>
@@ -885,8 +938,21 @@ function wires(st) {
     : [["Reads", last ? `“${last.name}” · what it produced` : "what started the run"]];
   return `<div class="wire">${rows.map((r) => `<div class="wire__r"><span class="muted">${r[0]}</span><code>${esc(r[1])}</code></div>`).join("")}</div><span class="help">Filled in by the Builder from the steps before. Tell it below if this step should read something else.</span>`;
 }
+function connHTML(st) {
+  if (st.kind === "trigger") return "";
+  const at = locate(st.id), L = LAY || layout(), cur = at.index === 0 ? "first:" + listIdOf(at.list) : "after:" + at.list[at.index - 1].id, opts = [["first:root", "First, right after the start"]];
+  walk(S.steps, (x) => {
+    if (x.id === st.id || holdsStep(st, x.id)) return;
+    if (x.kind !== "stop") opts.push(["after:" + x.id, `After “${x.name}”`]);
+    if (x.paths) x.paths.forEach((q, i) => opts.push(["first:" + q.id, `First on “${x.name}” · ${q.each ? "inside" : q.rule ? "path " + String.fromCharCode(65 + i) : "otherwise"}`]));
+  });
+  return `<div class="grp"><div class="field"><label>Comes after</label><select class="select" data-conn="1" aria-label="Comes after">${opts.map(([v, tx]) => `<option value="${v}" ${v === cur ? "selected" : ""}>${esc(tx)}</option>`).join("")}</select></div>
+    <div class="wire__r"><span class="muted">Goes to</span><span>${st.kind === "decision" ? "its paths" : st.kind === "stop" ? "nothing: the run ends" : esc(L.next[st.id] || "the end")}</span></div>
+    <span class="help">Pick another place and it moves there with its arrows. On the chart you can also drag the box, or drag the dot under a step onto the one that should come next.</span></div>`;
+}
 function setupHTML(st) {
   const g = [];
+  if (resPanel(st.id)) g.push(resPanel(st.id));
   const items = st.open || [];
   if (items.length) {
     const left = openOf(st).length, next = allOpen().find((x) => x.st.id !== st.id);
@@ -899,6 +965,7 @@ function setupHTML(st) {
   }
   if (st.decided.length) g.push(`<div class="decided"><span class="eyebrow">Decided for you</span>${st.decided.map((d, i) => `<div class="decided__i"><span class="row" style="justify-content:space-between;align-items:baseline"><span>${esc(d.what)}</span>${d.f ? `<button class="linkbtn" data-act="focusf" data-f="${d.f}">Change</button>` : ""}</span><span class="muted" style="font-size:12px">${esc(d.why)}</span></div>`).join("")}</div>`);
   const k = st.kind;
+  g.push(connHTML(st));
   if (k === "trigger") {
     g.push(`<div class="grp"><div class="field"><label>Starts when</label>${sel("starts", ["A document arrives", "On a schedule", "A record changes", "A person starts it", "A message arrives"], st.starts, 'data-re="1"')}</div>
       <div class="field"><label>${st.starts === "On a schedule" ? "When" : st.starts === "A person starts it" ? "From" : "Where"}</label><input class="input" data-f="detail" value="${esc(st.detail)}"></div>
@@ -1042,7 +1109,9 @@ function notesHTML() {
       <li><b style="font-weight:500">Add anywhere:</b> + between two steps, drag a block in, or say it.</li>
       <li><b style="font-weight:500">One panel per step:</b> its setup in three or four groups with the rest folded, and the Builder underneath, already on that step.</li>
       <li><b style="font-weight:500">Decisions come after it works.</b> A try shows where one is missing and adds it in one press.</li>
-      <li><b style="font-weight:500">A decision takes as many paths as it needs.</b> "Add a path" is on the decision itself. Each path is a column; four or more grow sideways.</li>
+      <li><b style="font-weight:500">The flow is a chart of small boxes and arrows.</b> Point at a box for its details; click it to set it up.</li>
+      <li><b style="font-weight:500">Decisions branch sideways, as a tree.</b> Each path is a column under the decision; a decision on a path splits it again, so two paths become four. Paths come back together or run to their own end. "Add a path" sits beside the decision.</li>
+      <li><b style="font-weight:500">Every step has a "comes after" and a "goes to".</b> Change where it comes after in its panel, drag the box onto a + or another box, or drag the dot under a step onto the one that should come next.</li>
       <li><b style="font-weight:500">Agents work together three ways:</b> ask another agent and wait for its answer, report to it without waiting, or hand the work off.</li>
       <li><b style="font-weight:500">The canvas zooms and moves.</b> Drag the background, or scroll; zoom with the buttons or Ctrl and the wheel; Fit shows the whole flow.</li>
       <li><b style="font-weight:500">The steps are the app's own:</b> Skills, Automations, Tools (reads and writes), People, Logic, Other agents, with search. A tool step that writes is what the first versions called "Change a tool".</li></ul></div>
@@ -1053,8 +1122,9 @@ function notesHTML() {
       <tr><td>Other agents</td><td>Hand off exists. Ask another agent and Report to another agent are new kinds of step; reading another agent's manual exists today.</td></tr>
       <tr><td>Paths that never merge</td><td>Every path ending in Stop, as the canvas reads "Ends here" today. The format has no step that jumps elsewhere, so a path can end or rejoin, nothing else.</td></tr>
       <tr><td>Who decides</td><td>The if step: rules, or the agent chooses; a person step with choices</td></tr>
-      <tr><td>The canvas and dragging</td><td>The workflow builder's canvas and its moves, same schema and validator</td></tr>
-      <tr><td>+ between steps</td><td>The insert that today sits in the inspector's Connections</td></tr>
+      <tr><td>The chart</td><td>The same steps in the same format, drawn as boxes and arrows instead of a list. Each path still either ends or comes back to its decision's next step.</td></tr>
+      <tr><td>Comes after, goes to</td><td>The inspector's Connections (prior step, next step), which move a step today</td></tr>
+      <tr><td>+ on an arrow</td><td>The insert that today sits in the inspector's Connections</td></tr>
       <tr><td>The step panel</td><td>The inspector's fields, regrouped, with the defaults new steps already get</td></tr>
       <tr><td>The Builder on a step</td><td>The Builder session with a step in focus; each change has Undo</td></tr>
       <tr><td>To settle on a step</td><td>The build's decisions, questions and gaps, which already name their step; the three ways to settle a gap</td></tr>
@@ -1079,7 +1149,7 @@ function sheetHTML() {
 }
 
 /* ── Render ── */
-let sortables = [];
+const wire = () => {};
 function renderBar() { const b = $("#bar"); if (b) { const f = document.activeElement && document.activeElement.id === "aname2"; if (!f) b.innerHTML = barHTML(); } }
 function renderCanvas() {
   const c = $("#canvas");
@@ -1129,45 +1199,104 @@ function setZoom(z, px, py) {
   const l = $("#zlabel"); if (l) l.textContent = Math.round(z * 100) + "%";
 }
 function fit() {
-  const c = $("#canvas"), col = $(".col");
-  if (!c || !col) return;
-  let l = Infinity, r = -Infinity;
-  const box = col.getBoundingClientRect();
-  col.querySelectorAll(".node,.trig").forEach((n) => { const b = n.getBoundingClientRect(); l = Math.min(l, b.left); r = Math.max(r, b.right); });
-  const w = (r - l) / S.zoom, h = box.height / S.zoom;
-  setZoom(Math.min(1, (c.clientWidth - 48) / w, (c.clientHeight - 48) / h));
+  const c = $("#canvas"), g = $(".graph");
+  if (!c || !g) return;
+  const b = g.getBoundingClientRect();
+  setZoom(Math.min(1, (c.clientWidth - 40) / (b.width / S.zoom), (c.clientHeight - 60) / (b.height / S.zoom)));
   centre();
 }
-function focusNode(id) { const el = id === "trigger" ? $(".trig") : document.querySelector(`.node[data-id="${id}"]`); if (el) el.scrollIntoView({ block: "nearest", inline: "center", behavior: calm ? "auto" : "smooth" }); }
+function focusNode(id) { const el = document.querySelector(`.gnode[data-id="${id}"]`); if (el) el.scrollIntoView({ block: "nearest", inline: "center", behavior: calm ? "auto" : "smooth" }); }
 function toast(t) { const el = $("#toast"); el.textContent = t; el.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (el.hidden = true), 3200); }
 
-/* ── Drag and drop (SortableJS): reorder, move between paths, drag a kind in from the rail ── */
-let dragged = false;
-const nodesBefore = (el) => { let n = 0; for (let c = el.previousElementSibling; c; c = c.previousElementSibling) if (c.classList.contains("node")) n++; return n; };
-function wire() {
-  sortables.forEach((s) => s.destroy());
-  sortables = [];
-  if (!window.Sortable || S.view !== "build") return;
-  const base = { group: "steps", animation: 150, fallbackOnBody: true, swapThreshold: 0.65, invertedSwapThreshold: 0.8, delay: 140, delayOnTouchOnly: true, ghostClass: "is-ghost", chosenClass: "is-chosen", onStart: () => { dragged = true; S.menu = null; renderMenu(); },
-    onMove: (e, oe) => { const l = oe && oe.target && oe.target.closest && oe.target.closest(".lanes"); if (l && l.parentNode.parentNode === e.related) return false; } };
-  document.querySelectorAll(".flow").forEach((el) => sortables.push(Sortable.create(el, { ...base, draggable: ".node", filter: "button,input,.res", preventOnFilter: false, onEnd: onMove })));
-  document.querySelectorAll("[data-pal]").forEach((pal) => sortables.push(Sortable.create(pal, { ...base, group: { name: "steps", pull: "clone", put: false }, sort: false, draggable: ".block", onEnd: onPalDrop })));
-}
-function onMove(e) {
-  setTimeout(() => (dragged = false), 60);
-  const id = e.item.dataset.id, at = locate(id), to = listOf(e.to.dataset.list), ni = nodesBefore(e.item);
-  if (!at || !to || (at.list === to && at.index === ni)) return;
+/* ── Moving things: drag a box onto a + or onto another box; drag a step's dot onto the step that should come next ── */
+let dragged = false, drag = null, link = null;
+const after = () => { S.try = null; renderCanvas(); renderBar(); renderSheet(); };
+function placeAt(lid, index, what) {
+  const list = listOf(lid);
+  if (!list) return;
+  if (what.item) return addStep(what.item.dataset.kind, lid, index, fromItem(what.item));
+  const st = find(what.id), at = locate(what.id);
+  if (!st || !at) return;
+  if (holdsStep(st, lid) || (st.paths && st.paths.some((q) => q.id === lid))) return toast("A step can't go inside itself.");
+  if (at.list === list && (index === at.index || index === at.index + 1)) return;
   commit();
-  const [it] = at.list.splice(at.index, 1);
-  to.splice(ni, 0, it);
-  S.try = null;
-  renderCanvas(); renderBar(); renderSheet();
+  at.list.splice(at.index, 1);
+  list.splice(at.list === list && at.index < index ? index - 1 : index, 0, st);
+  fresh.add(st.id);
+  after();
 }
-function onPalDrop(e) {
-  setTimeout(() => (dragged = false), 60);
-  if (!e.to.classList.contains("flow")) return;
-  addStep(e.item.dataset.kind, e.to.dataset.list, nodesBefore(e.item), fromItem(e.item));
+function moveTo(id, key) {
+  const [k, v] = key.split(":");
+  if (k === "first") return placeAt(v, 0, { id });
+  const at = locate(v);
+  if (at) placeAt(listIdOf(at.list), at.index + 1, { id });
 }
+// "b comes right after a". If a is the last step of a path that ends, and b is where its decision carries on, the path rejoins instead.
+function connect(a, b) {
+  if (a === b || b === "trigger") return;
+  const A = find(a), B = find(b);
+  if (!A || !B) return;
+  if (holdsStep(B, a)) return toast("That step is inside this one.");
+  const la = a === "trigger" ? { list: S.steps, index: -1 } : locate(a), nx = la.list[la.index + 1];
+  if (nx && nx.id === b) return;
+  if (nx && nx.kind === "stop" && la.index + 2 === la.list.length) {
+    const own = ownerOf(listIdOf(la.list)), ol = own && locate(own.id);
+    if (ol && ol.list[ol.index + 1] && ol.list[ol.index + 1].id === b) { commit(); la.list.pop(); after(); return toast(`This path now comes back to “${B.name}”.`); }
+  }
+  placeAt(listIdOf(la.list), la.index + 1, { id: b });
+  toast(`“${B.name}” now comes after ${a === "trigger" ? "the start" : `“${A.name}”`}. Undo puts it back.`);
+}
+const dropTarget = (el) => (el && el.closest ? el.closest(".gplus,.gtail") || el.closest(".gnode") : null);
+function clearOver() { document.querySelectorAll(".is-over").forEach((x) => x.classList.remove("is-over")); }
+document.addEventListener("dragstart", (e) => {
+  const n = e.target.closest && e.target.closest(".gnode[draggable],.block[draggable]");
+  if (!n) return;
+  drag = n.classList.contains("block") ? { item: n } : { id: n.dataset.id };
+  e.dataTransfer.effectAllowed = "move";
+  e.dataTransfer.setData("text/plain", "step");
+  hideTip(); S.menu = null; renderMenu();
+  document.body.classList.add("is-dragging");
+});
+document.addEventListener("dragover", (e) => {
+  const tg = drag && dropTarget(e.target);
+  clearOver();
+  if (!tg || (drag.id && tg.dataset.id === drag.id)) return;
+  e.preventDefault();
+  tg.classList.add("is-over");
+});
+document.addEventListener("drop", (e) => {
+  const tg = drag && dropTarget(e.target), d = drag;
+  clearOver();
+  if (!tg || !d) return;
+  e.preventDefault();
+  drag = null;
+  document.body.classList.remove("is-dragging");
+  if (tg.classList.contains("gnode")) {
+    if (tg.dataset.id === "trigger") return placeAt("root", 0, d);
+    const at = locate(tg.dataset.id);
+    if (at && at.list[at.index].kind === "stop") return placeAt(listIdOf(at.list), at.index, d);
+    if (at) placeAt(listIdOf(at.list), at.index + 1, d);
+  } else placeAt(tg.dataset.list, +tg.dataset.index, d);
+});
+document.addEventListener("dragend", () => { drag = null; clearOver(); document.body.classList.remove("is-dragging"); });
+// Hover details
+let tipT = null;
+function hideTip() { clearTimeout(tipT); const el = $("#tip"); if (el) el.hidden = true; }
+document.addEventListener("mouseover", (e) => {
+  const n = e.target.closest && e.target.closest(".gnode");
+  if (!n || drag || link || pan) return;
+  clearTimeout(tipT);
+  tipT = setTimeout(() => {
+    const st = find(n.dataset.id), el = $("#tip");
+    if (!st || !n.isConnected) return;
+    el.innerHTML = tipHTML(st);
+    el.hidden = false;
+    const r = n.getBoundingClientRect(), b = el.getBoundingClientRect(), right = r.right + 12 + b.width < innerWidth - (S.sheet ? 460 : 8);
+    el.style.left = Math.max(8, right ? r.right + 12 : r.left - b.width - 12) + "px";
+    el.style.top = Math.max(8, Math.min(innerHeight - b.height - 8, r.top)) + "px";
+  }, 350);
+});
+document.addEventListener("mouseout", (e) => { const n = e.target.closest && e.target.closest(".gnode"); if (n && !n.contains(e.relatedTarget)) hideTip(); });
 function addStep(kind, lid, index, st) {
   const list = listOf(lid);
   if (!list) return;
@@ -1254,7 +1383,7 @@ function ask(text, about) {
     S.chat.push({ text: r.text, changes: r.changes, about, h: changed ? S.hist.length : 0 });
     if (r.closed) { S.sel = null; S.sheet = { type: "builder" }; }
     renderAll();
-    if (r.show) { const el = document.querySelector(`.node[data-id="${r.show}"]`); if (el) el.scrollIntoView({ block: "center", behavior: calm ? "auto" : "smooth" }); }
+    if (r.show) { const el = document.querySelector(`.gnode[data-id="${r.show}"]`); if (el) el.scrollIntoView({ block: "center", behavior: calm ? "auto" : "smooth" }); }
   }, calm ? 0 : 650);
 }
 
@@ -1308,7 +1437,7 @@ function startTry() {
     t.shown++;
     if (t.shown >= t.order.length) { t.done = true; S.tried = true; clearInterval(startTry.t); }
     renderCanvas();
-    const el = document.querySelector(t.order[t.shown - 1] === "trigger" ? ".trig" : `.node[data-id="${t.order[t.shown - 1]}"]`);
+    const el = document.querySelector(`.gnode[data-id="${t.order[t.shown - 1]}"]`);
     if (el && !calm) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
   };
   if (calm) { S.try.shown = order.length; S.try.done = true; S.tried = true; renderCanvas(); }
@@ -1405,7 +1534,7 @@ const ACT = {
     renderCanvas(); renderBar(); renderSheet();
   },
   reopen: (d) => { const st = find(S.sel); if (!st || !st.open[+d.i]) return; commit(); st.open[+d.i].done = null; renderCanvas(); renderBar(); renderSheet(); },
-  nextopen: () => { const n = allOpen().find((x) => x.st.id !== S.sel) || allOpen()[0]; if (!n) return; S.sel = n.st.id; S.sheet = { type: "step" }; renderCanvas(); renderSheet(); const el = document.querySelector(`.node[data-id="${n.st.id}"]`); if (el) el.scrollIntoView({ block: "center", inline: "center", behavior: calm ? "auto" : "smooth" }); },
+  nextopen: () => { const n = allOpen().find((x) => x.st.id !== S.sel) || allOpen()[0]; if (!n) return; S.sel = n.st.id; S.sheet = { type: "step" }; renderCanvas(); renderSheet(); const el = document.querySelector(`.gnode[data-id="${n.st.id}"]`); if (el) el.scrollIntoView({ block: "center", inline: "center", behavior: calm ? "auto" : "smooth" }); },
   try: () => { if (!S.building) startTry(); },
   endtry: () => { S.try = null; renderCanvas(); },
   adddecision: (d) => {
@@ -1427,6 +1556,7 @@ document.addEventListener("click", (e) => {
   if (S.menu && !e.target.closest("#menu") && !(a && a.dataset.act === "plus")) { S.menu = null; renderMenu(); }
   if (!a || a.disabled) return;
   if (dragged && (a.dataset.act === "open" || a.dataset.act === "paladd")) return;
+  hideTip();
   ACT[a.dataset.act] && ACT[a.dataset.act](a.dataset, a, e);
 });
 let pend = null;
@@ -1463,6 +1593,7 @@ document.addEventListener("input", (e) => {
 document.addEventListener("change", (e) => {
   const t = e.target;
   if (t.id === "tryfile" && t.files[0]) { S.file = t.files[0].name; startTry(); return; }
+  if (t.dataset && t.dataset.conn) { moveTo(S.sel, t.value); return; }
   if (t.dataset && t.dataset.pend) { const [rid, pk] = t.dataset.pend.split("|"), r = S.list.find((x) => x.id === rid); if (pk === "o") r.oend = t.value; else r.paths[+pk].end = t.value; renderList(); return; }
   if (!t.dataset || !t.dataset.f) return;
   if (pend && pend !== snap()) { S.hist.push(pend); S.try = null; renderBar(); }
@@ -1489,18 +1620,44 @@ document.addEventListener("keydown", (e) => {
     }
   }
   if (e.key === "Escape") { if (S.menu) { S.menu = null; renderMenu(); } else if (S.sheet) ACT.close(); return; }
-  if ((e.key === "Enter" || e.key === " ") && (t.classList.contains("card") || t.classList.contains("block"))) { e.preventDefault(); t.click(); return; }
+  if ((e.key === "Enter" || e.key === " ") && (t.classList.contains("gnode") || t.classList.contains("block"))) { e.preventDefault(); t.click(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" && !typing && S.view === "build") { e.preventDefault(); undo(); }
 });
 // Grab the background to move; Ctrl or ⌘ and the wheel to zoom. A touch screen pans by itself.
 let pan = null;
 document.addEventListener("pointerdown", (e) => {
+  const h = e.target.closest && e.target.closest(".ghandle");
+  if (h) {
+    e.preventDefault();
+    const r = h.getBoundingClientRect();
+    link = { from: h.dataset.h, x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    hideTip();
+    document.body.classList.add("is-linking");
+    $("#linker").hidden = false;
+    $("#linker path").setAttribute("d", `M${link.x} ${link.y}L${link.x} ${link.y}`);
+    return;
+  }
   const c = e.target.closest && e.target.closest("#canvas");
   if (!c || e.pointerType === "touch" || (e.button !== 0 && e.button !== 1)) return;
-  if (e.button === 0 && e.target.closest(".card,.plus,button,input,select,textarea,a,label,.note,.res,.lane__h")) return;
+  if (e.button === 0 && e.target.closest(".gnode,button,input,select,textarea,a,label,.note,.res")) return;
   pan = { x: e.clientX, y: e.clientY, l: c.scrollLeft, t: c.scrollTop, c };
   c.classList.add("is-panning");
   e.preventDefault();
+});
+document.addEventListener("pointermove", (e) => {
+  if (!link) return;
+  $("#linker path").setAttribute("d", `M${link.x} ${link.y}L${e.clientX} ${e.clientY}`);
+  clearOver();
+  const el = document.elementFromPoint(e.clientX, e.clientY), n = el && el.closest && el.closest(".gnode");
+  if (n && n.dataset.id !== link.from && n.dataset.id !== "trigger") n.classList.add("is-over");
+});
+document.addEventListener("pointerup", (e) => {
+  if (!link) return;
+  const from = link.from, el = document.elementFromPoint(e.clientX, e.clientY), n = el && el.closest && el.closest(".gnode");
+  link = null; clearOver();
+  document.body.classList.remove("is-linking");
+  $("#linker").hidden = true;
+  if (n && n.dataset.id !== from) { dragged = true; setTimeout(() => (dragged = false), 80); connect(from, n.dataset.id); }
 });
 document.addEventListener("pointermove", (e) => { if (pan) { pan.c.scrollLeft = pan.l - (e.clientX - pan.x); pan.c.scrollTop = pan.t - (e.clientY - pan.y); } });
 const endPan = () => { if (pan) { pan.c.classList.remove("is-panning"); pan = null; } };
@@ -1513,7 +1670,7 @@ document.addEventListener("wheel", (e) => {
   const b = c.getBoundingClientRect();
   setZoom(S.zoom + (e.deltaY < 0 ? 0.1 : -0.1), e.clientX - b.left, e.clientY - b.top);
 }, { passive: false });
-document.addEventListener("scroll", (e) => { if (S.menu && e.target.id === "canvas") { S.menu = null; renderMenu(); } }, true);
+document.addEventListener("scroll", (e) => { if (e.target.id === "canvas") { hideTip(); if (S.menu) { S.menu = null; renderMenu(); } } }, true);
 document.addEventListener("paste", (e) => {
   const t = e.target, id = t.dataset && t.dataset.row, text = (e.clipboardData || { getData: () => "" }).getData("text");
   if (!id || !/\n/.test(text)) return;

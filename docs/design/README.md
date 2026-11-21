@@ -8,9 +8,9 @@
 > **The builder is being redesigned** (owner, 2026-11-21): [`builder.html`](builder.html) is a clickable
 > mock-up that replaces the build page and the workflow builder for a new agent: describe it in a
 > paragraph, check the steps the Builder reads from it (how it starts, then a line a step; a decision is
-> a line of its own: If, Or if, Otherwise, each path rejoining or ending), then on one canvas drag them,
-> add decisions between them, and click a step for its setup, what is left to settle on it and the
-> Builder. Design only: its answers and its
+> a line of its own: If, Or if, Otherwise, each path rejoining or ending), then on one chart of small
+> boxes and arrows (zoom, move, decisions that branch sideways) drag them, re-point what comes next,
+> and click a step for its setup, what is left to settle on it and the Builder. Design only: its answers and its
 > try are scripted and no route is called. Its own "About this prototype" says what it stands on.
 
 ## v1 screens (2026-11-03, superseded by the prototype)
