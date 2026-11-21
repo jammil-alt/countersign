@@ -18,6 +18,20 @@ export function reportHandled(what: string, error: unknown, tags: ReportTags = {
 }
 
 /**
+ * The database connection went away under work that is tried again on its own schedule (the
+ * cron's next tick): kept in Sentry as a warning with its stack, so a run of them still shows,
+ * but not an error, so one drop pages no one (`isDatabaseDrop`, Sentry MEZONAS-API-3, -A, -B).
+ */
+export function reportDrop(what: string, error: unknown, tags: ReportTags = {}): void {
+  console.warn(what, error);
+  captureException(error, {
+    level: "warning",
+    tags: { handled: "yes", db: "dropped", ...tags },
+    extra: { what },
+  });
+}
+
+/**
  * Something wrong that is not an exception: a definition that does not parse, a count of items a
  * pass could not handle, a setting that is missing. Grouped by `what`, so keep ids out of it and
  * put them in `tags`.
