@@ -201,8 +201,12 @@ describe("R2: the skills the latest seeds and templates name", () => {
     ).toEqual([
       // Filter, group and total a list (2026-11-17): a built-in code skill, not a wrapper.
       "data.group-list",
+      // §1.164: Read table, a built-in code skill.
+      "data.read-table",
       // Reshape data (2026-11-11): a built-in code skill, not a wrapper.
       "data.reshape",
+      // §1.164: Write table, a built-in code skill.
+      "data.write-table",
       "docs.check-bill",
       "docs.check-totals",
       "materials.check-matches",

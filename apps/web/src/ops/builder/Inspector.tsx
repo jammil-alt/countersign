@@ -79,6 +79,7 @@ import {
 import { type People, PersonPicker } from "./people";
 import { fieldLabel, stepNamer } from "./problems";
 import { ReachOutFields } from "./ReachOutFields";
+import { ReadTableSample } from "./read-table-step";
 // Reshape data (2026-11-11)
 import { inputsUnfilled, isReshape, type ReshapeOffer, reshapeOffers } from "./reshape";
 import { ReshapeFields } from "./reshape-step";
@@ -791,6 +792,15 @@ function KindFields(
               )}
             </Section>
           )}
+          {/* §1.164: Read table's sample-file check (its columns are in Parameters). */}
+          {id === processes.READ_TABLE_SKILL ? (
+            <ReadTableSample
+              step={step}
+              workflow={props.workflow}
+              bundle={props.bundle}
+              agentId={props.agentId}
+            />
+          ) : null}
         </>
       );
     }

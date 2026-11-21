@@ -6,6 +6,7 @@
 // every value is data the builder can show. The evaluator is `skills/rules.ts`.
 
 import { z } from "zod";
+import { TableColumns } from "./table";
 
 // ── Parameters ───────────────────────────────────────────────────────────────────────────────
 
@@ -14,7 +15,18 @@ export const SkillParameterName = z
   .string()
   .regex(/^[a-z][a-z0-9_]{0,62}$/, "lowercase letters, digits and underscores, from a letter");
 
-export const SKILL_PARAMETER_TYPES = ["number", "text", "date", "money", "buckets"] as const;
+// Data in and out of files (docs/plan.md §1.164): `boolean` (an on or off choice), `columns` (a
+// table file's expected columns, `TableColumns`) and `json_schema` (a JSON file's expected shape).
+export const SKILL_PARAMETER_TYPES = [
+  "number",
+  "text",
+  "date",
+  "money",
+  "buckets",
+  "boolean",
+  "columns",
+  "json_schema",
+] as const;
 export const SkillParameterType = z.enum(SKILL_PARAMETER_TYPES);
 export type SkillParameterType = z.infer<typeof SkillParameterType>;
 
@@ -86,7 +98,77 @@ export function parameterValueProblem(
         : `${name} is an amount and a currency, such as { "amount": "500.00", "currency": "USD" }`;
     case "buckets":
       return bucketsProblem(name, value);
+    case "boolean":
+      return typeof value === "boolean" ? null : `${name} is on or off (true or false)`;
+    case "columns":
+      return columnsProblem(name, value);
+    case "json_schema":
+      return jsonSchemaProblem(name, value);
   }
+}
+
+/** Columns: each with a field name, the headers it accepts, a type, and whether it is required. */
+function columnsProblem(name: string, value: unknown): string | null {
+  if (!Array.isArray(value)) return `${name} is a list of columns`;
+  const parsed = TableColumns.safeParse(value);
+  if (parsed.success) return null;
+  const issue = parsed.error.issues[0];
+  const at = typeof issue?.path[0] === "number" ? ` (column ${issue.path[0] + 1})` : "";
+  return `${name}${at}: ${issue?.message ?? "not a list of columns"}`;
+}
+
+/** At most this much JSON in a `json_schema` parameter. */
+const JSON_SCHEMA_MAX_CHARS = 20_000;
+
+// DECISION: the editor and the server check an expected shape's form here (an object of JSON
+// Schema keywords with known types, nested properties and items); the platform's validator (Zod's
+// `fromJSONSchema`) compiles it only where the step runs (`tableFiles.jsonShapeProblem`), which
+// fails the step naming why if it can't. Compiling here would put Zod's JSON Schema reader in the
+// web app's first load (scripts/web-size.mjs). `{}` (the default) checks nothing.
+function jsonSchemaProblem(name: string, value: unknown): string | null {
+  if (!isPlain(value)) return `${name} is a JSON Schema (an object)`;
+  if (JSON.stringify(value).length > JSON_SCHEMA_MAX_CHARS) {
+    return `${name} is at most ${JSON_SCHEMA_MAX_CHARS.toLocaleString("en-US")} characters of JSON`;
+  }
+  const problem = schemaFormProblem(value, "", 0);
+  return problem ? `${name} isn't a JSON Schema we can check: ${problem}` : null;
+}
+
+const JSON_TYPES = new Set(["object", "array", "string", "number", "integer", "boolean", "null"]);
+
+/** Why a JSON Schema's form is wrong (unknown types, malformed properties or items); null if fine. */
+function schemaFormProblem(schema: unknown, at: string, depth: number): string | null {
+  const where = at ? ` at ${at}` : "";
+  if (typeof schema === "boolean") return null;
+  if (!isPlain(schema)) return `a schema${where} is an object`;
+  if (depth > 12) return `the schema nests more than 12 levels`;
+  const type = schema.type;
+  if (type !== undefined) {
+    const types = Array.isArray(type) ? type : [type];
+    if (types.length === 0 || types.some((t) => typeof t !== "string" || !JSON_TYPES.has(t))) {
+      return `"type"${where} is one of ${[...JSON_TYPES].join(", ")}`;
+    }
+  }
+  if (schema.required !== undefined) {
+    if (!Array.isArray(schema.required) || schema.required.some((r) => typeof r !== "string")) {
+      return `"required"${where} is a list of field names`;
+    }
+  }
+  if (schema.properties !== undefined) {
+    if (!isPlain(schema.properties)) return `"properties"${where} is an object`;
+    for (const [key, sub] of Object.entries(schema.properties)) {
+      const problem = schemaFormProblem(sub, at ? `${at}.${key}` : key, depth + 1);
+      if (problem) return problem;
+    }
+  }
+  for (const key of ["items", "additionalProperties"] as const) {
+    const sub = schema[key];
+    if (sub !== undefined) {
+      const problem = schemaFormProblem(sub, at ? `${at}.${key}` : key, depth + 1);
+      if (problem) return problem;
+    }
+  }
+  return null;
 }
 
 /**

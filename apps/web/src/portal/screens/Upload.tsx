@@ -175,7 +175,7 @@ export function DropZone({
           data-testid={`${testId}-input`}
           type="file"
           multiple
-          accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.csv,application/pdf,image/*,text/csv"
+          accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.csv,.xlsx,.json,application/pdf,image/*,text/csv,application/json"
           className="sr-only"
           onChange={(e) => void send(e.target.files)}
         />

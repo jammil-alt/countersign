@@ -1,13 +1,15 @@
 // Email forwarding (ARCHITECTURE §6.5, docs/plan.md §1.2): each client has a private address on
 // EMAIL_FORWARDING_DOMAIN; Cloudflare Email Routing hands mail for it to the Worker's `email()`
-// handler, which keeps PDF and image attachments from allowed senders as documents. Headers are
-// kept; bodies never are (invariant 12).
+// handler, which keeps PDF, image and table file (.csv, .xlsx, .json) attachments from allowed
+// senders as documents. Headers are kept; bodies never are (invariant 12).
 
 import {
   type EmailAuthentication,
   type EmailAutomation,
   emailAutomation,
+  isTableType,
   readAuthentication,
+  tableMimeType,
 } from "@countersign/core";
 import PostalMime from "postal-mime";
 import { randomBytes, utf8 } from "../runtime";
@@ -292,7 +294,7 @@ export interface ForwardedAttachment {
 export interface ForwardedEmail {
   headers: ForwardedHeaders;
   attachments: ForwardedAttachment[];
-  /** Attachments left out (not a PDF or an image, or an inline image such as a signature logo). */
+  /** Attachments left out (not a PDF, an image or a table file, or an inline image such as a logo). */
   skipped: { filename: string; mimeType: string; reason: string }[];
 }
 
@@ -317,12 +319,18 @@ const EXTENSION_TYPES: Record<string, string> = {
 export function documentMimeType(declared: string, filename: string): string {
   const d = declared.toLowerCase().split(";")[0]?.trim() ?? "";
   if (KEPT_TYPES.has(d)) return d === "image/jpg" ? "image/jpeg" : d;
+  // §1.164: a table file (.csv, .xlsx, .json), however it was declared.
+  const table = tableMimeType(d, filename);
+  if (table) return table;
   const ext = filename.toLowerCase().split(".").at(-1) ?? "";
   return EXTENSION_TYPES[ext] ?? d;
 }
 
+// DECISION (docs/plan.md §1.164 "Documents"): a document is a PDF, an image or a table file (.csv,
+// .xlsx, .json). Table files are read in code by Read table and never sent to a model as files
+// (core's `isExtractable` stays PDFs and images).
 export function isDocumentType(mime: string): boolean {
-  return KEPT_TYPES.has(mime);
+  return KEPT_TYPES.has(mime) || isTableType(mime);
 }
 
 function addressOf(a: { address?: string | undefined } | undefined): string | null {
@@ -418,7 +426,7 @@ export async function parseForwardedEmail(
     // DECISION: inline images (cid: references, e.g. a signature logo) are not documents; an
     // image is kept only as a real attachment. PDFs are kept however they are attached.
     if (!isDocumentType(mimeType)) {
-      skipped.push({ filename, mimeType, reason: "not a PDF or an image" });
+      skipped.push({ filename, mimeType, reason: "not a PDF, an image or a table file" });
       return;
     }
     if (mimeType !== "application/pdf" && a.disposition !== "attachment" && a.contentId) {

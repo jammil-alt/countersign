@@ -7,7 +7,7 @@
 
 import type { JsonObject } from "@countersign/core";
 // P-3: attachments both ways
-import { AttachmentSummary } from "@countersign/core";
+import { AttachmentSummary, EMAIL_SENDABLE_TYPES } from "@countersign/core";
 import { z } from "zod";
 import { type AttachmentLimits, describeOutbound, loadOutbound, summaries } from "../attachments";
 import {
@@ -58,6 +58,7 @@ export const GMAIL_ATTACHMENT_LIMITS: AttachmentLimits = {
   provider: "Gmail",
   maxCount: 5,
   maxTotalBytes: 18 * 1024 * 1024,
+  types: EMAIL_SENDABLE_TYPES,
 };
 
 /** The one Gmail scope we ask for: send only (a sensitive scope, no CASA). */

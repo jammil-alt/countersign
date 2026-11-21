@@ -55,7 +55,7 @@ export interface StoreDocumentInput {
   /** Who uploaded it, or a forwarded email's headers. Never a body. */
   meta?: Record<string, unknown>;
   // v0.14 capture: a message's attachment under `all` may be a voice note or an office file
-  // (core's `attachmentKind`); stored, never read. Default: PDFs and images only.
+  // (core's `attachmentKind`); stored, never read. Default: PDFs, images and table files.
   /** Which types are kept; default `isDocumentType`. */
   allowType?: (mimeType: string) => boolean;
   /**
@@ -89,7 +89,7 @@ export async function storeDocument(
   if (!(input.allowType ?? isDocumentType)(input.mimeType)) {
     throw new DocumentError(
       "unsupported_type",
-      "documents are PDFs or images (PNG, JPEG, GIF, WebP)",
+      "documents are PDFs, images (PNG, JPEG, GIF, WebP) or table files (.csv, .xlsx, .json)",
     );
   }
   const stored = await content.put({

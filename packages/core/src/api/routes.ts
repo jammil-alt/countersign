@@ -91,6 +91,8 @@ import { peopleRoutes, voiceSampleRoutes } from "./people";
 import { phoneApprovalRoutes } from "./phone-approval";
 import { qboRoutes } from "./qbo";
 import { reachRoutes } from "./reach";
+// §1.164: the builder's sample-file check for a Read table step.
+import { readTableRoutes } from "./read-table";
 import { recordRoutes } from "./records";
 import { reggieRoutes } from "./reggie";
 import { requestRoutes } from "./requests";
@@ -2546,6 +2548,8 @@ export const routes = {
   ...skillModelRoutes,
   // Reshape data (owner, 2026-11-11): propose a Reshape step's mapping, and its sample values.
   ...reshapeRoutes,
+  // Data in and out of files (owner, 2026-11-20): a Read table step's sample-file check.
+  ...readTableRoutes,
   // docs/plan.md §1.124: back office work
   ...workRoutes,
   // docs/plan.md §1.124.3: Your call

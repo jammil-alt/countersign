@@ -35,8 +35,9 @@ const builtins = platform.catalog.list();
 // comms.reach-out) and forms.draft (an AI task skill).
 // §1.123: data.group-list, a built-in code skill (its handler in `tools`, not a wrapper).
 // §1.164: the Sales pack's three tool skills (Match to CRM, Refresh CRM records for matching,
-// Look up CRM records), each a wrapper of its tool.
-const BUILTINS = 145;
+// Look up CRM records), each a wrapper of its tool; data.read-table and data.write-table, built-in
+// code skills (not wrappers).
+const BUILTINS = 147;
 const WRAPPERS = 101;
 
 describe("built-in skills under the R2 skill schema", () => {

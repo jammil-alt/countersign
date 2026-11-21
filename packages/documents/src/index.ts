@@ -14,4 +14,6 @@ export * from "./link";
 export * from "./purchase";
 export * from "./qbo-bills";
 export * from "./store";
+// §1.164: table files (.csv, .xlsx, .json) Read table reads and Write table makes.
+export * from "./tables";
 export * from "./validate";
