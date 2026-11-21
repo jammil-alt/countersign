@@ -6,7 +6,6 @@ import {
   type FitVerdict,
   PHASE_WORDS,
   type QaCheck,
-  sliceWhole,
 } from "@countersign/core";
 import type { Tone } from "../../ui/primitives";
 
@@ -38,11 +37,11 @@ export const ITEM_TONE: Record<BuildItemState, Tone> = {
 export const ITEM_KIND_WORDS: Record<BuildItemKind, { label: string; how: string }> = {
   question: {
     label: "Question",
-    how: "Answer it here or in the conversation. The Builder puts the answer in the brief and marks it done.",
+    how: "Answer it here or in the conversation. It closes when the Builder has your answer.",
   },
   gap: {
     label: "Gap",
-    how: "Decide how to cover it: build it, give it to a person, or drop it from scope. The Builder makes the change.",
+    how: "Pick the step that covers it: the Builder changes the process or builds a skill, or Mezonas engineering writes the code. It closes when that is done.",
   },
   precondition: {
     label: "Must be true first",
@@ -54,7 +53,7 @@ export const ITEM_KIND_WORDS: Record<BuildItemKind, { label: string; how: string
   },
   feedback: {
     label: "Client feedback",
-    how: "Change the agent, or answer the client, then set it to Done.",
+    how: "Change the agent for it, one of the three ways. It closes when the change is made.",
   },
   qa: {
     label: "QA",
@@ -92,25 +91,17 @@ export const GAP_CHOICES = [
   { key: "drop", label: "Drop it" },
 ] as const;
 
-/** A question closed without an answer here: the Close menu. */
+/**
+ * A question closed without an answer here: the Close menu. docs/plan.md §1.169: "answered
+ * elsewhere" is gone; an answer is typed, and the Builder closes the question by it.
+ */
 export const CLOSE_CHOICES = [
-  { key: "done", label: "Done (answered elsewhere)" },
   { key: "deferred", label: "Put off" },
   { key: "not-needed", label: "Not needed" },
 ] as const;
 
-/** The line a question closed as not needed keeps in its detail. */
-// DECISION (docs/plan.md §1.166): items have no note field, so "Not needed" is Done with this line
-// added to the item's detail; no schema change.
-export const NOT_NEEDED_NOTE = "Closed as not needed.";
-
-/** An item's detail with a closing note after it, within the item's 2,000 characters. */
-export function withNote(detail: string, note: string, max = 2000): string {
-  const before = detail.trim();
-  if (!before) return note;
-  const room = max - note.length - 1;
-  return `${sliceWhole(before, Math.max(0, room)).trimEnd()}\n${note}`;
-}
+/** The line a question closed as not needed keeps in its detail; the server adds it (§1.169). */
+export { NOT_NEEDED_NOTE, withNote } from "@countersign/core";
 
 export const QA_TONE: Record<QaCheck["state"], Tone> = {
   pass: "positive",

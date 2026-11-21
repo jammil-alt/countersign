@@ -364,6 +364,11 @@ export const UpdateBuildItem = z.strictObject({
   detail: storable(z.string().trim().max(2000)).optional(),
   owner: BuildItemOwner.optional(),
   state: BuildItemState.optional(),
+  /**
+   * docs/plan.md §1.169: drop it as not needed. A question, gap, test or feedback item is closed
+   * only by its own step or this; `state: "done"` on its own is refused (409 `settled_by_its_step`).
+   */
+  drop: z.literal(true).optional(),
 });
 
 /**

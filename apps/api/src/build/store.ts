@@ -235,6 +235,11 @@ export const ProposalDecision = z.object({
   result: z.string().optional(),
   /** A draft edit made but the issue it was for still open. */
   unresolved: z.boolean().optional(),
+  /**
+   * docs/plan.md §1.169: the item a draft edit settled, closed by it, and its state before, so
+   * the edit's undo opens it again.
+   */
+  closed: z.object({ itemId: z.string(), before: BuildItemState }).optional(),
   /** A draft edit's changes to the steps, one line each. */
   changes: z.array(z.string()).optional(),
   /** A draft edit: the Builder session and turn that made it, its changes and the saved version. */

@@ -17,7 +17,6 @@ import {
   type BuildDetail,
   type BuildIssue,
   type BuildItemOwner,
-  type BuildItemState,
   type BuildPhase,
   buildIssues,
   DATA_SOURCES,
@@ -48,6 +47,7 @@ import {
   type SettleWay,
   type SetupField,
   type SetupKind,
+  settledByStep,
   type TestPlan,
   withFitScope,
 } from "@countersign/core";
@@ -90,14 +90,12 @@ import {
   GAP_CHOICES,
   ITEM_KIND_WORDS,
   ITEM_TONE,
-  NOT_NEEDED_NOTE,
   plural,
   QA_STATE_WORDS,
   QA_TONE,
   SOURCE_WORDS,
   TO_BUILDER,
   VERDICT_TONE,
-  withNote,
 } from "./words";
 
 type Act = <R extends RouteSpec>(route: R, opts: CallOptions<R>) => Promise<boolean>;
@@ -2763,12 +2761,6 @@ function QaPanel({ detail, current, busy, act }: PanelProps) {
 
 // ── Open items ──────────────────────────────────────────────────────────────────────────────────
 
-const OWNERS: BuildItemOwner[] = ["operator", "builder", "client", "engineering"];
-const STATES: BuildItemState[] = ["open", "in_progress", "waiting", "done", "deferred"];
-
-/** A select in a row's meta line: as wide as its longest choice, so its words are never cut. */
-const META_SELECT = "h-7 w-auto text-xs";
-
 type Item = BuildDetail["items"][number];
 
 /**
@@ -2815,7 +2807,6 @@ function ItemsPanel({
 }) {
   const id = detail.build.id;
   const [title, setTitle] = useState("");
-  const [owner, setOwner] = useState<BuildItemOwner>("operator");
   // The one answer box open (its issue's key) and its words.
   const [answering, setAnswering] = useState<{ key: string; text: string } | null>(null);
   // Open ones first, then the first few of them; the one the conversation is on always shows.
@@ -2869,9 +2860,15 @@ function ItemsPanel({
   // Owner (2026-11-21): "issues should be decided in a few ways: change the process, build a skill
   // or code a new step if it needs code and not a skill". On what is wrong with the draft or its
   // tests and on gaps; a question is answered, and a decision or a QA check has its own control.
+  // docs/plan.md §1.169 (owner, 2026-11-21: "give it an action, not just mark it"): each way gives
+  // the issue to whoever takes that step and starts it; it closes when the step is done. A gap
+  // put off is taken back up the same way.
   const settle = (issue: BuildIssue) => {
-    if (!onSettle || !issue.open) return null;
-    const kind = issue.itemId ? items.get(issue.itemId)?.kind : null;
+    if (!onSettle) return null;
+    const item = issue.itemId ? items.get(issue.itemId) : undefined;
+    const kind = item?.kind ?? null;
+    const putOff = item?.state === "deferred";
+    if (!issue.open && !putOff) return null;
     const fits =
       issue.source === "problem" ||
       issue.source === "case" ||
@@ -2883,13 +2880,13 @@ function ItemsPanel({
         className="flex flex-wrap items-center gap-1.5"
         data-testid={`build-issue-${issue.key}-settle`}
       >
-        <span className="text-xs text-ink-muted">Settle it:</span>
+        <span className="text-xs text-ink-muted">{putOff ? "Take it up:" : "Settle it:"}</span>
         {SETTLE_WAYS.map((way) => (
           <Button
             key={way}
             size="sm"
             disabled={isBusy(busy)}
-            title={SETTLE_WORDS[way].does}
+            title={`${SETTLE_WORDS[way].who} takes it. ${SETTLE_WORDS[way].does}`}
             onClick={() => onSettle(issue.key, way)}
             data-testid={`build-issue-${issue.key}-settle-${way}`}
           >
@@ -2899,10 +2896,15 @@ function ItemsPanel({
       </span>
     );
   };
-  /** What closes an open item, by its kind, then the conversation's links. */
+  /**
+   * What an item's row offers, by its kind and state, then the conversation's links. docs/plan.md
+   * §1.169: nothing here marks a question, gap, test or feedback done; its step does. It can be
+   * put off, dropped as not needed, or taken up again.
+   */
   const actions = (issue: BuildIssue, i: Item) => {
     const live = editable && itemOpen(i.state);
     const say = live ? onSay : undefined;
+    const byStep = settledByStep(i.kind);
     const buttons = !say ? null : i.kind === "question" ? (
       <>
         {answering?.key === issue.key ? null : (
@@ -2919,22 +2921,12 @@ function ItemsPanel({
           choices={CLOSE_CHOICES}
           disabled={off}
           testId={`build-item-${i.id}-close`}
-          onPick={(c) =>
-            update(
-              i,
-              c === "deferred"
-                ? { state: "deferred" }
-                : c === "done"
-                  ? { state: "done" }
-                  : { state: "done", detail: withNote(i.detail, NOT_NEEDED_NOTE) },
-            )
-          }
+          onPick={(c) => update(i, c === "deferred" ? { state: "deferred" } : { drop: true })}
         />
       </>
-    ) : i.kind === "gap" ? (
-      // docs/plan.md §1.165: once there is a draft to change, a gap's "build it" and "a person
-      // does it" are the three ways above it (Settle it); dropping it stays here.
-      GAP_CHOICES.filter((c) => !onSettle || c.key === "drop").map((c) => (
+    ) : i.kind === "gap" && !onSettle ? (
+      // Before there is a draft to change: the fit-gap's own choices, sent to the Builder.
+      GAP_CHOICES.filter((c) => c.key !== "drop").map((c) => (
         <Button
           key={c.key}
           size="sm"
@@ -2946,6 +2938,32 @@ function ItemsPanel({
         </Button>
       ))
     ) : null;
+    // A gap, a test or client feedback: put off (a person does it for now) or dropped.
+    const aside =
+      editable && byStep && i.kind !== "question" && i.state !== "done" ? (
+        <>
+          {live ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={off}
+              onClick={() => update(i, { state: "deferred" })}
+              data-testid={`build-item-${i.id}-put-off`}
+            >
+              Put off
+            </Button>
+          ) : null}
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={off}
+            onClick={() => update(i, { drop: true })}
+            data-testid={`build-item-${i.id}-gap-drop`}
+          >
+            Drop it
+          </Button>
+        </>
+      ) : null;
     // A note or a precondition is done by a click, whoever settled it.
     const done =
       live && (i.kind === "note" || i.kind === "precondition") ? (
@@ -2958,13 +2976,28 @@ function ItemsPanel({
           Done
         </Button>
       ) : null;
-    if (!buttons && !done && !onTalk) return null;
+    // Taking one up again: a put-off item that no way above takes up, or one closed.
+    const again =
+      editable && !itemOpen(i.state) && !(i.state === "deferred" && settle(issue)) ? (
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={off}
+          onClick={() => update(i, { state: "open" })}
+          data-testid={`build-item-${i.id}-reopen`}
+        >
+          {i.state === "deferred" ? "Take it up" : "Reopen"}
+        </Button>
+      ) : null;
+    if (!buttons && !aside && !done && !again && !onTalk) return null;
     return (
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        {buttons || done ? (
+        {buttons || aside || done || again ? (
           <span className="flex flex-wrap items-center gap-2">
             {buttons}
             {done}
+            {aside}
+            {again}
           </span>
         ) : null}
         {talk(issue)}
@@ -3003,7 +3036,7 @@ function ItemsPanel({
                 title.trim() &&
                 (await act(apiRoutes.opsAddBuildItem, {
                   params: { id },
-                  body: { title: title.trim(), owner },
+                  body: { title: title.trim(), owner: "operator" },
                 }))
               )
                 setTitle("");
@@ -3017,18 +3050,6 @@ function ItemsPanel({
               onChange={(e) => setTitle(e.target.value)}
               data-testid="build-item-new"
             />
-            <Select
-              aria-label="Who has it"
-              className="w-48"
-              value={owner}
-              onChange={(e) => setOwner(e.target.value as BuildItemOwner)}
-            >
-              {OWNERS.map((o) => (
-                <option key={o} value={o}>
-                  {OWNER_WORDS[o]}
-                </option>
-              ))}
-            </Select>
             <Button
               size="sm"
               type="submit"
@@ -3137,48 +3158,14 @@ function ItemsPanel({
                   ) : null}
                   <MetaLine>
                     <span>From {PHASE_WORDS[i.phase].label}</span>
-                    {editable ? (
-                      <span className="flex items-center gap-1.5">
-                        Who has it
-                        <Select
-                          aria-label={`Who has it: ${i.title}`}
-                          className={META_SELECT}
-                          value={i.owner}
-                          data-testid={`build-item-${i.id}-owner`}
-                          onChange={(e) => update(i, { owner: e.target.value as BuildItemOwner })}
-                        >
-                          {OWNERS.map((o) => (
-                            <option key={o} value={o}>
-                              {OWNER_WORDS[o]}
-                            </option>
-                          ))}
-                        </Select>
-                      </span>
-                    ) : (
-                      <span>
-                        Who has it: <span className="text-ink">{OWNER_WORDS[i.owner]}</span>
-                      </span>
-                    )}
-                    {editable ? (
-                      <span className="flex items-center gap-1.5">
-                        Status
-                        <Select
-                          aria-label={`Status: ${i.title}`}
-                          className={META_SELECT}
-                          value={i.state}
-                          data-testid={`build-item-${i.id}-state`}
-                          onChange={(e) => update(i, { state: e.target.value as BuildItemState })}
-                        >
-                          {STATES.map((s) => (
-                            <option key={s} value={s}>
-                              {ITEM_STATE_WORDS[s]}
-                            </option>
-                          ))}
-                        </Select>
-                      </span>
-                    ) : (
-                      <Badge tone={ITEM_TONE[i.state]}>{ITEM_STATE_WORDS[i.state]}</Badge>
-                    )}
+                    {/* docs/plan.md §1.169: who has it and its status follow from the step
+                        taken; neither is picked here. */}
+                    <span data-testid={`build-item-${i.id}-owner`}>
+                      Who has it: <span className="text-ink">{OWNER_WORDS[i.owner]}</span>
+                    </span>
+                    <Badge tone={ITEM_TONE[i.state]} testId={`build-item-${i.id}-state`}>
+                      {issue.state}
+                    </Badge>
                   </MetaLine>
                   {settle(issue)}
                   {actions(issue, i)}
