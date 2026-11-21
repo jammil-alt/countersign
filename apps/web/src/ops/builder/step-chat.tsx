@@ -6,7 +6,8 @@
 // was said about one step is there for the next; each operator turn says which step it was about.
 // F6 (docs/builder-plan.md §12.3, docs/plan.md §1.170): it sits under the step's setup in the side
 // panel, always there, in the size the panel gives it: the message box alone ("min"), or the
-// conversation with it ("beside", "max"). The toolbar's opt-in toggle is gone with the toolbar.
+// conversation with it ("beside", "max"); the panel may fold it to one line ("line"), which it
+// remembers here too. The toolbar's opt-in toggle is gone with the toolbar.
 
 import { Button } from "../../ui/primitives";
 import { errorText, isCode, Notice } from "../agents/ui";
@@ -16,13 +17,13 @@ import { BuilderMark, Composer, Turns } from "./chat";
 /** The Builder's size in the step panel, remembered per viewer in this browser. */
 export const STEP_CHAT_KEY = "mezonas.builder.stepchat";
 
-type ChatSize = "min" | "beside" | "max";
+type ChatSize = "line" | "min" | "beside" | "max";
 
 /** How much of the side panel the Builder takes, as last chosen (the message box when unknown). */
 export function readStepChatSize(): ChatSize {
   try {
     const v = window.localStorage.getItem(STEP_CHAT_KEY);
-    return v === "beside" || v === "max" ? v : "min";
+    return v === "line" || v === "beside" || v === "max" ? v : "min";
   } catch {
     return "min";
   }
@@ -53,7 +54,7 @@ export function StepChat({
   session: BuilderSession;
   step: FocusedStep;
   /** "min": the message box alone; otherwise the conversation with it. */
-  size?: ChatSize | undefined;
+  size?: Exclude<ChatSize, "line"> | undefined;
   /** Absent at the first or last step. */
   onPrevious?: (() => void) | undefined;
   onNext?: (() => void) | undefined;

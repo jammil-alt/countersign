@@ -2,7 +2,8 @@
 // becomes the step's side panel with the Builder underneath"). From the top: what kind of step and
 // where it sits, its name, what is left to settle on it (issues red, questions gold, settled ones
 // with Change), what the Builder decided for it, where it comes after and goes to, its setup (the
-// inspector's fields, passed in), then the Builder on this step in one of three sizes, and Remove.
+// inspector's fields, passed in), then the Builder on this step, folded to one line or in one of
+// three sizes, and Remove.
 // Props only: the host owns the process, the build's routes and the Builder session.
 import { type ReactNode, useEffect, useState } from "react";
 import { Icon } from "../../ui/icons";
@@ -10,13 +11,21 @@ import { Badge, Button, cx } from "../../ui/primitives";
 import { isOpen, openItems, type SettleEntry, TRY_WORD } from "./status";
 import type { DecidedNote, SettleItem, StepStatus } from "./types";
 
-/** How much of the panel the Builder takes: the message box, half beside the setup, or all of it. */
-export type BuilderSize = "min" | "beside" | "max";
+/**
+ * How much of the panel the Builder takes: folded to its one line ("line"), the message box, half
+ * beside the setup, or all of it.
+ */
+// DECISION (owner, 2026-11-21: "allow it to be collapsed into a single line… the buttons take 4
+// lines"): the Builder's head is one line, its name folds and opens it, and the sizes are one
+// word each. Folded, the setup has the whole panel; what was typed to the Builder is kept.
+export type BuilderSize = "line" | "min" | "beside" | "max";
+/** A size the Builder is drawn at: every one but folded. */
+export type BuilderOpenSize = Exclude<BuilderSize, "line">;
 
-const SIZES: { size: BuilderSize; label: string; title: string }[] = [
-  { size: "min", label: "Message box", title: "Shrink the Builder to its message box" },
-  { size: "beside", label: "Beside the setup", title: "The setup and the Builder, half each" },
-  { size: "max", label: "Whole panel", title: "Fill the panel with the Builder" },
+const SIZES: { size: BuilderOpenSize; label: string; title: string }[] = [
+  { size: "min", label: "Box", title: "The message box alone" },
+  { size: "beside", label: "Half", title: "The setup and the Builder, half each" },
+  { size: "max", label: "Full", title: "Fill the panel with the Builder" },
 ];
 
 export interface StepPanelProps {
@@ -45,7 +54,7 @@ export interface StepPanelProps {
   /** The step's setup: the inspector with `layout="panel"`. */
   children?: ReactNode;
   /** The Builder on this step (today's StepChat), or a function of the size it is given. */
-  builder?: ReactNode | ((size: BuilderSize) => ReactNode);
+  builder?: ReactNode | ((size: BuilderOpenSize) => ReactNode);
   /** Controlled size; uncontrolled from `defaultBuilderSize` when absent. */
   builderSize?: BuilderSize | undefined;
   defaultBuilderSize?: BuilderSize | undefined;
@@ -64,7 +73,12 @@ export function StepPanel(props: StepPanelProps) {
     setOwnSize(s);
     props.onBuilderSize?.(s);
   };
-  const builder = typeof props.builder === "function" ? props.builder(size) : props.builder;
+  // Folded, the Builder stays mounted at the size it opens back to, so its words are kept.
+  const [lastOpen, setLastOpen] = useState<BuilderOpenSize>(size === "line" ? "min" : size);
+  if (size !== "line" && size !== lastOpen) setLastOpen(size);
+  const folded = size === "line";
+  const openSize: BuilderOpenSize = size === "line" ? lastOpen : size;
+  const builder = typeof props.builder === "function" ? props.builder(openSize) : props.builder;
   const hasBuilder = props.builder !== undefined && props.builder !== null;
   const showBody = !hasBuilder || size !== "max";
 
@@ -81,7 +95,9 @@ export function StepPanel(props: StepPanelProps) {
         <div
           data-testid="flow-panel-body"
           className={cx(
-            "flex min-h-0 flex-col gap-5 overflow-y-auto px-5 py-4",
+            // Positioned: a field hidden for screen readers only (position absolute) then scrolls
+            // with the panel and is clipped by it, where it would otherwise lengthen the page.
+            "relative flex min-h-0 flex-col gap-5 overflow-y-auto px-5 py-4",
             hasBuilder && size === "beside" ? "flex-1 basis-1/2" : "flex-1",
           )}
         >
@@ -118,30 +134,46 @@ export function StepPanel(props: StepPanelProps) {
           aria-label="The Builder on this step"
           data-testid="flow-panel-builder"
           className={cx(
-            "flex min-h-0 flex-col gap-3 border-t border-line px-5 py-3",
+            "flex min-h-0 flex-col border-t border-line px-5",
+            folded ? "shrink-0 py-1.5" : "gap-3 py-3",
             size === "min" && "shrink-0",
             size === "beside" && "flex-1 basis-1/2",
             size === "max" && "flex-1",
           )}
         >
-          <div className="flex items-center justify-between gap-3">
-            <span className="eyebrow text-ink-muted">Builder · on this step</span>
-            <fieldset className="ds-seg" aria-label="Builder size">
-              {SIZES.map((s) => (
-                <button
-                  key={s.size}
-                  type="button"
-                  title={s.title}
-                  aria-pressed={size === s.size}
-                  data-testid={`flow-panel-builder-${s.size}`}
-                  onClick={() => setSize(s.size)}
-                >
-                  {s.label}
-                </button>
-              ))}
-            </fieldset>
+          <div className="flex min-h-8 items-center justify-between gap-3">
+            <button
+              type="button"
+              aria-expanded={!folded}
+              title={folded ? "Open the Builder" : "Fold the Builder to this line"}
+              data-testid="flow-panel-builder-fold"
+              onClick={() => setSize(folded ? lastOpen : "line")}
+              className="eyebrow -ml-1 flex min-w-0 items-center gap-1 rounded-sm px-1 py-1 whitespace-nowrap text-ink-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-slate"
+            >
+              <Icon name={folded ? "chevron-right" : "chevron-down"} size={14} />
+              Builder · on this step
+            </button>
+            {folded ? null : (
+              <fieldset className="ds-seg shrink-0" aria-label="Builder size">
+                {SIZES.map((s) => (
+                  <button
+                    key={s.size}
+                    type="button"
+                    title={s.title}
+                    aria-pressed={size === s.size}
+                    data-testid={`flow-panel-builder-${s.size}`}
+                    className="whitespace-nowrap"
+                    onClick={() => setSize(s.size)}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </fieldset>
+            )}
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto">{builder}</div>
+          <div className={cx("relative min-h-0 flex-1 overflow-y-auto", folded && "hidden")}>
+            {builder}
+          </div>
         </section>
       ) : null}
     </aside>

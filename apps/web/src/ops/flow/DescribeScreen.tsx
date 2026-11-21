@@ -5,7 +5,13 @@
 // opens Check the steps over that saved draft. List the steps myself starts the build with no
 // draft (draft-now needs words) and opens Check the steps with an empty list. Builds already open
 // keep today's page (owner, 2026-11-21).
-import { type ReactNode, useState } from "react";
+//
+// The name may be left empty (owner, 2026-11-21: "let's create the name of the template with AI
+// based on the description… make it editable"): once the words are written it is named from them
+// (Draft's `build.name` field, docs/plan.md §1.168), in the Name field, where it can be changed.
+// A name someone typed is never replaced.
+import { assistRoutes } from "@countersign/core";
+import { type ReactNode, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApiClient } from "../../api/useApi";
@@ -20,6 +26,21 @@ export type DescribeKind = "template" | "client";
 
 /** The most the words may say (the draft-now route's limit). */
 export const WORDS_MAX = 4000;
+
+// DECISION (docs/plan.md §1.171): the name is made when the words are left, not as they are typed
+// (one short call, not one per key), and only from 20 characters of words or more.
+/** The fewest characters of words worth naming it from. */
+const NAME_FROM_MIN = 20;
+
+/** The model's name as a name: its first line, without quotation marks or a closing full stop. */
+export function tidyName(text: string): string {
+  const line = text.trim().split("\n")[0] ?? "";
+  return line
+    .replace(/^["“'‘]+|["”'’]+$/g, "")
+    .replace(/\.+$/, "")
+    .trim()
+    .slice(0, 200);
+}
 
 /** Router state Check the steps reads: the words the draft was made from, for its quote. */
 export interface CheckStepsState {
@@ -119,16 +140,70 @@ export function DescribeScreen({
   const [started, setStarted] = useState<string | null>(buildId);
   const [busy, setBusy] = useState<"draft" | "mine" | null>(null);
   const [error, setError] = useState<unknown>(null);
+  // Whose the name is: someone typed it (never replaced), or we made it from these words.
+  const [typed, setTyped] = useState(!!initialName.trim());
+  const [naming, setNaming] = useState(false);
+  const [nameFailed, setNameFailed] = useState(false);
+  const namedFrom = useRef<string | null>(null);
+  const namingNow = useRef<Promise<string> | null>(null);
+  // What was typed while a name was being made: it wins over the name that comes back.
+  const typedName = useRef<string | null>(initialName.trim() || null);
   const title = name.trim();
   const said = words.trim();
-  const canStart = !!title && !blocked && busy === null;
+  const canStart = !blocked && busy === null;
+  const canName = said.length >= NAME_FROM_MIN;
+
+  /** Names it from the words, into the Name field. One call at a time; the same one is shared. */
+  function nameIt(): Promise<string> {
+    if (namingNow.current) return namingNow.current;
+    const from = said;
+    setNaming(true);
+    setNameFailed(false);
+    const call = api
+      .call(assistRoutes.opsAssistDraft, {
+        body: {
+          field: "build.name",
+          notes: from,
+          context: kind === "client" && clientId ? { clientId } : {},
+        },
+      })
+      .then((out) => {
+        if (typedName.current) return typedName.current;
+        const made = tidyName(out.text);
+        if (!made) throw new Error("We couldn't name it from your words. Type a name.");
+        namedFrom.current = from;
+        setName(made);
+        return made;
+      })
+      .finally(() => {
+        namingNow.current = null;
+        setNaming(false);
+      });
+    namingNow.current = call;
+    return call;
+  }
+
+  /** Leaving the words: name it when nobody typed a name and these words haven't named it yet. */
+  function nameOnBlur() {
+    if (typed || blocked || started || !canName || namedFrom.current === said) return;
+    // A failure here is quiet: the field says so, and a name can be typed.
+    nameIt().catch(() => setNameFailed(true));
+  }
+
+  /** The name to start the build with: the one in the field, or one made from the words now. */
+  async function ensureName(): Promise<string> {
+    if (namingNow.current) return namingNow.current;
+    if (title) return title;
+    return nameIt();
+  }
 
   async function ensureBuild(): Promise<string> {
     if (started) return started;
+    const named = await ensureName();
     const out = await api.call(apiRoutes.opsStartBuild, {
       body: {
         kind: "agent",
-        title,
+        title: named,
         ...(kind === "client" && clientId ? { clientId } : {}),
       },
     });
@@ -178,14 +253,36 @@ export function DescribeScreen({
         className="flex flex-col gap-4 rounded-md border border-line bg-surface p-5"
         onSubmit={(e) => {
           e.preventDefault();
-          if (canStart && said) void draft();
+          if (canStart && said && (title || canName)) void draft();
         }}
       >
         {header}
-        <Field label="Name">
+        <Field
+          label="Name"
+          hint={
+            naming ? (
+              <span role="status" data-testid="flow-describe-naming">
+                Naming it from your words
+              </span>
+            ) : nameFailed ? (
+              "We couldn't name it from your words. Type a name."
+            ) : typed ? undefined : title ? (
+              "Named from your words. Change it if you like."
+            ) : (
+              "Leave it empty and we name it from your words. You can change it."
+            )
+          }
+        >
           <TextInput
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              setName(e.target.value);
+              // Emptied, it is ours to name again; anything typed is theirs.
+              setTyped(e.target.value.trim() !== "");
+              typedName.current = e.target.value.trim() || null;
+              namedFrom.current = null;
+              setNameFailed(false);
+            }}
             placeholder={PLACEHOLDER[kind]}
             maxLength={200}
             data-testid="flow-describe-name"
@@ -201,6 +298,7 @@ export function DescribeScreen({
             maxLength={WORDS_MAX}
             value={words}
             onChange={(e) => setWords(e.target.value)}
+            onBlur={nameOnBlur}
             placeholder="When a vendor invoice arrives by email, read it and match each line to our item list. If a line doesn't match, ask Dana which item it is. Then create the bill in QuickBooks."
             data-testid="flow-describe-words"
           />
@@ -221,14 +319,14 @@ export function DescribeScreen({
               <Button
                 type="submit"
                 variant="primary"
-                disabled={!canStart || !said}
+                disabled={!canStart || !said || !(title || canName)}
                 data-testid="flow-describe-draft"
               >
                 Draft the steps
               </Button>
               <Button
                 variant="ghost"
-                disabled={!canStart}
+                disabled={!canStart || !(title || canName)}
                 working={busy === "mine"}
                 onClick={() => void listMine()}
                 data-testid="flow-describe-mine"

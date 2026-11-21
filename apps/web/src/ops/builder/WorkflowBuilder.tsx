@@ -1144,6 +1144,9 @@ function BuilderBody(
         ),
       );
       selectStep(ifId);
+      // Ask what it is first (owner, 2026-11-21): the panel opens on the new path's name, ready
+      // to be typed over; when a run takes it is the question under it.
+      setFocus({ node: id, field: "name", select: true, nonce: Date.now() });
     },
     onOpenGroup: (id: string) => void openGroup(id),
   };
@@ -1535,6 +1538,29 @@ function BuilderBody(
       const n = (statuses.get(item.stepId)?.items ?? [])
         .filter((i) => i.key.startsWith("problem:"))
         .findIndex((i) => i.key === item.key);
+      // A path with no condition yet is a question: answer it in its field, or ask the Builder.
+      if (item.level === "question") {
+        return (
+          <>
+            <button
+              type="button"
+              className="ds-btn ds-btn--secondary ds-btn--sm"
+              data-testid={`builder-inspector-error-${n}-show`}
+              onClick={() => showError({ ...hit, workflow: slug })}
+            >
+              Say when
+            </button>
+            <button
+              type="button"
+              className="ds-btn ds-btn--ghost ds-btn--sm"
+              data-testid={`builder-inspector-error-${n}-fix`}
+              onClick={() => fixError(hit)}
+            >
+              Ask the Builder
+            </button>
+          </>
+        );
+      }
       return (
         <>
           <button

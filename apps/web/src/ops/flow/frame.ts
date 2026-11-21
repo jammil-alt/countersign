@@ -194,10 +194,14 @@ export function chartLabel(labels: StepLabels, env: ApprovalEnv): NonNullable<Ch
     ]
       .filter(Boolean)
       .join(" · ");
+    // The chart's details say these on a line of their own (owner, 2026-11-21).
+    const model = labels.stepModel?.(step);
     return {
       title: step.name.trim() || kind,
       kind: skillKind ? `${kind} · ${skillKind}` : kind,
       detail: detail || null,
+      ...(skillKind ? { skillKind } : {}),
+      ...(model ? { model } : {}),
     };
   };
 }

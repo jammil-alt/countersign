@@ -427,10 +427,12 @@
     color: var(--slate);
   }
 
-  /* ── Details on hover. ── */
+  /* ── Details on hover: on the stage, not in the zoomed chart, at a size of their own (Chart's
+   * tipScale), so they still read when the chart is zoomed far out. ── */
   .flow-tip {
     position: absolute;
     z-index: 6;
+    transform-origin: 0 0;
     width: 292px;
     box-sizing: border-box;
     background: var(--surface);
@@ -448,6 +450,12 @@
   }
   .flow-tip__d {
     color: var(--ink-muted);
+  }
+  .flow-tip__runs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 6px;
   }
   .flow-tip__f {
     border-top: 1px solid var(--line);
@@ -541,6 +549,7 @@
     border-top: 1px solid var(--line);
     background: var(--surface);
     padding: 12px 16px;
+    position: relative;
     max-height: 45vh;
     overflow-y: auto;
   }
@@ -631,6 +640,7 @@
     flex: 1;
   }
   .flow-auto__list {
+    position: relative;
     flex: 1;
     min-height: 0;
     overflow: auto;
@@ -739,7 +749,11 @@
     min-height: 0;
     background: var(--surface-subtle);
   }
+  /* Each part that scrolls is positioned, so anything inside it placed out of the flow (a field
+   * kept for screen readers only) scrolls with it and is clipped by it. Left to the page, one
+   * made the page longer than the frame, and the page scrolled on past the builder. */
   .flow-host__strip {
+    position: relative;
     flex: none;
     max-height: 34%;
     overflow-y: auto;
@@ -760,6 +774,7 @@
     min-height: 0;
   }
   .flow-host__list {
+    position: relative;
     height: 100%;
     overflow: auto;
     padding: 16px;
@@ -778,6 +793,7 @@
     min-height: 0;
     padding: 16px 20px;
     border-left: 1px solid var(--line);
+    position: relative;
     overflow-y: auto;
   }
   /* An older version, read only: the chart in a box of its own. */

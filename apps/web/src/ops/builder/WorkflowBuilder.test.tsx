@@ -969,6 +969,15 @@ describe("WorkflowBuilder", () => {
     expect(paths()).toHaveLength(4);
     await user.click(screen.getByTestId("flow-add-path-confidence"));
     expect(paths()).toHaveLength(5);
+    // It asks what the new path is first: its name is ready to type over, and when a run takes
+    // it is a question on the decision (gold), not an issue (owner, 2026-11-21).
+    await waitFor(() => expect(document.activeElement).toHaveDisplayValue("Path 4"));
+    const name = document.activeElement as HTMLInputElement;
+    expect(name.selectionEnd).toBe("Path 4".length);
+    const flag = screen.getByTestId("flow-flag-confidence");
+    expect(flag).toHaveTextContent("2 questions");
+    expect(flag).not.toHaveTextContent("issue");
+    expect(screen.getByTestId("flow-panel")).toHaveTextContent("When does a run take “Path 4”?");
   });
 
   it("saves the bundle with every step, path and id it had, as a draft of the version it opened", async () => {

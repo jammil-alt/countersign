@@ -108,7 +108,15 @@ export interface ChartProps extends ChartEvents {
   folded: ReadonlySet<string>;
   onFold(stepId: string, folded: boolean): void;
   /** Step labels the host already knows (skill and tool names): as `../workflow/describe` takes. */
-  label?(step: Step): { title: string; kind: string; detail: string | null };
+  label?(step: Step): {
+    title: string;
+    kind: string;
+    detail: string | null;
+    /** "AI" or "Deterministic", where the step is a skill or its tool calls a model inside. */
+    skillKind?: string;
+    /** The model the step runs on, in a word ("claude-sonnet-5-5"), when it runs one. */
+    model?: string;
+  };
   /** Read only: no +, no dragging (an older version, the merge screen). */
   readOnly?: boolean;
 }

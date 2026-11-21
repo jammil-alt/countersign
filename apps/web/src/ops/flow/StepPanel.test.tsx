@@ -186,4 +186,42 @@ describe("StepPanel", () => {
     expect(screen.queryByTestId("flow-panel-body")).toBeNull();
     expect(screen.queryByText("The setup")).toBeNull();
   });
+
+  it("folds the Builder to one line and opens it back at the size it had", () => {
+    const onBuilderSize = vi.fn();
+    render(
+      <StepPanel
+        stepId="s1"
+        kind="Skill"
+        title="Read"
+        builder={(size) => <p>Builder at {size}</p>}
+        defaultBuilderSize="beside"
+        onBuilderSize={onBuilderSize}
+        onClose={() => {}}
+      >
+        <p>The setup</p>
+      </StepPanel>,
+    );
+    const panel = screen.getByTestId("flow-panel");
+    const fold = screen.getByTestId("flow-panel-builder-fold");
+    expect(fold).toHaveAttribute("aria-expanded", "true");
+    // The sizes are one word each, so the head stays one line.
+    expect(screen.getByTestId("flow-panel-builder-min")).toHaveTextContent(/^Box$/);
+    expect(screen.getByTestId("flow-panel-builder-beside")).toHaveTextContent(/^Half$/);
+    expect(screen.getByTestId("flow-panel-builder-max")).toHaveTextContent(/^Full$/);
+
+    fireEvent.click(fold);
+    expect(onBuilderSize).toHaveBeenLastCalledWith("line");
+    expect(panel).toHaveAttribute("data-builder-size", "line");
+    expect(fold).toHaveAttribute("aria-expanded", "false");
+    // One line: no sizes, the setup has the panel, and the Builder is kept, out of sight.
+    expect(screen.queryByTestId("flow-panel-builder-min")).toBeNull();
+    expect(screen.getByText("The setup")).toBeTruthy();
+    expect(screen.getByText("Builder at beside").parentElement).toHaveClass("hidden");
+
+    fireEvent.click(fold);
+    expect(onBuilderSize).toHaveBeenLastCalledWith("beside");
+    expect(panel).toHaveAttribute("data-builder-size", "beside");
+    expect(screen.getByText("Builder at beside").parentElement).not.toHaveClass("hidden");
+  });
 });

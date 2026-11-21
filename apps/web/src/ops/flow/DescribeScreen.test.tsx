@@ -74,6 +74,81 @@ describe("Describe it", () => {
     expect(bodies).toEqual([{ kind: "agent", title: "Invoice intake" }, { description: WORDS }]);
   });
 
+  it("names it from the words when the name is left empty, and the name can be changed", async () => {
+    const bodies: unknown[] = [];
+    const api = fakeApi({
+      "POST /api/ops/assist/draft": ({ init }) => {
+        bodies.push(JSON.parse(String(init.body)));
+        return { text: "“Invoice intake.”" };
+      },
+      "POST /api/ops/builds": ({ init }) => {
+        bodies.push(JSON.parse(String(init.body)));
+        return buildDetail();
+      },
+      [`POST /api/ops/builds/${BUILD_ID}/draft-now`]: () =>
+        buildDetail({ agentId: DRAFT_AGENT_ID, words: WORDS }),
+    });
+    const user = renderDescribe(api);
+    expect(screen.getByTestId("flow-describe")).toHaveTextContent(
+      "Leave it empty and we name it from your words.",
+    );
+    await user.type(screen.getByTestId("flow-describe-words"), WORDS);
+    // Leaving the words names it, in the field, as a name: no quotation marks, no full stop.
+    await user.tab();
+    await waitFor(() =>
+      expect(screen.getByTestId("flow-describe-name")).toHaveDisplayValue("Invoice intake"),
+    );
+    expect(bodies[0]).toEqual({ field: "build.name", notes: WORDS, context: {} });
+    expect(screen.getByTestId("flow-describe")).toHaveTextContent("Named from your words.");
+    // It is theirs to change, and a name someone typed is never replaced.
+    await user.type(screen.getByTestId("flow-describe-name"), " by email");
+    await user.click(screen.getByTestId("flow-describe-words"));
+    await user.tab();
+    await user.click(screen.getByTestId("flow-describe-draft"));
+    await screen.findByTestId("check-page");
+    expect(api.calls.filter((c) => c === "POST /api/ops/assist/draft")).toHaveLength(1);
+    expect(bodies[1]).toEqual({ kind: "agent", title: "Invoice intake by email" });
+  });
+
+  it("names it on the way when Draft the steps is pressed with no name", async () => {
+    const titles: unknown[] = [];
+    const api = fakeApi({
+      "POST /api/ops/assist/draft": () => ({ text: "Invoice intake" }),
+      "POST /api/ops/builds": ({ init }) => {
+        titles.push(JSON.parse(String(init.body)).title);
+        return buildDetail();
+      },
+      [`POST /api/ops/builds/${BUILD_ID}/draft-now`]: () =>
+        buildDetail({ agentId: DRAFT_AGENT_ID, words: WORDS }),
+    });
+    const user = renderDescribe(api, { initialWords: WORDS });
+    await user.click(screen.getByTestId("flow-describe-draft"));
+    await screen.findByTestId("check-page");
+    // One name, made once, then the build with it.
+    expect(api.calls).toEqual([
+      "POST /api/ops/assist/draft",
+      "POST /api/ops/builds",
+      `POST /api/ops/builds/${BUILD_ID}/draft-now`,
+    ]);
+    expect(titles).toEqual(["Invoice intake"]);
+  });
+
+  it("asks for a typed name when it can't be named", async () => {
+    const api = fakeApi({
+      "POST /api/ops/assist/draft": () =>
+        new Reply(502, { error: { code: "model_failed", message: "the model failed" } }),
+    });
+    const user = renderDescribe(api, { initialWords: WORDS });
+    await user.click(screen.getByTestId("flow-describe-words"));
+    await user.tab();
+    await waitFor(() =>
+      expect(screen.getByTestId("flow-describe")).toHaveTextContent(
+        "We couldn't name it from your words. Type a name.",
+      ),
+    );
+    expect(api.calls).toEqual(["POST /api/ops/assist/draft"]);
+  });
+
   it("drafts the same build again after a failed draft", async () => {
     let tries = 0;
     const api = fakeApi({
