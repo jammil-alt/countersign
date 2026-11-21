@@ -1,15 +1,23 @@
-// O6 Workflow builder (prototype `#O6-Builder`; ARCHITECTURE §10.5), one for templates and client
-// agents: `/ops/templates/:slug/workflows/:workflow` and
-// `/ops/clients/:id/agents/:slug/workflows/:workflow`. It edits the agent's latest version as a
-// whole bundle (every workflow, so switching workflows keeps unsaved edits), validates on every
-// change with core's validator (the server's own rules), and saves drafts, test-runs and publishes
-// through the agent routes. Left: the steps to add; centre: the workflow's tabs and its steps;
-// right: the Builder conversation (BuilderPanel) or the selected step. Steps picked with "Select
-// steps" can be saved as an automation. Loaded lazily inside the /ops chunk, so its drag-and-drop
+// O6 Workflow builder (ARCHITECTURE §10.5), one for templates and client agents:
+// `/ops/templates/:slug/workflows/:workflow` and `/ops/clients/:id/agents/:slug/workflows/:workflow`
+// (and `steps/:workflow`, the same builder opened on its List). It edits the agent's latest version
+// as a whole bundle (every workflow, so switching workflows keeps unsaved edits), validates on
+// every change with core's validator (the server's own rules), and saves drafts, test-runs and
+// publishes through the agent routes. Loaded lazily inside the /ops chunk, so its drag-and-drop
 // code is fetched only when an operator opens a workflow.
 // R8 (docs/plan.md §1.86, §9; ARCHITECTURE §10.14): it edits v4 processes. A stored v3 version
 // opens converted (`readProcessBundle`, every id kept) and the next save writes schemaVersion 4 as
 // a new version; the stored one is never edited (invariant 3).
+//
+// F6 (docs/builder-plan.md §12, docs/plan.md §1.170): the builder on one screen is its face. One
+// bar (../flow/FlowBar: Chart or List, Undo and Redo, Ask the Builder, Try it, Save draft, Publish);
+// the rail of steps to add on the left (../flow/Rail, today's palette); the chart in the middle
+// (../flow/Chart), or the List (../flow/StepTable); and on the right the selected step's side panel
+// (../flow/StepPanel: its connections, the inspector's fields, the Builder on that step), the
+// whole-flow Builder, or the test run. A For each or a Repeat opens its own steps in the same
+// frame. Everything it holds is as before: the history (undo and redo), the rolling draft, saving,
+// publishing, rebasing onto a newer version, the Builder session and the validator. Only how it is
+// drawn changed; every chart event goes to the same operations in ./model, and no id is made twice.
 import {
   type AgentBundle,
   type AnyAgentBundle,
@@ -41,18 +49,17 @@ import {
   useSensor,
   useSensors,
 } from "@dnd-kit/core";
-import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionDetail } from "../../api/routes";
-import { useApi } from "../../api/useApi";
+import { useApi, useApiClient } from "../../api/useApi";
 import { builderDraftKey } from "../../session/drafts";
 import { useOptionalSession } from "../../session/session";
 import { HeaderSwitcher } from "../../shell/HeaderSwitcher";
 import { AgentBadge } from "../../ui/badges";
 import { Icon } from "../../ui/icons";
-import { Badge, Button, buttonClass, cx, ErrorNotice } from "../../ui/primitives";
+import { Badge, Button, buttonClass, cx, ErrorNotice, Tag } from "../../ui/primitives";
 import { Skeleton, SkeletonBlock } from "../../ui/skeleton";
 import { slugify } from "../agents/definition-form";
 import {
@@ -75,25 +82,41 @@ import {
   TextArea,
   useAction,
 } from "../agents/ui";
-import { useOpsClients } from "../OpsLayout";
-import { PROCESS_KIND_LABEL, type StepLabels } from "../workflow/describe";
-import { BuilderPanel, SaveAsAutomation, useBuilderSession } from "./BuilderPanel";
+import { Chart } from "../flow/Chart";
+import { dispatchFlowDrop, flowCollision, resolveFlowDrop } from "../flow/dnd";
+import { FlowBar, type FlowView } from "../flow/FlowBar";
+import "../flow/flow.css";
 import {
-  Canvas,
-  collision,
-  DragCard,
-  type DragData,
-  Palette,
-  resolveDrop,
-  triggerKey,
-} from "./Canvas";
+  agentEnds,
+  chartLabel,
+  devQueuePath,
+  type FlowBuildMarks,
+  type FlowRun,
+  type FlowTry,
+  type FlowTurnOn,
+  hostPoint,
+  isLoop,
+  loopEnds,
+  loopProcess,
+  placeWords,
+  setupItems,
+  withCodeRequests,
+} from "../flow/frame";
+import { FLOW_GIVES_BACK_ID, FLOW_START_ID } from "../flow/layout";
+import { Rail } from "../flow/Rail";
+import { type BuilderSize, StepPanel } from "../flow/StepPanel";
+import { StepTable } from "../flow/StepTable";
+import { buildStatuses, nextOpen, counts as openCounts, stepOrder } from "../flow/status";
+import type { InsertPoint, SettleItem, StatusMap } from "../flow/types";
+import { useOpsClients } from "../OpsLayout";
+import { PROCESS_KIND_LABEL, type StepLabels, triggerTitle } from "../workflow/describe";
+import { BuilderPanel, SaveAsAutomation, useBuilderSession } from "./BuilderPanel";
 import {
   type BuilderData,
   type BuilderProblem,
   boundMatrices,
   catalogSkillKind,
   connectorName,
-  filterSections,
   paletteConnectors,
   paletteSections,
   TESTKIT,
@@ -102,8 +125,8 @@ import {
   validateProcessesLikeServer,
   writeLabelOf,
 } from "./catalog";
-import { movePrompt, newProblems, reconnect } from "./connections";
-import type { MoveRequest } from "./connections-step";
+import { movePrompt, newProblems, type Reconnect, reconnect } from "./connections";
+import { ConnectionsSection, type MoveRequest } from "./connections-step";
 // v0.18 (docs/plan.md §1.103): what each step reads and saves, and what's left on a draft.
 import {
   agentDataSummary,
@@ -128,6 +151,7 @@ import {
   allowStep,
   type ContainerId,
   commit,
+  containersWithin,
   createStep,
   customizedSteps,
   editWorkflow,
@@ -138,6 +162,7 @@ import {
   insertStep,
   locate,
   moveStep,
+  newPath,
   type PaletteItem,
   type Process,
   ROOT,
@@ -163,20 +188,19 @@ import { type ProblemLine, problemLines, problemPlace, readableErrors } from "./
 import { rebase } from "./rebase";
 // Reshape data (2026-11-11)
 import { addReshapeBefore, addReshapeThenAction, newReshapeStep } from "./reshape";
-import { StepsList, stepRows } from "./StepsList";
 import { useClientScriptTools } from "./scripts";
 import { applySkillMove } from "./skill-move";
-// v0.18: the Builder beside the step's settings (opt-in).
-import { readStepChat, StepChat, writeStepChat } from "./step-chat";
+// v0.18: the Builder on the step that is open (F6: under its setup in the side panel).
+import { readStepChatSize, StepChat, writeStepChatSize } from "./step-chat";
 import { WhatsLeft } from "./whats-left";
 
 type Connection = ResponseOf<typeof apiRoutes.opsClient>["connections"][number];
 
-/** The side panel's tabs: the steps to add, the Builder conversation, the selected step. */
-type Rail = "add" | "builder" | "step";
+/** What the right side shows: the selected step, the whole-flow Builder, or the test run. */
+type Side = "step" | "builder" | "test" | null;
 
-/** Whether the side panel is folded, per viewer (a convenience: open when unknown). */
-const RAIL_KEY = "mezonas.builder.panel";
+/** Whether the rail of steps is folded, per viewer (a convenience: shown when unknown). */
+const RAIL_KEY = "mezonas.builder.rail";
 
 export interface WorkflowBuilderProps {
   agent: AgentSummary;
@@ -189,17 +213,28 @@ export interface WorkflowBuilderProps {
   /** The agent page's URL. */
   base: string;
   tabs: ReactNode;
-  /** What the agent page shows between its tabs and the canvas: which agent this is, its triggers. */
+  /** What the agent page shows between its tabs and the builder: which agent this is, its triggers. */
   above?: ReactNode;
   connections?: readonly Connection[];
   members?: readonly Member[];
   /** After a save or publish, so the agent page and sidebar follow. */
   onChanged(): void;
   /**
-   * The agent page's Steps tab (docs/plan.md §1.108): the steps as a list in place of the canvas,
-   * the same side panel on the one clicked. Default the canvas.
+   * The agent page's Steps tab (docs/plan.md §1.108): the builder opens on its List in place of
+   * the chart, the same side panel on the step clicked. Default the chart.
    */
   view?: "canvas" | "steps";
+  // ── The slots for the parts built next (docs/builder-plan.md §12.5; types in ../flow/frame) ──
+  /**
+   * F3: a build's issues and questions on their steps, the defaults the Builder chose ("Decided
+   * for you") and the last try's marks. They join the validator's problems, missing steps and the
+   * Customized and Added marks in the one status map the chart, the List, the bar and the panel read.
+   */
+  build?: FlowBuildMarks | undefined;
+  /** F3: "Try it" on the chart. Absent: Try it opens today's test run form. */
+  tryIt?: FlowTry | undefined;
+  /** F4: Turn on in one button, in place of Publish. Absent: the bar's primary action is Publish. */
+  turnOn?: FlowTurnOn | undefined;
 }
 
 export default function WorkflowBuilder(props: WorkflowBuilderProps) {
@@ -445,46 +480,61 @@ function BuilderBody(
   const [draftAt, setDraftAt] = useState<number | null>(restored?.at ?? null);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [focus, setFocus] = useState<FocusRequest | null>(null);
-  const [search, setSearch] = useState("");
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [overId, setOverId] = useState<string | null>(null);
-  const [activeLabel, setActiveLabel] = useState<{ title: string; kind: string } | null>(null);
-  const [panel, setPanel] = useState<"test" | "add-workflow" | null>(null);
-  // The side panel: the steps to add, the Builder conversation, or the selected step or trigger.
-  const [rail, setRail] = useState<Rail>("builder");
-  // What the panel showed before the palette opened, for Escape and Close.
-  const [beforeAdd, setBeforeAdd] = useState<Exclude<Rail, "add">>("builder");
-  // The list the palette adds to: the end of the workflow, or a fork path or loop.
-  const [addTarget, setAddTarget] = useState<ContainerId>(ROOT);
-  // v0.18: the missing step the palette's pick replaces, while "Replace with a step" is open.
+  // What a rail item being dragged says under the pointer (a box moves by itself).
+  const [dragLabel, setDragLabel] = useState<{ title: string; kind: string } | null>(null);
+  const [addingWorkflow, setAddingWorkflow] = useState(false);
+  // Chart or List: the route says which one it opens on (`steps/:workflow` is the List).
+  const [view, setView] = useState<FlowView>(props.view === "steps" ? "list" : "chart");
+  useEffect(() => setView(props.view === "steps" ? "list" : "chart"), [props.view]);
+  // The right side: the selected step or trigger, the whole-flow Builder, or the test run.
+  const [side, setSide] = useState<Side>(null);
+  const sideRef = useRef<HTMLDivElement>(null);
+  // The place the next step picked in the rail goes to (a + pressed on the chart, "a new step
+  // here" from a step's connections); null adds at the end of the list in the frame.
+  const [addAt, setAddAt] = useState<InsertPoint | null>(null);
+  // v0.18: the missing step the rail's pick replaces, while "Replace with a step" is on.
   const [replacing, setReplacing] = useState<string | null>(null);
-  // Connections (owner, 2026-11-14): a place in a list ("before “Check vendor”"), from a step's
-  // "Prior step" or "Next step"; the palette then adds there rather than at a list's end.
-  const [addSpot, setAddSpot] = useState<{
-    container: ContainerId;
-    index: number;
-    text: string;
-  } | null>(null);
-  const [paletteFocus, setPaletteFocus] = useState(0);
   // A template's connectors the operator chose to build with in this session.
   const [extraConnectors, setExtraConnectors] = useState<string[]>([]);
-  const railRef = useRef<HTMLElement>(null);
-  // The side panel folds to a strip of icons, remembered per viewer in this browser; picking a
-  // step, a tab or "Add a step" opens it again.
-  const [railOpen, setRailOpenState] = useState(() => {
+  const railRef = useRef<HTMLDivElement>(null);
+  // The rail folds to a thin strip, remembered per viewer in this browser.
+  const [railFolded, setRailFoldedState] = useState(() => {
     try {
-      return window.localStorage.getItem(RAIL_KEY) !== "closed";
+      return window.localStorage.getItem(RAIL_KEY) === "folded";
     } catch {
-      return true;
+      return false;
     }
   });
-  const setRailOpen = (open: boolean) => {
-    setRailOpenState(open);
+  const setRailFolded = (folded: boolean) => {
+    setRailFoldedState(folded);
     try {
-      window.localStorage.setItem(RAIL_KEY, open ? "open" : "closed");
+      window.localStorage.setItem(RAIL_KEY, folded ? "folded" : "shown");
     } catch {
       // Storage blocked: it stays as chosen for this visit.
     }
+  };
+  // Loops folded to one box on the chart (how it is drawn, never stored).
+  const [folded, setFolded] = useState<ReadonlySet<string>>(() => new Set());
+  // The For each or Repeat whose own steps are in the frame; null is the whole flow.
+  const [openLoop, setOpenLoop] = useState<string | null>(null);
+  // A connection asked for on the chart (a step's dot dragged onto another), for that step's
+  // "Comes after" to check and make as a pick there is.
+  const [propose, setPropose] = useState<{
+    stepId: string;
+    end: Reconnect["end"];
+    to: string;
+    nonce: number;
+  } | null>(null);
+  const proposals = useRef(0);
+  // Read once by the step's connections when they render with it; then it is done.
+  useEffect(() => {
+    if (propose) setPropose(null);
+  }, [propose]);
+  // How much of the step panel the Builder takes, as last chosen in this browser.
+  const [chatSize, setChatSizeState] = useState<BuilderSize>(readStepChatSize);
+  const setChatSize = (size: BuilderSize) => {
+    setChatSizeState(size);
+    writeStepChatSize(size);
   };
   // Top-level steps picked for "Save as automation"; null while not picking.
   const [checked, setChecked] = useState<Set<string> | null>(null);
@@ -505,87 +555,100 @@ function BuilderBody(
         : null,
   );
   const action = useAction();
+  const api = useApiClient();
 
-  // Selecting a step or the trigger shows it in the rail, opening the rail if it was folded.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: setRailOpen only sets state.
+  // Selecting a step or the trigger opens its side panel.
   useEffect(() => {
-    if (selection) {
-      setRail("step");
-      setRailOpen(true);
-    }
+    if (selection) setSide("step");
   }, [selection]);
 
   const slug = props.workflow;
   const entry = bundle.workflows.find((w) => w.slug === slug);
   const workflow = entry?.workflow;
 
+  // A new workflow starts on its whole flow, with nowhere chosen to add.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once per workflow.
+  useEffect(() => {
+    setOpenLoop(null);
+    setAddAt(null);
+    setReplacing(null);
+  }, [slug]);
+
+  // ── What is in the frame: the whole flow, or a loop's own steps ──
+  const shownLoop = useMemo(
+    () => (workflow && openLoop ? loopProcess(workflow, openLoop) : null),
+    [workflow, openLoop],
+  );
+  const loopId = shownLoop?.loop.id ?? null;
+  const shown = shownLoop?.view ?? workflow;
+  /** The list a step is added to when nowhere is chosen: the one in the frame. */
+  const frameList: ContainerId = loopId ? `loop:${loopId}` : ROOT;
+
   // ── The side panel ──
   /**
-   * Shows a tab of the side panel. Where the panel sits below the canvas (narrow screens), it is
-   * scrolled into view and focused, so a click on a step or "add a step" visibly lands somewhere.
+   * Where the panel sits below the chart (narrow screens), it is scrolled into view and focused,
+   * so a click on a step visibly lands somewhere.
    */
-  const showRail = (next: Rail) => {
-    setRail(next);
-    setRailOpen(true);
-    const el = railRef.current;
-    if (!el?.parentElement) return;
-    const beside = el.getBoundingClientRect().left - el.parentElement.getBoundingClientRect().left;
-    if (beside > 10) return;
+  const revealStep = () => {
     window.requestAnimationFrame(() => {
+      const el = sideRef.current;
+      if (!el?.parentElement) return;
+      const beside =
+        el.getBoundingClientRect().left - el.parentElement.getBoundingClientRect().left;
+      if (beside > 10) return;
       el.scrollIntoView?.({ block: "start", behavior: "smooth" });
       // Not when focus is already in the panel (a field clicked before this frame): the field
       // keeps it, so what is typed there isn't lost.
-      if (next === "step" && !el.contains(document.activeElement))
+      if (!el.contains(document.activeElement))
         el.querySelector<HTMLElement>("[data-testid='builder-inspector']")?.focus({
           preventScroll: true,
         });
     });
   };
-  const openPalette = (container: ContainerId, replace: string | null = null) => {
-    if (rail !== "add") setBeforeAdd(rail);
-    setAddTarget(container);
+  const selectStep = (id: string) => {
+    setSelection({ type: "step", id });
+    setSide("step");
+    revealStep();
+  };
+  const selectTrigger = (id: string) => {
+    setSelection({ type: "trigger", id });
+    setSide("step");
+    revealStep();
+  };
+  const closeSide = () => {
+    setSide(null);
+    setSelection(null);
+  };
+  /** The rail, with the place its next pick goes to (or the missing step it replaces). */
+  const askWhere = (at: InsertPoint | null, replace: string | null = null) => {
+    setAddAt(at);
     setReplacing(replace);
-    setAddSpot(null);
-    setPaletteFocus((n) => n + 1);
-    showRail("add");
+    setRailFolded(false);
+    window.requestAnimationFrame(() =>
+      railRef.current
+        ?.querySelector<HTMLElement>("[data-testid='flow-rail-search']")
+        ?.focus({ preventScroll: true }),
+    );
   };
-  const closePalette = () => {
-    setRail(beforeAdd);
-    setAddTarget(ROOT);
+  const cancelWhere = () => {
+    setAddAt(null);
     setReplacing(null);
-    setAddSpot(null);
   };
-  /** The palette, adding right before or right after a step, on its list. */
-  const openPaletteAt = (stepId: string, where: "before" | "after") => {
+  /** The rail, adding right before or right after a step, on its list. */
+  const addBeside = (stepId: string, where: "before" | "after") => {
     if (!workflow) return;
     const loc = locate(workflow, stepId);
     if (!loc) return;
-    openPalette(loc.container);
-    setAddSpot({
-      container: loc.container,
-      index: where === "before" ? loc.index : loc.index + 1,
-      text: `${where} “${loc.step.name || "this step"}”`,
-    });
+    askWhere({ container: loc.container, index: where === "before" ? loc.index : loc.index + 1 });
   };
+  /** Where the rail's next pick goes, in words; null while it goes to the end. */
   const targetText = useMemo(() => {
+    if (!workflow) return null;
     // v0.18: the pick takes a missing step's place.
-    const replaced = replacing && workflow ? locate(workflow, replacing)?.step : undefined;
+    const replaced = replacing ? locate(workflow, replacing)?.step : undefined;
     if (replaced) return `in place of “${replaced.name || "the missing step"}”`;
-    if (addSpot) return addSpot.text;
-    if (!workflow || addTarget === ROOT) return "at the end";
-    if (addTarget.startsWith("otherwise:")) {
-      const branch = ifOfBranch(workflow, addTarget.slice("otherwise:".length));
-      return branch ? `to “Otherwise” in ${branch.name || "the if"}` : "at the end";
-    }
-    if (addTarget.startsWith("path:")) {
-      const id = addTarget.slice("path:".length);
-      const branch = ifOfBranch(workflow, id);
-      const path = branch?.kind === "if" ? branch.paths.find((p) => p.id === id) : undefined;
-      return path ? `to “${path.name}”` : "at the end";
-    }
-    const loop = locate(workflow, addTarget.slice("loop:".length))?.step;
-    return loop ? `inside “${loop.name || "For each"}”` : "at the end";
-  }, [workflow, addTarget, replacing, addSpot]);
+    return addAt ? placeWords(workflow, addAt) : null;
+  }, [workflow, addAt, replacing]);
 
   // ── Whose tools the palette offers ──
   // DECISION (2.5): the frame's clients list (OpsLayout's `clients?view=names`) says whether the
@@ -687,25 +750,27 @@ function BuilderBody(
     [apply, slug],
   );
 
-  const addItem = (item: PaletteItem, target?: { container: string; index: number }) => {
+  /**
+   * Adds what the rail offers: pressed, it goes to the place chosen (a + on the chart) or to the
+   * end of the list in the frame; dropped on the chart, to `target`, where it was dropped.
+   */
+  const addItem = (item: PaletteItem, target?: InsertPoint) => {
     if (!workflow) return;
     if (item.type === "trigger") {
-      // It replaces the trigger in the inspector, else the first: a trigger keeps its id.
+      // It replaces the trigger in the panel, else the first: a trigger keeps its id.
       const id =
         selection?.type === "trigger" && workflow.triggers.some((t) => t.id === selection.id)
           ? selection.id
           : workflow.triggers[0]?.id;
       edit((w) => setTrigger(w, item.on, id));
       if (id) setSelection({ type: "trigger", id });
-      setRail("step");
       return;
     }
     const step = createStep(item, ctx);
     // v0.18: "Replace with a step" puts the pick in the missing step's place, with its id.
-    if (replacing && !target && rail === "add") {
+    if (replacing && !target) {
       const id = replacing;
-      setReplacing(null);
-      setAddTarget(ROOT);
+      cancelWhere();
       apply((b) =>
         allowStep(
           editWorkflow(b, slug, (w) => replaceStep(w, id, step)),
@@ -714,19 +779,14 @@ function BuilderBody(
         ),
       );
       setSelection({ type: "step", id });
-      setRail("step");
       return;
     }
-    // + adds at the end of the list the palette was opened for (the workflow's, by default).
-    const container = rail === "add" ? addTarget : ROOT;
-    const spot = rail === "add" ? addSpot : null;
     const at = target ??
-      (spot ? { container: spot.container, index: spot.index } : null) ?? {
-        container,
-        index: getContainer(workflow, container)?.length ?? workflow.steps.length,
+      addAt ?? {
+        container: frameList,
+        index: getContainer(workflow, frameList)?.length ?? workflow.steps.length,
       };
-    setAddTarget(ROOT);
-    setAddSpot(null);
+    cancelWhere();
     apply((b) =>
       allowStep(
         editWorkflow(b, slug, (w) => insertStep(w, at.container, at.index, step)),
@@ -734,13 +794,12 @@ function BuilderBody(
         ctx,
       ),
     );
+    // The new step opens in the side panel.
     setSelection({ type: "step", id: step.id });
-    // Picking closes the palette: the new step opens in the inspector.
-    setRail("step");
   };
   const remove = (id: string) => {
     edit((w) => removeStep(w, id));
-    if (selection?.type === "step" && selection.id === id) setSelection(null);
+    if (selection?.type === "step" && selection.id === id) closeSide();
   };
 
   // ── Validation (the server's rules, on every change) ──
@@ -816,13 +875,17 @@ function BuilderBody(
       ),
     [result.errors, slug, bundle],
   );
-  const env: ApprovalEnv = {
-    ctx,
-    agentKind: agent.kind,
-    mode: bundle.definition.permissions.mode,
-    matrices,
-    connectorName: (id) => connectorName(data, id),
-  };
+  const mode = bundle.definition.permissions.mode;
+  const env = useMemo<ApprovalEnv>(
+    () => ({
+      ctx,
+      agentKind: agent.kind,
+      mode,
+      matrices,
+      connectorName: (id) => connectorName(data, id),
+    }),
+    [ctx, agent.kind, mode, matrices, data],
+  );
   const counts = workflow ? workflowCounts(workflow, env) : null;
   const templateWorkflow = template?.workflows.find((w) => w.slug === slug)?.workflow;
   const customized = useMemo(
@@ -965,44 +1028,129 @@ function BuilderBody(
     }
   };
 
-  // ── Drag and drop ──
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
-  const endDrag = () => {
-    setActiveId(null);
-    setOverId(null);
-    setActiveLabel(null);
+  // ── The chart's events: each one an operation of ./model on the workflow ──
+  /**
+   * The dot under `fromId` dragged onto `toId`: that step comes next. On the same list it is the
+   * step's "Comes after" set to the other, checked first and reviewed where it breaks something
+   * (today's `assessReconnect`, in the step's connections); from another list the step moves to
+   * right after it, as its box dragged onto that step does.
+   */
+  const connect = (fromId: string, toId: string) => {
+    if (!workflow) return;
+    const from = locate(workflow, fromId);
+    const to = locate(workflow, toId);
+    if (!from || !to) return;
+    if (from.container === to.container) {
+      proposals.current += 1;
+      setPropose({ stepId: toId, end: "prior", to: fromId, nonce: proposals.current });
+      setSelection({ type: "step", id: toId });
+      setSide("step");
+      return;
+    }
+    if (containersWithin(to.step).has(from.container)) return;
+    edit((w) => moveStep(w, toId, from.container, from.index + 1));
+    setSelection({ type: "step", id: toId });
   };
+  /** A loop opens its own steps in the frame; an automation opens its page (its editor is next). */
+  const openGroup = async (id: string) => {
+    const step = workflow ? locate(workflow, id)?.step : undefined;
+    if (!step) return;
+    if (isLoop(step)) {
+      setOpenLoop(id);
+      return;
+    }
+    if (step.kind !== "process") return;
+    // DECISION (F6): the catalog names an automation by its pinned `slug@version`, not its id, so
+    // its page is found through the automations list; the Library's list when it isn't there.
+    const used = data.catalog.automations?.find((a) => a.ref === step.process);
+    const automation = used?.slug ?? step.process.split("@")[0];
+    // The builder's draft is kept on this device now, so nothing is lost by leaving.
+    if (dirty) writeDraft(draftKey, { from: saved.id, at: Date.now(), bundle });
+    let found: string | undefined;
+    try {
+      const list = await api.call(apiRoutes.opsAutomations, { query: {} });
+      found = list.automations.find(
+        (a) => a.slug === automation && (a.clientId === null || a.clientId === agent.tenantId),
+      )?.id;
+    } catch {
+      // The list didn't answer: the Library's automations it is.
+    }
+    navigate(found ? `/ops/skills/automations/${found}` : "/ops/library/skills?tab=automations");
+  };
+  const chartEvents = {
+    onSelect: (id: string | null) => {
+      if (id === null) {
+        if (side === "step") closeSide();
+        return;
+      }
+      if (id === FLOW_START_ID || id === FLOW_GIVES_BACK_ID) {
+        // A loop's start and end are the loop's own settings; an agent's start is its triggers.
+        if (loopId) selectStep(loopId);
+        else if (id === FLOW_START_ID && workflow) {
+          const current =
+            selection?.type === "trigger" && workflow.triggers.some((t) => t.id === selection.id)
+              ? selection.id
+              : workflow.triggers[0]?.id;
+          if (current) selectTrigger(current);
+        }
+        return;
+      }
+      selectStep(id);
+    },
+    onInsert: (at: InsertPoint, item?: unknown) => {
+      const to = hostPoint(loopId, at);
+      if (item) addItem(item as PaletteItem, to);
+      else askWhere(to);
+    },
+    onMove: (id: string, at: InsertPoint) => {
+      const to = hostPoint(loopId, at);
+      edit((w) => moveStep(w, id, to.container, to.index));
+    },
+    onConnect: connect,
+    onAddPath: (ifId: string) => {
+      // One id, however often the edit is applied.
+      const id = uuidv7();
+      edit((w) =>
+        updateStep(w, ifId, (s) =>
+          s.kind === "if"
+            ? { ...s, paths: [...s.paths, newPath(s.paths.length + 1, () => id)] }
+            : s,
+        ),
+      );
+      selectStep(ifId);
+    },
+    onOpenGroup: (id: string) => void openGroup(id),
+  };
+
+  // ── Drag and drop (the chart's boxes and dots, the rail's items) ──
+  const sensors = useSensors(
+    // After a 4px move, so a click still selects.
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor),
+  );
   const onDragEnd = (e: DragEndEvent) => {
-    endDrag();
-    if (!workflow || !e.over || e.over.id === e.active.id) return;
-    const drop = resolveDrop(
-      workflow,
-      String(e.active.id),
-      e.active.data.current as DragData | undefined,
-      e.over.data.current as DragData | undefined,
-    );
-    if (!drop) return;
-    if (drop.type === "move") edit((w) => moveStep(w, drop.id, drop.container, drop.index));
-    else if (drop.type === "add") addItem(drop.item, drop);
-    else addItem(drop.item);
+    setDragLabel(null);
+    dispatchFlowDrop(resolveFlowDrop(e.active, e.over), chartEvents);
   };
 
   // ── Selecting what an error names ──
   const showError = (e: BuilderProblem) => {
     if (e.workflow && e.workflow !== slug) {
-      navigate(`${base}/${props.view === "steps" ? "steps" : "workflows"}/${e.workflow}`);
+      navigate(`${base}/${view === "list" ? "steps" : "workflows"}/${e.workflow}`);
       return;
     }
     if (!workflow || !e.stepId) return;
     const stepId = e.stepId;
-    if (workflow.triggers.some((t) => t.id === stepId))
+    if (workflow.triggers.some((t) => t.id === stepId)) {
+      setOpenLoop(null);
       setSelection({ type: "trigger", id: stepId });
-    else {
+    } else {
       const owner = locate(workflow, e.stepId)?.step ?? ifOfBranch(workflow, e.stepId);
       if (!owner) return;
+      // A step outside the loop in the frame: back to the whole flow, where it is.
+      if (shownLoop && !processes.findStep({ steps: shownLoop.loop.steps }, owner.id)) {
+        setOpenLoop(null);
+      }
       setSelection({ type: "step", id: owner.id });
     }
     setFocus({ node: e.stepId, field: e.field, nonce: Date.now() });
@@ -1145,25 +1293,13 @@ function BuilderBody(
     },
   });
   // ── v0.18: working on steps with the Builder (docs/plan.md §1.105) ──
-  // Opt-in and off by default; with it off the builder is exactly as before.
-  const [stepChat, setStepChat] = useState(readStepChat);
+  // F6: always under the step's setup in the side panel, in the size chosen there.
   const steps = useMemo(() => (workflow ? processes.allSteps(workflow) : []), [workflow]);
-  const focusStep = (id: string) => {
-    setSelection({ type: "step", id });
-    showRail("step");
-  };
-  const toggleStepChat = (on: boolean) => {
-    setStepChat(on);
-    writeStepChat(on);
-    // On, with no step open: start at the first step.
-    if (on && selection?.type !== "step" && steps[0]) focusStep(steps[0].step.id);
-    else if (on) showRail("step");
-  };
   // The step the conversation is on: the selected step, in run order, with its neighbours.
   // DECISION (v0.18): previous and next go through every step in run order, nested ones included
   // (a path's steps, a loop's), so "step by step" reaches all of them.
   const stepFocus = (() => {
-    if (!stepChat || rail !== "step" || selection?.type !== "step") return null;
+    if (side !== "step" || selection?.type !== "step") return null;
     const at = steps.findIndex((l) => l.step.id === selection.id);
     const here = steps[at];
     if (!here) return null;
@@ -1240,7 +1376,6 @@ function BuilderBody(
     const ok = await session.saveAutomation(ids, name, automationSlug);
     if (ok) {
       setChecked(null);
-      setRail("builder");
       setNotice({
         tone: "positive",
         body: `Saved “${name}” as an automation draft and used it in place of ${plural(ids.length, "step")}. Save this draft to keep it.`,
@@ -1255,85 +1390,339 @@ function BuilderBody(
   const publishBlocked =
     invalidReason ?? (!dirty && saved.status === "live" ? "Nothing new to publish." : null);
 
-  // ── Header ──
-  const versionBadge = `${saved.status === "live" ? "Live" : "Draft"} · v${saved.version}`;
-  const subtitle = [
-    agent.role,
-    counts
-      ? [
-          plural(counts.steps, "step"),
-          `${counts.ifs} if${counts.ifs === 1 ? "" : "s"}`,
-          `${counts.writes} ${counts.writes === 1 ? "changes a tool" : "change tools"}`,
-          `${counts.needApproval} ${counts.needApproval === 1 ? "needs" : "need"} approval`,
-        ].join(" · ")
-      : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  // ── Each step's status: what the chart, the List, the bar and the side panel all read ──
+  const requests = codeRequests.data?.steps;
+  const marks = props.build;
+  const statuses = useMemo<StatusMap>(() => {
+    if (!workflow) return new Map();
+    // A connection the client lacks reads as the validator says it where it finds it; the setup
+    // item says it only where the validator doesn't (a pack that is off, a draft's first look).
+    const named = new Set(
+      workflowErrors.flatMap((e) =>
+        e.code === "connection_missing" && e.stepId ? [e.stepId] : [],
+      ),
+    );
+    const setup = setupItems(leftItems, slug).filter((i) => !named.has(i.stepId));
+    return withCodeRequests(
+      buildStatuses({
+        process: workflow,
+        problems: workflowErrors,
+        workflow: slug,
+        items: [...setup, ...(marks?.items ?? [])],
+        decided: marks?.decided,
+        customized,
+        tried: marks?.tried,
+      }),
+      requests ?? [],
+      slug,
+    );
+  }, [workflow, workflowErrors, slug, leftItems, marks, customized, requests]);
+  const order = useMemo(
+    () => (workflow ? stepOrder(workflow, { triggers: true }) : []),
+    [workflow],
+  );
+  const label = useMemo(() => chartLabel(labels, env), [labels, env]);
+  const ends = useMemo(
+    () =>
+      shownLoop && workflow
+        ? loopEnds(shownLoop.loop, workflow, dataCtx, (s) => dataOf(s).lines)
+        : workflow
+          ? agentEnds(workflow)
+          : { start: null, givesBack: null },
+    [shownLoop, workflow, dataCtx, dataOf],
+  );
+  const selectedId = selection?.id ?? null;
+  const openNext = () => {
+    const id = nextOpen(statuses, order, selectedId);
+    if (!id || !workflow) return;
+    if (workflow.triggers.some((t) => t.id === id)) selectTrigger(id);
+    else selectStep(id);
+  };
+  const stepName = (id: string): string => {
+    if (!workflow) return "";
+    const trigger = workflow.triggers.find((t) => t.id === id);
+    if (trigger) return triggerTitle(trigger);
+    const step = locate(workflow, id)?.step;
+    return step ? label(step).title : "";
+  };
+
+  // ── F3 and F4: what "Try it" and "Turn on" act on ──
+  const run: FlowRun = {
+    workflow: slug,
+    valid: result.valid,
+    ensureSaved: async () => (dirty ? await save() : saved),
+  };
+
+  // ── The side panel's parts ──
+  /** How an open item on a step is settled there: Fix for a problem, the Dev queue for a request. */
+  const itemActions = (item: SettleItem): ReactNode => {
+    if (item.source === "problem" && item.key.startsWith("problem:")) {
+      const hit = workflowErrors.find(
+        (e) => `problem:${e.code}:${e.stepId}:${e.field}` === item.key,
+      );
+      if (!hit) return null;
+      const n = (statuses.get(item.stepId)?.items ?? [])
+        .filter((i) => i.key.startsWith("problem:"))
+        .findIndex((i) => i.key === item.key);
+      return (
+        <>
+          <button
+            type="button"
+            className="ds-btn ds-btn--secondary ds-btn--sm"
+            data-testid={`builder-inspector-error-${n}-fix`}
+            onClick={() => fixError(hit)}
+          >
+            Fix
+          </button>
+          <button
+            type="button"
+            className="ds-btn ds-btn--ghost ds-btn--sm"
+            data-testid={`builder-inspector-error-${n}-show`}
+            onClick={() => showError({ ...hit, workflow: slug })}
+          >
+            Go to the field
+          </button>
+        </>
+      );
+    }
+    if (item.source === "missing" && item.refId) {
+      return (
+        <Link
+          to={devQueuePath(item.refId)}
+          className="text-sm font-medium text-link underline"
+          data-testid={`builder-steps-request-${item.stepId}`}
+        >
+          Open {item.refId} in the Dev queue
+        </Link>
+      );
+    }
+    return marks?.itemActions?.(item) ?? null;
+  };
+
+  const inspector = workflow ? (
+    <Inspector
+      layout="panel"
+      workflow={workflow}
+      bundle={bundle}
+      selection={selection}
+      data={data}
+      ctx={inspectorCtx}
+      env={env}
+      errors={workflowErrors}
+      template={template ? { bundle: template, workflow: templateWorkflow } : null}
+      people={props.people}
+      focus={focus}
+      connectors={connectors}
+      onStep={(id, fn, key) => edit((w) => updateStep(w, id, fn), key)}
+      onTrigger={(id, on: TriggerOn, key) => edit((w) => setTrigger(w, on, id), key)}
+      onAddTrigger={(on) => {
+        const id = uuidv7();
+        edit((w) => addTrigger(w, on, () => id));
+        setSelection({ type: "trigger", id });
+      }}
+      onRemoveTrigger={(id) => {
+        edit((w) => removeTrigger(w, id));
+        closeSide();
+      }}
+      onDelete={remove}
+      // Skill model (2026-11-10): "Move to vN", references remapped, one undo.
+      agentId={agent.id}
+      tenantId={agent.tenantId}
+      onMoveSkill={(move) => {
+        props.onCatalogSkill?.({
+          ref: move.to,
+          source: "pinned",
+          version: move.version,
+          definition: move.definition,
+          kind: skillKind(move.definition, toolLookup(data.catalog.tools)),
+          palette: false,
+        });
+        edit((w) => applySkillMove(w, move.stepId, move.to, move.remaps));
+      }}
+      // DECISION (wave 5, web): the step stays selected after "Add a route", so its
+      // panel says what was set; the new if waits on the chart for its steps.
+      onAddRoute={(id, option) => edit((w) => addRouteAfter(w, id, option)?.process ?? w)}
+      // Skill model (2026-11-10): the write a skill's output fits, selected once
+      // added so its panel shows the tool it will use.
+      onAddAction={(id, fit) => {
+        const newId = uuidv7();
+        edit((w) => addActionAfter(w, id, fit, ctx, () => newId)?.process ?? w);
+        setSelection({ type: "step", id: newId });
+      }}
+      // Reshape data (2026-11-11): a Reshape step before a step whose inputs can't
+      // be filled, or between a skill and a write it fits in part; the agent gets
+      // the skill in the same edit, and the new step opens with its mapping.
+      onAddReshape={(at) => {
+        const made = [uuidv7(), uuidv7()];
+        apply((b) => {
+          // The same ids however often the edit is applied.
+          let n = 0;
+          const ids = () => made[n++] ?? uuidv7();
+          const next = editWorkflow(
+            b,
+            slug,
+            (w) =>
+              ("before" in at
+                ? addReshapeBefore(w, at.before, ctx, ids)
+                : addReshapeThenAction(w, at.after, at.action, ctx, ids)
+              )?.process ?? w,
+          );
+          return allowStep(next, newReshapeStep(), ctx);
+        });
+        setSelection({ type: "step", id: made[0] as string });
+      }}
+      onProcess={(fn, key) => edit(fn, key)}
+      onFix={fixError}
+      // v0.18: each step's data, and what fills a missing step.
+      dataOf={dataOf}
+      missing={{
+        onDraftSkill: draftSkill,
+        onReplace: (id) => askWhere(null, id),
+        drafting: draftingSkill,
+      }}
+      assess={assess}
+      onAddHere={addBeside}
+      onAskBuilder={askBuilderAboutMove}
+    />
+  ) : null;
+
+  const stepPanel = (() => {
+    if (!workflow || !selection) return null;
+    const settle = {
+      itemActions,
+      onChangeItem: marks?.onChangeItem,
+      onChangeDecided: marks?.onChangeDecided,
+      onNext: (id: string) =>
+        workflow.triggers.some((t) => t.id === id) ? selectTrigger(id) : selectStep(id),
+    };
+    const nextId = nextOpen(statuses, order, selection.id);
+    const next = nextId ? { id: nextId, name: stepName(nextId) } : null;
+    if (selection.type === "trigger") {
+      const trigger = workflow.triggers.find((t) => t.id === selection.id);
+      if (!trigger) return null;
+      return (
+        <StepPanel
+          key={trigger.id}
+          stepId={trigger.id}
+          kind="Starts when"
+          title={triggerTitle(trigger)}
+          status={statuses.get(trigger.id)}
+          next={next}
+          {...settle}
+          onClose={closeSide}
+        >
+          {workflow.triggers.length > 1 ? (
+            // Each way it starts, to open: the chart's start box is all of them.
+            <fieldset className="ds-seg flex-wrap" aria-label="How it starts">
+              {workflow.triggers.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  aria-pressed={t.id === trigger.id}
+                  data-testid={`builder-trigger-${t.id}-select`}
+                  onClick={() => selectTrigger(t.id)}
+                >
+                  {triggerTitle(t)}
+                </button>
+              ))}
+            </fieldset>
+          ) : null}
+          {inspector}
+        </StepPanel>
+      );
+    }
+    const loc = locate(workflow, selection.id);
+    if (!loc) return null;
+    const step = loc.step;
+    const words = label(step);
+    const siblings = getContainer(workflow, loc.container) ?? [];
+    return (
+      <StepPanel
+        key={step.id}
+        stepId={step.id}
+        kind={words.kind}
+        place={{ n: loc.index + 1, of: siblings.length }}
+        title={step.name}
+        // One undo per run of typing, as the inspector's own name field made it.
+        onRename={(name) =>
+          edit((w) => updateStep(w, step.id, (s) => ({ ...s, name })), `${step.id}:name`)
+        }
+        status={statuses.get(step.id)}
+        next={next}
+        {...settle}
+        connections={
+          <ConnectionsSection
+            key={step.id}
+            layout="panel"
+            step={step}
+            workflow={workflow}
+            ctx={ctx}
+            assess={assess}
+            onProcess={(fn, key) => edit(fn, key)}
+            onAddHere={(where) => addBeside(step.id, where)}
+            onAskBuilder={askBuilderAboutMove}
+            propose={propose?.stepId === step.id ? propose : null}
+          />
+        }
+        builder={
+          stepFocus
+            ? (size) => (
+                <StepChat
+                  session={session}
+                  step={stepFocus.step}
+                  size={size}
+                  onPrevious={((id) => (id ? () => selectStep(id) : undefined))(stepFocus.previous)}
+                  onNext={((id) => (id ? () => selectStep(id) : undefined))(stepFocus.next)}
+                />
+              )
+            : undefined
+        }
+        builderSize={chatSize}
+        onBuilderSize={setChatSize}
+        // An if and a missing step say how they are removed among their own settings.
+        onRemove={step.kind === "if" ? undefined : () => remove(step.id)}
+        removeLabel={step.kind === "missing" ? "Remove it" : undefined}
+        onClose={closeSide}
+      >
+        {inspector}
+      </StepPanel>
+    );
+  })();
+
+  const publish = props.turnOn ? (
+    // F4: Turn on in one button (publish, the copy for a template, the bindings, the trial).
+    <Button
+      variant="primary"
+      size="sm"
+      data-testid="flow-bar-turn-on"
+      working={props.turnOn.busy}
+      onClick={() => props.turnOn?.onTurnOn(run)}
+    >
+      {props.turnOn.label ?? "Turn on"}
+    </Button>
+  ) : !dirty && saved.status === "live" ? null : (
+    // A live version with nothing new offers no publish: its badge says Live.
+    <Button
+      variant="primary"
+      size="sm"
+      data-testid="builder-publish"
+      disabled={publishBlocked !== null || action.busy || publishing}
+      title={publishBlocked ?? undefined}
+      onClick={onPublish}
+    >
+      {publishing ? "Publishing…" : dirty ? "Save and publish" : `Publish v${saved.version}`}
+    </Button>
+  );
+
+  const topSteps = workflow?.steps ?? [];
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: Ctrl+Z / Ctrl+Shift+Z anywhere in the builder.
     <div data-testid="builder" onKeyDown={onKeyDown}>
       <BuilderBar
         agent={agent}
-        badge={
-          <span className="flex gap-1.5">
-            <Badge tone={saved.status === "live" ? "positive" : "neutral"} testId="builder-version">
-              {versionBadge}
-            </Badge>
-            {dirty ? (
-              <Badge tone="neutral" testId="builder-unsaved">
-                Unsaved
-              </Badge>
-            ) : null}
-            {agent.kind === "template" ? <Badge tone="accent">Template</Badge> : null}
-          </span>
-        }
-        line={
-          <>
-            <span data-testid="builder-counts">{subtitle}</span>
-            {" · "}
-            <span className={result.valid ? "text-positive" : "text-risk"}>
-              {result.valid ? "valid" : plural(problemCount, "problem")}
-            </span>
-          </>
-        }
-        actions={
-          <>
-            <Button
-              variant="ghost"
-              data-testid="builder-save"
-              disabled={!dirty || action.busy}
-              onClick={onSave}
-            >
-              Save draft
-            </Button>
-            <Button
-              data-testid="builder-test-run"
-              disabled={!workflow || invalidReason !== null}
-              title={invalidReason ?? undefined}
-              onClick={() => setPanel(panel === "test" ? null : "test")}
-            >
-              Test run
-            </Button>
-            {/* A live version with nothing new offers no publish: its badge says Live. */}
-            {!dirty && saved.status === "live" ? null : (
-              <Button
-                variant="primary"
-                data-testid="builder-publish"
-                disabled={publishBlocked !== null || action.busy || publishing}
-                title={publishBlocked ?? undefined}
-                onClick={onPublish}
-              >
-                {publishing
-                  ? "Publishing…"
-                  : dirty
-                    ? "Save and publish"
-                    : `Publish v${saved.version}`}
-              </Button>
-            )}
-          </>
-        }
+        badge={agent.kind === "template" ? <Badge tone="accent">Template</Badge> : null}
+        line={agent.role}
       />
       <div className="overflow-x-auto">{props.tabs}</div>
       {props.above ? <div className="pt-4">{props.above}</div> : null}
@@ -1377,136 +1766,224 @@ function BuilderBody(
         </div>
       ) : null}
 
-      {panel === "test" && workflow?.triggers[0] && entry ? (
-        <TestRunPanel
-          agent={agent}
-          workflowName={entry.name}
-          slug={slug}
-          // DECISION: a test run starts from the first trigger's sample, as v3 had one trigger.
-          sample={samplePayload(workflow, data.events)}
-          eventType={triggerEventType(workflow)}
-          // Wave 5 review: routes on an approval go the no-approval way in a test run.
-          approvalNote={testRunApprovalNote(approvalRouteNames(workflow))}
-          busy={action.busy}
-          onClose={() => setPanel(null)}
-          run={async (payload, clientId) => {
-            const v = dirty ? await save() : saved;
-            if (!v) return null;
-            const res = await action.call(apiRoutes.opsTestRun, {
-              params: { id: agent.id, vid: v.id },
-              body: { workflow: slug, payload, ...(clientId ? { clientId } : {}) },
-            });
-            if (res.ok) setTestedHere(v.id);
-            return res.ok ? res.data.runId : null;
-          }}
-        />
-      ) : null}
-
       <DndContext
         sensors={sensors}
-        collisionDetection={collision}
+        collisionDetection={flowCollision}
         onDragStart={(e) => {
-          setActiveId(String(e.active.id));
-          const d = e.active.data.current as DragData | undefined;
-          if (d?.type === "palette") setActiveLabel({ title: d.item.title, kind: d.item.type });
-          else if (workflow) {
-            const s = locate(workflow, String(e.active.id))?.step;
-            if (s) setActiveLabel({ title: s.name, kind: PROCESS_KIND_LABEL[s.kind] });
-          }
+          const d = e.active.data.current as { type?: string; item?: PaletteItem } | undefined;
+          setDragLabel(
+            d?.type === "palette" && d.item ? { title: d.item.title, kind: d.item.type } : null,
+          );
         }}
-        onDragOver={(e) => setOverId(e.over ? String(e.over.id) : null)}
         onDragEnd={onDragEnd}
-        onDragCancel={endDrag}
+        onDragCancel={() => setDragLabel(null)}
       >
-        {/* UI cleanup: two columns, the canvas and a side panel beside it once the builder has
-            room (a container query, so a browser side panel narrowing the page counts), the panel
-            below the canvas on narrow screens. The palette is the panel's "Add a step" tab, so it
-            never covers the Builder or the step. */}
-        <div className="@container -mx-4 -mb-8 mt-4 border-t border-line md:-mx-10 md:-mb-12">
-          <div
-            className={cx(
-              "grid grid-cols-1",
-              railOpen
-                ? "@3xl:grid-cols-[minmax(0,1fr)_340px]"
-                : "@3xl:grid-cols-[minmax(0,1fr)_52px]",
-              // v0.18: with the Builder beside the step, the panel takes two columns where there's
-              // room; narrower, the chat sits under the settings.
-              railOpen && stepFocus && "@6xl:grid-cols-[minmax(0,1fr)_720px]",
-            )}
-          >
-            <div className="min-w-0 bg-surface-subtle px-4 py-5 md:px-6">
+        {/* F6: one frame as tall as the window under the header: the bar, then the rail, the chart
+            or the List, and the side panel. On a narrow screen they stack and the page scrolls. */}
+        <div className="flow-host -mx-4 -mb-8 mt-4 md:-mx-10 md:-mb-12" data-testid="builder-frame">
+          <FlowBar
+            lead={
               <WorkflowSwitcher
                 bundle={bundle}
                 current={slug}
                 base={base}
-                adding={panel === "add-workflow"}
-                onAdd={() => setPanel(panel === "add-workflow" ? null : "add-workflow")}
-                view={props.view}
+                adding={addingWorkflow}
+                onAdd={() => setAddingWorkflow((a) => !a)}
+                view={view}
               />
-              {panel === "add-workflow" || bundle.workflows.length === 0 ? (
-                <AddWorkflowForm
-                  bundle={bundle}
-                  events={data.events
-                    .filter((e) => !e.connector || connectors.has(e.connector))
-                    .map((e) => e.type)}
-                  onCancel={() => setPanel(null)}
-                  onCreate={(input) => {
-                    apply((b) => addWorkflow(b, input));
-                    setPanel(null);
-                    setSelection(null);
-                    navigate(
-                      `${base}/${props.view === "steps" ? "steps" : "workflows"}/${input.slug}`,
+            }
+            name={entry?.name ?? agentTitle(agent)}
+            version={
+              dirty
+                ? { state: "unsaved", version: saved.version }
+                : { state: saved.status === "live" ? "live" : "draft", version: saved.version }
+            }
+            counts={counts ?? { steps: 0, ifs: 0, writes: 0, needApproval: 0 }}
+            open={openCounts(statuses)}
+            onNextOpen={openNext}
+            view={view}
+            onView={(v) => {
+              setView(v);
+              // The agent page's Workflow and Steps tabs follow: the same builder, the other view.
+              navigate(`${base}/${v === "list" ? "steps" : "workflows"}/${slug}`);
+            }}
+            canUndo={history.past.length > 0}
+            canRedo={history.future.length > 0}
+            onUndo={() => setHistory(undo)}
+            onRedo={() => setHistory(redo)}
+            onAskBuilder={() => setSide(side === "builder" ? null : "builder")}
+            onTry={
+              workflow
+                ? () =>
+                    props.tryIt ? props.tryIt.onTry(run) : setSide(side === "test" ? null : "test")
+                : undefined
+            }
+            trying={props.tryIt?.trying}
+            tryBlocked={invalidReason}
+            onSave={onSave}
+            saved={!dirty}
+            primary={publish}
+          />
+          {shownLoop && entry ? (
+            <nav className="flow-host__crumb" aria-label="Where this is" data-testid="flow-crumb">
+              <button
+                type="button"
+                className="ds-btn ds-btn--link"
+                data-testid="flow-crumb-back"
+                onClick={() => setOpenLoop(null)}
+              >
+                <Icon name="arrow" className="rotate-180" />
+                {entry.name}
+              </button>
+              <span aria-hidden>/</span>
+              <span className="text-ink" data-testid="flow-crumb-here">
+                {shownLoop.loop.name || PROCESS_KIND_LABEL[shownLoop.loop.kind]}
+              </span>
+              <span>
+                · the steps it runs{" "}
+                {shownLoop.loop.kind === "repeat" ? "each pass" : "for each item"}
+              </span>
+            </nav>
+          ) : null}
+          <div className="flow-host__body">
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: Escape anywhere in the rail forgets the place chosen. */}
+            <div
+              ref={railRef}
+              className="flow-host__rail"
+              onKeyDown={(e) => {
+                if (e.key === "Escape" && (addAt || replacing)) {
+                  e.stopPropagation();
+                  cancelWhere();
+                }
+              }}
+            >
+              {targetText && !railFolded ? (
+                <p className="flow-host__note" data-testid="builder-palette-target">
+                  The step you pick goes {targetText}.{" "}
+                  <button
+                    type="button"
+                    className="ds-btn ds-btn--link"
+                    data-testid="builder-palette-cancel"
+                    onClick={cancelWhere}
+                  >
+                    Cancel
+                  </button>
+                </p>
+              ) : null}
+              <div className="min-h-0 flex-1">
+                <Rail
+                  sections={paletteSections(bundle, data, connectors)}
+                  onPick={(item) => addItem(item)}
+                  onSay={(words) => {
+                    // The words go to the Builder, with the place chosen when there is one.
+                    setSide("builder");
+                    void session.send(
+                      targetText ? `Add a step ${targetText}: ${words}` : `Add a step: ${words}`,
                     );
                   }}
+                  // A new start is offered while the start is open: the pick replaces that trigger.
+                  triggers={selection?.type === "trigger" && side === "step"}
+                  folded={railFolded}
+                  onFold={setRailFolded}
                 />
-              ) : null}
+              </div>
+              {railFolded ? null : (
+                <div className="flow-host__foot">
+                  {agent.kind === "template" ? (
+                    <MoreConnectors
+                      data={data}
+                      shown={connectors}
+                      onAdd={(id) => setExtraConnectors((x) => [...x, id])}
+                    />
+                  ) : (
+                    <p className="text-xs text-ink-muted" data-testid="builder-palette-connected">
+                      Only the tools this client has connected show here. Connect more on the
+                      client's Setup page.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
 
-              <div className="my-4 flex flex-wrap items-center justify-between gap-3">
-                {checked ? (
-                  <SaveAsAutomation
-                    count={checked.size}
-                    busy={session.busy}
-                    onSave={saveAutomation}
-                    onClear={() => setChecked(null)}
+            <div className="flow-host__main">
+              <div className="flow-host__strip" data-testid="builder-strip">
+                {addingWorkflow || bundle.workflows.length === 0 ? (
+                  <AddWorkflowForm
+                    bundle={bundle}
+                    events={data.events
+                      .filter((e) => !e.connector || connectors.has(e.connector))
+                      .map((e) => e.type)}
+                    onCancel={() => setAddingWorkflow(false)}
+                    onCreate={(input) => {
+                      apply((b) => addWorkflow(b, input));
+                      setAddingWorkflow(false);
+                      closeSide();
+                      navigate(`${base}/${view === "list" ? "steps" : "workflows"}/${input.slug}`);
+                    }}
                   />
-                ) : (
-                  <span className="flex flex-wrap items-center gap-3">
-                    <Button
-                      variant="primary"
-                      data-testid="builder-add-step"
-                      aria-expanded={rail === "add"}
-                      onClick={() => openPalette(ROOT)}
-                    >
-                      <Icon name="add" />
-                      Add a step
-                    </Button>
-                    <span className="text-sm text-ink-muted">
-                      Click a step to edit it. Drag it by its handle to move it.
+                ) : null}
+                <WhatsLeft
+                  items={leftItems}
+                  problemCount={problemLines(listedErrors, bundle).length}
+                  problems={
+                    <Problems
+                      errors={listedErrors}
+                      valid={result.errors.length === 0}
+                      bundle={bundle}
+                      slug={slug}
+                      onShow={showError}
+                      onFix={fixLine}
+                    />
+                  }
+                  summary={dataSummary}
+                  onSelect={selectLeft}
+                  onTest={() => (props.tryIt ? props.tryIt.onTry(run) : setSide("test"))}
+                />
+                <Advice warnings={result.warnings.filter((w) => w.workflow === slug)} />
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                  {checked ? (
+                    <span className="flex flex-col gap-2">
+                      <SaveAsAutomation
+                        count={checked.size}
+                        busy={session.busy}
+                        onSave={saveAutomation}
+                        onClear={() => setChecked(null)}
+                      />
+                      {/* The top-level steps, to pick: they become one automation step. */}
+                      <fieldset className="flex flex-wrap gap-x-4 gap-y-1" aria-label="Steps">
+                        {topSteps.map((s, i) => (
+                          <label key={s.id} className="flex items-center gap-1.5 text-sm text-ink">
+                            <input
+                              type="checkbox"
+                              data-testid={`builder-step-${s.id}-check`}
+                              checked={checked.has(s.id)}
+                              onChange={(e) =>
+                                setChecked((c) => {
+                                  const next = new Set(c ?? []);
+                                  if (e.target.checked) next.add(s.id);
+                                  else next.delete(s.id);
+                                  return next;
+                                })
+                              }
+                            />
+                            <span className="figures text-ink-muted">{i + 1}</span>
+                            {s.name || PROCESS_KIND_LABEL[s.kind]}
+                          </label>
+                        ))}
+                      </fieldset>
                     </span>
-                  </span>
-                )}
-                <span className="flex flex-wrap items-center gap-2">
-                  {workflow && workflow.steps.length > 0 && !checked ? (
+                  ) : topSteps.length > 0 && !loopId ? (
                     <Button
                       variant="ghost"
+                      size="sm"
                       data-testid="builder-select-steps"
                       onClick={() => setChecked(new Set())}
                     >
-                      Select steps
+                      Save steps as an automation
                     </Button>
-                  ) : null}
-                  {workflow && workflow.steps.length > 0 ? (
-                    // v0.18 (docs/plan.md §1.105): the Builder beside the step's settings, opt-in.
-                    <Button
-                      variant="ghost"
-                      aria-pressed={stepChat}
-                      data-testid="builder-step-chat-toggle"
-                      onClick={() => toggleStepChat(!stepChat)}
-                      className={cx(stepChat && "border-slate bg-slate-tint text-slate")}
-                    >
-                      Work on steps with the Builder
-                    </Button>
-                  ) : null}
+                  ) : (
+                    <span />
+                  )}
                   {dirty ? (
                     <span className="text-xs text-ink-muted" data-testid="builder-draft-status">
                       {draftAt
@@ -1514,339 +1991,112 @@ function BuilderBody(
                         : "Unsaved changes"}
                     </span>
                   ) : null}
-                  <Button
-                    variant="ghost"
-                    data-testid="builder-undo"
-                    disabled={history.past.length === 0}
-                    onClick={() => setHistory(undo)}
-                  >
-                    Undo
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    data-testid="builder-redo"
-                    disabled={history.future.length === 0}
-                    onClick={() => setHistory(redo)}
-                  >
-                    Redo
-                  </Button>
-                </span>
+                </div>
               </div>
 
-              <WhatsLeft
-                items={leftItems}
-                problemCount={problemLines(listedErrors, bundle).length}
-                problems={
-                  <Problems
-                    errors={listedErrors}
-                    valid={result.errors.length === 0}
-                    bundle={bundle}
-                    slug={slug}
-                    onShow={showError}
-                    onFix={fixLine}
+              <div className="flow-host__stage" data-view={view}>
+                {shown && view === "list" ? (
+                  <div className="flow-host__list">
+                    <StepTable
+                      process={shown}
+                      statuses={statuses}
+                      selected={side === "step" ? selectedId : null}
+                      onSelect={(id) =>
+                        workflow?.triggers.some((t) => t.id === id)
+                          ? selectTrigger(id)
+                          : selectStep(id)
+                      }
+                      label={label}
+                      onAdd={() => askWhere(null)}
+                    />
+                  </div>
+                ) : shown ? (
+                  <Chart
+                    process={shown}
+                    ends={ends}
+                    statuses={statuses}
+                    selected={
+                      side !== "step" || !selection
+                        ? null
+                        : selection.type === "trigger"
+                          ? FLOW_START_ID
+                          : selection.id
+                    }
+                    folded={folded}
+                    onFold={(id, fold) =>
+                      setFolded((f) => {
+                        const next = new Set(f);
+                        if (fold) next.add(id);
+                        else next.delete(id);
+                        return next;
+                      })
+                    }
+                    label={label}
+                    {...chartEvents}
                   />
-                }
-                summary={dataSummary}
-                onSelect={selectLeft}
-                onTest={() => setPanel("test")}
-              />
-              <Advice warnings={result.warnings.filter((w) => w.workflow === slug)} />
-
-              {workflow && props.view === "steps" ? (
-                <StepsList
-                  rows={stepRows({
-                    workflow,
-                    errors: workflowErrors,
-                    left: leftItems,
-                    labels,
-                    requests: codeRequests.data?.steps ?? [],
-                    slug,
-                  })}
-                  selectedId={selection?.type === "step" ? selection.id : null}
-                  onSelect={(id) => {
-                    setSelection({ type: "step", id });
-                    showRail("step");
-                  }}
-                />
-              ) : workflow ? (
-                <Canvas
-                  workflow={workflow}
-                  selectedId={
-                    selection?.type === "trigger"
-                      ? triggerKey(selection.id)
-                      : (selection?.id ?? null)
-                  }
-                  env={env}
-                  errors={workflowErrors}
-                  customized={customized}
-                  activeId={activeId}
-                  overId={overId}
-                  onSelect={(id) => {
-                    setSelection(
-                      id.startsWith("trigger:")
-                        ? { type: "trigger", id: id.slice("trigger:".length) }
-                        : { type: "step", id },
-                    );
-                    showRail("step");
-                  }}
-                  labels={labels}
-                  data={dataOf}
-                  onAddAt={(container) => openPalette(container)}
-                  addTarget={rail === "add" ? addTarget : null}
-                  checked={checked ?? undefined}
-                  onCheck={(id, on) =>
-                    setChecked((c) => {
-                      const next = new Set(c ?? []);
-                      if (on) next.add(id);
-                      else next.delete(id);
-                      return next;
-                    })
-                  }
-                />
-              ) : bundle.workflows.length > 0 ? (
-                <p className="text-ink-muted" data-testid="builder-no-workflow">
-                  This agent has no workflow “{slug}”. Pick one above.
-                </p>
-              ) : null}
+                ) : bundle.workflows.length > 0 ? (
+                  <p className="p-4 text-ink-muted" data-testid="builder-no-workflow">
+                    This agent has no workflow “{slug}”. Pick one above.
+                  </p>
+                ) : null}
+              </div>
             </div>
 
-            <aside
-              ref={railRef}
-              aria-label="Add a step, the Builder and the step"
-              data-testid="builder-rail"
-              data-open={railOpen ? "true" : "false"}
-              className={cx(
-                "flex scroll-mt-[var(--header-h)] flex-col border-t border-line bg-surface @3xl:sticky @3xl:top-header @3xl:h-[calc(100vh-var(--header-h))] @3xl:border-t-0 @3xl:border-l",
-                railOpen ? "px-5 py-4" : "items-center gap-1 px-1.5 py-3 @max-3xl:flex-row",
-              )}
+            <div
+              ref={sideRef}
+              className={cx("flow-host__side scroll-mt-[var(--header-h)]", !side && "hidden")}
+              data-testid="builder-side"
+              data-side={side ?? undefined}
             >
-              {railOpen ? null : (
-                // Folded: an expand button, then each tab as an icon that opens the panel on it.
-                <>
+              {/* Kept while another side shows, so what is typed to the Builder stays. */}
+              <div
+                className={cx("flow-host__sheet", side !== "builder" && "hidden")}
+                data-testid="builder-side-builder"
+              >
+                <div className="flex justify-end">
                   <button
                     type="button"
-                    aria-label="Expand the side panel"
-                    aria-expanded="false"
-                    title="Expand"
-                    data-testid="builder-rail-expand"
-                    onClick={() => setRailOpen(true)}
+                    aria-label="Close"
+                    title="Close"
+                    data-testid="builder-side-close"
+                    onClick={() => setSide(null)}
                     className="ds-btn ds-btn--ghost ds-btn--icon ds-btn--sm text-ink-muted hover:text-ink"
                   >
-                    <Icon name="sidebar" size={16} className="-scale-x-100" />
+                    <Icon name="close" />
                   </button>
-                  <span aria-hidden className="my-1 h-px w-6 bg-line @max-3xl:h-6 @max-3xl:w-px" />
-                  {(
-                    [
-                      ["add", "Add a step", "add"],
-                      ["builder", "Builder", "message"],
-                      ["step", selection ? "Step" : "Inspector", "settings"],
-                    ] as const
-                  ).map(([key, label, icon]) => (
-                    <button
-                      key={key}
-                      type="button"
-                      aria-label={label}
-                      title={label}
-                      data-testid={`builder-rail-${key}-folded`}
-                      onClick={() => (key === "add" ? openPalette(addTarget) : showRail(key))}
-                      className={cx(
-                        "ds-btn ds-btn--ghost ds-btn--icon ds-btn--sm",
-                        rail === key ? "text-slate" : "text-ink-muted hover:text-ink",
-                      )}
-                    >
-                      <Icon name={icon} size={16} />
-                    </button>
-                  ))}
-                </>
-              )}
-              <div
-                className={cx(
-                  "mb-4 flex items-end gap-1 border-b border-line",
-                  !railOpen && "hidden",
-                )}
-                role="tablist"
-                aria-label="Side panel"
-              >
-                {(
-                  [
-                    ["add", "Add a step"],
-                    ["builder", "Builder"],
-                    ["step", selection ? "Step" : "Inspector"],
-                  ] as const
-                ).map(([key, label]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    role="tab"
-                    aria-selected={rail === key}
-                    data-testid={`builder-rail-${key}`}
-                    onClick={() => (key === "add" ? openPalette(addTarget) : showRail(key))}
-                    className={cx(
-                      "-mb-px border-b-2 px-3 py-2 text-sm",
-                      rail === key
-                        ? "border-slate font-medium text-ink"
-                        : "border-transparent text-ink-muted hover:text-ink",
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-                <button
-                  type="button"
-                  aria-label="Collapse the side panel"
-                  aria-expanded="true"
-                  title="Collapse"
-                  data-testid="builder-rail-collapse"
-                  onClick={() => setRailOpen(false)}
-                  className="ds-btn ds-btn--ghost ds-btn--icon ds-btn--sm mb-1 ml-auto text-ink-muted hover:text-ink"
-                >
-                  <Icon name="sidebar" size={16} className="-scale-x-100" />
-                </button>
+                </div>
+                <div className="min-h-0 flex-1">
+                  <BuilderPanel session={session} />
+                </div>
               </div>
-              {railOpen && rail === "add" ? (
-                <div
-                  className="min-h-0 flex-1 overflow-y-auto"
-                  data-testid="builder-rail-add-panel"
-                >
-                  <Palette
-                    sections={filterSections(paletteSections(bundle, data, connectors), search)}
-                    search={search}
-                    onSearch={setSearch}
-                    onAdd={(item) => addItem(item)}
-                    target={targetText}
-                    onClose={closePalette}
-                    focusKey={paletteFocus}
-                    footer={
-                      agent.kind === "template" ? (
-                        <MoreConnectors
-                          data={data}
-                          shown={connectors}
-                          onAdd={(id) => setExtraConnectors((x) => [...x, id])}
-                        />
-                      ) : (
-                        <p
-                          className="text-xs text-ink-muted"
-                          data-testid="builder-palette-connected"
-                        >
-                          Only the tools this client has connected show here. Connect more on the
-                          client's Setup page.
-                        </p>
-                      )
-                    }
+              {side === "step" ? stepPanel : null}
+              {side === "test" && workflow?.triggers[0] && entry ? (
+                <div className="flow-host__sheet">
+                  <TestRunPanel
+                    agent={agent}
+                    workflowName={entry.name}
+                    slug={slug}
+                    // DECISION: a test run starts from the first trigger's sample, as v3 had one trigger.
+                    sample={samplePayload(workflow, data.events)}
+                    eventType={triggerEventType(workflow)}
+                    // Wave 5 review: routes on an approval go the no-approval way in a test run.
+                    approvalNote={testRunApprovalNote(approvalRouteNames(workflow))}
+                    busy={action.busy}
+                    onClose={() => setSide(null)}
+                    run={async (payload, clientId) => {
+                      const v = dirty ? await save() : saved;
+                      if (!v) return null;
+                      const res = await action.call(apiRoutes.opsTestRun, {
+                        params: { id: agent.id, vid: v.id },
+                        body: { workflow: slug, payload, ...(clientId ? { clientId } : {}) },
+                      });
+                      if (res.ok) setTestedHere(v.id);
+                      return res.ok ? res.data.runId : null;
+                    }}
                   />
                 </div>
               ) : null}
-              <div
-                className={cx(
-                  "min-h-0 flex-1 overflow-y-auto",
-                  (!railOpen || rail !== "builder") && "hidden",
-                )}
-              >
-                <BuilderPanel session={session} />
-              </div>
-              {railOpen && workflow && rail === "step" ? (
-                <StepPanel
-                  chat={
-                    stepFocus ? (
-                      <StepChat
-                        session={session}
-                        step={stepFocus.step}
-                        onPrevious={((id) => (id ? () => focusStep(id) : undefined))(
-                          stepFocus.previous,
-                        )}
-                        onNext={((id) => (id ? () => focusStep(id) : undefined))(stepFocus.next)}
-                      />
-                    ) : null
-                  }
-                >
-                  <Inspector
-                    workflow={workflow}
-                    bundle={bundle}
-                    selection={selection}
-                    data={data}
-                    ctx={inspectorCtx}
-                    env={env}
-                    errors={workflowErrors}
-                    template={template ? { bundle: template, workflow: templateWorkflow } : null}
-                    people={props.people}
-                    focus={focus}
-                    connectors={connectors}
-                    onStep={(id, fn, key) => edit((w) => updateStep(w, id, fn), key)}
-                    onTrigger={(id, on: TriggerOn, key) => edit((w) => setTrigger(w, on, id), key)}
-                    onAddTrigger={(on) => {
-                      const id = uuidv7();
-                      edit((w) => addTrigger(w, on, () => id));
-                      setSelection({ type: "trigger", id });
-                    }}
-                    onRemoveTrigger={(id) => {
-                      edit((w) => removeTrigger(w, id));
-                      setSelection(null);
-                    }}
-                    onDelete={remove}
-                    // Skill model (2026-11-10): "Move to vN", references remapped, one undo.
-                    agentId={agent.id}
-                    tenantId={agent.tenantId}
-                    onMoveSkill={(move) => {
-                      props.onCatalogSkill?.({
-                        ref: move.to,
-                        source: "pinned",
-                        version: move.version,
-                        definition: move.definition,
-                        kind: skillKind(move.definition, toolLookup(data.catalog.tools)),
-                        palette: false,
-                      });
-                      edit((w) => applySkillMove(w, move.stepId, move.to, move.remaps));
-                    }}
-                    // DECISION (wave 5, web): the step stays selected after "Add a route", so its
-                    // inspector says what was set; the new if waits on the canvas for its steps.
-                    onAddRoute={(id, option) =>
-                      edit((w) => addRouteAfter(w, id, option)?.process ?? w)
-                    }
-                    // Skill model (2026-11-10): the write a skill's output fits, selected once
-                    // added so its inspector shows the tool it will use.
-                    onAddAction={(id, fit) => {
-                      const newId = uuidv7();
-                      edit((w) => addActionAfter(w, id, fit, ctx, () => newId)?.process ?? w);
-                      setSelection({ type: "step", id: newId });
-                    }}
-                    // Reshape data (2026-11-11): a Reshape step before a step whose inputs can't
-                    // be filled, or between a skill and a write it fits in part; the agent gets
-                    // the skill in the same edit, and the new step opens with its mapping.
-                    onAddReshape={(at) => {
-                      const made = [uuidv7(), uuidv7()];
-                      apply((b) => {
-                        // The same ids however often the edit is applied.
-                        let n = 0;
-                        const ids = () => made[n++] ?? uuidv7();
-                        const next = editWorkflow(
-                          b,
-                          slug,
-                          (w) =>
-                            ("before" in at
-                              ? addReshapeBefore(w, at.before, ctx, ids)
-                              : addReshapeThenAction(w, at.after, at.action, ctx, ids)
-                            )?.process ?? w,
-                        );
-                        return allowStep(next, newReshapeStep(), ctx);
-                      });
-                      setSelection({ type: "step", id: made[0] as string });
-                    }}
-                    onProcess={(fn, key) => edit(fn, key)}
-                    onFix={fixError}
-                    // v0.18: each step's data, and what fills a missing step.
-                    dataOf={dataOf}
-                    missing={{
-                      onDraftSkill: draftSkill,
-                      onReplace: (id) => openPalette(ROOT, id),
-                      drafting: draftingSkill,
-                    }}
-                    assess={assess}
-                    onAddHere={openPaletteAt}
-                    onAskBuilder={askBuilderAboutMove}
-                  />
-                </StepPanel>
-              ) : null}
-            </aside>
+            </div>
           </div>
         </div>
         {fixing ? (
@@ -1857,28 +2107,27 @@ function BuilderBody(
             onShowStep={fixing.error.stepId ? () => showError(fixing.error) : undefined}
           />
         ) : null}
-        <DragOverlay dropAnimation={null}>
-          {activeId && activeLabel ? (
-            <DragCard title={activeLabel.title} kind={activeLabel.kind} />
-          ) : null}
-        </DragOverlay>
+        {/* Only while a rail item is dragged: a box moves by itself, and an overlay there (even an
+            empty one) would stand in for it when the drop is worked out. */}
+        {dragLabel ? (
+          <DragOverlay dropAnimation={null}>
+            <DragCard title={dragLabel.title} kind={dragLabel.kind} />
+          </DragOverlay>
+        ) : null}
       </DndContext>
     </div>
   );
 }
 
-// ── v0.18: the step tab, with the Builder beside it when working on steps ────────────────────────
-
-/** Without a chat, the step's settings exactly as before; with one, the two side by side. */
-function StepPanel({ chat, children }: { chat: ReactNode; children: ReactNode }) {
-  if (!chat) return <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>;
+/** What the drag overlay shows while a rail item is dragged onto the chart. */
+function DragCard({ title, kind }: { title: string; kind: string }) {
   return (
     <div
-      className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto @6xl:grid-cols-2 @6xl:overflow-hidden"
-      data-testid="builder-step-with-chat"
+      data-drag-overlay=""
+      className="flex max-w-[420px] items-center gap-3 rounded-md border border-slate bg-surface px-4 py-3"
     >
-      <div className="min-h-0 @6xl:overflow-y-auto">{children}</div>
-      {chat}
+      <Tag>{kind}</Tag>
+      <span className="truncate font-medium text-ink">{title}</span>
     </div>
   );
 }
@@ -2036,6 +2285,10 @@ function MoreConnectors({
 
 // ── Workflows ────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * In the bar, before the workflow's name: the agent's other workflows to switch to (only when it
+ * has several), and "+ Workflow".
+ */
 function WorkflowSwitcher({
   bundle,
   current,
@@ -2049,37 +2302,39 @@ function WorkflowSwitcher({
   base: string;
   adding: boolean;
   onAdd(): void;
-  view?: "canvas" | "steps" | undefined;
+  view: FlowView;
 }) {
   return (
     <nav
       aria-label="Workflows"
       className="inline-flex max-w-full flex-wrap items-center gap-1 rounded-md border border-line bg-surface p-1"
     >
-      {bundle.workflows.map((w) => (
-        <Link
-          key={w.slug}
-          to={`${base}/${view === "steps" ? "steps" : "workflows"}/${w.slug}`}
-          data-testid={`builder-workflow-${w.slug}-select`}
-          aria-current={w.slug === current ? "page" : undefined}
-          className={cx(
-            "rounded-sm px-3 py-1.5 text-sm",
-            w.slug === current
-              ? "bg-slate-tint font-medium text-ink"
-              : "text-ink-muted hover:bg-surface-subtle hover:text-ink",
-          )}
-        >
-          {w.name}
-          {w.enabled ? "" : " · off"}
-        </Link>
-      ))}
+      {bundle.workflows.length > 1
+        ? bundle.workflows.map((w) => (
+            <Link
+              key={w.slug}
+              to={`${base}/${view === "list" ? "steps" : "workflows"}/${w.slug}`}
+              data-testid={`builder-workflow-${w.slug}-select`}
+              aria-current={w.slug === current ? "page" : undefined}
+              className={cx(
+                "rounded-sm px-2.5 py-1 text-sm",
+                w.slug === current
+                  ? "bg-slate-tint font-medium text-ink"
+                  : "text-ink-muted hover:bg-surface-subtle hover:text-ink",
+              )}
+            >
+              {w.name}
+              {w.enabled ? "" : " · off"}
+            </Link>
+          ))
+        : null}
       <button
         type="button"
         data-testid="builder-workflow-add"
         aria-label="Add a workflow"
         aria-expanded={adding}
         onClick={onAdd}
-        className="ds-btn ds-btn--link px-3 text-sm"
+        className="ds-btn ds-btn--link px-2.5 text-sm"
       >
         <Icon name="add" />
         Workflow
@@ -2292,10 +2547,7 @@ function TestRunPanel({
   const [runId, setRunId] = useState<string | null>(null);
   const parsed = parsePayload(text);
   return (
-    <div
-      data-testid="builder-test-panel"
-      className="mt-4 flex flex-col gap-3 rounded-md border border-line bg-surface p-4"
-    >
+    <div data-testid="builder-test-panel" className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
         <p className="font-medium text-ink">Test run · {workflowName}</p>
         <Button variant="ghost" onClick={onClose}>

@@ -5,7 +5,7 @@
 // Builder instead ("Ask the Builder: …"). Items are dragged onto the chart (`@dnd-kit`; the host
 // owns the DndContext) or pressed to be added. It folds to a thin strip.
 
-import { SKILL_KIND_LABEL } from "@countersign/core";
+import { SKILL_KIND_LABEL, toolUsesModel } from "@countersign/core";
 import { useDraggable } from "@dnd-kit/core";
 import { type PointerEventHandler, useState } from "react";
 import { Icon } from "../../ui/icons";
@@ -279,8 +279,13 @@ const ITEM_WORD: Partial<Record<PaletteItem["type"], string>> = {
 function RailItem({ item, onPick }: { item: PaletteItem; onPick(item: PaletteItem): void }) {
   const data: RailDragData = { type: "palette", item };
   const { listeners, setNodeRef, isDragging } = useDraggable({ id: railDragId(item), data });
+  // A read or a write whose tool calls a model inside says AI too (F6: as the palette did).
   const kind =
-    item.type === "skill" && item.kind ? SKILL_KIND_LABEL[item.kind] : ITEM_WORD[item.type];
+    item.type === "skill" && item.kind
+      ? SKILL_KIND_LABEL[item.kind]
+      : (item.type === "read" || item.type === "write") && toolUsesModel(item.tool)
+        ? `${ITEM_WORD[item.type]} · ${SKILL_KIND_LABEL.ai}`
+        : ITEM_WORD[item.type];
   return (
     <button
       ref={setNodeRef}
@@ -299,7 +304,14 @@ function RailItem({ item, onPick }: { item: PaletteItem; onPick(item: PaletteIte
         <span className="block text-sm text-ink [overflow-wrap:anywhere]">{item.title}</span>
         <span className="line-clamp-1 text-xs text-ink-muted">{item.detail}</span>
       </span>
-      {kind ? <span className="ds-tag shrink-0 whitespace-nowrap">{kind}</span> : null}
+      {kind ? (
+        <span
+          className="ds-tag shrink-0 whitespace-nowrap"
+          data-testid={`flow-rail-item-${item.key}-kind`}
+        >
+          {kind}
+        </span>
+      ) : null}
     </button>
   );
 }

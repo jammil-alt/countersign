@@ -29,7 +29,6 @@ import { Icon } from "../../ui/icons";
 import { Button, cx } from "../../ui/primitives";
 import { actionKindLabel, PROCESS_KIND_LABEL } from "../workflow/describe";
 import { toolLabel, whenEvent } from "../workflow/labels";
-import { processClientVisible } from "./Canvas";
 // P-4
 import { ConversationFields, ConverseFields } from "./ConverseFields";
 import {
@@ -66,6 +65,7 @@ import {
   looseningBlocked,
   newPath,
   type Process,
+  processClientVisible,
   type Step,
 } from "./model";
 import {
@@ -397,6 +397,7 @@ function StepInspector(props: InspectorProps & { step: Step }) {
         tenantId={props.tenantId}
         onDelete={onDelete}
         onName={(name) => set("name", (s) => ({ ...s, name }))}
+        layout={props.layout}
       />
     );
   }

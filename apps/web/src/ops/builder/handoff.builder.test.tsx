@@ -176,11 +176,10 @@ function setup() {
 describe("the hand-off step in the builder", () => {
   it("picks another agent and its step, maps the step's input, and reads as where it goes", async () => {
     const { sent, user } = setup();
-    await screen.findByTestId("builder-canvas");
-    await user.click(screen.getByTestId("builder-add-step"));
-    const item = await screen.findByTestId("builder-palette-item-handoff");
+    await screen.findByTestId("flow-chart");
+    const item = await screen.findByTestId("flow-rail-item-handoff");
     expect(item).toHaveTextContent("Hand off to another agent");
-    await user.click(screen.getByTestId("builder-palette-item-handoff-add"));
+    await user.click(screen.getByTestId("flow-rail-item-handoff"));
 
     // The agent picker lists the client's other agents, never this one.
     const agentPicker = screen.getByTestId("builder-handoff-agent");
@@ -207,13 +206,13 @@ describe("the hand-off step in the builder", () => {
     const field = await screen.findByTestId("builder-input-documentId");
     await user.type(field, "{{{{trigger.documentId}}");
 
-    // The canvas row says where the work goes.
+    // Its box on the chart says where the work goes.
     const row = screen
-      .getAllByTestId(/^builder-step-/)
+      .getAllByTestId(/^flow-box-/)
       .find((el) => el.textContent?.includes("Hand off to Price checker"));
     expect(row).toHaveTextContent("Hand off to Price checker at 2 · Itemize the invoice");
 
-    await user.click(screen.getByTestId("builder-save"));
+    await user.click(screen.getByTestId("flow-bar-save"));
     await waitFor(() => expect(sent.length).toBeGreaterThan(0));
     const saved = AnyAgentBundle.parse(sent.at(-1)?.bundle).workflows[0]?.workflow;
     if (saved?.schemaVersion !== 4) throw new Error("not a process");

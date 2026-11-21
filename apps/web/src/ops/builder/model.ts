@@ -195,6 +195,15 @@ export function ifOfBranch(process: Pick<Process, "steps">, branchId: string): S
   return found;
 }
 
+/** Whether the client's run timeline shows the step: work does by default, logic never. */
+// DECISION: v4's work kinds (read, skill, write, person, conversation, notify, process) show on the
+// client's timeline by default, as v3's skill, action, person, notify and use steps did; logic
+// (if, for each, wait, stop) never does. A step's own `client.visible` wins.
+export function processClientVisible(step: Step): boolean {
+  if (step.client) return step.client.visible;
+  return !["if", "for_each", "repeat", "wait", "stop"].includes(step.kind);
+}
+
 // ── Edits ────────────────────────────────────────────────────────────────────────────────────────
 
 export function insertStep(

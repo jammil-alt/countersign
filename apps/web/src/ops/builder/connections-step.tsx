@@ -5,7 +5,7 @@
 // step to fill the inputs, the Builder to resolve all of it, the move as asked, or keeping things
 // as they are. Each picker also offers a new step there: the palette opens for that place.
 import { type TypingContext, uuidv7 } from "@countersign/core";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "../../ui/primitives";
 import type { BuilderProblem } from "./catalog";
 import {
@@ -56,6 +56,14 @@ export interface ConnectionsProps {
   onAddHere?: ((where: "before" | "after") => void) | undefined;
   /** Makes the move and asks the Builder to resolve what it breaks (the Fix dialog). */
   onAskBuilder?: ((move: MoveRequest) => void) | undefined;
+  /**
+   * F6 (docs/builder-plan.md §12): a connection asked for from the chart (the dot under a step
+   * dragged onto this one). It is checked and made, or reviewed, exactly as a pick here is; a new
+   * `nonce` asks again.
+   */
+  propose?: { end: Reconnect["end"]; to: string; nonce: number } | null | undefined;
+  /** `panel`: in the step's side panel, where the two read "Comes after" and "Goes to". */
+  layout?: "panel" | undefined;
 }
 
 interface Pending {
@@ -78,9 +86,18 @@ export function ConnectionsSection({
   onProcess,
   onAddHere,
   onAskBuilder,
+  propose,
+  layout,
 }: ConnectionsProps) {
   const [pending, setPending] = useState<Pending | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
+  // The pick below, for a connection the chart asks for (set on every render, read after it).
+  const pick = useRef<((end: Reconnect["end"], value: string) => void) | null>(null);
+  const asked = propose?.nonce;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once per request (its nonce).
+  useEffect(() => {
+    if (propose) pick.current?.(propose.end, propose.to);
+  }, [asked]);
   const n = neighbours(workflow, step.id);
   if (!n) return null;
   const others = n.siblings.filter((s) => s.id !== step.id);
@@ -115,6 +132,8 @@ export function ConnectionsSection({
     setNotice(null);
     setPending({ change, result });
   };
+
+  pick.current = choose;
 
   const applyFit = (p: Place) => {
     onProcess((w) => {
@@ -165,6 +184,7 @@ export function ConnectionsSection({
     });
   };
 
+  const panel = layout === "panel";
   const priorValue =
     pending?.change.end === "prior" ? (pending.change.to ?? NONE) : (n.prior?.id ?? NONE);
   const nextValue =
@@ -172,12 +192,12 @@ export function ConnectionsSection({
 
   return (
     <section
-      className="flex flex-col gap-3 border-t border-line pt-4"
+      className={panel ? "flex flex-col gap-3" : "flex flex-col gap-3 border-t border-line pt-4"}
       data-testid="builder-connections"
     >
-      <h3 className="eyebrow text-ink-muted">Connections</h3>
+      {panel ? null : <h3 className="eyebrow text-ink-muted">Connections</h3>}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Row label="Prior step">
+        <Row label={panel ? "Comes after" : "Prior step"}>
           <SmallSelect
             data-testid="builder-connection-prior"
             value={priorValue}
@@ -195,7 +215,7 @@ export function ConnectionsSection({
             {onAddHere ? <option value={NEW}>Add a new step before this…</option> : null}
           </SmallSelect>
         </Row>
-        <Row label="Next step">
+        <Row label={panel ? "Goes to" : "Next step"}>
           <SmallSelect
             data-testid="builder-connection-next"
             value={nextValue}

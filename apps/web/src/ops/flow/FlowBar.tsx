@@ -36,6 +36,8 @@ export interface FlowBarProps {
   onTry?: (() => void) | undefined;
   /** Try it is under way. */
   trying?: boolean | undefined;
+  /** Why it can't be tried now (the button is off and says so on hover). */
+  tryBlocked?: string | null | undefined;
   onSave?: (() => void) | undefined;
   saving?: boolean | undefined;
   /** Nothing to save. */
@@ -168,7 +170,14 @@ export function FlowBar(props: FlowBarProps) {
           </Button>
         ) : null}
         {props.onTry ? (
-          <Button size="sm" working={props.trying} data-testid="flow-bar-try" onClick={props.onTry}>
+          <Button
+            size="sm"
+            working={props.trying}
+            disabled={!!props.tryBlocked}
+            title={props.tryBlocked ?? undefined}
+            data-testid="flow-bar-try"
+            onClick={props.onTry}
+          >
             Try it
           </Button>
         ) : null}

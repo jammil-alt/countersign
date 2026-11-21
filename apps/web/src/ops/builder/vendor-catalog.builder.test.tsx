@@ -272,9 +272,8 @@ function savedSteps(sent: { path: string; body: Record<string, unknown> }[]) {
 describe("the vendor catalog's steps in the builder", () => {
   it("offers the vendor-first skills with their kinds (the AI ones the Library's), and still Look up existing", async () => {
     const { user } = setup();
-    await screen.findByTestId("builder-canvas");
-    await user.click(screen.getByTestId("builder-add-step"));
-    const skills = screen.getByTestId("builder-palette-skills");
+    await screen.findByTestId("flow-chart");
+    const skills = screen.getByTestId("flow-rail-skills");
     for (const [ref, kind] of [
       ["materials.match-vendor", "Deterministic"],
       ["materials.match-sku-vendor", "Deterministic"],
@@ -283,66 +282,58 @@ describe("the vendor catalog's steps in the builder", () => {
       ["materials.check-matches", "Deterministic"],
       ["materials.lookup-existing", "Deterministic"],
     ] as const) {
-      expect(
-        within(skills).getByTestId(`builder-palette-item-skill:${ref}-kind`),
-      ).toHaveTextContent(kind);
+      expect(within(skills).getByTestId(`flow-rail-item-skill:${ref}-kind`)).toHaveTextContent(
+        kind,
+      );
     }
     // The built-in kept for stored steps is not offered for a new one.
-    expect(
-      screen.queryByTestId("builder-palette-item-skill:materials.semantic-match-vendor"),
-    ).toBeNull();
+    expect(screen.queryByTestId("flow-rail-item-skill:materials.semantic-match-vendor")).toBeNull();
     // The pack's step tools under its name: the retrieval reads, then Register item.
-    const pack = screen.getByTestId("builder-palette-connector:materials");
+    const pack = screen.getByTestId("flow-rail-tool-materials");
     expect(pack).toHaveTextContent("Materials");
     expect(
-      within(pack).getByTestId("builder-palette-item-read:materials.vendor_items.similar"),
+      within(pack).getByTestId("flow-rail-item-read:materials.vendor_items.similar"),
     ).toHaveTextContent("Find the vendor's closest items");
     expect(
-      within(pack).getByTestId("builder-palette-item-read:materials.master_items.candidates"),
+      within(pack).getByTestId("flow-rail-item-read:materials.master_items.candidates"),
     ).toHaveTextContent("Find master items it could be");
     const register = within(pack).getByTestId(
-      "builder-palette-item-write:materials.vendor_items.register",
+      "flow-rail-item-write:materials.vendor_items.register",
     );
     expect(register).toHaveTextContent("Register item");
     expect(register).toHaveTextContent("Save to records");
     expect(
-      screen.getByTestId("builder-palette-item-write:materials.vendor_items.register-kind"),
+      screen.getByTestId("flow-rail-item-write:materials.vendor_items.register-kind"),
     ).toHaveTextContent("Write");
   });
 
   it("adds Register item as Save to records, approval off, and lets the operator turn it on", async () => {
     const { sent, user } = setup();
-    await screen.findByTestId("builder-canvas");
-    await user.click(screen.getByTestId("builder-add-step"));
-    await user.click(
-      screen.getByTestId("builder-palette-item-write:materials.vendor_items.register-add"),
-    );
-    const inspector = screen.getByTestId("builder-inspector");
-    expect(inspector).toHaveTextContent("Register item");
-    expect(inspector).toHaveTextContent("Save to records");
-    expect(inspector).toHaveTextContent("Approval is off by default");
+    await screen.findByTestId("flow-chart");
+    await user.click(screen.getByTestId("flow-rail-item-write:materials.vendor_items.register"));
+    expect(screen.getByTestId("flow-panel-name")).toHaveValue("Register item");
+    expect(screen.getByTestId("flow-panel-eyebrow")).toHaveTextContent("Save to records");
+    // Approval is off by default for a write to our own records.
+    expect(screen.getByTestId("builder-approval-none")).toHaveTextContent("saves to our records");
     // Saved as it is: a write on the tool, with no approval.
-    await user.click(screen.getByTestId("builder-save"));
+    await user.click(screen.getByTestId("flow-bar-save"));
     await waitFor(() => expect(sent.some((s) => s.path === "save")).toBe(true));
     const first = savedSteps(sent).at(-1);
     expect(first).toMatchObject({ kind: "write", tool: "materials.vendor_items.register" });
     expect(first?.checks?.approval).toBeUndefined();
     // The operator turns the optional approval on, so a person confirms new master items.
     await user.click(screen.getByTestId("builder-approval-add"));
-    await user.click(screen.getByTestId("builder-save"));
+    await user.click(screen.getByTestId("flow-bar-save"));
     await waitFor(() => expect(sent.filter((s) => s.path === "save")).toHaveLength(2));
     expect(savedSteps(sent).at(-1)?.checks?.approval?.required).toBe("required");
   });
 
   it("adds the Library's Semantic match (vendor) as an AI skill step", async () => {
     const { sent, user } = setup();
-    await screen.findByTestId("builder-canvas");
-    await user.click(screen.getByTestId("builder-add-step"));
-    await user.click(
-      screen.getByTestId("builder-palette-item-skill:custom:semantic-match-vendor-add"),
-    );
+    await screen.findByTestId("flow-chart");
+    await user.click(screen.getByTestId("flow-rail-item-skill:custom:semantic-match-vendor"));
     expect(screen.getByTestId("builder-inspector")).toHaveTextContent("AI");
-    await user.click(screen.getByTestId("builder-save"));
+    await user.click(screen.getByTestId("flow-bar-save"));
     await waitFor(() => expect(sent.some((s) => s.path === "save")).toBe(true));
     expect(savedSteps(sent).at(-1)).toMatchObject({
       kind: "skill",

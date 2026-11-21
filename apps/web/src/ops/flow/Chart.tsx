@@ -563,6 +563,7 @@ function StepBox(p: {
       data-flow-hit
       data-testid={`flow-box-${step.id}`}
       data-number={box.number}
+      data-container={box.container ?? undefined}
       className={cx(
         "flow-box",
         `flow-box--${kind}`,
@@ -623,10 +624,11 @@ function StepBox(p: {
           <Icon name={box.fold === "open" ? "chevron-down" : "chevron-right"} size={14} />
         </button>
       ) : null}
-      {kind === "process" && p.props.onOpenGroup ? (
+      {(kind === "process" || kind === "for_each" || kind === "repeat") && p.props.onOpenGroup ? (
         <button
           type="button"
-          className="flow-fold"
+          // F6: a loop has its fold too, so its open button sits beside it.
+          className={cx("flow-fold", box.fold && "flow-fold--beside")}
           data-testid={`flow-open-${step.id}`}
           aria-label="Open its steps"
           title="Open its steps"
