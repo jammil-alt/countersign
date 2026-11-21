@@ -1,7 +1,13 @@
 // Reshape data (2026-11-11): the builder's offers and placements, with no screen.
 import { processes, type SkillDefinition } from "@countersign/core";
 import { describe, expect, it } from "vitest";
-import { addReshapeThenAction, exprText, inputsUnfilled, reshapeOffers } from "./reshape";
+import {
+  addReshapeThenAction,
+  exprText,
+  inputsUnfilled,
+  recordFields,
+  reshapeOffers,
+} from "./reshape";
 
 const io = (props: Record<string, unknown>) => ({ type: "object", properties: props });
 
@@ -85,5 +91,40 @@ describe("the Reshape offers", () => {
     expect(inputsUnfilled(step, [{ stepId: "read", field: "name", code: "input_missing" }])).toBe(
       false,
     );
+  });
+});
+
+describe("a record in the mapping (§1.164)", () => {
+  const customer = {
+    type: "object",
+    properties: { name: { type: "string" }, email: { type: "string" } },
+    required: ["email"],
+  };
+
+  it("reads a record built field by field, nested, in a few words", () => {
+    expect(
+      exprText({
+        object: {
+          fields: {
+            name: { input: "trigger.data.name" },
+            address: { object: { fields: { zip: { input: "trigger.data.zip" } } } },
+          },
+        },
+      }),
+    ).toBe("a record: name ← trigger.data.name; address ← a record: zip ← trigger.data.zip");
+  });
+
+  it("lists a record's fields from its type, then any mapped that its type doesn't name", () => {
+    expect(recordFields(customer, { fax: { value: "x" } })).toEqual([
+      { name: "name", schema: { type: "string" }, required: false },
+      { name: "email", schema: { type: "string" }, required: true },
+      { name: "fax", schema: {}, required: false },
+    ]);
+    // A record that may be empty reads as the record.
+    expect(recordFields({ anyOf: [customer, { type: "null" }] }, {}).map((f) => f.name)).toEqual([
+      "name",
+      "email",
+    ]);
+    expect(recordFields({ type: "string" }, {})).toEqual([]);
   });
 });
