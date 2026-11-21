@@ -954,6 +954,32 @@ export function itemOpen(state: BuildItemState): boolean {
   return state !== "done" && state !== "deferred";
 }
 
+/**
+ * The kinds of item only their own step closes (owner, 2026-11-21: "give it an action, not just
+ * mark it... just because I say it is closed does not close it"): a question by its answer; a gap,
+ * a test and client feedback by what settles it (the draft changed for it, its skill build live,
+ * its code request shipped). The operator may put one off or drop it, never mark it done.
+ */
+// DECISION (docs/plan.md §1.169): a note and a precondition are still marked done by a click,
+// and a QA item has QA's own sign-off; nothing else is closed by saying so.
+export const ITEM_KINDS_SETTLED_BY_STEP = ["question", "gap", "test", "feedback"] as const;
+
+export function settledByStep(kind: BuildItemKind): boolean {
+  return (ITEM_KINDS_SETTLED_BY_STEP as readonly string[]).includes(kind);
+}
+
+/** The line an item dropped as not needed keeps in its detail. */
+export const NOT_NEEDED_NOTE = "Closed as not needed.";
+
+/** An item's detail with a closing note after it, within the item's 2,000 characters. */
+export function withNote(detail: string, note: string, max = 2000): string {
+  const before = detail.trim();
+  if (!before) return note;
+  if (before.endsWith(note)) return before;
+  const room = max - note.length - 1;
+  return `${sliceWhole(before, Math.max(0, room)).trimEnd()}\n${note}`;
+}
+
 // ── Gates ───────────────────────────────────────────────────────────────────────────────────────
 
 /** What a gate reads: the build's records and what the API read about its draft and tests. */
@@ -1184,20 +1210,35 @@ export const SETTLE_WAYS = ["process", "skill", "code"] as const;
 export const SettleWay = z.enum(SETTLE_WAYS);
 export type SettleWay = z.infer<typeof SettleWay>;
 
+/** Who has an issue once a way is chosen: choosing the way is giving it to them. */
+// DECISION (docs/plan.md §1.169): "Who has it" is no longer picked on its own; it follows from
+// the step started. The Builder changes the process or builds the skill; engineering writes code.
+export const SETTLE_OWNER: Record<SettleWay, BuildItemOwner> = {
+  process: "builder",
+  skill: "builder",
+  code: "engineering",
+};
+
 /** Each way: its button, what the page says it does, and the operator's words to the Builder. */
-export const SETTLE_WORDS: Record<SettleWay, { label: string; does: string; ask: string }> = {
+export const SETTLE_WORDS: Record<
+  SettleWay,
+  { label: string; who: string; does: string; ask: string }
+> = {
   process: {
     label: "Change the process",
+    who: "The Builder",
     does: "The Builder changes the steps with what the catalog has, or has a person do this part. Made at once; you can undo it.",
     ask: "Settle this by changing the process: use what the catalog already has, or have a person do this part. Make the change now.",
   },
   skill: {
     label: "Build a skill",
+    who: "The Builder",
     does: "The Builder starts a skill made from catalog parts (rules, or an AI step over tools that exist). No new code.",
     ask: "Settle this by building a skill from catalog parts. Start it now.",
   },
   code: {
     label: "Needs code",
+    who: "Mezonas engineering",
     does: "The Builder files a request for the new tool or operation in the Dev queue, or links the one that already covers it.",
     ask: "This needs new code, not a skill. File the request for it now, or link the open request that already covers it.",
   },

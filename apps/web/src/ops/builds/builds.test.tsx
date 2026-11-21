@@ -16,6 +16,7 @@ await import("../OpsApp");
 
 const ID = "00000000-0000-4000-8000-0000000b0001";
 const ITEM = "00000000-0000-4000-8000-0000000b0101";
+const GAP = "00000000-0000-4000-8000-0000000b0102";
 const at = "2026-11-15T10:00:00.000Z";
 
 const summary: BuildSummary = {
@@ -448,18 +449,17 @@ describe("Builds", () => {
     expect(within(items).queryByRole("columnheader")).toBeNull();
     const row = within(items).getByTestId(`build-item-${ITEM}`);
     expect(row).toHaveTextContent("From Intake");
-    expect(within(row).getByLabelText("Who has it: How many: still open")).toHaveDisplayValue(
-      "You",
+    // docs/plan.md §1.169: who has it and its status are read, not picked.
+    expect(within(row).getByTestId(`build-item-${ITEM}-owner`)).toHaveTextContent(
+      "Who has it: You",
     );
-    expect(within(row).getByLabelText("Status: How many: still open")).toHaveDisplayValue("Open");
+    expect(within(row).getByTestId(`build-item-${ITEM}-state`)).toHaveTextContent("Open");
+    expect(within(row).queryByRole("combobox")).toBeNull();
     expect(within(view).getByTestId(`build-item-${ITEM}-kind`)).toHaveTextContent("Question");
     expect(within(view).getByTestId(`build-item-${ITEM}-how`)).toHaveTextContent(
       "To settle it: Answer it here or in the conversation",
     );
-
-    // An open item's status changes in place.
-    await userEvent.selectOptions(within(view).getByTestId(`build-item-${ITEM}-state`), "Done");
-    await waitFor(() => expect(updates).toEqual([{ state: "done" }]));
+    expect(updates).toEqual([]);
   });
 
   it("shows the Builder at work beside a move, and keeps the column width you drag to", async () => {
@@ -1098,7 +1098,19 @@ describe("Builds", () => {
           state: i < 2 ? "done" : i === 2 ? "current" : "todo",
         })),
         gate: { next: "poc", reasons: ["The draft has 1 problem."] },
-        items: [],
+        items: [
+          {
+            ...detail().items[0],
+            id: GAP,
+            phase: "draft",
+            kind: "gap",
+            title: "Read the job site from a photo's location",
+            detail: "Not in the catalog yet, so a person does this part for now.",
+            owner: "builder",
+            state: "deferred",
+            key: "gap:photo-location",
+          } as BuildDetail["items"][number],
+        ],
         draft: {
           agentId: AGENT,
           skillId: null,
@@ -1160,6 +1172,21 @@ describe("Builds", () => {
     await userEvent.click(screen.getByTestId(`build-issue-${key}-settle-process`));
     // The way goes with the issue it settles; its words are the server's.
     await waitFor(() => expect(sent).toEqual([{ about: key, settle: "process" }]));
+
+    // docs/plan.md §1.169: a gap put off (a known risk) is taken up by the same three ways,
+    // each naming who takes it; there is no "Who has it" or status to pick.
+    const putOff = `item:${GAP}`;
+    const takeUp = await screen.findByTestId(`build-issue-${putOff}-settle`);
+    expect(takeUp).toHaveTextContent("Take it up:");
+    expect(screen.getByTestId(`build-issue-${putOff}-settle-code`)).toHaveAttribute(
+      "title",
+      expect.stringContaining("Mezonas engineering takes it."),
+    );
+    expect(screen.getByTestId(`build-item-${GAP}-owner`)).toHaveTextContent("Who has it: Builder");
+    expect(screen.getByTestId(`build-item-${GAP}-state`)).toHaveTextContent("Put off");
+    expect(within(screen.getByTestId(`build-item-${GAP}`)).queryByRole("combobox")).toBeNull();
+    await userEvent.click(screen.getByTestId(`build-issue-${putOff}-settle-code`));
+    await waitFor(() => expect(sent.at(-1)).toEqual({ about: putOff, settle: "code" }));
   });
 
   it("opens the draft's workflow, not the agent's overview", async () => {

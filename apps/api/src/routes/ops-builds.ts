@@ -45,6 +45,7 @@ import {
   mergeBrief,
   mergeDecisions,
   mergeFitGap,
+  NOT_NEEDED_NOTE,
   nextPhase,
   operatorFitGap,
   PHASE_WORDS,
@@ -57,13 +58,16 @@ import {
   readQa,
   readTestPlan,
   routes,
+  SETTLE_OWNER,
   SETTLE_WORDS,
   SETUP_WORDS,
   type SettleWay,
   setDecisionStatus,
+  settledByStep,
   settleFits,
   sliceWhole,
   testCaseProblems,
+  withNote,
 } from "@countersign/core";
 import {
   agent,
@@ -682,6 +686,33 @@ async function makeAtOnce(ctx: LongCtx, id: string, settle: SettleWay | null): P
   );
 }
 
+/**
+ * docs/plan.md §1.169 (owner, 2026-11-21: "give it an action, not just mark it"): a way chosen on
+ * an item gives it to whoever takes that step (the Builder, or Mezonas engineering) and starts it;
+ * one put off is taken back up. What closes it is the step's result, never this.
+ */
+async function giveTo(ctx: LongCtx, id: string, about: string, way: SettleWay): Promise<void> {
+  const itemId = /^item:([0-9a-f-]{36})$/i.exec(about)?.[1];
+  if (!itemId) return;
+  await ctx.inTx(async (scoped) => {
+    const row = await readBuild(scoped.tx, id, true);
+    refuseClosed(row);
+    const [item] = await scoped.tx
+      .select({ id: buildItem.id, state: buildItem.state })
+      .from(buildItem)
+      .where(and(eq(buildItem.id, itemId), eq(buildItem.buildId, row.id)));
+    if (!item || item.state === "done") return;
+    await scoped.tx
+      .update(buildItem)
+      .set({
+        owner: SETTLE_OWNER[way],
+        state: item.state === "waiting" ? "waiting" : "in_progress",
+        resolvedAt: null,
+      })
+      .where(eq(buildItem.id, item.id));
+  });
+}
+
 /** A failed Builder turn, said in the conversation and reported (Sentry). */
 async function failTurn(
   ctx: LongCtx,
@@ -959,7 +990,11 @@ function fitProposal(
   switch (a.do) {
     case "close_item": {
       const item = itemOf(a.itemId);
-      return item && itemOpen(item.state) ? { ...p, action: { ...a, itemId: item.id } } : null;
+      if (!item || !itemOpen(item.state)) return null;
+      // docs/plan.md §1.169: the Builder doesn't close by saying so what only its step closes;
+      // it may put one off.
+      if (a.state === "done" && settledByStep(item.kind)) return null;
+      return { ...p, action: { ...a, itemId: item.id } };
     }
     case "reopen_item": {
       const item = itemOf(a.itemId);
@@ -1007,7 +1042,9 @@ function fitProposal(
       // problems, so the Builder named a `problem:` key (or no open gap) and the whole proposal
       // was dropped: it said it had proposed the skill, and no card showed. A key that isn't an
       // open gap is left out instead; the change makes its own gap item, as a request's link does.
-      if (!item || !itemOpen(item.state) || item.kind !== "gap") {
+      // docs/plan.md §1.169: a gap put off (a known risk) is settled the same way; the change
+      // takes it back up.
+      if (!item || item.state === "done" || item.kind !== "gap") {
         const { itemId: _, ...rest } = a;
         return { ...p, action: rest };
       }
@@ -2077,6 +2114,43 @@ async function move(
 }
 
 /**
+ * docs/plan.md §1.169: a draft edit made for a gap, a test or client feedback (the conversation on
+ * it) settles it: the item closes, its detail ending with what changed. Its state before is kept
+ * on the decision, so the edit's undo opens it again. A note or a precondition is left to a click.
+ */
+async function closeByEdit(
+  tx: Tx,
+  buildId: string,
+  about: string | null,
+  said: string,
+): Promise<{ itemId: string; title: string; before: BuildItemState } | null> {
+  const itemId = about ? /^item:([0-9a-f-]{36})$/i.exec(about)?.[1] : undefined;
+  if (!itemId) return null;
+  const [item] = await tx
+    .select({
+      id: buildItem.id,
+      title: buildItem.title,
+      kind: buildItem.kind,
+      state: buildItem.state,
+      detail: buildItem.detail,
+    })
+    .from(buildItem)
+    .where(and(eq(buildItem.id, itemId), eq(buildItem.buildId, buildId)));
+  if (!item || item.state === "done" || item.kind === "question" || !settledByStep(item.kind)) {
+    return null;
+  }
+  await tx
+    .update(buildItem)
+    .set({
+      state: "done",
+      resolvedAt: now(),
+      detail: withNote(item.detail, clip(`Settled by the change: ${said}`, 600)),
+    })
+    .where(eq(buildItem.id, item.id));
+  return { itemId: item.id, title: item.title, before: item.state };
+}
+
+/**
  * The operator's decision on a proposal: agreed (the change is made, as the operator, through the
  * build's own routes), declined, or an agreed one undone. `asked` (docs/plan.md §1.165): the
  * change was asked for in words or by an issue's button and is made at once, so the claim is the
@@ -2273,10 +2347,32 @@ async function decideProposal(
       if (shipped.length > 0) {
         changed.push(`That settles ${shipped.map((t) => `“${t}”`).join(", ")}, so I closed it.`);
       }
+      // docs/plan.md §1.169: the change made for an item is the step that settles it.
+      const closed = await lc.inTx((scoped) => closeByEdit(scoped.tx, id, about, said));
+      if (closed) {
+        settled = { ...settled, closed: { itemId: closed.itemId, before: closed.before } };
+        changed.push(`That settles “${closed.title}”, so I closed it. Undo opens it again.`);
+      }
     } else {
       const edit = found.edit;
       if (!edit) throw new HttpError(409, "no_undo", "this change has no undo here");
       await guarded(() => undoEdit(lc, id, edit, p.summary));
+      // The item the edit closed is open again, as it was before.
+      const closed = found.decided?.closed;
+      if (closed) {
+        await lc.inTx(async (scoped) => {
+          await scoped.tx
+            .update(buildItem)
+            .set({ state: closed.before, resolvedAt: null })
+            .where(
+              and(
+                eq(buildItem.id, closed.itemId),
+                eq(buildItem.buildId, id),
+                eq(buildItem.state, "done"),
+              ),
+            );
+        });
+      }
     }
   } else {
     const action = decide === "agree" ? p.action : proposalUndo(p.action, p.before);
@@ -2289,11 +2385,12 @@ async function decideProposal(
     const next = issues.find((i) => i.open && i.key !== about);
     const item = issues.find((i) => i.key === about && i.source === "item" && i.open);
     if (decide === "agree" && changed.length > 0 && item) {
-      // A draft edit for an open item: whether it settles the item is the operator's to say.
+      // A draft edit for an open item that a click closes (a note, a precondition): whether it
+      // is done is the operator's to say. A gap, test or feedback item closed by it above.
       await addMessage(scoped.tx, fresh, {
         role: "builder",
-        text: `Changed the draft: ${changed.join(" ")} “${item.title}” stays open until you close it. Does this settle it?`,
-        meta: { about: item.key, chips: ["Yes, close it", "Not yet"], ...settled },
+        text: `Changed the draft: ${changed.join(" ")} “${item.title}” stays open until you mark it done.`,
+        meta: { about: item.key, ...settled },
       });
       return;
     }
@@ -2427,6 +2524,7 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
       throw new HttpError(400, "settle_needs_issue", "say which issue it settles");
     }
     const text = ctx.body.text ?? (settle ? SETTLE_WORDS[settle].ask : null);
+    if (settle && ctx.body.about) await giveTo(lc, ctx.params.id, ctx.body.about, settle);
     await turn(lc, ctx.params.id, text, { retry: !text, about: ctx.body.about ?? null });
     await makeAtOnce(lc, ctx.params.id, settle);
     return detailOf(ctx, ctx.params.id);
@@ -2837,6 +2935,23 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
         .set({ status: "live", qa: { ...qa, decision: "go" } })
         .where(eq(build.id, row.id));
       await addEvent(scoped.tx, row, { kind: "decision", payload: { go: true }, userId });
+      // docs/plan.md §1.169: a skill build that goes live settles the issue that started it.
+      if (row.kind === "skill") {
+        const note = "Settled: its skill build went live.";
+        await scoped.tx
+          .update(buildItem)
+          .set({
+            state: "done",
+            resolvedAt: now(),
+            detail: sql`left(case when ${buildItem.detail} = '' then ${note} else ${buildItem.detail} || ${`\n${note}`} end, 2000)`,
+          })
+          .where(
+            and(
+              sql`${buildItem.ref}->>'buildId' = ${row.id}`,
+              inArray(buildItem.state, ["open", "in_progress", "waiting", "deferred"]),
+            ),
+          );
+      }
     });
     return detailOf(ctx, ctx.params.id);
   });
@@ -2879,12 +2994,25 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
       .where(and(eq(buildItem.id, ctx.params.itemId), eq(buildItem.buildId, row.id)));
     if (!item) throw notFound("open item");
     const b = ctx.body;
-    const state = b.state ?? item.state;
+    // docs/plan.md §1.169 (owner, 2026-11-21: "just because I say it is closed does not close
+    // it"): a question, gap, test or client feedback is closed by its own step (its answer, the
+    // change made for it, its skill build live, its request shipped), or dropped as not needed.
+    if (b.state === "done" && !b.drop && item.state !== "done" && settledByStep(item.kind)) {
+      throw new HttpError(
+        409,
+        "settled_by_its_step",
+        item.kind === "question"
+          ? "a question closes when it is answered: answer it, or drop it as not needed"
+          : "this closes when the step that settles it is done: change the process, build a skill or ask for code, or drop it as not needed",
+      );
+    }
+    const state = b.drop ? "done" : (b.state ?? item.state);
+    const detail = b.drop ? withNote(b.detail ?? item.detail, NOT_NEEDED_NOTE) : b.detail;
     await ctx.tx
       .update(buildItem)
       .set({
         ...(b.title ? { title: b.title } : {}),
-        ...(b.detail !== undefined ? { detail: b.detail } : {}),
+        ...(detail !== undefined ? { detail } : {}),
         ...(b.owner ? { owner: b.owner } : {}),
         state,
         resolvedAt: itemOpen(state) ? null : (item.resolvedAt ?? now()),
