@@ -271,7 +271,7 @@ function savedSteps(sent: { path: string; body: Record<string, unknown> }[]) {
 
 describe("the vendor catalog's steps in the builder", () => {
   it("offers the vendor-first skills with their kinds (the AI ones the Library's), and still Look up existing", async () => {
-    const { user } = setup();
+    setup();
     await screen.findByTestId("flow-chart");
     const skills = screen.getByTestId("flow-rail-skills");
     for (const [ref, kind] of [

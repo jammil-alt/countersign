@@ -758,7 +758,6 @@ describe("WorkflowBuilder", () => {
       },
     });
     await ready();
-    const user = userEvent.setup();
     // The client connected the Testkit, but it isn't the Sandbox; Zoho isn't connected at all.
     await waitFor(() => expect(screen.queryByTestId("flow-rail-tool-testkit")).toBeNull());
     expect(screen.queryByTestId("flow-rail-tool-zoho_crm")).toBeNull();
@@ -1041,7 +1040,7 @@ describe("WorkflowBuilder", () => {
     const { sent } = setup();
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("flow-bar-try"));
+    await user.click(screen.getByTestId("builder-test-run"));
     expect(screen.getByTestId("builder-test-payload")).toHaveValue(
       JSON.stringify({ billId: "b-1", total: 120 }, null, 2),
     );
@@ -1074,7 +1073,7 @@ describe("WorkflowBuilder", () => {
     }));
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("flow-bar-try"));
+    await user.click(screen.getByTestId("builder-test-run"));
     const picker = screen.getByTestId("builder-test-client");
     await within(picker).findByText("Millwork demo");
     // The Sandbox is the default, listed once.
@@ -1102,7 +1101,7 @@ describe("WorkflowBuilder", () => {
     });
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("flow-bar-try"));
+    await user.click(screen.getByTestId("builder-test-run"));
     const source = screen.getByTestId("builder-test-source");
     await within(source).findByText(/Oak & Co/);
     expect(asked).toEqual(["transaction.created"]);
@@ -1148,7 +1147,7 @@ describe("WorkflowBuilder", () => {
     }));
     await ready();
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("flow-bar-try"));
+    await user.click(screen.getByTestId("builder-test-run"));
     const source = screen.getByTestId("builder-test-source");
     await within(source).findByText(/Sandbox Supply/);
     expect(within(source).queryByText(/Millwork Lumber/)).not.toBeInTheDocument();
@@ -1168,7 +1167,7 @@ describe("WorkflowBuilder", () => {
     const { api } = setup();
     api.on(`GET /api/ops/clients/${CLIENT_ID}/events`, () => ({ events: [] }));
     await ready();
-    await userEvent.setup().click(screen.getByTestId("flow-bar-try"));
+    await userEvent.setup().click(screen.getByTestId("builder-test-run"));
     const source = screen.getByTestId("builder-test-source");
     expect(await within(source).findByText("No transaction.created events yet")).toBeDisabled();
   });

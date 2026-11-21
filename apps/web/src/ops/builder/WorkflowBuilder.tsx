@@ -497,6 +497,8 @@ function BuilderBody(
   // What a rail item being dragged says under the pointer (a box moves by itself).
   const [dragLabel, setDragLabel] = useState<{ title: string; kind: string } | null>(null);
   const [addingWorkflow, setAddingWorkflow] = useState(false);
+  // Whether "What's left" is open above the chart; null follows whether anything is left.
+  const [leftShown, setLeftShown] = useState<boolean | null>(null);
   // Chart or List: the route says which one it opens on (`steps/:workflow` is the List).
   const [view, setView] = useState<FlowView>(props.view === "steps" ? "list" : "chart");
   useEffect(() => setView(props.view === "steps" ? "list" : "chart"), [props.view]);
@@ -1806,6 +1808,14 @@ function BuilderBody(
   );
 
   const topSteps = workflow?.steps ?? [];
+  // "What's left" above the chart: its count always shows; the list opens by itself only for
+  // what no step on this chart says (the agent's own problems, another workflow's), since a
+  // step's problems are on its box, on the bar and in its panel. Folded or opened by hand, it stays.
+  // DECISION (F6): folded by default so the chart keeps the room; nothing is hidden that the
+  // chart doesn't show.
+  const leftTotal = leftItems.length + problemLines(listedErrors, bundle).length;
+  const offChart = listedErrors.some((e) => !e.stepId || (e.workflow && e.workflow !== slug));
+  const leftOpen = leftShown ?? offChart;
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: Ctrl+Z / Ctrl+Shift+Z anywhere in the builder.
@@ -1911,8 +1921,6 @@ function BuilderBody(
           />
           {props.detail ? (
             // F8: whose agent this is and what it owes its template. Its links leave the page.
-            // biome-ignore lint/a11y/noStaticElementInteractions: it only watches for a link being followed.
-            // biome-ignore lint/a11y/useKeyWithClickEvents: Enter on a link is a click.
             <div data-testid="builder-lineage" onClickCapture={(e) => void guardLeave(e)}>
               <LineageStrip
                 agent={agent}
@@ -2033,25 +2041,17 @@ function BuilderBody(
                     }}
                   />
                 ) : null}
-                <WhatsLeft
-                  items={leftItems}
-                  problemCount={problemLines(listedErrors, bundle).length}
-                  problems={
-                    <Problems
-                      errors={listedErrors}
-                      valid={result.errors.length === 0}
-                      bundle={bundle}
-                      slug={slug}
-                      onShow={showError}
-                      onFix={fixLine}
-                    />
-                  }
-                  summary={dataSummary}
-                  onSelect={selectLeft}
-                  onTest={() => startTry()}
-                />
-                <Advice warnings={result.warnings.filter((w) => w.workflow === slug)} />
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                  <button
+                    type="button"
+                    className="ds-btn ds-btn--ghost ds-btn--sm"
+                    aria-expanded={leftOpen}
+                    data-testid="builder-strip-toggle"
+                    onClick={() => setLeftShown(!leftOpen)}
+                  >
+                    <Icon name={leftOpen ? "chevron-down" : "chevron-right"} />
+                    {leftTotal > 0 ? `What's left · ${leftTotal}` : "Nothing left to do"}
+                  </button>
                   {checked ? (
                     <span className="flex flex-col gap-2">
                       <SaveAsAutomation
@@ -2115,6 +2115,27 @@ function BuilderBody(
                         : "Unsaved changes"}
                     </span>
                   ) : null}
+                </div>
+                {/* Folded, it stays in the page (a problem's Fix still opens from the step). */}
+                <div hidden={!leftOpen} data-testid="builder-strip-left">
+                  <WhatsLeft
+                    items={leftItems}
+                    problemCount={problemLines(listedErrors, bundle).length}
+                    problems={
+                      <Problems
+                        errors={listedErrors}
+                        valid={result.errors.length === 0}
+                        bundle={bundle}
+                        slug={slug}
+                        onShow={showError}
+                        onFix={fixLine}
+                      />
+                    }
+                    summary={dataSummary}
+                    onSelect={selectLeft}
+                    onTest={() => startTry()}
+                  />
+                  <Advice warnings={result.warnings.filter((w) => w.workflow === slug)} />
                 </div>
               </div>
 

@@ -208,7 +208,8 @@ describe("a missing step in the builder", () => {
     expect(await screen.findByTestId("builder-left-test")).toHaveTextContent("Test-run it");
     expect(screen.queryByTestId("builder-valid")).toBeNull();
     expect(screen.queryByTestId("builder-problems")).toBeNull();
-    expect(screen.getByTestId("builder-publish")).toBeDisabled();
+    // A new agent's action is Turn on (F4), held like Publish until the draft is valid.
+    expect(screen.getByTestId("flow-bar-turn-on")).toBeDisabled();
 
     // The agent's data at a glance.
     expect(screen.getByTestId("builder-data-summary-reads")).toHaveTextContent("vendors");

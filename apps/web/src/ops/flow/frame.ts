@@ -119,7 +119,8 @@ export function loopProcess(
 ): { loop: Loop; view: Process } | null {
   const step = locate(process, loopId)?.step;
   if (!isLoop(step)) return null;
-  return { loop: step, view: { ...process, steps: step.steps } };
+  // No triggers in its view: the loop starts it (the List has no "Starts when" row there).
+  return { loop: step, view: { ...process, triggers: [], steps: step.steps } };
 }
 
 /** A place in the frame as the whole workflow names it: a loop's own list is `loop:<id>` there. */
