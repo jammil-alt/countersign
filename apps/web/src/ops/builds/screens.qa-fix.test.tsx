@@ -235,15 +235,13 @@ describe("the build page keeps the operator's work", () => {
     const box = within(view).getByTestId("build-input");
     await userEvent.type(box, "The approver is Dana in accounts payable, and");
     await userEvent.click(within(view).getByTestId(`build-item-${ITEM}-answer`));
-    // Expected: what was typed is still in the box (the "About …" start added, not swapped in).
-    // (toHaveValue doesn't take an asymmetric matcher, so the words are read off the box.)
-    expect((within(view).getByTestId("build-input") as HTMLTextAreaElement).value).toContain(
+    // Expected: what was typed is still in the box. Owner (2026-11-21): the answer has its own
+    // box under the question, so the conversation's box is left as it was.
+    expect(within(view).getByTestId(`build-item-${ITEM}-answer-box`)).toBeInTheDocument();
+    expect(within(view).getByTestId("build-input")).toHaveValue(
       "The approver is Dana in accounts payable, and",
     );
-    expect(within(view).getByTestId("build-input")).toHaveValue(
-      "About “How many invoices a week”: The approver is Dana in accounts payable, and",
-    );
-    // A second "Answer it" swaps the start, and the words stay.
+    // A try's "Wrong" still starts the conversation's box: a second start swaps, the words stay.
     expect(aboutStart("Who approves", "About “How many invoices a week”: Dana, and")).toBe(
       "About “Who approves”: Dana, and",
     );

@@ -16,6 +16,7 @@ export const fr: Messages = {
   "common.enterToSend": "Entrée pour envoyer, Maj+Entrée pour aller à la ligne",
   "voice.dictate": "Dicter",
   "voice.stop": "Arrêter",
+  "voice.listening": "À l’écoute…",
   "voice.writing": "Transcription…",
   "voice.blocked": "Votre navigateur ne nous a pas laissé utiliser le micro.",
   "voice.failed": "Nous n'avons pas pu le transcrire. Réessayez.",

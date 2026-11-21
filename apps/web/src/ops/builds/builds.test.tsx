@@ -441,18 +441,21 @@ describe("Builds", () => {
       expect(moves.at(-1)).toEqual({ to: "intake", reason: "The brief missed a field" }),
     );
 
-    // Feedback (2026-11-16): an open item says what it is, what settles it, and who has it; a
-    // question's Answer starts the reply in the conversation's box.
+    // Feedback (2026-11-16): an open item says what it is, what settles it, and who has it.
+    // Owner (2026-11-21): one row, with where it came from, who has it and its status in full
+    // words on one line (closeout.test.tsx has answering and closing it there).
     const items = within(view).getByTestId("build-items");
-    expect(within(items).getByRole("columnheader", { name: "Status" })).toBeInTheDocument();
-    expect(within(items).getByRole("columnheader", { name: "Who has it" })).toBeInTheDocument();
+    expect(within(items).queryByRole("columnheader")).toBeNull();
+    const row = within(items).getByTestId(`build-item-${ITEM}`);
+    expect(row).toHaveTextContent("From Intake");
+    expect(within(row).getByLabelText("Who has it: How many: still open")).toHaveDisplayValue(
+      "You",
+    );
+    expect(within(row).getByLabelText("Status: How many: still open")).toHaveDisplayValue("Open");
     expect(within(view).getByTestId(`build-item-${ITEM}-kind`)).toHaveTextContent("Question");
     expect(within(view).getByTestId(`build-item-${ITEM}-how`)).toHaveTextContent(
-      "To settle it: Answer it to the Builder in the conversation",
+      "To settle it: Answer it here or in the conversation",
     );
-    await userEvent.click(within(view).getByTestId(`build-item-${ITEM}-answer`));
-    expect(within(view).getByTestId("build-input")).toHaveValue("About “How many: still open”: ");
-    expect(within(view).getByTestId("build-input")).toHaveFocus();
 
     // An open item's status changes in place.
     await userEvent.selectOptions(within(view).getByTestId(`build-item-${ITEM}-state`), "Done");
