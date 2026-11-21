@@ -80,8 +80,21 @@ The first set (v1), each with the register control and its framework references:
 | Every approval is in the audit log | Runs | Each approval in the period has its audit row (who, when, from where) | LOG-1 |
 
 A check that has nothing to look at (no writes in the period) says "Not applicable" with why. A
-result is **Passed**, **Failed** or **Not applicable**, with its evidence: counts and the ids of the
-records it read, never their contents (invariant 13: no secrets, no message bodies).
+result is one of four, with its evidence: counts and the ids of the records it read, never their
+contents (invariant 13: no secrets, no message bodies). No result is called "failed" (owner,
+2026-11-21):
+
+| Result | Means | Colour |
+|---|---|---|
+| **Verified** | The check ran and found what it should | Positive |
+| **In review** | The check found something a person at Mezonas is looking at. The client sees "In review since <date>" and no evidence; the back office sees the evidence and the issue | Signal, with its word |
+| **Not yet checked** | A new agent or version, before its first run of the checks | Ink, dashed |
+| **Not applicable** | Nothing to check for this agent, with why | Ink |
+
+"In review" is not a softer word for the same thing: the check's stored result says exactly what it
+found, the history keeps it, and it leaves "In review" only when a later run verifies it. "Not yet
+checked" is kept apart from it, so a check that never ran never reads as one that found nothing.
+// DECISION
 
 ## 4a. Every control accounted for (owner, 2026-11-21: "Are all controls highlighted?")
 
@@ -178,9 +191,9 @@ honestly. Each is a task, not a design choice:
 
 | Who | Where | What |
 |---|---|---|
-| The client | The agent's SOP: a new section, 14 "Architecture and security", with the diagram and, on each control in section 6, "Checked" with its date and what the check found | Passed and not-applicable results; what a failed check is doing (§7, question 2) |
-| The operator | The agent's page in the back office: a Security tab | Every check with its evidence and history, a failure first, "Run the checks now", and the attack runs |
-| The operator | `/ops/security` | Per register control, how many agents' checks passed over the period, so AGT-1's "In place" is backed by results |
+| The client's admins, and team members who work with the agent | The agent's SOP: a new section, 14 "Architecture and security", with the diagram, every check with its result and SOC 2 references, the coverage list, the data map, what goes to AI and access to each tool | Verified and not-applicable results with what was found; "In review since <date>" without evidence. Admins see every agent's; other team members only the agents assigned to them, as the SOP today (`ASSIGNED_USER_ROUTES`) (owner, 2026-11-21) |
+| The operator | The agent's page in the back office: a Security tab | Every check with its evidence and history, one in review first, "Run the checks now", and the attack runs |
+| The operator | `/ops/security` | Per register control, how many agents' checks were verified over the period, so AGT-1's "In place" is backed by results |
 | An auditor | An evidence export from the Security tab or `/ops/security` | The checks over a chosen period, per agent and client, with their evidence ids, as CSV and a printable page |
 
 ## 6. Decisions
@@ -190,22 +203,27 @@ honestly. Each is a task, not a design choice:
 | Made by code | Core `packages/core/src/assurance/`: `agentArchitecture(input)` and one function per check, pure, over inputs the API gathers in the client's scope. No model reads or writes a result. // DECISION |
 | Results are history | A new table, `control_check` (tenant, RLS forced): agent, agent version, check id, kind, result, evidence (json: counts and record ids), period, checked at. Never updated or deleted, like `audit_event`. Its own migration PR. // DECISION |
 | When | Setup checks after each SOP revision (the same `mount()` hook) and nightly; run checks nightly over the last 30 days; attack checks before the trial, after each new live version, and monthly. "Run the checks now" in the back office. // DECISION |
-| A failure | Never silent: it opens an issue for us (`issue`, linked to the check) and shows first on the agent's Security tab and `/ops/security`. It changes nothing the agent does on its own; holding the agent is the operator's call, as today. // DECISION |
+| In review | Never silent: a check that doesn't verify opens an issue for us (`issue`, linked to the check) and shows first on the agent's Security tab and `/ops/security`, and as "In review since <date>" in the client's SOP. It changes nothing the agent does on its own; holding the agent is the operator's call, as today. // DECISION |
+| Standards | Each check shows the SOC 2 criteria its controls **answer**, from the register's `maps` (our own mapping, at the level an auditor starts from; `controls.ts` §1.102). Never "meets" or "compliant": we hold no SOC 2 report yet, and a control isn't part of a framework, it answers a framework's requirement. The page says so in one line. When a report exists, the line names which controls it tested and for what period. HIPAA Security Rule sections show only to clients in HIPAA mode, so a client outside it isn't told its data is handled as health data; PCI only where it applies (DAT-5). (owner, 2026-11-21) // DECISION |
 | Attacks | Planted inputs as shared test cases in the test bench (`test_case`, marked `attack:`), run as test runs on the agent's version in the Sandbox: they never write, never reach a real person, and run on recorded model answers in CI (`LLM_MODE=replay`). Each attack's pass rule is code (no tool call, no message, the gate's refusal recorded), not a model's opinion. // DECISION |
 | Never shown | Secrets, message bodies, prompts, instructions and cost: evidence is counts and record ids. The client's view leaves out our internal ids and anything about another client. // DECISION |
 | The register stays | Its controls and statements stay as they are; an agent check names the control it proves. A register control with agent checks shows their results beside its hand-set status. // DECISION |
 
 ## 7. Questions for the owner
 
-1. **The client's view.** Show the client the architecture and each control's last check in the SOP
-   (recommended), or keep checks in the back office and show only the architecture.
-2. **A failed check in the client's view.** The SOP shows nothing open. Recommended: a failed check
-   shows to the client as "Being looked at by us since <date>" on that control, without the
-   evidence, until it passes again; or hide failures from the client entirely.
-3. **Attacks before the trial.** Should a failed attack check hold the trial's start, as the setup
-   checklist does (recommended), or only open an issue?
-4. **Which frameworks to print.** SOC 2 and HIPAA references beside each check (recommended), or none
-   in the client's view.
+Answered (owner, 2026-11-21):
+
+- **The client's view:** the client's admins and the team members who work with the agent see
+  section 14 in full (§5).
+- **A check that doesn't verify** is "In review", never "failed" (§4). The client sees "In review
+  since <date>" without the evidence.
+- **Standards:** SOC 2 references beside each check, as the criteria its controls answer, never
+  "meets"; HIPAA only in HIPAA mode (§6).
+
+Still open:
+
+1. **Attacks before the trial.** Should an attack check in review hold the trial's start, as the
+   setup checklist does (recommended), or only open an issue?
 
 ## 8. The build, in streams
 
@@ -216,7 +234,7 @@ Each ends green (`pnpm check`). The migration goes in its own PR.
 | **A0: the gaps** | §4c: the retention lines, providers' retention and region, the embeddings provider in the SOP | None |
 | **A1: the architecture** | Core `agentArchitecture`, the SVG diagram, the data map, what goes to AI and access to each tool (§4b), the coverage list (§4a), section 14 of the SOP | None |
 | **A2a: results' table** | `control_check` | Own PR |
-| **A2: setup and run checks** | The checks of §4 that read setup and runs; nightly pass; the back office's Security tab; "Checked" on the SOP's controls; failures as issues | After A2a |
+| **A2: setup and run checks** | The checks of §4 that read setup and runs; nightly pass; the back office's Security tab; results on the SOP's controls; the four results (§4); checks in review as issues | After A2a |
 | **A3: attacks** | Planted cases in the test bench, their pass rules, before-trial and monthly runs; recorded fixtures with a key | None (test cases have a home) |
 | **A4: evidence export** | Per period, per agent and client, CSV and a printable page; `/ops/security` rollup | None |
 

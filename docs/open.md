@@ -422,6 +422,7 @@ printing. Merge #510 and #511 before #508. Left:
 | SOP-B | The Builder writes each step's purpose when it drafts (today the operator writes it in the step panel, else the SOP writes a plain line). Changes the Builder's requests, so its fixtures are re-recorded with a key (`LLM_MODE=record`). | Code, with a key. |
 | SOP-R | References: the client's own tagged policies by title, the agents it takes over from, its knowledge base; a step's entity-level settings and a person's own "show me first" on its line. | Code. |
 | SOP-T | Try it on staging after the merge: open an agent's SOP, change a connection's permission or the approval rules, and see revision n.1 with what changed and who. | Owner, after deploy. |
+| SOP-W | W: the Workflow tab, view only (`docs/sop-plan.md` §6a): the builder's chart drawn from the SOP's outline, each step's card on hover, focus or tap; no settings to click. | Code. |
 | SOP-2 | S2: Sloan's `sop.read`, the Procedures page. | Code. |
 | SOP-3 | S3: share links, the accountable person, packs' own controls; only what the owner agrees. | Migrations, own PRs; a security review for share links. |
 
@@ -430,8 +431,11 @@ printing. Merge #510 and #511 before #508. Left:
 Planned and designed, not built: each agent's architecture drawn from its setup, and its security
 controls proved by checks of its setup, its runs and planted attacks, kept as history and tied to
 the register (`AGT-1`, `ISO-1`, …) with their SOC 2 and HIPAA references. Left: the owner's answers
-(`docs/agent-assurance-plan.md` §7), then streams A1 (architecture), A2a (`control_check`, own PR),
-A2 (setup and run checks), A3 (attacks), A4 (evidence export).
+(`docs/agent-assurance-plan.md` §7: whether an attack check in review holds the trial), then streams
+A0 (the gaps of §4c), A1 (architecture), A2a (`control_check`, own PR), A2 (setup and run checks),
+A3 (attacks), A4 (evidence export). Answered 2026-11-21: results are Verified, In review, Not yet
+checked or Not applicable, never "failed"; the client's admins and the team members who work with
+an agent see its section 14; SOC 2 references as the criteria a control answers, never "meets".
 
 ### Sign-in codes and the Claude connector (owner, 2026-11-10)
 

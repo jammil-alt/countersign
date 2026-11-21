@@ -189,6 +189,33 @@ Mezonas), `where` (approval rules, connections, the agent's settings, a new vers
 - **Printing and sharing name a revision**: a print says "Revision 7.2 of 18 Nov 2026" on every page,
   and a share link (S3) shows the revision it was made from.
 
+## 6a. The workflow, view only (owner, 2026-11-21)
+
+A **Workflow** tab beside the SOP on the portal's agent page: the process drawn as the builder's
+chart, which the client can read but not change. Mock-up screen 6 of `docs/design/sop.html`.
+
+- **Who sees it:** the client's admins, for every agent; other team members, for the agents assigned
+  to them. The same rule as the SOP (`ASSIGNED_USER_ROUTES`).
+- **What it shows:** the trigger, each step as a box with its number and name, who does it (person or
+  agent icon), how it decides (rules, AI with the model, or rules then AI), the tool and its write
+  level, the approver, and the paths of each "if" with their words. The settings show as text, such as
+  "Tolerance 3%" or "Create: Ask me first". Nothing on the chart is a control: no handles, no +, no
+  dragging, no step panel.
+- **Tooltips:** pointing at a box, tabbing to it or tapping it shows its card: the step's purpose,
+  who does it and how, who signs and by when, the tool and its level, what happens if it's rejected
+  or fails, its controls, and links to that step in the SOP and to "Ask about this". Keyboard and
+  touch get the same card as hover.
+- **"Ask for a change"** opens a request to us, as the SOP's "This is wrong" does. A change we make
+  becomes a new SOP revision, and the chart follows it.
+- **Where the data comes from:** not the agent's bundle (invariant 11: no portal route returns
+  bundles, instructions or prompts). The SOP route gains an outline: each step's id, kind, number,
+  parent and paths, with nothing else. Each box's card is the SOP's own step line, found by step id.
+  The web draws both with the builder's chart (`apps/web/src/ops/flow/Chart`, already read only for
+  older versions in `ReadOnlyFlow`) fed from that outline. So the chart, the tooltips and the SOP
+  can't disagree. A contract test holds the outline to its fields and the forbidden-field list.
+  // DECISION
+- **Print and share** stay with the SOP's list; the chart is for the screen.
+
 ## 7. Questions for the owner
 
 Answered (owner, 2026-11-21): **no open items in an SOP, and no sign-off of revisions**; an SOP
@@ -215,6 +242,7 @@ Each ends green (`pnpm check`). Migrations go in their own PR and keep the previ
 | **S0** (built, PR #510) | Fix: the manual's route on `ASSIGNED_USER_ROUTES`, with a test that a limited client user opens their agent's manual and gets 404 for another's | None |
 | **S1a: revisions' table** (built, PR #511) | `sop_revision` (§6): tenant, RLS forced, never updated or deleted. Nothing reads or writes it yet, so the Worker before it keeps working. | `sop_revision`, own PR |
 | **S1: the SOP** (built, PR #508) | ARCHITECTURE v0.21 §10.17 and a `docs/plan.md` §1 entry. Core `sop/`: `SopView` (Zod), `sopView()` and its parts (`sopRoles`, `sopSteps` with each step's method and model, `sopControls`, `sopSystems`, `sopData`, `sopExceptions`), `sopChanges()`, paths in plain words in core (`pathWords`; the builder keeps its `ruleText`), v3 steps read for their tools as v4's are. The step's `purpose` in core's schemas and a box for it in the builder's step panel (the Builder writing it is SOP-B). Revisions: `recordSopRevision` at every change site with a test listing them, the hourly check, each agent's first revision. API: `GET /api/services/:id/sop` (portal, on `ASSIGNED_USER_ROUTES`) and `GET /api/ops/agents/:id/sop`, gathering the inputs in one transaction inside `withTenant()`, names resolved within the client. Web: `apps/web/src/sop/` (shared sections, from `ManualSections`), the portal's SOP tab in place of Manual, the revision header and history, find and filter, the print layout. Six languages. Contract tests for both routes. | None beyond S1a |
+| **W: the workflow, view only** | §6a. Core: `SopView.outline` (step id, kind, number, parent, paths) built by the same walk as the procedure, with a test that every outline step has its step line. Web: the portal's Workflow tab, the builder's `Chart` adapted to draw from the outline (read only, no drag context), each box's card from the step line, by hover, focus and tap. Contract test for the outline's fields. Six languages. | None |
 | **S2: ask, across agents** | Sloan's `sop.read` (its fixtures re-recorded). The Procedures page with filters across every agent's SOP. | None |
 | **S3: share, owners, pack controls** | `sop_share` (token hash, revision, expiry, revoked, who made it, names on or off) and its public page, with a security review and a row in `docs/security.md`; the accountable person on the agent row; `SkillDefinition.controls` and the Materials and Bookkeeping packs' controls. Only what the owner agrees in §7. No sign-off of revisions (owner, 2026-11-21). | One per table, own PRs |
 
