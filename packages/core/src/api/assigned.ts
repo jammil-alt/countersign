@@ -44,6 +44,8 @@ export const ASSIGNED_USER_ROUTES: readonly string[] = [
   // Its manual (docs/builder-plan.md §5): read only; the Manual tab shows for everyone who sees
   // the agent, so a limited user's agent answers and another agent is "not found" (docs/sop-plan.md S0).
   "GET /api/services/:id/manual",
+  // Its SOP (docs/sop-plan.md S1), which takes the Manual tab's place: read only, as the manual.
+  "GET /api/services/:id/sop",
   "POST /api/services/:id/workflows/:slug/run",
   // Their agents' runs.
   "GET /api/runs",
