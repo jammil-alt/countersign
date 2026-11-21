@@ -2,17 +2,19 @@
 // it takes in and needs, how clean its live uses ran in the last 30 days, its versions (publish,
 // roll back) and the agents that use it. Agents move to a new version only by their own new
 // version; versions are immutable, a rollback copies an older one as a new live version.
-// Automations are made in the workflow builder, from selected steps ("Save as automation").
+// Automations are made in the workflow builder, from selected steps ("Save as automation"), and
+// their steps are edited in the one-screen builder ("Edit steps": ../flow/automation).
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { Columns, Loaded, Page } from "../../ui/page";
-import { Badge, Button, Card, PageHeader, Tag } from "../../ui/primitives";
+import { Badge, Button, buttonClass, Card, PageHeader, Tag } from "../../ui/primitives";
 import { StatusChip } from "../../ui/status";
 import { agentPath } from "../agents/BuilderParts";
 import { errorText, Notice, plural, useAction } from "../agents/ui";
 import { toolTitle } from "../builder/model";
+import { automationStepsPath } from "../flow/automation/paths";
 import { LIBRARY_PATHS } from "../library/paths";
 import { Chain, percent, SchemaCard, stepChain } from "./parts";
 
@@ -78,16 +80,26 @@ export function AutomationPage() {
                   .filter(Boolean)
                   .join(" ")}
                 actions={
-                  latest && latest.status === "draft" ? (
-                    <Button
-                      variant="primary"
-                      data-testid="automation-publish-latest"
-                      disabled={action.busy}
-                      onClick={() => void publish(latest.id, latest.version)}
+                  <span className="flex flex-wrap gap-2">
+                    {/* F7: its steps open in the one-screen builder. */}
+                    <Link
+                      to={automationStepsPath(a.id)}
+                      className={buttonClass("secondary")}
+                      data-testid="automation-edit-steps"
                     >
-                      Publish v{latest.version}
-                    </Button>
-                  ) : null
+                      Edit steps
+                    </Link>
+                    {latest && latest.status === "draft" ? (
+                      <Button
+                        variant="primary"
+                        data-testid="automation-publish-latest"
+                        disabled={action.busy}
+                        onClick={() => void publish(latest.id, latest.version)}
+                      >
+                        Publish v{latest.version}
+                      </Button>
+                    ) : null}
+                  </span>
                 }
               />
             </div>

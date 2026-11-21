@@ -865,7 +865,7 @@ function Tip(p: {
         {end?.lines.map((line) => (
           <span key={line}>{line}</span>
         ))}
-        <div className="flow-tip__f">Click to see it.</div>
+        <div className="flow-tip__f">{p.readOnly ? "Click to see it." : "Click to set it up."}</div>
       </>
     );
   }
