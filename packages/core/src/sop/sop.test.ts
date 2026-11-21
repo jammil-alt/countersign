@@ -7,7 +7,14 @@ import type { PermissionMatrix } from "../schemas/permissions";
 import type { SkillDefinition } from "../schemas/skill";
 import type { ToolSpec } from "../schemas/tool";
 import { runModel } from "../skills/model";
-import { moneyWords, type SopConnection, type SopInput, sopCode, sopView } from "./build";
+import {
+  moneyWords,
+  pathWords,
+  type SopConnection,
+  type SopInput,
+  sopCode,
+  sopView,
+} from "./build";
 import { sopChanges, sopFingerprint } from "./changes";
 import { type SopStepLine, SopView } from "./view";
 
@@ -503,5 +510,66 @@ describe("the agent's SOP, made by code (docs/sop-plan.md)", () => {
     expect(moneyWords("5000.00", "USD")).toBe("$5,000");
     expect(moneyWords("1234567.5", "EUR")).toBe("€1,234,567.50");
     expect(moneyWords("10", "CHF")).toBe("CHF 10");
+  });
+
+  it("words a path's rules over a template field and a symbol", () => {
+    expect(
+      pathWords({
+        name: "Matched",
+        when: {
+          match: "all",
+          rules: [{ field: "{{steps.find.output.match_status}}", op: "=", value: "matched" }],
+        },
+      }),
+    ).toBe("match status is matched");
+    expect(
+      pathWords({ name: "Big", describe: "a bill over $5,000", when: { match: "all", rules: [] } }),
+    ).toBe("a bill over $5,000");
+  });
+
+  it("walks an if inside an if's path, numbering on from it", () => {
+    const b = bundle() as unknown as { workflows: { workflow: { steps: unknown[] } }[] };
+    const look = b.workflows[0]?.workflow.steps[3] as { paths: { steps: unknown[] }[] };
+    look.paths[0]?.steps.push({
+      id: "inner",
+      name: "Which price?",
+      kind: "if",
+      paths: [
+        {
+          id: "ip",
+          name: "High",
+          when: { match: "all", rules: [] },
+          steps: [
+            {
+              id: "deep",
+              name: "Tell Cara",
+              kind: "notify",
+              notify: { to: [CARA], channel: "inbox", message: "x" },
+            },
+          ],
+        },
+      ],
+      otherwise: { id: "io", steps: [] },
+    });
+    const view = sopView(input({ b: b as unknown as AnyAgentBundle }));
+    const numbers = view.procedure
+      .filter((l): l is SopStepLine => l.line === "step")
+      .map((l) => `${l.number} ${l.name}`);
+    expect(numbers).toContain("4.2 Which price?");
+    expect(numbers).toContain("4.2.1 Tell Cara");
+    expect(step(view, "deep").told.map((p) => p.name)).toEqual(["Cara Lin"]);
+  });
+
+  it("says a new way of writing SOPs once, without listing changes nobody made", () => {
+    const now = sopView(input());
+    const older = { ...now, format: now.format - 1, purpose: "Old words" };
+    expect(sopChanges(older, now)).toEqual([
+      {
+        section: "header",
+        ref: null,
+        words: "We changed how SOPs are written. How the agent works is the same.",
+        was: null,
+      },
+    ]);
   });
 });

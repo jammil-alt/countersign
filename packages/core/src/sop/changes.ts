@@ -56,6 +56,18 @@ function stepsOf(view: SopView): Map<string, SopStepLine> {
 export function sopChanges(before: SopView | null, after: SopView): SopChange[] {
   if (!before)
     return [{ section: "header", ref: null, words: "First revision of this SOP.", was: null }];
+  // A new way of writing SOPs, not a change to the agent: said once, without a diff between two
+  // ways of writing that would list changes nobody made.
+  if ((before.format ?? 0) !== after.format) {
+    return [
+      {
+        section: "header",
+        ref: null,
+        words: "We changed how SOPs are written. How the agent works is the same.",
+        was: null,
+      },
+    ];
+  }
   const out: SopChange[] = [];
   const add = (c: SopChange) => out.push(c);
 

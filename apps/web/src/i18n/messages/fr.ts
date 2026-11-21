@@ -2320,7 +2320,6 @@ export const fr: Messages = {
   "sop.whatChanged": "Ce qui a changé dans la révision {number}", // fluent review
   "sop.was": "avant {value}", // fluent review
   "sop.allRevisions": "Toutes les révisions", // fluent review
-  "sop.byCheck": "Enregistrée par notre vérification", // fluent review
   "sop.find":
     "Chercher dans cette procédure : une étape, une personne, un système, un enregistrement", // fluent review
   "sop.find.count": "{count} endroits correspondent à « {text} ».", // fluent review
@@ -2371,7 +2370,7 @@ export const fr: Messages = {
     "{steps} étapes : {rules} par règles, {ai} par IA, {mixed} par règles puis IA, {person} par une personne.", // fluent review
   "sop.summary.writes": "Chaque modification de vos outils se fait par règles.", // fluent review
   "sop.summary.owner":
-    "{owner} examine les étapes en échec et celles qui mènent à une modification, avec l'IA", // fluent review
+    "{owner} examine les étapes en échec et celles qui mènent à une modification", // fluent review
   "sop.method.rules": "Règles", // fluent review
   "sop.method.rulesThen": "Règles, puis", // fluent review
   "sop.method.ai": "IA", // fluent review

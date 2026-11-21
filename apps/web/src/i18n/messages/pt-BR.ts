@@ -2281,7 +2281,6 @@ export const ptBR: Messages = {
   "sop.whatChanged": "O que mudou na revisão {number}", // fluent review
   "sop.was": "antes {value}", // fluent review
   "sop.allRevisions": "Todas as revisões", // fluent review
-  "sop.byCheck": "Registrada pela nossa verificação", // fluent review
   "sop.find": "Buscar neste POP: uma etapa, uma pessoa, um sistema, um registro", // fluent review
   "sop.find.count": "{count} lugares correspondem a “{text}”.", // fluent review
   "sop.find.none": "Nada corresponde a “{text}”.", // fluent review
@@ -2330,7 +2329,7 @@ export const ptBR: Messages = {
   "sop.summary.counts":
     "{steps} etapas: {rules} por regras, {ai} por IA, {mixed} por regras e depois IA, {person} por uma pessoa.", // fluent review
   "sop.summary.writes": "Toda alteração nas suas ferramentas é feita por regras.", // fluent review
-  "sop.summary.owner": "{owner} revisa etapas com falha e as que levam a uma alteração, com IA", // fluent review
+  "sop.summary.owner": "{owner} revisa etapas com falha e as que levam a uma alteração", // fluent review
   "sop.method.rules": "Regras", // fluent review
   "sop.method.rulesThen": "Regras, depois", // fluent review
   "sop.method.ai": "IA", // fluent review

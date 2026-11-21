@@ -40,7 +40,8 @@ export type SopRevisionSource =
   | "owner"
   | "adjust"
   | "stage"
-  | "check";
+  | "check"
+  | "format";
 
 const WHERE_WORDS: Record<SopRevisionSource, string> = {
   first: "First revision",
@@ -54,6 +55,7 @@ const WHERE_WORDS: Record<SopRevisionSource, string> = {
   adjust: "This agent's settings",
   stage: "Go-live stage",
   check: "Recorded by our check",
+  format: "How Mezonas writes SOPs",
 };
 
 /** Who made a change: a person's id and which side they are on; null for our checks. */
@@ -125,11 +127,14 @@ export async function recordSopRevision(
     const changes: SopChange[] = sopChanges(before?.success ? before.data : null, view);
     const major = read.versionNumber;
     const minor = last && last.major === major ? last.minor + 1 : 0;
+    const formatChanged = before?.success === true && before.data.format !== view.format;
     const source: SopRevisionSource = !last
       ? "first"
-      : last.major !== major && input.source !== "check"
-        ? "version"
-        : input.source;
+      : formatChanged
+        ? "format"
+        : last.major !== major && input.source !== "check"
+          ? "version"
+          : input.source;
     await tx.insert(sopRevision).values({
       tenantId: input.tenantId,
       agentId: a.id,
@@ -143,7 +148,8 @@ export async function recordSopRevision(
       changedBySide: input.by.side,
       source,
     });
-    made.push(a.id);
+    // A new way of writing SOPs is not a change a site missed.
+    if (source !== "format") made.push(a.id);
   }
   return made;
 }

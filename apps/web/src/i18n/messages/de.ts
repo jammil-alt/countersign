@@ -2338,7 +2338,6 @@ export const de: Messages = {
   "sop.whatChanged": "Was sich in Revision {number} geändert hat", // fluent review
   "sop.was": "vorher {value}", // fluent review
   "sop.allRevisions": "Alle Revisionen", // fluent review
-  "sop.byCheck": "Von unserer Prüfung erfasst", // fluent review
   "sop.find": "In dieser SOP suchen: ein Schritt, eine Person, ein System, ein Datensatz", // fluent review
   "sop.find.count": "{count} Stellen passen zu „{text}“.", // fluent review
   "sop.find.none": "Nichts passt zu „{text}“.", // fluent review
@@ -2388,8 +2387,7 @@ export const de: Messages = {
   "sop.summary.counts":
     "{steps} Schritte: {rules} nach Regeln, {ai} mit KI, {mixed} nach Regeln und dann KI, {person} durch eine Person.", // fluent review
   "sop.summary.writes": "Jede Änderung in Ihren Tools erfolgt nach Regeln.", // fluent review
-  "sop.summary.owner":
-    "{owner} prüft fehlgeschlagene Schritte und Schritte vor einer Änderung, mit KI", // fluent review
+  "sop.summary.owner": "{owner} prüft fehlgeschlagene Schritte und Schritte vor einer Änderung", // fluent review
   "sop.method.rules": "Regeln", // fluent review
   "sop.method.rulesThen": "Regeln, dann", // fluent review
   "sop.method.ai": "KI", // fluent review

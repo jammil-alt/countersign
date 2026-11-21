@@ -2293,7 +2293,6 @@ export const it: Messages = {
   "sop.whatChanged": "Cosa è cambiato nella revisione {number}", // fluent review
   "sop.was": "prima {value}", // fluent review
   "sop.allRevisions": "Tutte le revisioni", // fluent review
-  "sop.byCheck": "Registrata dal nostro controllo", // fluent review
   "sop.find": "Cerca in questa procedura: un passo, una persona, un sistema, un record", // fluent review
   "sop.find.count": "{count} punti corrispondono a “{text}”.", // fluent review
   "sop.find.none": "Nessuna corrispondenza per “{text}”.", // fluent review
@@ -2342,7 +2341,7 @@ export const it: Messages = {
   "sop.summary.counts":
     "{steps} passi: {rules} con regole, {ai} con IA, {mixed} con regole e poi IA, {person} da una persona.", // fluent review
   "sop.summary.writes": "Ogni modifica ai vostri strumenti avviene con regole.", // fluent review
-  "sop.summary.owner": "{owner} rivede i passi falliti e quelli che portano a una modifica, con IA", // fluent review
+  "sop.summary.owner": "{owner} rivede i passi falliti e quelli che portano a una modifica", // fluent review
   "sop.method.rules": "Regole", // fluent review
   "sop.method.rulesThen": "Regole, poi", // fluent review
   "sop.method.ai": "IA", // fluent review

@@ -2209,7 +2209,6 @@ export const en = {
   "sop.whatChanged": "What changed in revision {number}",
   "sop.was": "was {value}",
   "sop.allRevisions": "All revisions",
-  "sop.byCheck": "Recorded by our check",
   "sop.find": "Find in this SOP: a step, a person, a system, a record",
   "sop.find.count": "{count} places match “{text}”.",
   "sop.find.none": "Nothing matches “{text}”.",
@@ -2257,7 +2256,7 @@ export const en = {
   "sop.summary.counts":
     "{steps} steps: {rules} by rules, {ai} by AI, {mixed} by rules then AI, {person} by a person.",
   "sop.summary.writes": "Every change to your tools is made by rules.",
-  "sop.summary.owner": "{owner} reviews failed steps and steps that lead to a change, on AI",
+  "sop.summary.owner": "{owner} reviews failed steps and steps that lead to a change",
   "sop.method.rules": "Rules",
   "sop.method.rulesThen": "Rules, then",
   "sop.method.ai": "AI",

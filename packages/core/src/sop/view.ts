@@ -182,6 +182,11 @@ export type SopRevisionEntry = z.infer<typeof SopRevisionEntry>;
 export const SopView = z
   .object({
     agent: z.object({ id: z.string(), name: z.string(), key: z.string() }),
+    /**
+     * How Mezonas writes SOPs (`SOP_FORMAT`): a release that changes it changes every SOP without
+     * any change to how an agent works, and its revision says so. Stored views before it read 0.
+     */
+    format: z.number().int().min(0).default(0),
     code: z.string(),
     client: z.string(),
     area: z.object({ id: z.string(), words: z.string() }),

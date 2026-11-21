@@ -62,6 +62,7 @@ const REV = {
 
 const VIEW: SopView = {
   agent: { id: SVC, name: "Bills in", key: ME.key },
+  format: 1,
   code: "SOP-PUR-03",
   client: "Harbor Millwork",
   area: { id: "purchasing", words: "Purchasing" },

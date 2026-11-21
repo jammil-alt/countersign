@@ -488,9 +488,7 @@ export function SopDocument({
                     ))}
                   </ul>
                   <p className="mt-1 text-xs text-ink-muted">
-                    {[rev.by ?? t("sop.byCheck"), rev.where, fmt.date(rev.at)]
-                      .filter(Boolean)
-                      .join(", ")}
+                    {[rev.by, rev.where, fmt.date(rev.at)].filter(Boolean).join(", ")}
                     <span data-print="hide">
                       {" · "}
                       <a href="#sop-sec-history">{t("sop.allRevisions")}</a>
@@ -657,7 +655,7 @@ export function SopDocument({
                   <>
                     {" "}
                     {t("sop.summary.owner", { owner: view.owner.party.name })}
-                    {view.owner.model ? ` (${view.owner.model})` : ""}
+                    {` (${t("sop.method.ai")}${view.owner.model ? `: ${view.owner.model}` : ""}).`}
                   </>
                 ) : null}
               </p>
@@ -1046,8 +1044,10 @@ export function SopDocument({
                             </ul>
                           </td>
                           <td>
-                            {r.by ?? t("sop.byCheck")}
-                            <span className="block text-xs text-ink-muted">{r.where}</span>
+                            {r.by ?? r.where}
+                            {r.by ? (
+                              <span className="block text-xs text-ink-muted">{r.where}</span>
+                            ) : null}
                           </td>
                         </tr>
                       ))}

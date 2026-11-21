@@ -109,6 +109,13 @@ export interface SopInput {
   history: readonly SopRevisionEntry[];
 }
 
+/**
+ * How Mezonas writes SOPs. Raise it with any change to `sopView` that changes what an SOP says for
+ * the same setup (wording, sections, what a step shows): the next revision of each agent then reads
+ * "We changed how SOPs are written" instead of listing changes nobody made (docs/sop-plan.md §6).
+ */
+export const SOP_FORMAT = 1;
+
 // ── Words ────────────────────────────────────────────────────────────────────────────────────
 
 export const AREA_WORDS: Record<OwnerArea, string> = {
@@ -283,16 +290,28 @@ function ruleValue(v: unknown): string {
 }
 
 const OP_WORDS: Record<string, string> = {
-  eq: "is",
-  neq: "is not",
-  gt: "is over",
-  gte: "is at least",
-  lt: "is under",
-  lte: "is at most",
+  "=": "is",
+  "!=": "is not",
+  ">": "is over",
+  ">=": "is at least",
+  "<": "is under",
+  "<=": "is at most",
   contains: "contains",
   exists: "is there",
   in: "is one of",
+  is: "is",
 };
+
+/** A rule's field in words: `{{steps.match.output.unit_price}}` → "unit price". */
+function fieldWords(field: string): string {
+  const plain = field.replaceAll(/[{}]/g, "").trim();
+  const last =
+    plain
+      .split(".")
+      .filter((p) => p && p !== "output" && p !== "steps" && p !== "trigger")
+      .pop() ?? plain;
+  return last.replaceAll(/[_-]+/g, " ");
+}
 
 /** A path's condition for a reader: the operator's description, else the rules in words. */
 export function pathWords(path: { name?: string; describe?: string; when?: Rules }): string {
@@ -300,15 +319,9 @@ export function pathWords(path: { name?: string; describe?: string; when?: Rules
   const rules = path.when?.rules ?? [];
   if (rules.length > 0) {
     const parts = rules.map((r) => {
-      const field =
-        r.field
-          .split(".")
-          .filter((s) => s !== "output" && s !== "steps")
-          .pop() ?? r.field;
+      const field = fieldWords(r.field);
       const op = OP_WORDS[r.op] ?? r.op;
-      return r.op === "exists"
-        ? `${field.replaceAll("_", " ")} ${op}`
-        : `${field.replaceAll("_", " ")} ${op} ${ruleValue(r.value)}`;
+      return r.op === "exists" ? `${field} ${op}` : `${field} ${op} ${ruleValue(r.value)}`;
     });
     return parts.join(path.when?.match === "any" ? ", or " : ", and ");
   }
@@ -342,64 +355,50 @@ function walk(bundle: AnyAgentBundle): {
   const many = enabled.length > 1;
   for (const w of enabled) {
     const v4 = (w.workflow as { schemaVersion: number }).schemaVersion === 4;
-    const list = (steps: AnyStep[], prefix: string, depth: number) => {
-      let n = 0;
-      const next = () => {
-        n += 1;
-        return prefix ? `${prefix}.${n}` : String(n);
-      };
-      for (const step of steps) {
-        const v: Visited = { step, number: next(), depth, workflow: many ? w.name : null, v4 };
-        visited.push(v);
-        lines.push(v);
-        if (step.kind === "if" || step.kind === "fork") {
-          const paths =
-            (step.paths as { name: string; describe?: string; when: Rules; steps: AnyStep[] }[]) ??
-            [];
-          const otherwise = (step.otherwise as { steps: AnyStep[] } | undefined)?.steps ?? [];
-          let k = 0;
-          const inner = (child: AnyStep[]) => {
-            for (const c of child) {
-              k += 1;
-              const cv: Visited = {
-                step: c,
-                number: `${v.number}.${k}`,
-                depth: depth + 1,
-                workflow: v.workflow,
-                v4,
-              };
-              visited.push(cv);
-              lines.push(cv);
-              nested(c, cv);
-            }
-          };
-          for (const p of paths) {
-            lines.push({
-              depth: depth + 1,
-              label: "if",
-              words: pathWords(p),
-              empty: p.steps.length === 0,
-            });
-            inner(p.steps);
+    const workflow = many ? w.name : null;
+    // One step, then what it holds, at any depth: an `if`'s paths (their steps numbered on from
+    // the `if`'s own number, across its paths), a `for_each`'s or a `repeat`'s steps.
+    const visit = (step: AnyStep, number: string, depth: number) => {
+      const v: Visited = { step, number, depth, workflow, v4 };
+      visited.push(v);
+      lines.push(v);
+      if (step.kind === "if" || step.kind === "fork") {
+        const paths =
+          (step.paths as { name: string; describe?: string; when: Rules; steps: AnyStep[] }[]) ??
+          [];
+        const otherwise = (step.otherwise as { steps: AnyStep[] } | undefined)?.steps ?? [];
+        let k = 0;
+        const inner = (children: AnyStep[]) => {
+          for (const c of children) {
+            k += 1;
+            visit(c, `${number}.${k}`, depth + 1);
           }
+        };
+        for (const p of paths) {
           lines.push({
             depth: depth + 1,
-            label: "otherwise",
-            words: otherwise.length === 0 ? "straight on" : "",
-            empty: otherwise.length === 0,
+            label: "if",
+            words: pathWords(p),
+            empty: p.steps.length === 0,
           });
-          inner(otherwise);
-        } else {
-          nested(step, v);
+          inner(p.steps);
         }
+        lines.push({
+          depth: depth + 1,
+          label: "otherwise",
+          words: otherwise.length === 0 ? "straight on" : "",
+          empty: otherwise.length === 0,
+        });
+        inner(otherwise);
+      } else if (step.kind === "for_each" || step.kind === "repeat") {
+        ((step.steps as AnyStep[]) ?? []).forEach((c, i) => {
+          visit(c, `${number}.${i + 1}`, depth + 1);
+        });
       }
     };
-    const nested = (step: AnyStep, v: Visited) => {
-      if (step.kind === "for_each" || step.kind === "repeat") {
-        list((step.steps as AnyStep[]) ?? [], v.number, v.depth + 1);
-      }
-    };
-    list(((w.workflow as { steps: unknown[] }).steps ?? []) as AnyStep[], "", 0);
+    ((w.workflow as { steps: unknown[] }).steps ?? []).forEach((step, i) => {
+      visit(step as AnyStep, String(i + 1), 0);
+    });
   }
   return { visited, lines };
 }
@@ -481,28 +480,47 @@ function modelOf(step: AnyStep, method: SopMethod | null, input: SopInput): stri
 }
 
 /** "Reads vendors from QuickBooks Online." when the step has no purpose of its own. */
+/** "Reads vendors from QuickBooks Online.": what one tool does, in words. */
+function toolPurpose(tool: ToolSpec, systemsOf: (t: ToolSpec) => string | null): string {
+  const where = systemsOf(tool) ?? "your records in Mezonas";
+  const what = tool.entity ? plural(tool.entity.replaceAll("_", " ")) : "records";
+  const [verb, prep] =
+    tool.sideEffect === "none"
+      ? ["Reads", "from"]
+      : tool.verb === "create"
+        ? ["Adds", "to"]
+        : tool.verb === "delete"
+          ? ["Removes", "from"]
+          : ["Updates", "in"];
+  return `${verb} ${what} ${prep} ${where}.`;
+}
+
 function purposeFor(
   step: AnyStep,
   v4: boolean,
   input: SopInput,
   systemsOf: (t: ToolSpec) => string | null,
 ): string {
-  const tools = toolsOf(step, input);
-  const first = tools[0];
+  const first = toolsOf(step, input)[0];
   if ((step.kind === "read" || step.kind === "write" || step.kind === "action") && first) {
-    const where = systemsOf(first) ?? "your records in Mezonas";
-    const what = first.entity ? plural(first.entity.replaceAll("_", " ")) : "records";
-    const [verb, prep] =
-      first.sideEffect === "none"
-        ? ["Reads", "from"]
-        : first.verb === "create"
-          ? ["Adds", "to"]
-          : first.verb === "delete"
-            ? ["Removes", "from"]
-            : ["Updates", "in"];
-    return `${verb} ${what} ${prep} ${where}.`;
+    return toolPurpose(first, systemsOf);
   }
   if (step.kind === "missing") return sentence(String(step.need ?? "A person does this part"));
+  if (step.kind === "skill") {
+    const def = lookupSkill(String(step.skill), input.skills);
+    // DECISION: an AI skill's own description is written for people (what it does, never its
+    // instructions): its first sentence, when short enough for one line. A code skill's is its
+    // tool's, written for developers, so it reads as its first tool does, like a read or a write.
+    if (def && def.mode !== "tool") {
+      const line = def.description
+        ?.trim()
+        .split(/(?<=[.!?])\s/)[0]
+        ?.trim();
+      if (line && line.length <= 200) return sentence(line);
+    } else if (first) {
+      return toolPurpose(first, systemsOf);
+    }
+  }
   return sentence(kindWords(step, v4));
 }
 
@@ -1220,6 +1238,7 @@ export function sopView(input: SopInput): SopView {
 
   return {
     agent: { id: input.agent.id, name: input.agent.name, key: self.key },
+    format: SOP_FORMAT,
     code: input.code,
     client: input.client,
     area: { id: input.agent.area, words: AREA_WORDS[input.agent.area] },
