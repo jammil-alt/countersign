@@ -19109,7 +19109,7 @@
         },
         "sop_revision_source_check": {
           "name": "sop_revision_source_check",
-          "value": "\"sop_revision\".\"source\" in ('first', 'version', 'agent', 'connection', 'grant', 'approver_rules', 'business_hours', 'owner', 'adjust', 'stage', 'check')"
+          "value": "\"sop_revision\".\"source\" in ('first', 'version', 'agent', 'connection', 'grant', 'approver_rules', 'business_hours', 'owner', 'adjust', 'stage', 'check', 'format')"
         },
         "sop_revision_fingerprint_check": {
           "name": "sop_revision_fingerprint_check",
