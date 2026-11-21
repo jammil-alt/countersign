@@ -6150,6 +6150,21 @@ read-only copy of the portal's agent page inside the back office.
 | Its answer | `GET /api/ops/clients/:id/agents/:agentId/client-view` (`opsClientAgentView`): operator-only, and its response is the portal's `ServiceDetail` schema object itself, from the portal route's own function (`serviceDetail`) under `narrowToTenant` (withTenant's scope for that one client, inside the request's transaction), through `mount()` for the audit row. A client the operator doesn't serve, or another client's agent, is not found. KPI labels are in the client's language (no reader). Contract tests pin the shared schema and its lack of forbidden fields. // DECISION |
 | What it draws | The portal page's Overview drawn with the portal's own parts, moved to `portal/screens/agentParts.tsx` (its state chip, this month's figures, its run rows): the header, this month's figures, its recent runs, and on the rail how many runs wait on the client. No Pause, Run now, inbox items, upload or form; no link into the portal (figures are not links, runs open the back office's run page). The portal's other tabs (Runs, Manual, Settings) and its pack views are not copied: each asks portal routes of its own. // DECISION |
 
+### 1.165 The build page's forms, read at full width (owner, 2026-11-21; no migration)
+
+The owner on `/ops/builds/:id` (staging feedback): the brief ("lets redesign this side"), the client
+intake form ("you can't read the fields"), the gap over the sticky bar, and the composer's hint
+("What is that text that is prefilled in the text box?"). Approved: the fixes below.
+
+| Topic | Decision |
+|---|---|
+| A box as tall as its words | `TextArea` in `apps/web/src/ui/forms.tsx` takes `autoSize`: its height is set from `scrollHeight` when the words change and when its width does (a `ResizeObserver`), `rows` lines at least, with no inner scroll and no resize handle. The brief's old cap of five lines is gone. // DECISION |
+| The brief | Each field is a block: its name and how sure we are (Confirmed, Assumed, Open, a `ds-seg` that saves at once, as the select did) on one line, its words below at full width (`autoSize`, two lines at least). Save, Undo, Confirm and the read-only view of a past phase are unchanged. // DECISION |
+| The client intake form | One block per field instead of a four-column table: what we ask (`autoSize`), its kind (Connect a tool, Answer, File) as a `ds-seg`, "Ask it" as a switch (`ds-switch`, "Not asked" when off), and why or an example (`autoSize`). A field taken out is struck through and has no inputs. The add-a-field footer picks its kind the same way. // DECISION |
+| "Connect a tool" on every field | Not a display bug: the kind shown is the stored one (a stored kind outside the three fails the fit-gap's parse, and a test checks each field shows its own). The Builder chose `connect` for anything about a tool (the Podio check-in's "Who is the project manager", "What time should…"). The field's `.describe()` (`SetupFieldDraft.kind`) and the template's fit-gap rule (`FITGAP_FOR_TEMPLATE`) now say `connect` is only the connection, one field per tool labelled with its name, and every question about a tool is an answer. Stored forms are not rewritten; the operator changes a kind with one press. // DECISION |
+| The gap over the bar | `.ui-build-stick`, the bar's holder, sticks at `--header-h` (not 16px below it) with `padding-top` in `--paper` and a matching negative margin, so the bar sits where it did and nothing shows through above it. On a wide screen its `::before` runs the same ground left over the gutter and the conversation's column, whose card keeps its own sticky place. `.ui-build-anchor`'s scroll margin is unchanged, as the bar is. // DECISION |
+| The composer's hint | On an issue the hint is "Type your answer, or ask the Builder" (the About line over the box names the issue). Every conversation's hint is the design system's placeholder colour (`--ink-faint`, as `.ds-input` and `.ds-textarea`), and its bare text box draws no focus ring of its own inside the box's slate frame. // DECISION |
+
 ## 2. Package layering
 
 Arrows point to allowed dependencies. Each package's `package.json` lists only these, and

@@ -1,10 +1,14 @@
 // Form controls on the Mezonas TextField and Select (ds-field, ds-input, ds-textarea, ds-select with
 // the mz-chevron-down icon), shared by the back office and the portal; no raw colours.
-import type {
-  InputHTMLAttributes,
-  ReactNode,
-  SelectHTMLAttributes,
-  TextareaHTMLAttributes,
+import {
+  type InputHTMLAttributes,
+  type ReactNode,
+  type Ref,
+  type SelectHTMLAttributes,
+  type TextareaHTMLAttributes,
+  useEffect,
+  useLayoutEffect,
+  useRef,
 } from "react";
 import { cx } from "./cx";
 import { Icon } from "./icons";
@@ -67,17 +71,62 @@ export function TextInput({
   );
 }
 
+/** A textarea as tall as what's in it: no inner scroll, no clipped lines. */
+export function fitHeight(el: HTMLTextAreaElement): void {
+  const style = getComputedStyle(el);
+  const border =
+    (Number.parseFloat(style.borderTopWidth) || 0) +
+    (Number.parseFloat(style.borderBottomWidth) || 0);
+  // With the height let go, scrollHeight is the words' height or `rows` lines, whichever is more.
+  el.style.height = "auto";
+  el.style.height = `${el.scrollHeight + border}px`;
+}
+
+/**
+ * DECISION (plan §1.165): `autoSize`: the box grows and shrinks with its words, `rows` lines at
+ * least (owner, 2026-11-21: a brief capped at five lines cut long text off mid-line). It fits
+ * again when its width changes, since the words wrap differently.
+ */
 export function TextArea({
   invalid,
   className,
+  autoSize = false,
+  ref: outer,
   ...rest
-}: TextareaHTMLAttributes<HTMLTextAreaElement> & { invalid?: boolean }) {
+}: TextareaHTMLAttributes<HTMLTextAreaElement> & {
+  invalid?: boolean;
+  autoSize?: boolean;
+  ref?: Ref<HTMLTextAreaElement> | undefined;
+}) {
+  const own = useRef<HTMLTextAreaElement | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fit again when the words change.
+  useLayoutEffect(() => {
+    if (autoSize && own.current) fitHeight(own.current);
+  }, [autoSize, rest.value, rest.rows]);
+  useEffect(() => {
+    const el = own.current;
+    if (!autoSize || !el || typeof ResizeObserver === "undefined") return;
+    let wide = el.offsetWidth;
+    const watch = new ResizeObserver(() => {
+      if (el.offsetWidth === wide) return;
+      wide = el.offsetWidth;
+      fitHeight(el);
+    });
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [autoSize]);
   return (
     <textarea
       {...rest}
+      ref={(el) => {
+        own.current = el;
+        if (typeof outer === "function") outer(el);
+        else if (outer) outer.current = el;
+      }}
       aria-invalid={invalid || undefined}
       className={cx(
         "ds-textarea leading-relaxed disabled:opacity-60",
+        autoSize && "resize-none overflow-hidden",
         width(className),
         invalid && "ds-input--error",
         className,

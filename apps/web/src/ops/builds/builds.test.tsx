@@ -667,13 +667,24 @@ describe("Builds", () => {
     });
     renderAt(`/ops/builds/${ID}`, api3);
     const view3 = await screen.findByTestId("build-view");
-    await userEvent.selectOptions(within(view3).getByLabelText("Starts when: how sure"), "assumed");
+    // Owner (2026-11-21): how sure sits beside the field's name, as three buttons.
+    const sure = within(view3).getByRole("group", { name: "Starts when: how sure" });
+    await userEvent.click(within(sure).getByRole("button", { name: "Assumed" }));
     await waitFor(() => expect(saved).toEqual(["assumed"]));
+    expect(within(view3).getByTestId("build-brief-trigger-assumed")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     expect(within(view3).queryByTestId("build-brief-save")).toBeNull();
     // On an issue when Confirm is pressed: the move takes the conversation off it (QA, fourth
     // run: the box still said it was about an old question while the draft was made).
     await userEvent.click(within(view3).getByTestId(`build-issue-item:${ITEM}-talk`));
     expect(within(view3).getByTestId("build-focus")).toBeInTheDocument();
+    // Owner (2026-11-21): the box's hint is short and plainly a hint; the About line names it.
+    expect(within(view3).getByTestId("build-input")).toHaveAttribute(
+      "placeholder",
+      "Type your answer, or ask the Builder",
+    );
     const confirm = within(view3).getByTestId("build-confirm-brief");
     expect(confirm).toBeEnabled();
     await userEvent.click(confirm);
@@ -876,6 +887,22 @@ describe("Builds", () => {
                 dropped: false,
                 byOperator: false,
               },
+              {
+                id: "connect-podio",
+                label: "Podio",
+                kind: "connect",
+                hint: "So the agent can read the projects",
+                dropped: false,
+                byOperator: false,
+              },
+              {
+                id: "pm",
+                label: "Who is the project manager on each job?",
+                kind: "answer",
+                hint: "Name and email",
+                dropped: false,
+                byOperator: false,
+              },
             ],
           },
         },
@@ -891,18 +918,45 @@ describe("Builds", () => {
     });
     renderAt(`/ops/builds/${ID}`, api);
     const form = await screen.findByTestId("build-setup");
-    expect(form).toHaveTextContent("What we get from each client to set up their copy · 1 field");
+    expect(form).toHaveTextContent("What we get from each client to set up their copy · 3 fields");
     expect(within(form).getByLabelText("Field: Your AP address")).toHaveValue("Your AP address");
+    expect(within(form).getByLabelText("Hint: Your AP address")).toHaveValue(
+      "Where invoices are forwarded",
+    );
+    // Staging (2026-11-21): every field read "Connect a tool". Each shows its own stored kind.
+    const pressed = (id: string) =>
+      ["connect", "answer", "file"].filter(
+        (k) =>
+          within(form).getByTestId(`build-setup-${id}-kind-${k}`).getAttribute("aria-pressed") ===
+          "true",
+      );
+    expect(pressed("ap")).toEqual(["answer"]);
+    expect(pressed("connect-podio")).toEqual(["connect"]);
+    expect(pressed("pm")).toEqual(["answer"]);
+    // A kind is one press; a field taken out is struck through and has no inputs.
+    await userEvent.click(within(form).getByTestId("build-setup-ap-kind-file"));
+    expect(pressed("ap")).toEqual(["file"]);
+    await userEvent.click(within(form).getByTestId("build-setup-pm-ask"));
+    const pm = within(form).getByTestId("build-setup-pm");
+    expect(within(pm).getByTestId("build-setup-pm-ask")).toHaveAttribute("aria-checked", "false");
+    expect(within(pm).queryByRole("textbox")).toBeNull();
+    expect(within(pm).getByText("Who is the project manager on each job?")).toHaveClass(
+      "line-through",
+    );
+    expect(form).toHaveTextContent("2 fields");
     await userEvent.type(within(form).getByTestId("build-setup-new"), "Your vendor contracts");
-    await userEvent.selectOptions(within(form).getByLabelText("Kind of field"), "file");
+    await userEvent.click(within(form).getByTestId("build-setup-new-kind-file"));
     await userEvent.click(within(form).getByTestId("build-setup-add"));
     await userEvent.click(screen.getByTestId("build-fitgap-save"));
     await waitFor(() => expect(saved).toHaveLength(1));
-    const setup = (saved[0] as { fitgap: { setup: { label: string; kind: string }[] } }).fitgap
-      .setup;
-    expect(setup.map((f) => [f.label, f.kind])).toEqual([
-      ["Your AP address", "answer"],
-      ["Your vendor contracts", "file"],
+    const setup = (
+      saved[0] as { fitgap: { setup: { label: string; kind: string; dropped: boolean }[] } }
+    ).fitgap.setup;
+    expect(setup.map((f) => [f.label, f.kind, f.dropped])).toEqual([
+      ["Your AP address", "file", false],
+      ["Podio", "connect", false],
+      ["Who is the project manager on each job?", "answer", true],
+      ["Your vendor contracts", "file", false],
     ]);
   });
 
