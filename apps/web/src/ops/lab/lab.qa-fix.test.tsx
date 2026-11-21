@@ -54,8 +54,8 @@ describe("the Agent lab says what is wrong", () => {
     });
     const form = await screen.findByTestId("builds-start");
     await user.click(within(form).getByTestId("builds-start-kind-client"));
-    await user.type(within(form).getByTestId("builds-start-title"), "Bill review");
-    expect(within(form).getByTestId("builds-start-go")).toBeDisabled();
+    await user.type(within(form).getByTestId("flow-describe-name"), "Bill review");
+    expect(within(form).getByTestId("flow-describe-mine")).toBeDisabled();
     // Expected: a visible line, not only a tooltip, saying there's no client to pick.
     expect(form).toHaveTextContent(/no client|add a client|pick the client it's for/i);
   });
@@ -78,7 +78,7 @@ describe("the Agent lab says what is wrong", () => {
       }),
     });
     const form = await screen.findByTestId("builds-start");
-    await user.type(within(form).getByTestId("builds-start-title"), "Bill review");
+    await user.type(within(form).getByTestId("flow-describe-name"), "Bill review");
     expect(await within(form).findByTestId("builds-start-why")).toHaveTextContent(
       "Pick the client it's for.",
     );
@@ -87,7 +87,7 @@ describe("the Agent lab says what is wrong", () => {
       "00000000-0000-4000-8000-00000000a001",
     );
     expect(within(form).queryByTestId("builds-start-why")).toBeNull();
-    expect(within(form).getByTestId("builds-start-go")).toBeEnabled();
+    expect(within(form).getByTestId("flow-describe-mine")).toBeEnabled();
   });
 
   // FLOW-8: the clients read failing is said, with a retry.
