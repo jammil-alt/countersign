@@ -33,6 +33,7 @@ import {
   type TestTargetKind,
 } from "@countersign/core";
 import {
+  buildItem,
   connection,
   type Db,
   run,
@@ -45,7 +46,7 @@ import {
   withTenant,
 } from "@countersign/db";
 import { requestRun, type StepRunner, WaitTimeoutError } from "@countersign/workflows";
-import { and, asc, type Column, eq, isNull } from "drizzle-orm";
+import { and, asc, type Column, eq, inArray, isNull, sql } from "drizzle-orm";
 import { createRunRow } from "../runs/dispatch";
 import { executeRun, forClient, type RunDeps } from "../runs/execute";
 import { partialMarks } from "./partial";
@@ -390,6 +391,54 @@ export async function finishSuite(
         ),
       );
   });
+  // docs/plan.md §1.169: a build's test issue closes when its case passes in a full run, the
+  // step that settles it; nothing else closes it but dropping it.
+  if (status === "done" && !params.partial && totals.passed > 0) {
+    const passed = await inSuiteScope(db, params.tenantId, (tx) =>
+      tx
+        .select({ caseId: testCaseResult.testCaseId })
+        .from(testCaseResult)
+        .where(
+          and(
+            eq(testCaseResult.suiteRunId, params.suiteRunId),
+            tenantIs(testCaseResult.tenantId, params.tenantId),
+            eq(testCaseResult.status, "pass"),
+          ),
+        ),
+    );
+    if (passed.length > 0) {
+      await closePassedTests(
+        db,
+        params.tenantId,
+        passed.map((r) => r.caseId),
+      );
+    }
+  }
+}
+
+/** Closes the build test issues of these cases, now passing. */
+async function closePassedTests(
+  db: Db,
+  tenantId: string | null,
+  caseIds: readonly string[],
+): Promise<void> {
+  const note = "Settled: its test passes.";
+  await withOperator(db, tenantId ? [tenantId] : [], (tx) =>
+    tx
+      .update(buildItem)
+      .set({
+        state: "done",
+        resolvedAt: new Date(),
+        detail: sql`left(case when ${buildItem.detail} = '' then ${note} else ${buildItem.detail} || ${`\n${note}`} end, 2000)`,
+      })
+      .where(
+        and(
+          eq(buildItem.kind, "test"),
+          inArray(sql`${buildItem.ref}->>'testCaseId'`, [...caseIds]),
+          inArray(buildItem.state, ["open", "in_progress", "waiting", "deferred"]),
+        ),
+      ),
+  );
 }
 
 /** The whole suite: each case in its own step, then the totals. */

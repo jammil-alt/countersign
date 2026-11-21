@@ -6363,6 +6363,25 @@ and 1.165 belong to another open branch; 1.166 and 1.167 are the build page's cl
 | Limits and cost | Each operator's drafts are claimed per client (or no client) before the model is called (`claimMetered`, `assist.draft`): 20 a minute and 300 a day, more a minute than questions since a brief has nine fields (live dictation's own allowance is per segment, §1.109). The cost is the operator's, never a client's: logged (`assist.draft.cost`), not recorded as a client's usage, as the back office's questions are. // DECISION |
 | Not yet | Other long fields (skill and agent editors, step instructions, the portal's own forms) take the prop when the owner wants them; Draft in the portal; drafts in a client's language for templates' intake forms. |
 
+### 1.169 An issue is settled by its step, not by saying so (owner, 2026-11-21; no migration)
+
+The owner on a build's Issues card: "What does it mean for me to take it or the client or an
+engineer? What do these do?", then: "We need to make it a step that settles it... give it an
+action, not just mark it... if it is an issue, just because I say it is closed does not close it."
+"Who has it" and Status were two selects that changed a label and nothing else.
+
+| Topic | Decision |
+|---|---|
+| What only its step closes | Core `ITEM_KINDS_SETTLED_BY_STEP`: a question (by its answer, the Builder's `answered`), a gap, a test and client feedback (by what settles each). A note and a precondition are still done by a click; a QA item keeps QA's sign-off. // DECISION |
+| Done by hand | `PATCH …/items/:itemId` refuses `state: "done"` on those kinds, 409 `settled_by_its_step`. The one way out by hand is `drop: true` (core `UpdateBuildItem`): done, with "Closed as not needed." added to its detail by the server (`withNote`, now in core). Put off (`deferred`) and reopening stay. // DECISION |
+| The Builder can't either | A `close_item` proposal with `done` on one of those kinds is left out (`fitProposal`), as a proposal that doesn't fit the build is; it may still put one off. Its rules aren't changed: the recorded model answers stay valid. // DECISION |
+| Choosing a way gives it away | A turn with `{ about: item:<id>, settle }` (§1.165's three ways) first gives the item to whoever takes that step (core `SETTLE_OWNER`: Change the process and Build a skill → the Builder, Needs code → Mezonas engineering) and starts it (`in_progress`; a put-off gap is taken back up). "Who has it" is no longer picked on its own. // DECISION |
+| What closes it | The change made for it: a draft edit about a gap, test or feedback item that leaves no problem on its step closes the item, its detail ending "Settled by the change: …", and the Builder says so ("That settles “…”, so I closed it. Undo opens it again."). The edit's undo opens it again in its state before (`closed` on the decision). A skill build going live closes the item that started it ("Settled: its skill build went live."). A code request shipping closes its gap, as before (§1.125). A test item closes when its case passes in a full suite run (`finishSuite`; "Settled: its test passes."); a partial run closes nothing. // DECISION |
+| The draft's edit for a note or precondition | Still says what changed and leaves it open to be marked done; the "Yes, close it / Not yet" chips are gone. // DECISION |
+| On the page | An item's row reads "Who has it: …" and its status as a chip; neither is a select. A gap, test or feedback item in the draft or POC test shows "Settle it:" with the three ways (each button's title names who takes it), and when put off, "Take it up:" with the same three; then Put off and Drop it. A question has Answer it and a Close menu of Put off and Not needed ("Done (answered elsewhere)" is gone: type the answer). A closed item has Reopen; a put-off one no way takes up has Take it up. The Add footer has no owner: a new note is yours. Each kind's "To settle it" says what closes it. // DECISION |
+| Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
+| Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
+
 ### 1.170 The builder on one screen: a chart of the steps (owner, 2026-11-21; no migration)
 
 The design agreed on 2026-11-21 (`docs/design/builder.html`, PR #498), built on today's builder
