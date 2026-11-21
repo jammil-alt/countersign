@@ -30,6 +30,8 @@ export interface MissingActions {
   tenantId?: string | null | undefined;
   /** Whether a skill draft is being started. */
   drafting?: boolean | undefined;
+  /** `panel` (F6): the side panel shows the step's name and Remove itself. */
+  layout?: "panel" | undefined;
 }
 
 export function MissingFields(
@@ -41,12 +43,17 @@ export function MissingFields(
 ) {
   const { step } = props;
   const skillFills = step.fill === undefined || step.fill === "skill";
+  const panel = props.layout === "panel";
   return (
     <div className="flex flex-col gap-4" data-testid="builder-missing">
       <div className="mb-0">
-        <p className="eyebrow text-ink-muted">{props.eyebrow}</p>
-        <h2 className="mt-1 type-heading text-ink">{step.name || "Missing step"}</h2>
-        <p className="mt-2 text-sm text-ink">
+        {panel ? null : (
+          <>
+            <p className="eyebrow text-ink-muted">{props.eyebrow}</p>
+            <h2 className="mt-1 type-heading text-ink">{step.name || "Missing step"}</h2>
+          </>
+        )}
+        <p className={panel ? "text-sm text-ink" : "mt-2 text-sm text-ink"}>
           A piece the Builder couldn't build yet, kept where it belongs. It never runs: fill it or
           remove it before this can be published. A draft with it can be saved.
         </p>
@@ -61,16 +68,18 @@ export function MissingFields(
         <span className="text-ink">{step.need}</span>
         {step.fill ? <span className="text-ink-muted">{FILL_WORDS[step.fill]}</span> : null}
       </div>
-      <label htmlFor="builder-missing-name" className="flex flex-col gap-1 text-sm">
-        <span className="font-medium text-ink">What the step would do</span>
-        <SmallInput
-          data-field="name"
-          id="builder-missing-name"
-          data-testid="builder-inspector-name"
-          value={step.name}
-          onChange={(e) => props.onName(e.target.value)}
-        />
-      </label>
+      {panel ? null : (
+        <label htmlFor="builder-missing-name" className="flex flex-col gap-1 text-sm">
+          <span className="font-medium text-ink">What the step would do</span>
+          <SmallInput
+            data-field="name"
+            id="builder-missing-name"
+            data-testid="builder-inspector-name"
+            value={step.name}
+            onChange={(e) => props.onName(e.target.value)}
+          />
+        </label>
+      )}
       <section className="flex flex-col gap-2 border-t border-line pt-4">
         <h3 className="eyebrow text-ink-muted">Fill it</h3>
         {skillFills && props.onDraftSkill ? (
@@ -116,15 +125,17 @@ export function MissingFields(
           />
         ) : null}
       </section>
-      <div className="flex justify-end border-t border-line pt-4">
-        <Button
-          variant="ghost"
-          data-testid="builder-inspector-delete"
-          onClick={() => props.onDelete(step.id)}
-        >
-          Remove it
-        </Button>
-      </div>
+      {panel ? null : (
+        <div className="flex justify-end border-t border-line pt-4">
+          <Button
+            variant="ghost"
+            data-testid="builder-inspector-delete"
+            onClick={() => props.onDelete(step.id)}
+          >
+            Remove it
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

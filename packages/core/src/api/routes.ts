@@ -1865,6 +1865,17 @@ export const opsRoutes = {
     params: IdParams,
     response: BuilderCatalog,
   }),
+  // The builder on one screen, F7 (docs/plan.md §1.170): an automation opens in the same builder.
+  opsAutomationBuilderCatalog: defineRoute({
+    method: "GET",
+    path: "/api/ops/automations/:id/builder-catalog",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "What the builder needs for an automation's steps: skills with schemas, tools, connectors",
+    params: IdParams,
+    response: BuilderCatalog,
+  }),
   opsRuns: defineRoute({
     method: "GET",
     path: "/api/ops/runs",

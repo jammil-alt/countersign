@@ -63,7 +63,8 @@ type Scope = Pick<HandlerCtx<never>, "tx" | "tenantIds">;
 export async function builderToolInputs(
   tx: Tx,
   platform: Platform,
-  row: Pick<AgentRow, "tenantId" | "bindings">,
+  // F7: an automation has no bindings (null): its client's one connection, if it has just one.
+  row: { tenantId: string | null; bindings: Record<string, string> | null },
 ): Promise<{ toolInputs?: Record<string, ToolInputVariants> }> {
   const toolInputs = await zohoToolInputsFor(tx, platform, row);
   return Object.keys(toolInputs).length > 0 ? { toolInputs } : {};
@@ -285,8 +286,9 @@ function skillOption(
 // extra tool, a rule): a version that already uses the testkit keeps typing in the builder.
 async function hiddenTestConnectors(
   tx: Tx,
-  row: AgentRow,
-  bundle: AnyAgentBundle | null,
+  row: Pick<AgentRow, "tenantId" | "testCopy">,
+  // F7: an agent's bundle, or an automation's definition (the same reading of it as text).
+  bundle: unknown,
   platform: Platform,
 ): Promise<Set<string>> {
   const testOnly = platform.connectors.list().filter((c) => c.manifest.testOnly === true);
@@ -320,6 +322,120 @@ async function hiddenTestConnectors(
       )
       .map((c) => c.manifest.id),
   );
+}
+
+/**
+ * What a builder's catalog is asked for (the builder on one screen, F7; docs/plan.md §1.170): an
+ * agent's latest version, or an automation's, which has no agent.
+ */
+export interface CatalogSubject {
+  /** Whose operator skills, automations and connections: a client's, or null (shared only). */
+  tenantId: string | null;
+  /** A template's test copy (it is offered the testkit). */
+  testCopy: boolean;
+  /** A client agent's bound connections, for its tool inputs; null where there is no agent. */
+  bindings: Record<string, string> | null;
+  /** The latest version as stored (a bundle, or an automation's definition); null with none. */
+  latest: unknown;
+  /** The skill references the latest version names. */
+  skillRefs: readonly string[];
+  /** The tools its steps call as read or write steps. */
+  stepTools: ReadonlySet<string>;
+  /** An agent's latest bundle, for the automations it already pins; null for an automation. */
+  bundle: AnyAgentBundle | null;
+  /** Whether a use step may be placed: never inside an automation (no nesting). */
+  automations: boolean;
+}
+
+/**
+ * What the workflow builder places and types steps with (ARCHITECTURE §10.5), for an agent or for
+ * an automation's own steps: one answer, so both builders offer and validate with the same parts.
+ */
+export async function builderCatalogFor(
+  ctx: Scope & { services: { platform: Platform } },
+  subject: CatalogSubject,
+): Promise<BuilderCatalog> {
+  const { tx } = ctx;
+  const { platform } = ctx.services;
+  type Entry = BuilderCatalog["skills"][number];
+  const lookup = toolLookup(platform.tools.specs());
+  // Instructions stay out: the builder places skills, it doesn't read their prompts.
+  // Skill model (2026-11-10): each entry says its kind, and whether the palette offers it for a
+  // new step (never a tool wrapper, an agent-mode or a `rules_then_ai` skill, or one that writes).
+  const entry = (
+    ref: string,
+    def: SkillDefinition,
+    source: Entry["source"],
+    version: number | null,
+  ): Entry => {
+    const { instructions: _instructions, ...definition } = def;
+    return {
+      ref,
+      source,
+      version,
+      definition,
+      kind: skillKind(def, lookup),
+      palette: !isToolWrapper(def) && newStepSkillReason(def, lookup, platform.superseded) === null,
+    };
+  };
+  // A tool wrapper is listed only where the latest version already names it, so a stored step
+  // still types; a process uses the tool directly.
+  const named = new Set(subject.skillRefs.map((r) => parseSkillRef(r).id));
+  const skills = new Map<string, Entry>();
+  for (const def of platform.catalog.list()) {
+    if (isToolWrapper(def) && !named.has(def.id)) continue;
+    skills.set(def.id, entry(def.id, def, "builtin", null));
+  }
+  for (const s of await operatorSkills(ctx, subject.tenantId)) {
+    if (!skills.has(s.def.id)) skills.set(s.def.id, entry(s.def.id, s.def, s.source, s.version));
+  }
+  // DECISION: the builder validates with the skills the server would: a reference the latest
+  // version already makes (a pinned `@version`, a client's snapshot of a shared skill) resolves
+  // as validateForPublish resolves it (`skillContext`), and is offered under that reference.
+  for (const ref of subject.skillRefs) {
+    if (skills.has(ref)) continue;
+    const def =
+      platform.catalog.get(parseSkillRef(ref).id) ??
+      (await resolveCustomSkill(tx, { tenantId: subject.tenantId, ref }))?.definition;
+    if (def) skills.set(ref, entry(ref, def, "pinned", null));
+  }
+  // Test-only connectors (the testkit) and their tools only for the Sandbox and test copies, or
+  // where the agent or its client already uses them (core's connectorShown).
+  const hidden = await hiddenTestConnectors(tx, subject, subject.latest, platform);
+  const toolHidden = (id: string) => {
+    const owner = platform.connectors.findTool(id)?.connector.manifest.id;
+    return owner !== undefined && hidden.has(owner);
+  };
+  return {
+    skills: [...skills.values()].sort((a, b) => a.definition.name.localeCompare(b.definition.name)),
+    tools: platform.tools
+      .list()
+      .map((t) => t.spec)
+      .filter((t) => !toolHidden(t.id)),
+    // Skill model (2026-11-10): the tools a step may call directly, which the retired wrappers
+    // wrapped (a conversation's or a reach-out's handler is a step of its own, not a tool step).
+    stepTools: stepTools(platform, subject.stepTools).filter((id) => !toolHidden(id)),
+    connectors: platform.connectors
+      .list()
+      .filter((c) => !hidden.has(c.manifest.id))
+      .map((c) => ({
+        id: c.manifest.id,
+        name: c.manifest.name,
+        icon: c.manifest.icon || null,
+      })),
+    // v0.12 W2-B: automations a use step can pin (ARCHITECTURE §10.7).
+    automations: subject.automations
+      ? await builderAutomations(tx, {
+          tenantId: subject.tenantId,
+          tenantIds: ctx.tenantIds,
+          bundle: subject.bundle,
+          skills: Object.fromEntries([...skills.values()].map((s) => [s.ref, s.definition])),
+          platform,
+        })
+      : [],
+    // docs/plan.md §1.164: a client agent's Zoho writes typed from its client's own fields.
+    ...(await builderToolInputs(tx, platform, subject)),
+  };
 }
 
 export function opsLineageRoutes(app: Hono<AppEnv>): void {
@@ -407,97 +523,19 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
   });
 
   mount(app, routes.opsBuilderCatalog, async (ctx) => {
-    const { tx, services } = ctx;
-    const { platform } = services;
     const row = await agentInScope(ctx, ctx.params.id);
-    type Entry = BuilderCatalog["skills"][number];
-    const lookup = toolLookup(platform.tools.specs());
-    // Instructions stay out: the builder places skills, it doesn't read their prompts.
-    // Skill model (2026-11-10): each entry says its kind, and whether the palette offers it for a
-    // new step (never a tool wrapper, an agent-mode or a `rules_then_ai` skill, or one that writes).
-    const entry = (
-      ref: string,
-      def: SkillDefinition,
-      source: Entry["source"],
-      version: number | null,
-    ): Entry => {
-      const { instructions: _instructions, ...definition } = def;
-      return {
-        ref,
-        source,
-        version,
-        definition,
-        kind: skillKind(def, lookup),
-        palette:
-          !isToolWrapper(def) && newStepSkillReason(def, lookup, platform.superseded) === null,
-      };
-    };
-    const latest = await latestVersion(tx, row.id);
-    // A tool wrapper is listed only where the agent's latest version already names it, so a
-    // stored step still types; a process uses the tool directly.
-    const named = new Set(
-      (latest ? bundleSkillRefs(latest.bundle) : []).map((r) => parseSkillRef(r).id),
-    );
-    const skills = new Map<string, Entry>();
-    for (const def of platform.catalog.list()) {
-      if (isToolWrapper(def) && !named.has(def.id)) continue;
-      skills.set(def.id, entry(def.id, def, "builtin", null));
-    }
-    for (const s of await operatorSkills(ctx, row.tenantId)) {
-      if (!skills.has(s.def.id)) skills.set(s.def.id, entry(s.def.id, s.def, s.source, s.version));
-    }
-    // DECISION: the builder validates with the skills the server would: a reference the latest
-    // version already makes (a pinned `@version`, a client's snapshot of a shared skill) resolves
-    // as validateForPublish resolves it, and is offered under that reference.
-    if (latest) {
-      const resolved = await skillContext(tx, {
-        tenantId: row.tenantId,
-        bundle: latest.bundle,
-        catalog: platform.catalog,
-      });
-      for (const [ref, def] of Object.entries(resolved.skills)) {
-        if (!skills.has(ref)) skills.set(ref, entry(ref, def, "pinned", null));
-      }
-    }
-    // Test-only connectors (the testkit) and their tools only for the Sandbox and test copies, or
-    // where the agent or its client already uses them (core's connectorShown).
-    const hidden = await hiddenTestConnectors(tx, row, latest?.bundle ?? null, platform);
-    const toolHidden = (id: string) => {
-      const owner = platform.connectors.findTool(id)?.connector.manifest.id;
-      return owner !== undefined && hidden.has(owner);
-    };
-    return {
-      skills: [...skills.values()].sort((a, b) =>
-        a.definition.name.localeCompare(b.definition.name),
-      ),
-      tools: platform.tools
-        .list()
-        .map((t) => t.spec)
-        .filter((t) => !toolHidden(t.id)),
-      // Skill model (2026-11-10): the tools a step may call directly, which the retired wrappers
-      // wrapped (a conversation's or a reach-out's handler is a step of its own, not a tool step).
-      stepTools: stepTools(platform, bundleStepTools(latest?.bundle)).filter(
-        (id) => !toolHidden(id),
-      ),
-      connectors: platform.connectors
-        .list()
-        .filter((c) => !hidden.has(c.manifest.id))
-        .map((c) => ({
-          id: c.manifest.id,
-          name: c.manifest.name,
-          icon: c.manifest.icon || null,
-        })),
-      // v0.12 W2-B: automations a use step can pin (ARCHITECTURE §10.7).
-      automations: await builderAutomations(tx, {
-        tenantId: row.tenantId,
-        tenantIds: ctx.tenantIds,
-        bundle: latest?.bundle ?? null,
-        skills: Object.fromEntries([...skills.values()].map((s) => [s.ref, s.definition])),
-        platform,
-      }),
-      // docs/plan.md §1.164: a client agent's Zoho writes typed from its client's own fields.
-      ...(await builderToolInputs(tx, platform, row)),
-    };
+    const latest = await latestVersion(ctx.tx, row.id);
+    const bundle = latest?.bundle ?? null;
+    return builderCatalogFor(ctx, {
+      tenantId: row.tenantId,
+      testCopy: row.testCopy,
+      bindings: row.bindings,
+      latest: bundle,
+      skillRefs: bundle ? bundleSkillRefs(bundle) : [],
+      stepTools: bundleStepTools(bundle),
+      bundle,
+      automations: true,
+    });
   });
 
   // Skill model (2026-11-10): what moves if a skill step goes to another version of its skill.

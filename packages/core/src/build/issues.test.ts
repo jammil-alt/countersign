@@ -84,6 +84,68 @@ describe("buildIssues", () => {
     expect(issues.some((i) => i.source === "check")).toBe(false);
   });
 
+  it("names the step each issue is on, from the source that has one", () => {
+    const issues = buildIssues(
+      detail({
+        items: [item("a", { stepId: "s-item" }), item("b")],
+        draft: {
+          problems: [
+            {
+              key: "p1",
+              code: "input_missing",
+              title: "Amount is empty",
+              stepId: "s-problem",
+              workflow: "w",
+            },
+            {
+              key: "p2",
+              code: "no_trigger",
+              title: "Nothing starts it",
+              stepId: null,
+              workflow: "w",
+            },
+          ],
+        } as BuildDetail["draft"],
+        poc: {
+          failures: [{ caseId: "k1", name: "Over price", status: "failed", runId: null }],
+        } as BuildDetail["poc"],
+        build: {
+          phase: "poc",
+          kind: "agent",
+          fitgap: {
+            decisions: [
+              {
+                id: "d1",
+                what: "Writes the bill",
+                why: "",
+                kind: "assumption",
+                risk: "high",
+                stepId: "s-decision",
+                status: "never_discussed",
+              },
+              {
+                id: "d2",
+                what: "Pays by check",
+                why: "",
+                kind: "assumption",
+                risk: "high",
+                status: "never_discussed",
+              },
+            ],
+          },
+        } as unknown as BuildDetail["build"],
+      }),
+    );
+    const step = (key: string) => issues.find((i) => i.key === key)?.stepId;
+    expect(step("item:a")).toBe("s-item");
+    expect(step("item:b")).toBeNull();
+    expect(step("problem:p1")).toBe("s-problem");
+    expect(step("problem:p2")).toBeNull();
+    expect(step("decision:d1")).toBe("s-decision");
+    expect(step("decision:d2")).toBeNull();
+    expect(step("case:k1")).toBeNull();
+  });
+
   it("takes failing and accepted QA checks in QA, and names each by its key", () => {
     const issues = buildIssues(detail({}, "qa"));
     expect(issues).toEqual([
