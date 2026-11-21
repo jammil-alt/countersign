@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { ASSIGNED_USER_ROUTES, assignedUserMayUse, seesAgent } from "./assigned";
 // Every route the API serves, the lazily loaded groups included (the manual, the SOP).
 import { allRoutes } from "./all-routes";
+import { ASSIGNED_USER_ROUTES, assignedUserMayUse, seesAgent } from "./assigned";
 
 describe("ASSIGNED_USER_ROUTES (docs/plan.md §1.122)", () => {
   const byKey = new Map(Object.values(allRoutes).map((r) => [`${r.method} ${r.path}`, r]));
