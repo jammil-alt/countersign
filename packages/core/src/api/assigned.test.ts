@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { ASSIGNED_USER_ROUTES, assignedUserMayUse, seesAgent } from "./assigned";
-import { routes } from "./routes";
+// Every route the API serves, the lazily loaded groups included (the manual, the SOP).
+import { allRoutes } from "./all-routes";
 
 describe("ASSIGNED_USER_ROUTES (docs/plan.md §1.122)", () => {
-  const byKey = new Map(Object.values(routes).map((r) => [`${r.method} ${r.path}`, r]));
+  const byKey = new Map(Object.values(allRoutes).map((r) => [`${r.method} ${r.path}`, r]));
 
   it("names only real routes a client user may call", () => {
     for (const entry of ASSIGNED_USER_ROUTES) {
