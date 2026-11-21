@@ -513,4 +513,88 @@
       display: none;
     }
   }
+
+  /* F8 */
+  /* ── The lineage strip under the bar, the customizations list, a step against its template. ── */
+  .flow-lineage {
+    border-bottom: 1px solid var(--line);
+    background: var(--surface-subtle);
+    font: 400 13px / 20px var(--font-sans);
+    color: var(--ink-muted);
+  }
+  .flow-lineage__line {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 8px;
+    padding: 6px 16px;
+    min-height: 36px;
+  }
+  .flow-lineage__end {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+  }
+  .flow-lineage__below {
+    border-top: 1px solid var(--line);
+    background: var(--surface);
+    padding: 12px 16px;
+    max-height: 45vh;
+    overflow-y: auto;
+  }
+  .flow-lineage__link {
+    all: unset;
+    cursor: pointer;
+    color: var(--link);
+  }
+  .flow-lineage__link:hover,
+  .flow-lineage__link.is-open {
+    text-decoration: underline;
+  }
+  .flow-lineage__link:focus-visible {
+    outline: 2px solid var(--slate);
+    outline-offset: 1px;
+  }
+  .flow-custom-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 8px 16px;
+    padding: 10px 0;
+  }
+  .flow-custom-row[data-selected] {
+    background: var(--surface-subtle);
+  }
+  .flow-custom-row__name {
+    all: unset;
+    cursor: pointer;
+    font-weight: 500;
+    color: var(--ink);
+  }
+  .flow-custom-row__name:hover {
+    text-decoration: underline;
+  }
+  .flow-custom-row__name:focus-visible {
+    outline: 2px solid var(--slate);
+    outline-offset: 1px;
+  }
+  .flow-step-diff {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    background: var(--surface-subtle);
+    padding: 10px 12px;
+  }
+  /* The merge screen's chart: read only, in a frame of its own height. */
+  .flow-merge-chart {
+    height: 520px;
+    max-height: 70vh;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
 }

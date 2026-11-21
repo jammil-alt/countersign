@@ -756,7 +756,7 @@ export function workflowCounts(process: Process, env: ApprovalEnv): WorkflowCoun
 // ── Against the template (client agents) ─────────────────────────────────────────────────────────
 
 /** A step with its nested steps replaced by their ids: what the step itself says. */
-function shallow(step: Step): unknown {
+export function shallow(step: Step): unknown {
   if (step.kind === "if") {
     return {
       ...step,

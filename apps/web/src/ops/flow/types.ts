@@ -71,6 +71,11 @@ export interface StepStatus {
   decided: DecidedNote[];
   /** Against the template, for a client's agent: changed or added there. */
   customized?: "changed" | "added";
+  /**
+   * F8: words for the box's tag in place of Customized or Added, where the host marks something
+   * else (the merge screen: "Changed", "Moved", "1 conflict").
+   */
+  tag?: { word: string; tone?: "neutral" | "positive" | "warning" | "risk" };
   tried?: TryMark;
 }
 

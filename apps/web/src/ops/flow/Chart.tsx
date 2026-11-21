@@ -640,7 +640,14 @@ function StepBox(p: {
           <Icon name="chevron-right" size={14} />
         </button>
       ) : null}
-      {status?.customized ? (
+      {status?.tag ? (
+        <span
+          className={cx(pillClass(status.tag.tone ?? "neutral"), "flow-tag")}
+          data-testid={`flow-tag-${step.id}`}
+        >
+          {status.tag.word}
+        </span>
+      ) : status?.customized ? (
         <span
           className={cx(pillClass("neutral"), "flow-tag")}
           data-testid={`flow-customized-${step.id}`}
