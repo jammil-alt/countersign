@@ -1,0 +1,1111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mezonas builder prototype</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<!--
+  Mezonas builder prototype (owner, 2026-11-21): describe it, the steps are put together one by one,
+  then change them on one canvas. Drag steps, add decisions between them, click a step for its whole
+  setup with the Builder underneath. Design only: the Builder's answers and the try's results are
+  scripted, nothing is saved, and no route is called. Tokens: packages/design-system/tokens.css.
+  What it maps to in the code is in the page's own notes ("About this prototype").
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@500&display=swap">
+<style>
+/* Layout: one sticky bar; a slim rail of step kinds; the flow as one centred column; one sheet on the right. */
+:root{
+  --font-sans:"Geist",ui-sans-serif,system-ui,sans-serif;--font-mono:"Geist Mono",ui-monospace,Menlo,monospace;
+  --paper:#FAFAF9;--surface:#FFFFFF;--surface-subtle:#F2F3F2;--line:#E6E8EA;--line-strong:#8A9199;
+  --ink:#1A1F26;--ink-muted:#5B636D;--ink-faint:#959CA4;
+  --slate:#23415E;--slate-hover:#1A3249;--slate-tint:#EDF1F5;--on-slate:#FFFFFF;
+  --copper:#9A4D27;--copper-ink:#7A3D1F;--copper-tint:#F8ECE4;
+  --signal:#E3A417;--signal-ink:#6B4C05;--signal-tint:#FBF0D2;
+  --risk:#A3302A;--risk-ink:#8A2B26;--risk-tint:#F9E5E3;--risk-line:#EDB9B5;
+  --positive:#1F6B4A;--positive-tint:#E2F0E8;
+  --radius-sm:6px;--radius-md:10px;--radius-lg:14px;--radius-pill:999px;
+  --shadow-xs:0 1px 2px rgba(21,26,33,.08);--shadow-pop:0 8px 24px rgba(21,26,33,.12);--focus-halo:0 0 0 4px rgba(35,65,94,.18);
+  --scrim:rgba(21,26,33,.4);
+  --bar-h:56px;--rail-w:212px;--sheet-w:452px;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#0F1318;--surface:#171C23;--surface-subtle:#1D232B;--line:#2A313A;--line-strong:#6B747E;
+  --ink:#E6E9EC;--ink-muted:#9DA5AF;--ink-faint:#6B737D;
+  --slate:#8FB0D2;--slate-hover:#A9C3DE;--slate-tint:#1C2A38;--on-slate:#0F1318;
+  --copper:#D9895E;--copper-ink:#E3A07C;--copper-tint:#33231A;
+  --signal:#E3A417;--signal-ink:#F0C766;--signal-tint:#3A2E10;
+  --risk:#E8807A;--risk-ink:#F2A39E;--risk-tint:#3A1C1A;--risk-line:#5A2A27;
+  --positive:#7CC4A0;--positive-tint:#17301F;
+  --shadow-pop:0 8px 24px rgba(0,0,0,.5);--focus-halo:0 0 0 4px rgba(143,176,210,.25);--scrim:rgba(0,0,0,.55);
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#0F1318;--surface:#171C23;--surface-subtle:#1D232B;--line:#2A313A;--line-strong:#6B747E;
+  --ink:#E6E9EC;--ink-muted:#9DA5AF;--ink-faint:#6B737D;
+  --slate:#8FB0D2;--slate-hover:#A9C3DE;--slate-tint:#1C2A38;--on-slate:#0F1318;
+  --copper:#D9895E;--copper-ink:#E3A07C;--copper-tint:#33231A;
+  --signal:#E3A417;--signal-ink:#F0C766;--signal-tint:#3A2E10;
+  --risk:#E8807A;--risk-ink:#F2A39E;--risk-tint:#3A1C1A;--risk-line:#5A2A27;
+  --positive:#7CC4A0;--positive-tint:#17301F;
+  --shadow-pop:0 8px 24px rgba(0,0,0,.5);--focus-halo:0 0 0 4px rgba(143,176,210,.25);--scrim:rgba(0,0,0,.55);
+  color-scheme:dark}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:400 14px/20px var(--font-sans);-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:40;background:var(--surface)}
+button{font:inherit;color:inherit;cursor:pointer}
+input,textarea,select{font:inherit;color:inherit}
+h1,h2,h3,p{margin:0}
+.ico{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:square;stroke-linejoin:miter}
+.ico.s20{width:20px;height:20px}
+.eyebrow{font:500 10px/14px var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted)}
+.muted{color:var(--ink-muted)}
+.small{font-size:13px;line-height:18px}
+.grow{flex:1 1 auto;min-width:0}
+.row{display:flex;align-items:center;gap:8px}
+.wrap{flex-wrap:wrap}
+
+/* Design-system controls (ds-btn, ds-input, ds-seg, ds-pill), as in components/bundle.css */
+.btn{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:36px;padding:0 16px;border-radius:var(--radius-md);font:500 13px/1 var(--font-sans);cursor:pointer;white-space:nowrap;transition:background 160ms}
+.btn:focus-visible,.seg button:focus-visible,.plus:focus-visible,.card:focus-visible,.block:focus-visible,.linkbtn:focus-visible{outline:2px solid var(--slate);outline-offset:2px}
+.btn--pri{background:var(--slate);color:var(--on-slate)}.btn--pri:hover{background:var(--slate-hover)}
+.btn--sec{background:var(--surface);color:var(--ink);border:1px solid var(--line-strong)}.btn--sec:hover{background:var(--surface-subtle)}
+.btn--ghost{color:var(--ink)}.btn--ghost:hover{background:var(--surface-subtle)}
+.btn--sm{height:30px;padding:0 12px;font-size:12px}
+.btn--icon{width:30px;height:30px;padding:0}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.linkbtn{all:unset;color:var(--slate);font:500 13px/18px var(--font-sans);cursor:pointer}.linkbtn:hover{text-decoration:underline}
+.input,.select,.textarea{width:100%;height:36px;padding:0 12px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--surface);color:var(--ink);font:400 14px/1.4 var(--font-sans)}
+.textarea{height:auto;padding:8px 12px;resize:vertical;line-height:20px}
+.input::placeholder,.textarea::placeholder{color:var(--ink-faint)}
+.input:focus,.select:focus,.textarea:focus{outline:none;border-color:var(--slate);box-shadow:var(--focus-halo)}
+.seg{display:inline-flex;gap:2px;padding:3px;background:var(--surface-subtle);border:1px solid var(--line);border-radius:var(--radius-md);max-width:100%;flex-wrap:wrap}
+.seg button{all:unset;padding:6px 12px;border-radius:var(--radius-sm);font:500 13px/1 var(--font-sans);color:var(--ink-muted);cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:var(--shadow-xs)}
+.seg button[disabled]{opacity:.5;cursor:not-allowed}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;font:500 11px/14px var(--font-sans);white-space:nowrap;border:1px solid;border-radius:var(--radius-pill)}
+.pill--neutral{color:var(--ink-muted);background:var(--surface-subtle);border-color:var(--line)}
+.pill--accent{color:var(--slate);background:var(--slate-tint);border-color:var(--slate-tint)}
+.pill--person{color:var(--copper-ink);background:var(--copper-tint);border-color:var(--copper-tint)}
+.pill--wait{color:var(--signal-ink);background:var(--signal-tint);border-color:var(--signal)}
+.pill--ok{color:var(--positive);background:var(--positive-tint);border-color:var(--positive-tint)}
+.field{display:grid;gap:6px}
+.field>label,.label{font:500 13px/16px var(--font-sans);color:var(--ink)}
+.help{font-size:12px;line-height:17px;color:var(--ink-muted)}
+.switch{all:unset;width:32px;height:18px;border-radius:var(--radius-pill);background:var(--line-strong);padding:2px;box-sizing:border-box;display:inline-flex;flex:none;cursor:pointer;transition:background 160ms}
+.switch::after{content:"";width:14px;height:14px;border-radius:50%;background:var(--surface);transition:transform 160ms}
+.switch[aria-checked="true"]{background:var(--slate)}.switch[aria-checked="true"]::after{transform:translateX(14px)}
+
+/* Bar */
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--surface);border-bottom:1px solid var(--line)}
+.bar__in{display:flex;align-items:center;gap:12px;min-height:var(--bar-h);padding-block:8px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));flex-wrap:wrap}
+.mark{width:22px;height:22px;color:var(--slate);flex:none}
+.crumb{font-size:13px;color:var(--ink-muted);white-space:nowrap}
+.av{width:28px;height:28px;border-radius:50%;background:var(--slate);color:var(--on-slate);display:inline-flex;align-items:center;justify-content:center;font:600 11px/1 var(--font-sans);flex:none}
+.av--builder{background:var(--ink);color:var(--paper)}
+.av--you{background:var(--surface-subtle);color:var(--ink);border:1px solid var(--line)}
+.bar__name{all:unset;font:500 15px/20px var(--font-sans);min-width:0;width:11em;max-width:100%;border-bottom:1px solid transparent}
+.bar__name:hover{border-bottom-color:var(--line-strong)}.bar__name:focus{border-bottom-color:var(--slate)}
+.bar__sum{font-size:12px;line-height:16px;color:var(--ink-muted)}
+.bar__acts{display:flex;gap:8px;align-items:center;margin-left:auto;flex-wrap:wrap}
+
+/* Describe */
+.describe{max-width:1080px;margin:0 auto;padding-block:40px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:24px}
+.describe h1{font:500 30px/36px var(--font-sans);letter-spacing:-.02em;text-wrap:balance}
+.describe__grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:24px;align-items:start}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);padding:20px;display:grid;gap:16px;min-width:0}
+.pv{display:grid;gap:0}
+.pv__row{display:grid;grid-template-columns:24px 92px minmax(0,1fr);gap:10px;align-items:baseline;padding:9px 0;border-top:1px solid var(--line)}
+.pv__row:first-child{border-top:0}
+.pv__n{font:500 12px/18px var(--font-mono);color:var(--ink-faint)}
+.pv__sub{grid-column:3;font-size:12px;line-height:17px;color:var(--ink-muted)}
+
+/* Work area */
+.work{display:grid;grid-template-columns:var(--rail-w) minmax(0,1fr)}
+.rail{position:sticky;top:calc(var(--bar-h) + env(safe-area-inset-top,0px));align-self:start;max-height:calc(100vh - var(--bar-h));overflow:auto;padding:16px 12px 24px;padding-left:max(16px,env(safe-area-inset-left,0px));border-right:1px solid var(--line);background:var(--surface);min-height:calc(100vh - var(--bar-h));display:grid;gap:6px;align-content:start}
+.rail__list{display:grid;gap:6px}
+.block{box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:7px 8px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);cursor:grab;font:500 13px/18px var(--font-sans)}
+.block:hover{border-color:var(--line-strong)}
+.block .kico{width:24px;height:24px}
+.block small{display:block;font:400 11px/14px var(--font-sans);color:var(--ink-muted)}
+.canvas{min-width:0;padding-block:20px 120px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));background-image:radial-gradient(var(--line) 1px,transparent 1px);background-size:18px 18px;min-height:calc(100vh - var(--bar-h));transition:padding-right 200ms}
+.col{max-width:700px;margin:0 auto;display:grid;gap:0}
+body.has-sheet .canvas{padding-right:calc(var(--sheet-w) + 16px)}
+
+.note{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;padding:12px 14px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);font-size:13px;line-height:19px;margin-bottom:16px}
+.note>:first-child{flex:1 1 0;min-width:0}.note>:last-child{flex:none}
+.note--try{border-color:var(--slate);background:var(--slate-tint);flex-wrap:wrap}.note--try>:first-child{flex:1 1 240px}
+.agentline{display:inline-flex;align-items:center;gap:8px;font:500 13px/18px var(--font-sans);color:var(--ink-muted)}
+.agentline::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--slate);animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.25}}
+.filechip{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--surface);font:500 12px/16px var(--font-mono)}
+
+/* Flow */
+.flow{display:flex;flex-direction:column;min-height:8px}
+.lane>.flow{flex:1 1 auto;padding:10px 10px 4px}
+.lane__empty{display:flex;align-items:center;justify-content:center;min-height:46px;border:1px dashed var(--line-strong);border-radius:var(--radius-sm);font-size:12px;color:var(--ink-muted);margin-top:8px}
+.flow:has(>.node)>.lane__empty,.flow:has(>.block)>.lane__empty{display:none}
+.node{position:relative;padding-top:26px}
+.node::before{content:"";position:absolute;left:50%;top:0;height:26px;width:1px;background:var(--line-strong)}
+.lane .node{padding-top:20px}.lane .node::before{height:20px}
+.lane__h+.node{padding-top:8px}.lane__h+.node::before{display:none}
+.lane__h+.node>.plus{display:none}
+.plus{all:unset;box-sizing:border-box;position:absolute;left:50%;top:3px;transform:translateX(-50%);width:20px;height:20px;border-radius:50%;background:var(--surface);border:1px solid var(--line-strong);color:var(--ink-muted);display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:1}
+.lane .plus{top:0}
+.plus:hover,.plus[aria-expanded="true"]{background:var(--slate);border-color:var(--slate);color:var(--on-slate)}
+.plus .ico{width:12px;height:12px}
+.card{all:unset;box-sizing:border-box;display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:10px;align-items:start;width:100%;padding:12px 14px 12px 8px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);cursor:pointer;position:relative}
+.card:hover{border-color:var(--line-strong)}
+.node.is-sel>.card,.node.is-sel>.fork>.card,.trig.is-sel{border-color:var(--slate);box-shadow:0 0 0 1px var(--slate)}
+.grip{width:14px;height:28px;display:flex;align-items:center;justify-content:center;color:var(--ink-faint);cursor:grab}
+.grip .ico{width:14px;height:14px}
+.kico{width:28px;height:28px;border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;background:var(--surface-subtle);color:var(--ink-muted);flex:none;position:relative}
+.kico--write{background:var(--slate);color:var(--on-slate)}
+.kico--person{background:var(--copper-tint);color:var(--copper-ink)}
+.kico--decision,.kico--each{background:var(--slate-tint);color:var(--slate)}
+.card__main{display:grid;gap:2px;min-width:0}
+.card__top{display:flex;gap:8px;align-items:flex-start;justify-content:space-between}
+.card__name{font:500 14px/20px var(--font-sans);overflow-wrap:anywhere}
+.card__name .n{font:500 12px/20px var(--font-mono);color:var(--ink-faint);margin-right:8px}
+.node--person>.card .card__name b{color:var(--copper-ink)}
+.card__name b{font-weight:500}
+.card__sub{font-size:12px;line-height:17px;color:var(--ink-muted);overflow-wrap:anywhere}
+.card__sub .eyebrow{margin-right:6px}
+.card__tags{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;flex:none;max-width:50%}
+.res{margin-top:8px;padding:8px 10px;border-radius:var(--radius-sm);background:var(--surface-subtle);font-size:13px;line-height:18px;display:grid;gap:6px;animation:rise 260ms ease-out both}
+.res__h{display:flex;gap:8px;align-items:flex-start}
+.res--wait{background:var(--signal-tint);color:var(--ink)}
+.res__acts{display:flex;gap:12px;flex-wrap:wrap}
+.node.is-off{opacity:.45}
+.trig{background:var(--slate-tint);border-color:var(--slate-tint);grid-template-columns:auto minmax(0,1fr);padding-left:14px}
+.trig:hover{border-color:var(--slate)}
+.trig .kico{background:var(--surface);color:var(--slate)}
+.fork{border:1px solid var(--line-strong);border-radius:var(--radius-md);background:var(--surface)}
+.fork>.card{border:0;border-radius:var(--radius-md) var(--radius-md) 0 0;background:transparent}
+.node.is-sel>.fork{border-color:var(--slate);box-shadow:0 0 0 1px var(--slate)}
+.node.is-sel>.fork>.card{box-shadow:none}
+.lanes{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px;padding:0 8px 8px}
+.lane{background:var(--surface-subtle);border-radius:var(--radius-sm);min-width:0;display:flex;flex-direction:column}
+.lane__h{display:grid;gap:2px}
+.lane__t{display:flex;gap:8px;align-items:center;font:500 13px/18px var(--font-sans)}
+.ltr{width:18px;height:18px;border-radius:50%;background:var(--slate);color:var(--on-slate);font:600 10px/18px var(--font-sans);text-align:center;flex:none}
+.ltr--else{background:var(--surface);color:var(--ink-muted);border:1px solid var(--line-strong);line-height:16px}
+.lane__rule{font:500 11px/16px var(--font-mono);color:var(--ink-muted);padding-left:26px}
+.lane__add{all:unset;margin:4px 10px 10px;font:500 12px/16px var(--font-sans);color:var(--slate);cursor:pointer;align-self:flex-start}
+.lane__add:hover{text-decoration:underline}
+.join{text-align:center;padding:2px 0 10px}
+.end{position:relative;padding-top:26px;display:flex;flex-direction:column;align-items:center;gap:8px}
+.end::before{content:"";position:absolute;left:50%;top:0;height:26px;width:1px;background:var(--line-strong)}
+.end__add{all:unset;box-sizing:border-box;width:100%;text-align:center;padding:12px;border:1px dashed var(--line-strong);border-radius:var(--radius-md);font:500 13px/18px var(--font-sans);color:var(--ink-muted);cursor:pointer;background:var(--paper)}
+.end__add:hover{border-color:var(--slate);color:var(--slate)}
+.is-ghost{opacity:.35}
+.is-chosen>.card,.is-chosen>.fork{border-color:var(--slate)}
+.flow>.block{margin-top:10px;border-color:var(--slate);background:var(--slate-tint)}
+.is-fresh{animation:rise 320ms ease-out both}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* Add menu */
+.menu{position:fixed;z-index:35;width:248px;max-height:70vh;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);box-shadow:var(--shadow-pop);padding:6px;display:grid;gap:2px}
+.menu button{all:unset;box-sizing:border-box;display:flex;gap:10px;align-items:center;padding:6px 8px;border-radius:var(--radius-sm);cursor:pointer;font:500 13px/18px var(--font-sans)}
+.menu button:hover,.menu button:focus-visible{background:var(--surface-subtle)}
+.menu small{display:block;font:400 11px/14px var(--font-sans);color:var(--ink-muted)}
+.menu .kico{width:24px;height:24px}
+
+/* Sheet */
+.sheet{position:fixed;z-index:30;top:calc(var(--bar-h) + env(safe-area-inset-top,0px));right:0;bottom:0;width:var(--sheet-w);max-width:100%;background:var(--surface);border-left:1px solid var(--line);box-shadow:var(--shadow-pop);display:flex;flex-direction:column;animation:slide 200ms ease-out}
+@keyframes slide{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
+.sheet__h{padding:16px 16px 12px;padding-right:max(16px,env(safe-area-inset-right,0px));border-bottom:1px solid var(--line);display:grid;gap:6px}
+.sheet__name{all:unset;font:500 18px/24px var(--font-sans);letter-spacing:-.01em;width:100%;border-bottom:1px solid transparent}
+.sheet__name:hover{border-bottom-color:var(--line-strong)}.sheet__name:focus{border-bottom-color:var(--slate)}
+.sheet__from{font-size:12px;line-height:17px;color:var(--ink-muted)}
+.sheet__body{flex:1 1 auto;overflow:auto;padding:16px;padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:20px;align-content:start;min-height:120px}
+.grp{display:grid;gap:10px}
+.decided{border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface-subtle);padding:10px 12px;display:grid;gap:8px}
+.decided__i{display:grid;gap:1px;font-size:13px;line-height:18px}
+.pathcard{border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px;display:grid;gap:8px}
+.rule{display:grid;grid-template-columns:minmax(0,1.4fr) 64px minmax(0,1fr);gap:6px}
+details.more{border-top:1px solid var(--line);padding-top:12px}
+details.more summary{cursor:pointer;font:500 13px/18px var(--font-sans);color:var(--ink);list-style:none;display:flex;justify-content:space-between;gap:8px}
+details.more summary::-webkit-details-marker{display:none}
+details.more summary span{font-weight:400;color:var(--ink-muted)}
+.kv{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:8px 0;border-top:1px solid var(--line);font-size:13px}
+.kv:first-of-type{margin-top:10px}
+.kv .select{width:auto;max-width:60%;height:30px;font-size:13px}
+.wire{display:grid;gap:6px}
+.wire__r{display:grid;grid-template-columns:88px minmax(0,1fr);gap:8px;font-size:13px;line-height:18px;align-items:baseline}
+.wire__r code{font:500 12px/18px var(--font-mono);color:var(--ink-muted)}
+
+/* Chat dock */
+.chat{border-top:1px solid var(--line);background:var(--paper);display:flex;flex-direction:column;max-height:56%;flex:none}
+.sheet--builder .chat{max-height:none;flex:1 1 auto;border-top:0;min-height:0}
+.chat__h{display:flex;align-items:center;gap:8px;padding:10px 16px 0}
+.chat__log{overflow:auto;padding:10px 16px 4px;display:grid;gap:12px;align-content:start;flex:1 1 auto;min-height:0}
+.msg{display:grid;grid-template-columns:24px minmax(0,1fr);gap:8px;font-size:13px;line-height:19px}
+.msg .av{width:24px;height:24px;font-size:10px}
+.msg__about{font-size:11px;line-height:15px;color:var(--ink-muted)}
+.msg p+p{margin-top:6px}
+.diff{display:flex;gap:8px;align-items:center;margin-top:6px;padding:5px 8px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);font-size:12px;line-height:16px}
+.diff b{font:500 12px/16px var(--font-mono);color:var(--positive)}
+.diff b.minus{color:var(--risk)}.diff b.tilde{color:var(--slate)}
+.diff .linkbtn{margin-left:auto;font-size:12px}
+.diff .done{margin-left:auto;color:var(--ink-muted)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;padding:6px 16px 0}
+.chip{all:unset;box-sizing:border-box;padding:5px 10px;border:1px solid var(--line-strong);border-radius:var(--radius-pill);background:var(--surface);font:500 12px/16px var(--font-sans);cursor:pointer;max-width:100%}
+.chip:hover{border-color:var(--slate);color:var(--slate)}
+.composer{margin:10px 16px 16px;margin-right:max(16px,env(safe-area-inset-right,0px));margin-bottom:max(16px,env(safe-area-inset-bottom,0px));border:1px solid var(--line-strong);border-radius:var(--radius-md);background:var(--surface);display:flex;gap:8px;align-items:flex-end;padding:8px}
+.composer:focus-within{border-color:var(--slate);box-shadow:var(--focus-halo)}
+.composer textarea{all:unset;flex:1 1 auto;min-width:0;font:400 14px/20px var(--font-sans);max-height:120px;min-height:20px;white-space:pre-wrap;overflow-wrap:anywhere}
+.composer textarea::placeholder{color:var(--ink-faint)}
+
+.settle{border:1px solid var(--signal);background:var(--signal-tint);border-radius:var(--radius-sm);padding:12px;display:grid;gap:12px}
+.settle--done{border-color:var(--line);background:var(--surface-subtle)}
+.settle__i{display:grid;gap:6px;font-size:13px;line-height:18px}
+.settle__i+.settle__i{border-top:1px solid var(--line);padding-top:12px}
+.settle__q{font:500 14px/20px var(--font-sans)}
+.settle .btn--sec[aria-pressed="true"]{border-color:var(--slate);box-shadow:0 0 0 1px var(--slate)}
+.ask{display:flex;gap:8px;align-items:baseline;margin-top:6px;font-size:13px;line-height:18px}
+.ask .pill{flex:none}
+.tosettle{all:unset;cursor:pointer}.tosettle:focus-visible{outline:2px solid var(--slate);outline-offset:2px;border-radius:var(--radius-pill)}
+.todo{display:grid;grid-template-columns:20px minmax(0,1fr);gap:10px;padding:12px 0;border-top:1px solid var(--line);font-size:13px;line-height:19px}
+.todo:first-child{border-top:0}
+.todo .ico{margin-top:2px}
+.tbl{width:100%;border-collapse:collapse;font-size:13px;line-height:18px}
+.tbl th{text-align:left;font:500 10px/14px var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);padding:6px 8px 6px 0;border-bottom:1px solid var(--line)}
+.tbl td{padding:8px 8px 8px 0;border-bottom:1px solid var(--line);vertical-align:top}
+.notes ul{margin:0;padding-left:18px;display:grid;gap:6px;font-size:13px;line-height:19px}
+.fab{position:fixed;z-index:25;left:max(16px,env(safe-area-inset-left,0px));bottom:max(16px,env(safe-area-inset-bottom,0px));box-shadow:var(--shadow-pop)}
+.toast{position:fixed;z-index:50;left:50%;bottom:max(24px,env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:10px 16px;border-radius:var(--radius-sm);font:500 13px/18px var(--font-sans);box-shadow:var(--shadow-pop);max-width:calc(100% - 32px)}
+
+@media (max-width:1180px){body.has-sheet .canvas{padding-right:max(16px,env(safe-area-inset-right,0px))}}
+@media (max-width:900px){
+  .work{grid-template-columns:minmax(0,1fr)}.rail{display:none}
+  .describe__grid{grid-template-columns:minmax(0,1fr)}
+  .sheet{top:0;z-index:45;width:100%;border-left:0;padding-top:env(safe-area-inset-top,0px)}
+  .bar__sum,.crumb{display:none}
+  .card__tags{max-width:none}.card__top{flex-direction:column;gap:4px}.card__tags{justify-content:flex-start}
+  .pv__row{grid-template-columns:20px minmax(0,1fr)}.pv__row .pill{justify-self:start;grid-column:2}.pv__row b{grid-column:2}.pv__sub{grid-column:2}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="menu"></div>
+<div id="sheet"></div>
+<div id="toast" class="toast" hidden></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+<script>
+"use strict";
+/* ── Sample data: Harbor Millwork, Purchasing. Everything here is an example. ── */
+const CLIENT = "Harbor Millwork", SIGNER = "Dana Whitfield";
+const EXAMPLE = [
+  "1. When a vendor invoice arrives by email",
+  "2. Read the invoice",
+  "3. Match each line to our item list",
+  "4. Code each line to a job",
+  "5. Check each price against the last price we paid",
+  "6. Create the bill in QuickBooks",
+  "7. Tell Dana what changed",
+].join("\n");
+const PEOPLE = [SIGNER, "Lisa Park", "Harbor Millwork's admins", "Your Mezonas lead"];
+const PARTS = {
+  read: ["Purchasing · read the item list", "Purchasing · read last prices", "QuickBooks · find a bill", "QuickBooks · find a vendor", "Documents · find a document"],
+  skill: ["Read a document", "Match items across vendors", "Track price changes", "Find supporting document", "Reconcile two lists", "Write a summary"],
+  write: ["QuickBooks · create bill", "QuickBooks · update bill", "QuickBooks · create vendor", "Gmail · send email", "Texts · send text", "Purchasing · save to the item list"],
+};
+const FIELDS = ["Match confidence", "Price change", "Total", "Vendor", "How the step before ended"];
+const OPS = [">", "≥", "<", "≤", "is", "is not", "contains"];
+const K = {
+  trigger: { label: "Starts when", ico: "arrow" },
+  read: { label: "Read", ico: "search", hint: "Looks something up. Changes nothing.", blank: "Look something up" },
+  skill: { label: "Skill", ico: "worksheet", hint: "Does a piece of work from the library.", blank: "Do a piece of work" },
+  write: { label: "Change a tool", ico: "sign", hint: "Writes into the client's tool. Approval starts on.", blank: "Change something in a tool" },
+  person: { label: "Person", ico: "lead", hint: "Someone approves or answers.", blank: "Ask a person" },
+  notify: { label: "Tell someone", ico: "message", hint: "Your team or the client's.", blank: "Tell someone" },
+  decision: { label: "Decision", ico: "fork", hint: "Paths with rules. The first that matches runs.", blank: "Decide what happens" },
+  each: { label: "For each", ico: "loop", hint: "Runs its steps once per item.", blank: "For each item" },
+  wait: { label: "Wait", ico: "clock", hint: "Pauses for a while.", blank: "Wait" },
+  stop: { label: "Stop", ico: "stop", hint: "Ends the run here.", blank: "Stop here" },
+};
+const ADDABLE = ["read", "skill", "write", "person", "notify", "decision", "each", "wait", "stop"];
+const ICONS = {
+  add: '<path d="M12 5v14 M5 12h14"/>', alert: '<path d="M12 3.5l9.5 16.5h-19z M12 10v4.5"/><circle fill="currentColor" stroke="none" cx="12" cy="17.25" r="1"/>',
+  arrow: '<path d="M4 12h16 M14 6l6 6-6 6"/>', check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>', close: '<path d="M6 6l12 12 M18 6L6 18"/>',
+  search: '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/>', worksheet: '<path d="M4 6.5l1.5 1.5L8 5.5 M11 7h9 M4 12.5l1.5 1.5L8 11.5 M11 13h9 M4 18.5h4 M11 18.5h9"/>',
+  sign: '<path d="M14.5 4.5l3 3L9 16H6v-3z"/><path d="M4 20h16"/>', lead: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6"/>',
+  message: '<path d="M4 5h16v11H9l-5 4z M8 9h8 M8 12h5"/>', fork: '<path d="M12 3.5l8.5 8.5-8.5 8.5L3.5 12z"/>',
+  loop: '<path d="M5 11a7 7 0 0 1 12.5-3.5L19 9 M19 5v4h-4 M19 13a7 7 0 0 1-12.5 3.5L5 15 M5 19v-4h4"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>', stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="1"/>',
+  grip: '<circle fill="currentColor" stroke="none" cx="9" cy="6" r="1.3"/><circle fill="currentColor" stroke="none" cx="15" cy="6" r="1.3"/><circle fill="currentColor" stroke="none" cx="9" cy="12" r="1.3"/><circle fill="currentColor" stroke="none" cx="15" cy="12" r="1.3"/><circle fill="currentColor" stroke="none" cx="9" cy="18" r="1.3"/><circle fill="currentColor" stroke="none" cx="15" cy="18" r="1.3"/>',
+  undo: '<path d="M8 6l-4 4 4 4 M4 10h10.5a4.5 4.5 0 0 1 0 9H11"/>', info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5"/><circle fill="currentColor" stroke="none" cx="12" cy="7.75" r="1"/>',
+  upload: '<path d="M12 15V4 M7 9l5-5 5 5 M4 15v5h16v-5"/>', send: '<path d="M12 19V5 M6 11l6-6 6 6"/>',
+};
+const ic = (n, c = "") => `<svg class="ico ${c}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ""}</svg>`;
+const MARK = '<svg class="mark" viewBox="0 0 48 48" fill="currentColor" role="img" aria-label="Mezonas"><rect x="12" y="14" width="24" height="20" rx="2"/><rect x="15" y="6" width="7" height="4" rx="1"/><rect x="26" y="6" width="7" height="4" rx="1"/><rect x="15" y="38" width="7" height="4" rx="1"/><rect x="26" y="38" width="7" height="4" rx="1"/><rect x="4" y="20.5" width="4" height="7" rx="1"/><rect x="40" y="20.5" width="4" height="7" rx="1"/></svg>';
+
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+const plural = (n, w, ws) => `${n} ${n === 1 ? w : ws || w + "s"}`;
+const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+let uid = 0;
+const nid = () => "s" + ++uid;
+
+const S = {
+  view: "describe", name: "Invoice intake", desc: EXAMPLE, trigger: null, steps: [], sel: null, sheet: null, menu: null,
+  hist: [], chat: [], busy: false, try: null, tried: false, live: false, note: null, building: null, file: "Baltic-Lumber-INV-4471.pdf",
+};
+const fresh = new Set();
+
+/* ── Steps: make, guess from words, find ── */
+function mk(kind, name, x = {}) {
+  const s = { id: nid(), kind, name: name || K[kind].blank, from: "", decided: [], open: [], onError: "Stop the run" };
+  if (kind === "read") Object.assign(s, { part: PARTS.read[4], tool: "Documents" });
+  if (kind === "skill") Object.assign(s, { part: "The Builder picks from the library", tool: "" });
+  if (kind === "write") Object.assign(s, { part: PARTS.write[0], tool: "QuickBooks", approval: "Ask first", who: SIGNER });
+  if (kind === "person") Object.assign(s, { mode: "Answer", who: SIGNER, where: "Inbox", deadline: "3 days", noAnswer: "Stop the run and tell us" });
+  if (kind === "notify") Object.assign(s, { to: SIGNER, where: "Inbox", message: "" });
+  if (kind === "decision") Object.assign(s, { paths: [{ id: nid(), name: "Path A", rule: { field: "", op: ">", value: "" }, steps: [] }, { id: nid(), name: "Otherwise", rule: null, steps: [] }] });
+  if (kind === "each") Object.assign(s, { over: "the list from the step before", paths: [{ id: nid(), name: "Each item", rule: null, each: true, steps: [] }] });
+  if (kind === "wait") s.dur = "2 days";
+  if (kind === "stop") s.as = "Succeeded";
+  return Object.assign(s, x);
+}
+const clean = (line) => line.replace(/^\s*(\d+[.)]|[-*•])\s*/, "").trim().replace(/[.;]$/, "");
+function guess(words) {
+  const t = clean(words), l = t.toLowerCase();
+  let m;
+  if ((m = t.match(/^if (.+?)(?:,| then) (.+)$/i))) return decisionFrom(m[1], m[2], t);
+  if ((m = t.match(/^for each ([^,]+),? (.+)$/i))) {
+    const e = mk("each", cap(`For each ${m[1]}`), { from: t, over: m[1] });
+    e.paths[0].steps.push(guess(m[2]));
+    return e;
+  }
+  if (/^wait\b/.test(l)) return mk("wait", cap(t), { from: t, dur: (l.match(/\d+ \w+/) || ["2 days"])[0] });
+  if (/^(stop|end)\b/.test(l)) return mk("stop", cap(t), { from: t });
+  if (/^(ask|have .+ (approve|review|check|sign)|get .+ (approval|sign))/.test(l)) {
+    const approve = /approve|sign|ok\b|okay/.test(l);
+    return mk("person", cap(t), { from: t, mode: approve ? "Approve" : "Answer", who: who(l), decided: [{ what: "Waits up to 3 days, then stops and tells you", why: "No deadline was given, so it stops rather than going ahead.", f: "deadline" }] });
+  }
+  if (/^(tell|notify|alert|let .+ know|remind|report to)/.test(l))
+    return mk("notify", cap(t), { from: t, to: who(l), message: "What changed on this invoice, with the lines it came from.", decided: [{ what: "Sent to the inbox", why: "No channel was given.", f: "where" }] });
+  if (/^(create|update|add|post|send|attach|file|save|record|enter|mark|email|text|upload)\b/.test(l)) {
+    let part = "QuickBooks · update bill";
+    if (/vendor/.test(l) && /create|add/.test(l)) part = "QuickBooks · create vendor";
+    else if (/bill|invoice/.test(l)) part = /update|attach|mark/.test(l) ? "QuickBooks · update bill" : "QuickBooks · create bill";
+    else if (/email|send/.test(l)) part = "Gmail · send email";
+    else if (/text|sms/.test(l)) part = "Texts · send text";
+    else if (/item|catalog|price/.test(l)) part = "Purchasing · save to the item list";
+    const tool = part.split(" · ")[0];
+    const open = [{ k: "who", type: "Question", text: "Who signs this?", why: `Approval is on, so someone signs each one. ${SIGNER.split(" ")[0]} is ${CLIENT}'s default approver.`, opts: [SIGNER, "Lisa Park", "Your Mezonas lead"], using: SIGNER, f: "who" }];
+    if (tool === "Gmail") open.push(gmailIssue());
+    return mk("write", cap(t), { from: t, part, tool, open, decided: [{ what: "Approval is on", why: "Every step that changes a tool starts with approval.", f: "" }] });
+  }
+  if (/^(find|look|get|pull|fetch|list|search)\b/.test(l)) {
+    const part = /bill/.test(l) ? PARTS.read[2] : /vendor/.test(l) ? PARTS.read[3] : /price/.test(l) ? PARTS.read[1] : /item/.test(l) ? PARTS.read[0] : PARTS.read[4];
+    return mk("read", cap(t), { from: t, part, tool: part.split(" · ")[0] });
+  }
+  if (/^(read|extract|parse|match|check|compare|reconcile|summari[sz]e|draft|track|classify|categori[sz]e)\b/.test(l)) {
+    const part = /match/.test(l) ? PARTS.skill[1] : /price|cost/.test(l) ? PARTS.skill[2] : /reconcil|compare/.test(l) ? PARTS.skill[4] : /summar|draft/.test(l) ? PARTS.skill[5] : PARTS.skill[0];
+    const open = part === PARTS.skill[2] ? [{ k: "flag", type: "Question", text: "How big a price change should it flag?", why: "No threshold was given, so it starts strict.", opts: ["5% or more", "10% or more", "Any change"], using: "5% or more", f: "flag" }] : [];
+    return mk("skill", cap(t), { from: t, part, open, flag: "5% or more" });
+  }
+  // Nothing in the library does it: a person does this part for now (works first).
+  return mk("person", cap(t), { from: t, gap: true, mode: "Answer", who: SIGNER, open: [{ k: "gap", type: "Issue", text: "Nothing in the library does this yet.", why: `So ${SIGNER} does it for now and the run waits for them. It works today.`, opts: ["Keep a person", "Build a skill", "Needs code"] }] });
+}
+const gmailIssue = () => ({ k: "gmail", type: "Issue", text: `Gmail isn't connected for ${CLIENT}.`, why: "They sign in to their own Gmail. This step waits until they do.", opts: [`Ask ${CLIENT} to connect it`, "Send by text instead"] });
+const openOf = (st) => (st.open || []).filter((o) => !o.done);
+function allOpen() { const a = []; walk(S.steps, (st) => openOf(st).forEach((o) => a.push({ st, o }))); return a; }
+function who(l) {
+  if (/lisa/.test(l)) return "Lisa Park";
+  if (/lead|us\b|mezonas/.test(l)) return "Your Mezonas lead";
+  return SIGNER;
+}
+function ruleFrom(c) {
+  const l = c.toLowerCase();
+  let m;
+  if (/match|unsure|confiden/.test(l)) return { field: "Match confidence", op: "<", value: "90%" };
+  if ((m = l.match(/(\d+(?:\.\d+)?)\s*%/))) return { field: /price|cost/.test(l) ? "Price change" : "Change", op: /less|under|below|down/.test(l) ? "<" : ">", value: m[1] + "%" };
+  if ((m = l.match(/\$\s?([\d,]+)/))) return { field: /total|bill|invoice/.test(l) ? "Total" : "Amount", op: /less|under|below/.test(l) ? "<" : ">", value: "$" + m[1] };
+  return { field: "", op: "is", value: "" };
+}
+function decisionFrom(cond, then, from) {
+  const d = mk("decision", cap(clean(cond)) + "?", { from: from || "" });
+  d.paths[0].name = cap(clean(cond));
+  d.paths[0].rule = ruleFrom(cond);
+  if (then) d.paths[0].steps.push(guess(then));
+  return d;
+}
+function triggerFrom(words) {
+  const t = clean(words), l = t.toLowerCase();
+  if (!/^(when|whenever|every|each (day|week|morning|month)|daily|weekly|on |at \d)/.test(l)) return null;
+  const g = { id: "trigger", kind: "trigger", name: cap(t), from: t, decided: [] };
+  if (/every|daily|weekly|each |at \d/.test(l)) Object.assign(g, { starts: "On a schedule", detail: "Weekdays at 7:00", decided: [{ what: "Weekdays at 7:00", why: "No time was given.", f: "detail" }] });
+  else if (/email|inbox|forward|invoice|document|upload|receipt/.test(l)) Object.assign(g, { starts: "A document arrives", detail: "Forwarded email · ap@harbormillwork.mezonas.com", decided: [{ what: `Watches the address ${CLIENT} already forwards invoices to`, why: "The description says by email, and that inbox is connected.", f: "detail" }] });
+  else Object.assign(g, { starts: "A record changes", detail: "QuickBooks" });
+  return g;
+}
+function parseDesc(text) {
+  const lines = text.split("\n").map((x) => x.trim()).filter((x) => clean(x));
+  let trigger = lines.length ? triggerFrom(lines[0]) : null;
+  const rest = trigger ? lines.slice(1) : lines;
+  if (!trigger) trigger = { id: "trigger", kind: "trigger", name: "Started by hand", from: "", starts: "A person starts it", detail: "From the agent's page", decided: [{ what: "Starts by hand", why: "The description doesn't say what starts it.", f: "starts" }] };
+  return { trigger, steps: rest.map(guess) };
+}
+function walk(list, fn, depth = 0) {
+  for (const st of list) {
+    fn(st, list, depth);
+    if (st.paths) for (const p of st.paths) walk(p.steps, fn, depth + 1);
+  }
+}
+function find(id) {
+  if (id === "trigger") return S.trigger;
+  let hit = null;
+  walk(S.steps, (st) => { if (st.id === id) hit = st; });
+  return hit;
+}
+function locate(id) {
+  let hit = null;
+  walk(S.steps, (st, list) => { if (st.id === id) hit = { list, index: list.indexOf(st) }; });
+  return hit;
+}
+function listOf(lid) {
+  if (lid === "root") return S.steps;
+  let hit = null;
+  walk(S.steps, (st) => { if (st.paths) for (const p of st.paths) if (p.id === lid) hit = p.steps; });
+  return hit;
+}
+function counts() {
+  const c = { steps: 0, decisions: 0, writes: 0, approvals: 0, decided: S.trigger ? S.trigger.decided.length : 0, gaps: 0, tools: new Set(), people: new Set() };
+  walk(S.steps, (st) => {
+    c.steps++;
+    if (st.kind === "decision") c.decisions++;
+    if (st.kind === "write") { c.writes++; if (st.approval === "Ask first") c.approvals++; c.people.add(st.who); }
+    if (st.kind === "person") c.people.add(st.who);
+    if (st.gap) c.gaps++;
+    if (st.tool) c.tools.add(st.tool);
+    c.decided += st.decided.length;
+  });
+  return c;
+}
+const snap = () => JSON.stringify({ trigger: S.trigger, steps: S.steps });
+const commit = () => S.hist.push(snap());
+function undo() {
+  const s = S.hist.pop();
+  if (!s) return;
+  Object.assign(S, JSON.parse(s));
+  if (S.sel && !find(S.sel)) { S.sel = null; if (S.sheet && S.sheet.type === "step") S.sheet = null; }
+  S.try = null;
+  renderAll();
+}
+
+/* ── Describe ── */
+function describeHTML() {
+  return `<header class="bar"><div class="bar__in">${MARK}<span class="crumb">Back office</span><span class="pill pill--accent">${CLIENT}</span><span class="crumb">New agent</span>
+    <div class="bar__acts"><button class="btn btn--ghost btn--sm" data-act="sheet" data-type="notes">${ic("info")}About this prototype</button></div></div></header>
+  <main class="describe">
+    <div style="display:grid;gap:8px;max-width:62ch"><h1>What should it do?</h1>
+    <p class="muted" style="font-size:15px;line-height:23px">List the steps, one a line. The Builder puts them together in your order and asks nothing. You change it after, on the canvas.</p></div>
+    <div class="describe__grid">
+      <div class="panel">
+        <div class="field"><label for="aname">Name</label><input class="input" id="aname" value="${esc(S.name)}"></div>
+        <div class="field"><label for="desc">The steps</label><textarea class="textarea" id="desc" rows="9">${esc(S.desc)}</textarea>
+        <span class="help">Start a line with "When" for what starts it, or "If …, …" for a decision. Leave the rest out: defaults are applied and written on the step they shape.</span></div>
+        <div class="row wrap"><button class="btn btn--pri" data-act="build">Build it</button><button class="btn btn--ghost" data-act="blank">Start with a blank canvas</button></div>
+      </div>
+      <div class="panel" aria-live="polite"><div class="row" style="justify-content:space-between"><span class="eyebrow">What it will put together</span><span class="eyebrow" id="pvn"></span></div><div class="pv" id="pv"></div></div>
+    </div>
+  </main>`;
+}
+function renderPreview() {
+  const el = $("#pv");
+  if (!el) return;
+  const { trigger, steps } = parseDesc(S.desc);
+  const rows = [trigger, ...steps];
+  $("#pvn").textContent = plural(steps.length, "step");
+  el.innerHTML = rows.map((st, i) => `<div class="pv__row"><span class="pv__n">${i || "↯"}</span><span class="pill ${st.kind === "person" ? "pill--person" : st.kind === "trigger" || st.kind === "decision" ? "pill--accent" : "pill--neutral"}">${K[st.kind].label}</span><b style="font-weight:500;overflow-wrap:anywhere">${esc(st.name)}</b>${st.gap ? `<span class="pv__sub">Nothing in the library does this yet. A person does it for now.</span>` : st.kind === "decision" ? `<span class="pv__sub">${esc(st.paths[0].steps[0] ? st.paths[0].steps[0].name : "")} · otherwise it goes on</span>` : ""}</div>`).join("") || `<p class="muted small">Write a step to see it here.</p>`;
+}
+
+/* ── Build view ── */
+function barHTML() {
+  const c = counts();
+  const sum = [plural(c.steps, "step"), c.decisions ? plural(c.decisions, "decision") : "", c.writes ? `${c.writes} change${c.writes === 1 ? "s" : ""} a tool` : "", c.approvals ? `${c.approvals} need${c.approvals === 1 ? "s" : ""} approval` : ""].filter(Boolean).join(" · ");
+  return `<div class="bar__in">${MARK}<span class="crumb">Back office</span><span class="pill pill--accent">${CLIENT}</span>
+    <span class="av">${esc(S.name.trim().slice(0, 2).toUpperCase() || "AG")}</span>
+    <div style="display:grid;min-width:0"><div class="row"><input class="bar__name" id="aname2" value="${esc(S.name)}" aria-label="Agent name"><span class="pill ${S.live ? "pill--ok" : "pill--neutral"}">${S.live ? "In trial · v1" : "Draft"}</span></div><span class="bar__sum">${sum}</span></div>
+    ${allOpen().length ? `<button class="tosettle" data-act="nextopen" title="Open the next step with something to settle"><span class="pill pill--wait">${allOpen().length} to settle</span></button>` : ""}
+    <div class="bar__acts">
+      <button class="btn btn--ghost btn--sm" data-act="undo" ${S.hist.length ? "" : "disabled"} title="Undo (Ctrl or ⌘ Z)">${ic("undo")}Undo</button>
+      <button class="btn btn--sec btn--sm" data-act="sheet" data-type="builder">${ic("message")}Ask the Builder</button>
+      <button class="btn btn--sec btn--sm" data-act="try" ${S.building ? "disabled" : ""}>Try it</button>
+      <button class="btn btn--pri btn--sm" data-act="sheet" data-type="turnon" ${S.building || S.live ? "disabled" : ""}>Turn on</button>
+    </div></div>`;
+}
+function railHTML() {
+  return `<span class="eyebrow">Add a step</span><p class="help" style="margin-bottom:6px">Drag one onto the flow, or press + between two steps.</p>
+  <div class="rail__list" id="pal">${ADDABLE.map((k) => `<div class="block" role="button" tabindex="0" data-kind="${k}" data-act="paladd" title="${esc(K[k].hint)}"><span class="kico kico--${k}">${ic(K[k].ico)}</span><span>${K[k].label}<small>${esc(K[k].hint)}</small></span></div>`).join("")}</div>
+  <p class="help" style="margin-top:10px">Which skill or tool a step uses is picked on the step. The Builder picks one from its name.</p>`;
+}
+function subOf(st) {
+  if (st.kind === "read" || st.kind === "skill" || st.kind === "write") return esc(st.part);
+  if (st.kind === "person") return `${st.gap ? "Does this for now" : st.mode === "Approve" ? "Approves" : "Answers"} · ${esc(st.who)} · waits up to ${esc(st.deadline)}`;
+  if (st.kind === "notify") return `${esc(st.to)} · ${esc(st.where.toLowerCase())}`;
+  if (st.kind === "decision") return `${plural(st.paths.length, "path")}, checked in order, then they join`;
+  if (st.kind === "each") return `Over ${esc(st.over)}`;
+  if (st.kind === "wait") return `For ${esc(st.dur)}`;
+  if (st.kind === "stop") return `Ends the run as ${esc(st.as.toLowerCase())}`;
+  return "";
+}
+function resHTML(id) {
+  const t = S.try;
+  if (!t) return "";
+  const r = t.res[id];
+  if (!r || t.order.indexOf(id) >= t.shown) return "";
+  return `<div class="res ${r.tone === "wait" ? "res--wait" : ""}"><div class="res__h"><span class="pill ${r.tone === "wait" ? "pill--wait" : "pill--ok"}">${r.tone === "wait" ? "Look" : r.would ? "Would" : "Did"}</span><span>${esc(r.text)}</span></div>
+    ${id === "trigger" ? "" : `<div class="res__acts">${r.offer ? `<button class="linkbtn" data-act="adddecision" data-id="${id}" data-offer="${r.offer}">Add a decision here</button>` : ""}<button class="linkbtn" data-act="fixwith" data-id="${id}">Not right? Tell the Builder</button></div>`}</div>`;
+}
+function tagsOf(st) {
+  const t = [];
+  if (st.kind === "write") t.push(st.approval === "Ask first" ? `<span class="pill pill--person">Needs approval</span>` : `<span class="pill pill--accent">On its own</span>`);
+  return t.join("");
+}
+function nodeHTML(st, label, lid, i) {
+  const off = S.try && S.try.done && !S.try.res[st.id] ? " is-off" : "";
+  const cls = `node node--${st.kind}${S.sel === st.id ? " is-sel" : ""}${fresh.has(st.id) ? " is-fresh" : ""}${off}`;
+  const dec = st.decided.length ? ` · ${st.decided.length} decided for you` : "";
+  const card = `<div class="card" role="button" tabindex="0" data-act="open" data-id="${st.id}" aria-label="${esc(st.name)}: open its setup">
+      <span class="grip" title="Drag to move">${ic("grip")}</span><span class="kico kico--${st.kind}">${ic(K[st.kind].ico)}</span>
+      <span class="card__main"><span class="card__top"><span class="card__name"><span class="n">${label}</span><b>${esc(st.name)}</b></span><span class="card__tags">${tagsOf(st)}</span></span>
+      <span class="card__sub"><span class="eyebrow">${K[st.kind].label}</span>${subOf(st)}${dec}</span>${openOf(st).slice(0, 2).map((o) => `<span class="ask"><span class="pill pill--wait">${o.type}</span><span>${esc(o.text)}</span></span>`).join("")}${resHTML(st.id)}</span></div>`;
+  const plus = `<button class="plus" data-act="plus" data-list="${lid}" data-index="${i}" aria-label="Add a step before ${esc(st.name)}" aria-expanded="${!!(S.menu && S.menu.list === lid && S.menu.index === i)}">${ic("add")}</button>`;
+  if (!st.paths) return `<div class="${cls}" data-id="${st.id}">${plus}${card}</div>`;
+  const lanes = st.paths.map((p, pi) => {
+    const letter = p.each ? "" : p.rule ? String.fromCharCode(65 + pi) : "";
+    const rule = p.each ? "" : p.rule ? (p.rule.field ? `${p.rule.field} ${p.rule.op} ${p.rule.value}` : "No rule yet") : "None of the above";
+    return `<div class="lane"><div class="flow" data-list="${p.id}"><div class="lane__h"><span class="lane__t">${p.each ? "" : `<span class="ltr ${p.rule ? "" : "ltr--else"}">${letter || "·"}</span>`}${esc(p.name)}</span>${rule ? `<span class="lane__rule" ${p.each ? 'style="padding-left:0"' : ""}>${esc(rule)}</span>` : ""}</div>${p.steps.map((x, xi) => nodeHTML(x, `${letter}${xi + 1}`, p.id, xi)).join("")}<div class="lane__empty">${p.each ? "Drop its steps here." : "Nothing here. The run goes on."}</div></div>
+      <button class="lane__add" data-act="plus" data-list="${p.id}" data-index="${p.steps.length}">+ Add a step</button></div>`;
+  }).join("");
+  return `<div class="${cls}" data-id="${st.id}">${plus}<div class="fork">${card}<div class="lanes">${lanes}</div>${st.kind === "decision" ? `<div class="join eyebrow">Paths join here</div>` : ""}</div></div>`;
+}
+function noteHTML() {
+  if (S.building) return `<div class="note"><span class="agentline">Putting it together: step ${S.steps.length + 1} of ${S.building.total}</span><span class="muted">${esc(S.building.queue[0] ? "“" + S.building.queue[0].from + "”" : "")}</span></div>`;
+  if (S.try) {
+    const t = S.try;
+    return `<div class="note note--try"><div style="display:grid;gap:4px"><span class="row wrap"><b style="font-weight:500">${t.done ? "Tried it on" : "Trying it on"}</b><span class="filechip">${ic("upload")}${esc(S.file)}</span></span><span class="muted">${t.done ? "Each step shows what it did. Nothing was written to QuickBooks." : "Reading real data. Nothing is written."}</span></div>
+      <div class="row wrap"><label class="btn btn--sec btn--sm" style="cursor:pointer">Use another file<input type="file" id="tryfile" hidden></label><button class="btn btn--sec btn--sm" data-act="try">Try again</button><button class="btn btn--ghost btn--sm" data-act="endtry">Done</button></div></div>`;
+  }
+  if (S.note) return `<div class="note"><span>${S.note}</span><div class="row">${allOpen().length ? `<button class="linkbtn" data-act="nextopen" style="white-space:nowrap">Start with the first</button>` : `<button class="linkbtn" data-act="sheet" data-type="builder" style="white-space:nowrap">What was decided</button>`}<button class="btn btn--ghost btn--icon" data-act="dismiss" aria-label="Dismiss">${ic("close")}</button></div></div>`;
+  return "";
+}
+function canvasHTML() {
+  const g = S.trigger;
+  return `<div class="col">${noteHTML()}
+    <div class="card trig${S.sel === "trigger" ? " is-sel" : ""}" role="button" tabindex="0" data-act="open" data-id="trigger"><span class="kico">${ic("arrow")}</span>
+      <span class="card__main"><span class="card__name"><b>${esc(g.name)}</b></span><span class="card__sub"><span class="eyebrow">Starts when</span>${esc(g.starts)} · ${esc(g.detail)}${g.decided.length ? ` · ${g.decided.length} decided for you` : ""}</span>${resHTML("trigger")}</span></div>
+    <div class="flow" data-list="root">${S.steps.map((st, i) => nodeHTML(st, String(i + 1), "root", i)).join("")}</div>
+    ${S.building ? "" : `<div class="end"><button class="end__add" data-act="plus" data-list="root" data-index="${S.steps.length}">+ Add a step</button><button class="linkbtn" data-act="sheet" data-type="builder">or tell the Builder what comes next</button></div>`}
+  </div>`;
+}
+function buildHTML() {
+  return `<header class="bar" id="bar">${barHTML()}</header><div class="work"><aside class="rail" aria-label="Add a step">${railHTML()}</aside><main class="canvas" id="canvas">${canvasHTML()}</main></div>
+  <button class="btn btn--sec btn--sm fab" data-act="sheet" data-type="notes">${ic("info")}About this prototype</button>`;
+}
+
+/* ── Sheet ── */
+const opt = (v, cur) => `<option ${v === cur ? "selected" : ""}>${esc(v)}</option>`;
+const sel = (f, list, cur, x = "") => `<select class="select" data-f="${f}" ${x}>${(list.includes(cur) ? list : [cur, ...list]).map((v) => opt(v, cur)).join("")}</select>`;
+const seg = (f, list, cur, dis = []) => `<div class="seg" role="group">${list.map((v) => `<button data-act="seg" data-f="${f}" data-v="${esc(v)}" aria-pressed="${v === cur}" ${dis.includes(v) ? "disabled" : ""}>${esc(v)}</button>`).join("")}</div>`;
+function wires(st) {
+  const prev = [];
+  let seen = false;
+  walk(S.steps, (x) => { if (x.id === st.id) seen = true; if (!seen && x.kind !== "decision") prev.push(x); });
+  const last = prev[prev.length - 1];
+  const rows = st.kind === "write" ? [["Vendor", "the invoice · vendor"], ["Lines", last ? `“${last.name}” · its lines` : "the invoice · lines"], ["Total", "the invoice · total"]]
+    : [["Reads", last ? `“${last.name}” · what it produced` : "what started the run"]];
+  return `<div class="wire">${rows.map((r) => `<div class="wire__r"><span class="muted">${r[0]}</span><code>${esc(r[1])}</code></div>`).join("")}</div><span class="help">Filled in by the Builder from the steps before. Tell it below if this step should read something else.</span>`;
+}
+function setupHTML(st) {
+  const g = [];
+  const items = st.open || [];
+  if (items.length) {
+    const left = openOf(st).length, next = allOpen().find((x) => x.st.id !== st.id);
+    g.push(`<div class="settle ${left ? "" : "settle--done"}"><span class="eyebrow">${left ? "To settle on this step" : "Settled on this step"}</span>${items.map((o, i) => o.done
+      ? `<div class="settle__i"><span class="row" style="justify-content:space-between;align-items:baseline"><span>${ic("check")} ${esc(o.text)} <b style="font-weight:500">${esc(o.done)}</b></span><button class="linkbtn" data-act="reopen" data-i="${i}">Change</button></span></div>`
+      : `<div class="settle__i"><span class="row"><span class="pill pill--wait">${o.type}</span></span><span class="settle__q">${esc(o.text)}</span>${o.why ? `<span class="muted">${esc(o.why)}</span>` : ""}
+        <div class="row wrap">${o.opts.map((v) => `<button class="btn btn--sec btn--sm" data-act="settle" data-i="${i}" data-v="${esc(v)}" aria-pressed="${v === o.using}">${esc(v)}${v === o.using ? " · using this" : ""}</button>`).join("")}</div>
+        ${o.using ? `<span class="help">It runs on “${esc(o.using)}” until you say otherwise.</span>` : ""}</div>`).join("")}
+      ${!left && next ? `<div><button class="linkbtn" data-act="nextopen">Next to settle: “${esc(next.st.name)}”</button></div>` : ""}</div>`);
+  }
+  if (st.decided.length) g.push(`<div class="decided"><span class="eyebrow">Decided for you</span>${st.decided.map((d, i) => `<div class="decided__i"><span class="row" style="justify-content:space-between;align-items:baseline"><span>${esc(d.what)}</span>${d.f ? `<button class="linkbtn" data-act="focusf" data-f="${d.f}">Change</button>` : ""}</span><span class="muted" style="font-size:12px">${esc(d.why)}</span></div>`).join("")}</div>`);
+  const k = st.kind;
+  if (k === "trigger") {
+    g.push(`<div class="grp"><div class="field"><label>Starts when</label>${sel("starts", ["A document arrives", "On a schedule", "A record changes", "A person starts it", "A message arrives"], st.starts, 'data-re="1"')}</div>
+      <div class="field"><label>${st.starts === "On a schedule" ? "When" : st.starts === "A person starts it" ? "From" : "Where"}</label><input class="input" data-f="detail" value="${esc(st.detail)}"></div>
+      <div class="field"><label>Only when <span class="muted" style="font-weight:400">optional</span></label><input class="input" data-f="only" value="${esc(st.only || "")}" placeholder="It has a PDF attached"></div></div>`);
+  }
+  if (k === "read" || k === "skill" || k === "write") {
+    g.push(`<div class="grp"><div class="field"><label>${k === "write" ? "Changes" : k === "read" ? "Reads" : "Skill"}</label>${sel("part", PARTS[k], st.part, 'data-re="1"')}
+      <span class="help">${k === "write" ? `It changes ${esc(st.tool || "a tool")} behind its approval. Every change is recorded with what was there before.` : k === "read" ? "It reads and changes nothing." : "Picked from the step's name. Choose another, or tell the Builder what it should do."}</span></div></div>`);
+    g.push(`<div class="grp"><span class="label">What it works from</span>${wires(st)}</div>`);
+  }
+  if (k === "write") {
+    g.push(`<div class="grp"><span class="label">Approval</span>${seg("approval", ["Ask first", "On its own"], st.approval, ["On its own"])}
+      <span class="help">On its own is offered once ${CLIENT} allows it on their QuickBooks connection and the trial is over.</span>
+      <div class="field"><label>Who signs</label>${sel("who", PEOPLE, st.who)}</div></div>`);
+  }
+  if (k === "person") {
+    g.push(`<div class="grp"><div class="field"><label>They</label>${seg("mode", ["Answer", "Approve"], st.mode)}</div>
+      <div class="field"><label>Who</label>${sel("who", PEOPLE, st.who)}</div>
+      <div class="field"><label>Where</label>${seg("where", ["Inbox", "Email"], st.where)}</div>
+      <div class="field"><label>Waits up to</label>${sel("deadline", ["1 day", "3 days", "1 week"], st.deadline)}</div>
+      <div class="field"><label>If nobody answers</label>${sel("noAnswer", ["Stop the run and tell us", "Ask someone else", "Skip this step and go on"], st.noAnswer)}</div></div>`);
+  }
+  if (k === "notify") {
+    g.push(`<div class="grp"><div class="field"><label>Who</label>${sel("to", PEOPLE, st.to)}</div><div class="field"><label>Where</label>${seg("where", ["Inbox", "Email", "Text"], st.where)}</div>
+      <div class="field"><label>Message</label><textarea class="textarea" rows="3" data-f="message" placeholder="What they should know">${esc(st.message)}</textarea></div></div>`);
+  }
+  if (k === "decision") {
+    g.push(`<div class="grp"><span class="help">Paths are checked top to bottom. The first whose rule matches runs, then the paths join and the run goes on.</span>
+      ${st.paths.map((p, i) => p.rule ? `<div class="pathcard"><div class="row"><span class="ltr">${String.fromCharCode(65 + i)}</span><input class="input" data-f="name" data-p="${p.id}" value="${esc(p.name)}" aria-label="Path name"><button class="btn btn--ghost btn--icon" data-act="rmpath" data-p="${p.id}" aria-label="Remove path" ${st.paths.length <= 2 ? "disabled" : ""}>${ic("close")}</button></div>
+        <div class="rule"><select class="select" data-f="field" data-p="${p.id}" data-r="1" aria-label="Field">${["", ...FIELDS].concat(FIELDS.includes(p.rule.field) || !p.rule.field ? [] : [p.rule.field]).map((v) => `<option value="${esc(v)}" ${v === p.rule.field ? "selected" : ""}>${esc(v || "Choose a field")}</option>`).join("")}</select>
+        <select class="select" data-f="op" data-p="${p.id}" data-r="1" aria-label="Is">${OPS.map((v) => opt(v, p.rule.op)).join("")}</select><input class="input" data-f="value" data-p="${p.id}" data-r="1" value="${esc(p.rule.value)}" placeholder="Value" aria-label="Value"></div>
+        <span class="help">${plural(p.steps.length, "step")} on this path. Drag steps in on the canvas.</span></div>`
+        : `<div class="pathcard"><div class="row"><span class="ltr ltr--else">·</span><b style="font-weight:500">Otherwise</b></div><span class="help">When none of the paths above match. ${p.steps.length ? plural(p.steps.length, "step") + "." : "Nothing happens and the run goes on."}</span></div>`).join("")}
+      <div><button class="btn btn--sec btn--sm" data-act="addpath">${ic("add")}Add a path</button></div></div>`);
+  }
+  if (k === "each") g.push(`<div class="grp"><div class="field"><label>Over the list</label><input class="input" data-f="over" value="${esc(st.over)}"></div><span class="help">Its steps run once per item, up to 10 at a time.</span></div>`);
+  if (k === "wait") g.push(`<div class="grp"><div class="field"><label>Wait for</label><input class="input" data-f="dur" value="${esc(st.dur)}"></div></div>`);
+  if (k === "stop") g.push(`<div class="grp"><div class="field"><label>End the run as</label>${seg("as", ["Succeeded", "Failed", "Cancelled"], st.as)}</div></div>`);
+  if (k !== "trigger" && k !== "decision" && k !== "each" && k !== "wait" && k !== "stop") {
+    g.push(`<div class="grp"><span class="label">If it fails</span>${seg("onError", ["Stop the run", "Carry on"], st.onError)}</div>`);
+    g.push(`<details class="more"><summary>More settings <span>all on their defaults</span></summary>
+      ${k === "skill" ? `<div class="kv"><span>Model</span><select class="select"><option>As the agent runs it</option><option>A faster model</option><option>A stronger model</option></select></div><div class="kv"><span>Version</span><select class="select"><option>Follows the live version</option><option>Pinned to v3</option></select></div>` : ""}
+      <div class="kv"><span>A second opinion before it goes on</span><button class="switch" role="switch" aria-checked="false" data-act="sw" aria-label="Second opinion"></button></div>
+      <div class="kv"><span>Tell someone when it is done</span><button class="switch" role="switch" aria-checked="false" data-act="sw" aria-label="Notice"></button></div>
+      <div class="kv"><span>Show this step to the client</span><button class="switch" role="switch" aria-checked="true" data-act="sw" aria-label="Client timeline"></button></div>
+    </details>`);
+  }
+  if (k !== "trigger") g.push(`<div><button class="btn btn--ghost btn--sm" data-act="remove" data-id="${st.id}" style="color:var(--risk-ink)">Remove this ${k === "decision" ? "decision" : "step"}</button></div>`);
+  return g.join("");
+}
+function chipsFor(st) {
+  if (!st) {
+    const out = [];
+    if (!hasDecisionAfter(/match/)) out.push("If a line doesn't match, ask Dana");
+    if (!hasDecisionAfter(/price/)) out.push("If a price is up more than 5%, ask Dana to approve it");
+    out.push("Why is approval on?");
+    return out;
+  }
+  if (st.kind === "trigger") return ["Why this inbox?", "Add a step to check for a duplicate invoice"];
+  if (st.gap) return ["Build a skill for this", "Why is this here?"];
+  if (st.kind === "write") return ["Run it without approval", "Who signs this?", "If the total is over $5,000, ask Lisa to approve it"];
+  const at = locate(st.id), forked = at && at.list[at.index + 1] && at.list[at.index + 1].kind === "decision";
+  if (st.kind === "skill" && /match/i.test(st.name)) return [...(forked ? [] : ["If a line doesn't match, ask Dana"]), "Add a step to check for a duplicate invoice", "Why this skill?"];
+  if (st.kind === "skill" && /price/i.test(st.name)) return [...(forked ? [] : ["If a price is up more than 5%, ask Dana to approve it"]), "Why is this here?"];
+  if (st.kind === "decision") return ["Add a step to tell Lisa", "Why is this here?"];
+  return ["Add a step after this", "Why is this here?", "Remove this step"];
+}
+function hasDecisionAfter(re) {
+  let yes = false;
+  walk(S.steps, (st, list) => { if (re.test(st.name.toLowerCase()) && st.kind !== "decision") { const nx = list[list.indexOf(st) + 1]; if (nx && nx.kind === "decision") yes = true; } });
+  return yes;
+}
+function chatHTML(about) {
+  const st = about ? find(about) : null;
+  const msgs = S.chat.filter((m) => !about || m.about === about);
+  const log = msgs.map((m) => {
+    const i = S.chat.indexOf(m);
+    const ab = !about && m.about && find(m.about) ? `<span class="msg__about">On “${esc(find(m.about).name)}”</span>` : "";
+    if (m.me) return `<div class="msg"><span class="av av--you">You</span><div>${ab}<p>${esc(m.text)}</p></div></div>`;
+    const diffs = (m.changes || []).map((c) => `<div class="diff"><b class="${c.s === "−" ? "minus" : c.s === "~" ? "tilde" : ""}">${c.s}</b><span>${esc(c.t)}</span>${m.h ? (m.h > S.hist.length ? `<span class="done">Undone</span>` : m.h === S.hist.length ? `<button class="linkbtn" data-act="chatundo" data-i="${i}">Undo</button>` : `<span class="done" title="You changed the flow since. Use Undo in the bar.">Changed since</span>`) : ""}</div>`).join("");
+    return `<div class="msg"><span class="av av--builder">B</span><div>${ab}${m.text.split("\n").map((p) => `<p>${esc(p)}</p>`).join("")}${diffs}</div></div>`;
+  }).join("");
+  const empty = `<p class="muted small">${st ? "Say what this step should do differently, or ask why it is set this way. Changes land on the canvas, each with Undo." : "Ask for a step or a decision, or ask why something is there."}</p>`;
+  return `<div class="chat"><div class="chat__h"><span class="av av--builder" style="width:20px;height:20px;font-size:9px">B</span><span class="eyebrow">Builder${st ? " · on this step" : ""}</span></div>
+    <div class="chat__log" id="log">${log || empty}${S.busy ? `<div class="msg"><span class="av av--builder">B</span><span class="agentline">Working on it</span></div>` : ""}</div>
+    <div class="chips">${chipsFor(st).map((c) => `<button class="chip" data-act="chip">${esc(c)}</button>`).join("")}</div>
+    <div class="composer"><textarea id="say" rows="1" placeholder="${st ? "Tell the Builder what to change on this step" : "Add a step, add a decision, or ask why"}" aria-label="Message the Builder"></textarea><button class="btn btn--pri btn--icon" data-act="send" aria-label="Send">${ic("send")}</button></div></div>`;
+}
+function turnonHTML() {
+  const c = counts(), rows = [];
+  const done = (t, s) => rows.push(`<div class="todo">${ic("check")}<div><b style="font-weight:500">${t}</b><div class="muted">${s}</div></div></div>`);
+  const open = (t, s, x = "") => rows.push(`<div class="todo"><span style="color:var(--signal-ink)">${ic("alert")}</span><div><span class="row wrap"><b style="font-weight:500">${t}</b><span class="pill pill--wait">${x || "Waiting on " + CLIENT}</span></span><div class="muted">${s}</div></div></div>`);
+  if (S.tried) done("Tried on a real example", `${esc(S.file)}. Nothing was written.`);
+  else rows.push(`<div class="todo"><span style="color:var(--signal-ink)">${ic("alert")}</span><div><span class="row wrap"><b style="font-weight:500">Not tried yet</b><span class="pill pill--wait">Waiting on you</span></span><div class="muted">Run it once on a real invoice before the client sees it.</div><button class="btn btn--sec btn--sm" data-act="try" style="margin-top:8px">Try it</button></div></div>`);
+  for (const t of c.tools) {
+    if (t === "Gmail") open("Connect Gmail", `${CLIENT} signs in to its own Gmail. We ask them in their portal's Getting started.`);
+    else if (t === "Texts") done("Texts are set up", "Sent from the Mezonas number.");
+    else if (t === "QuickBooks") done("QuickBooks is connected", "Create and update are set to Ask me first on their connection.");
+  }
+  if (c.people.size) open(`${[...c.people].join(" and ")} sign${c.people.size === 1 ? "s" : ""} and answer${c.people.size === 1 ? "s" : ""}`, `${CLIENT} confirms who at setup. It starts with their default approver.`);
+  if (c.gaps) done(`${plural(c.gaps, "part")} a person does for now`, "It runs like this. Swap in a skill when one is ready.");
+  const left = allOpen().length;
+  if (left) rows.push(`<div class="todo"><span style="color:var(--signal-ink)">${ic("alert")}</span><div><span class="row wrap"><b style="font-weight:500">${left} still to settle on ${left === 1 ? "its step" : "their steps"}</b><span class="pill pill--wait">Waiting on you</span></span><div class="muted">It runs on the defaults until you do. None of them holds the trial.</div><button class="btn btn--sec btn--sm" data-act="nextopen" style="margin-top:8px">Go through them</button></div></div>`);
+  return `<div class="sheet__h"><div class="row" style="justify-content:space-between"><span class="eyebrow">Turn on</span><button class="btn btn--ghost btn--icon" data-act="close" aria-label="Close">${ic("close")}</button></div><h2 style="font:500 18px/24px var(--font-sans)">Start the trial at ${CLIENT}</h2>
+    <p class="sheet__from">One button: it publishes v1, binds ${CLIENT}'s connections and starts the trial. The trial runs 14 days or 25 runs, and every write is signed.</p></div>
+    <div class="sheet__body"><div>${rows.join("")}</div><p class="help">What ${CLIENT} still owes goes to their setup list. It doesn't hold the trial; a step that needs it waits.</p>
+    <div class="row wrap"><button class="btn btn--pri" data-act="golive" ${S.tried ? "" : "disabled"}>Start the trial</button><button class="btn btn--ghost" data-act="close">Not yet</button></div></div>`;
+}
+function notesHTML() {
+  return `<div class="sheet__h"><div class="row" style="justify-content:space-between"><span class="eyebrow">About this prototype</span><button class="btn btn--ghost btn--icon" data-act="close" aria-label="Close">${ic("close")}</button></div><h2 style="font:500 18px/24px var(--font-sans)">One canvas, nothing asked</h2>
+    <p class="sheet__from">A design to react to. The Builder's answers and the try's results are scripted examples; nothing is saved.</p></div>
+  <div class="sheet__body notes">
+    <div class="grp"><span class="eyebrow">What changes for the operator</span><ul>
+      <li><b style="font-weight:500">One screen.</b> Describe, then the canvas. The build page's cards (brief, fit-gap, intake form, open items, decisions, proposals, test plan, QA) are off the path.</li>
+      <li><b style="font-weight:500">Nothing is asked first.</b> It builds on defaults. What the Builder decided is written on the step it shapes, with Change.</li>
+      <li><b style="font-weight:500">A question or an issue lives in its step,</b> two at most, settled there in one press. There is no list to clear; the bar counts what is left and takes you to the next one.</li>
+      <li><b style="font-weight:500">Add anywhere:</b> + between two steps, drag a block in, or say it.</li>
+      <li><b style="font-weight:500">One panel per step:</b> its setup in three or four groups with the rest folded, and the Builder underneath, already on that step.</li>
+      <li><b style="font-weight:500">Decisions come after it works.</b> A try shows where one is missing and adds it in one press.</li>
+      <li><b style="font-weight:500">The left rail is nine kinds of step.</b> The skill or tool is picked on the step.</li></ul></div>
+    <div class="grp"><span class="eyebrow">What it stands on that is built</span>
+    <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Here</th><th>Today</th></tr></thead><tbody>
+      <tr><td>Build it</td><td>Draft it now: the stated steps, one model call, defaults recorded as decisions</td></tr>
+      <tr><td>The canvas and dragging</td><td>The workflow builder's canvas and its moves, same schema and validator</td></tr>
+      <tr><td>+ between steps</td><td>The insert that today sits in the inspector's Connections</td></tr>
+      <tr><td>The step panel</td><td>The inspector's fields, regrouped, with the defaults new steps already get</td></tr>
+      <tr><td>The Builder on a step</td><td>The Builder session with a step in focus; each change has Undo</td></tr>
+      <tr><td>To settle on a step</td><td>The build's decisions, questions and gaps, which already name their step; the three ways to settle a gap</td></tr>
+      <tr><td>Try it</td><td>The test run, which writes nothing; its steps' results read back onto the canvas</td></tr>
+      <tr><td>Turn on</td><td>Publish, the setup checklist and the trial</td></tr></tbody></table></div></div>
+    <div><button class="btn btn--sec btn--sm" data-act="restart">Start over from the description</button></div>
+  </div>`;
+}
+function sheetHTML() {
+  const sh = S.sheet;
+  if (!sh) return "";
+  if (sh.type === "turnon") return `<aside class="sheet" aria-label="Turn on">${turnonHTML()}</aside>`;
+  if (sh.type === "notes") return `<aside class="sheet" aria-label="About this prototype">${notesHTML()}</aside>`;
+  if (sh.type === "builder") return `<aside class="sheet sheet--builder" aria-label="Builder"><div class="sheet__h"><div class="row" style="justify-content:space-between"><span class="eyebrow">Builder · the whole flow</span><button class="btn btn--ghost btn--icon" data-act="close" aria-label="Close">${ic("close")}</button></div>
+    <p class="sheet__from">It changes this draft on the canvas, each change with its own Undo. Approval stays on for every step that changes a tool.</p></div>${chatHTML(null)}</aside>`;
+  const st = find(S.sel);
+  if (!st) return "";
+  const loc = st.kind === "trigger" ? null : locate(st.id);
+  return `<aside class="sheet" aria-label="Step setup"><div class="sheet__h"><div class="row" style="justify-content:space-between"><span class="eyebrow">${K[st.kind].label}${loc ? ` · step ${loc.index + 1} of ${loc.list.length}` : ""}</span><button class="btn btn--ghost btn--icon" data-act="close" aria-label="Close">${ic("close")}</button></div>
+    <input class="sheet__name" data-f="name" value="${esc(st.name)}" aria-label="Step name">${st.from ? `<span class="sheet__from">From your description: “${esc(st.from)}”</span>` : ""}</div>
+    <div class="sheet__body" id="sbody">${setupHTML(st)}</div>${chatHTML(st.id)}</aside>`;
+}
+
+/* ── Render ── */
+let sortables = [];
+function renderBar() { const b = $("#bar"); if (b) { const f = document.activeElement && document.activeElement.id === "aname2"; if (!f) b.innerHTML = barHTML(); } }
+function renderCanvas() {
+  const c = $("#canvas");
+  if (!c) return;
+  c.innerHTML = canvasHTML();
+  wire();
+  if (fresh.size) setTimeout(() => fresh.clear(), 400);
+}
+function renderSheet() {
+  const old = $("#sbody"), top = old ? old.scrollTop : 0;
+  $("#sheet").innerHTML = sheetHTML();
+  document.body.classList.toggle("has-sheet", !!S.sheet && S.view === "build");
+  const nb = $("#sbody");
+  if (nb) nb.scrollTop = top;
+  const log = $("#log");
+  if (log) log.scrollTop = log.scrollHeight;
+}
+function renderMenu() {
+  const m = S.menu, el = $("#menu");
+  if (!m) { el.innerHTML = ""; return; }
+  el.innerHTML = `<div class="menu" role="menu" style="left:${m.x}px;top:${m.y}px">${ADDABLE.map((k) => `<button role="menuitem" data-act="addkind" data-kind="${k}"><span class="kico kico--${k}">${ic(K[k].ico)}</span><span>${K[k].label}<small>${esc(K[k].hint)}</small></span></button>`).join("")}</div>`;
+  const box = el.firstChild.getBoundingClientRect();
+  if (box.bottom > innerHeight - 8) el.firstChild.style.top = Math.max(8, innerHeight - box.height - 8) + "px";
+}
+function renderAll() {
+  if (S.view === "describe") { $("#app").innerHTML = describeHTML(); renderPreview(); }
+  else { $("#app").innerHTML = buildHTML(); wire(); if (fresh.size) setTimeout(() => fresh.clear(), 400); }
+  renderSheet();
+  renderMenu();
+}
+function toast(t) { const el = $("#toast"); el.textContent = t; el.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (el.hidden = true), 3200); }
+
+/* ── Drag and drop (SortableJS): reorder, move between paths, drag a kind in from the rail ── */
+let dragged = false;
+const nodesBefore = (el) => { let n = 0; for (let c = el.previousElementSibling; c; c = c.previousElementSibling) if (c.classList.contains("node")) n++; return n; };
+function wire() {
+  sortables.forEach((s) => s.destroy());
+  sortables = [];
+  if (!window.Sortable || S.view !== "build") return;
+  const base = { group: "steps", animation: 150, fallbackOnBody: true, swapThreshold: 0.65, invertedSwapThreshold: 0.8, delay: 140, delayOnTouchOnly: true, ghostClass: "is-ghost", chosenClass: "is-chosen", onStart: () => { dragged = true; S.menu = null; renderMenu(); },
+    onMove: (e, oe) => { const l = oe && oe.target && oe.target.closest && oe.target.closest(".lanes"); if (l && l.parentNode.parentNode === e.related) return false; } };
+  document.querySelectorAll(".flow").forEach((el) => sortables.push(Sortable.create(el, { ...base, draggable: ".node", filter: "button,input,.res", preventOnFilter: false, onEnd: onMove })));
+  const pal = $("#pal");
+  if (pal) sortables.push(Sortable.create(pal, { ...base, group: { name: "steps", pull: "clone", put: false }, sort: false, draggable: ".block", onEnd: onPalDrop }));
+}
+function onMove(e) {
+  setTimeout(() => (dragged = false), 60);
+  const id = e.item.dataset.id, at = locate(id), to = listOf(e.to.dataset.list), ni = nodesBefore(e.item);
+  if (!at || !to || (at.list === to && at.index === ni)) return;
+  commit();
+  const [it] = at.list.splice(at.index, 1);
+  to.splice(ni, 0, it);
+  S.try = null;
+  renderCanvas(); renderBar(); renderSheet();
+}
+function onPalDrop(e) {
+  setTimeout(() => (dragged = false), 60);
+  if (!e.to.classList.contains("flow")) return;
+  addStep(e.item.dataset.kind, e.to.dataset.list, nodesBefore(e.item));
+}
+function addStep(kind, lid, index, st) {
+  const list = listOf(lid);
+  if (!list) return;
+  commit();
+  const s = st || mk(kind);
+  list.splice(index, 0, s);
+  fresh.add(s.id);
+  S.sel = s.id; S.sheet = { type: "step" }; S.menu = null; S.try = null;
+  renderAll();
+  const n = $(".sheet__name");
+  if (n && !st) { n.focus(); n.select(); }
+  return s;
+}
+
+/* ── The Builder (scripted for the prototype) ── */
+function placeFor(cond) {
+  const words = cond.toLowerCase().match(/[a-z]{4,}/g) || [];
+  let hit = -1;
+  S.steps.forEach((st, i) => { if (st.kind !== "decision" && words.some((w) => st.name.toLowerCase().includes(w.slice(0, 5)))) hit = i; });
+  if (hit >= 0) return hit + 1;
+  const w = S.steps.findIndex((st) => st.kind === "write");
+  return w >= 0 ? w : S.steps.length;
+}
+function interpret(text, about) {
+  const s = text.trim(), l = s.toLowerCase(), here = about && about !== "trigger" ? find(about) : null;
+  let m;
+  if (/(without|no|skip|remove|turn off|switch off).{0,24}(approval|sign)|on its own|don.t ask/.test(l))
+    return { text: `I can't loosen approval. A step that changes a tool starts with approval on, and in the trial every write is signed.\nYou can switch this step to run on its own once ${CLIENT} allows it on their connection.` };
+  if (/build a skill/.test(l) && here && here.gap) {
+    here.gap = false; here.kind = "skill"; here.part = "New skill · being drafted"; here.tool = "";
+    (here.open || []).forEach((o) => { if (o.k === "gap") o.done = "Build a skill"; });
+    here.decided = [{ what: "A new skill does this, once it is ready", why: "You asked for one. Until it passes a try, a person checks its answer.", f: "" }];
+    return { text: `Started a skill for “${here.name}” from parts the library has. I'll draft it from the next example you try.`, changes: [{ s: "~", t: "step now runs a new skill" }] };
+  }
+  if (/^why|\bwhy (is|did|a|this)/.test(l)) {
+    if (/approval/.test(l)) return { text: `Because the step “${(S.steps.find((x) => x.kind === "write") || { name: "that writes" }).name}” changes QuickBooks. Anything that changes a tool starts with approval on. ${SIGNER} signs because they are ${CLIENT}'s default approver.` };
+    const t = about === "trigger" ? S.trigger : here;
+    if (t && t.decided.length) return { text: t.decided.map((d) => `${d.what}. ${d.why}`).join("\n") };
+    if (t) return { text: `It is here because your description says “${t.from || t.name}”. I added nothing you didn't state.` };
+    return { text: "Every step comes from a line of your description, in your order. Where it left something open, I took the simplest choice that works and wrote it on the step." };
+  }
+  if (/who (signs|approves)/.test(l) && here) return { text: `${here.who || SIGNER}. Change it under Approval above, or tell me who.` };
+  if (/^(remove|delete)\b/.test(l) && here) {
+    const at = locate(here.id);
+    at.list.splice(at.index, 1);
+    return { text: `Removed “${here.name}”.`, changes: [{ s: "−", t: `step · ${here.name}` }], closed: true };
+  }
+  if ((m = s.match(/^(?:rename|call)(?: (?:it|this))?(?: to)? (.+)/i)) && here) {
+    const old = here.name; here.name = cap(clean(m[1]));
+    return { text: `Renamed it.`, changes: [{ s: "~", t: `name · ${old} → ${here.name}` }] };
+  }
+  if ((m = s.match(/^if (.+?)(?:,| then) (.+)$/i))) {
+    const d = decisionFrom(m[1], m[2], s);
+    let list = S.steps, index;
+    if (here) { const at = locate(here.id); list = at.list; index = at.index + 1; } else index = placeFor(m[1]);
+    list.splice(index, 0, d);
+    fresh.add(d.id);
+    const inner = d.paths[0].steps[0], prev = list[index - 1];
+    return { text: `Added a decision${prev ? ` after “${prev.name}”` : ""}. ${cap(clean(m[1]))}: ${inner ? inner.name.charAt(0).toLowerCase() + inner.name.slice(1) : "nothing yet"}. Otherwise the run goes on.`, changes: [{ s: "+", t: `decision · ${d.paths[0].name}` }, ...(inner ? [{ s: "+", t: `${K[inner.kind].label.toLowerCase()} step · ${inner.name}` }] : [])], show: d.id };
+  }
+  if ((m = s.match(/^(?:add|then|and then|also|next,?)\s+(?:a step\s+)?(?:to\s+|that\s+|which\s+)?(.+)/i))) {
+    if (/^after this$/i.test(m[1].trim())) return { text: "Tell me what it should do, in a few words. For example: add a step to check for a duplicate invoice." };
+    const st = guess(m[1]);
+    let list = S.steps, index = S.steps.length;
+    if (about === "trigger") index = 0;
+    else if (here) { const at = locate(here.id); if (here.paths) { list = here.paths[0].steps; index = list.length; } else { list = at.list; index = at.index + 1; } }
+    list.splice(index, 0, st);
+    fresh.add(st.id);
+    return { text: `Added “${st.name}”${st.gap ? ". Nothing in the library does it yet, so a person does it for now." : "."}`, changes: [{ s: "+", t: `${K[st.kind].label.toLowerCase()} step · ${st.name}` }], show: st.id };
+  }
+  return { text: "In the real builder this goes to the Builder as it does today. This prototype acts on a few asks: “add a step to …”, “if …, …”, “rename to …”, “remove this step”, and “why …”." };
+}
+function ask(text, about) {
+  text = text.trim();
+  if (!text || S.busy) return;
+  S.chat.push({ me: 1, text, about });
+  S.busy = true;
+  renderSheet();
+  setTimeout(() => {
+    S.busy = false;
+    const before = snap(), r = interpret(text, about), changed = snap() !== before;
+    if (changed) { S.hist.push(before); S.try = null; }
+    S.chat.push({ text: r.text, changes: r.changes, about, h: changed ? S.hist.length : 0 });
+    if (r.closed) { S.sel = null; S.sheet = { type: "builder" }; }
+    renderAll();
+    if (r.show) { const el = document.querySelector(`.node[data-id="${r.show}"]`); if (el) el.scrollIntoView({ block: "center", behavior: calm ? "auto" : "smooth" }); }
+  }, calm ? 0 : 650);
+}
+
+/* ── Try it (scripted results; nothing is written) ── */
+function startTry() {
+  const res = {}, order = [];
+  let halted = false;
+  const put = (id, text, x = {}) => { res[id] = { text, ...x }; order.push(id); };
+  put("trigger", `Example: ${S.file}, from Baltic Lumber.`);
+  (function run(list) {
+    for (let i = 0; i < list.length && !halted; i++) {
+      const st = list[i], n = st.name.toLowerCase(), next = list[i + 1];
+      const waved = (k) => (st.open || []).some((o) => o.k === k && o.done && !/decision/.test(o.done));
+      const forked = (next && next.kind === "decision") || waved(/match/.test(n) ? "unsure" : "price");
+      const found = (k, text) => { st.open = st.open || []; if (!st.open.some((o) => o.k === k)) st.open.push({ k, type: "Issue", text, why: `Found when you tried ${S.file}. The run went on as if nothing happened.`, opts: [k === "price" ? "Add a decision: ask Dana to approve" : "Add a decision: ask Dana", "Go on without asking"] }); };
+      if (!forked && st.kind === "skill" && /match/.test(n)) found("unsure", "A line can be unsure, and nothing says what happens then.");
+      if (!forked && st.kind === "skill" && /price|cost/.test(n) && !/match/.test(n)) found("price", "A price can jump past what it flags, and the bill is still made.");
+      if (st.kind === "skill" && /match/.test(n)) put(st.id, forked ? "5 of 6 lines matched. 1 is unsure: “3/4 BB ply 4x8”." : "5 of 6 lines matched. 1 is unsure: “3/4 BB ply 4x8”. Nothing says what happens then, so the run went on.", forked ? {} : { tone: "wait", offer: "match" });
+      else if (st.kind === "skill" && /price|cost/.test(n)) put(st.id, forked ? "2 prices changed. Baltic birch plywood is up 12%." : "2 prices changed. Baltic birch plywood is up 12%, over the 5% it flags. The run went on to the next step.", forked ? {} : { tone: "wait", offer: "price" });
+      else if (st.kind === "skill") put(st.id, /read|extract|parse/.test(n) ? "Read 6 lines. Total $4,218.40. Vendor: Baltic Lumber." : "Done. Its result is kept for the next step.");
+      else if (st.kind === "read") put(st.id, "Found 1 record.");
+      else if (st.kind === "person") put(st.id, `Ask ${st.who} and wait up to ${st.deadline}. In a try we answer for them: yes.`, { would: 1 });
+      else if (st.kind === "write") put(st.id, `${/bill/.test(st.part) ? "Create the bill for $4,218.40 in QuickBooks" : "Make this change in " + (st.tool || "the tool")}${st.approval === "Ask first" ? `, once ${st.who} signs` : ""}. Nothing was written.`, { would: 1 });
+      else if (st.kind === "notify") put(st.id, `Tell ${st.to}: 2 prices changed on Baltic Lumber INV-4471.`, { would: 1 });
+      else if (st.kind === "wait") put(st.id, `Wait ${st.dur}. Skipped in a try.`, { would: 1 });
+      else if (st.kind === "stop") { put(st.id, "The run ends here."); halted = true; }
+      else if (st.kind === "each") { put(st.id, "6 items. Its steps ran for each."); run(st.paths[0].steps); }
+      else if (st.kind === "decision") { const p = st.paths[0]; put(st.id, `Took “${p.name}”${p.rule && p.rule.field ? ` (${p.rule.field} ${p.rule.op} ${p.rule.value})` : ""}.`); run(p.steps); }
+    }
+  })(S.steps);
+  S.try = { res, order, shown: 0, done: false };
+  S.menu = null;
+  if (S.sheet && S.sheet.type === "turnon") S.sheet = null;
+  renderAll();
+  scrollTo({ top: 0, behavior: calm ? "auto" : "smooth" });
+  clearInterval(startTry.t);
+  const step = () => {
+    const t = S.try;
+    if (!t) return clearInterval(startTry.t);
+    t.shown++;
+    if (t.shown >= t.order.length) { t.done = true; S.tried = true; clearInterval(startTry.t); }
+    renderCanvas();
+    const el = document.querySelector(t.order[t.shown - 1] === "trigger" ? ".trig" : `.node[data-id="${t.order[t.shown - 1]}"]`);
+    if (el && !calm) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  };
+  if (calm) { S.try.shown = order.length; S.try.done = true; S.tried = true; renderCanvas(); }
+  else startTry.t = setInterval(step, 480);
+}
+
+/* ── Building from the description, one step at a time ── */
+function build(blank) {
+  const p = blank ? { trigger: parseDesc("").trigger, steps: [] } : parseDesc(S.desc);
+  Object.assign(S, { view: "build", trigger: p.trigger, steps: [], sel: null, sheet: null, hist: [], chat: [], try: null, tried: false, live: false, note: null });
+  const finish = () => {
+    S.building = null;
+    const c = counts();
+    if (blank) { S.note = null; renderAll(); return; }
+    S.note = `<b style="font-weight:500">Built ${plural(c.steps, "step")} from your description, in your order.</b> Nothing was asked first. ${allOpen().length ? `${plural(allOpen().length, "question or issue", "questions and issues")} sit on the steps they belong to; it runs on defaults until you settle them.` : "Try it, or change anything."}`;
+    S.chat.push({ text: `Built ${plural(c.steps, "step")} from your description, in your order. I added nothing you didn't state.\nDecided instead of asking: ${[S.trigger, ...flat()].flatMap((x) => x.decided.map((d) => d.what)).join("; ") || "nothing"}.${allOpen().length ? `\nFor you, on the step each belongs to: ${allOpen().map((x) => x.o.text).join(" ")}` : ""}\nNext: try it on a real invoice, or tell me what to change.` });
+    renderAll();
+  };
+  if (calm || blank || !p.steps.length) { S.steps = p.steps; S.building = null; renderAll(); finish(); return; }
+  S.building = { queue: p.steps.slice(), total: p.steps.length };
+  renderAll();
+  const t = setInterval(() => {
+    const st = S.building.queue.shift();
+    S.steps.push(st);
+    fresh.add(st.id);
+    if (!S.building.queue.length) { clearInterval(t); finish(); return; }
+    renderCanvas(); renderBar();
+  }, 420);
+}
+const flat = () => { const a = []; walk(S.steps, (st) => a.push(st)); return a; };
+
+/* ── Events ── */
+const ACT = {
+  build: () => build(false),
+  blank: () => build(true),
+  restart: () => { Object.assign(S, { view: "describe", sheet: null, sel: null, menu: null, try: null, building: null }); renderAll(); scrollTo(0, 0); },
+  open: (d) => { S.sel = d.id; S.sheet = { type: "step" }; renderCanvas(); renderSheet(); },
+  close: () => { S.sheet = null; S.sel = null; if (S.view === "build") renderCanvas(); renderSheet(); },
+  sheet: (d) => { S.sheet = { type: d.type }; S.sel = null; if (S.view === "build") renderCanvas(); renderSheet(); if (d.type === "builder") { const s = $("#say"); if (s) s.focus(); } },
+  plus: (d, el) => {
+    const r = el.getBoundingClientRect(), same = S.menu && S.menu.list === d.list && S.menu.index === +d.index;
+    S.menu = same ? null : { list: d.list, index: +d.index, x: Math.max(8, Math.min(innerWidth - 256, r.left + r.width / 2 - 124)), y: r.bottom + 6 };
+    renderMenu();
+  },
+  addkind: (d) => { const m = S.menu; if (m) addStep(d.kind, m.list, m.index); },
+  paladd: (d) => { if (!dragged) addStep(d.kind, "root", S.steps.length); },
+  undo: () => undo(),
+  chatundo: () => undo(),
+  dismiss: () => { S.note = null; renderCanvas(); },
+  send: () => { const s = $("#say"); if (s) ask(s.value, S.sheet && S.sheet.type === "step" ? S.sel : null); },
+  chip: (d, el) => ask(el.textContent, S.sheet && S.sheet.type === "step" ? S.sel : null),
+  remove: (d) => { const at = locate(d.id); if (!at) return; commit(); at.list.splice(at.index, 1); S.sel = null; S.sheet = null; S.try = null; renderAll(); toast("Step removed. Undo brings it back."); },
+  seg: (d) => { const st = find(S.sel); if (!st) return; commit(); st[d.f] = d.v; renderCanvas(); renderBar(); renderSheet(); },
+  sw: (d, el) => el.setAttribute("aria-checked", el.getAttribute("aria-checked") !== "true"),
+  focusf: (d) => { const el = document.querySelector(`#sbody [data-f="${d.f}"]`); if (el) { el.scrollIntoView({ block: "center" }); el.focus(); } },
+  addpath: () => { const st = find(S.sel); if (!st) return; commit(); st.paths.splice(st.paths.length - 1, 0, { id: nid(), name: `Path ${String.fromCharCode(64 + st.paths.length)}`, rule: { field: "", op: ">", value: "" }, steps: [] }); renderCanvas(); renderSheet(); },
+  rmpath: (d) => { const st = find(S.sel); if (!st) return; commit(); st.paths = st.paths.filter((p) => p.id !== d.p); renderCanvas(); renderSheet(); },
+  settle: (d) => {
+    const st = find(S.sel), o = st && st.open[+d.i], v = d.v;
+    if (!o) return;
+    if (o.k === "gap" && v === "Build a skill") return ask("Build a skill for this", st.id);
+    if (o.k === "unsure" || o.k === "price") { if (/^Add a decision/.test(v)) return ACT.adddecision({ id: st.id, offer: o.k }); }
+    commit();
+    o.done = v;
+    if (o.f) st[o.f] = v;
+    if (o.k === "gap") { st.gap = v !== "Keep a person"; if (v === "Needs code") toast("Request filed in the Dev queue. A person does it until it ships."); }
+    if (o.k === "gmail" && v === "Send by text instead") { st.part = "Texts · send text"; st.tool = "Texts"; }
+    renderCanvas(); renderBar(); renderSheet();
+  },
+  reopen: (d) => { const st = find(S.sel); if (!st || !st.open[+d.i]) return; commit(); st.open[+d.i].done = null; renderCanvas(); renderBar(); renderSheet(); },
+  nextopen: () => { const n = allOpen().find((x) => x.st.id !== S.sel) || allOpen()[0]; if (!n) return; S.sel = n.st.id; S.sheet = { type: "step" }; renderCanvas(); renderSheet(); const el = document.querySelector(`.node[data-id="${n.st.id}"]`); if (el) el.scrollIntoView({ block: "center", behavior: calm ? "auto" : "smooth" }); },
+  try: () => { if (!S.building) startTry(); },
+  endtry: () => { S.try = null; renderCanvas(); },
+  adddecision: (d) => {
+    const at = locate(d.id);
+    if (!at) return;
+    commit();
+    const dec = d.offer === "price" ? decisionFrom("a price is up more than 5%", "ask Dana to approve the new price") : decisionFrom("a line is unsure", "ask Dana which item it is");
+    at.list.splice(at.index + 1, 0, dec);
+    fresh.add(dec.id);
+    (at.list[at.index].open || []).forEach((o) => { if (o.k === d.offer) o.done = "A decision was added after it."; });
+    S.chat.push({ text: `Added a decision after “${at.list[at.index].name}” from what the try showed. Change its rule on the canvas.`, changes: [{ s: "+", t: `decision · ${dec.paths[0].name}` }, { s: "+", t: `person step · ${dec.paths[0].steps[0].name}` }], h: S.hist.length });
+    startTry();
+  },
+  fixwith: (d) => { S.sel = d.id; S.sheet = { type: "step" }; renderCanvas(); renderSheet(); const s = $("#say"); if (s) { s.placeholder = "What should it have done on this example?"; s.focus(); } },
+  golive: () => { S.live = true; S.sheet = null; renderAll(); toast(`Published v1. The trial started at ${CLIENT}.`); },
+};
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("[data-act]");
+  if (S.menu && !e.target.closest("#menu") && !(a && a.dataset.act === "plus")) { S.menu = null; renderMenu(); }
+  if (!a || a.disabled) return;
+  if (dragged && (a.dataset.act === "open" || a.dataset.act === "paladd")) return;
+  ACT[a.dataset.act] && ACT[a.dataset.act](a.dataset, a, e);
+});
+let pend = null;
+document.addEventListener("focusin", (e) => { if (e.target.dataset && e.target.dataset.f) pend = snap(); });
+document.addEventListener("input", (e) => {
+  const t = e.target;
+  if (t.id === "desc") { S.desc = t.value; renderPreview(); return; }
+  if (t.id === "aname" || t.id === "aname2") { S.name = t.value; return; }
+  if (t.id === "say") { t.style.height = "auto"; t.style.height = Math.min(120, t.scrollHeight) + "px"; return; }
+  if (!t.dataset.f) return;
+  const st = find(S.sel);
+  if (!st) return;
+  if (t.dataset.p) { const p = st.paths.find((x) => x.id === t.dataset.p); if (t.dataset.r) p.rule[t.dataset.f] = t.value; else p[t.dataset.f] = t.value; }
+  else {
+    st[t.dataset.f] = t.value;
+    if (t.dataset.f === "part" && st.kind !== "skill") { st.tool = t.value.split(" · ")[0]; st.open = (st.open || []).filter((o) => o.k !== "gmail"); if (st.tool === "Gmail") st.open.push(gmailIssue()); }
+    if (t.dataset.f === "who") (st.open || []).forEach((o) => { if (o.k === "who") o.done = t.value; });
+  }
+  renderCanvas(); renderBar();
+});
+document.addEventListener("change", (e) => {
+  const t = e.target;
+  if (t.id === "tryfile" && t.files[0]) { S.file = t.files[0].name; startTry(); return; }
+  if (!t.dataset || !t.dataset.f) return;
+  if (pend && pend !== snap()) { S.hist.push(pend); S.try = null; renderBar(); }
+  pend = snap();
+  if (t.dataset.re) renderSheet();
+});
+document.addEventListener("keydown", (e) => {
+  const t = e.target, typing = /INPUT|TEXTAREA|SELECT/.test(t.tagName);
+  if (t.id === "say" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ACT.send(); return; }
+  if (e.key === "Escape") { if (S.menu) { S.menu = null; renderMenu(); } else if (S.sheet) ACT.close(); return; }
+  if ((e.key === "Enter" || e.key === " ") && (t.classList.contains("card") || t.classList.contains("block"))) { e.preventDefault(); t.click(); return; }
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" && !typing && S.view === "build") { e.preventDefault(); undo(); }
+});
+renderAll();
+</script>
+</body>
+</html>
