@@ -68,6 +68,8 @@ import { AgentSaid, ChatLog, Composer, Pending, Thinking, YouSaid } from "../../
 import { ErrorNotice } from "../../ui/ErrorState";
 import { Select, TextArea, TextInput } from "../../ui/forms";
 import { Badge, Button, Card, Count, cx, Loading, Tag } from "../../ui/primitives";
+import type { Voice } from "../../ui/voice";
+import { CloseMenu, ReplyBox } from "./closeout";
 import { DecisionsCard } from "./decisions";
 import { type Fold, useFirstRows, useFold } from "./fold";
 import { AboutLink, FocusBar, ProposalCard } from "./issues";
@@ -77,13 +79,18 @@ import { TryCard } from "./TryCard";
 import {
   BRIEF_STATE_TONE,
   BRIEF_STATE_WORDS,
+  CLOSE_CHOICES,
+  GAP_CHOICES,
   ITEM_KIND_WORDS,
   ITEM_TONE,
+  NOT_NEEDED_NOTE,
   plural,
   QA_STATE_WORDS,
   QA_TONE,
   SOURCE_WORDS,
+  TO_BUILDER,
   VERDICT_TONE,
+  withNote,
 } from "./words";
 
 type Act = <R extends RouteSpec>(route: R, opts: CallOptions<R>) => Promise<boolean>;
@@ -253,6 +260,14 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
     setFocus(null);
     setThreadOnly(false);
   };
+  // Owner (2026-11-21): an answer or a choice made on an issue's row goes to the Builder in that
+  // issue's thread, as the conversation's words do when it is on that issue.
+  const sayAbout = (text: string, key: string) => {
+    setFocus(key);
+    setThreadOnly(false);
+    return say(text, key);
+  };
+  const rowVoice = voiceFor("ops", detail.build.client?.id ?? detail.build.testClient?.id);
 
   /** One change: the answer is the build as it is now. */
   const act: Act = async (route, opts) => {
@@ -630,14 +645,8 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
               }
               busy={busy}
               act={act}
-              onAnswer={
-                open
-                  ? (title) => {
-                      setDraftText((t) => aboutStart(title, t));
-                      box.current?.focus();
-                    }
-                  : undefined
-              }
+              onSay={open ? sayAbout : undefined}
+              voice={rowVoice}
             />
           </div>
           {/* docs/builder-plan.md §4: the Builder's decisions, beside the issues and known risks. */}
@@ -648,6 +657,8 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
                 detail={detail}
                 focus={focused?.key ?? null}
                 onTalk={open ? onIssue : undefined}
+                onSay={open ? sayAbout : undefined}
+                voice={rowVoice}
                 busy={isBusy(busy)}
                 act={act}
               />
@@ -1062,8 +1073,9 @@ export function busyPath(paths: readonly string[]): string | null {
 }
 
 /**
- * The conversation's box after an issue's "Answer it" or a try's "Wrong": the "About …" start put
- * before what's typed there (FLOW-10, QA 2026-11-19: it replaced it). An earlier start is swapped.
+ * The conversation's box after a try's "Wrong": the "About …" start put before what's typed there
+ * (FLOW-10, QA 2026-11-19: it replaced it). An earlier start is swapped. An issue's "Answer it"
+ * opens its own box under the issue (owner, 2026-11-21).
  */
 export function aboutStart(title: string, typed: string): string {
   return `About “${title}”: ${typed.replace(/^About “[^”]*”: /, "")}`;
@@ -2566,10 +2578,17 @@ function QaPanel({ detail, current, busy, act }: PanelProps) {
 const OWNERS: BuildItemOwner[] = ["operator", "builder", "client", "engineering"];
 const STATES: BuildItemState[] = ["open", "in_progress", "waiting", "done", "deferred"];
 
+/** A select in a row's meta line: as wide as its longest choice, so its words are never cut. */
+const META_SELECT = "h-7 w-auto text-xs";
+
+type Item = BuildDetail["items"][number];
+
 /**
  * The build's issues (core's `buildIssues`): its open items, the draft's problems, failing tests,
  * the client's rejected writes and QA's failing checks, open ones first. Owner (2026-11-17): each
  * can be talked about in the conversation, its thread shown again, or all walked through in turn.
+ * Owner (2026-11-21): one row each, its words at full width, and closed out where it's listed: a
+ * question answered under it, a gap's choice sent to the Builder, a note or precondition done.
  */
 function ItemsPanel({
   fold,
@@ -2580,7 +2599,8 @@ function ItemsPanel({
   onWalk,
   busy,
   act,
-  onAnswer,
+  onSay,
+  voice,
 }: {
   /** Folds the card (the page keeps it, so its jump link can open it). */
   fold?: Fold | undefined;
@@ -2594,22 +2614,40 @@ function ItemsPanel({
   onWalk?: (() => void) | undefined;
   busy: string | null;
   act: Act;
-  /** Starts an answer to an open question in the conversation's box. */
-  onAnswer?: ((title: string) => void) | undefined;
+  /** Says something to the Builder about an issue (its key), as the conversation does. */
+  onSay?: ((text: string, key: string) => Promise<boolean>) | undefined;
+  /** Dictation for the answer box. */
+  voice?: Voice | undefined;
 }) {
   const id = detail.build.id;
   const [title, setTitle] = useState("");
   const [owner, setOwner] = useState<BuildItemOwner>("operator");
+  // The one answer box open (its issue's key) and its words.
+  const [answering, setAnswering] = useState<{ key: string; text: string } | null>(null);
   // Open ones first, then the first few of them; the one the conversation is on always shows.
   const rows = useFirstRows([...issues.filter((i) => i.open), ...issues.filter((i) => !i.open)], {
-    keep: (i) => i.key === focus,
+    keep: (i) => i.key === focus || i.key === answering?.key,
     noun: "issues",
     testId: "build-issues-more",
   });
   const openCount = issues.filter((i) => i.open).length;
   const closed = issues.length - openCount;
   const editable = detail.build.status === "open";
+  const off = isBusy(busy);
   const items = new Map(detail.items.map((i) => [i.id, i]));
+  const update = (
+    i: Item,
+    body: NonNullable<CallOptions<typeof apiRoutes.opsUpdateBuildItem>["body"]>,
+  ) => void act(apiRoutes.opsUpdateBuildItem, { params: { id, itemId: i.id }, body });
+  // DECISION (docs/plan.md §1.166): an answer is a turn about the issue (`about: item:<id>`), as
+  // the conversation's own words are when it is on that issue; the Builder fills the brief and
+  // closes the question. The box closes at once; if the Builder couldn't take the words, they
+  // come back.
+  const answer = async (key: string, text: string, typed: string) => {
+    if (!onSay) return;
+    setAnswering(null);
+    if (!(await onSay(text, key))) setAnswering((now) => now ?? { key, text: typed });
+  };
   const talk = (issue: BuildIssue) =>
     onTalk ? (
       <span className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
@@ -2634,6 +2672,76 @@ function ItemsPanel({
         ) : null}
       </span>
     ) : null;
+  /** What closes an open item, by its kind, then the conversation's links. */
+  const actions = (issue: BuildIssue, i: Item) => {
+    const live = editable && itemOpen(i.state);
+    const say = live ? onSay : undefined;
+    const buttons = !say ? null : i.kind === "question" ? (
+      <>
+        {answering?.key === issue.key ? null : (
+          <Button
+            size="sm"
+            disabled={off}
+            onClick={() => setAnswering({ key: issue.key, text: "" })}
+            data-testid={`build-item-${i.id}-answer`}
+          >
+            Answer it
+          </Button>
+        )}
+        <CloseMenu
+          choices={CLOSE_CHOICES}
+          disabled={off}
+          testId={`build-item-${i.id}-close`}
+          onPick={(c) =>
+            update(
+              i,
+              c === "deferred"
+                ? { state: "deferred" }
+                : c === "done"
+                  ? { state: "done" }
+                  : { state: "done", detail: withNote(i.detail, NOT_NEEDED_NOTE) },
+            )
+          }
+        />
+      </>
+    ) : i.kind === "gap" ? (
+      GAP_CHOICES.map((c) => (
+        <Button
+          key={c.key}
+          size="sm"
+          disabled={off}
+          onClick={() => void say(TO_BUILDER.gap[c.key](i.title), issue.key)}
+          data-testid={`build-item-${i.id}-gap-${c.key}`}
+        >
+          {c.label}
+        </Button>
+      ))
+    ) : null;
+    // A note or a precondition is done by a click, whoever settled it.
+    const done =
+      live && (i.kind === "note" || i.kind === "precondition") ? (
+        <Button
+          size="sm"
+          disabled={off}
+          onClick={() => update(i, { state: "done" })}
+          data-testid={`build-item-${i.id}-done`}
+        >
+          Done
+        </Button>
+      ) : null;
+    if (!buttons && !done && !onTalk) return null;
+    return (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        {buttons || done ? (
+          <span className="flex flex-wrap items-center gap-2">
+            {buttons}
+            {done}
+          </span>
+        ) : null}
+        {talk(issue)}
+      </div>
+    );
+  };
   return (
     <Card
       testId="build-items"
@@ -2647,7 +2755,7 @@ function ItemsPanel({
             <Button
               size="sm"
               variant="ghost"
-              disabled={isBusy(busy)}
+              disabled={off}
               onClick={onWalk}
               data-testid="build-issues-walk"
             >
@@ -2675,7 +2783,7 @@ function ItemsPanel({
             <TextInput
               aria-label="New issue"
               placeholder="Something left to do"
-              className="w-auto min-w-0 flex-1"
+              className="w-auto min-w-0 flex-1 basis-full sm:basis-0"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               data-testid="build-item-new"
@@ -2695,7 +2803,7 @@ function ItemsPanel({
             <Button
               size="sm"
               type="submit"
-              disabled={isBusy(busy) || !title.trim()}
+              disabled={off || !title.trim()}
               working={busy === apiRoutes.opsAddBuildItem.path}
               data-testid="build-item-add"
             >
@@ -2710,123 +2818,96 @@ function ItemsPanel({
           Nothing left to settle yet. The Builder and the phases add issues as they go.
         </p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-line bg-surface-subtle text-left text-xs text-ink-muted">
-                <th className="px-4 py-2.5 font-medium">Issue</th>
-                <th className="px-4 py-2.5 font-medium">From</th>
-                <th className="px-4 py-2.5 font-medium">Who has it</th>
-                <th className="px-4 py-2.5 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.shown.map((issue) => {
-                const i = issue.itemId ? items.get(issue.itemId) : undefined;
-                if (!i) {
-                  return (
-                    <tr
-                      key={issue.key}
-                      className={cx(
-                        "border-b border-line align-top last:border-b-0",
-                        focus === issue.key && "bg-slate-tint",
-                      )}
-                      data-testid={`build-issue-${issue.key}`}
-                    >
-                      <td className="px-4 py-3">
-                        <div className="flex flex-col gap-1">
-                          <span className="flex flex-wrap items-center gap-2">
-                            <Tag>{ISSUE_SOURCE_WORDS[issue.source]}</Tag>
-                            <span className="font-medium text-ink">{issue.title}</span>
-                          </span>
-                          {issue.detail ? (
-                            <p className="text-xs text-ink-muted">{issue.detail}</p>
-                          ) : null}
-                          {talk(issue)}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-ink-muted">{PHASE_WORDS[issue.phase].label}</td>
-                      <td className="px-4 py-3 text-ink-muted">
-                        {issue.source === "problem" || issue.source === "case" ? "Builder" : "You"}
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge
-                          tone={
-                            !issue.open
-                              ? "positive"
-                              : issue.source === "rejection"
-                                ? "person"
-                                : issue.source === "decision"
-                                  ? "warning"
-                                  : "risk"
-                          }
-                        >
-                          {issue.state}
-                        </Badge>
-                      </td>
-                    </tr>
-                  );
-                }
+        <>
+          <ul className="flex flex-col" aria-label="Issues">
+            {rows.shown.map((issue) => {
+              const i = issue.itemId ? items.get(issue.itemId) : undefined;
+              const row = cx(
+                "flex min-w-0 flex-col gap-1.5 border-b border-line px-4 py-3 last:border-b-0 sm:px-5",
+                focus === issue.key && "bg-slate-tint",
+              );
+              if (!i) {
                 return (
-                  <tr
-                    key={i.id}
-                    id={`build-item-${i.id}`}
-                    className={cx(
-                      "border-b border-line align-top last:border-b-0",
-                      focus === issue.key && "bg-slate-tint",
-                    )}
-                    data-testid={`build-item-${i.id}`}
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex flex-col gap-1">
-                        <span className="flex flex-wrap items-center gap-2">
-                          <Tag testId={`build-item-${i.id}-kind`}>
-                            {ITEM_KIND_WORDS[i.kind]?.label ?? i.kind}
-                          </Tag>
-                          <span
-                            className={cx(
-                              "font-medium text-ink",
-                              !itemOpen(i.state) && "text-ink-muted line-through",
-                            )}
-                          >
-                            {i.title}
-                          </span>
+                  <li key={issue.key} className={row} data-testid={`build-issue-${issue.key}`}>
+                    <span className="flex flex-wrap items-center gap-2">
+                      <Tag>{ISSUE_SOURCE_WORDS[issue.source]}</Tag>
+                      <span className="min-w-0 font-medium break-words text-ink">
+                        {issue.title}
+                      </span>
+                    </span>
+                    {issue.detail ? (
+                      <p className="text-sm break-words text-ink-muted">{issue.detail}</p>
+                    ) : null}
+                    <MetaLine>
+                      <span>From {PHASE_WORDS[issue.phase].label}</span>
+                      <span>
+                        Who has it:{" "}
+                        <span className="text-ink">
+                          {issue.source === "problem" || issue.source === "case"
+                            ? "Builder"
+                            : "You"}
                         </span>
-                        {i.detail ? <p className="text-xs text-ink-muted">{i.detail}</p> : null}
-                        {itemOpen(i.state) ? (
-                          <p className="text-xs text-ink" data-testid={`build-item-${i.id}-how`}>
-                            <span className="text-ink-muted">To settle it: </span>
-                            {ITEM_KIND_WORDS[i.kind]?.how}
-                            {i.kind === "question" && onAnswer ? (
-                              <>
-                                {" "}
-                                <button
-                                  type="button"
-                                  className="ds-btn ds-btn--link text-xs"
-                                  data-testid={`build-item-${i.id}-answer`}
-                                  onClick={() => onAnswer(i.title)}
-                                >
-                                  Answer it
-                                </button>
-                              </>
-                            ) : null}
-                          </p>
-                        ) : null}
-                        {talk(issue)}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-ink-muted">{PHASE_WORDS[i.phase].label}</td>
-                    <td className="px-4 py-3">
-                      {editable ? (
+                      </span>
+                      <Badge
+                        tone={
+                          !issue.open
+                            ? "positive"
+                            : issue.source === "rejection"
+                              ? "person"
+                              : issue.source === "decision"
+                                ? "warning"
+                                : "risk"
+                        }
+                      >
+                        {issue.state}
+                      </Badge>
+                    </MetaLine>
+                    {talk(issue)}
+                  </li>
+                );
+              }
+              return (
+                <li
+                  key={i.id}
+                  id={`build-item-${i.id}`}
+                  className={row}
+                  data-testid={`build-item-${i.id}`}
+                >
+                  <span className="flex flex-wrap items-center gap-2">
+                    <Tag testId={`build-item-${i.id}-kind`}>
+                      {ITEM_KIND_WORDS[i.kind]?.label ?? i.kind}
+                    </Tag>
+                    <span
+                      className={cx(
+                        "min-w-0 font-medium break-words text-ink",
+                        !itemOpen(i.state) && "text-ink-muted line-through",
+                      )}
+                    >
+                      {i.title}
+                    </span>
+                  </span>
+                  {i.detail ? (
+                    <p className="text-sm break-words whitespace-pre-line text-ink-muted">
+                      {i.detail}
+                    </p>
+                  ) : null}
+                  {itemOpen(i.state) ? (
+                    <p className="text-xs text-ink" data-testid={`build-item-${i.id}-how`}>
+                      <span className="text-ink-muted">To settle it: </span>
+                      {ITEM_KIND_WORDS[i.kind]?.how}
+                    </p>
+                  ) : null}
+                  <MetaLine>
+                    <span>From {PHASE_WORDS[i.phase].label}</span>
+                    {editable ? (
+                      <span className="flex items-center gap-1.5">
+                        Who has it
                         <Select
                           aria-label={`Who has it: ${i.title}`}
+                          className={META_SELECT}
                           value={i.owner}
-                          onChange={(e) =>
-                            void act(apiRoutes.opsUpdateBuildItem, {
-                              params: { id, itemId: i.id },
-                              body: { owner: e.target.value as BuildItemOwner },
-                            })
-                          }
+                          data-testid={`build-item-${i.id}-owner`}
+                          onChange={(e) => update(i, { owner: e.target.value as BuildItemOwner })}
                         >
                           {OWNERS.map((o) => (
                             <option key={o} value={o}>
@@ -2834,24 +2915,21 @@ function ItemsPanel({
                             </option>
                           ))}
                         </Select>
-                      ) : (
-                        <Badge tone={i.owner === "client" ? "person" : "neutral"}>
-                          {OWNER_WORDS[i.owner]}
-                        </Badge>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {editable ? (
+                      </span>
+                    ) : (
+                      <span>
+                        Who has it: <span className="text-ink">{OWNER_WORDS[i.owner]}</span>
+                      </span>
+                    )}
+                    {editable ? (
+                      <span className="flex items-center gap-1.5">
+                        Status
                         <Select
                           aria-label={`Status: ${i.title}`}
+                          className={META_SELECT}
                           value={i.state}
                           data-testid={`build-item-${i.id}-state`}
-                          onChange={(e) =>
-                            void act(apiRoutes.opsUpdateBuildItem, {
-                              params: { id, itemId: i.id },
-                              body: { state: e.target.value as BuildItemState },
-                            })
-                          }
+                          onChange={(e) => update(i, { state: e.target.value as BuildItemState })}
                         >
                           {STATES.map((s) => (
                             <option key={s} value={s}>
@@ -2859,18 +2937,55 @@ function ItemsPanel({
                             </option>
                           ))}
                         </Select>
-                      ) : (
-                        <Badge tone={ITEM_TONE[i.state]}>{ITEM_STATE_WORDS[i.state]}</Badge>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      </span>
+                    ) : (
+                      <Badge tone={ITEM_TONE[i.state]}>{ITEM_STATE_WORDS[i.state]}</Badge>
+                    )}
+                  </MetaLine>
+                  {actions(issue, i)}
+                  {answering?.key === issue.key ? (
+                    <ReplyBox
+                      label={`Your answer: ${i.title}`}
+                      placeholder="Your answer. The Builder puts it in the brief."
+                      send="Send answer"
+                      value={answering.text}
+                      onChange={(text) => setAnswering({ key: issue.key, text })}
+                      onSend={(text) =>
+                        void answer(issue.key, TO_BUILDER.answer(i.title, text), text)
+                      }
+                      onCancel={() => setAnswering(null)}
+                      voice={voice}
+                      busy={off}
+                      testId={`build-item-${i.id}-answer-box`}
+                    />
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
           {rows.more}
-        </div>
+        </>
       )}
     </Card>
+  );
+}
+
+/** A row's meta line: where it came from · who has it · its status, in full words. */
+function MetaLine({ children }: { children: ReactNode[] }) {
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-ink-muted sm:gap-x-2">
+      {children.map((c, n) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: a fixed list of three parts
+        <span key={n} className="flex items-center gap-2">
+          {/* On a phone the parts wrap, and a dot would start a line. */}
+          {n > 0 ? (
+            <span aria-hidden className="hidden sm:inline">
+              ·
+            </span>
+          ) : null}
+          {c}
+        </span>
+      ))}
+    </div>
   );
 }

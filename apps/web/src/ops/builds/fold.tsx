@@ -21,16 +21,23 @@ export interface Fold {
   onToggle(): void;
   /** Opens it (a jump to the section). */
   reveal(): void;
+  /** Keeps it as it is now for this visit, whatever its default becomes. */
+  hold(): void;
   testId: string;
 }
 
 /**
  * Whether a section is open: the operator's last choice for it in this browser, else `fallback`
- * (read on every render, so it can follow the build once it loads). For Card's `fold`.
+ * (read on every render, so it can follow the build once it loads), until `hold` keeps it as it
+ * is for this visit. For Card's `fold`.
  */
+// DECISION (owner, 2026-11-21): with decisions closed out on their rows, a default read on every
+// render shut the card the moment its last check was done. A row's action holds it where it is
+// for this visit, without keeping a choice for the browser.
 export function useFold(section: string, fallback = true): Fold {
   const [chosen, setChosen] = useState<boolean | undefined>(() => readFolds()[section]);
-  const open = chosen ?? fallback;
+  const [held, setHeld] = useState<boolean | undefined>(undefined);
+  const open = chosen ?? held ?? fallback;
   const set = (next: boolean) => {
     setChosen(next);
     try {
@@ -45,6 +52,9 @@ export function useFold(section: string, fallback = true): Fold {
     onToggle: () => set(!open),
     reveal: () => {
       if (!open) set(true);
+    },
+    hold: () => {
+      if (chosen === undefined && held === undefined) setHeld(open);
     },
   };
 }
