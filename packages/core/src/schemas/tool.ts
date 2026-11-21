@@ -160,3 +160,19 @@ export function toolUsesModel(tool: Pick<ToolSpec, "usesModel"> | undefined): bo
 export function isAlwaysSigned(tool: Pick<ToolSpec, "sideEffect" | "approval">): boolean {
   return tool.sideEffect === "external" && tool.approval === "always";
 }
+
+// docs/plan.md §1.164 step 3 ("Zoho's fields"): a tool whose input depends on the client's own
+// tool (a CRM's fields per module) is typed per value of one literal input, for the builder only.
+/**
+ * A tool's input typed per value of one of its literal inputs (`by`): e.g. a CRM write's `fields`
+ * typed from the client's own fields, per `module`. A step whose `by` input is one of the values
+ * is typed with that schema; any other step with the tool's own. Built by apps/api from a client's
+ * connection (core never knows the connector); the builder and Reshape's proposer read it.
+ */
+export const ToolInputVariants = z.object({
+  /** The input key whose literal value picks the schema (`module`). */
+  by: z.string().min(1).max(64),
+  /** The tool's whole input schema, by that key's value (`Leads`, `Deals`). */
+  schemas: z.record(z.string(), JsonSchema),
+});
+export type ToolInputVariants = z.infer<typeof ToolInputVariants>;

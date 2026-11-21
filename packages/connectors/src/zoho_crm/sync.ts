@@ -28,10 +28,54 @@ export const ZOHO_SYNC_FIELDS: Record<ZohoSyncedModule, readonly string[]> = {
   Deals: ["Deal_Name", "Stage", "Amount", "Closing_Date", "Account_Name", "Contact_Name"],
 };
 const TIME_FIELDS = ["Owner", "Created_Time", "Modified_Time"] as const;
+/** v8's most fields in one list call (./fields.ts ZOHO_MAX_FIELDS_PER_CALL). */
+const MAX_FIELDS = 50;
 
-/** The `fields` parameter for a module. */
-export function zohoSyncFields(module: ZohoSyncedModule): string {
-  return [...ZOHO_SYNC_FIELDS[module], ...TIME_FIELDS].join(",");
+/** How many fields a module reads before any the connection adds: standard ones and the times. */
+export function zohoStandardFieldCount(module: ZohoSyncedModule): number {
+  return new Set<string>([...ZOHO_SYNC_FIELDS[module], ...TIME_FIELDS]).size;
+}
+
+/**
+ * The `fields` parameter for a module: the standard ones, then the connection's own (docs/plan.md
+ * §1.164 "Syncing custom fields"; checked against Zoho's field list when they are set), then the
+ * times the cursor reads; each once, at most v8's 50.
+ */
+export function zohoSyncFields(module: ZohoSyncedModule, extra: readonly string[] = []): string {
+  const standard: readonly string[] = [...ZOHO_SYNC_FIELDS[module], ...TIME_FIELDS];
+  const own = [...new Set(extra)].filter((f) => !standard.includes(f));
+  // Checked when set; a list that grew past the limit some other way reads its first fields.
+  const room = Math.max(0, MAX_FIELDS - zohoStandardFieldCount(module));
+  return [...ZOHO_SYNC_FIELDS[module], ...own.slice(0, room), ...TIME_FIELDS].join(",");
+}
+
+/**
+ * A short name for the extra fields a connection reads (empty when none): part of each record's
+ * version, so a record read with more fields is stored again (raw records are never updated), and
+ * kept on the cursor, so a change to the fields starts a pass that reads every module again.
+ */
+export function zohoSyncFieldsKey(
+  extra: Partial<Record<ZohoSyncedModule, readonly string[]>>,
+): string {
+  const parts = ZOHO_SYNCED_MODULES.flatMap((m) => {
+    const standard: readonly string[] = ZOHO_SYNC_FIELDS[m];
+    const own = [...new Set(extra[m] ?? [])].filter((f) => !standard.includes(f)).sort();
+    return own.length > 0 ? [`${m}:${own.join(",")}`] : [];
+  });
+  if (parts.length === 0) return "";
+  // FNV-1a, 32 bits: a name, not a secret.
+  let h = 0x811c9dc5;
+  for (const ch of parts.join(";")) {
+    h ^= ch.charCodeAt(0);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `f${h.toString(16).padStart(8, "0")}`;
+}
+
+/** The modification time a record version stands for (`2026-…+00:00~f1a2b3c4` → the time). */
+export function zohoVersionTime(version: string | null | undefined): string | null {
+  if (!version) return null;
+  return version.split("~")[0] || null;
 }
 
 /** Records per page (Zoho's list maximum). */
@@ -61,6 +105,8 @@ export const ZohoSyncCursor = z.object({
   next: z.iso.datetime({ offset: true }),
   /** This pass is the first one: history, so no events. */
   initial: z.boolean(),
+  /** The extra fields this pass reads (zohoSyncFieldsKey); absent: none. */
+  fields: z.string().max(20).optional(),
 });
 export type ZohoSyncCursor = z.infer<typeof ZohoSyncCursor>;
 
@@ -72,7 +118,7 @@ export function readZohoSyncCursor(stored: unknown): ZohoSyncCursor | null {
 }
 
 /** A first sync: every module from ZOHO_INITIAL_DAYS ago. */
-export function startZohoSync(now: Date): ZohoSyncCursor {
+export function startZohoSync(now: Date, fieldsKey = ""): ZohoSyncCursor {
   return {
     v: 1,
     module: 0,
@@ -80,6 +126,32 @@ export function startZohoSync(now: Date): ZohoSyncCursor {
     page: 1,
     next: new Date(now.getTime() - OVERLAP_MS).toISOString(),
     initial: true,
+    ...(fieldsKey ? { fields: fieldsKey } : {}),
+  };
+}
+
+/**
+ * The cursor a page starts from: the stored one; a first sync when there is none; and when the
+ * connection's extra fields changed since the pass began, a pass that reads every module again over
+ * the first sync's window, so the records we hold get the new fields. Not history: a change made
+ * meanwhile still raises its event, and a record read again only for its fields raises none (the
+ * platform compares the versions' times, zohoVersionTime).
+ */
+// DECISION (docs/plan.md §1.164): fields chosen after a record was synced reach it by reading it
+// again, never by changing a stored raw record (invariant 3). Records older than the first sync's
+// window keep what they were read with until they change.
+export function zohoCursorFor(stored: unknown, now: Date, fieldsKey: string): ZohoSyncCursor {
+  const cursor = readZohoSyncCursor(stored);
+  if (!cursor) return startZohoSync(now, fieldsKey);
+  if ((cursor.fields ?? "") === fieldsKey) return cursor;
+  const { fields: _old, ...rest } = cursor;
+  return {
+    ...rest,
+    module: 0,
+    since: new Date(now.getTime() - ZOHO_INITIAL_DAYS * DAY_MS).toISOString(),
+    page: 1,
+    next: new Date(now.getTime() - OVERLAP_MS).toISOString(),
+    ...(fieldsKey ? { fields: fieldsKey } : {}),
   };
 }
 
@@ -92,6 +164,7 @@ function nextPass(cursor: ZohoSyncCursor, now: Date): ZohoSyncCursor {
     page: 1,
     next: new Date(now.getTime() - OVERLAP_MS).toISOString(),
     initial: false,
+    ...(cursor.fields ? { fields: cursor.fields } : {}),
   };
 }
 
@@ -115,8 +188,15 @@ const ListedRecord = z.looseObject({
   Modified_Time: z.string().max(64).optional(),
 });
 
-/** A listed record as a raw record: its module, id, `Modified_Time` as the version, its fields. */
-export function zohoRawRecord(module: ZohoSyncedModule, raw: unknown): RawRecordInput | null {
+/**
+ * A listed record as a raw record: its module, id, `Modified_Time` as the version (with the extra
+ * fields' key after a `~` when the connection reads any, zohoSyncFieldsKey), its fields.
+ */
+export function zohoRawRecord(
+  module: ZohoSyncedModule,
+  raw: unknown,
+  fieldsKey = "",
+): RawRecordInput | null {
   const r = ListedRecord.safeParse(raw);
   if (!r.success || !/^\d{1,30}$/.test(r.data.id)) return null;
   // Zoho's own `$` keys (state, permissions) are not the record's. Field names come from Zoho's
@@ -129,7 +209,10 @@ export function zohoRawRecord(module: ZohoSyncedModule, raw: unknown): RawRecord
   return {
     entityType: module,
     externalId: r.data.id,
-    externalVersion: r.data.Modified_Time ?? null,
+    externalVersion:
+      r.data.Modified_Time && fieldsKey
+        ? `${r.data.Modified_Time}~${fieldsKey}`
+        : (r.data.Modified_Time ?? null),
     payload: payload as RawRecordInput["payload"],
   };
 }
@@ -161,7 +244,7 @@ export function afterZohoPage(
     }
     // Past the deepest page: a new window from the last record read (oldest first, so nothing
     // in between is skipped; the records at that instant are read again, and stored once).
-    const last = records[records.length - 1]?.externalVersion;
+    const last = zohoVersionTime(records[records.length - 1]?.externalVersion);
     const at = last ? Date.parse(last) : Number.NaN;
     if (Number.isFinite(at) && at > Date.parse(cursor.since)) {
       return {

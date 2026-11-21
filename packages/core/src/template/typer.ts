@@ -6,7 +6,7 @@ import type { JsonSchema } from "../schemas/common";
 import { parseSkillRef } from "../schemas/common";
 import type { EventTypeSpec } from "../schemas/event";
 import type { SkillDefinition } from "../schemas/skill";
-import type { ToolSpec } from "../schemas/tool";
+import type { ToolInputVariants, ToolSpec } from "../schemas/tool";
 import type { Step, TriggerOn, Workflow } from "../schemas/workflow";
 import { allTriggers, HANDOFF_PAYLOAD, MESSAGE_PAYLOAD } from "../triggers/kinds";
 import { webhookPayloadWithData } from "../triggers/sample";
@@ -39,6 +39,30 @@ export interface TypingContext {
         parameters?: Readonly<Record<string, unknown>> | undefined;
       }[]
     | undefined;
+  // docs/plan.md §1.164 step 3
+  /**
+   * Tool inputs typed from a client's own connection (a CRM's fields per module), by tool id: the
+   * builder's and Reshape's typing of a step's input (`toolInputSchema`). Validation at publish
+   * types with the tools' own inputs.
+   */
+  toolInputs?: Record<string, ToolInputVariants>;
+}
+
+/**
+ * What a step calling `toolId` with `input` takes: the variant its literal `by` input picks
+ * (`ctx.toolInputs`), else the tool's own input.
+ */
+export function toolInputSchema(
+  toolId: string,
+  input: Record<string, unknown> | undefined,
+  ctx: TypingContext,
+): JsonSchema | undefined {
+  const variants = ctx.toolInputs?.[toolId];
+  const value = variants ? input?.[variants.by] : undefined;
+  if (variants && typeof value === "string" && Object.hasOwn(variants.schemas, value)) {
+    return variants.schemas[value];
+  }
+  return ctx.tools?.[toolId]?.input;
 }
 
 export type PathType =

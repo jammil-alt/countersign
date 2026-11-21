@@ -81,7 +81,14 @@ export function typingContext(data: BuilderData): TypingContext {
       ...(e.subjectType ? { subjectType: e.subjectType } : {}),
     };
   }
-  return { skills, tools, events, automations };
+  // docs/plan.md §1.164: a client agent's Zoho writes typed from its client's own fields.
+  return {
+    skills,
+    tools,
+    events,
+    automations,
+    ...(data.catalog.toolInputs ? { toolInputs: data.catalog.toolInputs } : {}),
+  };
 }
 
 /**

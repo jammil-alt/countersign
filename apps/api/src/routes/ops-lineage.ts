@@ -40,6 +40,7 @@ import {
   skillKind,
   skillModelFacts,
   skillMoveImpact,
+  type ToolInputVariants,
   toolLookup,
 } from "@countersign/core";
 import { agent, connection, run, skill, skillVersion, type Tx, tenant } from "@countersign/db";
@@ -48,11 +49,25 @@ import type { Hono } from "hono";
 import { returnAgentLine } from "../channels/agent-line";
 import { type AppEnv, type HandlerCtx, HttpError, mount, notFound } from "../http";
 import type { Platform } from "../platform";
+import { zohoToolInputsFor } from "../zoho/fields";
 import { agentSummary, versionSummary } from "./mappers";
 // v0.12 W2-B
 import { builderAutomations } from "./ops-automations";
 
 type Scope = Pick<HandlerCtx<never>, "tx" | "tenantIds">;
+
+/**
+ * docs/plan.md §1.164: the builder's tool inputs typed from a client agent's own connections
+ * (Zoho's fields), as `{ toolInputs }`, or nothing when there are none.
+ */
+export async function builderToolInputs(
+  tx: Tx,
+  platform: Platform,
+  row: Pick<AgentRow, "tenantId" | "bindings">,
+): Promise<{ toolInputs?: Record<string, ToolInputVariants> }> {
+  const toolInputs = await zohoToolInputsFor(tx, platform, row);
+  return Object.keys(toolInputs).length > 0 ? { toolInputs } : {};
+}
 
 /** The agent, if it is visible to this request (templates, or a client agent of a served client). */
 export async function agentInScope(ctx: Scope, id: string): Promise<AgentRow> {
@@ -480,6 +495,8 @@ export function opsLineageRoutes(app: Hono<AppEnv>): void {
         skills: Object.fromEntries([...skills.values()].map((s) => [s.ref, s.definition])),
         platform,
       }),
+      // docs/plan.md §1.164: a client agent's Zoho writes typed from its client's own fields.
+      ...(await builderToolInputs(tx, platform, row)),
     };
   });
 

@@ -1,0 +1,158 @@
+{
+  "fields": [
+    {
+      "field_label": "Deal Name",
+      "display_label": "Deal Name",
+      "field_read_only": false,
+      "read_only": false,
+      "id": "5843104000000002555",
+      "visible": true,
+      "view_type": { "view": true, "edit": true, "quick_create": true, "create": true },
+      "api_name": "Deal_Name",
+      "system_mandatory": true,
+      "json_type": "string",
+      "custom_field": false,
+      "length": 120,
+      "data_type": "text",
+      "pick_list_values": []
+    },
+    {
+      "field_label": "Amount",
+      "display_label": "Amount",
+      "field_read_only": false,
+      "read_only": false,
+      "id": "5843104000000002557",
+      "visible": true,
+      "view_type": { "view": true, "edit": true, "quick_create": true, "create": true },
+      "api_name": "Amount",
+      "system_mandatory": false,
+      "json_type": "double",
+      "custom_field": false,
+      "length": 16,
+      "data_type": "currency",
+      "pick_list_values": []
+    },
+    {
+      "field_label": "Stage",
+      "display_label": "Stage",
+      "field_read_only": false,
+      "read_only": false,
+      "id": "5843104000000002565",
+      "visible": true,
+      "view_type": { "view": true, "edit": true, "quick_create": true, "create": true },
+      "api_name": "Stage",
+      "system_mandatory": true,
+      "json_type": "string",
+      "custom_field": false,
+      "length": 120,
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "Qualification",
+          "sequence_number": 1,
+          "reference_value": "Qualification",
+          "actual_value": "Qualification",
+          "id": "5843104000000006801",
+          "type": "used"
+        },
+        {
+          "display_value": "Proposal/Price Quote",
+          "sequence_number": 2,
+          "reference_value": "Proposal/Price Quote",
+          "actual_value": "Proposal/Price Quote",
+          "id": "5843104000000006803",
+          "type": "used"
+        },
+        {
+          "display_value": "Closed Won",
+          "sequence_number": 3,
+          "reference_value": "Closed Won",
+          "actual_value": "Closed Won",
+          "id": "5843104000000006805",
+          "type": "used"
+        }
+      ]
+    },
+    {
+      "field_label": "Closing Date",
+      "display_label": "Closing Date",
+      "field_read_only": false,
+      "read_only": false,
+      "id": "5843104000000002567",
+      "visible": true,
+      "view_type": { "view": true, "edit": true, "quick_create": true, "create": true },
+      "api_name": "Closing_Date",
+      "system_mandatory": false,
+      "json_type": "string",
+      "custom_field": false,
+      "length": 20,
+      "data_type": "date",
+      "pick_list_values": []
+    },
+    {
+      "field_label": "Account Name",
+      "display_label": "Account Name",
+      "field_read_only": false,
+      "read_only": false,
+      "id": "5843104000000002559",
+      "visible": true,
+      "view_type": { "view": true, "edit": true, "quick_create": true, "create": true },
+      "api_name": "Account_Name",
+      "system_mandatory": false,
+      "json_type": "jsonobject",
+      "custom_field": false,
+      "length": 120,
+      "data_type": "lookup",
+      "pick_list_values": []
+    },
+    {
+      "field_label": "Sales region",
+      "display_label": "Sales region",
+      "field_read_only": false,
+      "read_only": false,
+      "id": "5843104000000418101",
+      "visible": true,
+      "view_type": { "view": true, "edit": true, "quick_create": false, "create": true },
+      "api_name": "Region",
+      "system_mandatory": false,
+      "json_type": "string",
+      "custom_field": true,
+      "length": 120,
+      "data_type": "picklist",
+      "pick_list_values": [
+        {
+          "display_value": "North",
+          "sequence_number": 1,
+          "reference_value": "North",
+          "actual_value": "North",
+          "id": "5843104000000418103",
+          "type": "used"
+        },
+        {
+          "display_value": "South",
+          "sequence_number": 2,
+          "reference_value": "South",
+          "actual_value": "South",
+          "id": "5843104000000418105",
+          "type": "used"
+        }
+      ]
+    },
+    {
+      "field_label": "Modified Time",
+      "display_label": "Modified Time",
+      "field_read_only": true,
+      "read_only": true,
+      "id": "5843104000000002571",
+      "visible": true,
+      "view_type": { "view": true, "edit": false, "quick_create": false, "create": false },
+      "api_name": "Modified_Time",
+      "system_mandatory": false,
+      "json_type": "string",
+      "custom_field": false,
+      "length": 120,
+      "data_type": "datetime",
+      "pick_list_values": []
+    }
+  ]
+}

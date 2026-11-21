@@ -73,6 +73,7 @@ import { handedOffFrom } from "../runs/handoff";
 import { opsStatusWhere, reachContext, runWaits } from "../runs/run-wait";
 import { runSubjects, sourceNames } from "../runs/subject";
 import { stepModelFacts } from "../skill-facts";
+import { checkZohoSetup } from "../zoho/fields";
 import { lastActivityOf, sourceActivity, usedByWith } from "./built-in-sources";
 import { needsUs, needsUsContext } from "./command-center";
 import { connectNoAuth } from "./connections";
@@ -1020,6 +1021,8 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
         row.connector === BROWSER_CONNECTOR_ID
           ? browserConfigEdit(row.config, body.config)
           : body.config;
+      // docs/plan.md §1.164: a Zoho connection's added sync fields, checked against its fields.
+      checkZohoSetup(row, config);
       set.config = config;
       changes.push({ kind: "config", before: row.config, after: config });
     }
