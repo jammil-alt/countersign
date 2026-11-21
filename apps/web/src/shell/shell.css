@@ -273,6 +273,15 @@
   white-space: nowrap;
   pointer-events: none;
 }
+/* On the rail the nav reaches into the sidebar's side padding, so a count riding on an icon's
+ * corner (5px past the row) isn't clipped by the nav's own scroll box (staging feedback,
+ * 2026-11-21: "26" was cut off). */
+.ui-sidebar[data-collapsed="true"] .ui-sidebar__nav {
+  margin: calc(var(--space-2) * -1);
+  margin-bottom: 0;
+  padding: var(--space-2);
+  padding-bottom: 0;
+}
 .ui-sidebar[data-collapsed="true"] .ui-sidebar__foot {
   padding-top: var(--space-3);
 }
