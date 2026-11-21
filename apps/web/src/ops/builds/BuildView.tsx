@@ -79,6 +79,7 @@ import { AboutLink, FocusBar, ProposalCard } from "./issues";
 import type { DraftNowState } from "./NewBuild";
 import { problemAdvice, problemWhere } from "./problems";
 import { RequirementsCard } from "./RequirementsCard";
+import { ShortText } from "./short";
 import { TryCard } from "./TryCard";
 import {
   BRIEF_STATE_TONE,
@@ -2988,7 +2989,7 @@ function ItemsPanel({
                       </span>
                     </span>
                     {issue.detail ? (
-                      <p className="text-sm break-words text-ink-muted">{issue.detail}</p>
+                      <ShortText text={issue.detail} className="text-sm text-ink-muted" />
                     ) : null}
                     <MetaLine>
                       <span>From {PHASE_WORDS[issue.phase].label}</span>
@@ -3039,11 +3040,19 @@ function ItemsPanel({
                       {i.title}
                     </span>
                   </span>
-                  {i.detail ? (
+                  {/* An open item's detail is short first; a closed one keeps its whole detail,
+                      which ends with how it was closed (§1.166). */}
+                  {!i.detail ? null : itemOpen(i.state) ? (
+                    <ShortText
+                      text={i.detail}
+                      className="text-sm text-ink-muted"
+                      testId={`build-item-${i.id}-detail`}
+                    />
+                  ) : (
                     <p className="text-sm break-words whitespace-pre-line text-ink-muted">
                       {i.detail}
                     </p>
-                  ) : null}
+                  )}
                   {itemOpen(i.state) ? (
                     <p className="text-xs text-ink" data-testid={`build-item-${i.id}-how`}>
                       <span className="text-ink-muted">To settle it: </span>

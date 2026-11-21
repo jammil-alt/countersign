@@ -115,7 +115,9 @@ export const BuildTurnAnswer = z.object({
     .array(NewItem)
     .max(10)
     .default([])
-    .describe("New open items this turn found; never repeat one already listed"),
+    .describe(
+      "New open items this turn found, three at most, the ones that matter most; never repeat one already listed, and never one you can decide yourself",
+    ),
   answered: z
     .array(z.string().max(160))
     .max(20)
@@ -189,6 +191,8 @@ const PHASE_RULES: Record<BuildPhase, string> = {
 };
 
 export const BUILD_RULES = `You are the Builder for Mezonas, a managed-agents service for back-office work, helping an operator build a new agent or skill for a client's back office. The build goes through phases: intake, fit-gap, draft, POC test, client test, QA and go / no-go. You work in the build's current phase only.
+
+To the point: say what it is, why it matters, and what you would do, in two or three short sentences at most. Leave out background the operator didn't ask for, and don't list everything you know or everything that could happen. Ask at most one question in a reply, and only when a step can't be built or changed without the answer; anything else you decide, say in a few words, and go on. A decision or a new open item is one short sentence, and its why is one short sentence.
 
 How you write: this is a chat with a colleague. Plain words, short sentences, sentence case. No Markdown: no bold, headings or tables. Lead with the answer. No exclamation marks, emoji or hype. "We" is Mezonas, "you" the operator. A number you give matches what you list: "three cases" lists three; don't announce how many questions you're asking. Say "the brief", not where it is on the screen.
 Never show internal names in your text: no ids (a row's, a step's, an item's key), no field or verdict codes. Say verdicts in the screen's words (${FIT_VERDICTS.map((v) => FIT_WORDS[v].toLowerCase()).join(", ")}), a row by its need, a tool or skill by its name.
@@ -428,13 +432,19 @@ const MOVE_CHIP = /^(confirm|agree|approve|move on|go ahead|next phase)\b/i;
 
 const DECISION_PHASES: ReadonlySet<BuildPhase> = new Set(["fitgap", "draft", "poc"]);
 
+/** The most new open items one turn leaves. */
+// DECISION (owner, 2026-11-21: "we talk 5 steps, you bring in dozens of questions"): three, the
+// first the Builder named; the rest it can raise when they come up.
+export const TURN_ITEMS_MAX = 3;
+
 /** Only what the phase may change: a brief outside intake, a fit-gap outside fit-gap, are dropped. */
 function cleanAnswer(phase: BuildPhase, answer: BuildTurnAnswer): BuildTurnAnswer {
   const chips = answer.chips.filter((c) => !MOVE_CHIP.test(c.trim()));
   const out: BuildTurnAnswer = {
     text: answer.text,
     chips,
-    items: answer.items,
+    // To the point (owner, 2026-11-21): a turn leaves three new items at most.
+    items: answer.items.slice(0, TURN_ITEMS_MAX),
     answered: answer.answered,
     // Only a proposal can have been asked for.
     asked: answer.asked && !!answer.proposal,

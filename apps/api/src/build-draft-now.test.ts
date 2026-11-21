@@ -162,6 +162,9 @@ describe.skipIf(!h)("draft it now", () => {
     expect(said).toContain("I made 1 decision to get it running instead of asking");
     expect(said).toContain("a person does it for now");
     expect(said).toContain("move to the POC test and try it on a real example");
+    // To the point: three short paragraphs, and the gap's own sentence stays on its item.
+    expect(said.split("\n\n")).toHaveLength(3);
+    expect(said).not.toContain("vendor's portal");
 
     // Its decision is on the build, and the part nothing does yet is a gap put off: it holds nothing.
     expect(b.build.fitgap.decisions.map((d) => d.what)).toEqual([
@@ -289,7 +292,7 @@ describe.skipIf(!h)("draft it now", () => {
       .from(agent)
       .where(eq(agent.id, b.build.agentId as string));
     expect(row).toEqual({ tenantId: H.A.tenantId, bindings: { testkit: H.A.connectionId } });
-    expect(b.messages.at(-1)?.text).toContain("I bound it to the client's connection it uses.");
+    expect(b.messages.at(-1)?.text).toContain("It is bound to the client's connections.");
     // Bound, it is checked against the connection's own settings: no "no connection is bound".
     expect(b.draft?.problems.map((p) => p.code)).not.toContain("connection_missing");
   });

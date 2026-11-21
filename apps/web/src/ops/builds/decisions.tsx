@@ -21,6 +21,7 @@ import { Badge, Button, Card, cx, Tag, type Tone } from "../../ui/primitives";
 import type { Voice } from "../../ui/voice";
 import { ReplyBox } from "./closeout";
 import { type Fold, useFirstRows } from "./fold";
+import { ShortText } from "./short";
 import { plural, TO_BUILDER } from "./words";
 
 const STATUS_TONE: Record<DecisionStatus, Tone> = {
@@ -150,7 +151,7 @@ export function DecisionsCard({
                       {d.value}
                     </p>
                   ) : null}
-                  {d.why ? <p className="text-sm break-words text-ink-muted">{d.why}</p> : null}
+                  {d.why ? <ShortText text={d.why} className="text-sm text-ink-muted" /> : null}
                   {d.risk === "high" && d.category ? (
                     <p className="text-xs text-ink-muted">
                       High risk: {DECISION_CATEGORY_WORDS[d.category].toLowerCase()}

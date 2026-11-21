@@ -113,8 +113,8 @@ export function NewBuild({
       >
         <p className="text-sm text-ink-muted">
           {describes
-            ? "Say what it should do and the Builder drafts it at once. It decides what you leave open and lists each decision, and you change it after. It shows under Drafts until it goes live."
-            : "It starts as a build: the brief, the fit-gap, the draft and a test. It shows under Drafts until it goes live."}
+            ? "List the steps. The Builder drafts them at once and you change them after."
+            : "It starts as a build: the brief, the fit-gap, the draft and a test."}
         </p>
         <div className="flex flex-wrap gap-4">
           <fieldset className="ds-seg self-end" aria-label="What it builds">
@@ -160,7 +160,7 @@ export function NewBuild({
         {describes ? (
           <Field
             label="What should it do?"
-            hint="In your own words: what starts it, what it reads, what it does and who approves. Skip what you don't know. Leave it empty to start with the Builder's questions."
+            hint="A few steps, in order. Leave it empty to start with questions."
           >
             <TextArea
               rows={5}
@@ -168,7 +168,7 @@ export function NewBuild({
               maxLength={DESCRIPTION_MAX}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Every weekday at 4 pm, text each field person and ask how their open tasks are going. Turn each answer into a task update and ask the project manager to approve it."
+              placeholder="1. Every weekday at 4 pm, text each field person. 2. Ask how their open tasks are going. 3. Turn each answer into a task update. 4. The project manager approves it."
               data-testid="builds-start-description"
             />
           </Field>

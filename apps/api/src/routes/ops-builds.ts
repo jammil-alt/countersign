@@ -1674,26 +1674,27 @@ export function draftedNowText(o: {
   bound: number;
   problems: number;
 }): string {
-  const lines = [`I drafted it from your description. ${o.summary.trim()}`];
+  // To the point (owner, 2026-11-21): what it is, what was decided for you, what is next.
+  const lines = [`I drafted it from your description. ${firstSentences(o.summary.trim(), 2)}`];
+  const notes: string[] = [];
   if (o.decisions > 0) {
-    lines.push(
-      `I made ${o.decisions === 1 ? "1 decision" : `${o.decisions} decisions`} to get it running instead of asking: ${o.decisions === 1 ? "it is" : "they are"} under Decisions, and you can change any of them by telling me.`,
+    notes.push(
+      `I made ${o.decisions === 1 ? "1 decision" : `${o.decisions} decisions`} to get it running instead of asking (under Decisions).`,
     );
   }
   if (o.gaps.length > 0) {
-    lines.push(
-      `${o.gaps.length === 1 ? "One part has" : `${o.gaps.length} parts have`} nothing in the catalog yet, so a person does ${o.gaps.length === 1 ? "it" : "them"} for now: ${o.gaps.join(" ")}`,
+    notes.push(
+      o.gaps.length === 1
+        ? "One part isn't in the catalog yet, so a person does it for now."
+        : `${o.gaps.length} parts aren't in the catalog yet, so a person does them for now.`,
     );
   }
-  if (o.bound > 0) {
-    lines.push(
-      `I bound it to ${o.bound === 1 ? "the client's connection it uses" : `the client's ${o.bound} connections it uses`}.`,
-    );
-  }
+  if (o.bound > 0) notes.push("It is bound to the client's connections.");
+  if (notes.length > 0) lines.push(notes.join(" "));
   lines.push(
     o.problems === 0
-      ? "It has no problems. Next: move to the POC test and try it on a real example, then tell me what to change."
-      : `${o.problems === 1 ? "1 problem is" : `${o.problems} problems are`} left before it can be tried; ask me about ${o.problems === 1 ? "it" : "them"}, or open the workflow.`,
+      ? "Next: move to the POC test and try it on a real example, then tell me what to change."
+      : `${o.problems === 1 ? "1 problem is" : `${o.problems} problems are`} left before it can be tried: use the buttons on each issue.`,
   );
   return lines.join("\n\n");
 }
