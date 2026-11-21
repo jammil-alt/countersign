@@ -6,9 +6,9 @@
 <title>Mezonas builder prototype</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <!--
-  Mezonas builder prototype (owner, 2026-11-21): say how it starts, list the steps (a decision is
-  its own kind of line: If, Or if, Otherwise), they are put together one by one, then change them on
-  one canvas. Drag steps, add decisions between them, click a step for its whole
+  Mezonas builder prototype (owner, 2026-11-21): describe it in a paragraph, check the steps the
+  Builder reads from it (how it starts, then a line a step; a decision is its own kind of line: If,
+  Or if, Otherwise, each path rejoining or ending), then change them on one canvas. Drag steps, add decisions between them, click a step for its whole
   setup with the Builder underneath. Design only: the Builder's answers and the try's results are
   scripted, nothing is saved, and no route is called. Tokens: packages/design-system/tokens.css.
   What it maps to in the code is in the page's own notes ("About this prototype").
@@ -133,12 +133,22 @@ h1,h2,h3,p{margin:0}
 .drow--dec{grid-template-columns:14px 22px minmax(0,1fr);align-items:start}
 .drow--dec>.grip,.drow--dec>.drow__n{margin-top:12px}
 .dec{border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--surface-subtle);padding:10px;display:grid;gap:10px;min-width:0}
-.dec__path{display:grid;gap:6px}
-.dec__if{display:grid;grid-template-columns:76px minmax(0,1fr) auto;gap:8px;align-items:center}
+.dec__path{display:grid;gap:6px;border-left:2px solid var(--slate);padding:2px 0 2px 10px}
+.dec__path--else{border-left-color:var(--line-strong)}
+.dec__if{display:grid;grid-template-columns:18px 66px minmax(0,1fr) auto;gap:8px;align-items:center}
 .dec__if b{font:500 13px/18px var(--font-sans)}
-.sub{display:grid;grid-template-columns:76px minmax(0,1fr) auto auto;gap:8px;align-items:center}
-.sub>span:first-child{font-size:12px;color:var(--ink-muted);text-align:right}
-.dec__more{padding-left:84px;display:flex;gap:14px;flex-wrap:wrap}
+.sub{display:grid;grid-template-columns:18px 66px minmax(0,1fr) auto auto;gap:8px;align-items:center}
+.dec__more{padding-left:100px;display:flex;gap:8px 16px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+.dec__more .select{width:auto;height:30px;font-size:13px;padding:0 8px}
+.stepper{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font:500 13px/18px var(--font-sans);color:var(--ink-muted)}
+.stepper span{display:inline-flex;gap:8px;align-items:center;padding:4px 12px 4px 4px;border-radius:var(--radius-pill);border:1px solid transparent}
+.stepper i{font:500 11px/18px var(--font-mono);font-style:normal;width:20px;height:20px;border-radius:50%;border:1px solid var(--line-strong);display:inline-flex;align-items:center;justify-content:center}
+.stepper i .ico{width:12px;height:12px}
+.stepper .on{color:var(--ink);background:var(--surface);border-color:var(--line)}
+.stepper .on i{background:var(--slate);border-color:var(--slate);color:var(--on-slate)}
+.stepper .done i{background:var(--positive-tint);border-color:var(--positive-tint);color:var(--positive)}
+.quote{border-left:2px solid var(--line-strong);padding:2px 0 2px 12px;display:flex;gap:12px;justify-content:space-between;align-items:flex-start;font-size:13px;line-height:19px;color:var(--ink-muted)}
+.quote>span{min-width:0}.quote .linkbtn{white-space:nowrap}
 .pv{display:grid;gap:0}
 .pv__row{display:grid;grid-template-columns:24px 92px minmax(0,1fr);gap:10px;align-items:baseline;padding:9px 0;border-top:1px solid var(--line)}
 .pv__row:first-child{border-top:0}
@@ -154,7 +164,7 @@ h1,h2,h3,p{margin:0}
 .block .kico{width:24px;height:24px}
 .block small{display:block;font:400 11px/14px var(--font-sans);color:var(--ink-muted)}
 .canvas{min-width:0;padding-block:20px 120px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));background-image:radial-gradient(var(--line) 1px,transparent 1px);background-size:18px 18px;min-height:calc(100vh - var(--bar-h));transition:padding-right 200ms}
-.col{max-width:700px;margin:0 auto;display:grid;gap:0}
+.col{max-width:860px;margin:0 auto;display:grid;gap:0}
 body.has-sheet .canvas{padding-right:calc(var(--sheet-w) + 16px)}
 
 .note{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;padding:12px 14px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);font-size:13px;line-height:19px;margin-bottom:16px}
@@ -209,16 +219,31 @@ body.has-sheet .canvas{padding-right:calc(var(--sheet-w) + 16px)}
 .fork>.card{border:0;border-radius:var(--radius-md) var(--radius-md) 0 0;background:transparent}
 .node.is-sel>.fork{border-color:var(--slate);box-shadow:0 0 0 1px var(--slate)}
 .node.is-sel>.fork>.card{box-shadow:none}
-.lanes{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px;padding:0 8px 8px}
+.lanes{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px;padding:0 8px 8px;position:relative}
+.lanes--split{padding-top:18px}
+.lanes--split::before{content:"";position:absolute;left:50%;top:0;height:9px;width:1px;background:var(--line-strong)}
+.lanes--split>.lane{position:relative}
+.lanes--split>.lane::before{content:"";position:absolute;left:50%;top:-9px;height:9px;width:1px;background:var(--line-strong)}
+.lanes--split>.lane::after{content:"";position:absolute;top:-9px;left:-4px;right:-4px;height:1px;background:var(--line-strong)}
+.lanes--split>.lane:first-child::after{left:50%}.lanes--split>.lane:last-child::after{right:50%}
+.lane .lanes{grid-template-columns:minmax(0,1fr)!important;padding-top:0}
+.lane .lanes--split::before,.lane .lanes--split>.lane::before,.lane .lanes--split>.lane::after{display:none}
+.lane .lane{border-left:2px solid var(--slate);border-radius:0 var(--radius-sm) var(--radius-sm) 0}
+.lane.is-taken{box-shadow:inset 0 0 0 1px var(--positive)}
+.lane__foot{display:flex;justify-content:space-between;align-items:center;gap:6px 12px;flex-wrap:wrap;padding:6px 10px 10px;font-size:12px;line-height:16px}
+.lane__foot .linkbtn{font-size:12px;line-height:16px}
+.lane__end{display:inline-flex;gap:8px;align-items:center;color:var(--ink-muted)}
+.lane__end .ico{width:12px;height:12px}
+.lane__end--stop b{font-weight:500;color:var(--ink);display:inline-flex;gap:5px;align-items:center}
 .lane{background:var(--surface-subtle);border-radius:var(--radius-sm);min-width:0;display:flex;flex-direction:column}
 .lane__h{display:grid;gap:2px}
 .lane__t{display:flex;gap:8px;align-items:center;font:500 13px/18px var(--font-sans)}
 .ltr{width:18px;height:18px;border-radius:50%;background:var(--slate);color:var(--on-slate);font:600 10px/18px var(--font-sans);text-align:center;flex:none}
 .ltr--else{background:var(--surface);color:var(--ink-muted);border:1px solid var(--line-strong);line-height:16px}
 .lane__rule{font:500 11px/16px var(--font-mono);color:var(--ink-muted);padding-left:26px}
-.lane__add{all:unset;margin:4px 10px 10px;font:500 12px/16px var(--font-sans);color:var(--slate);cursor:pointer;align-self:flex-start}
+.lane__add{all:unset;font:500 12px/16px var(--font-sans);color:var(--slate);cursor:pointer;align-self:flex-start}
 .lane__add:hover{text-decoration:underline}
-.join{text-align:center;padding:2px 0 10px}
+.join{text-align:center;padding:4px 12px 10px}
 .end{position:relative;padding-top:26px;display:flex;flex-direction:column;align-items:center;gap:8px}
 .end::before{content:"";position:absolute;left:50%;top:0;height:26px;width:1px;background:var(--line-strong)}
 .end__add{all:unset;box-sizing:border-box;width:100%;text-align:center;padding:12px;border:1px dashed var(--line-strong);border-radius:var(--radius-md);font:500 13px/18px var(--font-sans);color:var(--ink-muted);cursor:pointer;background:var(--paper)}
@@ -309,7 +334,8 @@ details.more summary span{font-weight:400;color:var(--ink-muted)}
   .bar__sum,.crumb{display:none}
   .card__tags{max-width:none}.card__top{flex-direction:column;gap:4px}.card__tags{justify-content:flex-start}
   .drow{grid-template-columns:14px 18px minmax(0,1fr) auto}.drow>.pill{display:none}
-  .dec__if,.sub{grid-template-columns:68px minmax(0,1fr) auto}.sub>.pill{display:none}.dec__more{padding-left:76px}.dec .help{display:none}
+  .dec__if,.sub{grid-template-columns:18px 62px minmax(0,1fr) auto}.sub>.pill{display:none}.dec__more{padding-left:0}.dec .help{display:none}
+  .lanes{grid-template-columns:minmax(0,1fr)!important}.lanes--split::before,.lanes--split>.lane::before,.lanes--split>.lane::after{display:none}
   .pv__row{grid-template-columns:20px minmax(0,1fr)}.pv__row .pill{justify-self:start;grid-column:2}.pv__row b{grid-column:2}.pv__sub{grid-column:2}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
@@ -332,9 +358,9 @@ const STARTS = [
   { starts: "A message arrives", hint: "An email, a text, a WhatsApp", name: "When someone on the team sends a message", detail: "Texts and WhatsApp" },
   { starts: "A person starts it", hint: "By hand, when they choose", name: "When someone starts it by hand", detail: "From the agent's page" },
 ];
+const PARA = "When a vendor invoice arrives by email, read the invoice and match each line to our item list. If the invoice is a duplicate, tell Dana it is a duplicate and stop. If a line doesn't match, ask Dana which item it is. Code each line to a job, then check each price against the last price we paid. If a price is up more than 5%, ask Dana to approve the new price, otherwise carry on. Create the bill in QuickBooks and tell Dana what changed.";
 const row = (text) => ({ id: nid(), t: "step", text: text || "" });
-const decRow = (cond, then) => ({ id: nid(), t: "decision", paths: [{ cond: cond || "", steps: [row(then)] }], otherwise: [] });
-const exampleList = () => [row("Read the invoice"), row("Match each line to our item list"), decRow("a line doesn't match", "Ask Dana which item it is"), row("Code each line to a job"), row("Check each price against the last price we paid"), row("Create the bill in QuickBooks"), row("Tell Dana what changed")];
+const decRow = (cond, then) => ({ id: nid(), t: "decision", paths: [{ cond: cond || "", steps: [row(then)], end: "on" }], otherwise: [], oend: "on" });
 const PEOPLE = [SIGNER, "Lisa Park", "Harbor Millwork's admins", "Your Mezonas lead"];
 const PARTS = {
   read: ["Purchasing · read the item list", "Purchasing · read last prices", "QuickBooks · find a bill", "QuickBooks · find a vendor", "Documents · find a document"],
@@ -380,7 +406,7 @@ const plural = (n, w, ws) => `${n} ${n === 1 ? w : ws || w + "s"}`;
 const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const S = {
-  view: "describe", name: "Invoice intake", start: { starts: STARTS[0].starts, name: STARTS[0].name }, list: [], trigger: null, steps: [], sel: null, sheet: null, menu: null,
+  view: "describe", name: "Invoice intake", para: PARA, fromPara: false, drafting: false, start: { starts: STARTS[0].starts, name: STARTS[0].name }, list: [], trigger: null, steps: [], sel: null, sheet: null, menu: null,
   hist: [], chat: [], busy: false, try: null, tried: false, live: false, note: null, building: null, file: "Baltic-Lumber-INV-4471.pdf",
 };
 const fresh = new Set();
@@ -475,11 +501,44 @@ function fromForm(blank) {
     const paths = r.paths.filter((q) => q.cond.trim());
     if (!paths.length) return null;
     const d = mk("decision", cap(clean(paths[0].cond)) + "?", { from: "If " + clean(paths[0].cond) });
-    d.paths = [...paths.map((q) => ({ id: nid(), name: cap(clean(q.cond)), rule: ruleFrom(q.cond), steps: q.steps.filter(has).map((x) => guess(x.text)) })), { id: nid(), name: "Otherwise", rule: null, steps: r.otherwise.filter(has).map((x) => guess(x.text)) }];
+    const made = (list, end) => [...list.filter(has).map((x) => guess(x.text)), ...(end === "stop" ? [mk("stop", "Stop here")] : [])];
+    d.paths = [...paths.map((q) => ({ id: nid(), name: cap(clean(q.cond)), rule: ruleFrom(q.cond), steps: made(q.steps, q.end) })), { id: nid(), name: "Otherwise", rule: null, steps: made(r.otherwise, r.oend) }];
     d.decide = d.paths.every((q) => !q.rule || q.rule.field) ? "A rule" : "The agent";
     return d;
   }).filter(Boolean);
   return { trigger, steps };
+}
+const VERB = "read|extract|parse|match|check|compare|reconcile|summari[sz]e|draft|track|classify|categori[sz]e|find|look|get|pull|fetch|list|search|create|update|add|post|send|attach|file|save|record|enter|mark|email|text|upload|ask|tell|notify|alert|remind|wait|stop|code|have|let";
+const splitActs = (t) => t.split(new RegExp(`(?:[,;])?\\s+(?:and then|then|and)\\s+(?=(?:${VERB})\\b)|;\\s+|,\\s+(?=(?:${VERB})\\b)`, "i")).map(clean).filter(Boolean).map(cap);
+const goesOn = (t) => !t || /^(carry on|continue|go on|keep going|do nothing|nothing)\b/i.test(t);
+function startFrom(words) {
+  const l = words.toLowerCase();
+  const st = /every|each (day|week|morning|month)|daily|weekly|once a|at \d/.test(l) ? STARTS[1] : /message|text|whatsapp|sms/.test(l) ? STARTS[3] : /email|invoice|document|receipt|upload|pdf|file/.test(l) ? STARTS[0] : /quickbooks|bill|record|created|changes/.test(l) ? STARTS[2] : /by hand|someone starts|asks/.test(l) ? STARTS[4] : STARTS[0];
+  return { starts: st.starts, name: cap(clean(words)) };
+}
+function parsePara(text) {
+  const sents = text.replace(/\s+/g, " ").split(/(?<=[.!?])\s+/).map((x) => x.trim().replace(/[.!?]$/, "")).filter(Boolean);
+  let start = null;
+  const list = [];
+  const pathOf = (acts) => { const steps = splitActs(acts); const stop = steps.length && /^(stop|end)\b/i.test(steps[steps.length - 1]); if (stop) steps.pop(); return { steps: steps.map(row), end: stop ? "stop" : "on" }; };
+  sents.forEach((sn) => {
+    let m;
+    if (!start && (m = sn.match(/^((?:when|whenever|every|each (?:day|week|morning|month)|once a|daily|weekly|at \d)[^,]*),\s*(.*)$/i))) { start = startFrom(m[1]); sn = m[2]; }
+    else if (!start && !list.length && /^(when|whenever|every|each |once a|daily|weekly)/i.test(sn)) { start = startFrom(sn); return; }
+    if (!sn) return;
+    if ((m = sn.match(/^(?:but |and )?if (.+?)(?:,| then) (.+)$/i))) {
+      let then = m[2], other = "";
+      const o = then.match(/^(.*?)(?:[;,]\s*|\s+)(?:otherwise|or else|else|if not),?\s*(.*)$/i);
+      if (o) { then = o[1]; other = o[2]; }
+      const a = pathOf(then), z = goesOn(other) ? { steps: [], end: "on" } : pathOf(other);
+      list.push({ id: nid(), t: "decision", paths: [{ cond: clean(m[1]), steps: a.steps, end: a.end }], otherwise: z.steps, oend: z.end });
+      return;
+    }
+    const last = list[list.length - 1];
+    if ((m = sn.match(/^(?:otherwise|or else|if not),?\s*(.*)$/i)) && last && last.t === "decision") { if (!goesOn(m[1])) { const z = pathOf(m[1]); last.otherwise.push(...z.steps); last.oend = z.end; } return; }
+    splitActs(sn).forEach((a) => list.push(row(a)));
+  });
+  return { start: start || { starts: STARTS[4].starts, name: STARTS[4].name }, list: list.length ? list : [row()] };
 }
 function rowFrom(line) {
   const t = clean(line);
@@ -488,6 +547,8 @@ function rowFrom(line) {
   if ((m = t.match(/^if\s+(.*)$/i))) return decRow(m[1], "");
   return row(t);
 }
+const pathEnds = (p) => !!p.steps.length && p.steps[p.steps.length - 1].kind === "stop";
+function pathById(pid) { let hit = null; walk(S.steps, (st) => { if (st.paths) for (const q of st.paths) if (q.id === pid) hit = q; }); return hit; }
 function walk(list, fn, depth = 0) {
   for (const st of list) {
     fn(st, list, depth);
@@ -538,33 +599,54 @@ function undo() {
 /* ── Describe ── */
 const kindPill = (text, id) => { const k = (text || "").trim() ? guess(text) : null; return `<span class="pill ${!k ? "pill--neutral" : k.kind === "person" ? "pill--person" : "pill--neutral"}" id="pk-${id}">${!k ? "Step" : k.gap ? "A person, for now" : K[k.kind].label}</span>`; };
 const xBtn = (act, data, label) => `<button class="btn btn--ghost btn--icon" data-act="${act}" ${data} aria-label="${label}">${ic("close")}</button>`;
-function subHTML(r, pk, list) {
-  return list.map((x, i) => `<div class="sub"><span>${pk === "o" ? "do" : "then"}</span><input class="input" data-sub="${r.id}|${pk}|${i}" value="${esc(x.text)}" placeholder="What happens on this path" aria-label="Step on this path">${kindPill(x.text, x.id)}${xBtn("dsubrm", `data-k="${r.id}|${pk}|${i}"`, "Remove this step")}</div>`).join("");
+function pathHTML(r, pk, q) {
+  const other = pk === "o", list = other ? r.otherwise : q.steps, end = other ? r.oend : q.end, letter = other ? "" : String.fromCharCode(65 + pk);
+  return `<div class="dec__path ${other ? "dec__path--else" : ""}">
+    <div class="dec__if"><span class="ltr ${other ? "ltr--else" : ""}">${letter || "·"}</span><b>${other ? "Otherwise" : pk ? "Or if" : "If"}</b>${other
+      ? `<span class="muted small">${list.length || end === "stop" ? "none of the above" : "none of the above: it goes on to the next step"}</span><span></span>`
+      : `<input class="input" data-cond="${r.id}|${pk}" value="${esc(q.cond)}" placeholder="${pk ? "another case" : "a line doesn't match"}" aria-label="Condition">${r.paths.length > 1 ? xBtn("dpathrm", `data-k="${r.id}|${pk}"`, "Remove this path") : "<span></span>"}`}</div>
+    ${list.map((x, i) => `<div class="sub"><span></span><span class="drow__n">${letter}${i + 1}</span><input class="input" data-sub="${r.id}|${pk}|${i}" value="${esc(x.text)}" placeholder="What happens on this path" aria-label="Step on this path">${kindPill(x.text, x.id)}${xBtn("dsubrm", `data-k="${r.id}|${pk}|${i}"`, "Remove this step")}</div>`).join("")}
+    <div class="dec__more"><button class="linkbtn" data-act="dsubadd" data-k="${r.id}|${pk}">+ Step on this path</button><label class="row small muted">then it <select class="select" data-pend="${r.id}|${pk}" aria-label="After this path"><option value="on" ${end === "on" ? "selected" : ""}>rejoins the steps below</option><option value="stop" ${end === "stop" ? "selected" : ""}>ends here</option></select></label></div></div>`;
 }
-function rowsHTML() {
+function rowsHTML(anim) {
+  const fx = (i) => (anim ? ` is-fresh" style="animation-delay:${i * 90}ms` : "");
   return S.list.map((r, i) => r.t === "step"
-    ? `<div class="drow" data-rid="${r.id}"><span class="grip" title="Drag to move">${ic("grip")}</span><span class="drow__n">${i + 1}</span><input class="input" data-row="${r.id}" value="${esc(r.text)}" placeholder="What happens next" aria-label="Step ${i + 1}">${kindPill(r.text, r.id)}${xBtn("drm", `data-id="${r.id}"`, "Remove this step")}</div>`
-    : `<div class="drow drow--dec" data-rid="${r.id}"><span class="grip" title="Drag to move">${ic("grip")}</span><span class="drow__n">${i + 1}</span><div class="dec">
-        <div class="row" style="justify-content:space-between"><span class="row"><span class="kico kico--decision" style="width:24px;height:24px">${ic("fork")}</span><b style="font-weight:500">Decision</b><span class="help">The first that fits runs, then the paths join.</span></span>${xBtn("drm", `data-id="${r.id}"`, "Remove this decision")}</div>
-        ${r.paths.map((q, pi) => `<div class="dec__path"><div class="dec__if"><b>${pi ? "Or if" : "If"}</b><input class="input" data-cond="${r.id}|${pi}" value="${esc(q.cond)}" placeholder="${pi ? "another case" : "a line doesn't match"}" aria-label="Condition">${r.paths.length > 1 ? xBtn("dpathrm", `data-k="${r.id}|${pi}"`, "Remove this path") : "<span></span>"}</div>${subHTML(r, pi, q.steps)}<div class="dec__more"><button class="linkbtn" data-act="dsubadd" data-k="${r.id}|${pi}">+ Step on this path</button></div></div>`).join("")}
-        <div class="dec__path"><div class="dec__if"><b>Otherwise</b><span class="muted small">${r.otherwise.length ? "" : "it goes on to the next step"}</span><span></span></div>${subHTML(r, "o", r.otherwise)}<div class="dec__more"><button class="linkbtn" data-act="dsubadd" data-k="${r.id}|o">+ Step on this path</button><button class="linkbtn" data-act="dpathadd" data-id="${r.id}">+ Or if…</button></div></div>
+    ? `<div class="drow${fx(i)}" data-rid="${r.id}"><span class="grip" title="Drag to move">${ic("grip")}</span><span class="drow__n">${i + 1}</span><input class="input" data-row="${r.id}" value="${esc(r.text)}" placeholder="What happens next" aria-label="Step ${i + 1}">${kindPill(r.text, r.id)}${xBtn("drm", `data-id="${r.id}"`, "Remove this step")}</div>`
+    : `<div class="drow drow--dec${fx(i)}" data-rid="${r.id}"><span class="grip" title="Drag to move">${ic("grip")}</span><span class="drow__n">${i + 1}</span><div class="dec">
+        <div class="row" style="justify-content:space-between"><span class="row"><span class="kico kico--decision" style="width:24px;height:24px">${ic("fork")}</span><b style="font-weight:500">Decision</b><span class="help">The first path that fits runs.</span></span>${xBtn("drm", `data-id="${r.id}"`, "Remove this decision")}</div>
+        ${r.paths.map((q, pi) => pathHTML(r, pi, q)).join("")}${pathHTML(r, "o")}
+        <div><button class="btn btn--sec btn--sm" data-act="dpathadd" data-id="${r.id}">${ic("add")}Or if…</button></div>
       </div></div>`).join("");
 }
+const stepper = (n) => `<div class="stepper" aria-label="Where you are">${["Describe it", "Check the steps", "Build and try"].map((t, i) => `<span class="${i + 1 === n ? "on" : i + 1 < n ? "done" : ""}"><i>${i + 1 < n ? ic("check") : i + 1}</i>${t}</span>`).join("")}</div>`;
+const topbar = () => `<header class="bar"><div class="bar__in">${MARK}<span class="crumb">Back office</span><span class="pill pill--accent">${CLIENT}</span><span class="crumb">New agent</span>
+    <div class="bar__acts"><button class="btn btn--ghost btn--sm" data-act="sheet" data-type="notes">${ic("info")}About this prototype</button></div></div></header>`;
 function describeHTML() {
-  return `<header class="bar"><div class="bar__in">${MARK}<span class="crumb">Back office</span><span class="pill pill--accent">${CLIENT}</span><span class="crumb">New agent</span>
-    <div class="bar__acts"><button class="btn btn--ghost btn--sm" data-act="sheet" data-type="notes">${ic("info")}About this prototype</button></div></div></header>
-  <main class="describe describe--form">
-    <div style="display:grid;gap:8px;max-width:62ch"><h1>New agent</h1>
-    <p class="muted" style="font-size:15px;line-height:23px">Say how it starts, then list what happens. Nothing else is asked. You change it after, on the canvas.</p></div>
-    <div class="panel"><div class="field"><label for="aname">Name</label><input class="input" id="aname" value="${esc(S.name)}"></div></div>
-    <section class="panel sec"><div class="sec__h"><span class="sec__n">1</span><h2>How does it start?</h2></div>
+  return `${topbar()}<main class="describe describe--form">${stepper(1)}
+    <div style="display:grid;gap:8px;max-width:62ch"><h1>What should it do?</h1>
+    <p class="muted" style="font-size:15px;line-height:23px">Tell it the way you would tell a new hire: how it starts, what happens in order, and where someone has to decide. The Builder turns it into steps you check before anything is built.</p></div>
+    <div class="panel">
+      <div class="field"><label for="aname">Name</label><input class="input" id="aname" value="${esc(S.name)}"></div>
+      <div class="field"><label for="para">In your words</label><textarea class="textarea" id="para" rows="8">${esc(S.para)}</textarea>
+      <span class="help">It doesn't have to cover every case. What you leave out gets a default you can change later.</span></div>
+      <div class="row wrap">${S.drafting ? `<span class="agentline" style="height:36px">Reading it and drafting the steps</span>` : `<button class="btn btn--pri" data-act="draft">Draft the steps</button><button class="btn btn--ghost" data-act="mylist">List the steps myself</button>`}</div>
+    </div>
+  </main>`;
+}
+function stepsHTML(anim) {
+  const n = S.list.reduce((a, r) => a + (r.t === "step" ? 1 : 0), 0), d = S.list.length - n;
+  return `${topbar()}<main class="describe describe--form">${stepper(2)}
+    <div style="display:grid;gap:8px;max-width:62ch"><h1>Check the steps</h1>
+    <p class="muted" style="font-size:15px;line-height:23px">${S.fromPara ? `The Builder read your description as ${plural(n, "step")}${d ? ` and ${plural(d, "decision")}` : ""}. Change, add, drag or remove any line. Nothing is built yet.` : "Say how it starts, then list what happens, a line a step. Nothing is built yet."}</p></div>
+    ${S.fromPara ? `<div class="quote"><span>“${esc(S.para.length > 190 ? S.para.slice(0, 190).trim() + "…" : S.para)}”</span><button class="linkbtn" data-act="backdesc">Edit the description</button></div>` : ""}
+    <section class="panel sec"><div class="sec__h"><h2>How it starts</h2></div>
       <div class="starts">${STARTS.map((x) => `<button class="start" data-act="dstart" data-v="${esc(x.starts)}" aria-pressed="${x.starts === S.start.starts}">${esc(x.starts)}<small>${esc(x.hint)}</small></button>`).join("")}</div>
       <div class="field"><label for="swhen">In your words</label><input class="input" id="swhen" value="${esc(S.start.name)}"></div></section>
-    <section class="panel sec"><div class="sec__h"><span class="sec__n">2</span><h2>Then what happens?</h2></div>
-      <p class="help" style="margin-top:-6px">One step a line, in order. Enter adds the next one. Start a line with "If" and it becomes a decision. You can paste a whole list.</p>
-      <div class="dlist" id="dlist">${rowsHTML()}</div>
+    <section class="panel sec"><div class="sec__h"><h2>Then what happens</h2></div>
+      <p class="help" style="margin-top:-6px">One step a line, in order. Enter adds the next one. Start a line with "If" and it becomes a decision: each path has its own steps, and either rejoins the steps below or ends there.</p>
+      <div class="dlist" id="dlist">${rowsHTML(anim)}</div>
       <div class="row wrap"><button class="btn btn--sec btn--sm" data-act="dadd">${ic("add")}Step</button><button class="btn btn--sec btn--sm" data-act="dadddec">${ic("fork")}Decision</button></div></section>
-    <div class="row wrap"><button class="btn btn--pri" data-act="build">Build it</button><button class="btn btn--ghost" data-act="blank">Start with a blank canvas</button></div>
+    <div class="row wrap"><button class="btn btn--pri" data-act="build">Build it</button><button class="btn btn--ghost" data-act="backdesc">Back to the description</button><button class="btn btn--ghost" data-act="blank">Start with a blank canvas</button></div>
   </main>`;
 }
 function renderList(focus) {
@@ -606,7 +688,7 @@ function subOf(st) {
   if (st.kind === "read" || st.kind === "skill" || st.kind === "write") return esc(st.part);
   if (st.kind === "person") return `${st.gap ? "Does this for now" : st.mode === "Approve" ? "Approves" : "Answers"} · ${esc(st.who)} · waits up to ${esc(st.deadline)}`;
   if (st.kind === "notify") return `${esc(st.to)} · ${esc(st.where.toLowerCase())}`;
-  if (st.kind === "decision") return `${st.decide === "A person" ? esc(st.who) + " decides" : st.decide === "The agent" ? "The agent decides" : "A rule decides"} · ${plural(st.paths.length, "path")}, then they join`;
+  if (st.kind === "decision") return `${st.decide === "A person" ? esc(st.who) + " decides" : st.decide === "The agent" ? "The agent decides" : "A rule decides"} · ${plural(st.paths.length, "path")}${st.paths.some(pathEnds) ? `, ${st.paths.every(pathEnds) ? "all end" : st.paths.filter(pathEnds).length + " ends"} here` : ", then they join"}`;
   if (st.kind === "each") return `Over ${esc(st.over)}`;
   if (st.kind === "wait") return `For ${esc(st.dur)}`;
   if (st.kind === "stop") return `Ends the run as ${esc(st.as.toLowerCase())}`;
@@ -635,13 +717,20 @@ function nodeHTML(st, label, lid, i) {
       <span class="card__sub"><span class="eyebrow">${K[st.kind].label}</span>${subOf(st)}${dec}</span>${openOf(st).slice(0, 2).map((o) => `<span class="ask"><span class="pill pill--wait">${o.type}</span><span>${esc(o.text)}</span></span>`).join("")}${resHTML(st.id)}</span></div>`;
   const plus = `<button class="plus" data-act="plus" data-list="${lid}" data-index="${i}" aria-label="Add a step before ${esc(st.name)}" aria-expanded="${!!(S.menu && S.menu.list === lid && S.menu.index === i)}">${ic("add")}</button>`;
   if (!st.paths) return `<div class="${cls}" data-id="${st.id}">${plus}${card}</div>`;
+  const shown = S.try && S.try.order.indexOf(st.id) > -1 && S.try.order.indexOf(st.id) < S.try.shown;
   const lanes = st.paths.map((p, pi) => {
     const letter = p.each ? "" : p.rule ? String.fromCharCode(65 + pi) : "";
     const rule = p.each ? "" : !p.rule ? "None of the above" : st.decide === "The agent" ? "The agent judges" : st.decide === "A person" ? `${st.who} picks` : p.rule.field ? `${p.rule.field} ${p.rule.op} ${p.rule.value}` : "No rule yet";
-    return `<div class="lane"><div class="flow" data-list="${p.id}"><div class="lane__h"><span class="lane__t">${p.each ? "" : `<span class="ltr ${p.rule ? "" : "ltr--else"}">${letter || "·"}</span>`}${p.rule ? `<span class="muted" style="font-weight:400">${pi ? "Or if" : "If"}</span>` : ""}${esc(p.rule ? p.name.charAt(0).toLowerCase() + p.name.slice(1) : p.name)}</span>${rule ? `<span class="lane__rule" ${p.each ? 'style="padding-left:0"' : ""}>${esc(rule)}</span>` : ""}</div>${p.steps.map((x, xi) => nodeHTML(x, `${letter}${xi + 1}`, p.id, xi)).join("")}<div class="lane__empty">${p.each ? "Drop its steps here." : "Nothing here. The run goes on."}</div></div>
-      <button class="lane__add" data-act="plus" data-list="${p.id}" data-index="${p.steps.length}">+ Add a step</button></div>`;
+    const ends = pathEnds(p), taken = shown && S.try.taken.includes(p.id);
+    return `<div class="lane${taken ? " is-taken" : ""}"><div class="flow" data-list="${p.id}"><div class="lane__h"><span class="lane__t">${p.each ? "" : `<span class="ltr ${p.rule ? "" : "ltr--else"}">${letter || "·"}</span>`}${p.rule ? `<span class="muted" style="font-weight:400">${pi ? "Or if" : "If"}</span>` : ""}${esc(p.rule ? p.name.charAt(0).toLowerCase() + p.name.slice(1) : p.name)}</span>${rule ? `<span class="lane__rule" ${p.each ? 'style="padding-left:0"' : ""}>${esc(rule)}</span>` : ""}${taken ? `<span style="padding-left:26px"><span class="pill pill--ok">Taken on this example</span></span>` : ""}</div>${p.steps.map((x, xi) => nodeHTML(x, `${letter}${xi + 1}`, p.id, xi)).join("")}<div class="lane__empty">${p.each ? "Drop its steps here." : "Nothing here."}</div></div>
+      <div class="lane__foot"><button class="lane__add" data-act="plus" data-list="${p.id}" data-index="${ends ? p.steps.length - 1 : p.steps.length}">+ Add a step</button>${p.each ? "" : ends
+        ? `<span class="lane__end lane__end--stop"><b>${ic("stop")}Ends here</b><button class="linkbtn" data-act="pathend" data-p="${p.id}" data-v="on">Rejoin instead</button></span>`
+        : `<span class="lane__end"><span>${ic("arrow")} Rejoins below</span><button class="linkbtn" data-act="pathend" data-p="${p.id}" data-v="stop">End here instead</button></span>`}</div></div>`;
   }).join("");
-  return `<div class="${cls}" data-id="${st.id}">${plus}<div class="fork">${card}<div class="lanes">${lanes}</div>${st.kind === "decision" ? `<div class="join eyebrow">Paths join here</div>` : ""}</div></div>`;
+  const goOn = st.paths.filter((p) => !pathEnds(p)), endHere = st.paths.filter(pathEnds), nm = (p) => (p.rule ? String.fromCharCode(65 + st.paths.indexOf(p)) : "Otherwise");
+  const join = !endHere.length ? "Paths join here" : !goOn.length ? "Every path ends here · nothing below runs" : `${goOn.map(nm).join(" and ")} ${goOn.length === 1 ? "goes" : "join and go"} on · ${endHere.map(nm).join(" and ")} ${endHere.length === 1 ? "ends" : "end"}`;
+  const cols = st.kind === "decision" && st.paths.length <= 3 ? ` lanes--split" style="grid-template-columns:repeat(${st.paths.length},minmax(0,1fr))` : "";
+  return `<div class="${cls}" data-id="${st.id}">${plus}<div class="fork">${card}<div class="lanes${cols}">${lanes}</div>${st.kind === "decision" ? `<div class="join eyebrow">${join}</div>` : ""}</div></div>`;
 }
 function noteHTML() {
   if (S.building) return `<div class="note"><span class="agentline">Putting it together: step ${S.steps.length + 1} of ${S.building.total}</span><span class="muted">${esc(S.building.queue[0] ? "“" + S.building.queue[0].from + "”" : "")}</span></div>`;
@@ -721,14 +810,15 @@ function setupHTML(st) {
       <div class="field"><label>Message</label><textarea class="textarea" rows="3" data-f="message" placeholder="What they should know">${esc(st.message)}</textarea></div></div>`);
   }
   if (k === "decision") {
+    const after = (p) => `<div class="row wrap" style="justify-content:space-between"><span class="help">${plural(p.steps.filter((x) => x.kind !== "stop").length, "step")} on this path, then it</span><div class="seg" role="group"><button data-act="pathend" data-p="${p.id}" data-v="on" aria-pressed="${!pathEnds(p)}">Rejoins</button><button data-act="pathend" data-p="${p.id}" data-v="stop" aria-pressed="${pathEnds(p)}">Ends here</button></div></div>`;
     const how = { "A rule": "A rule on what the steps before produced. The same answer every time.", "The agent": "The agent reads what the steps before produced and takes the path that fits. If it isn't sure, it takes Otherwise.", "A person": "They pick one. Each path below is a choice they see, and the run waits for them." }[st.decide];
     g.push(`<div class="grp"><div class="field"><label>Who decides</label>${seg("decide", ["A rule", "The agent", "A person"], st.decide)}<span class="help">${how}</span></div>
       ${st.decide === "A person" ? `<div class="field"><label>Who</label>${sel("who", PEOPLE, st.who)}</div>` : ""}
       ${st.paths.map((p, i) => p.rule ? `<div class="pathcard"><div class="row"><span class="ltr">${String.fromCharCode(65 + i)}</span><b style="font-weight:500;white-space:nowrap">${i ? "Or if" : "If"}</b><input class="input" data-f="name" data-p="${p.id}" value="${esc(p.name)}" aria-label="In words"><button class="btn btn--ghost btn--icon" data-act="rmpath" data-p="${p.id}" aria-label="Remove path" ${st.paths.length <= 2 ? "disabled" : ""}>${ic("close")}</button></div>
         ${st.decide === "A rule" ? `<div class="rule"><select class="select" data-f="field" data-p="${p.id}" data-r="1" aria-label="Field">${["", ...FIELDS].concat(FIELDS.includes(p.rule.field) || !p.rule.field ? [] : [p.rule.field]).map((v) => `<option value="${esc(v)}" ${v === p.rule.field ? "selected" : ""}>${esc(v || "Choose a field")}</option>`).join("")}</select>
         <select class="select" data-f="op" data-p="${p.id}" data-r="1" aria-label="Is">${OPS.map((v) => opt(v, p.rule.op)).join("")}</select><input class="input" data-f="value" data-p="${p.id}" data-r="1" value="${esc(p.rule.value)}" placeholder="Value" aria-label="Value"></div>` : ""}
-        <span class="help">${plural(p.steps.length, "step")} on this path. Drag steps in on the canvas.</span></div>`
-        : `<div class="pathcard"><div class="row"><span class="ltr ltr--else">·</span><b style="font-weight:500">Otherwise</b></div><span class="help">When none of the paths above fit. ${p.steps.length ? plural(p.steps.length, "step") + "." : "Nothing happens and the run goes on."}</span></div>`).join("")}
+        ${after(p)}</div>`
+        : `<div class="pathcard"><div class="row"><span class="ltr ltr--else">·</span><b style="font-weight:500">Otherwise</b><span class="help">when none of the paths above fit</span></div>${after(p)}</div>`).join("")}
       <div><button class="btn btn--sec btn--sm" data-act="addpath">${ic("add")}Or if…</button></div></div>`);
   }
   if (k === "each") g.push(`<div class="grp"><div class="field"><label>Over the list</label><input class="input" data-f="over" value="${esc(st.over)}"></div><span class="help">Its steps run once per item, up to 10 at a time.</span></div>`);
@@ -810,7 +900,8 @@ function notesHTML() {
     <p class="sheet__from">A design to react to. The Builder's answers and the try's results are scripted examples; nothing is saved.</p></div>
   <div class="sheet__body notes">
     <div class="grp"><span class="eyebrow">What changes for the operator</span><ul>
-      <li><b style="font-weight:500">It starts with the start.</b> How it starts, then a list of steps, a line each. A decision is its own kind of line: If, Or if, Otherwise.</li>
+      <li><b style="font-weight:500">Describe it, then check the steps.</b> A paragraph in your words becomes how it starts and a list of steps. You fix the list before anything is built.</li>
+      <li><b style="font-weight:500">A decision is its own kind of line:</b> If, Or if, Otherwise. Each path has its own steps and either rejoins or ends there.</li>
       <li><b style="font-weight:500">A decision is defined one way everywhere:</b> who decides (a rule, the agent, or a person), then its paths in words. A rule adds a field, a test and a value.</li>
       <li><b style="font-weight:500">One screen after that.</b> The canvas. The build page's cards (brief, fit-gap, intake form, open items, decisions, proposals, test plan, QA) are off the path.</li>
       <li><b style="font-weight:500">Nothing is asked first.</b> It builds on defaults. What the Builder decided is written on the step it shapes, with Change.</li>
@@ -821,7 +912,9 @@ function notesHTML() {
       <li><b style="font-weight:500">The left rail is nine kinds of step.</b> The skill or tool is picked on the step.</li></ul></div>
     <div class="grp"><span class="eyebrow">What it stands on that is built</span>
     <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Here</th><th>Today</th></tr></thead><tbody>
-      <tr><td>Build it</td><td>Draft it now: the stated steps, one model call, defaults recorded as decisions</td></tr>
+      <tr><td>Draft the steps</td><td>Draft it now: the stated steps from a description, one model call; the draft's steps listed in words. Editing that list before the draft is saved is new.</td></tr>
+      <tr><td>Build it</td><td>The same draft, opened on the canvas, defaults recorded as decisions</td></tr>
+      <tr><td>A path that ends</td><td>A path whose last step is Stop, as the canvas reads it today</td></tr>
       <tr><td>Who decides</td><td>The if step: rules, or the agent chooses; a person step with choices</td></tr>
       <tr><td>The canvas and dragging</td><td>The workflow builder's canvas and its moves, same schema and validator</td></tr>
       <tr><td>+ between steps</td><td>The insert that today sits in the inspector's Connections</td></tr>
@@ -875,7 +968,8 @@ function renderMenu() {
   if (box.bottom > innerHeight - 8) el.firstChild.style.top = Math.max(8, innerHeight - box.height - 8) + "px";
 }
 function renderAll() {
-  if (S.view === "describe") { $("#app").innerHTML = describeHTML(); wireList(); }
+  if (S.view === "describe") $("#app").innerHTML = describeHTML();
+  else if (S.view === "steps") { $("#app").innerHTML = stepsHTML(renderAll.anim); renderAll.anim = false; wireList(); }
   else { $("#app").innerHTML = buildHTML(); wire(); if (fresh.size) setTimeout(() => fresh.clear(), 400); }
   renderSheet();
   renderMenu();
@@ -1001,8 +1095,10 @@ function ask(text, about) {
 
 /* ── Try it (scripted results; nothing is written) ── */
 function startTry() {
-  const res = {}, order = [];
+  const res = {}, order = [], taken = [];
   let halted = false;
+  // The example invoice: one unsure line, one price up 12%, total $4,218.40, not a duplicate.
+  const holds = (q) => { const l = q.name.toLowerCase(); let m; if (/match|unsure|confiden/.test(l)) return true; if (/price|cost/.test(l)) return (m = l.match(/(\d+(?:\.\d+)?)\s*%/)) ? 12 > +m[1] : true; if ((m = l.match(/\$\s?([\d,]+)/))) return /under|less|below/.test(l) ? 4218.4 < +m[1].replace(/,/g, "") : 4218.4 > +m[1].replace(/,/g, ""); return false; };
   const put = (id, text, x = {}) => { res[id] = { text, ...x }; order.push(id); };
   put("trigger", `Example: ${S.file}, from Baltic Lumber.`);
   (function run(list) {
@@ -1023,10 +1119,10 @@ function startTry() {
       else if (st.kind === "wait") put(st.id, `Wait ${st.dur}. Skipped in a try.`, { would: 1 });
       else if (st.kind === "stop") { put(st.id, "The run ends here."); halted = true; }
       else if (st.kind === "each") { put(st.id, "6 items. Its steps ran for each."); run(st.paths[0].steps); }
-      else if (st.kind === "decision") { const p = st.paths[0]; if (st.decide === "A person") put(st.id, `Ask ${st.who} to pick a path. In a try we pick the first: “${p.name}”.`, { would: 1 }); else put(st.id, `Took “${p.name}”${st.decide === "The agent" ? ". The agent judged it from the step before" : p.rule && p.rule.field ? ` (${p.rule.field} ${p.rule.op} ${p.rule.value})` : ""}.`); run(p.steps); }
+      else if (st.kind === "decision") { const p = st.paths.find((q) => q.rule && holds(q)) || st.paths[st.paths.length - 1]; taken.push(p.id); if (!p.rule) { put(st.id, "Took Otherwise. None of the paths above fit this example."); run(p.steps); } else if (st.decide === "A person") put(st.id, `Ask ${st.who} to pick a path. In a try we pick the one that fits: “${p.name}”.`, { would: 1 }); else put(st.id, `Took “${p.name}”${st.decide === "The agent" ? ". The agent judged it from the step before" : p.rule && p.rule.field ? ` (${p.rule.field} ${p.rule.op} ${p.rule.value})` : ""}.`); run(p.steps); }
     }
   })(S.steps);
-  S.try = { res, order, shown: 0, done: false };
+  S.try = { res, order, taken, shown: 0, done: false };
   S.menu = null;
   if (S.sheet && S.sheet.type === "turnon") S.sheet = null;
   renderAll();
@@ -1074,14 +1170,18 @@ const flat = () => { const a = []; walk(S.steps, (st) => a.push(st)); return a; 
 const ACT = {
   build: () => build(false),
   blank: () => build(true),
-  restart: () => { Object.assign(S, { view: "describe", sheet: null, sel: null, menu: null, try: null, building: null }); renderAll(); scrollTo(0, 0); },
+  restart: () => { Object.assign(S, { view: "steps", sheet: null, sel: null, menu: null, try: null, building: null }); renderAll(); scrollTo(0, 0); },
+  draft: () => { if (!S.para.trim()) return toast("Write a few sentences first."); S.drafting = true; renderAll(); setTimeout(() => { const pp = parsePara(S.para); Object.assign(S, { drafting: false, start: pp.start, list: pp.list, fromPara: true, view: "steps" }); renderAll.anim = !calm; renderAll(); scrollTo(0, 0); }, calm ? 0 : 900); },
+  mylist: () => { Object.assign(S, { fromPara: false, list: [row()], view: "steps" }); renderAll(); scrollTo(0, 0); },
+  backdesc: () => { S.view = "describe"; renderAll(); scrollTo(0, 0); },
+  pathend: (d) => { const q = pathById(d.p); if (!q || pathEnds(q) === (d.v === "stop")) return; commit(); if (d.v === "stop") { const z = mk("stop", "Stop here"); q.steps.push(z); fresh.add(z.id); } else q.steps.pop(); S.try = null; renderCanvas(); renderBar(); renderSheet(); },
   dstart: (d) => { const cur = STARTS.find((x) => x.starts === S.start.starts), nx = STARTS.find((x) => x.starts === d.v); if (!S.start.name.trim() || S.start.name === cur.name) S.start.name = nx.name; S.start.starts = nx.starts; renderAll(); },
   dadd: () => { const r = row(); S.list.push(r); renderList(`[data-row="${r.id}"]`); },
   dadddec: () => { const r = decRow("", ""); S.list.push(r); renderList(`[data-cond="${r.id}|0"]`); },
   drm: (d) => { S.list = S.list.filter((x) => x.id !== d.id); renderList(); },
   dsubadd: (d) => { const { list } = subList(d.k); list.push(row()); renderList(`[data-sub="${d.k}|${list.length - 1}"]`); },
   dsubrm: (d) => { const k = d.k.split("|"), { list } = subList(d.k); list.splice(+k[2], 1); renderList(); },
-  dpathadd: (d) => { const r = S.list.find((x) => x.id === d.id); r.paths.push({ cond: "", steps: [row()] }); renderList(`[data-cond="${r.id}|${r.paths.length - 1}"]`); },
+  dpathadd: (d) => { const r = S.list.find((x) => x.id === d.id); r.paths.push({ cond: "", steps: [row()], end: "on" }); renderList(`[data-cond="${r.id}|${r.paths.length - 1}"]`); },
   dpathrm: (d) => { const k = d.k.split("|"), r = S.list.find((x) => x.id === k[0]); r.paths.splice(+k[1], 1); renderList(); },
   open: (d) => { S.sel = d.id; S.sheet = { type: "step" }; renderCanvas(); renderSheet(); },
   close: () => { S.sheet = null; S.sel = null; if (S.view === "build") renderCanvas(); renderSheet(); },
@@ -1146,6 +1246,7 @@ document.addEventListener("focusin", (e) => { if (e.target.dataset && e.target.d
 document.addEventListener("input", (e) => {
   const t = e.target;
   if (t.id === "swhen") { S.start.name = t.value; return; }
+  if (t.id === "para") { S.para = t.value; return; }
   const ds = t.dataset || {};
   if (ds.row) {
     const r = S.list.find((x) => x.id === ds.row);
@@ -1173,6 +1274,7 @@ document.addEventListener("input", (e) => {
 document.addEventListener("change", (e) => {
   const t = e.target;
   if (t.id === "tryfile" && t.files[0]) { S.file = t.files[0].name; startTry(); return; }
+  if (t.dataset && t.dataset.pend) { const [rid, pk] = t.dataset.pend.split("|"), r = S.list.find((x) => x.id === rid); if (pk === "o") r.oend = t.value; else r.paths[+pk].end = t.value; renderList(); return; }
   if (!t.dataset || !t.dataset.f) return;
   if (pend && pend !== snap()) { S.hist.push(pend); S.try = null; renderBar(); }
   pend = snap();
@@ -1182,7 +1284,7 @@ document.addEventListener("keydown", (e) => {
   const t = e.target, typing = /INPUT|TEXTAREA|SELECT/.test(t.tagName);
   if (t.id === "say" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ACT.send(); return; }
   const ds = t.dataset || {};
-  if (S.view === "describe" && (ds.row || ds.cond || ds.sub)) {
+  if (S.view === "steps" && (ds.row || ds.cond || ds.sub)) {
     if (e.key === "Enter") {
       e.preventDefault();
       if (ds.row) { const i = S.list.findIndex((x) => x.id === ds.row), r = row(); S.list.splice(i + 1, 0, r); renderList(`[data-row="${r.id}"]`); }
@@ -1209,7 +1311,6 @@ document.addEventListener("paste", (e) => {
   S.list.splice(i, S.list[i].text.trim() ? 0 : 1, ...lines.map(rowFrom));
   renderList();
 });
-S.list = exampleList();
 renderAll();
 </script>
 </body>
