@@ -1,0 +1,1899 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mezonas builder prototype</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<!--
+  Mezonas builder prototype (owner, 2026-11-21): describe it in a paragraph, check the steps the
+  Builder reads from it (how it starts, then a line a step; a decision is its own kind of line: If,
+  Or if, Otherwise, each path rejoining or ending), then change them on one canvas. Drag steps, add decisions between them, click a step for its whole
+  setup with the Builder underneath. Design only: the Builder's answers and the try's results are
+  scripted, nothing is saved, and no route is called. Tokens: packages/design-system/tokens.css.
+  What it maps to in the code is in the page's own notes ("About this prototype").
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@500&display=swap">
+<style>
+/* Layout: one sticky bar; a slim rail of step kinds; the flow as one centred column; one sheet on the right. */
+:root{
+  --font-sans:"Geist",ui-sans-serif,system-ui,sans-serif;--font-mono:"Geist Mono",ui-monospace,Menlo,monospace;
+  --paper:#FAFAF9;--surface:#FFFFFF;--surface-subtle:#F2F3F2;--line:#E6E8EA;--line-strong:#8A9199;
+  --ink:#1A1F26;--ink-muted:#5B636D;--ink-faint:#959CA4;
+  --slate:#23415E;--slate-hover:#1A3249;--slate-tint:#EDF1F5;--on-slate:#FFFFFF;
+  --copper:#9A4D27;--copper-ink:#7A3D1F;--copper-tint:#F8ECE4;
+  --signal:#E3A417;--signal-ink:#6B4C05;--signal-tint:#FBF0D2;
+  --risk:#A3302A;--risk-ink:#8A2B26;--risk-tint:#F9E5E3;--risk-line:#EDB9B5;
+  --positive:#1F6B4A;--positive-tint:#E2F0E8;
+  --radius-sm:6px;--radius-md:10px;--radius-lg:14px;--radius-pill:999px;
+  --shadow-xs:0 1px 2px rgba(21,26,33,.08);--shadow-pop:0 8px 24px rgba(21,26,33,.12);--focus-halo:0 0 0 4px rgba(35,65,94,.18);
+  --scrim:rgba(21,26,33,.4);
+  --bar-h:56px;--rail-w:236px;--sheet-w:452px;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#0F1318;--surface:#171C23;--surface-subtle:#1D232B;--line:#2A313A;--line-strong:#6B747E;
+  --ink:#E6E9EC;--ink-muted:#9DA5AF;--ink-faint:#6B737D;
+  --slate:#8FB0D2;--slate-hover:#A9C3DE;--slate-tint:#1C2A38;--on-slate:#0F1318;
+  --copper:#D9895E;--copper-ink:#E3A07C;--copper-tint:#33231A;
+  --signal:#E3A417;--signal-ink:#F0C766;--signal-tint:#3A2E10;
+  --risk:#E8807A;--risk-ink:#F2A39E;--risk-tint:#3A1C1A;--risk-line:#5A2A27;
+  --positive:#7CC4A0;--positive-tint:#17301F;
+  --shadow-pop:0 8px 24px rgba(0,0,0,.5);--focus-halo:0 0 0 4px rgba(143,176,210,.25);--scrim:rgba(0,0,0,.55);
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --paper:#0F1318;--surface:#171C23;--surface-subtle:#1D232B;--line:#2A313A;--line-strong:#6B747E;
+  --ink:#E6E9EC;--ink-muted:#9DA5AF;--ink-faint:#6B737D;
+  --slate:#8FB0D2;--slate-hover:#A9C3DE;--slate-tint:#1C2A38;--on-slate:#0F1318;
+  --copper:#D9895E;--copper-ink:#E3A07C;--copper-tint:#33231A;
+  --signal:#E3A417;--signal-ink:#F0C766;--signal-tint:#3A2E10;
+  --risk:#E8807A;--risk-ink:#F2A39E;--risk-tint:#3A1C1A;--risk-line:#5A2A27;
+  --positive:#7CC4A0;--positive-tint:#17301F;
+  --shadow-pop:0 8px 24px rgba(0,0,0,.5);--focus-halo:0 0 0 4px rgba(143,176,210,.25);--scrim:rgba(0,0,0,.55);
+  color-scheme:dark}
+
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--paper);color:var(--ink);font:400 14px/20px var(--font-sans);-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:40;background:var(--surface)}
+button{font:inherit;color:inherit;cursor:pointer}
+input,textarea,select{font:inherit;color:inherit}
+h1,h2,h3,p{margin:0}
+.ico{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:square;stroke-linejoin:miter}
+.ico.s20{width:20px;height:20px}
+.eyebrow{font:500 10px/14px var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted)}
+.muted{color:var(--ink-muted)}
+.small{font-size:13px;line-height:18px}
+.grow{flex:1 1 auto;min-width:0}
+.row{display:flex;align-items:center;gap:8px}
+.wrap{flex-wrap:wrap}
+
+/* Design-system controls (ds-btn, ds-input, ds-seg, ds-pill), as in components/bundle.css */
+.btn{all:unset;box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:36px;padding:0 16px;border-radius:var(--radius-md);font:500 13px/1 var(--font-sans);cursor:pointer;white-space:nowrap;transition:background 160ms}
+.btn:focus-visible,.seg button:focus-visible,.plus:focus-visible,.card:focus-visible,.block:focus-visible,.linkbtn:focus-visible{outline:2px solid var(--slate);outline-offset:2px}
+.btn--pri{background:var(--slate);color:var(--on-slate)}.btn--pri:hover{background:var(--slate-hover)}
+.btn--sec{background:var(--surface);color:var(--ink);border:1px solid var(--line-strong)}.btn--sec:hover{background:var(--surface-subtle)}
+.btn--ghost{color:var(--ink)}.btn--ghost:hover{background:var(--surface-subtle)}
+.btn--sm{height:30px;padding:0 12px;font-size:12px}
+.btn--icon{width:30px;height:30px;padding:0}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.linkbtn{all:unset;color:var(--slate);font:500 13px/18px var(--font-sans);cursor:pointer}.linkbtn:hover{text-decoration:underline}
+.input,.select,.textarea{width:100%;height:36px;padding:0 12px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--surface);color:var(--ink);font:400 14px/1.4 var(--font-sans)}
+.textarea{height:auto;padding:8px 12px;resize:vertical;line-height:20px}
+.input::placeholder,.textarea::placeholder{color:var(--ink-faint)}
+.input:focus,.select:focus,.textarea:focus{outline:none;border-color:var(--slate);box-shadow:var(--focus-halo)}
+.seg{display:inline-flex;gap:2px;padding:3px;background:var(--surface-subtle);border:1px solid var(--line);border-radius:var(--radius-md);max-width:100%;flex-wrap:wrap}
+.seg button{all:unset;padding:6px 12px;border-radius:var(--radius-sm);font:500 13px/1 var(--font-sans);color:var(--ink-muted);cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:var(--shadow-xs)}
+.seg button[disabled]{opacity:.5;cursor:not-allowed}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;font:500 11px/14px var(--font-sans);white-space:nowrap;border:1px solid;border-radius:var(--radius-pill)}
+.pill--neutral{color:var(--ink-muted);background:var(--surface-subtle);border-color:var(--line)}
+.pill--accent{color:var(--slate);background:var(--slate-tint);border-color:var(--slate-tint)}
+.pill--person{color:var(--copper-ink);background:var(--copper-tint);border-color:var(--copper-tint)}
+.pill--wait{color:var(--signal-ink);background:var(--signal-tint);border-color:var(--signal)}
+.pill--risk{color:var(--risk-ink);background:var(--risk-tint);border-color:var(--risk-line)}
+.pill--ok{color:var(--positive);background:var(--positive-tint);border-color:var(--positive-tint)}
+.field{display:grid;gap:6px}
+.field>label,.label{font:500 13px/16px var(--font-sans);color:var(--ink)}
+.help{font-size:12px;line-height:17px;color:var(--ink-muted)}
+.switch{all:unset;width:32px;height:18px;border-radius:var(--radius-pill);background:var(--line-strong);padding:2px;box-sizing:border-box;display:inline-flex;flex:none;cursor:pointer;transition:background 160ms}
+.switch::after{content:"";width:14px;height:14px;border-radius:50%;background:var(--surface);transition:transform 160ms}
+.switch[aria-checked="true"]{background:var(--slate)}.switch[aria-checked="true"]::after{transform:translateX(14px)}
+
+/* Bar */
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--surface);border-bottom:1px solid var(--line)}
+.bar__in{display:flex;align-items:center;gap:12px;min-height:var(--bar-h);padding-block:8px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));flex-wrap:wrap}
+.mark{width:22px;height:22px;color:var(--slate);flex:none}
+.crumb{font-size:13px;color:var(--ink-muted);white-space:nowrap}
+.av{width:28px;height:28px;border-radius:50%;background:var(--slate);color:var(--on-slate);display:inline-flex;align-items:center;justify-content:center;font:600 11px/1 var(--font-sans);flex:none}
+.av--builder{background:var(--ink);color:var(--paper)}
+.av--you{background:var(--surface-subtle);color:var(--ink);border:1px solid var(--line)}
+.bar__name{all:unset;font:500 15px/20px var(--font-sans);min-width:0;width:11em;max-width:100%;border-bottom:1px solid transparent}
+.bar__name:hover{border-bottom-color:var(--line-strong)}.bar__name:focus{border-bottom-color:var(--slate)}
+.bar__sum{font-size:12px;line-height:16px;color:var(--ink-muted)}
+.bar__acts{display:flex;gap:8px;align-items:center;margin-left:auto;flex-wrap:wrap}
+
+/* Describe */
+.describe{max-width:1080px;margin:0 auto;padding-block:40px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:24px}
+.describe h1{font:500 30px/36px var(--font-sans);letter-spacing:-.02em;text-wrap:balance}
+.describe__grid{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:24px;align-items:start}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);padding:20px;display:grid;gap:16px;min-width:0}
+.describe--form{max-width:780px}
+.sec{display:grid;gap:14px}
+.sec__h{display:flex;gap:10px;align-items:baseline}
+.sec__h h2{font:500 18px/24px var(--font-sans);letter-spacing:-.01em}
+.sec__n{font:500 12px/18px var(--font-mono);color:var(--ink-faint)}
+.starts{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:8px}
+.start{all:unset;box-sizing:border-box;display:grid;gap:6px;padding:10px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);cursor:pointer;font:500 13px/17px var(--font-sans)}
+.start small{font:400 11px/15px var(--font-sans);color:var(--ink-muted)}
+.start:hover{background:var(--surface-subtle)}
+.start[aria-pressed="true"]{border-color:var(--slate);box-shadow:0 0 0 1px var(--slate);background:var(--slate-tint)}
+.start:focus-visible{outline:2px solid var(--slate);outline-offset:2px}
+.dlist{display:grid;gap:8px}
+.drow{display:grid;grid-template-columns:14px 22px minmax(0,1fr) auto auto;gap:8px;align-items:center}
+.drow__n{font:500 12px/18px var(--font-mono);color:var(--ink-faint);text-align:right}
+.drow--dec{grid-template-columns:14px 22px minmax(0,1fr);align-items:start}
+.drow--dec>.grip,.drow--dec>.drow__n{margin-top:12px}
+.dec{border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--surface-subtle);padding:10px;display:grid;gap:10px;min-width:0}
+.dec__path{display:grid;gap:6px;border-left:2px solid var(--slate);padding:2px 0 2px 10px}
+.dec__path--else{border-left-color:var(--line-strong)}
+.dec__if{display:grid;grid-template-columns:18px 66px minmax(0,1fr) auto;gap:8px;align-items:center}
+.dec__if b{font:500 13px/18px var(--font-sans)}
+.sub{display:grid;grid-template-columns:18px 66px minmax(0,1fr) auto auto;gap:8px;align-items:center}
+.dec__more{padding-left:100px;display:flex;gap:8px 16px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+.dec__more .select{width:auto;height:30px;font-size:13px;padding:0 8px}
+.stepper{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font:500 13px/18px var(--font-sans);color:var(--ink-muted)}
+.stepper span{display:inline-flex;gap:8px;align-items:center;padding:4px 12px 4px 4px;border-radius:var(--radius-pill);border:1px solid transparent}
+.stepper i{font:500 11px/18px var(--font-mono);font-style:normal;width:20px;height:20px;border-radius:50%;border:1px solid var(--line-strong);display:inline-flex;align-items:center;justify-content:center}
+.stepper i .ico{width:12px;height:12px}
+.stepper .on{color:var(--ink);background:var(--surface);border-color:var(--line)}
+.stepper .on i{background:var(--slate);border-color:var(--slate);color:var(--on-slate)}
+.stepper .done i{background:var(--positive-tint);border-color:var(--positive-tint);color:var(--positive)}
+.quote{border-left:2px solid var(--line-strong);padding:2px 0 2px 12px;display:flex;gap:12px;justify-content:space-between;align-items:flex-start;font-size:13px;line-height:19px;color:var(--ink-muted)}
+.quote>span{min-width:0}.quote .linkbtn{white-space:nowrap}
+.pv{display:grid;gap:0}
+.pv__row{display:grid;grid-template-columns:24px 92px minmax(0,1fr);gap:10px;align-items:baseline;padding:9px 0;border-top:1px solid var(--line)}
+.pv__row:first-child{border-top:0}
+.pv__n{font:500 12px/18px var(--font-mono);color:var(--ink-faint)}
+.pv__sub{grid-column:3;font-size:12px;line-height:17px;color:var(--ink-muted)}
+
+/* Work area: the canvas is its own viewport. Scroll or drag the background to move, zoom with the buttons. */
+html.is-build,html.is-build body{height:100%;overflow:hidden}
+html.is-build #app{height:100%;display:flex;flex-direction:column}
+html.is-build .bar{position:static;flex:none}
+.work{display:grid;grid-template-columns:var(--rail-w) minmax(0,1fr);flex:1 1 auto;min-height:0}
+.rail{height:100%;overflow:auto;padding:16px 12px 72px;padding-left:max(16px,env(safe-area-inset-left,0px));border-right:1px solid var(--line);background:var(--surface);display:grid;gap:8px;align-content:start}
+.rail__list{display:grid;gap:6px;padding-top:6px}
+.work.is-railoff{grid-template-columns:44px minmax(0,1fr)}
+.work.is-railoff .rail{padding:10px 6px;justify-items:center}
+.rail__h{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.rail__tab{all:unset;box-sizing:border-box;writing-mode:vertical-rl;font:500 12px/1 var(--font-sans);color:var(--ink-muted);padding:10px 8px;border-radius:var(--radius-sm);cursor:pointer;display:flex;align-items:center;gap:8px}
+.rail__tab:hover{background:var(--surface-subtle);color:var(--ink)}
+.rail__tab:focus-visible{outline:2px solid var(--slate);outline-offset:2px}
+.tgrp{border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface)}
+.tgrp>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;padding:6px 8px;font:500 13px/17px var(--font-sans)}
+.tgrp>summary::-webkit-details-marker{display:none}
+.tgrp>summary small{display:block;font:400 11px/14px var(--font-sans);color:var(--ink-muted)}
+.tgrp>summary .ico{margin-left:auto;color:var(--ink-faint);transition:transform 120ms}
+.tgrp[open]>summary .ico{transform:rotate(90deg)}
+.tgrp>summary:focus-visible{outline:2px solid var(--slate);outline-offset:2px}
+.tgrp .rail__list{padding:0 6px 6px}
+.tgrp .block{padding:5px 8px;border-color:transparent;background:var(--surface-subtle)}
+.tgrp .block:hover{border-color:var(--line-strong)}
+.tool-logo{width:24px;height:24px;border-radius:var(--radius-sm);background:var(--slate-tint);color:var(--slate);font:600 11px/24px var(--font-sans);text-align:center;flex:none}
+.rgrp{border-top:1px solid var(--line);padding-top:8px}
+.rgrp>summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;font:500 10px/14px var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted)}
+.rgrp>summary::-webkit-details-marker{display:none}
+.rgrp>summary>span{letter-spacing:0;color:var(--ink-faint)}
+.rgrp>summary:focus-visible{outline:2px solid var(--slate);outline-offset:2px}
+.block{box-sizing:border-box;display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);cursor:grab;font:500 13px/17px var(--font-sans)}
+.block:hover{border-color:var(--line-strong)}
+.block .kico{width:24px;height:24px}
+.block small{display:block;font:400 11px/14px var(--font-sans);color:var(--ink-muted)}
+.block .pill{padding:1px 6px;font-size:10px}
+.canvas{min-width:0;height:100%;overflow:auto;cursor:grab;background-image:radial-gradient(var(--line) 1px,transparent 1px);background-size:18px 18px;background-attachment:local;transition:margin-right 200ms;overscroll-behavior:contain}
+.canvas.is-panning{cursor:grabbing;user-select:none}
+.stage{display:flex;justify-content:center;min-width:max-content;padding:20px 480px 45vh}
+.col{width:760px;display:grid;grid-template-columns:minmax(0,1fr);gap:0;cursor:default}
+.lane .card__top{flex-direction:column;gap:4px}.lane .card__tags{max-width:none;justify-content:flex-start}
+body.has-sheet .canvas{margin-right:var(--sheet-w)}
+/* The same steps as a list, each with its status */
+.canvas--list{cursor:default;background-image:none}
+.slist{max-width:860px;margin:0 auto;padding:20px max(16px,env(safe-area-inset-right,0px)) 120px max(16px,env(safe-area-inset-left,0px));display:grid;gap:12px}
+.slist>.note{margin:0}
+.slist__bar{display:flex;gap:8px 16px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.slist__t{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);overflow:hidden}
+.srow{display:grid;grid-template-columns:44px minmax(0,1fr) 132px 150px;gap:12px;align-items:start;padding:10px 14px;border-top:1px solid var(--line);cursor:pointer;font-size:13px;line-height:18px}
+.srow:first-child{border-top:0}
+.srow:hover{background:var(--surface-subtle)}
+.srow:focus-visible{outline:2px solid var(--slate);outline-offset:-2px}
+.srow.is-sel{background:var(--slate-tint)}
+.srow.is-dead .srow__n,.srow.is-dead .srow__name,.srow.is-dead .srow__k{opacity:.55}
+.srow--head{cursor:default;font:500 10px/14px var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);padding-block:8px;background:var(--surface-subtle)}
+.srow--head:hover{background:var(--surface-subtle)}
+.srow--path{cursor:pointer;padding-block:6px;background:var(--paper);color:var(--ink-muted);grid-template-columns:44px minmax(0,1fr)}
+.srow__n{font:500 12px/18px var(--font-mono);color:var(--ink-faint)}
+.srow__name{display:grid;gap:2px;min-width:0}
+.srow__name b{font-weight:500;overflow-wrap:anywhere}
+.srow__why{font-size:12px;line-height:17px;color:var(--ink-muted)}
+.srow__why--risk{color:var(--risk-ink)}
+.srow__k{font:500 10.5px/18px var(--font-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted)}
+.srow__s{display:flex;gap:4px;flex-wrap:wrap}
+.zoomer{position:fixed;z-index:25;right:max(16px,env(safe-area-inset-right,0px));bottom:max(16px,env(safe-area-inset-bottom,0px));display:flex;align-items:center;gap:2px;padding:3px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);box-shadow:var(--shadow-pop);transition:right 200ms}
+.zoomer button{all:unset;box-sizing:border-box;min-width:30px;height:28px;padding:0 8px;border-radius:var(--radius-sm);font:500 12px/28px var(--font-sans);text-align:center;cursor:pointer;font-variant-numeric:tabular-nums}
+.zoomer button:hover{background:var(--surface-subtle)}
+.zoomer button:focus-visible{outline:2px solid var(--slate);outline-offset:1px}
+.zoomer i{width:1px;height:18px;background:var(--line);margin:0 2px}
+body.has-sheet .zoomer{right:calc(var(--sheet-w) + 16px)}
+
+.note{display:flex;gap:12px;align-items:flex-start;justify-content:space-between;padding:12px 14px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);font-size:13px;line-height:19px;margin-bottom:16px}
+.note>:first-child{flex:1 1 0;min-width:0}.note>:last-child{flex:none}
+.note--try{border-color:var(--slate);background:var(--slate-tint);flex-wrap:wrap}.note--try>:first-child{flex:1 1 240px}
+.agentline{display:inline-flex;align-items:center;gap:8px;font:500 13px/18px var(--font-sans);color:var(--ink-muted)}
+.agentline::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--slate);animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.25}}
+.filechip{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--surface);font:500 12px/16px var(--font-mono)}
+
+/* Flow: small boxes, arrows between them, decisions that branch sideways */
+.grip{width:14px;height:28px;display:flex;align-items:center;justify-content:center;color:var(--ink-faint);cursor:grab}
+.grip .ico{width:14px;height:14px}
+.kico{width:28px;height:28px;border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;background:var(--surface-subtle);color:var(--ink-muted);flex:none;position:relative}
+.kico--write{background:var(--slate);color:var(--on-slate)}
+.kico--person,.kico--talk{background:var(--copper-tint);color:var(--copper-ink)}
+.kico--decision,.kico--each,.kico--repeat{background:var(--slate-tint);color:var(--slate)}
+.ltr{width:18px;height:18px;border-radius:50%;background:var(--slate);color:var(--on-slate);font:600 10px/18px var(--font-sans);text-align:center;flex:none}
+.ltr--else{background:var(--surface);color:var(--ink-muted);border:1px solid var(--line-strong);line-height:16px}
+.is-ghost{opacity:.35}
+.is-fresh{animation:rise 320ms ease-out both}
+@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.res{padding:10px 12px;border-radius:var(--radius-sm);background:var(--surface-subtle);font-size:13px;line-height:18px;display:grid;gap:6px}
+.res__h{display:flex;gap:8px;align-items:flex-start}
+.res--wait{background:var(--signal-tint)}
+.res__acts{display:flex;gap:12px;flex-wrap:wrap}
+.gwrap{display:grid;justify-items:center;gap:16px}
+.gwrap>.note{width:560px;max-width:100%;margin:0;cursor:default}
+.graph{position:relative;cursor:default}
+.gsvg{position:absolute;inset:0;overflow:visible;pointer-events:none}
+.gsvg path{fill:none;stroke:var(--line-strong);stroke-width:1.25}
+.gsvg path.on{stroke:var(--positive);stroke-width:2}
+.gsvg path.dash{stroke:var(--slate);stroke-dasharray:3 3}
+.gsvg.is-tried path:not(.on),.gsvg.is-tried polygon:not(.on){opacity:.4}
+.gsvg .ah{fill:var(--line-strong);stroke:none}.gsvg .ah-on{fill:var(--positive);stroke:none}
+.gsvg polygon{fill:var(--surface);stroke:var(--line-strong);stroke-width:1.25}
+.gsvg polygon.is-sel{stroke:var(--slate);stroke-width:2.5}
+.gsvg polygon.is-dead{opacity:.45}
+.gsvg rect{fill:var(--paper);stroke:var(--line-strong);stroke-dasharray:4 4}
+.gsvg rect.solid{fill:var(--surface-subtle);stroke:var(--line);stroke-dasharray:none}
+.gsvg rect.is-dead{opacity:.45}
+.gnode--ghost,.gnode--ghost:hover{border-style:dashed;border-color:var(--line-strong);border-width:1px;background:var(--surface);padding-right:12px}
+.gnode--ghost .gnode__t{color:var(--ink-muted)}
+.gnode.has-fold{padding-right:50px}
+.gfold{all:unset;box-sizing:border-box;position:absolute;right:6px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:1px;padding:3px 4px 3px 6px;border-radius:var(--radius-sm);font:500 11px/14px var(--font-mono);color:var(--ink-muted);cursor:pointer}
+.gfold:hover{background:var(--surface-subtle);color:var(--ink)}
+.gfold:focus-visible{outline:2px solid var(--slate);outline-offset:1px}
+.gfold .ico{width:13px;height:13px}
+.gsvg text{font:500 9.5px var(--font-mono);fill:var(--ink-muted);letter-spacing:.1em;text-transform:uppercase}
+.gnode{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;gap:2px;padding:6px 12px;background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--radius-sm);cursor:pointer;user-select:none;-webkit-user-select:none}
+.gnode:hover{border-color:var(--slate)}
+.gnode:focus-visible{outline:2px solid var(--slate);outline-offset:2px}
+.gnode.is-sel{border-color:var(--slate);box-shadow:0 0 0 1.5px var(--slate)}
+.gnode__t{font:500 13px/17px var(--font-sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gnode__t .n{font:500 11px/17px var(--font-mono);color:var(--ink-faint);margin-right:6px}
+.gnode__s{font:500 10.5px/14px var(--font-mono);color:var(--ink-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gnode__s b{font-weight:500;letter-spacing:.08em;text-transform:uppercase;margin-right:5px}
+.gnode--trigger{background:var(--slate-tint);border-color:var(--slate-tint)}
+.gnode--write{border-color:var(--slate);border-width:1.5px;padding-right:32px}
+.gnode--person,.gnode--talk{background:var(--copper-tint);border-color:var(--copper-tint)}
+.gnode--person .gnode__t,.gnode--talk .gnode__t{color:var(--copper-ink)}
+.gnode--decision,.gnode--decision:hover,.gnode--decision.is-sel{background:none;border-color:transparent;box-shadow:none;align-items:center;text-align:center;padding:0 44px}
+.gnode--decision .gnode__t{white-space:normal;font-size:12px;line-height:15px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
+.gnode--stop{border-radius:var(--radius-pill);flex-direction:row;align-items:center;justify-content:center;gap:6px;background:var(--surface-subtle);padding:0 10px;font:500 12px/1 var(--font-sans)}
+.gnode--stop .ico{width:11px;height:11px}
+.gnode.has-issue,.gnode.has-issue:hover{border-color:var(--risk);border-width:1.5px}
+.gnode--decision.has-issue,.gnode--decision.has-issue:hover{border-color:transparent}
+.gsvg polygon.has-issue{stroke:var(--risk);stroke-width:2}
+.gnode.is-dead,.gnode.is-off{opacity:.45}
+.gnode.is-dead.has-issue{opacity:.7}
+.gsign{position:absolute;right:9px;top:50%;transform:translateY(-50%);color:var(--copper);display:flex}
+.gflag{position:absolute;top:-9px;right:8px;padding:0 7px;font-size:10px;line-height:15px}
+.gmark{position:absolute;bottom:-9px;right:8px;padding:0 7px;font-size:10px;line-height:15px}
+.ghandle{position:absolute;left:50%;bottom:-7px;width:13px;height:13px;margin-left:-6.5px;border-radius:50%;background:var(--surface);border:1.5px solid var(--line-strong);cursor:crosshair;opacity:0;transition:opacity 120ms;z-index:2}
+.gnode:hover .ghandle,.gnode.is-sel .ghandle,.is-linking .ghandle{opacity:1}
+.ghandle:hover{background:var(--slate);border-color:var(--slate)}
+@media (hover:none){.ghandle{opacity:1}}
+.gplus{all:unset;box-sizing:border-box;position:absolute;transform:translate(-50%,-50%);width:16px;height:16px;border-radius:50%;background:var(--surface);border:1px solid var(--line-strong);color:var(--ink-muted);display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:1}
+.gplus .ico{width:10px;height:10px}
+.gplus:hover,.gplus[aria-expanded="true"],.gplus.is-over{background:var(--slate);border-color:var(--slate);color:var(--on-slate)}
+.gplus:focus-visible,.gchip:focus-visible,.gadd:focus-visible,.gtail:focus-visible{outline:2px solid var(--slate);outline-offset:2px}
+.is-dragging .gplus{width:24px;height:24px;border-color:var(--slate);color:var(--slate)}
+.gchip{all:unset;box-sizing:border-box;position:absolute;transform:translateX(-50%);height:19px;padding:0 9px;border-radius:var(--radius-pill);border:1px solid var(--line-strong);background:var(--surface);font:500 11px/17px var(--font-sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;z-index:1}
+.gchip b{font:600 10px/17px var(--font-sans);color:var(--slate);margin-right:5px}
+.gchip.on{border-color:var(--positive);color:var(--positive)}
+.gadd{all:unset;box-sizing:border-box;position:absolute;height:22px;padding:0 9px;border:1px dashed var(--slate);border-radius:var(--radius-pill);background:var(--surface);color:var(--slate);font:500 11px/20px var(--font-sans);white-space:nowrap;cursor:pointer}
+.gadd:hover{background:var(--slate-tint)}
+.gtail{all:unset;box-sizing:border-box;position:absolute;border:1px dashed var(--line-strong);border-radius:var(--radius-sm);background:var(--paper);color:var(--ink-muted);font:500 12px/34px var(--font-sans);text-align:center;cursor:pointer}
+.gtail:hover,.gtail.is-over{border-color:var(--slate);color:var(--slate)}
+.gnode.is-over{outline:2px solid var(--slate);outline-offset:3px}
+.tip{position:fixed;z-index:36;width:292px;max-width:calc(100vw - 24px);background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);box-shadow:var(--shadow-pop);padding:12px;display:grid;gap:8px;font-size:12.5px;line-height:17px;pointer-events:none}
+.tip b{font-weight:500}
+.tip__h{font:500 14px/19px var(--font-sans)}
+.tip__r{display:grid;grid-template-columns:76px minmax(0,1fr);gap:8px}
+.tip__r>span:first-child{color:var(--ink-muted)}
+.tip__f{border-top:1px solid var(--line);padding-top:8px;color:var(--ink-muted);font-size:11.5px;line-height:16px}
+#linker{position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:37}
+#linker path{fill:none;stroke:var(--slate);stroke-width:2;stroke-dasharray:5 4}
+
+/* Add menu */
+.menu{position:fixed;z-index:35;width:248px;max-height:70vh;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);box-shadow:var(--shadow-pop);padding:6px;display:grid;gap:2px}
+.menu button{all:unset;box-sizing:border-box;display:flex;gap:10px;align-items:center;padding:6px 8px;border-radius:var(--radius-sm);cursor:pointer;font:500 13px/18px var(--font-sans)}
+.menu button:hover,.menu button:focus-visible{background:var(--surface-subtle)}
+.menu small{display:block;font:400 11px/14px var(--font-sans);color:var(--ink-muted)}
+.menu .kico{width:24px;height:24px}
+
+/* Sheet */
+.sheet{position:fixed;z-index:30;top:calc(var(--bar-h) + env(safe-area-inset-top,0px));right:0;bottom:0;width:var(--sheet-w);max-width:100%;background:var(--surface);border-left:1px solid var(--line);box-shadow:var(--shadow-pop);display:flex;flex-direction:column;animation:slide 200ms ease-out}
+@keyframes slide{from{transform:translateX(24px);opacity:0}to{transform:none;opacity:1}}
+.sheet__h{padding:16px 16px 12px;padding-right:max(16px,env(safe-area-inset-right,0px));border-bottom:1px solid var(--line);display:grid;gap:6px}
+.sheet__name{all:unset;font:500 18px/24px var(--font-sans);letter-spacing:-.01em;width:100%;border-bottom:1px solid transparent}
+.sheet__name:hover{border-bottom-color:var(--line-strong)}.sheet__name:focus{border-bottom-color:var(--slate)}
+.sheet__from{font-size:12px;line-height:17px;color:var(--ink-muted)}
+.sheet__body{flex:1 1 auto;overflow:auto;padding:16px;padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:20px;align-content:start;min-height:120px}
+.grp{display:grid;gap:10px}
+.decided{border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface-subtle);padding:10px 12px;display:grid;gap:8px}
+.decided__i{display:grid;gap:1px;font-size:13px;line-height:18px}
+.pathcard{border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px;display:grid;gap:8px}
+.rule{display:grid;grid-template-columns:minmax(0,1.4fr) 64px minmax(0,1fr);gap:6px}
+details.more{border-top:1px solid var(--line);padding-top:12px}
+details.more summary{cursor:pointer;font:500 13px/18px var(--font-sans);color:var(--ink);list-style:none;display:flex;justify-content:space-between;gap:8px}
+details.more summary::-webkit-details-marker{display:none}
+details.more summary span{font-weight:400;color:var(--ink-muted)}
+.kv{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:8px 0;border-top:1px solid var(--line);font-size:13px}
+.kv:first-of-type{margin-top:10px}
+.kv .select{width:auto;max-width:60%;height:30px;font-size:13px}
+.wire{display:grid;gap:6px}
+.wire__r{display:grid;grid-template-columns:88px minmax(0,1fr);gap:8px;font-size:13px;line-height:18px;align-items:baseline}
+.wire__r code{font:500 12px/18px var(--font-mono);color:var(--ink-muted)}
+
+/* Chat dock */
+.chat{border-top:1px solid var(--line);background:var(--paper);display:flex;flex-direction:column;max-height:56%;flex:none}
+.sheet--builder .chat{max-height:none;flex:1 1 auto;border-top:0;min-height:0}
+.sheet.is-chat-max .sheet__body{display:none}
+.sheet.is-chat-max .chat{max-height:none;flex:1 1 auto;min-height:0;border-top:0}
+.sheet.is-chat-min .chat__log,.sheet.is-chat-min .chips{display:none}
+.chat__size{margin-left:auto;display:flex;gap:2px}
+.chat__size .btn{width:26px;height:26px}
+.chat__h{display:flex;align-items:center;gap:8px;padding:10px 16px 0}
+.chat__log{overflow:auto;padding:10px 16px 4px;display:grid;gap:12px;align-content:start;flex:1 1 auto;min-height:0}
+.msg{display:grid;grid-template-columns:24px minmax(0,1fr);gap:8px;font-size:13px;line-height:19px}
+.msg .av{width:24px;height:24px;font-size:10px}
+.msg__about{font-size:11px;line-height:15px;color:var(--ink-muted)}
+.msg p+p{margin-top:6px}
+.diff{display:flex;gap:8px;align-items:center;margin-top:6px;padding:5px 8px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);font-size:12px;line-height:16px}
+.diff b{font:500 12px/16px var(--font-mono);color:var(--positive)}
+.diff b.minus{color:var(--risk)}.diff b.tilde{color:var(--slate)}
+.diff .linkbtn{margin-left:auto;font-size:12px}
+.diff .done{margin-left:auto;color:var(--ink-muted)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;padding:6px 16px 0}
+.chip{all:unset;box-sizing:border-box;padding:5px 10px;border:1px solid var(--line-strong);border-radius:var(--radius-pill);background:var(--surface);font:500 12px/16px var(--font-sans);cursor:pointer;max-width:100%}
+.chip:hover{border-color:var(--slate);color:var(--slate)}
+.composer{margin:10px 16px 16px;margin-right:max(16px,env(safe-area-inset-right,0px));margin-bottom:max(16px,env(safe-area-inset-bottom,0px));border:1px solid var(--line-strong);border-radius:var(--radius-md);background:var(--surface);display:flex;gap:8px;align-items:flex-end;padding:8px}
+.composer:focus-within{border-color:var(--slate);box-shadow:var(--focus-halo)}
+.composer textarea{all:unset;flex:1 1 auto;min-width:0;font:400 14px/20px var(--font-sans);max-height:120px;min-height:20px;white-space:pre-wrap;overflow-wrap:anywhere}
+.composer textarea::placeholder{color:var(--ink-faint)}
+
+.settle{border:1px solid var(--signal);background:var(--signal-tint);border-radius:var(--radius-sm);padding:12px;display:grid;gap:12px}
+.settle--risk{border-color:var(--risk-line);background:var(--risk-tint)}
+.settle--done{border-color:var(--line);background:var(--surface-subtle)}
+.settle__i{display:grid;gap:6px;font-size:13px;line-height:18px}
+.settle__i+.settle__i{border-top:1px solid var(--line);padding-top:12px}
+.settle__q{font:500 14px/20px var(--font-sans)}
+.settle .btn--sec[aria-pressed="true"]{border-color:var(--slate);box-shadow:0 0 0 1px var(--slate)}
+.ask{display:flex;gap:8px;align-items:baseline;margin-top:6px;font-size:13px;line-height:18px}
+.ask .pill{flex:none}
+.tosettle{all:unset;cursor:pointer}.tosettle:focus-visible{outline:2px solid var(--slate);outline-offset:2px;border-radius:var(--radius-pill)}
+.todo{display:grid;grid-template-columns:20px minmax(0,1fr);gap:10px;padding:12px 0;border-top:1px solid var(--line);font-size:13px;line-height:19px}
+.todo:first-child{border-top:0}
+.todo .ico{margin-top:2px}
+.tbl{width:100%;border-collapse:collapse;font-size:13px;line-height:18px}
+.tbl th{text-align:left;font:500 10px/14px var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);padding:6px 8px 6px 0;border-bottom:1px solid var(--line)}
+.tbl td{padding:8px 8px 8px 0;border-bottom:1px solid var(--line);vertical-align:top}
+.notes ul{margin:0;padding-left:18px;display:grid;gap:6px;font-size:13px;line-height:19px}
+.fab{position:fixed;z-index:26;left:max(16px,env(safe-area-inset-left,0px));bottom:max(16px,env(safe-area-inset-bottom,0px));box-shadow:var(--shadow-pop)}
+.toast{position:fixed;z-index:50;left:50%;bottom:max(24px,env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:10px 16px;border-radius:var(--radius-sm);font:500 13px/18px var(--font-sans);box-shadow:var(--shadow-pop);max-width:calc(100% - 32px)}
+
+@media (max-width:1180px){body.has-sheet .canvas{margin-right:0}body.has-sheet .zoomer{right:max(16px,env(safe-area-inset-right,0px))}}
+@media (max-width:900px){
+  .work,.work.is-railoff{grid-template-columns:minmax(0,1fr)}.rail{display:none}
+  .srow{grid-template-columns:34px minmax(0,1fr)}.srow__k{display:none}.srow__s{grid-column:2}.srow--head{display:none}
+  .stage{display:block;min-width:0;padding:16px max(16px,env(safe-area-inset-right,0px)) 40vh max(16px,env(safe-area-inset-left,0px))}.col{width:auto}
+  .flow>.node{width:100%!important}.zoomer .zhide{display:none}
+  .describe__grid{grid-template-columns:minmax(0,1fr)}
+  .sheet{top:0;z-index:45;width:100%;border-left:0;padding-top:env(safe-area-inset-top,0px)}
+  .bar__sum,.crumb{display:none}
+  .card__tags{max-width:none}.card__top{flex-direction:column;gap:4px}.card__tags{justify-content:flex-start}
+  .drow{grid-template-columns:14px 18px minmax(0,1fr) auto}.drow>.pill{display:none}
+  .dec__if,.sub{grid-template-columns:18px 62px minmax(0,1fr) auto}.sub>.pill{display:none}.dec__more{padding-left:0}.dec .help{display:none}
+  .lanes{grid-template-columns:minmax(0,1fr)!important}.lanes--split::before,.lanes--split>.lane::before,.lanes--split>.lane::after{display:none}
+  .pv__row{grid-template-columns:20px minmax(0,1fr)}.pv__row .pill{justify-self:start;grid-column:2}.pv__row b{grid-column:2}.pv__sub{grid-column:2}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="menu"></div>
+<div id="sheet"></div>
+<div id="tip" class="tip" hidden></div>
+<svg id="linker" hidden><path d=""/></svg>
+<div id="toast" class="toast" hidden></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
+<script>
+"use strict";
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+/* ── Sample data: Harbor Millwork, Purchasing. Everything here is an example. ── */
+const CLIENT = "Harbor Millwork", SIGNER = "Dana Whitfield";
+const STARTS = [
+  { starts: "A document arrives", hint: "An invoice, a receipt, a file", name: "When a vendor invoice arrives by email", detail: "Forwarded email · ap@harbormillwork.mezonas.com" },
+  { starts: "On a schedule", hint: "Every day, every week", name: "Every weekday at 7:00", detail: "Weekdays at 7:00" },
+  { starts: "A record changes", hint: "Something new or changed in a tool", name: "When a bill is created in QuickBooks", detail: "QuickBooks · bill created" },
+  { starts: "A message arrives", hint: "An email, a text, a WhatsApp", name: "When someone on the team sends a message", detail: "Texts and WhatsApp" },
+  { starts: "A person starts it", hint: "By hand, when they choose", name: "When someone starts it by hand", detail: "From the agent's page" },
+];
+const PARA = "When a vendor invoice arrives by email, read the invoice and match each line to our item list. If the invoice is a duplicate, tell Dana it is a duplicate and stop. If a line doesn't match, ask Dana which item it is. Code each line to a job, then check each price against the last price we paid. If the document is a credit memo, apply the credit to the vendor's open bill and tell Dana; if it is a statement, save it to the vendor's folder; otherwise create the bill in QuickBooks and tell Dana what changed.";
+const row = (text) => ({ id: nid(), t: "step", text: text || "" });
+const decRow = (cond, then) => ({ id: nid(), t: "decision", paths: [{ cond: cond || "", steps: [row(then)], end: "on" }], otherwise: [], oend: "on" });
+const PEOPLE = [SIGNER, "Lisa Park", "Harbor Millwork's admins", "Your Mezonas lead"];
+const PARTS = {
+  read: ["Purchasing · read the item list", "Purchasing · read last prices", "QuickBooks · find a bill", "QuickBooks · find a vendor", "Documents · find a document", "Gmail · find an email", "Google Drive · find a file"],
+  skill: ["Read a document", "Match items across vendors", "Track price changes", "Find supporting document", "Reconcile two lists", "Write a summary"],
+  write: ["QuickBooks · create bill", "QuickBooks · update bill", "QuickBooks · create vendor", "Gmail · send email", "Texts · send text", "Google Drive · save a file", "Purchasing · save to the item list"],
+};
+const FIELDS = ["Match confidence", "Price change", "Total", "Vendor", "How the step before ended"];
+const OPS = [">", "≥", "<", "≤", "is", "is not", "contains"];
+const K = {
+  trigger: { label: "Starts when", ico: "arrow" },
+  skill: { label: "Skill", ico: "worksheet", hint: "A piece of work from the Skills library.", blank: "Do a piece of work" },
+  auto: { label: "Automation", ico: "copy", hint: "A saved set of steps, run as one.", blank: "Run an automation" },
+  read: { label: "Tool · reads", ico: "search", hint: "Looks something up in a connected tool. Changes nothing.", blank: "Look something up" },
+  write: { label: "Tool · writes", ico: "sign", hint: "Writes into a connected tool. Approval starts on.", blank: "Write to a tool" },
+  person: { label: "Person", ico: "lead", hint: "Someone approves or answers.", blank: "Ask a person" },
+  talk: { label: "Conversation", ico: "message", hint: "Talks with a person until it has what it needs.", blank: "Talk with a person" },
+  notify: { label: "Notify", ico: "bell", hint: "Tells your team or the client's.", blank: "Tell someone" },
+  decision: { label: "Decision", ico: "fork", hint: "Paths with rules. The first that fits runs.", blank: "Decide what happens" },
+  each: { label: "For each", ico: "loop", hint: "Runs its steps once per item.", blank: "For each item" },
+  repeat: { label: "Repeat", ico: "undo", hint: "Runs its steps again until it is done.", blank: "Repeat until done" },
+  wait: { label: "Wait", ico: "clock", hint: "Pauses for a while.", blank: "Wait" },
+  stop: { label: "Stop", ico: "stop", hint: "Ends the run here.", blank: "Stop here" },
+  askagent: { label: "Ask an agent", ico: "team", hint: "Asks another of this client's agents and waits for its answer.", blank: "Ask another agent" },
+  tellagent: { label: "Report to an agent", ico: "team", hint: "Sends another agent what this run found. Doesn't wait.", blank: "Report to another agent" },
+  handoff: { label: "Hand off", ico: "team", hint: "Passes the work to another agent. This run ends there.", blank: "Hand off to another agent" },
+};
+// An automation is a group of steps saved once and run as one step.
+const AUTOS = {
+  "Polite follow-up": { v: 2, steps: [["write", "Send a text", "Texts · send text"], ["wait", "Wait 2 days", ""], ["write", "Send an email", "Gmail · send email"], ["wait", "Wait 3 days", ""]] },
+  "Vendor invoice intake": { v: 3, steps: [["skill", "Read the invoice", "Read a document"], ["read", "Find the vendor", "QuickBooks · find a vendor"], ["skill", "Match the lines", "Match items across vendors"], ["person", "Ask about unsure lines", "Answers"], ["write", "Create the bill", "QuickBooks · create bill"]] },
+  "Portal document pull": { v: 1, steps: [["read", "Sign in to the portal", "Browser"], ["read", "Download the statement", "Browser"], ["write", "Save it to the folder", "Google Drive · save a file"]] },
+};
+const autoOf = (part) => AUTOS[part] || { v: 1, steps: [] };
+const TOOLS = {};
+for (const kind of ["read", "write"]) for (const pt of PARTS[kind]) { const [tool, what] = pt.split(" · "); (TOOLS[tool] = TOOLS[tool] || { reads: [], writes: [] })[kind + "s"].push(what); }
+const WORDS = {
+  skill: "work do", auto: "automation saved group steps follow up reminder chase sequence", read: "find look up get fetch search check read lookup", write: "send create update post save change add write make file",
+  person: "ask approve review sign human someone check confirm", talk: "conversation whatsapp chat call talk message back forth", notify: "tell alert let know notify inform message",
+  decision: "if branch fork choose rule condition decide either otherwise path", each: "loop every all each items list lines", repeat: "loop again retry until repeat keep trying", wait: "pause delay later days hours wait hold",
+  stop: "end finish halt stop done", handoff: "pass transfer hand off another agent", askagent: "ask question another agent check with collaborate", tellagent: "report tell send another agent update collaborate",
+  "Read a document": "extract parse invoice pdf receipt scan ocr", "Match items across vendors": "match item catalog line product", "Track price changes": "price cost increase compare cheaper", "Find supporting document": "receipt proof attachment backup", "Reconcile two lists": "compare lists differences reconcile", "Write a summary": "summarize summary report draft recap",
+  QuickBooks: "bill vendor invoice accounting books qbo expense", Gmail: "email mail inbox", Texts: "sms text message phone", "Google Drive": "file folder drive save upload document", Purchasing: "items prices catalog materials", Documents: "document file pdf",
+};
+const AGENTS = ["AP invoice review", "Collections follow-up", "The Purchasing area owner"];
+const toolItem = (kind) => (p) => { const [tool, what] = p.split(" · "); return { kind, label: cap(what), hint: tool, part: p, tag: kind === "read" ? "Reads" : "Writes", name: `${cap(what)} in ${tool}` }; };
+// The rail, grouped the way the app's palette is: skills, automations, tools, people, logic, other agents.
+const RAIL = () => [
+  { g: "Skills", open: 1, items: PARTS.skill.map((p) => ({ kind: "skill", label: p, part: p, name: p })) },
+  { g: "Automations", note: "A saved group of steps, run as one. Open it on the chart to see inside.", items: Object.keys(AUTOS).map((p) => ({ kind: "auto", label: p, part: p, name: p, hint: `Version ${AUTOS[p].v} · ${AUTOS[p].steps.length} steps inside` })) },
+  { g: "Tools", open: 1, note: `Only the tools ${CLIENT} has connected show here.`, tools: Object.keys(TOOLS).map((tool) => ({ tool, items: [{ kind: "read", label: `Any ${tool} step`, hint: "Choose what it reads or writes on the step", pick: tool }, ...TOOLS[tool].reads.map((w) => ({ kind: "read", label: `Read: ${w.replace(/^read /, "")}`, part: `${tool} · ${w}`, name: `${cap(w)} in ${tool}` })), ...TOOLS[tool].writes.map((w) => ({ kind: "write", label: `Write: ${w}`, part: `${tool} · ${w}`, name: `${cap(w)} in ${tool}` }))] })) },
+  { g: "People", items: [{ kind: "person", label: "Approve", hint: "A person approves before it goes on", mode: "Approve", name: "Approve this" }, { kind: "person", label: "Ask", hint: "A person answers a question", mode: "Answer" }, { kind: "talk", label: "Talk with a person", hint: "By WhatsApp, text or email" }, { kind: "notify", label: "Notify", hint: "Tell your team or theirs" }] },
+  { g: "Logic", open: 1, items: ["decision", "each", "repeat", "wait", "stop"].map((k) => ({ kind: k, label: K[k].label, hint: K[k].hint })) },
+  { g: "Other agents", open: 1, note: `Only ${CLIENT}'s own agents.`, items: [{ kind: "askagent", label: "Ask another agent", hint: "Waits for its answer, then goes on" }, { kind: "tellagent", label: "Report to another agent", hint: "Sends what it found. Doesn't wait" }, { kind: "handoff", label: "Hand off to another agent", hint: "Passes the work on. This run ends" }] },
+];
+const MENU = [["Work", ["skill", "auto", "read", "write"]], ["People", ["person", "talk", "notify"]], ["Logic", ["decision", "each", "repeat", "wait", "stop"]], ["Other agents", ["askagent", "tellagent", "handoff"]]];
+const ICONS = {
+  add: '<path d="M12 5v14 M5 12h14"/>', alert: '<path d="M12 3.5l9.5 16.5h-19z M12 10v4.5"/><circle fill="currentColor" stroke="none" cx="12" cy="17.25" r="1"/>',
+  arrow: '<path d="M4 12h16 M14 6l6 6-6 6"/>', check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>', close: '<path d="M6 6l12 12 M18 6L6 18"/>',
+  search: '<circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/>', worksheet: '<path d="M4 6.5l1.5 1.5L8 5.5 M11 7h9 M4 12.5l1.5 1.5L8 11.5 M11 13h9 M4 18.5h4 M11 18.5h9"/>',
+  sign: '<path d="M14.5 4.5l3 3L9 16H6v-3z"/><path d="M4 20h16"/>', lead: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20c0-3.6 3.1-6 7-6s7 2.4 7 6"/>',
+  message: '<path d="M4 5h16v11H9l-5 4z M8 9h8 M8 12h5"/>', fork: '<path d="M12 3.5l8.5 8.5-8.5 8.5L3.5 12z"/>',
+  loop: '<path d="M5 11a7 7 0 0 1 12.5-3.5L19 9 M19 5v4h-4 M19 13a7 7 0 0 1-12.5 3.5L5 15 M5 19v-4h4"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>', stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="1"/>',
+  grip: '<circle fill="currentColor" stroke="none" cx="9" cy="6" r="1.3"/><circle fill="currentColor" stroke="none" cx="15" cy="6" r="1.3"/><circle fill="currentColor" stroke="none" cx="9" cy="12" r="1.3"/><circle fill="currentColor" stroke="none" cx="15" cy="12" r="1.3"/><circle fill="currentColor" stroke="none" cx="9" cy="18" r="1.3"/><circle fill="currentColor" stroke="none" cx="15" cy="18" r="1.3"/>',
+  undo: '<path d="M8 6l-4 4 4 4 M4 10h10.5a4.5 4.5 0 0 1 0 9H11"/>', sidebar: '<rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M9 4v16 M15.5 10l-2 2 2 2"/>', chev: '<path d="M9.5 6l6 6-6 6"/>', chevd: '<path d="M6 9.5l6 6 6-6"/>', chevu: '<path d="M6 14.5l6-6 6 6"/>', bell: '<path d="M6 16v-5a6 6 0 0 1 12 0v5l1.5 2h-15z M10 20.5h4"/>', team: '<circle cx="9" cy="8.5" r="3"/><path d="M3 19.5c0-3 2.7-5 6-5s6 2 6 5"/><circle cx="16.5" cy="7.5" r="2.5"/><path d="M16.5 12.5c2.8 0 4.5 1.8 4.5 4.5"/>', copy: '<rect x="8" y="8" width="12" height="12" rx="1.5"/><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8"/>', info: '<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5"/><circle fill="currentColor" stroke="none" cx="12" cy="7.75" r="1"/>',
+  upload: '<path d="M12 15V4 M7 9l5-5 5 5 M4 15v5h16v-5"/>', send: '<path d="M12 19V5 M6 11l6-6 6 6"/>',
+};
+const ic = (n, c = "") => `<svg class="ico ${c}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ""}</svg>`;
+const MARK = '<svg class="mark" viewBox="0 0 48 48" fill="currentColor" role="img" aria-label="Mezonas"><rect x="12" y="14" width="24" height="20" rx="2"/><rect x="15" y="6" width="7" height="4" rx="1"/><rect x="26" y="6" width="7" height="4" rx="1"/><rect x="15" y="38" width="7" height="4" rx="1"/><rect x="26" y="38" width="7" height="4" rx="1"/><rect x="4" y="20.5" width="4" height="7" rx="1"/><rect x="40" y="20.5" width="4" height="7" rx="1"/></svg>';
+
+let uid = 0;
+const nid = () => "s" + ++uid;
+const $ = (s, r = document) => r.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+const plural = (n, w, ws) => `${n} ${n === 1 ? w : ws || w + "s"}`;
+const calm = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const S = {
+  view: "describe", mode: "chart", only: false, zoom: 1, q: "", railOff: false, chatSize: "mid", name: "Invoice intake", para: PARA, fromPara: false, drafting: false, start: { starts: STARTS[0].starts, name: STARTS[0].name }, list: [], trigger: null, steps: [], sel: null, sheet: null, menu: null,
+  hist: [], chat: [], busy: false, try: null, tried: false, live: false, note: null, building: null, file: "Baltic-Lumber-INV-4471.pdf",
+};
+const fresh = new Set();
+
+/* ── Steps: make, guess from words, find ── */
+function mk(kind, name, x = {}) {
+  const s = { id: nid(), kind, name: name || K[kind].blank, from: "", decided: [], open: [], onError: "Stop the run" };
+  if (kind === "read") Object.assign(s, { part: PARTS.read[4], tool: "Documents" });
+  if (kind === "skill") Object.assign(s, { part: "The Builder picks from the library", tool: "" });
+  if (kind === "write") Object.assign(s, { part: PARTS.write[0], tool: "QuickBooks", approval: "Ask first", who: SIGNER });
+  if (kind === "person") Object.assign(s, { mode: "Answer", who: SIGNER, where: "Inbox", deadline: "3 days", noAnswer: "Stop the run and tell us" });
+  if (kind === "notify") Object.assign(s, { to: SIGNER, where: "Inbox", message: "" });
+  if (kind === "decision") Object.assign(s, { decide: "A rule", who: SIGNER, paths: [{ id: nid(), name: "Path A", rule: { field: "", op: ">", value: "" }, steps: [] }, { id: nid(), name: "Otherwise", rule: null, steps: [] }] });
+  if (kind === "each") Object.assign(s, { over: "the list from the step before", paths: [{ id: nid(), name: "Each item", rule: null, each: true, steps: [] }] });
+  if (kind === "auto") Object.assign(s, { part: "Polite follow-up" });
+  if (kind === "talk") Object.assign(s, { who: SIGNER, where: "WhatsApp", goal: "", turns: 4, deadline: "3 days" });
+  if (kind === "handoff") Object.assign(s, { agent: AGENTS[0] });
+  if (kind === "askagent") Object.assign(s, { agent: AGENTS[0], ask: "", deadline: "1 hour", noAnswer: "Ask a person" });
+  if (kind === "tellagent") Object.assign(s, { agent: AGENTS[0], message: "" });
+  if (kind === "repeat") Object.assign(s, { until: "The agent says it is done", max: "3", paths: [{ id: nid(), name: "Each time", rule: null, each: true, steps: [] }] });
+  if (kind === "wait") s.dur = "2 days";
+  if (kind === "stop") s.as = "Succeeded";
+  return Object.assign(s, x);
+}
+const clean = (line) => line.replace(/^\s*(\d+[.)]|[-*•])\s*/, "").trim().replace(/[.;]$/, "");
+function guess(words) {
+  const t = clean(words), l = t.toLowerCase();
+  let m;
+  if ((m = t.match(/^if (.+?)(?:,| then) (.+)$/i))) return decisionFrom(m[1], m[2], t);
+  if ((m = t.match(/^for each ([^,]+),? (.+)$/i))) {
+    const e = mk("each", cap(`For each ${m[1]}`), { from: t, over: m[1] });
+    splitActs(m[2]).forEach((a) => e.paths[0].steps.push(guess(a)));
+    return e;
+  }
+  const ag = () => AGENTS.find((a) => l.includes(a.replace(/^The /, "").toLowerCase().split(" ")[0])) || AGENTS[0];
+  if (/^(ask|check with)\b.*\bagent\b/.test(l) || /^(ask|check with) the .*owner\b/.test(l)) return mk("askagent", cap(t), { from: t, agent: ag(), ask: cap(t.replace(/^.*?\bagent\b\s*/i, "")) });
+  if (/^(report|send|pass)\b.*\bto\b.*\b(agent|owner)\b/.test(l) || /^(tell|let)\b.*\b(agent|owner)\b/.test(l)) return mk("tellagent", cap(t), { from: t, agent: ag() });
+  if (/^(follow up|chase)\b/.test(l)) return mk("auto", cap(t), { from: t, part: "Polite follow-up" });
+  if (/^hand\b.*\b(off|over)\b/.test(l)) return mk("handoff", cap(t), { from: t });
+  if (/^wait\b/.test(l)) return mk("wait", cap(t), { from: t, dur: (l.match(/\d+ \w+/) || ["2 days"])[0] });
+  if (/^(stop|end)\b/.test(l)) return mk("stop", cap(t), { from: t });
+  if (/^(ask|have .+ (approve|review|check|sign)|get .+ (approval|sign))/.test(l)) {
+    const approve = /approve|sign|ok\b|okay/.test(l);
+    return mk("person", cap(t), { from: t, mode: approve ? "Approve" : "Answer", who: who(l), decided: [{ what: "Waits up to 3 days, then stops and tells you", why: "No deadline was given, so it stops rather than going ahead.", f: "deadline" }] });
+  }
+  if (/^(tell|notify|alert|let .+ know|remind|report to)/.test(l))
+    return mk("notify", cap(t), { from: t, to: who(l), message: "What changed on this invoice, with the lines it came from.", decided: [{ what: "Sent to the inbox", why: "No channel was given.", f: "where" }] });
+  if (/^(create|update|add|post|send|attach|file|save|record|enter|mark|email|text|upload|apply)\b/.test(l)) {
+    let part = "QuickBooks · update bill";
+    if (/vendor/.test(l) && /create|add/.test(l)) part = "QuickBooks · create vendor";
+    else if (/bill|invoice/.test(l)) part = /update|attach|mark|apply/.test(l) ? "QuickBooks · update bill" : "QuickBooks · create bill";
+    else if (/email|send/.test(l)) part = "Gmail · send email";
+    else if (/text|sms/.test(l)) part = "Texts · send text";
+    else if (/folder|drive/.test(l)) part = "Google Drive · save a file";
+    else if (/item|catalog|price/.test(l)) part = "Purchasing · save to the item list";
+    const tool = part.split(" · ")[0];
+    return mk("write", cap(t), { from: t, part, tool, ...writeDefaults(tool) });
+  }
+  if (/^(find|look|get|pull|fetch|list|search)\b/.test(l)) {
+    const part = /bill/.test(l) ? PARTS.read[2] : /vendor/.test(l) ? PARTS.read[3] : /price/.test(l) ? PARTS.read[1] : /item/.test(l) ? PARTS.read[0] : PARTS.read[4];
+    return mk("read", cap(t), { from: t, part, tool: part.split(" · ")[0] });
+  }
+  if (/^(read|extract|parse|match|check|compare|reconcile|summari[sz]e|draft|track|classify|categori[sz]e)\b/.test(l)) {
+    const part = /match/.test(l) ? PARTS.skill[1] : /price|cost/.test(l) ? PARTS.skill[2] : /reconcil|compare/.test(l) ? PARTS.skill[4] : /summar|draft/.test(l) ? PARTS.skill[5] : PARTS.skill[0];
+    const open = part === PARTS.skill[2] ? [{ k: "flag", type: "Question", text: "How big a price change should it flag?", why: "No threshold was given, so it starts strict.", opts: ["5% or more", "10% or more", "Any change"], using: "5% or more", f: "flag" }] : [];
+    return mk("skill", cap(t), { from: t, part, open, flag: "5% or more" });
+  }
+  // Nothing in the library does it: a person does this part for now (works first).
+  return mk("person", cap(t), { from: t, gap: true, mode: "Answer", who: SIGNER, open: [{ k: "gap", type: "Issue", text: "Nothing in the library does this yet.", why: `So ${SIGNER} does it for now and the run waits for them. It works today.`, opts: ["Keep a person", "Build a skill", "Needs code"] }] });
+}
+const writeDefaults = (tool) => ({ open: [{ k: "who", type: "Question", text: "Who signs this?", why: `Approval is on, so someone signs each one. ${SIGNER.split(" ")[0]} is ${CLIENT}'s default approver.`, opts: [SIGNER, "Lisa Park", "Your Mezonas lead"], using: SIGNER, f: "who" }, ...(tool === "Gmail" ? [gmailIssue()] : [])], decided: [{ what: "Approval is on", why: "Every step that writes to a tool starts with approval.", f: "" }] });
+let RAILMAP = {};
+function fromItem(el) {
+  const it = RAILMAP[el.dataset.item];
+  if (!it) return mk(el.dataset.kind);
+  if (it.words) return guess(it.words);
+  if (it.pick) { const tl = TOOLS[it.pick]; return mk("read", `Use ${it.pick}`, { tool: it.pick, part: "", open: [{ k: "does", type: "Question", text: `What should it do in ${it.pick}?`, why: "A read looks something up and changes nothing. A write changes the tool, so it asks first.", opts: [...tl.reads.map((w) => `Read: ${w}`), ...tl.writes.map((w) => `Write: ${w}`)] }] }); }
+  const tool = it.kind === "read" || it.kind === "write" ? it.part.split(" · ")[0] : "";
+  return mk(it.kind, it.name, { ...(it.part ? { part: it.part, tool } : {}), ...(it.mode ? { mode: it.mode } : {}), ...(it.kind === "write" ? writeDefaults(tool) : {}) });
+}
+// A tool step is a read or a write, by what it does there. Switching to a write brings approval with it.
+function setPart(st, part) {
+  const write = PARTS.write.includes(part), auto = (pt) => (pt ? `${cap(pt.split(" · ")[1])} in ${pt.split(" · ")[0]}` : "");
+  if (/^Use /.test(st.name) || st.name === auto(st.part)) st.name = auto(part);
+  st.part = part; st.tool = part.split(" · ")[0];
+  st.open = (st.open || []).filter((o) => o.k !== "gmail" && o.k !== "does" && (write || o.k !== "who"));
+  if (write && st.kind !== "write") { st.kind = "write"; st.approval = "Ask first"; st.who = st.who || SIGNER; const d = writeDefaults(st.tool); st.open.push(...d.open); st.decided = d.decided; }
+  else if (!write && st.kind === "write") { st.kind = "read"; st.decided = []; }
+  else if (write && st.tool === "Gmail") st.open.push(gmailIssue());
+}
+const gmailIssue = () => ({ k: "gmail", type: "Issue", text: `Gmail isn't connected for ${CLIENT}.`, why: "They sign in to their own Gmail. This step waits until they do.", opts: [`Ask ${CLIENT} to connect it`, "Send by text instead"] });
+const openOf = (st) => (st.open || []).filter((o) => !o.done);
+const isIssue = (o) => o.type === "Issue";
+function tally() { let issues = 0, questions = 0; allOpen().forEach((x) => (isIssue(x.o) ? issues++ : questions++)); return { issues, questions }; }
+const nextOpen = (not) => { const all = allOpen().slice().sort((a, b) => (isIssue(a.o) ? 0 : 1) - (isIssue(b.o) ? 0 : 1)); return all.find((x) => x.st.id !== not) || all[0]; };
+const opill = (o) => `<span class="pill ${isIssue(o) ? "pill--risk" : "pill--wait"}">${o.type}</span>`;
+function allOpen() { const a = []; walk(S.steps, (st) => openOf(st).forEach((o) => a.push({ st, o }))); return a; }
+function who(l) {
+  if (/lisa/.test(l)) return "Lisa Park";
+  if (/lead|us\b|mezonas/.test(l)) return "Your Mezonas lead";
+  return SIGNER;
+}
+function ruleFrom(c) {
+  const l = c.toLowerCase();
+  let m;
+  if (/match|unsure|confiden/.test(l)) return { field: "Match confidence", op: "<", value: "90%" };
+  if ((m = l.match(/(\d+(?:\.\d+)?)\s*%/))) return { field: /price|cost/.test(l) ? "Price change" : "Change", op: /less|under|below|down/.test(l) ? "<" : ">", value: m[1] + "%" };
+  if ((m = l.match(/\$\s?([\d,]+)/))) return { field: /total|bill|invoice/.test(l) ? "Total" : "Amount", op: /less|under|below/.test(l) ? "<" : ">", value: "$" + m[1] };
+  return { field: "", op: "is", value: "" };
+}
+function decisionFrom(cond, then, from) {
+  const d = mk("decision", cap(clean(cond)) + "?", { from: from || "" });
+  d.paths[0].name = cap(clean(cond));
+  d.paths[0].rule = ruleFrom(cond);
+  d.decide = d.paths[0].rule.field ? "A rule" : "The agent";
+  if (then) d.paths[0].steps.push(guess(then.replace(/^(?:then\s+)?add (?:a step )?(?:to |that |which )?/i, "")));
+  return d;
+}
+function fromForm(blank) {
+  const st = STARTS.find((x) => x.starts === S.start.starts) || STARTS[0];
+  const trigger = { id: "trigger", kind: "trigger", name: cap(clean(S.start.name || st.name)), from: S.start.name, starts: st.starts, detail: st.detail, decided: st.starts === "A document arrives" ? [{ what: `Watches the address ${CLIENT} already forwards documents to`, why: "That inbox is connected, so nothing new is needed.", f: "detail" }] : [] };
+  const has = (r) => (r.text || "").trim();
+  const steps = blank ? [] : S.list.map((r) => {
+    if (r.t === "step") return has(r) ? guess(r.text) : null;
+    const paths = r.paths.filter((q) => q.cond.trim());
+    if (!paths.length) return null;
+    const d = mk("decision", cap(clean(paths[0].cond)) + "?", { from: "If " + clean(paths[0].cond) });
+    const made = (list, end) => [...list.filter(has).map((x) => guess(x.text)), ...(end === "stop" ? [mk("stop", "Stop here")] : [])];
+    d.paths = [...paths.map((q) => ({ id: nid(), name: cap(clean(q.cond)), rule: ruleFrom(q.cond), steps: made(q.steps, q.end) })), { id: nid(), name: "Otherwise", rule: null, steps: made(r.otherwise, r.oend) }];
+    d.decide = d.paths.every((q) => !q.rule || q.rule.field) ? "A rule" : "The agent";
+    return d;
+  }).filter(Boolean);
+  return { trigger, steps };
+}
+const VERB = "read|extract|parse|match|check|compare|reconcile|summari[sz]e|draft|track|classify|categori[sz]e|find|look|get|pull|fetch|list|search|create|update|add|post|send|attach|file|save|record|enter|mark|email|text|upload|ask|tell|notify|alert|remind|wait|stop|code|have|let|apply|pay|approve|move|log|flag|review|calculate";
+const splitActs = (t) => t.split(new RegExp(`(?:[,;])?\\s+(?:and then|then|and)\\s+(?=(?:${VERB})\\b)|;\\s+|,\\s+(?=(?:${VERB})\\b)`, "i")).map(clean).filter(Boolean).map(cap);
+const goesOn = (t) => !t || /^(carry on|continue|go on|keep going|do nothing|nothing)\b/i.test(t);
+function startFrom(words) {
+  const l = words.toLowerCase();
+  const st = /every|each (day|week|morning|month)|daily|weekly|once a|at \d/.test(l) ? STARTS[1] : /message|text|whatsapp|sms/.test(l) ? STARTS[3] : /email|invoice|document|receipt|upload|pdf|file/.test(l) ? STARTS[0] : /quickbooks|bill|record|created|changes/.test(l) ? STARTS[2] : /by hand|someone starts|asks/.test(l) ? STARTS[4] : STARTS[0];
+  return { starts: st.starts, name: cap(clean(words)) };
+}
+function parsePara(text) {
+  const sents = text.replace(/\s+/g, " ").split(/(?<=[.!?])\s+/).map((x) => x.trim().replace(/[.!?]$/, "")).filter(Boolean);
+  let start = null;
+  const list = [];
+  const pathOf = (acts) => { const steps = splitActs(acts); const stop = steps.length && /^(stop|end)\b/i.test(steps[steps.length - 1]); if (stop) steps.pop(); return { steps: steps.map(row), end: stop ? "stop" : "on" }; };
+  sents.forEach((sn) => {
+    let m;
+    if (!start && (m = sn.match(/^((?:when|whenever|every|each (?:day|week|morning|month)|once a|daily|weekly|at \d)[^,]*),\s*(.*)$/i))) { start = startFrom(m[1]); sn = m[2]; }
+    else if (!start && !list.length && /^(when|whenever|every|each |once a|daily|weekly)/i.test(sn)) { start = startFrom(sn); return; }
+    if (!sn) return;
+    if ((m = sn.match(/^(?:but |and )?if\s+(.+)$/i))) {
+      let body = m[1], other = "";
+      const o = body.match(/^(.*?)(?:[;,]\s*|\s+)(?:otherwise|or else|else|if not),?\s*(.*)$/i);
+      if (o) { body = o[1]; other = o[2]; }
+      // "If A, …; if B, …; otherwise …" is one decision with a path each.
+      const parts = body.split(/[;,]\s*(?:or\s+|and\s+)?if\s+/i).map((x) => x.match(/^(.+?)(?:,| then) (.+)$/i)).filter(Boolean);
+      if (parts.length) {
+        const z = goesOn(other) ? { steps: [], end: "on" } : pathOf(other);
+        list.push({ id: nid(), t: "decision", paths: parts.map((q) => { const a = pathOf(q[2]); return { cond: clean(q[1]), steps: a.steps, end: a.end }; }), otherwise: z.steps, oend: z.end });
+        return;
+      }
+    }
+    const last = list[list.length - 1];
+    if ((m = sn.match(/^(?:otherwise|or else|if not),?\s*(.*)$/i)) && last && last.t === "decision") { if (!goesOn(m[1])) { const z = pathOf(m[1]); last.otherwise.push(...z.steps); last.oend = z.end; } return; }
+    // "For each line, do this and that" stays one line: it becomes a loop with those steps inside.
+    if (/^for each\b[^,]+,/i.test(sn)) return list.push(row(cap(sn)));
+    splitActs(sn).forEach((a) => list.push(row(a)));
+  });
+  // The last thing it says is a decision with work on both sides: nothing is left to come back to, so the paths stay apart.
+  const fin = list[list.length - 1];
+  if (fin && fin.t === "decision" && fin.otherwise.length && fin.paths.every((q) => q.steps.length)) { fin.paths.forEach((q) => (q.end = "stop")); fin.oend = "stop"; }
+  return { start: start || { starts: STARTS[4].starts, name: STARTS[4].name }, list: list.length ? list : [row()] };
+}
+function rowFrom(line) {
+  const t = clean(line);
+  let m;
+  if ((m = t.match(/^if (.+?)(?:,| then) (.+)$/i))) return decRow(m[1], m[2]);
+  if ((m = t.match(/^if\s+(.*)$/i))) return decRow(m[1], "");
+  return row(t);
+}
+// A path ends when its last step is Stop, or a decision whose own paths all end.
+const pathEnds = (p) => !!p.steps.length && deadEnd(p.steps[p.steps.length - 1]);
+const allEnd = (st) => st.kind === "decision" && st.paths.every(pathEnds);
+const deadEnd = (st) => st.kind === "stop" || allEnd(st);
+const closePath = (q) => { if (!pathEnds(q)) { const z = mk("stop", "Stop here"); q.steps.push(z); fresh.add(z.id); } };
+const openPath = (q) => { const z = q.steps[q.steps.length - 1]; if (!z) return; if (z.kind === "stop") q.steps.pop(); else if (allEnd(z)) z.paths.forEach(openPath); };
+function ownerOf(pid) { let hit = null; walk(S.steps, (st) => { if (st.paths && st.paths.some((q) => q.id === pid)) hit = st; }); return hit; }
+// Every path ends but steps sit below: they can never run. That is an issue on the decision, settled there.
+function checkTails() {
+  walk(S.steps, (st, list) => {
+    if (st.kind !== "decision") return;
+    const below = list.length - list.indexOf(st) - 1;
+    st.open = (st.open || []).filter((o) => o.k !== "tail");
+    if (allEnd(st) && below) st.open.push({ k: "tail", type: "Issue", text: `${plural(below, "step")} below this never ${below === 1 ? "runs" : "run"} now.`, why: "Every path ends, so nothing after this decision is reached. Which path do they belong on?", opts: [...st.paths.map((q, i) => (q.rule ? `${String.fromCharCode(65 + i)}: ${q.name}` : "Otherwise")), "Remove them"] });
+  });
+}
+function listIdOf(list) { if (list === S.steps) return "root"; let id = null; walk(S.steps, (x) => { if (x.paths) x.paths.forEach((q) => { if (q.steps === list) id = q.id; }); }); return id; }
+const holdsStep = (st, id) => { let y = false; if (st.paths) st.paths.forEach((q) => walk(q.steps, (z) => { if (z.id === id) y = true; })); return y; };
+function pathById(pid) { let hit = null; walk(S.steps, (st) => { if (st.paths) for (const q of st.paths) if (q.id === pid) hit = q; }); return hit; }
+function walk(list, fn, depth = 0) {
+  for (const st of list) {
+    fn(st, list, depth);
+    if (st.paths) for (const p of st.paths) walk(p.steps, fn, depth + 1);
+  }
+}
+function find(id) {
+  if (id === "trigger") return S.trigger;
+  let hit = null;
+  walk(S.steps, (st) => { if (st.id === id) hit = st; });
+  return hit;
+}
+function locate(id) {
+  let hit = null;
+  walk(S.steps, (st, list) => { if (st.id === id) hit = { list, index: list.indexOf(st) }; });
+  return hit;
+}
+function listOf(lid) {
+  if (lid === "root") return S.steps;
+  let hit = null;
+  walk(S.steps, (st) => { if (st.paths) for (const p of st.paths) if (p.id === lid) hit = p.steps; });
+  return hit;
+}
+function counts() {
+  const c = { steps: 0, decisions: 0, writes: 0, approvals: 0, decided: S.trigger ? S.trigger.decided.length : 0, gaps: 0, tools: new Set(), people: new Set() };
+  walk(S.steps, (st) => {
+    c.steps++;
+    if (st.kind === "decision") c.decisions++;
+    if (st.kind === "write") { c.writes++; if (st.approval === "Ask first") c.approvals++; c.people.add(st.who); }
+    if (st.kind === "person") c.people.add(st.who);
+    if (st.gap) c.gaps++;
+    if (st.tool) c.tools.add(st.tool);
+    c.decided += st.decided.length;
+  });
+  return c;
+}
+const snap = () => JSON.stringify({ trigger: S.trigger, steps: S.steps });
+const commit = () => S.hist.push(snap());
+function undo() {
+  const s = S.hist.pop();
+  if (!s) return;
+  Object.assign(S, JSON.parse(s));
+  if (S.sel && !find(S.sel)) { S.sel = null; if (S.sheet && S.sheet.type === "step") S.sheet = null; }
+  S.try = null;
+  renderAll();
+}
+
+/* ── Describe ── */
+const kindPill = (text, id) => { const k = (text || "").trim() ? guess(text) : null; return `<span class="pill ${!k ? "pill--neutral" : k.kind === "person" ? "pill--person" : "pill--neutral"}" id="pk-${id}">${!k ? "Step" : k.gap ? "A person, for now" : K[k.kind].label}</span>`; };
+const xBtn = (act, data, label) => `<button class="btn btn--ghost btn--icon" data-act="${act}" ${data} aria-label="${label}">${ic("close")}</button>`;
+function pathHTML(r, pk, q) {
+  const other = pk === "o", list = other ? r.otherwise : q.steps, end = other ? r.oend : q.end, letter = other ? "" : String.fromCharCode(65 + pk);
+  return `<div class="dec__path ${other ? "dec__path--else" : ""}">
+    <div class="dec__if"><span class="ltr ${other ? "ltr--else" : ""}">${letter || "·"}</span><b>${other ? "Otherwise" : pk ? "Or if" : "If"}</b>${other
+      ? `<span class="muted small">${list.length || end === "stop" ? "none of the above" : "none of the above: it goes on to the next step"}</span><span></span>`
+      : `<input class="input" data-cond="${r.id}|${pk}" value="${esc(q.cond)}" placeholder="${pk ? "another case" : "a line doesn't match"}" aria-label="Condition">${r.paths.length > 1 ? xBtn("dpathrm", `data-k="${r.id}|${pk}"`, "Remove this path") : "<span></span>"}`}</div>
+    ${list.map((x, i) => `<div class="sub"><span></span><span class="drow__n">${letter}${i + 1}</span><input class="input" data-sub="${r.id}|${pk}|${i}" value="${esc(x.text)}" placeholder="What happens on this path" aria-label="Step on this path">${kindPill(x.text, x.id)}${xBtn("dsubrm", `data-k="${r.id}|${pk}|${i}"`, "Remove this step")}</div>`).join("")}
+    <div class="dec__more"><button class="linkbtn" data-act="dsubadd" data-k="${r.id}|${pk}">+ Step on this path</button><label class="row small muted">then it <select class="select" data-pend="${r.id}|${pk}" aria-label="After this path"><option value="on" ${end === "on" ? "selected" : ""}>rejoins the steps below</option><option value="stop" ${end === "stop" ? "selected" : ""}>ends here</option></select></label></div></div>`;
+}
+const rowEnds = (r) => r.paths.filter((q) => q.end === "stop").length + (r.oend === "stop" ? 1 : 0);
+function rowsHTML(anim) {
+  const fx = (i) => (anim ? ` is-fresh" style="animation-delay:${i * 90}ms` : "");
+  return S.list.map((r, i) => r.t === "step"
+    ? `<div class="drow${fx(i)}" data-rid="${r.id}"><span class="grip" title="Drag to move">${ic("grip")}</span><span class="drow__n">${i + 1}</span><input class="input" data-row="${r.id}" value="${esc(r.text)}" placeholder="What happens next" aria-label="Step ${i + 1}">${kindPill(r.text, r.id)}${xBtn("drm", `data-id="${r.id}"`, "Remove this step")}</div>`
+    : `<div class="drow drow--dec${fx(i)}" data-rid="${r.id}"><span class="grip" title="Drag to move">${ic("grip")}</span><span class="drow__n">${i + 1}</span><div class="dec">
+        <div class="row" style="justify-content:space-between"><span class="row"><span class="kico kico--decision" style="width:24px;height:24px">${ic("fork")}</span><b style="font-weight:500">Decision</b><span class="help">The first path that fits runs. Add as many paths as it needs.</span></span>${xBtn("drm", `data-id="${r.id}"`, "Remove this decision")}</div>
+        ${r.paths.map((q, pi) => pathHTML(r, pi, q)).join("")}
+        <button class="addpath" data-act="dpathadd" data-id="${r.id}">${ic("add")}Add a path <span>Or if …</span></button>
+        ${pathHTML(r, "o")}
+        <div class="row wrap" style="justify-content:flex-end">
+          <span class="row wrap small muted">After the paths <span class="seg"><button data-act="dafter" data-id="${r.id}" data-v="on" aria-pressed="${rowEnds(r) === 0}">they come back together</button><button data-act="dafter" data-id="${r.id}" data-v="stop" aria-pressed="${rowEnds(r) === r.paths.length + 1}">they go separate ways</button></span></span></div>
+        ${rowEnds(r) === r.paths.length + 1 && S.list.slice(i + 1).some((x) => x.t === "step") ? `<div class="dnote">Every path here ends, so the lines below never run. Move them onto ${r.paths.map((q, pi) => `<button class="linkbtn" data-act="dmove" data-k="${r.id}|${pi}">path ${String.fromCharCode(65 + pi)}</button>`).join(", ")} or <button class="linkbtn" data-act="dmove" data-k="${r.id}|o">Otherwise</button>.</div>` : ""}
+      </div></div>`).join("");
+}
+const stepper = (n) => `<div class="stepper" aria-label="Where you are">${["Describe it", "Check the steps", "Build and try"].map((t, i) => `<span class="${i + 1 === n ? "on" : i + 1 < n ? "done" : ""}"><i>${i + 1 < n ? ic("check") : i + 1}</i>${t}</span>`).join("")}</div>`;
+const topbar = () => `<header class="bar"><div class="bar__in">${MARK}<span class="crumb">Back office</span><span class="pill pill--accent">${CLIENT}</span><span class="crumb">New agent</span>
+    <div class="bar__acts"><button class="btn btn--ghost btn--sm" data-act="sheet" data-type="notes">${ic("info")}About this prototype</button></div></div></header>`;
+function describeHTML() {
+  return `${topbar()}<main class="describe describe--form">${stepper(1)}
+    <div style="display:grid;gap:8px;max-width:62ch"><h1>What should it do?</h1>
+    <p class="muted" style="font-size:15px;line-height:23px">Tell it the way you would tell a new hire: how it starts, what happens in order, and where someone has to decide. The Builder turns it into steps you check before anything is built.</p></div>
+    <div class="panel">
+      <div class="field"><label for="aname">Name</label><input class="input" id="aname" value="${esc(S.name)}"></div>
+      <div class="field"><label for="para">In your words</label><textarea class="textarea" id="para" rows="8">${esc(S.para)}</textarea>
+      <span class="help">It doesn't have to cover every case. What you leave out gets a default you can change later.</span></div>
+      <div class="row wrap">${S.drafting ? `<span class="agentline" style="height:36px">Reading it and drafting the steps</span>` : `<button class="btn btn--pri" data-act="draft">Draft the steps</button><button class="btn btn--ghost" data-act="mylist">List the steps myself</button>`}</div>
+    </div>
+  </main>`;
+}
+function stepsHTML(anim) {
+  const n = S.list.reduce((a, r) => a + (r.t === "step" ? 1 : 0), 0), d = S.list.length - n;
+  return `${topbar()}<main class="describe describe--form">${stepper(2)}
+    <div style="display:grid;gap:8px;max-width:62ch"><h1>Check the steps</h1>
+    <p class="muted" style="font-size:15px;line-height:23px">${S.fromPara ? `The Builder read your description as ${plural(n, "step")}${d ? ` and ${plural(d, "decision")}` : ""}. Change, add, drag or remove any line. Nothing is built yet.` : "Say how it starts, then list what happens, a line a step. Nothing is built yet."}</p></div>
+    ${S.fromPara ? `<div class="quote"><span>“${esc(S.para.length > 190 ? S.para.slice(0, 190).trim() + "…" : S.para)}”</span><button class="linkbtn" data-act="backdesc">Edit the description</button></div>` : ""}
+    <section class="panel sec"><div class="sec__h"><h2>How it starts</h2></div>
+      <div class="starts">${STARTS.map((x) => `<button class="start" data-act="dstart" data-v="${esc(x.starts)}" aria-pressed="${x.starts === S.start.starts}">${esc(x.starts)}<small>${esc(x.hint)}</small></button>`).join("")}</div>
+      <div class="field"><label for="swhen">In your words</label><input class="input" id="swhen" value="${esc(S.start.name)}"></div></section>
+    <section class="panel sec"><div class="sec__h"><h2>Then what happens</h2></div>
+      <p class="help" style="margin-top:-6px">One step a line, in order. Enter adds the next one. Start a line with "If" and it becomes a decision. Each path has its own steps. Paths can come back together, or go separate ways and never meet.</p>
+      <div class="dlist" id="dlist">${rowsHTML(anim)}</div>
+      <div class="row wrap"><button class="btn btn--sec btn--sm" data-act="dadd">${ic("add")}Step</button><button class="btn btn--sec btn--sm" data-act="dadddec">${ic("fork")}Decision</button></div></section>
+    <div class="row wrap"><button class="btn btn--pri" data-act="build">Build it</button><button class="btn btn--ghost" data-act="backdesc">Back to the description</button><button class="btn btn--ghost" data-act="blank">Start with a blank canvas</button></div>
+  </main>`;
+}
+function renderList(focus) {
+  const el = $("#dlist");
+  if (!el) return;
+  el.innerHTML = rowsHTML();
+  wireList();
+  if (focus) { const f = el.querySelector(focus); if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); } }
+}
+function wireList() {
+  const el = $("#dlist");
+  if (!el || !window.Sortable) return;
+  if (wireList.s) wireList.s.destroy();
+  wireList.s = Sortable.create(el, { animation: 150, handle: ".grip", draggable: ".drow", ghostClass: "is-ghost", onEnd: () => { const ids = [...el.querySelectorAll(":scope > .drow")].map((x) => x.dataset.rid); S.list.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id)); renderList(); } });
+}
+const subList = (k) => { const [rid, pk] = k.split("|"), r = S.list.find((x) => x.id === rid); return { r, pk, list: r ? (pk === "o" ? r.otherwise : r.paths[+pk].steps) : [] }; };
+
+/* ── Build view ── */
+function barHTML() {
+  const c = counts();
+  const sum = [plural(c.steps, "step"), c.decisions ? plural(c.decisions, "decision") : "", c.writes ? `${c.writes} write${c.writes === 1 ? "s" : ""} to a tool` : "", c.approvals ? `${c.approvals} need${c.approvals === 1 ? "s" : ""} approval` : ""].filter(Boolean).join(" · ");
+  return `<div class="bar__in">${MARK}<span class="crumb">Back office</span><span class="pill pill--accent">${CLIENT}</span>
+    <span class="av">${esc(S.name.trim().slice(0, 2).toUpperCase() || "AG")}</span>
+    <div style="display:grid;min-width:0"><div class="row"><input class="bar__name" id="aname2" value="${esc(S.name)}" aria-label="Agent name"><span class="pill ${S.live ? "pill--ok" : "pill--neutral"}">${S.live ? "In trial · v1" : "Draft"}</span></div><span class="bar__sum">${sum}</span></div>
+    ${(() => { const c = tally(); return c.issues || c.questions ? `<button class="tosettle" data-act="nextopen" title="Open the next step that needs you, issues first"><span class="row">${c.issues ? `<span class="pill pill--risk">${plural(c.issues, "issue")}</span>` : ""}${c.questions ? `<span class="pill pill--wait">${plural(c.questions, "question")}</span>` : ""}</span></button>` : S.steps.length ? `<span class="pill pill--ok">Nothing to settle</span>` : ""; })()}
+    <div class="bar__acts">
+      <div class="seg" role="group" aria-label="View"><button data-act="mode" data-v="chart" aria-pressed="${S.mode === "chart"}">Chart</button><button data-act="mode" data-v="list" aria-pressed="${S.mode === "list"}">List</button></div>
+      <button class="btn btn--ghost btn--sm" data-act="undo" ${S.hist.length ? "" : "disabled"} title="Undo (Ctrl or ⌘ Z)">${ic("undo")}Undo</button>
+      <button class="btn btn--sec btn--sm" data-act="sheet" data-type="builder">${ic("message")}Ask the Builder</button>
+      <button class="btn btn--sec btn--sm" data-act="try" ${S.building ? "disabled" : ""}>Try it</button>
+      <button class="btn btn--pri btn--sm" data-act="sheet" data-type="turnon" ${S.building || S.live ? "disabled" : ""}>Turn on</button>
+    </div></div>`;
+}
+const stem = (w) => w.replace(/(ing|ed|es|s)$/, "");
+function smart(q) {
+  const stop = new Set(["a", "an", "the", "to", "of", "it", "and", "then", "for", "in", "on", "with", "that", "this", "is", "me", "my", "our", "us", "we", "i"]);
+  const toks = q.toLowerCase().match(/[a-z0-9$%]+/g) || [], keys = toks.filter((w) => !stop.has(w)).map(stem).filter((w) => w.length > 1), hits = [];
+  RAIL().forEach((G) => {
+    const list = G.tools ? G.tools.flatMap((T) => T.items.map((it) => ({ it, tool: T.tool }))) : G.items.map((it) => ({ it }));
+    list.forEach(({ it, tool }) => {
+      const words = (t) => t.toLowerCase().split(/[^a-z0-9$%]+/).map(stem), own = words(`${it.label} ${it.part || ""} ${tool || ""}`), near = words(`${it.hint || ""} ${G.g} ${WORDS[it.kind] || ""} ${WORDS[it.part] || ""} ${WORDS[tool] || ""}`);
+      let n = 0;
+      // Its own name counts most, then words that mean the same; the first word you type counts double.
+      keys.forEach((k, ki) => { const hit = (list) => list.some((h) => h === k || (h.length > 3 && (h.startsWith(k) || k.startsWith(h)))); n += (ki ? 1 : 2) * (hit(own) ? 3 : hit(near) ? 1 : 0); });
+      if (n) hits.push({ it: tool && !it.pick ? { ...it, hint: tool } : it, n });
+    });
+  });
+  hits.sort((a, b) => b.n - a.n);
+  return hits.slice(0, 7).map((h) => h.it);
+}
+function blockHTML(it) {
+  const key = "i" + Object.keys(RAILMAP).length;
+  RAILMAP[key] = it;
+  return `<div class="block" role="button" tabindex="0" draggable="true" data-act="paladd" data-item="${key}" data-kind="${it.kind}" title="${esc(K[it.kind].hint)}"><span class="kico kico--${it.kind}">${ic(K[it.kind].ico)}</span><span class="grow">${esc(it.label)}<small>${esc(it.hint || "")}</small></span>${it.tag ? `<span class="pill pill--neutral">${it.tag}</span>` : ""}</div>`;
+}
+function railHTML() {
+  RAILMAP = {};
+  if (S.railOff) return `<button class="btn btn--ghost btn--icon" data-act="rail" aria-label="Show the steps you can add" title="Show the steps you can add">${ic("sidebar")}</button><button class="rail__tab" data-act="rail">${ic("add")}Add a step</button>`;
+  const q = (S.q || "").trim();
+  let body;
+  if (q) {
+    const g = guess(q), hits = smart(q);
+    body = `<div class="rgrp"><span class="eyebrow">As you wrote it</span><div class="rail__list" data-pal="1">${blockHTML({ kind: g.kind, words: q, label: cap(clean(q)), hint: g.gap ? "No step does this yet. A person does it for now." : `${K[g.kind].label}${g.part ? " · " + g.part : ""}` })}</div><p class="help" style="margin-top:6px">The Builder reads your words and picks the kind of step and the part.</p></div>
+      ${hits.length ? `<div class="rgrp"><span class="eyebrow">Closest steps</span><div class="rail__list" data-pal="1">${hits.map(blockHTML).join("")}</div></div>` : ""}`;
+  } else {
+    body = RAIL().map((G) => {
+      const n = G.tools ? G.tools.length : G.items.length;
+      const inner = G.tools
+        ? G.tools.map((T) => `<details class="tgrp"><summary><span class="tool-logo">${esc(T.tool.slice(0, 2))}</span><span>${esc(T.tool)}<small>${plural(TOOLS[T.tool].reads.length, "read")} · ${plural(TOOLS[T.tool].writes.length, "write")}</small></span>${ic("chev")}</summary><div class="rail__list" data-pal="1">${T.items.map(blockHTML).join("")}</div></details>`).join("")
+        : G.items.map(blockHTML).join("");
+      return `<details class="rgrp" ${G.open ? "open" : ""}><summary>${G.g}<span>${n}</span></summary><div class="rail__list" ${G.tools ? "" : 'data-pal="1"'}>${inner}</div>${G.note ? `<p class="help" style="margin-top:6px">${G.note}</p>` : ""}</details>`;
+    }).join("");
+  }
+  return `<div class="rail__h"><span class="eyebrow">Add a step</span><button class="btn btn--ghost btn--icon" data-act="rail" aria-label="Hide this list" title="Hide this list">${ic("sidebar")}</button></div>
+    <input class="input" id="palq" placeholder="Search, or say what it should do" value="${esc(S.q || "")}" aria-label="Search steps, or say what the step should do" style="height:32px;font-size:13px">
+    <p class="help">${q ? "Drag a result onto the flow, or press it to add it at the end." : "Try “email the vendor” or “wait two days”. Drag a step onto the flow, or press + on an arrow."}</p>${body}`;
+}
+function renderRail(focus) { const r = $(".rail"), w = $(".work"); if (!r) return; w.classList.toggle("is-railoff", !!S.railOff); r.innerHTML = railHTML(); const q = $("#palq"); if (q && focus) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
+function subOf(st) {
+  if (st.kind === "read" || st.kind === "skill" || st.kind === "write") return esc(st.part);
+  if (st.kind === "person") return `${st.gap ? "Does this for now" : st.mode === "Approve" ? "Approves" : "Answers"} · ${esc(st.who)} · waits up to ${esc(st.deadline)}`;
+  if (st.kind === "notify") return `${esc(st.to)} · ${esc(st.where.toLowerCase())}`;
+  if (st.kind === "decision") return `${st.decide === "A person" ? esc(st.who) + " decides" : st.decide === "The agent" ? "The agent decides" : "A rule decides"} · ${plural(st.paths.length, "path")}${allEnd(st) ? " that go separate ways" : st.paths.some(pathEnds) ? `, ${st.paths.filter(pathEnds).length} ends here` : ", then they come back together"}`;
+  if (st.kind === "each") return `Over ${esc(st.over)} · ${plural(st.paths[0].steps.length, "step")} inside`;
+  if (st.kind === "auto") return `${esc(st.part)} · ${autoOf(st.part).steps.length} steps inside`;
+  if ((st.kind === "read" || st.kind === "write") && !st.part) return `${esc(st.tool)} · choose what it does`;
+  if (st.kind === "talk") return `${esc(st.who)} · ${esc(st.where)} · up to ${esc(st.turns)} messages`;
+  if (st.kind === "handoff") return `Starts “${esc(st.agent)}” · this run ends there`;
+  if (st.kind === "askagent") return `“${esc(st.agent)}” · waits up to ${esc(st.deadline)} for its answer`;
+  if (st.kind === "tellagent") return `“${esc(st.agent)}” · doesn't wait`;
+  if (st.kind === "repeat") return `Until ${esc(st.until.charAt(0).toLowerCase() + st.until.slice(1))} · up to ${esc(st.max)} times`;
+  if (st.kind === "wait") return `For ${esc(st.dur)}`;
+  if (st.kind === "stop") return `Ends the run as ${esc(st.as.toLowerCase())}`;
+  return "";
+}
+function resPanel(id) {
+  const t = S.try, r = t && t.res[id];
+  if (!r || t.order.indexOf(id) >= t.shown) return "";
+  return `<div class="res ${r.tone === "wait" ? "res--wait" : ""}"><span class="eyebrow">On ${esc(S.file)}</span><div class="res__h"><span class="pill ${r.tone === "wait" ? "pill--wait" : "pill--ok"}">${r.tone === "wait" ? "Look" : r.would ? "Would" : "Did"}</span><span>${esc(r.text)}</span></div>
+    ${id === "trigger" ? "" : `<div class="res__acts">${r.offer ? `<button class="linkbtn" data-act="adddecision" data-id="${id}" data-offer="${r.offer}">Add a decision here</button>` : ""}<button class="linkbtn" data-act="fixwith" data-id="${id}">Not right? Tell the Builder</button></div>`}</div>`;
+}
+/* ── The chart: where each box and arrow goes. Steps run down; a decision's paths spread sideways, as wide as they need. ── */
+const NW = 212, NH = 54, DH = 84, SH = 30, GX = 32, GY = 38, GB = 58, GJ = 30;
+function size(st) {
+  if (st.kind === "decision") {
+    const ps = st.paths.map((q) => measure(q.steps)), ph = Math.max(28, ...ps.map((m) => m.h));
+    return { w: Math.max(NW, ps.reduce((a, m) => a + m.w, 0) + GX * (ps.length - 1)), h: DH + GB + ph + (allEnd(st) ? 0 : GJ), ps, ph };
+  }
+  if (st.kind === "auto" && st.folded === false) { const n = autoOf(st.part).steps.length; return { w: NW + 56, h: 10 + NH + GY + n * NH + (n - 1) * 22 + 30 }; }
+  if (st.paths) { if (st.folded) return { w: NW, h: NH }; const m = measure(st.paths[0].steps); return { w: Math.max(NW, m.w) + 56, h: 10 + NH + GY + Math.max(m.h, 28) + 44, ps: [m] }; }
+  return { w: NW, h: st.kind === "stop" ? SH : NH };
+}
+function measure(list) { let w = NW, h = 0; list.forEach((st, i) => { const m = size(st); w = Math.max(w, m.w); h += m.h + (i ? GY : 0); }); return { w, h }; }
+function layout() {
+  const L = { nodes: [], edges: [], plus: [], chips: [], frames: [], adds: [], prev: {}, next: {}, tail: null };
+  const t = S.try, shown = (id) => !!t && t.order.indexOf(id) > -1 && t.order.indexOf(id) < t.shown;
+  const edge = (pts, head, on) => L.edges.push({ pts, head, on });
+  const link = (at, st) => { L.prev[st.id] = at.srcs.map((x) => x.label).join(" and "); at.srcs.forEach((x) => { if (x.id) L.next[x.id] = `“${st.name}”`; }); };
+  // Lays a list out under `at` (the point the arrow comes from). Returns the point the flow leaves from, or null when it ends.
+  function seq(list, lid, cx, y, at, lab, pre) {
+    list.forEach((st, i) => {
+      const m = size(st), live = !!at;
+      if (live) {
+        if (!(pre && i === 0)) edge([[at.x, at.y], [cx, y]], true, shown(st.id));
+        L.plus.push({ x: cx, y: pre && i === 0 ? y - 12 : (at.y + y) / 2, lid, index: i });
+        link(at, st);
+      }
+      const base = { st, label: lab(i), dead: !live, on: live && shown(st.id) };
+      const me = [{ id: st.id, label: `“${st.name}”` }];
+      if (st.kind === "decision") {
+        L.nodes.push({ ...base, x: cx - NW / 2, y, w: NW, h: DH });
+        const W = m.ps.reduce((a, q) => a + q.w, 0) + GX * (m.ps.length - 1), barY = y + DH + 14, top = y + DH + GB, joinY = top + m.ph + GJ / 2, exits = [];
+        let px = cx - W / 2;
+        st.paths.forEach((q, pi) => {
+          const pw = m.ps[pi].w, pcx = px + pw / 2, letter = q.rule ? String.fromCharCode(65 + pi) : "", on = live && shown(st.id) && t.taken.includes(q.id);
+          px += pw + GX;
+          if (live) edge([[cx, y + DH], [cx, barY], [pcx, barY], [pcx, top]], q.steps.length > 0, on);
+          L.chips.push({ x: pcx, y: barY + 7, did: st.id, letter, text: q.rule ? `${pi ? "or if" : "if"} ${q.name.charAt(0).toLowerCase() + q.name.slice(1)}` : "otherwise", on, max: Math.min(pw, 240), dead: !live });
+          const ex = seq(q.steps, q.id, pcx, top, live ? { x: pcx, y: top, srcs: [{ id: null, label: `“${st.name}” · ${q.rule ? "path " + letter : "otherwise"}` }] } : null, (xi) => `${letter}${xi + 1}`, true);
+          if (live && !q.steps.length) L.plus.push({ x: pcx, y: top - 12, lid: q.id, index: 0 });
+          if (ex) {
+            if (q.steps.length) L.plus.push({ x: ex.x, y: ex.y + 13, lid: q.id, index: q.steps.length });
+            edge([[ex.x, ex.y], [ex.x, joinY], [cx, joinY]], false, on);
+            exits.push(...ex.srcs);
+          }
+        });
+        if (live) { const ax = cx + Math.max(W, NW) / 2 + 12; L.edges.push({ pts: [[px - GX - m.ps[m.ps.length - 1].w / 2, barY], [ax, barY]], dash: true }); L.adds.push({ x: ax, y: barY - 11, id: st.id }); }
+        at = exits.length ? { x: cx, y: joinY, srcs: exits } : null;
+      } else if (st.kind === "auto" && st.folded === false) {
+        // An automation, opened: its saved steps, shown but not changed here.
+        const a = autoOf(st.part), hy = y + 10;
+        L.frames.push({ x: cx - m.w / 2, y, w: m.w, h: m.h, solid: true, dead: !live, text: `saved automation · version ${a.v}` });
+        L.nodes.push({ ...base, x: cx - NW / 2, y: hy, w: NW, h: NH, fold: "open", inside: a.steps.length });
+        let py = hy + NH, yy = hy + NH + GY;
+        a.steps.forEach(([gk, name, sub]) => { if (live) edge([[cx, py], [cx, yy]], true, false); L.nodes.push({ st, ghost: { kind: gk, name, sub }, label: "", x: cx - NW / 2, y: yy, w: NW, h: NH, dead: !live }); py = yy + NH; yy += NH + 22; });
+        at = live ? { x: cx, y: y + m.h, srcs: me } : null;
+      } else if (st.paths && st.folded) {
+        L.nodes.push({ ...base, x: cx - NW / 2, y, w: NW, h: NH, fold: "closed", inside: st.paths[0].steps.length });
+        at = live ? { x: cx, y: y + NH, srcs: me } : null;
+      } else if (st.paths) {
+        // A loop: a frame around its steps, with an arrow back to the top.
+        const q = st.paths[0], fx = cx - m.w / 2, hy = y + 10, top = hy + NH + GY;
+        L.frames.push({ x: fx, y, w: m.w, h: m.h, dead: !live, text: st.kind === "each" ? "once for each item" : `again until done · up to ${st.max}` });
+        L.nodes.push({ ...base, x: cx - NW / 2, y: hy, w: NW, h: NH, fold: "open", inside: q.steps.length });
+        const ex = seq(q.steps, q.id, cx, top, live ? { x: cx, y: hy + NH, srcs: [{ id: null, label: `inside “${st.name}”` }] } : null, (xi) => String(xi + 1), false);
+        if (live) L.plus.push(q.steps.length && ex ? { x: ex.x, y: ex.y + 11, lid: q.id, index: q.steps.length } : { x: cx, y: top + 8, lid: q.id, index: 0 });
+        if (live && ex && q.steps.length) L.edges.push({ pts: [[ex.x, ex.y], [ex.x, ex.y + 24], [fx + 13, ex.y + 24], [fx + 13, hy + NH / 2], [cx - NW / 2, hy + NH / 2]], head: true });
+        at = live ? { x: cx, y: y + m.h, srcs: me } : null;
+      } else {
+        const w = st.kind === "stop" ? 108 : NW;
+        L.nodes.push({ ...base, x: cx - w / 2, y, w, h: m.h, ...(st.kind === "auto" ? { fold: "closed", inside: autoOf(st.part).steps.length } : {}) });
+        at = live && st.kind !== "stop" ? { x: cx, y: y + m.h, srcs: me } : null;
+      }
+      y += m.h + GY;
+    });
+    return at;
+  }
+  L.nodes.push({ st: S.trigger, label: "", x: -NW / 2, y: 0, w: NW, h: NH, on: shown("trigger") });
+  const ex = seq(S.steps, "root", 0, NH + GY, { x: 0, y: NH, srcs: [{ id: "trigger", label: "the start" }] }, (i) => String(i + 1), false);
+  if (ex && !S.building) { edge([[ex.x, ex.y], [ex.x, ex.y + GY - 6]], false, false); L.tail = { x: ex.x - NW / 2, y: ex.y + GY - 6, w: NW, h: 36 }; }
+  let x0 = -NW / 2, x1 = NW / 2, y1 = NH;
+  const grow = (x, w, y, h) => { x0 = Math.min(x0, x); x1 = Math.max(x1, x + w); y1 = Math.max(y1, y + h); };
+  L.nodes.forEach((n) => grow(n.x, n.w, n.y, n.h)); L.frames.forEach((f) => grow(f.x, f.w, f.y, f.h)); L.adds.forEach((a) => grow(a.x, 96, a.y, 22));
+  if (L.tail) grow(L.tail.x, L.tail.w, L.tail.y, L.tail.h);
+  L.dx = 16 - x0; L.dy = 14; L.w = x1 - x0 + 32; L.h = y1 + 30;
+  return L;
+}
+let LAY = null;
+function graphHTML() {
+  const L = (LAY = layout()), X = (x) => Math.round(x + L.dx), Y = (y) => Math.round(y + L.dy), t = S.try;
+  const svg = L.frames.map((f) => `<rect class="${f.solid ? "solid" : ""}${f.dead ? " is-dead" : ""}" x="${X(f.x)}" y="${Y(f.y)}" width="${f.w}" height="${f.h}" rx="10"/><text x="${X(f.x) + 12}" y="${Y(f.y + f.h) - 9}">${f.text}</text>`).join("") + L.edges.map((e) => `<path class="${e.on ? "on" : e.dash ? "dash" : ""}" d="M${e.pts.map((q) => `${X(q[0])} ${Y(q[1])}`).join(" L")}" ${e.head ? `marker-end="url(#${e.on ? "ah-on" : "ah"})"` : ""}/>`).join("")
+    + L.nodes.filter((n) => n.st.kind === "decision").map((n) => `<polygon class="${S.sel === n.st.id ? "is-sel" : ""}${n.dead ? " is-dead" : ""}${n.on ? " on" : ""}${openOf(n.st).some(isIssue) ? " has-issue" : ""}" points="${X(n.x + n.w / 2)},${Y(n.y)} ${X(n.x + n.w)},${Y(n.y + n.h / 2)} ${X(n.x + n.w / 2)},${Y(n.y + n.h)} ${X(n.x)},${Y(n.y + n.h / 2)}"/>`).join("");
+  const nodes = L.nodes.map((n) => {
+    if (n.ghost) return `<div class="gnode gnode--ghost${n.dead ? " is-dead" : ""}" data-act="open" data-id="${n.st.id}" style="left:${X(n.x)}px;top:${Y(n.y)}px;width:${n.w}px;height:${n.h}px"><span class="gnode__t">${esc(n.ghost.name)}</span><span class="gnode__s"><b>${K[n.ghost.kind].label}</b>${esc(n.ghost.sub)}</span></div>`;
+    const st = n.st, k = st.kind, open = openOf(st).length, r = t && t.res[st.id], seen = r && t.order.indexOf(st.id) < t.shown;
+    const fold = n.fold ? `<button class="gfold" data-act="fold" data-id="${st.id}" title="${n.fold === "open" ? "Fold it to one box" : `Show the ${plural(n.inside, "step")} inside`}" aria-label="${n.fold === "open" ? "Fold" : "Show what is inside"}">${n.fold === "open" ? "" : n.inside}${ic(n.fold === "open" ? "chevd" : "chev")}</button>` : "";
+    const iss = openOf(st).filter(isIssue).length, bad = n.dead || iss > 0;
+    const cls = `gnode gnode--${k}${bad ? " has-issue" : ""}${n.fold ? " has-fold" : ""}${S.sel === st.id ? " is-sel" : ""}${fresh.has(st.id) ? " is-fresh" : ""}${n.dead ? " is-dead" : ""}${t && t.done && !r && !n.dead ? " is-off" : ""}`;
+    const flag = n.dead ? `<span class="gflag pill pill--risk">Never runs</span>` : iss ? `<span class="gflag pill pill--risk">${plural(iss, "issue")}</span>` : open ? `<span class="gflag pill pill--wait">${plural(open, "question")}</span>` : "";
+    const mark = seen ? `<span class="gmark pill ${r.tone === "wait" ? "pill--wait" : "pill--ok"}">${r.tone === "wait" ? "Look" : r.would ? "Would" : "Did"}</span>` : "";
+    const body = k === "stop" ? `${ic("stop")}Stop` : k === "decision" ? `<span class="gnode__t">${esc(st.name)}</span>`
+      : `<span class="gnode__t">${n.label ? `<span class="n">${n.label}</span>` : ""}${esc(st.name)}</span><span class="gnode__s"><b>${K[k].label}</b>${k === "trigger" ? esc(st.starts) : subOf(st)}</span>${k === "write" && st.approval === "Ask first" ? `<span class="gsign">${ic("sign")}</span>` : ""}`;
+    const handle = k === "decision" || k === "stop" || n.dead ? "" : `<span class="ghandle" data-h="${st.id}"></span>`;
+    return `<div class="${cls}" role="button" tabindex="0" data-act="open" data-id="${st.id}" data-node="${st.id}" ${k === "trigger" ? "" : 'draggable="true"'} aria-label="${esc(st.name)}: open its setup" style="left:${X(n.x)}px;top:${Y(n.y)}px;width:${n.w}px;height:${n.h}px">${body}${fold}${flag}${mark}${handle}</div>`;
+  }).join("");
+  const chips = L.chips.map((c) => `<button class="gchip${c.on ? " on" : ""}" data-act="open" data-id="${c.did}" style="left:${X(c.x)}px;top:${Y(c.y)}px;max-width:${c.max}px${c.dead ? ";opacity:.45" : ""}" title="${esc(c.text)}">${c.letter ? `<b>${c.letter}</b>` : ""}${esc(c.text)}</button>`).join("");
+  const plus = L.plus.map((q) => `<button class="gplus" data-act="plus" data-list="${q.lid}" data-index="${q.index}" style="left:${X(q.x)}px;top:${Y(q.y)}px" aria-label="Add a step here" aria-expanded="${!!(S.menu && S.menu.list === q.lid && S.menu.index === q.index)}">${ic("add")}</button>`).join("");
+  const adds = L.adds.map((a) => `<button class="gadd" data-act="addpathto" data-id="${a.id}" style="left:${X(a.x)}px;top:${Y(a.y)}px" title="Add another path: Or if …">+ Add a path</button>`).join("");
+  const tail = L.tail ? `<button class="gtail" data-act="plus" data-list="root" data-index="${S.steps.length}" style="left:${X(L.tail.x)}px;top:${Y(L.tail.y)}px;width:${L.tail.w}px;height:${L.tail.h}px">+ Add a step</button>` : "";
+  return `<div class="graph" style="width:${Math.round(L.w)}px;height:${Math.round(L.h)}px"><svg class="gsvg${t && t.done ? " is-tried" : ""}" width="${Math.round(L.w)}" height="${Math.round(L.h)}"><defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah" d="M0 0L10 5L0 10z"/></marker><marker id="ah-on" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path class="ah-on" d="M0 0L10 5L0 10z"/></marker></defs>${svg}</svg>${nodes}${chips}${plus}${adds}${tail}</div>`;
+}
+function tipHTML(st) {
+  const k = st.kind, L = LAY || layout(), rows = [], t = S.try, r = t && t.res[st.id], seen = r && t.order.indexOf(st.id) < t.shown;
+  const row = (a, b) => rows.push(`<div class="tip__r"><span>${a}</span><span>${b}</span></div>`);
+  if (k === "trigger") { row("Starts", esc(st.starts)); row("Where", esc(st.detail)); }
+  if (k === "skill" || k === "read" || k === "write" || k === "auto") row(k === "write" ? "Writes to" : k === "read" ? "Reads from" : K[k].label, esc(st.part || `${st.tool}: not chosen yet`));
+  if (k === "auto") row("Inside", autoOf(st.part).steps.map((x) => esc(x[1])).join(" → "));
+  if (k === "each" || k === "repeat") row("Inside", st.paths[0].steps.length ? st.paths[0].steps.map((x) => esc(x.name)).join(" → ") : "nothing yet");
+  if (k === "write") row("Approval", st.approval === "Ask first" ? `Asks first. ${esc(st.who)} signs.` : "Runs on its own");
+  if (k === "person") row(st.mode === "Approve" ? "Approves" : "Answers", `${esc(st.who)}, within ${esc(st.deadline)}`);
+  if (k === "notify") row("Tells", `${esc(st.to)}, by ${esc(st.where.toLowerCase())}`);
+  if (k === "talk") row("With", `${esc(st.who)}, by ${esc(st.where)}`);
+  if (k === "askagent" || k === "tellagent" || k === "handoff") row("Agent", esc(st.agent));
+  if (k === "decision") { row("Decides", st.decide === "A person" ? esc(st.who) : esc(st.decide)); st.paths.forEach((q, i) => row(q.rule ? `Path ${String.fromCharCode(65 + i)}` : "Otherwise", `${q.rule ? esc(q.name) + (st.decide === "A rule" && q.rule.field ? ` <span class="muted">(${esc(q.rule.field)} ${esc(q.rule.op)} ${esc(q.rule.value)})</span>` : "") + " · " : ""}${pathEnds(q) ? "ends there" : "comes back"}`)); }
+  if (k !== "trigger") row("Comes after", esc(L.prev[st.id] || "nothing: it never runs"));
+  if (k !== "decision" && k !== "stop") row("Goes to", esc(L.next[st.id] || "the end"));
+  const notes = [...st.decided.slice(0, 2).map((d) => `<div><span class="muted">Decided for you:</span> ${esc(d.what)}</div>`), ...openOf(st).map((o) => `<div>${opill(o)} ${esc(o.text)}</div>`), ...(seen ? [`<div><span class="pill ${r.tone === "wait" ? "pill--wait" : "pill--ok"}">${r.tone === "wait" ? "Look" : r.would ? "Would" : "Did"}</span> ${esc(r.text)}</div>`] : [])];
+  return `<span class="eyebrow">${K[k].label}</span><span class="tip__h">${esc(st.name)}</span>${K[k].hint ? `<span class="muted">${esc(K[k].hint)}</span>` : ""}${rows.join("")}${notes.join("")}
+    <div class="tip__f">Click to set it up.${k === "trigger" ? "" : " Drag the box to move it."}${k === "decision" || k === "stop" ? "" : " Drag the dot under it onto another step to make that step come next."}</div>`;
+}
+function noteHTML() {
+  if (S.building) return `<div class="note"><span class="agentline">Putting it together: step ${S.steps.length + 1} of ${S.building.total}</span><span class="muted">${esc(S.building.queue[0] ? "“" + S.building.queue[0].from + "”" : "")}</span></div>`;
+  if (S.try) {
+    const t = S.try;
+    return `<div class="note note--try"><div style="display:grid;gap:4px"><span class="row wrap"><b style="font-weight:500">${t.done ? "Tried it on" : "Trying it on"}</b><span class="filechip">${ic("upload")}${esc(S.file)}</span></span><span class="muted">${t.done ? "The green line is the path this example took. Point at a step to see what it did. Nothing was written to QuickBooks." : "Reading real data. Nothing is written."}</span></div>
+      <div class="row wrap"><label class="btn btn--sec btn--sm" style="cursor:pointer">Use another file<input type="file" id="tryfile" hidden></label><button class="btn btn--sec btn--sm" data-act="try">Try again</button><button class="btn btn--ghost btn--sm" data-act="endtry">Done</button></div></div>`;
+  }
+  if (S.note) return `<div class="note"><span>${S.note}</span><div class="row">${allOpen().length ? `<button class="linkbtn" data-act="nextopen" style="white-space:nowrap">Start with the first</button>` : `<button class="linkbtn" data-act="sheet" data-type="builder" style="white-space:nowrap">What was decided</button>`}<button class="btn btn--ghost btn--icon" data-act="dismiss" aria-label="Dismiss">${ic("close")}</button></div></div>`;
+  return "";
+}
+function listHTML() {
+  const t = S.try, rows = [];
+  const status = (st, dead) => {
+    const iss = openOf(st).filter(isIssue).length, qs = openOf(st).length - iss, r = t && t.res[st.id], seen = r && t.order.indexOf(st.id) < t.shown, out = [];
+    if (dead) out.push(`<span class="pill pill--risk">Never runs</span>`);
+    if (iss) out.push(`<span class="pill pill--risk">${plural(iss, "issue")}</span>`);
+    if (qs) out.push(`<span class="pill pill--wait">${plural(qs, "question")}</span>`);
+    if (seen) out.push(`<span class="pill ${r.tone === "wait" ? "pill--wait" : "pill--ok"}">${r.tone === "wait" ? "Look" : r.would ? "Would" : "Did"}</span>`);
+    if (!out.length) out.push(`<span class="pill pill--ok">Ready</span>`);
+    return { html: out.join(""), needs: dead || iss + qs > 0 };
+  };
+  const row = (st, depth, label, dead) => {
+    const s = status(st, dead), first = openOf(st).slice().sort((a, b) => (isIssue(a) ? 0 : 1) - (isIssue(b) ? 0 : 1))[0], r = t && t.res[st.id], seen = r && t.order.indexOf(st.id) < t.shown;
+    if (S.only && !s.needs) return;
+    rows.push(`<div class="srow${S.sel === st.id ? " is-sel" : ""}${dead ? " is-dead" : ""}" role="button" tabindex="0" data-act="open" data-id="${st.id}" data-node="${st.id}"><span class="srow__n">${label}</span>
+      <span class="srow__name" style="padding-left:${S.only ? 0 : depth * 18}px"><b>${esc(st.name)}</b>${first ? `<span class="srow__why ${isIssue(first) ? "srow__why--risk" : ""}">${esc(first.text)}</span>` : dead ? `<span class="srow__why srow__why--risk">Every path above it ends, so the run never gets here.</span>` : seen ? `<span class="srow__why">${esc(r.text)}</span>` : ""}</span>
+      <span class="srow__k">${K[st.kind].label}</span><span class="srow__s">${s.html}</span></div>`);
+  };
+  const walkRows = (list, depth, lab, dead) => {
+    list.forEach((st, i) => {
+      row(st, depth, lab(i), dead);
+      if (st.paths) st.paths.forEach((q, pi) => {
+        const letter = q.each ? "" : q.rule ? String.fromCharCode(65 + pi) : "";
+        if (!S.only && !q.each) rows.push(`<div class="srow srow--path" data-act="open" data-id="${st.id}"><span></span><span style="padding-left:${(depth + 1) * 18}px">${q.rule ? `<b style="font-weight:500;color:var(--slate)">${letter}</b> ${pi ? "or if" : "if"} ${esc(q.name.charAt(0).toLowerCase() + q.name.slice(1))}` : "otherwise"} · ${pathEnds(q) ? "ends there" : "comes back"}</span></div>`);
+        walkRows(q.steps, depth + 1, (xi) => `${letter}${xi + 1}`, dead);
+      });
+      if (deadEnd(st)) dead = true;
+    });
+  };
+  row(S.trigger, 0, "", false);
+  walkRows(S.steps, 0, (i) => String(i + 1), false);
+  const c = tally(), n = flat().length;
+  return `<div class="slist">${noteHTML()}
+    <div class="slist__bar"><div class="seg" role="group" aria-label="Show"><button data-act="only" data-v="" aria-pressed="${!S.only}">All ${n} steps</button><button data-act="only" data-v="1" aria-pressed="${!!S.only}">Needs you · ${c.issues + c.questions}</button></div>
+      <span class="muted small">${c.issues || c.questions ? "Click a step to settle it in the side panel. Issues are red, questions are gold." : "Nothing left to settle. Try it, or turn it on."}</span></div>
+    <div class="slist__t"><div class="srow srow--head"><span>#</span><span>Step</span><span>Kind</span><span>Status</span></div>${rows.join("") || `<div class="srow" style="cursor:default;grid-template-columns:minmax(0,1fr)"><span class="muted">Nothing needs you right now.</span></div>`}</div>
+    ${S.building ? "" : `<div><button class="btn btn--sec btn--sm" data-act="plus" data-list="root" data-index="${S.steps.length}">${ic("add")}Add a step</button></div>`}</div>`;
+}
+function canvasHTML() {
+  if (S.mode === "list") return listHTML();
+  return `<div class="stage" id="stage" style="zoom:${S.zoom}"><div class="gwrap">${noteHTML()}${graphHTML()}</div></div>`;
+}
+function buildHTML() {
+  return `<header class="bar" id="bar">${barHTML()}</header><div class="work${S.railOff ? " is-railoff" : ""}"><aside class="rail" aria-label="Add a step">${railHTML()}</aside><main class="canvas${S.mode === "list" ? " canvas--list" : ""}" id="canvas">${canvasHTML()}</main></div>
+  <button class="btn btn--sec btn--sm fab" data-act="sheet" data-type="notes">${ic("info")}About this prototype</button>
+  <div class="zoomer" role="group" aria-label="Zoom and move" ${S.mode === "list" ? "hidden" : ""}><button data-act="zoom" data-d="-1" aria-label="Zoom out" title="Zoom out">−</button><button data-act="zoom" data-d="0" id="zlabel" title="Back to 100%">${Math.round(S.zoom * 100)}%</button><button data-act="zoom" data-d="1" aria-label="Zoom in" title="Zoom in">+</button><i></i><button data-act="fit" title="Fit the whole flow">Fit</button><i class="zhide"></i><span class="help zhide" style="padding:0 8px 0 4px">Drag the background to move</span></div>`;
+}
+
+/* ── Sheet ── */
+const opt = (v, cur) => `<option ${v === cur ? "selected" : ""}>${esc(v)}</option>`;
+const sel = (f, list, cur, x = "") => `<select class="select" data-f="${f}" ${x}>${(list.includes(cur) ? list : [cur, ...list]).map((v) => opt(v, cur)).join("")}</select>`;
+const seg = (f, list, cur, dis = []) => `<div class="seg" role="group">${list.map((v) => `<button data-act="seg" data-f="${f}" data-v="${esc(v)}" aria-pressed="${v === cur}" ${dis.includes(v) ? "disabled" : ""}>${esc(v)}</button>`).join("")}</div>`;
+function wires(st) {
+  const prev = [];
+  let seen = false;
+  walk(S.steps, (x) => { if (x.id === st.id) seen = true; if (!seen && x.kind !== "decision") prev.push(x); });
+  const last = prev[prev.length - 1];
+  const rows = st.kind === "write" ? [["Vendor", "the invoice · vendor"], ["Lines", last ? `“${last.name}” · its lines` : "the invoice · lines"], ["Total", "the invoice · total"]]
+    : [["Reads", last ? `“${last.name}” · what it produced` : "what started the run"]];
+  return `<div class="wire">${rows.map((r) => `<div class="wire__r"><span class="muted">${r[0]}</span><code>${esc(r[1])}</code></div>`).join("")}</div><span class="help">Filled in by the Builder from the steps before. Tell it below if this step should read something else.</span>`;
+}
+function connHTML(st) {
+  if (st.kind === "trigger") return "";
+  const at = locate(st.id), L = LAY || layout(), cur = at.index === 0 ? "first:" + listIdOf(at.list) : "after:" + at.list[at.index - 1].id, opts = [["first:root", "First, right after the start"]];
+  walk(S.steps, (x) => {
+    if (x.id === st.id || holdsStep(st, x.id)) return;
+    if (x.kind !== "stop") opts.push(["after:" + x.id, `After “${x.name}”`]);
+    if (x.paths) x.paths.forEach((q, i) => opts.push(["first:" + q.id, `First on “${x.name}” · ${q.each ? "inside" : q.rule ? "path " + String.fromCharCode(65 + i) : "otherwise"}`]));
+  });
+  return `<div class="grp"><div class="field"><label>Comes after</label><select class="select" data-conn="1" aria-label="Comes after">${opts.map(([v, tx]) => `<option value="${v}" ${v === cur ? "selected" : ""}>${esc(tx)}</option>`).join("")}</select></div>
+    <div class="wire__r"><span class="muted">Goes to</span><span>${st.kind === "decision" ? "its paths" : st.kind === "stop" ? "nothing: the run ends" : esc(L.next[st.id] || "the end")}</span></div>
+    <span class="help">Pick another place and it moves there with its arrows. On the chart you can also drag the box, or drag the dot under a step onto the one that should come next.</span></div>`;
+}
+function setupHTML(st) {
+  const g = [];
+  if (resPanel(st.id)) g.push(resPanel(st.id));
+  const items = st.open || [];
+  if (items.length) {
+    const left = openOf(st).length, next = left ? null : nextOpen(st.id);
+    g.push(`<div class="settle ${left ? (openOf(st).some(isIssue) ? "settle--risk" : "") : "settle--done"}"><span class="eyebrow">${left ? "To settle on this step" : "Settled on this step"}</span>${items.map((o, i) => o.done
+      ? `<div class="settle__i"><span class="row" style="justify-content:space-between;align-items:baseline"><span>${ic("check")} ${esc(o.text)} <b style="font-weight:500">${esc(o.done)}</b></span><button class="linkbtn" data-act="reopen" data-i="${i}">Change</button></span></div>`
+      : `<div class="settle__i"><span class="row">${opill(o)}</span><span class="settle__q">${esc(o.text)}</span>${o.why ? `<span class="muted">${esc(o.why)}</span>` : ""}
+        <div class="row wrap">${o.opts.map((v) => `<button class="btn btn--sec btn--sm" data-act="settle" data-i="${i}" data-v="${esc(v)}" aria-pressed="${v === o.using}">${esc(v)}${v === o.using ? " · using this" : ""}</button>`).join("")}</div>
+        ${o.using ? `<span class="help">It runs on “${esc(o.using)}” until you say otherwise.</span>` : ""}</div>`).join("")}
+      ${!left && next && next.st.id !== st.id ? `<div><button class="btn btn--sec btn--sm" data-act="nextopen">Next: “${esc(next.st.name)}”${ic("arrow")}</button></div>` : ""}</div>`);
+  }
+  if (st.decided.length) g.push(`<div class="decided"><span class="eyebrow">Decided for you</span>${st.decided.map((d, i) => `<div class="decided__i"><span class="row" style="justify-content:space-between;align-items:baseline"><span>${esc(d.what)}</span>${d.f ? `<button class="linkbtn" data-act="focusf" data-f="${d.f}">Change</button>` : ""}</span><span class="muted" style="font-size:12px">${esc(d.why)}</span></div>`).join("")}</div>`);
+  const k = st.kind;
+  g.push(connHTML(st));
+  if (k === "trigger") {
+    g.push(`<div class="grp"><div class="field"><label>Starts when</label>${sel("starts", ["A document arrives", "On a schedule", "A record changes", "A person starts it", "A message arrives"], st.starts, 'data-re="1"')}</div>
+      <div class="field"><label>${st.starts === "On a schedule" ? "When" : st.starts === "A person starts it" ? "From" : "Where"}</label><input class="input" data-f="detail" value="${esc(st.detail)}"></div>
+      <div class="field"><label>Only when <span class="muted" style="font-weight:400">optional</span></label><input class="input" data-f="only" value="${esc(st.only || "")}" placeholder="It has a PDF attached"></div></div>`);
+  }
+  if (k === "read" || k === "skill" || k === "write") {
+    if (k === "skill") g.push(`<div class="grp"><div class="field"><label>Skill</label>${sel("part", PARTS.skill, st.part, 'data-re="1"')}<span class="help">From the Skills library. Picked from the step's name; choose another, or tell the Builder what it should do.</span></div></div>`);
+    else {
+      const tl = TOOLS[st.tool] || { reads: [], writes: [] }, og = (label, list) => (list.length ? `<optgroup label="${label}">${list.map((w) => `<option value="${esc(st.tool + " · " + w)}" ${st.part === st.tool + " · " + w ? "selected" : ""}>${label === "Reads" ? "Read" : "Write"}: ${esc(w)}</option>`).join("")}</optgroup>` : "");
+      g.push(`<div class="grp"><div class="field"><label>Tool</label>${sel("tool", Object.keys(TOOLS), st.tool, 'data-re="1"')}</div>
+        <div class="field"><label>What it does there</label><select class="select" data-f="part" data-re="1" aria-label="What it does there">${st.part ? "" : `<option value="" selected disabled>Choose a read or a write</option>`}${og("Reads", tl.reads)}${og("Writes", tl.writes)}</select>
+        <span class="help">${k === "write" ? `A write is the only kind of step that changes something in ${CLIENT}'s own tool. That is why it asks first, and why each change is recorded with what was there before.` : "A read looks something up and changes nothing, so it needs no approval."}</span></div></div>`);
+    }
+    g.push(`<div class="grp"><span class="label">What it works from</span>${wires(st)}</div>`);
+  }
+  if (k === "write") {
+    g.push(`<div class="grp"><span class="label">Approval</span>${seg("approval", ["Ask first", "On its own"], st.approval, ["On its own"])}
+      <span class="help">On its own is offered once ${CLIENT} allows it on their QuickBooks connection and the trial is over.</span>
+      <div class="field"><label>Who signs</label>${sel("who", PEOPLE, st.who)}</div></div>`);
+  }
+  if (k === "person") {
+    g.push(`<div class="grp"><div class="field"><label>They</label>${seg("mode", ["Answer", "Approve"], st.mode)}</div>
+      <div class="field"><label>Who</label>${sel("who", PEOPLE, st.who)}</div>
+      <div class="field"><label>Where</label>${seg("where", ["Inbox", "Email"], st.where)}</div>
+      <div class="field"><label>Waits up to</label>${sel("deadline", ["1 day", "3 days", "1 week"], st.deadline)}</div>
+      <div class="field"><label>If nobody answers</label>${sel("noAnswer", ["Stop the run and tell us", "Ask someone else", "Skip this step and go on"], st.noAnswer)}</div></div>`);
+  }
+  if (k === "notify") {
+    g.push(`<div class="grp"><div class="field"><label>Who</label>${sel("to", PEOPLE, st.to)}</div><div class="field"><label>Where</label>${seg("where", ["Inbox", "Email", "Text"], st.where)}</div>
+      <div class="field"><label>Message</label><textarea class="textarea" rows="3" data-f="message" placeholder="What they should know">${esc(st.message)}</textarea></div></div>`);
+  }
+  if (k === "decision") {
+    const after = (p) => `<div class="row wrap" style="justify-content:space-between"><span class="help">${plural(p.steps.filter((x) => x.kind !== "stop").length, "step")} on this path, then it</span><div class="seg" role="group"><button data-act="pathend" data-p="${p.id}" data-v="on" aria-pressed="${!pathEnds(p)}">Rejoins</button><button data-act="pathend" data-p="${p.id}" data-v="stop" aria-pressed="${pathEnds(p)}">Ends here</button></div></div>`;
+    const how = { "A rule": "A rule on what the steps before produced. The same answer every time.", "The agent": "The agent reads what the steps before produced and takes the path that fits. If it isn't sure, it takes Otherwise.", "A person": "They pick one. Each path below is a choice they see, and the run waits for them." }[st.decide];
+    g.push(`<div class="grp"><div class="field"><label>Who decides</label>${seg("decide", ["A rule", "The agent", "A person"], st.decide)}<span class="help">${how}</span></div>
+      ${st.decide === "A person" ? `<div class="field"><label>Who</label>${sel("who", PEOPLE, st.who)}</div>` : ""}
+      <div class="field"><label>After the paths</label><div class="seg" role="group"><button data-act="unsplit" data-id="${st.id}" aria-pressed="${!st.paths.some(pathEnds)}">They come back together</button><button data-act="split" data-id="${st.id}" aria-pressed="${allEnd(st)}">They go separate ways</button></div>
+      <span class="help">${allEnd(st) ? "Each path runs to its own end. Nothing below this decision runs." : st.paths.some(pathEnds) ? "Mixed: some paths end and the rest go on to the steps below. Set each path here." : "Every path rejoins, and the steps below run whichever path was taken."}</span></div>
+      ${st.paths.map((p, i) => p.rule ? `<div class="pathcard"><div class="row"><span class="ltr">${String.fromCharCode(65 + i)}</span><b style="font-weight:500;white-space:nowrap">${i ? "Or if" : "If"}</b><input class="input" data-f="name" data-p="${p.id}" value="${esc(p.name)}" aria-label="In words"><button class="btn btn--ghost btn--icon" data-act="rmpath" data-p="${p.id}" aria-label="Remove path" ${st.paths.length <= 2 ? "disabled" : ""}>${ic("close")}</button></div>
+        ${st.decide === "A rule" ? `<div class="rule"><select class="select" data-f="field" data-p="${p.id}" data-r="1" aria-label="Field">${["", ...FIELDS].concat(FIELDS.includes(p.rule.field) || !p.rule.field ? [] : [p.rule.field]).map((v) => `<option value="${esc(v)}" ${v === p.rule.field ? "selected" : ""}>${esc(v || "Choose a field")}</option>`).join("")}</select>
+        <select class="select" data-f="op" data-p="${p.id}" data-r="1" aria-label="Is">${OPS.map((v) => opt(v, p.rule.op)).join("")}</select><input class="input" data-f="value" data-p="${p.id}" data-r="1" value="${esc(p.rule.value)}" placeholder="Value" aria-label="Value"></div>` : ""}
+        ${after(p)}</div>`
+        : `<button class="addpath" data-act="addpath">${ic("add")}Add a path <span>Or if …</span></button><div class="pathcard"><div class="row"><span class="ltr ltr--else">·</span><b style="font-weight:500">Otherwise</b><span class="help">when none of the paths above fit</span></div>${after(p)}</div>`).join("")}</div>`);
+  }
+  if (k === "auto") g.push(`<div class="grp"><div class="field"><label>Automation</label>${sel("part", Object.keys(AUTOS), st.part, 'data-re="1"')}<span class="help">A group of steps saved once and run as one. Version ${autoOf(st.part).v}. Changing it is done on the automation, and changes it wherever it is used.</span></div>
+    <div class="decided"><span class="eyebrow">${plural(autoOf(st.part).steps.length, "step")} inside</span>${autoOf(st.part).steps.map((x, xi) => `<div class="decided__i"><span>${xi + 1}. ${esc(x[1])}</span><span class="muted" style="font-size:12px">${K[x[0]].label}${x[2] ? " · " + esc(x[2]) : ""}</span></div>`).join("")}</div>
+    <div><button class="btn btn--sec btn--sm" data-act="fold" data-id="${st.id}">${st.folded === false ? "Fold it to one box" : "Show its steps on the chart"}</button></div><span class="help">Any step inside that writes to a tool keeps its own approval.</span></div>`);
+  if (k === "talk") g.push(`<div class="grp"><div class="field"><label>With</label>${sel("who", PEOPLE, st.who)}</div><div class="field"><label>By</label>${seg("where", ["WhatsApp", "Text", "Email"], st.where)}</div>
+    <div class="field"><label>What it needs from them</label><textarea class="textarea" rows="3" data-f="goal" placeholder="Which job each line belongs to">${esc(st.goal)}</textarea></div>
+    <div class="field"><label>Waits up to</label>${sel("deadline", ["1 day", "3 days", "1 week"], st.deadline)}</div><span class="help">It stops after ${esc(st.turns)} messages, and every message it sends needs a yes first.</span></div>`);
+  if (k === "handoff") g.push(`<div class="grp"><div class="field"><label>Agent</label>${sel("agent", AGENTS, st.agent)}<span class="help">One of ${CLIENT}'s own agents. It starts with what this run produced; this run ends here.</span></div></div>`);
+  if (k === "askagent") g.push(`<div class="grp"><div class="field"><label>Agent</label>${sel("agent", AGENTS, st.agent)}</div>
+    <div class="field"><label>What it asks</label><textarea class="textarea" rows="3" data-f="ask" placeholder="Is this vendor on hold?">${esc(st.ask)}</textarea></div>
+    <div class="field"><label>Waits up to</label>${sel("deadline", ["10 minutes", "1 hour", "1 day"], st.deadline)}</div>
+    <div class="field"><label>If it can't answer</label>${sel("noAnswer", ["Ask a person", "Go on without it", "Stop the run"], st.noAnswer)}</div>
+    <span class="help">The other agent answers from what it knows and can read, and the answer comes back with its sources. It changes nothing for this one. Only ${CLIENT}'s own agents can be asked.</span></div>`);
+  if (k === "tellagent") g.push(`<div class="grp"><div class="field"><label>Agent</label>${sel("agent", AGENTS, st.agent)}</div>
+    <div class="field"><label>What it sends</label><textarea class="textarea" rows="3" data-f="message" placeholder="What this run found, and the records it came from">${esc(st.message)}</textarea></div>
+    <span class="help">It arrives as a note the other agent reads on its next run. This run doesn't wait for it.</span></div>`);
+  if (k === "repeat") g.push(`<div class="grp"><div class="field"><label>Done when</label>${seg("until", ["A rule holds", "The agent says it is done"], st.until)}</div><div class="field"><label>At most</label>${sel("max", ["2", "3", "5", "10"], st.max)}</div><span class="help">Its steps run again until then. If it never gets there, the run stops.</span></div>`);
+  if (k === "each") g.push(`<div class="grp"><div class="field"><label>Over the list</label><input class="input" data-f="over" value="${esc(st.over)}"></div><span class="help">Its steps run once per item, up to 10 at a time.</span></div>`);
+  if (k === "wait") g.push(`<div class="grp"><div class="field"><label>Wait for</label><input class="input" data-f="dur" value="${esc(st.dur)}"></div></div>`);
+  if (k === "stop") g.push(`<div class="grp"><div class="field"><label>End the run as</label>${seg("as", ["Succeeded", "Failed", "Cancelled"], st.as)}</div></div>`);
+  if (!["trigger", "decision", "each", "repeat", "wait", "stop", "handoff"].includes(k)) {
+    g.push(`<div class="grp"><span class="label">If it fails</span>${seg("onError", ["Stop the run", "Carry on"], st.onError)}</div>`);
+    g.push(`<details class="more"><summary>More settings <span>all on their defaults</span></summary>
+      ${k === "skill" ? `<div class="kv"><span>Model</span><select class="select"><option>As the agent runs it</option><option>A faster model</option><option>A stronger model</option></select></div><div class="kv"><span>Version</span><select class="select"><option>Follows the live version</option><option>Pinned to v3</option></select></div>` : ""}
+      <div class="kv"><span>A second opinion before it goes on</span><button class="switch" role="switch" aria-checked="false" data-act="sw" aria-label="Second opinion"></button></div>
+      <div class="kv"><span>Tell someone when it is done</span><button class="switch" role="switch" aria-checked="false" data-act="sw" aria-label="Notice"></button></div>
+      <div class="kv"><span>Show this step to the client</span><button class="switch" role="switch" aria-checked="true" data-act="sw" aria-label="Client timeline"></button></div>
+    </details>`);
+  }
+  if (k !== "trigger") g.push(`<div><button class="btn btn--ghost btn--sm" data-act="remove" data-id="${st.id}" style="color:var(--risk-ink)">Remove this ${k === "decision" ? "decision" : "step"}</button></div>`);
+  return g.join("");
+}
+function chipsFor(st) {
+  if (!st) {
+    const out = [];
+    if (!hasDecisionAfter(/match/)) out.push("If a line doesn't match, ask Dana");
+    if (!hasDecisionAfter(/price/)) out.push("If a price is up more than 5%, ask Dana to approve it");
+    out.push("Add a step to ask the AP invoice review agent if the vendor is on hold");
+    out.push("Why is approval on?");
+    return out;
+  }
+  if (st.kind === "trigger") return ["Why this inbox?", "Add a step to check for a duplicate invoice"];
+  if (st.gap) return ["Build a skill for this", "Why is this here?"];
+  if (st.kind === "write") return ["Run it without approval", "Who signs this?", "If the total is over $5,000, ask Lisa to approve it"];
+  const at = locate(st.id), forked = at && at.list[at.index + 1] && at.list[at.index + 1].kind === "decision";
+  if (st.kind === "skill" && /match/i.test(st.name)) return [...(forked ? [] : ["If a line doesn't match, ask Dana"]), "Add a step to check for a duplicate invoice", "Why this skill?"];
+  if (st.kind === "skill" && /price/i.test(st.name)) return [...(forked ? [] : ["If a price is up more than 5%, ask Dana to approve it"]), "Why is this here?"];
+  if (st.kind === "decision") return ["Add a step to tell Lisa", "Why is this here?"];
+  return ["Add a step after this", "Why is this here?", "Remove this step"];
+}
+function hasDecisionAfter(re) {
+  let yes = false;
+  walk(S.steps, (st, list) => { if (re.test(st.name.toLowerCase()) && st.kind !== "decision") { const nx = list[list.indexOf(st) + 1]; if (nx && nx.kind === "decision") yes = true; } });
+  return yes;
+}
+function chatHTML(about) {
+  const st = about ? find(about) : null;
+  const msgs = S.chat.filter((m) => !about || m.about === about);
+  const log = msgs.map((m) => {
+    const i = S.chat.indexOf(m);
+    const ab = !about && m.about && find(m.about) ? `<span class="msg__about">On “${esc(find(m.about).name)}”</span>` : "";
+    if (m.me) return `<div class="msg"><span class="av av--you">You</span><div>${ab}<p>${esc(m.text)}</p></div></div>`;
+    const diffs = (m.changes || []).map((c) => `<div class="diff"><b class="${c.s === "−" ? "minus" : c.s === "~" ? "tilde" : ""}">${c.s}</b><span>${esc(c.t)}</span>${m.h ? (m.h > S.hist.length ? `<span class="done">Undone</span>` : m.h === S.hist.length ? `<button class="linkbtn" data-act="chatundo" data-i="${i}">Undo</button>` : `<span class="done" title="You changed the flow since. Use Undo in the bar.">Changed since</span>`) : ""}</div>`).join("");
+    return `<div class="msg"><span class="av av--builder">B</span><div>${ab}${m.text.split("\n").map((p) => `<p>${esc(p)}</p>`).join("")}${diffs}</div></div>`;
+  }).join("");
+  const empty = `<p class="muted small">${st ? "Say what this step should do differently, or ask why it is set this way. Changes land on the canvas, each with Undo." : "Ask for a step or a decision, or ask why something is there."}</p>`;
+  return `<div class="chat"><div class="chat__h"><span class="av av--builder" style="width:20px;height:20px;font-size:9px">B</span><span class="eyebrow">Builder${st ? " · on this step" : ""}</span>${st ? `<span class="chat__size"><button class="btn btn--ghost btn--icon" data-act="chatsize" data-d="1" ${S.chatSize === "max" ? "disabled" : ""} aria-label="Make the Builder bigger" title="${S.chatSize === "min" ? "Show the conversation" : "Fill the panel with the Builder"}">${ic("chevu")}</button><button class="btn btn--ghost btn--icon" data-act="chatsize" data-d="-1" ${S.chatSize === "min" ? "disabled" : ""} aria-label="Make the Builder smaller" title="${S.chatSize === "max" ? "Back to the setup and the Builder" : "Shrink it to the message box"}">${ic("chevd")}</button></span>` : ""}</div>
+    <div class="chat__log" id="log">${log || empty}${S.busy ? `<div class="msg"><span class="av av--builder">B</span><span class="agentline">Working on it</span></div>` : ""}</div>
+    <div class="chips">${chipsFor(st).map((c) => `<button class="chip" data-act="chip">${esc(c)}</button>`).join("")}</div>
+    <div class="composer"><textarea id="say" rows="1" placeholder="${st ? "Tell the Builder what to change on this step" : "Add a step, add a decision, or ask why"}" aria-label="Message the Builder"></textarea><button class="btn btn--pri btn--icon" data-act="send" aria-label="Send">${ic("send")}</button></div></div>`;
+}
+function turnonHTML() {
+  const c = counts(), rows = [];
+  const done = (t, s) => rows.push(`<div class="todo">${ic("check")}<div><b style="font-weight:500">${t}</b><div class="muted">${s}</div></div></div>`);
+  const open = (t, s, x = "") => rows.push(`<div class="todo"><span style="color:var(--signal-ink)">${ic("alert")}</span><div><span class="row wrap"><b style="font-weight:500">${t}</b><span class="pill pill--wait">${x || "Waiting on " + CLIENT}</span></span><div class="muted">${s}</div></div></div>`);
+  if (S.tried) done("Tried on a real example", `${esc(S.file)}. Nothing was written.`);
+  else rows.push(`<div class="todo"><span style="color:var(--signal-ink)">${ic("alert")}</span><div><span class="row wrap"><b style="font-weight:500">Not tried yet</b><span class="pill pill--wait">Waiting on you</span></span><div class="muted">Run it once on a real invoice before the client sees it.</div><button class="btn btn--sec btn--sm" data-act="try" style="margin-top:8px">Try it</button></div></div>`);
+  for (const t of c.tools) {
+    if (t === "Gmail") open("Connect Gmail", `${CLIENT} signs in to its own Gmail. We ask them in their portal's Getting started.`);
+    else if (t === "Texts") done("Texts are set up", "Sent from the Mezonas number.");
+    else if (t === "Google Drive") done("Google Drive is connected", "Create is set to Ask me first on their connection.");
+    else if (t === "QuickBooks") done("QuickBooks is connected", "Create and update are set to Ask me first on their connection.");
+  }
+  if (c.people.size) open(`${[...c.people].join(" and ")} sign${c.people.size === 1 ? "s" : ""} and answer${c.people.size === 1 ? "s" : ""}`, `${CLIENT} confirms who at setup. It starts with their default approver.`);
+  if (c.gaps) done(`${plural(c.gaps, "part")} a person does for now`, "It runs like this. Swap in a skill when one is ready.");
+  const left = allOpen().length;
+  if (left) rows.push(`<div class="todo"><span style="color:var(--signal-ink)">${ic("alert")}</span><div><span class="row wrap"><b style="font-weight:500">${left} still to settle on ${left === 1 ? "its step" : "their steps"}</b><span class="pill pill--wait">Waiting on you</span></span><div class="muted">It runs on the defaults until you do. None of them holds the trial.</div><button class="btn btn--sec btn--sm" data-act="nextopen" style="margin-top:8px">Go through them</button></div></div>`);
+  return `<div class="sheet__h"><div class="row" style="justify-content:space-between"><span class="eyebrow">Turn on</span><button class="btn btn--ghost btn--icon" data-act="close" aria-label="Close">${ic("close")}</button></div><h2 style="font:500 18px/24px var(--font-sans)">Start the trial at ${CLIENT}</h2>
+    <p class="sheet__from">One button: it publishes v1, binds ${CLIENT}'s connections and starts the trial. The trial runs 14 days or 25 runs, and every write is signed.</p></div>
+    <div class="sheet__body"><div>${rows.join("")}</div><p class="help">What ${CLIENT} still owes goes to their setup list. It doesn't hold the trial; a step that needs it waits.</p>
+    <div class="row wrap"><button class="btn btn--pri" data-act="golive" ${S.tried ? "" : "disabled"}>Start the trial</button><button class="btn btn--ghost" data-act="close">Not yet</button></div></div>`;
+}
+function notesHTML() {
+  return `<div class="sheet__h"><div class="row" style="justify-content:space-between"><span class="eyebrow">About this prototype</span><button class="btn btn--ghost btn--icon" data-act="close" aria-label="Close">${ic("close")}</button></div><h2 style="font:500 18px/24px var(--font-sans)">One canvas, nothing asked</h2>
+    <p class="sheet__from">A design to react to. The Builder's answers and the try's results are scripted examples; nothing is saved.</p></div>
+  <div class="sheet__body notes">
+    <div class="grp"><span class="eyebrow">What changes for the operator</span><ul>
+      <li><b style="font-weight:500">Describe it, then check the steps.</b> A paragraph in your words becomes how it starts and a list of steps. You fix the list before anything is built.</li>
+      <li><b style="font-weight:500">A decision is its own kind of line:</b> If, Or if, Otherwise. Each path has its own steps.</li>
+      <li><b style="font-weight:500">Paths don't have to merge.</b> After the paths, they come back together or go separate ways. Apart, each path is its own track to its own end, nothing is drawn as joining, and a step left below is marked "Never runs" until you put it on a path.</li>
+      <li><b style="font-weight:500">A decision is defined one way everywhere:</b> who decides (a rule, the agent, or a person), then its paths in words. A rule adds a field, a test and a value.</li>
+      <li><b style="font-weight:500">One screen after that.</b> The canvas. The build page's cards (brief, fit-gap, intake form, open items, decisions, proposals, test plan, QA) are off the path.</li>
+      <li><b style="font-weight:500">Nothing is asked first.</b> It builds on defaults. What the Builder decided is written on the step it shapes, with Change.</li>
+      <li><b style="font-weight:500">A question or an issue lives in its step,</b> settled there in one press. A step with an issue is red; one with only a question is gold. The bar counts both and takes you to the next one, issues first.</li>
+      <li><b style="font-weight:500">Chart or list.</b> The list shows every step with its status and what is wrong; "Needs you" keeps only the ones to fix. Click a row and it opens the same side panel.</li>
+      <li><b style="font-weight:500">Add anywhere:</b> + between two steps, drag a block in, or say it.</li>
+      <li><b style="font-weight:500">One panel per step:</b> its setup in three or four groups with the rest folded, and the Builder underneath, already on that step.</li>
+      <li><b style="font-weight:500">Decisions come after it works.</b> A try shows where one is missing and adds it in one press.</li>
+      <li><b style="font-weight:500">The flow is a chart of small boxes and arrows.</b> Point at a box for its details; click it to set it up.</li>
+      <li><b style="font-weight:500">Decisions branch sideways, as a tree.</b> Each path is a column under the decision; a decision on a path splits it again, so two paths become four. Paths come back together or run to their own end. "Add a path" sits beside the decision.</li>
+      <li><b style="font-weight:500">A group of steps is a frame.</b> A loop (for each, repeat) is a frame around its steps with an arrow back to the top. An automation is one box you can open to see its saved steps. Either folds back to a single box.</li>
+      <li><b style="font-weight:500">The Builder in the side panel has three sizes:</b> just the message box, beside the setup, or the whole panel.</li>
+      <li><b style="font-weight:500">The list of steps folds away,</b> and its search reads plain words: say what the step should do and it offers that, plus the closest steps.</li>
+      <li><b style="font-weight:500">Tools are grouped by tool.</b> Open QuickBooks for its reads and writes, or drop QuickBooks in and choose the read or write on the step.</li>
+      <li><b style="font-weight:500">Every step has a "comes after" and a "goes to".</b> Change where it comes after in its panel, drag the box onto a + or another box, or drag the dot under a step onto the one that should come next.</li>
+      <li><b style="font-weight:500">Agents work together three ways:</b> ask another agent and wait for its answer, report to it without waiting, or hand the work off.</li>
+      <li><b style="font-weight:500">The canvas zooms and moves.</b> Drag the background, or scroll; zoom with the buttons or Ctrl and the wheel; Fit shows the whole flow.</li>
+      <li><b style="font-weight:500">The steps are the app's own:</b> Skills, Automations, Tools (reads and writes), People, Logic, Other agents, with search. A tool step that writes is what the first versions called "Change a tool".</li></ul></div>
+    <div class="grp"><span class="eyebrow">What it stands on that is built</span>
+    <div style="overflow-x:auto"><table class="tbl"><thead><tr><th>Here</th><th>Today</th></tr></thead><tbody>
+      <tr><td>Draft the steps</td><td>Draft it now: the stated steps from a description, one model call; the draft's steps listed in words. Editing that list before the draft is saved is new.</td></tr>
+      <tr><td>Build it</td><td>The same draft, opened on the canvas, defaults recorded as decisions</td></tr>
+      <tr><td>Other agents</td><td>Hand off exists. Ask another agent and Report to another agent are new kinds of step; reading another agent's manual exists today.</td></tr>
+      <tr><td>Paths that never merge</td><td>Every path ending in Stop, as the canvas reads "Ends here" today. The format has no step that jumps elsewhere, so a path can end or rejoin, nothing else.</td></tr>
+      <tr><td>Who decides</td><td>The if step: rules, or the agent chooses; a person step with choices</td></tr>
+      <tr><td>The chart</td><td>The same steps in the same format, drawn as boxes and arrows instead of a list. Each path still either ends or comes back to its decision's next step.</td></tr>
+      <tr><td>The list</td><td>The workflow builder's Steps tab, with the status the canvas marks give today</td></tr>
+      <tr><td>Groups</td><td>For each and Repeat hold their own steps today; an automation step runs a saved set of steps. Folding is only how it is drawn.</td></tr>
+      <tr><td>Smart search</td><td>Scripted here from keywords. In the app it would be the Builder reading the words against the catalog.</td></tr>
+      <tr><td>Comes after, goes to</td><td>The inspector's Connections (prior step, next step), which move a step today</td></tr>
+      <tr><td>+ on an arrow</td><td>The insert that today sits in the inspector's Connections</td></tr>
+      <tr><td>The step panel</td><td>The inspector's fields, regrouped, with the defaults new steps already get</td></tr>
+      <tr><td>The Builder on a step</td><td>The Builder session with a step in focus; each change has Undo</td></tr>
+      <tr><td>To settle on a step</td><td>The build's decisions, questions and gaps, which already name their step; the three ways to settle a gap</td></tr>
+      <tr><td>Try it</td><td>The test run, which writes nothing; its steps' results read back onto the canvas</td></tr>
+      <tr><td>Turn on</td><td>Publish, the setup checklist and the trial</td></tr></tbody></table></div></div>
+    <div><button class="btn btn--sec btn--sm" data-act="restart">Back to how it starts and the list</button></div>
+  </div>`;
+}
+function sheetHTML() {
+  const sh = S.sheet;
+  if (!sh) return "";
+  if (sh.type === "turnon") return `<aside class="sheet" aria-label="Turn on">${turnonHTML()}</aside>`;
+  if (sh.type === "notes") return `<aside class="sheet" aria-label="About this prototype">${notesHTML()}</aside>`;
+  if (sh.type === "builder") return `<aside class="sheet sheet--builder" aria-label="Builder"><div class="sheet__h"><div class="row" style="justify-content:space-between"><span class="eyebrow">Builder · the whole flow</span><button class="btn btn--ghost btn--icon" data-act="close" aria-label="Close">${ic("close")}</button></div>
+    <p class="sheet__from">It changes this draft on the canvas, each change with its own Undo. Approval stays on for every step that changes a tool.</p></div>${chatHTML(null)}</aside>`;
+  const st = find(S.sel);
+  if (!st) return "";
+  const loc = st.kind === "trigger" ? null : locate(st.id);
+  return `<aside class="sheet is-chat-${S.chatSize}" aria-label="Step setup"><div class="sheet__h"><div class="row" style="justify-content:space-between"><span class="eyebrow">${K[st.kind].label}${loc ? ` · step ${loc.index + 1} of ${loc.list.length}` : ""}</span><button class="btn btn--ghost btn--icon" data-act="close" aria-label="Close">${ic("close")}</button></div>
+    <input class="sheet__name" data-f="name" value="${esc(st.name)}" aria-label="Step name">${st.from ? `<span class="sheet__from">From your list: “${esc(st.from)}”</span>` : ""}</div>
+    <div class="sheet__body" id="sbody">${setupHTML(st)}</div>${chatHTML(st.id)}</aside>`;
+}
+
+/* ── Render ── */
+const wire = () => {};
+function renderBar() { const b = $("#bar"); if (b) { const f = document.activeElement && document.activeElement.id === "aname2"; if (!f) b.innerHTML = barHTML(); } }
+function renderCanvas() {
+  const c = $("#canvas");
+  if (!c) return;
+  checkTails();
+  c.innerHTML = canvasHTML();
+  wire();
+  if (fresh.size) setTimeout(() => fresh.clear(), 400);
+}
+function renderSheet() {
+  const old = $("#sbody"), top = old ? old.scrollTop : 0;
+  $("#sheet").innerHTML = sheetHTML();
+  document.body.classList.toggle("has-sheet", !!S.sheet && S.view === "build");
+  const nb = $("#sbody");
+  if (nb) nb.scrollTop = top;
+  const log = $("#log");
+  if (log) log.scrollTop = log.scrollHeight;
+}
+function renderMenu() {
+  const m = S.menu, el = $("#menu");
+  if (!m) { el.innerHTML = ""; return; }
+  el.innerHTML = `<div class="menu" role="menu" style="left:${m.x}px;top:${m.y}px">${MENU.map(([g, ks]) => `<span class="eyebrow" style="padding:6px 8px 2px">${g}</span>${ks.map((k) => `<button role="menuitem" data-act="addkind" data-kind="${k}"><span class="kico kico--${k}">${ic(K[k].ico)}</span><span>${K[k].label}<small>${esc(K[k].hint)}</small></span></button>`).join("")}`).join("")}</div>`;
+  const box = el.firstChild.getBoundingClientRect();
+  if (box.bottom > innerHeight - 8) el.firstChild.style.top = Math.max(8, innerHeight - box.height - 8) + "px";
+}
+function renderAll() {
+  const oc = $("#canvas"), keep = oc ? [oc.scrollLeft, oc.scrollTop] : null;
+  document.documentElement.classList.toggle("is-build", S.view === "build");
+  if (S.view === "describe") $("#app").innerHTML = describeHTML();
+  else if (S.view === "steps") { $("#app").innerHTML = stepsHTML(renderAll.anim); renderAll.anim = false; wireList(); }
+  else { checkTails(); $("#app").innerHTML = buildHTML(); wire(); if (fresh.size) setTimeout(() => fresh.clear(), 400); }
+  renderSheet();
+  renderMenu();
+  const nc = $("#canvas");
+  if (nc) { if (keep) { nc.scrollLeft = keep[0]; nc.scrollTop = keep[1]; } else centre(); }
+}
+/* ── Zoom and move ── */
+function centre() { const c = $("#canvas"); if (c) { c.scrollLeft = (c.scrollWidth - c.clientWidth) / 2; c.scrollTop = 0; } }
+function setZoom(z, px, py) {
+  const c = $("#canvas"), st = $("#stage"), old = S.zoom;
+  z = Math.max(0.4, Math.min(1.6, Math.round(z * 20) / 20));
+  if (!c || !st || z === old) return;
+  if (px == null) { px = c.clientWidth / 2; py = c.clientHeight / 3; }
+  const fx = (c.scrollLeft + px) / old, fy = (c.scrollTop + py) / old;
+  S.zoom = z; st.style.zoom = z;
+  c.scrollLeft = fx * z - px; c.scrollTop = fy * z - py;
+  const l = $("#zlabel"); if (l) l.textContent = Math.round(z * 100) + "%";
+}
+function fit() {
+  const c = $("#canvas"), g = $(".graph");
+  if (!c || !g) return;
+  const b = g.getBoundingClientRect();
+  setZoom(Math.min(1, (c.clientWidth - 40) / (b.width / S.zoom), (c.clientHeight - 60) / (b.height / S.zoom)));
+  centre();
+}
+function focusNode(id) { const el = document.querySelector(`[data-node="${id}"]`); if (el) el.scrollIntoView({ block: "nearest", inline: "center", behavior: calm ? "auto" : "smooth" }); }
+function toast(t) { const el = $("#toast"); el.textContent = t; el.hidden = false; clearTimeout(toast.t); toast.t = setTimeout(() => (el.hidden = true), 3200); }
+
+/* ── Moving things: drag a box onto a + or onto another box; drag a step's dot onto the step that should come next ── */
+let dragged = false, drag = null, link = null;
+const after = () => { S.try = null; renderCanvas(); renderBar(); renderSheet(); };
+function placeAt(lid, index, what) {
+  const list = listOf(lid);
+  if (!list) return;
+  if (what.item) return addStep(what.item.dataset.kind, lid, index, fromItem(what.item));
+  const st = find(what.id), at = locate(what.id);
+  if (!st || !at) return;
+  if (holdsStep(st, lid) || (st.paths && st.paths.some((q) => q.id === lid))) return toast("A step can't go inside itself.");
+  if (at.list === list && (index === at.index || index === at.index + 1)) return;
+  commit();
+  at.list.splice(at.index, 1);
+  list.splice(at.list === list && at.index < index ? index - 1 : index, 0, st);
+  fresh.add(st.id);
+  after();
+}
+function moveTo(id, key) {
+  const [k, v] = key.split(":");
+  if (k === "first") return placeAt(v, 0, { id });
+  const at = locate(v);
+  if (at) placeAt(listIdOf(at.list), at.index + 1, { id });
+}
+// "b comes right after a". If a is the last step of a path that ends, and b is where its decision carries on, the path rejoins instead.
+function connect(a, b) {
+  if (a === b || b === "trigger") return;
+  const A = find(a), B = find(b);
+  if (!A || !B) return;
+  if (holdsStep(B, a)) return toast("That step is inside this one.");
+  const la = a === "trigger" ? { list: S.steps, index: -1 } : locate(a), nx = la.list[la.index + 1];
+  if (nx && nx.id === b) return;
+  if (nx && nx.kind === "stop" && la.index + 2 === la.list.length) {
+    const own = ownerOf(listIdOf(la.list)), ol = own && locate(own.id);
+    if (ol && ol.list[ol.index + 1] && ol.list[ol.index + 1].id === b) { commit(); la.list.pop(); after(); return toast(`This path now comes back to “${B.name}”.`); }
+  }
+  placeAt(listIdOf(la.list), la.index + 1, { id: b });
+  toast(`“${B.name}” now comes after ${a === "trigger" ? "the start" : `“${A.name}”`}. Undo puts it back.`);
+}
+const dropTarget = (el) => (el && el.closest ? el.closest(".gplus,.gtail") || el.closest(".gnode") : null);
+function clearOver() { document.querySelectorAll(".is-over").forEach((x) => x.classList.remove("is-over")); }
+document.addEventListener("dragstart", (e) => {
+  const n = e.target.closest && e.target.closest(".gnode[draggable],.block[draggable]");
+  if (!n) return;
+  drag = n.classList.contains("block") ? { item: n } : { id: n.dataset.id };
+  e.dataTransfer.effectAllowed = "move";
+  e.dataTransfer.setData("text/plain", "step");
+  hideTip(); S.menu = null; renderMenu();
+  document.body.classList.add("is-dragging");
+});
+document.addEventListener("dragover", (e) => {
+  const tg = drag && dropTarget(e.target);
+  clearOver();
+  if (!tg || (drag.id && tg.dataset.id === drag.id)) return;
+  e.preventDefault();
+  tg.classList.add("is-over");
+});
+document.addEventListener("drop", (e) => {
+  const tg = drag && dropTarget(e.target), d = drag;
+  clearOver();
+  if (!tg || !d) return;
+  e.preventDefault();
+  drag = null;
+  document.body.classList.remove("is-dragging");
+  if (tg.classList.contains("gnode")) {
+    if (tg.dataset.id === "trigger") return placeAt("root", 0, d);
+    const at = locate(tg.dataset.id);
+    if (at && at.list[at.index].kind === "stop") return placeAt(listIdOf(at.list), at.index, d);
+    if (at) placeAt(listIdOf(at.list), at.index + 1, d);
+  } else placeAt(tg.dataset.list, +tg.dataset.index, d);
+});
+document.addEventListener("dragend", () => { drag = null; clearOver(); document.body.classList.remove("is-dragging"); });
+// Hover details
+let tipT = null;
+function hideTip() { clearTimeout(tipT); const el = $("#tip"); if (el) el.hidden = true; }
+document.addEventListener("mouseover", (e) => {
+  const n = e.target.closest && e.target.closest(".gnode");
+  if (!n || drag || link || pan) return;
+  clearTimeout(tipT);
+  tipT = setTimeout(() => {
+    const st = find(n.dataset.id), el = $("#tip");
+    if (!st || !n.isConnected) return;
+    el.innerHTML = tipHTML(st);
+    el.hidden = false;
+    const r = n.getBoundingClientRect(), b = el.getBoundingClientRect(), right = r.right + 12 + b.width < innerWidth - (S.sheet ? 460 : 8);
+    el.style.left = Math.max(8, right ? r.right + 12 : r.left - b.width - 12) + "px";
+    el.style.top = Math.max(8, Math.min(innerHeight - b.height - 8, r.top)) + "px";
+  }, 350);
+});
+document.addEventListener("mouseout", (e) => { const n = e.target.closest && e.target.closest(".gnode"); if (n && !n.contains(e.relatedTarget)) hideTip(); });
+function addStep(kind, lid, index, st) {
+  const list = listOf(lid);
+  if (!list) return;
+  commit();
+  const s = st || mk(kind);
+  list.splice(index, 0, s);
+  fresh.add(s.id);
+  S.sel = s.id; S.sheet = { type: "step" }; S.menu = null; S.try = null;
+  renderAll();
+  const n = $(".sheet__name");
+  if (n) { n.focus(); n.select(); }
+  focusNode(s.id);
+  return s;
+}
+
+/* ── The Builder (scripted for the prototype) ── */
+function placeFor(cond) {
+  const words = cond.toLowerCase().match(/[a-z]{4,}/g) || [];
+  let hit = -1;
+  S.steps.forEach((st, i) => { if (st.kind !== "decision" && words.some((w) => st.name.toLowerCase().includes(w.slice(0, 5)))) hit = i; });
+  if (hit >= 0) return hit + 1;
+  const w = S.steps.findIndex((st) => st.kind === "write");
+  return w >= 0 ? w : S.steps.length;
+}
+function interpret(text, about) {
+  const s = text.trim(), l = s.toLowerCase(), here = about && about !== "trigger" ? find(about) : null;
+  let m;
+  if (/(without|no|skip|remove|turn off|switch off).{0,24}(approval|sign)|on its own|don.t ask/.test(l))
+    return { text: `I can't loosen approval. A step that changes a tool starts with approval on, and in the trial every write is signed.\nYou can switch this step to run on its own once ${CLIENT} allows it on their connection.` };
+  if (/build a skill/.test(l) && here && here.gap) {
+    here.gap = false; here.kind = "skill"; here.part = "New skill · being drafted"; here.tool = "";
+    (here.open || []).forEach((o) => { if (o.k === "gap") o.done = "Build a skill"; });
+    here.decided = [{ what: "A new skill does this, once it is ready", why: "You asked for one. Until it passes a try, a person checks its answer.", f: "" }];
+    return { text: `Started a skill for “${here.name}” from parts the library has. I'll draft it from the next example you try.`, changes: [{ s: "~", t: "step now runs a new skill" }] };
+  }
+  if (/^why|\bwhy (is|did|a|this)/.test(l)) {
+    if (/approval/.test(l)) return { text: `Because the step “${(S.steps.find((x) => x.kind === "write") || { name: "that writes" }).name}” changes QuickBooks. Anything that changes a tool starts with approval on. ${SIGNER} signs because they are ${CLIENT}'s default approver.` };
+    const t = about === "trigger" ? S.trigger : here;
+    if (t && t.decided.length) return { text: t.decided.map((d) => `${d.what}. ${d.why}`).join("\n") };
+    if (t) return { text: `It is here because your list says “${t.from || t.name}”. I added nothing you didn't state.` };
+    return { text: "Every step comes from a line of your list, in your order. Where it left something open, I took the simplest choice that works and wrote it on the step." };
+  }
+  if (/who (signs|approves)/.test(l) && here) return { text: `${here.who || SIGNER}. Change it under Approval above, or tell me who.` };
+  if (/^(remove|delete)\b/.test(l) && here) {
+    const at = locate(here.id);
+    at.list.splice(at.index, 1);
+    return { text: `Removed “${here.name}”.`, changes: [{ s: "−", t: `step · ${here.name}` }], closed: true };
+  }
+  if ((m = s.match(/^(?:rename|call)(?: (?:it|this))?(?: to)? (.+)/i)) && here) {
+    const old = here.name; here.name = cap(clean(m[1]));
+    return { text: `Renamed it.`, changes: [{ s: "~", t: `name · ${old} → ${here.name}` }] };
+  }
+  if ((m = s.match(/^if (.+?)(?:,| then) (.+)$/i))) {
+    const d = decisionFrom(m[1], m[2], s);
+    let list = S.steps, index;
+    if (here) { const at = locate(here.id); list = at.list; index = at.index + 1; } else index = placeFor(m[1]);
+    list.splice(index, 0, d);
+    fresh.add(d.id);
+    const inner = d.paths[0].steps[0], prev = list[index - 1];
+    return { text: `Added a decision${prev ? ` after “${prev.name}”` : ""}. ${cap(clean(m[1]))}: ${inner ? inner.name.charAt(0).toLowerCase() + inner.name.slice(1) : "nothing yet"}. Otherwise the run goes on.`, changes: [{ s: "+", t: `decision · ${d.paths[0].name}` }, ...(inner ? [{ s: "+", t: `${K[inner.kind].label.toLowerCase()} step · ${inner.name}` }] : [])], show: d.id };
+  }
+  if ((m = s.match(/^(?:add|then|and then|also|next,?)\s+(?:a step\s+)?(?:to\s+|that\s+|which\s+)?(.+)/i))) {
+    if (/^after this$/i.test(m[1].trim())) return { text: "Tell me what it should do, in a few words. For example: add a step to check for a duplicate invoice." };
+    const st = guess(m[1]);
+    let list = S.steps, index = S.steps.length;
+    if (about === "trigger") index = 0;
+    else if (here) { const at = locate(here.id); if (here.paths) { list = here.paths[0].steps; index = list.length; } else { list = at.list; index = at.index + 1; } }
+    list.splice(index, 0, st);
+    fresh.add(st.id);
+    return { text: `Added “${st.name}”${st.gap ? ". Nothing in the library does it yet, so a person does it for now." : "."}`, changes: [{ s: "+", t: `${K[st.kind].label.toLowerCase()} step · ${st.name}` }], show: st.id };
+  }
+  return { text: "In the real builder this goes to the Builder as it does today. This prototype acts on a few asks: “add a step to …”, “if …, …”, “rename to …”, “remove this step”, and “why …”." };
+}
+function ask(text, about) {
+  text = text.trim();
+  if (!text || S.busy) return;
+  S.chat.push({ me: 1, text, about });
+  if (S.chatSize === "min") S.chatSize = "mid";
+  S.busy = true;
+  renderSheet();
+  setTimeout(() => {
+    S.busy = false;
+    const before = snap(), r = interpret(text, about), changed = snap() !== before;
+    if (changed) { S.hist.push(before); S.try = null; }
+    S.chat.push({ text: r.text, changes: r.changes, about, h: changed ? S.hist.length : 0 });
+    if (r.closed) { S.sel = null; S.sheet = { type: "builder" }; }
+    renderAll();
+    if (r.show) { const el = document.querySelector(`[data-node="${r.show}"]`); if (el) el.scrollIntoView({ block: "center", behavior: calm ? "auto" : "smooth" }); }
+  }, calm ? 0 : 650);
+}
+
+/* ── Try it (scripted results; nothing is written) ── */
+function startTry() {
+  const res = {}, order = [], taken = [];
+  let halted = false;
+  // The example invoice: one unsure line, one price up 12%, total $4,218.40, not a duplicate.
+  const holds = (q) => { const l = q.name.toLowerCase(); let m; if (/match|unsure|confiden/.test(l)) return true; if (/price|cost/.test(l)) return (m = l.match(/(\d+(?:\.\d+)?)\s*%/)) ? 12 > +m[1] : true; if ((m = l.match(/\$\s?([\d,]+)/))) return /under|less|below/.test(l) ? 4218.4 < +m[1].replace(/,/g, "") : 4218.4 > +m[1].replace(/,/g, ""); return false; };
+  const put = (id, text, x = {}) => { res[id] = { text, ...x }; order.push(id); };
+  put("trigger", `Example: ${S.file}, from Baltic Lumber.`);
+  (function run(list) {
+    for (let i = 0; i < list.length && !halted; i++) {
+      const st = list[i], n = st.name.toLowerCase(), next = list[i + 1];
+      const waved = (k) => (st.open || []).some((o) => o.k === k && o.done && !/decision/.test(o.done));
+      const about = /match/.test(n) ? /match|unsure|confiden/ : /price|cost|%/;
+      let handled = false;
+      for (let j = i + 1; j < list.length && list[j].kind === "decision"; j++) if (list[j].paths.some((q) => about.test(q.name.toLowerCase()))) handled = true;
+      const forked = handled || waved(/match/.test(n) ? "unsure" : "price");
+      const found = (k, text) => { st.open = st.open || []; if (!st.open.some((o) => o.k === k)) st.open.push({ k, type: "Issue", text, why: `Found when you tried ${S.file}. The run went on as if nothing happened.`, opts: [k === "price" ? "Add a decision: ask Dana to approve" : "Add a decision: ask Dana", "Go on without asking"] }); };
+      if (!forked && st.kind === "skill" && /match/.test(n)) found("unsure", "A line can be unsure, and nothing says what happens then.");
+      if (!forked && st.kind === "skill" && /price|cost/.test(n) && !/match/.test(n)) found("price", "A price can jump past what it flags, and the bill is still made.");
+      if (st.kind === "skill" && /match/.test(n)) put(st.id, forked ? "5 of 6 lines matched. 1 is unsure: “3/4 BB ply 4x8”." : "5 of 6 lines matched. 1 is unsure: “3/4 BB ply 4x8”. Nothing says what happens then, so the run went on.", forked ? {} : { tone: "wait", offer: "match" });
+      else if (st.kind === "skill" && /price|cost/.test(n)) put(st.id, forked ? "2 prices changed. Baltic birch plywood is up 12%." : "2 prices changed. Baltic birch plywood is up 12%, over the 5% it flags. The run went on to the next step.", forked ? {} : { tone: "wait", offer: "price" });
+      else if (st.kind === "skill") put(st.id, /read|extract|parse/.test(n) ? "Read 6 lines. Total $4,218.40. Vendor: Baltic Lumber." : "Done. Its result is kept for the next step.");
+      else if (st.kind === "read") put(st.id, "Found 1 record.");
+      else if (st.kind === "person") put(st.id, `Ask ${st.who} and wait up to ${st.deadline}. In a try we answer for them: yes.`, { would: 1 });
+      else if (st.kind === "write") put(st.id, `${/bill/.test(st.part) ? "Create the bill for $4,218.40 in QuickBooks" : "Make this change in " + (st.tool || "the tool")}${st.approval === "Ask first" ? `, once ${st.who} signs` : ""}. Nothing was written.`, { would: 1 });
+      else if (st.kind === "notify") put(st.id, `Tell ${st.to}: 2 prices changed on Baltic Lumber INV-4471.`, { would: 1 });
+      else if (st.kind === "wait") put(st.id, `Wait ${st.dur}. Skipped in a try.`, { would: 1 });
+      else if (st.kind === "auto") put(st.id, `Ran its ${autoOf(st.part).steps.length} steps: ${autoOf(st.part).steps.map((x) => x[1].charAt(0).toLowerCase() + x[1].slice(1)).join(", ")}. Nothing was sent.`);
+      else if (st.kind === "talk") put(st.id, `Message ${st.who} on ${st.where} and wait for an answer. In a try we answer for them.`, { would: 1 });
+      else if (st.kind === "askagent") put(st.id, `Ask “${st.agent}”${st.ask ? ": " + st.ask.charAt(0).toLowerCase() + st.ask.slice(1) : ""}. In a try it answers from its last run.`, { would: 1 });
+      else if (st.kind === "tellagent") put(st.id, `Send “${st.agent}” what this run found. Not sent in a try.`, { would: 1 });
+      else if (st.kind === "handoff") { put(st.id, `Start “${st.agent}”. Not started in a try.`, { would: 1 }); halted = true; }
+      else if (st.kind === "repeat") { put(st.id, "Ran its steps once. Done on the first go."); run(st.paths[0].steps); }
+      else if (st.kind === "stop") { put(st.id, "The run ends here."); halted = true; }
+      else if (st.kind === "each") { put(st.id, "6 items. Its steps ran for each."); run(st.paths[0].steps); }
+      else if (st.kind === "decision") { const p = st.paths.find((q) => q.rule && holds(q)) || st.paths[st.paths.length - 1]; taken.push(p.id); if (!p.rule) { put(st.id, "Took Otherwise. None of the paths above fit this example."); run(p.steps); } else if (st.decide === "A person") put(st.id, `Ask ${st.who} to pick a path. In a try we pick the one that fits: “${p.name}”.`, { would: 1 }); else put(st.id, `Took “${p.name}”${st.decide === "The agent" ? ". The agent judged it from the step before" : p.rule && p.rule.field ? ` (${p.rule.field} ${p.rule.op} ${p.rule.value})` : ""}.`); run(p.steps); }
+    }
+  })(S.steps);
+  S.try = { res, order, taken, shown: 0, done: false };
+  S.menu = null;
+  if (S.sheet && S.sheet.type === "turnon") S.sheet = null;
+  renderAll();
+  const cv = $("#canvas"); if (cv) cv.scrollTo({ top: 0, behavior: calm ? "auto" : "smooth" });
+  clearInterval(startTry.t);
+  const step = () => {
+    const t = S.try;
+    if (!t) return clearInterval(startTry.t);
+    t.shown++;
+    if (t.shown >= t.order.length) { t.done = true; S.tried = true; clearInterval(startTry.t); }
+    renderCanvas();
+    const el = document.querySelector(`[data-node="${t.order[t.shown - 1]}"]`);
+    if (el && !calm) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  };
+  if (calm) { S.try.shown = order.length; S.try.done = true; S.tried = true; renderCanvas(); }
+  else startTry.t = setInterval(step, 480);
+}
+
+/* ── Building from the description, one step at a time ── */
+function build(blank) {
+  const p = fromForm(blank);
+  Object.assign(S, { view: "build", trigger: p.trigger, steps: [], sel: null, sheet: null, hist: [], chat: [], try: null, tried: false, live: false, note: null });
+  const finish = () => {
+    S.building = null;
+    const c = counts();
+    if (blank) { S.note = null; renderAll(); return; }
+    S.note = `<b style="font-weight:500">Built ${plural(c.steps, "step")} from your list, in your order.</b> Nothing was asked first. ${allOpen().length ? `${plural(allOpen().length, "question or issue", "questions and issues")} sit on the steps they belong to; it runs on defaults until you settle them.` : "Try it, or change anything."}`;
+    S.chat.push({ text: `Built ${plural(c.steps, "step")} from your list, in your order. I added nothing you didn't state.\nDecided instead of asking: ${[S.trigger, ...flat()].flatMap((x) => x.decided.map((d) => d.what)).join("; ") || "nothing"}.${allOpen().length ? `\nFor you, on the step each belongs to: ${allOpen().map((x) => x.o.text).join(" ")}` : ""}\nNext: try it on a real invoice, or tell me what to change.` });
+    renderAll();
+  };
+  if (calm || blank || !p.steps.length) { S.steps = p.steps; S.building = null; renderAll(); finish(); return; }
+  S.building = { queue: p.steps.slice(), total: p.steps.length };
+  renderAll();
+  const t = setInterval(() => {
+    const st = S.building.queue.shift();
+    S.steps.push(st);
+    fresh.add(st.id);
+    if (!S.building.queue.length) { clearInterval(t); finish(); return; }
+    renderCanvas(); renderBar();
+  }, 420);
+}
+const flat = () => { const a = []; walk(S.steps, (st) => a.push(st)); return a; };
+
+/* ── Events ── */
+const ACT = {
+  build: () => build(false),
+  blank: () => build(true),
+  restart: () => { Object.assign(S, { view: "steps", sheet: null, sel: null, menu: null, try: null, building: null }); renderAll(); scrollTo(0, 0); },
+  draft: () => { if (!S.para.trim()) return toast("Write a few sentences first."); S.drafting = true; renderAll(); setTimeout(() => { const pp = parsePara(S.para); Object.assign(S, { drafting: false, start: pp.start, list: pp.list, fromPara: true, view: "steps" }); renderAll.anim = !calm; renderAll(); scrollTo(0, 0); }, calm ? 0 : 900); },
+  mylist: () => { Object.assign(S, { fromPara: false, list: [row()], view: "steps" }); renderAll(); scrollTo(0, 0); },
+  backdesc: () => { S.view = "describe"; renderAll(); scrollTo(0, 0); },
+  pathend: (d) => { const q = pathById(d.p); if (!q || pathEnds(q) === (d.v === "stop")) return; commit(); if (d.v === "stop") closePath(q); else openPath(q); S.try = null; renderCanvas(); renderBar(); renderSheet(); },
+  split: (d) => { const st = find(d.id); if (!st || allEnd(st)) return; commit(); st.paths.forEach(closePath); S.try = null; S.sel = st.id; S.sheet = { type: "step" }; renderCanvas(); renderBar(); renderSheet(); },
+  unsplit: (d) => { const st = find(d.id); if (!st || !st.paths.some(pathEnds)) return; commit(); st.paths.forEach(openPath); S.try = null; renderCanvas(); renderBar(); renderSheet(); },
+  dafter: (d) => { const r = S.list.find((x) => x.id === d.id); r.paths.forEach((q) => (q.end = d.v)); r.oend = d.v; renderList(); },
+  dmove: (d) => { const [rid, pk] = d.k.split("|"), i = S.list.findIndex((x) => x.id === rid), r = S.list[i], tail = S.list.slice(i + 1).filter((x) => x.t === "step"); S.list = S.list.filter((x) => !tail.includes(x)); (pk === "o" ? r.otherwise : r.paths[+pk].steps).push(...tail); renderList(); },
+  dstart: (d) => { const cur = STARTS.find((x) => x.starts === S.start.starts), nx = STARTS.find((x) => x.starts === d.v); if (!S.start.name.trim() || S.start.name === cur.name) S.start.name = nx.name; S.start.starts = nx.starts; renderAll(); },
+  dadd: () => { const r = row(); S.list.push(r); renderList(`[data-row="${r.id}"]`); },
+  dadddec: () => { const r = decRow("", ""); S.list.push(r); renderList(`[data-cond="${r.id}|0"]`); },
+  drm: (d) => { S.list = S.list.filter((x) => x.id !== d.id); renderList(); },
+  dsubadd: (d) => { const { list } = subList(d.k); list.push(row()); renderList(`[data-sub="${d.k}|${list.length - 1}"]`); },
+  dsubrm: (d) => { const k = d.k.split("|"), { list } = subList(d.k); list.splice(+k[2], 1); renderList(); },
+  dpathadd: (d) => { const r = S.list.find((x) => x.id === d.id); r.paths.push({ cond: "", steps: [row()], end: "on" }); renderList(`[data-cond="${r.id}|${r.paths.length - 1}"]`); },
+  dpathrm: (d) => { const k = d.k.split("|"), r = S.list.find((x) => x.id === k[0]); r.paths.splice(+k[1], 1); renderList(); },
+  open: (d) => { S.sel = d.id; S.sheet = { type: "step" }; renderCanvas(); renderSheet(); focusNode(d.id); },
+  close: () => { S.sheet = null; S.sel = null; if (S.view === "build") renderCanvas(); renderSheet(); },
+  sheet: (d) => { S.sheet = { type: d.type }; S.sel = null; if (S.view === "build") renderCanvas(); renderSheet(); if (d.type === "builder") { const s = $("#say"); if (s) s.focus(); } },
+  plus: (d, el) => {
+    const r = el.getBoundingClientRect(), same = S.menu && S.menu.list === d.list && S.menu.index === +d.index;
+    S.menu = same ? null : { list: d.list, index: +d.index, x: Math.max(8, Math.min(innerWidth - 256, r.left + r.width / 2 - 124)), y: r.bottom + 6 };
+    renderMenu();
+  },
+  addkind: (d) => { const m = S.menu; if (m) addStep(d.kind, m.list, m.index); },
+  paladd: (d, el) => { if (!dragged && RAILMAP[d.item]) { const dead = S.steps.length && deadEnd(S.steps[S.steps.length - 1]); addStep(d.kind, "root", dead ? S.steps.length - 1 : S.steps.length, fromItem(el)); } },
+  chatsize: (d) => { const o = ["min", "mid", "max"]; S.chatSize = o[Math.max(0, Math.min(2, o.indexOf(S.chatSize) + +d.d))]; renderSheet(); if (S.chatSize !== "min") { const x = $("#say"); if (x) x.focus(); } },
+  rail: () => { S.railOff = !S.railOff; try { localStorage.setItem("mz.builder.rail", S.railOff ? "off" : "on"); } catch (e) {} renderRail(); },
+  fold: (d) => { const st = find(d.id); if (!st) return; st.folded = st.kind === "auto" ? (st.folded === false ? true : false) : !st.folded; renderCanvas(); renderSheet(); focusNode(d.id); },
+  zoom: (d) => setZoom(+d.d ? S.zoom + 0.1 * +d.d : 1),
+  fit: () => fit(),
+  undo: () => undo(),
+  chatundo: () => undo(),
+  dismiss: () => { S.note = null; renderCanvas(); },
+  send: () => { const s = $("#say"); if (s) ask(s.value, S.sheet && S.sheet.type === "step" ? S.sel : null); },
+  chip: (d, el) => ask(el.textContent, S.sheet && S.sheet.type === "step" ? S.sel : null),
+  remove: (d) => { const at = locate(d.id); if (!at) return; commit(); at.list.splice(at.index, 1); S.sel = null; S.sheet = null; S.try = null; renderAll(); toast("Step removed. Undo brings it back."); },
+  seg: (d) => { const st = find(S.sel); if (!st) return; commit(); st[d.f] = d.v; renderCanvas(); renderBar(); renderSheet(); },
+  sw: (d, el) => el.setAttribute("aria-checked", el.getAttribute("aria-checked") !== "true"),
+  focusf: (d) => { const el = document.querySelector(`#sbody [data-f="${d.f}"]`); if (el) { el.scrollIntoView({ block: "center" }); el.focus(); } },
+  addpath: () => { const st = find(S.sel); if (!st) return; commit(); st.paths.splice(st.paths.length - 1, 0, { id: nid(), name: `Path ${String.fromCharCode(64 + st.paths.length)}`, rule: { field: "", op: ">", value: "" }, steps: [] }); renderCanvas(); renderSheet(); const ins = document.querySelectorAll('#sbody [data-f="name"]'), el = ins[ins.length - 1]; if (el) { el.focus(); el.select(); } },
+  addpathto: (d) => { S.sel = d.id; S.sheet = { type: "step" }; ACT.addpath(); focusNode(d.id); },
+  rmpath: (d) => { const st = find(S.sel); if (!st) return; commit(); st.paths = st.paths.filter((p) => p.id !== d.p); renderCanvas(); renderSheet(); },
+  settle: (d) => {
+    const st = find(S.sel), o = st && st.open[+d.i], v = d.v;
+    if (!o) return;
+    if (o.k === "gap" && v === "Build a skill") return ask("Build a skill for this", st.id);
+    if (o.k === "tail") {
+      commit();
+      const at = locate(st.id), tail = at.list.splice(at.index + 1);
+      if (v !== "Remove them") { const q = st.paths[o.opts.indexOf(v)], z = q.steps[q.steps.length - 1], stop = z && z.kind === "stop" ? q.steps.pop() : null; q.steps.push(...tail); if (stop && !pathEnds(q)) q.steps.push(stop); }
+      S.try = null; renderCanvas(); renderBar(); renderSheet();
+      return;
+    }
+    if (o.k === "unsure" || o.k === "price") { if (/^Add a decision/.test(v)) return ACT.adddecision({ id: st.id, offer: o.k }); }
+    commit();
+    o.done = v;
+    if (o.f) st[o.f] = v;
+    if (o.k === "gap") { st.gap = v !== "Keep a person"; if (v === "Needs code") toast("Request filed in the Dev queue. A person does it until it ships."); }
+    if (o.k === "gmail" && v === "Send by text instead") { st.part = "Texts · send text"; st.tool = "Texts"; }
+    if (o.k === "does") setPart(st, `${st.tool} · ${v.replace(/^(Read|Write): /, "")}`);
+    renderCanvas(); renderBar(); renderSheet();
+  },
+  reopen: (d) => { const st = find(S.sel); if (!st || !st.open[+d.i]) return; commit(); st.open[+d.i].done = null; renderCanvas(); renderBar(); renderSheet(); },
+  mode: (d) => { S.mode = d.v; S.menu = null; renderAll(); if (S.sel) focusNode(S.sel); },
+  only: (d) => { S.only = !!d.v; renderCanvas(); },
+  nextopen: () => { const n = nextOpen(S.sel); if (!n) return; S.sel = n.st.id; S.sheet = { type: "step" }; renderCanvas(); renderSheet(); const el = document.querySelector(`[data-node="${n.st.id}"]`); if (el) el.scrollIntoView({ block: "center", inline: "center", behavior: calm ? "auto" : "smooth" }); },
+  try: () => { if (!S.building) startTry(); },
+  endtry: () => { S.try = null; renderCanvas(); },
+  adddecision: (d) => {
+    const at = locate(d.id);
+    if (!at) return;
+    commit();
+    const dec = d.offer === "price" ? decisionFrom("a price is up more than 5%", "ask Dana to approve the new price") : decisionFrom("a line is unsure", "ask Dana which item it is");
+    at.list.splice(at.index + 1, 0, dec);
+    fresh.add(dec.id);
+    (at.list[at.index].open || []).forEach((o) => { if (o.k === d.offer) o.done = "A decision was added after it."; });
+    S.chat.push({ text: `Added a decision after “${at.list[at.index].name}” from what the try showed. Change its rule on the canvas.`, changes: [{ s: "+", t: `decision · ${dec.paths[0].name}` }, { s: "+", t: `person step · ${dec.paths[0].steps[0].name}` }], h: S.hist.length });
+    startTry();
+  },
+  fixwith: (d) => { S.sel = d.id; S.sheet = { type: "step" }; renderCanvas(); renderSheet(); const s = $("#say"); if (s) { s.placeholder = "What should it have done on this example?"; s.focus(); } },
+  golive: () => { S.live = true; S.sheet = null; renderAll(); toast(`Published v1. The trial started at ${CLIENT}.`); },
+};
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("[data-act]");
+  if (S.menu && !e.target.closest("#menu") && !(a && a.dataset.act === "plus")) { S.menu = null; renderMenu(); }
+  if (!a || a.disabled) return;
+  if (dragged && (a.dataset.act === "open" || a.dataset.act === "paladd")) return;
+  hideTip();
+  ACT[a.dataset.act] && ACT[a.dataset.act](a.dataset, a, e);
+});
+let pend = null;
+document.addEventListener("focusin", (e) => { if (e.target.dataset && e.target.dataset.f) pend = snap(); });
+document.addEventListener("input", (e) => {
+  const t = e.target;
+  if (t.id === "swhen") { S.start.name = t.value; return; }
+  if (t.id === "palq") { S.q = t.value; renderRail(true); return; }
+  if (t.id === "para") { S.para = t.value; return; }
+  const ds = t.dataset || {};
+  if (ds.row) {
+    const r = S.list.find((x) => x.id === ds.row);
+    r.text = t.value;
+    const im = t.value.match(/^if\s+(.*)$/i);
+    if (im) { const i = S.list.indexOf(r), full = rowFrom(t.value), d = full.t === "decision" ? full : decRow(im[1], ""); S.list.splice(i, 1, d); renderList(d.paths[0].steps[0].text ? `[data-sub="${d.id}|0|0"]` : `[data-cond="${d.id}|0"]`); return; }
+    const pk = $("#pk-" + r.id); if (pk) pk.outerHTML = kindPill(r.text, r.id);
+    return;
+  }
+  if (ds.cond) { const k = ds.cond.split("|"); S.list.find((x) => x.id === k[0]).paths[+k[1]].cond = t.value; return; }
+  if (ds.sub) { const k = ds.sub.split("|"), x = subList(ds.sub).list[+k[2]]; x.text = t.value; const pk = $("#pk-" + x.id); if (pk) pk.outerHTML = kindPill(x.text, x.id); return; }
+  if (t.id === "aname" || t.id === "aname2") { S.name = t.value; return; }
+  if (t.id === "say") { t.style.height = "auto"; t.style.height = Math.min(120, t.scrollHeight) + "px"; return; }
+  if (!t.dataset.f) return;
+  const st = find(S.sel);
+  if (!st) return;
+  if (t.dataset.p) { const p = st.paths.find((x) => x.id === t.dataset.p); if (t.dataset.r) p.rule[t.dataset.f] = t.value; else p[t.dataset.f] = t.value; }
+  else {
+    const tf = t.dataset.f, isTool = st.kind === "read" || st.kind === "write";
+    if (isTool && tf === "tool") { const tl = TOOLS[t.value], same = st.kind === "write" ? tl.writes[0] || tl.reads[0] : tl.reads[0] || tl.writes[0]; setPart(st, `${t.value} · ${same}`); }
+    else if (isTool && tf === "part") setPart(st, t.value);
+    else st[tf] = t.value;
+    if (t.dataset.f === "who") (st.open || []).forEach((o) => { if (o.k === "who") o.done = t.value; });
+  }
+  renderCanvas(); renderBar();
+});
+document.addEventListener("change", (e) => {
+  const t = e.target;
+  if (t.id === "tryfile" && t.files[0]) { S.file = t.files[0].name; startTry(); return; }
+  if (t.dataset && t.dataset.conn) { moveTo(S.sel, t.value); return; }
+  if (t.dataset && t.dataset.pend) { const [rid, pk] = t.dataset.pend.split("|"), r = S.list.find((x) => x.id === rid); if (pk === "o") r.oend = t.value; else r.paths[+pk].end = t.value; renderList(); return; }
+  if (!t.dataset || !t.dataset.f) return;
+  if (pend && pend !== snap()) { S.hist.push(pend); S.try = null; renderBar(); }
+  pend = snap();
+  if (t.dataset.re) renderSheet();
+});
+document.addEventListener("keydown", (e) => {
+  const t = e.target, typing = /INPUT|TEXTAREA|SELECT/.test(t.tagName);
+  if (t.id === "say" && e.key === "Enter" && !e.shiftKey) { e.preventDefault(); ACT.send(); return; }
+  const ds = t.dataset || {};
+  if (S.view === "steps" && (ds.row || ds.cond || ds.sub)) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (ds.row) { const i = S.list.findIndex((x) => x.id === ds.row), r = row(); S.list.splice(i + 1, 0, r); renderList(`[data-row="${r.id}"]`); }
+      else if (ds.cond) { const { list } = subList(ds.cond); if (!list.length) list.push(row()); renderList(`[data-sub="${ds.cond}|0"]`); }
+      else { const k = ds.sub.split("|"), { list } = subList(ds.sub); list.splice(+k[2] + 1, 0, row()); renderList(`[data-sub="${k[0]}|${k[1]}|${+k[2] + 1}"]`); }
+      return;
+    }
+    if (e.key === "Backspace" && !t.value && (ds.row || ds.sub)) {
+      e.preventDefault();
+      if (ds.row) { const i = S.list.findIndex((x) => x.id === ds.row), prev = S.list[i - 1]; S.list.splice(i, 1); renderList(prev && prev.t === "step" ? `[data-row="${prev.id}"]` : null); }
+      else { const k = ds.sub.split("|"), { list } = subList(ds.sub); list.splice(+k[2], 1); renderList(+k[2] ? `[data-sub="${k[0]}|${k[1]}|${+k[2] - 1}"]` : `[data-cond="${k[0]}|${k[1] === "o" ? 0 : k[1]}"]`); }
+      return;
+    }
+  }
+  if (e.key === "Escape") { if (S.menu) { S.menu = null; renderMenu(); } else if (S.sheet) ACT.close(); return; }
+  if ((e.key === "Enter" || e.key === " ") && (t.classList.contains("gnode") || t.classList.contains("block") || t.classList.contains("srow"))) { e.preventDefault(); t.click(); return; }
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z" && !typing && S.view === "build") { e.preventDefault(); undo(); }
+});
+// Grab the background to move; Ctrl or ⌘ and the wheel to zoom. A touch screen pans by itself.
+let pan = null;
+document.addEventListener("pointerdown", (e) => {
+  const h = e.target.closest && e.target.closest(".ghandle");
+  if (h) {
+    e.preventDefault();
+    const r = h.getBoundingClientRect();
+    link = { from: h.dataset.h, x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    hideTip();
+    document.body.classList.add("is-linking");
+    $("#linker").hidden = false;
+    $("#linker path").setAttribute("d", `M${link.x} ${link.y}L${link.x} ${link.y}`);
+    return;
+  }
+  const c = e.target.closest && e.target.closest("#canvas");
+  if (!c || S.mode === "list" || e.pointerType === "touch" || (e.button !== 0 && e.button !== 1)) return;
+  if (e.button === 0 && e.target.closest(".gnode,button,input,select,textarea,a,label,.note,.res")) return;
+  pan = { x: e.clientX, y: e.clientY, l: c.scrollLeft, t: c.scrollTop, c };
+  c.classList.add("is-panning");
+  e.preventDefault();
+});
+document.addEventListener("pointermove", (e) => {
+  if (!link) return;
+  $("#linker path").setAttribute("d", `M${link.x} ${link.y}L${e.clientX} ${e.clientY}`);
+  clearOver();
+  const el = document.elementFromPoint(e.clientX, e.clientY), n = el && el.closest && el.closest(".gnode");
+  if (n && n.dataset.id !== link.from && n.dataset.id !== "trigger") n.classList.add("is-over");
+});
+document.addEventListener("pointerup", (e) => {
+  if (!link) return;
+  const from = link.from, el = document.elementFromPoint(e.clientX, e.clientY), n = el && el.closest && el.closest(".gnode");
+  link = null; clearOver();
+  document.body.classList.remove("is-linking");
+  $("#linker").hidden = true;
+  if (n && n.dataset.id !== from) { dragged = true; setTimeout(() => (dragged = false), 80); connect(from, n.dataset.id); }
+});
+document.addEventListener("pointermove", (e) => { if (pan) { pan.c.scrollLeft = pan.l - (e.clientX - pan.x); pan.c.scrollTop = pan.t - (e.clientY - pan.y); } });
+const endPan = () => { if (pan) { pan.c.classList.remove("is-panning"); pan = null; } };
+document.addEventListener("pointerup", endPan);
+document.addEventListener("pointercancel", endPan);
+document.addEventListener("wheel", (e) => {
+  const c = e.target.closest && e.target.closest("#canvas");
+  if (!c || !(e.ctrlKey || e.metaKey)) return;
+  e.preventDefault();
+  const b = c.getBoundingClientRect();
+  setZoom(S.zoom + (e.deltaY < 0 ? 0.1 : -0.1), e.clientX - b.left, e.clientY - b.top);
+}, { passive: false });
+document.addEventListener("scroll", (e) => { if (e.target.id === "canvas") { hideTip(); if (S.menu) { S.menu = null; renderMenu(); } } }, true);
+document.addEventListener("paste", (e) => {
+  const t = e.target, id = t.dataset && t.dataset.row, text = (e.clipboardData || { getData: () => "" }).getData("text");
+  if (!id || !/\n/.test(text)) return;
+  e.preventDefault();
+  const lines = text.split("\n").filter((x) => clean(x)), i = S.list.findIndex((x) => x.id === id);
+  S.list.splice(i, S.list[i].text.trim() ? 0 : 1, ...lines.map(rowFrom));
+  renderList();
+});
+try { S.railOff = localStorage.getItem("mz.builder.rail") === "off"; } catch (e) {}
+renderAll();
+</script>
+</body>
+</html>
