@@ -69,7 +69,7 @@ import { voiceFor } from "../../api/voice";
 import { AgentBadge } from "../../ui/badges";
 import { AgentSaid, ChatLog, Composer, Pending, Thinking, YouSaid } from "../../ui/chat";
 import { ErrorNotice } from "../../ui/ErrorState";
-import { Select, TextArea, TextInput } from "../../ui/forms";
+import { Field, Select, TextArea, TextInput } from "../../ui/forms";
 import { Badge, Button, Card, Count, cx, Loading, Tag } from "../../ui/primitives";
 import type { Voice } from "../../ui/voice";
 import { CloseMenu, ReplyBox } from "./closeout";
@@ -578,9 +578,7 @@ export function BuildView({ id, embedded = false }: { id: string; embedded?: boo
               ) : null}
               <Composer
                 label="Message to the Builder"
-                placeholder={
-                  focused ? `Ask about “${focused.title}”, or say what to do` : PLACEHOLDER[b.phase]
-                }
+                placeholder={focused ? FOCUSED_PLACEHOLDER : PLACEHOLDER[b.phase]}
                 busy={!!pending}
                 value={draftText}
                 onValueChange={setDraftText}
@@ -782,6 +780,12 @@ const PLACEHOLDER: Record<BuildPhase, string> = {
   qa: "Ask about a check",
 };
 
+/**
+ * The box's hint while it is on an issue. Owner (2026-11-21): the whole question in it read as
+ * text already typed. The "About" line over the box names the issue, so the hint stays short.
+ */
+export const FOCUSED_PLACEHOLDER = "Type your answer, or ask the Builder";
+
 function BuildHeader({ detail }: { detail: BuildDetail }) {
   const b = detail.build;
   const agentLink = b.agentId ? `/ops/agents/${b.agentId}` : null;
@@ -943,23 +947,28 @@ function BuildBar({ links, children }: { links: JumpLink[]; children: ReactNode 
       document.getElementById(l.id)?.scrollIntoView?.({ behavior: "smooth", block: "start" }),
     );
   };
+  // DECISION (owner, 2026-11-21, plan §1.167): the page showed through the gap over the bar as
+  // it scrolled. The bar's holder sticks right under the header and fills that gap with the
+  // page's own ground.
   return (
-    <div className="ui-build-bar" data-testid="build-bar">
-      <nav aria-label="Sections of the build" className="ui-build-bar__links">
-        {links.map((l) => (
-          <button
-            key={l.id}
-            type="button"
-            className="ui-build-bar__link"
-            onClick={() => jump(l)}
-            data-testid={`build-jump-${l.id.replace("build-at-", "")}`}
-          >
-            {l.label}
-            {l.count ? <Count n={l.count} tone="warning" /> : null}
-          </button>
-        ))}
-      </nav>
-      {children}
+    <div className="ui-build-stick">
+      <div className="ui-build-bar" data-testid="build-bar">
+        <nav aria-label="Sections of the build" className="ui-build-bar__links">
+          {links.map((l) => (
+            <button
+              key={l.id}
+              type="button"
+              className="ui-build-bar__link"
+              onClick={() => jump(l)}
+              data-testid={`build-jump-${l.id.replace("build-at-", "")}`}
+            >
+              {l.label}
+              {l.count ? <Count n={l.count} tone="warning" /> : null}
+            </button>
+          ))}
+        </nav>
+        {children}
+      </div>
     </div>
   );
 }
@@ -1222,63 +1231,68 @@ function IntakePanel({ detail, current, busy, act }: PanelProps) {
         ) : null
       }
     >
-      <dl className="flex flex-col">
+      {/* DECISION (owner, 2026-11-21, plan §1.167): "lets redesign this side". Each field's name
+          and how sure we are share a line; its words sit below at full width, in a box as tall
+          as they are. */}
+      <div className="flex flex-col">
         {BRIEF_FIELDS.map((k) => {
           const f = brief[k];
           return (
             <div
               key={k}
-              className="grid gap-2 border-b border-line px-6 py-3 last:border-b-0 md:grid-cols-[140px_minmax(0,1fr)_auto]"
+              className="flex flex-col gap-2 border-b border-line px-6 py-4 last:border-b-0"
+              data-testid={`build-brief-row-${k}`}
             >
-              <dt className="pt-1.5 text-sm text-ink-muted">{BRIEF_LABELS[k]}</dt>
-              <dd className="min-w-0">
-                {current ? (
-                  <TextArea
-                    aria-label={BRIEF_LABELS[k]}
-                    rows={Math.min(5, Math.max(1, Math.ceil((f?.text.length ?? 0) / 48)))}
-                    className="w-full"
-                    placeholder={BRIEF_HINTS[k]}
-                    value={f?.text ?? ""}
-                    data-testid={`build-brief-${k}`}
-                    onChange={(e) => set(k, { text: e.target.value })}
-                  />
-                ) : (
-                  <p className="pt-1.5 text-sm whitespace-pre-wrap text-ink">
-                    {f?.text || <span className="text-ink-muted">Not asked</span>}
-                  </p>
-                )}
-              </dd>
-              <dd className="pt-1">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="text-sm font-medium text-ink">{BRIEF_LABELS[k]}</span>
                 {current && f ? (
-                  <Select
-                    aria-label={`${BRIEF_LABELS[k]}: how sure`}
-                    value={f.state}
-                    // QA (2026-11-17, fourth run): a status change left the brief unsaved and
-                    // Confirm looked dead until "Save the brief". A status is one choice, not
-                    // typing: it saves at once, with the brief as it reads on screen.
-                    onChange={(e) => {
-                      const next: Brief = {
-                        ...brief,
-                        [k]: { ...f, state: e.target.value as BriefFieldState },
-                      };
-                      setBrief(next);
-                      void act(apiRoutes.opsUpdateBuild, { params: { id }, body: { brief: next } });
-                    }}
-                  >
+                  <fieldset className="ds-seg" aria-label={`${BRIEF_LABELS[k]}: how sure`}>
                     {BRIEF_STATES.map((s) => (
-                      <option key={s} value={s}>
+                      <button
+                        key={s}
+                        type="button"
+                        aria-pressed={f.state === s}
+                        data-testid={`build-brief-${k}-${s}`}
+                        // QA (2026-11-17, fourth run): a status change left the brief unsaved and
+                        // Confirm looked dead until "Save the brief". A status is one choice, not
+                        // typing: it saves at once, with the brief as it reads on screen.
+                        onClick={() => {
+                          if (f.state === s) return;
+                          const next: Brief = { ...brief, [k]: { ...f, state: s } };
+                          setBrief(next);
+                          void act(apiRoutes.opsUpdateBuild, {
+                            params: { id },
+                            body: { brief: next },
+                          });
+                        }}
+                      >
                         {BRIEF_STATE_WORDS[s]}
-                      </option>
+                      </button>
                     ))}
-                  </Select>
+                  </fieldset>
                 ) : f ? (
                   <Badge tone={BRIEF_STATE_TONE[f.state]}>{BRIEF_STATE_WORDS[f.state]}</Badge>
                 ) : null}
-              </dd>
+              </div>
+              {current ? (
+                <TextArea
+                  autoSize
+                  aria-label={BRIEF_LABELS[k]}
+                  rows={2}
+                  placeholder={BRIEF_HINTS[k]}
+                  value={f?.text ?? ""}
+                  data-testid={`build-brief-${k}`}
+                  onChange={(e) => set(k, { text: e.target.value })}
+                />
+              ) : (
+                <p className="text-sm leading-relaxed whitespace-pre-wrap text-ink">
+                  {f?.text || <span className="text-ink-muted">Not asked</span>}
+                </p>
+              )}
             </div>
           );
         })}
-      </dl>
+      </div>
     </Card>
   );
 }
@@ -1501,6 +1515,35 @@ function FitGapPanel({ detail, current, busy, act }: PanelProps) {
   );
 }
 
+/** An intake field's kind, the three side by side (Connect a tool, Answer, File). */
+function SetupKindChoice({
+  label,
+  value,
+  testId,
+  onChange,
+}: {
+  label: string;
+  value: SetupKind;
+  testId: string;
+  onChange: (kind: SetupKind) => void;
+}) {
+  return (
+    <fieldset className="ds-seg" aria-label={label} data-testid={testId}>
+      {SETUP_KINDS.map((k) => (
+        <button
+          key={k}
+          type="button"
+          aria-pressed={value === k}
+          data-testid={`${testId}-${k}`}
+          onClick={() => onChange(k)}
+        >
+          {SETUP_WORDS[k]}
+        </button>
+      ))}
+    </fieldset>
+  );
+}
+
 /**
  * A template's client intake form: what we get from each client to set up their copy. The Builder
  * drafts it in the fit-gap; the operator edits, adds and takes fields out, and saves with the
@@ -1549,23 +1592,17 @@ function SetupFormCard({
             <TextInput
               aria-label="New intake field"
               placeholder="Something to ask each client"
-              className="w-auto min-w-0 flex-1"
+              className="w-auto min-w-60 flex-1"
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               data-testid="build-setup-new"
             />
-            <Select
-              aria-label="Kind of field"
-              className="w-44"
+            <SetupKindChoice
+              label="Kind of field"
               value={kind}
-              onChange={(e) => setKind(e.target.value as SetupKind)}
-            >
-              {SETUP_KINDS.map((k) => (
-                <option key={k} value={k}>
-                  {SETUP_WORDS[k]}
-                </option>
-              ))}
-            </Select>
+              testId="build-setup-new-kind"
+              onChange={setKind}
+            />
             <Button size="sm" type="submit" disabled={!label.trim()} data-testid="build-setup-add">
               Add
             </Button>
@@ -1575,83 +1612,94 @@ function SetupFormCard({
     >
       {fields.length === 0 ? (
         <p className="px-6 py-5 text-sm text-ink-muted">
-          The Builder drafts the form with the fit-gap: the tools each client connects, the packs
-          they need, and the answers and files we ask for.
+          The Builder drafts the form with the fit-gap: the tools each client connects, and the
+          answers and files we ask for.
         </p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-line bg-surface-subtle text-left text-xs text-ink-muted">
-                <th className="px-4 py-2.5 font-medium">What we ask</th>
-                <th className="px-4 py-2.5 font-medium">Kind</th>
-                <th className="px-4 py-2.5 font-medium">Why, or an example</th>
-                <th className="px-4 py-2.5 font-medium">Ask it</th>
-              </tr>
-            </thead>
-            <tbody>
-              {fields.map((f) => (
-                <tr
-                  key={f.id}
-                  className="border-b border-line align-top last:border-b-0"
-                  data-testid={`build-setup-${f.id}`}
-                >
-                  <td className={cx("px-4 py-3", f.dropped && "text-ink-muted line-through")}>
-                    {current && !f.dropped ? (
-                      <TextInput
-                        aria-label={`Field: ${f.label}`}
-                        value={f.label}
-                        onChange={(e) => edit(f.id, { label: e.target.value })}
-                      />
-                    ) : (
-                      f.label
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    {current && !f.dropped ? (
-                      <Select
-                        aria-label={`Kind: ${f.label}`}
-                        className="w-40"
-                        value={f.kind}
-                        onChange={(e) => edit(f.id, { kind: e.target.value as SetupKind })}
-                      >
-                        {SETUP_KINDS.map((k) => (
-                          <option key={k} value={k}>
-                            {SETUP_WORDS[k]}
-                          </option>
-                        ))}
-                      </Select>
-                    ) : (
-                      <Tag>{SETUP_WORDS[f.kind]}</Tag>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-ink-muted">
-                    {current && !f.dropped ? (
-                      <TextInput
-                        aria-label={`Hint: ${f.label}`}
-                        value={f.hint}
-                        onChange={(e) => edit(f.id, { hint: e.target.value })}
-                      />
-                    ) : (
-                      f.hint
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <input
-                      type="checkbox"
-                      className="size-4 accent-[var(--slate)]"
-                      aria-label={`Ask it: ${f.label}`}
-                      checked={!f.dropped}
-                      disabled={!current}
-                      data-testid={`build-setup-${f.id}-ask`}
-                      onChange={(e) => edit(f.id, { dropped: !e.target.checked })}
+        // DECISION (owner, 2026-11-21, plan §1.167): "you can't read the fields". One block per
+        // field, each part at full width: the question, its kind, why we ask (or an example), and
+        // whether we ask it.
+        <ul className="flex flex-col">
+          {fields.map((f) => {
+            const editing = current && !f.dropped;
+            return (
+              <li
+                key={f.id}
+                className="flex flex-col gap-3 border-b border-line px-6 py-4 last:border-b-0"
+                data-testid={`build-setup-${f.id}`}
+              >
+                {editing ? (
+                  <Field label="What we ask">
+                    <TextArea
+                      autoSize
+                      rows={1}
+                      aria-label={`Field: ${f.label}`}
+                      value={f.label}
+                      onChange={(e) => edit(f.id, { label: e.target.value })}
+                      data-testid={`build-setup-${f.id}-label`}
                     />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                  </Field>
+                ) : (
+                  <p
+                    className={cx(
+                      "text-sm font-medium text-ink",
+                      f.dropped && "text-ink-muted line-through",
+                    )}
+                  >
+                    {f.label}
+                  </p>
+                )}
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  {editing ? (
+                    <SetupKindChoice
+                      label={`Kind: ${f.label}`}
+                      value={f.kind}
+                      testId={`build-setup-${f.id}-kind`}
+                      onChange={(kind) => edit(f.id, { kind })}
+                    />
+                  ) : (
+                    <Tag>{SETUP_WORDS[f.kind]}</Tag>
+                  )}
+                  <button
+                    type="button"
+                    className="ds-choice text-sm disabled:cursor-default disabled:opacity-60"
+                    role="switch"
+                    aria-checked={!f.dropped}
+                    aria-label={`Ask it: ${f.label}`}
+                    disabled={!current}
+                    data-testid={`build-setup-${f.id}-ask`}
+                    onClick={() => edit(f.id, { dropped: !f.dropped })}
+                  >
+                    <span className="ds-switch" />
+                    {f.dropped ? "Not asked" : "Ask it"}
+                  </button>
+                </div>
+                {editing ? (
+                  <Field label="Why, or an example">
+                    <TextArea
+                      autoSize
+                      rows={1}
+                      aria-label={`Hint: ${f.label}`}
+                      placeholder="Why we need it, or an example answer"
+                      value={f.hint}
+                      onChange={(e) => edit(f.id, { hint: e.target.value })}
+                      data-testid={`build-setup-${f.id}-hint`}
+                    />
+                  </Field>
+                ) : f.hint ? (
+                  <p
+                    className={cx(
+                      "text-sm leading-relaxed text-ink-muted",
+                      f.dropped && "line-through",
+                    )}
+                  >
+                    {f.hint}
+                  </p>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
       )}
     </Card>
   );
