@@ -104,6 +104,24 @@ export async function bindTestCopy(
   copy: AgentRow,
   bundle: AnyAgentBundle,
 ): Promise<AgentRow> {
+  const add = await bindingsToAdd(ctx, copy, bundle);
+  if (Object.keys(add).length === 0) return copy;
+  return updateOperational(ctx.tx, {
+    agentId: copy.id,
+    actorId: ctx.session.user.id,
+    patch: { bindings: { ...copy.bindings, ...add } },
+  });
+}
+
+/**
+ * What `bindTestCopy` would bind, without binding it: the client's connection for each required
+ * connector the agent isn't bound to yet (Turn on's preview reads it).
+ */
+export async function bindingsToAdd(
+  ctx: Pick<HandlerCtx<never>, "tx" | "services">,
+  copy: Pick<AgentRow, "tenantId" | "bindings">,
+  bundle: AnyAgentBundle,
+): Promise<Record<string, string>> {
   const tenantId = copy.tenantId as string;
   const { skills } = await skillContext(ctx.tx, {
     tenantId,
@@ -122,7 +140,7 @@ export async function bindTestCopy(
     ctx.services.platform.tools,
     used.automations,
   ).filter((c) => !copy.bindings[c]);
-  if (needed.length === 0) return copy;
+  if (needed.length === 0) return {};
   const rows = await ctx.tx
     .select({ id: connection.id, connector: connection.connector })
     .from(connection)
@@ -130,12 +148,41 @@ export async function bindTestCopy(
     .orderBy(connection.createdAt);
   const add: Record<string, string> = {};
   for (const r of rows) add[r.connector] ??= r.id;
-  if (Object.keys(add).length === 0) return copy;
-  return updateOperational(ctx.tx, {
-    agentId: copy.id,
+  return add;
+}
+
+/**
+ * Activate, as the back office's Activate does: the activation check, then the trial's start
+ * (bench → trial, or → live for an agent that writes nothing), or a paused agent resumed with its
+ * pause lifted (ARCHITECTURE §10.9, §11.5). Turn on passes `requireTestRun: false` only once it
+ * has found the passing test run of the same bundle at the client itself.
+ */
+export async function activateAgent(
+  ctx: Pick<HandlerCtx<never>, "tx" | "services" | "session" | "role">,
+  row: AgentRow,
+  options: { requireTestRun?: boolean } = {},
+): Promise<AgentRow> {
+  const activated = await activate(ctx.tx, {
+    agentId: row.id,
     actorId: ctx.session.user.id,
-    patch: { bindings: { ...copy.bindings, ...add } },
+    ctx: ctx.services.platform.ctx,
+    ...(options.requireTestRun === false ? { requireTestRun: false } : {}),
   });
+  // v0.12 W1-A: Activate starts the trial (bench → trial, or → live with "no writes"); on a
+  // paused agent it resumes it and lifts the pause, whoever made it (ARCHITECTURE §10.9, §11.5).
+  return activated.kind === "client"
+    ? afterActivate(ctx.tx, {
+        before: row,
+        actorId: ctx.session.user.id,
+        actor: {
+          actorKind: "user",
+          actorUserId: ctx.session.user.id,
+          actorEmail: ctx.session.user.email,
+          actorRole: ctx.role,
+        },
+        ctx: ctx.services.platform.ctx,
+      })
+    : activated;
 }
 
 /** requestRun's refusals are plain errors: they are the caller's to fix. */
@@ -344,28 +391,7 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsActivate, async (ctx) => {
     const row = await agentInScope(ctx, ctx.params.id);
-    const activated = await activate(ctx.tx, {
-      agentId: row.id,
-      actorId: ctx.session.user.id,
-      ctx: ctx.services.platform.ctx,
-    });
-    // v0.12 W1-A: Activate starts the trial (bench → trial, or → live with "no writes"); on a
-    // paused agent it resumes it and lifts the pause, whoever made it (ARCHITECTURE §10.9, §11.5).
-    const updated =
-      activated.kind === "client"
-        ? await afterActivate(ctx.tx, {
-            before: row,
-            actorId: ctx.session.user.id,
-            actor: {
-              actorKind: "user",
-              actorUserId: ctx.session.user.id,
-              actorEmail: ctx.session.user.email,
-              actorRole: ctx.role,
-            },
-            ctx: ctx.services.platform.ctx,
-          })
-        : activated;
-    return { agent: agentSummary(updated) };
+    return { agent: agentSummary(await activateAgent(ctx, row)) };
   });
 
   mount(app, routes.opsDiscardAgent, async (ctx) => {
