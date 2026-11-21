@@ -4,7 +4,7 @@
 import { type BuildPhase, type BuildSummary, PHASE_WORDS } from "@countersign/core";
 import { Link } from "react-router-dom";
 import { Badge } from "../../ui/primitives";
-import { buildPath, plural } from "./words";
+import { buildHref, plural } from "./words";
 
 export const BUILD_COLUMNS: BuildPhase[] = [
   "intake",
@@ -43,7 +43,8 @@ export function BuildsBoard({ builds }: { builds: readonly BuildSummary[] }) {
             {here.map((b) => (
               <Link
                 key={b.id}
-                to={buildPath(b.id)}
+                // §1.172: a build started on Describe it opens in the builder, not on its build page.
+                to={buildHref(b)}
                 data-testid={`builds-card-${b.id}`}
                 className="flex flex-col gap-2 rounded-md border border-line bg-surface p-4 text-sm hover:border-line-strong"
               >

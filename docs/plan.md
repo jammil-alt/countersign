@@ -6382,6 +6382,23 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.172 Where a build opens from Drafts (owner, 2026-11-21; migration 0073)
+
+The owner: "When you leave the builder and come back to the drafts it takes you back to the old
+UI." Every card on the lab's Drafts opened the build page (`/ops/builds/:id`), by §1.170's
+"Builds already open keep today's build page": nothing stored said which builds started on
+Describe it, so those opened there too. Asked which builds should open in the builder, the owner
+chose: only the ones started in the new flow.
+
+| Topic | Decision |
+|---|---|
+| The mark | `build.flow` (migration 0073, in its own PR): `phases`, the build page, or `describe`, the one-screen builder. A column with a default and its check, so the previous Worker keeps working. // DECISION |
+| Who sets it | The server, when a build starts: `describe` for a new agent build (not from a template), since Describe it is the only place one starts (§1.170); `phases` for a build from a template and a skill build. The screens send nothing for it. // DECISION |
+| Builds before it | No backfill: which earlier builds started on Describe isn't stored, and a guess by date would be wrong wherever the old New was still in use. They keep the build page until someone moves them: its draft card has "Open it in the builder from Drafts" (and "Open it here from Drafts" to move it back), `PATCH /api/ops/builds/:id` with `flow`. A skill build is refused (422 `no_builder`). // DECISION |
+| Where a card opens | `buildHref` (`apps/web/src/ops/builds/words.ts`): a `describe` build in the builder (`/ops/agents/:id/workflow`) once it has a draft, on Check the steps (`/ops/lab/check/:id`) until then; any other on its build page. The lab's Drafts board uses it. |
+| Not changed | Work → Build's list, a deal's builds, the Dev queue's links and the builder's "Back to the build" and "Settle it on the build" still open the build page: it is where the build's records, tests and QA are. |
+| Checked | `packages/db/src/migrations.test.ts` (the default and the check), `apps/api/src/builds.test.ts` (set at start, on the list, moved, a skill refused), `apps/web/src/ops/builds/board.qa-fix.test.tsx` (where each card opens), `builds.test.tsx` (moved from the build page and back). |
+
 ### 1.170 The builder on one screen: a chart of the steps (owner, 2026-11-21; no migration)
 
 The design agreed on 2026-11-21 (`docs/design/builder.html`, PR #498), built on today's builder

@@ -2517,6 +2517,11 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
         clientId,
         createdBy: ctx.session.user.id,
         path,
+        // docs/plan.md §1.172: a new agent build starts on the lab's Describe it (the only place
+        // one starts since §1.170), so it opens in the one-screen builder. A build from a template
+        // and a skill build keep the build page.
+        // DECISION: the server says so, from what it is; the screens send nothing for it.
+        flow: ctx.body.kind === "agent" && path === "new" ? "describe" : "phases",
         templateId: path === "template" ? (ctx.body.templateId ?? null) : null,
         agentId,
         originKind: ctx.body.origin?.kind ?? null,
@@ -2539,7 +2544,11 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
   mount(app, routes.opsUpdateBuild, async (ctx) => {
     const row = await readBuild(ctx.tx, ctx.params.id, true);
     refuseClosed(row);
-    const { title, brief, testPlan, promisedOn, waitingOn, statusLine, stuck } = ctx.body;
+    const { title, brief, testPlan, promisedOn, waitingOn, statusLine, stuck, flow } = ctx.body;
+    // §1.172: only an agent build has the one-screen builder to open in.
+    if (flow === "describe" && row.kind !== "agent") {
+      throw new HttpError(422, "no_builder", "only an agent build opens in the builder");
+    }
     let fitgap: FitGap | undefined;
     if (ctx.body.fitgap) {
       // What's in scope and what needs to be true; a verdict changes only with a reason.
@@ -2559,6 +2568,7 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
         ...(waitingOn ? { waitingOn } : {}),
         ...(statusLine !== undefined ? { statusLine } : {}),
         ...(stuck !== undefined ? { stuck } : {}),
+        ...(flow ? { flow } : {}),
         updatedAt: now(),
       })
       .where(eq(build.id, row.id));
