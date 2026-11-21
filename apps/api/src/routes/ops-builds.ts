@@ -38,6 +38,7 @@ import {
   type FitRow,
   fitChangeKind,
   fitScope,
+  gapSteps,
   issueByKey,
   issueLine,
   isUuid,
@@ -70,7 +71,6 @@ import {
   withNote,
 } from "@countersign/core";
 import {
-  agent,
   build,
   buildEvent,
   buildItem,
@@ -81,8 +81,9 @@ import {
   type Tx,
 } from "@countersign/db";
 import { createLlmClient, DEFAULT_MODELS, type LlmTransport } from "@countersign/llm";
-import { and, asc, desc, eq, inArray, like, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Hono } from "hono";
+import { freeSlug, moveToClientTest } from "../build/client-test";
 import { withBuildManual } from "../build/manual";
 import { draftSetupItems, withSetupItems } from "../build/setup";
 import {
@@ -139,21 +140,6 @@ function transport(services: Pick<Services, "deps" | "env" | "db">, row: BuildRo
 }
 
 const now = () => new Date();
-
-/** The template's slug in the client, or the first free `<slug>-2`, `-3`, … */
-async function freeSlug(tx: Tx, clientId: string, slug: string): Promise<string> {
-  const taken = new Set(
-    (
-      await tx
-        .select({ slug: agent.slug })
-        .from(agent)
-        .where(and(eq(agent.tenantId, clientId), like(agent.slug, `${slug}%`)))
-    ).map((r) => r.slug),
-  );
-  if (!taken.has(slug)) return slug;
-  for (let n = 2; n < 100; n++) if (!taken.has(`${slug}-${n}`)) return `${slug}-${n}`;
-  throw new HttpError(409, "slug_taken", "the client has too many agents from this template");
-}
 
 function refuseClosed(row: BuildRow): void {
   if (row.status !== "open") {
@@ -591,7 +577,7 @@ async function turn(
           : null) ??
         prep.focused?.key ??
         null;
-      const proposal = answer.proposal
+      const fit = answer.proposal
         ? fitProposal(
             answer.proposal,
             prep.detail,
@@ -599,10 +585,19 @@ async function turn(
             await proposalFacts(scoped.tx, ctx.services, fresh, answer.proposal),
           )
         : null;
-      if (answer.proposal && !proposal) {
+      const proposal = fit && "proposal" in fit ? fit.proposal : null;
+      // Staging (2026-11-21, Sentry MEZONAS-API-9 again): "Build a skill" on an issue whose step
+      // already had its skill build. The Builder proposed it anyway; the card was dropped, the
+      // Builder's words said it was started, and nothing happened. A change that is already under
+      // way is said so in the message, not reported: nothing is wrong. Anything else is reported
+      // with why, so the next one says which rule it broke.
+      // §1.169: one that would close an item only its step closes is said too, not reported.
+      const already = fit && "said" in fit ? fit.said : null;
+      if (answer.proposal && fit && "why" in fit && !("said" in fit)) {
         reportProblem("the Builder proposed a change that doesn't fit the build", {
           kind: "build",
           action: answer.proposal.action.do,
+          why: fit.why,
           build: id,
         });
       }
@@ -611,7 +606,7 @@ async function turn(
         fresh.phase === row.phase ? readFitGap(set.fitgap ?? fresh.fitgap).decisions : [];
       await addMessage(scoped.tx, fresh, {
         role: "builder",
-        text: answer.text,
+        text: already ? `${answer.text}\n\n${already}` : answer.text,
         meta: {
           chips: answer.chips,
           changes: [
@@ -973,6 +968,27 @@ async function proposalFacts(
 }
 
 /**
+ * Why a proposal doesn't fit the build. `already_settled`: what it asks for is already under way;
+ * `closed_by_its_step` (§1.169): it would close by saying so an item only its own step closes.
+ */
+type ProposalMiss =
+  | "already_settled"
+  | "closed_by_its_step"
+  | "not_an_open_item"
+  | "not_a_closed_item"
+  | "not_a_failed_check"
+  | "not_an_earlier_phase"
+  | "wrong_phase"
+  | "unknown_step"
+  | "unknown_request";
+
+/** A proposal as it fits the build, or why it doesn't (and, when already settled, what to say). */
+type ProposalFit =
+  | { proposal: BuildProposal }
+  | { why: Exclude<ProposalMiss, "already_settled" | "closed_by_its_step"> }
+  | { why: "already_settled" | "closed_by_its_step"; said: string };
+
+/**
  * The Builder's proposal if it fits the build: an item it names is this build's and in the state
  * the change needs, a check is failing in QA, going back is to an earlier phase, tests run in the
  * POC, a step it names is in the draft, a request it names exists under its ref (and one to approve
@@ -984,50 +1000,68 @@ function fitProposal(
   d: BuildDetail,
   phase: BuildPhase,
   f: ProposalFacts,
-): BuildProposal | null {
+): ProposalFit {
   const a = p.action;
   const itemOf = (raw: string) => d.items.find((i) => i.id === raw.replace(/^item:/, ""));
+  const ok = (proposal: BuildProposal): ProposalFit => ({ proposal });
+  const no = (
+    why: Exclude<ProposalMiss, "already_settled" | "closed_by_its_step">,
+  ): ProposalFit => ({
+    why,
+  });
   switch (a.do) {
     case "close_item": {
       const item = itemOf(a.itemId);
-      if (!item || !itemOpen(item.state)) return null;
+      if (!item || !itemOpen(item.state)) return no("not_an_open_item");
       // docs/plan.md §1.169: the Builder doesn't close by saying so what only its step closes;
-      // it may put one off.
-      if (a.state === "done" && settledByStep(item.kind)) return null;
-      return { ...p, action: { ...a, itemId: item.id } };
+      // it may put one off. Its message says why nothing closed, as a change under way does.
+      if (a.state === "done" && settledByStep(item.kind)) {
+        return {
+          why: "closed_by_its_step",
+          said:
+            item.kind === "question"
+              ? `“${item.title}” closes when it's answered, so I left it open.`
+              : `“${item.title}” closes when the step that settles it is done (the change made, its skill build live or its code shipped), so I left it open.`,
+        };
+      }
+      return ok({ ...p, action: { ...a, itemId: item.id } });
     }
     case "reopen_item": {
       const item = itemOf(a.itemId);
-      return item && !itemOpen(item.state) ? { ...p, action: { ...a, itemId: item.id } } : null;
+      return item && !itemOpen(item.state)
+        ? ok({ ...p, action: { ...a, itemId: item.id } })
+        : no("not_a_closed_item");
     }
     case "accept_check":
       return phase === "qa" && d.qaChecks.some((c) => c.id === a.check && c.state === "fail")
-        ? p
-        : null;
+        ? ok(p)
+        : no("not_a_failed_check");
     case "go_back":
       return phaseIndex(d.build.kind, a.to) >= 0 &&
         phaseIndex(d.build.kind, a.to) < phaseIndex(d.build.kind, phase)
-        ? p
-        : null;
+        ? ok(p)
+        : no("not_an_earlier_phase");
     case "run_tests":
-      return phase === "poc" && d.draft ? p : null;
+      return phase === "poc" && d.draft ? ok(p) : no("wrong_phase");
     case "edit_draft":
       // BUILDER_QA AI-4: a step it names is one of the draft's.
-      if (a.stepId && f.stepIds && !f.stepIds.has(a.stepId)) return null;
+      if (a.stepId && f.stepIds && !f.stepIds.has(a.stepId)) return no("unknown_step");
       // The draft is what the POC tests; from the client test on, the change goes back first.
       return (phase === "draft" || phase === "poc") &&
         (d.build.kind === "agent" ? !!d.draft?.versionId : !!d.draft?.sessionId)
-        ? p
-        : null;
+        ? ok(p)
+        : no("wrong_phase");
     // docs/plan.md §1.125: a gap's two buckets, and the Dev queue's link and approval.
     case "file_code_request":
     case "link_code_request":
     case "draft_skill": {
-      if (phase !== "fitgap" && phase !== "draft" && phase !== "poc") return null;
+      if (phase !== "fitgap" && phase !== "draft" && phase !== "poc") return no("wrong_phase");
       // BUILDER_QA AI-4: the request to link is there, under the ref it names, and still open.
       if (a.do === "link_code_request") {
         const r = f.request;
-        if (!r || parseDqNumber(a.ref) !== r.number || r.status === "closed") return null;
+        if (!r || parseDqNumber(a.ref) !== r.number || r.status === "closed") {
+          return no("unknown_request");
+        }
       }
       // A step that already has its skill build is settled that way.
       if (
@@ -1035,7 +1069,10 @@ function fitProposal(
         a.stepId &&
         d.items.some((i) => i.stepId === a.stepId && i.ref.buildId && itemOpen(i.state))
       ) {
-        return null;
+        return {
+          why: "already_settled",
+          said: "That step already has a skill build under way, so I didn't start another. It's in the issues list.",
+        };
       }
       const item = a.itemId ? itemOf(a.itemId) : undefined;
       // QA on staging (2026-11-19, Sentry MEZONAS-API-9): in the draft the issues are the draft's
@@ -1046,16 +1083,25 @@ function fitProposal(
       // takes it back up.
       if (!item || item.state === "done" || item.kind !== "gap") {
         const { itemId: _, ...rest } = a;
-        return { ...p, action: rest };
+        return ok({ ...p, action: rest });
       }
       // A gap already waiting on a request, or with its skill build, is settled that way.
-      if (item.ref.codeRequestId || (a.do === "draft_skill" && item.ref.buildId)) return null;
-      return { ...p, action: { ...a, itemId: item.id } };
+      if (item.ref.codeRequestId || (a.do === "draft_skill" && item.ref.buildId)) {
+        return {
+          why: "already_settled",
+          said: item.ref.codeRequestId
+            ? `“${item.title}” is already waiting on a code request, so I left it as it is.`
+            : `“${item.title}” already has a skill build under way, so I didn't start another.`,
+        };
+      }
+      return ok({ ...p, action: { ...a, itemId: item.id } });
     }
     case "approve_code_request": {
       // BUILDER_QA AI-4: only a request this build waits on, under its own ref, still in triage.
       const r = f.request;
-      return r?.waitedOn && r.status === "triage" && parseDqNumber(a.ref) === r.number ? p : null;
+      return r?.waitedOn && r.status === "triage" && parseDqNumber(a.ref) === r.number
+        ? ok(p)
+        : no("unknown_request");
     }
   }
 }
@@ -1548,6 +1594,21 @@ async function makeDraft(
   return { set: { sessionId: started.session.id }, decisions: [], kept: false };
 }
 
+/** The draft's step standing for each gap (a person step that asks, or a missing step), or null. */
+async function draftGapSteps(
+  tx: Tx,
+  agentId: string | null | undefined,
+  gaps: readonly string[],
+): Promise<(string | null)[]> {
+  const latest = agentId ? await latestVersion(tx, agentId) : null;
+  const parsed = latest ? AnyAgentBundle.safeParse(latest.bundle) : null;
+  if (!parsed?.success) return gaps.map(() => null);
+  const drafted = parsed.data.workflows.flatMap((w) =>
+    w.workflow.schemaVersion === 4 ? [w.workflow] : [],
+  );
+  return gapSteps(gaps, drafted);
+}
+
 /** A short, stable fingerprint of a fit-gap's first version. */
 function fitGapHash(fitgap: FitGap): string {
   const rows = fitgap.rows
@@ -1836,6 +1897,8 @@ async function draftNow(ctx: LongCtx, id: string, given: string | null): Promise
       payload: { brief: readBrief(r.brief) },
       userId,
     });
+    // docs/builder-plan.md §12.4: each gap names the step that stands for it, when one clearly does.
+    const onSteps = gaps.length > 0 ? await draftGapSteps(scoped.tx, made.set.agentId, gaps) : [];
     await addItems(
       scoped.tx,
       r,
@@ -1847,6 +1910,7 @@ async function draftNow(ctx: LongCtx, id: string, given: string | null): Promise
           "Not in the catalog yet, so a person does this part in the first version. Build it when the runs show it is worth it.",
         owner: "builder" as const,
         state: "deferred" as const,
+        stepId: onSteps[i] ?? null,
         key: `now:gap:${i}`,
       })),
       userId,
@@ -2806,38 +2870,12 @@ export function opsBuildRoutes(app: Hono<AppEnv>): void {
     }
     await ctx.inTx(async (scoped) => {
       const r = await readBuild(scoped.tx, ctx.params.id, true);
-      await scoped.tx
-        .update(build)
-        .set({ phase: "client_test", phaseAt: now(), testClientId: clientId, testAgentId })
-        .where(eq(build.id, r.id));
-      await addEvent(scoped.tx, r, { kind: "phase", from: "poc", to: "client_test", userId });
-      await addEvent(scoped.tx, r, {
-        kind: "record",
-        payload: { testPlan: readTestPlan(r.testPlan) },
+      await moveToClientTest(scoped.tx, r, {
+        clientId,
+        testAgentId,
         userId,
-      });
-      const moved = { ...r, phase: "client_test" as const };
-      if (blocked) {
-        await addItems(
-          scoped.tx,
-          moved,
-          [
-            {
-              phase: "client_test",
-              kind: "precondition",
-              title: blocked.title,
-              detail: blocked.detail,
-              key: blockKey || `start:${testAgentId}`,
-            },
-          ],
-          userId,
-        );
-      }
-      await addMessage(scoped.tx, moved, {
-        role: "builder",
-        text: blocked
-          ? "It's at the client, but its trial hasn't started: it needs one thing first, now an open item."
-          : "It's published and at the client, in its trial: every write it makes waits for the client's signature until sign-off.",
+        blocked,
+        key: blockKey,
       });
     });
     return detailOf(ctx, ctx.params.id);

@@ -52,6 +52,11 @@ export interface BuildIssue {
   talk: number;
   /** The Dev queue request it waits on (docs/plan.md §1.125): "Waiting on DQ-012". */
   waitingOn: { id: string; ref: string } | null;
+  /**
+   * The draft's step it is on (docs/builder-plan.md §12.4): a draft problem's, an item's or a
+   * decision's step, so the chart can show it on its box. Null when it is on no one step.
+   */
+  stepId: string | null;
 }
 
 const SOURCE_ORDER: Record<IssueSource, number> = {
@@ -99,6 +104,7 @@ export function buildIssues(d: BuildDetail): BuildIssue[] {
       itemId: null,
       talk: t(key),
       waitingOn: waiting,
+      stepId: p.stepId,
     });
   }
   const itemFor = (ref: "testCaseId" | "actionId", id: string) =>
@@ -119,6 +125,7 @@ export function buildIssues(d: BuildDetail): BuildIssue[] {
       itemId: null,
       talk: t(key),
       waitingOn: null,
+      stepId: null,
     });
   }
   // The checklist is read in every phase, but it is QA's: before QA every check "fails".
@@ -138,6 +145,7 @@ export function buildIssues(d: BuildDetail): BuildIssue[] {
       itemId: null,
       talk: t(key),
       waitingOn: null,
+      stepId: null,
     });
   }
   // docs/builder-plan.md §4.2: a high-risk decision nobody has looked at holds the POC's move on.
@@ -160,6 +168,7 @@ export function buildIssues(d: BuildDetail): BuildIssue[] {
       itemId: null,
       talk: t(key),
       waitingOn: null,
+      stepId: null,
     });
   }
   for (const i of d.items) {
@@ -179,6 +188,7 @@ export function buildIssues(d: BuildDetail): BuildIssue[] {
       itemId: i.id,
       talk: t(key),
       waitingOn: waiting,
+      stepId: i.stepId,
     });
   }
   return out
@@ -216,6 +226,7 @@ export function decisionIssue(d: BuildDetail, dec: Decision, talk = 0): BuildIss
     itemId: null,
     talk,
     waitingOn: null,
+    stepId: dec.stepId ?? null,
   };
 }
 

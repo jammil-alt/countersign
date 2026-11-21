@@ -157,6 +157,9 @@ describe.skipIf(!h)("an issue is settled by its step", () => {
     );
     b = await ok("POST", `/api/ops/builds/${id}/turns`, { text: "Close the question." });
     expect(b.messages.at(-1)?.proposal).toBeUndefined();
+    expect(b.messages.at(-1)?.text).toContain(
+      "“Who signs off?” closes when it's answered, so I left it open.",
+    );
     expect(b.items.find((i) => i.id === question?.id)?.state).toBe("open");
   });
 

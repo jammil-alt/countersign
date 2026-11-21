@@ -11,9 +11,10 @@ import {
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentSummary, VersionDetail } from "../../api/routes";
 import { ApiProvider } from "../../api/useApi";
+import { fakeChartRects, keyboardDrag, rootOrder } from "../../test/chart";
 import { fakeApi } from "../../test/fixtures";
 import WorkflowBuilder from "./WorkflowBuilder";
 
@@ -183,12 +184,9 @@ function setup() {
   return { user: userEvent.setup(), api };
 }
 
-/** The canvas's steps, top to bottom: their ids, a new step's as "new". */
+/** The chart's steps, top to bottom: their ids, a new step's as "new". */
 function order(): string[] {
-  return screen
-    .getAllByTestId(/^builder-step-.+-select$/)
-    .map((el) => (el.dataset.testid ?? "").replace(/^builder-step-|-select$/g, ""))
-    .map((id) => (["read", "check", "note"].includes(id) ? id : "new"));
+  return rootOrder().map((id) => (["read", "check", "note"].includes(id) ? id : "new"));
 }
 
 const SESSION = "00000000-0000-4000-8000-0000000c6001";
@@ -231,11 +229,12 @@ const ANSWER = {
 describe("a step's connections in the builder", () => {
   it("shows the steps it is connected to now", async () => {
     const { user } = setup();
-    await screen.findByTestId("builder-canvas");
-    await user.click(screen.getByTestId("builder-step-check-select"));
+    await screen.findByTestId("flow-chart");
+    await user.click(screen.getByTestId("flow-box-check"));
     const box = screen.getByTestId("builder-connections");
-    expect(within(box).getByText("Prior step")).toBeTruthy();
-    expect(within(box).getByText("Next step")).toBeTruthy();
+    // In the step's side panel they read "Comes after" and "Goes to".
+    expect(within(box).getByText("Comes after")).toBeTruthy();
+    expect(within(box).getByText("Goes to")).toBeTruthy();
     expect((screen.getByTestId("builder-connection-prior") as HTMLSelectElement).value).toBe(
       "read",
     );
@@ -244,8 +243,8 @@ describe("a step's connections in the builder", () => {
 
   it("moves the step at once when nothing breaks", async () => {
     const { user } = setup();
-    await screen.findByTestId("builder-canvas");
-    await user.click(screen.getByTestId("builder-step-note-select"));
+    await screen.findByTestId("flow-chart");
+    await user.click(screen.getByTestId("flow-box-note"));
     await user.selectOptions(screen.getByTestId("builder-connection-next"), "read");
     expect(order()).toEqual(["note", "read", "check"]);
     expect(screen.getByTestId("builder-connection-notice").textContent).toContain(
@@ -256,8 +255,8 @@ describe("a step's connections in the builder", () => {
 
   it("says what a move would break and moves it where it fits instead", async () => {
     const { user } = setup();
-    await screen.findByTestId("builder-canvas");
-    await user.click(screen.getByTestId("builder-step-check-select"));
+    await screen.findByTestId("flow-chart");
+    await user.click(screen.getByTestId("flow-box-check"));
     // First: the vendor it reads from "Read document" would come after it.
     await user.selectOptions(screen.getByTestId("builder-connection-prior"), "");
     const review = screen.getByTestId("builder-connection-review");
@@ -271,8 +270,8 @@ describe("a step's connections in the builder", () => {
 
   it("keeps the step where it was when asked", async () => {
     const { user } = setup();
-    await screen.findByTestId("builder-canvas");
-    await user.click(screen.getByTestId("builder-step-check-select"));
+    await screen.findByTestId("flow-chart");
+    await user.click(screen.getByTestId("flow-box-check"));
     await user.selectOptions(screen.getByTestId("builder-connection-prior"), "");
     await user.click(screen.getByTestId("builder-connection-keep"));
     expect(order()).toEqual(["read", "check", "note"]);
@@ -283,13 +282,13 @@ describe("a step's connections in the builder", () => {
 
   it("adds a new step right before this one from the prior step's list", async () => {
     const { user } = setup();
-    await screen.findByTestId("builder-canvas");
-    await user.click(screen.getByTestId("builder-step-check-select"));
+    await screen.findByTestId("flow-chart");
+    await user.click(screen.getByTestId("flow-box-check"));
     await user.selectOptions(screen.getByTestId("builder-connection-prior"), "new step");
     expect(screen.getByTestId("builder-palette-target").textContent).toContain(
       "before “Check vendor”",
     );
-    await user.click(screen.getByTestId(`builder-palette-item-skill:${NOTE.id}-add`));
+    await user.click(screen.getByTestId(`flow-rail-item-skill:${NOTE.id}`));
     expect(order()).toEqual(["read", "new", "check", "note"]);
   });
 
@@ -310,8 +309,8 @@ describe("a step's connections in the builder", () => {
       texts.push((JSON.parse(String(init.body)) as { text: string }).text);
       return { ...session(draft, [ANSWER]), turn: ANSWER };
     });
-    await screen.findByTestId("builder-canvas");
-    await user.click(screen.getByTestId("builder-step-check-select"));
+    await screen.findByTestId("flow-chart");
+    await user.click(screen.getByTestId("flow-box-check"));
     await user.selectOptions(screen.getByTestId("builder-connection-prior"), "");
     await user.click(screen.getByTestId("builder-connection-ask"));
     expect(order()).toEqual(["check", "read", "note"]);
@@ -325,5 +324,39 @@ describe("a step's connections in the builder", () => {
     expect(texts[0]).toContain("it ran between “Read document” and “Note it”");
     expect(texts[0]).toContain("step check, field input.vendor (template_scope)");
     expect(texts[0]).toContain("Don't change the workflow yet.");
+  });
+
+  // F6: the dot under a step dragged onto another makes that one come next, checked the same way.
+  describe("from the chart", () => {
+    let restore = () => {};
+    beforeEach(() => {
+      restore = fakeChartRects();
+    });
+    afterEach(() => restore());
+
+    it("makes the step under the dot's target come next at once when nothing breaks", async () => {
+      const { user } = setup();
+      await screen.findByTestId("flow-chart");
+      await keyboardDrag(user, "flow-dot-read", "flow-box-note");
+      await waitFor(() => expect(order()).toEqual(["read", "note", "check"]));
+      // The step that moved is open, and its connections say what was checked.
+      expect(screen.getByTestId("flow-panel")).toHaveAttribute("data-step", "note");
+      expect(screen.getByTestId("builder-connection-notice").textContent).toContain(
+        "none loses data it needs",
+      );
+    });
+
+    it("reviews a connection that would break something before making it", async () => {
+      const { user } = setup();
+      await screen.findByTestId("flow-chart");
+      // "Read document" after "Note it": "Check vendor" would read it before it ran.
+      await keyboardDrag(user, "flow-dot-note", "flow-box-read");
+      const review = await screen.findByTestId("builder-connection-review");
+      expect(screen.getByTestId("flow-panel")).toHaveAttribute("data-step", "read");
+      expect(within(review).getByTestId("builder-connection-issue-reads")).toBeTruthy();
+      expect(order()).toEqual(["read", "check", "note"]);
+      await user.click(screen.getByTestId("builder-connection-keep"));
+      expect(order()).toEqual(["read", "check", "note"]);
+    });
   });
 });

@@ -1,32 +1,36 @@
-// v0.18 (owner, 2026-11-15; docs/plan.md §1.105): working on steps with the Builder. An opt-in
-// beside the step's settings: the same Builder conversation as the side panel's Builder tab (one
-// session, its turns, Undo and /commands), with each turn sent about the step that is open, so the
-// operator can go step by step, ask about it or change it, and see the change in the step's
-// settings at once. It adds to the builder; with it off nothing changes.
-// DECISION (v0.18): one conversation shared with the Builder tab, not one per step, so what was
-// said about one step is there for the next; each operator turn says which step it was about.
-// DECISION (v0.18): the opt-in is a toggle in the builder's toolbar, not a button in the
-// inspector, so the inspector's content stays as it is.
+// v0.18 (owner, 2026-11-15; docs/plan.md §1.105): working on steps with the Builder. The same
+// Builder conversation as the whole-flow Builder (one session, its turns, Undo and /commands), with
+// each turn sent about the step that is open, so the operator can go step by step, ask about it or
+// change it, and see the change in the step's settings at once.
+// DECISION (v0.18): one conversation shared with the whole-flow Builder, not one per step, so what
+// was said about one step is there for the next; each operator turn says which step it was about.
+// F6 (docs/builder-plan.md §12.3, docs/plan.md §1.170): it sits under the step's setup in the side
+// panel, always there, in the size the panel gives it: the message box alone ("min"), or the
+// conversation with it ("beside", "max"). The toolbar's opt-in toggle is gone with the toolbar.
 
 import { Button } from "../../ui/primitives";
 import { errorText, isCode, Notice } from "../agents/ui";
 import type { BuilderSession } from "./BuilderPanel";
 import { BuilderMark, Composer, Turns } from "./chat";
 
-/** The opt-in, remembered per viewer in this browser (a convenience: off when unknown). */
+/** The Builder's size in the step panel, remembered per viewer in this browser. */
 export const STEP_CHAT_KEY = "mezonas.builder.stepchat";
 
-export function readStepChat(): boolean {
+type ChatSize = "min" | "beside" | "max";
+
+/** How much of the side panel the Builder takes, as last chosen (the message box when unknown). */
+export function readStepChatSize(): ChatSize {
   try {
-    return window.localStorage.getItem(STEP_CHAT_KEY) === "on";
+    const v = window.localStorage.getItem(STEP_CHAT_KEY);
+    return v === "beside" || v === "max" ? v : "min";
   } catch {
-    return false;
+    return "min";
   }
 }
 
-export function writeStepChat(on: boolean) {
+export function writeStepChatSize(size: ChatSize) {
   try {
-    window.localStorage.setItem(STEP_CHAT_KEY, on ? "on" : "off");
+    window.localStorage.setItem(STEP_CHAT_KEY, size);
   } catch {
     // Storage blocked: the choice lasts for this visit.
   }
@@ -44,19 +48,46 @@ export function StepChat({
   step,
   onPrevious,
   onNext,
+  size = "beside",
 }: {
   session: BuilderSession;
   step: FocusedStep;
+  /** "min": the message box alone; otherwise the conversation with it. */
+  size?: ChatSize | undefined;
   /** Absent at the first or last step. */
   onPrevious?: (() => void) | undefined;
   onNext?: (() => void) | undefined;
 }) {
   const turns = session.detail?.turns ?? [];
+  const composer = (
+    <Composer
+      testId="builder-step-chat-composer"
+      placeholder="Ask about this step, or say what to change"
+      busy={session.busy}
+      onSend={(text) => session.send(text, { focusStepId: step.id })}
+      clientId={session.detail?.session.clientId}
+    />
+  );
+  const error = session.error ? (
+    <Notice tone="warning" testId="builder-step-chat-error">
+      {isCode(session.error, "builder_unavailable")
+        ? `The Builder can't reach its model right now. ${errorText(session.error)}`
+        : errorText(session.error)}
+    </Notice>
+  ) : null;
+  if (size === "min") {
+    return (
+      <div data-testid="builder-step-chat" data-size="min" className="flex flex-col gap-2">
+        {error}
+        {composer}
+      </div>
+    );
+  }
   return (
-    <section
-      aria-label="The Builder on this step"
+    <div
       data-testid="builder-step-chat"
-      className="flex min-h-0 flex-col gap-3 border-t border-line pt-4 @6xl:border-t-0 @6xl:border-l @6xl:pt-0 @6xl:pl-4"
+      data-size={size}
+      className="flex h-full min-h-0 flex-col gap-3"
     >
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-2.5 type-subheading text-ink">
@@ -105,21 +136,9 @@ export function StepChat({
             </p>
           }
         />
-        {session.error ? (
-          <Notice tone="warning" testId="builder-step-chat-error">
-            {isCode(session.error, "builder_unavailable")
-              ? `The Builder can't reach its model right now. ${errorText(session.error)}`
-              : errorText(session.error)}
-          </Notice>
-        ) : null}
+        {error}
       </div>
-      <Composer
-        testId="builder-step-chat-composer"
-        placeholder="Ask about this step, or say what to change"
-        busy={session.busy}
-        onSend={(text) => session.send(text, { focusStepId: step.id })}
-        clientId={session.detail?.session.clientId}
-      />
-    </section>
+      {composer}
+    </div>
   );
 }

@@ -16,6 +16,7 @@ import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import type { AgentSummary, VersionDetail } from "../../api/routes";
 import { ApiProvider } from "../../api/useApi";
+import { rootOrder } from "../../test/chart";
 import { fakeApi } from "../../test/fixtures";
 import WorkflowBuilder from "./WorkflowBuilder";
 
@@ -311,15 +312,14 @@ function savedProcess(sent: { path: string; body: Record<string, unknown> }[]) {
 describe("the builder under the skill model", () => {
   it("says the step's kind, the model it runs on and where from, and its parameters", async () => {
     const { sent, user } = setup();
-    await screen.findByTestId("builder-canvas");
-    expect(screen.getByTestId("builder-step-match-skill-kind")).toHaveTextContent("AI");
-    // The canvas says the model it runs on too, in the card's tooltip (a card is one line).
-    await user.hover(screen.getByTestId("builder-step-match"));
-    expect(screen.getByTestId("builder-step-tip")).toHaveTextContent("runs on claude-sonnet-5-5");
-    await user.unhover(screen.getByTestId("builder-step-match"));
-    await user.click(screen.getByTestId("builder-step-match-select"));
-    const inspector = screen.getByTestId("builder-inspector");
-    expect(inspector).toHaveTextContent("Step 1 · Skill · AI");
+    await screen.findByTestId("flow-chart");
+    expect(screen.getByTestId("flow-box-match")).toHaveTextContent("Skill · AI");
+    // The chart says the model it runs on too, on the box and in full on hover.
+    await user.hover(screen.getByTestId("flow-box-match"));
+    expect(await screen.findByTestId("flow-tip")).toHaveTextContent("runs on claude-sonnet-5-5");
+    await user.unhover(screen.getByTestId("flow-box-match"));
+    await user.click(screen.getByTestId("flow-box-match"));
+    expect(screen.getByTestId("flow-panel-eyebrow")).toHaveTextContent("Skill · AI · step 1 of");
     // The agent's setting for this skill wins over the skill's recommendation.
     await waitFor(() =>
       expect(screen.getByTestId("builder-inspector-runs-on")).toHaveTextContent(
@@ -337,7 +337,7 @@ describe("the builder under the skill model", () => {
     expect(screen.getByTestId("builder-inspector-runs-on")).toHaveTextContent(
       "Runs on: Haiku (set on this step)",
     );
-    await user.click(screen.getByTestId("builder-save"));
+    await user.click(screen.getByTestId("flow-bar-save"));
     await waitFor(() => expect(sent.some((s) => s.path === "save")).toBe(true));
     const step = processes.findStep(savedProcess(sent), "match")?.step;
     expect(step).toMatchObject({
@@ -349,8 +349,8 @@ describe("the builder under the skill model", () => {
 
   it("moves a step to a breaking version only once each reference is remapped", async () => {
     const { sent, user } = setup();
-    await screen.findByTestId("builder-canvas");
-    await user.click(screen.getByTestId("builder-step-match-select"));
+    await screen.findByTestId("flow-chart");
+    await user.click(screen.getByTestId("flow-box-match"));
     expect(await screen.findByTestId("builder-skill-version")).toHaveTextContent("Pinned to v1.");
     await user.click(await screen.findByTestId("builder-skill-move-2"));
     expect(await screen.findByTestId("builder-skill-move-breaking")).toBeInTheDocument();
@@ -368,7 +368,7 @@ describe("the builder under the skill model", () => {
     await user.selectOptions(pick, "catalogItemId");
     await user.click(screen.getByTestId("builder-skill-move-apply"));
     expect(await screen.findByTestId("builder-skill-version")).toHaveTextContent("Pinned to v2");
-    await user.click(screen.getByTestId("builder-save"));
+    await user.click(screen.getByTestId("flow-bar-save"));
     await waitFor(() => expect(sent.some((s) => s.path === "save")).toBe(true));
     const process = savedProcess(sent);
     expect(processes.findStep(process, "match")?.step).toMatchObject({
@@ -388,12 +388,12 @@ describe("the builder under the skill model", () => {
       errors: [],
       definition: matchLine(1),
     });
-    await screen.findByTestId("builder-canvas");
-    await user.click(screen.getByTestId("builder-step-match-select"));
+    await screen.findByTestId("flow-chart");
+    await user.click(screen.getByTestId("flow-box-match"));
     await user.click(await screen.findByTestId("builder-skill-move-2"));
     expect(await screen.findByTestId("builder-skill-move-compatible")).toBeInTheDocument();
     await user.click(screen.getByTestId("builder-skill-move-apply"));
-    await user.click(screen.getByTestId("builder-save"));
+    await user.click(screen.getByTestId("flow-bar-save"));
     await waitFor(() => expect(sent.some((s) => s.path === "save")).toBe(true));
     expect(processes.findStep(savedProcess(sent), "match")?.step).toMatchObject({
       skill: "custom:match-line@2",
@@ -402,17 +402,15 @@ describe("the builder under the skill model", () => {
 
   it("adds a Save to records step with approval off, and lets the operator turn it on", async () => {
     const { sent, user } = setup();
-    await screen.findByTestId("builder-canvas");
-    await user.click(screen.getByTestId("builder-add-step"));
-    const item = screen.getByTestId("builder-palette-item-write:alerts.raise");
+    await screen.findByTestId("flow-chart");
+    const item = screen.getByTestId("flow-rail-item-write:alerts.raise");
     expect(item).toHaveTextContent("Save to records");
-    await user.click(screen.getByTestId("builder-palette-item-write:alerts.raise-add"));
-    const inspector = screen.getByTestId("builder-inspector");
-    expect(inspector).toHaveTextContent("Save to records");
-    expect(inspector).toHaveTextContent("Approval is off by default");
+    await user.click(screen.getByTestId("flow-rail-item-write:alerts.raise"));
+    expect(screen.getByTestId("flow-panel-eyebrow")).toHaveTextContent("Save to records");
+    // Approval is off by default for a write to our own records.
     expect(screen.getByTestId("builder-approval-none")).toHaveTextContent("saves to our records");
     await user.click(screen.getByTestId("builder-approval-add"));
-    await user.click(screen.getByTestId("builder-save"));
+    await user.click(screen.getByTestId("flow-bar-save"));
     await waitFor(() => expect(sent.some((s) => s.path === "save")).toBe(true));
     const added = savedProcess(sent).steps.at(-1);
     expect(added).toMatchObject({ kind: "write", tool: "alerts.raise" });
@@ -421,15 +419,14 @@ describe("the builder under the skill model", () => {
 
   it("labels a read on a tool that calls a model AI, in the palette, the inspector and the step", async () => {
     const { user } = setup();
-    await screen.findByTestId("builder-canvas");
-    await user.click(screen.getByTestId("builder-add-step"));
-    expect(screen.getByTestId("builder-palette-item-read:web.search-kind")).toHaveTextContent(
+    await screen.findByTestId("flow-chart");
+    expect(screen.getByTestId("flow-rail-item-read:web.search-kind")).toHaveTextContent(
       "Read · AI",
     );
-    expect(screen.getByTestId("builder-palette-item-write:alerts.raise")).not.toHaveTextContent(
-      "AI",
-    );
-    await user.click(screen.getByTestId("builder-palette-item-read:web.search-add"));
-    expect(screen.getByTestId("builder-inspector")).toHaveTextContent("· AI");
+    expect(screen.getByTestId("flow-rail-item-write:alerts.raise")).not.toHaveTextContent("AI");
+    await user.click(screen.getByTestId("flow-rail-item-read:web.search"));
+    expect(screen.getByTestId("flow-panel-eyebrow")).toHaveTextContent("Read · AI");
+    const added = rootOrder().at(-1) as string;
+    expect(screen.getByTestId(`flow-box-${added}`)).toHaveTextContent("Read · AI");
   });
 });

@@ -238,16 +238,17 @@ describe("Builds", () => {
       "true",
     );
     expect(screen.queryByTestId("builds-start-client")).toBeNull();
-    // A client agent needs its client.
+    // docs/plan.md §1.170: an agent opens on Describe it. A client agent needs its client.
     await userEvent.click(screen.getByTestId("builds-start-kind-client"));
-    await userEvent.type(screen.getByTestId("builds-start-title"), "Invoice intake reviewer");
-    expect(screen.getByTestId("builds-start-go")).toBeDisabled();
+    await userEvent.type(screen.getByTestId("flow-describe-name"), "Invoice intake reviewer");
+    expect(screen.getByTestId("flow-describe-mine")).toBeDisabled();
     await screen.findByRole("option", { name: "Harbor Millwork only" });
     await userEvent.selectOptions(
       screen.getByTestId("builds-start-client"),
       "00000000-0000-4000-8000-00000000a001",
     );
-    await userEvent.click(screen.getByTestId("builds-start-go"));
+    // List the steps myself starts the build with no draft and opens Check the steps.
+    await userEvent.click(screen.getByTestId("flow-describe-mine"));
     await waitFor(() =>
       expect(started).toEqual([
         {
@@ -257,7 +258,7 @@ describe("Builds", () => {
         },
       ]),
     );
-    expect(await screen.findByTestId("build-view")).toBeInTheDocument();
+    expect(await screen.findByTestId("flow-check")).toBeInTheDocument();
   });
 
   // Owner (2026-11-21, docs/plan.md §1.165): describe it and the Builder drafts it at once.
@@ -307,25 +308,23 @@ describe("Builds", () => {
     });
     renderAt("/ops/templates/new", api);
     await screen.findByTestId("builds-start");
-    // With nothing described, the build starts with the Builder's questions, as before.
-    expect(screen.getByTestId("builds-start-go")).toHaveTextContent("Start with questions");
-    await userEvent.type(screen.getByTestId("builds-start-title"), "Field check-in");
+    // docs/plan.md §1.170: Describe it. Nothing described, nothing to draft yet.
+    await userEvent.type(screen.getByTestId("flow-describe-name"), "Field check-in");
+    expect(screen.getByTestId("flow-describe-draft")).toBeDisabled();
     await userEvent.type(
-      screen.getByTestId("builds-start-description"),
+      screen.getByTestId("flow-describe-words"),
       "Text each field person at 4 pm and ask about their tasks.",
     );
-    expect(screen.getByTestId("builds-start-go")).toHaveTextContent("Build it");
-    await userEvent.click(screen.getByTestId("builds-start-go"));
-    // The build is started as any build is; its page then asks for the draft, once.
+    await userEvent.click(screen.getByTestId("flow-describe-draft"));
+    // The build is started as any build is, then drafted from the words, once.
     await waitFor(() => expect(started).toEqual([{ kind: "agent", title: "Field check-in" }]));
     await waitFor(() =>
       expect(asked).toEqual([
         { description: "Text each field person at 4 pm and ask about their tasks." },
       ]),
     );
-    await waitFor(() =>
-      expect(screen.getByTestId("build-phase-draft")).toHaveAttribute("aria-current", "step"),
-    );
+    // Then Check the steps, over the saved draft.
+    expect(await screen.findByTestId("flow-check")).toBeInTheDocument();
   });
 
   it("lets a build in intake skip the questions once it says what it should do", async () => {

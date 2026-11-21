@@ -199,7 +199,11 @@ describe("AgentScreen", () => {
     it("shows an older version's process, and edits the definition of one", async () => {
       setup(`${BASE}/workflow?version=1`, routes);
       const list = await screen.findByTestId("workflow-new-bill");
-      expect(within(list).getByTestId("step-update")).toHaveTextContent("needs approval");
+      // F6: drawn as the chart, read only.
+      expect(await within(list).findByTestId("flow-box-update")).toHaveTextContent(
+        "needs approval",
+      );
+      expect(within(list).queryByTestId("flow-tail")).toBeNull();
       cleanup();
       setup(`${BASE}/settings/definition`, routes);
       expect(await screen.findByTestId("agent-editor")).toBeInTheDocument();

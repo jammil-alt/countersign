@@ -140,18 +140,19 @@ describe("app", () => {
     // Opening the draft from the versions list shows its workflow.
     await user.click(within(versions).getByRole("link", { name: "v2" }));
     expect(await screen.findByTestId("agent-shown-version")).toHaveTextContent("v2 (draft)");
-    expect(screen.getByTestId("step-list")).toBeInTheDocument();
-    expect(screen.getByTestId("fork-confidence")).toBeInTheDocument();
+    // It is drawn as the chart, read only: every box, nothing to add or move.
+    const shown = await screen.findByTestId("flow-readonly-new-bill");
+    expect(within(shown).getByTestId("flow-box-confidence")).toBeInTheDocument();
+    expect(shown.querySelector('[data-testid^="flow-insert-"]')).toBeNull();
+    expect(within(shown).queryByTestId("flow-tail")).toBeNull();
 
     // The Workflow tab opens the builder on the latest version's first workflow.
     await user.click(within(tabs).getByRole("link", { name: "Workflow" }));
-    const canvas = await screen.findByTestId("builder-canvas");
-    expect(within(canvas).getByTestId("builder-step-confidence")).toBeInTheDocument();
-    expect(screen.getByTestId("builder-version")).toHaveTextContent("Draft · v2");
-    expect(screen.getByTestId("builder-workflow-new-bill-select")).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+    const canvas = await screen.findByTestId("flow-chart");
+    expect(within(canvas).getByTestId("flow-box-confidence")).toBeInTheDocument();
+    expect(within(canvas).getByTestId("flow-tail")).toBeInTheDocument();
+    expect(screen.getByTestId("flow-bar-version")).toHaveTextContent("Draft · v2");
+    expect(screen.getByTestId("flow-bar-name")).toHaveTextContent("New bill");
   });
 
   it("signs a client admin in by email when the API lists no users, landing in the portal", async () => {

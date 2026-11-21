@@ -24,6 +24,7 @@ import {
   runOnEvent,
 } from "../lifecycle/runs";
 import { goLiveView, moveStage, type StageActor, setTrialMinimums } from "../lifecycle/stages";
+import { turnOn, turnOnPreview } from "../lifecycle/turn-on";
 import { startAfterCommit } from "../runs/reconcile";
 import {
   agentSetupView,
@@ -70,6 +71,13 @@ function clientSide(a: PortalSetupAgent): PortalSetupAgent {
 
 export function lifecycleRoutes(app: Hono<AppEnv>): void {
   // ── The operator ───────────────────────────────────────────────────────────────────────────────
+
+  // Turn on in one button (docs/builder-plan.md §12.4): one transaction, audited as any route.
+  mount(app, routes.opsAgentTurnOnPreview, (ctx) =>
+    turnOnPreview(ctx, ctx.params.id, ctx.query.client),
+  );
+
+  mount(app, routes.opsAgentTurnOn, (ctx) => turnOn(ctx, ctx.params.id, ctx.body));
 
   mount(app, routes.opsAgentGoLive, async (ctx) => {
     const row = await clientAgentInScope(ctx, ctx.params.id);

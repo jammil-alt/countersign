@@ -633,10 +633,15 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
   it is set, so rotating a key is "update the GitHub secret, redeploy". The last three are optional
   ("Model keys" above).
 - `ENCRYPTION_KEY` (32 random bytes, base64) and `WORKOS_COOKIE_PASSWORD`: generated once inside the job
-  when the Worker doesn't have them yet, and never shown or stored anywhere else. If the job can't read
-  the Worker's existing secrets it stops instead of generating, so `ENCRYPTION_KEY` is never replaced by
-  accident (replacing it would make stored connection credentials unreadable; rotation is described in
-  `packages/connectors/src/credentials.ts`). Since Access phase 1 (`docs/plan.md` §1.26) it wraps each
+  when the Worker doesn't have them yet, and never shown or stored anywhere else. The job reads the
+  Worker's secrets with `scripts/worker-secrets.sh`, which fails unless the list is a JSON array naming
+  every secret the step has just put; it reads twice and generates only a secret both reads lack. It
+  stops instead of generating when the list can't be trusted, and when `ENCRYPTION_KEY` is missing
+  but `WORKOS_COOKIE_PASSWORD` is there (a Worker that has run before, whose key a person restores),
+  so `ENCRYPTION_KEY` is never replaced by accident (replacing it would make stored connection
+  credentials unreadable; rotation is described in `packages/connectors/src/credentials.ts`). Before
+  that check, a staging deploy on 2026-11-21 got a list without these three from a `wrangler secret
+  list` that exited 0, and replaced them (Sentry MEZONAS-API-C). Since Access phase 1 (`docs/plan.md` §1.26) it wraps each
   client's own data key (`tenant_key`) rather than encrypting credentials itself. To rotate it: set the
   new key as `ENCRYPTION_KEY` and the old one as `ENCRYPTION_KEY_PREVIOUS`; the hourly cron re-wraps
   every client key and re-encrypts any v1 credentials; drop the old key once no `tenant_key` row's
@@ -644,7 +649,8 @@ The deploy workflow loads the Worker's secrets into Cloudflare after each deploy
 - The code service (`mezonas-codes-staging` / `mezonas-codes`) gets its own secrets, in its own
   step before apps/api deploys: `MFA_TWILIO_ACCOUNT_SID` and `MFA_TWILIO_AUTH_TOKEN` (the codes
   subaccount) copied when set, and `MFA_ENCRYPTION_KEY` (32 random bytes, base64) generated once
-  inside the job exactly as `ENCRYPTION_KEY` is, never replacing an existing one. apps/api never has
+  inside the job exactly as `ENCRYPTION_KEY` is (two trusted reads that both lack it), never replacing
+  an existing one. apps/api never has
   these, and the code service never has apps/api's.
 - The browser service (`mezonas-browser-staging` / `mezonas-browser`) has no secrets: it is deployed
   in its own step after the code service and before apps/api, and gets none of apps/api's.
