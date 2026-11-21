@@ -10,7 +10,7 @@ const Id = z.string().refine((v) => isUuid(v), "not an id");
 
 /**
  * The areas an intake can cover: every business area but `general` (which is the general section).
- * An area with a pack asks its pack's questions; one without (Sales, Receivables today) asks
+ * An area with a pack asks its pack's questions; one without (Receivables today) asks
  * core's generic area questions.
  */
 // DECISION (cases-plan §8 q11, the design): areas without a pack are offered, with generic questions.

@@ -360,12 +360,13 @@ describe.skipIf(!h)("Sales' onboarding", () => {
         "Purchasing",
         "Bookkeeping",
         "Marketing",
+        // §1.164: the Sales pack is the Sales area's, so the area has a start of its own.
+        "Sales",
         "Vendor contracts",
         "Just the account",
       ]),
     );
     // Areas without a pack and the platform's own templates get none.
-    expect(names).not.toContain("Sales");
     expect(names).not.toContain("Receivables");
     const again = await ok<{ starts: SalesStartView[] }>("GET", "/api/ops/starts");
     expect(again.starts).toHaveLength(first.starts.length);

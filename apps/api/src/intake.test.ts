@@ -184,11 +184,13 @@ describe.skipIf(!h)("Getting started", () => {
       guideSources(
         tx,
         { platform: H.platform },
-        { general: false, areas: ["sales"], templateIds: [] },
+        { general: false, areas: ["receivables", "sales"], templateIds: [] },
       ),
     );
     expect(generic.general).toBeNull();
-    expect(generic.areas[0]?.fields.map((f) => f.key)).toContain("area.sales.today");
+    // Receivables has no pack: core's generic questions. Sales asks its pack's (§1.164).
+    expect(generic.areas[0]?.fields.map((f) => f.key)).toContain("area.receivables.today");
+    expect(generic.areas[1]?.fields.map((f) => f.key)).toContain("sales.crm");
   });
 
   it("shows the client admin every card, with the lead's note and nothing of ours", async () => {

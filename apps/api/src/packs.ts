@@ -5,6 +5,7 @@
 
 import type { InternalTool, PackToolSource } from "@countersign/agents";
 import type { ContentStore } from "@countersign/connectors";
+import type { PackReviewDecision } from "@countersign/core";
 import { lazy, lazyObjects, type PackManifest, type ToolSpec } from "@countersign/core";
 import type { Db, Tx } from "@countersign/db";
 import type { LlmTransport } from "@countersign/llm";
@@ -30,11 +31,15 @@ import {
   MATERIALS_REPORTS,
   MATERIALS_REVIEWS,
   materialsManifest,
-  type PackReviewHandler,
   type PackTool,
   packToolContext,
 } from "@countersign/pack-materials";
-import { SALES_HANDLERS, SALES_SYNCED, salesManifest } from "@countersign/pack-sales";
+import {
+  SALES_HANDLERS,
+  SALES_REVIEWS,
+  SALES_SYNCED,
+  salesManifest,
+} from "@countersign/pack-sales";
 import type { z } from "zod";
 import type { SignedWrite } from "./signed-writes";
 
@@ -60,6 +65,49 @@ export interface PackReportHandler {
     today: string,
     query: Record<string, unknown>,
   ): Promise<Record<string, unknown> | null>;
+}
+
+/**
+ * An inbox card a pack adds (`/api/inbox/:id/pack-review`), by the `review` key of the item's
+ * payload. The pack checks its own decisions (a `ReviewError` is the card's 422).
+ */
+export interface PackReviewHandler {
+  /** What the card shows, for this client only (the route's transaction is the client's). */
+  load(
+    tx: Tx,
+    tenantId: string,
+    payload: Record<string, unknown>,
+  ): Promise<Record<string, unknown>>;
+  /** A person's decision about one part of the card; the pack opens its own transaction. */
+  decide(
+    db: Db,
+    input: {
+      tenantId: string;
+      userId: string;
+      payload: Record<string, unknown>;
+      decision: PackReviewDecision;
+      testRun: boolean;
+    },
+  ): Promise<void>;
+  /**
+   * §1.164: the card's search (`/api/inbox/:id/pack-review/lookup`), for a person picking a record
+   * none of the card's suggestions is: this client's records only, at most 20.
+   */
+  lookup?(
+    tx: Tx,
+    tenantId: string,
+    payload: Record<string, unknown>,
+    query: { module?: string | undefined; q: string },
+  ): Promise<Record<string, unknown>[]>;
+  /**
+   * §1.164: what the waiting run gets as the person step's answer when the card is finished, read
+   * from what was recorded (never what the browser sent); a `ReviewError` refuses the finish.
+   */
+  answer?(
+    tx: Tx,
+    tenantId: string,
+    payload: Record<string, unknown>,
+  ): Promise<Record<string, unknown>>;
 }
 
 /** A back-office action on one client's pack data (a person's, never an agent's). */
@@ -204,11 +252,12 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = lazyObjects([
     portalReports: lazy(() => screenReports(bookkeepingManifest)),
   },
   // docs/plan.md §1.164: the Sales area's first version: record keys from the client's synced CRM
-  // (built after each sync page), the match and the look-up. No reports or screens yet; the
-  // Confirm matches card comes with the next piece.
+  // (built after each sync page), the match and the look-up, and the Confirm matches card
+  // (`sales.match`, with its look-up and its answer). No reports or screens yet.
   {
     manifest: salesManifest,
     handlers: SALES_HANDLERS,
+    reviews: SALES_REVIEWS,
     synced: SALES_SYNCED,
   },
 ]);

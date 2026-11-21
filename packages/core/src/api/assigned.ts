@@ -58,6 +58,8 @@ export const ASSIGNED_USER_ROUTES: readonly string[] = [
   "POST /api/inbox/batch/resolve",
   "GET /api/inbox/:id/pack-review",
   "POST /api/inbox/:id/pack-review",
+  // §1.164: Confirm matches' look-up, for an item of one of their agents.
+  "GET /api/inbox/:id/pack-review/lookup",
   // A document an item or a run shows (by its id; the list of documents stays closed).
   // DECISION (PLATFORM_QA SEC-4, owner 2026-11-20): checked by agent, not only by client: it opens
   // only when a run, step or inbox item of one of their agents names it, else 404

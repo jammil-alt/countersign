@@ -4,6 +4,8 @@
 // workflows.
 
 export { PACK_ID } from "./ids";
+// §1.164: Confirm matches (the review card `sales.match`), the confirmed matches, the template.
+export { SALES_INTAKE_SECTION } from "./intake";
 export {
   type CrmRecordMapper,
   DEFAULT_MATCH_TEXT_FIELDS,
@@ -57,6 +59,29 @@ export {
   scorePair,
 } from "./match/score";
 export * from "./pack";
+export {
+  type CardDecision,
+  CONFIDENCE_WORDS,
+  type ComparedField,
+  type ConfidenceWord,
+  type ConfirmedMatch,
+  type ConfirmedMatches,
+  compareValues,
+  confidenceWord,
+  confirmedMatches,
+  decideMatchReview,
+  FOUND_WORDS,
+  type FoundWord,
+  lookupForReview,
+  MATCH_REVIEW,
+  MatchReviewDecision,
+  MatchReviewPayload,
+  matchReviewAnswer,
+  matchReviewView,
+  type PackReviewHandler,
+  ReviewError,
+  SALES_REVIEWS,
+} from "./review";
 export * from "./schema";
 export {
   type ClientMatchSettings,
@@ -77,6 +102,18 @@ export {
  */
 export { SALES_SYNCED } from "./synced";
 export {
+  MATCH_KEYS,
+  SHEET_COLUMNS,
+  SPREADSHEET_TO_ZOHO_SLUG,
+  SPREADSHEET_TO_ZOHO_TEMPLATE,
+  spreadsheetSteps,
+  spreadsheetTriggers,
+  ZOHO_FIELDS,
+  zohoRowsMapping,
+} from "./template";
+export {
+  ConfirmedUpdate,
+  confirmedMatchesTool,
   keysRefreshTool,
   LookupRecordOut,
   MatchRecordsOutput,

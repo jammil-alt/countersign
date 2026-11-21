@@ -128,6 +128,20 @@ export const PackReview = z.object({
   data: z.record(z.string(), z.unknown()),
 });
 
+/**
+ * §1.164: a card's search (Confirm matches' look-up): what a person typed, and which of the card's
+ * kinds of record to search (a CRM module) when it has more than one.
+ */
+export const PackReviewLookupQuery = z.object({
+  q: z.string().trim().min(1).max(200),
+  module: z.string().min(1).max(100).optional(),
+});
+
+/** The records a card's search found: the pack's own shape (the platform names no pack). */
+export const PackReviewLookup = z.object({
+  records: z.array(z.record(z.string(), z.unknown())).max(20),
+});
+
 const ClientParams = z.object({ id: Id });
 const ReportParams = z.object({ pack: Slug, report: ReportName });
 
@@ -313,6 +327,27 @@ export const packRoutes = {
     summary: "What a pack's review item asks, for any client you serve",
     params: z.object({ id: Id }),
     response: PackReview,
+  }),
+  // §1.164: the card's search, for the client's own records only.
+  portalPackReviewLookup: defineRoute({
+    method: "GET",
+    path: "/api/inbox/:id/pack-review/lookup",
+    auth: "session",
+    roles: CLIENT,
+    summary: "Search the client's records from a pack's review item (e.g. Zoho leads to remap to)",
+    params: z.object({ id: Id }),
+    query: PackReviewLookupQuery,
+    response: PackReviewLookup,
+  }),
+  opsPackReviewLookup: defineRoute({
+    method: "GET",
+    path: "/api/ops/inbox/:id/pack-review/lookup",
+    auth: "session",
+    roles: OPS,
+    summary: "Search the item's client's records from a pack's review item",
+    params: z.object({ id: Id }),
+    query: PackReviewLookupQuery,
+    response: PackReviewLookup,
   }),
   opsPackReviewDecide: defineRoute({
     method: "POST",
