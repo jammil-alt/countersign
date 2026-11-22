@@ -6382,6 +6382,22 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.202 Urgent notices through the outbox (work plan C4.10, 2026-11-22; migration 0079)
+
+An urgent notice's person was told by email and text from the notify step itself (§1.86, wave 2c),
+with no `notification` row: no retries after a failed send, no line in the notification counts.
+Migration 0079 (its own PR) widened `notification_kind_check` to allow `urgent`; this sends them
+from the outbox.
+
+| Topic | Decision |
+|---|---|
+| The kind | Core's `NOTIFICATION_KINDS` gains `urgent`; `packages/db`'s column type is the check's list (`NOTIFICATION_KIND_CHECK`). Its key is `urgent:<item>:<person>`, one row per channel by the outbox's unique key, so a retried step queues nothing twice (the card's `payload.toldAt` is no longer written). Its link is the inbox. // DECISION |
+| Its words | The items-waiting sentence with a count of one ("1 item is waiting for you"), as the direct sends had: the kind's fixed sentence and a count, never the notice's own words (§11.3), and no new sentence to translate. // DECISION |
+| Who and how | As before: the card's person, or everyone who may sign for its role; an operator's card with nobody named tells nobody. Email to each, and a text to each with a number that may be texted (consent, no STOP). No phone notification: what changed is the path, not who is told or how. An email is queued even with no Resend key, and skipped `not_configured`, so it shows in the counts. // DECISION |
+| Never held | `holdsInQuietHours("urgent", …)` is false on every channel, and `overridesSwitches("urgent")` lets it past the person's own email and text switches; their consent for texts still holds. // DECISION |
+| At once | The notify step queues the rows in its own transaction, then sends just those (`sendQueued(…, only)`) once it commits. A send that fails stays queued (`send_failed:<n>`) and the outbox's next pass tries it again, up to `NOTIFY_MAX_TRIES`; an error in the send itself is reported and leaves the rows for that pass. A test run tells nobody, as before. // DECISION |
+| Checked | `apps/api/src/process-runtime.test.ts` (one email and one text in the person's quiet hours with texts switched off, as `urgent` rows, sent, linking to the inbox; an email that fails waits in the outbox and its next pass sends it), `packages/core/src/notify/notify.test.ts` (never held, overrides the switches, its link, rendered in every language and channel), `packages/db/src/migrations.test.ts` (the check). |
+
 ### 1.192 The web app's first load back under budget (H9, 2026-11-22; no migration)
 
 The first load (`scripts/web-size.mjs`) was 494.8 kB gzipped on main against a 495 kB budget.

@@ -4075,8 +4075,7 @@ export const NOTIFICATION_KINDS_ALLOWED = [
 /**
  * Work plan C4.10 (0079): an urgent notice's Seen card, told at once whatever the person's quiet
  * hours (process model's Notify, docs/plan.md §1.86). The check allows it before core's
- * notification kinds name it (and before the column's type does), so the previous Worker keeps
- * working.
+ * notification kinds named it, so the previous Worker kept working; core names it now.
  */
 export const URGENT_NOTIFICATION_KINDS = ["urgent"] as const;
 /** The kinds the check allows: those above and urgent notices' (0079). */
@@ -4136,7 +4135,8 @@ export const notification = pgTable(
     contactId: uuid("contact_id"),
     channel: text("channel").$type<(typeof NOTIFICATION_CHANNELS)[number]>().notNull(),
     // §1.149: the onboarding emails' kinds too (core ONBOARDING_NOTIFICATION_KINDS); a type only.
-    kind: text("kind").$type<(typeof NOTIFICATION_KINDS_ALLOWED)[number]>().notNull(),
+    // C4.10: and `urgent`, now core's kind too (0079).
+    kind: text("kind").$type<(typeof NOTIFICATION_KIND_CHECK)[number]>().notNull(),
     /** e.g. `items_waiting:<user>:<hour>`: the same key on the same channel is sent once. */
     dedupeKey: text("dedupe_key").notNull(),
     /** Where the person goes: a page of the portal or the back office. */
