@@ -393,11 +393,48 @@ describe("TryPanel", () => {
     );
   });
 
-  it("offers no choice of steps without the registries' view, and none in a build's own try", async () => {
+  it("offers no choice of steps without the registries' view", async () => {
     const api = fakeApi({ ...common });
     show(api);
     expect(await screen.findByTestId("flow-try-input")).toBeInTheDocument();
     expect(screen.queryByTestId("flow-try-range")).toBeNull();
+  });
+
+  // Owner, 2026-11-22: the choice was missing on a template with an open build, where it is built.
+  it("tests some of a build's draft as a test run at the build's Sandbox, not as a kept try", async () => {
+    const bodies: unknown[] = [];
+    const tries = vi.fn(() => build([]));
+    const api = fakeApi({
+      ...common,
+      [`POST /api/ops/builds/${BUILD}/tries`]: tries,
+      [`POST /api/ops/agents/${AGENT}/versions/${VERSION}/test-run`]: ({ init }) => {
+        bodies.push(JSON.parse(String(init.body)));
+        return { runId: RUN, agentId: AGENT, versionId: VERSION };
+      },
+      [`GET /api/ops/runs/${RUN}`]: () =>
+        run("succeeded", [
+          row("00000000-0000-4000-8000-000000002001", "find", "skill", "succeeded", {
+            output: { confidence: 0.5 },
+            summary: "given for this test, not run",
+          }),
+          row("00000000-0000-4000-8000-000000002002", "confidence", "if", "succeeded"),
+        ]),
+    });
+    show(api, { build: build([]), ctx: {}, startAt: "confidence" });
+    const user = userEvent.setup();
+    expect(await screen.findByTestId("flow-try-some")).toBeChecked();
+    const given = screen.getByTestId("flow-try-given-find");
+    await user.clear(given);
+    await user.type(given, '{{"confidence": 0.5}');
+    await user.click(screen.getByTestId("flow-try-input-start"));
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toEqual({
+      workflow: "new-bill",
+      payload: {},
+      clientId: SANDBOX,
+      range: { from: "confidence", to: "confidence", given: { find: { confidence: 0.5 } } },
+    });
+    expect(tries).not.toHaveBeenCalled();
   });
 
   it("tries a build's draft on a file through the build, and again on the same try", async () => {

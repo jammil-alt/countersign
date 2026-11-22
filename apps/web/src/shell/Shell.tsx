@@ -488,6 +488,7 @@ export function SidebarLink({
   countTone = "warning",
   reserveCount = false,
   end,
+  current,
   testId,
   children,
 }: {
@@ -500,19 +501,17 @@ export function SidebarLink({
   /** Keep the count's slot while it loads (undefined), so the row doesn't shift. */
   reserveCount?: boolean;
   end?: boolean;
+  /**
+   * Lit although the address is elsewhere: a page that belongs to this place (a template's own
+   * pages under the Agent lab).
+   */
+  current?: boolean | undefined;
   testId?: string;
   children?: ReactNode;
 }) {
   const { rail } = useContext(SidebarRail);
-  return (
-    <NavLink
-      to={to}
-      end={end ?? false}
-      data-testid={testId}
-      data-tip={rail ? label : undefined}
-      // ds-navitem draws the current page from the aria-current NavLink sets.
-      className="ds-navitem ui-navitem"
-    >
+  const inner = (
+    <>
       <span className="flex min-w-0 items-center gap-2.5">
         {icon ? <Icon name={icon} className="ui-navitem__icon" /> : null}
         <span className="ui-navitem__label min-w-0">
@@ -531,6 +530,22 @@ export function SidebarLink({
       ) : reserveCount ? (
         <CountSlot />
       ) : null}
+    </>
+  );
+  const shared = {
+    to,
+    "data-testid": testId,
+    "data-tip": rail ? label : undefined,
+    // ds-navitem draws the current page from aria-current: NavLink's own, or the one set here.
+    className: "ds-navitem ui-navitem",
+  };
+  return current ? (
+    <Link {...shared} aria-current="page">
+      {inner}
+    </Link>
+  ) : (
+    <NavLink {...shared} end={end ?? false}>
+      {inner}
     </NavLink>
   );
 }

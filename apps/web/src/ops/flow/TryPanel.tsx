@@ -150,7 +150,12 @@ export function TryPanel({
   const [picking, setPicking] = useState(false);
   // ── Some of the steps (§1.185) ──
   const top = process.steps;
-  const canPick = !suite && ctx !== undefined && top.length > 1;
+  // DECISION (owner, 2026-11-22: "I tried using it and was not able to"): a template with an open
+  // build is in suite mode, where §1.185 offered no choice of steps, so the choice was missing
+  // where the owner builds. It is offered there too. A try of every step stays the build's own
+  // (kept as a case); a try of some of them is a test run of the draft at the build's Sandbox,
+  // since part of a run can't be a case to keep.
+  const canPick = ctx !== undefined && top.length > 1;
   const startsAt = startAt && top.some((s) => s.id === startAt) ? startAt : null;
   const [some, setSome] = useState(canPick && startsAt !== null);
   const [from, setFrom] = useState<string>(startsAt ?? top[0]?.id ?? "");
@@ -311,7 +316,7 @@ export function TryPanel({
     if (!again) caseRef.current = null;
     try {
       let id: string | null;
-      if (suite) {
+      if (suite && !sentRange.current) {
         const before = new Set((suite.poc?.tries ?? []).map((t) => t.caseId));
         let body:
           | { caseId: string }
@@ -355,7 +360,10 @@ export function TryPanel({
           body: {
             workflow,
             payload,
-            ...(agent.kind === "template" && clientId ? { clientId } : {}),
+            // A build's draft is tried where the build tries it: its Sandbox.
+            ...(agent.kind === "template" && (clientId || (suite ? sandboxId : null))
+              ? { clientId: (clientId || sandboxId) as string }
+              : {}),
             ...(sentRange.current ? { range: sentRange.current } : {}),
           },
         });

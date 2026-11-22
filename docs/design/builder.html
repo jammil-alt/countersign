@@ -26,6 +26,7 @@
   --signal:#E3A417;--signal-ink:#6B4C05;--signal-tint:#FBF0D2;
   --risk:#A3302A;--risk-ink:#8A2B26;--risk-tint:#F9E5E3;--risk-line:#EDB9B5;
   --positive:#1F6B4A;--positive-tint:#E2F0E8;
+  --data-seq-3:#8FA8C1;--data-seq-4:#56779A;
   --radius-sm:6px;--radius-md:10px;--radius-lg:14px;--radius-pill:999px;
   --shadow-xs:0 1px 2px rgba(21,26,33,.08);--shadow-pop:0 8px 24px rgba(21,26,33,.12);--focus-halo:0 0 0 4px rgba(35,65,94,.18);
   --scrim:rgba(21,26,33,.4);
@@ -39,6 +40,7 @@
   --signal:#E3A417;--signal-ink:#F0C766;--signal-tint:#3A2E10;
   --risk:#E8807A;--risk-ink:#F2A39E;--risk-tint:#3A1C1A;--risk-line:#5A2A27;
   --positive:#7CC4A0;--positive-tint:#17301F;
+  --data-seq-3:#4A6A8E;--data-seq-4:#6E92B8;
   --shadow-pop:0 8px 24px rgba(0,0,0,.5);--focus-halo:0 0 0 4px rgba(143,176,210,.25);--scrim:rgba(0,0,0,.55);
   color-scheme:dark}}
 :root[data-theme="dark"]{
@@ -49,6 +51,7 @@
   --signal:#E3A417;--signal-ink:#F0C766;--signal-tint:#3A2E10;
   --risk:#E8807A;--risk-ink:#F2A39E;--risk-tint:#3A1C1A;--risk-line:#5A2A27;
   --positive:#7CC4A0;--positive-tint:#17301F;
+  --data-seq-3:#4A6A8E;--data-seq-4:#6E92B8;
   --shadow-pop:0 8px 24px rgba(0,0,0,.5);--focus-halo:0 0 0 4px rgba(143,176,210,.25);--scrim:rgba(0,0,0,.55);
   color-scheme:dark}
 
@@ -213,12 +216,18 @@ body.has-sheet .canvas{margin-right:var(--sheet-w)}
 .srow--head:hover{background:var(--surface-subtle)}
 .srow--path{cursor:pointer;padding-block:6px;background:var(--paper);color:var(--ink-muted);grid-template-columns:44px minmax(0,1fr)}
 .srow__n{font:500 12px/18px var(--font-mono);color:var(--ink-faint)}
-.srow__name{display:grid;gap:2px;min-width:0}
+.srow__name{display:grid;gap:2px;min-width:0;position:relative}
+.srow__name .kico{position:absolute;margin-left:-32px;top:-1px;width:22px;height:22px}.srow__name .kico .ico{width:13px;height:13px}
 .srow__name b{font-weight:500;overflow-wrap:anywhere}
 .srow__why{font-size:12px;line-height:17px;color:var(--ink-muted)}
 .srow__why--risk{color:var(--risk-ink)}
 .srow__k{font:500 10.5px/18px var(--font-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted)}
 .srow__s{display:flex;gap:4px;flex-wrap:wrap}
+.legend{position:fixed;z-index:25;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(max(16px,env(safe-area-inset-bottom,0px)) + 46px);width:264px;max-width:calc(100vw - 32px);max-height:70vh;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);box-shadow:var(--shadow-pop);padding:12px;display:grid;gap:7px;font-size:12.5px;line-height:17px;transition:right 200ms}
+body.has-sheet .legend{right:calc(var(--sheet-w) + 16px)}
+.legend .kico{width:22px;height:22px}.legend .kico .ico{width:13px;height:13px}
+.legend__r{display:grid;grid-template-columns:30px minmax(0,1fr);gap:8px;align-items:center}
+.legend__sw{width:22px;height:14px;border-radius:4px;border:1.5px solid var(--line-strong);background:var(--surface);justify-self:start}
 .zoomer{position:fixed;z-index:25;right:max(16px,env(safe-area-inset-right,0px));bottom:max(16px,env(safe-area-inset-bottom,0px));display:flex;align-items:center;gap:2px;padding:3px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);box-shadow:var(--shadow-pop);transition:right 200ms}
 .zoomer button{all:unset;box-sizing:border-box;min-width:30px;height:28px;padding:0 8px;border-radius:var(--radius-sm);font:500 12px/28px var(--font-sans);text-align:center;cursor:pointer;font-variant-numeric:tabular-nums}
 .zoomer button:hover{background:var(--surface-subtle)}
@@ -238,9 +247,15 @@ body.has-sheet .zoomer{right:calc(var(--sheet-w) + 16px)}
 .grip{width:14px;height:28px;display:flex;align-items:center;justify-content:center;color:var(--ink-faint);cursor:grab}
 .grip .ico{width:14px;height:14px}
 .kico{width:28px;height:28px;border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;background:var(--surface-subtle);color:var(--ink-muted);flex:none;position:relative}
-.kico--write{background:var(--slate);color:var(--on-slate)}
-.kico--person,.kico--talk{background:var(--copper-tint);color:var(--copper-ink)}
-.kico--decision,.kico--each,.kico--repeat{background:var(--slate-tint);color:var(--slate)}
+.kico .ico{opacity:1}
+.kico--trigger,.kico--write{background:var(--slate);color:var(--on-slate)}
+.kico--read{background:var(--slate-tint);color:var(--slate);box-shadow:inset 0 0 0 1px var(--slate)}
+.kico--skill{background:var(--data-seq-4);color:var(--on-slate)}
+.kico--auto{background:var(--data-seq-3);color:var(--ink)}
+.kico--person,.kico--talk{background:var(--copper);color:var(--on-slate)}
+.kico--notify{background:var(--copper-tint);color:var(--copper-ink);box-shadow:inset 0 0 0 1px var(--copper)}
+.kico--decision,.kico--each,.kico--repeat,.kico--wait,.kico--stop{background:var(--ink);color:var(--paper)}
+.kico--askagent,.kico--tellagent,.kico--handoff{background:var(--positive);color:var(--on-slate)}
 .ltr{width:18px;height:18px;border-radius:50%;background:var(--slate);color:var(--on-slate);font:600 10px/18px var(--font-sans);text-align:center;flex:none}
 .ltr--else{background:var(--surface);color:var(--ink-muted);border:1px solid var(--line-strong);line-height:16px}
 .is-ghost{opacity:.35}
@@ -259,7 +274,7 @@ body.has-sheet .zoomer{right:calc(var(--sheet-w) + 16px)}
 .gsvg path.dash{stroke:var(--slate);stroke-dasharray:3 3}
 .gsvg.is-tried path:not(.on),.gsvg.is-tried polygon:not(.on){opacity:.4}
 .gsvg .ah{fill:var(--line-strong);stroke:none}.gsvg .ah-on{fill:var(--positive);stroke:none}
-.gsvg polygon{fill:var(--surface);stroke:var(--line-strong);stroke-width:1.25}
+.gsvg polygon{fill:var(--surface);stroke:var(--ink-muted);stroke-width:1.5}
 .gsvg polygon.is-sel{stroke:var(--slate);stroke-width:2.5}
 .gsvg polygon.is-dead{opacity:.45}
 .gsvg rect{fill:var(--paper);stroke:var(--line-strong);stroke-dasharray:4 4}
@@ -273,10 +288,14 @@ body.has-sheet .zoomer{right:calc(var(--sheet-w) + 16px)}
 .gfold:focus-visible{outline:2px solid var(--slate);outline-offset:1px}
 .gfold .ico{width:13px;height:13px}
 .gsvg text{font:500 9.5px var(--font-mono);fill:var(--ink-muted);letter-spacing:.1em;text-transform:uppercase}
-.gnode{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;justify-content:center;gap:2px;padding:6px 12px;background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--radius-sm);cursor:pointer;user-select:none;-webkit-user-select:none}
+.gnode{position:absolute;box-sizing:border-box;display:flex;flex-direction:row;align-items:center;gap:9px;padding:6px 10px;background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--radius-sm);cursor:pointer;user-select:none;-webkit-user-select:none}
 .gnode:hover{border-color:var(--slate)}
 .gnode:focus-visible{outline:2px solid var(--slate);outline-offset:2px}
 .gnode.is-sel{border-color:var(--slate);box-shadow:0 0 0 1.5px var(--slate)}
+.gnode .kico{width:26px;height:26px}
+.gnode .kico .ico{width:15px;height:15px}
+.gnode__x{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1 1 auto}
+.gnode--ghost .kico{opacity:.6}
 .gnode__t{font:500 13px/17px var(--font-sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gnode__t .n{font:500 11px/17px var(--font-mono);color:var(--ink-faint);margin-right:6px}
 .gnode__s{font:500 10.5px/14px var(--font-mono);color:var(--ink-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -285,10 +304,11 @@ body.has-sheet .zoomer{right:calc(var(--sheet-w) + 16px)}
 .gnode--write{border-color:var(--slate);border-width:1.5px;padding-right:32px}
 .gnode--person,.gnode--talk{background:var(--copper-tint);border-color:var(--copper-tint)}
 .gnode--person .gnode__t,.gnode--talk .gnode__t{color:var(--copper-ink)}
-.gnode--decision,.gnode--decision:hover,.gnode--decision.is-sel{background:none;border-color:transparent;box-shadow:none;align-items:center;text-align:center;padding:0 44px}
+.gnode--decision,.gnode--decision:hover,.gnode--decision.is-sel{background:none;border-color:transparent;box-shadow:none;flex-direction:column;justify-content:center;gap:3px;align-items:center;text-align:center;padding:0 50px}
+.gnode--decision .kico{width:18px;height:18px;border-radius:4px}.gnode--decision .kico .ico{width:11px;height:11px}
 .gnode--decision .gnode__t{white-space:normal;font-size:12px;line-height:15px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
-.gnode--stop{border-radius:var(--radius-pill);flex-direction:row;align-items:center;justify-content:center;gap:6px;background:var(--surface-subtle);padding:0 10px;font:500 12px/1 var(--font-sans)}
-.gnode--stop .ico{width:11px;height:11px}
+.gnode--stop{border-radius:var(--radius-pill);justify-content:center;gap:7px;background:var(--surface-subtle);border-color:var(--ink);padding:0 10px;font:500 12px/1 var(--font-sans)}
+.gnode--stop .kico{width:16px;height:16px;border-radius:50%}.gnode--stop .kico .ico{width:9px;height:9px}
 .gnode.has-issue,.gnode.has-issue:hover{border-color:var(--risk);border-width:1.5px}
 .gnode--decision.has-issue,.gnode--decision.has-issue:hover{border-color:transparent}
 .gsvg polygon.has-issue{stroke:var(--risk);stroke-width:2}
@@ -401,7 +421,7 @@ details.more summary span{font-weight:400;color:var(--ink-muted)}
 .fab{position:fixed;z-index:26;left:max(16px,env(safe-area-inset-left,0px));bottom:max(16px,env(safe-area-inset-bottom,0px));box-shadow:var(--shadow-pop)}
 .toast{position:fixed;z-index:50;left:50%;bottom:max(24px,env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:10px 16px;border-radius:var(--radius-sm);font:500 13px/18px var(--font-sans);box-shadow:var(--shadow-pop);max-width:calc(100% - 32px)}
 
-@media (max-width:1180px){body.has-sheet .canvas{margin-right:0}body.has-sheet .zoomer{right:max(16px,env(safe-area-inset-right,0px))}}
+@media (max-width:1180px){body.has-sheet .legend{right:max(16px,env(safe-area-inset-right,0px))}body.has-sheet .canvas{margin-right:0}body.has-sheet .zoomer{right:max(16px,env(safe-area-inset-right,0px))}}
 @media (max-width:900px){
   .work,.work.is-railoff{grid-template-columns:minmax(0,1fr)}.rail{display:none}
   .srow{grid-template-columns:34px minmax(0,1fr)}.srow__k{display:none}.srow__s{grid-column:2}.srow--head{display:none}
@@ -928,7 +948,7 @@ function resPanel(id) {
     ${id === "trigger" ? "" : `<div class="res__acts">${r.offer ? `<button class="linkbtn" data-act="adddecision" data-id="${id}" data-offer="${r.offer}">Add a decision here</button>` : ""}<button class="linkbtn" data-act="fixwith" data-id="${id}">Not right? Tell the Builder</button></div>`}</div>`;
 }
 /* ── The chart: where each box and arrow goes. Steps run down; a decision's paths spread sideways, as wide as they need. ── */
-const NW = 212, NH = 54, DH = 84, SH = 30, GX = 32, GY = 38, GB = 58, GJ = 30;
+const NW = 236, NH = 54, DH = 92, SH = 30, GX = 32, GY = 38, GB = 58, GJ = 30;
 function size(st) {
   if (st.kind === "decision") {
     const ps = st.paths.map((q) => measure(q.steps)), ph = Math.max(28, ...ps.map((m) => m.h));
@@ -1019,15 +1039,16 @@ function graphHTML() {
   const svg = L.frames.map((f) => `<rect class="${f.solid ? "solid" : ""}${f.dead ? " is-dead" : ""}" x="${X(f.x)}" y="${Y(f.y)}" width="${f.w}" height="${f.h}" rx="10"/><text x="${X(f.x) + 12}" y="${Y(f.y + f.h) - 9}">${f.text}</text>`).join("") + L.edges.map((e) => `<path class="${e.on ? "on" : e.dash ? "dash" : ""}" d="M${e.pts.map((q) => `${X(q[0])} ${Y(q[1])}`).join(" L")}" ${e.head ? `marker-end="url(#${e.on ? "ah-on" : "ah"})"` : ""}/>`).join("")
     + L.nodes.filter((n) => n.st.kind === "decision").map((n) => `<polygon class="${S.sel === n.st.id ? "is-sel" : ""}${n.dead ? " is-dead" : ""}${n.on ? " on" : ""}${openOf(n.st).some(isIssue) ? " has-issue" : ""}" points="${X(n.x + n.w / 2)},${Y(n.y)} ${X(n.x + n.w)},${Y(n.y + n.h / 2)} ${X(n.x + n.w / 2)},${Y(n.y + n.h)} ${X(n.x)},${Y(n.y + n.h / 2)}"/>`).join("");
   const nodes = L.nodes.map((n) => {
-    if (n.ghost) return `<div class="gnode gnode--ghost${n.dead ? " is-dead" : ""}" data-act="open" data-id="${n.st.id}" style="left:${X(n.x)}px;top:${Y(n.y)}px;width:${n.w}px;height:${n.h}px"><span class="gnode__t">${esc(n.ghost.name)}</span><span class="gnode__s"><b>${K[n.ghost.kind].label}</b>${esc(n.ghost.sub)}</span></div>`;
+    if (n.ghost) return `<div class="gnode gnode--ghost${n.dead ? " is-dead" : ""}" data-act="open" data-id="${n.st.id}" style="left:${X(n.x)}px;top:${Y(n.y)}px;width:${n.w}px;height:${n.h}px"><span class="kico kico--${n.ghost.kind}">${ic(K[n.ghost.kind].ico)}</span><span class="gnode__x"><span class="gnode__t">${esc(n.ghost.name)}</span><span class="gnode__s"><b>${K[n.ghost.kind].label}</b>${esc(n.ghost.sub)}</span></span></div>`;
     const st = n.st, k = st.kind, open = openOf(st).length, r = t && t.res[st.id], seen = r && t.order.indexOf(st.id) < t.shown;
     const fold = n.fold ? `<button class="gfold" data-act="fold" data-id="${st.id}" title="${n.fold === "open" ? "Fold it to one box" : `Show the ${plural(n.inside, "step")} inside`}" aria-label="${n.fold === "open" ? "Fold" : "Show what is inside"}">${n.fold === "open" ? "" : n.inside}${ic(n.fold === "open" ? "chevd" : "chev")}</button>` : "";
     const iss = openOf(st).filter(isIssue).length, bad = n.dead || iss > 0;
     const cls = `gnode gnode--${k}${bad ? " has-issue" : ""}${n.fold ? " has-fold" : ""}${S.sel === st.id ? " is-sel" : ""}${fresh.has(st.id) ? " is-fresh" : ""}${n.dead ? " is-dead" : ""}${t && t.done && !r && !n.dead ? " is-off" : ""}`;
     const flag = n.dead ? `<span class="gflag pill pill--risk">Never runs</span>` : iss ? `<span class="gflag pill pill--risk">${plural(iss, "issue")}</span>` : open ? `<span class="gflag pill pill--wait">${plural(open, "question")}</span>` : "";
     const mark = seen ? `<span class="gmark pill ${r.tone === "wait" ? "pill--wait" : "pill--ok"}">${r.tone === "wait" ? "Look" : r.would ? "Would" : "Did"}</span>` : "";
-    const body = k === "stop" ? `${ic("stop")}Stop` : k === "decision" ? `<span class="gnode__t">${esc(st.name)}</span>`
-      : `<span class="gnode__t">${n.label ? `<span class="n">${n.label}</span>` : ""}${esc(st.name)}</span><span class="gnode__s"><b>${K[k].label}</b>${k === "trigger" ? esc(st.starts) : subOf(st)}</span>${k === "write" && st.approval === "Ask first" ? `<span class="gsign">${ic("sign")}</span>` : ""}`;
+    const chip = `<span class="kico kico--${k}">${ic(K[k].ico)}</span>`;
+    const body = k === "stop" ? `${chip}Stop` : k === "decision" ? `${chip}<span class="gnode__t">${esc(st.name)}</span>`
+      : `${chip}<span class="gnode__x"><span class="gnode__t">${n.label ? `<span class="n">${n.label}</span>` : ""}${esc(st.name)}</span><span class="gnode__s"><b>${K[k].label}</b>${k === "trigger" ? esc(st.starts) : subOf(st)}</span></span>${k === "write" && st.approval === "Ask first" ? `<span class="gsign">${ic("sign")}</span>` : ""}`;
     const handle = k === "decision" || k === "stop" || n.dead ? "" : `<span class="ghandle" data-h="${st.id}"></span>`;
     return `<div class="${cls}" role="button" tabindex="0" data-act="open" data-id="${st.id}" data-node="${st.id}" ${k === "trigger" ? "" : 'draggable="true"'} aria-label="${esc(st.name)}: open its setup" style="left:${X(n.x)}px;top:${Y(n.y)}px;width:${n.w}px;height:${n.h}px">${body}${fold}${flag}${mark}${handle}</div>`;
   }).join("");
@@ -1081,7 +1102,7 @@ function listHTML() {
     const s = status(st, dead), first = openOf(st).slice().sort((a, b) => (isIssue(a) ? 0 : 1) - (isIssue(b) ? 0 : 1))[0], r = t && t.res[st.id], seen = r && t.order.indexOf(st.id) < t.shown;
     if (S.only && !s.needs) return;
     rows.push(`<div class="srow${S.sel === st.id ? " is-sel" : ""}${dead ? " is-dead" : ""}" role="button" tabindex="0" data-act="open" data-id="${st.id}" data-node="${st.id}"><span class="srow__n">${label}</span>
-      <span class="srow__name" style="padding-left:${S.only ? 0 : depth * 18}px"><b>${esc(st.name)}</b>${first ? `<span class="srow__why ${isIssue(first) ? "srow__why--risk" : ""}">${esc(first.text)}</span>` : dead ? `<span class="srow__why srow__why--risk">Every path above it ends, so the run never gets here.</span>` : seen ? `<span class="srow__why">${esc(r.text)}</span>` : ""}</span>
+      <span class="srow__name" style="padding-left:${(S.only ? 0 : depth * 18) + 32}px"><span class="kico kico--${st.kind}">${ic(K[st.kind].ico)}</span><b>${esc(st.name)}</b>${first ? `<span class="srow__why ${isIssue(first) ? "srow__why--risk" : ""}">${esc(first.text)}</span>` : dead ? `<span class="srow__why srow__why--risk">Every path above it ends, so the run never gets here.</span>` : seen ? `<span class="srow__why">${esc(r.text)}</span>` : ""}</span>
       <span class="srow__k">${K[st.kind].label}</span><span class="srow__s">${s.html}</span></div>`);
   };
   const walkRows = (list, depth, lab, dead) => {
@@ -1111,7 +1132,14 @@ function canvasHTML() {
 function buildHTML() {
   return `<header class="bar" id="bar">${barHTML()}</header><div class="work${S.railOff ? " is-railoff" : ""}"><aside class="rail" aria-label="Add a step">${railHTML()}</aside><main class="canvas${S.mode === "list" ? " canvas--list" : ""}" id="canvas">${canvasHTML()}</main></div>
   <button class="btn btn--sec btn--sm fab" data-act="sheet" data-type="notes">${ic("info")}About this prototype</button>
-  <div class="zoomer" role="group" aria-label="Zoom and move" ${S.mode === "list" ? "hidden" : ""}><button data-act="zoom" data-d="-1" aria-label="Zoom out" title="Zoom out">−</button><button data-act="zoom" data-d="0" id="zlabel" title="Back to 100%">${Math.round(S.zoom * 100)}%</button><button data-act="zoom" data-d="1" aria-label="Zoom in" title="Zoom in">+</button><i></i><button data-act="fit" title="Fit the whole flow">Fit</button><i class="zhide"></i><span class="help zhide" style="padding:0 8px 0 4px">Drag the background to move</span></div>`;
+  <div class="legend" id="legend" ${S.key && S.mode !== "list" ? "" : "hidden"}><span class="eyebrow">Steps, by colour</span>
+    ${[["trigger", "How it starts"], ["skill", "Skill: work from the library"], ["auto", "Automation: saved steps, run as one"], ["read", "Tool, reading: changes nothing"], ["write", "Tool, writing: changes the client's tool"], ["person", "A person answers, approves or talks"], ["notify", "Notify: tells people"], ["decision", "Logic: decision, loop, wait, stop"], ["askagent", "Another agent"]].map(([k, tx]) => `<div class="legend__r"><span class="kico kico--${k}">${ic(K[k].ico)}</span><span>${tx}</span></div>`).join("")}
+    <span class="eyebrow" style="margin-top:6px">Marks</span>
+    <div class="legend__r"><span class="legend__sw" style="border-color:var(--risk)"></span><span>Red border: an issue to fix, or it never runs</span></div>
+    <div class="legend__r"><span class="pill pill--wait" style="padding:0 5px;font-size:10px;justify-self:start">?</span><span>Gold tag: a question for you</span></div>
+    <div class="legend__r"><span style="color:var(--copper);display:flex">${ic("sign")}</span><span>Copper pen: a person signs before it writes</span></div>
+    <div class="legend__r"><span class="legend__sw" style="border:0;height:2px;border-radius:0;background:var(--positive)"></span><span>Green line: the path a try took</span></div></div>
+  <div class="zoomer" role="group" aria-label="Zoom and move" ${S.mode === "list" ? "hidden" : ""}><button data-act="zoom" data-d="-1" aria-label="Zoom out" title="Zoom out">−</button><button data-act="zoom" data-d="0" id="zlabel" title="Back to 100%">${Math.round(S.zoom * 100)}%</button><button data-act="zoom" data-d="1" aria-label="Zoom in" title="Zoom in">+</button><i></i><button data-act="fit" title="Fit the whole flow">Fit</button><i></i><button data-act="key" title="What the colours mean" aria-controls="legend">Key</button><i class="zhide"></i><span class="help zhide" style="padding:0 8px 0 4px">Drag the background to move</span></div>`;
 }
 
 /* ── Sheet ── */
@@ -1308,6 +1336,7 @@ function notesHTML() {
       <li><b style="font-weight:500">Decisions come after it works.</b> A try shows where one is missing and adds it in one press.</li>
       <li><b style="font-weight:500">The flow is a chart of small boxes and arrows.</b> Point at a box for its details; click it to set it up.</li>
       <li><b style="font-weight:500">Decisions branch sideways, as a tree.</b> Each path is a column under the decision; a decision on a path splits it again, so two paths become four. Paths come back together or run to their own end. "Add a path" sits beside the decision.</li>
+      <li><b style="font-weight:500">Each kind of step has its icon in its family's colour,</b> from the design system's own colours: slate for tools and how it starts, blue for skills and automations, copper for people, ink for logic, green for other agents. "Key" on the chart lists them.</li>
       <li><b style="font-weight:500">A group of steps is a frame.</b> A loop (for each, repeat) is a frame around its steps with an arrow back to the top. An automation is one box you can open to see its saved steps. Either folds back to a single box.</li>
       <li><b style="font-weight:500">The Builder in the side panel has three sizes:</b> just the message box, beside the setup, or the whole panel.</li>
       <li><b style="font-weight:500">The list of steps folds away,</b> and its search reads plain words: say what the step should do and it offers that, plus the closest steps.</li>
@@ -1710,6 +1739,7 @@ const ACT = {
   fold: (d) => { const st = find(d.id); if (!st) return; st.folded = st.kind === "auto" ? (st.folded === false ? true : false) : !st.folded; renderCanvas(); renderSheet(); focusNode(d.id); },
   zoom: (d) => setZoom(+d.d ? S.zoom + 0.1 * +d.d : 1),
   fit: () => fit(),
+  key: () => { S.key = !S.key; const el = $("#legend"); if (el) el.hidden = !S.key; },
   undo: () => undo(),
   chatundo: () => undo(),
   dismiss: () => { S.note = null; renderCanvas(); },
