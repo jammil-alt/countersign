@@ -70,6 +70,8 @@ const WorkflowBuilder = lazy(() => import("../builder/WorkflowBuilder"));
 const ReadOnlyFlow = lazy(() => import("../flow/ReadOnlyFlow"));
 // B3: the Manual tab is its own chunk (with its route's schema), fetched when it opens.
 const OpsManualTab = lazy(() => import("./ManualTab").then((m) => ({ default: m.OpsManualTab })));
+// R4 (docs/plan.md §1.214): a client agent's report, its own chunk with its route's schema.
+const ReportTab = lazy(() => import("./ReportTab").then((m) => ({ default: m.ReportTab })));
 const SecurityTab = lazy(() => import("./SecurityTab").then((m) => ({ default: m.SecurityTab })));
 
 /** The page's tabs; the Workflow tab opens the builder on `workflow` (its first workflow). */
@@ -133,6 +135,8 @@ function AgentTabs({
           // docs/builder-plan.md §5 (B3): the agent's manual.
           { to: `${base}/manual${keep}`, label: "Manual" },
           { to: `${base}/runs${keep}`, label: "Runs" },
+          // R4: a client agent's report.
+          ...(isClient ? [{ to: `${base}/report`, label: "Report" }] : []),
           // docs/agent-assurance-plan.md §5: a client agent's architecture and security checks.
           ...(isClient ? [{ to: `${base}/security${keep}`, label: "Security" }] : []),
           {
@@ -557,6 +561,19 @@ export function AgentScreen({
               <Suspense fallback={<Loading />}>
                 <SecurityTab agentId={view.id} />
               </Suspense>
+            }
+          />
+          {/* R4 (docs/plan.md §1.214): a client agent's report. */}
+          <Route
+            path="report"
+            element={
+              isClient ? (
+                <Suspense fallback={<Loading />}>
+                  <ReportTab agentId={view.id} />
+                </Suspense>
+              ) : (
+                <EmptyState>Templates don't run for clients, so they have no report.</EmptyState>
+              )
             }
           />
           {/* Triggers moved into the Workflow tab (its first step); the old address opens it. */}

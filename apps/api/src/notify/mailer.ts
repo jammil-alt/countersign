@@ -12,6 +12,7 @@ import {
   readTwilioConfig,
   releaseTextSender,
   resendRequest,
+  resendSendTags,
   sendReleaseText,
   TWILIO_CONNECTOR_ID,
   twilioCredentialsOf,
@@ -42,6 +43,11 @@ export interface MailMessage {
    * <hello@domain>` (the onboarding emails, from the lead). Replies go to `replyTo`.
    */
   from?: { name: string; localPart: typeof HELLO_LOCAL_PART };
+  /**
+   * §1.220: Resend's tags (`name → value`, letters, digits, `_` and `-`), which come back on its
+   * webhook's events, so a delivered or bounced event finds the row it is about.
+   */
+  tags?: Record<string, string>;
 }
 
 /** A name for a From header: no header syntax, one line, at most 80 characters. */
@@ -106,6 +112,10 @@ export function resendMailer(input: {
           text: m.text,
           ...(m.html ? { html: m.html } : {}),
           ...(m.replyTo ? { reply_to: m.replyTo } : {}),
+          ...(() => {
+            const tags = m.tags ? resendSendTags(m.tags) : [];
+            return tags.length > 0 ? { tags } : {};
+          })(),
           ...(() => {
             const headers = {
               ...m.headers,

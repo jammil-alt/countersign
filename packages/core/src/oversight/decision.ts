@@ -18,8 +18,11 @@ import type {
 import { type Approval, DEFAULT_APPROVAL } from "../schemas/approval";
 import { ModelChoice } from "../schemas/skill";
 import type { ActionStep, SkillStep } from "../schemas/workflow";
+import { VerifyMode } from "./verify";
 import type { AnomalySignal } from "./watch";
 
+// Round 4 D (docs/plan.md §1.211): the verifier before a write, exported with the decisions.
+export * from "./verify";
 // R6: the owner's cheap watch (its anomaly signals), exported with the decisions.
 export * from "./watch";
 
@@ -52,6 +55,11 @@ export const OversightSettings = z
     maxPerRun: z.number().int().min(0).max(10).default(OVERSIGHT_DEFAULT_MAX_PER_RUN),
     /** On top of the agent's budget: the decisions' cost in one run. */
     maxCostUsd: DecimalString.default(OVERSIGHT_DEFAULT_MAX_COST_USD),
+    /**
+     * Round 4 D (§1.211): `writes` checks every write the agent proposes against the run's sources
+     * before it reaches a person or goes ahead. Absent (every agent before) is `off`.
+     */
+    verify: VerifyMode.optional(),
   })
   .meta({ id: "OversightSettings" });
 export type OversightSettings = z.infer<typeof OversightSettings>;
@@ -62,7 +70,8 @@ export type OversightSettingsInput = z.input<typeof OversightSettings>;
  */
 // DECISION: agents made before v0.13 have no `oversight` and keep running as they did; only new
 // drafts start with failures reviewed (docs/plan.md §1.54).
-export const NEW_AGENT_OVERSIGHT: OversightSettingsInput = { review: "failures" };
+// Round 4 D (§1.211): and with every write verified, as the owner asked (2026-11-22).
+export const NEW_AGENT_OVERSIGHT: OversightSettingsInput = { review: "failures", verify: "writes" };
 
 /** Whether a failure of this step is reviewed: the step's own setting, else the agent's. */
 export function reviewsFailures(

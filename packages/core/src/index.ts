@@ -16,6 +16,8 @@ export * from "./api/access";
 export * from "./api/account";
 // docs/builder-plan.md §7 (B5): client adjustments and feedback on the manual
 export * from "./api/adjust";
+// R4: the report per agent (docs/plan.md §1.214).
+export * from "./api/agent-report";
 export * from "./api/all-routes";
 export * from "./api/approver-rules";
 export * from "./api/assigned";
@@ -29,6 +31,8 @@ export * from "./api/autopilot";
 // v0.12 bankfeed
 export * from "./api/bankfeed";
 export * from "./api/billing";
+// docs/plan.md §1.216: books health
+export * from "./api/books-health";
 export * from "./api/browser";
 export * from "./api/browser-scripts";
 // docs/plan.md §1.108: builds, from intake to go-live
@@ -58,6 +62,8 @@ export * from "./api/desk";
 export * from "./api/desktop";
 export * from "./api/directory";
 export * from "./api/documents";
+// Round 4 D (docs/plan.md §1.211)
+export * from "./api/evidence";
 export * from "./api/excel";
 export * from "./api/exports";
 export * from "./api/feedback";
@@ -73,6 +79,8 @@ export * from "./api/gsheets";
 export * from "./api/hours";
 // docs/plan.md §1.149: onboarding v1 (the intake, the welcome page, Invite and Sign up now)
 export * from "./api/intake";
+// §1.164: the builder's sample-file check for a Read table step.
+export * from "./api/intake-reports";
 export * from "./api/invite";
 export * from "./api/knowledge";
 export * from "./api/language";
@@ -101,7 +109,6 @@ export * from "./api/phone-approval";
 export * from "./api/prompt-preview";
 export * from "./api/qbo";
 export * from "./api/reach";
-// §1.164: the builder's sample-file check for a Read table step.
 export * from "./api/read-table";
 export * from "./api/records";
 export * from "./api/reggie";
@@ -170,6 +177,8 @@ export * from "./assurance/index";
 // P-3: attachments both ways
 export * from "./attachments";
 export * from "./billing";
+// docs/plan.md §1.216: books health, the checks over a client's synced QuickBooks.
+export * from "./books-health";
 export * from "./browser/script";
 export * from "./browser/site";
 export * from "./build/build";
@@ -329,7 +338,10 @@ export * from "./schemas/conversation";
 export * from "./schemas/event";
 export * from "./schemas/json-schemas";
 export * from "./schemas/pack";
+export * from "./schemas/pack-config";
 export * from "./schemas/permissions";
+// §1.213: file and email intake's report profiles.
+export * from "./schemas/report-profile";
 export * from "./schemas/rules";
 export * from "./schemas/skill";
 // The skill model (owner, 2026-11-10): parameters, rule rows, kinds, models, versions, writes.

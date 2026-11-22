@@ -1,9 +1,12 @@
 // The SPA: sign-in, the back office (`/ops/*`) and the client portal (everything else), each of
 // the two its own chunk, one app with two layouts (plan §1.2 "Back office and portal in one app").
+
+import { MOBILE_CONFIRM_PATH } from "@countersign/core";
 import { lazy, type ReactNode, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import type { ApiClient } from "./api/client";
 import { ApiProvider } from "./api/useApi";
+import { loadCatalog } from "./i18n/catalog";
 import { SessionLanguage } from "./i18n/SessionLanguage";
 import { SignInScreen } from "./session/SignIn";
 import { StillFrame } from "./session/StillFrame";
@@ -16,7 +19,10 @@ import { ErrorNotice } from "./ui/primitives";
  * the session call, instead of after it (docs/audit-plan.md 4.3); elsewhere, only once an operator
  * reaches /ops.
  */
-const loadOpsApp = () => import("./ops/OpsApp");
+// DECISION (§1.208): the back office reads in English always, and English is not in the first load
+// any more, so its chunk and English's load together and it shows once both are here.
+const loadOpsApp = () =>
+  Promise.all([import("./ops/OpsApp"), loadCatalog("en")]).then(([opsApp]) => opsApp);
 let opsAppEarly: ReturnType<typeof loadOpsApp> | null = null;
 const OpsApp = lazy(() => opsAppEarly ?? loadOpsApp());
 /**
@@ -55,6 +61,10 @@ export function startChunksEarly(pathname: string): void {
 const SecondStepScreen = lazy(() =>
   import("./session/SecondStep").then((m) => ({ default: m.SecondStepScreen })),
 );
+// §1.219: the page that asks before a sign-in goes to the phone or desktop app: its own chunk.
+const AppHandoffScreen = lazy(() =>
+  import("./session/AppHandoff").then((m) => ({ default: m.AppHandoffScreen })),
+);
 // §1.98: the texting sign-up page is opened from a link, never in the app: its own chunk.
 const TextSignupScreen = lazy(() =>
   import("./signup/TextSignup").then((m) => ({ default: m.TextSignupScreen })),
@@ -81,6 +91,15 @@ export function AppRoutes() {
         element={
           <Suspense fallback={<StillFrame />}>
             <SecondStepScreen />
+          </Suspense>
+        }
+      />
+      {/* docs/plan.md §1.219: confirm before the session goes to one of our apps. */}
+      <Route
+        path={MOBILE_CONFIRM_PATH}
+        element={
+          <Suspense fallback={<StillFrame />}>
+            <AppHandoffScreen />
           </Suspense>
         }
       />

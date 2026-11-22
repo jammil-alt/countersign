@@ -12,7 +12,7 @@ import {
   type ResolveBody,
   type UndoChangeResult,
 } from "@countersign/core";
-import { type ReactNode, useState } from "react";
+import { lazy, type ReactNode, Suspense, useState } from "react";
 import { Link } from "react-router-dom";
 import type { z } from "zod";
 import { directoryFieldName, directoryValue } from "../directory/DirectoryPanel";
@@ -31,6 +31,37 @@ import { LATE_KEYS } from "./late";
 import { UndiscussedLines } from "./Undiscussed";
 
 export type ResolveInput = z.input<typeof ResolveBody>;
+
+// Round 4 D (docs/plan.md §1.211): the evidence on a change, its own chunk (not in the first load).
+const EvidencePanel = lazy(() => import("./EvidencePanel"));
+
+/** A change card's evidence panel, loaded on its own; shared by the Desk's card. */
+export function ChangeEvidence({
+  item,
+  surface,
+  recordHref,
+}: {
+  item: { id: string; kind: string; payload: Record<string, unknown> };
+  surface: "portal" | "ops";
+  recordHref?: ((id: string) => string) | null;
+}) {
+  if (item.kind !== "external_action" || typeof item.payload.tool !== "string") return null;
+  const v = item.payload.verification;
+  const outcome =
+    typeof v === "object" && v !== null && typeof (v as { outcome?: unknown }).outcome === "string"
+      ? (v as { outcome: string }).outcome
+      : null;
+  return (
+    <Suspense fallback={null}>
+      <EvidencePanel
+        itemId={item.id}
+        surface={surface}
+        verification={outcome}
+        recordHref={recordHref ?? null}
+      />
+    </Suspense>
+  );
+}
 
 export interface InboxCardItem {
   id: string;
@@ -92,6 +123,9 @@ const PLUMBING = new Set([
   "onReject",
   // B3: shown as its own lines (UndiscussedLines).
   "undiscussed",
+  // Round 4 D (§1.211): shown in the evidence panel.
+  "verification",
+  "threshold",
   "actionId",
   "escalated",
   "nodeId",
@@ -423,6 +457,8 @@ export function InboxCard({
           <SentAs before={item.payload.before} />
           {/* B3: the decisions its step rests on that nobody has discussed yet. */}
           <UndiscussedLines payload={item.payload} />
+          {/* Round 4 D: what it rests on, and the second check. */}
+          <ChangeEvidence item={item} surface={surface} recordHref={recordHref ?? null} />
         </>
       ) : ReviewCard ? (
         <ReviewCard

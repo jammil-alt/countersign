@@ -1,4 +1,4 @@
-// Migration 0088 (docs/plan.md §1.218): `access_review`, a quarterly access review an operator
+// Migration 0096 (docs/plan.md §1.218): `access_review`, a quarterly access review an operator
 // recorded, and `access_review_item`, each person's access to each client as the review found it.
 // Only operator sessions see a review; each client's items are that client's own; neither is ever
 // updated or deleted by the Worker; a purge takes a retired client's items with it.
@@ -22,7 +22,7 @@ async function errorCode(promise: Promise<unknown>): Promise<string | undefined>
   return undefined;
 }
 
-describe.skipIf(!online)("0088: access_review and access_review_item", () => {
+describe.skipIf(!online)("0096: access_review and access_review_item", () => {
   let t: TestDatabase;
   let A: ClientFixture;
   let B: ClientFixture;

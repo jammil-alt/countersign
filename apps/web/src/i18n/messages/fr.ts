@@ -2327,6 +2327,7 @@ export const fr: Messages = {
   "home.weekly.ready": "Votre interlocuteur a envoyé le résumé de la semaine.",
   "agent.tab.overview": "Vue d'ensemble",
   "agent.tab.runs": "Exécutions",
+  "agent.tab.report": "Rapport",
   "agent.tab.settings": "Réglages de l’agent",
   // B3: the agent manual (docs/builder-plan.md §5)
   "agent.tab.manual": "Manuel", // fluent review
@@ -4114,4 +4115,29 @@ export const fr: Messages = {
     "Vous décidez de ce qui peut se faire sans vous demander. Les approbations restent actives sauf si vous les changez.",
   "setup.live.fromCall": "De notre appel : merci de vérifier",
   // (end setup: live)
+  // §1.216: books health
+  "books.title": "Santé de la comptabilité",
+  "books.subtitle":
+    "Ce que nous avons trouvé dans votre QuickBooks, les plus gros montants d'abord.",
+  "books.none": "Connectez QuickBooks et nous vérifierons votre comptabilité ici.",
+  "books.syncing":
+    "Nous vérifions votre comptabilité une fois la première synchronisation de QuickBooks terminée.",
+  "books.asOf": "Au {day}",
+  "books.since": "sur les écritures datées du {day} et après",
+  "books.allClean": "Toutes les vérifications sont sans problème.",
+  "books.clean": "Rien trouvé dans : {checks}.",
+  "books.fixedBy": "Réglé par {area}",
+  "books.on": "Activé",
+  "books.off": "Non activé",
+  "books.examples": "Exemples",
+  "books.check.unreconciled_accounts": "Comptes non rapprochés",
+  "books.check.uncategorized": "Transactions non catégorisées",
+  "books.check.duplicate_vendors": "Fournisseurs en double",
+  "books.check.duplicate_bills": "Factures fournisseurs en double",
+  "books.check.receivables_aging": "Factures clients en retard",
+  "books.check.payables_aging": "Factures fournisseurs en retard",
+  "books.check.negative_balances": "Soldes négatifs",
+  "books.check.undeposited_funds": "Fonds non déposés",
+  "books.check.price_drift": "Prix fournisseurs en hausse",
+  // (end books health)
 };

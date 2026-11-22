@@ -1,5 +1,5 @@
 {
-  "id": "2bcd8b61-e181-4d29-8e28-724f2bb33525",
+  "id": "3e5ab826-377f-4062-a25b-b71c103988ac",
   "prevId": "ee3f2726-594b-4063-aca0-e8d0154b2635",
   "version": "7",
   "dialect": "postgresql",
@@ -267,255 +267,6 @@
         "access_release_released_check": {
           "name": "access_release_released_check",
           "value": "(\"access_release\".\"status\" in ('released', 'revoked')) = (\"access_release\".\"released_at\" is not null)"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.access_review": {
-      "name": "access_review",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "uuid_generate_v7()"
-        },
-        "period": {
-          "name": "period",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "reviewed_by": {
-          "name": "reviewed_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "reviewer_email": {
-          "name": "reviewer_email",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "clients": {
-          "name": "clients",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "people": {
-          "name": "people",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "removals": {
-          "name": "removals",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "note": {
-          "name": "note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "access_review_created_idx": {
-          "name": "access_review_created_idx",
-          "columns": [
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "access_review_period_check": {
-          "name": "access_review_period_check",
-          "value": "\"access_review\".\"period\" ~ '^[0-9]{4}-Q[1-4]$'"
-        },
-        "access_review_counts_check": {
-          "name": "access_review_counts_check",
-          "value": "\"access_review\".\"clients\" >= 0 and \"access_review\".\"people\" >= 0 and \"access_review\".\"removals\" between 0 and \"access_review\".\"people\""
-        },
-        "access_review_note_check": {
-          "name": "access_review_note_check",
-          "value": "char_length(\"access_review\".\"note\") <= 2000"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.access_review_item": {
-      "name": "access_review_item",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "uuid_generate_v7()"
-        },
-        "review_id": {
-          "name": "review_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "email": {
-          "name": "email",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "role": {
-          "name": "role",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "last_sign_in_at": {
-          "name": "last_sign_in_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_seen_at": {
-          "name": "last_seen_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "decision": {
-          "name": "decision",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "note": {
-          "name": "note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "access_review_item_tenant_idx": {
-          "name": "access_review_item_tenant_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "access_review_item_review_id_access_review_id_fk": {
-          "name": "access_review_item_review_id_access_review_id_fk",
-          "tableFrom": "access_review_item",
-          "tableTo": "access_review",
-          "columnsFrom": [
-            "review_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "access_review_item_tenant_id_tenant_id_fk": {
-          "name": "access_review_item_tenant_id_tenant_id_fk",
-          "tableFrom": "access_review_item",
-          "tableTo": "tenant",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "access_review_item_person_key": {
-          "name": "access_review_item_person_key",
-          "nullsNotDistinct": false,
-          "columns": [
-            "review_id",
-            "tenant_id",
-            "user_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "access_review_item_decision_check": {
-          "name": "access_review_item_decision_check",
-          "value": "\"access_review_item\".\"decision\" in ('keep', 'remove')"
-        },
-        "access_review_item_note_check": {
-          "name": "access_review_item_note_check",
-          "value": "char_length(\"access_review_item\".\"note\") <= 500"
         }
       },
       "isRLSEnabled": false
@@ -14273,6 +14024,204 @@
         "ledger_dimension_kind_check": {
           "name": "ledger_dimension_kind_check",
           "value": "\"ledger_dimension\".\"kind\" in ('class', 'location')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.match_rule": {
+      "name": "match_rule",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "config": {
+          "name": "config",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "field": {
+          "name": "field",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "a_value": {
+          "name": "a_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "b_value": {
+          "name": "b_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "retired_at": {
+          "name": "retired_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "retired_by": {
+          "name": "retired_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "match_rule_live_key": {
+          "name": "match_rule_live_key",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "config",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "field",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "a_value",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"match_rule\".\"retired_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "match_rule_tenant_idx": {
+          "name": "match_rule_tenant_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "config",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "match_rule_tenant_id_tenant_id_fk": {
+          "name": "match_rule_tenant_id_tenant_id_fk",
+          "tableFrom": "match_rule",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "match_rule_created_by_app_user_id_fk": {
+          "name": "match_rule_created_by_app_user_id_fk",
+          "tableFrom": "match_rule",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "match_rule_retired_by_app_user_id_fk": {
+          "name": "match_rule_retired_by_app_user_id_fk",
+          "tableFrom": "match_rule",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "retired_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "match_rule_config_check": {
+          "name": "match_rule_config_check",
+          "value": "\"match_rule\".\"config\" ~ '^[a-z][a-z0-9_]{0,63}$'"
+        },
+        "match_rule_field_check": {
+          "name": "match_rule_field_check",
+          "value": "\"match_rule\".\"field\" in ('reference', 'counterparty')"
+        },
+        "match_rule_values_check": {
+          "name": "match_rule_values_check",
+          "value": "length(\"match_rule\".\"a_value\") between 1 and 200 and length(\"match_rule\".\"b_value\") between 1 and 200"
+        },
+        "match_rule_note_check": {
+          "name": "match_rule_note_check",
+          "value": "\"match_rule\".\"note\" is null or length(\"match_rule\".\"note\") <= 500"
+        },
+        "match_rule_retired_check": {
+          "name": "match_rule_retired_check",
+          "value": "(\"match_rule\".\"retired_at\" is null) = (\"match_rule\".\"retired_by\" is null)"
         }
       },
       "isRLSEnabled": false

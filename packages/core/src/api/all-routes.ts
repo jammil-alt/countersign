@@ -4,12 +4,14 @@
 // access tests walk this whole list, so none of them skips a check.
 
 import { adjustRoutes } from "./adjust";
+import { agentReportRoutes } from "./agent-report";
 import { assistRoutes } from "./assist";
 import { assuranceRoutes } from "./assurance";
 import { clientFileRoutes, startRoutes } from "./client-files";
 import { codeRequestRoutes } from "./code-requests";
 import { connectorAccessRoutes } from "./connector-access";
 import { desktopRoutes } from "./desktop";
+import { evidenceRoutes } from "./evidence";
 import { opsIntakeRoutes, portalIntakeRoutes, welcomeRoutes } from "./intake";
 import { inviteRoutes } from "./invite";
 import { manualRoutes } from "./manual";
@@ -39,6 +41,9 @@ export const allRoutes = {
   // docs/sop-plan.md: the agent's SOP; its tab loads lazily, and its view's schema with it.
   ...sopRoutes,
   ...assuranceRoutes,
+  // Round 4 D (docs/plan.md §1.211): a proposed write's evidence and the client's thresholds; the
+  // evidence panel and the thresholds form load lazily, and their schemas with them.
+  ...evidenceRoutes,
   // docs/builder-plan.md §6 (B4): the setup checklist (Getting started, the agent's page).
   ...setupRoutes,
   // docs/builder-plan.md §7 (B5): client adjustments on the agent's Settings, and feedback on a
@@ -53,4 +58,6 @@ export const allRoutes = {
   ...desktopRoutes,
   // docs/plan.md §1.218: SOC 2 readiness and the access review's record; the screen loads lazily.
   ...soc2Routes,
+  // R4 (docs/plan.md §1.214): the report per agent; its tabs load lazily, and its schema with them.
+  ...agentReportRoutes,
 } as const;
