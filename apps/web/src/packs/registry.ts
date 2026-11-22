@@ -10,6 +10,7 @@ import { PortalWeeklyReportScreen } from "./marketing/portal/WeeklyReport";
 import {
   PortalBankTransactionsScreen,
   PortalCatalogScreen,
+  PortalCloseScreen,
   PortalPriceWatchScreen,
   PortalReconciliationsScreen,
   PortalRequestsScreen,
@@ -101,6 +102,14 @@ export const PACK_REPORTS: readonly PackReport[] = [
     titleKey: "bookkeeping.recons.title",
     descriptionKey: "bookkeeping.recons.description",
     Component: PortalReconciliationsScreen,
+  },
+  // §1.232: the Close pack's month-end close, read only (a person signs off on the card).
+  {
+    pack: "close",
+    slug: "close",
+    titleKey: "close.title",
+    descriptionKey: "close.description",
+    Component: PortalCloseScreen,
   },
 ];
 

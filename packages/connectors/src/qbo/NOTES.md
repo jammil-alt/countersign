@@ -281,3 +281,19 @@ against the fake (`books-company.ts`); check against the sandbox company:
    one done in QuickBooks alone reads as "never reconciled with us".
 4. An initial sync reads 90 days of bills and purchases and a year of invoices and payments, so a
    bill older than 90 days is outside overdue bills until a backfill reads further back.
+
+## Journal entries, for the Close pack (docs/plan.md §1.232)
+
+`qbo.journal.create` writes a `JournalEntry` (`POST /journalentry`): `TxnDate`, `PrivateNote` with
+the close entry's mark (`[Mezonas ce-<id>]`), and `Line` rows of `DetailType:
+"JournalEntryLineDetail"` with `PostingType` `Debit` or `Credit` and an `AccountRef`. Built against
+the fake; to check in the sandbox:
+
+1. UNCHECKED: `select * from JournalEntry where TxnDate = '…'` filters by day, as for Purchase.
+2. UNCHECKED: a journal entry whose debits and credits differ is refused (fault 6060 in the fake);
+   the tool refuses it before sending in any case.
+3. UNCHECKED: a line to Accounts Payable or Receivable needs an `Entity` (vendor or customer);
+   accruals credit an Other Current Liability account, so the template's entries need none.
+4. UNCHECKED: the `requestid` makes a resent create return the first entry.
+5. Journal entries aren't synced (`QBO_SYNCED_ENTITIES`); the close reads what it wrote from its
+   own `close_entry` rows.

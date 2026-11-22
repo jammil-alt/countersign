@@ -30,6 +30,8 @@ const AREA_OF_PACK: Readonly<Record<string, OwnerArea>> = {
   bookkeeping: "bookkeeping",
   marketing: "marketing",
   sales: "sales",
+  // §1.232: the Close pack extends the Bookkeeping area.
+  close: "bookkeeping",
 };
 
 /**

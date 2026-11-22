@@ -14,6 +14,30 @@ export {
   txnView,
 } from "./api";
 export * from "./bookings";
+// §1.232: the Close pack, beside the Bookkeeping pack (its own manifest, id `close`).
+export { CLOSE_REPORTS, CLOSE_REVIEW, CLOSE_REVIEWS } from "./close/api";
+export * from "./close/engine";
+export { CLOSE_PACK_ID } from "./close/ids";
+export { CLOSE_HANDLERS, CLOSE_SKILLS, closeManifest } from "./close/manifest";
+export * from "./close/schema";
+export {
+  type CheckOutput,
+  CLOSE_CONFIG_DEFAULTS,
+  checkClose,
+  closeConfig,
+  closeList,
+  closeView,
+  decideClose,
+  entryReference,
+  entryWritten,
+  JOURNAL_CREATE_TOOL,
+  moneyWords,
+  proposeEntry,
+  readyEntries,
+  settleEntries,
+} from "./close/store";
+export { MONTH_END_CLOSE_SLUG, MONTH_END_CLOSE_TEMPLATE } from "./close/template";
+export { CLOSE_TOOLS } from "./close/tools";
 export { type ImportResult, importFeeds } from "./feed";
 export { PACK_ID } from "./ids";
 export { BOOKKEEPING_HANDLERS, BOOKKEEPING_SKILLS, bookkeepingManifest } from "./manifest";

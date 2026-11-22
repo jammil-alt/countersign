@@ -115,6 +115,10 @@ import { SalesScreen } from "./work/sales/SalesSection";
 
 // F7: the builder's parts load with the first automation opened in it, as an agent's builder does.
 const AutomationEditor = lazy(() => import("./flow/automation/AutomationEditor"));
+// §1.232: the Close pack's report loads when opened.
+const OpsClientCloseScreen = lazy(() =>
+  import("../packs/close/OpsClose").then((m) => ({ default: m.OpsClientCloseScreen })),
+);
 // §1.216: books health loads when opened.
 const OpsClientBooksHealthScreen = lazy(() =>
   import("./client/ClientBooksHealth").then((m) => ({ default: m.OpsClientBooksHealthScreen })),
@@ -262,6 +266,15 @@ export const opsRoutes = (
       <Route
         path="clients/:clientId/reports/bookkeeping/reconciliations"
         element={<OpsClientReconciliationsScreen />}
+      />
+      {/* §1.232: a client's month-end close (the Close pack) */}
+      <Route
+        path="clients/:clientId/reports/close/close"
+        element={
+          <Suspense fallback={<Loading />}>
+            <OpsClientCloseScreen />
+          </Suspense>
+        }
       />
     </Route>
     {/* A document's and a record's own pages, outside the client's frame */}

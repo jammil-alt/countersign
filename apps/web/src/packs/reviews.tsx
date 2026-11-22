@@ -6,6 +6,7 @@ import { AccountQuestions } from "./bookkeeping/AccountQuestions";
 import { BookingsReview } from "./bookkeeping/BookingsReview";
 import { ReconciliationReview } from "./bookkeeping/ReconciliationReview";
 import { ACCOUNT_QUESTIONS, BOOKINGS_REVIEW, RECONCILIATION_REVIEW } from "./bookkeeping/types";
+import { CLOSE_REVIEW } from "./close/types";
 import { MatchReview } from "./materials/MatchReview";
 // P-9: the Purchasing area's cards (docs/plan.md §1.71)
 import { RequestLinesReview } from "./materials/RequestLinesReview";
@@ -17,6 +18,11 @@ import { SALES_MATCH_REVIEW } from "./sales/types";
 // scripts/web-size.mjs).
 const ConfirmMatches = lazy(() =>
   import("./sales/ConfirmMatches").then((m) => ({ default: m.ConfirmMatches })),
+);
+
+// §1.232: the Close pack's sign-off card, loaded with the card.
+const CloseSignOffCard = lazy(() =>
+  import("./close/Close").then((m) => ({ default: m.CloseSignOffCard })),
 );
 
 interface ReviewCardProps {
@@ -36,6 +42,12 @@ const CARDS: Record<string, (props: ReviewCardProps) => ReactNode> = {
   [ACCOUNT_QUESTIONS]: (p) => <AccountQuestions {...p} />,
   // R-1 (docs/plan.md §1.80): the reconciliation card.
   [RECONCILIATION_REVIEW]: (p) => <ReconciliationReview {...p} />,
+  // §1.232: the month's sign-off (the Close pack).
+  [CLOSE_REVIEW]: (p) => (
+    <Suspense fallback={null}>
+      <CloseSignOffCard {...p} />
+    </Suspense>
+  ),
   // §1.164: Confirm matches (the Sales area).
   [SALES_MATCH_REVIEW]: (p) => (
     <Suspense fallback={null}>
