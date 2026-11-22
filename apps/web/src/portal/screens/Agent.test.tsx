@@ -658,7 +658,9 @@ describe("the agent page", () => {
     until: null,
     canResume: true,
   };
-  const resumeWith = (missed: unknown) => {
+  // `pauseShows: false`: the controls still read it as running after a pause (as when it is lifted
+  // elsewhere before the page reloads), so only the pause's own answer can clear the notice.
+  const resumeWith = (missed: unknown, { pauseShows = true } = {}) => {
     let pause: unknown = PAUSED;
     return fakeApi({
       ...base,
@@ -673,7 +675,7 @@ describe("the agent page", () => {
         };
       },
       [`POST /api/services/${SVC}/pause`]: () => {
-        pause = PAUSED;
+        if (pauseShows) pause = PAUSED;
         return { service: control(pause).services[0] };
       },
     });
@@ -695,6 +697,21 @@ describe("the agent page", () => {
     await userEvent.type(screen.getByTestId("agent-pause-reason"), "Again");
     await userEvent.click(screen.getByTestId("agent-pause-confirm"));
     await screen.findByTestId("agent-paused");
+    expect(screen.queryByTestId("agent-missed-events")).toBeNull();
+  });
+
+  it("drops the count once it is paused again, even before the page shows the pause", async () => {
+    renderAt(
+      `/agents/${SVC}`,
+      resumeWith({ count: 2, more: false, ...MISSED }, { pauseShows: false }),
+    );
+    await userEvent.click(await screen.findByTestId("agent-resume"));
+    await screen.findByTestId("agent-missed-events");
+    await userEvent.click(await screen.findByTestId("agent-pause"));
+    await userEvent.type(screen.getByTestId("agent-pause-reason"), "Again");
+    await userEvent.click(screen.getByTestId("agent-pause-confirm"));
+    await waitFor(() => expect(screen.queryByTestId("agent-pause-reason")).toBeNull());
+    expect(screen.queryByTestId("agent-paused")).toBeNull();
     expect(screen.queryByTestId("agent-missed-events")).toBeNull();
   });
 
