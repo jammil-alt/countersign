@@ -23,6 +23,7 @@ import { asWorker, createTestDatabase, databaseAvailable, type TestDatabase } fr
 const online = await databaseAvailable();
 
 const INSUFFICIENT_PRIVILEGE = "42501";
+const FOREIGN_KEY_VIOLATION = "23503";
 
 async function tenantIdsIn(tx: Tx, table: TenantTable): Promise<(string | null)[]> {
   const rows = await tx.execute<{ t: string | null }>(
@@ -154,6 +155,59 @@ describe.skipIf(!online)("row-level security, as cs_worker", () => {
       return rows.length;
     });
     expect(updated).toBe(0);
+  });
+
+  it("run_subject names only its own client's run and step (0077)", async () => {
+    const insert = (tenantId: string, runId: string, stepRunId: string | null) =>
+      errorCode(
+        withTenant(t.db, A.tenantId, async (tx) => {
+          await asWorker(tx);
+          await tx.execute(sql`
+            insert into run_subject (tenant_id, run_id, step_run_id, kind, role, label)
+            values (${tenantId}, ${runId}, ${stepRunId}, 'vendor', 'read', 'Acme Supply')`);
+        }),
+      );
+    // The composite keys hold even though B's run and step exist.
+    expect(await insert(A.tenantId, B.runId, null)).toBe(FOREIGN_KEY_VIOLATION);
+    expect(await insert(A.tenantId, A.runId, B.stepRunId)).toBe(FOREIGN_KEY_VIOLATION);
+    // A row for B, from A's session, is refused by the policy.
+    expect(await insert(B.tenantId, B.runId, B.stepRunId)).toBe(INSUFFICIENT_PRIVILEGE);
+    // What started the run has no step.
+    expect(await insert(A.tenantId, A.runId, null)).toBeUndefined();
+    await withTenant(t.db, B.tenantId, async (tx) => {
+      await asWorker(tx);
+      const rows = await tx.execute<{ n: number }>(
+        sql`select count(*)::int as n from run_subject where run_id = ${A.runId}`,
+      );
+      expect([...rows][0]?.n).toBe(0);
+    });
+  });
+
+  it("run_subject keeps a row whole: kind, role, money with its currency, a tool's id with its tool (0077)", async () => {
+    const insert = (columns: string, values: string) =>
+      errorCode(
+        withTenant(t.db, A.tenantId, async (tx) => {
+          await asWorker(tx);
+          await tx.execute(
+            sql.raw(`insert into run_subject (tenant_id, run_id, ${columns})
+              values ('${A.tenantId}', '${A.runId}', ${values})`),
+          );
+        }),
+      );
+    const CHECK_VIOLATION = "23514";
+    expect(await insert("kind, role", "'invoice', 'read'")).toBe(CHECK_VIOLATION);
+    expect(await insert("kind, role", "'document', 'wrote'")).toBe(CHECK_VIOLATION);
+    expect(await insert("kind, role, amount", "'document', 'read', 12.5")).toBe(CHECK_VIOLATION);
+    expect(await insert("kind, role, currency", "'document', 'read', 'USD'")).toBe(CHECK_VIOLATION);
+    expect(await insert("kind, role, external_id", "'document', 'read', 'bill-2'")).toBe(
+      CHECK_VIOLATION,
+    );
+    expect(
+      await insert(
+        "kind, role, connector, external_id, amount, currency",
+        "'document', 'changed', 'qbo', 'bill-2', 12.5, 'USD'",
+      ),
+    ).toBeUndefined();
   });
 
   it("deletes transaction lines in the client's own scope only", async () => {

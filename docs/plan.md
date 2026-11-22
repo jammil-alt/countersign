@@ -5353,7 +5353,7 @@ hour, and fixing the secret couldn't bring them back.
 |---|---|
 | What disconnects | Only codes that mean the grant is dead: `invalid_grant` everywhere; Zoho `invalid_code`, HubSpot `BAD_REFRESH_TOKEN`, Microsoft `interaction_required`, LinkedIn `invalid_request`. Every other token error retries; codes that are ours to fix (`invalid_client`, `unauthorized_client`, `server_error`, `invalid_scope`…) always do. For HubSpot, Ramp and Podio, whose error shapes are unchecked, an unreadable 400 or 401 still disconnects (`packages/connectors/src/oauth/tokens.ts`). // DECISION |
 | A 401 after a refresh | A 401 right after a refresh that worked is not a dead grant: the connection stays and the call is retryable (each connector's `index.ts`). // DECISION |
-| A failure that lasts | Renewals failing for 24 hours without a 6-hour break raise a `refresh_failing` finding ("we can't reach it right now and are looking into it", six languages). The connection stays `connected`, so syncs keep trying and no reconnect email goes out; it closes when a call works. The record lives in the connection's encrypted credentials (`packages/agents/src/log/connection-attention.ts`). // DECISION |
+| A failure that lasts | Renewals failing for 24 hours without a 6-hour break raise a `refresh_failing` finding ("we can't reach it right now and are looking into it", six languages). The connection stays `connected`, so syncs keep trying and no reconnect email goes out; it closes when a call works. The record lives in the connection's encrypted credentials (`packages/agents/src/log/connection-attention.ts`). While it is open the connection counts as needing attention, named apart from an error: the ops MCP's `connections_list` gives `needsAttention: true` with `attention: "refresh_failing"` (or `"error"`), and the health view's `accessFailing` puts it on the daily check's troubled list as a `connection_access` finding with reason `refresh_failing` (H8, 2026-11-22). // DECISION |
 | Refresh races | Tokens are saved with compare-and-swap on the stored envelope (every write has a fresh IV), never over a newer refresh token; stored tokens are re-read before refreshing and again on `invalid_grant`. Re-encryption after a key rotation swaps only over the envelope it read (`credentials-accessor.ts`). Compare-and-swap rather than a lock: no new infrastructure. // DECISION |
 | Email sends | Gmail and Outlook fetch the access token before recording the attempt. A definite refusal (a 4xx other than 408 or 409, or a failed refresh) is recorded as refused and may be sent again; a timeout or 5xx stays "may have been sent". `notWritten` only when nothing reached the provider (`apps/api/src/reach/email.ts`). // DECISION |
 | Resend | A 30 s timeout, no redirects, and a 429 retried up to three times after `Retry-After` under the same idempotency key. A 4xx is never "may have been sent". |
@@ -6396,6 +6396,19 @@ production, so no client is in HIPAA mode.
 | Where | `apps/api/src/mcp/hipaa.ts`, run after a call's arguments are read and before its tool runs. HIPAA mode is read for every client served in one query, none when `claude_ai` is covered. A refusal is a tool error `hipaa: …` and its `mcp.tool_call` audit row is refused, 409. The connector's instructions say so. |
 | Not held | Reggie, which runs the same tools but sends their results to Anthropic's API: its model calls are held instead (§1.143). The portal's tools, where a client's own person connects their own Claude: that is the client's vendor, as its own tools are. // DECISION |
 | Checked | `apps/api/src/mcp-hipaa.test.ts` (a HIPAA client refused by name, across clients and by id; left out of the lists; a normal client and an operator serving none answered; answered once `claude_ai` is covered), `packages/core/src/compliance/compliance.test.ts`. |
+
+### 1.188 What each run was about, kept as it happens (owner, 2026-11-22; migration 0077)
+
+The design: `docs/reporting-plan.md` §3 R1. This is R1a, the table only; R1b writes it.
+
+| Topic | Decision |
+|---|---|
+| Kept | `run_subject` (0077): one row per thing a run read, decided on or changed, with the design's columns. Composite foreign keys to `run` and `step_run` on `(id, tenant_id)`, as every table that names a step does. RLS forced; `cs_runtime` has SELECT and INSERT only, and a trigger refuses update and delete, as on `control_check`. |
+| What started the run | `step_run_id` is null for it: the trigger's document or message belongs to the run (kept on `run.trigger`), not to any step. // DECISION |
+| A row is whole | Two checks: an amount always has its currency, and an `external_id` always has its `connector`. // DECISION |
+| Indexes | `(tenant_id, kind, record_id)` for a record's runs (R3), `(tenant_id, run_id)` for a run's subjects, and GIN trigram on `label` and on `number` for words (R2). |
+| Not built | Anything that writes or reads it: the step log's writer, `ToolSpec.about` and the backfill come in R1b. |
+| Checked | `packages/db`: `rls.test.ts` (another client's run or step refused by the keys, another client's row by the policy, a row with no step accepted and unseen by the other client), `immutability.test.ts` (update and delete refused for the owner and the Worker), `migrations.test.ts` (no UPDATE or DELETE for `cs_runtime`), and every check that loops over `TENANT_TABLES`, through a row seeded per client. |
 
 ### 1.186 Made-up data for a test (owner, 2026-11-22; no migration)
 
