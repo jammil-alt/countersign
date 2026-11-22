@@ -594,6 +594,16 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
         result, trigger)
       values (${tenantId}, ${a.id}, ${av.id}, 'delete_off', 'setup', '{AGT-1}', 'verified', 'nightly')`;
   }
+  // 0077: what the run was about (docs/reporting-plan.md §3 R1), where it exists.
+  const [subjects] = await db.$client<{ ok: boolean }[]>`
+    select to_regclass('public.run_subject') is not null as ok`;
+  if (subjects?.ok) {
+    await db.$client`
+      insert into run_subject (tenant_id, run_id, step_run_id, kind, role, connector, external_id,
+        label, number, amount, currency, client_visible)
+      values (${tenantId}, ${r.id}, ${sr.id}, 'document', 'changed', 'qbo', 'bill-1',
+        'Acme Supply', 'INV-1001', 120.5000, 'USD', true)`;
+  }
   const [st] = await db
     .insert(billingStatement)
     .values({
