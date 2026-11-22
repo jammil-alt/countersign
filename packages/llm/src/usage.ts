@@ -41,3 +41,24 @@ export function addUsage(a: LlmUsage, b: LlmUsage): LlmUsage {
     cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens,
   };
 }
+
+const PARTIAL = Symbol.for("countersign.llm.partialUsage");
+
+/**
+ * §1.210: a failed call's usage, carried on its error: a stream that broke or was stopped
+ * mid-answer was billed for what it used (its input, the cache, the output so far), so the
+ * client records that rather than nothing. Returns the error itself (an object), marked.
+ */
+export function withPartialUsage<E>(error: E, usage: LlmUsage, model: string | null): E {
+  if (error !== null && typeof error === "object") {
+    Object.defineProperty(error, PARTIAL, { value: { usage, model }, enumerable: false });
+  }
+  return error;
+}
+
+/** The usage a failed call's error carries, if any. */
+export function partialUsageOf(error: unknown): { usage: LlmUsage; model: string | null } | null {
+  if (error === null || typeof error !== "object") return null;
+  const v = (error as Record<symbol, unknown>)[PARTIAL];
+  return v ? (v as { usage: LlmUsage; model: string | null }) : null;
+}

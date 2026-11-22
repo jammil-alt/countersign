@@ -18,7 +18,7 @@ import { DEFAULT_MODEL, type ModelId } from "./models";
 import { costOf, type ModelPrice, PRICES, priceFor } from "./pricing";
 import { providerOf } from "./route";
 import type { LlmMessage, LlmRequest, LlmTransport } from "./transport";
-import { type LlmUsage, usageOf, ZERO_USAGE } from "./usage";
+import { type LlmUsage, partialUsageOf, usageOf, ZERO_USAGE } from "./usage";
 
 export interface LlmCallRecord {
   readonly model: ModelId;
@@ -316,12 +316,16 @@ export function createLlmClient(options: LlmClientOptions): LlmClient {
     try {
       response = await transport.create(request, opts.signal ? { signal: opts.signal } : {});
     } catch (error) {
+      // §1.210: a call that broke after it started was billed for what it used: recorded at that,
+      // never at nothing.
+      const partial = partialUsageOf(error);
+      const model = (partial?.model || request.model) as ModelId;
       await report(
         {
-          model: request.model,
+          model,
           ok: false,
-          usage: ZERO_USAGE,
-          costUsd: null,
+          usage: partial?.usage ?? ZERO_USAGE,
+          costUsd: partial ? costOf(model, partial.usage, prices) : null,
           durationMs: clock() - started,
           stopReason: null,
           error: error instanceof Error ? `${error.name}: ${error.message}` : String(error),

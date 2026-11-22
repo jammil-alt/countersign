@@ -26,6 +26,7 @@ import {
 import { appUser, type Db, message, type Tx, tenant, thread, withTenant } from "@countersign/db";
 import { and, desc, eq, lt } from "drizzle-orm";
 import { auditInTx } from "../audit";
+import { meter } from "../metering";
 import type { Mailer, Texter } from "../notify/mailer";
 import { reportHandled } from "../observability/report";
 import { contactByEmail } from "../triggers/senders";
@@ -180,6 +181,13 @@ async function deliverIn(
           ? { inReplyTo: messageId.startsWith("<") ? messageId : `<${messageId}>` }
           : {}),
       });
+      // §1.210: Sloan's answer by email is the client's own usage.
+      await meter(tx, {
+        tenantId,
+        measure: "emails",
+        source: "account",
+        key: `notify:sloan-${answer.id}`,
+      });
       return { status: "sent", channel: via, providerId };
     } catch (error) {
       return { status: "failed", channel: via, reason: errorText(error) };
@@ -201,6 +209,13 @@ async function deliverIn(
       from,
       to: entry.phone,
       body: sloanTextBody(text, link, locale),
+    });
+    // §1.210: Sloan's answer by text is the client's own usage.
+    await meter(tx, {
+      tenantId,
+      measure: "messages",
+      source: "account",
+      key: `twilio:${providerId}`,
     });
     return { status: "sent", channel: via, providerId };
   } catch (error) {

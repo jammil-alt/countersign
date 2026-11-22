@@ -1,5 +1,5 @@
 {
-  "id": "c4c0d9ae-300e-4aaa-ab86-04062bc6656a",
+  "id": "cf973e82-f52e-42ee-875b-e23cff955611",
   "prevId": "bbd15d31-3b56-48cf-b8aa-11f852158657",
   "version": "7",
   "dialect": "postgresql",
@@ -267,6 +267,255 @@
         "access_release_released_check": {
           "name": "access_release_released_check",
           "value": "(\"access_release\".\"status\" in ('released', 'revoked')) = (\"access_release\".\"released_at\" is not null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.access_review": {
+      "name": "access_review",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "period": {
+          "name": "period",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reviewed_by": {
+          "name": "reviewed_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reviewer_email": {
+          "name": "reviewer_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "clients": {
+          "name": "clients",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "people": {
+          "name": "people",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "removals": {
+          "name": "removals",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "access_review_created_idx": {
+          "name": "access_review_created_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "access_review_period_check": {
+          "name": "access_review_period_check",
+          "value": "\"access_review\".\"period\" ~ '^[0-9]{4}-Q[1-4]$'"
+        },
+        "access_review_counts_check": {
+          "name": "access_review_counts_check",
+          "value": "\"access_review\".\"clients\" >= 0 and \"access_review\".\"people\" >= 0 and \"access_review\".\"removals\" between 0 and \"access_review\".\"people\""
+        },
+        "access_review_note_check": {
+          "name": "access_review_note_check",
+          "value": "char_length(\"access_review\".\"note\") <= 2000"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.access_review_item": {
+      "name": "access_review_item",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "review_id": {
+          "name": "review_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_sign_in_at": {
+          "name": "last_sign_in_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_seen_at": {
+          "name": "last_seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decision": {
+          "name": "decision",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "access_review_item_tenant_idx": {
+          "name": "access_review_item_tenant_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "access_review_item_review_id_access_review_id_fk": {
+          "name": "access_review_item_review_id_access_review_id_fk",
+          "tableFrom": "access_review_item",
+          "tableTo": "access_review",
+          "columnsFrom": [
+            "review_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "access_review_item_tenant_id_tenant_id_fk": {
+          "name": "access_review_item_tenant_id_tenant_id_fk",
+          "tableFrom": "access_review_item",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "access_review_item_person_key": {
+          "name": "access_review_item_person_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "review_id",
+            "tenant_id",
+            "user_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "access_review_item_decision_check": {
+          "name": "access_review_item_decision_check",
+          "value": "\"access_review_item\".\"decision\" in ('keep', 'remove')"
+        },
+        "access_review_item_note_check": {
+          "name": "access_review_item_note_check",
+          "value": "char_length(\"access_review_item\".\"note\") <= 500"
         }
       },
       "isRLSEnabled": false
@@ -31488,940 +31737,6 @@
         "reconciliation_match_sides_check": {
           "name": "reconciliation_match_sides_check",
           "value": "jsonb_array_length(\"reconciliation_match\".\"a_item_ids\") > 0 and jsonb_array_length(\"reconciliation_match\".\"b_item_ids\") > 0"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.ap_bill": {
-      "name": "ap_bill",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "uuid_generate_v7()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "transaction_id": {
-          "name": "transaction_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "document_id": {
-          "name": "document_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "extraction_id": {
-          "name": "extraction_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "vendor_id": {
-          "name": "vendor_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "invoice_number": {
-          "name": "invoice_number",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "invoice_date": {
-          "name": "invoice_date",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "due_date": {
-          "name": "due_date",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "amount": {
-          "name": "amount",
-          "type": "numeric(14, 4)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "currency": {
-          "name": "currency",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'USD'"
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'open'"
-        },
-        "match_status": {
-          "name": "match_status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'pending'"
-        },
-        "purchase_request_id": {
-          "name": "purchase_request_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "match": {
-          "name": "match",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "flags": {
-          "name": "flags",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "pay_week": {
-          "name": "pay_week",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "decided_by": {
-          "name": "decided_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "decided_at": {
-          "name": "decided_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "decision_note": {
-          "name": "decision_note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "agent_version_id": {
-          "name": "agent_version_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "run_id": {
-          "name": "run_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sources": {
-          "name": "sources",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "ap_bill_week_idx": {
-          "name": "ap_bill_week_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "pay_week",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "ap_bill_vendor_idx": {
-          "name": "ap_bill_vendor_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "vendor_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "invoice_date",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "ap_bill_tenant_id_tenant_id_fk": {
-          "name": "ap_bill_tenant_id_tenant_id_fk",
-          "tableFrom": "ap_bill",
-          "tableTo": "tenant",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "ap_bill_decided_by_app_user_id_fk": {
-          "name": "ap_bill_decided_by_app_user_id_fk",
-          "tableFrom": "ap_bill",
-          "tableTo": "app_user",
-          "columnsFrom": [
-            "decided_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "ap_bill_agent_version_id_agent_version_id_fk": {
-          "name": "ap_bill_agent_version_id_agent_version_id_fk",
-          "tableFrom": "ap_bill",
-          "tableTo": "agent_version",
-          "columnsFrom": [
-            "agent_version_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "ap_bill_transaction_fk": {
-          "name": "ap_bill_transaction_fk",
-          "tableFrom": "ap_bill",
-          "tableTo": "transaction",
-          "columnsFrom": [
-            "transaction_id",
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id",
-            "tenant_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "ap_bill_document_fk": {
-          "name": "ap_bill_document_fk",
-          "tableFrom": "ap_bill",
-          "tableTo": "document",
-          "columnsFrom": [
-            "document_id",
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id",
-            "tenant_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "ap_bill_extraction_fk": {
-          "name": "ap_bill_extraction_fk",
-          "tableFrom": "ap_bill",
-          "tableTo": "doc_extraction",
-          "columnsFrom": [
-            "extraction_id",
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id",
-            "tenant_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "ap_bill_vendor_fk": {
-          "name": "ap_bill_vendor_fk",
-          "tableFrom": "ap_bill",
-          "tableTo": "vendor",
-          "columnsFrom": [
-            "vendor_id",
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id",
-            "tenant_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "ap_bill_purchase_request_fk": {
-          "name": "ap_bill_purchase_request_fk",
-          "tableFrom": "ap_bill",
-          "tableTo": "purchase_request",
-          "columnsFrom": [
-            "purchase_request_id",
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id",
-            "tenant_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "ap_bill_run_fk": {
-          "name": "ap_bill_run_fk",
-          "tableFrom": "ap_bill",
-          "tableTo": "run",
-          "columnsFrom": [
-            "run_id",
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id",
-            "tenant_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "ap_bill_id_tenant_key": {
-          "name": "ap_bill_id_tenant_key",
-          "nullsNotDistinct": false,
-          "columns": [
-            "id",
-            "tenant_id"
-          ]
-        },
-        "ap_bill_transaction_key": {
-          "name": "ap_bill_transaction_key",
-          "nullsNotDistinct": false,
-          "columns": [
-            "tenant_id",
-            "transaction_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "ap_bill_status_check": {
-          "name": "ap_bill_status_check",
-          "value": "\"ap_bill\".\"status\" in ('open', 'approved', 'held', 'rejected')"
-        },
-        "ap_bill_match_status_check": {
-          "name": "ap_bill_match_status_check",
-          "value": "\"ap_bill\".\"match_status\" in ('pending', 'matched', 'partial', 'proposed', 'none')"
-        },
-        "ap_bill_currency_check": {
-          "name": "ap_bill_currency_check",
-          "value": "\"ap_bill\".\"currency\" ~ '^[A-Z]{3}$'"
-        },
-        "ap_bill_decided_check": {
-          "name": "ap_bill_decided_check",
-          "value": "(\"ap_bill\".\"status\" = 'open') = (\"ap_bill\".\"decided_by\" is null) and (\"ap_bill\".\"decided_by\" is null) = (\"ap_bill\".\"decided_at\" is null)"
-        },
-        "ap_bill_listed_check": {
-          "name": "ap_bill_listed_check",
-          "value": "\"ap_bill\".\"status\" = 'open' or \"ap_bill\".\"pay_week\" is not null"
-        },
-        "ap_bill_pay_week_check": {
-          "name": "ap_bill_pay_week_check",
-          "value": "\"ap_bill\".\"pay_week\" is null or extract(isodow from \"ap_bill\".\"pay_week\") = 1"
-        },
-        "ap_bill_order_check": {
-          "name": "ap_bill_order_check",
-          "value": "(\"ap_bill\".\"purchase_request_id\" is not null) = (\"ap_bill\".\"match_status\" in ('matched', 'partial', 'proposed'))"
-        },
-        "ap_bill_flags_check": {
-          "name": "ap_bill_flags_check",
-          "value": "jsonb_typeof(\"ap_bill\".\"flags\") = 'array'"
-        },
-        "ap_bill_sources_check": {
-          "name": "ap_bill_sources_check",
-          "value": "jsonb_typeof(\"ap_bill\".\"sources\") = 'array'"
-        },
-        "ap_bill_note_check": {
-          "name": "ap_bill_note_check",
-          "value": "\"ap_bill\".\"decision_note\" is null or length(\"ap_bill\".\"decision_note\") <= 1000"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.ap_bill_line": {
-      "name": "ap_bill_line",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "uuid_generate_v7()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "ap_bill_id": {
-          "name": "ap_bill_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "line_no": {
-          "name": "line_no",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "doc_line_id": {
-          "name": "doc_line_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "amount": {
-          "name": "amount",
-          "type": "numeric(14, 4)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "ledger_account_id": {
-          "name": "ledger_account_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "coded_by": {
-          "name": "coded_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "coded_by_user_id": {
-          "name": "coded_by_user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "proposed_ledger_account_id": {
-          "name": "proposed_ledger_account_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "proposal_reason": {
-          "name": "proposal_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "proposal_agent_version_id": {
-          "name": "proposal_agent_version_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "purchase_request_line_id": {
-          "name": "purchase_request_line_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "ap_bill_line_account_idx": {
-          "name": "ap_bill_line_account_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "ledger_account_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "ap_bill_line_tenant_id_tenant_id_fk": {
-          "name": "ap_bill_line_tenant_id_tenant_id_fk",
-          "tableFrom": "ap_bill_line",
-          "tableTo": "tenant",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "ap_bill_line_coded_by_user_id_app_user_id_fk": {
-          "name": "ap_bill_line_coded_by_user_id_app_user_id_fk",
-          "tableFrom": "ap_bill_line",
-          "tableTo": "app_user",
-          "columnsFrom": [
-            "coded_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "ap_bill_line_proposal_agent_version_id_agent_version_id_fk": {
-          "name": "ap_bill_line_proposal_agent_version_id_agent_version_id_fk",
-          "tableFrom": "ap_bill_line",
-          "tableTo": "agent_version",
-          "columnsFrom": [
-            "proposal_agent_version_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "ap_bill_line_bill_fk": {
-          "name": "ap_bill_line_bill_fk",
-          "tableFrom": "ap_bill_line",
-          "tableTo": "ap_bill",
-          "columnsFrom": [
-            "ap_bill_id",
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id",
-            "tenant_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "ap_bill_line_doc_line_fk": {
-          "name": "ap_bill_line_doc_line_fk",
-          "tableFrom": "ap_bill_line",
-          "tableTo": "doc_line",
-          "columnsFrom": [
-            "doc_line_id",
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id",
-            "tenant_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "ap_bill_line_account_fk": {
-          "name": "ap_bill_line_account_fk",
-          "tableFrom": "ap_bill_line",
-          "tableTo": "ledger_account",
-          "columnsFrom": [
-            "ledger_account_id",
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id",
-            "tenant_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "ap_bill_line_proposed_account_fk": {
-          "name": "ap_bill_line_proposed_account_fk",
-          "tableFrom": "ap_bill_line",
-          "tableTo": "ledger_account",
-          "columnsFrom": [
-            "proposed_ledger_account_id",
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id",
-            "tenant_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "ap_bill_line_request_line_fk": {
-          "name": "ap_bill_line_request_line_fk",
-          "tableFrom": "ap_bill_line",
-          "tableTo": "purchase_request_line",
-          "columnsFrom": [
-            "purchase_request_line_id",
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id",
-            "tenant_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "ap_bill_line_id_tenant_key": {
-          "name": "ap_bill_line_id_tenant_key",
-          "nullsNotDistinct": false,
-          "columns": [
-            "id",
-            "tenant_id"
-          ]
-        },
-        "ap_bill_line_no_key": {
-          "name": "ap_bill_line_no_key",
-          "nullsNotDistinct": false,
-          "columns": [
-            "ap_bill_id",
-            "line_no"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "ap_bill_line_no_check": {
-          "name": "ap_bill_line_no_check",
-          "value": "\"ap_bill_line\".\"line_no\" >= 1"
-        },
-        "ap_bill_line_coded_by_check": {
-          "name": "ap_bill_line_coded_by_check",
-          "value": "\"ap_bill_line\".\"coded_by\" is null or \"ap_bill_line\".\"coded_by\" in ('history', 'person')"
-        },
-        "ap_bill_line_coded_check": {
-          "name": "ap_bill_line_coded_check",
-          "value": "(\"ap_bill_line\".\"ledger_account_id\" is null) = (\"ap_bill_line\".\"coded_by\" is null) and (\"ap_bill_line\".\"coded_by_user_id\" is not null) = (coalesce(\"ap_bill_line\".\"coded_by\", '') = 'person')"
-        },
-        "ap_bill_line_proposal_check": {
-          "name": "ap_bill_line_proposal_check",
-          "value": "(\"ap_bill_line\".\"proposed_ledger_account_id\" is null) = (\"ap_bill_line\".\"proposal_agent_version_id\" is null) and (\"ap_bill_line\".\"proposal_reason\" is null or length(\"ap_bill_line\".\"proposal_reason\") <= 500)"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.ap_receipt": {
-      "name": "ap_receipt",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "uuid_generate_v7()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "purchase_request_id": {
-          "name": "purchase_request_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "purchase_request_line_id": {
-          "name": "purchase_request_line_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "qty": {
-          "name": "qty",
-          "type": "numeric(14, 4)",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "received_on": {
-          "name": "received_on",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "document_id": {
-          "name": "document_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "note": {
-          "name": "note",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "recorded_by_user_id": {
-          "name": "recorded_by_user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "agent_version_id": {
-          "name": "agent_version_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "run_id": {
-          "name": "run_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sources": {
-          "name": "sources",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "ap_receipt_request_idx": {
-          "name": "ap_receipt_request_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "purchase_request_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "ap_receipt_tenant_id_tenant_id_fk": {
-          "name": "ap_receipt_tenant_id_tenant_id_fk",
-          "tableFrom": "ap_receipt",
-          "tableTo": "tenant",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "ap_receipt_recorded_by_user_id_app_user_id_fk": {
-          "name": "ap_receipt_recorded_by_user_id_app_user_id_fk",
-          "tableFrom": "ap_receipt",
-          "tableTo": "app_user",
-          "columnsFrom": [
-            "recorded_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "ap_receipt_agent_version_id_agent_version_id_fk": {
-          "name": "ap_receipt_agent_version_id_agent_version_id_fk",
-          "tableFrom": "ap_receipt",
-          "tableTo": "agent_version",
-          "columnsFrom": [
-            "agent_version_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "ap_receipt_request_fk": {
-          "name": "ap_receipt_request_fk",
-          "tableFrom": "ap_receipt",
-          "tableTo": "purchase_request",
-          "columnsFrom": [
-            "purchase_request_id",
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id",
-            "tenant_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "ap_receipt_request_line_fk": {
-          "name": "ap_receipt_request_line_fk",
-          "tableFrom": "ap_receipt",
-          "tableTo": "purchase_request_line",
-          "columnsFrom": [
-            "purchase_request_line_id",
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id",
-            "tenant_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "ap_receipt_document_fk": {
-          "name": "ap_receipt_document_fk",
-          "tableFrom": "ap_receipt",
-          "tableTo": "document",
-          "columnsFrom": [
-            "document_id",
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id",
-            "tenant_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "ap_receipt_run_fk": {
-          "name": "ap_receipt_run_fk",
-          "tableFrom": "ap_receipt",
-          "tableTo": "run",
-          "columnsFrom": [
-            "run_id",
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id",
-            "tenant_id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "ap_receipt_id_tenant_key": {
-          "name": "ap_receipt_id_tenant_key",
-          "nullsNotDistinct": false,
-          "columns": [
-            "id",
-            "tenant_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "ap_receipt_qty_check": {
-          "name": "ap_receipt_qty_check",
-          "value": "(\"ap_receipt\".\"purchase_request_line_id\" is null) = (\"ap_receipt\".\"qty\" is null) and (\"ap_receipt\".\"qty\" is null or \"ap_receipt\".\"qty\" <> 0)"
-        },
-        "ap_receipt_recorded_by_check": {
-          "name": "ap_receipt_recorded_by_check",
-          "value": "num_nonnulls(\"ap_receipt\".\"recorded_by_user_id\", \"ap_receipt\".\"agent_version_id\") = 1"
-        },
-        "ap_receipt_note_check": {
-          "name": "ap_receipt_note_check",
-          "value": "\"ap_receipt\".\"note\" is null or length(\"ap_receipt\".\"note\") <= 500"
-        },
-        "ap_receipt_sources_check": {
-          "name": "ap_receipt_sources_check",
-          "value": "jsonb_typeof(\"ap_receipt\".\"sources\") = 'array'"
         }
       },
       "isRLSEnabled": false

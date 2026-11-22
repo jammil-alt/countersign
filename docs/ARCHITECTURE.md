@@ -3452,6 +3452,30 @@ tightens; test runs are checked and still never write. 9: the sources are data i
 10: the verifier cites record ids. 11: no portal route returns a prompt, a model, a cost or an
 agent version.
 
+### 10.19 The process interview (owner, 2026-11-22; Wave X X3)
+
+The owner's build plan 8: before a client's agent is built, ask the person who does the work how
+it is done today. Outside v1's §1 scope with the owner's yes; what was built is `docs/plan.md`
+§1.217. The interview reuses what is there: the signed public link of a form request (§1.121),
+the intake's questions for the process's business area (§1.149.2), the documents capability's
+store for sample files, and the Builder's Draft it now (§1.165) with the reuse check's find pass
+(§1.125).
+
+| Part | Where it lives | Made by |
+|---|---|---|
+| The interview | `process_interview` (one client, one contact, one process): the questions and answers, the waiting question, the sample files, the outputs, the reuse check, the build | The operator starts it; the contact answers it on `/i/<token>` |
+| The next question | `nextQuestion` (`packages/agents/src/interview/`): one model call per answer, the interview so far as data | The model, held by code to one question and never a secret (core `oneQuestion`) |
+| The map and the open questions | `summarizeInterview`, then core `groundOutputs` | The model, held by code to the answers: a step names the answers it came from, or it comes off the map and is asked instead; an estimate is the person's mark |
+| The draft | A new agent build for the client, drafted at once from the map's numbered steps | The Builder (§1.165): approval on for every write, a person where the catalog has no part |
+| The reuse check | Per step of the map, the catalog's three best matches (§1.125's find pass, no judge) | Code |
+
+**Invariants.** 1: the link names one interview in one client; every read and write is in that
+client. 8: the draft starts with approval on, as every Builder draft does. 9: answers and file
+names are data in the prompt's tags, never instructions; the map is held to them by code. 11: the
+public page shows the client's name and the process, never an agent, a prompt or a cost; the
+contract test covers its routes. 14: the model calls are held to the client's HIPAA mode, which is
+checked before a link is made.
+
 ### 10.24 Accounts payable: bills to an approved list (Wave Y item Y4, owner 2026-11-22)
 
 **Outside v1's scope (§1); the owner said yes for Wave Y.** The AP pack (`ap`) takes vendor bills
@@ -4360,6 +4384,19 @@ data:
   a client's records stay in that client (§9.10). Model-call bodies are stored under the client's
   prefix with card numbers redacted, for operators only (§10.10). Search and plain-words questions run
   inside the request's scope and never become SQL (§11.6).
+- **SOC 2 readiness (owner's build plan 12, Wave X, 2026-11-22; `docs/plan.md` §1.218).** Outside
+  v1's scope, with the owner's yes. `/ops/security/soc2` lists each Trust Services Criterion in our
+  scope (Security, Availability, Confidentiality) as in place, partial or missing, with its owner
+  and evidence. It is computed from the security register (`packages/core/src/compliance`): the
+  controls that map to a criterion, plus live checks for what only the data knows (this quarter's
+  access review recorded; a deletion drill passed within a year; each policy adopted or a draft).
+  The **quarterly access review** is recorded in `access_review` (operator-only) and
+  `access_review_item` (each client's own, RLS on `tenant_id`, purged with the client): everyone
+  in the clients served as they were that day, and who should lose access. Records are never
+  updated or deleted; access itself is removed where it always is. The **deletion drill**
+  (`db:deletion-drill`, as `cs_owner`, on staging) fills a throwaway Sandbox client, retires and
+  purges it with the purge workflow's own code, checks nothing of it is left and nothing of
+  another client was touched, and writes `client.deletion_drill` to the audit log.
 
 ---
 
