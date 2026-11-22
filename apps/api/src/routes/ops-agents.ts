@@ -36,19 +36,26 @@ import {
 import {
   type AnyAgentBundle,
   AnyAgentBundle as AnyAgentBundleSchema,
+  processes,
   routes,
   type SkillDefinition,
   validateWorkflow,
 } from "@countersign/core";
 import { connection, tenant } from "@countersign/db";
 import { knownModelIds } from "@countersign/llm";
-import { type RoutableAgent, type RunRequest, requestRun } from "@countersign/workflows";
+import {
+  type RoutableAgent,
+  type RunRange,
+  type RunRequest,
+  requestRun,
+} from "@countersign/workflows";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Hono } from "hono";
 import { type AppEnv, ensureClient, type HandlerCtx, HttpError, mount, notFound } from "../http";
 import { markOperatorPause } from "../lifecycle/pause";
 import { afterActivate } from "../lifecycle/stages";
 import { createRunRow } from "../runs/dispatch";
+import type { RunParams } from "../runs/instances";
 import { startAfterCommit } from "../runs/reconcile";
 import { agentSummary, versionDetail, versionSummary } from "./mappers";
 
@@ -314,7 +321,30 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
         releaseNote: info.releaseNote,
       };
     }
+    // QA (2026-11-22): the names the agent's page shows come with it, so its Overview never
+    // waits on the builder's catalog or the skills list to say "QuickBooks Online".
+    // DECISION: every registered connector's manifest name (a few dozen short strings, no
+    // bundle walk) and the live and latest versions' skills; this route now builds the platform
+    // (lazy, tens of ms in a fresh isolate), as the client page's route already does.
+    const { platform } = ctx.services;
+    const skillNames: Record<string, string> = {};
+    for (const v of [live, latest]) {
+      if (!v) continue;
+      const { skills } = await skillContext(ctx.tx, {
+        tenantId: row.tenantId,
+        bundle: v.bundle,
+        catalog: platform.catalog,
+      });
+      for (const [ref, def] of Object.entries(skills)) skillNames[ref] = def.name;
+    }
+    const names = {
+      connectors: Object.fromEntries(
+        platform.connectors.list().map((c) => [c.manifest.id, c.manifest.name] as const),
+      ),
+      skills: skillNames,
+    };
     return {
+      names,
       agent: agentSummary(row),
       versions: versions.map(versionSummary),
       live: live ? versionDetail(live) : null,
@@ -486,8 +516,44 @@ export function opsAgentRoutes(app: Hono<AppEnv>): void {
         bundle: target.version.bundle,
       }),
     );
-    await createRunRow(ctx.tx, req);
-    ctx.afterCommit(() => startAfterCommit(ctx.services, req));
+    // Owner, 2026-11-22 (docs/plan.md §1.185): a test of some of the steps. Checked here, so a
+    // step never reads nothing where it expects an earlier step's output.
+    // DECISION: a range is a test run's alone (it never writes, invariant 8), on a workflow in
+    // the new format, and what is given for the steps before it is at most 256 KB.
+    const { range } = ctx.body;
+    if (range) {
+      const wf = target.version.bundle.workflows.find((w) => w.slug === ctx.body.workflow);
+      if (wf?.workflow.schemaVersion !== 4) {
+        throw new HttpError(
+          422,
+          "invalid_range",
+          "some of the steps can be tested once the workflow is saved in the new format",
+        );
+      }
+      const problems = processes.rangeProblems(
+        wf.workflow,
+        // What a step reads is in its own words; the tools' shapes are all the typing needs.
+        { tools: ctx.services.platform.tools.specs() },
+        range,
+      );
+      if (JSON.stringify(range.given ?? {}).length > 256_000) {
+        problems.push("what was given for the earlier steps is too large (256 KB at most)");
+      }
+      if (problems.length > 0) {
+        throw new HttpError(422, "invalid_range", problems.join("; "), { problems });
+      }
+    }
+    // As the run keeps it: only what was said.
+    const kept: RunRange | null = range
+      ? {
+          ...(range.from ? { from: range.from } : {}),
+          ...(range.to ? { to: range.to } : {}),
+          ...(range.given ? { given: range.given } : {}),
+        }
+      : null;
+    const params: RunParams = kept ? { ...req, range: kept } : req;
+    await createRunRow(ctx.tx, params);
+    ctx.afterCommit(() => startAfterCommit(ctx.services, params));
     return { runId: req.runId, agentId: target.agent.id, versionId: target.version.id };
   });
 

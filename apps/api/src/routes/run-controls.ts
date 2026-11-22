@@ -39,6 +39,7 @@ import type { Hono } from "hono";
 import { csvFile } from "../exports/csv";
 import { type AppEnv, ensureClient, HttpError, iso, mount, mountFile, notFound } from "../http";
 import { queueFinishedRun } from "../run-audit/store";
+import { aboutWhere, type SubjectSurface, subjectTextWhere } from "../runs/about";
 import { createRunRow } from "../runs/dispatch";
 import type { RunParams } from "../runs/instances";
 import { closeRunReachOuts, startAfterCommit } from "../runs/reconcile";
@@ -143,11 +144,16 @@ function amountSql(filter: NonNullable<RunFilter["amount"]>, tools: readonly Amo
 /**
  * RunFilter's conditions on `run` (the caller adds the client scope). Every subquery names the
  * run's own client as well as its id (invariant 1). `tools`: the registry's specs, for `amount`
- * (v0.14 W4-B); a filter with an amount and no tool that declares one matches no run.
+ * (v0.14 W4-B); a filter with an amount and no tool that declares one matches no run. `surface`:
+ * whose list it is, for what runs kept about their subjects (R2): the portal reads only the rows
+ * its timeline shows.
  */
+// DECISION: the surface is a required argument, not a default, so no portal list can read a
+// hidden step's subjects by leaving it out (docs/plan.md §1.193).
 export function runFilterWhere(
   filter: RunFilter,
   tools: Readonly<Record<string, ToolSpec>>,
+  surface: SubjectSurface,
 ): SQL[] {
   const where: SQL[] = [];
   const f = filter;
@@ -191,9 +197,13 @@ export function runFilterWhere(
         sql`${run.workflowSlug} ilike ${like}`,
         sql`${run.error}->>'reason' ilike ${like}`,
         sql`exists (select 1 from ${agent} where ${agent.id} = ${run.agentId} and ${agent.tenantId} = ${run.tenantId} and (${agent.name} ilike ${like} or ${agent.serviceName} ilike ${like}))`,
+        // R2: a label or number of what the run was about.
+        subjectTextWhere(f.text, surface),
       ) as SQL,
     );
   }
+  // R2
+  if (f.about?.length) where.push(aboutWhere(f.about, surface));
   return where;
 }
 
@@ -514,7 +524,7 @@ export function runControlRoutes(app: Hono<AppEnv>): void {
       .where(
         and(
           inArray(run.tenantId, [...ctx.tenantIds]),
-          ...runFilterWhere(query.filter, ctx.services.platform.ctx.tools.specs()),
+          ...runFilterWhere(query.filter, ctx.services.platform.ctx.tools.specs(), "ops"),
         ),
       )
       .orderBy(desc(run.createdAt))

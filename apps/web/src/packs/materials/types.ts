@@ -189,6 +189,8 @@ export interface Comparison {
     complete: boolean;
     late: boolean;
     maxLeadTimeDays: number | null;
+    /** Lines of the request this is the client's preferred vendor for (§1.189). */
+    preferredLines?: number;
   }[];
   suggestion: {
     kind: "single" | "split" | "none";

@@ -2,7 +2,7 @@
 // (a build's own try in suite mode, else a test run of the version), reads the run back until it
 // ends, and hands the host one mark per step.
 import type { BuildDetail, BuildTryView } from "@countersign/core";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -224,6 +224,217 @@ describe("TryPanel", () => {
     expect(reads).toBe(after);
     await userEvent.click(screen.getByTestId("flow-try-done"));
     expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  // Owner, 2026-11-22 (docs/plan.md §1.185): "select one step or multiple… wherever you start it
+  // should allow you to add the relevant data… we see the output of each step".
+  it("tests some of the steps: asks for what they read from before, and shows each step's output", async () => {
+    const bodies: unknown[] = [];
+    const api = fakeApi({
+      ...common,
+      [`POST /api/ops/agents/${AGENT}/versions/${VERSION}/test-run`]: ({ init }) => {
+        bodies.push(JSON.parse(String(init.body)));
+        return { runId: RUN, agentId: AGENT, versionId: VERSION };
+      },
+      [`GET /api/ops/runs/${RUN}`]: () =>
+        run("succeeded", [
+          row("00000000-0000-4000-8000-000000002001", "find", "skill", "succeeded", {
+            output: { confidence: 0.5 },
+            summary: "given for this test, not run",
+          }),
+          row("00000000-0000-4000-8000-000000002002", "confidence", "if", "succeeded", {
+            output: { path: "low" },
+          }),
+        ]),
+    });
+    // Opened with the decision selected on the chart: the choice starts from that one step.
+    const { marks } = show(api, { ctx: {}, startAt: "confidence" });
+    const user = userEvent.setup();
+    expect(await screen.findByTestId("flow-try-some")).toBeChecked();
+    expect(screen.getByTestId("flow-try-from")).toHaveValue("confidence");
+    expect(screen.getByTestId("flow-try-to")).toHaveValue("confidence");
+    // It reads the step before it, so that step's output is asked for; the trigger's isn't.
+    const given = screen.getByTestId("flow-try-given-find");
+    expect(screen.getByTestId("flow-try-given")).toHaveTextContent(
+      "The output of “Find supporting document” · read by “Match confidence”",
+    );
+    expect(screen.queryByTestId("flow-try-input")).toBeNull();
+    await user.clear(given);
+    await user.type(given, '{{"confidence": 0.5}');
+    await user.click(screen.getByTestId("flow-try-input-start"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("flow-try-said")).toHaveTextContent(
+        "It ran the steps you picked. Nothing was written.",
+      ),
+    );
+    expect(bodies).toEqual([
+      {
+        workflow: "new-bill",
+        payload: {},
+        range: { from: "confidence", to: "confidence", given: { find: { confidence: 0.5 } } },
+      },
+    ]);
+    // The step after the last picked was never part of it.
+    expect(marks.at(-1)?.find((m) => m.stepId === "update")).toEqual({
+      stepId: "update",
+      status: "skipped",
+      summary: "Not part of this test",
+    });
+    // Every step that ran, with its output.
+    const steps = screen.getByTestId("flow-try-steps");
+    expect(steps).toHaveTextContent("What each step did");
+    expect(screen.getByTestId("flow-try-step-find")).toHaveTextContent(
+      "Find supporting documentDonegiven for this test, not run",
+    );
+    expect(screen.getByTestId("flow-try-step-confidence")).toHaveTextContent('"path": "low"');
+
+    // Back to the choice: all of them asks for the trigger's input again, and sends no range.
+    await user.click(screen.getByTestId("flow-try-choose"));
+    await user.click(screen.getByTestId("flow-try-all"));
+    expect(screen.getByTestId("flow-try-input")).toBeInTheDocument();
+    expect(screen.queryByTestId("flow-try-given")).toBeNull();
+    await user.click(screen.getByTestId("flow-try-input-start"));
+    await waitFor(() => expect(bodies).toHaveLength(2));
+    expect(bodies[1]).toEqual({ workflow: "new-bill", payload: {} });
+  });
+
+  // Owner, 2026-11-22 (docs/plan.md §1.186): "how do we create data?… have the AI make up data to
+  // feed through it and watch the run".
+  it("makes up data for the steps picked, fills the boxes with it, and runs on it", async () => {
+    const asked: unknown[] = [];
+    const bodies: unknown[] = [];
+    const api = fakeApi({
+      ...common,
+      [`POST /api/ops/agents/${AGENT}/test-data`]: ({ init }) => {
+        asked.push(JSON.parse(String(init.body)));
+        return { given: { find: { confidence: 0.42, documentId: "made-up" } }, missing: [] };
+      },
+      [`POST /api/ops/agents/${AGENT}/versions/${VERSION}/test-run`]: ({ init }) => {
+        bodies.push(JSON.parse(String(init.body)));
+        return { runId: RUN, agentId: AGENT, versionId: VERSION };
+      },
+      [`GET /api/ops/runs/${RUN}`]: () =>
+        run("succeeded", [
+          row("00000000-0000-4000-8000-000000002002", "confidence", "if", "succeeded", {
+            output: { path: "low" },
+          }),
+        ]),
+    });
+    show(api, { ctx: {}, startAt: "confidence" });
+    const user = userEvent.setup();
+    expect(await screen.findByTestId("flow-try-make")).toHaveTextContent("No data yet?");
+    expect(screen.queryByTestId("flow-try-made")).toBeNull();
+    await user.type(screen.getByTestId("flow-try-make-notes"), "a weak match");
+    await user.click(screen.getByTestId("flow-try-make-go"));
+
+    // The draft, the steps picked and the notes are asked of; the answer fills the box.
+    await waitFor(() =>
+      expect(screen.getByTestId("flow-try-given-find")).toHaveValue(
+        JSON.stringify({ confidence: 0.42, documentId: "made-up" }, null, 2),
+      ),
+    );
+    expect(asked).toEqual([
+      {
+        process: PROCESS,
+        workflow: "new-bill",
+        range: { from: "confidence", to: "confidence" },
+        notes: "a weak match",
+      },
+    ]);
+    expect(screen.getByTestId("flow-try-given")).toHaveTextContent("As you wrote it.");
+    expect(screen.getByTestId("flow-try-made")).toHaveTextContent(
+      "A made-up id matches no stored record",
+    );
+    expect(screen.getByTestId("flow-try-make-go")).toHaveTextContent("Make up other data");
+
+    await user.click(screen.getByTestId("flow-try-input-start"));
+    expect(await screen.findByTestId("flow-try-on")).toHaveTextContent("made-up data");
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toEqual({
+      workflow: "new-bill",
+      payload: {},
+      range: {
+        from: "confidence",
+        to: "confidence",
+        given: { find: { confidence: 0.42, documentId: "made-up" } },
+      },
+    });
+  });
+
+  it("makes up what starts the run for a try of every step, and says when it can't", async () => {
+    let fail = true;
+    const api = fakeApi({
+      ...common,
+      [`POST /api/ops/agents/${AGENT}/test-data`]: () => {
+        if (fail) throw new Error("no");
+        return {
+          trigger: { documentId: "made-up" },
+          given: {},
+          missing: ["What started the run"],
+        };
+      },
+    });
+    show(api, { ctx: {} });
+    const user = userEvent.setup();
+    await user.click(await screen.findByTestId("flow-try-make-go"));
+    expect(await within(screen.getByTestId("flow-try-make")).findByRole("alert")).toBeVisible();
+    expect(screen.getByTestId("flow-try-make-go")).toBeEnabled();
+    expect(screen.queryByTestId("flow-try-made")).toBeNull();
+    fail = false;
+    await user.click(screen.getByTestId("flow-try-make-go"));
+    await waitFor(() =>
+      expect(screen.getByTestId("flow-try-input")).toHaveValue(
+        JSON.stringify({ documentId: "made-up" }, null, 2),
+      ),
+    );
+    expect(screen.getByTestId("flow-try-made")).toHaveTextContent(
+      "We couldn't make up what started the run: an example of its shape is there instead.",
+    );
+  });
+
+  it("offers no choice of steps without the registries' view", async () => {
+    const api = fakeApi({ ...common });
+    show(api);
+    expect(await screen.findByTestId("flow-try-input")).toBeInTheDocument();
+    expect(screen.queryByTestId("flow-try-range")).toBeNull();
+  });
+
+  // Owner, 2026-11-22: the choice was missing on a template with an open build, where it is built.
+  it("tests some of a build's draft as a test run at the build's Sandbox, not as a kept try", async () => {
+    const bodies: unknown[] = [];
+    const tries = vi.fn(() => build([]));
+    const api = fakeApi({
+      ...common,
+      [`POST /api/ops/builds/${BUILD}/tries`]: tries,
+      [`POST /api/ops/agents/${AGENT}/versions/${VERSION}/test-run`]: ({ init }) => {
+        bodies.push(JSON.parse(String(init.body)));
+        return { runId: RUN, agentId: AGENT, versionId: VERSION };
+      },
+      [`GET /api/ops/runs/${RUN}`]: () =>
+        run("succeeded", [
+          row("00000000-0000-4000-8000-000000002001", "find", "skill", "succeeded", {
+            output: { confidence: 0.5 },
+            summary: "given for this test, not run",
+          }),
+          row("00000000-0000-4000-8000-000000002002", "confidence", "if", "succeeded"),
+        ]),
+    });
+    show(api, { build: build([]), ctx: {}, startAt: "confidence" });
+    const user = userEvent.setup();
+    expect(await screen.findByTestId("flow-try-some")).toBeChecked();
+    const given = screen.getByTestId("flow-try-given-find");
+    await user.clear(given);
+    await user.type(given, '{{"confidence": 0.5}');
+    await user.click(screen.getByTestId("flow-try-input-start"));
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toEqual({
+      workflow: "new-bill",
+      payload: {},
+      clientId: SANDBOX,
+      range: { from: "confidence", to: "confidence", given: { find: { confidence: 0.5 } } },
+    });
+    expect(tries).not.toHaveBeenCalled();
   });
 
   it("tries a build's draft on a file through the build, and again on the same try", async () => {

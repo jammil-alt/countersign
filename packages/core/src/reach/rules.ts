@@ -51,9 +51,22 @@ export const RoleName = z
   .max(40);
 
 /**
- * A role a template or agent declares it reaches (`people` in the bundle). No contact data: who
- * fills the role is bound on the client agent, never in a version (invariant 11).
+ * What a seat is for (docs/setup-plan.md §4.1). `signs`: approvals and person steps that approve,
+ * filled by client users who can sign. `answers`: person steps that ask, and a person's confer,
+ * filled by client users. `told`: notify, by client users or directory contacts. `reached`:
+ * reach-outs and conversations, by directory contacts (every role before seats).
  */
+export const SEAT_KINDS = ["signs", "answers", "told", "reached"] as const;
+export const SeatKind = z.enum(SEAT_KINDS);
+export type SeatKind = z.infer<typeof SeatKind>;
+
+/**
+ * A role a template or agent declares (`people` in the bundle): a seat each client fills with its
+ * own people. No person in it: who fills the role is bound on the client agent, never in a version
+ * (invariant 11). Steps name it as `seat:<role>` (`processes.seatWho`).
+ */
+// DECISION (setup-plan §4.1): `kind` and `label` are optional with no default, so a bundle made
+// before seats parses and hashes as it was; an absent kind is `reached` (`seatKindOf`).
 export const PersonRole = z
   .object({
     role: RoleName,
@@ -62,9 +75,25 @@ export const PersonRole = z
     required: z.boolean().default(false),
     /** The channels this role may be reached on (default: all). */
     channels: z.array(ReachChannel).optional(),
+    /** What the seat is for; absent: `reached`. */
+    kind: SeatKind.optional(),
+    /** How the client reads it: "Approves bills over $5,000". Absent: the role in words. */
+    label: z.string().trim().min(1).max(120).optional(),
   })
   .meta({ id: "PersonRole" });
 export type PersonRole = z.infer<typeof PersonRole>;
+
+/** A role's seat kind: `reached` for a role declared before seats. */
+export function seatKindOf(role: Pick<PersonRole, "kind">): SeatKind {
+  return role.kind ?? "reached";
+}
+
+/** A role's words for the client: its label, else its name with spaces ("bill-approver" → "Bill approver"). */
+export function seatLabelOf(role: Pick<PersonRole, "role" | "label">): string {
+  if (role.label) return role.label;
+  const words = role.role.replace(/[-_]+/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
 
 /** `normal` takes the contact's own order unless the binding names one. */
 export const PREFERRED = "preferred" as const;

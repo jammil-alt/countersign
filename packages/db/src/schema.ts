@@ -235,6 +235,13 @@ export const mcpSessionApproval = pgTable(
     workosSessionId: text("workos_session_id").notNull(),
     /** HMAC of the approval link's code. */
     codeHash: text("code_hash").notNull(),
+    /**
+     * Who is asking (H6): the Claude client as the newest asking request names itself ("Claude",
+     * "Claude Code"), in words, never its user agent; null where a request named nothing we read.
+     */
+    client: text("client"),
+    /** Where the newest asking request came from, as Cloudflare places its address: "Ashburn, US". */
+    place: text("place"),
     approvedAt: ts("approved_at"),
     /** The link stops working, or the approval ends, at this time. */
     expiresAt: ts("expires_at").notNull(),
@@ -1268,6 +1275,9 @@ export interface AgentPause {
 /** One role's binding on a client agent: who fills it, and when and how they may be reached. */
 export interface AgentPeopleBinding {
   contactIds: string[];
+  /** Setup-plan §4.1: a seat's client users, in order, and its backups (core's `PeopleBinding`). */
+  userIds?: string[] | undefined;
+  backupUserIds?: string[] | undefined;
   /** Validated by core's ReachConditions; the defaults apply to anything missing. */
   conditions?: Record<string, unknown>;
 }
@@ -1651,6 +1661,79 @@ export const modelCall = pgTable(
   ],
 );
 
+/** What a run was about (docs/reporting-plan.md §3 R1): the kind of thing it read or changed. */
+export const RUN_SUBJECT_KINDS = [
+  "document",
+  "vendor",
+  "customer",
+  "organization",
+  "person",
+  "transaction",
+  "item",
+  "message",
+  "record",
+] as const;
+/** What the run did with it. */
+export const RUN_SUBJECT_ROLES = ["read", "decided", "changed"] as const;
+
+/**
+ * One thing a run read, decided on or changed (docs/reporting-plan.md §3 R1, migration 0077), kept
+ * as the run happens so runs can be found by what they were about: our record's id, the client's
+ * tool and its id for the thing, the name a person reads and the document's own number, and its
+ * amount when it carries money. `label` and `number` are data, never instructions (invariant 9).
+ * The portal reads only `client_visible` rows. History: never updated or deleted (trigger).
+ */
+export const runSubject = pgTable(
+  "run_subject",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    runId: uuid("run_id").notNull(),
+    // DECISION: null for what started the run (the trigger's document or message): it is the
+    // run's, kept on `run.trigger`, not any step's (docs/plan.md §1.188).
+    stepRunId: uuid("step_run_id"),
+    kind: text("kind").$type<(typeof RUN_SUBJECT_KINDS)[number]>().notNull(),
+    role: text("role").$type<(typeof RUN_SUBJECT_ROLES)[number]>().notNull(),
+    /** Our record's id, when there is one. */
+    recordId: uuid("record_id"),
+    /** The client's tool (a connector id) and its id for the thing (a QuickBooks bill). */
+    connector: text("connector"),
+    externalId: text("external_id"),
+    /** The name a person reads: a vendor's name, a file's name. */
+    label: text("label"),
+    /** The document's own number: an invoice or PO number. */
+    number: text("number"),
+    /** When it carries money: numeric(14,4) with its currency (invariant 6). */
+    amount: numeric("amount", { precision: 14, scale: 4 }),
+    currency: text("currency"),
+    /** Whether the step is one the client's timeline shows. */
+    clientVisible: boolean("client_visible").notNull().default(false),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "run_subject_run_fk",
+      columns: [t.runId, t.tenantId],
+      foreignColumns: [run.id, run.tenantId],
+    }),
+    foreignKey({
+      name: "run_subject_step_run_fk",
+      columns: [t.stepRunId, t.tenantId],
+      foreignColumns: [stepRun.id, stepRun.tenantId],
+    }),
+    index("run_subject_record_idx").on(t.tenantId, t.kind, t.recordId),
+    index("run_subject_run_idx").on(t.tenantId, t.runId),
+    index("run_subject_label_trgm_idx").using("gin", t.label.op("gin_trgm_ops")),
+    index("run_subject_number_trgm_idx").using("gin", t.number.op("gin_trgm_ops")),
+    check("run_subject_kind_check", oneOf(t.kind, RUN_SUBJECT_KINDS)),
+    check("run_subject_role_check", oneOf(t.role, RUN_SUBJECT_ROLES)),
+    // DECISION: a row is whole (docs/plan.md §1.188): money carries its currency (invariant 6),
+    // and a tool's id means nothing without the tool.
+    check("run_subject_amount_check", sql`(${t.amount} is null) = (${t.currency} is null)`),
+    check("run_subject_external_check", sql`${t.externalId} is null or ${t.connector} is not null`),
+  ],
+);
+
 export const SAVED_VIEW_SURFACES = ["ops_runs", "portal_runs"] as const;
 
 /**
@@ -1679,6 +1762,37 @@ export const savedView = pgTable(
     unique("saved_view_name_key").on(t.userId, t.surface, t.name),
     check("saved_view_surface_check", oneOf(t.surface, SAVED_VIEW_SURFACES)),
     check("saved_view_name_check", sql`length(trim(${t.name})) between 1 and 80`),
+  ],
+);
+
+/**
+ * R6 (docs/plan.md §1.236): a client person's named filters for the portal's runs list. `filters`
+ * is core's `RunFilter` (the portal's keys only). A view is its owner's; a client admin may share
+ * one with the client's team. Tenant table (RLS on `app.tenant_ids`); the routes pick the person's
+ * own rows, or the shared ones, by `user_id` and `shared`. Changed in place and deleted (not
+ * history).
+ */
+export const portalView = pgTable(
+  "portal_view",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => appUser.id),
+    name: text("name").notNull(),
+    filters: json("filters").notNull().default({}),
+    shared: boolean("shared").notNull().default(false),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (t) => [
+    unique("portal_view_name_key").on(t.tenantId, t.userId, t.name),
+    index("portal_view_shared_idx").on(t.tenantId).where(sql`${t.shared}`),
+    check("portal_view_name_check", sql`length(trim(${t.name})) between 1 and 80`),
   ],
 );
 
@@ -2037,6 +2151,10 @@ export const usageDaily = pgTable(
     tokensIn: bigint("tokens_in", { mode: "number" }).notNull().default(0),
     tokensOut: bigint("tokens_out", { mode: "number" }).notNull().default(0),
     costUsd: usd("cost_usd"),
+    // §1.210 (migration 0095): emails sent through Resend and seconds of Browser Run, summed by
+    // the rollup from the agent's `metered_usage` rows.
+    emails: integer("emails").notNull().default(0),
+    browserSeconds: integer("browser_seconds").notNull().default(0),
   },
   (t) => [
     primaryKey({ columns: [t.tenantId, t.day, t.agentId] }),
@@ -2068,8 +2186,85 @@ export const usagePlatformDaily = pgTable(
     // P-7 (migration 0034): model translations no agent made (the background job, a person's own
     // text); their tokens and cost are in the columns above with the readings'.
     translations: integer("translations").notNull().default(0),
+    // §1.210 (migration 0095): the client's own `metered_usage` no agent made: texts no run sent
+    // (notifications, release codes, auto-replies, inbound), emails, Browser Run seconds and the
+    // months of each connected bank (Plaid bills per item per month).
+    messages: integer("messages").notNull().default(0),
+    emails: integer("emails").notNull().default(0),
+    browserSeconds: integer("browser_seconds").notNull().default(0),
+    bankItemMonths: integer("bank_item_months").notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.tenantId, t.day] })],
+);
+
+/** What a `metered_usage` row counts (§1.210): a billing measure's name, or `model`. */
+export const METERED_MEASURES = [
+  "messages",
+  "emails",
+  "browser_seconds",
+  "bank_item_months",
+  "verifications",
+  "model",
+] as const;
+
+/**
+ * One thing we paid a vendor for outside a run's model calls (docs/plan.md §1.210, migration
+ * 0095): an email, a text no run sent, a sign-in code, Browser Run's seconds, a bank's month, or a
+ * back-office model call. Against its client, and its agent and run where there are ones; `ours`
+ * marks the back office's and the platform's own cost (never a client's usage or bill), and a row
+ * with no client is always ours. Counted once (`key`), priced on read at `billing_unit_cost`
+ * except a model call, whose cost is known when it is made. Insert only.
+ */
+export const meteredUsage = pgTable(
+  "metered_usage",
+  {
+    id: id(),
+    tenantId: uuid("tenant_id").references(() => tenant.id),
+    agentId: uuid("agent_id"),
+    runId: uuid("run_id"),
+    measure: text("measure").notNull(),
+    quantity: integer("quantity").notNull().default(1),
+    /** Where it came from: core's `METER_SOURCES` (`run`, `notification`, `reggie_read`…). */
+    source: text("source").notNull(),
+    ours: boolean("ours").notNull().default(false),
+    /** A model call's model, tokens and cost; null cost for every other measure. */
+    model: text("model"),
+    /** Fresh input tokens; cache reads and writes are kept apart below. */
+    tokensIn: integer("tokens_in").notNull().default(0),
+    tokensOut: integer("tokens_out").notNull().default(0),
+    cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+    cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
+    costUsd: numeric("cost_usd", { precision: 14, scale: 4 }),
+    /** Counted once: the provider's id (`twilio:SM…`), or the event's own. */
+    key: text("key").notNull().unique(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "metered_usage_agent_fk",
+      columns: [t.agentId, t.tenantId],
+      foreignColumns: [agent.id, agent.tenantId],
+    }),
+    foreignKey({
+      name: "metered_usage_run_fk",
+      columns: [t.runId, t.tenantId],
+      foreignColumns: [run.id, run.tenantId],
+    }),
+    index("metered_usage_tenant_idx").on(t.tenantId, t.createdAt),
+    index("metered_usage_created_idx").on(t.createdAt),
+    check("metered_usage_measure_check", oneOf(t.measure, METERED_MEASURES)),
+    check("metered_usage_source_check", sql`${t.source} ~ '^[a-z_]{1,40}$'`),
+    check("metered_usage_quantity_check", sql`${t.quantity} > 0`),
+    check("metered_usage_ours_check", sql`${t.tenantId} is not null or ${t.ours}`),
+    check(
+      "metered_usage_scope_check",
+      sql`${t.tenantId} is not null or (${t.agentId} is null and ${t.runId} is null)`,
+    ),
+    check(
+      "metered_usage_model_check",
+      sql`(${t.measure} = 'model') = (${t.costUsd} is not null) and ${t.tokensIn} >= 0 and ${t.tokensOut} >= 0 and ${t.cacheReadTokens} >= 0 and ${t.cacheWriteTokens} >= 0 and coalesce(${t.costUsd}, 0) >= 0`,
+    ),
+  ],
 );
 
 // ── Shared business records (ARCHITECTURE §5.2) ─────────────────────────────────────────────────
@@ -2928,6 +3123,73 @@ export const reachOut = pgTable(
       sql`${t.outcome} is null or ${oneOf(t.outcome, REACH_OUT_OUTCOMES)}`,
     ),
     check("reach_out_ended_check", sql`(${t.status} = 'ended') = (${t.outcome} is not null)`),
+  ],
+);
+
+// ── Process interviews (docs/plan.md §1.217; migration 0087) ──────────────────────────────────
+
+// Kept in step with core's `INTERVIEW_STATUSES` (this file imports only drizzle at runtime).
+export const INTERVIEW_STATUSES = ["open", "finished", "closed"] as const;
+
+/**
+ * One process interview: a link an operator sends one of the client's contacts about one of the
+ * client's processes. The interviewer asks one question at a time; `turns` keeps the questions and
+ * what the person answered (untrusted data, never instructions: invariant 9), `documents` the
+ * sample files they added (the client's documents). Once finished, `outputs` holds the
+ * current-state map and the open questions; `reuse` the reuse check, and `build_id` the build
+ * drafted from it. The link carries only this row's id, signed.
+ */
+export const processInterview = pgTable(
+  "process_interview",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    contactId: uuid("contact_id").notNull(),
+    /** The process, in the operator's words ("Invoice reconciliation"). */
+    process: text("process").notNull(),
+    /** The business area it is in (core `IntakeArea`), whose intake questions it covers. */
+    area: text("area"),
+    status: text("status").$type<(typeof INTERVIEW_STATUSES)[number]>().notNull().default("open"),
+    /** The language the page reads in. */
+    language: text("language").notNull().default("en"),
+    expiresAt: ts("expires_at").notNull(),
+    /** Questions and answers in order (core `InterviewTurn`). */
+    turns: json<Record<string, unknown>[]>("turns").notNull().default([]),
+    /** The question waiting for an answer; null when the interviewer has what it needs. */
+    question: text("question"),
+    /** Sample files added through the page: `{ documentId, filename, at }`. */
+    documents: json<Record<string, unknown>[]>("documents").notNull().default([]),
+    /** The map, the open questions and the description for the Builder (core `InterviewOutputs`). */
+    outputs: json("outputs"),
+    /** The reuse check over the map's steps (core `InterviewReuse`). */
+    reuse: json("reuse"),
+    buildId: uuid("build_id").references(() => build.id),
+    /** What the interview's model calls cost us. Never shown to the client. */
+    costUsd: usd("cost_usd"),
+    /** What happened on the page (opened, answered, file, finished), with time and browser. */
+    log: json<Record<string, unknown>[]>("log").notNull().default([]),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+    finishedAt: ts("finished_at"),
+  },
+  (t) => [
+    unique("process_interview_id_tenant_key").on(t.id, t.tenantId),
+    index("process_interview_tenant_idx").on(t.tenantId, t.createdAt),
+    foreignKey({
+      name: "process_interview_contact_fk",
+      columns: [t.contactId, t.tenantId],
+      foreignColumns: [contact.id, contact.tenantId],
+    }),
+    check("process_interview_status_check", oneOf(t.status, INTERVIEW_STATUSES)),
+    check("process_interview_process_check", sql`char_length(${t.process}) between 1 and 200`),
+    check(
+      "process_interview_finished_check",
+      sql`${t.status} <> 'finished' or (${t.outputs} is not null and ${t.finishedAt} is not null)`,
+    ),
   ],
 );
 
@@ -3994,10 +4256,21 @@ export const ONBOARDING_NOTIFICATION_KINDS = [
   "intake_scope_ready",
   "intake_next",
 ] as const;
-/** The kinds the check allows: core's, and the onboarding emails' (0066). */
+/** The kinds a row may have: core's, and the onboarding emails' (0066). */
 export const NOTIFICATION_KINDS_ALLOWED = [
   ...NOTIFICATION_KINDS,
   ...ONBOARDING_NOTIFICATION_KINDS,
+] as const;
+/**
+ * Work plan C4.10 (0079): an urgent notice's Seen card, told at once whatever the person's quiet
+ * hours (process model's Notify, docs/plan.md §1.86). The check allows it before core's
+ * notification kinds named it, so the previous Worker kept working; core names it now.
+ */
+export const URGENT_NOTIFICATION_KINDS = ["urgent"] as const;
+/** The kinds the check allows: those above and urgent notices' (0079). */
+export const NOTIFICATION_KIND_CHECK = [
+  ...NOTIFICATION_KINDS_ALLOWED,
+  ...URGENT_NOTIFICATION_KINDS,
 ] as const;
 export const NOTIFICATION_STATUSES = ["queued", "sent", "failed", "skipped"] as const;
 export const WEEKLY_TABLE_STATUSES = ["draft", "sent"] as const;
@@ -4036,6 +4309,213 @@ export const personDevice = pgTable(
   ],
 );
 
+// ── The desktop app's computers and jobs (migration 0080, docs/plan.md §1.151, §1.204) ────────
+
+export const DESKTOP_DEVICE_PLATFORMS = ["mac", "windows"] as const;
+/** core's DesktopJobRequest kinds (checked equal in the migration's test). */
+export const DESKTOP_JOB_KINDS = [
+  "files.list",
+  "file.read",
+  "xlsx.read",
+  "xlsx.append",
+  "xlsx.update",
+  "file.create",
+] as const;
+
+/**
+ * §1.151 (migration 0080): a client's computer with the Mezonas desktop app, paired by a client
+ * admin into its own `desktop` connection (whose `config` holds the folders it gives). The public
+ * half of the computer's key checks every request it signs. Removing it sets `revoked_at` and clears
+ * the key, so nothing it signs is accepted again; the row stays (audit rows and jobs name it).
+ * Never deleted; only the name, the app's version, the key, `last_seen_at` and `revoked_at` change
+ * (trigger).
+ */
+export const desktopDevice = pgTable(
+  "desktop_device",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    connectionId: uuid("connection_id").notNull(),
+    name: text("name").notNull(),
+    platform: text("platform").$type<(typeof DESKTOP_DEVICE_PLATFORMS)[number]>().notNull(),
+    appVersion: text("app_version").notNull(),
+    /** An EC P-256 JWK (public only); null once the computer is removed. */
+    publicKey: json<{ kty: "EC"; crv: "P-256"; x: string; y: string }>("public_key"),
+    /** The client admin who paired it. */
+    pairedBy: uuid("paired_by")
+      .notNull()
+      .references(() => appUser.id),
+    createdAt: createdAt(),
+    lastSeenAt: ts("last_seen_at"),
+    revokedAt: ts("revoked_at"),
+  },
+  (t) => [
+    unique("desktop_device_id_tenant_key").on(t.id, t.tenantId),
+    foreignKey({
+      name: "desktop_device_connection_fk",
+      columns: [t.connectionId, t.tenantId],
+      foreignColumns: [connection.id, connection.tenantId],
+    }),
+    // One live computer per connection; a removed one keeps its row beside a new pairing.
+    uniqueIndex("desktop_device_connection_live_key")
+      .on(t.connectionId)
+      .where(sql`${t.revokedAt} is null`),
+    index("desktop_device_tenant_idx").on(t.tenantId),
+    check("desktop_device_platform_check", oneOf(t.platform, DESKTOP_DEVICE_PLATFORMS)),
+    check("desktop_device_key_check", sql`(${t.revokedAt} is null) = (${t.publicKey} is not null)`),
+  ],
+);
+
+/**
+ * §1.151 (migration 0080): one job for a paired computer (core's `DesktopJobRequest`), queued by
+ * `services.desktop`, handed to the computer on its next poll (`sent_at`) and answered once
+ * (`answered_at`, `result`, core's `DesktopJobResult`). A job not picked up by `expires_at` is
+ * given up on. Never deleted; only `sent_at`, `answered_at` and `result` change (trigger).
+ */
+export const desktopJob = pgTable(
+  "desktop_job",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    deviceId: uuid("device_id").notNull(),
+    kind: text("kind").$type<(typeof DESKTOP_JOB_KINDS)[number]>().notNull(),
+    request: json("request").notNull(),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: ts("expires_at").notNull(),
+    sentAt: ts("sent_at"),
+    answeredAt: ts("answered_at"),
+    result: json("result"),
+  },
+  (t) => [
+    foreignKey({
+      name: "desktop_job_device_fk",
+      columns: [t.deviceId, t.tenantId],
+      foreignColumns: [desktopDevice.id, desktopDevice.tenantId],
+    }),
+    index("desktop_job_waiting_idx")
+      .on(t.tenantId, t.deviceId, t.issuedAt)
+      .where(sql`${t.sentAt} is null`),
+    check("desktop_job_kind_check", oneOf(t.kind, DESKTOP_JOB_KINDS)),
+    check("desktop_job_expiry_check", sql`${t.expiresAt} > ${t.issuedAt}`),
+    check("desktop_job_result_check", sql`(${t.answeredAt} is null) = (${t.result} is null)`),
+  ],
+);
+
+/** §1.218 (0096): what a reviewer decided for one person's access to one client. */
+export const ACCESS_REVIEW_DECISIONS = ["keep", "remove"] as const;
+
+/**
+ * §1.218 (migration 0096): one quarterly access review (SOC 2 CC6.2, CC6.3), recorded by an
+ * operator: the quarter it covers, who reviewed and how many people and removals it found. Global
+ * and operator-only; its people are `access_review_item`, one per client. Never updated or deleted.
+ * DECISION (§1.218): the reviewer is an id and an email copied at the time, with no key to
+ * `app_user`, so the record outlives a reviewer who leaves and never blocks removing one.
+ */
+export const accessReview = pgTable(
+  "access_review",
+  {
+    id: id(),
+    /** `2026-Q4`: the calendar quarter the review is for. */
+    period: text("period").notNull(),
+    reviewedBy: uuid("reviewed_by").notNull(),
+    reviewerEmail: text("reviewer_email").notNull(),
+    clients: integer("clients").notNull(),
+    people: integer("people").notNull(),
+    removals: integer("removals").notNull(),
+    note: text("note").notNull().default(""),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    index("access_review_created_idx").on(t.createdAt),
+    check("access_review_period_check", sql`${t.period} ~ '^[0-9]{4}-Q[1-4]$'`),
+    check(
+      "access_review_counts_check",
+      sql`${t.clients} >= 0 and ${t.people} >= 0 and ${t.removals} between 0 and ${t.people}`,
+    ),
+    check("access_review_note_check", sql`char_length(${t.note}) <= 2000`),
+  ],
+);
+
+/**
+ * §1.218 (migration 0096): one person's access to one client as an access review found it, and
+ * the reviewer's decision. The client's own row (row-level security on `tenant_id`), so a purge
+ * takes it with the client and an operator reads only the clients they serve. Never updated or
+ * deleted. DECISION (§1.218): the person is copied (id, email, name, role, last sign-in), with no
+ * key to `app_user`, so the review shows what was true that day even after the person is gone.
+ */
+export const accessReviewItem = pgTable(
+  "access_review_item",
+  {
+    id: id(),
+    reviewId: uuid("review_id")
+      .notNull()
+      .references(() => accessReview.id),
+    tenantId: tenantId(),
+    userId: uuid("user_id").notNull(),
+    email: text("email").notNull(),
+    name: text("name"),
+    role: text("role").notNull(),
+    lastSignInAt: ts("last_sign_in_at"),
+    lastSeenAt: ts("last_seen_at"),
+    decision: text("decision").$type<(typeof ACCESS_REVIEW_DECISIONS)[number]>().notNull(),
+    note: text("note").notNull().default(""),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    unique("access_review_item_person_key").on(t.reviewId, t.tenantId, t.userId),
+    index("access_review_item_tenant_idx").on(t.tenantId),
+    check("access_review_item_decision_check", oneOf(t.decision, ACCESS_REVIEW_DECISIONS)),
+    check("access_review_item_note_check", sql`char_length(${t.note}) <= 500`),
+  ],
+);
+
+// ── Saved match rules (migration 0085, docs/plan.md §1.215: the matching engine) ─────────────
+
+/** What a saved rule makes equal: core's `MATCH_RULE_FIELDS` (checked equal in its test). */
+export const MATCH_RULE_FIELDS = ["reference", "counterparty"] as const;
+
+/**
+ * §1.215 (migration 0085): an operator's correction to a match, saved as a rule for one client and
+ * one matching configuration (core's `MATCH_CONFIGS`, e.g. `bank_to_ledger`): on side A a
+ * `field` whose normalised value is `a_value` is side B's `b_value` ("AMZN MKTP" is "Amazon";
+ * "INV-0042" is "42"). The engine's first tier reads the client's live rules; what an agent learns
+ * stays with that client (invariant 1). Retired, never deleted or edited: only `retired_at` and
+ * `retired_by` change (trigger).
+ */
+export const matchRule = pgTable(
+  "match_rule",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    config: text("config").notNull(),
+    field: text("field").$type<(typeof MATCH_RULE_FIELDS)[number]>().notNull(),
+    aValue: text("a_value").notNull(),
+    bValue: text("b_value").notNull(),
+    note: text("note"),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => appUser.id),
+    createdAt: createdAt(),
+    retiredAt: ts("retired_at"),
+    retiredBy: uuid("retired_by").references(() => appUser.id),
+  },
+  (t) => [
+    // One live rule for a value on side A of a configuration.
+    uniqueIndex("match_rule_live_key")
+      .on(t.tenantId, t.config, t.field, t.aValue)
+      .where(sql`${t.retiredAt} is null`),
+    index("match_rule_tenant_idx").on(t.tenantId, t.config),
+    check("match_rule_config_check", sql`${t.config} ~ '^[a-z][a-z0-9_]{0,63}$'`),
+    check("match_rule_field_check", oneOf(t.field, MATCH_RULE_FIELDS)),
+    check(
+      "match_rule_values_check",
+      sql`length(${t.aValue}) between 1 and 200 and length(${t.bValue}) between 1 and 200`,
+    ),
+    check("match_rule_note_check", sql`${t.note} is null or length(${t.note}) <= 500`),
+    check("match_rule_retired_check", sql`(${t.retiredAt} is null) = (${t.retiredBy} is null)`),
+  ],
+);
+
 /**
  * One email or text telling a person something is waiting: a count and a link, never record
  * content (plan §1.35). Sent once per `dedupe_key` and channel. Only `status`, `reason`,
@@ -4051,7 +4531,8 @@ export const notification = pgTable(
     contactId: uuid("contact_id"),
     channel: text("channel").$type<(typeof NOTIFICATION_CHANNELS)[number]>().notNull(),
     // §1.149: the onboarding emails' kinds too (core ONBOARDING_NOTIFICATION_KINDS); a type only.
-    kind: text("kind").$type<(typeof NOTIFICATION_KINDS_ALLOWED)[number]>().notNull(),
+    // C4.10: and `urgent`, now core's kind too (0079).
+    kind: text("kind").$type<(typeof NOTIFICATION_KIND_CHECK)[number]>().notNull(),
     /** e.g. `items_waiting:<user>:<hour>`: the same key on the same channel is sent once. */
     dedupeKey: text("dedupe_key").notNull(),
     /** Where the person goes: a page of the portal or the back office. */
@@ -4079,7 +4560,7 @@ export const notification = pgTable(
     index("notification_tenant_idx").on(t.tenantId, t.createdAt),
     index("notification_queued_idx").on(t.createdAt).where(sql`${t.status} = 'queued'`),
     check("notification_channel_check", oneOf(t.channel, NOTIFICATION_CHANNELS)),
-    check("notification_kind_check", oneOf(t.kind, NOTIFICATION_KINDS_ALLOWED)),
+    check("notification_kind_check", oneOf(t.kind, NOTIFICATION_KIND_CHECK)),
     check("notification_status_check", oneOf(t.status, NOTIFICATION_STATUSES)),
   ],
 );
@@ -6284,6 +6765,17 @@ export const TENANT_TABLES = [
   "run_audit_mark",
   // §1.116
   "person_device",
+  // §1.151 (0080): the desktop app's computers and their jobs.
+  "desktop_device",
+  "desktop_job",
+  // §1.218 (0096): each client's people as a quarterly access review found them.
+  "access_review_item",
+  // §1.210 (0095): what we pay vendors for outside a run's model calls.
+  "metered_usage",
+  // §1.215 (0085): a client's saved match rules.
+  "match_rule",
+  // §1.236 (0098): a client's saved views of the portal's runs list.
+  "portal_view",
   // 0057: area owners and their versions (ARCHITECTURE v0.19 §10.15).
   "area_owner",
   "area_owner_version",
@@ -6305,6 +6797,10 @@ export const TENANT_TABLES = [
   "sop_revision",
   // 0075: each agent's security checks, one row per result (docs/agent-assurance-plan.md §6).
   "control_check",
+  // 0077: what each run was about, one row per thing it read or changed (docs/reporting-plan.md R1).
+  "run_subject",
+  // 0087: process interviews (docs/plan.md §1.217).
+  "process_interview",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 
@@ -6324,6 +6820,8 @@ export const OPERATOR_TABLES = [
   "test_case_result",
   "builder_session",
   "builder_turn",
+  // §1.210 (0095): the platform's own vendor costs have no client.
+  "metered_usage",
 ] as const satisfies readonly TenantTable[];
 
 /** Global tables only operator sessions may read or write (row-level security on `app.operator`). */
@@ -6334,4 +6832,6 @@ export const OPERATOR_ONLY_TABLES = [
   "connector_setting",
   // 0066: saved starts for Sign up now and Invite (docs/plan.md §1.149).
   "sales_start",
+  // 0096: the quarterly access reviews (§1.218); their people are access_review_item.
+  "access_review",
 ] as const;

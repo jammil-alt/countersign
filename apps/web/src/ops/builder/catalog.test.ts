@@ -4,7 +4,7 @@
 import { AnyAgentBundle, type AnyAgentBundleInput, type BuilderCatalog } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { validateMerged } from "../merge/MergeScreen";
-import { typingContext, validateProcessesLikeServer } from "./catalog";
+import { toolConnector, toolFeed, typingContext, validateProcessesLikeServer } from "./catalog";
 
 const CATALOG: BuilderCatalog = {
   skills: [],
@@ -127,5 +127,39 @@ describe("validateMerged", () => {
       "approvals_not_client",
     );
     expect(validateMerged(promoted, ctx, true).valid).toBe(true);
+  });
+});
+
+// docs/plan.md §1.221: a pack's import of bank transactions reads what the bank feed saved. It has
+// no connection of its own, but its step carries the feed's mark (Plaid's).
+describe("toolFeed", () => {
+  const tool = {
+    id: "bookkeeping.transactions.import",
+    description: "Reads new bank and card transactions",
+    input: { type: "object" },
+    output: { type: "object" },
+    sideEffect: "internal" as const,
+    verb: "create" as const,
+    source: "bookkeeping",
+  };
+  const data = (feed?: string) => ({
+    catalog: {
+      ...CATALOG,
+      tools: [...CATALOG.tools, feed ? { ...tool, feed } : tool],
+      connectors: [...CATALOG.connectors, { id: "bankfeed", name: "Bank feed", icon: null }],
+    },
+    events: [],
+  });
+
+  it("names the connector a tool's feed is, and gives it no connector of its own", () => {
+    expect(toolFeed(tool.id, data("bankfeed"))).toBe("bankfeed");
+    expect(toolConnector(tool.id, data("bankfeed"))).toBeNull();
+  });
+
+  it("is null for a tool with no feed, a feed the catalog doesn't know, and an unknown tool", () => {
+    expect(toolFeed(tool.id, data())).toBeNull();
+    expect(toolFeed(tool.id, data("plaid_elsewhere"))).toBeNull();
+    expect(toolFeed("testkit.record.update", data("bankfeed"))).toBeNull();
+    expect(toolFeed("nope", data("bankfeed"))).toBeNull();
   });
 });

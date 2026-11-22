@@ -26,6 +26,8 @@ export * from "./directory";
 // A connection that went away under a query (Neon restarting, Hyperdrive moving it).
 export { isDatabaseDrop } from "./drops";
 export * from "./ledger";
+// §1.215: a client's saved match rules (the matching engine's first tier).
+export * from "./match-rules";
 export {
   accountIn,
   membershipsOfUser,
@@ -36,3 +38,5 @@ export {
 export * from "./schema";
 // R9: seeded version files that name an earlier version (the seed and the install route).
 export { isSeedVersionPatch, type SeedVersionPatch, seedVersionBundle } from "./seed-files";
+// §1.234: the work statement's counters, counted once for every surface.
+export * from "./work-counts";

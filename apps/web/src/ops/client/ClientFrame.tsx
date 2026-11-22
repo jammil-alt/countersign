@@ -7,7 +7,7 @@
 // and old addresses redirect (`packs` to `areas`); each
 // renders inside this frame, which loads the client once and hands it down (`useClientPage`). The
 // client's runs are on the Runs page, filtered to it, linked from the Overview.
-import { goLiveCounts } from "@countersign/core";
+import { clientAgentCounts } from "@countersign/core";
 import { createContext, type ReactNode, useContext, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, Outlet, useLocation, useParams } from "react-router-dom";
@@ -47,7 +47,15 @@ export const CLIENT_TABS: {
   label: string;
   pages: readonly (readonly [string, string])[];
 }[] = [
-  { id: "overview", label: "Overview", pages: [["", "Overview"]] },
+  // R5 (docs/plan.md §1.235): the client's report, the Overview's second page.
+  {
+    id: "overview",
+    label: "Overview",
+    pages: [
+      ["", "Overview"],
+      ["report", "Report"],
+    ],
+  },
   { id: "agents", label: "Agents", pages: [["agents", "Agents"]] },
   // §1.162 (owner, 2026-11-20): the business areas switched on for the client (packs in the code),
   // the connections each needs with the client's status; their reports open under it. It was
@@ -55,7 +63,15 @@ export const CLIENT_TABS: {
   // Setup's Connectors (§1.161).
   { id: "areas", label: "Areas", pages: [["areas", "Areas"]] },
   // §1.149: what we know about the client, from the first call on (operator only).
-  { id: "file", label: "File", pages: [["file", "Client file"]] },
+  // §1.217: process interviews with the client's people, beside the file.
+  {
+    id: "file",
+    label: "File",
+    pages: [
+      ["file", "Client file"],
+      ["interviews", "Interviews"],
+    ],
+  },
   {
     id: "data",
     label: "Data",
@@ -64,12 +80,16 @@ export const CLIENT_TABS: {
       ["records", "Records"],
       // The ledger per accounting connection (docs/plan.md §1.79).
       ["ledger", "Chart of accounts"],
+      // §1.216: what the checks find in the client's QuickBooks.
+      ["books-health", "Books health"],
     ],
   },
   {
     id: "setup",
     label: "Setup",
     pages: [
+      // docs/setup-plan.md §8 (§1.206): where the client's setup stands, by chapter, first.
+      ["progress", "Progress"],
       // Connectors C6: the client's Connectors (its address stays `connections`).
       ["connections", "Connectors"],
       ["messaging", "Messaging"],
@@ -107,15 +127,15 @@ export function clientPageOf(
 }
 
 /**
- * "2 of 3 agents live · 1 in trial": a template's test copies don't count. "Live" is core's
- * `isLiveAgent` (switched on, at the live stage), as the command center counts it (fix 4 of the
- * design pass: it read "live" for any published version, even one still on the bench).
+ * "2 of 3 agents live · 1 in trial": the client's agents as every count counts them (core
+ * `clientAgentCounts`: no template test copies, retired or discarded agents), so the command
+ * center's card, the clients list and this line agree. "Live" is core's `isLiveAgent` (switched
+ * on, at the live stage; fix 4 of the design pass: it read "live" for any published version).
  */
 export function clientLine(data: OpsClient): string {
-  const agents = data.agents.filter((a) => !a.testCopy);
-  const n = goLiveCounts(agents.map((a) => ({ runStatus: a.runStatus, stage: a.stage })));
+  const n = clientAgentCounts(data.agents);
   return [
-    `${n.live} of ${agents.length} ${agents.length === 1 ? "agent" : "agents"} live`,
+    `${n.live} of ${n.total} ${n.total === 1 ? "agent" : "agents"} live`,
     n.trial > 0 ? `${n.trial} in trial` : null,
     n.signoff > 0 ? `${n.signoff} in sign-off` : null,
   ]

@@ -4,7 +4,8 @@
 // the person, signed in here past the step, approves it. It lasts until that Claude sign-in ends,
 // 12 hours at most. One screen in both shells: an operator's link opens the back office, a client's
 // the portal. Audit 5.3: the page says when Claude asked with this link, and approving takes the
-// short code Claude showed beside it, typed here, so it is never one click on a link alone.
+// short code Claude showed beside it, typed here, so it is never one click on a link alone. H6:
+// it also says who is asking (the Claude client, as its request names itself) and from where.
 import { CLAUDE_CONFIRM_DIGITS, type ClaudeConnection } from "@countersign/core";
 import { type ReactNode, useState } from "react";
 import { useParams } from "react-router-dom";
@@ -123,6 +124,16 @@ function ConnectionCard({
           {requested ? (
             <p className="text-ink" data-testid="connect-claude-requested">
               {t("connectClaude.requested", { time: requested })}
+            </p>
+          ) : null}
+          {connection.client ? (
+            <p className="text-ink" data-testid="connect-claude-client">
+              {t("connectClaude.client", { client: connection.client })}
+            </p>
+          ) : null}
+          {connection.place ? (
+            <p className="text-sm text-ink-muted" data-testid="connect-claude-place">
+              {t("connectClaude.place", { place: connection.place })}
             </p>
           ) : null}
           <Field label={t("connectClaude.confirm")} hint={t("connectClaude.confirmHint")}>

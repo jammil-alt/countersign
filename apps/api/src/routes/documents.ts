@@ -49,7 +49,7 @@ import {
   linkToTransaction,
   storeDocument,
 } from "@countersign/documents";
-import { createLlmClient } from "@countersign/llm";
+import { createLlmClient, type LlmCallRecord } from "@countersign/llm";
 import { collectEmitted, EmittedEvents, type EventRow, emit } from "@countersign/senses";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Hono } from "hono";
@@ -65,6 +65,7 @@ import {
   notFound,
   type Services,
 } from "../http";
+import { meterModelCalls } from "../metering";
 import { reportHandled } from "../observability/report";
 import { dispatchAfterCommit, dispatchEvents } from "../runs/dispatch";
 import { signerFor, verifyFileToken } from "../storage";
@@ -243,12 +244,17 @@ export async function extractInBackground(
   // NOT NULL, with foreign keys), and this read has neither. Its tokens and cost are on its
   // `doc_extraction` row and in `usage_platform_daily` (docs/plan.md §1.43); a read inside a run
   // (`docs.extract`) is recorded as its step's model call.
-  const llm = createLlmClient({ transport });
+  // §1.210: a document's calls, kept until its read is saved: a read that fails (a split PDF's
+  // later part, a cut-off answer) saves no `doc_extraction` row, yet its calls were paid for, so
+  // they are recorded as the client's own reading usage instead.
+  let calls: LlmCallRecord[] = [];
+  const llm = createLlmClient({ transport, onCall: (record) => void calls.push(record) });
   // v0.12 W1-H: each document's events (read, failed, linked) are dispatched as soon as its
   // transactions commit, so a run triggered by `document.extracted` starts at once (§8).
   const dispatch = { db: services.db, instances: services.deps.instances(services.env) };
   for (const documentId of documentIds) {
     const collect = new EmittedEvents();
+    calls = [];
     try {
       const read = await extractDocument(
         { db: services.db, content, llm },
@@ -274,6 +280,20 @@ export async function extractInBackground(
         )
       ) {
         reportHandled("extracting a document failed", error, { kind: "extraction" });
+      }
+      if (calls.length > 0) {
+        const spent = calls;
+        await withTenant(services.db, tenantId, (tx) =>
+          meterModelCalls(tx, {
+            tenantId,
+            source: "background_read",
+            ours: false,
+            key: `background_read:${documentId}:${crypto.randomUUID()}`,
+            calls: spent,
+          }),
+        ).catch((e: unknown) =>
+          reportHandled("a failed read's cost was not recorded", e, { kind: "extraction" }),
+        );
       }
     } finally {
       await dispatchAfterCommit(dispatch, tenantId, collect);

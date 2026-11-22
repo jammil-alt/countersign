@@ -168,4 +168,23 @@ describe("the texting sign-up page", () => {
       unmount();
     }
   });
+
+  it("says an invitation was used, with no form to send (§1.197)", async () => {
+    const api = fakeApi({
+      "GET /api/session": signedOut,
+      [`GET /api/text-signup/${TOKEN}`]: () =>
+        page({ kind: "invitation", name: "Pat Rivera", state: "used", number: "+15125550101" }),
+    });
+    renderAt(`/texts/${TOKEN}`, api);
+    expect(await screen.findByTestId("text-signup-used")).toHaveTextContent(
+      "It works once. To get texts on another number, ask Rivera Supply.",
+    );
+    expect(screen.getByText("This invitation was already used")).toBeInTheDocument();
+    expect(screen.getByTestId("text-signup-start-again")).toHaveTextContent(
+      "Text START to (512) 555-0101",
+    );
+    expect(screen.queryByTestId("text-signup-submit")).toBeNull();
+    expect(screen.queryByTestId("text-signup-phone")).toBeNull();
+    expect(screen.queryByTestId("text-signup-no")).toBeNull();
+  });
 });

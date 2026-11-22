@@ -86,8 +86,10 @@ import {
 import { automationStepsPath } from "../flow/automation/paths";
 import { Chart } from "../flow/Chart";
 import { dispatchFlowDrop, flowCollision, resolveFlowDrop } from "../flow/dnd";
+import { kindDoes } from "../flow/does";
 import { FlowBar, type FlowView } from "../flow/FlowBar";
 import "../flow/flow.css";
+import { EN } from "../../i18n/i18n";
 import {
   agentEnds,
   chartLabel,
@@ -126,6 +128,7 @@ import {
   paletteSections,
   TESTKIT,
   toolConnector,
+  toolFeed,
   typingContext,
   validateProcessesLikeServer,
   writeLabelOf,
@@ -195,6 +198,7 @@ import { rebase } from "./rebase";
 import { addReshapeBefore, addReshapeThenAction, newReshapeStep } from "./reshape";
 import { useClientScriptTools } from "./scripts";
 import { applySkillMove } from "./skill-move";
+import { splitStarts } from "./starts";
 // v0.18: the Builder on the step that is open (F6: under its setup in the side panel).
 import { readStepChatSize, StepChat, writeStepChatSize } from "./step-chat";
 import { WhatsLeft } from "./whats-left";
@@ -436,7 +440,7 @@ function restoredDraft(
 }
 
 function clock(at: number): string {
-  return new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return EN.fmt.clock(new Date(at).toISOString());
 }
 
 // ── Body ─────────────────────────────────────────────────────────────────────────────────────────
@@ -712,7 +716,9 @@ function BuilderBody(
           step.kind === "write" && step.action !== undefined
             ? (step.via ?? null)
             : step.tool !== undefined
-              ? toolConnector(step.tool, data)
+              ? // Its own connector, else the feed it reads what it saves from (Plaid's mark on
+                // the bank-feed import, §1.221).
+                (toolConnector(step.tool, data) ?? toolFeed(step.tool, data))
               : null;
         return id ? { id, name: connectorName(data, id) } : undefined;
       },
@@ -1652,6 +1658,21 @@ function BuilderBody(
         edit((w) => removeTrigger(w, id));
         closeSide();
       }}
+      // Owner, 2026-11-22 (docs/plan.md §1.184): a decision first, with a path for each start;
+      // it opens selected, so its paths can be named and filled.
+      onSplitStarts={() => {
+        // The same ids however often the edit is applied.
+        const made = Array.from({ length: 12 }, () => uuidv7());
+        let stepId: string | null = null;
+        edit((w) => {
+          let n = 0;
+          const r = splitStarts(w, ctx, () => made[n++] ?? uuidv7());
+          if (!r.ok) return w;
+          stepId = r.stepId;
+          return r.process;
+        });
+        if (stepId) setSelection({ type: "step", id: stepId });
+      }}
       onDelete={remove}
       // Skill model (2026-11-10): "Move to vN", references remapped, one undo.
       agentId={agent.id}
@@ -1773,6 +1794,8 @@ function BuilderBody(
         kind={words.kind}
         place={{ n: loc.index + 1, of: siblings.length }}
         title={step.name}
+        // What it does, in its skill's, tool's or automation's words, else its kind's line.
+        does={words.does ?? kindDoes(step)}
         // One undo per run of typing, as the inspector's own name field made it.
         onRename={(name) =>
           edit((w) => updateStep(w, step.id, (s) => ({ ...s, name })), `${step.id}:name`)
@@ -2195,6 +2218,9 @@ function BuilderBody(
                     build={build}
                     clientId={trying.clientId}
                     sample={samplePayload(workflow, data.events)}
+                    // Some of the steps (docs/plan.md §1.185), starting from the one open here.
+                    ctx={ctx}
+                    startAt={selection?.type === "step" ? selection.id : null}
                     onMarks={setTried}
                     onDone={() => {
                       setTrying(null);

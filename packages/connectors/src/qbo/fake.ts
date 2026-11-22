@@ -221,6 +221,8 @@ const ENTITY_PATHS: Record<string, string> = {
   deposit: "Deposit",
   transfer: "Transfer",
   department: "Department",
+  // docs/plan.md §1.232
+  journalentry: "JournalEntry",
 };
 
 /** Objects in one CDC answer at most. */
@@ -476,8 +478,14 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
   function checkLineRefs(lines: Record<string, unknown>[]) {
     for (const l of lines) {
       const d = (l.AccountBasedExpenseLineDetail ?? l.ItemBasedExpenseLineDetail) as
-        | { ClassRef?: { value?: string }; CustomerRef?: { value?: string } }
+        | {
+            ClassRef?: { value?: string };
+            CustomerRef?: { value?: string };
+            ItemRef?: { value?: string };
+          }
         | undefined;
+      // C2.4: an item line names one of the company's items.
+      if (d?.ItemRef && !table("Item").has(String(d.ItemRef.value))) throw invalidRef();
       if (d?.ClassRef && !table("Class").has(String(d.ClassRef.value))) throw invalidRef();
       if (d?.CustomerRef && !table("Customer").has(String(d.CustomerRef.value))) {
         throw invalidRef();
@@ -633,6 +641,34 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
     return response(200, { Transfer: clone(row), time: now().toISOString() });
   }
 
+  /** A new journal entry (POST /journalentry without an Id): its debits must equal its credits. */
+  function createJournalEntry(body: Entity): HttpResponseLike {
+    const lines = (Array.isArray(body.Line) ? body.Line : []) as Record<string, unknown>[];
+    let debits = dec("0");
+    let credits = dec("0");
+    for (const l of lines) {
+      const d = l.JournalEntryLineDetail as { PostingType?: string; AccountRef?: unknown };
+      liveAccount(d?.AccountRef);
+      const amount = dec(String(l.Amount ?? 0));
+      if (d?.PostingType === "Debit") debits = debits.plus(amount);
+      else credits = credits.plus(amount);
+    }
+    if (!debits.equals(credits)) {
+      throw new FakeFault(400, "6060", "Transaction must balance: debits and credits differ");
+    }
+    const row: Entity = {
+      ...clone(body),
+      Id: String(nextBankId++),
+      SyncToken: "0",
+      domain: "QBO",
+      sparse: false,
+      CurrencyRef: (body.CurrencyRef as object | undefined) ?? { value: "USD" },
+      Line: lines.map((l, i) => ({ ...l, Id: String(i), LineNum: i + 1 })),
+    };
+    touch("JournalEntry", row, true);
+    return response(200, { JournalEntry: clone(row), time: now().toISOString() });
+  }
+
   // ── The ledger's set-up: accounts, classes and locations ──────────────────────────────────
 
   /** QuickBooks' full name: the parent's, a colon, then the name. */
@@ -681,6 +717,7 @@ export function fakeQbo(opts: FakeQboOptions = {}) {
     if (first === "purchase") return createPurchase(body);
     if (first === "deposit") return createDeposit(body);
     if (first === "transfer") return createTransfer(body);
+    if (first === "journalentry") return createJournalEntry(body);
     if (first === "bill") return createBill(body);
     if (first === "vendor") return createVendor(body);
     if (first === "purchaseorder") return createPurchaseOrder(body);

@@ -20,6 +20,8 @@ import {
   AgentBundle,
   type AgentBundleInput,
   DecimalString,
+  itemFingerprint,
+  OpsInboxItem,
   optOutLine,
   withIntroduction,
 } from "@countersign/core";
@@ -43,6 +45,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
   type ApiHarness,
+  AS_SENT,
   admin,
   createApiHarness,
   FakeWorkflowStep,
@@ -632,6 +635,110 @@ describe.skipIf(!h)("the client runs it, we step in", () => {
       decision: "approve",
     });
     expect(plain.status, JSON.stringify(plain.json)).toBe(200);
+  });
+
+  it("answers only the card as the operator saw it: a resolve or step-in on one changed since is refused", async () => {
+    // Audit 3.4 (docs/plan.md §1.191): the back office's resolve and step-in, as the portal's.
+    const [ours, theirs] = await H.t.db
+      .insert(inboxItem)
+      .values([
+        {
+          tenantId: A(),
+          kind: "review" as const,
+          assigneeRole: "operator",
+          title: "Check the Ridge order",
+          payload: { total: "120.00" },
+        },
+        {
+          tenantId: A(),
+          kind: "review" as const,
+          assigneeRole: "client_admin",
+          title: "Approve the Ridge order",
+          payload: { total: "120.00" },
+        },
+      ])
+      .returning();
+    const oursId = ours?.id as string;
+    const theirsId = theirs?.id as string;
+    /** Each item as the back office's list shows it, with the fingerprint the web computes. */
+    const seen = async () => {
+      const res = await H.call(OPERATOR, "GET", `/api/ops/inbox?client=${A()}&assigned=all`);
+      expect(res.status, JSON.stringify(res.json)).toBe(200);
+      const out = new Map<string, string>();
+      for (const raw of j(res.json).items as unknown[]) {
+        const item = OpsInboxItem.parse(raw);
+        out.set(item.id, await itemFingerprint(item));
+      }
+      return out;
+    };
+    const before = await seen();
+    const oursSeen = before.get(oursId) as string;
+    const theirsSeen = before.get(theirsId) as string;
+    expect(oursSeen).toMatch(/^[0-9a-f]{64}$/);
+    // Both cards change while they are open on the operator's screen.
+    for (const id of [oursId, theirsId]) {
+      await H.t.db
+        .update(inboxItem)
+        .set({ payload: { total: "1200.00" } })
+        .where(eq(inboxItem.id, id));
+    }
+    const asSent = (path: string, body: unknown) =>
+      H.call(OPERATOR, "POST", path, body, { [AS_SENT]: "1" });
+    const resolvePath = `/api/ops/inbox/${oursId}/resolve`;
+    const stale = await asSent(resolvePath, { decision: "approve", fingerprint: oursSeen });
+    expect(stale.status).toBe(409);
+    expect(j(stale.json).error).toMatchObject({
+      code: "changed",
+      message: "This card changed since you opened it; look again",
+    });
+    const blind = await asSent(resolvePath, { decision: "approve" });
+    expect([blind.status, j(blind.json).error.code]).toEqual([400, "fingerprint_required"]);
+    for (const body of [
+      { action: "approve", reason: "They asked us to.", fingerprint: theirsSeen },
+      { action: "reject", reason: "They asked us to.", fingerprint: theirsSeen },
+      {
+        action: "reassign",
+        reason: "Sam runs purchasing.",
+        to: { kind: "role", role: "client_user" },
+        fingerprint: theirsSeen,
+      },
+    ]) {
+      const res = await asSent(stepInPath(theirsId), body);
+      expect([res.status, j(res.json).error?.code], JSON.stringify(res.json)).toEqual([
+        409,
+        "changed",
+      ]);
+    }
+    const unnamed = await asSent(stepInPath(theirsId), { action: "approve", reason: "x" });
+    expect([unnamed.status, j(unnamed.json).error.code]).toEqual([400, "fingerprint_required"]);
+    // Nothing was recorded.
+    const rows = await H.t.db
+      .select()
+      .from(inboxItem)
+      .where(and(eq(inboxItem.tenantId, A()), like(inboxItem.title, "% the Ridge order")));
+    expect(rows.map((r) => [r.status, r.resolvedBy, r.assigneeRole]).sort()).toEqual([
+      ["open", null, "client_admin"],
+      ["open", null, "operator"],
+    ]);
+    // Looked at again: both go through.
+    const after = await seen();
+    expect(after.get(oursId)).not.toBe(oursSeen);
+    const ok = await asSent(resolvePath, {
+      decision: "approve",
+      fingerprint: after.get(oursId),
+    });
+    expect(ok.status, JSON.stringify(ok.json)).toBe(200);
+    expect(j(ok.json).item).toMatchObject({ id: oursId, status: "resolved" });
+    const stepped = await asSent(stepInPath(theirsId), {
+      action: "approve",
+      reason: "They asked us to.",
+      fingerprint: after.get(theirsId),
+    });
+    expect(stepped.status, JSON.stringify(stepped.json)).toBe(200);
+    expect(j(stepped.json).item).toMatchObject({
+      status: "resolved",
+      steppedIn: { action: "approve" },
+    });
   });
 
   it("passes a question to a client person, who answers it", async () => {

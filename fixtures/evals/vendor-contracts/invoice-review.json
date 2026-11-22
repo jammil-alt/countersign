@@ -1,0 +1,4744 @@
+{
+  "schemaVersion": 1,
+  "template": "vendor-contracts",
+  "workflow": "invoice-review",
+  "description": "Vendor contracts and invoice review: an invoice read and recorded, its lines matched to the catalog (rules first, the model for the rest, the hard rules vetoing it), its prices checked against history and the vendor's contract, the review notes, and the hand-off to accounts payable.",
+  "cases": [
+    {
+      "tags": ["rules"],
+      "parameters": {},
+      "answers": [],
+      "id": "clean-two-lines",
+      "name": "Two lines, both in the catalog, no history: matched by the rules, nothing to send",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-1001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "100.00"
+            },
+            {
+              "description": "MDF 5/8\" 49X97",
+              "qty": "4",
+              "uom": "SHT",
+              "unitPrice": "40.00"
+            }
+          ]
+        }
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 2,
+              "matched": 2,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                },
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:mdf"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "100.0000"
+                },
+                {
+                  "unitPriceStd": "40.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["rules", "handoff"],
+      "parameters": {
+        "materials.invoice-review": {
+          "ap_email": "ap@golden-millwork.example"
+        }
+      },
+      "answers": [],
+      "id": "clean-ap-control",
+      "name": "No findings, AP control: sent to AP saying so",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "100.00"
+            }
+          ]
+        },
+        "contacts": [
+          {
+            "name": "Accounts payable",
+            "email": "ap@golden-millwork.example"
+          }
+        ]
+      },
+      "checks": [
+        {
+          "derivable": true,
+          "input": {
+            "to": "ap@golden-millwork.example",
+            "subject": "Invoice NPS-2001 from Northline Panel Supply: no findings"
+          },
+          "note": "Worked out from the invoice, its contract and the client's mailboxes.",
+          "sources": ["@invoice"]
+        }
+      ],
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "100.0000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "send-ap",
+          "expect": {
+            "tool": "send_email",
+            "input": {
+              "to": "ap@golden-millwork.example",
+              "subject": "Invoice NPS-2001 from Northline Panel Supply: no findings"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["handoff"],
+      "parameters": {
+        "materials.invoice-review": {
+          "ap_email": "accounts payable"
+        }
+      },
+      "answers": [],
+      "id": "ap-mailbox-not-an-address",
+      "name": "AP mailbox that isn't an address: kept, nothing sent",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "100.00"
+            }
+          ]
+        }
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "100.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["history"],
+      "parameters": {},
+      "answers": [],
+      "id": "jump-warning",
+      "name": "8% over the last price: a price jump",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "108.00"
+            }
+          ]
+        },
+        "history": [
+          {
+            "item": "baltic",
+            "date": "2026-10-05",
+            "unitPrice": "100.00"
+          }
+        ]
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "108.0000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-alerts",
+          "expect": {
+            "tool": "materials.prices.check",
+            "output": {
+              "alerts": [
+                {
+                  "kind": "price_jump",
+                  "severity": "warning",
+                  "dollarImpact": "24.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["history"],
+      "parameters": {},
+      "answers": [],
+      "id": "jump-critical",
+      "name": "20% over the last price: a critical jump",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "120.00"
+            }
+          ]
+        },
+        "history": [
+          {
+            "item": "baltic",
+            "date": "2026-10-05",
+            "unitPrice": "100.00"
+          }
+        ]
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "120.0000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-alerts",
+          "expect": {
+            "tool": "materials.prices.check",
+            "output": {
+              "alerts": [
+                {
+                  "kind": "price_jump",
+                  "severity": "critical",
+                  "dollarImpact": "60.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["history"],
+      "parameters": {},
+      "answers": [],
+      "id": "within-threshold",
+      "name": "4% over the last price: under the 5% threshold, no alert",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "104.00"
+            }
+          ]
+        },
+        "history": [
+          {
+            "item": "baltic",
+            "date": "2026-10-05",
+            "unitPrice": "100.00"
+          }
+        ]
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "104.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["history"],
+      "parameters": {},
+      "answers": [],
+      "id": "price-down",
+      "name": "Cheaper than last time: no alert",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "90.00"
+            }
+          ]
+        },
+        "history": [
+          {
+            "item": "baltic",
+            "date": "2026-10-05",
+            "unitPrice": "100.00"
+          }
+        ]
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "90.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["history"],
+      "parameters": {},
+      "answers": [],
+      "id": "over-average",
+      "name": "Over the 90-day average, not the last price",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "MDF 5/8\" 49X97",
+              "qty": "3",
+              "uom": "SHT",
+              "unitPrice": "42.40"
+            }
+          ]
+        },
+        "history": [
+          {
+            "item": "mdf",
+            "date": "2026-09-20",
+            "unitPrice": "38.00"
+          },
+          {
+            "item": "mdf",
+            "date": "2026-10-20",
+            "unitPrice": "42.00"
+          }
+        ]
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:mdf"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "42.4000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-alerts",
+          "expect": {
+            "tool": "materials.prices.check",
+            "output": {
+              "alerts": [
+                {
+                  "kind": "price_vs_avg",
+                  "severity": "warning",
+                  "dollarImpact": "12.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["history"],
+      "parameters": {},
+      "answers": [],
+      "id": "vendor-spread",
+      "name": "Another vendor sold it this month for much less",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "100.00"
+            }
+          ]
+        },
+        "otherVendors": ["Cascade Hardwoods"],
+        "history": [
+          {
+            "item": "maple",
+            "date": "2026-11-01",
+            "unitPrice": "80.00",
+            "vendor": "Cascade Hardwoods"
+          }
+        ]
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:maple"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "100.0000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-alerts",
+          "expect": {
+            "tool": "materials.prices.check",
+            "output": {
+              "alerts": [
+                {
+                  "kind": "vendor_spread",
+                  "severity": "warning",
+                  "dollarImpact": "40.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["history", "handoff"],
+      "parameters": {
+        "materials.invoice-review": {
+          "ap_email": "ap@golden-millwork.example"
+        }
+      },
+      "answers": [],
+      "id": "jump-with-ap",
+      "name": "A price jump, AP control: sent with the finding",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "112.00"
+            }
+          ]
+        },
+        "history": [
+          {
+            "item": "baltic",
+            "date": "2026-10-05",
+            "unitPrice": "100.00"
+          }
+        ],
+        "contacts": [
+          {
+            "name": "Accounts payable",
+            "email": "ap@golden-millwork.example"
+          }
+        ]
+      },
+      "checks": [
+        {
+          "derivable": true,
+          "input": {
+            "to": "ap@golden-millwork.example"
+          },
+          "note": "Worked out from the invoice, its contract and the client's mailboxes.",
+          "sources": ["@invoice"]
+        }
+      ],
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "112.0000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-alerts",
+          "expect": {
+            "tool": "materials.prices.check",
+            "output": {
+              "alerts": [
+                {
+                  "kind": "price_jump",
+                  "severity": "warning",
+                  "dollarImpact": "36.0000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "send-ap",
+          "expect": {
+            "tool": "send_email",
+            "input": {
+              "to": "ap@golden-millwork.example",
+              "subject": "Invoice NPS-2001 from Northline Panel Supply: 1 finding, $36.00 at stake"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["contract"],
+      "parameters": {},
+      "answers": [],
+      "id": "contract-above",
+      "name": "Billed over the contract price",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "110.00"
+            }
+          ]
+        },
+        "contract": {
+          "name": "Northline 2026 price agreement",
+          "from": "2026-01-01",
+          "to": "2026-12-31",
+          "netDays": 30,
+          "paymentTerms": "Net 30",
+          "items": [
+            {
+              "item": "baltic",
+              "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "listPrice": "100.00"
+            }
+          ]
+        }
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "110.0000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-alerts",
+          "expect": {
+            "tool": "materials.prices.check",
+            "output": {
+              "alerts": [
+                {
+                  "kind": "above_contract",
+                  "severity": "warning",
+                  "dollarImpact": "20.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["contract"],
+      "parameters": {},
+      "answers": [],
+      "id": "contract-below",
+      "name": "Billed under the contract price: noted",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "95.00"
+            }
+          ]
+        },
+        "contract": {
+          "name": "Northline 2026 price agreement",
+          "from": "2026-01-01",
+          "to": "2026-12-31",
+          "netDays": 30,
+          "paymentTerms": "Net 30",
+          "items": [
+            {
+              "item": "baltic",
+              "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "listPrice": "100.00"
+            }
+          ]
+        }
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "95.0000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-alerts",
+          "expect": {
+            "tool": "materials.prices.check",
+            "output": {
+              "alerts": [
+                {
+                  "kind": "below_contract",
+                  "severity": "info",
+                  "dollarImpact": "-10.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["contract"],
+      "parameters": {},
+      "answers": [],
+      "id": "contract-exact",
+      "name": "Billed at the contract price",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "100.00"
+            }
+          ]
+        },
+        "contract": {
+          "name": "Northline 2026 price agreement",
+          "from": "2026-01-01",
+          "to": "2026-12-31",
+          "netDays": 30,
+          "paymentTerms": "Net 30",
+          "items": [
+            {
+              "item": "baltic",
+              "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "listPrice": "100.00"
+            }
+          ]
+        }
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "100.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["contract"],
+      "parameters": {},
+      "answers": [],
+      "id": "contract-cents",
+      "name": "A cent over the contract price",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "100.01"
+            }
+          ]
+        },
+        "contract": {
+          "name": "Northline 2026 price agreement",
+          "from": "2026-01-01",
+          "to": "2026-12-31",
+          "netDays": 30,
+          "paymentTerms": "Net 30",
+          "items": [
+            {
+              "item": "baltic",
+              "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "listPrice": "100.00"
+            }
+          ]
+        }
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "100.0100"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-alerts",
+          "expect": {
+            "tool": "materials.prices.check",
+            "output": {
+              "alerts": [
+                {
+                  "kind": "above_contract",
+                  "severity": "warning",
+                  "dollarImpact": "0.0200"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["contract"],
+      "parameters": {},
+      "answers": [],
+      "id": "not-on-contract",
+      "name": "A line the contract doesn't list",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "100.00"
+            },
+            {
+              "description": "MDF 5/8\" 49X97",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "40.00"
+            }
+          ]
+        },
+        "contract": {
+          "name": "Northline 2026 price agreement",
+          "from": "2026-01-01",
+          "to": "2026-12-31",
+          "netDays": 30,
+          "paymentTerms": "Net 30",
+          "items": [
+            {
+              "item": "baltic",
+              "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "listPrice": "100.00"
+            }
+          ]
+        }
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 2,
+              "matched": 2,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                },
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:mdf"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "100.0000"
+                },
+                {
+                  "unitPriceStd": "40.0000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-alerts",
+          "expect": {
+            "tool": "materials.prices.check",
+            "output": {
+              "alerts": [
+                {
+                  "kind": "not_on_contract",
+                  "severity": "info",
+                  "dollarImpact": null
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["contract"],
+      "parameters": {},
+      "answers": [],
+      "id": "contract-expired",
+      "name": "The contract ended before the invoice",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "100.00"
+            }
+          ]
+        },
+        "contract": {
+          "name": "Northline 2026 price agreement",
+          "from": "2025-01-01",
+          "to": "2025-12-31",
+          "netDays": 30,
+          "paymentTerms": "Net 30",
+          "items": [
+            {
+              "item": "baltic",
+              "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "listPrice": "100.00"
+            }
+          ]
+        }
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "100.0000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-alerts",
+          "expect": {
+            "tool": "materials.prices.check",
+            "output": {
+              "alerts": [
+                {
+                  "kind": "contract_not_in_effect",
+                  "severity": "warning",
+                  "dollarImpact": null
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["contract"],
+      "parameters": {},
+      "answers": [],
+      "id": "terms-mismatch",
+      "name": "The invoice's terms aren't the contract's",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "100.00"
+            }
+          ],
+          "paymentTerms": "Net 15"
+        },
+        "contract": {
+          "name": "Northline 2026 price agreement",
+          "from": "2026-01-01",
+          "to": "2026-12-31",
+          "netDays": 30,
+          "paymentTerms": "Net 30",
+          "items": [
+            {
+              "item": "baltic",
+              "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "listPrice": "100.00"
+            }
+          ]
+        }
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "100.0000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-alerts",
+          "expect": {
+            "tool": "materials.prices.check",
+            "output": {
+              "alerts": [
+                {
+                  "kind": "terms_mismatch",
+                  "severity": "warning",
+                  "dollarImpact": null
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["contract"],
+      "parameters": {},
+      "answers": [],
+      "id": "contract-two-lines",
+      "name": "Two contract lines, one over",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "100.00"
+            },
+            {
+              "description": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED",
+              "qty": "3",
+              "uom": "SHT",
+              "unitPrice": "79.00"
+            }
+          ]
+        },
+        "contract": {
+          "name": "Northline 2026 price agreement",
+          "from": "2026-01-01",
+          "to": "2026-12-31",
+          "netDays": 30,
+          "paymentTerms": "Net 30",
+          "items": [
+            {
+              "item": "baltic",
+              "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "listPrice": "100.00"
+            },
+            {
+              "item": "maple",
+              "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED",
+              "listPrice": "75.00"
+            }
+          ]
+        }
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 2,
+              "matched": 2,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                },
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:maple"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "100.0000"
+                },
+                {
+                  "unitPriceStd": "79.0000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-alerts",
+          "expect": {
+            "tool": "materials.prices.check",
+            "output": {
+              "alerts": [
+                {
+                  "kind": "above_contract",
+                  "severity": "warning",
+                  "dollarImpact": "12.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["contract", "handoff"],
+      "parameters": {
+        "materials.invoice-review": {
+          "ap_email": "ap@golden-millwork.example",
+          "handoff": "pricing_issues",
+          "pricing_email": "pricing@golden-millwork.example"
+        }
+      },
+      "answers": [],
+      "id": "pricing-issue-sent",
+      "name": "Pricing issues: a finding goes to the pricing desk",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "110.00"
+            }
+          ]
+        },
+        "contract": {
+          "name": "Northline 2026 price agreement",
+          "from": "2026-01-01",
+          "to": "2026-12-31",
+          "netDays": 30,
+          "paymentTerms": "Net 30",
+          "items": [
+            {
+              "item": "baltic",
+              "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "listPrice": "100.00"
+            }
+          ]
+        },
+        "contacts": [
+          {
+            "name": "Accounts payable",
+            "email": "ap@golden-millwork.example"
+          },
+          {
+            "name": "Pricing desk",
+            "email": "pricing@golden-millwork.example"
+          }
+        ]
+      },
+      "checks": [
+        {
+          "derivable": true,
+          "input": {
+            "to": "pricing@golden-millwork.example"
+          },
+          "note": "Worked out from the invoice, its contract and the client's mailboxes.",
+          "sources": ["@invoice"]
+        }
+      ],
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "110.0000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-alerts",
+          "expect": {
+            "tool": "materials.prices.check",
+            "output": {
+              "alerts": [
+                {
+                  "kind": "above_contract",
+                  "severity": "warning",
+                  "dollarImpact": "20.0000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "send-ap",
+          "expect": {
+            "tool": "send_email",
+            "input": {
+              "to": "pricing@golden-millwork.example",
+              "subject": "Invoice NPS-2001 from Northline Panel Supply: 1 finding, $20.00 at stake"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["contract", "handoff"],
+      "parameters": {
+        "materials.invoice-review": {
+          "ap_email": "ap@golden-millwork.example",
+          "handoff": "pricing_issues",
+          "pricing_email": "pricing@golden-millwork.example"
+        }
+      },
+      "answers": [],
+      "id": "pricing-issue-none",
+      "name": "Pricing issues: no finding, nothing sent",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "100.00"
+            }
+          ]
+        },
+        "contract": {
+          "name": "Northline 2026 price agreement",
+          "from": "2026-01-01",
+          "to": "2026-12-31",
+          "netDays": 30,
+          "paymentTerms": "Net 30",
+          "items": [
+            {
+              "item": "baltic",
+              "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "listPrice": "100.00"
+            }
+          ]
+        },
+        "contacts": [
+          {
+            "name": "Accounts payable",
+            "email": "ap@golden-millwork.example"
+          },
+          {
+            "name": "Pricing desk",
+            "email": "pricing@golden-millwork.example"
+          }
+        ]
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "100.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["contract", "handoff"],
+      "parameters": {
+        "materials.invoice-review": {
+          "ap_email": "ap@golden-millwork.example",
+          "handoff": "pricing_issues"
+        }
+      },
+      "answers": [],
+      "id": "pricing-issue-to-ap",
+      "name": "Pricing issues with no pricing desk: AP gets it",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "110.00"
+            }
+          ]
+        },
+        "contract": {
+          "name": "Northline 2026 price agreement",
+          "from": "2026-01-01",
+          "to": "2026-12-31",
+          "netDays": 30,
+          "paymentTerms": "Net 30",
+          "items": [
+            {
+              "item": "baltic",
+              "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "listPrice": "100.00"
+            }
+          ]
+        },
+        "contacts": [
+          {
+            "name": "Accounts payable",
+            "email": "ap@golden-millwork.example"
+          }
+        ]
+      },
+      "checks": [
+        {
+          "derivable": true,
+          "input": {
+            "to": "ap@golden-millwork.example",
+            "subject": "Invoice NPS-2001 from Northline Panel Supply: 1 finding, $20.00 at stake"
+          },
+          "note": "Worked out from the invoice, its contract and the client's mailboxes.",
+          "sources": ["@invoice"]
+        }
+      ],
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "110.0000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-alerts",
+          "expect": {
+            "tool": "materials.prices.check",
+            "output": {
+              "alerts": [
+                {
+                  "kind": "above_contract",
+                  "severity": "warning",
+                  "dollarImpact": "20.0000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "send-ap",
+          "expect": {
+            "tool": "send_email",
+            "input": {
+              "to": "ap@golden-millwork.example",
+              "subject": "Invoice NPS-2001 from Northline Panel Supply: 1 finding, $20.00 at stake"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["rules", "model"],
+      "parameters": {},
+      "answers": [
+        {
+          "answers": [
+            {
+              "lineNo": 6,
+              "decision": "matched",
+              "catalogItemId": "@item:hardboard",
+              "confidence": 0.95,
+              "hingeAttribute": null
+            }
+          ]
+        }
+      ],
+      "id": "six-lines",
+      "name": "Six lines: five by the rules, the hardboard (no thickness) by the model",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "100.00"
+            },
+            {
+              "description": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED",
+              "qty": "1",
+              "uom": "SHT",
+              "unitPrice": "80.00"
+            },
+            {
+              "description": "MDF 5/8\" 49X97",
+              "qty": "4",
+              "uom": "SHT",
+              "unitPrice": "40.00"
+            },
+            {
+              "description": "MELAMINE 3/4\" 4X8",
+              "qty": "3",
+              "uom": "SHT",
+              "unitPrice": "45.00"
+            },
+            {
+              "description": "MELAMINE 3/4\" 4X8 BLACK",
+              "qty": "1",
+              "uom": "SHT",
+              "unitPrice": "52.00"
+            },
+            {
+              "description": "HARDBOARD 4X8",
+              "qty": "5",
+              "uom": "SHT",
+              "unitPrice": "18.00"
+            }
+          ]
+        }
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-open",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 6,
+              "matched": 6,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                },
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:maple"
+                },
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:mdf"
+                },
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:melamine"
+                },
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:melblack"
+                },
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:hardboard"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "100.0000"
+                },
+                {
+                  "unitPriceStd": "80.0000"
+                },
+                {
+                  "unitPriceStd": "40.0000"
+                },
+                {
+                  "unitPriceStd": "45.0000"
+                },
+                {
+                  "unitPriceStd": "52.0000"
+                },
+                {
+                  "unitPriceStd": "18.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["rules"],
+      "parameters": {},
+      "answers": [],
+      "id": "black-not-plain",
+      "name": "Black melamine matched to the black sheet, never the plain one",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "MELAMINE 3/4\" 4X8 BLACK",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "52.00"
+            }
+          ]
+        }
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:melblack"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "52.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["new"],
+      "parameters": {},
+      "answers": [],
+      "id": "not-in-catalog",
+      "name": "A line the catalog doesn't have",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "WHITE OAK PLYWOOD 3/4\" 4X8 A1",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "140.00"
+            }
+          ]
+        }
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 0,
+              "lines": [
+                {
+                  "decision": "new_item"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "140.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["rules"],
+      "parameters": {},
+      "answers": [],
+      "id": "freight-billed",
+      "name": "Freight billed with the lines",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "4",
+              "uom": "SHT",
+              "unitPrice": "100.00"
+            }
+          ],
+          "freight": "40.00"
+        },
+        "history": [
+          {
+            "item": "baltic",
+            "date": "2026-10-05",
+            "unitPrice": "100.00"
+          }
+        ]
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "100.0000",
+                  "landedUnitPriceStd": "110.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["contract"],
+      "parameters": {},
+      "answers": [],
+      "id": "freight-included-contract",
+      "name": "Freight billed though the contract includes it",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "4",
+              "uom": "SHT",
+              "unitPrice": "100.00"
+            }
+          ],
+          "freight": "40.00"
+        },
+        "contract": {
+          "name": "Northline 2026 price agreement",
+          "from": "2026-01-01",
+          "to": "2026-12-31",
+          "netDays": 30,
+          "paymentTerms": "Net 30",
+          "items": [
+            {
+              "item": "baltic",
+              "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "listPrice": "100.00"
+            }
+          ],
+          "freight": "included"
+        }
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "100.0000",
+                  "landedUnitPriceStd": "110.0000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-alerts",
+          "expect": {
+            "tool": "materials.prices.check",
+            "output": {
+              "alerts": [
+                {
+                  "kind": "terms_mismatch",
+                  "severity": "warning",
+                  "dollarImpact": "40.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["history"],
+      "parameters": {},
+      "answers": [],
+      "id": "large-order",
+      "name": "A large order at the usual price",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "MDF 5/8\" 49X97",
+              "qty": "120",
+              "uom": "SHT",
+              "unitPrice": "40.00"
+            }
+          ]
+        },
+        "history": [
+          {
+            "item": "mdf",
+            "date": "2026-10-05",
+            "unitPrice": "40.00"
+          }
+        ]
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:mdf"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "40.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["history"],
+      "parameters": {},
+      "answers": [],
+      "id": "jump-and-spread",
+      "name": "Up on last time and dearer than another vendor",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "100.00"
+            }
+          ]
+        },
+        "otherVendors": ["Cascade Hardwoods"],
+        "history": [
+          {
+            "item": "maple",
+            "date": "2026-10-01",
+            "unitPrice": "85.00"
+          },
+          {
+            "item": "maple",
+            "date": "2026-11-01",
+            "unitPrice": "80.00",
+            "vendor": "Cascade Hardwoods"
+          }
+        ]
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:maple"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "100.0000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-alerts",
+          "expect": {
+            "tool": "materials.prices.check",
+            "output": {
+              "alerts": [
+                {
+                  "kind": "price_jump",
+                  "severity": "critical",
+                  "dollarImpact": "45.0000"
+                },
+                {
+                  "kind": "vendor_spread",
+                  "severity": "warning",
+                  "dollarImpact": "40.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["contract", "history"],
+      "parameters": {},
+      "answers": [],
+      "id": "contract-and-history",
+      "name": "On contract and steady against history",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "100.00"
+            }
+          ]
+        },
+        "history": [
+          {
+            "item": "baltic",
+            "date": "2026-10-05",
+            "unitPrice": "100.00"
+          }
+        ],
+        "contract": {
+          "name": "Northline 2026 price agreement",
+          "from": "2026-01-01",
+          "to": "2026-12-31",
+          "netDays": 30,
+          "paymentTerms": "Net 30",
+          "items": [
+            {
+              "item": "baltic",
+              "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "listPrice": "100.00"
+            }
+          ]
+        }
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "100.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["new"],
+      "parameters": {},
+      "answers": [],
+      "id": "mixed-catalog-and-new",
+      "name": "One line in the catalog, one not",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "100.00"
+            },
+            {
+              "description": "WALNUT PLYWOOD 3/4\" 4X8 A1",
+              "qty": "1",
+              "uom": "SHT",
+              "unitPrice": "210.00"
+            }
+          ]
+        }
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 2,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                },
+                {
+                  "decision": "new_item"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "100.0000"
+                },
+                {
+                  "unitPriceStd": "210.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["rules"],
+      "parameters": {},
+      "answers": [],
+      "id": "sku-line",
+      "name": "A line with the vendor's sku",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "MDF 5/8\" 49X97",
+              "qty": "6",
+              "uom": "SHT",
+              "unitPrice": "40.00",
+              "sku": "MDF58-4997"
+            }
+          ]
+        }
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:mdf"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "40.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["contract", "handoff"],
+      "parameters": {
+        "materials.invoice-review": {
+          "ap_email": "ap@golden-millwork.example"
+        }
+      },
+      "answers": [],
+      "id": "ap-control-contract-finding",
+      "name": "AP control with a contract finding: sent with it",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "qty": "2",
+              "uom": "SHT",
+              "unitPrice": "110.00"
+            }
+          ]
+        },
+        "contract": {
+          "name": "Northline 2026 price agreement",
+          "from": "2026-01-01",
+          "to": "2026-12-31",
+          "netDays": 30,
+          "paymentTerms": "Net 30",
+          "items": [
+            {
+              "item": "baltic",
+              "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB",
+              "listPrice": "100.00"
+            }
+          ]
+        },
+        "contacts": [
+          {
+            "name": "Accounts payable",
+            "email": "ap@golden-millwork.example"
+          }
+        ]
+      },
+      "checks": [
+        {
+          "derivable": false,
+          "note": "The sources don't say which mailbox the review goes to.",
+          "sources": ["@invoice"]
+        }
+      ],
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-settled",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:baltic"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "110.0000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-alerts",
+          "expect": {
+            "tool": "materials.prices.check",
+            "output": {
+              "alerts": [
+                {
+                  "kind": "above_contract",
+                  "severity": "warning",
+                  "dollarImpact": "20.0000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "send-ap",
+          "expect": {
+            "tool": "send_email",
+            "input": {
+              "to": "ap@golden-millwork.example",
+              "subject": "Invoice NPS-2001 from Northline Panel Supply: 1 finding, $20.00 at stake"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["model"],
+      "parameters": {},
+      "answers": [
+        {
+          "answers": [
+            {
+              "lineNo": 1,
+              "decision": "matched",
+              "catalogItemId": "@item:hardboard",
+              "confidence": 0.95,
+              "hingeAttribute": null
+            }
+          ]
+        }
+      ],
+      "id": "model-match",
+      "name": "A line without its thickness, matched by the model",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "HARDBOARD 4X8",
+              "qty": "10",
+              "uom": "SHT",
+              "unitPrice": "18.00"
+            }
+          ]
+        }
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-open",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:hardboard"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "18.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["model"],
+      "parameters": {},
+      "answers": [
+        {
+          "answers": [
+            {
+              "lineNo": 1,
+              "decision": "unsure",
+              "catalogItemId": null,
+              "confidence": 0.4,
+              "hingeAttribute": "thickness"
+            }
+          ]
+        }
+      ],
+      "id": "model-unsure",
+      "name": "The model unsure: a person decides",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "HARDBOARD 4X8",
+              "qty": "10",
+              "uom": "SHT",
+              "unitPrice": "18.00"
+            }
+          ]
+        }
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["model"],
+      "parameters": {},
+      "answers": [
+        {
+          "answers": [
+            {
+              "lineNo": 1,
+              "decision": "matched",
+              "catalogItemId": "@item:hardboard",
+              "confidence": 0.6,
+              "hingeAttribute": null
+            }
+          ]
+        }
+      ],
+      "id": "model-low-confidence",
+      "name": "A match below the threshold: a person decides",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "HARDBOARD 4X8",
+              "qty": "10",
+              "uom": "SHT",
+              "unitPrice": "18.00"
+            }
+          ]
+        }
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["model", "veto"],
+      "parameters": {},
+      "answers": [
+        {
+          "answers": [
+            {
+              "lineNo": 1,
+              "decision": "new_item",
+              "catalogItemId": null,
+              "confidence": 0.9,
+              "hingeAttribute": null
+            }
+          ]
+        }
+      ],
+      "id": "model-new-item",
+      "name": "The model says it's new though the catalog has it: vetoed",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "HARDBOARD 4X8",
+              "qty": "10",
+              "uom": "SHT",
+              "unitPrice": "18.00"
+            }
+          ]
+        }
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["model"],
+      "parameters": {},
+      "answers": [
+        {
+          "answers": [
+            {
+              "lineNo": 1,
+              "decision": "matched",
+              "catalogItemId": "@item:melblack",
+              "confidence": 0.95,
+              "hingeAttribute": null
+            }
+          ]
+        }
+      ],
+      "id": "model-picks-black",
+      "name": "Black melamine without a thickness: the model picks the black sheet",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "MELAMINE 4X8 BLACK",
+              "qty": "3",
+              "uom": "SHT",
+              "unitPrice": "52.00"
+            }
+          ]
+        }
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-open",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:melblack"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "52.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["model", "veto"],
+      "parameters": {},
+      "answers": [
+        {
+          "answers": [
+            {
+              "lineNo": 1,
+              "decision": "matched",
+              "catalogItemId": "@item:maple",
+              "confidence": 0.95,
+              "hingeAttribute": null
+            }
+          ]
+        }
+      ],
+      "id": "model-vetoed",
+      "name": "Melamine matched by the model to maple plywood: the rules veto it",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "MELAMINE 4X8 BLACK",
+              "qty": "3",
+              "uom": "SHT",
+              "unitPrice": "52.00"
+            }
+          ]
+        }
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "tags": ["model", "history"],
+      "parameters": {},
+      "answers": [
+        {
+          "answers": [
+            {
+              "lineNo": 1,
+              "decision": "matched",
+              "catalogItemId": "@item:hardboard",
+              "confidence": 0.95,
+              "hingeAttribute": null
+            }
+          ]
+        }
+      ],
+      "id": "model-match-with-history",
+      "name": "Matched by the model, then a price jump on its history",
+      "trigger": {
+        "documentId": "@invoice"
+      },
+      "world": {
+        "vendor": "Northline Panel Supply",
+        "catalog": [
+          {
+            "ref": "baltic",
+            "name": "BALTIC BIRCH PLYWOOD 3/4\" 5X5 BB/BB"
+          },
+          {
+            "ref": "maple",
+            "name": "MAPLE PLYWOOD 3/4\" 4X8 PREFINISHED"
+          },
+          {
+            "ref": "mdf",
+            "name": "MDF 5/8\" 49X97"
+          },
+          {
+            "ref": "melamine",
+            "name": "MELAMINE 3/4\" 4X8"
+          },
+          {
+            "ref": "melblack",
+            "name": "MELAMINE 3/4\" 4X8 BLACK"
+          },
+          {
+            "ref": "hardboard",
+            "name": "HARDBOARD 4X8"
+          }
+        ],
+        "invoice": {
+          "number": "NPS-2001",
+          "date": "2026-11-02",
+          "lines": [
+            {
+              "description": "HARDBOARD 4X8",
+              "qty": "10",
+              "uom": "SHT",
+              "unitPrice": "21.00"
+            }
+          ]
+        },
+        "history": [
+          {
+            "item": "hardboard",
+            "date": "2026-10-05",
+            "unitPrice": "18.00"
+          }
+        ]
+      },
+      "writes": [
+        {
+          "step": "invoice",
+          "expect": {
+            "tool": "docs.read",
+            "output": {
+              "readNow": false
+            }
+          }
+        },
+        {
+          "step": "purchase",
+          "expect": {
+            "tool": "docs.record_purchase",
+            "output": {
+              "status": "already_linked"
+            }
+          }
+        },
+        {
+          "step": "save-open",
+          "expect": {
+            "tool": "materials.matches.record",
+            "output": {
+              "total": 1,
+              "matched": 1,
+              "lines": [
+                {
+                  "decision": "matched",
+                  "catalogItemId": "@item:hardboard"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-prices",
+          "expect": {
+            "tool": "materials.prices.record",
+            "output": {
+              "lines": [
+                {
+                  "unitPriceStd": "21.0000"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "step": "save-alerts",
+          "expect": {
+            "tool": "materials.prices.check",
+            "output": {
+              "alerts": [
+                {
+                  "kind": "price_jump",
+                  "severity": "critical",
+                  "dollarImpact": "33.0000"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

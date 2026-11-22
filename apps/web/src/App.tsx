@@ -1,11 +1,13 @@
-// The SPA: sign-in, the back office (`/ops/*`, code-split) and the client portal (everything
-// else), one app with two layouts (plan §1.2 "Back office and portal in one app").
+// The SPA: sign-in, the back office (`/ops/*`) and the client portal (everything else), each of
+// the two its own chunk, one app with two layouts (plan §1.2 "Back office and portal in one app").
+
+import { MOBILE_CONFIRM_PATH } from "@countersign/core";
 import { lazy, type ReactNode, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import type { ApiClient } from "./api/client";
 import { ApiProvider } from "./api/useApi";
+import { loadCatalog } from "./i18n/catalog";
 import { SessionLanguage } from "./i18n/SessionLanguage";
-import { PortalApp } from "./portal/PortalApp";
 import { SignInScreen } from "./session/SignIn";
 import { StillFrame } from "./session/StillFrame";
 import { SECOND_STEP_PATH, SessionProvider, useSessionState } from "./session/session";
@@ -17,17 +19,51 @@ import { ErrorNotice } from "./ui/primitives";
  * the session call, instead of after it (docs/audit-plan.md 4.3); elsewhere, only once an operator
  * reaches /ops.
  */
-const loadOpsApp = () => import("./ops/OpsApp");
-const opsAppEarly =
-  typeof window !== "undefined" && /^\/ops(\/|$)/.test(window.location.pathname)
-    ? loadOpsApp()
-    : null;
-// A client's session never renders the back office; a chunk that failed is reported where it is used.
-opsAppEarly?.catch(() => {});
+// DECISION (§1.208): the back office reads in English always, and English is not in the first load
+// any more, so its chunk and English's load together and it shows once both are here.
+const loadOpsApp = () =>
+  Promise.all([import("./ops/OpsApp"), loadCatalog("en")]).then(([opsApp]) => opsApp);
+let opsAppEarly: ReturnType<typeof loadOpsApp> | null = null;
 const OpsApp = lazy(() => opsAppEarly ?? loadOpsApp());
+/**
+ * The client portal's own chunk, the same way (H9, docs/plan.md §1.192): its layout and screens
+ * are not in the first load, so sign-in and the pages opened from a link don't carry them. Opened
+ * at a portal address, it starts loading with the bundle, beside the session call, so a client's
+ * first screen waits no longer than it did when the portal was in the bundle.
+ */
+// DECISION: early for every address that is not the back office's or a page outside the portal
+// (sign-in and its steps, a texting sign-up, a form, an invite's welcome page): those are the
+// routes above `/*` in AppRoutes, and a client's user lands on the portal from anywhere else.
+const NOT_PORTAL = /^\/(ops|sign-in|texts|f|start)(\/|$)/;
+const loadPortalApp = () => import("./portal/PortalApp").then((m) => ({ default: m.PortalApp }));
+let portalAppEarly: ReturnType<typeof loadPortalApp> | null = null;
+const PortalApp = lazy(() => portalAppEarly ?? loadPortalApp());
+
+/**
+ * Starts the chunk the address the app opened at will need, beside the session call. Called once by
+ * `main.tsx` before React mounts.
+ */
+// DECISION: the entry point starts it, not this module as it loads: a test renders AppRoutes in a
+// MemoryRouter while jsdom's address is `/`, so loading the module started the portal's whole tree
+// in every back-office screen test as well, slowing a busy CI runner for nothing.
+export function startChunksEarly(pathname: string): void {
+  if (/^\/ops(\/|$)/.test(pathname)) {
+    opsAppEarly = loadOpsApp();
+    // A client's session never renders the back office; a chunk that failed is reported where it is used.
+    opsAppEarly.catch(() => {});
+  } else if (!NOT_PORTAL.test(pathname)) {
+    portalAppEarly = loadPortalApp();
+    // An operator's session never renders the portal; a chunk that failed is reported where it is used.
+    portalAppEarly.catch(() => {});
+  }
+}
 // §1.100: the sign-in's second step, only on the way in: its own chunk.
 const SecondStepScreen = lazy(() =>
   import("./session/SecondStep").then((m) => ({ default: m.SecondStepScreen })),
+);
+// §1.219: the page that asks before a sign-in goes to the phone or desktop app: its own chunk.
+const AppHandoffScreen = lazy(() =>
+  import("./session/AppHandoff").then((m) => ({ default: m.AppHandoffScreen })),
 );
 // §1.98: the texting sign-up page is opened from a link, never in the app: its own chunk.
 const TextSignupScreen = lazy(() =>
@@ -36,6 +72,10 @@ const TextSignupScreen = lazy(() =>
 // §1.121: a "Request info" form, opened from a link a contact was sent: its own chunk.
 const FormPageScreen = lazy(() =>
   import("./forms/FormPage").then((m) => ({ default: m.FormPageScreen })),
+);
+// §1.217: a process interview, opened from a link a contact was sent: its own chunk.
+const InterviewPageScreen = lazy(() =>
+  import("./interview/InterviewPage").then((m) => ({ default: m.InterviewPageScreen })),
 );
 // §1.149: the welcome page an invite's link opens, before sign-in: its own chunk.
 const SetupLinkScreen = lazy(() =>
@@ -58,6 +98,15 @@ export function AppRoutes() {
           </Suspense>
         }
       />
+      {/* docs/plan.md §1.219: confirm before the session goes to one of our apps. */}
+      <Route
+        path={MOBILE_CONFIRM_PATH}
+        element={
+          <Suspense fallback={<StillFrame />}>
+            <AppHandoffScreen />
+          </Suspense>
+        }
+      />
       {/* docs/plan.md §1.98: choosing to get texts from a business; no sign-in. */}
       <Route
         path="/texts/:token"
@@ -73,6 +122,15 @@ export function AppRoutes() {
         element={
           <Suspense fallback={<StillFrame />}>
             <FormPageScreen />
+          </Suspense>
+        }
+      />
+      {/* docs/plan.md §1.217: a process interview we sent; no sign-in. */}
+      <Route
+        path="/i/:token"
+        element={
+          <Suspense fallback={<StillFrame />}>
+            <InterviewPageScreen />
           </Suspense>
         }
       />
@@ -108,7 +166,9 @@ export function AppRoutes() {
         path="/*"
         element={
           <RequireSession surface="portal">
-            <PortalApp />
+            <Suspense fallback={<StillFrame />}>
+              <PortalApp />
+            </Suspense>
           </RequireSession>
         }
       />

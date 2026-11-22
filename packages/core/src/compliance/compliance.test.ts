@@ -6,6 +6,7 @@ import {
   EMBEDDING_FEATURE,
   hipaaReadiness,
   inboundHeld,
+  MCP_CONNECTOR_FEATURE,
   ONBOARDING_EMAIL_FEATURE,
   PROCESSORS,
   type Processor,
@@ -15,6 +16,7 @@ import {
   processorForModel,
   processorsForOffer,
   processorsForTool,
+  WORK_STATEMENT_EMAIL_FEATURE,
 } from "./processors";
 
 describe("card numbers", () => {
@@ -186,10 +188,23 @@ describe("processors", () => {
       "hackernews",
       "billcom",
       "expo_push",
+      "claude_ai",
     ]);
     expect(hipaaReadiness(parseCoveredProcessors("cloudflare neon workos"), ["bankfeed"])).toEqual([
       "The bankfeed connector is offered and sends data to Plaid, with no signed BAA. Withdraw it first.",
     ]);
+  });
+
+  it("holds the MCP connector to claude.ai's BAA, not the API's (§1.190)", () => {
+    const { processors, what } = MCP_CONNECTOR_FEATURE;
+    expect(processors).toEqual(["claude_ai"]);
+    const api = parseCoveredProcessors("cloudflare neon workos anthropic");
+    expect(processingRefusal({ hipaa: true }, api, processors, what)).toBe(
+      "The Mezonas connector for Claude sends data to Anthropic (claude.ai), which has no signed BAA; this client is in HIPAA mode",
+    );
+    expect(processingRefusal({ hipaa: false }, api, processors, what)).toBeNull();
+    const both = parseCoveredProcessors("cloudflare neon workos anthropic claude_ai");
+    expect(processingRefusal({ hipaa: true }, both, processors, what)).toBeNull();
   });
 
   it("declares the vendor catalog's embeddings as OpenAI's, refused in HIPAA mode until covered", () => {
@@ -241,6 +256,26 @@ describe("processors", () => {
         parseCoveredProcessors("cloudflare neon workos resend"),
         ONBOARDING_EMAIL_FEATURE.processors,
         ONBOARDING_EMAIL_FEATURE.what,
+      ),
+    ).toBeNull();
+  });
+
+  it("declares the work statement's email as Resend's, refused in HIPAA mode until covered", () => {
+    expect(WORK_STATEMENT_EMAIL_FEATURE.processors).toEqual(["resend"]);
+    expect(
+      processingRefusal(
+        { hipaa: true },
+        all,
+        WORK_STATEMENT_EMAIL_FEATURE.processors,
+        WORK_STATEMENT_EMAIL_FEATURE.what,
+      ),
+    ).toMatch(/Resend, which has no signed BAA/);
+    expect(
+      processingRefusal(
+        { hipaa: false },
+        all,
+        WORK_STATEMENT_EMAIL_FEATURE.processors,
+        WORK_STATEMENT_EMAIL_FEATURE.what,
       ),
     ).toBeNull();
   });

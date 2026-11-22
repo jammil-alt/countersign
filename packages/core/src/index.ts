@@ -14,8 +14,12 @@ export * from "./account/words";
 export * from "./api/a2p";
 export * from "./api/access";
 export * from "./api/account";
+// R5: the report per account and every account side by side (docs/plan.md §1.235).
+export * from "./api/account-report";
 // docs/builder-plan.md §7 (B5): client adjustments and feedback on the manual
 export * from "./api/adjust";
+// R4: the report per agent (docs/plan.md §1.214).
+export * from "./api/agent-report";
 export * from "./api/all-routes";
 export * from "./api/approver-rules";
 export * from "./api/assigned";
@@ -29,6 +33,8 @@ export * from "./api/autopilot";
 // v0.12 bankfeed
 export * from "./api/bankfeed";
 export * from "./api/billing";
+// docs/plan.md §1.216: books health
+export * from "./api/books-health";
 export * from "./api/browser";
 export * from "./api/browser-scripts";
 // docs/plan.md §1.108: builds, from intake to go-live
@@ -55,8 +61,12 @@ export * from "./api/conversations";
 export * from "./api/deals";
 // v0.12 W1-D: the Desk
 export * from "./api/desk";
+export * from "./api/desktop";
 export * from "./api/directory";
 export * from "./api/documents";
+export * from "./api/evals";
+// Round 4 D (docs/plan.md §1.211)
+export * from "./api/evidence";
 export * from "./api/excel";
 export * from "./api/exports";
 export * from "./api/feedback";
@@ -64,12 +74,18 @@ export * from "./api/feedback";
 // docs/plan.md §1.121: forms, "Request info"
 export * from "./api/forms";
 export * from "./api/gchat";
+// docs/setup-plan.md (§1.206): Getting started's chapters, seats and the Setup tab.
+export * from "./api/getting-started";
 // v0.14 W4-D
 export * from "./api/gsheets";
 // R4: business hours, person hours and channels (docs/plan.md §1.86).
 export * from "./api/hours";
 // docs/plan.md §1.149: onboarding v1 (the intake, the welcome page, Invite and Sign up now)
 export * from "./api/intake";
+// §1.164: the builder's sample-file check for a Read table step.
+export * from "./api/intake-reports";
+// docs/plan.md §1.217: the process interview
+export * from "./api/interviews";
 export * from "./api/invite";
 export * from "./api/knowledge";
 export * from "./api/language";
@@ -79,6 +95,7 @@ export * from "./api/library";
 // v0.12 W1-A: go-live stages and client controls
 export * from "./api/lifecycle";
 export * from "./api/manual";
+export * from "./api/match-rules";
 export * from "./api/messaging";
 // §1.116: the phone app
 export * from "./api/mobile";
@@ -94,11 +111,11 @@ export * from "./api/owners";
 export * from "./api/packs";
 export * from "./api/people";
 export * from "./api/phone-approval";
+export * from "./api/portal-views";
 // The skill model (owner, 2026-11-10)
 export * from "./api/prompt-preview";
 export * from "./api/qbo";
 export * from "./api/reach";
-// §1.164: the builder's sample-file check for a Read table step.
 export * from "./api/read-table";
 export * from "./api/records";
 export * from "./api/reggie";
@@ -127,6 +144,8 @@ export * from "./api/skill-model";
 export * from "./api/slack";
 // §1.150
 export * from "./api/sloan-reach";
+// docs/plan.md §1.218: SOC 2 readiness and the access review's record (served beside the registry).
+export * from "./api/soc2";
 export * from "./api/sop";
 export * from "./api/step-code-request";
 export * from "./api/step-data";
@@ -154,16 +173,20 @@ export * from "./api/voice";
 export * from "./api/whatsapp-meta";
 // docs/plan.md §1.124: back office work (Build).
 export * from "./api/work";
+export * from "./api/work-statement";
 // v0.14 W4-B
 export * from "./api/zoho";
 export * from "./approvals/rules";
 export * from "./assist/fields";
 export * from "./assist/prompt";
+export * from "./assist/test-data";
 // docs/agent-assurance-plan.md: each agent's architecture and its security controls, checked
 export * from "./assurance/index";
 // P-3: attachments both ways
 export * from "./attachments";
 export * from "./billing";
+// docs/plan.md §1.216: books health, the checks over a client's synced QuickBooks.
+export * from "./books-health";
 export * from "./browser/script";
 export * from "./browser/site";
 export * from "./build/build";
@@ -196,6 +219,7 @@ export * from "./codes/service";
 export * from "./compliance/card-numbers";
 export * from "./compliance/controls";
 export * from "./compliance/processors";
+export * from "./compliance/soc2";
 // P-4: conversations with people
 export * from "./converse";
 export * from "./desk/item";
@@ -218,10 +242,17 @@ export * from "./documents/tables";
 export * from "./duration";
 // Inbound email: whose verdicts count, and which mail is automatic.
 export * from "./email/authentication";
+// docs/plan.md §1.194: a colleague's address at a contact's company.
+export * from "./email/colleague";
 // docs/plan.md §1.149: the branded layout and the onboarding emails.
 export * from "./email/layout";
 export * from "./email/onboarding";
 export * from "./email/second-factor";
+// docs/plan.md §1.206 (SU6): the setup nudge, from the lead.
+export * from "./email/setup-nudge";
+// v0.12 W2-C: the test bench
+// docs/plan.md §1.212: the eval and replay harness.
+export * from "./evals";
 // docs/plan.md §1.121: forms, "Request info"
 export * from "./forms";
 // docs/builder-plan.md §8 (B6): governance in tiers
@@ -249,7 +280,10 @@ export * from "./i18n/supervisor";
 export * from "./i18n/threads";
 export * from "./i18n/timeline";
 export * from "./i18n/weekly";
+export * from "./i18n/work-statement";
 export * from "./ids";
+// docs/plan.md §1.217: the process interview
+export * from "./interview";
 export * from "./json";
 // v0.12 W2-G: agent KPIs
 export * from "./kpi/format";
@@ -266,6 +300,8 @@ export * from "./lifecycle/stage";
 export * from "./manual/manual";
 export * from "./mappers/qbo";
 export * from "./mappers/upload";
+// §1.215: the matching engine (one reconciliation service for packs).
+export * from "./matching";
 // P-8: US texting registration
 export * from "./messaging/a2p";
 export * from "./messaging/calling";
@@ -318,7 +354,10 @@ export * from "./schemas/conversation";
 export * from "./schemas/event";
 export * from "./schemas/json-schemas";
 export * from "./schemas/pack";
+export * from "./schemas/pack-config";
 export * from "./schemas/permissions";
+// §1.213: file and email intake's report profiles.
+export * from "./schemas/report-profile";
 export * from "./schemas/rules";
 export * from "./schemas/skill";
 // The skill model (owner, 2026-11-10): parameters, rule rows, kinds, models, versions, writes.
@@ -326,12 +365,15 @@ export * from "./schemas/skill-model";
 // §1.164: a table file's expected columns (the `columns` skill parameter).
 export * from "./schemas/table";
 export * from "./schemas/tool";
+// docs/plan.md §1.188: what a tool's output is about, kept as the run's subjects.
+export * from "./schemas/tool-about";
 export * from "./schemas/tool-display";
 export * from "./schemas/workflow";
 export * from "./security/session-limits";
 export * from "./setup/adjust";
 export * from "./setup/adjustable";
 export * from "./setup/checklist";
+export * from "./setup/guide";
 export * from "./setup/item";
 export * from "./setup/view";
 export * from "./skills/index";
@@ -342,7 +384,6 @@ export * from "./supervisor/health";
 export * as tableFiles from "./tables";
 export * from "./template/template";
 export * from "./template/typer";
-// v0.12 W2-C: the test bench
 export * from "./testbench/case";
 export * from "./testbench/match";
 export * from "./testbench/suite";
@@ -350,6 +391,7 @@ export * from "./testbench/suite";
 export * from "./text";
 export * from "./threads/command";
 export * from "./threads/schemas";
+export * from "./timezone";
 export * from "./translate/detect";
 export * from "./translate/settings";
 // v0.12 W2-E

@@ -25,6 +25,7 @@ import {
   type CredentialKeys,
   type CredentialsAccessor,
   credentialKeysFromEnv,
+  DESKTOP_CONNECTOR_ID,
   encryptedCredentials,
   globalFetch,
   type ObjectStore,
@@ -47,6 +48,7 @@ import {
   type Locale,
   // v0.13 W2-I
   type OversightSettings,
+  PeopleBindings,
   type PinnedAreaOwner,
   type Processor,
   parseCoveredProcessors,
@@ -104,6 +106,7 @@ import { guardModels, hipaaToolPolicy, profileReader } from "../compliance/polic
 import { conversationEngine } from "../converse/engine";
 // P-4
 import { conversePort } from "../converse/service";
+import { dbDesktopServices } from "../desktop/services";
 import type { Bindings } from "../env";
 // §1.121: forms, "Request info"
 import type { FormLinks } from "../forms/link";
@@ -131,6 +134,7 @@ import { createRunRow, dispatchEvents, dispatchingRunner, senseEmitter } from ".
 import { handoffPort, handoffStart } from "./handoff";
 import type { RunInstances, RunParams } from "./instances";
 import { agentPort, dbInboxPort, dbStepLog, threadNotifyPort } from "./ports";
+import { clientShowsNode, subjectTools } from "./subject-log";
 
 export interface RunDeps {
   db: Db;
@@ -331,8 +335,23 @@ type Loaded =
       watch?: boolean;
       // v0.19: the area owner pinned at the run's start (ARCHITECTURE §10.15).
       owner?: RunAreaOwner;
+      // Setup-plan §4.1: who sat in each seat when the run started (its `config.people`).
+      seats?: processes.Seats;
     }
   | { ok: false; reason: string; cancelled?: true };
+
+/**
+ * Setup-plan §4.1: the seats a run started with, from its `config.people` (the agent's bindings
+ * snapshotted by `createRun`). A run made before seats has none: every seat is empty and falls back.
+ */
+export function seatsOfConfig(config: unknown): processes.Seats {
+  const people =
+    config && typeof config === "object" && "people" in config
+      ? (config as { people?: unknown }).people
+      : undefined;
+  const parsed = PeopleBindings.safeParse(people ?? {});
+  return parsed.success ? processes.seatsFromBindings(parsed.data) : {};
+}
 
 // v0.12 W2-B: automations (ARCHITECTURE §10.7; docs/plan.md §1.45).
 /**
@@ -360,7 +379,12 @@ async function automationsOf(
 /** The agents runtime over the database, as a run (or the cron, for reach-outs) uses it. */
 export function runtimeFor(
   deps: RunDeps,
-  options: { collect?: EventRow[]; testRun?: boolean } = {},
+  options: {
+    collect?: EventRow[];
+    testRun?: boolean;
+    /** §1.210: the run whose Browser Run seconds these are. */
+    run?: { id: string; agentId: string };
+  } = {},
 ): RuntimeDeps {
   const { db } = deps;
   const ports = createDbPorts(db, {
@@ -421,13 +445,17 @@ export function runtimeFor(
     // Contacts and consent for messaging connectors, scoped to the connection's client; the
     // catalogue, a browser, codes and documents for browser logins.
     services: withDocuments(
-      withBrowser(
-        connectorServicesFor(
+      withDesktop(
+        withBrowser(
+          connectorServicesFor(
+            db,
+            deps.voice ? { voice: deps.voice, platform: deps.platform } : undefined,
+          ),
           db,
-          deps.voice ? { voice: deps.voice, platform: deps.platform } : undefined,
+          deps.browser,
+          options.run,
         ),
         db,
-        deps.browser,
       ),
       db,
       deps.documents?.content,
@@ -453,13 +481,26 @@ function withDocuments(
   });
 }
 
+/** §1.204: jobs for a paired computer, for the desktop connector's tools only. */
+function withDesktop(
+  base: NonNullable<RuntimeDeps["services"]>,
+  db: Db,
+): NonNullable<RuntimeDeps["services"]> {
+  return (conn) =>
+    conn.connector === DESKTOP_CONNECTOR_ID
+      ? { ...base(conn), desktop: dbDesktopServices(db, conn) }
+      : base(conn);
+}
+
 function withBrowser(
   base: NonNullable<RuntimeDeps["services"]>,
   db: Db,
   browser: BrowserDeps | undefined,
+  run?: { id: string; agentId: string },
 ): NonNullable<RuntimeDeps["services"]> {
   if (!browser) return base;
-  return (conn) => ({ ...base(conn), browser: dbBrowserServices(db, conn, browser) });
+  const deps = run ? { ...browser, run } : browser;
+  return (conn) => ({ ...base(conn), browser: dbBrowserServices(db, conn, deps) });
 }
 
 /** RunDeps for one client: its model calls held to its HIPAA mode (docs/plan.md §1.35). */
@@ -506,7 +547,10 @@ export async function executeRun(
         return { ok: false, reason: error instanceof Error ? error.message : String(error) };
       }
       // v0.12 W1-E: a run cancelled before its instance began (queued) never starts.
-      const [state] = await tx.select({ status: run.status }).from(run).where(eq(run.id, info.id));
+      const [state] = await tx
+        .select({ status: run.status, config: run.config })
+        .from(run)
+        .where(eq(run.id, info.id));
       if (state?.status === "cancelled") return { ok: false, reason: "cancelled", cancelled: true };
       const [v] = await tx
         .select({ bundle: agentVersion.bundle })
@@ -540,6 +584,7 @@ export async function executeRun(
         // v0.13 W2-I; R6: the owner's settings and watch, from the version as pinned. v0.19:
         // with the area owner's say merged in (`runOwnerOf`).
         ...ownerSettingsOf(v?.bundle, owned),
+        seats: seatsOfConfig(state?.config),
       };
     }),
   );
@@ -642,6 +687,7 @@ export async function executeRun(
   const runtime = runtimeFor(forClient(deps, info.tenantId), {
     collect: emitted,
     testRun: info.mode === "test",
+    run: { id: info.id, agentId: info.agentId },
   });
   // R6: the history the owner's watch compares a total with, read once (v4 processes only, so a
   // v3 run has exactly the durable steps it had).
@@ -677,7 +723,11 @@ export async function executeRun(
     inbox: dbInboxPort(db, info),
     // R3: v4 notices and deadlines' `tell` read who is who in the database.
     notify: threadNotifyPort(runtime, db, deps.notify),
-    log: dbStepLog(db, info),
+    // docs/plan.md §1.188: each finished step keeps what it was about, as the client would see it.
+    log: dbStepLog(db, info, {
+      tools: subjectTools(deps.platform),
+      visible: clientShowsNode(loaded.workflow),
+    }),
     catalog: {
       skills: Object.fromEntries(deps.platform.catalog.list().map((s) => [s.id, s])),
       tools: deps.platform.tools.specs(),
@@ -687,6 +737,10 @@ export async function executeRun(
       timeout: STEP_CONFIG.timeout,
     },
     ...(loaded.resume ? { resume: loaded.resume } : {}),
+    // Setup-plan §4.1
+    ...(loaded.seats ? { seats: loaded.seats } : {}),
+    // A test of some of the steps (docs/plan.md §1.185): a test run's only, whatever the row says.
+    ...(params.range && params.mode === "test" ? { range: params.range } : {}),
     // v0.12 W2-B
     ...(loaded.automations ? { automations: loaded.automations } : {}),
     // R3 (docs/plan.md §1.86): v3 workflows are read as v4 with the registries' view, the

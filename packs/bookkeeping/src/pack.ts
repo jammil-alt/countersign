@@ -4,7 +4,7 @@
 // reads (`none`) or the pack's own records (`internal`); a write to the client's accounting tool is
 // a connector's external tool, never a pack's (invariant 8).
 
-import { lazy, lazyObject, type ToolSpec } from "@countersign/core";
+import { lazy, lazyObject, type ToolAbout, type ToolSpec } from "@countersign/core";
 import type { Db, Tx } from "@countersign/db";
 import type { LlmClient } from "@countersign/llm";
 import { z } from "zod";
@@ -56,6 +56,10 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(def: {
   // Bookkeeping (a shared record: `shared`). Metadata only, for the builder's "reads and saves".
   entity?: string;
   area?: string;
+  // docs/plan.md §1.188: the records its output names, kept as the run's subjects.
+  about?: ToolAbout;
+  // docs/plan.md §1.221: the connector whose feed fills what it reads, for its mark on a step.
+  feed?: string;
   input: I;
   output: O;
   run(input: z.output<I>, ctx: PackToolContext): Promise<z.input<O>>;
@@ -73,6 +77,8 @@ export function defineTool<I extends z.ZodType, O extends z.ZodType>(def: {
       ...(def.summary ? { summary: def.summary } : {}),
       area: def.area ?? "bookkeeping",
       ...(def.entity ? { entity: def.entity } : {}),
+      ...(def.about ? { about: def.about } : {}),
+      ...(def.feed ? { feed: def.feed } : {}),
     }),
     input: def.input,
     output: def.output,

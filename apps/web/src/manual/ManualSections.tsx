@@ -13,6 +13,7 @@ import type {
 } from "@countersign/core";
 import { type ReactNode, useState } from "react";
 import { Link } from "react-router-dom";
+import { EN } from "../i18n/i18n";
 import { Badge, Card, cx, Tag, type Tone } from "../ui/primitives";
 
 /** The words around the manual's content: section titles, labels and empty states. */
@@ -45,10 +46,13 @@ export interface ManualText {
   kind: (kind: DecisionKind) => string;
   status: (status: DecisionStatus) => string;
   date: (iso: string) => string;
+  /** G5: "Hit in 3 runs", for a risk counted from runs; absent, the count isn't shown. */
+  hits?: ((n: number) => string) | undefined;
+  /** G5: the button that deletes a learned note, where this surface may. */
+  forget?: string | undefined;
 }
 
-const OPS_DATE = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-US", { dateStyle: "medium" });
+const OPS_DATE = (iso: string) => EN.fmt.date(iso);
 
 /** The back office's words (it reads in English). */
 export const OPS_MANUAL_TEXT: ManualText = {
@@ -82,6 +86,8 @@ export const OPS_MANUAL_TEXT: ManualText = {
           ? "Confirmed"
           : "Changed",
   date: OPS_DATE,
+  hits: (n) => (n === 0 ? "Not hit in runs yet" : n === 1 ? "Hit in 1 run" : `Hit in ${n} runs`),
+  forget: "Delete",
 };
 
 /** A line of the manual someone says is wrong (B5): which section, its id, and its words. */
@@ -160,6 +166,7 @@ export function ManualSections({
   text,
   askHref,
   feedback,
+  onForget,
 }: {
   view: ManualView;
   text: ManualText;
@@ -167,6 +174,8 @@ export function ManualSections({
   askHref?: ((line: string) => string) | undefined;
   /** B5: "This is wrong" on a line, in the portal; absent: none. */
   feedback?: ManualFeedback | undefined;
+  /** G5: deletes a learned note (the back office); absent, the notes are read only. */
+  onForget?: ((noteId: string) => void) | undefined;
 }) {
   const ask = (line: string) => (askHref ? { href: askHref(line), label: text.ask } : null);
   const [open, setOpen] = useState<string | null>(null);
@@ -302,6 +311,11 @@ export function ManualSections({
               >
                 <span className="text-sm font-medium text-ink">{r.what}</span>
                 {r.detail ? <p className="text-xs text-ink-muted">{r.detail}</p> : null}
+                {r.hits !== null && text.hits ? (
+                  <p className="text-xs text-ink-muted" data-testid={`manual-risk-hits-${r.id}`}>
+                    {text.hits(r.hits)}
+                  </p>
+                ) : null}
               </Row>
             ))}
           </ul>
@@ -337,6 +351,16 @@ export function ManualSections({
               <Row key={n.id} ask={ask(n.note)}>
                 <span className="text-sm text-ink">{n.note}</span>
                 <span className="text-xs text-ink-muted">{text.date(n.at)}</span>
+                {onForget && text.forget ? (
+                  <button
+                    type="button"
+                    className="ds-btn ds-btn--link self-start text-xs"
+                    onClick={() => onForget(n.id)}
+                    data-testid={`manual-forget-${n.id}`}
+                  >
+                    {text.forget}
+                  </button>
+                ) : null}
               </Row>
             ))}
           </ul>

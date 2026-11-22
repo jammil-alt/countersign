@@ -88,6 +88,7 @@ import { inputsUnfilled, isReshape, type ReshapeOffer, reshapeOffers } from "./r
 import { ReshapeFields } from "./reshape-step";
 import { RulesEditor } from "./rules";
 import { RunsOnRow, type SkillMove, StepParameters, VersionSection } from "./skill-step";
+import { hasStartsDecision, otherwiseStart, STARTS_DECISION, splitStarts } from "./starts";
 import { WebhookSample } from "./webhook-sample";
 
 export type { Member } from "./people";
@@ -124,6 +125,8 @@ export interface InspectorProps {
   onTrigger(id: string, on: TriggerOn, key: string): void;
   onAddTrigger(on: TriggerOn): void;
   onRemoveTrigger(id: string): void;
+  /** Adds the decision that gives each start its own first steps (./starts). */
+  onSplitStarts?: (() => void) | undefined;
   onDelete(id: string): void;
   /** Wave 5: put an `if` right after the step, routed on how it ended ("Add a route for this"). */
   onAddRoute?(stepId: string, option: RouteOption): void;
@@ -702,7 +705,10 @@ function ToolFields(
           ) : null}
         </p>
       </Row>
-      {tool?.description ? <p className="text-sm text-ink-muted">{tool.description}</p> : null}
+      {/* In the panel the step's head already says what it does (owner, 2026-11-22). */}
+      {tool?.description && props.layout !== "panel" ? (
+        <p className="text-sm text-ink-muted">{tool.description}</p>
+      ) : null}
       {undo ? (
         <p className="text-sm text-ink-muted" data-testid="builder-write-undo">
           {undo.text}
@@ -901,7 +907,7 @@ function KindFields(
               ) : null}
             </p>
           </Row>
-          {skill?.description ? (
+          {skill?.description && props.layout !== "panel" ? (
             <p className="text-sm text-ink-muted">{skill.description}</p>
           ) : null}
           {isReshape(step) ? (
@@ -1144,7 +1150,9 @@ function KindFields(
               </span>
             </p>
           </Row>
-          {used?.description ? <p className="text-sm text-ink-muted">{used.description}</p> : null}
+          {used?.description && props.layout !== "panel" ? (
+            <p className="text-sm text-ink-muted">{used.description}</p>
+          ) : null}
           {used ? (
             <p className="text-sm text-ink-muted">
               {used.definition.steps.length} {used.definition.steps.length === 1 ? "step" : "steps"}
@@ -1752,6 +1760,9 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
   const fieldErrors = errorsFor(errors, trigger.id);
   // A trigger's filter reads that trigger's own payload.
   const paths = useMemo(() => pathOptions(triggerOnSchema(on, ctx), "trigger"), [on, ctx]);
+  // Whether each start can have a path of its own, and why not when it can't.
+  const split = useMemo(() => splitStarts(workflow, ctx), [workflow, ctx]);
+  const otherwise = useMemo(() => otherwiseStart(workflow, ctx), [workflow, ctx]);
   const set = (next: TriggerOn, key: string) => onTrigger(trigger.id, next, key);
   // Events of connectors the agent may use (as the palette offers them); the platform's always.
   const events = data.events.filter(
@@ -1899,6 +1910,44 @@ function TriggerInspector(props: InspectorProps & { trigger: Trigger }) {
           </Button>
         ) : null}
       </div>
+      {many && props.onSplitStarts ? (
+        // Owner, 2026-11-22 (docs/plan.md §1.184): each start with its own first steps.
+        <div
+          className="flex flex-col gap-2 border-t border-line pt-4"
+          data-testid="builder-trigger-split"
+        >
+          <span className="text-sm font-medium text-ink">Different first steps for each start</span>
+          {hasStartsDecision(workflow) ? (
+            <p className="text-sm text-ink-muted" data-testid="builder-trigger-split-done">
+              “{STARTS_DECISION}” is the first step, with a path for each start. Put each start's
+              own steps on its path; what comes after the decision is shared.
+              {otherwise ? ` Runs that start “${otherwise}” take the Otherwise path.` : ""}
+            </p>
+          ) : split.ok ? (
+            <>
+              <p className="text-sm text-ink-muted">
+                Adds a decision as the first step, with a path for each way it starts. Drag the
+                steps only one start needs onto its path. The paths meet again at the step after the
+                decision, and everything from there is shared.
+              </p>
+              <div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  data-testid="builder-trigger-split-add"
+                  onClick={() => props.onSplitStarts?.()}
+                >
+                  Give each start its own first steps
+                </Button>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-ink-muted" data-testid="builder-trigger-split-why">
+              Not available here: {split.why}
+            </p>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

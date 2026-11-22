@@ -7,7 +7,7 @@ import {
   mayResolve,
 } from "@countersign/agents";
 import { normalizeMatrix } from "@countersign/connectors";
-import type { PermissionMatrix } from "@countersign/core";
+import { itemFingerprint, OpsInboxItem, type PermissionMatrix } from "@countersign/core";
 import type {
   connection,
   externalAction,
@@ -210,6 +210,19 @@ export function opsInboxItem(i: InboxRow, operator: Approver, platform: Registri
     snoozedUntil: iso(i.snoozedUntil),
     batchKey: i.batchKey,
   };
+}
+
+/**
+ * Audit 3.4: the fingerprint of an item as the back office shows it (`itemFingerprint` of the
+ * parsed `OpsInboxItem`), the one its screens compute from what they were sent. It covers the id,
+ * title, display and payload only, so which operator asks (`resolvableByOperator`) never changes it.
+ */
+export function opsShownFingerprint(
+  i: InboxRow,
+  operator: Approver,
+  platform: Registries,
+): Promise<string> {
+  return itemFingerprint(OpsInboxItem.parse(opsInboxItem(i, operator, platform)));
 }
 
 /** A matrix edit from a request body, without the keys it left out. */

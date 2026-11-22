@@ -12,7 +12,13 @@
 //   it runs, how to reach it, what it may do in each of your tools (read-only; the client admin
 //   tightens on Accounts) and who it contacts (the client admin chooses).
 // Never the agent's bundle, instructions, prompts or cost (invariant 11).
-import { connectorAccessRoutes, type RunForm, type ServiceControl } from "@countersign/core";
+import {
+  connectorAccessRoutes,
+  type MissedWhilePaused,
+  pauseReasonWords,
+  type RunForm,
+  type ServiceControl,
+} from "@countersign/core";
 import { type FormEvent, lazy, type ReactNode, Suspense, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { type AgentViewKey, defaultReports, viewsFor } from "../../agents/views";
@@ -22,6 +28,7 @@ import { useApi, useApiClient } from "../../api/useApi";
 import { AskForLine, hasOwnNumber } from "../../channels/AskForLine";
 import { CHANNEL_KIND_KEY, ChannelLines } from "../../channels/ChannelLines";
 import type { PlainKey } from "../../i18n/catalog";
+import { dateLocaleFor } from "../../i18n/format";
 import { type I18n, useI18n } from "../../i18n/i18n";
 import { StatusFilter } from "../../inbox/StatusFilter";
 import { packReportPath } from "../../packs/registry";
@@ -71,12 +78,14 @@ const AgentSop = lazy(() => import("./AgentSop").then((m) => ({ default: m.Agent
 const AgentWorkflow = lazy(() =>
   import("./AgentWorkflow").then((m) => ({ default: m.AgentWorkflow })),
 );
+// R4 (docs/plan.md §1.214): the Report tab, its words and its route's schema, its own chunk.
+const AgentReport = lazy(() => import("./AgentReport").then((m) => ({ default: m.AgentReport })));
 // B5: what the client may adjust, with its route's schema, fetched with the Settings tab.
 const AdjustSettings = lazy(() =>
   import("./AdjustSettings").then((m) => ({ default: m.AdjustSettings })),
 );
 
-export type AgentTab = "overview" | "runs" | "workflow" | "sop" | "settings";
+export type AgentTab = "overview" | "runs" | "report" | "workflow" | "sop" | "settings";
 
 /**
  * The page: its header and tabs draw at once from what the frame's overview already says of the
@@ -120,6 +129,12 @@ export function AgentScreen({ tab: asked = "overview" }: { tab?: AgentTab }) {
         );
   const stage = stageWord(live?.stage ?? known?.stage ?? null, t);
   const description = service ? service.description : (known?.description ?? null);
+  // H7: what its last resume said came in while it was paused (this agent's only: the page stays
+  // mounted when another agent opens).
+  const [resumed, setResumed] = useState<{ id: string; missed: MissedWhilePaused | null } | null>(
+    null,
+  );
+  const missed = resumed?.id === id ? resumed.missed : null;
   const refresh = () => {
     detail.reload();
     table.reload();
@@ -157,11 +172,17 @@ export function AgentScreen({ tab: asked = "overview" }: { tab?: AgentTab }) {
         subtitle={description ?? undefined}
         actions={
           isAdmin && control && name !== null ? (
-            <PauseControl control={control} name={name} onChange={refresh} />
+            <PauseControl
+              control={control}
+              name={name}
+              onChange={refresh}
+              onMissed={(m) => setResumed({ id, missed: m })}
+            />
           ) : null
         }
       />
       {control?.pause ? <PauseNotice control={control} /> : null}
+      {missed && !control?.pause ? <MissedNotice missed={missed} /> : null}
       {/* The owner's agent page (2026-11-11): this month's figures first, above every tab. */}
       {detail.error && !detail.data ? null : (
         <Loaded state={detail} skeleton={<SkeletonStats count={3} />}>
@@ -185,6 +206,8 @@ export function AgentScreen({ tab: asked = "overview" }: { tab?: AgentTab }) {
           // docs/sop-plan.md S1: the agent's SOP, read only, for everyone who sees it; it holds
           // what the manual did (owner, 2026-11-21: "Rename Manual to SOP").
           { to: PORTAL_PATHS.agentSop(id), label: t("agent.tab.sop") },
+          // R4: its report, for everyone who sees the agent.
+          { to: PORTAL_PATHS.agentReport(id), label: t("agent.tab.report") },
           ...(limited
             ? []
             : [{ to: PORTAL_PATHS.agentSettings(id), label: t("agent.tab.settings") }]),
@@ -195,6 +218,10 @@ export function AgentScreen({ tab: asked = "overview" }: { tab?: AgentTab }) {
         <Loaded state={detail}>{() => null}</Loaded>
       ) : tab === "runs" ? (
         <AgentRuns id={id} />
+      ) : tab === "report" ? (
+        <Suspense fallback={<SkeletonRows rows={6} columns={4} />}>
+          <AgentReport id={id} />
+        </Suspense>
       ) : tab === "workflow" ? (
         <Suspense fallback={<SkeletonRows rows={6} columns={1} />}>
           <AgentWorkflow id={id} />
@@ -573,8 +600,8 @@ function scheduleWords(cron: string | null, { t, locale }: Pick<I18n, "t" | "loc
   if (!/^\d+$/.test(min) || !/^\d+$/.test(hour) || dom !== "*" || mon !== "*") {
     return t("agent.trigger.schedule");
   }
-  const time = new Intl.DateTimeFormat(locale, {
-    hour: "numeric",
+  const time = new Intl.DateTimeFormat(dateLocaleFor(locale), {
+    hour: "2-digit",
     minute: "2-digit",
     timeZone: "UTC",
   }).format(new Date(Date.UTC(2000, 0, 2, Number(hour), Number(min))));
@@ -666,10 +693,13 @@ function PauseControl({
   control,
   name,
   onChange,
+  onMissed,
 }: {
   control: ServiceControl;
   name: string;
   onChange: () => void;
+  /** What its resume said came in while it was paused; null once it is paused again. */
+  onMissed: (missed: MissedWhilePaused | null) => void;
 }) {
   const { t } = useI18n();
   const api = useApiClient();
@@ -702,7 +732,12 @@ function PauseControl({
           disabled={busy}
           data-testid="agent-resume"
           onClick={() =>
-            run(() => api.call(apiRoutes.portalResumeService, { params: { id: control.id } }))
+            run(async () => {
+              const res = await api.call(apiRoutes.portalResumeService, {
+                params: { id: control.id },
+              });
+              onMissed(res.missed);
+            })
           }
         >
           {busy ? t("common.sending") : t("agent.resume")}
@@ -721,12 +756,13 @@ function PauseControl({
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!reason.trim()) return;
-    run(() =>
-      api.call(apiRoutes.portalPauseService, {
+    run(async () => {
+      await api.call(apiRoutes.portalPauseService, {
         params: { id: control.id },
         body: { reason: reason.trim() },
-      }),
-    );
+      });
+      onMissed(null);
+    });
   };
   return (
     <form
@@ -767,10 +803,15 @@ function PauseNotice({ control }: { control: ServiceControl }) {
   const { t } = i18n;
   const pause = control.pause;
   if (!pause) return null;
+  const reason = pauseReasonWords(pause.reason);
   const who =
     pause.side === "client"
-      ? t("agent.pausedByYou", { reason: pause.reason })
-      : t("agent.pausedByUs", { reason: pause.reason });
+      ? reason
+        ? t("agent.pausedByYou", { reason })
+        : t("agent.pausedByYouAlone")
+      : reason
+        ? t("agent.pausedByUs", { reason })
+        : t("agent.pausedByUsAlone");
   return (
     <div className="ds-card flex flex-col gap-1 p-5" data-testid="agent-paused">
       <span className="flex flex-wrap items-center gap-2">
@@ -787,6 +828,37 @@ function PauseNotice({ control }: { control: ServiceControl }) {
           .filter(Boolean)
           .join(" · ")}
       </span>
+    </div>
+  );
+}
+
+/**
+ * H7 (audit 4.2): on resume, what came in while it was paused that it would have started on, as
+ * the go-live panel tells us: how many and when, never the events. None started by itself, and
+ * running them is ours (the past-event path), so the client asks their lead.
+ */
+// DECISION (H7, docs/plan.md §1.195): shown once, from the resume's answer, until the page is left
+// or it is paused again; nothing to show when none came in.
+function MissedNotice({ missed }: { missed: MissedWhilePaused }) {
+  const i18n = useI18n();
+  const { t } = i18n;
+  if (missed.count === 0 && !missed.more) return null;
+  const when = {
+    from: shortTime(missed.from, undefined, i18n),
+    to: shortTime(missed.to, undefined, i18n),
+  };
+  const text =
+    missed.count === 0
+      ? t("agent.missedUncounted", when)
+      : missed.more
+        ? t("agent.missedOrMore", { count: missed.count, ...when })
+        : t("agent.missed", { count: missed.count, ...when });
+  return (
+    <div className="ds-card flex flex-col gap-1 p-5" data-testid="agent-missed-events">
+      <span className="text-ink" data-testid="agent-missed-events-count">
+        {text}
+      </span>
+      <span className="text-sm text-ink-muted">{t("agent.missedAsk")}</span>
     </div>
   );
 }

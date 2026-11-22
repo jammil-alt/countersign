@@ -83,8 +83,10 @@ describe("the inspector in the side panel", () => {
     expect(screen.queryByTestId("builder-inspector-name")).toBeNull();
     expect(screen.queryByTestId("builder-inspector-delete")).toBeNull();
     expect(screen.queryByText("Reads from a tool. It never changes anything.")).toBeNull();
-    // The main field stays out of the fold.
-    expect(screen.getByText("Finds a vendor by name")).toBeTruthy();
+    // The main field stays out of the fold. What the tool does is said once, in the panel's head
+    // (owner, 2026-11-22), so the inspector doesn't repeat it here.
+    expect(screen.getByText("Find vendor")).toBeTruthy();
+    expect(screen.queryByText("Finds a vendor by name")).toBeNull();
     const more = screen.getByTestId("builder-inspector-more");
     expect(more).toHaveTextContent("More settings · all on their defaults");
     expect(more).not.toHaveAttribute("open");

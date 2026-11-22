@@ -8,13 +8,14 @@ import {
   auditEvent,
   memoryNote,
   message,
+  meteredUsage,
   modelCall,
   run,
   thread,
   usageDaily,
 } from "@countersign/db";
 import { FakeModel, type LlmTransport } from "@countersign/llm";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, gte, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   SUMMARY_AUDIT_ACTION,
@@ -116,7 +117,7 @@ describe.skipIf(!h)("Home and conversation history", () => {
         .orderBy(auditEvent.createdAt)
     ).map((a) => a.outcome);
 
-  it("charges the client nothing: no runs, model calls or usage, the cost logged as ours", async () => {
+  it("charges the client nothing: no runs, model calls or usage, the cost recorded as ours", async () => {
     const threadId = await quietThread("Is the Home Depot credit in?");
     // Counted once the person's message and the chat run it starts (after its commit) are in.
     await vi.waitFor(async () => {
@@ -138,7 +139,7 @@ describe.skipIf(!h)("Home and conversation history", () => {
       usage: (await H.t.db.select().from(usageDaily).where(eq(usageDaily.tenantId, H.A.tenantId)))
         .length,
     };
-    const logged = vi.spyOn(console, "info").mockImplementation(() => {});
+    const at = new Date();
     const made = await summarizeQuietConversations(
       {
         db: H.db,
@@ -151,16 +152,18 @@ describe.skipIf(!h)("Home and conversation history", () => {
     );
     // This conversation, and any other of the client's gone quiet meanwhile.
     expect(made).toBeGreaterThanOrEqual(1);
-    const cost = logged.mock.calls
-      .map((c) => String(c[0]))
-      .find((line) => line.includes("account.summary.cost"));
-    logged.mockRestore();
-    expect(JSON.parse(cost as string)).toMatchObject({
-      who: "operator",
-      tenantId: H.A.tenantId,
-      tokensIn: 100,
-      tokensOut: 20,
-    });
+    // §1.210: recorded as ours (the back office's line on Usage), never the client's usage.
+    const [cost] = await H.t.db
+      .select()
+      .from(meteredUsage)
+      .where(
+        and(
+          eq(meteredUsage.tenantId, H.A.tenantId),
+          eq(meteredUsage.source, "summaries"),
+          gte(meteredUsage.createdAt, at),
+        ),
+      );
+    expect(cost).toMatchObject({ ours: true, measure: "model", tokensIn: 100, tokensOut: 20 });
     expect((await H.t.db.select().from(run).where(eq(run.tenantId, H.A.tenantId))).length).toBe(
       before.runs,
     );

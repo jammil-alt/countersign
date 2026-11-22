@@ -18,6 +18,7 @@ import {
   type Locale,
   lazy,
   lazyObject,
+  type ToolAbout,
   type ToolSpec,
   type VoiceSampleChannel,
 } from "@countersign/core";
@@ -390,6 +391,11 @@ export interface HealthConnection {
   stopped: { reason: string; at: string } | null;
   /** The latest time the platform found it needing a person, and why. */
   attention: { reason: string; at: string } | null;
+  /**
+   * Renewing our access has failed for a day and no call has worked since (an open
+   * `refresh_failing` issue, docs/plan.md §1.134): still `connected`, but it needs a person.
+   */
+  accessFailing: boolean;
   /** Client agents bound to it. */
   usedBy: string[];
 }
@@ -568,6 +574,8 @@ export function defineInternalTool<I extends z.ZodType, O extends z.ZodType>(def
   /** v0.18 (ARCHITECTURE §12.0): the area and record type it reads or saves; metadata only. */
   area?: string;
   entity?: string;
+  /** docs/plan.md §1.188: the records its output names, kept as the run's subjects. */
+  about?: ToolAbout;
 }): InternalTool {
   return {
     ...(def.pure ? { pure: true } : {}),
@@ -584,6 +592,7 @@ export function defineInternalTool<I extends z.ZodType, O extends z.ZodType>(def
       ...(def.usesModel === undefined ? {} : { usesModel: def.usesModel }),
       ...(def.area === undefined ? {} : { area: def.area }),
       ...(def.entity === undefined ? {} : { entity: def.entity }),
+      ...(def.about === undefined ? {} : { about: def.about }),
     }),
     input: def.input,
     output: def.output,

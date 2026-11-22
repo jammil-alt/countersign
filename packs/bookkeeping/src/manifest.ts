@@ -9,6 +9,7 @@ import {
   PackManifest,
   type SkillDefinition,
 } from "@countersign/core";
+import { BOOKKEEPING_REPORTS } from "./api";
 import { BOOK_CONFIDENCE_AUTO } from "./bookings";
 import { PACK_ID } from "./ids";
 import { BOOKKEEPING_INTAKE_SECTION } from "./intake";
@@ -176,6 +177,12 @@ export const bookkeepingManifest: PackManifest = lazyParse(PackManifest, () => (
   version: "0.1.0",
   description:
     "Bookkeeping from the client's bank and card feeds: each transaction matched with the accounting tool, booked by the client's rules or proposed from its chart of accounts, a person deciding what isn't sure, and written to QuickBooks after approval.",
+  area: "bookkeeping",
+  // §1.230: nothing to set when switching it on; the thresholds are its skills' settings.
+  config: [],
+  // §1.230: none of its own; Plaid comes with the bank feed connector (compliance/processors.ts).
+  processors: [],
+  reports: Object.keys(BOOKKEEPING_REPORTS),
   requiresConnectors: [],
   // §1.162: the connections the Bookkeeping area works through, for the client page's Areas tab.
   connections: [

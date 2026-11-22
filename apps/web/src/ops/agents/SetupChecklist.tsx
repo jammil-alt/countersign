@@ -6,6 +6,7 @@
 import { type SetupGuard, type SetupRowView, type SetupView, setupRoutes } from "@countersign/core";
 import { useState } from "react";
 import { sendSetupFiles } from "../../api/upload";
+import { EN } from "../../i18n/i18n";
 import { Badge, Button, SectionLabel, Tag } from "../../ui/primitives";
 import { errorText, Notice, TextInput, useAction } from "./ui";
 
@@ -22,7 +23,7 @@ const KIND_LABEL: Record<SetupRowView["kind"], string> = {
   confirm: "Confirm",
 };
 
-const day = (iso: string) => new Date(iso).toLocaleDateString();
+const day = (iso: string) => EN.fmt.date(iso);
 
 /** "Answered by Ada (client) on 19/11/2026: 0.9", "Connected", "Recorded by Sam (us)". */
 export function setupWho(row: SetupRowView): string | null {

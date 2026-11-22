@@ -377,16 +377,16 @@ describe("ops usage", () => {
     // Feedback (2026-11-16): a line by day, from the first day with usage, each day read by
     // pointer or by the arrow keys.
     expect(screen.getByText("Model cost by day")).toBeInTheDocument();
-    expect(screen.getByText("From Nov 2, 2026, the first day with usage")).toBeInTheDocument();
+    expect(screen.getByText("From 2 Nov 2026, the first day with usage")).toBeInTheDocument();
     const plot = screen.getByTestId("ops-usage-chart-plot");
     expect(plot).toHaveAccessibleName(
-      "Model cost by day, Nov 2, 2026 to Nov 3, 2026, highest $2.00 on Nov 2, 2026. Use the arrow keys to read each day.",
+      "Model cost by day, 2 Nov 2026 to 3 Nov 2026, highest $2.00 on 2 Nov 2026. Use the arrow keys to read each day.",
     );
     expect(screen.getByTestId("ops-usage-chart-path")).toBeInTheDocument();
     plot.focus();
     await userEvent.keyboard("{ArrowRight}");
     expect(screen.getByTestId("ops-usage-chart-readout")).toHaveTextContent(
-      "$2.00 · 2 runs · Nov 2, 2026",
+      "$2.00 · 2 runs · 2 Nov 2026",
     );
     await userEvent.keyboard("{ArrowRight}");
     expect(screen.getByTestId("ops-usage-chart-readout")).toHaveTextContent("$0.35 · 1 run");
@@ -397,6 +397,129 @@ describe("ops usage", () => {
     expect(screen.getByTestId("ops-usage-vendor-anthropic")).toHaveTextContent("4 model calls");
     expect(await screen.findByText("Best (Opus)")).toBeInTheDocument();
     expect(screen.getByTestId("ops-usage-model-claude-opus-5-5")).toHaveTextContent("$2.30");
+  });
+
+  // QA (usage costs, 2026-11-22): the tables add up to the Model cost tile, the back office's spend
+  // is a row of its own, fees are not model cost, and a model with no price says so.
+  it("adds the back office as its own row, totals the table and flags calls with no price", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/models": () => ({ models: [] }),
+      "GET /api/ops/usage": () => ({
+        ...REPORT,
+        total: fig("12.4056", 6),
+        byMonth: [
+          { month: "2026-10", figures: fig("10.0000", 3) },
+          { month: "2026-11", figures: fig("2.4056", 3) },
+        ],
+        backOffice: {
+          ...series("0.0000", "0.0600", "0.0600", 0),
+          lines: [
+            { id: "reggie", answers: 2, costUsd: "0.0100" },
+            { id: "builder", answers: 1, costUsd: "0.0500" },
+          ],
+        },
+        byModel: [
+          {
+            provider: "anthropic",
+            model: "claude-sonnet-4-5-20250929",
+            calls: 30,
+            tokensIn: 9000,
+            tokensOut: 900,
+            costUsd: "0.0000",
+            unpricedCalls: 30,
+          },
+          { provider: "", model: "", calls: 0, tokensIn: 50, tokensOut: 5, costUsd: "0.0100" },
+        ],
+        byVendor: [
+          {
+            id: "provider_fees",
+            name: "Twilio fees (texting registration)",
+            costUsd: "35.5000",
+            estimated: false,
+            fees: 4,
+          },
+        ],
+      }),
+    });
+    renderAt("/ops/usage", api);
+    const office = await screen.findByTestId("ops-usage-row-back-office");
+    expect(office).toHaveTextContent("Back office");
+    expect(office).toHaveTextContent("Reggie $0.01 · The Builder $0.05, not part of any client");
+    expect(office).toHaveTextContent("$0.06");
+    // The clients and the back office add up to the tile.
+    expect(screen.getByTestId("ops-usage-row-total")).toHaveTextContent("Total");
+    expect(screen.getByTestId("ops-usage-row-total")).toHaveTextContent("$12.41");
+    expect(screen.getByTestId("ops-usage-cost")).toHaveTextContent("$12.41");
+    // A dated model id with no price is flagged, not a silent $0.00.
+    const sonnet = screen.getByTestId("ops-usage-model-claude-sonnet-4-5-20250929");
+    expect(sonnet).toHaveTextContent("30 calls had no price, so they count as $0.00");
+    expect(sonnet).toHaveTextContent("No price");
+    expect(screen.getByTestId("ops-usage-model-unrecorded")).toHaveTextContent(
+      "Not itemised by model",
+    );
+    // Fees are money we paid, beside the model cost, never in it.
+    expect(screen.getByTestId("ops-usage-vendor-provider_fees")).toHaveTextContent(
+      "Twilio fees (texting registration)4 fees$35.50",
+    );
+    expect(
+      screen.getByText(
+        "What the work cost us. Fees and estimates are not in the model cost; unit costs are unverified.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("shows what the other vendors cost beside each row's model cost (§1.210)", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/usage": () => ({
+        ...REPORT,
+        total: { ...REPORT.total, servicesUsd: "0.3198" },
+        clients: [
+          {
+            ...REPORT.clients[0],
+            total: { ...REPORT.clients[0]?.total, servicesUsd: "0.3198" },
+          },
+          ...REPORT.clients.slice(1),
+        ],
+        byVendor: [
+          { id: "resend", name: "Resend (email)", costUsd: "0.0018", estimated: true, emails: 2 },
+          {
+            id: "browser_run",
+            name: "Browser Run (website logins)",
+            costUsd: "0.0023",
+            estimated: true,
+            browserSeconds: 91,
+          },
+          {
+            id: "twilio_verify",
+            name: "Twilio Verify (sign-in codes)",
+            costUsd: "0.0500",
+            estimated: true,
+            verifications: 1,
+          },
+          {
+            id: "plaid",
+            name: "Plaid (bank feeds)",
+            costUsd: "0.3000",
+            estimated: true,
+            bankItemMonths: 1,
+          },
+        ],
+      }),
+    });
+    renderAt("/ops/usage", api);
+    const demo = await screen.findByTestId(`ops-usage-row-${DEMO}`);
+    expect(demo).toHaveTextContent("$12.35$0.32");
+    expect(screen.getByTestId("ops-usage-row-total")).toHaveTextContent("$0.32");
+    expect(screen.getByTestId("ops-usage-vendor-resend")).toHaveTextContent("2 emails");
+    expect(screen.getByTestId("ops-usage-vendor-browser_run")).toHaveTextContent(
+      "2 minutes of browsing",
+    );
+    expect(screen.getByTestId("ops-usage-vendor-twilio_verify")).toHaveTextContent(
+      "1 sign-in code",
+    );
+    expect(screen.getByTestId("ops-usage-vendor-plaid")).toHaveTextContent("1 bank month");
   });
 
   it("keeps billing a tab away", async () => {

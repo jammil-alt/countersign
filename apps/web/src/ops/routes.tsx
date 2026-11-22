@@ -54,6 +54,7 @@ import { OpsClientAreasScreen } from "./client/ClientAreas";
 import { ClientLayout } from "./client/ClientFrame";
 import { OpsClientLedgerScreen } from "./client/ClientLedger";
 import { ClientOverviewScreen } from "./client/ClientOverview";
+import { OpsSetupProgressScreen } from "./client/SetupProgress";
 import { CommandCenterScreen } from "./command/CommandCenter";
 import { OpsClientConnectorScreen } from "./connectors/ClientConnector";
 import { CheckStepsScreen } from "./flow/CheckSteps";
@@ -114,6 +115,32 @@ import { SalesScreen } from "./work/sales/SalesSection";
 
 // F7: the builder's parts load with the first automation opened in it, as an agent's builder does.
 const AutomationEditor = lazy(() => import("./flow/automation/AutomationEditor"));
+// §1.232: the Close pack's report loads when opened.
+const OpsClientCloseScreen = lazy(() =>
+  import("../packs/close/OpsClose").then((m) => ({ default: m.OpsClientCloseScreen })),
+);
+// §1.212: the eval scorecard loads only when opened.
+const ScorecardScreen = lazy(() => import("./lab/ScorecardScreen"));
+// R5 (docs/plan.md §1.235): the account report and /ops/accounts, each its own chunk.
+const AccountsScreen = lazy(() =>
+  import("./screens/Accounts").then((m) => ({ default: m.AccountsScreen })),
+);
+const ClientReportScreen = lazy(() =>
+  import("./client/ClientReport").then((m) => ({ default: m.ClientReportScreen })),
+);
+// §1.218: SOC 2 readiness, with its schemas (`soc2Routes`), loads only when opened.
+const Soc2ReadinessScreen = lazy(() => import("./security/Soc2Readiness"));
+// §1.216: books health loads when opened.
+const OpsClientBooksHealthScreen = lazy(() =>
+  import("./client/ClientBooksHealth").then((m) => ({ default: m.OpsClientBooksHealthScreen })),
+);
+// docs/plan.md §1.217: a client's process interviews load with their route.
+const InterviewsScreen = lazy(() => import("./interviews/InterviewsScreen"));
+
+// Plan entry §1.233: a client's Bills to pay (the AP pack) loads when opened.
+const OpsClientBillsToPayScreen = lazy(() =>
+  import("../packs/ap/OpsBillsToPay").then((m) => ({ default: m.OpsClientBillsToPayScreen })),
+);
 
 export const opsRoutes = (
   <>
@@ -125,6 +152,15 @@ export const opsRoutes = (
     <Route path="runs/:id" element={<OpsRunScreen />} />
     {/* O2 Agent lab, update merge (UI-2b) */}
     <Route path="lab" element={<LabScreen />} />
+    {/* §1.212: the eval scorecard, per template workflow and version (its own chunk) */}
+    <Route
+      path="scorecard"
+      element={
+        <Suspense fallback={<Loading />}>
+          <ScorecardScreen />
+        </Suspense>
+      }
+    />
     <Route path="templates/:slug/*" element={<TemplatePage />} />
     <Route path="agents/:id" element={<OpsAgentRedirect />} />
     <Route path="agents/:id/workflow" element={<OpsAgentRedirect tab="workflow" />} />
@@ -177,23 +213,65 @@ export const opsRoutes = (
     {/* docs/plan.md §1.170: a new agent build's Check the steps, in the Agent lab after Describe it (owner, 2026-11-21: new agents stay in the lab). */}
     <Route path="lab/check/:id" element={<CheckStepsScreen />} />
     <Route path="clients" element={<ClientsScreen />} />
+    <Route
+      path="accounts"
+      element={
+        <Suspense fallback={<Loading />}>
+          <AccountsScreen />
+        </Suspense>
+      }
+    />
     <Route path="clients/new" element={<NewClientScreen />} />
     {/* 1.4 (docs/audit-plan.md): the client page's tabs under one frame (client/ClientFrame.tsx),
         a layout route without a path of its own, so the header stays still as the tabs change. */}
     <Route element={<ClientLayout />}>
       <Route path="clients/:clientId" element={<ClientOverviewScreen />} />
+      <Route
+        path="clients/:clientId/report"
+        element={
+          <Suspense fallback={<Loading />}>
+            <ClientReportScreen />
+          </Suspense>
+        }
+      />
       <Route path="clients/:clientId/agents" element={<ClientAgentsScreen />} />
       {/* §1.162: Areas, the client's business areas with the connections each needs (was
           Packs); its reports below. The connections themselves are Setup's Connectors. */}
       <Route path="clients/:clientId/areas" element={<OpsClientAreasScreen />} />
       {/* §1.149: the client file. */}
       <Route path="clients/:clientId/file" element={<ClientFileScreen />} />
+      <Route
+        path="clients/:clientId/interviews"
+        element={
+          <Suspense fallback={<Loading />}>
+            <InterviewsScreen />
+          </Suspense>
+        }
+      />
+      <Route
+        path="clients/:clientId/interviews/:id"
+        element={
+          <Suspense fallback={<Loading />}>
+            <InterviewsScreen />
+          </Suspense>
+        }
+      />
       {/* Data: Documents and Records */}
       <Route path="clients/:clientId/documents" element={<OpsDocumentsScreen />} />
       <Route path="clients/:clientId/records" element={<OpsRecordsScreen />} />
       {/* The client's chart of accounts, classes and locations, changed only with a signature */}
       <Route path="clients/:clientId/ledger" element={<OpsClientLedgerScreen />} />
-      {/* Setup: Connections, Messaging, Directory and Knowledge */}
+      {/* §1.216: what the books health checks find in the client's QuickBooks */}
+      <Route
+        path="clients/:clientId/books-health"
+        element={
+          <Suspense fallback={<Loading />}>
+            <OpsClientBooksHealthScreen />
+          </Suspense>
+        }
+      />
+      {/* Setup: Progress (§1.206), Connections, Messaging, Directory and Knowledge */}
+      <Route path="clients/:clientId/progress" element={<OpsSetupProgressScreen />} />
       <Route path="clients/:clientId/connections" element={<OpsConnectionsScreen />} />
       {/* Connectors C6 (docs/connectors-plan.md §7.1): one connector of the client, edited. */}
       <Route
@@ -248,6 +326,24 @@ export const opsRoutes = (
         path="clients/:clientId/reports/bookkeeping/reconciliations"
         element={<OpsClientReconciliationsScreen />}
       />
+      {/* §1.232: a client's month-end close (the Close pack) */}
+      <Route
+        path="clients/:clientId/reports/close/close"
+        element={
+          <Suspense fallback={<Loading />}>
+            <OpsClientCloseScreen />
+          </Suspense>
+        }
+      />
+      {/* Plan entry §1.233: a client's Bills to pay */}
+      <Route
+        path="clients/:clientId/reports/ap/bills"
+        element={
+          <Suspense fallback={null}>
+            <OpsClientBillsToPayScreen />
+          </Suspense>
+        }
+      />
     </Route>
     {/* A document's and a record's own pages, outside the client's frame */}
     <Route path="clients/:clientId/documents/:documentId" element={<OpsDocumentScreen />} />
@@ -276,6 +372,14 @@ export const opsRoutes = (
     <Route path="users" element={<OpsUsersScreen />} />
     <Route path="security" element={<SecurityOverviewScreen />} />
     <Route path="security/controls" element={<SecurityControlsScreen />} />
+    <Route
+      path="security/soc2"
+      element={
+        <Suspense fallback={<Loading />}>
+          <Soc2ReadinessScreen />
+        </Suspense>
+      }
+    />
     <Route path="security/vendors" element={<SecurityVendorsScreen />} />
     <Route path="security/policies" element={<SecurityPoliciesScreen />} />
     <Route path="security/clients" element={<SecurityClientsScreen />} />
@@ -357,7 +461,7 @@ export const opsRoutes = (
     />
     <Route
       path="clients/:clientId/setup"
-      element={<Redirect to="/ops/clients/:clientId/connections" />}
+      element={<Redirect to="/ops/clients/:clientId/progress" />}
     />
     {/* §1.162: the Packs tab is the Areas tab now. */}
     <Route

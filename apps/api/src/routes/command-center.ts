@@ -6,11 +6,14 @@
 import { versionsBehind } from "@countersign/agents";
 import {
   AGENT_RECENT_RUNS,
+  APPROVAL_OVERDUE_HOURS,
   approvalOverdue,
   BLOCKED_LONG_HOURS,
   type ClientCounts,
+  type ClientMember,
   type CommandCenter,
   clientHealth,
+  Decimal,
   ESCALATION_LIST_MAX,
   type Escalation,
   FAILED_RUN_ESCALATION_DAYS,
@@ -22,12 +25,15 @@ import {
   isPlainObject,
   LOW_CONFIDENCE_DEFAULT,
   lowConfidenceThreshold,
+  type NobodyToAct,
   newestFeed,
+  nobodyToAct,
   type ReachContext,
   routes,
   runWaitOf,
   shareOf,
   sortEscalations,
+  toNumeric,
 } from "@countersign/core";
 import {
   agent,
@@ -49,6 +55,7 @@ import { daysOf, runsByDay } from "../runs/figures";
 // UI cleanup (stream A)
 import {
   clientMembers,
+  notWaitingReminder,
   type OpenItemRow,
   openItems,
   opsStatusWhere,
@@ -58,11 +65,31 @@ import {
 } from "../runs/run-wait";
 import { oversightList } from "./ops-oversight";
 import { searchRoutes } from "./search";
+import { isBackOffice, type SpendLine, spendLines } from "./usage-spend";
 
 const HOUR_MS = 60 * 60 * 1000;
 /** The command center's Run oversight card: the latest decisions (as the lab's `limit`). */
 const COMMAND_OVERSIGHT_SHOWN = 5;
 const DAY_MS = 24 * HOUR_MS;
+
+/** How far back a browser's start of day may be: a day, and an hour either way for clock changes. */
+const TODAY_MAX_HOURS = 26;
+
+/**
+ * Today's start for the command center's "today" figures: the start of the operator's own day,
+ * as their browser sends it (`today`), else midnight UTC.
+ */
+// DECISION (QA, 2026-11-22): "today" is the operator's local day, sent by the browser as an
+// instant, so the tile, its link's filter and the recent runs read the same day. A value that
+// can't be a start of today (in the future, or more than TODAY_MAX_HOURS back) falls back to UTC.
+export function startOfToday(now: Date, asked?: string | undefined): Date {
+  const utc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  if (!asked) return utc;
+  const at = Date.parse(asked);
+  const back = now.getTime() - at;
+  if (!Number.isFinite(at) || back < 0 || back > TODAY_MAX_HOURS * HOUR_MS) return utc;
+  return new Date(at);
+}
 
 /** The clients a request covers: the one asked for (if served), else every client served. */
 function scopeIds(ctx: { tenantIds: readonly string[] }, client: string | undefined): string[] {
@@ -100,6 +127,73 @@ function errorLine(error: unknown): string {
 // DECISION: an open item waits on the client when it is not the operator's (role `operator`,
 // which lead checks also use): client roles and items addressed to one client person.
 const clientAssigned = sql`coalesce(${inboxItem.assigneeRole}, '') <> 'operator'`;
+
+/** An approval escalation before its client's and agent's names are filled in. */
+type PendingApproval = Omit<Escalation, "agent" | "client"> & {
+  tenantId: string;
+  agentId: string | null;
+};
+
+/**
+ * A client's approvals nobody there can act on, as Needs us lists them: one per client and reason
+ * (nobody may approve, nobody signed in, nobody was told), named by its oldest item. Approvals
+ * someone at the client can act on are not here, however long they wait: only the client can
+ * answer them (Waiting on clients counts them).
+ */
+// DECISION (QA, 2026-11-22): Needs us is what the operator must act on. A client's approval is
+// ours only when nobody at the client can act on it, and then the fix (an approver, a sign-in, a
+// word to the client) is one act for all of that client's items with the same reason: one
+// escalation that names them all (`itemIds`), not one per item or per run.
+export function approvalEscalations(
+  items: readonly OpenItemRow[],
+  members: ReadonlyMap<string, readonly ClientMember[]>,
+  reach: ReachContext,
+): PendingApproval[] {
+  const groups = new Map<string, { reason: NobodyToAct; items: OpenItemRow[] }>();
+  for (const i of items) {
+    const reason = nobodyToAct(i, members.get(i.tenantId) ?? [], reach);
+    if (!reason) continue;
+    const key = `${i.tenantId}:${reason}`;
+    const g = groups.get(key) ?? { reason, items: [] };
+    g.items.push(i);
+    groups.set(key, g);
+  }
+  const out: PendingApproval[] = [];
+  for (const { items: list } of groups.values()) {
+    const sorted = [...list].sort(
+      (a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id),
+    );
+    const first = sorted[0];
+    const wait = first ? runWaitOf(sorted, members.get(first.tenantId) ?? [], reach) : null;
+    if (!first || !wait) continue;
+    out.push({
+      kind: "approval",
+      id: first.id,
+      tenantId: first.tenantId,
+      agentId: first.agentId,
+      runId: sorted.length === 1 ? first.runId : null,
+      title: first.title,
+      blockedSince: wait.since,
+      wait,
+      itemIds: sorted.slice(0, ESCALATION_LIST_MAX).map((i) => i.id),
+    });
+  }
+  return out;
+}
+
+/**
+ * What waits only on the clients (not in Needs us): open items no operator holds, outside the
+ * Sandbox (whose items are ours), and not the supervisor's reminders about them.
+ */
+function waitingOnClientsWhere(ids: readonly string[], sandboxes: readonly string[]): SQL[] {
+  return [
+    inArray(inboxItem.tenantId, [...ids]),
+    eq(inboxItem.status, "open"),
+    clientAssigned,
+    notWaitingReminder,
+    ...(sandboxes.length ? [sql`${inboxItem.tenantId} not in (${uuidList(sandboxes)})`] : []),
+  ];
+}
 
 interface Names {
   clients: Map<string, string>;
@@ -158,20 +252,26 @@ function thresholdSql(thresholds: ReadonlyMap<string, string>): SQL {
 
 // ── Needs us ────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * A client's agents as every count counts them, in SQL: core's `isCountedAgent` (a client agent,
+ * not discarded, not a template's test copy, not retired). The command center and the clients
+ * list both count with it, and the client page's line with `clientAgentCounts`.
+ */
+export function countedAgentWhere() {
+  return and(
+    eq(agent.kind, "client"),
+    eq(agent.status, "active"),
+    eq(agent.testCopy, false),
+    or(sql`${agent.runStatus} is null`, ne(agent.runStatus, "retired")),
+  );
+}
+
 /** Active client agents (not test copies, not retired): live counts, connection users, the table. */
 async function activeClientAgents(tx: Tx, ids: readonly string[]) {
   return tx
     .select()
     .from(agent)
-    .where(
-      and(
-        inArray(agent.tenantId, [...ids]),
-        eq(agent.kind, "client"),
-        eq(agent.status, "active"),
-        eq(agent.testCopy, false),
-        or(sql`${agent.runStatus} is null`, ne(agent.runStatus, "retired")),
-      ),
-    )
+    .where(and(inArray(agent.tenantId, [...ids]), countedAgentWhere()))
     .orderBy(agent.tenantId, agent.slug);
 }
 
@@ -185,14 +285,14 @@ interface NeedsUsParts {
   lowReadings: LowReading[];
 }
 
-type LowReading = Awaited<ReturnType<typeof lowReadingsToday>>[number];
+type LowReading = Awaited<ReturnType<typeof lowReadingsSince>>[number];
 
-/** Today's readings under each client's threshold, oldest first. */
-async function lowReadingsToday(
+/** Readings since `since` under each client's threshold, oldest first. */
+async function lowReadingsSince(
   tx: Tx,
   ids: readonly string[],
   thresholds: ReadonlyMap<string, string>,
-  today: Date,
+  since: Date,
 ) {
   return tx
     .select({
@@ -216,7 +316,7 @@ async function lowReadingsToday(
     .where(
       and(
         inArray(docExtraction.tenantId, [...ids]),
-        gte(docExtraction.createdAt, today),
+        gte(docExtraction.createdAt, since),
         isNotNull(docExtraction.confidence),
         sql`${docExtraction.confidence} < ${thresholdSql(thresholds)}`,
       ),
@@ -225,17 +325,22 @@ async function lowReadingsToday(
 }
 
 /**
- * Needs us (§13.1), longest blocked first: open items for us, failed live runs not retried, broken
- * connections an agent uses, today's low-confidence readings and (UI cleanup, stream A) clients'
- * approvals waiting over APPROVAL_OVERDUE_HOURS or that nobody can act on.
+ * Needs us (§13.1), longest blocked first: what the operator must act on. Open items for us,
+ * failed live runs not retried, broken connections an agent uses, low-confidence readings of the
+ * last day, and clients' approvals nobody there can act on (`approvalEscalations`). `lowReadings`
+ * also holds the readings since `today`, for the command center's card.
  */
 async function needsUsParts(
   tx: Tx,
   ids: readonly string[],
   now: Date,
   reach: NeedsUsContext,
+  today: Date = startOfToday(now),
 ): Promise<NeedsUsParts> {
-  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  // DECISION (QA, 2026-11-22): a low reading escalates for a day after it was read, not until
+  // midnight, so Needs us is the same on every page whatever day the browser is in (the badges
+  // ask without one) and a reading just before midnight doesn't drop out a minute later.
+  const lowSince = new Date(now.getTime() - DAY_MS);
   const failedSince = new Date(now.getTime() - FAILED_RUN_ESCALATION_DAYS * DAY_MS);
   // DECISION: the reads that need nothing from each other are asked at once, in the request's
   // transaction, which the driver pipelines (as search.ts does): a few round trips instead of one
@@ -284,15 +389,20 @@ async function needsUsParts(
           ours,
           // DECISION: a test run's items (always the operator's) block no client: left out.
           sql`coalesce(${inboxItem.payload}->>'testRun', '') <> 'true'`,
+          notWaitingReminder,
         ),
       ),
-    lowReadingsToday(tx, ids, thresholds, today),
-    // Approvals on the client: one per run (or per item without a run), when the oldest has
-    // waited over a day or nobody can act on it. A test run's items are ours, so never here.
+    lowReadingsSince(tx, ids, thresholds, today < lowSince ? today : lowSince),
+    // The clients' approvals, for those nobody there can act on. A test run's items are ours, so
+    // never here; the supervisor's reminders are about other items, not items of their own.
     openItems(
       tx,
       ids.filter((id) => !sandboxes.includes(id)),
-      [clientAssigned, sql`coalesce(${inboxItem.payload}->>'testRun', '') <> 'true'`],
+      [
+        clientAssigned,
+        sql`coalesce(${inboxItem.payload}->>'testRun', '') <> 'true'`,
+        notWaitingReminder,
+      ],
     ),
   ]);
   names.clients = new Map(clients.map((c) => [c.id, c.name]));
@@ -344,7 +454,9 @@ async function needsUsParts(
   // DECISION: each document read under the threshold today escalates once (its latest such
   // reading), blocked since that reading; the low-confidence figure counts every reading.
   const latestPerDocument = new Map<string, LowReading>();
-  for (const r of lowReadings) latestPerDocument.set(r.documentId, r);
+  for (const r of lowReadings) {
+    if (r.createdAt >= lowSince) latestPerDocument.set(r.documentId, r);
+  }
   for (const r of latestPerDocument.values()) {
     escalations.push({
       kind: "low_confidence",
@@ -359,26 +471,8 @@ async function needsUsParts(
 
   if (clientItems.length > 0) {
     const members = await clientMembers(tx, ids, reach);
-    const groups = new Map<string, OpenItemRow[]>();
-    for (const i of clientItems) {
-      const key = i.runId ?? `item:${i.id}`;
-      groups.set(key, [...(groups.get(key) ?? []), i]);
-    }
-    for (const list of groups.values()) {
-      const first = [...list].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0];
-      const wait = runWaitOf(list, members.get(first?.tenantId ?? "") ?? [], reach);
-      if (!first || !wait) continue;
-      if (!wait.nobodyToAct && !approvalOverdue(wait.since, now)) continue;
-      escalations.push({
-        kind: "approval",
-        id: first.runId ?? first.id,
-        client: clientRef(names, first.tenantId),
-        agentId: first.agentId,
-        runId: first.runId,
-        title: first.title,
-        blockedSince: wait.since,
-        wait,
-      });
+    for (const { tenantId, ...e } of approvalEscalations(clientItems, members, reach)) {
+      escalations.push({ ...e, client: clientRef(names, tenantId) });
     }
   }
 
@@ -419,8 +513,8 @@ async function commandCenter(
   ids: string[],
   now: Date,
   reach: NeedsUsContext,
+  today: Date = startOfToday(now),
 ): Promise<CommandCenter> {
-  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const weekAgo = new Date(now.getTime() - HEALTH_DAYS * DAY_MS);
   const base: CommandCenter = {
     at: now.toISOString(),
@@ -430,9 +524,15 @@ async function commandCenter(
     waitingForApproval: { runs: 0, oldestSince: null, overdue: 0, nobodyToAct: 0 },
     failedToday: { runs: 0 },
     needUs: { count: 0, blockedLong: 0 },
-    waitingOnClients: { count: 0, oldestSince: null, oldestAgeSeconds: null },
+    waitingOnClients: { count: 0, oldestSince: null, oldestAgeSeconds: null, overdue: 0 },
     runsToday: { runs: 0, clean: 0, cleanShare: null },
-    spendToday: { costUsd: "0", stepsUsd: "0", readingUsd: "0", perRunUsd: null },
+    spendToday: {
+      costUsd: "0",
+      stepsUsd: "0",
+      readingUsd: "0",
+      backOfficeUsd: "0",
+      perRunUsd: null,
+    },
     escalations: [],
     lowConfidence: [],
     health: [],
@@ -440,8 +540,14 @@ async function commandCenter(
   };
   if (ids.length === 0) return base;
 
-  const parts = await needsUsParts(tx, ids, now, reach);
-  const { names, clients, clientAgents, thresholds, lowReadings } = parts;
+  const parts = await needsUsParts(tx, ids, now, reach, today);
+  const { names, clients, clientAgents, thresholds } = parts;
+  // The card's readings are today's; Needs us took the last day's.
+  const lowReadings = parts.lowReadings.filter((r) => r.createdAt >= today);
+  const sandboxes = clients
+    .filter((c) => isPlainObject(c.settings) && c.settings.sandbox === true)
+    .map((c) => c.id);
+  const overdueBefore = new Date(now.getTime() - APPROVAL_OVERDUE_HOURS * HOUR_MS);
   const sorted = parts.escalations;
 
   // Agents live: switched on and at the live stage (isLiveAgent, one meaning everywhere), by client.
@@ -457,7 +563,7 @@ async function commandCenter(
   ];
   const agentIds = clientAgents.map((a) => a.id);
 
-  // Runs today (live, UTC) and the clean ones: succeeded with no step retried.
+  // Runs today (live, since `today`) and the clean ones: succeeded with no step retried.
   const retried = tx
     .select({ runId: stepRun.runId, tenantId: stepRun.tenantId })
     .from(stepRun)
@@ -477,7 +583,7 @@ async function commandCenter(
     templateVersions,
     [waiting],
     [todayRuns],
-    { steps, reading, spend },
+    { steps, reading, backOffice, spend },
     weekRuns,
     responses,
     recent,
@@ -531,14 +637,16 @@ async function commandCenter(
       return rows;
     })(),
 
-    // Waiting on clients: open items the client holds, and the oldest's age.
+    // Waiting on clients: open items only the client can answer, the oldest's age, and how many
+    // waited over APPROVAL_OVERDUE_HOURS.
     tx
       .select({
         count: sql<number>`count(*)::int`,
         oldest: sql<string | null>`${isoText(sql`min(${inboxItem.createdAt})`)}`,
+        overdue: sql<number>`(count(*) filter (where ${inboxItem.createdAt} < ${overdueBefore.toISOString()}::timestamptz))::int`,
       })
       .from(inboxItem)
-      .where(and(inArray(inboxItem.tenantId, ids), eq(inboxItem.status, "open"), clientAssigned)),
+      .where(and(...waitingOnClientsWhere(ids, sandboxes))),
 
     tx
       .select({
@@ -550,17 +658,16 @@ async function commandCenter(
       .leftJoin(retried, noRetry)
       .where(and(inArray(run.tenantId, ids), eq(run.mode, "live"), gte(run.createdAt, today))),
 
-    // Model spend today: step runs (any mode: test runs cost the same) and background readings.
+    // Model spend today (QA usage costs): the Usage screen's "Today", from the same lines: the
+    // runs' calls and steps (any mode: test runs cost the same), the clients' own reading and
+    // translation, and the back office's (Reggie, the Builder, builds). Owner, 2026-11-22: Home
+    // read $0.00 after a talk with Reggie, whose calls were in none of the old figures.
     (async () => {
-      const [[steps], [reading]] = await Promise.all([
+      const day = today.toISOString().slice(0, 10);
+      const [lines, [stepped]] = await Promise.all([
+        spendLines(tx, ids, { from: day, to: day }),
         tx
-          .select({
-            usd: sql<string>`coalesce(sum(${stepRun.costUsd}), 0)::numeric(14,4)::text`,
-            runs: sql<number>`count(distinct ${stepRun.runId})::int`,
-            perRun: sql<
-              string | null
-            >`(sum(${stepRun.costUsd}) / nullif(count(distinct ${stepRun.runId}), 0))::numeric(14,4)::text`,
-          })
+          .select({ runs: sql<number>`count(distinct ${stepRun.runId})::int` })
           .from(stepRun)
           .innerJoin(run, and(eq(run.id, stepRun.runId), eq(run.tenantId, stepRun.tenantId)))
           .where(
@@ -569,23 +676,24 @@ async function commandCenter(
               sql`${stepDay} >= ${today.toISOString()}::timestamptz`,
             ),
           ),
-        tx
-          .select({
-            usd: sql<string>`coalesce(sum(${docExtraction.costUsd}), 0)::numeric(14,4)::text`,
-          })
-          .from(docExtraction)
-          .where(
-            and(
-              inArray(docExtraction.tenantId, ids),
-              sql`${docExtraction.agentVersionId} is null`,
-              gte(docExtraction.createdAt, today),
-            ),
-          ),
       ]);
-      const [spend] = await tx.execute<{ total: string }>(
-        sql`select (${steps?.usd ?? "0"}::numeric + ${reading?.usd ?? "0"}::numeric)::numeric(14,4)::text as total`,
+      const part = (keep: (l: SpendLine) => boolean) =>
+        lines.filter(keep).reduce((sum, l) => sum.plus(l.cost), new Decimal(0));
+      const stepsUsd = part((l) => l.source === "run" || l.source === "unrecorded");
+      const readingUsd = part(
+        (l) => l.source === "background_read" || l.source === "background_translation",
       );
-      return { steps, reading, spend };
+      const backOfficeUsd = part(isBackOffice);
+      const runsWithSteps = stepped?.runs ?? 0;
+      return {
+        steps: {
+          usd: toNumeric(stepsUsd),
+          perRun: runsWithSteps > 0 ? toNumeric(stepsUsd.div(runsWithSteps)) : null,
+        },
+        reading: { usd: toNumeric(readingUsd) },
+        backOffice: { usd: toNumeric(backOfficeUsd) },
+        spend: { total: toNumeric(stepsUsd.plus(readingUsd).plus(backOfficeUsd)) },
+      };
     })(),
 
     // Client health over 7 days.
@@ -784,6 +892,7 @@ async function commandCenter(
       oldestAgeSeconds: oldest
         ? Math.max(0, Math.floor((now.getTime() - Date.parse(oldest)) / 1000))
         : null,
+      overdue: waiting?.overdue ?? 0,
     },
     runsToday: {
       runs: todayRuns?.runs ?? 0,
@@ -791,10 +900,11 @@ async function commandCenter(
       cleanShare: shareOf(todayRuns?.clean ?? 0, todayRuns?.runs ?? 0),
     },
     spendToday: {
-      costUsd: spend?.total ?? "0.0000",
-      stepsUsd: steps?.usd ?? "0.0000",
-      readingUsd: reading?.usd ?? "0.0000",
-      perRunUsd: steps?.perRun ?? null,
+      costUsd: spend.total,
+      stepsUsd: steps.usd,
+      readingUsd: reading.usd,
+      backOfficeUsd: backOffice.usd,
+      perRunUsd: steps.perRun,
     },
     escalations: sorted.slice(0, ESCALATION_LIST_MAX),
     lowConfidence: [...groups.values()],
@@ -1014,14 +1124,16 @@ async function feed(tx: Tx, ids: string[], since: Date): Promise<FeedItem[]> {
 // ── Routes ──────────────────────────────────────────────────────────────────────────────────────
 
 export function commandCenterRoutes(app: Hono<AppEnv>): void {
-  mount(app, routes.opsCommandCenter, async (ctx) =>
-    commandCenter(
+  mount(app, routes.opsCommandCenter, async (ctx) => {
+    const now = new Date();
+    return commandCenter(
       ctx.tx,
       scopeIds(ctx, ctx.query.client),
-      new Date(),
+      now,
       needsUsContext(ctx.services),
-    ),
-  );
+      startOfToday(now, ctx.query.today),
+    );
+  });
 
   // UI cleanup (stream A): Needs us alone (Escalations).
   mount(app, routes.opsNeedsUs, async (ctx) => {

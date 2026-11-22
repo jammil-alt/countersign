@@ -24,6 +24,7 @@ import {
   MOBILE_HANDOFF_SEC,
   MOBILE_SESSION_HEADER,
   MOBILE_SIGNED_IN_URL,
+  MobileApp,
   PkceChallenge,
 } from "@countersign/core";
 import { z } from "zod";
@@ -43,8 +44,15 @@ import {
 /** `__Host-`: Secure, Path=/, no Domain. Holds the app's challenge while the person signs in. */
 export const MOBILE_START_COOKIE = "__Host-cs_mobile";
 
-const StartPayload = z.object({ c: PkceChallenge, exp: z.int() });
-const HandoffPayload = z.object({ s: z.string().min(1), c: PkceChallenge, exp: z.int() });
+// §1.219: `a` names the app the sign-in is for; a cookie or code sealed before it has none and is
+// the phone's, as it was.
+const StartPayload = z.object({ c: PkceChallenge, a: MobileApp.optional(), exp: z.int() });
+const HandoffPayload = z.object({
+  s: z.string().min(1),
+  c: PkceChallenge,
+  a: MobileApp.optional(),
+  exp: z.int(),
+});
 
 /** Where sign-in goes after it finishes, for the app. */
 export const MOBILE_HANDOFF_PATH = "/api/mobile/handoff";
@@ -54,9 +62,10 @@ export async function mobileStartCookie(
   challenge: string,
   password: string,
   now: Date,
+  app: MobileApp = "phone",
 ): Promise<string> {
   const sealed = await seal(
-    { c: challenge, exp: epochSec(now) + STATE_MAX_AGE_SEC },
+    { c: challenge, a: app, exp: epochSec(now) + STATE_MAX_AGE_SEC },
     password,
     "mobile-start",
   );
@@ -64,7 +73,12 @@ export async function mobileStartCookie(
 }
 
 export type MobileHandoff =
-  | { readonly ok: true; readonly redirectTo: string; readonly setCookies: readonly string[] }
+  | {
+      readonly ok: true;
+      readonly app: MobileApp;
+      readonly redirectTo: string;
+      readonly setCookies: readonly string[];
+    }
   | {
       readonly ok: false;
       readonly reason: "no_start" | "no_session" | "second_factor_pending";
@@ -77,6 +91,31 @@ export type MobileHandoff =
  */
 export function isMobileSignIn(request: Request): boolean {
   return Boolean(requestCookie(request, MOBILE_START_COOKIE));
+}
+
+/** The app's sign-in this browser is in the middle of, read from the start cookie. */
+async function startOf(
+  request: Request,
+  password: string,
+  now: Date,
+): Promise<{ readonly c: string; readonly a: MobileApp } | null> {
+  const raw = requestCookie(request, MOBILE_START_COOKIE);
+  if (!raw) return null;
+  const start = StartPayload.safeParse(await unseal(raw, password, "mobile-start"));
+  if (!start.success || start.data.exp <= epochSec(now)) return null;
+  return { c: start.data.c, a: start.data.a ?? "phone" };
+}
+
+/**
+ * §1.219: which app this browser's sign-in is for (the start cookie, opened and in date), or null
+ * when it is in no app's sign-in. The audit rows and the confirm page name it.
+ */
+export async function mobileSignInApp(
+  request: Request,
+  password: string,
+  now: Date,
+): Promise<MobileApp | null> {
+  return (await startOf(request, password, now))?.a ?? null;
 }
 
 /**
@@ -113,24 +152,20 @@ export async function mobileHandoff(
   current?: string | null,
 ): Promise<MobileHandoff> {
   const clear = [clearCookie(MOBILE_START_COOKIE)];
-  const rawStart = requestCookie(request, MOBILE_START_COOKIE);
-  const start = rawStart
-    ? StartPayload.safeParse(await unseal(rawStart, password, "mobile-start"))
-    : null;
-  if (!start?.success || start.data.exp <= epochSec(now)) {
-    return { ok: false, reason: "no_start" };
-  }
+  const start = await startOf(request, password, now);
+  if (!start) return { ok: false, reason: "no_start" };
   const raw = current || requestCookie(request, SESSION_COOKIE);
   const session = raw ? await forThePhone(raw, password, now) : "none";
   if (session === "none") return { ok: false, reason: "no_session" };
   if (session === "pending") return { ok: false, reason: "second_factor_pending" };
   const code = await seal(
-    { s: session.sealed, c: start.data.c, exp: epochSec(now) + MOBILE_HANDOFF_SEC },
+    { s: session.sealed, c: start.c, a: start.a, exp: epochSec(now) + MOBILE_HANDOFF_SEC },
     password,
     "mobile-handoff",
   );
   return {
     ok: true,
+    app: start.a,
     redirectTo: `${MOBILE_SIGNED_IN_URL}?code=${encodeURIComponent(code)}`,
     setCookies: [...clear, clearSessionCookie()],
   };
@@ -145,6 +180,7 @@ export async function pkceChallengeOf(verifier: string): Promise<string> {
 export type MobileRedeem =
   | {
       readonly ok: true;
+      readonly app: MobileApp;
       readonly session: string;
       readonly userId: string;
       readonly expiresAt: Date;
@@ -170,6 +206,7 @@ export async function mobileRedeem(
   if (epochSec(now) >= sessionEnds(session)) return { ok: false, reason: "expired" };
   return {
     ok: true,
+    app: parsed.data.a ?? "phone",
     session: parsed.data.s,
     userId: session.uid,
     expiresAt: new Date(sessionEnds(session) * 1000),

@@ -105,6 +105,14 @@ Against the sandbox company (`9341458640918607`, QBO Plus, US):
 6. Update a memo and an item's purchase cost.
 7. Disconnect from the portal: the app disappears from the sandbox company's connected apps.
 8. Throttle by running a full sync and an agent at once; look for 429s in the logs.
+9. C2.4 (docs/plan.md §1.205): a purchase order with an item line. First the read it makes before
+   proposing and again before writing, `select * from Item where Id in ('…') and Active in (true,
+   false) maxresults 1000`: that it answers inactive items too, with `Active` and `Type` (an
+   inactive item and a `Category` are refused by name). Then create a purchase order with one item
+   line (a NonInventory item, `Qty` and `UnitPrice` as quoted) and one account line, and check in
+   QuickBooks: both lines kept, the item line's amount `Qty × UnitPrice`, the item's expense
+   account used. Also try an item without "I purchase this" (no `ExpenseAccountRef`): refused by
+   QuickBooks, or taken? We don't refuse it ourselves.
 
 ## Accounts receivable and create bill (v0.12, W1-F, 2026-11-06)
 
@@ -157,6 +165,7 @@ Built the same way: against the fake, from what we knew of the API, nothing call
 | `APAccountRef` on a purchase order: we send the one active Accounts Payable account in the order's currency, or none | `purchase-order.ts` `payablesAccount` |
 | `PurchaseOrder` is queryable by `Id in (…)`, `DocNumber =`, `VendorRef =`, `POStatus =`, `TxnDate` ranges | `purchase-order.ts` |
 | Creating a purchase order doesn't email it to the vendor (`EmailStatus` stays "NotSet") | the approval card says we don't send it |
+| C2.4: an item line on a purchase order names a QuickBooks item (`ItemRef`); `Item` is queryable by `Id in (…)` with `Active in (true, false)` and carries `Active` and `Type` (`Category` for a product list heading, never on a line) | `purchase-order.ts` `itemRefsProblem`; check 9 under "Against the sandbox company" |
 
 To verify (docs, then the sandbox company):
 
@@ -201,8 +210,13 @@ Built against the fake; check against the sandbox company:
 3. A Deposit's `DepositLineDetail.AccountRef` (an income account) and `ClassRef`; whether QuickBooks
    wants `Entity` on the line.
 4. A Transfer between a bank and a card account (a card payment) is accepted, and `Amount` comes back.
-5. The private note keeps our `[Mezonas bk-…]` mark as written (length, characters), so a retried
+5. The private note keeps our `[Mezonas bt-…]` mark as written (length, characters), so a retried
    write finds its own record.
+6. `qbo.banking.find` (`docs/plan.md` §1.187): `select * from Deposit where TxnDate = '…'` and the
+   same for Transfer and Purchase return `PrivateNote` with the mark as written, and a record
+   written a moment before (no lag), so the Bookkeeper finds a deposit or transfer it wrote and
+   never recorded instead of writing it again. Also whether more than 1000 records on one day need
+   `startposition` (we read the first 1000). Bookkeeping stays off for clients until this passes.
 
 ## The ledger's set-up (2026-11-08, docs/plan.md §1.79)
 
@@ -251,3 +265,35 @@ Whether `qbo.aging_report` (`ar.ts`) returns the full "Parent:Job" name for a su
 told from the code: every connector is built against a fake (`fake.ts`), which returns whatever the
 test wrote. It needs the sandbox company: run the aging report for a customer with a job and read
 the row's name. If it carries "Parent:Job", the request closes as `config`.
+
+## Books health (docs/plan.md §1.216)
+
+The checks (core `books-health/`) read synced records through `loadQboBooks` (`books.ts`). Built
+against the fake (`books-company.ts`); check against the sandbox company:
+
+1. `Account.CurrentBalance`'s sign: an asset positive when the company has it, a liability
+   (Accounts Payable, Credit Card, the other liabilities) positive when it owes it, so below zero is
+   wrong for both. A card with a credit on it should read negative.
+2. Undeposited Funds is `AccountSubType: "UndepositedFunds"`, and a `Payment` with no
+   `DepositToAccountRef` lands there. Deposits aren't synced, so which payments are still waiting
+   is inferred (the newest that make up the balance).
+3. Reconciled status isn't in the API (above), so only reconciliations signed off in Mezonas count;
+   one done in QuickBooks alone reads as "never reconciled with us".
+4. An initial sync reads 90 days of bills and purchases and a year of invoices and payments, so a
+   bill older than 90 days is outside overdue bills until a backfill reads further back.
+
+## Journal entries, for the Close pack (docs/plan.md §1.232)
+
+`qbo.journal.create` writes a `JournalEntry` (`POST /journalentry`): `TxnDate`, `PrivateNote` with
+the close entry's mark (`[Mezonas ce-<id>]`), and `Line` rows of `DetailType:
+"JournalEntryLineDetail"` with `PostingType` `Debit` or `Credit` and an `AccountRef`. Built against
+the fake; to check in the sandbox:
+
+1. UNCHECKED: `select * from JournalEntry where TxnDate = '…'` filters by day, as for Purchase.
+2. UNCHECKED: a journal entry whose debits and credits differ is refused (fault 6060 in the fake);
+   the tool refuses it before sending in any case.
+3. UNCHECKED: a line to Accounts Payable or Receivable needs an `Entity` (vendor or customer);
+   accruals credit an Other Current Liability account, so the template's entries need none.
+4. UNCHECKED: the `requestid` makes a resent create return the first entry.
+5. Journal entries aren't synced (`QBO_SYNCED_ENTITIES`); the close reads what it wrote from its
+   own `close_entry` rows.

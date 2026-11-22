@@ -1,6 +1,8 @@
-// Usage and reports (docs/plan.md §1.15). The back office reads the `usage_daily` rollup per client,
-// client agent and template, by month, with model cost (operator only, scoped to the clients the
-// operator serves). The portal's activity report and service page count what the client's services
+// Usage and reports (docs/plan.md §1.15). The back office reads usage per client, client agent and
+// template, by month, with model cost (operator only, scoped to the clients the operator serves):
+// the counts from the `usage_daily` rollup, cost and tokens from the call-level ledger
+// (./usage-spend.ts, QA usage costs), so every table of the screen sums to the same total. The
+// portal's activity report and service page count what the client's services
 // did from the rows themselves: live runs, documents, changes made to its tools. They never carry
 // cost, tokens or prompts (invariant 11): their contract schemas have no such fields.
 
@@ -8,6 +10,8 @@ import {
   type ActivityReport,
   type AnyBundleWorkflow,
   type AnyStep,
+  BACK_OFFICE_SPEND,
+  type BackOfficeSpend,
   type ClientView,
   clientLabel,
   Decimal,
@@ -17,6 +21,7 @@ import {
   type ServiceDetail,
   type ServiceNow,
   toNumeric,
+  UNRECORDED_MODEL,
   USAGE_DAILY_MAX_DAYS,
   USAGE_MAX_DAYS,
   type UsageFigures,
@@ -29,11 +34,9 @@ import {
   agentVersion,
   billingUnitCost,
   connection,
-  docExtraction,
   document,
   externalAction,
   inboxItem,
-  modelCall,
   narrowToTenant,
   run,
   stepRun,
@@ -72,6 +75,16 @@ import type { Platform } from "../platform";
 import { clientState, forClient, noRuns, OPEN_RUN, runCounts } from "../runs/client-status";
 import { clientDescription, isLiveService } from "../weekly/stats";
 import { runSummaries } from "./portal";
+import {
+  isBackOffice,
+  providerFees,
+  type ServiceLine,
+  type ServiceMeasure,
+  type SpendLine,
+  serviceLines,
+  servicePrice,
+  spendLines,
+} from "./usage-spend";
 import { tokenReport } from "./usage-tokens";
 
 // ── Days and months ──────────────────────────────────────────────────────────────────────────────
@@ -108,7 +121,7 @@ export function monthsBetween(from: string, to: string): string[] {
 }
 
 /** A request's range: both ends inclusive, `from` not after `to`, at most USAGE_MAX_DAYS days. */
-function checkRange(from: string, to: string): void {
+export function checkRange(from: string, to: string): void {
   if (from > to) throw new HttpError(422, "invalid_range", "from is after to");
   if ((dayMs(to) - dayMs(from)) / DAY_MS + 1 > USAGE_MAX_DAYS) {
     throw new HttpError(422, "invalid_range", `a range is at most ${USAGE_MAX_DAYS} days`);
@@ -125,6 +138,8 @@ interface Sum {
   tokensIn: number;
   tokensOut: number;
   cost: Decimal;
+  /** §1.210: the vendors other than the models, at our unit costs. */
+  services: Decimal;
 }
 
 const zero = (): Sum => ({
@@ -135,6 +150,7 @@ const zero = (): Sum => ({
   tokensIn: 0,
   tokensOut: 0,
   cost: new Decimal(0),
+  services: new Decimal(0),
 });
 
 function add(into: Sum, x: Sum): void {
@@ -145,6 +161,7 @@ function add(into: Sum, x: Sum): void {
   into.tokensIn += x.tokensIn;
   into.tokensOut += x.tokensOut;
   into.cost = into.cost.plus(x.cost);
+  into.services = into.services.plus(x.services);
 }
 
 const figures = (s: Sum): UsageFigures => ({
@@ -155,6 +172,7 @@ const figures = (s: Sum): UsageFigures => ({
   tokensIn: s.tokensIn,
   tokensOut: s.tokensOut,
   costUsd: toNumeric(s.cost),
+  servicesUsd: toNumeric(s.services),
 });
 
 /** A row's total and its months, summed with decimal.js. */
@@ -182,36 +200,8 @@ class Series {
 const byCost = (a: { s: Series; name: string }, b: { s: Series; name: string }) =>
   b.s.total.cost.comparedTo(a.s.total.cost) || a.name.localeCompare(b.name);
 
-const MONTH = sql<string>`to_char(${usageDaily.day}, 'YYYY-MM')`;
-
-const PLATFORM_MONTH = sql<string>`to_char(${usagePlatformDaily.day}, 'YYYY-MM')`;
-
-/** v0.12 W1-H: the clients' own usage (usage_platform_daily) by client and month. */
-function platformRows(
-  tx: Tx,
-  tenantIds: readonly string[],
-  query: { client?: string | undefined; from: string; to: string },
-) {
-  return tx
-    .select({
-      tenantId: usagePlatformDaily.tenantId,
-      month: PLATFORM_MONTH,
-      documents: sql<string>`sum(${usagePlatformDaily.documents})::text`,
-      tokensIn: sql<string>`sum(${usagePlatformDaily.tokensIn})::text`,
-      tokensOut: sql<string>`sum(${usagePlatformDaily.tokensOut})::text`,
-      cost: sql<string>`sum(${usagePlatformDaily.costUsd})::text`,
-    })
-    .from(usagePlatformDaily)
-    .where(
-      and(
-        inArray(usagePlatformDaily.tenantId, [...tenantIds]),
-        gte(usagePlatformDaily.day, query.from),
-        lte(usagePlatformDaily.day, query.to),
-        ...(query.client ? [eq(usagePlatformDaily.tenantId, query.client)] : []),
-      ),
-    )
-    .groupBy(usagePlatformDaily.tenantId, PLATFORM_MONTH);
-}
+const DAY = sql<string>`to_char(${usageDaily.day}, 'YYYY-MM-DD')`;
+const PLATFORM_DAY = sql<string>`to_char(${usagePlatformDaily.day}, 'YYYY-MM-DD')`;
 
 interface UsageQuery {
   client?: string | undefined;
@@ -230,9 +220,6 @@ function daysBetween(from: string, to: string): string[] {
   return out;
 }
 
-const DAY = sql<string>`to_char(${usageDaily.day}, 'YYYY-MM-DD')`;
-const PLATFORM_DAY = sql<string>`to_char(${usagePlatformDaily.day}, 'YYYY-MM-DD')`;
-
 /** The usage_daily filters a report's query names (RLS holds the scope; the query says it too). */
 function usageWhere(tenantIds: readonly string[], query: UsageQuery): SQL[] {
   const where: SQL[] = [
@@ -248,150 +235,84 @@ function usageWhere(tenantIds: readonly string[], query: UsageQuery): SQL[] {
 
 const VENDOR_NAME: Record<string, string> = { ...MODEL_PROVIDER_NAMES };
 
-/** A model id's provider by its prefix (`openai:`, `xai:`, `google:`), else Anthropic's. */
-const providerOf = modelProvider;
+/** The vendor row of model spend no record names a model for. */
+const UNRECORDED_VENDOR = "unrecorded";
 
 /**
- * UI cleanup: the report's splits, from rows that already exist (no migration): cost by day for
- * the chart (short ranges), by model from the model calls, and by vendor (the model providers,
- * then Twilio's messages and the calls Twilio and ElevenLabs carry, at our unit costs).
+ * What the report counts from the usage_daily rollup: runs, steps, documents and changes, by
+ * client, agent and day. Cost and tokens are never read from it (QA usage costs: they come from
+ * `spendLines`, like every split of the report).
  */
-// DECISION: model calls are counted in UTC days like the rollup; the clients' background reading
-// (doc_extraction rows with no agent version) joins the by-model split unless the report is
-// narrowed to an agent or a template, as it does the totals.
+async function countRows(tx: Tx, tenantIds: readonly string[], query: UsageQuery) {
+  return tx
+    .select({
+      tenantId: usageDaily.tenantId,
+      agentId: usageDaily.agentId,
+      day: DAY,
+      runs: sql<string>`sum(${usageDaily.runs})::text`,
+      steps: sql<string>`sum(${usageDaily.steps})::text`,
+      documents: sql<string>`sum(${usageDaily.documents})::text`,
+      externalActions: sql<string>`sum(${usageDaily.externalActions})::text`,
+    })
+    .from(usageDaily)
+    .innerJoin(
+      agent,
+      and(eq(agent.id, usageDaily.agentId), eq(agent.tenantId, usageDaily.tenantId)),
+    )
+    .where(and(...usageWhere(tenantIds, query)))
+    .groupBy(usageDaily.tenantId, usageDaily.agentId, DAY);
+}
+
+/** v0.12 W1-H: the documents the clients read in the background (usage_platform_daily), by day. */
+async function backgroundDocuments(tx: Tx, tenantIds: readonly string[], query: UsageQuery) {
+  return tx
+    .select({
+      tenantId: usagePlatformDaily.tenantId,
+      day: PLATFORM_DAY,
+      documents: sql<string>`sum(${usagePlatformDaily.documents})::text`,
+    })
+    .from(usagePlatformDaily)
+    .where(
+      and(
+        inArray(usagePlatformDaily.tenantId, [...tenantIds]),
+        gte(usagePlatformDaily.day, query.from),
+        lte(usagePlatformDaily.day, query.to),
+        ...(query.client ? [eq(usagePlatformDaily.tenantId, query.client)] : []),
+      ),
+    )
+    .groupBy(usagePlatformDaily.tenantId, PLATFORM_DAY);
+}
+
+/**
+ * The report's splits by model and by vendor, from the same lines as its total: each model's
+ * calls (the steps' usage no call record holds, and back-office answers that name no model, as
+ * one line with no model), then each provider, the providers' fees passed on to the clients, and
+ * Twilio's messages and the calls Twilio and ElevenLabs carry at our unit costs.
+ */
+// DECISION (QA usage costs): providers' fees (A2P registration) are not model cost: they are a
+// vendor row of their own, never in the total, the clients' rows or the chart. Staging's
+// "Twelve Thirty-Four" showed $35.50 of model cost for runs of $0.00 each: its texting
+// registration fees ($4 brand + 2 × $15 vetting + $1.50 monthly), which usage_platform_daily sums
+// into its cost.
 async function usageSplits(
   tx: Tx,
   tenantIds: readonly string[],
   query: UsageQuery,
-  narrowed: boolean,
-): Promise<Pick<UsageReport, "byDay" | "byModel" | "byVendor">> {
-  const lo = sql`((${query.from})::date)::timestamp at time zone 'UTC'`;
-  const hi = sql`((${query.to})::date + 1)::timestamp at time zone 'UTC'`;
-  const where = usageWhere(tenantIds, query);
-  const join = and(eq(agent.id, usageDaily.agentId), eq(agent.tenantId, usageDaily.tenantId));
-
-  // By day, for a range short enough to chart day by day.
-  const days = daysBetween(query.from, query.to);
-  let byDay: UsageReport["byDay"];
-  if (days.length <= USAGE_DAILY_MAX_DAYS) {
-    const perDay = new Map<string, Sum>();
-    const dayRows = await tx
-      .select({
-        day: DAY,
-        runs: sql<string>`sum(${usageDaily.runs})::text`,
-        steps: sql<string>`sum(${usageDaily.steps})::text`,
-        documents: sql<string>`sum(${usageDaily.documents})::text`,
-        externalActions: sql<string>`sum(${usageDaily.externalActions})::text`,
-        tokensIn: sql<string>`sum(${usageDaily.tokensIn})::text`,
-        tokensOut: sql<string>`sum(${usageDaily.tokensOut})::text`,
-        cost: sql<string>`sum(${usageDaily.costUsd})::text`,
-      })
-      .from(usageDaily)
-      .innerJoin(agent, join)
-      .where(and(...where))
-      .groupBy(DAY);
-    for (const r of dayRows) {
-      const s = perDay.get(r.day) ?? zero();
-      add(s, {
-        runs: Number(r.runs),
-        steps: Number(r.steps),
-        documents: Number(r.documents),
-        externalActions: Number(r.externalActions),
-        tokensIn: Number(r.tokensIn),
-        tokensOut: Number(r.tokensOut),
-        cost: new Decimal(r.cost ?? "0"),
-      });
-      perDay.set(r.day, s);
-    }
-    if (!narrowed) {
-      const platformDays = await tx
-        .select({
-          day: PLATFORM_DAY,
-          documents: sql<string>`sum(${usagePlatformDaily.documents})::text`,
-          tokensIn: sql<string>`sum(${usagePlatformDaily.tokensIn})::text`,
-          tokensOut: sql<string>`sum(${usagePlatformDaily.tokensOut})::text`,
-          cost: sql<string>`sum(${usagePlatformDaily.costUsd})::text`,
-        })
-        .from(usagePlatformDaily)
-        .where(
-          and(
-            inArray(usagePlatformDaily.tenantId, [...tenantIds]),
-            gte(usagePlatformDaily.day, query.from),
-            lte(usagePlatformDaily.day, query.to),
-            ...(query.client ? [eq(usagePlatformDaily.tenantId, query.client)] : []),
-          ),
-        )
-        .groupBy(PLATFORM_DAY);
-      for (const r of platformDays) {
-        const s = perDay.get(r.day) ?? zero();
-        add(s, {
-          ...zero(),
-          documents: Number(r.documents),
-          tokensIn: Number(r.tokensIn),
-          tokensOut: Number(r.tokensOut),
-          cost: new Decimal(r.cost ?? "0"),
-        });
-        perDay.set(r.day, s);
-      }
-    }
-    byDay = days.map((day) => ({ day, figures: figures(perDay.get(day) ?? zero()) }));
-  }
-
-  // By model: the runs' model calls, and the background reading.
-  const callWhere: SQL[] = [
-    inArray(modelCall.tenantId, [...tenantIds]),
-    gte(modelCall.createdAt, lo),
-    lt(modelCall.createdAt, hi),
-  ];
-  if (query.client) callWhere.push(eq(modelCall.tenantId, query.client));
-  if (query.agent) callWhere.push(eq(run.agentId, query.agent));
-  if (query.template) callWhere.push(eq(agent.templateId, query.template));
-  const calls = await tx
-    .select({
-      provider: modelCall.provider,
-      model: modelCall.model,
-      calls: sql<string>`count(*)::text`,
-      tokensIn: sql<string>`sum(${modelCall.tokensIn})::text`,
-      tokensOut: sql<string>`sum(${modelCall.tokensOut})::text`,
-      cost: sql<string>`sum(${modelCall.costUsd})::text`,
-    })
-    .from(modelCall)
-    .innerJoin(run, and(eq(run.id, modelCall.runId), eq(run.tenantId, modelCall.tenantId)))
-    .innerJoin(agent, and(eq(agent.id, run.agentId), eq(agent.tenantId, run.tenantId)))
-    .where(and(...callWhere))
-    .groupBy(modelCall.provider, modelCall.model);
-  const background = narrowed
-    ? []
-    : await tx
-        .select({
-          model: docExtraction.model,
-          calls: sql<string>`count(*)::text`,
-          tokensIn: sql<string>`sum(${docExtraction.tokensIn})::text`,
-          tokensOut: sql<string>`sum(${docExtraction.tokensOut})::text`,
-          cost: sql<string>`sum(${docExtraction.costUsd})::text`,
-        })
-        .from(docExtraction)
-        .where(
-          and(
-            inArray(docExtraction.tenantId, [...tenantIds]),
-            isNull(docExtraction.agentVersionId),
-            gte(docExtraction.createdAt, lo),
-            lt(docExtraction.createdAt, hi),
-            ...(query.client ? [eq(docExtraction.tenantId, query.client)] : []),
-          ),
-        )
-        .groupBy(docExtraction.model);
-  const models = new Map<string, { provider: string; model: string; calls: number; s: Sum }>();
-  for (const r of [...calls, ...background.map((b) => ({ ...b, provider: providerOf(b.model) }))]) {
-    const key = `${r.provider}\u0000${r.model}`;
-    const m = models.get(key) ?? { provider: r.provider, model: r.model, calls: 0, s: zero() };
-    m.calls += Number(r.calls);
-    add(m.s, {
-      ...zero(),
-      tokensIn: Number(r.tokensIn ?? "0"),
-      tokensOut: Number(r.tokensOut ?? "0"),
-      cost: new Decimal(r.cost ?? "0"),
-    });
+  lines: readonly SpendLine[],
+  services: readonly ServiceLine[],
+  price: ReturnType<typeof servicePrice>,
+): Promise<Pick<UsageReport, "byModel" | "byVendor">> {
+  const models = new Map<
+    string,
+    { provider: string; model: string; calls: number; unpriced: number; s: Sum }
+  >();
+  for (const l of lines) {
+    const provider = l.model === UNRECORDED_MODEL ? "" : modelProvider(l.model);
+    const key = `${provider}\u0000${l.model}`;
+    const m = models.get(key) ?? { provider, model: l.model, calls: 0, unpriced: 0, s: zero() };
+    m.calls += l.calls;
+    m.unpriced += l.unpricedCalls;
+    add(m.s, { ...zero(), tokensIn: l.tokensIn, tokensOut: l.tokensOut, cost: l.cost });
     models.set(key, m);
   }
   const byModel: UsageModelRow[] = [...models.values()]
@@ -403,84 +324,113 @@ async function usageSplits(
       tokensIn: m.s.tokensIn,
       tokensOut: m.s.tokensOut,
       costUsd: toNumeric(m.s.cost),
+      ...(m.unpriced > 0 ? { unpricedCalls: m.unpriced } : {}),
     }));
 
-  // By vendor: the model providers, then messages and calls at our unit costs.
   const providers = new Map<string, { calls: number; s: Sum }>();
   for (const m of models.values()) {
-    const p = providers.get(m.provider) ?? { calls: 0, s: zero() };
+    const id = m.provider || UNRECORDED_VENDOR;
+    const p = providers.get(id) ?? { calls: 0, s: zero() };
     p.calls += m.calls;
     add(p.s, m.s);
-    providers.set(m.provider, p);
+    providers.set(id, p);
   }
   const byVendor: UsageVendorRow[] = [...providers]
     .sort(([, a], [, b]) => b.s.cost.comparedTo(a.s.cost))
     .map(([id, p]) => ({
       id,
-      name: VENDOR_NAME[id] ?? id.charAt(0).toUpperCase() + id.slice(1),
+      name:
+        id === UNRECORDED_VENDOR
+          ? "Model calls not itemised"
+          : (VENDOR_NAME[id] ?? id.charAt(0).toUpperCase() + id.slice(1)),
       costUsd: toNumeric(p.s.cost),
       estimated: false,
       calls: p.calls,
       tokensIn: p.s.tokensIn,
       tokensOut: p.s.tokensOut,
     }));
-  const [metered] = await tx
-    .select({
-      messages: sql<string>`coalesce(sum(${usageDaily.messages}), 0)::text`,
-      callSeconds: sql<string>`coalesce(sum(${usageDaily.callSeconds}), 0)::text`,
-    })
-    .from(usageDaily)
-    .innerJoin(agent, join)
-    .where(and(...where));
-  const messages = Number(metered?.messages ?? "0");
-  const callSeconds = Number(metered?.callSeconds ?? "0");
-  if (messages > 0 || callSeconds > 0) {
-    const units = await tx
-      .select()
-      .from(billingUnitCost)
-      .where(inArray(billingUnitCost.measure, ["messages", "call_seconds"]));
-    const priced = (measure: string, n: number) => {
-      const u = units.find((x) => x.measure === measure);
-      return u ? toNumeric(new Decimal(u.unitCost).times(n).div(u.perUnits)) : null;
-    };
-    if (messages > 0) {
+
+  const fees = await providerFees(tx, tenantIds, query);
+  if (fees.length > 0) {
+    byVendor.push({
+      id: "provider_fees",
+      name: "Twilio fees (texting registration)",
+      costUsd: toNumeric(fees.reduce((sum, f) => sum.plus(f.cost), new Decimal(0))),
+      estimated: false,
+      fees: fees.reduce((sum, f) => sum + f.fees, 0),
+    });
+  }
+
+  // §1.210: each vendor other than the models, from the same service lines as the rows' figures,
+  // priced at our unit costs (an estimate; `costUsd` null when the measure has no unit cost).
+  const quantities = new Map<ServiceMeasure, number>();
+  for (const l of services)
+    quantities.set(l.measure, (quantities.get(l.measure) ?? 0) + l.quantity);
+  const priced = (measure: ServiceMeasure) => {
+    const q = quantities.get(measure) ?? 0;
+    const p = price(measure, q);
+    return p ? toNumeric(p) : null;
+  };
+  const vendors: {
+    id: string;
+    name: string;
+    measure: ServiceMeasure;
+    field: keyof UsageVendorRow;
+  }[] = [
+    { id: "twilio", name: "Twilio (texts and WhatsApp)", measure: "messages", field: "messages" },
+    {
+      id: "calls",
+      name: "Twilio and ElevenLabs (calls)",
+      measure: "call_seconds",
+      field: "callSeconds",
+    },
+    { id: "resend", name: "Resend (email)", measure: "emails", field: "emails" },
+    {
+      id: "browser_run",
+      name: "Browser Run (website logins)",
+      measure: "browser_seconds",
+      field: "browserSeconds",
+    },
+    {
+      id: "twilio_verify",
+      name: "Twilio Verify (sign-in codes)",
+      measure: "verifications",
+      field: "verifications",
+    },
+    {
+      id: "plaid",
+      name: "Plaid (bank feeds)",
+      measure: "bank_item_months",
+      field: "bankItemMonths",
+    },
+  ];
+  for (const v of vendors) {
+    const q = quantities.get(v.measure) ?? 0;
+    if (q > 0) {
       byVendor.push({
-        id: "twilio",
-        name: "Twilio (texts and WhatsApp)",
-        costUsd: priced("messages", messages),
+        id: v.id,
+        name: v.name,
+        costUsd: priced(v.measure),
         estimated: true,
-        messages,
-      });
-    }
-    if (callSeconds > 0) {
-      byVendor.push({
-        id: "calls",
-        name: "Twilio and ElevenLabs (calls)",
-        costUsd: priced("call_seconds", callSeconds),
-        estimated: true,
-        callSeconds,
+        [v.field]: q,
       });
     }
   }
-  return { ...(byDay ? { byDay } : {}), byModel, byVendor };
+  return { byModel, byVendor };
 }
 
-async function usageReport(tx: Tx, tenantIds: readonly string[], query: UsageQuery) {
+async function usageReport(
+  tx: Tx,
+  tenantIds: readonly string[],
+  query: UsageQuery,
+): Promise<UsageReport> {
   const months = monthsBetween(query.from, query.to);
-  const all = new Series();
+  const days = daysBetween(query.from, query.to);
+  const daily = days.length <= USAGE_DAILY_MAX_DAYS;
   const narrowed = Boolean(query.agent || query.template);
-  const splits =
-    tenantIds.length === 0
-      ? {
-          byDay:
-            daysBetween(query.from, query.to).length <= USAGE_DAILY_MAX_DAYS
-              ? daysBetween(query.from, query.to).map((day) => ({ day, figures: figures(zero()) }))
-              : undefined,
-          byModel: [],
-          byVendor: [],
-        }
-      : await usageSplits(tx, tenantIds, query, narrowed);
-  const empty = {
+  const all = new Series();
+  const perDay = new Map<string, Sum>();
+  const empty: UsageReport = {
     from: query.from,
     to: query.to,
     months,
@@ -488,52 +438,45 @@ async function usageReport(tx: Tx, tenantIds: readonly string[], query: UsageQue
     clients: [],
     agents: [],
     templates: [],
-    ...(splits.byDay ? { byDay: splits.byDay } : {}),
-    byModel: splits.byModel ?? [],
-    byVendor: splits.byVendor ?? [],
+    ...(daily ? { byDay: days.map((day) => ({ day, figures: figures(zero()) })) } : {}),
+    byModel: [],
+    byVendor: [],
   };
   if (tenantIds.length === 0) return empty;
 
-  // RLS holds the scope; the query says it too (invariant 1).
-  const where = usageWhere(tenantIds, query);
-  // Integers come back as text and money as numeric text: nothing passes through a JS float.
-  const rows = await tx
-    .select({
-      tenantId: usageDaily.tenantId,
-      agentId: usageDaily.agentId,
-      month: MONTH,
-      runs: sql<string>`sum(${usageDaily.runs})::text`,
-      steps: sql<string>`sum(${usageDaily.steps})::text`,
-      documents: sql<string>`sum(${usageDaily.documents})::text`,
-      externalActions: sql<string>`sum(${usageDaily.externalActions})::text`,
-      tokensIn: sql<string>`sum(${usageDaily.tokensIn})::text`,
-      tokensOut: sql<string>`sum(${usageDaily.tokensOut})::text`,
-      cost: sql<string>`sum(${usageDaily.costUsd})::text`,
-    })
-    .from(usageDaily)
-    .innerJoin(
-      agent,
-      and(eq(agent.id, usageDaily.agentId), eq(agent.tenantId, usageDaily.tenantId)),
-    )
-    .where(and(...where))
-    .groupBy(usageDaily.tenantId, usageDaily.agentId, MONTH);
-  // v0.12 W1-H: the clients' own usage (background reading), unless narrowed to an agent or a
-  // template, which it is not part of.
-  const platform = narrowed ? [] : await platformRows(tx, tenantIds, query);
-  if (rows.length === 0 && platform.length === 0) return empty;
+  // QA (usage costs): one source for cost and tokens (the lines), one for the counts (the
+  // rollups), over the same UTC days and filters.
+  const [lines, counts, platform, services, units] = await Promise.all([
+    spendLines(tx, tenantIds, query),
+    countRows(tx, tenantIds, query),
+    narrowed ? Promise.resolve([]) : backgroundDocuments(tx, tenantIds, query),
+    serviceLines(tx, tenantIds, query),
+    tx.select().from(billingUnitCost),
+  ]);
+  const price = servicePrice(units);
+  const splits = await usageSplits(tx, tenantIds, query, lines, services, price);
 
-  const agentIds = [...new Set(rows.map((r) => r.agentId))];
-  const agents = await tx
-    .select({
-      id: agent.id,
-      tenantId: agent.tenantId,
-      slug: agent.slug,
-      name: agent.name,
-      templateId: agent.templateId,
-      testCopy: agent.testCopy,
-    })
-    .from(agent)
-    .where(and(inArray(agent.id, agentIds), inArray(agent.tenantId, [...tenantIds])));
+  const agentIds = [
+    ...new Set([
+      ...counts.map((r) => r.agentId),
+      ...lines.flatMap((l) => l.agentId ?? []),
+      ...services.flatMap((l) => (l.ours ? [] : (l.agentId ?? []))),
+    ]),
+  ];
+  const agents =
+    agentIds.length > 0
+      ? await tx
+          .select({
+            id: agent.id,
+            tenantId: agent.tenantId,
+            slug: agent.slug,
+            name: agent.name,
+            templateId: agent.templateId,
+            testCopy: agent.testCopy,
+          })
+          .from(agent)
+          .where(and(inArray(agent.id, agentIds), inArray(agent.tenantId, [...tenantIds])))
+      : [];
   const templateIds = [
     ...new Set(agents.map((a) => a.templateId).filter((v): v is string => v !== null)),
   ];
@@ -545,11 +488,21 @@ async function usageReport(tx: Tx, tenantIds: readonly string[], query: UsageQue
           .from(agent)
           .where(and(inArray(agent.id, templateIds), isNull(agent.tenantId)))
       : [];
-  const clientIds = [...new Set([...rows, ...platform].map((r) => r.tenantId))];
-  const clients = await tx
-    .select({ id: tenant.id, name: tenant.name })
-    .from(tenant)
-    .where(inArray(tenant.id, clientIds));
+  const clientIds = [
+    ...new Set([
+      ...counts.map((r) => r.tenantId),
+      ...platform.map((r) => r.tenantId),
+      ...lines.flatMap((l) => (isBackOffice(l) || !l.tenantId ? [] : [l.tenantId])),
+      ...services.flatMap((l) => (l.ours || !l.tenantId ? [] : [l.tenantId])),
+    ]),
+  ];
+  const clients =
+    clientIds.length > 0
+      ? await tx
+          .select({ id: tenant.id, name: tenant.name })
+          .from(tenant)
+          .where(inArray(tenant.id, clientIds))
+      : [];
 
   const clientSeries = new Map<string, Series>();
   const agentSeries = new Map<string, Series>();
@@ -558,51 +511,104 @@ async function usageReport(tx: Tx, tenantIds: readonly string[], query: UsageQue
     { s: Series; clients: Set<string>; agents: Set<string> }
   >();
   const agentOf = new Map(agents.map((a) => [a.id, a]));
-  for (const r of rows) {
-    const x: Sum = {
-      runs: Number(r.runs),
-      steps: Number(r.steps),
-      documents: Number(r.documents),
-      externalActions: Number(r.externalActions),
-      tokensIn: Number(r.tokensIn),
-      tokensOut: Number(r.tokensOut),
-      cost: new Decimal(r.cost ?? "0"),
-    };
-    all.add(r.month, x);
-    const c = clientSeries.get(r.tenantId) ?? new Series();
-    c.add(r.month, x);
-    clientSeries.set(r.tenantId, c);
-    const a = agentSeries.get(r.agentId) ?? new Series();
-    a.add(r.month, x);
-    agentSeries.set(r.agentId, a);
-    const templateId = agentOf.get(r.agentId)?.templateId;
-    if (templateId) {
+  const background = new Series();
+  const backOffice = new Series();
+  const backOfficeLines = new Map<BackOfficeSpend, { answers: number; cost: Decimal }>();
+
+  /** Adds a cell to the total, the chart, and the rows it belongs to. */
+  const put = (
+    day: string,
+    x: Sum,
+    at: { tenantId: string | null; agentId: string | null; kind: "agent" | "client" | "office" },
+  ) => {
+    const month = day.slice(0, 7);
+    all.add(month, x);
+    const s = perDay.get(day) ?? zero();
+    add(s, x);
+    perDay.set(day, s);
+    if (at.kind === "office") {
+      backOffice.add(month, x);
+      return;
+    }
+    if (at.tenantId) {
+      const c = clientSeries.get(at.tenantId) ?? new Series();
+      c.add(month, x);
+      clientSeries.set(at.tenantId, c);
+    }
+    if (at.kind === "client") {
+      background.add(month, x);
+      return;
+    }
+    if (!at.agentId) return;
+    const a = agentSeries.get(at.agentId) ?? new Series();
+    a.add(month, x);
+    agentSeries.set(at.agentId, a);
+    const templateId = agentOf.get(at.agentId)?.templateId;
+    if (templateId && at.tenantId) {
       const t = templateSeries.get(templateId) ?? {
         s: new Series(),
         clients: new Set<string>(),
         agents: new Set<string>(),
       };
-      t.s.add(r.month, x);
-      t.clients.add(r.tenantId);
-      t.agents.add(r.agentId);
+      t.s.add(month, x);
+      t.clients.add(at.tenantId);
+      t.agents.add(at.agentId);
       templateSeries.set(templateId, t);
+    }
+  };
+
+  for (const r of counts) {
+    put(
+      r.day,
+      {
+        ...zero(),
+        runs: Number(r.runs),
+        steps: Number(r.steps),
+        documents: Number(r.documents),
+        externalActions: Number(r.externalActions),
+      },
+      { tenantId: r.tenantId, agentId: r.agentId, kind: "agent" },
+    );
+  }
+  for (const r of platform) {
+    put(
+      r.day,
+      { ...zero(), documents: Number(r.documents) },
+      { tenantId: r.tenantId, agentId: null, kind: "client" },
+    );
+  }
+  for (const l of lines) {
+    const x: Sum = { ...zero(), tokensIn: l.tokensIn, tokensOut: l.tokensOut, cost: l.cost };
+    if (isBackOffice(l)) {
+      put(l.day, x, { tenantId: null, agentId: null, kind: "office" });
+      const id = l.source as BackOfficeSpend;
+      const b = backOfficeLines.get(id) ?? { answers: 0, cost: new Decimal(0) };
+      b.answers += l.calls;
+      b.cost = b.cost.plus(l.cost);
+      backOfficeLines.set(id, b);
+    } else if (l.agentId) {
+      put(l.day, x, { tenantId: l.tenantId, agentId: l.agentId, kind: "agent" });
+    } else {
+      put(l.day, x, { tenantId: l.tenantId, agentId: null, kind: "client" });
     }
   }
 
-  const background = new Series();
-  for (const r of platform) {
-    const x: Sum = {
-      ...zero(),
-      documents: Number(r.documents),
-      tokensIn: Number(r.tokensIn),
-      tokensOut: Number(r.tokensOut),
-      cost: new Decimal(r.cost ?? "0"),
-    };
-    all.add(r.month, x);
-    background.add(r.month, x);
-    const c = clientSeries.get(r.tenantId) ?? new Series();
-    c.add(r.month, x);
-    clientSeries.set(r.tenantId, c);
+  // §1.210: what the other vendors cost, beside each row's model cost; ours is the back office's.
+  for (const l of services) {
+    const cost = price(l.measure, l.quantity);
+    if (!cost || cost.isZero()) continue;
+    const x: Sum = { ...zero(), services: cost };
+    if (l.ours) {
+      put(l.day, x, { tenantId: null, agentId: null, kind: "office" });
+      const b = backOfficeLines.get("services") ?? { answers: 0, cost: new Decimal(0) };
+      b.answers += l.measure === "browser_seconds" ? 0 : l.quantity;
+      b.cost = b.cost.plus(cost);
+      backOfficeLines.set("services", b);
+    } else if (l.agentId) {
+      put(l.day, x, { tenantId: l.tenantId, agentId: l.agentId, kind: "agent" });
+    } else {
+      put(l.day, x, { tenantId: l.tenantId, agentId: null, kind: "client" });
+    }
   }
 
   const clientName = new Map(clients.map((c) => [c.id, c.name]));
@@ -613,7 +619,20 @@ async function usageReport(tx: Tx, tenantIds: readonly string[], query: UsageQue
     months,
     ...all.out(months),
     ...(narrowed ? {} : { background: background.out(months) }),
-    ...(splits.byDay ? { byDay: splits.byDay } : {}),
+    ...(narrowed
+      ? {}
+      : {
+          backOffice: {
+            ...backOffice.out(months),
+            lines: BACK_OFFICE_SPEND.flatMap((id) => {
+              const b = backOfficeLines.get(id);
+              return b ? [{ id, answers: b.answers, costUsd: toNumeric(b.cost) }] : [];
+            }),
+          },
+        }),
+    ...(daily
+      ? { byDay: days.map((day) => ({ day, figures: figures(perDay.get(day) ?? zero()) })) }
+      : {}),
     byModel: splits.byModel ?? [],
     byVendor: splits.byVendor ?? [],
     clients: [...clientSeries]
@@ -666,7 +685,7 @@ const serviceName = (a: { serviceName: string | null; name: string }) => a.servi
  * after), never drafts, agents in testing or a template's test copy.
  */
 // DECISION: a retired service keeps its page, so links from old runs and reports still open.
-const isService = (tenantId: string) =>
+export const isService = (tenantId: string) =>
   and(
     eq(agent.tenantId, tenantId),
     eq(agent.kind, "client"),

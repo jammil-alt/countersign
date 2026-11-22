@@ -3,6 +3,7 @@ import { ToolAmount } from "../approvals/rules";
 import { ToolRecipient } from "../directory/autonomy";
 import { JsonSchema, LocalizedTemplate, ToolId } from "./common";
 import { EntityId, SideEffect, Verb } from "./permissions";
+import { ToolAbout } from "./tool-about";
 import { ToolDisplay } from "./tool-display";
 
 // R5 (docs/plan.md §1.86, §9): how a write is taken back. A late "no" (an approval answered after
@@ -47,6 +48,15 @@ export const ToolSpec = z
     source: z.string().min(1),
     /** The connector whose connection the tool acts through; required for `external` tools. */
     connector: z.string().min(1).optional(),
+    /**
+     * The connector whose feed fills what the tool reads from our own records: the bank feed for a
+     * pack's import of bank transactions (docs/plan.md §1.221). For the tool's mark on a step only.
+     */
+    // DECISION (owner, 2026-11-21: "this is Plaid integration, have we not added the icon for
+    // Plaid?"): its own field, not `connector`. `connector` is the connection a call acts through,
+    // which the runtime binds and the gate reads; a tool that reads what a feed already saved has
+    // none, and naming one there would ask every agent that uses it for a binding.
+    feed: z.string().min(1).optional(),
     /** Client timeline line over the tool's output, e.g. "Attached {{filename}}". */
     summary: LocalizedTemplate.optional(),
     /**
@@ -61,6 +71,14 @@ export const ToolSpec = z
      * §1.20). Tools without it never match an amount rule.
      */
     amount: ToolAmount.optional(),
+    /**
+     * What the tool's output is about (docs/plan.md §1.188): which output fields name the record
+     * it read or saved, its label, its number and its amount. The step log keeps them as the
+     * run's subjects, so runs can be found by them. Tools without it add none of their own.
+     */
+    // DECISION: declared data, like `amount`, so a pack names its own records (the purchasing
+    // request, the quote, the PO) and the platform never special-cases one (invariant 2).
+    about: ToolAbout.optional(),
     /**
      * How the change reads on an approval card: its name, the fields a person reads, their labels
      * and kinds. Writes only; without it the card falls back to the record's own fields.

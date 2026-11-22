@@ -36,6 +36,7 @@ import { SkillCatalog } from "../registry/skills";
 import { callTool } from "../runtime/call-tool";
 import type { RuntimeDeps, StepContext } from "../runtime/context";
 import { ASK_BUDGET, askAgent, runAgent, toolName } from "../runtime/run-agent";
+import { connectionNeedsAttention } from "../tools/health";
 import { SUPERVISOR_SKILLS } from "../tools/supervisor";
 import type { FindingInput } from "../tools/types";
 import { accessRestored, dbConnectionAttention } from "./connection-attention";
@@ -48,6 +49,7 @@ import {
   makeBundle,
   UPDATE_SKILL,
 } from "./harness.test-helper";
+import { dbHealthPort } from "./health-port";
 import { createRun, finishRun } from "./run-log";
 
 const harness = await createHarness();
@@ -433,6 +435,24 @@ describe.skipIf(!harness)("supervisor", () => {
     expect(reopened.operator.status).toBe("open");
   });
 
+  it("writes an open issue's title again each time it is seen, so its count is today's (QA)", async () => {
+    const port = deps().ports.findings;
+    if (!port) throw new Error("no findings port");
+    const fp = "run_failed:test-title";
+    const waiting = (n: number): FindingInput => ({
+      ...finding(h.A, fp),
+      client: { params: { count: n } },
+      operator: { ...finding(h.A, fp).operator, title: `${n} client items have waited` },
+    });
+    const first = await port.report(h.A.tenantId, waiting(1), new Date());
+    await port.report(h.A.tenantId, waiting(5), new Date());
+    const items = await itemsFor(h.A, fp);
+    expect(items).toHaveLength(2);
+    expect(items.find((i) => i.id === first.operator.itemId)?.title).toBe(
+      "5 client items have waited",
+    );
+  });
+
   it("reads the reminder time from the client's settings", async () => {
     await h.t.db
       .update(tenant)
@@ -715,5 +735,76 @@ describe.skipIf(!harness)("supervisor", () => {
     await port.needsAttention(h.A.tenantId, input);
     expect(await raisedEvents()).toBe(2);
     expect(await statusOf()).toBe("connected");
+  });
+
+  it("counts a failing renewal as needing a person, apart from an error", async () => {
+    const [conn] = await h.t.db
+      .insert(connection)
+      .values({ tenantId: h.A.tenantId, connector: "testkit", status: "connected" })
+      .returning();
+    const id = conn?.id ?? "";
+    const health = dbHealthPort(h.db);
+    const view = async () =>
+      (await health.connections(h.A.tenantId)).find((c) => c.id === id) ?? null;
+    expect(await view()).toMatchObject({ status: "connected", accessFailing: false });
+    await dbConnectionAttention(h.db).needsAttention(h.A.tenantId, {
+      connectionId: id,
+      reason: "refresh_failing",
+      detail: "we haven't been able to renew our access to this tool for a day",
+    });
+    const open = await view();
+    expect(open).toMatchObject({
+      status: "connected",
+      accessFailing: true,
+      attention: { reason: "refresh_failing" },
+    });
+    expect(open && connectionNeedsAttention(open)).toBe(true);
+
+    // The daily check lists it as a failing renewal, not a sign-in to redo.
+    const d = deps();
+    const out = await callTool(d, await supervisorStep(h.A, "live", d), {
+      toolId: "supervisor.check",
+      input: {},
+    });
+    const o = (
+      out as {
+        output: {
+          findings: { kind: string; fingerprint: string }[];
+          summary: { sources: string[] };
+        };
+      }
+    ).output;
+    const fingerprint = findingFingerprint({ kind: "connection_access", connectionId: id });
+    expect(o.findings).toContainEqual(
+      expect.objectContaining({ kind: "connection_access", fingerprint }),
+    );
+    expect(o.summary.sources).toContain(id);
+    const [item] = await h.t.db
+      .select()
+      .from(inboxItem)
+      .where(
+        and(
+          eq(inboxItem.tenantId, h.A.tenantId),
+          eq(inboxItem.assigneeRole, "operator"),
+          sql`${inboxItem.payload}->>'fingerprint' = ${fingerprint}`,
+        ),
+      );
+    expect(item?.payload).toMatchObject({ details: { reason: "refresh_failing" } });
+
+    // In error since, it counts as an error, not as a failing renewal.
+    const setStatus = (status: "connected" | "error") =>
+      h.t.db.update(connection).set({ status }).where(eq(connection.id, id));
+    await setStatus("error");
+    expect(await view()).toMatchObject({ status: "error", accessFailing: false });
+    await setStatus("connected");
+
+    // A call works again: no longer counted; the issue's record stays as history.
+    expect(await accessRestored(h.db, h.A.tenantId, id)).toBe(true);
+    const closed = await view();
+    expect(closed).toMatchObject({
+      accessFailing: false,
+      attention: { reason: "refresh_failing" },
+    });
+    expect(closed && connectionNeedsAttention(closed)).toBe(false);
   });
 });

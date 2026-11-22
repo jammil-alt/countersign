@@ -432,7 +432,7 @@ describe("a contact's hours and away dates", () => {
     const detail = await screen.findByTestId(`people-detail-${MARCO}`);
     const hours = await within(detail).findByTestId("people-detail-hours");
     expect(hours).toHaveTextContent("Business hours");
-    expect(hours).toHaveTextContent("Dec 24, 2026");
+    expect(hours).toHaveTextContent("24 Dec 2026");
     await userEvent.click(within(hours).getByRole("button", { name: "Change hours" }));
     // The one away day goes; he is back on the business's hours with no away dates: cleared.
     await userEvent.click(within(hours).getByTestId("people-detail-hours-away-2026-12-24-remove"));

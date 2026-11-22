@@ -1,6 +1,6 @@
 // The back-office frame (docs/design/prototype.html, `#O1-Command`; docs/design/pipelines.html for
-// §1.124): "Back office" and the client picker in the top bar (the one way to choose a client; it
-// keeps the picked client from page to page, ./pickedClient.tsx), ⌘K search across the clients
+// §1.124): "Back office" and the client picker in the top bar (it opens a client's page and shows
+// the page's own client; it filters nothing, ./pickedClient.tsx), ⌘K search across the clients
 // served, Your call with its count; a sidebar that lists places only: Home, Your call and Clients;
 // Work (Sales, Build); Run (Runs, Escalations, Reggie, Autopilot); Make (Agent lab, Library, Packs)
 // and Business. A client's own pages are tabs on its page; an agent's are tabs on the agent's page.
@@ -162,6 +162,7 @@ function OpsFrame({ children }: { children: ReactNode }) {
 
   // On an agent's page: the client's agents, for the agent switcher.
   const agentMatch = useMatch("/ops/clients/:clientId/agents/:slug/*");
+  const templateMatch = useMatch("/ops/templates/:slug/*");
   const agentSlug = agentMatch?.params.slug !== "new" ? agentMatch?.params.slug : undefined;
   const client = useApi(
     apiRoutes.opsClient,
@@ -194,11 +195,7 @@ function OpsFrame({ children }: { children: ReactNode }) {
         context={
           <>
             <span>Back office</span>
-            <ClientPicker
-              selected={picked.clientId}
-              clients={clients}
-              onPick={(id) => picked.remember(id)}
-            />
+            <ClientPicker selected={picked.clientId} clients={clients} />
           </>
         }
         search={{ placeholder: "Find a client, agent, run or record", run: search }}
@@ -275,11 +272,16 @@ function OpsFrame({ children }: { children: ReactNode }) {
               />
             </SidebarSection>
             <SidebarSection label="Make">
+              {/* DECISION (owner, 2026-11-21, staging feedback on a template's builder: "these steps
+                  and workflow should be part of the lab as well, as we are working on them"): a
+                  template's own pages (its workflow, steps, build) are the lab's, so the lab is
+                  lit there. A client's agent stays under Clients. */}
               <SidebarLink
                 to={OPS_PATHS.lab}
                 icon="worksheet"
                 label="Agent lab"
                 testId="ops-nav-lab"
+                current={templateMatch !== null}
               />
               {/* R8: the Library holds skills, tools, connectors and the other banks. The Builder
                   board (§1.108) is reached from Build's Agent builds tab. */}
@@ -297,6 +299,13 @@ function OpsFrame({ children }: { children: ReactNode }) {
               />
             </SidebarSection>
             <SidebarSection label="Business">
+              {/* R5 (docs/plan.md §1.235): every client side by side, those that need us first. */}
+              <SidebarLink
+                to={OPS_PATHS.accounts}
+                icon="report"
+                label="Accounts"
+                testId="ops-nav-accounts"
+              />
               <SidebarLink
                 to={OPS_PATHS.usage}
                 icon="invoice"

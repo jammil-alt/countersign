@@ -39,6 +39,7 @@ import {
 } from "@countersign/db";
 import { and, asc, desc, eq, inArray, isNull, lte, or } from "drizzle-orm";
 import { HttpError, iso, notFound } from "../http";
+import { unsentInvite } from "./emails";
 
 export type IntakeRow = typeof intake.$inferSelect;
 export type PersonRow = typeof intakePerson.$inferSelect;
@@ -50,6 +51,11 @@ const EMPTY_GUIDE: Guide = {
   sections: [],
   totals: { known: 0, toConfirm: 0, toAsk: 0, later: 0, tools: 0, minutes: 0 },
 };
+
+/** A guide with nothing in it (Just the account's welcome, §1.220). */
+export function emptyGuide(): Guide {
+  return structuredClone(EMPTY_GUIDE);
+}
 
 /** The stored guide; an unreadable one is empty (nothing asked), never a failure. */
 export function guideOf(row: Pick<IntakeRow, "guide">): Guide {
@@ -214,11 +220,16 @@ function askedOf(d: IntakeData): { fieldKey: string; name: string }[] {
 }
 
 export function progressOf(d: IntakeData, answers = answerViews(d)): SectionProgress[] {
-  return guideProgress(d.guide, answers, {
-    people: d.people.map((p) => ({ name: p.name, sections: p.sections, isAdmin: p.isAdmin })),
-    asked: askedOf(d),
-    decisions: decisionsOf(d.events),
-  });
+  // §1.206 q4: an answer the lead gave on a call counts once the client says yes to it.
+  return guideProgress(
+    d.guide,
+    answers.filter((a) => a.source !== "call"),
+    {
+      people: d.people.map((p) => ({ name: p.name, sections: p.sections, isAdmin: p.isAdmin })),
+      asked: askedOf(d),
+      decisions: decisionsOf(d.events),
+    },
+  );
 }
 
 export function personView(p: PersonRow): IntakePersonView {
@@ -309,7 +320,19 @@ export async function opsView(tx: Tx, row: IntakeRow) {
     answers,
     progress,
     events: [...d.events].reverse().map(eventView),
+    unsentInvites: await unsentPeople(tx, row.tenantId, d.people),
   };
+}
+
+/** §1.220: the people whose latest invite didn't go out, for Send it again. */
+async function unsentPeople(
+  tx: Tx,
+  tenantId: string,
+  people: readonly Pick<PersonRow, "id">[],
+): Promise<string[]> {
+  const out: string[] = [];
+  for (const p of people) if (await unsentInvite(tx, tenantId, p.id)) out.push(p.id);
+  return out;
 }
 
 // ── The portal ──────────────────────────────────────────────────────────────────────────────────

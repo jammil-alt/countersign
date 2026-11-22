@@ -9,7 +9,7 @@
 
 import { z } from "zod";
 
-/** An approval waiting on a client longer than this shows in Needs us. */
+/** An approval waiting on a client longer than this is overdue (Waiting on clients counts them). */
 export const APPROVAL_OVERDUE_HOURS = 24;
 
 /** Who a waiting run (or an open item) waits on. */

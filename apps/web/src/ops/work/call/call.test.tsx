@@ -170,6 +170,50 @@ afterEach(() => {
 });
 
 describe("Your call", () => {
+  it("leads a to-do to the page where it is done", async () => {
+    // QA (2026-11-22): "Record Susana Test's agreed price" had only Later and Done; the terms
+    // form is on the deal's page.
+    const DEAL = "00000000-0000-4000-8000-0000000d0e01";
+    const price = todo({
+      kind: "sales",
+      tag: "New account",
+      title: "Record Susana Test's agreed price",
+      about: { kind: "deal", id: DEAL, href: `/ops/deals/${DEAL}` },
+      read: null,
+      plan: [],
+      why: { head: "The deal moved on without an agreed price", detail: "" },
+      sure: null,
+      draft: null,
+      primary: null,
+      urgency: null,
+    });
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/clients": () => ({ clients: [] }),
+      "GET /api/ops/counts": () => ({ needsUs: 0, clients: [] }),
+      "GET /api/ops/todos": ({ url }) => {
+        const out = list(url.searchParams.get("owner") ?? "operator");
+        return out.items === yours ? { ...out, items: [price] } : { ...out, items: [] };
+      },
+      "GET /api/ops/todos/done-today": () => ({ groups: [], count: 0 }),
+    });
+    render(
+      <MemoryRouter initialEntries={["/ops/call"]}>
+        <AppProviders client={api.client}>
+          <AppRoutes />
+        </AppProviders>
+      </MemoryRouter>,
+    );
+    const card = await screen.findByTestId(`call-${T1}`);
+    await userEvent.click(within(card).getByTestId("call-open"));
+    const sheet = await screen.findByTestId("call-sheet");
+    const open = within(sheet).getByTestId("call-open-record");
+    expect(open).toHaveTextContent("Open the deal");
+    expect(open).toHaveAttribute("href", `/ops/deals/${DEAL}`);
+    expect(within(sheet).getByTestId("call-later")).toBeInTheDocument();
+    expect(within(sheet).getByTestId("call-done")).toBeInTheDocument();
+  });
+
   it("shows the KPIs and Yours as compact cards; one opens a sheet with Reggie's read, plan, why and draft", async () => {
     setup();
     const page = await screen.findByTestId("ops-call");
@@ -211,13 +255,51 @@ describe("Your call", () => {
     const esc = screen.getByTestId(`call-${T2}`);
     expect(within(esc).getByTestId("call-act")).toHaveTextContent("Open");
     await userEvent.click(within(esc).getByTestId("call-open"));
-    expect(within(await screen.findByTestId("call-sheet")).queryByTestId("call-later")).toBeNull();
+    const escSheet = await screen.findByTestId("call-sheet");
+    expect(within(escSheet).queryByTestId("call-later")).toBeNull();
+    // Its main button already opens it: no second way.
+    expect(within(escSheet).queryByTestId("call-open-record")).toBeNull();
     await userEvent.keyboard("{Escape}");
     // The sidebar: Your call with its count, and Work's places.
     expect(await screen.findByTestId("ops-nav-call")).toHaveTextContent("2");
     expect(screen.getByTestId("ops-nav-sales")).toHaveAttribute("href", "/ops/sales");
     expect(screen.getByTestId("ops-nav-build")).toHaveAttribute("href", "/ops/build");
     expect(screen.getByTestId("ops-nav-autopilot")).toHaveAttribute("href", "/ops/autopilot");
+  });
+
+  // Staging QA (2026-11-22): switching lists emptied the page to a spinner (the counts read 0 and
+  // the scroll went back to the top). The page stays: the KPIs, the lists' counts and the last
+  // rows, dimmed, until the other list answers.
+  it("keeps the page while another list loads", async () => {
+    const { api } = setup();
+    await screen.findByTestId(`call-${T1}`);
+    let answer: () => void = () => {};
+    api.on("GET /api/ops/todos", ({ url }) => {
+      const owner = url.searchParams.get("owner") ?? "operator";
+      if (owner !== "reggie") return list(owner);
+      return new Promise<TodoList>((done) => {
+        answer = () => done(list("reggie"));
+      });
+    });
+    await userEvent.click(screen.getByTestId("call-tab-reggie"));
+    expect(screen.getByTestId("call-tab-reggie")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("work-kpis")).toHaveTextContent("Need you2");
+    expect(screen.getByTestId("call-tab-you")).toHaveTextContent("Yours (2)");
+    expect(screen.getByTestId("call-tab-reggie")).toHaveTextContent("(1)");
+    const results = screen.getByTestId("call-results");
+    expect(results).toHaveAttribute("aria-busy", "true");
+    expect(within(results).getByText("Approve the fix for Hartley's Ferguson bills")).toBeVisible();
+    await act(async () => answer());
+    expect(await screen.findByText("Chase Alder's requirements")).toBeInTheDocument();
+    expect(screen.getByTestId("call-results")).not.toHaveAttribute("aria-busy");
+    expect(screen.queryByText("Approve the fix for Hartley's Ferguson bills")).toBeNull();
+  });
+
+  it("lets the kind chips wrap in the bar instead of cutting them off", async () => {
+    setup();
+    await screen.findByTestId(`call-${T1}`);
+    const chips = within(screen.getByTestId("call-bar")).getByTestId("work-filters");
+    expect(chips).toHaveClass("ds-filters", "ui-filters--wrap");
   });
 
   it("filters by kind and search, and clears them", async () => {

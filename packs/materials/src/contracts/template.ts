@@ -391,9 +391,22 @@ const v3 = once(() => {
   } satisfies AnyAgentBundleInput);
 });
 
-/** The template: v1 as first installed (the definition), v2 (its processes), v3 (the hand-off). */
+// Round 4 D (docs/plan.md §1.211): v4 checks every write against the run's sources before it
+// reaches a person. `review: "failures"` is what an unset `oversight` already means here.
+const v4 = once(() => {
+  const base = v3();
+  return AnyAgentBundle.parse({
+    ...base,
+    definition: { ...base.definition, oversight: { review: "failures", verify: "writes" } },
+  } satisfies AnyAgentBundleInput);
+});
+
+/**
+ * The template: v1 as first installed (the definition), v2 (its processes), v3 (the hand-off), v4
+ * (writes verified).
+ */
 export const VENDOR_CONTRACTS_TEMPLATE = lazyObject({
   slug: V1.slug,
   bundle: lazy(() => V1.bundle),
-  versions: lazy(() => [v2(), v3()]),
+  versions: lazy(() => [v2(), v3(), v4()]),
 });

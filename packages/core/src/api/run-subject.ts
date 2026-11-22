@@ -1,10 +1,12 @@
 // What a run is about, for its title in lists, search and its page on both sides ("Northline Panel
 // Supply · Invoice 20418"), rather than the trigger that started it ("When an invoice has been
-// read"). Derived when a response is built; nothing is stored. The words are the reader's: the
+// read"). Built when a response is built, from what the run kept (`run_subject`) where it has it,
+// else from its trigger and its changes (docs/plan.md §1.188). The words are the reader's: the
 // API sends the parts, each surface puts them into its own language.
 import { z } from "zod";
 import { LocalizedString } from "../i18n/locale";
 import { isPlainObject } from "../json";
+import { RunSubjectKind } from "../schemas/tool-about";
 import { changeValue, type ToolDisplay } from "../schemas/tool-display";
 import { RunStartedBy } from "./runs-filter";
 
@@ -26,7 +28,17 @@ export const RunSubject = z.discriminatedUnion("kind", [
     number: z.string().nullable(),
     with: z.string().nullable(),
   }),
-  /** Neither: what started it, in the surface's own words. */
+  /**
+   * Neither, but a record the run kept as its subject (`run_subject`, docs/plan.md §1.188): a
+   * purchasing request, a vendor, a booking, by its name and number. Data, never instructions.
+   */
+  z.object({
+    kind: z.literal("record"),
+    of: RunSubjectKind,
+    label: z.string().nullable(),
+    number: z.string().nullable(),
+  }),
+  /** None of these: what started it, in the surface's own words. */
   z.object({
     kind: z.literal("trigger"),
     startedBy: RunStartedBy.nullable(),

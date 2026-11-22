@@ -4,11 +4,13 @@
 // Intl.PluralRules in the reader's language.
 // DECISION: a small catalog of our own, no library: typed keys, `{name}` placeholders and
 // Intl.PluralRules are all the portal needs.
-// DECISION: only English ships in the bundle (docs/audit-plan.md 4.1); every other language is its
-// own chunk, loaded once the session names it (session/session.tsx waits for it before it shows
-// anything signed in or signed out, so no screen reads a language that is not there yet).
+// DECISION: no language ships in the first load (docs/audit-plan.md 4.1; English too since
+// docs/plan.md §1.208): each is its own chunk, loaded once the session names it
+// (session/session.tsx waits for it before it shows anything signed in or signed out, so no screen
+// reads a language that is not there yet), and English also with the back office (App.tsx), which
+// always reads in English.
 import { LOCALES, type Locale } from "@countersign/core";
-import { en } from "./messages/en";
+import type { en } from "./messages/en";
 
 /** A message whose words depend on a number. `other` is required; `one` is what English needs. */
 export interface PluralForms {
@@ -48,8 +50,15 @@ export type PlainKey = {
 /** `t("runs.title")`, `t("run.took", { duration })`, `t("overview.inboxItems", { count: 3 })`. */
 export type Translate = <K extends MessageKey>(key: K, ...args: TArgs<K>) => string;
 
-/** Each language other than English, as its own chunk. */
-const LOADERS: Record<Exclude<Locale, "en">, () => Promise<Messages>> = {
+/**
+ * What the still frame says to a screen reader (`common.loading`) before any language has loaded:
+ * the session's language is fetched with or after the session call, and the frame shows meanwhile.
+ */
+const BEFORE_ANY: Partial<Record<MessageKey, string>> = { "common.loading": "Loading…" };
+
+/** Each language, English included, as its own chunk. */
+const LOADERS: Record<Locale, () => Promise<Messages>> = {
+  en: () => import("./messages/en").then((m) => m.en as Messages),
   es: () => import("./messages/es").then((m) => m.es),
   fr: () => import("./messages/fr").then((m) => m.fr),
   "pt-BR": () => import("./messages/pt-BR").then((m) => m.ptBR),
@@ -57,26 +66,26 @@ const LOADERS: Record<Exclude<Locale, "en">, () => Promise<Messages>> = {
   de: () => import("./messages/de").then((m) => m.de),
 };
 
-/** The languages loaded so far: English always. */
-const loaded = new Map<Locale, Messages>([["en", en]]);
+/** The languages loaded so far: none on a fresh page. */
+const loaded = new Map<Locale, Messages>();
 const loading = new Map<Locale, Promise<Messages>>();
 
-/** The catalog for `locale` if it has loaded; English is always there. */
+/** The catalog for `locale` if it has loaded. */
 export function loadedCatalog(locale: Locale): Messages | undefined {
   return loaded.get(locale);
 }
 
 /**
  * Loads one language's catalog (once; callers share the request). A language whose chunk can't be
- * fetched reads in English rather than fail the screen: the promise never rejects.
+ * fetched reads in English rather than fail the screen, and English that can't be fetched reads
+ * nothing (the translator then shows the still frame's word or the key): the promise never rejects.
  */
 export function loadCatalog(locale: Locale): Promise<Messages> {
   const have = loaded.get(locale);
   if (have) return Promise.resolve(have);
   const pending = loading.get(locale);
   if (pending) return pending;
-  const load = LOADERS[locale as Exclude<Locale, "en">];
-  const promise = load().then(
+  const promise = LOADERS[locale]().then(
     (messages) => {
       loaded.set(locale, messages);
       loading.delete(locale);
@@ -84,12 +93,43 @@ export function loadCatalog(locale: Locale): Promise<Messages> {
     },
     () => {
       // Offline, or a deploy replaced the chunk: English this time, and the next call tries again.
+      // (A deploy usually reloads the page first: shell/stale-build.ts.)
       loading.delete(locale);
-      return en as Messages;
+      return locale === "en" ? ({} as Messages) : loadCatalog("en");
     },
   );
   loading.set(locale, promise);
   return promise;
+}
+
+/** Where this browser keeps the language its last session read in. */
+const LAST_LANGUAGE = "mezonas.language";
+
+/** Remembers the language a session read in, for `startLanguageEarly` on the next visit. */
+export function rememberLanguage(locale: Locale): void {
+  try {
+    window.localStorage.setItem(LAST_LANGUAGE, locale);
+  } catch {
+    // Storage blocked: the next visit loads its language after the session call, as a first one does.
+  }
+}
+
+/**
+ * Starts loading the language this browser's last session read in, beside the session call, so a
+ * returning person's first screen doesn't wait for its words after the session answers. Called once
+ * by `main.tsx`.
+ */
+// DECISION (§1.208): the last session's language, not the browser's: it is the one the session
+// will most likely name. A wrong guess costs one language's chunk; a first visit guesses nothing.
+export function startLanguageEarly(): void {
+  let last: string | null = null;
+  try {
+    last = window.localStorage.getItem(LAST_LANGUAGE);
+  } catch {
+    return;
+  }
+  const locale = LOCALES.find((l) => l === last);
+  if (locale) void loadCatalog(locale);
 }
 
 /**
@@ -104,9 +144,9 @@ export const CATALOGS = Object.defineProperties(
   ),
 ) as Readonly<Record<Locale, Messages>>;
 
-/** Tests of the lazy path only: back to English alone, as a fresh page starts. */
+/** Tests of the lazy path only: back to no language, as a fresh page starts. */
 export function unloadCatalogs(): void {
-  for (const locale of [...loaded.keys()]) if (locale !== "en") loaded.delete(locale);
+  loaded.clear();
   loading.clear();
 }
 
@@ -117,16 +157,21 @@ export async function loadAllCatalogs(): Promise<void> {
 
 /**
  * A translator for one language; numbers in parameters are formatted with `intl`'s conventions.
- * A language that has not loaded yet reads in English (never in keys); the session waits for the
- * language before it shows a screen, so a person does not see that.
+ * A language that has not loaded yet reads in English if English has; the session waits for the
+ * language before it shows a screen, so a person does not see that. The catalog is looked up on
+ * each call, not when the translator is made, so one made before its language arrived (the back
+ * office's `EN`) reads it once it has.
  */
 export function createTranslator(locale: Locale, intl: string = locale): Translate {
-  const messages = loaded.get(locale) ?? (en as Messages);
   const rules = new Intl.PluralRules(locale);
   const numbers = new Intl.NumberFormat(intl);
   return ((key: MessageKey, params?: Record<string, string | number>) => {
     // A language file can't lack a key (the typecheck), but a stale build could: English then.
-    const entry: string | PluralForms = messages[key] ?? (en as Messages)[key];
+    // DECISION (§1.208): with no language loaded yet, the still frame's one word (BEFORE_ANY), else
+    // the key: only the still frame renders before the session's language is here.
+    const entry: string | PluralForms | undefined =
+      loaded.get(locale)?.[key] ?? loaded.get("en")?.[key] ?? BEFORE_ANY[key];
+    if (entry === undefined) return key;
     let text: string;
     if (typeof entry === "string") {
       text = entry;

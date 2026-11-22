@@ -32,7 +32,7 @@ export const it: Messages = {
   "common.expired": "Scaduto",
   "common.notBuiltTitle": "Non ancora pronta",
   "common.notBuiltBody": "Questa schermata arriva in una prossima fase.",
-  "common.notFoundTitle": "Non trovata",
+  "common.notFoundTitle": "Pagina non trovata",
   "common.notFoundBody": "Qui non c'è nessuna pagina.",
   "common.yes": "Sì",
   "common.no": "No",
@@ -148,6 +148,10 @@ export const it: Messages = {
   "search.group.records": "Registrazioni",
   "search.group.people": "Persone",
   "search.group.documents": "Documenti",
+  "search.runsAbout": {
+    one: "{count} esecuzione su {name}",
+    other: "{count} esecuzioni su {name}",
+  },
   "nav.table": "Il Tavolo",
   "nav.desk": "La tua scrivania",
   "nav.yourAgents": "I tuoi agenti",
@@ -286,9 +290,21 @@ export const it: Messages = {
   "agent.pauseHelp": "Non partono nuove esecuzioni. Quelle già in corso finiscono.",
   "agent.pauseConfirm": "Metti in pausa {name}",
   "agent.pausedByYou": "In pausa da te: {reason}",
+  "agent.pausedByYouAlone": "In pausa da te",
   "agent.pausedByUs": "In pausa da noi: {reason}",
+  "agent.pausedByUsAlone": "In pausa da noi",
   "agent.pausedUntil": "Fino a {time}",
   "agent.resumeOurs": "L'abbiamo messo in pausa noi. Chiedi al tuo referente di riprenderlo.",
+  "agent.missed": {
+    one: "Durante la pausa, tra {from} e {to}, è arrivato {count} evento che l'avrebbe avviato. Non è partito da solo.",
+    other:
+      "Durante la pausa, tra {from} e {to}, sono arrivati {count} eventi che l'avrebbero avviato. Nessuno è partito da solo.",
+  },
+  "agent.missedOrMore":
+    "Durante la pausa, tra {from} e {to}, sono arrivati {count} o più eventi che l'avrebbero avviato. Nessuno è partito da solo.",
+  "agent.missedUncounted":
+    "Durante la pausa, tra {from} e {to}, sono arrivati più eventi di quanti possiamo controllarne in una volta. Alcuni forse l'avrebbero avviato. Nessuno è partito da solo.",
+  "agent.missedAsk": "Chiedi al tuo referente di eseguirli, se ti servono.",
   "agent.rightNow": "In questo momento",
   "agent.nothingRunning":
     "Niente in corso ora. La prossima esecuzione compare qui, passo per passo.",
@@ -519,6 +535,8 @@ export const it: Messages = {
   "duration.minutes": "{n} min",
   "duration.hours": "{n} h",
   "duration.hoursMinutes": "{h} h {m} min",
+  "duration.days": "{n} g",
+  "duration.daysHours": "{d} g {h} h",
   "run.started": "Iniziata {time}",
   "run.notStarted": "Non ancora iniziata",
   "run.took": "durata {duration}",
@@ -1056,7 +1074,7 @@ export const it: Messages = {
 
   // ── Feedback ──
   "feedback.button": "Segnala un problema con l'app",
-  "feedback.short": "Feedback",
+  "feedback.short": "Segnala un problema",
   "feedback.tapWhere": "Tocca dove si trova il problema",
   "feedback.noSpot": "Nessun punto preciso",
   "feedback.capturing": "Acquisizione dell'immagine…",
@@ -1147,6 +1165,7 @@ export const it: Messages = {
   "reports.subtitle": "Cosa hanno fatto i tuoi agenti.",
   "reports.subtitlePeriod": "Cosa hanno fatto i tuoi agenti, {period}.",
   "reports.activity": "Attività",
+  "reports.account": "Account",
   "reports.period": "Periodo",
   "reports.period.month": "Questo mese",
   "reports.period.last": "Mese scorso",
@@ -1210,6 +1229,13 @@ export const it: Messages = {
   "record.col.transaction": "Transazione",
   "record.documents": "Documenti",
   "record.noDocuments": "Ancora nessun documento collegato.",
+  "record.runs": "Esecuzioni",
+  "record.runs.empty": "Nessuna esecuzione se ne è ancora occupata.",
+  "record.runs.role.read": "Letto",
+  "record.runs.role.decided": "Abbinato",
+  "record.runs.role.changed": "Modificato",
+  "record.runs.role.changedIn": "Modificato in {tool}",
+  "record.runs.hide": "Nascondi esecuzioni",
   "record.value": "Valore",
   "record.rawTitle": "{type} da {tool}",
   "record.fileRow": "{file}, riga {row}",
@@ -1505,6 +1531,8 @@ export const it: Messages = {
   "contacts.status.read": "letto",
   "contacts.status.received": "ricevuto",
   "contacts.status.unverified": "ricevuto, mittente non confermato",
+  "contacts.status.other_sender":
+    "ricevuto da un altro indirizzo della sua azienda, non è la sua risposta",
   "contacts.status.replied": "ha risposto",
   "contacts.status.not_sent": "non inviato",
   "contacts.status.no_reply": "nessuna risposta",
@@ -1586,6 +1614,9 @@ export const it: Messages = {
   "billing.soFarNote": "{period}. L'importo finale arriva all'inizio del mese prossimo.",
   "billing.byService": "Per agente",
   "billing.statements": "Fatture",
+  // §1.234: the link to the work statement.
+  "billing.workStatement": "Cosa hanno fatto i vostri agenti ogni mese",
+  "billing.workDone": "Lavoro svolto",
   "billing.noStatements": "Ancora nessuna fattura. La prima arriva all'inizio del mese prossimo.",
   "billing.column.item": "Voce",
   "billing.pricePerMonth": "{price} al mese",
@@ -2021,11 +2052,24 @@ export const it: Messages = {
   "runsPage.chip.attemptsOver": "tentativi oltre",
   "runsPage.chip.amount": "importo",
   "runsPage.chip.text": "parole",
+  "runsPage.chip.about": "su",
+  "runsPage.about.remove": "Togli {name} dal filtro",
+  "runsPage.about.record": "un record",
   "runsPage.ask.label": "Chiedi delle tue esecuzioni con parole tue",
   "runsPage.ask.placeholder": 'Chiedi con parole tue: "fatture sopra $5,000 questo mese"',
   "runsPage.ask.send": "Chiedi",
   "runsPage.ask.asking": "Ricerca…",
   "runsPage.ask.clear": "Cancella",
+  "runsPage.views.label": "Viste salvate",
+  "runsPage.views.save": "Salva questa vista",
+  "runsPage.views.name": "Nome della vista",
+  "runsPage.views.namePlaceholder": "Dai un nome a questa vista",
+  "runsPage.views.share": "Condividi con il tuo team",
+  "runsPage.views.shareShort": "Condividi",
+  "runsPage.views.stopSharing": "Non condividere più",
+  "runsPage.views.shared": "Condivisa",
+  "runsPage.views.by": "Condivisa da {name}",
+  "runsPage.views.delete": "Elimina la vista {name}",
   "runsPage.ask.unclear":
     "Non siamo riusciti a farne un filtro. Prova a indicare un agente, uno stato o una data.",
   "runsPage.ask.leftOut": "Fuori da questo filtro: {parts}",
@@ -2271,6 +2315,7 @@ export const it: Messages = {
   "home.weekly.ready": "Il tuo referente ha inviato il riepilogo della settimana.",
   "agent.tab.overview": "Panoramica",
   "agent.tab.runs": "Esecuzioni",
+  "agent.tab.report": "Report",
   "agent.tab.settings": "Impostazioni dell’agente",
   // B3: the agent manual (docs/builder-plan.md §5)
   "agent.tab.manual": "Manuale", // fluent review
@@ -2510,6 +2555,84 @@ export const it: Messages = {
   "workflow.card.ifFails": "Se non riesce", // fluent review
   "workflow.card.inSop": "Passaggio {step} nella SOP", // fluent review
   "workflow.close": "Chiudi", // fluent review
+  // ── The workflow chart (shared with the builder) ──
+  "flow.zoomOut": "Riduci", // fluent review
+  "flow.zoomReset": "Torna al 100%", // fluent review
+  "flow.zoomIn": "Ingrandisci", // fluent review
+  "flow.fit": "Adatta", // fluent review
+  "flow.key": "Legenda", // fluent review
+  "flow.keyLabel": "Cosa vogliono dire i simboli", // fluent review
+  "flow.dragHint": "Trascina lo sfondo per spostarti", // fluent review
+  "flow.otherwise": "Altrimenti", // fluent review
+  "flow.path": "Percorso {letter}", // fluent review
+  "flow.forEach": "Una volta per ogni elemento", // fluent review
+  "flow.repeat": "Di nuovo fino alla fine", // fluent review
+  "flow.repeatUpTo": {
+    one: "Di nuovo fino alla fine · fino a {count} volta",
+    other: "Di nuovo fino alla fine · fino a {count} volte",
+  }, // fluent review
+  "flow.stop": "Fine", // fluent review
+  "flow.neverRuns": "Non viene mai eseguito", // fluent review
+  "flow.neverRuns.why": "Tutti i percorsi sopra finiscono prima.", // fluent review
+  "flow.fold": "Comprimi in un solo riquadro", // fluent review
+  "flow.unfold": {
+    one: "Mostra il passaggio all’interno",
+    other: "Mostra i {count} passaggi all’interno",
+  }, // fluent review
+  "flow.more": "e altri {count}", // fluent review
+  "flow.whyHere": "Perché è qui: {purpose}", // fluent review
+  "flow.runsOn": "funziona con {model}", // fluent review
+  "flow.runsOnTitle": "Funziona con {model}", // fluent review
+  "flow.ai": "IA", // fluent review
+  "flow.doer.person": "persona", // fluent review
+  "flow.doer.personTitle": "Lo fa una persona", // fluent review
+  "flow.doer.code": "codice", // fluent review
+  "flow.doer.codeTitle": "Funziona come codice, senza modello", // fluent review
+  "flow.badge.aiSkill": "Abilità IA", // fluent review
+  "flow.badge.rulesSkill": "Abilità a regole", // fluent review
+  "flow.mark.read": "Legge", // fluent review
+  "flow.mark.write": "Salva nei nostri archivi", // fluent review
+  "flow.mark.person": "Lo fa una persona", // fluent review
+  "flow.mark.conversation": "Una conversazione con una persona", // fluent review
+  "flow.mark.notify": "Avvisa qualcuno", // fluent review
+  "flow.mark.wait": "Attende", // fluent review
+  "flow.mark.forEach": "Si ripete per ogni elemento", // fluent review
+  "flow.mark.repeat": "Si ripete fino alla fine", // fluent review
+  "flow.mark.process": "Un’automazione: passaggi salvati", // fluent review
+  "flow.mark.handoff": "Passa il lavoro a un altro agente", // fluent review
+  "flow.mark.missing": "Non ancora creato", // fluent review
+  "flow.mark.readsFrom": "Legge da {name}", // fluent review
+  "flow.mark.readsFromAi": "Legge da {name}, con un modello", // fluent review
+  "flow.mark.changes": "Modifica {name}", // fluent review
+  "flow.mark.changesAi": "Modifica {name}, con un modello", // fluent review
+  "flow.mark.handoffTo": "Passa il lavoro a {name}", // fluent review
+  "flow.mark.aiSkill": "Un’abilità svolta da un modello", // fluent review
+  "flow.mark.rulesSkill": "Un’abilità che funziona con regole", // fluent review
+  "flow.mark.ai": "Lo fa un modello", // fluent review
+  "flow.key.connector": "Legge o modifica uno strumento collegato", // fluent review
+  "flow.key.ai": "Lo fa un modello", // fluent review
+  "flow.key.rules": "Funziona con regole, senza modello", // fluent review
+  "flow.channel.inbox": "La posta in arrivo", // fluent review
+  "flow.channel.email": "Email", // fluent review
+  "flow.channel.sms": "SMS", // fluent review
+  "flow.channel.call": "Telefonata", // fluent review
+  "flow.does.read": "Legge i record. Non modifica nulla.", // fluent review
+  "flow.does.write": "Modifica o salva un record.", // fluent review
+  "flow.does.skill": "Applica un’abilità a ciò che hanno prodotto i passaggi precedenti.", // fluent review
+  "flow.does.person": "Chiede a una persona e attende la sua risposta.", // fluent review
+  "flow.does.approve": "Chiede a una persona di approvare e attende la sua risposta.", // fluent review
+  "flow.does.ask": "Fa una domanda a una persona e attende la sua risposta.", // fluent review
+  "flow.does.conversation": "Parla con qualcuno finché non raggiunge il suo obiettivo.", // fluent review
+  "flow.does.notify": "Avvisa qualcuno e prosegue.", // fluent review
+  "flow.does.if":
+    "Manda l’esecuzione sul primo percorso la cui regola vale, altrimenti sul percorso Altrimenti.", // fluent review
+  "flow.does.forEach": "Esegue i suoi passaggi una volta per ogni elemento di un elenco.", // fluent review
+  "flow.does.repeat": "Ripete i suoi passaggi finché non sono finiti o raggiunge il limite.", // fluent review
+  "flow.does.wait": "Mette in pausa l’esecuzione per un tempo stabilito.", // fluent review
+  "flow.does.stop": "Termina l’esecuzione qui.", // fluent review
+  "flow.does.process": "Esegue un’automazione: un insieme di passaggi salvato.", // fluent review
+  "flow.does.handoff": "Passa il lavoro a un altro agente, che funziona da solo.", // fluent review
+  "flow.does.missing": "Tiene il posto di un passaggio che nessuno ha ancora creato.", // fluent review
   "manual.whatItDoes": "Cosa fa", // fluent review
   "manual.howItWorks": "Come funziona", // fluent review
   "manual.decisions": "Decisioni", // fluent review
@@ -3471,6 +3594,9 @@ export const it: Messages = {
     "Questo link funziona fino alle {time}. Una volta approvata, dura finché non termina quell'accesso a Claude, al massimo 12 ore.",
   "connectClaude.requested":
     "Claude Le ha dato questo link alle {time}. Se non l'ha chiesto a Claude poco fa, non lo approvi.",
+  "connectClaude.client": "Chi lo chiede: {client}.",
+  "connectClaude.place":
+    "La richiesta è arrivata da {place}. Claude sul web chiede dai server di Anthropic, quindi questo è il loro luogo, non il Suo.",
   "connectClaude.confirm": "Il codice che Claude Le ha mostrato",
   "connectClaude.confirmHint":
     "Claude mostra un codice di 6 cifre con questo link. Scriva quello che mostra il Suo Claude, mai uno che Le manda qualcun altro.",
@@ -3831,4 +3957,326 @@ export const it: Messages = {
   "connectors.notice.undo": "Annullalo o cambialo nella pagina di {tool}",
   "agent.reachReady": "Pronto",
   "agent.reachNeeds": "Serve qualcosa",
+
+  // ── setup: people ── Getting started: chapters and Your people (SU2)
+  "setup.trial.title": "Prima della prova di ogni agente",
+  "setup.trial.hint": "Cosa manca e chi si aspetta",
+  "setup.left": { one: "Ne manca 1", other: "Ne mancano {count}" },
+  "setup.ready": "Pronto per la prova",
+  "setup.who.you": "lei",
+  "setup.minutes": {
+    one: "Manca circa un minuto. Può fermarsi quando vuole e riprendere da qui.",
+    other: "Mancano circa {count} minuti. Può fermarsi quando vuole e riprendere da qui.",
+  },
+  "setup.chapters": "Capitoli",
+  "setup.chapters.hint": "In qualsiasi ordine",
+  "setup.chapter.business": "La sua attività",
+  "setup.chapter.tools": "I suoi strumenti",
+  "setup.chapter.people": "Le sue persone",
+  "setup.chapter.see": "Guardi come lavora",
+  "setup.chapter.live": "Messa in funzione",
+  "setup.chapter.business.about": "Le domande su come lavora e quelle di ogni agente.",
+  "setup.chapter.tools.about":
+    "Colleghi gli strumenti in cui lavorano gli agenti. Accede dalla pagina di ciascuno.",
+  "setup.chapter.people.about": "Chi approva, chi risponde e chi viene informato.",
+  "setup.chapter.see.about":
+    "Legga ogni passaggio con i suoi nomi, poi lo provi su qualcosa di reale.",
+  "setup.chapter.live.about":
+    "Firmi il suo ambito. Poi una prova di due settimane in cui firma ogni modifica.",
+  "setup.state.done": "Fatto",
+  "setup.state.open": "{done} di {total}",
+  "setup.state.notStarted": "Non iniziato",
+  "setup.state.notNeeded": "Niente da fare",
+  "setup.frame.eyebrow": "Capitolo {n} di 5",
+  "setup.frame.back": "Torna a Per iniziare",
+  "setup.frame.next": "Avanti: {chapter}",
+  "setup.notBuilt": "Questo capitolo è in arrivo",
+  "setup.notBuiltBody": "Per ora la guiderà il suo referente.",
+  "setup.people.intro":
+    "Abbiamo compilato ciò che ci ha detto; controlli ognuno. Le approvazioni restano attive: qui si decide chi firma, non se firmare.",
+  "setup.people.kind.signs": "Firma",
+  "setup.people.kind.answers": "Risponde",
+  "setup.people.kind.told": "Informato",
+  "setup.people.kind.reached": "Contattato",
+  "setup.people.checked": "Controllato",
+  "setup.people.toCheck": "Da controllare",
+  "setup.people.weThink": "Pensiamo: {names}, dalla sua risposta «{from}».",
+  "setup.people.yes": "Sì",
+  "setup.people.change": "Modifica",
+  "setup.people.backup": "Se è assente",
+  "setup.people.add": "Aggiungi qualcuno",
+  "setup.people.addBackup": "Aggiungi un sostituto",
+  "setup.people.remove": "Rimuovi {name}",
+  "setup.people.choose": "Scelga qualcuno",
+  "setup.people.signsIn": "Accede",
+  "setup.people.notJoined": "Invitato, non ha ancora fatto l'accesso",
+  "setup.people.viewer": "Solo visualizzazione",
+  "setup.people.byEmail": "Informato per email",
+  "setup.people.you": "Lei",
+  "setup.people.nobody": "Ancora nessuno. Finché non sceglie, lo riceve il suo amministratore.",
+  "setup.people.inviteNew": "Qualcuno di nuovo? Lo inviti prima in Team.",
+  "setup.people.adminOnly": "Il suo amministratore assegna questi ruoli.",
+  "setup.people.matrix": "Veda chi fa cosa nella procedura di {agent}",
+  "setup.people.looksRight": "Va bene",
+  "setup.people.confirmed": "Controllato da {name}",
+  "setup.people.none": "I suoi agenti non hanno ancora bisogno di nessuno.",
+  "setup.people.notSigner": "Può solo visualizzare, quindi non può approvare. Lo cambi in Team.",
+  // (end setup: people)
+
+  // ── setup: tools ── Getting started: Your tools (SU3)
+  "setup.tools.intro":
+    "Gli agenti lavorano nei suoi account. Lei accede dalla pagina di ogni strumento; non vediamo mai una password.",
+  "setup.tools.none": "I suoi agenti non hanno ancora bisogno di strumenti.",
+  "setup.tools.adminOnly": "Il suo amministratore li collega e li controlla.",
+  "setup.tools.usedBy": "Usato da {agents}",
+  "setup.tools.connected": "Collegato",
+  "setup.tools.waitingYou": "In attesa di lei",
+  "setup.tools.waitingOn": "In attesa di {name}",
+  "setup.tools.account":
+    "Ha effettuato l'accesso a {account}. È l'azienda che gli agenti devono usare?",
+  "setup.tools.accountChecked":
+    "Ha effettuato l'accesso a {account}. Gli agenti usano quell'azienda.",
+  "setup.tools.yes": "Sì",
+  "setup.tools.different": "Un'altra azienda",
+  "setup.tools.checked": "Controllato",
+  "setup.tools.reads": "Leggeremo",
+  "setup.tools.changes": "Possiamo modificare",
+  "setup.tools.never": "Mai",
+  "setup.tools.nothing": "Niente",
+  "setup.tools.asksFirst": "Glielo chiediamo prima, ogni volta.",
+  "setup.tools.access": "Vedere e impostare cosa possono fare gli agenti in {tool}",
+  "setup.tools.whoSignsIn": "Chi accede a {tool}?",
+  "setup.tools.connect": "Io: collegare {tool}",
+  "setup.tools.someoneElse": "Un'altra persona",
+  "setup.tools.sendTo": "Inviare solo questa scheda a",
+  "setup.tools.choose": "Scelga qualcuno",
+  "setup.tools.send": "Invia",
+  "setup.tools.asked": "Lo abbiamo chiesto a {name}. È nella sua casella.",
+  "setup.tools.askedYou": "Le è stato chiesto di collegare questo.",
+  "setup.tools.adminConnects": "Lo collega il suo amministratore.",
+  "setup.tools.cannotConnect":
+    "Solo un amministratore può collegare {tool}. Lo renda amministratore in Team, o lo colleghi lei.",
+  "setup.tools.noOne": "Nel suo team non c'è ancora nessun altro. Lo inviti prima in Team.",
+  "setup.tools.lookTitle": "Cosa vediamo in {tool}",
+  "setup.tools.lookHint":
+    "Contato dai suoi dati, non indovinato. Controlli ognuno e gli agenti partono da lì.",
+  // (end setup: tools)
+
+  // ── setup: see ── Getting started: See it work (SU4, SU5)
+  "setup.see.none": "Al momento non si sta configurando nessun agente.",
+  "setup.see.pick": "Scelga un agente per vedere come lavora.",
+  "setup.see.agents": "Agenti in configurazione",
+  "setup.see.intro":
+    "Come {name} farà il lavoro, con le sue persone e i suoi strumenti. Ci dica in quale passo non lavorate così.",
+  "setup.see.readOnly":
+    "Può leggere come lavora. Una persona del suo team che può firmare dice cosa va bene e lo prova.",
+  "setup.see.steps": "Come funziona",
+  "setup.see.noSteps": "Non ci sono ancora passi da leggere.",
+  "setup.see.person": "Persona",
+  "setup.see.who": "Chi: {name}",
+  "setup.see.asksFirst": "Chiede prima a {names}",
+  "setup.see.told": "Avvisa {names}",
+  "setup.see.otherwise": "Altrimenti",
+  "setup.see.looksRight": "Va bene",
+  "setup.see.lookedRight": "Va bene",
+  "setup.see.lookedRightBy": "Va bene · {name}",
+  "setup.see.different": "Lo facciamo diversamente",
+  "setup.see.differentLabel": "Voi come lo fate?",
+  "setup.see.differentHint": "Con parole sue. Nulla cambia finché non avrà visto la modifica.",
+  "setup.see.sendTo": "Invia a {lead}",
+  "setup.see.youSaid": "Ha detto: «{text}»",
+  "setup.see.withLead": "Se ne occupa {lead}. Le mostreremo la modifica prima di usarla.",
+  "setup.see.withUs": "Ce ne occupiamo noi. Le mostreremo la modifica prima di usarla.",
+  "setup.see.request": "Richiesta n. {number}",
+  "setup.see.asked": "Inviato",
+  "setup.see.try.title": "Lo provi su un caso reale",
+  "setup.see.try.hint":
+    "Una prova: nulla viene scritto nei suoi strumenti e nessuno viene interpellato",
+  "setup.see.try.left": {
+    one: "Resta 1 prova su {max}.",
+    other: "Restano {count} prove su {max}.",
+  },
+  "setup.see.try.usedUp": "Ce ne chieda un'altra, se serve.",
+  "setup.see.try.usedUpLead": "Ne chieda un'altra a {lead}, se serve.",
+  "setup.see.try.wait": "C'è una prova in corso. La prossima può partire quando finisce.",
+  "setup.see.try.none":
+    "Non c'è ancora nulla su cui provarlo. Quando arriva un documento su cui lavora, compare qui.",
+  "setup.see.try.from": "Da {from}, {when}",
+  "setup.see.try.this": "Prova questo",
+  "setup.see.try.badge": "Prova · nulla scritto né inviato",
+  "setup.see.try.status.running": "In corso",
+  "setup.see.try.status.done": "Terminata",
+  "setup.see.try.status.failed": "Interrotta",
+  "setup.see.try.starting": "Si parte. I passi compaiono qui man mano.",
+  "setup.see.try.state.done": "Fatto",
+  "setup.see.try.state.running": "In corso",
+  "setup.see.try.state.waiting": "Aspetterebbe qui",
+  "setup.see.try.state.skipped": "Saltato",
+  "setup.see.try.state.failed": "Non ha funzionato",
+  "setup.see.try.right": "Giusto",
+  "setup.see.try.notRight": "Non è giusto perché…",
+  "setup.see.try.because": "Cosa avrebbe dovuto fare?",
+  "setup.see.try.saidRight": "Ha detto: giusto",
+  "setup.see.try.saidNotRight": "Ha detto: non è giusto.",
+  // (end setup: see)
+
+  // ── setup: live ── Getting started: Go live (SU6)
+  "setup.live.none": "Nessun agente è in attesa della messa in funzione.",
+  "setup.live.pick": "Scelga un agente per leggerne l'ambito.",
+  "setup.live.signed": "Firmato",
+  "setup.live.toSign": "Da firmare",
+  "setup.live.eyebrow": "Ambito · {agent} · versione {version}",
+  "setup.live.does": "Cosa fa",
+  "setup.live.reads": "Cosa legge",
+  "setup.live.changes": "Cosa può modificare",
+  "setup.live.signs": "Chi firma",
+  "setup.live.answers": "Chi risponde",
+  "setup.live.choices": "Le sue scelte",
+  "setup.live.open": "Ancora aperto",
+  "setup.live.nothing": "Niente",
+  "setup.live.waiting": "In attesa di lei",
+  "setup.live.waitingAdmin": "In attesa del suo amministratore",
+  "setup.live.yourScope": "Il suo ambito",
+  "setup.live.ready": "Il suo {agent} è pronto per la prova.",
+  "setup.live.signBody": "Firmi l'ambito qui sopra e {lead} avvia la prova.",
+  "setup.live.adminSigns": "Il suo amministratore firma l'ambito. Poi {lead} avvia la prova.",
+  "setup.live.signedBy": "Firmato da {name} il {date}. {lead} avvia la prova.",
+  "setup.live.signedOlder":
+    "È stata firmata la versione {version}. Questa versione è cambiata, quindi va firmata di nuovo.",
+  "setup.live.yourLead": "il suo referente",
+  "setup.live.checkedBy": "Controllato da {lead}, il suo referente",
+  "setup.live.sign": "Firma",
+  "setup.live.next": "Cosa succede dopo",
+  "setup.live.next.today": "Oggi",
+  "setup.live.next.todayBody": "Lei firma l'ambito.",
+  "setup.live.next.start": "Poi",
+  "setup.live.next.startBody": "{lead} avvia la prova. Non parte mai da sola.",
+  "setup.live.next.trial": "{days} giorni",
+  "setup.live.next.trialBody":
+    "Lei firma ogni modifica sulla sua scrivania prima che venga fatta. Se qualcosa non va, lo dica sull'elemento.",
+  "setup.live.next.checkin": "Giorno 7",
+  "setup.live.next.checkinBody": "Un punto della situazione con {lead}.",
+  "setup.live.next.after": "Dopo la prova",
+  "setup.live.next.afterBody":
+    "Lei decide cosa può andare senza chiedere. Le approvazioni restano attive a meno che non le cambi.",
+  "setup.live.fromCall": "Dalla nostra chiamata: controlli, per favore",
+  // (end setup: live)
+  // §1.216: books health
+  "books.title": "Salute della contabilità",
+  "books.subtitle": "Cosa abbiamo trovato nel tuo QuickBooks, prima gli importi maggiori.",
+  "books.none": "Collega QuickBooks e controlliamo qui la tua contabilità.",
+  "books.syncing":
+    "Controlliamo la tua contabilità quando la prima sincronizzazione di QuickBooks è finita.",
+  "books.asOf": "Al {day}",
+  "books.since": "su registrazioni dal {day} in poi",
+  "books.allClean": "Nessun controllo ha trovato problemi.",
+  "books.clean": "Niente trovato in: {checks}.",
+  "books.fixedBy": "Lo risolve {area}",
+  "books.on": "Attivo",
+  "books.off": "Non attivo",
+  "books.examples": "Esempi",
+  "books.check.unreconciled_accounts": "Conti non riconciliati",
+  "books.check.uncategorized": "Transazioni senza categoria",
+  "books.check.duplicate_vendors": "Fornitori duplicati",
+  "books.check.duplicate_bills": "Fatture fornitori duplicate",
+  "books.check.receivables_aging": "Fatture clienti scadute",
+  "books.check.payables_aging": "Fatture fornitori scadute",
+  "books.check.negative_balances": "Saldi sotto zero",
+  "books.check.undeposited_funds": "Fondi non depositati",
+  "books.check.price_drift": "Prezzi dei fornitori in aumento",
+  // (end books health)
+  // §1.232: the Close pack
+  "close.title": "Chiusura del mese",
+  "close.description": "La lista di ogni mese, le sue scritture e l'approvazione finale.",
+  "close.empty": "Nessun mese è stato ancora controllato.",
+  "close.notChecked": "Questo mese non è stato ancora controllato.",
+  "close.loading": "Caricamento della chiusura…",
+  "close.month": "Mese",
+  "close.periodOf": "Dal {start} al {end}",
+  "close.status.signed_off": "Chiuso",
+  "close.ready": "Pronto per la chiusura",
+  "close.linesOpen": "Righe aperte: {count}",
+  "close.signedOffBy": "Chiuso da {name} il {day}",
+  "close.checklist": "Lista di chiusura",
+  "close.entries": "Scritture contabili",
+  "close.noEntries": "Nessuna scrittura questo mese.",
+  "close.item.open": "Aperta",
+  "close.item.done": "Fatta",
+  "close.item.waived": "Esonerata",
+  "close.waivedBecause": "Esonerata: {note}",
+  "close.waive": "Esonera",
+  "close.waiveReason": "Perché può restare aperta",
+  "close.unwaive": "Ritira l'esonero",
+  "close.reject": "Rifiuta",
+  "close.date": "Data",
+  "close.entry": "Scrittura",
+  "close.amount": "Importo",
+  "close.statusCol": "Stato",
+  "close.kind.accrual": "Rateo",
+  "close.kind.reversal": "Storno",
+  "close.kind.recurring": "Ricorrente",
+  "close.debit": "Dare",
+  "close.credit": "Avere",
+  "close.entry.proposed": "In attesa",
+  "close.entry.rejected": "Rifiutata",
+  "close.entry.posted": "Registrata",
+  "close.entry.failed": "Non riuscita",
+  "close.entry.superseded": "Sostituita",
+  "close.entry.waitingSignature": "In attesa di una firma",
+  "close.signOff": "Chiudi il mese",
+  "close.signOffNote": "Una nota per l'archivio (facoltativa)",
+  // (end close)
+  // Plan entry §1.233: the AP pack's Bills to pay and its approve-to-pay card.
+  "ap.bills.title": "Fatture da pagare",
+  "ap.bills.description":
+    "Le fatture dei fornitori di ogni settimana da approvare, confrontate con i loro ordini. Qui non si paga nulla.",
+  "ap.list.loading": "Caricamento delle fatture…",
+  "ap.list.empty": "Nessuna fattura nella lista di questa settimana.",
+  "ap.list.heading": {
+    one: "{count} fattura per il {day}:",
+    other: "{count} fatture per il {day}:",
+  },
+  "ap.list.needsYou": {
+    one: "{count} richiede la sua attenzione",
+    other: "{count} richiedono la sua attenzione",
+  },
+  "ap.list.needsYouTitle": "Richiedono la sua attenzione",
+  "ap.list.ready": "Pronte da approvare: {amount}",
+  "ap.list.approved": "Approvate: {amount}",
+  "ap.list.approveReady": "Approva le fatture pronte",
+  "ap.list.decided": "Decise",
+  "ap.list.done": "Fatto per questa settimana",
+  "ap.list.week": "Settimana",
+  "ap.list.weekOf": "Settimana del {day}",
+  "ap.status.open": "Da decidere",
+  "ap.status.approved": "Approvata",
+  "ap.status.held": "In sospeso",
+  "ap.status.rejected": "Rifiutata",
+  "ap.bill.due": "Scade il {day}",
+  "ap.bill.order": "Ordine {reference}",
+  "ap.bill.noOrder": "Nessun ordine",
+  "ap.bill.account": "Conto",
+  "ap.bill.chooseAccount": "Scelga un conto",
+  "ap.bill.take": "Usa {account}",
+  "ap.bill.confirmOrder": "È questo ordine",
+  "ap.bill.notThisOrder": "Non è questo ordine",
+  "ap.bill.received": "Segna l'ordine come ricevuto",
+  "ap.bill.note": "Perché (per sospendere, rifiutare o approvare una fattura segnalata)",
+  "ap.bill.approve": "Approva",
+  "ap.bill.hold": "Sospendi",
+  "ap.bill.reject": "Rifiuta",
+  "ap.flag.duplicate": "Duplicata",
+  "ap.flag.possible_duplicate": "Possibile duplicato",
+  "ap.flag.price_over_order": "Prezzo sopra l'ordine",
+  "ap.flag.price_under_order": "Prezzo sotto l'ordine",
+  "ap.flag.unit_not_compared": "Altra unità, non confrontata",
+  "ap.flag.qty_over_order": "Fatturato più dell'ordinato",
+  "ap.flag.qty_over_received": "Fatturato più del ricevuto",
+  "ap.flag.not_received": "Non segnato come ricevuto",
+  "ap.flag.amount_differs": "Il totale differisce dall'ordine",
+  "ap.flag.no_order": "Nessun ordine d'acquisto",
+  "ap.flag.order_to_confirm": "Ordine da confermare",
+  "ap.flag.uncoded": "Righe senza conto",
+  "ap.flag.read_again": "Riletta",
+  "ap.flag.other": "Segnalazione",
 };

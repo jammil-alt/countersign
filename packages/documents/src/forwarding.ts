@@ -15,9 +15,10 @@ import {
   UPLOAD_CONNECTOR_ID,
 } from "@countersign/connectors";
 import { authenticatedSenders, bytesMatchType } from "@countersign/core";
-import { connection, type Db, type Tx, withTenant } from "@countersign/db";
+import { connection, type Db, document, type Tx, withTenant } from "@countersign/db";
 import type { EventRow } from "@countersign/senses";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
+import { landReport, type ReportIntake } from "./intake";
 import { DocumentError, storeDocument } from "./store";
 
 export interface EmailAttachment {
@@ -114,6 +115,8 @@ export type ForwardingOutcome =
       skipped: { filename: string; reason: string }[];
       /** `document.received` events, for dispatch after commit. */
       events: EventRow[];
+      /** §1.213: each table file as a report: landed, a duplicate refused, rejected, or unknown. */
+      reports?: ReportIntake[];
     }
   | { status: "dropped"; tenantId: string | null; reason: DropReason };
 
@@ -223,12 +226,34 @@ export async function receiveForwardedEmail(
       meta,
     });
     await countForwarded(tx, conn, { accepted: true }, now());
+    // §1.213: a table file is landed as a report when one of the client's profiles reads it.
+    const reports: ReportIntake[] = [];
+    const ids = stored.documents.map((d) => d.id);
+    const docs =
+      ids.length > 0
+        ? await tx
+            .select()
+            .from(document)
+            .where(and(eq(document.tenantId, tenantId), inArray(document.id, ids)))
+        : [];
+    for (const id of ids) {
+      const doc = docs.find((d) => d.id === id);
+      if (!doc) continue;
+      const landed = await landReport(tx, deps.content, {
+        connection: conn,
+        document: doc,
+        from: matched,
+        now: now(),
+      });
+      if (landed) reports.push(landed);
+    }
     return {
       status: "accepted",
       tenantId,
       documents: stored.documents,
       skipped: [...skipped, ...stored.skipped],
       events: stored.events,
+      reports,
     };
   });
 }

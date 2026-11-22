@@ -4,18 +4,15 @@
 // (ARCHITECTURE §11.3) it is the kind's fixed sentence, a count and one link, never the notice's
 // own words: the card in the inbox carries those. Every query runs inside the caller's withTenant
 // for the item's client (invariant 1).
+//
+// Work plan C4.10 (migration 0079): it goes through the notification outbox as a kind of its own,
+// `urgent`, so each send has its row (retries, the notification counts, once per person and
+// channel by its key). The notify step queues the rows here and sends them at once
+// (`sendQueued` with their ids); a send that fails is tried again by the outbox's next pass.
 
-import {
-  isPlainObject,
-  type NotificationChannel,
-  notificationLink,
-  notificationPath,
-  renderNotification,
-} from "@countersign/core";
-import { inboxItem, type Tx } from "@countersign/db";
-import { and, eq } from "drizzle-orm";
-import { reportHandled } from "../observability/report";
-import type { NotifyDeps } from "./outbox";
+import { dedupeKeys, notificationPath } from "@countersign/core";
+import type { inboxItem, Tx } from "@countersign/db";
+import { type Candidate, enqueue } from "./outbox";
 import { clientPeople, memberPerson, type NotifyPerson, tenantRow } from "./people";
 
 type ItemRow = typeof inboxItem.$inferSelect;
@@ -38,76 +35,34 @@ async function peopleOf(tx: Tx, item: ItemRow): Promise<NotifyPerson[]> {
 }
 
 /**
- * Tells the people an urgent notice's Seen card is for, now: email, and a text where the person
- * has a number that may be texted (consent given, no STOP). Each (person, channel) is told once,
- * kept on the card (`payload.toldAt`), so a retried step sends nothing twice. A send that fails is
- * reported and left: the card stays in their inbox, and the outbox's items-waiting pass tells
- * them as it tells any open card. Returns how many were sent.
+ * Queues an urgent notice's Seen card for the people it is for: an email to each, and a text to
+ * each who has a number that may be texted (consent given, no STOP). Each (person, channel) is
+ * queued once by its key (`urgent:<item>:<person>`), so a retried step queues nothing twice.
+ * Returns the ids of the rows this call wrote, for the caller to send once it commits.
  */
-// DECISION (wave 2c): sent from the notify step itself, through the outbox's own email and text
-// senders, rather than as a new notification kind: that needs a migration of `notification`'s kind
-// check, which this stream leaves out (docs/open.md). Urgent means at once: neither the person's
-// quiet hours nor their own email or text switches hold it; their consent for texts does.
-export async function tellUrgentNow(
+// DECISION (C4.10): the same channels as the direct sends had, email and text, not phone
+// notifications: what changes is the path (the outbox), not who is told or how. Urgent means at
+// once: neither quiet hours (`holdsInQuietHours`) nor the person's own email or text switches
+// (`overridesSwitches`) hold it; their consent for texts does. An email is queued even where
+// Mezonas sends none (no Resend key): the row is skipped `not_configured`, and counted.
+export async function queueUrgent(
   tx: Tx,
-  deps: NotifyDeps,
+  origin: string,
   item: ItemRow,
   now: Date,
-): Promise<number> {
-  const payload = isPlainObject(item.payload) ? item.payload : {};
-  const toldAt: Record<string, string> = isPlainObject(payload.toldAt)
-    ? { ...(payload.toldAt as Record<string, string>) }
-    : {};
-  const link = notificationLink(deps.origin, notificationPath("items_waiting"));
-  let from: string | null | undefined;
-  let sent = 0;
+): Promise<string[]> {
+  const candidates: Candidate[] = [];
   for (const person of await peopleOf(tx, item)) {
-    const channels: NotificationChannel[] = [];
-    if (deps.mailer.isConfigured) channels.push("email");
-    if (person.phone) channels.push("sms");
-    for (const channel of channels) {
-      const key = `${person.userId}:${channel}`;
-      if (toldAt[key]) continue;
-      const rendered = renderNotification({
-        kind: "items_waiting",
-        channel,
-        counts: { items: 1 },
-        link,
-        locale: person.locale,
-      });
-      try {
-        if (channel === "email") {
-          await deps.mailer.send({
-            to: person.email,
-            subject: rendered.subject,
-            text: rendered.text,
-            ...(rendered.html ? { html: rendered.html } : {}),
-            idempotencyKey: `urgent-${item.id}-${person.userId}`,
-          });
-        } else {
-          if (from === undefined) from = await deps.texter.from(tx, item.tenantId);
-          if (!from) continue;
-          await deps.texter.send(tx, item.tenantId, {
-            to: person.phone as string,
-            body: rendered.text,
-          });
-        }
-        toldAt[key] = now.toISOString();
-        sent++;
-      } catch (error) {
-        // Logged without the message: it names the card and the channel, never content.
-        reportHandled(`urgent notice ${item.id} (${channel}) failed to send`, error, {
-          job: "notify",
-          client: item.tenantId,
-        });
-      }
-    }
+    const base = {
+      userId: person.userId,
+      kind: "urgent" as const,
+      dedupeKey: dedupeKeys.urgent(item.id, person.userId),
+      path: notificationPath("urgent"),
+      counts: { items: 1 },
+    };
+    candidates.push({ ...base, contactId: null, channel: "email" });
+    if (person.phone) candidates.push({ ...base, contactId: person.contactId, channel: "sms" });
   }
-  if (sent > 0) {
-    await tx
-      .update(inboxItem)
-      .set({ payload: { ...payload, toldAt } })
-      .where(and(eq(inboxItem.id, item.id), eq(inboxItem.tenantId, item.tenantId)));
-  }
-  return sent;
+  const rows = await enqueue(tx, item.tenantId, origin, candidates, now);
+  return rows.map((r) => r.id);
 }

@@ -8,10 +8,15 @@
 // - "Waiting on clients": every open item in the clients' inboxes, each saying whom it waits on
 //   and for how long.
 // The client filter comes from the address (`?client=`), so a client's page links here filtered;
-// the top bar's switcher is the one "All clients" control. We resolve only what the server marks as
+// its chip clears it (the top bar's picker only opens a client's page). We resolve only what the server marks as
 // ours; resolving resumes the waiting run; an approval can be taken back inside its undo window.
-import type { Escalation, OpsAgentRef } from "@countersign/core";
-import { useMemo, useState } from "react";
+import {
+  type Escalation,
+  isWaitingReminder,
+  itemFingerprint,
+  type OpsAgentRef,
+} from "@countersign/core";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
@@ -50,10 +55,12 @@ import {
 } from "../command/escalations";
 import { useKept } from "../command/kept";
 import { usePrefetchOnIntent } from "../command/prefetch";
+import { SaveAsCase } from "../lab/SaveAsCase";
 import { useShareCounts } from "../OpsLayout";
 import { age, NOBODY_TO_ACT_WORDS, plural } from "../run/words";
 // P-6
 import { SCRIPT_DRAFT_SUBJECT, ScriptOfferLink } from "./BrowserScripts";
+import { SimilarItems } from "./InboxBulk";
 import { StepIn } from "./StepIn";
 
 type Item = ResponseOf<typeof apiRoutes.opsInbox>["items"][number];
@@ -78,7 +85,10 @@ function undoable(item: Pick<Item, "deliverAfter">): boolean {
   return !!item.deliverAfter && new Date(item.deliverAfter).getTime() > Date.now();
 }
 
-/** "Waiting on the client admin for 39 h. Only they can answer it.", and why nobody can. */
+/**
+ * "Waiting on the client admin for 10 days. Only they can answer it."; or, when nobody there can
+ * act on it (it is in Needs us), why: "… for 10 days. Nobody at the client may approve it."
+ */
 export function waitingOnLine(
   item: Pick<Item, "assigneeRole" | "assigneeUserId" | "createdAt">,
   stuck?: Escalation | undefined,
@@ -86,8 +96,10 @@ export function waitingOnLine(
   const who = item.assigneeUserId
     ? "a named person at the client"
     : (ROLE_WORDS[item.assigneeRole ?? "client_admin"] ?? "the client");
-  const why = stuck?.wait?.nobodyToAct ? ` ${NOBODY_TO_ACT_WORDS[stuck.wait.nobodyToAct]}` : "";
-  return `Waiting on ${who} for ${age(item.createdAt)}. Only they can answer it.${why}`;
+  const why = stuck?.wait?.nobodyToAct
+    ? NOBODY_TO_ACT_WORDS[stuck.wait.nobodyToAct]
+    : "Only they can answer it.";
+  return `Waiting on ${who} for ${age(item.createdAt)}. ${why}`;
 }
 
 export function OpsInboxScreen() {
@@ -148,14 +160,26 @@ export function OpsInboxScreen() {
   const itemLevel = new Map(
     escalations.filter((e) => e.kind === "item").map((e) => [e.id, urgencyOf(e, now)]),
   );
+  // The supervisor's "1 item is still waiting" is a reminder about the items listed here, not an
+  // item of its own (QA, 2026-11-22): left out, as the counts leave it out.
   const items = (data?.items ?? []).filter(
     (i) =>
       !recentIds.has(i.id) &&
+      !isWaitingReminder(i) &&
       (view === "us" || i.assigneeRole !== "operator") &&
       (!urgency || view !== "us" || itemLevel.get(i.id) === urgency),
   );
-  const stuckByRun = new Map(
-    escalations.filter((e) => e.kind === "approval" && e.runId).map((e) => [e.runId, e]),
+  // A client's item nobody there can act on: the approval escalation that covers it.
+  const stuckByItem = new Map(
+    escalations
+      .filter((e) => e.kind === "approval")
+      .flatMap((e) => (e.itemIds ?? [e.id]).map((id) => [id, e] as const)),
+  );
+  // What a link from Home or Needs us opens: one item (`?item=`, its sheet), or an approval
+  // escalation's items (`?stuck=`), marked in the list and scrolled to.
+  const stuckId = params.get("stuck");
+  const marked = new Set(
+    stuckId ? (escalations.find((e) => e.id === stuckId)?.itemIds ?? [stuckId]) : [],
   );
 
   // What a row and its card both say about an item: who asks, for whom, how it ended, whom it
@@ -180,6 +204,7 @@ export function OpsInboxScreen() {
       agent,
       mine,
       byUs,
+      approved,
       context: [
         agent ? (agent.serviceName ?? agent.name) : null,
         clients.get(item.tenantId) ?? null,
@@ -188,9 +213,7 @@ export function OpsInboxScreen() {
         .filter(Boolean)
         .join(" · "),
       outcome: item.status === "resolved" ? outcomeText(item.kind, approved, by) : null,
-      waitingOn: mine
-        ? null
-        : waitingOnLine(item, item.runId ? stuckByRun.get(item.runId) : undefined),
+      waitingOn: mine ? null : waitingOnLine(item, stuckByItem.get(item.id)),
     };
   };
 
@@ -199,6 +222,16 @@ export function OpsInboxScreen() {
   // address as `?item=` so a link opens it.
   const openId = params.get("item");
   const openItem = (id: string | null) => setParam("item", id);
+  // The first marked row in view once the list is here (QA, 2026-11-22: "Open item" shows it).
+  // Only an id the list holds is looked for, so the address never reaches the selector raw.
+  const firstMarked = openId ?? [...marked][0] ?? null;
+  const listed = Boolean(firstMarked && data?.items.some((i) => i.id === firstMarked));
+  useEffect(() => {
+    if (!listed || !firstMarked) return;
+    document
+      .querySelector(`[data-testid="ops-inbox-row-${firstMarked}"]`)
+      ?.scrollIntoView?.({ block: "center" });
+  }, [listed, firstMarked]);
   const row = (item: Item) => {
     const { agent, context, outcome, waitingOn } = describe(item);
     const badge = statusBadge(item, outcome, i18n);
@@ -209,7 +242,7 @@ export function OpsInboxScreen() {
         className="ops-row ops-row--link ops-row--avatar ui-accent ui-accent--left relative"
         data-tone={BADGE_ACCENT[badge.tone]}
         data-testid={`ops-inbox-row-${item.id}`}
-        aria-current={openId === item.id ? "true" : undefined}
+        aria-current={openId === item.id || marked.has(item.id) ? "true" : undefined}
       >
         {agent ? (
           <AgentBadge name={agent.serviceName ?? agent.name} seed={agent.id} size="sm" />
@@ -242,7 +275,7 @@ export function OpsInboxScreen() {
   };
 
   const card = (item: Item) => {
-    const { mine, byUs, context, outcome, waitingOn } = describe(item);
+    const { mine, byUs, approved, context, outcome, waitingOn } = describe(item);
     const shown = (
       <InboxCard
         key={item.id}
@@ -255,9 +288,10 @@ export function OpsInboxScreen() {
         onResolve={
           item.status === "open" && mine
             ? async (body) => {
+                // Audit 3.4: the answer names the card as it is on screen.
                 const out = await api.call(apiRoutes.opsResolveInbox, {
                   params: { id: item.id },
-                  body,
+                  body: { ...body, fingerprint: await itemFingerprint(item) },
                 });
                 if (undoable(out.item)) setRecent((r) => [out.item, ...r]);
                 reload();
@@ -296,6 +330,20 @@ export function OpsInboxScreen() {
         </div>
       );
     }
+    // §1.212: an approved (or corrected) change of a run: one click saves it as a test case.
+    if (
+      item.status === "resolved" &&
+      approved === true &&
+      item.runId &&
+      (item.kind === "approval" || item.kind === "external_action")
+    ) {
+      return (
+        <div key={item.id} className="flex flex-col gap-2">
+          {shown}
+          <SaveAsCase itemId={item.id} />
+        </div>
+      );
+    }
     if (mine || item.status !== "open") return shown;
     return (
       <div key={item.id} className="flex flex-col gap-2">
@@ -325,9 +373,8 @@ export function OpsInboxScreen() {
             ? "What waits in your clients' inboxes, and on whom."
             : needsCount === undefined
               ? "What needs us."
-              : needsCount === 0
-                ? "Nothing needs us."
-                : `${plural(needsCount, "thing needs", "things need")} us.`
+              : // QA (2026-11-22): Needs us and Your call count different things; said here.
+                `${needsCount === 0 ? "Nothing needs us." : `${plural(needsCount, "thing needs", "things need")} us: work blocked until we act.`} Your to-dos, builds and held runs are on Your call.`
         }
       />
       {view === "us" && status === "open" && needs.data === undefined && !needs.error ? (
@@ -416,6 +463,16 @@ export function OpsInboxScreen() {
             {recent.map(row)}
           </Card>
         </Section>
+      ) : null}
+      {status === "open" && !kept ? (
+        <SimilarItems
+          items={items}
+          context={(i) => describe(i).context}
+          onDone={() => {
+            reload();
+            needs.reload();
+          }}
+        />
       ) : null}
       <Loaded state={state} skeleton={<InboxSkeleton />}>
         {() =>
