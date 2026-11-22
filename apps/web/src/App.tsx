@@ -67,6 +67,10 @@ const TextSignupScreen = lazy(() =>
 const FormPageScreen = lazy(() =>
   import("./forms/FormPage").then((m) => ({ default: m.FormPageScreen })),
 );
+// §1.217: a process interview, opened from a link a contact was sent: its own chunk.
+const InterviewPageScreen = lazy(() =>
+  import("./interview/InterviewPage").then((m) => ({ default: m.InterviewPageScreen })),
+);
 // §1.149: the welcome page an invite's link opens, before sign-in: its own chunk.
 const SetupLinkScreen = lazy(() =>
   import("./session/SetupLink").then((m) => ({ default: m.SetupLinkScreen })),
@@ -103,6 +107,15 @@ export function AppRoutes() {
         element={
           <Suspense fallback={<StillFrame />}>
             <FormPageScreen />
+          </Suspense>
+        }
+      />
+      {/* docs/plan.md §1.217: a process interview we sent; no sign-in. */}
+      <Route
+        path="/i/:token"
+        element={
+          <Suspense fallback={<StillFrame />}>
+            <InterviewPageScreen />
           </Suspense>
         }
       />

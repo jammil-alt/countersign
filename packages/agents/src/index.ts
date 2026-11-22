@@ -23,6 +23,8 @@ export * from "./builder/guards";
 export * from "./builder/reshape";
 export * from "./builder/skill-draft";
 export * from "./errors";
+// docs/plan.md §1.217: the process interview
+export * from "./interview/interviewer";
 // v0.12 W2-D
 export * from "./log/account-port";
 export * from "./log/carried-actions";

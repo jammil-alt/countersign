@@ -11,6 +11,7 @@ import { codeRequestRoutes } from "./code-requests";
 import { connectorAccessRoutes } from "./connector-access";
 import { desktopRoutes } from "./desktop";
 import { opsIntakeRoutes, portalIntakeRoutes, welcomeRoutes } from "./intake";
+import { interviewRoutes } from "./interviews";
 import { inviteRoutes } from "./invite";
 import { manualRoutes } from "./manual";
 import { routes } from "./routes";
@@ -50,4 +51,6 @@ export const allRoutes = {
   ...assistRoutes,
   // docs/plan.md §1.204: the desktop app's pairing, folders and the computer's signed routes.
   ...desktopRoutes,
+  // docs/plan.md §1.217: the process interview; its page and its back-office screen load lazily.
+  ...interviewRoutes,
 } as const;

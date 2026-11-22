@@ -3412,6 +3412,30 @@ Connectors page's): connecting and disconnecting change the SOP, a failing sync 
 `decideToolCall`. 11: no bundle, instructions, prompts, budgets or cost; each AI step's model is
 named (owner, 2026-11-21); contract tests cover both routes.
 
+### 10.18 The process interview (owner, 2026-11-22; Wave X X3)
+
+The owner's build plan 8: before a client's agent is built, ask the person who does the work how
+it is done today. Outside v1's §1 scope with the owner's yes; what was built is `docs/plan.md`
+§1.217. The interview reuses what is there: the signed public link of a form request (§1.121),
+the intake's questions for the process's business area (§1.149.2), the documents capability's
+store for sample files, and the Builder's Draft it now (§1.165) with the reuse check's find pass
+(§1.125).
+
+| Part | Where it lives | Made by |
+|---|---|---|
+| The interview | `process_interview` (one client, one contact, one process): the questions and answers, the waiting question, the sample files, the outputs, the reuse check, the build | The operator starts it; the contact answers it on `/i/<token>` |
+| The next question | `nextQuestion` (`packages/agents/src/interview/`): one model call per answer, the interview so far as data | The model, held by code to one question and never a secret (core `oneQuestion`) |
+| The map and the open questions | `summarizeInterview`, then core `groundOutputs` | The model, held by code to the answers: a step names the answers it came from, or it comes off the map and is asked instead; an estimate is the person's mark |
+| The draft | A new agent build for the client, drafted at once from the map's numbered steps | The Builder (§1.165): approval on for every write, a person where the catalog has no part |
+| The reuse check | Per step of the map, the catalog's three best matches (§1.125's find pass, no judge) | Code |
+
+**Invariants.** 1: the link names one interview in one client; every read and write is in that
+client. 8: the draft starts with approval on, as every Builder draft does. 9: answers and file
+names are data in the prompt's tags, never instructions; the map is held to them by code. 11: the
+public page shows the client's name and the process, never an agent, a prompt or a cost; the
+contract test covers its routes. 14: the model calls are held to the client's HIPAA mode, which is
+checked before a link is made.
+
 ---
 
 ## 11. Inbox and threads

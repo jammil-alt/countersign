@@ -55,7 +55,15 @@ export const CLIENT_TABS: {
   // Setup's Connectors (§1.161).
   { id: "areas", label: "Areas", pages: [["areas", "Areas"]] },
   // §1.149: what we know about the client, from the first call on (operator only).
-  { id: "file", label: "File", pages: [["file", "Client file"]] },
+  // §1.217: process interviews with the client's people, beside the file.
+  {
+    id: "file",
+    label: "File",
+    pages: [
+      ["file", "Client file"],
+      ["interviews", "Interviews"],
+    ],
+  },
   {
     id: "data",
     label: "Data",
