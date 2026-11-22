@@ -40,7 +40,11 @@ import { gzipSync } from "node:zlib";
 // core's `about` filter add 0.5 kB to the first load. main was at 350.8 kB after the staging
 // walk-through (#523), so the 2% headroom H9 left is used up; the follow-ups above are what bring
 // it back down, and the next first-load feature should come with one of them.
-export const BUDGET_KB = 352;
+// DECISION (2026-11-22): lowered to 335 kB (docs/plan.md §1.208). English's wording loads on
+// demand like the other five languages (only the session's language is fetched, and the back
+// office's English with its chunk), so the first load measured 301.9 kB, down from 351.4 kB. 335 kB
+// leaves 33 kB of room, as round 4 asked (30 kB or more); phase 4's 300 kB is still the target.
+export const BUDGET_KB = 335;
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = process.argv[2] ?? join(root, "apps/web/dist");
