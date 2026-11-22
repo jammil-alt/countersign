@@ -2,7 +2,8 @@
 // Worker's role: a vendor tied to its QuickBooks vendor (kept, found by name, or a new one's id),
 // a chosen quote laid out as a QuickBooks purchase order's account lines in cents, a split ordered
 // as one order per vendor, and the back office's bill-price import paging to the end and safe to
-// run again. Client B never reaches client A's rows (invariant 1).
+// run again. C2.4: a catalog item tied to its QuickBooks item (by the import, by name, or given) is
+// ordered as an item line, the rest as account lines. Client B never reaches client A's rows (invariant 1).
 
 import { isoToday } from "@countersign/core";
 import { closeDb, createDb, type Db, tenant, vendor, withTenant } from "@countersign/db";
@@ -11,15 +12,17 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { importBillPrices, MATERIALS_ACTIONS } from "../api";
 import { insertShop, type ShopFixture } from "../testing.test-helper";
-import { type PackTool, packToolContext } from "../tools";
+import { catalogCreateItem, type PackTool, packToolContext } from "../tools";
 import { poContent } from "./po";
 import { cents } from "./qbo";
 import {
+  itemQboTool,
   poQboLinesTool,
   quoteCreate,
   quoteMarkSent,
   quoteRecord,
   requestCreate,
+  requestMatchLines,
   requestUpdate,
   vendorQboTool,
 } from "./tools";
@@ -381,14 +384,15 @@ describe.skipIf(!online)("QuickBooks pieces of the buyer (database)", () => {
       { from: "2026-08-01", to: "2026-08-31" },
       1,
     );
-    expect(first).toMatchObject({ bills: 3, recorded: 3, more: false });
+    // C2.4: the plywood is tied to the QuickBooks item its bill lines name, once.
+    expect(first).toMatchObject({ bills: 3, recorded: 3, more: false, qboItemsTied: 1 });
     expect(first.pages).toBeGreaterThanOrEqual(3);
     const again = await importBillPrices(
       db,
       { tenantId: A.tenantId, userId: A.userId },
       { from: "2026-08-01", to: "2026-08-31" },
     );
-    expect(again).toMatchObject({ recorded: 0, alreadyRecorded: 3 });
+    expect(again).toMatchObject({ recorded: 0, alreadyRecorded: 3, qboItemsTied: 0 });
     // B has no bills of A's to read; the action checks its range.
     expect(
       await importBillPrices(
@@ -400,5 +404,92 @@ describe.skipIf(!online)("QuickBooks pieces of the buyer (database)", () => {
     const action = MATERIALS_ACTIONS["import-bill-prices"];
     expect(action?.input.safeParse({ from: "2026-09-01", to: "2026-08-01" }).success).toBe(false);
     expect(action?.input.safeParse({ from: "2026-08-01", to: "2026-08-31" }).success).toBe(true);
+  });
+
+  // C2.4 (docs/plan.md §1.193): after the import above tied the plywood to QuickBooks item 10.
+  it("orders a tied item as a QuickBooks item line and the rest as account lines", async () => {
+    const r = await call(requestCreate, {
+      channel: "email",
+      lines: [
+        { description: "3/4 BB/BB BALTIC BIRCH 5X5", qty: "3", unit: "sheets" },
+        { description: "4/4 RED OAK FAS", qty: "150", unit: "BF" },
+      ],
+    });
+    // The oak isn't in the catalog yet: added, and a person says the line is it.
+    const oakItem = await call(catalogCreateItem, { description: "4/4 RED OAK FAS" });
+    const matched = await call(requestMatchLines, {
+      requestId: r.request.id,
+      choices: [{ lineId: r.request.lines[1].id, catalogItemId: oakItem.item.id }],
+    });
+    const [bb, oak] = matched.request.lines.map((l: J) => l.catalogItemId as string);
+    expect(bb).toBeTruthy();
+    expect(oak).toBe(oakItem.item.id);
+    const rfq = await call(quoteCreate, { requestId: r.request.id, vendorIds: [v.keystone] });
+    const quoteId = rfq.quotes[0].id;
+    await call(quoteMarkSent, { quoteRequestId: quoteId, sentVia: "email" });
+    await call(quoteRecord, {
+      quoteRequestId: quoteId,
+      lines: [
+        { requestLineId: r.request.lines[0].id, unitPrice: "61.3333", unit: "SHT" },
+        { requestLineId: r.request.lines[1].id, unitPrice: "4.605", unit: "BF" },
+      ],
+    });
+    const input = { requestId: r.request.id, quoteRequestId: quoteId, txnDate: "2026-11-08" };
+
+    // The plywood's tie is kept; another id for it is refused; B can't reach A's item.
+    expect(await call(itemQboTool, { catalogItemId: bb })).toMatchObject({
+      qboItemId: "10",
+      how: "stored",
+    });
+    expect(await fails(itemQboTool, { catalogItemId: bb, qboItemId: "11" })).toMatch(
+      /already QuickBooks item 10/,
+    );
+    expect(await fails(itemQboTool, { catalogItemId: bb }, B)).toMatch(/not found/);
+
+    // The oak has no QuickBooks item: its line needs the expense account, and says so.
+    expect(await fails(poQboLinesTool, input)).toMatch(/line 2 has no QuickBooks item/);
+    const mixed = await call(poQboLinesTool, { ...input, accountId: "33" });
+    expect(mixed.order.lines).toEqual([
+      {
+        itemId: "10",
+        description: expect.stringContaining("3 SHT at 61.3333"),
+        qty: "3",
+        unitPrice: "61.3333",
+        amount: "184.00",
+      },
+      { accountId: "33", description: expect.any(String), amount: "690.75" },
+    ]);
+    expect(mixed.order.expectedTotal).toBe("874.75");
+    expect(mixed.untied).toEqual([{ catalogItemId: oak, name: expect.any(String) }]);
+    expect(mixed.sources).toEqual(expect.arrayContaining([bb, oak]));
+
+    // Not tied by a name that two QuickBooks items share, nor by a category or an inactive one.
+    const { searchName } = await call(itemQboTool, { catalogItemId: oak });
+    const none = await call(itemQboTool, {
+      catalogItemId: oak,
+      qboItems: [
+        { id: "40", name: searchName },
+        { id: "41", name: `${searchName}.` },
+        { id: "42", name: searchName, type: "Category" },
+        { id: "43", name: searchName, active: false },
+      ],
+    });
+    expect(none).toMatchObject({ qboItemId: null, how: null });
+    // The one active item of the same name (case and spacing aside) is it, and is kept.
+    const found = await call(itemQboTool, {
+      catalogItemId: oak,
+      qboItems: [
+        { id: "41", name: `  ${searchName.toUpperCase()} ` },
+        { id: "42", name: searchName, type: "Category" },
+      ],
+    });
+    expect(found).toMatchObject({ qboItemId: "41", how: "found" });
+    // Every line an item line: no expense account needed.
+    const items = await call(poQboLinesTool, input);
+    expect(items.order.lines.map((l: J) => [l.itemId, l.accountId])).toEqual([
+      ["10", undefined],
+      ["41", undefined],
+    ]);
+    expect(items.untied).toEqual([]);
   });
 });

@@ -673,6 +673,38 @@ describe("qbo.purchaseorder.create", () => {
     expect(s.qbo.apiCalls("POST", "purchaseorder")).toHaveLength(0);
   });
 
+  it("C2.4: refuses an item line whose item isn't the company's, is inactive or is a category, at both ends", async () => {
+    const s = await setup();
+    const withItem = (itemId: string) => ({
+      ...po,
+      lines: [{ ...po.lines[0], itemId }, po.lines[1]],
+    });
+    expect(
+      await refusal(
+        captureBefore(s.connector, QBO_TOOLS.purchaseOrderCreate, withItem("999"), s.propose()),
+      ),
+    ).toMatch(/item 999 isn't one of this company's/);
+    s.qbo.put("Item", { Id: "61", Name: "Old plywood", Type: "NonInventory", Active: false });
+    s.qbo.put("Item", { Id: "62", Name: "Sheet goods", Type: "Category", Active: true });
+    expect(
+      await refusal(
+        captureBefore(s.connector, QBO_TOOLS.purchaseOrderCreate, withItem("61"), s.propose()),
+      ),
+    ).toMatch(/item 61 is inactive/);
+    expect(
+      await refusal(
+        captureBefore(s.connector, QBO_TOOLS.purchaseOrderCreate, withItem("62"), s.propose()),
+      ),
+    ).toMatch(/item 62 is a category/);
+    // Proposed with a good item, which someone made inactive before the write: refused then too.
+    await captureBefore(s.connector, QBO_TOOLS.purchaseOrderCreate, po, s.propose());
+    s.qbo.put("Item", { ...(s.qbo.get("Item", "22") as object), Active: false });
+    expect(
+      await refusal(executeWrite(s.connector, QBO_TOOLS.purchaseOrderCreate, po, s.ctx())),
+    ).toMatch(/item 22 is inactive/);
+    expect(s.qbo.apiCalls("POST", "purchaseorder")).toHaveLength(0);
+  });
+
   it("validates its input: item lines are qty × unit price, the expected date follows the order", async () => {
     const s = await setup();
     expect(

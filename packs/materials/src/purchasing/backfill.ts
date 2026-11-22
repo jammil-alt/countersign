@@ -5,11 +5,13 @@
 // every key attribute is stated). Each priced line fills the vendor catalog (§1.189). Lines the rules aren't sure of are counted and listed for review, never
 // guessed. Idempotent: one observation per bill line, so a re-run adds nothing twice.
 // What it can't use (account lines, lines without a quantity) is in packs/materials/NOTES.md.
+// C2.4 (docs/plan.md §1.193): a matched line's QuickBooks item becomes its catalog item's, when it
+// has none, so purchase orders order it as that item.
 
 import { dec, type QboLine, QboTransactionRaw, qboAmount, toNumeric } from "@countersign/core";
 import { type Db, rawRecord, transaction, withTenant } from "@countersign/db";
 import { and, asc, eq, gt, gte, inArray, isNotNull, lte, or } from "drizzle-orm";
-import { learnAlias } from "../catalog/store";
+import { learnAlias, liveItem } from "../catalog/store";
 import { convert, PACKAGING_UOMS } from "../pricing/uom";
 import { priceObservation } from "../schema";
 import {
@@ -20,6 +22,7 @@ import {
   type VendorItemRow,
 } from "../vendor/store";
 import { matchText, type TextCandidate } from "./match-text";
+import { keepQboItem } from "./qbo";
 import type { PurchasingContext } from "./requests";
 
 export const BACKFILL_DEFAULT_LIMIT = 200;
@@ -46,6 +49,8 @@ export interface BackfillResult {
   newItems: number;
   /** Vendor items this call added to the vendor catalog (§1.189). */
   newVendorItems: number;
+  /** C2.4: catalog items this call tied to the QuickBooks item their bill line named. */
+  qboItemsTied: number;
   needsReview: number;
   /** Item lines without a quantity or unit price, or with no conversion rule. */
   skipped: number;
@@ -105,6 +110,7 @@ export async function backfillFromBills(
     matched: 0,
     newItems: 0,
     newVendorItems: 0,
+    qboItemsTied: 0,
     needsReview: 0,
     skipped: 0,
     review: [],
@@ -147,7 +153,8 @@ export async function backfillFromBills(
     const page = bills.slice(0, limit);
     const last = page.at(-1);
     if (bills.length > limit && last) out.next = `${last.t.txnDate}:${last.t.id}`;
-    const recorded = new Set(
+    // C2.4: each priced line's catalog item, so a line priced before items were tied ties now.
+    const recorded = new Map(
       page.length === 0
         ? []
         : (
@@ -155,6 +162,7 @@ export async function backfillFromBills(
               .select({
                 transactionId: priceObservation.transactionId,
                 line: priceObservation.rawLineId,
+                catalogItemId: priceObservation.catalogItemId,
               })
               .from(priceObservation)
               .where(
@@ -167,8 +175,17 @@ export async function backfillFromBills(
                   ),
                 ),
               )
-          ).map((r) => `${r.transactionId}:${r.line}`),
+          ).map((r) => [`${r.transactionId}:${r.line}`, r.catalogItemId] as const),
     );
+    // DECISION (C2.4): the QuickBooks item the client booked a matched bill line to is its catalog
+    // item's, kept only when the item has none (the first bill read wins; a person changes it).
+    // Generic items ("Materials") tie too: that is how the client books them, so a PO books them
+    // the same way. A test run keeps nothing.
+    const tie = async (catalogItemId: string, l: QboLine) => {
+      const qboItemId = l.ItemBasedExpenseLineDetail?.ItemRef?.value;
+      if (ctx.testRun || !qboItemId || !/^[0-9]{1,20}$/.test(qboItemId)) return;
+      if (await keepQboItem(tx, ctx.tenantId, catalogItemId, qboItemId)) out.qboItemsTied++;
+    };
     for (const { t, raw } of page) {
       if (raw.isDeleted || raw.entityType !== "Bill") continue;
       const parsed = QboTransactionRaw.safeParse(raw.payload);
@@ -189,8 +206,12 @@ export async function backfillFromBills(
         // has none), across the bill's versions: a bill edited after its prices were recorded
         // keeps the first price.
         const lineId = l.Id ?? `#${i + 1}`;
-        if (recorded.has(`${t.id}:${lineId}`)) {
+        const priced = recorded.get(`${t.id}:${lineId}`);
+        if (priced !== undefined) {
           out.alreadyRecorded++;
+          // Its item may since have been merged into another: the live one is tied.
+          const live = await liveItem(tx, ctx.tenantId, priced);
+          if (live) await tie(live.id, l);
           continue;
         }
         const line = itemLine(l);
@@ -224,6 +245,7 @@ export async function backfillFromBills(
         }
         if (m.decision === "new_item") out.newItems++;
         else out.matched++;
+        await tie(m.item.id, l);
         // DECISION (§1.189): a line named by the vendor's box, case or pail (its SKU or name in
         // the vendor catalog, or an alias of the vendor's that names that item) is in that pack, of which QuickBooks gives no unit: no price is
         // read from it (invariant 7), since its quantity may be packs or what they hold.
@@ -324,7 +346,7 @@ export async function backfillFromBills(
           .returning({ id: priceObservation.id });
         if (row) {
           out.recorded++;
-          recorded.add(`${t.id}:${lineId}`);
+          recorded.set(`${t.id}:${lineId}`, m.item.id);
           out.sources.push(row.id);
           const last = viFits
             ? priceForVendorItem(viFits, {
