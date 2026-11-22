@@ -48,6 +48,6 @@ export const allRoutes = {
   ...connectorAccessRoutes,
   // docs/plan.md §1.168: Draft for long text fields; its sheet loads lazily with the field.
   ...assistRoutes,
-  // docs/plan.md §1.193: the desktop app's pairing, folders and the computer's signed routes.
+  // docs/plan.md §1.199: the desktop app's pairing, folders and the computer's signed routes.
   ...desktopRoutes,
 } as const;
