@@ -609,6 +609,57 @@ button.sop-party:hover {
 .sop-path b {
   color: var(--ink);
 }
+/* The Workflow tab (docs/sop-plan.md §6a): the builder's chart, read only, with a step's card beside
+ * it when one is open (under it on a narrow screen). Tokens only; borders, not shadows. */
+.sop-wf-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+.sop-wf {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+}
+@media (min-width: 900px) {
+  .sop-wf--open {
+    grid-template-columns: minmax(0, 1fr) 340px;
+  }
+}
+.sop-wf__chart {
+  height: min(70vh, 640px);
+  min-height: 420px;
+}
+.sop-wf__card {
+  align-self: start;
+  padding: var(--space-4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--paper);
+}
+.sop-wf__rows {
+  display: grid;
+  gap: 6px;
+  margin-top: var(--space-3);
+  font-size: 13px;
+}
+.sop-wf__rows > div {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: var(--space-2);
+}
+.sop-wf__rows dt {
+  color: var(--ink-muted);
+}
+.sop-wf__foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--line);
+}
 /* The path's letter, as on the chart's label ("A", "B"): the step numbers under it read "5 A1". */
 .sop-path__letter {
   margin-right: 6px;

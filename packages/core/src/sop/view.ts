@@ -94,6 +94,56 @@ export const SopPathLine = z.object({
 });
 export type SopPathLine = z.infer<typeof SopPathLine>;
 
+/**
+ * The shape of the process, for the client's view-only chart (docs/sop-plan.md §6a): each step's
+ * id, number, kind and where it sits, a decision's paths with their letters and words. Nothing
+ * else: what a box says comes from the step's line (by id), never from the bundle (invariant 11).
+ */
+export const SOP_CHART_KINDS = [
+  "read",
+  "skill",
+  "write",
+  "person",
+  "conversation",
+  "notify",
+  "wait",
+  "stop",
+  "process",
+  "handoff",
+  "missing",
+  "if",
+  "for_each",
+  "repeat",
+] as const;
+export const SopChartKind = z.enum(SOP_CHART_KINDS);
+export type SopChartKind = z.infer<typeof SopChartKind>;
+
+export const SopOutlineStep = z.object({
+  id: z.string(),
+  number: z.string(),
+  /** The workflow it is in, when the agent has more than one (as the step line says). */
+  workflow: z.string().nullable(),
+  kind: SopChartKind,
+  /** Where it sits, as the builder names it: `root`, `path:<id>`, `otherwise:<id>`, `loop:<id>`. */
+  container: z.string(),
+  depth: z.number().int().min(0),
+  /** A decision's paths in order, then Otherwise. */
+  paths: z
+    .array(
+      z.object({
+        id: z.string(),
+        letter: z.string(),
+        /** The name the operator gave the path, as the builder labels it; "" for Otherwise. */
+        name: z.string(),
+        /** What sends a run down it, in words, as the SOP's path line says it. */
+        words: z.string(),
+        otherwise: z.boolean(),
+      }),
+    )
+    .nullable(),
+});
+export type SopOutlineStep = z.infer<typeof SopOutlineStep>;
+
 export const SopProcedureLine = z.discriminatedUnion("line", [SopStepLine, SopPathLine]);
 export type SopProcedureLine = z.infer<typeof SopProcedureLine>;
 
@@ -235,6 +285,8 @@ export const SopView = z
       writesByRules: z.boolean(),
     }),
     procedure: z.array(SopProcedureLine),
+    /** The process's shape for the view-only chart; empty in a revision made before it. */
+    outline: z.array(SopOutlineStep).default([]),
     controls: z.array(SopControl),
     systems: z.array(SopSystem),
     data: z.array(SopData),

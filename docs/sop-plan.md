@@ -212,10 +212,12 @@ chart, which the client can read but not change. Mock-up screen 6 of `docs/desig
 - **"Rules" or "code".** The box says "code" for a step no model does, the step palette says
   "Deterministic", and the SOP says "Rules". The client's chart says "rules", as their SOP does;
   whether the builder should say it too is the owner's call (§7).
-- **Tooltips:** pointing at a box, tabbing to it or tapping it shows its card: the step's purpose,
-  who does it and how, who signs and by when, the tool and its level, what happens if it's rejected
-  or fails, its controls, and links to that step in the SOP and to "Ask about this". Keyboard and
-  touch get the same card as hover.
+- **Tooltips and the card:** pointing at a box shows the chart's own tip with the box's words.
+  Clicking or tapping it, or pressing Enter on it, opens its card beside the chart (under it on a
+  phone): the step's purpose, who does it and how, who signs and by when, the tool and its level,
+  what happens if it's rejected or fails, who is told, its controls, and links to that step in the
+  SOP, to "Ask about this" and to "This is wrong". // DECISION (built): the card opens on a click
+  rather than on hover, so it can hold links and stays open while the person reads it.
 - **"Ask for a change"** opens a request to us, as the SOP's "This is wrong" does. A change we make
   becomes a new SOP revision, and the chart follows it.
 - **Where the data comes from:** not the agent's bundle (invariant 11: no portal route returns
@@ -225,6 +227,18 @@ chart, which the client can read but not change. Mock-up screen 6 of `docs/desig
   older versions in `ReadOnlyFlow`) fed from that outline. So the chart, the tooltips and the SOP
   can't disagree. A contract test holds the outline to its fields and the forbidden-field list.
   // DECISION
+- **Built (W, 2026-11-22).** `SopView.outline` in core: per step its id, number, workflow, kind as
+  the chart draws it (a v3 action that writes is a write, else a read; a fork a decision), its
+  container as the builder names it, its depth, and a decision's paths (letter, name, words). It
+  rides on `GET /api/services/:id/sop`, so the tab has no route of its own, and it is left out of
+  the fingerprint, so adding it made no revision. The tab's address is `/agents/:id/flow`: the
+  portal's guard test keeps "workflow" out of every client path. Web: `apps/web/src/sop/chart.ts` turns it into the
+  chart's process and each box's words; `portal/screens/AgentWorkflow.tsx` is the tab. The chart
+  gained two small options: the host names the no-model chip (the client's says "rules"), and a
+  repeat with no limit given reads "Again until done". Read only, a box no longer carries the drag
+  library's `aria-disabled`. Left: the chart's own few words (its zoom buttons, "Otherwise", "Click
+  to see it.") are English, as in the builder; a v3 skill that wraps a tool shows as a rules skill,
+  where the builder, which has the catalog, shows a read.
 - **Print and share** stay with the SOP's list; the chart is for the screen.
 
 ## 7. Questions for the owner
@@ -256,7 +270,7 @@ Each ends green (`pnpm check`). Migrations go in their own PR and keep the previ
 | **S0** (built, PR #510) | Fix: the manual's route on `ASSIGNED_USER_ROUTES`, with a test that a limited client user opens their agent's manual and gets 404 for another's | None |
 | **S1a: revisions' table** (built, PR #511) | `sop_revision` (§6): tenant, RLS forced, never updated or deleted. Nothing reads or writes it yet, so the Worker before it keeps working. | `sop_revision`, own PR |
 | **S1: the SOP** (built, PR #508) | ARCHITECTURE v0.21 §10.17 and a `docs/plan.md` §1 entry. Core `sop/`: `SopView` (Zod), `sopView()` and its parts (`sopRoles`, `sopSteps` with each step's method and model, `sopControls`, `sopSystems`, `sopData`, `sopExceptions`), `sopChanges()`, paths in plain words in core (`pathWords`; the builder keeps its `ruleText`), v3 steps read for their tools as v4's are. The step's `purpose` in core's schemas and a box for it in the builder's step panel (the Builder writing it is SOP-B). Revisions: `recordSopRevision` at every change site with a test listing them, the hourly check, each agent's first revision. API: `GET /api/services/:id/sop` (portal, on `ASSIGNED_USER_ROUTES`) and `GET /api/ops/agents/:id/sop`, gathering the inputs in one transaction inside `withTenant()`, names resolved within the client. Web: `apps/web/src/sop/` (shared sections, from `ManualSections`), the portal's SOP tab in place of Manual, the revision header and history, find and filter, the print layout. Six languages. Contract tests for both routes. | None beyond S1a |
-| **W: the workflow, view only** | §6a. Core: `SopView.outline` (step id, kind, number, parent, paths) built by the same walk as the procedure, with a test that every outline step has its step line. Web: the portal's Workflow tab, the builder's `Chart` adapted to draw from the outline (read only, no drag context), each box's card from the step line, by hover, focus and tap. Contract test for the outline's fields. Six languages. | None |
+| **W: the workflow, view only** (built, PR below #508) | §6a. Core: `SopView.outline` (step id, kind, number, parent, paths) built by the same walk as the procedure, with a test that every outline step has its step line. Web: the portal's Workflow tab, the builder's `Chart` adapted to draw from the outline (read only, no drag context), each box's card from the step line, by hover, focus and tap. Contract test for the outline's fields. Six languages. | None |
 | **S2: ask, across agents** | Sloan's `sop.read` (its fixtures re-recorded). The Procedures page with filters across every agent's SOP. | None |
 | **S3: share, owners, pack controls** | `sop_share` (token hash, revision, expiry, revoked, who made it, names on or off) and its public page, with a security review and a row in `docs/security.md`; the accountable person on the agent row; `SkillDefinition.controls` and the Materials and Bookkeeping packs' controls. Only what the owner agrees in §7. No sign-off of revisions (owner, 2026-11-21). | One per table, own PRs |
 

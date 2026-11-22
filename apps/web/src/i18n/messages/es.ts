@@ -2399,6 +2399,40 @@ export const es: Messages = {
   "sop.col.date": "Fecha", // fluent review
   "sop.col.changes": "Qué cambió", // fluent review
   "sop.col.by": "Cambiado por", // fluent review
+  "agent.tab.workflow": "Flujo de trabajo", // fluent review
+  "workflow.viewOnly": "Solo lectura", // fluent review
+  "workflow.revision": "Revisión {number}", // fluent review
+  "workflow.hint": "Señale un paso para ver qué hace; haga clic para ver su ficha.", // fluent review
+  "workflow.which": "Qué flujo", // fluent review
+  "workflow.askChange": "Pedir un cambio", // fluent review
+  "workflow.changeLine": "Flujo de trabajo de {agent}", // fluent review
+  "workflow.empty": "Este agente aún no tiene pasos.", // fluent review
+  "workflow.foot":
+    "Ve cada paso, quién lo hace, cómo decide y su configuración; aquí no puede cambiarlos. Nosotros cambiamos los pasos, y cada cambio es una nueva revisión del SOP.", // fluent review
+  "workflow.noModel": "reglas", // fluent review
+  "workflow.noModel.title": "Funciona con reglas, sin IA", // fluent review
+  "workflow.rulesThenAi": "Primero reglas, luego IA", // fluent review
+  "workflow.kind.read": "Leer", // fluent review
+  "workflow.kind.change": "Cambio", // fluent review
+  "workflow.kind.person": "Persona", // fluent review
+  "workflow.kind.conversation": "Conversación", // fluent review
+  "workflow.kind.notify": "Avisar", // fluent review
+  "workflow.kind.wait": "Esperar", // fluent review
+  "workflow.kind.stop": "Parar", // fluent review
+  "workflow.kind.process": "Automatización", // fluent review
+  "workflow.kind.handoff": "Traspaso", // fluent review
+  "workflow.kind.decision": "Decisión", // fluent review
+  "workflow.kind.forEach": "Para cada uno", // fluent review
+  "workflow.kind.repeat": "Repetir", // fluent review
+  "workflow.kind.aiSkill": "Habilidad de IA", // fluent review
+  "workflow.kind.rulesSkill": "Habilidad por reglas", // fluent review
+  "workflow.aPerson": "Una persona", // fluent review
+  "workflow.card.doneBy": "Lo hace", // fluent review
+  "workflow.card.deadline": "Para cuándo", // fluent review
+  "workflow.card.ifRejected": "Si se rechaza", // fluent review
+  "workflow.card.ifFails": "Si falla", // fluent review
+  "workflow.card.inSop": "Paso {step} en el SOP", // fluent review
+  "workflow.close": "Cerrar", // fluent review
   "manual.whatItDoes": "Qué hace", // fluent review
   "manual.howItWorks": "Cómo funciona", // fluent review
   "manual.decisions": "Decisiones", // fluent review

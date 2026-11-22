@@ -2400,6 +2400,40 @@ export const ptBR: Messages = {
   "sop.col.date": "Data", // fluent review
   "sop.col.changes": "O que mudou", // fluent review
   "sop.col.by": "Alterado por", // fluent review
+  "agent.tab.workflow": "Fluxo de trabalho", // fluent review
+  "workflow.viewOnly": "Somente leitura", // fluent review
+  "workflow.revision": "Revisão {number}", // fluent review
+  "workflow.hint": "Aponte para uma etapa para ver o que ela faz; clique para ver o cartão.", // fluent review
+  "workflow.which": "Qual fluxo", // fluent review
+  "workflow.askChange": "Pedir uma alteração", // fluent review
+  "workflow.changeLine": "Fluxo de trabalho de {agent}", // fluent review
+  "workflow.empty": "Este agente ainda não tem etapas.", // fluent review
+  "workflow.foot":
+    "Você vê cada etapa, quem a faz, como decide e suas configurações; aqui não é possível alterá-las. Nós alteramos as etapas, e cada alteração vira uma nova revisão do POP.", // fluent review
+  "workflow.noModel": "regras", // fluent review
+  "workflow.noModel.title": "Funciona por regras, sem IA", // fluent review
+  "workflow.rulesThenAi": "Primeiro regras, depois IA", // fluent review
+  "workflow.kind.read": "Ler", // fluent review
+  "workflow.kind.change": "Alterar", // fluent review
+  "workflow.kind.person": "Pessoa", // fluent review
+  "workflow.kind.conversation": "Conversa", // fluent review
+  "workflow.kind.notify": "Avisar", // fluent review
+  "workflow.kind.wait": "Esperar", // fluent review
+  "workflow.kind.stop": "Parar", // fluent review
+  "workflow.kind.process": "Automação", // fluent review
+  "workflow.kind.handoff": "Repasse", // fluent review
+  "workflow.kind.decision": "Decisão", // fluent review
+  "workflow.kind.forEach": "Para cada", // fluent review
+  "workflow.kind.repeat": "Repetir", // fluent review
+  "workflow.kind.aiSkill": "Habilidade de IA", // fluent review
+  "workflow.kind.rulesSkill": "Habilidade por regras", // fluent review
+  "workflow.aPerson": "Uma pessoa", // fluent review
+  "workflow.card.doneBy": "Feito por", // fluent review
+  "workflow.card.deadline": "Até quando", // fluent review
+  "workflow.card.ifRejected": "Se rejeitado", // fluent review
+  "workflow.card.ifFails": "Se falhar", // fluent review
+  "workflow.card.inSop": "Etapa {step} no POP", // fluent review
+  "workflow.close": "Fechar", // fluent review
   "manual.whatItDoes": "O que faz", // fluent review
   "manual.howItWorks": "Como funciona", // fluent review
   "manual.decisions": "Decisões", // fluent review

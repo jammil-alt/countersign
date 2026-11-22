@@ -95,6 +95,7 @@ export const portalRoutes = (
     <Route path="agents/:id" element={<AgentScreen tab="overview" />} />
     <Route path="agents/:id/runs" element={<AgentScreen tab="runs" />} />
     {/* docs/sop-plan.md S1: the agent's SOP, read only, in the manual's place */}
+    <Route path="agents/:id/flow" element={<AgentScreen tab="workflow" />} />
     <Route path="agents/:id/sop" element={<AgentScreen tab="sop" />} />
     <Route path="agents/:id/manual" element={<Redirect to="/agents/:id/sop" />} />
     <Route path="agents/:id/settings" element={<AgentScreen tab="settings" />} />

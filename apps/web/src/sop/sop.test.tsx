@@ -170,6 +170,54 @@ const VIEW: SopView = {
       controls: ["C1", "C2"],
     }),
   ],
+  // docs/sop-plan.md §6a: the shape the Workflow tab draws.
+  outline: [
+    {
+      id: "read",
+      number: "1",
+      workflow: null,
+      kind: "skill",
+      container: "root",
+      depth: 0,
+      paths: null,
+    },
+    {
+      id: "look",
+      number: "2",
+      workflow: null,
+      kind: "if",
+      container: "root",
+      depth: 0,
+      paths: [
+        {
+          id: "pa",
+          letter: "A",
+          name: "Flagged",
+          words: "a price alert or a new vendor",
+          otherwise: false,
+        },
+        { id: "po", letter: "B", name: "", words: "", otherwise: true },
+      ],
+    },
+    {
+      id: "review",
+      number: "2 A1",
+      workflow: null,
+      kind: "person",
+      container: "path:pa",
+      depth: 1,
+      paths: null,
+    },
+    {
+      id: "create",
+      number: "3",
+      workflow: null,
+      kind: "write",
+      container: "root",
+      depth: 0,
+      paths: null,
+    },
+  ],
   controls: [
     {
       id: "C1",
@@ -392,5 +440,68 @@ describe("the portal's SOP tab", () => {
     await userEvent.setup().click(screen.getByTestId("sop-print"));
     window.print = original;
     expect(printed).toEqual(["print"]);
+  });
+});
+
+describe("the portal's Workflow tab (docs/sop-plan.md §6a)", () => {
+  it("draws the process from the SOP, between Runs and SOP, with nothing to edit", async () => {
+    const api = portal(`/agents/${SVC}/flow`);
+    await screen.findByTestId("workflow-chart");
+    // It reads the SOP's own route, never the bundle: no other agent route is called.
+    expect(api.calls).toContain(`GET /api/services/${SVC}/sop`);
+    expect(api.calls.filter((c) => c.includes("/workflow") || c.includes("/bundle"))).toEqual([]);
+    const tabs = screen
+      .getAllByRole("link")
+      .filter((l) => l.getAttribute("href")?.startsWith(`/agents/${SVC}`))
+      .map((l) => l.textContent);
+    expect(tabs.indexOf("Workflow")).toBe(tabs.indexOf("Runs") + 1);
+    expect(tabs.indexOf("SOP")).toBe(tabs.indexOf("Workflow") + 1);
+    expect(screen.getByTestId("workflow-view-only")).toHaveTextContent("View only");
+    // Every step of the outline is a box, numbered as the SOP numbers it.
+    for (const id of ["read", "review", "create"]) {
+      expect(screen.getByTestId(`flow-box-${id}`)).toBeInTheDocument();
+    }
+    expect(screen.getByTestId("flow-box-review")).toHaveTextContent("2 A1");
+    // A path's label is its name, as in the builder.
+    expect(screen.getByTestId("flow-path-pa")).toHaveTextContent("Flagged");
+    // Who does it, in the client's words: the model in a word, "rules", "person".
+    expect(screen.getByTestId("flow-doer-read")).toHaveTextContent("Sonnet");
+    expect(screen.getByTestId("flow-doer-create")).toHaveTextContent("rules");
+    expect(screen.getByTestId("flow-doer-review")).toHaveTextContent("person");
+    expect(screen.getByTestId("flow-box-create")).toHaveTextContent("QuickBooks Online");
+    // A box opens its card, so it isn't announced as a disabled draggable.
+    expect(screen.getByTestId("flow-box-create")).not.toHaveAttribute("aria-disabled");
+    // Read only: no +, no dots to connect, no "add a path".
+    expect(screen.queryByTestId(/^flow-insert-/)).toBeNull();
+    expect(screen.queryByTestId(/^flow-dot-/)).toBeNull();
+    expect(screen.queryByTestId(/^flow-add-path-/)).toBeNull();
+  });
+
+  it("opens a step's card from the SOP's line, by keyboard or click, with its links", async () => {
+    const user = userEvent.setup();
+    portal(`/agents/${SVC}/flow`);
+    const box = await screen.findByTestId("flow-box-create");
+    box.focus();
+    await user.keyboard("{Enter}");
+    const card = await screen.findByTestId("workflow-card");
+    expect(card).toHaveTextContent("Create the bill in QuickBooks");
+    expect(card).toHaveTextContent("Writes the bill exactly as approved.");
+    expect(card).toHaveTextContent("Ada Ruiz over $5,000; Ben Ortiz up to $5,000");
+    expect(card).toHaveTextContent("2 business days");
+    expect(card).toHaveTextContent("Create: Ask me first");
+    expect(card).toHaveTextContent("the change isn't made and the run stops");
+    expect(card).toHaveTextContent("C1, C2");
+    expect(within(card).getByTestId("workflow-card-sop")).toHaveAttribute(
+      "href",
+      `/agents/${SVC}/sop#sop-step-create`,
+    );
+    expect(within(card).getByTestId("workflow-card-ask").getAttribute("href")).toContain("ask=");
+    // No setting on it is a control.
+    expect(within(card).queryByRole("textbox")).toBeNull();
+    expect(within(card).queryByRole("combobox")).toBeNull();
+    await user.click(within(card).getByTestId("workflow-card-close"));
+    expect(screen.queryByTestId("workflow-card")).toBeNull();
+    await user.click(screen.getByTestId("flow-box-review"));
+    expect(await screen.findByTestId("workflow-card")).toHaveTextContent("Cara Lin");
   });
 });

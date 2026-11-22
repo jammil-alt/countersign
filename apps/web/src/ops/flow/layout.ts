@@ -462,7 +462,10 @@ export function layoutFlow(process: Pick<Process, "steps">, options: LayoutOptio
           text:
             st.kind === "for_each"
               ? "Once for each item"
-              : `Again until done · up to ${st.maxTimes} ${st.maxTimes === 1 ? "time" : "times"}`,
+              : st.maxTimes
+                ? `Again until done · up to ${st.maxTimes} ${st.maxTimes === 1 ? "time" : "times"}`
+                : // The client's chart (docs/sop-plan.md §6a) is drawn without the loop's limit.
+                  "Again until done",
           unreachable: !live,
         });
         boxes.push({
