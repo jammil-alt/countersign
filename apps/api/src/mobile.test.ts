@@ -250,6 +250,114 @@ describe.skipIf(!h)("signing a Desk item on a phone", () => {
   });
 });
 
+describe.skipIf(!h)("the signed text v2: an answer's text and a note (§1.193)", () => {
+  async function setupV2(title: string) {
+    const key = await phoneKey();
+    const r = await H.call(admin("a"), "POST", "/api/me/devices", {
+      name: "Phone",
+      platform: "ios",
+      pushToken: null,
+      publicKey: key.publicKey,
+    });
+    const deviceId = j(r.json).device.id as string;
+    const [row] = await H.t.db
+      .insert(inboxItem)
+      .values({
+        tenantId: H.A.tenantId,
+        kind: "request",
+        assigneeRole: "client_admin",
+        title,
+        payload: {},
+      })
+      .returning();
+    const itemId = row?.id as string;
+    const shown = j((await H.call(admin("a"), "GET", "/api/inbox")).json).items.find(
+      (i: { id: string }) => i.id === itemId,
+    );
+    const fingerprint = await sha256Hex(itemFingerprintText(shown));
+    const at = new Date().toISOString();
+    const sign = (answer: string | undefined, note: string | undefined, version?: "v2") =>
+      key.sign(
+        deviceSignedText({
+          deviceId,
+          itemId,
+          decision: "approve",
+          fingerprint,
+          at,
+          ...(version ? { version, answer, note } : {}),
+        }),
+      );
+    return { deviceId, itemId, fingerprint, at, sign };
+  }
+
+  it("takes a v2 signature over the answer and the note, and records the version", async () => {
+    const { deviceId, itemId, fingerprint, at, sign } = await setupV2("When can we ship?");
+    const r = await H.call(admin("a"), "POST", `/api/inbox/${itemId}/resolve`, {
+      decision: "approve",
+      answer: "Tuesday",
+      note: "Checked with the warehouse",
+      deviceSignature: {
+        deviceId,
+        at,
+        fingerprint,
+        signature: await sign("Tuesday", "Checked with the warehouse", "v2"),
+        version: "v2",
+      },
+    });
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    const audits = await H.t.db
+      .select()
+      .from(auditEvent)
+      .where(
+        and(eq(auditEvent.tenantId, H.A.tenantId), eq(auditEvent.action, "inbox.device_signed")),
+      );
+    expect(audits.map((a) => a.target)).toContainEqual(
+      expect.objectContaining({ item: itemId, version: "v2" }),
+    );
+  });
+
+  it("still takes a v1 signature with an answer, as phones in the field send it", async () => {
+    const { deviceId, itemId, fingerprint, at, sign } = await setupV2("Which dock?");
+    const r = await H.call(admin("a"), "POST", `/api/inbox/${itemId}/resolve`, {
+      decision: "approve",
+      answer: "Dock 2",
+      deviceSignature: { deviceId, at, fingerprint, signature: await sign(undefined, undefined) },
+    });
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    const audits = await H.t.db
+      .select()
+      .from(auditEvent)
+      .where(
+        and(eq(auditEvent.tenantId, H.A.tenantId), eq(auditEvent.action, "inbox.device_signed")),
+      );
+    expect(audits.map((a) => a.target)).toContainEqual(
+      expect.objectContaining({ item: itemId, version: "v1" }),
+    );
+  });
+
+  it("refuses a tampered v2: another answer, another note, or the version taken off", async () => {
+    const { deviceId, itemId, fingerprint, at, sign } = await setupV2("How many pallets?");
+    const signature = await sign("4", "Two of them oversized", "v2");
+    const path = `/api/inbox/${itemId}/resolve`;
+    const sig = { deviceId, at, fingerprint, signature };
+    for (const body of [
+      { answer: "40", note: "Two of them oversized", deviceSignature: { ...sig, version: "v2" } },
+      { answer: "4", note: "None oversized", deviceSignature: { ...sig, version: "v2" } },
+      { answer: "4", deviceSignature: { ...sig, version: "v2" } },
+      { answer: "4", note: "Two of them oversized", deviceSignature: { ...sig, version: "v1" } },
+      { answer: "4", note: "Two of them oversized", deviceSignature: sig },
+    ]) {
+      const r = await H.call(admin("a"), "POST", path, { decision: "approve", ...body });
+      expect([r.status, j(r.json).error?.code], JSON.stringify(body)).toEqual([
+        403,
+        "signature_required",
+      ]);
+    }
+    const [row] = await H.t.db.select().from(inboxItem).where(eq(inboxItem.id, itemId));
+    expect(row?.status).toBe("open");
+  });
+});
+
 describe.skipIf(!h)("a phone's signature covers the amounts", () => {
   it("refuses it once the change's payload differs from what the person saw", async () => {
     const key = await phoneKey();

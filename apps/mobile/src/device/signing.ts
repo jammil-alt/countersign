@@ -2,7 +2,7 @@
 // private half lives only in the phone's secure store behind Face ID or a fingerprint
 // (src/state/store.ts), its public half is registered with POST /api/me/devices as a JWK. A
 // signature covers `deviceSignedText` (core): the device, the item, the decision, the item's
-// fingerprint and the time. The API checks it with Web Crypto (ECDSA, SHA-256, r‖s).
+// fingerprint and the time, and, in its `v2` text (§1.193), the answer and the note sent with it. The API checks it with Web Crypto (ECDSA, SHA-256, r‖s).
 import {
   type DevicePublicKey,
   type DeviceSignature,
@@ -50,14 +50,17 @@ export function itemFingerprint(item: {
 }
 
 /**
- * Signs a decision on an item. `at` is when the person signed; the API refuses a time more than
- * five minutes from its own.
+ * Signs a decision on an item, with the answer and the note sent with it (`v2`, §1.193). `at` is
+ * when the person signed; the API refuses a time more than five minutes from its own.
  */
+// DECISION (§1.193): the app signs `v2` only; the API still takes `v1` from phones in the field.
 export function signDecision(input: {
   privateKey: Uint8Array;
   deviceId: string;
   item: { id: string; title: string; display?: unknown; payload?: unknown };
   decision: "approve" | "reject";
+  answer?: string;
+  note?: string;
   at: Date;
 }): DeviceSignature {
   const fingerprint = itemFingerprint(input.item);
@@ -68,16 +71,27 @@ export function signDecision(input: {
     decision: input.decision,
     fingerprint,
     at,
+    version: "v2",
+    answer: input.answer,
+    note: input.note,
   });
   // prehash (SHA-256 of the text), low-S, compact r‖s: what Web Crypto's ECDSA verify expects.
   const signature = p256.sign(utf8(text), input.privateKey, { prehash: true, lowS: true });
-  return { deviceId: input.deviceId, at, fingerprint, signature: base64url(signature) };
+  return {
+    deviceId: input.deviceId,
+    at,
+    fingerprint,
+    signature: base64url(signature),
+    version: "v2",
+  };
 }
 
 /** What the app sends to decide an item (`POST /api/inbox/:id/resolve`), signed on this phone. */
 export interface SignedDecisionBody {
   decision: "approve" | "reject";
   answer?: string;
+  /** A note with the decision; the signature covers it (§1.193). */
+  note?: string;
   /** Audit 3.4: the item as the person saw it. */
   fingerprint: string;
   deviceSignature: DeviceSignature;
@@ -94,6 +108,7 @@ export async function signedDecision(input: {
   item: { id: string; title: string; display?: unknown; payload?: unknown };
   decision: "approve" | "reject";
   answer?: string;
+  note?: string;
   prompt: string;
   readKey: (prompt: string) => Promise<string | null>;
   at?: Date;
@@ -111,6 +126,8 @@ export async function signedDecision(input: {
     deviceId: input.deviceId,
     item: input.item,
     decision: input.decision,
+    ...(input.answer !== undefined ? { answer: input.answer } : {}),
+    ...(input.note !== undefined ? { note: input.note } : {}),
     at: input.at ?? new Date(),
   });
   return {
@@ -118,6 +135,7 @@ export async function signedDecision(input: {
     body: {
       decision: input.decision,
       ...(input.answer !== undefined ? { answer: input.answer } : {}),
+      ...(input.note !== undefined ? { note: input.note } : {}),
       fingerprint: deviceSignature.fingerprint,
       deviceSignature,
     },

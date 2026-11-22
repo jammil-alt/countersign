@@ -33,6 +33,48 @@ describe("the phone app's contract", () => {
     expect(deviceSignedText({ ...base, decision: "reject" })).not.toBe(approve);
   });
 
+  it("signs v2 with the answer and the note as one line each (§1.193)", () => {
+    const base = {
+      deviceId: "0190a1b2-0000-7000-8000-000000000001",
+      itemId: "0190a1b2-0000-7000-8000-000000000002",
+      decision: "approve" as const,
+      fingerprint: "a".repeat(64),
+      at: "2026-11-13T15:00:00.000Z",
+    };
+    const v2 = deviceSignedText({
+      ...base,
+      version: "v2",
+      answer: "Tuesday\nor Friday",
+      note: "ok",
+    });
+    expect(v2.split("\n")).toEqual([
+      "mezonas-sign:v2",
+      base.deviceId,
+      base.itemId,
+      "approve",
+      base.fingerprint,
+      base.at,
+      '"Tuesday\\nor Friday"',
+      '"ok"',
+    ]);
+    // None is null; absent and null are the same; an object answer is canonical.
+    expect(deviceSignedText({ ...base, version: "v2" }).endsWith("\nnull\nnull")).toBe(true);
+    expect(deviceSignedText({ ...base, version: "v2", answer: null, note: null })).toBe(
+      deviceSignedText({ ...base, version: "v2" }),
+    );
+    expect(deviceSignedText({ ...base, version: "v2", answer: { b: 1, a: 2 } })).toBe(
+      deviceSignedText({ ...base, version: "v2", answer: { a: 2, b: 1 } }),
+    );
+    // A changed answer or note is a different text; v1 ignores both.
+    expect(deviceSignedText({ ...base, version: "v2", answer: "Friday" })).not.toBe(
+      deviceSignedText({ ...base, version: "v2", answer: "Tuesday" }),
+    );
+    expect(deviceSignedText({ ...base, version: "v2", note: "a" })).not.toBe(
+      deviceSignedText({ ...base, version: "v2", note: "b" }),
+    );
+    expect(deviceSignedText({ ...base, answer: "x", note: "y" })).toBe(deviceSignedText(base));
+  });
+
   it("fingerprints what the person reads, whatever the key order", () => {
     const a = itemFingerprintText({ id: "i", title: "Send PO", display: { b: 1, a: [2, 3] } });
     const b = itemFingerprintText({ display: { a: [2, 3], b: 1 }, title: "Send PO", id: "i" });

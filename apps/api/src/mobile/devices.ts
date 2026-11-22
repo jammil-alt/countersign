@@ -216,6 +216,9 @@ export async function checkDeviceSignature(
     userId: string;
     item: { id: string; title: string; display?: unknown; payload?: unknown };
     decision: "approve" | "reject" | undefined;
+    /** What the resolve sends with the decision: a `v2` signature covers both (§1.193). */
+    answer?: unknown;
+    note?: string;
     signature: DeviceSignature;
     now: Date;
   },
@@ -243,12 +246,20 @@ export async function checkDeviceSignature(
   if ((await itemFingerprint(input.item)) !== sig.fingerprint) {
     throw new HttpError(409, "item_changed", "this item changed since you opened it: look again");
   }
+  // §1.193: the version the phone names picks the text. A `v2` signature covers the answer and
+  // the note as sent here, so a changed one doesn't verify.
+  // DECISION (§1.193): `v1` stays accepted as it is, answer and note uncovered, so phones already
+  // in the field keep working; the audit row records which version was checked. Refusing `v1`
+  // with an answer or a note is a later change, once every phone signs `v2` (docs/open.md).
   const text = deviceSignedText({
     deviceId: device.id,
     itemId: input.item.id,
     decision: input.decision,
     fingerprint: sig.fingerprint,
     at: sig.at,
+    version: sig.version ?? "v1",
+    answer: input.answer,
+    note: input.note,
   });
   if (!(await verifySigned(device.publicKey, text, sig.signature))) {
     throw signatureRequired("the signature doesn't match: sign again");
