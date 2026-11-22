@@ -1246,9 +1246,22 @@ const bookkeeperV6 = once(() =>
   } satisfies AnyAgentBundleInput),
 );
 
+// Round 4 D (docs/plan.md §1.211): v7 checks every write against the run's sources before it
+// reaches a person (`oversight.verify`). `review: "failures"` is what an unset `oversight` already
+// means for a bundle of v4 processes, so only the check is new.
+const bookkeeperV7 = once(() =>
+  AnyAgentBundle.parse({
+    ...bookkeeperV6(),
+    definition: {
+      ...bookkeeperV6().definition,
+      oversight: { review: "failures", verify: "writes" },
+    },
+  } satisfies AnyAgentBundleInput),
+);
+
 /**
  * The Bookkeeper: v1 as first installed, then v2 (v4 processes), v3 (the skill model), v4, v5,
- * v6.
+ * v6, v7 (writes verified).
  */
 export const BOOKKEEPER_TEMPLATE = lazyObject({
   slug: BOOKKEEPER_V1.slug,
@@ -1259,5 +1272,6 @@ export const BOOKKEEPER_TEMPLATE = lazyObject({
     bookkeeperV4(),
     bookkeeperV5(),
     bookkeeperV6(),
+    bookkeeperV7(),
   ]),
 });

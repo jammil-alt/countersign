@@ -4,6 +4,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App, startChunksEarly } from "./App";
+import { startLanguageEarly } from "./i18n/catalog";
 import { reportScreenCrash, startErrorTracking } from "./observability";
 import { startSessionEarly } from "./session/early";
 import {
@@ -21,6 +22,8 @@ watchForNewBuild();
 applyStoredTheme();
 // Who is signed in, asked before React mounts; the session provider takes the answer (4.3).
 startSessionEarly();
+// The last session's language (no language is in the bundle: docs/plan.md §1.208).
+startLanguageEarly();
 // The back office's or the portal's chunk, as the address needs, beside the session call.
 startChunksEarly(window.location.pathname);
 

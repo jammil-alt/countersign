@@ -39,11 +39,14 @@ export function browserLanguages(): readonly string[] {
 export function I18nProvider({
   locale,
   browser,
+  load = true,
   children,
 }: {
   locale: Locale;
   /** Defaults to navigator.languages. */
   browser?: readonly string[];
+  /** False while the session is not known: its language is not known either (SessionLanguage). */
+  load?: boolean;
   children: ReactNode;
 }) {
   const tags = browser ?? browserLanguages();
@@ -54,7 +57,7 @@ export function I18nProvider({
   const [arrived, setArrived] = useState<Locale | null>(null);
   const ready = loadedCatalog(locale) !== undefined;
   useEffect(() => {
-    if (ready) return;
+    if (ready || !load) return;
     let live = true;
     void loadCatalog(locale).then(() => {
       if (live) setArrived(locale);
@@ -62,7 +65,7 @@ export function I18nProvider({
     return () => {
       live = false;
     };
-  }, [locale, ready]);
+  }, [locale, ready, load]);
   // biome-ignore lint/correctness/useExhaustiveDependencies: `key` stands for `tags`' contents; `ready` and `arrived` rebuild it when the language arrives.
   const value = useMemo(() => createI18n(locale, tags), [locale, key, ready, arrived]);
   useEffect(() => {

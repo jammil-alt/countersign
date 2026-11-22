@@ -50,6 +50,7 @@ import {
   ledgerAccount,
   ledgerAccountNote,
   ledgerDimension,
+  matchRule,
   membership,
   memoryNote,
   message,
@@ -608,6 +609,15 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
       values (${tenantId}, ${r.id}, ${sr.id}, 'document', 'changed', 'qbo', 'bill-1',
         'Acme Supply', 'INV-1001', 120.5000, 'USD', true)`;
   }
+  // 0087: a process interview with one of the client's contacts (docs/plan.md §1.217).
+  const [interviews] = await db.$client<{ ok: boolean }[]>`
+    select to_regclass('public.process_interview') is not null as ok`;
+  if (interviews?.ok) {
+    await db.$client`
+      insert into process_interview (tenant_id, contact_id, process, expires_at, question)
+      values (${tenantId}, ${ct.id}, 'Invoice reconciliation', now() + interval '14 days',
+        'How does it start?')`;
+  }
   const [st] = await db
     .insert(billingStatement)
     .values({
@@ -979,6 +989,18 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
       decision: "keep",
     });
   }
+  // §1.215: a saved match rule, once migration 0085 is there.
+  const [rules] = await db.$client<{ present: boolean }[]>`
+    select to_regclass('public.match_rule') is not null as present`;
+  if (rules?.present)
+    await db.insert(matchRule).values({
+      tenantId,
+      config: "bank_to_ledger",
+      field: "counterparty",
+      aValue: "amzn mktp",
+      bValue: "amazon",
+      createdBy: u.id,
+    });
   await db.insert(ledgerAccountNote).values({
     tenantId,
     ledgerAccountId: la.id,

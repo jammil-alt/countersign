@@ -16,7 +16,7 @@ import {
 import { isApiError } from "../api/client";
 import { apiRoutes } from "../api/routes";
 import { useApiClient, useApiStore } from "../api/useApi";
-import { loadCatalog } from "../i18n/catalog";
+import { loadCatalog, rememberLanguage } from "../i18n/catalog";
 import { browserLanguages } from "../i18n/i18n";
 import { identifyForErrors } from "../observability";
 import { idleTooLong, watchInput } from "./activity";
@@ -145,9 +145,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // scope is not set yet; its first setting keeps what is already there.
     if (early && next.status === "signed_in") prefetchFrame(store, next.session);
     // Nothing shows until its language is here, so no screen reads in a language still loading
-    // (docs/audit-plan.md 4.1). English is in the bundle; a language that fails to load reads in
-    // English this time and is asked for again on the next refresh.
-    await loadCatalog(stateLocale(next));
+    // (docs/audit-plan.md 4.1). No language is in the bundle, English included (§1.208); a language
+    // that fails to load reads in English this time and is asked for again on the next refresh.
+    const locale = stateLocale(next);
+    await loadCatalog(locale);
+    if (next.status === "signed_in") rememberLanguage(locale);
     // Stored answers belong to one user and one active client: anything else empties the store
     // before a screen can read it (docs/audit-plan.md 1.2). Signed out, the store stays closed
     // until the signed-in screens have gone (the effect below opens it).
