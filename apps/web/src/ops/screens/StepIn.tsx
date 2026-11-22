@@ -3,6 +3,7 @@
 // in: …", copper as a person's action). Approve and reject take the client's own path; a question takes an answer; a
 // message waiting for approval can be changed before it is approved; anything can be passed to
 // someone else at the client. Never a request for a code: only the client's code releases it.
+import { itemFingerprint } from "@countersign/core";
 import { useState } from "react";
 import { apiRoutes } from "../../api/routes";
 import { useApiClient } from "../../api/useApi";
@@ -14,7 +15,10 @@ interface StepInItem {
   kind: string;
   status: string;
   subjectType: string | null;
+  title: string;
   payload: Record<string, unknown>;
+  /** What the card shows of a change (part of its fingerprint, audit 3.4). */
+  display?: unknown;
 }
 
 /** Whether we may step in here: open, and not a request for the client's own code. */
@@ -55,7 +59,8 @@ export function StepIn({ item, onDone }: { item: StepInItem; onDone: () => void 
     try {
       await api.call(apiRoutes.opsStepInInbox, {
         params: { id: item.tenantId, itemId: item.id },
-        body: { ...body, reason: reason.trim() },
+        // Audit 3.4: the card as it is on screen, from before any change to its message.
+        body: { ...body, reason: reason.trim(), fingerprint: await itemFingerprint(item) },
       });
       setOpen(false);
       onDone();

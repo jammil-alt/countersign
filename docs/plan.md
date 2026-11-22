@@ -6400,6 +6400,22 @@ contract (`packages/core/src/api`, 66.6 kB of it) and the English catalog (46.7 
 | Not built | A portal visit still fetches about the same in all (the portal's chunk and what it shares, 497 kB with the first load), now in two requests side by side. Each portal screen loading on its own, with the current one started early (audit item 4.6), the route contract split per screen, and English loaded on demand like the other five languages come next. |
 | Checked | `apps/web` tests (all pass, unchanged), the size check (`node scripts/web-size.mjs`, built with the manifest and a placeholder DSN as CI does), typecheck, lint, `lint:deps`. |
 
+### 1.191 The back office answers the card it saw, too (audit 3.4, item C4.6, 2026-11-22; no migration)
+
+The portal and the phone already send the fingerprint of the card as shown, and the API refuses an
+answer to one that changed since (409 `changed`). The back office's own resolve and the operator's
+step-in did not.
+
+| Topic | Decision |
+|---|---|
+| What is fingerprinted | Core's `itemFingerprint` of the item as the back office is sent it (`OpsInboxItem`, parsed): its id, title, display less `names` and payload, as for the portal. The API's `opsShownFingerprint` (`apps/api/src/routes/mappers.ts`) builds the same item from the locked row. Which operator asks (`resolvableByOperator`) is not part of it. The portal's and the back office's fingerprints of one item differ; each route compares with its own surface's. // DECISION |
+| `POST /api/ops/inbox/:id/resolve` | Takes `fingerprint` (the shared `ResolveBody`) and requires it: 400 `fingerprint_required` ("This page is out of date; reload it and look again") without one, 409 `changed` when the item changed since, compared under the item's lock in `resolveInboxItem` as the portal's is. No grace for older tabs: the back office ships with the API. // DECISION |
+| Step-in | `StepInBody` takes `fingerprint` on each of its four actions, and the route requires it on all four, a pass-on included: it is an act on the card as seen, and one rule is simpler than four. The step-in compares it once, under the lock and before an edit sent with an approval, so its own edit is never taken for a change; the resolve it then calls is not compared again. // DECISION |
+| The screens | The inbox's card, the run view (its Changes tab and the wait at the top) and Step in send the fingerprint of the item they were sent. The shared refusal (`fingerprintRequired`) and the comparison (`ensureSeen`) live in `apps/api/src/inbox.ts`, used by the portal too. |
+| The ops MCP server | It resolves no inbox card (its only write is `feedback_resolve`), so nothing there changes. A resolve added to it later sends the fingerprint of the item as its own read returned it. |
+| Not built | A pack's review card answered from the back office (`routes/packs.ts`) is not compared: it has its own finish route and its own checks. |
+| Checked | `apps/api/src/step-in.test.ts` (a resolve and each step-in action on a changed card refused with 409 `changed`, none recorded; one with no fingerprint 400; looked at again, both go through), `packages/core/src/api/contract.test.ts` (both bodies take it; the fingerprint ignores the operator and follows the payload), `apps/web/src/ops/screens/Inbox.test.tsx` and `RunView.test.tsx` (what each screen sends). The API's other tests answer the item as the back office shows it now (`api.test-helper.ts`), as for the portal. |
+
 ### 1.190 Compliance: the MCP connector held to HIPAA mode (docs/hipaa-plan.md T1, 2026-11-22; no migration)
 
 What an operator's back-office tools return through the MCP connector is read by their Claude, so
