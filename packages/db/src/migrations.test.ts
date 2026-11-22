@@ -191,6 +191,11 @@ describe.skipIf(!online)("migrations on an empty database", () => {
         "crm_alias",
         "crm_match",
         "crm_record_key",
+        // §1.232 (0090): the Close pack's periods, checklist and proposed journal entries.
+        "close_entry",
+        "close_entry_line",
+        "close_item",
+        "close_period",
       ].sort(),
     );
     expect(
