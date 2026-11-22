@@ -71,6 +71,7 @@ SPECS[MONEY_TOOL] = {
   input: {},
   output: {},
   sideEffect: "none",
+  verb: "read",
   source: "test",
   about: [
     { kind: "record", each: "quotes", label: "name", amount: { path: "total", currency: "USD" } },
