@@ -4,6 +4,7 @@
 // access tests walk this whole list, so none of them skips a check.
 
 import { adjustRoutes } from "./adjust";
+import { agentReportRoutes } from "./agent-report";
 import { assistRoutes } from "./assist";
 import { assuranceRoutes } from "./assurance";
 import { clientFileRoutes, startRoutes } from "./client-files";
@@ -54,4 +55,6 @@ export const allRoutes = {
   ...assistRoutes,
   // docs/plan.md §1.204: the desktop app's pairing, folders and the computer's signed routes.
   ...desktopRoutes,
+  // R4 (docs/plan.md §1.214): the report per agent; its tabs load lazily, and its schema with them.
+  ...agentReportRoutes,
 } as const;

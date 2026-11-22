@@ -2120,6 +2120,10 @@ export const usageDaily = pgTable(
     tokensIn: bigint("tokens_in", { mode: "number" }).notNull().default(0),
     tokensOut: bigint("tokens_out", { mode: "number" }).notNull().default(0),
     costUsd: usd("cost_usd"),
+    // §1.210 (migration 0095): emails sent through Resend and seconds of Browser Run, summed by
+    // the rollup from the agent's `metered_usage` rows.
+    emails: integer("emails").notNull().default(0),
+    browserSeconds: integer("browser_seconds").notNull().default(0),
   },
   (t) => [
     primaryKey({ columns: [t.tenantId, t.day, t.agentId] }),
@@ -2151,8 +2155,85 @@ export const usagePlatformDaily = pgTable(
     // P-7 (migration 0034): model translations no agent made (the background job, a person's own
     // text); their tokens and cost are in the columns above with the readings'.
     translations: integer("translations").notNull().default(0),
+    // §1.210 (migration 0095): the client's own `metered_usage` no agent made: texts no run sent
+    // (notifications, release codes, auto-replies, inbound), emails, Browser Run seconds and the
+    // months of each connected bank (Plaid bills per item per month).
+    messages: integer("messages").notNull().default(0),
+    emails: integer("emails").notNull().default(0),
+    browserSeconds: integer("browser_seconds").notNull().default(0),
+    bankItemMonths: integer("bank_item_months").notNull().default(0),
   },
   (t) => [primaryKey({ columns: [t.tenantId, t.day] })],
+);
+
+/** What a `metered_usage` row counts (§1.210): a billing measure's name, or `model`. */
+export const METERED_MEASURES = [
+  "messages",
+  "emails",
+  "browser_seconds",
+  "bank_item_months",
+  "verifications",
+  "model",
+] as const;
+
+/**
+ * One thing we paid a vendor for outside a run's model calls (docs/plan.md §1.210, migration
+ * 0095): an email, a text no run sent, a sign-in code, Browser Run's seconds, a bank's month, or a
+ * back-office model call. Against its client, and its agent and run where there are ones; `ours`
+ * marks the back office's and the platform's own cost (never a client's usage or bill), and a row
+ * with no client is always ours. Counted once (`key`), priced on read at `billing_unit_cost`
+ * except a model call, whose cost is known when it is made. Insert only.
+ */
+export const meteredUsage = pgTable(
+  "metered_usage",
+  {
+    id: id(),
+    tenantId: uuid("tenant_id").references(() => tenant.id),
+    agentId: uuid("agent_id"),
+    runId: uuid("run_id"),
+    measure: text("measure").notNull(),
+    quantity: integer("quantity").notNull().default(1),
+    /** Where it came from: core's `METER_SOURCES` (`run`, `notification`, `reggie_read`…). */
+    source: text("source").notNull(),
+    ours: boolean("ours").notNull().default(false),
+    /** A model call's model, tokens and cost; null cost for every other measure. */
+    model: text("model"),
+    /** Fresh input tokens; cache reads and writes are kept apart below. */
+    tokensIn: integer("tokens_in").notNull().default(0),
+    tokensOut: integer("tokens_out").notNull().default(0),
+    cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+    cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
+    costUsd: numeric("cost_usd", { precision: 14, scale: 4 }),
+    /** Counted once: the provider's id (`twilio:SM…`), or the event's own. */
+    key: text("key").notNull().unique(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "metered_usage_agent_fk",
+      columns: [t.agentId, t.tenantId],
+      foreignColumns: [agent.id, agent.tenantId],
+    }),
+    foreignKey({
+      name: "metered_usage_run_fk",
+      columns: [t.runId, t.tenantId],
+      foreignColumns: [run.id, run.tenantId],
+    }),
+    index("metered_usage_tenant_idx").on(t.tenantId, t.createdAt),
+    index("metered_usage_created_idx").on(t.createdAt),
+    check("metered_usage_measure_check", oneOf(t.measure, METERED_MEASURES)),
+    check("metered_usage_source_check", sql`${t.source} ~ '^[a-z_]{1,40}$'`),
+    check("metered_usage_quantity_check", sql`${t.quantity} > 0`),
+    check("metered_usage_ours_check", sql`${t.tenantId} is not null or ${t.ours}`),
+    check(
+      "metered_usage_scope_check",
+      sql`${t.tenantId} is not null or (${t.agentId} is null and ${t.runId} is null)`,
+    ),
+    check(
+      "metered_usage_model_check",
+      sql`(${t.measure} = 'model') = (${t.costUsd} is not null) and ${t.tokensIn} >= 0 and ${t.tokensOut} >= 0 and ${t.cacheReadTokens} >= 0 and ${t.cacheWriteTokens} >= 0 and coalesce(${t.costUsd}, 0) >= 0`,
+    ),
+  ],
 );
 
 // ── Shared business records (ARCHITECTURE §5.2) ─────────────────────────────────────────────────
@@ -4289,11 +4370,11 @@ export const desktopJob = pgTable(
   ],
 );
 
-/** §1.218 (0088): what a reviewer decided for one person's access to one client. */
+/** §1.218 (0096): what a reviewer decided for one person's access to one client. */
 export const ACCESS_REVIEW_DECISIONS = ["keep", "remove"] as const;
 
 /**
- * §1.218 (migration 0088): one quarterly access review (SOC 2 CC6.2, CC6.3), recorded by an
+ * §1.218 (migration 0096): one quarterly access review (SOC 2 CC6.2, CC6.3), recorded by an
  * operator: the quarter it covers, who reviewed and how many people and removals it found. Global
  * and operator-only; its people are `access_review_item`, one per client. Never updated or deleted.
  * DECISION (§1.218): the reviewer is an id and an email copied at the time, with no key to
@@ -4325,7 +4406,7 @@ export const accessReview = pgTable(
 );
 
 /**
- * §1.218 (migration 0088): one person's access to one client as an access review found it, and
+ * §1.218 (migration 0096): one person's access to one client as an access review found it, and
  * the reviewer's decision. The client's own row (row-level security on `tenant_id`), so a purge
  * takes it with the client and an operator reads only the clients they serve. Never updated or
  * deleted. DECISION (§1.218): the person is copied (id, email, name, role, last sign-in), with no
@@ -6656,8 +6737,10 @@ export const TENANT_TABLES = [
   // §1.151 (0080): the desktop app's computers and their jobs.
   "desktop_device",
   "desktop_job",
-  // §1.218 (0088): each client's people as a quarterly access review found them.
+  // §1.218 (0096): each client's people as a quarterly access review found them.
   "access_review_item",
+  // §1.210 (0095): what we pay vendors for outside a run's model calls.
+  "metered_usage",
   // §1.215 (0085): a client's saved match rules.
   "match_rule",
   // 0057: area owners and their versions (ARCHITECTURE v0.19 §10.15).
@@ -6704,6 +6787,8 @@ export const OPERATOR_TABLES = [
   "test_case_result",
   "builder_session",
   "builder_turn",
+  // §1.210 (0095): the platform's own vendor costs have no client.
+  "metered_usage",
 ] as const satisfies readonly TenantTable[];
 
 /** Global tables only operator sessions may read or write (row-level security on `app.operator`). */
@@ -6714,6 +6799,6 @@ export const OPERATOR_ONLY_TABLES = [
   "connector_setting",
   // 0066: saved starts for Sign up now and Invite (docs/plan.md §1.149).
   "sales_start",
-  // 0088: the quarterly access reviews (§1.218); their people are access_review_item.
+  // 0096: the quarterly access reviews (§1.218); their people are access_review_item.
   "access_review",
 ] as const;

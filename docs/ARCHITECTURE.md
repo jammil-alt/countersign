@@ -3738,6 +3738,33 @@ operator views in the back office. Installing a pack adds its templates (agents 
 as template v1 rows the operator edits like any other. Enabling it for a client inserts `tenant_pack`
 (its tables start holding that client's data) and allows forking its templates into that client.
 
+### 12.1.1 One manifest, one install path (Wave Y, owner's yes; docs/plan.md §1.230)
+
+Outside v0.15's v1 scope, with the owner's yes. Every pack's manifest (`PackManifest` in
+`packages/core/src/schemas/pack.ts`, documented in its comments) also names:
+
+- `area`: the business area (§12.0) whose shared data it holds; one pack per area.
+- `config`: the fields the operator sets when switching the pack on for a client, each a word, a
+  number, a yes or no, or one of a few choices, with its default (`PackConfigField`). Never a
+  secret: credentials go to the client's vault through a connection. A client's values are kept in
+  `tenant.settings.packs.<id>` (no table) and read with core's `packConfigOf`, defaults filling any
+  field not set.
+- `processors`: the vendors of ours the pack itself sends a client's data to (the compliance
+  register's names), beyond its steps' models and its connectors, which are gated where they are
+  called. The Areas tab shows them, marking those a client's HIPAA mode holds back.
+- `reports`: the names of the reports it registers; `apps/api` holds them equal to its handlers.
+- `extends` (optional): the pack whose area this one builds on (the Close pack extends
+  `bookkeeping`, the AP pack `materials`). One pack per area, except packs that extend one; an
+  extending pack sits in its base's area, and its base must be registered.
+
+The back office installs any pack the same way, from the client page's Areas tab (the Packs tab),
+with configuration only: `POST /api/ops/clients/:id/packs/:pack/install` checks the configuration
+against the manifest (a bad one switches nothing on), keeps it with a `tenant_change` row, switches
+the pack on, and installs its templates (approval on) and Library skills once for the deployment.
+Calling it again changes only the configuration. Nothing in `packages/*` or `apps/api` names a
+pack to install it: a new pack (the Close and AP packs) is one manifest in this shape, registered
+in `apps/api/src/packs.ts` with its handlers.
+
 ### 12.2 Materials pack
 
 Tables:
@@ -3944,6 +3971,33 @@ adjudicates it. Only the bill backfill creates new items (step 6's rule).
   (raw record and line id), idempotent, per the item's standard unit (bill lines carry no unit).
 
 ---
+
+
+### 12.5 Books health (Wave X, owner 2026-11-22; `docs/plan.md` §1.216)
+
+Outside v1's scope, with the owner's yes (the owner's build plan 9; its prospect connection waits on
+Intuit). **A fixed set of deterministic checks over the QuickBooks records we sync, and a one-page
+report for the client's owner, ranked by dollars.**
+
+- **The checks** (core `books-health/`, a pure library with one entry point, `checkBooks(snapshot,
+  { asOf, checks? })`, and the list `BOOKS_CHECKS`): accounts not reconciled and their age,
+  uncategorized transactions, duplicate vendors, duplicate bills, overdue invoices, overdue bills,
+  balances below zero, undeposited funds and vendor price drift. Each finding has a dollar figure, a
+  count, a few example transactions, its parts (accounts, aging buckets, vendor groups) and its
+  `sources`, the raw records it rests on (invariant 10). No model reads the books (invariant 7);
+  amounts are decimal (invariant 6).
+- **The snapshot** (connectors `loadQboBooks`): each record's latest synced version that isn't
+  deleted, inside `withTenant()`. What QuickBooks' API doesn't say comes from the caller: which
+  accounts were reconciled, and through when (today, the Bookkeeping pack's signed-off
+  reconciliations, read in `apps/api`). A pack (the Close pack, next) reuses the library and the
+  loader as they are.
+- **Who fixes it** is data on each check: the business area and its pack (`bookkeeping`,
+  `materials`, or none for receivables), never an import (invariant 2). The report says whether
+  that pack is switched on for the client.
+- **Where it shows:** `GET /api/books-health` (the client admin, in the portal at `/books-health`,
+  linked from Reports) and `GET /api/ops/clients/:id/books-health` (the back office's Data tab).
+  Read only; computed on request from what was synced, so nothing is stored and there is no
+  migration. Both screens load on their own.
 
 ## 13. Usage, cost and observability
 
