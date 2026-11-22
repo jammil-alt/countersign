@@ -108,6 +108,7 @@ export * from "./api/owners";
 export * from "./api/packs";
 export * from "./api/people";
 export * from "./api/phone-approval";
+export * from "./api/portal-views";
 // The skill model (owner, 2026-11-10)
 export * from "./api/prompt-preview";
 export * from "./api/qbo";
