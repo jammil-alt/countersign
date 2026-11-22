@@ -276,6 +276,7 @@ const HOURS_24 = 24;
 function kindForConnection(c: HealthConnection): FindingKind {
   const reason = c.attention?.reason;
   if (c.stopped || reason === "login_stopped") return "login_stopped";
+  if (c.accessFailing) return "connection_access";
   if (reason === "sync_failed") return "connection_sync";
   if (reason === "refresh_failing") return "connection_access";
   return "connection_signin";
@@ -402,8 +403,14 @@ export async function dailyCheck(ctx: SupervisorScope) {
             kind: kindForConnection(c),
             connectionId: c.id,
             connector: c.connector,
-            reason: c.attention?.reason ?? (c.stopped ? "login_stopped" : c.status),
-            detail: c.stopped?.reason ?? `the connection is ${c.status}`,
+            reason: c.accessFailing
+              ? "refresh_failing"
+              : (c.attention?.reason ?? (c.stopped ? "login_stopped" : c.status)),
+            detail:
+              c.stopped?.reason ??
+              (c.accessFailing
+                ? "renewing our access has failed for a day; the grant is not ended"
+                : `the connection is ${c.status}`),
             sourceId: null,
           },
           "",

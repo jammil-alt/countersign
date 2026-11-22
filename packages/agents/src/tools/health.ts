@@ -65,7 +65,7 @@ export const healthRuns = defineInternalTool({
 export const healthConnections = defineInternalTool({
   id: "health.connections",
   description:
-    "This client's connections: status, website-login stops, when one last needed a person and why, and which agents use each. Sign-in secrets and token dates stay in the vault.",
+    "This client's connections: status, website-login stops, when one last needed a person and why, whether renewing our access keeps failing (`accessFailing`: still connected, the grant not ended), and which agents use each. Sign-in secrets and token dates stay in the vault.",
   sideEffect: "none",
   summary: "Looked at {{count}} connections",
   input: z.object({}),
@@ -82,6 +82,7 @@ export const healthConnections = defineInternalTool({
         lastSyncAt: z.string().nullable(),
         stopped: z.object({ reason: z.string(), at: z.string() }).nullable(),
         attention: z.object({ reason: z.string(), at: z.string() }).nullable(),
+        accessFailing: z.boolean(),
         usedBy: z.array(z.string()),
         needsAttention: z.boolean(),
       }),
@@ -100,17 +101,23 @@ export const healthConnections = defineInternalTool({
   },
 });
 
-/** In error (sign in again, a stopped login), or disconnected while an agent still uses it. */
+/**
+ * In error (sign in again, a stopped login), renewing our access failing for a day (still
+ * connected), or disconnected while an agent still uses it.
+ */
 // DECISION: the same rule as the back office's overview: a disconnected connection nobody uses is
-// the client's choice, not a problem.
+// the client's choice, not a problem. A failing renewal counts too (docs/plan.md §1.134): the
+// connection shows as connected, but our access is failing and a person on our side must look.
 export function connectionNeedsAttention(c: {
   status: string;
   stopped: unknown;
+  accessFailing?: boolean;
   usedBy: readonly string[];
 }): boolean {
   return (
     c.status === "error" ||
     c.stopped !== null ||
+    c.accessFailing === true ||
     (c.status === "disconnected" && c.usedBy.length > 0)
   );
 }
