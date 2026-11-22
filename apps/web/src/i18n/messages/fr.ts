@@ -32,7 +32,7 @@ export const fr: Messages = {
   "common.expired": "Expiré",
   "common.notBuiltTitle": "Pas encore prêt",
   "common.notBuiltBody": "Cet écran arrive dans une prochaine étape.",
-  "common.notFoundTitle": "Introuvable",
+  "common.notFoundTitle": "Page introuvable",
   "common.notFoundBody": "Il n'y a pas de page ici.",
   "common.yes": "Oui",
   "common.no": "Non",
@@ -1068,7 +1068,7 @@ export const fr: Messages = {
 
   // ── Feedback ──
   "feedback.button": "Signaler un problème dans l'app",
-  "feedback.short": "Avis",
+  "feedback.short": "Signaler un problème",
   "feedback.tapWhere": "Touchez l'endroit du problème",
   "feedback.noSpot": "Pas d'endroit précis",
   "feedback.capturing": "Capture de l'image…",

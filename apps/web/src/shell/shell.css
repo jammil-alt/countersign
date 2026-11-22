@@ -252,7 +252,13 @@
   line-height: 0;
 }
 
-/* Collapse, at the sidebar's foot: a quiet row; its chevron points the way the sidebar will go. */
+/* Collapse, at the sidebar's foot: a quiet row; its chevron points the way the sidebar will go.
+ * Report a problem is a tool too, not a place: as quiet, so it doesn't read as one of the pages. */
+.ui-sidebar__tool {
+  width: 100%;
+  box-sizing: border-box;
+  color: var(--ink-muted);
+}
 .ui-sidebar__collapse {
   width: 100%;
   box-sizing: border-box;

@@ -32,7 +32,7 @@ export const ptBR: Messages = {
   "common.expired": "Expirado",
   "common.notBuiltTitle": "Ainda não está pronta",
   "common.notBuiltBody": "Esta tela chega em uma próxima etapa.",
-  "common.notFoundTitle": "Não encontrada",
+  "common.notFoundTitle": "Página não encontrada",
   "common.notFoundBody": "Não há nenhuma página aqui.",
   "common.yes": "Sim",
   "common.no": "Não",
@@ -1048,7 +1048,7 @@ export const ptBR: Messages = {
 
   // ── Feedback ──
   "feedback.button": "Relatar um problema no app",
-  "feedback.short": "Feedback",
+  "feedback.short": "Relatar um problema",
   "feedback.tapWhere": "Toque onde está o problema",
   "feedback.noSpot": "Nenhum lugar específico",
   "feedback.capturing": "Capturando a imagem…",

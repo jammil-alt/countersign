@@ -104,7 +104,7 @@ export async function checkPage(page, look) {
   if (landed.startsWith("/sign-in")) out.push("sent to sign-in (the dev sign-in did not hold)");
   // An empty #root, or an error boundary's fallback (a caught crash leaves the root full).
   out.push(...(await page.evaluate(crashesIn)));
-  if (await page.getByText("No page here.").count()) out.push("a link led to Not found");
+  if (await page.getByTestId("page-not-found").count()) out.push("a link led to Page not found");
   if (look.phone) {
     const wide = await page.evaluate(() => {
       const doc = document.documentElement;
