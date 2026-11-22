@@ -3095,6 +3095,73 @@ export const reachOut = pgTable(
   ],
 );
 
+// ── Process interviews (docs/plan.md §1.217; migration 0087) ──────────────────────────────────
+
+// Kept in step with core's `INTERVIEW_STATUSES` (this file imports only drizzle at runtime).
+export const INTERVIEW_STATUSES = ["open", "finished", "closed"] as const;
+
+/**
+ * One process interview: a link an operator sends one of the client's contacts about one of the
+ * client's processes. The interviewer asks one question at a time; `turns` keeps the questions and
+ * what the person answered (untrusted data, never instructions: invariant 9), `documents` the
+ * sample files they added (the client's documents). Once finished, `outputs` holds the
+ * current-state map and the open questions; `reuse` the reuse check, and `build_id` the build
+ * drafted from it. The link carries only this row's id, signed.
+ */
+export const processInterview = pgTable(
+  "process_interview",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    contactId: uuid("contact_id").notNull(),
+    /** The process, in the operator's words ("Invoice reconciliation"). */
+    process: text("process").notNull(),
+    /** The business area it is in (core `IntakeArea`), whose intake questions it covers. */
+    area: text("area"),
+    status: text("status").$type<(typeof INTERVIEW_STATUSES)[number]>().notNull().default("open"),
+    /** The language the page reads in. */
+    language: text("language").notNull().default("en"),
+    expiresAt: ts("expires_at").notNull(),
+    /** Questions and answers in order (core `InterviewTurn`). */
+    turns: json<Record<string, unknown>[]>("turns").notNull().default([]),
+    /** The question waiting for an answer; null when the interviewer has what it needs. */
+    question: text("question"),
+    /** Sample files added through the page: `{ documentId, filename, at }`. */
+    documents: json<Record<string, unknown>[]>("documents").notNull().default([]),
+    /** The map, the open questions and the description for the Builder (core `InterviewOutputs`). */
+    outputs: json("outputs"),
+    /** The reuse check over the map's steps (core `InterviewReuse`). */
+    reuse: json("reuse"),
+    buildId: uuid("build_id").references(() => build.id),
+    /** What the interview's model calls cost us. Never shown to the client. */
+    costUsd: usd("cost_usd"),
+    /** What happened on the page (opened, answered, file, finished), with time and browser. */
+    log: json<Record<string, unknown>[]>("log").notNull().default([]),
+    createdBy: uuid("created_by").references(() => appUser.id),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+    finishedAt: ts("finished_at"),
+  },
+  (t) => [
+    unique("process_interview_id_tenant_key").on(t.id, t.tenantId),
+    index("process_interview_tenant_idx").on(t.tenantId, t.createdAt),
+    foreignKey({
+      name: "process_interview_contact_fk",
+      columns: [t.contactId, t.tenantId],
+      foreignColumns: [contact.id, contact.tenantId],
+    }),
+    check("process_interview_status_check", oneOf(t.status, INTERVIEW_STATUSES)),
+    check("process_interview_process_check", sql`char_length(${t.process}) between 1 and 200`),
+    check(
+      "process_interview_finished_check",
+      sql`${t.status} <> 'finished' or (${t.outputs} is not null and ${t.finishedAt} is not null)`,
+    ),
+  ],
+);
+
 // ── Forms: "Request info" (docs/plan.md §1.121; migration 0058) ─────────────────────────────────
 
 // Kept in step with core's `FORM_REQUEST_STATUSES` (this file imports only drizzle at runtime).
@@ -4300,6 +4367,53 @@ export const desktopJob = pgTable(
     check("desktop_job_kind_check", oneOf(t.kind, DESKTOP_JOB_KINDS)),
     check("desktop_job_expiry_check", sql`${t.expiresAt} > ${t.issuedAt}`),
     check("desktop_job_result_check", sql`(${t.answeredAt} is null) = (${t.result} is null)`),
+  ],
+);
+
+// ── Saved match rules (migration 0085, docs/plan.md §1.215: the matching engine) ─────────────
+
+/** What a saved rule makes equal: core's `MATCH_RULE_FIELDS` (checked equal in its test). */
+export const MATCH_RULE_FIELDS = ["reference", "counterparty"] as const;
+
+/**
+ * §1.215 (migration 0085): an operator's correction to a match, saved as a rule for one client and
+ * one matching configuration (core's `MATCH_CONFIGS`, e.g. `bank_to_ledger`): on side A a
+ * `field` whose normalised value is `a_value` is side B's `b_value` ("AMZN MKTP" is "Amazon";
+ * "INV-0042" is "42"). The engine's first tier reads the client's live rules; what an agent learns
+ * stays with that client (invariant 1). Retired, never deleted or edited: only `retired_at` and
+ * `retired_by` change (trigger).
+ */
+export const matchRule = pgTable(
+  "match_rule",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    config: text("config").notNull(),
+    field: text("field").$type<(typeof MATCH_RULE_FIELDS)[number]>().notNull(),
+    aValue: text("a_value").notNull(),
+    bValue: text("b_value").notNull(),
+    note: text("note"),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => appUser.id),
+    createdAt: createdAt(),
+    retiredAt: ts("retired_at"),
+    retiredBy: uuid("retired_by").references(() => appUser.id),
+  },
+  (t) => [
+    // One live rule for a value on side A of a configuration.
+    uniqueIndex("match_rule_live_key")
+      .on(t.tenantId, t.config, t.field, t.aValue)
+      .where(sql`${t.retiredAt} is null`),
+    index("match_rule_tenant_idx").on(t.tenantId, t.config),
+    check("match_rule_config_check", sql`${t.config} ~ '^[a-z][a-z0-9_]{0,63}$'`),
+    check("match_rule_field_check", oneOf(t.field, MATCH_RULE_FIELDS)),
+    check(
+      "match_rule_values_check",
+      sql`length(${t.aValue}) between 1 and 200 and length(${t.bValue}) between 1 and 200`,
+    ),
+    check("match_rule_note_check", sql`${t.note} is null or length(${t.note}) <= 500`),
+    check("match_rule_retired_check", sql`(${t.retiredAt} is null) = (${t.retiredBy} is null)`),
   ],
 );
 
@@ -6557,6 +6671,8 @@ export const TENANT_TABLES = [
   "desktop_job",
   // §1.210 (0081): what we pay vendors for outside a run's model calls.
   "metered_usage",
+  // §1.215 (0085): a client's saved match rules.
+  "match_rule",
   // 0057: area owners and their versions (ARCHITECTURE v0.19 §10.15).
   "area_owner",
   "area_owner_version",
@@ -6580,6 +6696,8 @@ export const TENANT_TABLES = [
   "control_check",
   // 0077: what each run was about, one row per thing it read or changed (docs/reporting-plan.md R1).
   "run_subject",
+  // 0087: process interviews (docs/plan.md §1.217).
+  "process_interview",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 

@@ -157,7 +157,8 @@ describe.skipIf(!h)("packs on the platform", () => {
       .select()
       .from(agentVersion)
       .where(eq(agentVersion.authorType, "pack"));
-    expect(packTemplates.map((v) => v.version).sort()).toEqual([1, 2, 3]);
+    // Round 4 D (§1.211): v4 verifies its writes.
+    expect(packTemplates.map((v) => v.version).sort()).toEqual([1, 2, 3, 4]);
     expect(packTemplates.every((v) => v.tenantId === null)).toBe(true);
     const list = await H.call(OPERATOR, "GET", `/api/ops/clients/${H.A.tenantId}/packs`);
     // §1.162: the area's name as people see it, and the connections it works through.

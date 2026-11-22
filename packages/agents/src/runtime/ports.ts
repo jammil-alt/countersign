@@ -12,6 +12,7 @@ import type {
   JsonObject,
   PermissionLevel,
   ReachChannel,
+  WriteThreshold,
 } from "@countersign/core";
 import type { ModelCallPort } from "../log/model-calls";
 import type { ResolvedSkill } from "../registry/skills";
@@ -63,6 +64,11 @@ export interface ApprovalRouting {
   members: ReadonlySet<string>;
   /** v0.12 W1-D: the client's viewers (`membership.can_sign` false): never assigned anything. */
   viewers?: ReadonlySet<string>;
+  /**
+   * Round 4 D (§1.211): the client's dollar thresholds (`tenant.settings.write_thresholds`): a
+   * write at or over one waits for a person. Absent: none.
+   */
+  thresholds?: readonly WriteThreshold[];
 }
 
 export interface MemoryNoteRecord {
@@ -478,6 +484,35 @@ export interface RuntimePorts {
   // §1.77: web research
   /** `web.search` and `web.fetch`; absent: research is off and they answer `off`. */
   web?: WebResearchPort;
+  // Round 4 D (§1.211)
+  /** The run's sources for the verifier before a write; absent: writes go on unverified. */
+  verify?: VerifyPort;
+}
+
+// ── Round 4 D: the verifier's sources (docs/plan.md §1.211) ─────────────────────────────────────
+
+/** What the run read and did before a write, all of it this run's own (one client). */
+export interface VerifySources {
+  /** The run's trigger payload (the document, message or feed line that started it). */
+  trigger: unknown;
+  /** The run's earlier steps (not the writing step), oldest first. */
+  steps: { nodeId: string; output: unknown }[];
+  /** The things it read (`run_subject`, role `read`). */
+  subjects: {
+    id: string;
+    kind: string;
+    label: string | null;
+    number: string | null;
+    amount: string | null;
+    currency: string | null;
+    recordId: string | null;
+  }[];
+  /** The documents among them, each with its latest reading's header and totals. */
+  documents: { documentId: string; filename: string; reading: unknown }[];
+}
+
+export interface VerifyPort {
+  sources(tenantId: string, input: { runId: string; stepRunId: string }): Promise<VerifySources>;
 }
 
 // ── v0.12 W1-E: carried approvals and model calls (ARCHITECTURE §10.10) ─────────────────────────
