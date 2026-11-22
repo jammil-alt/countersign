@@ -6382,9 +6382,9 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
-### 1.220 Onboarding's smaller items: delivered and bounced, send it again, Just the account's welcome, lost prospects' retention (C7; Wave X, 2026-11-22)
+### 1.220 Onboarding's smaller items: delivered and bounced, send it again, Just the account's welcome, lost prospects' retention (C7; Wave X, 2026-11-22; migration 0097)
 
-Four parts, each its own PR: delivered and bounced (#564, with the deploy's secret in #565), Send it again (#567), Just the account's welcome (#570), and lost prospects' retention (part 4: to follow).
+Four parts, each its own PR: delivered and bounced (#564, with the deploy's secret in #565), Send it again (#567), Just the account's welcome (#570), and lost prospects' retention (migration 0097 in #572, the job in #573).
 
 | Topic | Decision |
 |---|---|
@@ -6403,6 +6403,11 @@ Four parts, each its own PR: delivered and bounced (#564, with the deploy's secr
 | An existing client | Inviting people to an existing client with nothing ticked still sends the sign-in provider's invitation; its open intake, if any, is not touched. // DECISION |
 | Later cards | A later Invite adds its cards to the empty intake, and its people get "A few more questions". |
 | Checked | `apps/api/src/onboarding-flow.test.ts` ("sends our own welcome for Just the account": the confirmation and preview, one email through Resend from the lead at hello@, the welcome page opens with nothing covered, an intake with no sections). `onboarding-sales.test.ts`'s Just the account (no Resend: no intake, the provider's invitation) is unchanged and passes. |
+| Lost prospects' files (q14) | Migration 0097: `app_purge_lost_prospect_files()` deletes a prospect's file (and its facts) once every deal naming it closed `lost` or `no` more than 12 months ago (owner decision q14, §1.149). It is a definer function with `EXECUTE` to `cs_runtime`; the Worker gets no `DELETE` on `client_file`. The age is fixed in the function, not passed in, so no caller can purge sooner. 500 files a call. The function writes its own audit row (`client_file.purge_lost`, ids only). Deals are kept and unlinked. // DECISION |
+| What counts as lost | `lost` and `no` count. `not_now` keeps the file (they may come back), as do an open or won deal, no deal at all, or a client's file (a client is retired by its own typed confirm, §1.35). // DECISION |
+| Checked | `packages/db/src/purge-lost-migration.test.ts`: `cs_worker` can't `DELETE` from `client_file` (42501); the function purges only the two old lost files (lost 13 months ago; lost then `no`), with their facts; it keeps one lost 11 months ago, one with a newer lost deal, one with an open deal, `not_now`, no deal, and a client's; deals are unlinked; there is one audit row by the system with ids only; a second call purges nothing and writes no row. `migrations.test.ts`, `onboarding-migration.test.ts` and `rls.test.ts` pass. |
+| The retention job | The hourly cron calls `purgeLostProspectFiles` (`compliance/retention.ts`) after `purgeRetiredFiles`. That is migration 0097's function, at most 500 files an hour; a failure is reported (`retention_files`) and the pass goes on. `docs/policies/data-retention.md` names it. |
+| Checked | `apps/api/src/retention-files.test.ts`: as the Worker, a file lost 13 months ago goes (one audit row with its id) and one lost 6 months ago stays; a second run purges nothing. |
 
 ### 1.219 The handoff names the desktop, and asks before the session goes to an app (open.md D7 and M8's page, item C5.3, 2026-11-22; no migration)
 

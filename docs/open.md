@@ -260,13 +260,17 @@ Requirements request reading its card. All against fakes. What it still needs:
   facts into the knowledge base and builds into fit-gap (O5); Reggie filing facts and suggesting
   what to cover; reminders and the remaining emails; voice (O6).
 - Code, smaller: a client file's documents (no storage yet); pack and template questions shown in
-  English; the retention job for lost prospects. People added to an existing client with nothing
+  English. People added to an existing client with nothing
   ticked still get WorkOS's invitation, not ours. The full list: `docs/plan.md` §1.149.5 and
   §1.149.6. Built in Wave X (§1.220): delivered and bounced from Resend's webhooks (#564; needs
   the owner's step: the webhook endpoint `https://<app host>/api/hooks/resend` for
   `email.delivered` and `email.bounced` in Resend, and its signing secret as
-  `RESEND_WEBHOOK_SECRET` in each GitHub environment), "Send it again" (#567), and "Just the
-  account"'s own welcome email (#570).
+  `RESEND_WEBHOOK_SECRET` in each GitHub environment), "Send it again" (#567), "Just the
+  account"'s own welcome email (#570), and the hourly job that deletes a lost prospect's file 12
+  months on (migration 0097 #572, job #573). The owner's to confirm: "lost" is every deal naming
+  the file closed `lost` or `no`, the last over 12 months ago (`not_now` keeps it); every bounce,
+  soft or hard, leaves the lead a to-do; Send it again is for invites only, to the same address.
+  Unchecked against Resend: its webhook header names and the shape of its tags (`resend/NOTES.md`).
 - The owner's call: whether the deal page's old "Set up the account" card stays now that Invite
   does the set-up.
 - **Built (2026-11-22), PR #522:** setting a client up from the intake to the first trial
@@ -518,6 +522,27 @@ Fixed in one PR. What is still open from it:
   agent address form; client test cases never gating shared skills; who sets "on its own".
 - **Smaller defaults** (§7 item 10): the 60 s undo window, US federal holidays only, notification
   texts only from the client's own number, replay as a test run in the same client.
+- **Wave X (2026-11-22), defaults to confirm.** The matching engine (§1.215): `invoice_two_systems`
+  uses a 30-day window and a cent of tolerance, and two stated invoice numbers that differ never
+  match; an equal amount alone never auto-matches (fuzzy weights amount 0.6, name 0.3, date and
+  reference 0.1 each); a partial match is one item against items carrying its reference, all of one
+  sign; a Bookkeeping match made by a saved rule is stored as `exact`, the rule in its reason (a
+  method of its own needs a migration). Books health (§1.216): only reconciliations signed off in
+  Mezonas count, so most accounts read "Never reconciled with us" until the Bookkeeper signs one
+  off; the thresholds (45 days to reconcile, 30 days past due, 3 days for unnumbered duplicate
+  bills, 7 days in undeposited funds, 10% price drift over a year); whether to backfill more than
+  90 days of bills and purchases, here and for the prospect connection. Onboarding (§1.220): the
+  items under "Back office work" above. The handoff (§1.219): the six languages want a fluent
+  speaker's review.
+- **Wave X, not built yet.** Matching: a back-office screen for saved rules and "save as rule" on
+  the reconciliation card; a pack tool running the ROMCO configuration (the other system's
+  invoices aren't synced). Books health: two facts to check on the QuickBooks sandbox company
+  (`qbo/NOTES.md`): the sign of a liability's `CurrentBalance` and Undeposited Funds'
+  `AccountSubType`. The process interview (§1.217): its replay fixtures are hand-written and want
+  re-recording with a live key; sending the link from Mezonas (the operator copies it), filing
+  answers into an onboarding intake, the page in six languages, and the reuse check's judge on
+  interviews. The desktop (§1.219): universal and app links (M8); removing a phone also ends that
+  person's desktop sessions (D7).
 
 ### Automations, repeat and the agent's choice (code; ARCHITECTURE v0.17, `docs/plan.md` §1.99)
 
