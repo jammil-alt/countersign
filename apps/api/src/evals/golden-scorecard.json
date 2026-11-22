@@ -1,0 +1,22 @@
+{
+  "bookkeeper/daily": {
+    "cases": 35,
+    "passed": 35,
+    "errors": 0,
+    "exactRate": 1,
+    "verifierAgreement": null,
+    "verifierChecked": 0,
+    "costUsd": "0.185000",
+    "costPerCase": "0.005286"
+  },
+  "vendor-contracts/invoice-review": {
+    "cases": 39,
+    "passed": 39,
+    "errors": 0,
+    "exactRate": 1,
+    "verifierAgreement": null,
+    "verifierChecked": 0,
+    "costUsd": "0.001600",
+    "costPerCase": "0.000041"
+  }
+}

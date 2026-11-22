@@ -452,3 +452,42 @@ export async function addContact(ctx: WorldContext, name: string, email: string)
   });
   if (r.status !== 200) throw new Error(`contact: ${JSON.stringify(r.json)}`);
 }
+
+/** A catalog part a workflow uses: a skill, or a tool its read and write steps call. */
+export interface Part {
+  kind: "skill" | "tool";
+  id: string;
+}
+
+/** Each step of a workflow (by its own id) and the part it uses. */
+export function stepParts(bundle: AnyAgentBundle, workflow: string): Map<string, Part> {
+  const parts = new Map<string, Part>();
+  const w = bundle.workflows.find((x) => x.slug === workflow);
+  const walk = (v: unknown) => {
+    if (Array.isArray(v)) return v.forEach(walk);
+    if (!isPlainObject(v)) return;
+    if (typeof v.id === "string") {
+      if (v.kind === "skill" && typeof v.skill === "string") {
+        parts.set(v.id, { kind: "skill", id: parseSkillRef(v.skill).id });
+      } else if (
+        (v.kind === "write" || v.kind === "read" || v.kind === "action") &&
+        (typeof v.tool === "string" || typeof v.action === "string")
+      ) {
+        parts.set(v.id, { kind: "tool", id: String(v.tool ?? v.action) });
+      }
+    }
+    for (const x of Object.values(v)) walk(x);
+  };
+  walk(w?.workflow);
+  return parts;
+}
+
+/** The template's live bundle. */
+export async function liveBundle(H: ApiHarness, slug: string): Promise<AnyAgentBundle> {
+  const id = await liveVersion(H, slug);
+  const [row] = await H.t.db
+    .select({ bundle: agentVersion.bundle })
+    .from(agentVersion)
+    .where(eq(agentVersion.id, id));
+  return row?.bundle as AnyAgentBundle;
+}
