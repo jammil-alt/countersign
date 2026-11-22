@@ -67,6 +67,8 @@ export const TenantGuideState = z
     people: z.object(By).optional(),
     tools: z.record(z.string(), StoredToolGuide).optional(),
     nudges: z.record(z.string(), Iso).optional(),
+    /** What the last nudge listed for each person (user id → lines), for the email at send. */
+    nudgeItems: z.record(z.string(), z.array(z.string().max(300)).max(30)).optional(),
   })
   .loose();
 export type TenantGuideState = z.infer<typeof TenantGuideState>;

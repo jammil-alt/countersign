@@ -7,6 +7,7 @@ import { and, eq } from "drizzle-orm";
 import type { Hono } from "hono";
 import { ensureSeesAgent } from "../assigned";
 import { type AppEnv, type HandlerCtx, HttpError, mount } from "../http";
+import { notifyDepsFromEnv, sendNow } from "../notify/tick";
 import { callAnswers, nudge, setupBoard } from "../setup/board";
 import { gettingStarted } from "../setup/overview";
 import {
@@ -188,6 +189,7 @@ export function gettingStartedRoutes(app: Hono<AppEnv>): void {
       userId: ctx.session.user.id,
       name: nameOf(ctx),
       isAdmin: ctx.role === "client_admin",
+      platform: ctx.services.platform,
     };
   };
 
@@ -210,19 +212,40 @@ export function gettingStartedRoutes(app: Hono<AppEnv>): void {
   };
 
   mount(app, routes.opsSetupBoard, async (ctx) =>
-    setupBoard(ctx.tx, { tenantId: served(ctx, ctx.params.id), now: new Date() }),
-  );
-
-  mount(app, routes.opsSetupNudge, async (ctx) =>
-    nudge(ctx.tx, {
+    setupBoard(ctx.tx, {
       tenantId: served(ctx, ctx.params.id),
-      userId: ctx.body.userId,
-      by: ctx.session.user.id,
+      now: new Date(),
+      ctx: ctx.services.platform.ctx,
     }),
   );
 
+  mount(app, routes.opsSetupNudge, async (ctx) => {
+    const tenantId = served(ctx, ctx.params.id);
+    const out = await nudge(ctx.tx, {
+      tenantId,
+      userId: ctx.body.userId,
+      by: ctx.session.user.id,
+      now: new Date(),
+      env: ctx.services.env,
+      ctx: ctx.services.platform.ctx,
+    });
+    // The outbox's row goes at once after the commit, as the onboarding emails do.
+    if (out.sent) {
+      ctx.afterCommit(() =>
+        sendNow(
+          ctx.services.db,
+          notifyDepsFromEnv(ctx.services.env, ctx.services.deps.fetch?.(ctx.services.env)),
+          tenantId,
+          new Date(),
+        ),
+      );
+    }
+    return out;
+  });
+
   mount(app, routes.opsSetupCallAnswers, async (ctx) => ({
     saved: await callAnswers(ctx.tx, {
+      tenantIds: ctx.tenantIds,
       intakeId: ctx.params.id,
       body: ctx.body,
       by: ctx.session.user.id,

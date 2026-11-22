@@ -226,6 +226,31 @@ function answerWords(a: IntakeAnswerView, { t }: Pick<I18n, "t">): string {
 
 const ANSWERED = new Set(["answered", "confirmed", "corrected"]);
 
+/** §1.185 q4: an answer your lead gave on a call, which counts once you say yes to it. */
+const fromCall = (a: IntakeAnswerView | undefined): boolean =>
+  !!a && a.source === "call" && ANSWERED.has(a.state);
+
+/** "From our call: please check", with Yes (your own answer, the same value). */
+function FromCall({ field, given, ctx }: { field: string; given: IntakeAnswerView; ctx: CardCtx }) {
+  const { t } = useI18n();
+  return (
+    <span className="flex flex-wrap items-center gap-2" data-testid={`start-from-call-${field}`}>
+      <Badge tone="warning">{t("setup.live.fromCall")}</Badge>
+      <Button
+        size="sm"
+        variant="primary"
+        disabled={ctx.busy}
+        data-testid="start-call-yes"
+        onClick={() =>
+          void ctx.answer([{ fieldKey: field, state: "answered", value: given.value }])
+        }
+      >
+        {t("start.yes")}
+      </Button>
+    </span>
+  );
+}
+
 // ── The page ────────────────────────────────────────────────────────────────────────────────────
 
 function GettingStarted({ initial, overview }: { initial: View; overview: ReactNode }) {
@@ -525,7 +550,14 @@ function WeThinkLine({
           ? answerWords(given, i18n)
           : t("start.weThink", { text: field.weThink?.text ?? "" })}
       </span>
-      {given && ANSWERED.has(given.state) ? (
+      {given && fromCall(given) && !changing ? (
+        <span className="flex flex-wrap items-center gap-2">
+          <FromCall field={field.key} given={given} ctx={ctx} />
+          <Button size="sm" disabled={ctx.busy} onClick={() => setChanging(true)}>
+            {t("start.change")}
+          </Button>
+        </span>
+      ) : given && ANSWERED.has(given.state) && !changing ? (
         <span>
           <Badge tone="positive">
             {given.state === "corrected" ? t("start.changed") : t("start.confirmed")}
@@ -708,7 +740,9 @@ function QuestionList({
               />
             </Field>
             <span className="flex flex-wrap items-center gap-2">
-              {given && ANSWERED.has(given.state) ? (
+              {given && fromCall(given) ? (
+                <FromCall field={f.key} given={given} ctx={ctx} />
+              ) : given && ANSWERED.has(given.state) ? (
                 <Tag>{t("start.answered")}</Tag>
               ) : given?.state === "not_sure" || given?.state === "later" ? (
                 <Tag>{t("start.notSure")}</Tag>

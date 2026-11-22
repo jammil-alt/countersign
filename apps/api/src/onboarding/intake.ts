@@ -214,11 +214,16 @@ function askedOf(d: IntakeData): { fieldKey: string; name: string }[] {
 }
 
 export function progressOf(d: IntakeData, answers = answerViews(d)): SectionProgress[] {
-  return guideProgress(d.guide, answers, {
-    people: d.people.map((p) => ({ name: p.name, sections: p.sections, isAdmin: p.isAdmin })),
-    asked: askedOf(d),
-    decisions: decisionsOf(d.events),
-  });
+  // §1.185 q4: an answer the lead gave on a call counts once the client says yes to it.
+  return guideProgress(
+    d.guide,
+    answers.filter((a) => a.source !== "call"),
+    {
+      people: d.people.map((p) => ({ name: p.name, sections: p.sections, isAdmin: p.isAdmin })),
+      asked: askedOf(d),
+      decisions: decisionsOf(d.events),
+    },
+  );
 }
 
 export function personView(p: PersonRow): IntakePersonView {
