@@ -53,6 +53,7 @@ import {
   ProposalState,
   parseDqNumber,
   phaseIndex,
+  processes,
   proposalUndo,
   readBrief,
   readFitGap,
@@ -1545,6 +1546,7 @@ async function makeDraft(
   kept: boolean;
   summary?: string;
   gaps?: string[];
+  gapSteps?: (string | null)[];
 }> {
   const description =
     atOnce?.description ?? draftDescription(row, readBrief(row.brief), readFitGap(row.fitgap));
@@ -1564,6 +1566,7 @@ async function makeDraft(
       kept: false,
       summary: out.summary,
       gaps: out.gaps,
+      ...(out.gapSteps ? { gapSteps: out.gapSteps } : {}),
     };
   }
   if (row.sessionId) return { set: {}, decisions: [], kept: true };
@@ -1582,11 +1585,17 @@ async function makeDraft(
   return { set: { sessionId: started.session.id }, decisions: [], kept: false };
 }
 
-/** The draft's step standing for each gap (a person step that asks, or a missing step), or null. */
+/**
+ * The draft's step standing for each gap, or null: the one the drafter named (F-C), when the saved
+ * draft has it, else the step core's word match finds (a person step that asks, or a missing step).
+ */
+// DECISION (F-C): the drafter's own answer first, the word match only for a gap it named no step
+// for, so a draft whose model leaves `gapSteps` out reads as before.
 async function draftGapSteps(
   tx: Tx,
   agentId: string | null | undefined,
   gaps: readonly string[],
+  named: readonly (string | null)[] = [],
 ): Promise<(string | null)[]> {
   const latest = agentId ? await latestVersion(tx, agentId) : null;
   const parsed = latest ? AnyAgentBundle.safeParse(latest.bundle) : null;
@@ -1594,7 +1603,12 @@ async function draftGapSteps(
   const drafted = parsed.data.workflows.flatMap((w) =>
     w.workflow.schemaVersion === 4 ? [w.workflow] : [],
   );
-  return gapSteps(gaps, drafted);
+  const ids = new Set(drafted.flatMap((p) => processes.allSteps(p).map(({ step }) => step.id)));
+  const matched = gapSteps(gaps, drafted);
+  return gaps.map((_, i) => {
+    const said = named[i];
+    return said && ids.has(said) ? said : (matched[i] ?? null);
+  });
 }
 
 /** A short, stable fingerprint of a fit-gap's first version. */
@@ -1886,7 +1900,10 @@ async function draftNow(ctx: LongCtx, id: string, given: string | null): Promise
       userId,
     });
     // docs/builder-plan.md §12.4: each gap names the step that stands for it, when one clearly does.
-    const onSteps = gaps.length > 0 ? await draftGapSteps(scoped.tx, made.set.agentId, gaps) : [];
+    const onSteps =
+      gaps.length > 0
+        ? await draftGapSteps(scoped.tx, made.set.agentId, gaps, made.gapSteps ?? [])
+        : [];
     await addItems(
       scoped.tx,
       r,

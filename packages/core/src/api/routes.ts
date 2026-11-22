@@ -2110,6 +2110,11 @@ export const opsRoutes = {
         .nullable(),
       /** docs/builder-plan.md §4: the decisions the Builder made to draft it, for its build. */
       decisions: z.array(DecisionDraft).optional(),
+      /**
+       * F-C (docs/builder-plan.md §12.4): for each of `gaps`, in order, the draft's step the
+       * Builder said stands for it, or null.
+       */
+      gapSteps: z.array(z.string().nullable()).optional(),
     }),
   }),
   opsReviseAgent: defineRoute({
