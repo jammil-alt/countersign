@@ -13,6 +13,7 @@ import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { type ApiHarness, createApiHarness } from "./api.test-helper";
 import type { Bindings } from "./env";
+import { claudeClientInWords } from "./mcp/approval";
 import type { McpAuditEntry } from "./mcp/audit";
 import { memoryRateLimiter } from "./mcp/limits";
 
@@ -116,6 +117,18 @@ class Browser {
 
 const WORKOS_IDS = { operator: "wu_op", other: "wu_other", adminA: "wu_admin_a" };
 
+describe("who is asking, in words (H6)", () => {
+  it("names Anthropic's clients and, for anything else, its first product name only", () => {
+    expect(claudeClientInWords("claude-code/2.1.0 (cli)")).toBe("Claude Code");
+    expect(claudeClientInWords("Claude-User (+https://support.anthropic.com)")).toBe("Claude");
+    expect(claudeClientInWords("python-httpx/0.28.1")).toBe("python-httpx");
+    expect(claudeClientInWords("<script>alert(1)</script>")).toBeNull();
+    expect(claudeClientInWords(`${"x".repeat(80)}/1`)).toBe("x".repeat(40));
+    expect(claudeClientInWords("")).toBeNull();
+    expect(claudeClientInWords(undefined)).toBeNull();
+  });
+});
+
 describe.skipIf(!h)("the Claude connector's approval link (§1.120)", () => {
   const H = h as ApiHarness;
   let nextId = 1;
@@ -205,6 +218,7 @@ describe.skipIf(!h)("the Claude connector's approval link (§1.120)", () => {
           "content-type": "application/json",
           accept: "application/json, text/event-stream",
           authorization: `Bearer ${bearer}`,
+          "user-agent": "Claude-User (claude-code/2.1.0; +https://www.anthropic.com)",
         },
         body: JSON.stringify({ jsonrpc: "2.0", id: nextId++, method, params }),
       },
@@ -350,6 +364,10 @@ describe.skipIf(!h)("the Claude connector's approval link (§1.120)", () => {
 
     // When Claude asked with this link, for the person to compare.
     expect(Math.abs(new Date(seen.json.requestedAt).getTime() - Date.now())).toBeLessThan(60_000);
+    // H6: who is asking, in words, never the user agent; no place where Cloudflare gave none.
+    expect(seen.json.client).toBe("Claude Code");
+    expect(seen.json.place).toBeNull();
+    expect(JSON.stringify(seen.json)).not.toContain("Claude-User");
 
     // One click is not enough: the code Claude showed must be typed, and a wrong one approves nothing.
     const bare = await request(

@@ -334,7 +334,7 @@ PRs #384–#414 closed the launch audit's findings for the first clients. What t
 | H3 | **GitHub and Hyperdrive settings** from PR #384: caching off on the two existing Hyperdrive configs (`wrangler hyperdrive update <id> --caching-disabled`, or run Bootstrap with `rotate_password` unticked); the `production` environment with required reviewers and deployment limited to `main` and `v*` tags. If `staging` allows only `main` to deploy, allow the branches that quick-deploy (`claude/*`). | Owner, by hand | `production` done (checked 2026-11-18: required reviewer, `main` and `v*` tags, no administrator bypass). Hyperdrive caching and `staging`'s branches not checked. `docs/operations.md`. |
 | H4 | **A per-site limit on the beacon** needs a Rate Limiting binding of its own, set well above the per-address limit; on the shared binding one address could empty a site's allowance. | Code and `wrangler.jsonc` | §1.141. Only a per-address limit today. |
 | H5 | **Transcription records no usage**: voice typing's model calls have no cost or usage row. | Code | §1.139. They are limited per person (a call per segment of live dictation: 30 a minute, 1,500 a day). |
-| H6 | **"Who is asking" on the Claude approval page**: the Claude client's name and where the request came from. | Migration on `mcp_session_approval`, then code | §1.130. Today the page shows when Claude asked and takes Claude's code. |
+| H6 | ~~"Who is asking" on the Claude approval page~~ Done (§1.201, migration 0078): the page shows the asking Claude client, in words, and where the request came from. | Migration, then code | §1.130. |
 | H7 | **The portal's resume screen** doesn't show the events that arrived while an agent was paused (`missedEvents`); the back office's go-live panel does. | Code, copy in six languages | §1.137. |
 | H8 | **`refresh_failing` connections**: counted in the ops MCP's `needsAttention` and the daily troubled list since #527. Open: LinkedIn's and HubSpot's dead-grant codes come from their docs, not a live call. | Check live | §1.134. |
 | H9 | ~~The web app's first load~~ Done (#531, §1.192): 344 kB, budget 351 kB. Next toward 300 kB: each portal screen on its own, the route contract split per screen, English on demand. | Code | audit 4.6 |
@@ -363,14 +363,14 @@ sign-in stays off until `MOBILE_SIGNIN=on` and phone notifications until `MOBILE
 ### The desktop app (owner, 2026-11-17; `docs/plan.md` §1.151, `apps/desktop/README.md`)
 
 The app, core's protocol and the `desktop` connector are merged in one PR, built and tested against
-fakes; nothing has run on a Mac or a PC yet, and the API doesn't take computers until D2 and D3. To
+fakes; nothing has run on a Mac or a PC yet. The API takes computers since D2 and D3 (2026-11-22). To
 finish it:
 
 | # | Step | Notes |
 |---|---|---|
 | D1 | Owner review of §1.151's decisions (Electron; closed workbooks only; only files added after a folder is given; drive paths only; a long poll). | Each is a `// DECISION` in the code. |
-| D2 | **Code, its own PR: the migration.** `desktop_device` (client, connection, name, platform, the public key as a JWK, app version, last seen, `revoked_at`; tenant RLS, never deleted, as `person_device`) and `desktop_job` (client, device, the request, issued and expiry times, the result; RLS). | The previous Worker keeps working: new tables only. |
-| D3 | **Code, its own PR: the API.** `POST/DELETE /api/desktop/devices` and `PUT …/folders` (client admin, session, `mount()`), the device's signed routes (`GET /api/desktop/jobs`, `POST …/jobs/:id/result`, `POST /api/desktop/files`; signature, time and key checked, `auditAlone`), `services.desktop` (queue a job, wait for its result), the connector registered in `platform.ts`, files into the documents capability. | Contract tests: no portal route returns the computer's key; a revoked computer's requests are refused. |
+| D2 | ~~The migration~~ Done: 0080, `desktop_device` and `desktop_job` (#546). | `docs/plan.md` §1.204. |
+| D3 | ~~The API~~ Done: pairing and folders (client admin), the computer's signed routes, `services.desktop`, the connector registered, files into documents, with the contract tests (C5.2, #548). | `docs/plan.md` §1.204. A screen listing a client's computers is not built: they show as Desktop app connections. |
 | D4 | **A Mac and a PC**: `node apps/desktop/node_modules/electron/install.js`, then `MEZONAS_API_URL=https://staging.mezonas.com pnpm --filter @countersign/desktop start`, with `MOBILE_SIGNIN=on` on staging. Check each item in `packages/connectors/src/desktop/NOTES.md` (Excel's owner file on both, a written workbook opens without repair, OneDrive-synced folders, Mac privacy prompts). | |
 | D5 | **Signing certificates**: the Apple Developer ID (the same account as the phone, M3) for signing and notarising; for Windows, Azure Trusted Signing (or an OV certificate). | Without them Mac Gatekeeper and Windows SmartScreen warn on install. |
 | D6 | **The update feed**: an R2 bucket of ours behind `downloads.mezonas.com/desktop/`, and a release workflow that builds on macOS and Windows runners and uploads there (its own PR). | |

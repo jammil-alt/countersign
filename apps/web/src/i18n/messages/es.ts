@@ -147,6 +147,10 @@ export const es: Messages = {
   "search.group.records": "Registros",
   "search.group.people": "Personas",
   "search.group.documents": "Documentos",
+  "search.runsAbout": {
+    one: "{count} ejecución sobre {name}",
+    other: "{count} ejecuciones sobre {name}",
+  },
   "nav.table": "La Mesa",
   "nav.desk": "Su escritorio",
   "nav.yourAgents": "Sus agentes",
@@ -2031,6 +2035,9 @@ export const es: Messages = {
   "runsPage.chip.attemptsOver": "intentos más de",
   "runsPage.chip.amount": "importe",
   "runsPage.chip.text": "palabras",
+  "runsPage.chip.about": "sobre",
+  "runsPage.about.remove": "Quitar {name} del filtro",
+  "runsPage.about.record": "un registro",
   "runsPage.ask.label": "Pregunte por sus ejecuciones con sus palabras",
   "runsPage.ask.placeholder": 'Pregunte con sus palabras: "facturas de más de $5,000 este mes"',
   "runsPage.ask.send": "Preguntar",
@@ -3472,6 +3479,9 @@ export const es: Messages = {
     "Este enlace funciona hasta las {time}. Una vez aprobada, dura hasta que termine esa sesión de Claude, 12 horas como máximo.",
   "connectClaude.requested":
     "Claude le dio este enlace a las {time}. Si no se lo pidió a Claude hace un momento, no lo apruebe.",
+  "connectClaude.client": "Quién lo pide: {client}.",
+  "connectClaude.place":
+    "La solicitud llegó desde {place}. Claude en la web pide desde los servidores de Anthropic, así que este es su lugar, no el suyo.",
   "connectClaude.confirm": "El código que le mostró Claude",
   "connectClaude.confirmHint":
     "Claude muestra un código de 6 dígitos con este enlace. Escriba el que le muestra su propio Claude, nunca uno que otra persona le envíe.",

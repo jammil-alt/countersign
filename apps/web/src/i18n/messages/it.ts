@@ -148,6 +148,10 @@ export const it: Messages = {
   "search.group.records": "Registrazioni",
   "search.group.people": "Persone",
   "search.group.documents": "Documenti",
+  "search.runsAbout": {
+    one: "{count} esecuzione su {name}",
+    other: "{count} esecuzioni su {name}",
+  },
   "nav.table": "Il Tavolo",
   "nav.desk": "La tua scrivania",
   "nav.yourAgents": "I tuoi agenti",
@@ -2042,6 +2046,9 @@ export const it: Messages = {
   "runsPage.chip.attemptsOver": "tentativi oltre",
   "runsPage.chip.amount": "importo",
   "runsPage.chip.text": "parole",
+  "runsPage.chip.about": "su",
+  "runsPage.about.remove": "Togli {name} dal filtro",
+  "runsPage.about.record": "un record",
   "runsPage.ask.label": "Chiedi delle tue esecuzioni con parole tue",
   "runsPage.ask.placeholder": 'Chiedi con parole tue: "fatture sopra $5,000 questo mese"',
   "runsPage.ask.send": "Chiedi",
@@ -3490,6 +3497,9 @@ export const it: Messages = {
     "Questo link funziona fino alle {time}. Una volta approvata, dura finché non termina quell'accesso a Claude, al massimo 12 ore.",
   "connectClaude.requested":
     "Claude Le ha dato questo link alle {time}. Se non l'ha chiesto a Claude poco fa, non lo approvi.",
+  "connectClaude.client": "Chi lo chiede: {client}.",
+  "connectClaude.place":
+    "La richiesta è arrivata da {place}. Claude sul web chiede dai server di Anthropic, quindi questo è il loro luogo, non il Suo.",
   "connectClaude.confirm": "Il codice che Claude Le ha mostrato",
   "connectClaude.confirmHint":
     "Claude mostra un codice di 6 cifre con questo link. Scriva quello che mostra il Suo Claude, mai uno che Le manda qualcun altro.",

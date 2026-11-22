@@ -55,6 +55,7 @@ export * from "./api/conversations";
 export * from "./api/deals";
 // v0.12 W1-D: the Desk
 export * from "./api/desk";
+export * from "./api/desktop";
 export * from "./api/directory";
 export * from "./api/documents";
 export * from "./api/excel";
