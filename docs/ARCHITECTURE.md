@@ -3476,6 +3476,49 @@ public page shows the client's name and the process, never an agent, a prompt or
 contract test covers its routes. 14: the model calls are held to the client's HIPAA mode, which is
 checked before a link is made.
 
+### 10.23 The Close pack (Wave Y, owner 2026-11-22; `docs/plan.md` §1.232)
+
+Outside v1's scope, with the owner's yes (the owner's build plan 6). **A month's close of a client's
+QuickBooks books: a checklist, the journal entries the month needs, and a person's sign-off.** The
+pack (`close`) extends the Bookkeeping area (`extends: "bookkeeping"`, §12.1.1). Its code lives
+beside the Bookkeeping pack in `packs/bookkeeping/src/close/`, because it reads that area's
+reconciliations and a pack never imports another pack. Migration 0090 adds its tables.
+
+- **The close** (`close_period`): one per client, accounting connection and month. It stays open
+  until a person signs it off. After sign-off nothing about it changes, and a database trigger
+  holds the period, its lines and its entries to that.
+- **The checklist** (`close_item`), checked by code (invariant 7):
+  - each active bank and card account reconciled through the month's end, from the Bookkeeping
+    pack's reconciliations (signed off, or balanced);
+  - uncategorized transactions, bills entered twice and vendors kept twice, from books health's
+    library (§12.5) run on the books as of the month's end;
+  - bank transactions not yet booked;
+  - every proposed entry decided.
+
+  Each line carries its dollars, count, one sentence and `sources` (invariant 10). A person may
+  waive a line with a reason.
+- **Entries** (`close_entry`, `close_entry_line`): accruals, their reversals and recurring
+  journals. Code proposes:
+  - an accrual when a vendor billed the same expense account in each of the months before
+    (default 3) and not yet this month, at the middle month's amount, reversing on the next
+    month's first day;
+  - the reversal of last month's posted accruals;
+  - last month's posted recurring journals again.
+
+  An agent may also propose an entry, which must carry its sources. Lines balance in decimal
+  (invariant 6). Each entry is written to QuickBooks only through `qbo.journal.create`, an external
+  tool behind approval (invariant 8). Its mark (`[Mezonas ce-<id>]`) lets a retried write find
+  itself. What became of the write is read back from the external action.
+- **The template**, Month-end close: on the 5th it checks last month, records each entry (approval
+  on, `onReject: continue`), checks again, and asks the client's admin to sign off on the card
+  `close.signoff`. It runs in `suggest_only` with `oversight.verify: writes` (§10.18), so every
+  journal entry passes the verifier and the evidence panel before a person signs it.
+- **Configuration** (§12.1.1): whether to propose accruals, the accrual account's name, and the
+  months a pattern needs.
+- **Where it shows:** Reports → Month-end close in the portal (`/api/reports/close/close`, read
+  only, one client, no agent, prompt or cost) and the client's Areas tab in the back office. Both
+  load on their own.
+
 ### 10.24 Accounts payable: bills to an approved list (Wave Y item Y4, owner 2026-11-22)
 
 **Outside v1's scope (§1); the owner said yes for Wave Y.** The AP pack (`ap`) takes vendor bills
