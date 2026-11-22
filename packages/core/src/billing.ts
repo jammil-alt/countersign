@@ -489,3 +489,70 @@ export const ProviderFeePayload = z.object({
   currency: z.literal("USD"),
 });
 export type ProviderFeePayload = z.infer<typeof ProviderFeePayload>;
+
+// §1.210 (build plans 11's metering): what we pay vendors for outside a run's model calls, one
+// `metered_usage` row each (migration 0095).
+
+/** What a `metered_usage` row counts: a `billing_unit_cost` measure, or a model call (`model`). */
+export const METERED_MEASURES = [
+  "messages",
+  "emails",
+  "browser_seconds",
+  "bank_item_months",
+  "verifications",
+  "model",
+] as const;
+export type MeteredMeasure = (typeof METERED_MEASURES)[number];
+
+/**
+ * Where a metered row came from: a run's own work (`run`), the client's own (`notification`,
+ * `release_code`, `auto_reply`, `inbound`, `invitation`, `account`, `bank_feed`, `browser`), or
+ * ours (`sign_in_code`, `back_office`, and the back office's model calls: `dev_queue`,
+ * `reggie_read`, `reshape`, `builder`, `build`, `assist`, `questions`, `summaries`,
+ * `dictation`).
+ */
+export const METER_SOURCES = [
+  "run",
+  "notification",
+  "release_code",
+  "auto_reply",
+  "inbound",
+  "invitation",
+  "account",
+  "bank_feed",
+  "browser",
+  "sign_in_code",
+  "back_office",
+  "dev_queue",
+  "reggie_read",
+  "reshape",
+  "builder",
+  "build",
+  "assist",
+  "questions",
+  "summaries",
+  "dictation",
+  "background_read",
+] as const;
+export type MeterSource = (typeof METER_SOURCES)[number];
+
+/**
+ * The unit costs migrations 0009 and 0095 seeded, all placeholders until checked against each
+ * vendor's own price page (as the model prices' `PRICES_CHECKED_ON`): Twilio's US text, a call
+ * minute through Twilio and ElevenLabs, Resend's Pro overage, Browser Run's browser hour, Twilio
+ * Verify's verification and an assumed Plaid Transactions item-month. The operator changes them
+ * on /ops/billing; a figure priced with one is shown as an estimate.
+ */
+// DECISION: "unverified" until someone checks each price against its vendor's page and puts the
+// date here, as packages/llm's PRICES_CHECKED_ON (docs/plan.md §1.210).
+export const UNIT_COSTS_CHECKED_ON = "unverified";
+export const PLACEHOLDER_UNIT_COSTS: Readonly<
+  Record<string, { unitCost: string; perUnits: number }>
+> = {
+  messages: { unitCost: "0.0083", perUnits: 1 },
+  call_seconds: { unitCost: "0.1000", perUnits: 60 },
+  emails: { unitCost: "0.0009", perUnits: 1 },
+  browser_seconds: { unitCost: "0.0900", perUnits: 3600 },
+  verifications: { unitCost: "0.0500", perUnits: 1 },
+  bank_item_months: { unitCost: "0.3000", perUnits: 1 },
+};

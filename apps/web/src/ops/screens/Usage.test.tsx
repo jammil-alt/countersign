@@ -463,8 +463,63 @@ describe("ops usage", () => {
       "Twilio fees (texting registration)4 fees$35.50",
     );
     expect(
-      screen.getByText("What the work cost us. Fees and estimates are not in the model cost."),
+      screen.getByText(
+        "What the work cost us. Fees and estimates are not in the model cost; unit costs are unverified.",
+      ),
     ).toBeInTheDocument();
+  });
+
+  it("shows what the other vendors cost beside each row's model cost (§1.210)", async () => {
+    const api = fakeApi({
+      "GET /api/session": () => OPERATOR_SESSION,
+      "GET /api/ops/usage": () => ({
+        ...REPORT,
+        total: { ...REPORT.total, servicesUsd: "0.3198" },
+        clients: [
+          {
+            ...REPORT.clients[0],
+            total: { ...REPORT.clients[0]?.total, servicesUsd: "0.3198" },
+          },
+          ...REPORT.clients.slice(1),
+        ],
+        byVendor: [
+          { id: "resend", name: "Resend (email)", costUsd: "0.0018", estimated: true, emails: 2 },
+          {
+            id: "browser_run",
+            name: "Browser Run (website logins)",
+            costUsd: "0.0023",
+            estimated: true,
+            browserSeconds: 91,
+          },
+          {
+            id: "twilio_verify",
+            name: "Twilio Verify (sign-in codes)",
+            costUsd: "0.0500",
+            estimated: true,
+            verifications: 1,
+          },
+          {
+            id: "plaid",
+            name: "Plaid (bank feeds)",
+            costUsd: "0.3000",
+            estimated: true,
+            bankItemMonths: 1,
+          },
+        ],
+      }),
+    });
+    renderAt("/ops/usage", api);
+    const demo = await screen.findByTestId(`ops-usage-row-${DEMO}`);
+    expect(demo).toHaveTextContent("$12.35$0.32");
+    expect(screen.getByTestId("ops-usage-row-total")).toHaveTextContent("$0.32");
+    expect(screen.getByTestId("ops-usage-vendor-resend")).toHaveTextContent("2 emails");
+    expect(screen.getByTestId("ops-usage-vendor-browser_run")).toHaveTextContent(
+      "2 minutes of browsing",
+    );
+    expect(screen.getByTestId("ops-usage-vendor-twilio_verify")).toHaveTextContent(
+      "1 sign-in code",
+    );
+    expect(screen.getByTestId("ops-usage-vendor-plaid")).toHaveTextContent("1 bank month");
   });
 
   it("keeps billing a tab away", async () => {
