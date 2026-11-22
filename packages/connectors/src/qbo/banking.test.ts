@@ -4,10 +4,10 @@ import { DEFAULT_PERMISSIONS, type JsonObject } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import type { ToolContext, WriteContext } from "../connector";
 import { memoryCredentials } from "../credentials-accessor";
-import { captureBefore, executeWrite } from "../invoke";
+import { captureBefore, executeWrite, runReadTool } from "../invoke";
 import { memoryLogger } from "../logger";
 import { FAKE_QBO_CLIENT, FAKE_QBO_REALM, fakeQbo } from "../testing";
-import { BANKING_TOOLS, createQboConnector, referenceMark } from "./index";
+import { BANKING_FIND_TOOL, BANKING_TOOLS, createQboConnector, referenceMark } from "./index";
 
 const NOW = new Date("2026-11-05T18:00:00.000Z");
 const tenant = "0190f0c8-0000-7000-8000-000000000001";
@@ -291,5 +291,48 @@ describe("qbo.transfer.create", () => {
         ),
       ),
     ).toContain("two different accounts");
+  });
+});
+
+describe("qbo.banking.find (docs/plan.md §1.187)", () => {
+  const deposit = {
+    accountId: CHECKING,
+    txnDate: "2026-11-04",
+    expectedTotal: "1200.00",
+    reference: "bt-dep-earlier",
+    lines: [{ accountId: "400", amount: "1200.00" }],
+  };
+
+  it("finds a deposit written under any of the marks, the first preferred, and only that day's", async () => {
+    const s = await setup();
+    const out = await executeWrite(s.connector, BANKING_TOOLS.depositCreate, deposit, s.ctx());
+    const id = (out.output as { id: string }).id;
+    const find = (input: unknown) =>
+      runReadTool(s.connector, BANKING_FIND_TOOL, input, s.propose()).then((r) => r.output);
+    // A later copy's own mark, then the earlier copy's: the earlier copy's write is found.
+    expect(
+      await find({
+        entity: "deposit",
+        txnDate: "2026-11-04",
+        references: ["bt-dep-later", "bt-dep-earlier"],
+      }),
+    ).toEqual({ found: true, entity: "deposit", id, reference: "bt-dep-earlier" });
+    // Another day, another kind, or no mark of these: nothing.
+    for (const input of [
+      { entity: "deposit", txnDate: "2026-11-05", references: ["bt-dep-earlier"] },
+      { entity: "transfer", txnDate: "2026-11-04", references: ["bt-dep-earlier"] },
+      { entity: "deposit", txnDate: "2026-11-04", references: ["bt-dep-other"] },
+    ]) {
+      expect(await find(input), JSON.stringify(input)).toEqual({
+        found: false,
+        entity: input.entity,
+        id: null,
+        reference: null,
+      });
+    }
+    // It only reads.
+    expect(
+      s.qbo.requests.filter((r) => r.method === "POST" && r.url.includes("/deposit")),
+    ).toHaveLength(1);
   });
 });

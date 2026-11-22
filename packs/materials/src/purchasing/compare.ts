@@ -12,11 +12,11 @@
 
 import { type Decimal, dec, formatAmount, toNumeric } from "@countersign/core";
 import { type Db, type Tx, vendor, withTenant } from "@countersign/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { parseLine } from "../catalog/keys";
 import { daysBefore } from "../pricing/rules";
 import { convertLine, PACKAGING_UOMS, readUom, unitKey } from "../pricing/uom";
-import { quoteRequest } from "../schema";
+import { quoteRequest, vendorItem } from "../schema";
 import { vendorItemForUnit } from "../vendor/store";
 import { cents } from "./po";
 import { quotedConversion, quoteLines } from "./quotes";
@@ -42,6 +42,8 @@ export interface CompareQuote {
   vendorId: string;
   vendorName: string;
   receivedAt: string | null;
+  /** §1.189: how many of the request's lines this vendor is the client's preferred vendor for. */
+  preferredLines?: number | undefined;
 }
 
 export interface CompareOfferInput {
@@ -118,6 +120,8 @@ export interface VendorTotal {
   complete: boolean;
   maxLeadTimeDays: number | null;
   late: boolean;
+  /** §1.189: lines of the request this is the client's preferred vendor for. */
+  preferredLines: number;
 }
 
 export interface Suggestion {
@@ -457,6 +461,7 @@ export function compareOffers(input: {
         ),
       maxLeadTimeDays: lead,
       late,
+      preferredLines: q.preferredLines ?? 0,
     };
   });
 
@@ -471,6 +476,8 @@ export function compareOffers(input: {
     sources: [...sources, ...quotes.map((q) => q.id)],
   };
 }
+
+const preferredWords = (n: number) => (n === 1 ? "1 line" : `${n} lines`);
 
 function suggest(
   input: { neededBy: string | null; quotes: readonly CompareQuote[] },
@@ -499,11 +506,14 @@ function suggest(
   const lines = allLines.filter((l) => l.compared);
   if (lines.length === 0) return none(left);
 
+  // DECISION (§1.189): the client's preferred vendor wins a tie on the total (before lead time);
+  // it is never suggested at a higher total, and the reasons say what it would cost.
   const complete = vendors
     .filter((v) => v.complete)
     .sort(
       (a, b) =>
         dec(a.total).comparedTo(dec(b.total)) ||
+        b.preferredLines - a.preferredLines ||
         (a.maxLeadTimeDays ?? 0) - (b.maxLeadTimeDays ?? 0) ||
         a.vendorName.localeCompare(b.vendorName),
     );
@@ -575,6 +585,14 @@ function suggest(
     }
     if (single.late && input.neededBy) {
       reasons.push(`No vendor that quoted every line can deliver by ${input.neededBy}.`);
+    }
+    const preferred = [...complete].sort((a, b) => b.preferredLines - a.preferredLines)[0];
+    if (preferred && preferred.preferredLines > 0) {
+      reasons.push(
+        preferred.vendorId === single.vendorId
+          ? `${single.vendorName} is your preferred vendor for ${preferredWords(preferred.preferredLines)}.`
+          : `${preferred.vendorName}, your preferred vendor for ${preferredWords(preferred.preferredLines)}, quoted every line for ${money(preferred.total, currency)}, ${money(dec(preferred.total).minus(single.total), currency)} more.`,
+      );
     }
     if (mixed) reasons.push(mixedReason);
     if (covered && parts.size > 1) {
@@ -702,6 +720,26 @@ export async function compareQuotesTx(
       const conv = quotedConversion(asked.item, o, asked.row, vi);
       offerQtyStd.set(o.id, conv.ok ? toNumeric(dec(o.qty).times(conv.factor)) : null);
     }
+    // §1.189: each quoting vendor's count of the request's lines it is the preferred vendor for.
+    const itemIds = [...new Set(lines.flatMap((l) => (l.item ? [l.item.id] : [])))];
+    const preferredRows =
+      itemIds.length === 0
+        ? []
+        : await tx
+            .select({ vendorId: vendorItem.vendorId, catalogItemId: vendorItem.catalogItemId })
+            .from(vendorItem)
+            .where(
+              and(
+                eq(vendorItem.tenantId, ctx.tenantId),
+                eq(vendorItem.preferred, true),
+                eq(vendorItem.status, "active"),
+                inArray(vendorItem.catalogItemId, itemIds),
+              ),
+            );
+    const preferredLines = (vendorId: string) =>
+      lines.filter((l) =>
+        preferredRows.some((p) => p.vendorId === vendorId && p.catalogItemId === l.item?.id),
+      ).length;
     return compareOffers({
       requestId: r.id,
       neededBy: r.neededBy,
@@ -736,6 +774,7 @@ export async function compareQuotesTx(
         vendorId: q.vendorId,
         vendorName,
         receivedAt: q.receivedAt ? q.receivedAt.toISOString() : null,
+        preferredLines: preferredLines(q.vendorId),
       })),
       offers: offers.map((o) => ({
         id: o.id,

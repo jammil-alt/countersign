@@ -62,7 +62,24 @@ export interface OpsToolCtx {
   audit: { outcome?: "preview" | "done"; target?: Record<string, string> };
   /** Who is calling: the MCP server (default) or Reggie, which reads with these tools (§1.101). */
   via?: "mcp" | "reggie";
+  /**
+   * §1.190: clients in HIPAA mode the MCP connector may not send data for (./hipaa.ts); the tools
+   * in LEAVE_OUT_HELD leave them out. Unset for Reggie, whose model calls are held instead.
+   */
+  hipaaHeld?: ReadonlySet<string>;
 }
+
+/** Of the clients from a list, those the connector may show; and how many it left out. */
+function shown<T extends { id: string }>(ctx: OpsToolCtx, clients: readonly T[]) {
+  const held = ctx.hipaaHeld;
+  const kept = held?.size ? clients.filter((c) => !held.has(c.id)) : [...clients];
+  return { kept, leftOut: clients.length - kept.length };
+}
+
+const leftOutNote = (n: number) =>
+  n === 0
+    ? ""
+    : ` ${plural(n, "client")} in HIPAA mode ${n === 1 ? "is" : "are"} left out here: Anthropic's BAA for Claude isn't signed.`;
 
 const Id = z.string().refine(isUuid, "not an id").describe("A Mezonas id (uuid)");
 const ClientId = Id.describe("A client's id (uuid), from clients_list");
@@ -164,11 +181,12 @@ const whoami: Tool<OpsToolCtx> = {
   input: z.strictObject({}),
   annotations: READ,
   async run(ctx) {
-    const { clients } = await route(ctx, routes.opsClients);
+    const listed = shown(ctx, (await route(ctx, routes.opsClients)).clients);
+    const clients = listed.kept;
     const { user } = ctx.session;
     return dataResult(
       "whoami",
-      `Signed in to Mezonas ${ctx.config.environment} as an operator serving ${plural(clients.length, "client")}.`,
+      `Signed in to Mezonas ${ctx.config.environment} as an operator serving ${plural(clients.length + listed.leftOut, "client")}.${leftOutNote(listed.leftOut)}`,
       {
         user: { id: user.id, email: user.email, name: user.name },
         environment: ctx.config.environment,
@@ -187,7 +205,8 @@ const clientsList: Tool<OpsToolCtx> = {
   input: z.strictObject({}),
   annotations: READ,
   async run(ctx) {
-    const { clients } = await route(ctx, routes.opsClients);
+    const listed = shown(ctx, (await route(ctx, routes.opsClients)).clients);
+    const clients = listed.kept;
     const extra = await asOperator(ctx, { tool: "clients_list" }, async ({ tx, tenantIds }) => {
       const ids = clients.map((c) => c.id).filter((id) => tenantIds.includes(id));
       const byStatus = ids.length
@@ -211,7 +230,7 @@ const clientsList: Tool<OpsToolCtx> = {
     const attention = out.filter((c) => c.health?.state === "attention").length;
     return dataResult(
       "clients_list",
-      `${plural(out.length, "client")}; ${attention} need attention by their latest health check.`,
+      `${plural(out.length, "client")}; ${attention} need attention by their latest health check.${leftOutNote(listed.leftOut)}`,
       { clients: out },
     );
   },
@@ -781,6 +800,12 @@ const marketingReport: Tool<OpsToolCtx> = {
     return dataResult("marketing_report", `The client's Marketing report: ${report}.`, out.report);
   },
 };
+
+/**
+ * §1.190: the tools that leave a client in HIPAA mode out of their answer instead of being refused
+ * (they list clients, so the operator can still find the ones they may ask about).
+ */
+export const LEAVE_OUT_HELD: ReadonlySet<string> = new Set([whoami.name, clientsList.name]);
 
 export const OPS_TOOLS: readonly Tool<OpsToolCtx>[] = [
   whoami,
