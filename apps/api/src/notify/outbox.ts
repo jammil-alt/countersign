@@ -457,8 +457,9 @@ export async function sendQueued(
               ),
             );
         }
+        // §1.206: the setup nudge goes to a member and is logged on no intake.
         const logged = (status: "sent" | "failed") =>
-          onboarding
+          onboarding?.intakeId && onboarding.personId
             ? logOnboardingSend(tx, {
                 tenantId: t.id,
                 intakeId: onboarding.intakeId,
@@ -482,7 +483,7 @@ export async function sendQueued(
             claim,
           );
           await logged("failed");
-          if (onboarding) {
+          if (onboarding?.intakeId && onboarding.personId) {
             unsent.push({
               tenantId: t.id,
               intakeId: onboarding.intakeId,

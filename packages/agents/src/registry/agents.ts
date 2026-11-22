@@ -57,6 +57,7 @@ import {
 import { handoffAgents, holdsHandoff } from "./handoff";
 // lineage imports this module too; only functions cross, so the cycle is safe at load time.
 import { type PromotionProblem, refuseProblems, stripForPromotion } from "./lineage";
+import { missingRoles } from "./people";
 import { type SkillCatalog, skillContext, snapshotSharedSkills } from "./skills";
 import type { ToolRegistry } from "./tools";
 
@@ -1181,11 +1182,9 @@ export async function activationProblems(
     }
   }
 
-  // A required role with nobody bound (docs/plan.md §1.25).
-  for (const r of live.bundle.people ?? []) {
-    if (r.required && !(row.people[r.role]?.contactIds.length ?? 0)) {
-      problems.push(`nobody is bound to the required role ${r.role}`);
-    }
+  // A required role or seat with nobody in it (docs/plan.md §1.25; setup-plan §4.1).
+  for (const role of missingRoles(live.bundle.people ?? [], row.people)) {
+    problems.push(`nobody is bound to the required role ${role}`);
   }
 
   for (const e of await validateForPublish(tx, row, live.bundle, input.ctx)) {

@@ -351,6 +351,10 @@ where the client's compliance mode refuses its vendors (§1.35).
 
 ### 4.7 After the intake
 
+> **2026-11-22:** what comes after the intake up to the first trial (tools, people and seats, see
+> it work, go live, the back office's Setup tab) is designed in `docs/setup-plan.md`, with a
+> mock-up in `docs/design/setup.html`. It folds O4 and O5 in.
+
 - **A general or area intake** ends with Reggie's read: the agents it would propose, with why. The
   operator picks; **Add to the intake** adds their cards (and their builds, at Requirements
   request) and sends "A few more questions". The deal's proposal is drafted from the same read.

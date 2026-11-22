@@ -64,6 +64,8 @@ export * from "./api/feedback";
 // docs/plan.md §1.121: forms, "Request info"
 export * from "./api/forms";
 export * from "./api/gchat";
+// docs/setup-plan.md (§1.206): Getting started's chapters, seats and the Setup tab.
+export * from "./api/getting-started";
 // v0.14 W4-D
 export * from "./api/gsheets";
 // R4: business hours, person hours and channels (docs/plan.md §1.86).
@@ -223,6 +225,8 @@ export * from "./email/authentication";
 export * from "./email/layout";
 export * from "./email/onboarding";
 export * from "./email/second-factor";
+// docs/plan.md §1.206 (SU6): the setup nudge, from the lead.
+export * from "./email/setup-nudge";
 // docs/plan.md §1.121: forms, "Request info"
 export * from "./forms";
 // docs/builder-plan.md §8 (B6): governance in tiers
@@ -335,6 +339,7 @@ export * from "./security/session-limits";
 export * from "./setup/adjust";
 export * from "./setup/adjustable";
 export * from "./setup/checklist";
+export * from "./setup/guide";
 export * from "./setup/item";
 export * from "./setup/view";
 export * from "./skills/index";
