@@ -307,6 +307,16 @@ export const de: Messages = {
   "agent.pausedByUs": "Von uns pausiert: {reason}",
   "agent.pausedUntil": "Bis {time}",
   "agent.resumeOurs": "Wir haben pausiert. Bitten Sie Ihren Ansprechpartner, fortzusetzen.",
+  "agent.missed": {
+    one: "Während der Pause, zwischen {from} und {to}, kam {count} Ereignis, mit dem es gestartet wäre. Es ist nicht von selbst gestartet.",
+    other:
+      "Während der Pause, zwischen {from} und {to}, kamen {count} Ereignisse, mit denen es gestartet wäre. Keines ist von selbst gestartet.",
+  },
+  "agent.missedOrMore":
+    "Während der Pause, zwischen {from} und {to}, kamen {count} oder mehr Ereignisse, mit denen es gestartet wäre. Keines ist von selbst gestartet.",
+  "agent.missedUncounted":
+    "Während der Pause, zwischen {from} und {to}, kamen mehr Ereignisse, als wir auf einmal prüfen können. Manche hätten es vielleicht gestartet. Keines ist von selbst gestartet.",
+  "agent.missedAsk": "Bitten Sie Ihren Ansprechpartner, sie auszuführen, wenn Sie sie brauchen.",
   "agent.rightNow": "Gerade jetzt",
   "agent.nothingRunning":
     "Gerade läuft nichts. Der nächste Ablauf erscheint hier, Schritt für Schritt.",

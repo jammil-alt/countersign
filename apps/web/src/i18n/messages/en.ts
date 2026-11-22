@@ -281,6 +281,16 @@ export const en = {
   "agent.pausedByUs": "Paused by us: {reason}",
   "agent.pausedUntil": "Until {time}",
   "agent.resumeOurs": "We paused it. Ask your lead to resume it.",
+  "agent.missed": {
+    one: "{count} event came in while it was paused, between {from} and {to}, that it would have started on. It didn't start by itself.",
+    other:
+      "{count} events came in while it was paused, between {from} and {to}, that it would have started on. None started by itself.",
+  },
+  "agent.missedOrMore":
+    "{count} or more events came in while it was paused, between {from} and {to}, that it would have started on. None started by itself.",
+  "agent.missedUncounted":
+    "More events came in while it was paused, between {from} and {to}, than we can check at once. Some may be ones it would have started on. None started by itself.",
+  "agent.missedAsk": "Ask your lead if you want any of them run.",
   "agent.rightNow": "Right now",
   "agent.nothingRunning": "Nothing running now. The next run shows here, step by step.",
   "agent.openRun": "Open the run",

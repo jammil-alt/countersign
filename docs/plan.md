@@ -5440,7 +5440,7 @@ These had to land before any client gets a Twilio number. New `contact_change` k
 
 | Topic | Decision |
 |---|---|
-| Invitations | An invitation link takes US and Canadian numbers only, as the public link does, and signs up once: the contact row is locked and a later submit gets 409 `used`. An invitation is one person's, so it is refused in words they can act on (`apps/api/src/messaging/signup.ts`). // DECISION |
+| Invitations | An invitation link takes US and Canadian numbers only, as the public link does, and signs up once: the contact row is locked and a later submit gets 409 `used`. An invitation is one person's, so it is refused in words they can act on (`apps/api/src/messaging/signup.ts`). // DECISION Since: the page says a used invitation was used, and submits at once with one new number get no 500 (§1.197). |
 | Opt-outs | Only a START from the number lifts an opt-out; the sign-up page never does. On the public link, an opted-out number and a number already signed up get the same 200 as a sign-up and nothing is sent, the confirmation goes after the response, and the same answer on every path, so neither the words nor the timing say who opted out. On an invitation, 409 `opted_out` only when the invited person's own contact opted out; another contact's opted-out number is answered as a sign-up, sends nothing and uses the invitation up. A WhatsApp opt-out counts for texts. The page tells everyone how to text START. // DECISION |
 | The link's cap | At most 20 submits an hour per client link (`TEXT_SIGNUP_LINK_HOURLY_MAX`), skipped ones included, taken under an advisory lock so a burst can't pass it. // DECISION |
 | Automatic replies | One reply a day per contact and channel to a sender no trigger takes, five confirmations a day to one it does (Twilio and WhatsApp), counted from the contact's own log under an advisory lock, so two bots can't text each other for ever. None to a sender that looks automated, judged from the number alone (no paid carrier lookup): short codes, alphanumeric senders, invalid or toll-free +1 numbers, the client's own number (`apps/api/src/triggers/inbound-text.ts`). // DECISION |
@@ -6382,6 +6382,22 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.199 A run's cost counts every call, however small (build plans 11's first fix, 2026-11-22; no migration)
+
+The build plans (2026-11-22, plan 11) found every production run showing $0.00. Two causes in the
+code. **Unpriced model ids:** the API answers a model with its dated id
+(`claude-sonnet-4-5-20250929`), which had no price, so the call was recorded at $0.00; staging
+had 30 such calls. #523 prices dated ids and earlier Claude models and shows "No price" for the
+rest. **Rounding:** a call's cost has 6 places, but `step_run.cost_usd` and `run.cost_usd` are
+`numeric(14,4)`, and `addUsage` added each call as is, so every addition rounded to the nearest
+ten-thousandth and a call under $0.00005 (a short Haiku call, as item matching makes) added
+nothing.
+
+| Topic | Decision |
+|---|---|
+| Rounding | Each call's cost is rounded **up** to a ten-thousandth before it is added to its step and run, as its `model_call` row already is (`dbModelCalls.record`), so a run's cost is the sum of its calls' rows and a call is never free. // DECISION: round per call rather than widen the columns: no migration, and the two sources agree. |
+| Not here | Runs already recorded at $0.00 keep it (`model_call` keeps their tokens and model, so they can be repriced later if wanted). Texts, calls and third-party fees are still not on a run's cost; that is plan 11's metering. |
+
 ### 1.198 The beacon's limit per site (H4, 2026-11-22; no migration)
 
 §1.141 limited the public inbound route per sending address only. A site now has a limit of its
@@ -6395,6 +6411,23 @@ a site's allowance.
 | How much | 3,000 a minute per target per Cloudflare location (`INBOUND_TARGET_PER_MINUTE`), 25 times the 120 per address: 50 beacons a second, more than any client's site sends from one location, and it takes 25 addresses at their full limit to use it up. Cloudflare's simple limits take a period of 10 or 60 seconds; a minute matches the address limit. // DECISION |
 | Order | The address limit first, then the site's, both before any database work (`inboundLimitHit`, `apps/api/src/routes/pack-inbound.ts`). A request the address limit refuses never counts toward its site, so one address over its limit takes nothing from the site's other readers. Over either, the usual 204 and nothing stored; drops are reported at most once a minute per isolate, per limit, with the count and no address or ids. // DECISION |
 | Checked | `apps/api/src/routes/pack-inbound.test.ts` (a site over its limit refused while another site, and the same site id under another client, pass; one address over its limit doesn't use up the site's; the address limit and IPv6 /64 as before), `apps/api/src/marketing.test.ts` (through the route with a fake binding: a busy site's beacons stop being stored at its limit while another site's are stored; the address tests as before), `apps/api/src/mcp/units.test.ts` (the target limiter uses its own binding, and its fallback holds its own limit), `apps/api/src/mcp.runtime.test.ts` (the binding answers in workerd). |
+
+### 1.197 Texting sign-ups: a number typed twice at once, and a used invitation (H10, 2026-11-22; no migration)
+
+Two edge cases §1.142 left. Submits at once with one new number both found it free, and the later
+write broke `contact_phone_key`. In tests on main that reached the generic mapping of a unique
+violation, 409 `conflict` ("that already exists"), not a 500, but nothing on the page could act on
+it, and it rested on the driver's error code coming through. The client's link alone was safe: its
+submits take turns under the link's advisory lock. And an invitation used up by a skipped submit
+(another contact's opted-out number) still showed the form, which could only answer 409 `used`.
+
+| Topic | Decision |
+|---|---|
+| Lost the race, run again | A submit whose write breaks `contact_phone_key` runs once more, as a whole new transaction (`submitTextSignup`, `isPhoneTaken`). Postgres raises the violation only after the other submit committed, so the second go sees its row and answers as a submit just after it would: on the link the number is found (signed up: answered the same, nothing sent twice; not yet: signed up once); on an invitation the number is another contact's. Nothing from the lost go is kept, so the hourly limit and "used" count it once. Rather than `insert … on conflict`, which `createContact` and `updateContact` would need for every caller. A second violation is 409 `try_again` ("Try again"); it needs a third submit with the same number at that moment. // DECISION |
+| Another contact's number | On an invitation, a number another contact of the client has is refused 409 `number_taken`, in words the person can act on: "That number belongs to someone else in {client}'s contacts. Enter your own mobile number, or ask {client}." It was `contact_exists`, with the directory's words. It says no more than before: the number is in the client's contacts. // DECISION |
+| The page checks first | The page's view of an invitation says `used` (core `TextSignupView.state`) when a submit through it was logged since it was sent, the same check the submit makes (`invitationUsed`). Signed up comes first, so an invitation used by its own sign-up still says "You're already signed up"; used comes before declined. The page then shows "This invitation was already used. It works once. To get texts on another number, ask {client}." and the START line, with no form, in the page's six languages (`apps/web/src/signup/words.ts`). A newer invitation to the same person is open again. // DECISION |
+| Not changed | The link's answer to any number, opted out or signed up, stays the same 200 (§1.142). A forwarded invitation still learns that a number is in the client's contacts, as before. |
+| Checked | `apps/api/src/text-signup.test.ts`: two submits at once on the link (both 200, one sign-up, one skipped), on two invitations (one 200, one 409 `number_taken`), an invitation and the link at once (never a 500), and a submit held on an uncommitted contact with its number until it waits, then released (the invitation 409 `number_taken` and its invitation still open; the link signs the held contact up once). Without the second go those answer 409 `conflict`. The page's `used` after a skipped submit and after a sign-up is withdrawn; a newer invitation open. `apps/web/src/signup/TextSignup.test.tsx`: a used invitation shows its words and the START line, and no form. |
 
 ### 1.196 Voice typing's usage and cost (H5, 2026-11-22; no migration)
 
@@ -6410,6 +6443,19 @@ was recorded (§1.139 "Known costs"). Now each is, the way a portal question is 
 | No usage in the answer | Recorded with no tokens and a cost of 0, as an unpriced question is, and warned of in the log (`voice.transcribe.unpriced`). A failed call writes nothing. |
 | Known costs | One run per segment: a minute of dictation is up to 12 of Sloan's test runs, counted in `usage_daily.runs` (and billed if runs carry a unit cost) and listed with its other runs in the back office, as questions are. |
 | Checked | `packages/llm/src/transcribe.test.ts` (the usage read, the cost in decimal, by the minute, an unknown model, no usage), `apps/api/src/voice.test.ts` (a portal dictation writes the run, step, `model_call` and `usage_daily` rows for Sloan with the person and model, no words; the back office's writes no run), `usage-tokens.test.ts` (the questions' path unchanged). |
+
+### 1.195 The portal's resume says what came in while paused (H7, 2026-11-22; no migration)
+
+Resuming an agent counted the events of its pause that would have started it (§1.137) and the
+back office's go-live panel showed them, but the portal's resume screen dropped the count.
+
+| Topic | Decision |
+|---|---|
+| What the client sees | On resume, the agent page says what the go-live panel says: how many came in while it was paused that it would have started on, between the pause's start and end, "or more" when one look could not read them all, and that none started by itself; when more came in than one look reads and none of those read would start it, it says so. Then "Ask your lead if you want any of them run": running them stays the operator's (the past-event path, §1.137). Nothing shows when none came in. In all six languages. // DECISION |
+| The answer | `POST /api/services/:id/resume` adds `missed` (count, from, to, more; null with no pause to count), the shape of the operator's `GET /api/ops/agents/:id/missed-events`, now one schema (`MissedWhilePaused`, `packages/core/src/api/lifecycle.ts`) built by one function (`missedView`, `apps/api/src/routes/lifecycle.ts`). `missedEvents` stays. Never the events, their ids or what they say (invariants 9 and 11). // DECISION |
+| How long it shows | From the resume's answer until the page is left, another agent opens or it is paused again; not stored. // DECISION |
+| Not built | Resume all (`POST /api/services/resume-all`) still answers a total only, and no portal screen calls it. |
+| Checked | `apps/api/src/lifecycle.test.ts` (the resume answers the go-live panel's view, without the event's id or text), `apps/web/src/portal/screens/Agent.test.tsx` (the count, one in the singular, "or more", more than one look reads, nothing when none came in, gone once paused again, no button to run them). |
 
 ### 1.193 Runs found by what they were about (R2, 2026-11-22; no migration)
 

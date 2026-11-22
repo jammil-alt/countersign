@@ -288,6 +288,16 @@ export const es: Messages = {
   "agent.pausedByUs": "Pausado por nosotros: {reason}",
   "agent.pausedUntil": "Hasta {time}",
   "agent.resumeOurs": "Lo pausamos nosotros. Pida a su responsable que lo reanude.",
+  "agent.missed": {
+    one: "Mientras estaba en pausa, entre {from} y {to}, llegó {count} evento con el que habría empezado. No empezó solo.",
+    other:
+      "Mientras estaba en pausa, entre {from} y {to}, llegaron {count} eventos con los que habría empezado. Ninguno empezó solo.",
+  },
+  "agent.missedOrMore":
+    "Mientras estaba en pausa, entre {from} y {to}, llegaron {count} o más eventos con los que habría empezado. Ninguno empezó solo.",
+  "agent.missedUncounted":
+    "Mientras estaba en pausa, entre {from} y {to}, llegaron más eventos de los que podemos revisar de una vez. Algunos pueden ser de los que lo habrían hecho empezar. Ninguno empezó solo.",
+  "agent.missedAsk": "Pida a su responsable que los ejecute si los necesita.",
   "agent.rightNow": "Ahora mismo",
   "agent.nothingRunning": "Nada en curso ahora. La próxima ejecución aparece aquí, paso a paso.",
   "agent.openRun": "Abrir la ejecución",
