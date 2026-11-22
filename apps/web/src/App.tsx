@@ -1,5 +1,7 @@
 // The SPA: sign-in, the back office (`/ops/*`) and the client portal (everything else), each of
 // the two its own chunk, one app with two layouts (plan §1.2 "Back office and portal in one app").
+
+import { MOBILE_CONFIRM_PATH } from "@countersign/core";
 import { lazy, type ReactNode, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import type { ApiClient } from "./api/client";
@@ -55,6 +57,10 @@ export function startChunksEarly(pathname: string): void {
 const SecondStepScreen = lazy(() =>
   import("./session/SecondStep").then((m) => ({ default: m.SecondStepScreen })),
 );
+// §1.219: the page that asks before a sign-in goes to the phone or desktop app: its own chunk.
+const AppHandoffScreen = lazy(() =>
+  import("./session/AppHandoff").then((m) => ({ default: m.AppHandoffScreen })),
+);
 // §1.98: the texting sign-up page is opened from a link, never in the app: its own chunk.
 const TextSignupScreen = lazy(() =>
   import("./signup/TextSignup").then((m) => ({ default: m.TextSignupScreen })),
@@ -81,6 +87,15 @@ export function AppRoutes() {
         element={
           <Suspense fallback={<StillFrame />}>
             <SecondStepScreen />
+          </Suspense>
+        }
+      />
+      {/* docs/plan.md §1.219: confirm before the session goes to one of our apps. */}
+      <Route
+        path={MOBILE_CONFIRM_PATH}
+        element={
+          <Suspense fallback={<StillFrame />}>
+            <AppHandoffScreen />
           </Suspense>
         }
       />
