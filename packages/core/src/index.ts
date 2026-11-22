@@ -58,6 +58,8 @@ export * from "./api/desk";
 export * from "./api/desktop";
 export * from "./api/directory";
 export * from "./api/documents";
+// Round 4 D (docs/plan.md §1.211)
+export * from "./api/evidence";
 export * from "./api/excel";
 export * from "./api/exports";
 export * from "./api/feedback";

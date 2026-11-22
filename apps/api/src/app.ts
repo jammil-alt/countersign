@@ -86,6 +86,7 @@ import { deskRoutes } from "./routes/desk";
 import { desktopApiRoutes } from "./routes/desktop";
 import { directoryRoutes } from "./routes/directory";
 import { documentRoutes } from "./routes/documents";
+import { evidenceRouteHandlers } from "./routes/evidence";
 import { excelRoutes } from "./routes/excel";
 import { exportRoutes } from "./routes/exports";
 import { feedbackRouteHandlers } from "./routes/feedback";
@@ -318,6 +319,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   usageRouteHandlers(app);
   recordRouteHandlers(app);
   approverRuleRoutes(app);
+  // Round 4 D (docs/plan.md §1.211)
+  evidenceRouteHandlers(app);
   contactRoutes(app);
   // docs/plan.md §1.98
   textSignupRoutes(app);

@@ -239,6 +239,25 @@ then one pass of its "To verify" list against the real service.
 
 ## 4. Everything else
 
+### Evidence and a verifier before writes (round 4 item D, `docs/plan.md` §1.211)
+
+Built: the verifier before every write of an agent with `oversight.verify: writes` (new agents,
+Builder drafts, the Bookkeeper's v7 and Vendor contracts' v4), the evidence panel on every change
+card in both inboxes, and each client's dollar thresholds (only tighten). Open:
+
+- **The owner decides the verifier's model.** It runs on the agent's oversight model, else its own:
+  Claude Sonnet 5.5 for both templates, about 1–2 cents a write (3,000–8,000 tokens in, 300 out at
+  $2 and $10 a million), at most about 12 cents when a run's sources fill every limit. Claude Haiku
+  5.5 would be under 0.2 cents. A cheaper or a different provider's model for the check alone would
+  be a new setting (`oversight.verifyModel`), not built.
+- **How often it is wrong.** Nothing yet counts disagreements a person overruled; the model calls
+  are there (`model_call` action `check`) to measure it on staging.
+- **Clients' copies.** A client's Bookkeeper or invoice review takes `verify` only by the usual
+  reviewed update merge to the new template version; existing agents stay off until then.
+- **The phone app's Desk** shows no evidence panel yet (`apps/mobile`).
+- **Pack review cards** (the bookings review, the match review) propose no write themselves and show
+  their own data; the write each approved line becomes has its own card, with the panel.
+
 ### Back office work: Sales, onboarding and Build (merged 2026-11-17; onboarding O1–O3 merged)
 
 One to-do list (Your call), Sales (new accounts and expansion), onboarding and Build (issues, agent
