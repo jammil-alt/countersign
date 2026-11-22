@@ -8,6 +8,7 @@ import {
   type PersonHoursView,
   processes,
 } from "@countersign/core";
+import { dateLocaleFor } from "../i18n/format";
 import type { I18n } from "../i18n/i18n";
 
 export type Week = processes.BusinessHours["week"];
@@ -28,20 +29,20 @@ export function dayName(day: Weekday, intl: string, width: "short" | "long" = "s
   );
 }
 
-/** "08:00" as the reader reads a time: "8:00 AM", "08:00". */
+/** "08:00" as the reader reads a time: "08:00" (the house format for English), "8:00" elsewhere. */
 export function clockText(hhmm: string, intl: string): string {
   const [h = 0, m = 0] = hhmm.split(":").map(Number);
-  return new Intl.DateTimeFormat(intl, {
-    hour: "numeric",
+  return new Intl.DateTimeFormat(dateLocaleFor(intl), {
+    hour: "2-digit",
     minute: "2-digit",
     timeZone: "UTC",
   }).format(new Date(Date.UTC(2026, 0, 5, h, m)));
 }
 
-/** "2026-12-24" as a date, without the reader's zone moving it a day: "Dec 24, 2026". */
+/** "2026-12-24" as a date, without the reader's zone moving it a day: "24 Dec 2026". */
 export function dateText(iso: string, intl: string): string {
   const [y = 1970, mo = 1, d = 1] = iso.split("-").map(Number);
-  return new Intl.DateTimeFormat(intl, {
+  return new Intl.DateTimeFormat(dateLocaleFor(intl), {
     month: "short",
     day: "numeric",
     year: "numeric",

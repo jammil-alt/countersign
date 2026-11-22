@@ -66,7 +66,7 @@ describe("the form page", () => {
     expect(await screen.findByTestId("form-title")).toHaveTextContent("Invoice 1042: two details");
     expect(screen.queryByTestId("signin-frame")).toBeNull();
     expect(screen.getByText("Asked by Rivera Supply")).toBeTruthy();
-    expect(screen.getByText("Please answer by November 21, 2026")).toBeTruthy();
+    expect(screen.getByText("Please answer by 21 November 2026")).toBeTruthy();
 
     // Reviewing without the PO number says it's needed, next to the question.
     await userEvent.click(screen.getByTestId("form-review-button"));

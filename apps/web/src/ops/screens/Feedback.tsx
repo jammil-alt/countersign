@@ -1,7 +1,7 @@
-// `/ops/feedback`: everything sent with the Feedback button, from the back office and the clients
-// this operator serves, newest first, open by default. Each item: who, which client, the page, what
-// was pinned, the comment, the picture with the pin; Resolve (with an optional note, e.g. a PR
-// link) and Reopen. Drafted in the prototype's back-office style (no prototype screen;
+// `/ops/feedback`: everything sent with the Feedback button (the sidebar's Report a problem), from
+// the back office and the clients this operator serves, newest first, open by default. Each item:
+// who, which client, the page, what was pinned, the comment, the picture with the pin; Resolve
+// (with an optional note, e.g. a PR link) and Reopen. Drafted in the prototype's back-office style (no prototype screen;
 // docs/ui-plan.md): each item a card with who and where in its head, the actions in its foot.
 import type { FeedbackItem, FeedbackSource } from "@countersign/core";
 import { codeRequestRoutes } from "@countersign/core";
@@ -10,6 +10,7 @@ import { useSearchParams } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
 import { PinnedPicture } from "../../feedback/Feedback";
+import { EN } from "../../i18n/i18n";
 import { TextInput } from "../../ui/forms";
 import { Loaded, Page } from "../../ui/page";
 import { Badge, Button, Card, Count, EmptyState, PageHeader, Tag } from "../../ui/primitives";
@@ -31,17 +32,12 @@ const FILTERS: [Filter, string][] = [
 type From = "any" | FeedbackSource;
 const FROM: [From, string][] = [
   ["any", "Any source"],
-  ["button", "Feedback button"],
+  ["button", "Report a problem"],
   ["error_page", "Error pages"],
 ];
 
 function when(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+  return EN.fmt.dateTime(iso);
 }
 
 export function OpsFeedbackScreen() {
@@ -83,8 +79,7 @@ export function OpsFeedbackScreen() {
     return (
       <Page testId="ops-feedback">
         <PageHeader
-          eyebrow="Utilities"
-          title="Feedback"
+          title="Utilities"
           subtitle="The Dev queue: what the Builder needs built, triaged before it's built and shipped back to the builds waiting on it."
         />
         <UtilitiesTabs />
@@ -108,19 +103,21 @@ function UserFeedback({ tabs }: { tabs: ReactNode }) {
   return (
     <Page testId="ops-feedback">
       <PageHeader
-        eyebrow="Utilities"
-        title="Feedback"
+        title="Utilities"
         subtitle={
           feedback.data
             ? filter === "resolved"
-              ? `${items.length} resolved. What people sent with the Feedback button or Report an issue.`
-              : `${open} open${filter === "all" ? ` of ${items.length}` : ""}. What people sent with the Feedback button or Report an issue.`
-            : "What people sent with the Feedback button or Report an issue."
+              ? `${items.length} resolved. What people sent with Report a problem, or Report an issue on a page that failed.`
+              : `${open} open${filter === "all" ? ` of ${items.length}` : ""}. What people sent with Report a problem, or Report an issue on a page that failed.`
+            : "What people sent with Report a problem, or Report an issue on a page that failed."
         }
       />
-      {/* Below the header, in a row that wraps: a header's actions don't shrink, and two filter
-          bars there scroll the page sideways at phone width (the route sweep). */}
-      <div className="-mt-2 mb-6 flex flex-wrap gap-2">
+      <UtilitiesTabs />
+      {tabs}
+      {/* Under the page's tabs, in a row that wraps: a header's actions don't shrink, and two
+          filter bars there scroll the page sideways at phone width (the route sweep). The tabs
+          come first (staging QA, 2026-11-22): they say which Utilities page this is. */}
+      <div className="mb-6 flex flex-wrap gap-2">
         <div className="max-w-full overflow-x-auto">
           <div className="ds-seg" data-testid="ops-feedback-source">
             {FROM.map(([value, label]) => (
@@ -152,8 +149,6 @@ function UserFeedback({ tabs }: { tabs: ReactNode }) {
           </div>
         </div>
       </div>
-      <UtilitiesTabs />
-      {tabs}
       <Loaded state={feedback}>
         {(data) =>
           data.items.length === 0 ? (

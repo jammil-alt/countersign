@@ -103,6 +103,12 @@ export interface StepContext {
     actionId: string;
     runId: string | null;
   };
+  /**
+   * A test run's action step whose input reads what an earlier write the test never made would
+   * have returned (`ActionStepRequest.afterUnwritten`): its write is proposed without reading its
+   * record's current state from the client's tool. Ignored outside a test run.
+   */
+  afterUnwritten?: boolean;
 }
 
 /** Every later write of this try waits for a person, for `why` (only tightens, invariant 8). */

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isUuid } from "../ids";
 import { Role } from "../roles";
+import { IanaTimeZone } from "../timezone";
 import { defineRoute } from "./contract";
 
 // Onboarding and settings (docs/plan.md §1.14, ARCHITECTURE §14–§15): the back office's overview of
@@ -264,7 +265,8 @@ export const onboardingRoutes = {
     params: IdParams,
     body: z.strictObject({
       name: z.string().trim().min(1).max(200).optional(),
-      timezone: z.string().trim().min(1).max(100).optional(),
+      // QA (runs and dates): an IANA zone, checked here; the screen offers them as a list.
+      timezone: IanaTimeZone.optional(),
       approvals: ExternalApprover.optional(),
       /** M43: whether the client is one of our own (`tenant.settings.internal`). */
       internal: z.boolean().optional(),

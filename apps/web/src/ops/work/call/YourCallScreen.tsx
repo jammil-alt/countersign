@@ -19,7 +19,7 @@ import { apiRoutes } from "../../../api/routes";
 import { useApi, useApiClient } from "../../../api/useApi";
 import { ErrorNotice } from "../../../ui/ErrorState";
 import { Page } from "../../../ui/page";
-import { EmptyState, Loading, PageHeader } from "../../../ui/primitives";
+import { cx, EmptyState, Loading, PageHeader } from "../../../ui/primitives";
 import { FilterChips, HoldBanner, Kpis, todayIso } from "../parts";
 import { CallCard, CallSheet } from "./CallCard";
 import { DoneToday } from "./DoneToday";
@@ -60,9 +60,17 @@ export function YourCallScreen() {
   const [q, setQ] = useState("");
   const [mine, setMine] = useState(false);
   const owner = tab === "reggie" ? "reggie" : tab === "client" ? "client" : "operator";
-  const list = useApi(apiRoutes.opsTodos, {
-    query: { owner, mine: mine ? "true" : "false" },
-  });
+  // Staging QA (2026-11-22): a change of list (Yours, Reggie's, the clients') or of "Only mine" is
+  // a view of the one to-do list, so the page keeps what it shows (the counts, the rows, dimmed)
+  // while the other view loads, instead of emptying to a spinner: counts read 0 and the page
+  // jumped back to the top.
+  const query = { owner, mine: mine ? "true" : "false" } as const;
+  const list = useApi(apiRoutes.opsTodos, { query, keep: true });
+  const queryKey = `${query.owner}:${query.mine}`;
+  const answered = useRef(queryKey);
+  if (list.data && !list.refreshing) answered.current = queryKey;
+  // Dimmed only while another view's rows show, never for a refresh behind the same rows.
+  const dimmed = list.refreshing === true && answered.current !== queryKey;
   const counts = list.data?.counts;
   const all = list.data?.items ?? [];
   const shown = useMemo(() => all.filter((t) => matches(t, kind, q)), [all, kind, q]);
@@ -290,6 +298,7 @@ export function YourCallScreen() {
         {tab !== "done" ? (
           <>
             <FilterChips
+              wrap
               chips={CALL_KINDS.map((k) => ({
                 key: k,
                 label: CALL_KIND_LABELS[k],
@@ -320,7 +329,12 @@ export function YourCallScreen() {
         ) : null}
       </div>
       {error ? <ErrorNotice error={error} /> : null}
-      <div className="mt-4">
+      <div
+        className={cx("mt-4 transition-opacity", dimmed && "opacity-60")}
+        aria-busy={dimmed || undefined}
+        inert={dimmed || undefined}
+        data-testid="call-results"
+      >
         {tab === "done" ? (
           <DoneToday />
         ) : !list.data ? null : tab === "you" ? (

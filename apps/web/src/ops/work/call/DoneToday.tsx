@@ -6,11 +6,11 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../../api/routes";
 import { useApi, useApiClient } from "../../../api/useApi";
+import { EN } from "../../../i18n/i18n";
 import { ErrorNotice } from "../../../ui/ErrorState";
 import { Loading } from "../../../ui/primitives";
 
-const time = (iso: string) =>
-  new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+const time = (iso: string) => EN.fmt.clock(iso);
 
 export function DoneToday() {
   const api = useApiClient();

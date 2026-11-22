@@ -5,6 +5,8 @@
 // shape the back office reads.
 import {
   type ClientMember,
+  FINDING_SUBJECT,
+  FINGERPRINT_KEY,
   type OpenItem,
   type ReachContext,
   type RunWait,
@@ -14,6 +16,7 @@ import { appUser, inboxItem, membership, run, type Tx } from "@countersign/db";
 import { and, eq, inArray, or, type SQL, sql } from "drizzle-orm";
 import type { Services } from "../http";
 import { mailerFromEnv } from "../notify/mailer";
+import { unionMs } from "./client-status";
 
 /**
  * The run (`run` in the query) has an open inbox item, for anyone. Written with its own alias and
@@ -21,6 +24,12 @@ import { mailerFromEnv } from "../notify/mailer";
  * table's columns unqualified there).
  */
 export const waitsOnPerson: SQL = sql`exists (select 1 from inbox_item wi where wi.run_id = "run"."id" and wi.tenant_id = "run"."tenant_id" and wi.status = 'open')`;
+
+/**
+ * An inbox item that is not the supervisor's reminder about other items waiting (core's
+ * `isWaitingReminder`, as SQL): the back office's counts and lists of open items use it.
+ */
+export const notWaitingReminder: SQL = sql`not (coalesce(${inboxItem.subjectType}, '') = ${FINDING_SUBJECT} and coalesce(${inboxItem.payload}->>${FINGERPRINT_KEY}, '') = 'waiting_long')`;
 
 /**
  * The back office's run status filter: `waiting` is any run waiting on a person (whatever its
@@ -166,6 +175,77 @@ export async function runWaits(
     if (!list) continue;
     const wait = runWaitOf(list, members.get(r.tenantId) ?? [], reach);
     if (wait) out.set(r.id, wait);
+  }
+  return out;
+}
+
+type WaitedRun = { id: string; tenantId: string; startedAt: Date | null; finishedAt: Date | null };
+type WaitedItem = {
+  runId: string | null;
+  status: string;
+  createdAt: Date;
+  resolvedAt: Date | null;
+};
+
+/**
+ * How long a run has waited on people in all, in ms, from its inbox items (for anyone: the client
+ * or us), each from created to resolved, joined so two items open together count once; an open
+ * item counts to `now`. Each span is cut to the run's own start and finish, so an item raised
+ * after the run ended takes nothing off.
+ */
+// DECISION (QA, runs and dates): a run's "Took" in the back office is its working time, start to
+// finish less this wait, as the portal's already is (`clientWaits`); a run that waited a week for
+// an approval read "Took 168 h". The wait shows apart beneath it.
+export function waitedMsOf(
+  r: WaitedRun,
+  items: readonly WaitedItem[],
+  now: Date = new Date(),
+): number {
+  if (!r.startedAt) return 0;
+  const start = r.startedAt.getTime();
+  const stop = (r.finishedAt ?? now).getTime();
+  const spans = items
+    .filter((i) => i.runId === r.id)
+    .map((i) => {
+      const end = i.status === "open" ? now : (i.resolvedAt ?? i.createdAt);
+      return { from: Math.max(i.createdAt.getTime(), start), to: Math.min(end.getTime(), stop) };
+    });
+  return unionMs(spans);
+}
+
+/** `waitedMsOf` for many runs, in one read of their inbox items; runs with none read 0. */
+export async function runWaitedMs(
+  tx: Tx,
+  runs: readonly WaitedRun[],
+  now: Date = new Date(),
+): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (runs.length === 0) return out;
+  const rows = await tx
+    .select({
+      runId: inboxItem.runId,
+      status: inboxItem.status,
+      createdAt: inboxItem.createdAt,
+      resolvedAt: inboxItem.resolvedAt,
+    })
+    .from(inboxItem)
+    .where(
+      and(
+        inArray(inboxItem.tenantId, [...new Set(runs.map((r) => r.tenantId))]),
+        inArray(
+          inboxItem.runId,
+          runs.map((r) => r.id),
+        ),
+      ),
+    );
+  const byRun = new Map<string, WaitedItem[]>();
+  for (const i of rows) {
+    if (!i.runId) continue;
+    byRun.set(i.runId, [...(byRun.get(i.runId) ?? []), i]);
+  }
+  for (const r of runs) {
+    const items = byRun.get(r.id);
+    if (items) out.set(r.id, waitedMsOf(r, items, now));
   }
   return out;
 }

@@ -22,13 +22,6 @@ export function versionBadges(
   return out;
 }
 
-/** A list row knows only whether a version is live, not its number. */
-export function summaryBadge(agent: Pick<AgentSummary, "liveVersionId">): VersionBadge {
-  return agent.liveVersionId
-    ? { label: "Live", tone: "positive" }
-    : { label: "Draft", tone: "neutral" };
-}
-
 /** The live version and the newest draft after it. */
 export function liveAndDraft(
   agent: Pick<AgentSummary, "liveVersionId">,
