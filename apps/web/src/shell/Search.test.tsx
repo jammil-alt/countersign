@@ -228,6 +228,50 @@ describe("search groups", () => {
     ]);
   });
 
+  // R2 (docs/plan.md §1.193)
+  it("says how many runs were about a record or document, and opens the runs list on them", () => {
+    const portal = portalSearchGroups(
+      {
+        ...EMPTY,
+        records: [
+          { ...RECORD, kind: "receivable", id: "x", runs: 1 },
+          { ...RECORD, kind: "vendor", id: "v", label: "Rugby", runs: 0 },
+        ],
+        documents: [
+          {
+            id: "doc1",
+            filename: "48211.pdf",
+            status: "read",
+            vendor: "Rugby",
+            number: "48211",
+            receivedAt: "2026-11-04T00:00:00.000Z",
+            runs: 3,
+          },
+        ],
+      },
+      t,
+    );
+    const hits = portal.flatMap((g) => g.hits.map((h) => [h.href, h.title]));
+    expect(hits).toEqual([
+      ["/records?kind=receivables", RECORD.label],
+      // A receivable is kept as a transaction by its runs.
+      ["/runs?about=transaction%3Ax", `1 run about ${RECORD.label}`],
+      ["/records/v", "Rugby"],
+      ["/documents/doc1", "48211.pdf"],
+      ["/runs?about=document%3Adoc1", "3 runs about 48211.pdf"],
+    ]);
+    const client = { id: SANDBOX, name: "Sandbox" };
+    const ops = opsSearchGroups(
+      { ...EMPTY, agents: [], records: [{ ...RECORD, client, runs: 2 }] },
+      [],
+      "rugby",
+    );
+    expect(ops.find((g) => g.label === "Records")?.hits.map((h) => [h.href, h.title])).toEqual([
+      [`/ops/clients/${SANDBOX}/records/${TXN}`, RECORD.label],
+      [`/ops/clients/${SANDBOX}/runs?about=transaction%3A${TXN}`, `2 runs about ${RECORD.label}`],
+    ]);
+  });
+
   it("says a portal run waits on you, as Runs does", () => {
     const groups = portalSearchGroups(
       {

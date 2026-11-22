@@ -445,24 +445,48 @@ const runsList: Tool<OpsToolCtx> = {
   name: "runs_list",
   title: "List runs",
   description:
-    "Agent runs across the clients you serve, newest first. Filter by client, status (failed, waiting, running, …), agent, mode (live or test) and since (ISO 8601).",
+    "Agent runs across the clients you serve, newest first. Filter by client, status (failed, waiting, running, …), agent, mode (live or test), since (ISO 8601), text, and what the runs were about (a vendor, a customer, a document or its number).",
   input: z.strictObject({
     client: ClientId.optional(),
     status: RunStatusSchema.optional(),
     agent: Id.optional().describe("An agent's id (uuid)"),
     mode: z.enum(["live", "test"]).optional(),
     since: z.iso.datetime({ offset: true }).optional(),
+    // R2 (docs/plan.md §1.193): the runs list's own `text` and `about`.
+    text: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe(
+        "A short id (R-1a2b3c), a workflow, an agent's name, words of an error, or a name or number a run was about",
+      ),
+    about: z
+      .array(z.string().trim().min(2).max(100))
+      .min(1)
+      .max(20)
+      .optional()
+      .describe(
+        "Runs about any of these: words without commas in a name or number (Acme, PO-1032), or kind:id for one of our records (vendor:<uuid>, from records_search)",
+      ),
     limit: z.int().min(1).max(100).default(25),
   }),
   annotations: READ,
   async run(ctx, args) {
-    const a = args as Record<string, string | number | undefined>;
-    const { runs, agents } = await route(ctx, routes.opsRuns, { query: query(a) });
+    const { about, ...a } = args as Record<string, string | number | undefined> & {
+      about?: string[];
+    };
+    const { runs, agents, ...found } = await route(ctx, routes.opsRuns, {
+      query: query({ ...a, about: about?.join(",") }),
+    });
     const agentOf = (id: string | null) => agents.find((g) => g.id === id) ?? null;
     return dataResult(
       "runs_list",
       `${plural(runs.length, "run")}. run_get shows one with its steps.`,
       {
+        // R2: the records `about` named, as their runs kept them.
+        ...(found.about ? { about: found.about } : {}),
         runs: runs.map((r) => ({
           id: r.id,
           client: { id: r.tenantId, name: clientName(ctx, r.tenantId) },

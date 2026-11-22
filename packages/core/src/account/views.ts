@@ -6,7 +6,7 @@
 import { z } from "zod";
 import { ServiceControl } from "../api/lifecycle";
 import { PortalInboxItem, PortalRunSummary, portalRoutes } from "../api/routes";
-import { RunStatusSchema } from "../api/runs-filter";
+import { RunFilter, RunStatusSchema } from "../api/runs-filter";
 import { WhyCode } from "../permissions/explain";
 
 /** A service as Sloan sees it: the client's controls' view, its description and what it does now. */
@@ -20,6 +20,10 @@ export type AccountService = z.infer<typeof AccountService>;
 export const AccountRunsQuery = z.object({
   serviceId: z.string().optional(),
   status: RunStatusSchema.optional(),
+  // R2 (docs/plan.md §1.193): the runs list's own `text` and `about`, read as the portal reads
+  // them (only what the client's timeline shows).
+  text: RunFilter.shape.text,
+  about: RunFilter.shape.about,
   limit: z.number().int().min(1).max(50).default(20),
 });
 export type AccountRunsQuery = z.infer<typeof AccountRunsQuery>;

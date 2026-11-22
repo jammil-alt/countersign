@@ -238,7 +238,13 @@ export async function poContent(
     /** P-9: only these lines (a split order: this vendor's share). */
     requestLineIds?: readonly string[] | undefined;
   },
-): Promise<{ content: PoContent; vendorId: string; quoteLineIds: string[] }> {
+): Promise<{
+  content: PoContent;
+  vendorId: string;
+  quoteLineIds: string[];
+  /** C2.4: each line's catalog item (the live one), in the lines' order; null when unmatched. */
+  catalogItemIds: (string | null)[];
+}> {
   const r = await requestRow(tx, ctx.tenantId, input.requestId);
   if (r.status === "cancelled" || r.status === "closed") {
     throw new PurchasingError("status", `the request is ${r.status}`);
@@ -264,6 +270,7 @@ export async function poContent(
   const quoted = await quoteLines(tx, ctx.tenantId, [q.id]);
   const lines: PoLine[] = [];
   const ids: string[] = [];
+  const catalogItemIds: (string | null)[] = [];
   let total = dec("0");
   for (const { row, item } of asked) {
     // P-9: a split order holds only its vendor's share of the lines.
@@ -292,6 +299,7 @@ export async function poContent(
     const amount = dec(cents(dec(ql.unitPrice).times(qty)));
     total = total.plus(amount);
     ids.push(ql.id);
+    catalogItemIds.push(item?.id ?? null);
     lines.push({
       lineNo: lines.length + 1,
       // The client's words for what it buys, with the vendor's beside them when it gave its own.
@@ -317,6 +325,7 @@ export async function poContent(
   return {
     vendorId: q.vendorId,
     quoteLineIds: ids,
+    catalogItemIds,
     content: {
       reference,
       clientName: client?.name ?? "",

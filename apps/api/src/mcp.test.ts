@@ -11,6 +11,7 @@ import {
   connectionChange,
   feedback,
   membership,
+  runSubject,
 } from "@countersign/db";
 import { and, desc, eq, like } from "drizzle-orm";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
@@ -751,6 +752,22 @@ describe.skipIf(!h)("MCP server", () => {
       expect(future.runs).toEqual([]);
       expect((await tool(opToken, "runs_list", { status: "failed" })).data().runs).toEqual([]);
       expect((await tool(opToken, "runs_list", { since: "yesterday" })).isError).toBe(true);
+      // R2 (docs/plan.md §1.193): what the runs were about, as the back office's list reads it.
+      await H.t.db.insert(runSubject).values({
+        tenantId: H.A.tenantId,
+        runId: ids.runId,
+        kind: "vendor",
+        role: "read",
+        label: "Acme Supply",
+        number: "PO-1032",
+      });
+      const about = (await tool(opToken, "runs_list", { about: ["acme"] })).data();
+      expect(about.runs.map((r: { id: string }) => r.id)).toEqual([ids.runId]);
+      const byNumber = (await tool(opToken, "runs_list", { text: "PO-1032" })).data();
+      expect(byNumber.runs.map((r: { id: string }) => r.id)).toEqual([ids.runId]);
+      expect((await tool(opToken, "runs_list", { about: ["nobody, ever"] })).data().runs).toEqual(
+        [],
+      );
       const got = await tool(opToken, "run_get", { id: ids.runId });
       expect(got.isError).toBe(false);
       const run = got.data();

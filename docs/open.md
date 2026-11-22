@@ -68,11 +68,14 @@ emailed and the QuickBooks purchase order is created; every write is approved on
    `materials.quote.create` and `quote.document`, reach out in a `for_each`, `quote.mark-sent`,
    `read-quote`, the vendor-choice card, the PO PDF, `materials.vendor.qbo`, `materials.po.qbo-lines`,
    `qbo.purchaseorder.create`). `apps/api/src/purchasing-email.test.ts` is the working recipe: copy its
-   workflow. Set the skill setting `qbo_account_id` (the expense account PO lines book to).
+   workflow. Set the skill setting `qbo_account_id` (the expense account PO lines book to when an
+   item has no QuickBooks item; items the bill-price import saw are tied already, and
+   `materials.item.qbo` ties the rest, `docs/plan.md` §1.205).
 6. **Bind its channels and connections** (email channel from P2, QuickBooks), test-run it, then take it
    through trial (every write signed).
 7. **Run the done-when** with real email from a test inbox, and walk the QuickBooks sandbox checks in
-   `packages/connectors/src/qbo/NOTES.md` ("Against the sandbox company", 1 to 8).
+   `packages/connectors/src/qbo/NOTES.md` ("Against the sandbox company", 1 to 9; 9 is the PO
+   with an item line, C2.4).
 
 ### 1.3 Owner decisions for the buyer (`docs/plan.md` §1.71)
 
@@ -92,7 +95,10 @@ emailed and the QuickBooks purchase order is created; every write is approved on
 - **Before the first purchasing client: a staging run with real invoices.** The fakes and the
   goldens don't cover how real vendors word their packs.
 - RFQs are English only; the vendor's language is open.
-- QuickBooks PO lines are account lines only (catalog items carry no QuickBooks item id).
+- QuickBooks PO lines are item lines for catalog items tied to a QuickBooks item, account lines
+  for the rest (C2.4, `docs/plan.md` §1.205). Open: no screen shows or changes an item's
+  QuickBooks item (a step or the import ties it; changing a wrong tie is by hand in the database
+  today).
 - The portal channel for conversations (§1.66).
 - **The vendor catalog** is built (`vendor_item`, migration 0047, §1.88) and purchasing reads and
   fills it (§1.189, #529). Open: a request line doesn't keep which vendor item it matched, so a
@@ -328,7 +334,7 @@ PRs #384–#414 closed the launch audit's findings for the first clients. What t
 | H3 | **GitHub and Hyperdrive settings** from PR #384: caching off on the two existing Hyperdrive configs (`wrangler hyperdrive update <id> --caching-disabled`, or run Bootstrap with `rotate_password` unticked); the `production` environment with required reviewers and deployment limited to `main` and `v*` tags. If `staging` allows only `main` to deploy, allow the branches that quick-deploy (`claude/*`). | Owner, by hand | `production` done (checked 2026-11-18: required reviewer, `main` and `v*` tags, no administrator bypass). Hyperdrive caching and `staging`'s branches not checked. `docs/operations.md`. |
 | H4 | **A per-site limit on the beacon** needs a Rate Limiting binding of its own, set well above the per-address limit; on the shared binding one address could empty a site's allowance. | Code and `wrangler.jsonc` | §1.141. Only a per-address limit today. |
 | H5 | **Transcription records no usage**: voice typing's model calls have no cost or usage row. | Code | §1.139. They are limited per person (a call per segment of live dictation: 30 a minute, 1,500 a day). |
-| H6 | **"Who is asking" on the Claude approval page**: the Claude client's name and where the request came from. | Migration on `mcp_session_approval`, then code | §1.130. Today the page shows when Claude asked and takes Claude's code. |
+| H6 | ~~"Who is asking" on the Claude approval page~~ Done (§1.201, migration 0078): the page shows the asking Claude client, in words, and where the request came from. | Migration, then code | §1.130. |
 | H7 | **The portal's resume screen** doesn't show the events that arrived while an agent was paused (`missedEvents`); the back office's go-live panel does. | Code, copy in six languages | §1.137. |
 | H8 | **`refresh_failing` connections**: counted in the ops MCP's `needsAttention` and the daily troubled list since #527. Open: LinkedIn's and HubSpot's dead-grant codes come from their docs, not a live call. | Check live | §1.134. |
 | H9 | ~~The web app's first load~~ Done (#531, §1.192): 344 kB, budget 351 kB. Next toward 300 kB: each portal screen on its own, the route contract split per screen, English on demand. | Code | audit 4.6 |
