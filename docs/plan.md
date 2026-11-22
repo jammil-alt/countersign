@@ -6382,6 +6382,23 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.221 The builder's clean-ups from staging feedback, second round (owner, 2026-11-22; no migration)
+
+The owner's open feedback on staging, read through the Ops MCP server on 2026-11-22. Web only.
+
+| Topic | Decision |
+|---|---|
+| What a step does, first | "Move this to the bottom of the step. It should not be the first thing you see… the first thing you see should be a description of what the step does." The step panel's head says what the step does under its name (`StepPanel`'s `does`: the skill's, tool's or automation's own words, else its kind's line, `flow/does.ts`). "Comes after" and "Goes to" are the last of the setup, above Remove. In the panel the inspector no longer repeats the description (`layout="panel"`). // DECISION |
+| No Steps tab | "Steps is basically just the list view below… let's get rid of this up here." The agent page's tabs have no Steps; the builder's Chart and List switch shows the list. `/steps/:workflow` still opens it that way, with the Workflow tab lit. // DECISION |
+| Some of the steps, on a build | §1.185's choice of steps is offered on a template with an open build too (its "Not built" row). // DECISION |
+| A template is the lab's | "These steps and workflow should be part of the lab as well, as we are working on them." The sidebar's Agent lab is lit on a template's own pages (`SidebarLink`'s `current`, `/ops/templates/:slug/*`). A client's agent stays under Clients. Nothing moved: the addresses are the same. // DECISION |
+| The wait while steps are drafted | "Add animations to show progress when you click the draft steps button." Describe shows the design system's Drafting loop, how long it has been, and what the call does in a sentence. The draft is one call, so there is no bar and no list of stages: either would be guessed from the clock. // DECISION |
+| Say it | "Add dictation to this." Describe's words take dictation (`VoiceButton`, as the composers do), added to what is there, up to the draft's limit. |
+| Plaid's mark | "This is Plaid integration, have we not added the icon for Plaid?" The bank feed connector takes Plaid's mark (the site's file, shrunk for a tile) wherever a connector is listed, in place of our bank icon (§1.85's rule for our own connectors no longer covers it). // DECISION |
+| Not built | **Plaid's mark on the step itself**: "Pull new bank and card transactions" runs a Bookkeeping tool (`bookkeeping.transactions.import`), and a tool says which connector it works through only when it acts through that connector's connection (`connector`, which the gate reads). Showing the mark there needs a field of its own on a tool for the feed it reads, carried in the builder's catalog. **Documents on Describe** ("we should be able to upload documents"): the draft takes words only (`opsDraftBuildNow`), so files need the route and the drafter to read them. |
+| Already so | The Builder folded to a line with half and whole as icons, the room it leaves the conversation, the schedule picked in words (§1.171, §1.177), and Your call's empty filter (2026-11-20). |
+| Checked | `apps/web`: `StepPanel.test.tsx`, `inspector-panel.test.tsx`, `AgentScreen.test.tsx`, `App.test.tsx`, `TryPanel.test.tsx`, `DescribeScreen.test.tsx`, `shell/SidebarLink.test.tsx`, `connections/brands.test.ts`; the whole web suite, `tsc` and Biome. Not checked in a browser. |
+
 ### 1.220 Onboarding's smaller items: delivered and bounced, send it again, Just the account's welcome, lost prospects' retention (C7; Wave X, 2026-11-22; migration 0097)
 
 Four parts, each its own PR: delivered and bounced (#564, with the deploy's secret in #565), Send it again (#567), Just the account's welcome (#570), and lost prospects' retention (migration 0097 in #572, the job in #573).

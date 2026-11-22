@@ -65,6 +65,11 @@ describe("Describe it", () => {
     expect(await screen.findByTestId("flow-describe-drafting")).toHaveTextContent(
       "Reading it and drafting the steps",
     );
+    // The wait says what the one call does and how long it has been, with no made-up stages.
+    expect(screen.getByTestId("flow-describe-drafting")).toHaveTextContent(
+      "picks a skill or a tool for each",
+    );
+    expect(screen.getByTestId("flow-describe-clock")).toHaveTextContent("0:0");
     release();
     expect(await screen.findByTestId("check-page")).toHaveTextContent(WORDS);
     expect(api.calls).toEqual([
