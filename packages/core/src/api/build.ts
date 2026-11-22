@@ -118,6 +118,15 @@ export const BuildMessageView = z.object({
 });
 export type BuildMessageView = z.infer<typeof BuildMessageView>;
 
+/** Another build a build's page links to: a skill build an issue started, or the build it came from. */
+export const BuildLink = z.object({
+  id: z.string(),
+  title: z.string(),
+  phase: BuildPhase,
+  status: BuildStatus,
+});
+export type BuildLink = z.infer<typeof BuildLink>;
+
 export const BuildItemRef = z.object({
   testCaseId: z.string().optional(),
   runId: z.string().optional(),
@@ -317,6 +326,19 @@ export const BuildDetail = z.object({
   events: z.array(BuildEventView),
   /** docs/plan.md §1.125: the steps that require code, with their Dev queue request's status. */
   codeRequests: z.array(StepCodeRequest).optional(),
+  /**
+   * S-E: the skill builds its issues started (an item's `ref.buildId`), so an issue links to its
+   * skill build by name.
+   */
+  skillBuilds: z.array(BuildLink).optional(),
+  /**
+   * S-E: for a skill build started from another build's issue, that build and the issue (its
+   * item), so the skill build links back to it. Null for any other build.
+   */
+  startedFrom: z
+    .object({ build: BuildLink, itemId: z.string(), itemTitle: z.string() })
+    .nullable()
+    .optional(),
 });
 export type BuildDetail = z.infer<typeof BuildDetail>;
 

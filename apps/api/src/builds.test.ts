@@ -1129,6 +1129,22 @@ describe.skipIf(!h)("builds", () => {
     expect(gaps).toHaveLength(1);
     expect(gaps[0]).toMatchObject({ owner: "builder", state: "in_progress", stepId: "update" });
     expect(gaps[0]?.ref.buildId).toBeTruthy();
+    // S-E: the issue links to its skill build by name, and the skill build back to the issue.
+    expect(b.startedFrom).toBeNull();
+    expect(b.skillBuilds).toEqual([
+      expect.objectContaining({
+        id: gaps[0]?.ref.buildId,
+        title: "Match answers to tasks",
+        status: "open",
+      }),
+    ]);
+    const skillBuild = await ok("GET", `/api/ops/builds/${gaps[0]?.ref.buildId}`);
+    expect(skillBuild.startedFrom).toEqual({
+      build: expect.objectContaining({ id, title: b.build.title, status: "open" }),
+      itemId: gaps[0]?.id,
+      itemTitle: gaps[0]?.title,
+    });
+    expect(skillBuild.skillBuilds).toEqual([]);
 
     // A second skill for the same step is not proposed: it has its skill build.
     model.push(
