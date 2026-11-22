@@ -1545,6 +1545,7 @@ export const fr: Messages = {
   "contacts.status.read": "lu",
   "contacts.status.received": "reçu",
   "contacts.status.unverified": "reçu, expéditeur non confirmé",
+  "contacts.status.other_sender": "reçu d'une autre adresse de son entreprise, pas sa réponse",
   "contacts.status.replied": "a répondu",
   "contacts.status.not_sent": "non envoyé",
   "contacts.status.no_reply": "pas de réponse",

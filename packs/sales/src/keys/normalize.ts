@@ -4,7 +4,7 @@
 // person names as lowercase words with the noise dropped. Pure: no I/O. A value that doesn't read
 // as its kind is no key (null), never a guess.
 
-import { normalizeSignupPhone } from "@countersign/core";
+import { FREE_MAIL_DOMAINS, normalizeSignupPhone } from "@countersign/core";
 
 const EMAIL_RE = /^[^\s@<>()[\],;:"]+@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9-]{1,63})+$/;
 const HOST_RE = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
@@ -50,38 +50,8 @@ export function normalizeCrmPhone(raw: unknown): string | null {
   return normalizeSignupPhone(v);
 }
 
-/** Mail services anyone can sign up to: their domain says nothing about a company. */
-export const FREE_MAIL_DOMAINS: ReadonlySet<string> = new Set([
-  "gmail.com",
-  "googlemail.com",
-  "yahoo.com",
-  "yahoo.co.uk",
-  "ymail.com",
-  "hotmail.com",
-  "hotmail.co.uk",
-  "outlook.com",
-  "live.com",
-  "msn.com",
-  "aol.com",
-  "icloud.com",
-  "me.com",
-  "mac.com",
-  "proton.me",
-  "protonmail.com",
-  "gmx.com",
-  "gmx.de",
-  "mail.com",
-  "zoho.com",
-  "zohomail.com",
-  "yandex.com",
-  "comcast.net",
-  "att.net",
-  "verizon.net",
-  "sbcglobal.net",
-  "bellsouth.net",
-  "cox.net",
-  "earthlink.net",
-]);
+// The free mail services moved to core: reach-out replies read them too (docs/plan.md §1.194).
+export { FREE_MAIL_DOMAINS };
 
 /** A website's host without `www.`; null when it isn't one. */
 export function websiteDomain(raw: unknown): string | null {

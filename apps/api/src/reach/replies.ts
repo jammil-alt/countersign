@@ -21,6 +21,7 @@ import {
 import {
   authenticatedSenders,
   bytesMatchType,
+  colleagueAddress,
   isConverseSubject,
   REPLY_DOCUMENTS_MAX,
   type ReachChannel,
@@ -78,8 +79,9 @@ async function replyLine(
   row: ReachOutRow,
   who: ContactRow,
   reply: ReachReply,
-  // Mail kept without answering is shown as received (or unverified), not as the answer.
-  status: "replied" | "received" | "unverified" = "replied",
+  // Mail kept without answering is shown as received (or unverified, or from another address at
+  // the contact's company), not as the answer.
+  status: "replied" | "received" | "unverified" | "other_sender" = "replied",
 ) {
   const threadId = await contactThread(tx, who);
   const body: ThreadMessageBody = {
@@ -298,7 +300,8 @@ function sameTag(a: string, b: string): boolean {
  * the tag names when the sender is its contact, proven by Cloudflare's own header (the From header
  * under DMARC, the envelope sender under SPF). Automatic mail (an out-of-office, a bounce) answers
  * nothing. Mail from the contact that can't answer (late, unproven, a system's) is kept in their
- * thread without waking anything (`keptOnly`). Returns null
+ * thread without waking anything (`keptOnly`), and so is mail from another address at the
+ * contact's company (a colleague's, §1.194). Returns null
  * when it isn't one (the caller then treats it as forwarded mail); a reply address is never that.
  */
 export async function receiveReachOutReply(
@@ -317,7 +320,10 @@ export async function receiveReachOutReply(
   // P-3: `document.received` for the reply's new documents, and their ids to read.
   events: EventRow[];
   fresh: string[];
-  /** Kept in the contact's thread without answering (late, unverified or a system's): no wake. */
+  /**
+   * Kept in the contact's thread without answering (late, unverified, a system's or a
+   * colleague's): no wake.
+   */
   keptOnly: boolean;
 } | null> {
   const to = mail.to.trim().toLowerCase();
@@ -387,9 +393,16 @@ export async function receiveReachOutReply(
     const proven = !!email && senders.includes(email);
     // The contact's address on the envelope or in From, without proof (no DMARC, SPF not passing).
     const claimed = !!email && (mail.from.trim().toLowerCase() === email || parsed.from === email);
-    // DECISION: only mail from the contact's own address is theirs; anyone else writing to the
-    // tagged address is dropped (a log line without content), so a stranger can't answer for them.
-    if (!who || !email || (!proven && !claimed)) {
+    // C2.3 (docs/plan.md §1.194): another address at the contact's own domain (a colleague who
+    // was forwarded the email, or answers for them), on the From header or the envelope.
+    const colleague =
+      email && !proven && !claimed
+        ? colleagueAddress(email, [parsed.from, mail.from.trim().toLowerCase()])
+        : null;
+    // DECISION: only mail from the contact's own address is theirs. A colleague's is kept for a
+    // person, below, and never answers; anyone else writing to the tagged address is dropped (a
+    // log line without content), so a stranger can't answer for them.
+    if (!who || !email || (!proven && !claimed && !colleague)) {
       console.log("email to a reply address not from its contact; dropped", {
         tenantId: target.tenantId,
         reachOutId: about.id,
@@ -417,21 +430,25 @@ export async function receiveReachOutReply(
       }
       return [];
     }
-    // DECISION: three kinds of mail from the contact are kept but answer nothing and wake nothing
-    // (a raw record, its PDFs and images as quiet documents, a "received" line in the contact's
-    // thread on the reach-out), so a person sees them and nothing is lost:
+    // DECISION: four kinds of mail are kept but answer nothing and wake nothing (a raw record, its
+    // PDFs and images as quiet documents, a "received" line in the contact's thread on the
+    // reach-out), so a person sees them, enters what they say and nothing is lost:
     // - `late`: the reach-out had ended (an earlier reply, the timeout or the cron);
     // - `unverified`: from the contact's address, but not proven by Cloudflare's header (shown
     //   as unverified, never taken as their answer);
     // - `machine`: written by a system (a quoting or ticket system), which would otherwise answer
-    //   every message of a conversation.
-    const keepOnly = !proven
-      ? "unverified"
-      : !row
-        ? "late"
-        : parsed.automatic === "machine"
-          ? "machine"
-          : null;
+    //   every message of a conversation;
+    // - `colleague` (§1.194): from another address at the contact's company, proven or not; shown
+    //   as from another address, never taken as the contact's answer or the vendor's quote.
+    const keepOnly = colleague
+      ? "colleague"
+      : !proven
+        ? "unverified"
+        : !row
+          ? "late"
+          : parsed.automatic === "machine"
+            ? "machine"
+            : null;
     if (keepOnly) {
       const kept = await keepEmailReply(tx, {
         tenantId: target.tenantId,
@@ -455,7 +472,7 @@ export async function receiveReachOutReply(
           at: options.now.toISOString(),
           documents: kept.documents,
         },
-        proven ? "received" : "unverified",
+        colleague ? "other_sender" : proven ? "received" : "unverified",
       );
       filed.keptOnly = true;
       return [];
@@ -572,7 +589,7 @@ async function keepEmailReply(
     content: ContentStore | undefined;
     now: Date;
     /** Kept without answering: under its own key, documents quiet (`meta.via: late_reply`). */
-    keepOnly?: "late" | "unverified" | "machine";
+    keepOnly?: "late" | "unverified" | "machine" | "colleague";
     /** The sender's address Cloudflare's header proved (the contact's); null when unproven. */
     authenticatedAs: string | null;
   },

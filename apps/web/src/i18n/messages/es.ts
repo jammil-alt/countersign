@@ -1520,6 +1520,7 @@ export const es: Messages = {
   "contacts.status.read": "leído",
   "contacts.status.received": "recibido",
   "contacts.status.unverified": "recibido, remitente sin confirmar",
+  "contacts.status.other_sender": "recibido de otra dirección de su empresa, no es su respuesta",
   "contacts.status.replied": "respondido",
   "contacts.status.not_sent": "no enviado",
   "contacts.status.no_reply": "sin respuesta",
