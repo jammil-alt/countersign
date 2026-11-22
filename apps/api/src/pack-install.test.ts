@@ -112,7 +112,10 @@ describe.skipIf(!h)("installing a pack with configuration only", () => {
       .select({ settings: tenant.settings })
       .from(tenant)
       .where(eq(tenant.id, H.A.tenantId));
-    expect((row?.settings as J).packs["close-demo"]).toEqual({ close_day: 10, basis: "accrual" });
+    expect((row?.settings as J)?.packs?.["close-demo"]).toEqual({
+      close_day: 10,
+      basis: "accrual",
+    });
     const logged = await changes(H.A.tenantId);
     expect(logged.map((c) => (c.change as J).setting)).toContain("packs.close-demo");
   });

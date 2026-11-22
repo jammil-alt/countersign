@@ -107,8 +107,9 @@ describe("every pack's manifest", () => {
   it("installs only templates with approval on: no step is set to run without it", () => {
     const loosened: string[] = [];
     const walk = (value: unknown, where: string) => {
-      if (Array.isArray(value)) value.forEach((v, i) => walk(v, `${where}[${i}]`));
-      else if (value && typeof value === "object") {
+      if (Array.isArray(value)) {
+        for (const [i, v] of value.entries()) walk(v, `${where}[${i}]`);
+      } else if (value && typeof value === "object") {
         for (const [k, v] of Object.entries(value)) {
           if (k === "approval" && JSON.stringify(v).includes("not_required")) loosened.push(where);
           walk(v, `${where}.${k}`);
