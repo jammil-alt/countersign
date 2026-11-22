@@ -238,9 +238,13 @@ Each ends green (`pnpm check`). The migration goes in its own PR.
 | **A3: attacks** | Planted cases in the test bench, their pass rules, before-trial and monthly runs; recorded fixtures with a key | None (test cases have a home) |
 | **A4: evidence export** (built, §1.231.3) | Per period, per agent and client, CSV and a printable page (`/ops/security/evidence`, linked from the Security tab); the `/ops/security` rollup per register control; back office only, each request audited by `mount()` | None |
 
-**What A2 left (owner's call or next).** Two checks of §4b aren't built: no secret in a stored model
-request (it needs the stored bodies read with the client's key) and OAuth scopes (granted scopes
-aren't stored on the connection yet). "During its trial" reads the agent's stage now, since stage
+**What A2 left (owner's call or next).** The two checks of §4b it left are built (§1.231.2): "No
+secret in its AI requests" reads the period's stored requests (the newest 200 a night) and looks
+for the client's stored secret values, opened with its key in memory, and for secret-shaped
+strings; "Sign-ins grant no more than we ask for" compares the scopes kept beside each OAuth
+connection's tokens with the connector's (`DECLARED_OAUTH_SCOPES`). A provider that doesn't report
+its grant (QuickBooks) or a sign-in that asks for none (Podio) leaves that check "Not yet checked"
+for the agent. "During its trial" reads the agent's stage now, since stage
 history isn't kept per run. The second factor check reads the sign-in policy, since a sign-in's
 factor isn't stored. The attack checks show "Not yet checked" until A3.
 

@@ -5,6 +5,7 @@
 
 import { createOAuthState } from "@countersign/connectors";
 import {
+  accountReportRoutes,
   adjustRoutes,
   agentReportRoutes,
   allRoutes,
@@ -12,6 +13,7 @@ import {
   checkRouteContract,
   forbiddenPortalFields,
   manualRoutes,
+  portalViewRoutes,
   type RouteSpec,
   routeFamily,
   routes,
@@ -99,6 +101,45 @@ describe("route contract (static)", () => {
     }
     expect(agentReportRoutes.opsAgentReport.roles).toEqual(["operator"]);
     expect(agentReportRoutes.opsAgentReportCsv.roles).toEqual(["operator"]);
+  });
+
+  // R5 (docs/plan.md §1.235): the report per account.
+  it("keeps the account report's portal routes to clients, with no cost, errors or Needs us", () => {
+    for (const r of [
+      accountReportRoutes.portalAccountReport,
+      accountReportRoutes.portalAccountReportCsv,
+    ]) {
+      expect(routeFamily(r)).toBe("portal");
+      expect(r.roles).toEqual(["client_admin", "client_user"]);
+      expect(forbiddenPortalFields(r.response)).toEqual([]);
+    }
+    const json = JSON.stringify(
+      z.toJSONSchema(accountReportRoutes.portalAccountReport.response, { unrepresentable: "any" }),
+    );
+    for (const key of ['"needsUs"', '"errorKey"', '"costOver"', '"mode"', '"clients"']) {
+      expect(json).not.toContain(key);
+    }
+    for (const r of [
+      accountReportRoutes.opsClientReport,
+      accountReportRoutes.opsClientReportCsv,
+      accountReportRoutes.opsAccounts,
+    ]) {
+      expect(routeFamily(r)).toBe("ops");
+      expect(r.roles).toEqual(["operator"]);
+    }
+  });
+
+  // R6 (docs/plan.md §1.236): the portal's saved views carry the portal's filter only.
+  it("keeps the portal's saved views to clients, with no back-office filter keys", () => {
+    for (const r of Object.values(portalViewRoutes)) {
+      expect(routeFamily(r)).toBe("portal");
+      expect(r.roles).toEqual(["client_admin", "client_user"]);
+      expect(forbiddenPortalFields(r.response)).toEqual([]);
+      const json = JSON.stringify(z.toJSONSchema(r.response, { unrepresentable: "any" }));
+      for (const key of ['"errorKey"', '"costOver"', '"mode"', '"clients"', '"tenantId"']) {
+        expect(json).not.toContain(key);
+      }
+    }
   });
 
   it("keeps the back office's client view of an agent to operators, as the portal's answer", () => {

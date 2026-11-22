@@ -46,6 +46,7 @@ export * from "./banking";
 export * from "./bill-create";
 export * from "./books";
 export * from "./ingredients";
+export * from "./journal";
 export * from "./ledger-writes";
 export * from "./purchase-order";
 export * from "./records";
@@ -145,6 +146,8 @@ export function createQboConnector(options: QboOptions = {}): QboConnector {
       // §1.187: read too, for the look before a write (`qbo.banking.find`).
       { id: "deposit", label: "Deposits", verbs: ["read", "create"] },
       { id: "transfer", label: "Transfers", verbs: ["read", "create"] },
+      // docs/plan.md §1.232: the Close pack's journal entries; read for the look before a write.
+      { id: "journal_entry", label: "Journal entries", verbs: ["read", "create"] },
     ],
     isConfigured: () => configured,
 

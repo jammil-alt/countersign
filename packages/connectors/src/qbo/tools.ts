@@ -29,6 +29,7 @@ import {
   updatePurchaseCostDisplay,
 } from "./display";
 import { qboIngredientTools } from "./ingredients";
+import { journalCreateTool } from "./journal";
 import { ledgerWriteTools } from "./ledger-writes";
 import {
   QboAttachment,
@@ -782,5 +783,7 @@ export function qboTools(clientFor: ClientFor): ToolDefinition[] {
     ...ledgerWriteTools(clientFor),
     // R-1 (docs/plan.md §1.80): an account's register, for reconciliation.
     registerTool(clientFor),
+    // docs/plan.md §1.232: the Close pack's journal entries (accruals, reversals, recurring).
+    journalCreateTool(clientFor),
   ];
 }

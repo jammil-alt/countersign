@@ -1,0 +1,108 @@
+{
+  "description": "The AP pack (Plan entry §1.233): a client's vendor bills (A) against the purchase orders it placed (B). A bill that prints its PO number and the order's amount; one that adds freight to its order (a partial the pack explains by line); one that prints no PO number but has its vendor's one order of that amount; one whose PO number names another order (a hard rule, never matched however alike); and an order not billed yet.",
+  "config": "bill_to_po",
+  "a": [
+    {
+      "id": "A1",
+      "reference": "PO-1A2B3C4D",
+      "counterparty": "Northline Lumber",
+      "date": "2026-11-02",
+      "amount": "1180.00",
+      "currency": "USD"
+    },
+    {
+      "id": "A2",
+      "reference": "PO 5E6F7A8B",
+      "counterparty": "Northline Lumber",
+      "date": "2026-11-04",
+      "amount": "1260.00",
+      "currency": "USD"
+    },
+    {
+      "id": "A3",
+      "reference": null,
+      "counterparty": "Baltic Supply, Inc.",
+      "date": "2026-11-05",
+      "amount": "455.00",
+      "currency": "USD"
+    },
+    {
+      "id": "A4",
+      "reference": "PO-77770000",
+      "counterparty": "Atlas Hardware",
+      "date": "2026-11-06",
+      "amount": "88.50",
+      "currency": "USD"
+    }
+  ],
+  "b": [
+    {
+      "id": "B1",
+      "reference": "PO-1A2B3C4D",
+      "counterparty": "Northline Lumber Co",
+      "date": "2026-10-20",
+      "amount": "1180.00",
+      "currency": "USD"
+    },
+    {
+      "id": "B2",
+      "reference": "PO-5E6F7A8B",
+      "counterparty": "Northline Lumber Co",
+      "date": "2026-10-22",
+      "amount": "1200.00",
+      "currency": "USD"
+    },
+    {
+      "id": "B3",
+      "reference": "PO-99990000",
+      "counterparty": "Baltic Supply",
+      "date": "2026-10-30",
+      "amount": "455.00",
+      "currency": "USD"
+    },
+    {
+      "id": "B4",
+      "reference": "PO-77770001",
+      "counterparty": "Atlas Hardware",
+      "date": "2026-11-01",
+      "amount": "88.50",
+      "currency": "USD"
+    },
+    {
+      "id": "B5",
+      "reference": "PO-31310000",
+      "counterparty": "Northline Lumber Co",
+      "date": "2026-11-10",
+      "amount": "640.00",
+      "currency": "USD"
+    }
+  ],
+  "rules": [],
+  "expect": [
+    {
+      "a": ["A1"],
+      "b": ["B1"],
+      "type": "one_to_one",
+      "tier": "deterministic",
+      "rule": "reference",
+      "difference": "0.0000"
+    },
+    {
+      "a": ["A2"],
+      "b": ["B2"],
+      "type": "partial",
+      "tier": "deterministic",
+      "rule": "partial",
+      "difference": "60.0000"
+    },
+    {
+      "a": ["A3"],
+      "b": ["B3"],
+      "type": "one_to_one",
+      "tier": "deterministic",
+      "rule": "counterparty_amount",
+      "difference": "0.0000"
+    }
+  ],
+  "unmatched": { "a": ["A4"], "b": ["B4", "B5"] }
+}

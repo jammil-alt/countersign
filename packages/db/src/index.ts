@@ -38,3 +38,5 @@ export {
 export * from "./schema";
 // R9: seeded version files that name an earlier version (the seed and the install route).
 export { isSeedVersionPatch, type SeedVersionPatch, seedVersionBundle } from "./seed-files";
+// §1.234: the work statement's counters, counted once for every surface.
+export * from "./work-counts";

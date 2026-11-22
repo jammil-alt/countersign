@@ -5,9 +5,17 @@
 // (invariant 11).
 
 import { getAgent, getVersion, latestVersion } from "@countersign/agents";
-import { adjustRoutes, manualRoutes, manualView } from "@countersign/core";
-import { agent, agentVersion, memoryNote, type Tx } from "@countersign/db";
-import { and, desc, eq } from "drizzle-orm";
+import {
+  type AnyAgentBundle,
+  adjustRoutes,
+  type HandledText,
+  manualRoutes,
+  manualView,
+  readManual,
+  riskHits,
+} from "@countersign/core";
+import { agent, agentVersion, inboxItem, memoryNote, run, type Tx } from "@countersign/db";
+import { and, desc, eq, isNotNull } from "drizzle-orm";
 import type { Hono } from "hono";
 import { ensureSeesAgent } from "../assigned";
 import { type AppEnv, mount, notFound } from "../http";
@@ -37,6 +45,71 @@ export async function learnedNotes(tx: Tx, a: { id: string; tenantId: string | n
   return rows.map((r) => ({ id: r.id, note: r.note, at: r.createdAt.toISOString() }));
 }
 
+/** How many of the agent's handled items the count reads, newest first. */
+const HANDLED_MAX = 1000;
+
+/** The words a person wrote when they resolved an item: its reason, note, comment or answer. */
+function resolutionWords(resolution: unknown): string {
+  if (!resolution || typeof resolution !== "object") return "";
+  const r = resolution as Record<string, unknown>;
+  const out: string[] = [];
+  for (const k of ["reason", "note", "comment", "answer"]) {
+    const v = r[k];
+    if (typeof v === "string") out.push(v);
+    else if (v && typeof v === "object" && !Array.isArray(v)) {
+      for (const x of Object.values(v)) if (typeof x === "string") out.push(x);
+    }
+  }
+  return out.join(" ").slice(0, 2000);
+}
+
+/**
+ * How many of a client agent's live runs hit each known risk in its manual (G5), counted when the
+ * manual is read from what people wrote where they handled those runs. Null for an agent with no
+ * client (a template has no runs of its own: its copies count, each for its own client).
+ */
+// DECISION (G5): counted at read time from the agent's live runs (test and dry runs left out),
+// over its latest 1000 resolved items, with no stored count and no migration. A person step's
+// title counts (the drafter hands a known risk to a person, §1.153), an approval's title doesn't
+// (it names the write, not the case). Counted per agent: a template's manual shows no count.
+export async function knownRiskHits(
+  tx: Tx,
+  a: { id: string; tenantId: string | null },
+  bundle: AnyAgentBundle,
+): Promise<Map<string, number> | undefined> {
+  if (!a.tenantId) return undefined;
+  const risks = readManual(bundle.definition.manual)?.knownRisks ?? [];
+  if (risks.length === 0) return new Map();
+  const rows = await tx
+    .select({
+      runId: inboxItem.runId,
+      kind: inboxItem.kind,
+      title: inboxItem.title,
+      resolution: inboxItem.resolution,
+    })
+    .from(inboxItem)
+    .innerJoin(run, and(eq(run.id, inboxItem.runId), eq(run.tenantId, inboxItem.tenantId)))
+    .where(
+      and(
+        eq(inboxItem.tenantId, a.tenantId),
+        eq(run.agentId, a.id),
+        eq(run.mode, "live"),
+        eq(inboxItem.status, "resolved"),
+        isNotNull(inboxItem.runId),
+      ),
+    )
+    .orderBy(desc(inboxItem.resolvedAt), desc(inboxItem.id))
+    .limit(HANDLED_MAX);
+  const handled: HandledText[] = rows.map((r) => ({
+    runId: r.runId as string,
+    text: [
+      r.kind === "approval" || r.kind === "external_action" ? "" : r.title,
+      resolutionWords(r.resolution),
+    ].join(" "),
+  }));
+  return riskHits(risks, handled);
+}
+
 export function manualRouteHandlers(app: Hono<AppEnv>): void {
   mount(app, manualRoutes.portalAgentManual, async ({ tx, tenantIds, params, agents, role }) => {
     const tenantId = tenantIds[0] as string;
@@ -61,6 +134,7 @@ export function manualRouteHandlers(app: Hono<AppEnv>): void {
       learned: admin ? await learnedNotes(tx, a) : [],
       audience: "client",
       fallbackWhat: a.serviceDescription,
+      hits: await knownRiskHits(tx, a, v.bundle),
     });
   });
 
@@ -83,7 +157,34 @@ export function manualRouteHandlers(app: Hono<AppEnv>): void {
       learned: row.kind === "client" ? await learnedNotes(tx, row) : [],
       audience: "operator",
       fallbackWhat: row.serviceDescription,
+      hits: row.kind === "client" ? await knownRiskHits(tx, row, v.bundle) : undefined,
     });
+  });
+
+  // G5: the back office deletes one of what a client agent learned for its client. A note is the
+  // client's own record, read live (invariant 1), not part of the agent's version: deleting it
+  // makes no version (the version history, invariant 3, holds no note) and is audited by `mount`.
+  // DECISION (G5): back office only, as an area owner's notes are (opsOwnerForget); the portal's
+  // manual stays read only, and a client asks us. Only the agent's own `agent`-scope notes, the
+  // ones the manual shows; a test run's or another agent's is not found.
+  mount(app, manualRoutes.opsAgentForgetNote, async ({ tx, tenantIds, params }) => {
+    const row = await getAgent(tx, params.id);
+    if (row.kind !== "client" || !row.tenantId || !tenantIds.includes(row.tenantId)) {
+      throw notFound("agent");
+    }
+    const gone = await tx
+      .delete(memoryNote)
+      .where(
+        and(
+          eq(memoryNote.id, params.noteId),
+          eq(memoryNote.tenantId, row.tenantId),
+          eq(memoryNote.agentId, row.id),
+          eq(memoryNote.scope, "agent"),
+        ),
+      )
+      .returning({ id: memoryNote.id });
+    if (gone.length === 0) throw notFound("memory note");
+    return { ok: true as const };
   });
 
   // ── B5 (docs/builder-plan.md §7): client adjustments and feedback on the manual ──────────────

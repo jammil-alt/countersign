@@ -16,6 +16,10 @@ import {
   BOOKKEEPING_REPORTS,
   BOOKKEEPING_REVIEWS,
   bookkeepingManifest,
+  CLOSE_HANDLERS,
+  CLOSE_REPORTS,
+  CLOSE_REVIEWS,
+  closeManifest,
 } from "@countersign/pack-bookkeeping";
 import {
   MARKETING_ACTIONS,
@@ -26,6 +30,10 @@ import {
   marketingManifest,
 } from "@countersign/pack-marketing";
 import {
+  AP_HANDLERS,
+  AP_REPORTS,
+  AP_REVIEWS,
+  apManifest,
   MATERIALS_ACTIONS,
   MATERIALS_HANDLERS,
   MATERIALS_REPORTS,
@@ -223,6 +231,16 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = lazyObjects([
     // preferred and discontinue actions stay the operator's (`/api/ops/…/actions`).
     portalReports: lazy(() => [...screenReports(materialsManifest), "master-vendors"]),
   },
+  // Plan entry §1.233: the AP pack, extending the Purchasing area: bills prepared from invoices,
+  // matched to their purchase orders, coded and flagged, and the week's approve-to-pay list (its
+  // card). The portal reads its Bills to pay report (its screen's). Nothing in it pays.
+  {
+    manifest: apManifest,
+    handlers: AP_HANDLERS,
+    reports: AP_REPORTS,
+    reviews: AP_REVIEWS,
+    portalReports: lazy(() => screenReports(apManifest)),
+  },
   // M43 (docs/plan.md §1.72): the Marketing area, Mezonas's own website first. §1.73: its tools
   // come from its areas, adapted like Materials' (the pack's tool context is a part of theirs).
   {
@@ -250,6 +268,16 @@ export const DEPLOYMENT_PACKS: readonly RegisteredPack[] = lazyObjects([
     actions: BOOKKEEPING_ACTIONS,
     nightly: BOOKKEEPING_NIGHTLY,
     portalReports: lazy(() => screenReports(bookkeepingManifest)),
+  },
+  // docs/plan.md §1.232: the Close pack, extending the Bookkeeping area: a month's checklist, its
+  // journal entries (written by the QuickBooks connector after approval) and the sign-off card.
+  // The portal reads its close report (its screen's).
+  {
+    manifest: closeManifest,
+    handlers: CLOSE_HANDLERS,
+    reports: CLOSE_REPORTS,
+    reviews: CLOSE_REVIEWS,
+    portalReports: lazy(() => screenReports(closeManifest)),
   },
   // docs/plan.md §1.164: the Sales area's first version: record keys from the client's synced CRM
   // (built after each sync page), the match and the look-up, and the Confirm matches card

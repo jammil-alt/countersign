@@ -10,6 +10,7 @@ import { z } from "zod";
 import { addNote, listAccounts, unclearAccounts } from "./accounts";
 import {
   BOOK_CONFIDENCE_AUTO,
+  checkProposal,
   markOffered,
   openItemOf,
   propose,
@@ -37,6 +38,8 @@ export const importTool = defineTool({
   sideEffect: "internal",
   entity: "transaction",
   area: "shared",
+  // The bank feed (Plaid) is where these come from: the step carries its mark (§1.221).
+  feed: "bankfeed",
   summary: "Read {{added}} new bank transactions",
   input: z.object({ connectionId: Id.optional() }),
   output: z.object({
@@ -293,12 +296,11 @@ export const proposeTool = defineTool({
   async run(input, ctx) {
     const threshold = thresholdFrom(ctx.settings);
     if (ctx.mode === "test") {
-      return {
-        recorded: false,
-        bookingId: null,
-        status: input.confidence >= threshold ? ("proposed" as const) : ("needs_review" as const),
-        sources: [input.bankTxnId],
-      };
+      // The live checks, reading only (§1.212): a test run refuses what a live run refuses.
+      const status = await withTenant(ctx.db, ctx.tenantId, (tx) =>
+        checkProposal(tx, ctx.tenantId, input, threshold),
+      );
+      return { recorded: false, bookingId: null, status, sources: [input.bankTxnId] };
     }
     const r = await withTenant(ctx.db, ctx.tenantId, (tx) =>
       propose(

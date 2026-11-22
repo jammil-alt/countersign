@@ -1,0 +1,130 @@
+// R5 (docs/plan.md §1.235): the account report's words, in each portal language, beside R4's
+// (`report-words.ts`, whose period, runs and CSV words it shares). Kept in the report's own chunk
+// rather than the app's catalogs, which are part of every visit's first load.
+// REVIEW: the translations need a fluent speaker (§1.18).
+import type { Locale } from "@countersign/core";
+
+const en = {
+  title: "Account report",
+  agents: "By agent",
+  agent: "Agent",
+  waitingNow: "Waiting now",
+  waitingNote: "{items} open items, the oldest for {age}",
+  overdue: "{count} waiting over a day",
+  nothingWaiting: "Nothing waiting",
+  failedUnseen: "Failed, not looked at",
+  failedUnseenNote: "In the last {days} days, not tried again",
+  connections: "Connections that need attention",
+  connectionsNone: "Every connection is working.",
+  "attention.error": "Sign in again",
+  "attention.refresh_failing": "Access isn't renewing",
+  since: "since {date}",
+  usage: "Credits this month",
+  usageNote: "{used} of {included} included",
+} as const;
+
+export type AccountKey = keyof typeof en;
+
+export const ACCOUNT_WORDS: Record<Locale, Record<AccountKey, string>> = {
+  en,
+  es: {
+    title: "Informe de la cuenta",
+    agents: "Por agente",
+    agent: "Agente",
+    waitingNow: "Esperando ahora",
+    waitingNote: "{items} pendientes, el más antiguo desde hace {age}",
+    overdue: "{count} esperando más de un día",
+    nothingWaiting: "Nada pendiente",
+    failedUnseen: "Fallidas sin revisar",
+    failedUnseenNote: "En los últimos {days} días, sin reintentar",
+    connections: "Conexiones que necesitan atención",
+    connectionsNone: "Todas las conexiones funcionan.",
+    "attention.error": "Vuelva a iniciar sesión",
+    "attention.refresh_failing": "El acceso no se renueva",
+    since: "desde el {date}",
+    usage: "Créditos este mes",
+    usageNote: "{used} de {included} incluidos",
+  },
+  fr: {
+    title: "Rapport du compte",
+    agents: "Par agent",
+    agent: "Agent",
+    waitingNow: "En attente",
+    waitingNote: "{items} éléments ouverts, le plus ancien depuis {age}",
+    overdue: "{count} en attente depuis plus d'un jour",
+    nothingWaiting: "Rien en attente",
+    failedUnseen: "Échecs non examinés",
+    failedUnseenNote: "Ces {days} derniers jours, sans nouvel essai",
+    connections: "Connexions à vérifier",
+    connectionsNone: "Toutes les connexions fonctionnent.",
+    "attention.error": "Reconnectez-vous",
+    "attention.refresh_failing": "L'accès ne se renouvelle pas",
+    since: "depuis le {date}",
+    usage: "Crédits ce mois-ci",
+    usageNote: "{used} sur {included} inclus",
+  },
+  "pt-BR": {
+    title: "Relatório da conta",
+    agents: "Por agente",
+    agent: "Agente",
+    waitingNow: "Aguardando agora",
+    waitingNote: "{items} itens abertos, o mais antigo há {age}",
+    overdue: "{count} aguardando há mais de um dia",
+    nothingWaiting: "Nada aguardando",
+    failedUnseen: "Falhas não analisadas",
+    failedUnseenNote: "Nos últimos {days} dias, sem nova tentativa",
+    connections: "Conexões que precisam de atenção",
+    connectionsNone: "Todas as conexões estão funcionando.",
+    "attention.error": "Entre novamente",
+    "attention.refresh_failing": "O acesso não está sendo renovado",
+    since: "desde {date}",
+    usage: "Créditos neste mês",
+    usageNote: "{used} de {included} incluídos",
+  },
+  it: {
+    title: "Report dell'account",
+    agents: "Per agente",
+    agent: "Agente",
+    waitingNow: "In attesa ora",
+    waitingNote: "{items} elementi aperti, il più vecchio da {age}",
+    overdue: "{count} in attesa da più di un giorno",
+    nothingWaiting: "Niente in attesa",
+    failedUnseen: "Errori non esaminati",
+    failedUnseenNote: "Negli ultimi {days} giorni, senza nuovo tentativo",
+    connections: "Connessioni da controllare",
+    connectionsNone: "Tutte le connessioni funzionano.",
+    "attention.error": "Accedi di nuovo",
+    "attention.refresh_failing": "L'accesso non si rinnova",
+    since: "dal {date}",
+    usage: "Crediti questo mese",
+    usageNote: "{used} di {included} inclusi",
+  },
+  de: {
+    title: "Kontobericht",
+    agents: "Nach Agent",
+    agent: "Agent",
+    waitingNow: "Wartet jetzt",
+    waitingNote: "{items} offene Einträge, der älteste seit {age}",
+    overdue: "{count} warten seit über einem Tag",
+    nothingWaiting: "Nichts wartet",
+    failedUnseen: "Fehlgeschlagen, nicht geprüft",
+    failedUnseenNote: "In den letzten {days} Tagen, nicht erneut versucht",
+    connections: "Verbindungen, die Aufmerksamkeit brauchen",
+    connectionsNone: "Alle Verbindungen funktionieren.",
+    "attention.error": "Erneut anmelden",
+    "attention.refresh_failing": "Der Zugriff wird nicht erneuert",
+    since: "seit {date}",
+    usage: "Credits diesen Monat",
+    usageNote: "{used} von {included} enthalten",
+  },
+};
+
+/** One of the account report's words in `locale`, with its `{placeholders}` filled. */
+export function accountWord(
+  locale: Locale,
+  key: AccountKey,
+  params: Record<string, string | number> = {},
+): string {
+  const text = ACCOUNT_WORDS[locale]?.[key] ?? en[key];
+  return text.replace(/\{(\w+)\}/g, (_, name: string) => String(params[name] ?? `{${name}}`));
+}

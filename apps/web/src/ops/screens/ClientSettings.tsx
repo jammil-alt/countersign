@@ -8,7 +8,7 @@
 // `/exports` redirects here) and Retire client. The tools it is
 // offered are on Setup, Connections.
 import type { ExternalApprover, OpsClientSettings } from "@countersign/core";
-import { type ReactNode, useEffect, useState } from "react";
+import { lazy, type ReactNode, Suspense, useEffect, useState } from "react";
 import { Link, NavLink, useLocation, useParams } from "react-router-dom";
 import { isApiError } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
@@ -24,6 +24,12 @@ import { ClientExportsSection } from "../client/ClientExports";
 import { ClientFrame, clientPagePath, useClientPage } from "../client/ClientFrame";
 import { ClientApproverRules } from "./ClientApproverRules";
 import { ClientBillingSection } from "./ClientBilling";
+
+// §1.234: the work statement loads when Billing opens, with its route's schema and words.
+const ClientWorkStatement = lazy(() =>
+  import("./ClientWorkStatement").then((m) => ({ default: m.ClientWorkStatement })),
+);
+
 import { ClientComplianceSetting, ClientRetireSetting } from "./ClientComplianceSetting";
 import { ClientFeedbackSetting } from "./ClientFeedbackSetting";
 import { ClientChannelsSection, ClientHoursSection } from "./ClientHours";
@@ -110,6 +116,13 @@ function SectionBody({ clientId, section }: { clientId: string; section: Setting
           }
         >
           <ClientBillingSection clientId={clientId} />
+          <div className="mt-8">
+            <Titled title="Work statement">
+              <Suspense fallback={null}>
+                <ClientWorkStatement clientId={clientId} />
+              </Suspense>
+            </Titled>
+          </div>
         </Titled>
       );
     case "compliance":

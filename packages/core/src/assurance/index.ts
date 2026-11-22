@@ -4,5 +4,6 @@ export * from "./build";
 export * from "./checks";
 export * from "./coverage";
 export * from "./evidence";
+export * from "./secrets";
 export * from "./terms";
 export * from "./view";

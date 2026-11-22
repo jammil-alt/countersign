@@ -4,7 +4,7 @@
 // team member who doesn't work with the agent can't read it; the nightly tick runs every live agent.
 
 import { CHECKS } from "@countersign/core";
-import { agent, auditEvent, controlCheck, issue } from "@countersign/db";
+import { agent, auditEvent, controlCheck, issue, modelCall, run, stepRun } from "@countersign/db";
 import { and, eq, like } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -141,6 +141,79 @@ describe.skipIf(!h)("agent assurance (docs/agent-assurance-plan.md)", () => {
     expect(view.checks.find((c: { id: string }) => c.id === "delete_off").soc2).toContain("CC8.1");
   });
 
+  it("reads the period's stored AI requests for secrets, and keeps only the call's id (§1.231.2)", async () => {
+    const [a] = await H.t.db.select().from(agent).where(eq(agent.id, ids.mine));
+    const [r] = await H.t.db
+      .insert(run)
+      .values({
+        tenantId: H.A.tenantId,
+        agentId: ids.mine,
+        agentVersionId: a?.liveVersionId as string,
+        workflowSlug: "main",
+        status: "succeeded",
+        mode: "live",
+      })
+      .returning({ id: run.id });
+    const [s] = await H.t.db
+      .insert(stepRun)
+      .values({
+        tenantId: H.A.tenantId,
+        runId: r?.id as string,
+        nodeId: "read",
+        nodeType: "skill",
+      })
+      .returning({ id: stepRun.id });
+    const call = async (content: string) => {
+      const bodyKey = `tenants/${H.A.tenantId}/model-calls/${crypto.randomUUID()}.json`;
+      await H.objects.put(
+        bodyKey,
+        new TextEncoder().encode(
+          JSON.stringify({ request: { messages: [{ role: "user", content }] }, answer: null }),
+        ),
+      );
+      const [m] = await H.t.db
+        .insert(modelCall)
+        .values({
+          tenantId: H.A.tenantId,
+          runId: r?.id as string,
+          stepRunId: s?.id as string,
+          agentVersionId: a?.liveVersionId as string,
+          provider: "anthropic",
+          model: "claude-sonnet-5-5",
+          tokensIn: 10,
+          tokensOut: 2,
+          costUsd: "0.0010",
+          durationMs: 100,
+          stopReason: "end_turn",
+          bodyKey,
+        })
+        .returning({ id: modelCall.id });
+      return m?.id as string;
+    };
+    await call("Invoice INV-2026-0042 from Harbor Millwork");
+    const leaked = await call(`Use the key sk-proj-${"a".repeat(32)} to sign in`);
+
+    const res = await H.call(OPERATOR, "POST", `/api/ops/agents/${ids.mine}/assurance/run`, {});
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const check = j(res.json).checks.find((c: { id: string }) => c.id === "no_secret_to_model");
+    expect(check.result).toBe("in_review");
+    expect(check.evidence).toMatchObject({
+      calls: 2,
+      read: 2,
+      withSecret: [],
+      secretShaped: [{ id: leaked, kinds: ["model_api_key"] }],
+    });
+    expect(JSON.stringify(check)).not.toContain("sk-proj-");
+    // The testkit connection signs in with no OAuth.
+    const scopes = j(res.json).checks.find((c: { id: string }) => c.id === "oauth_scopes");
+    expect(scopes.result).toBe("not_applicable");
+    // The client sees only that it's in review.
+    const portal = await H.call(admin("a"), "GET", `/api/services/${ids.mine}/assurance`);
+    const mine = j(portal.json).checks.find((c: { id: string }) => c.id === "no_secret_to_model");
+    expect(mine).toMatchObject({ result: "in_review", found: "" });
+    expect(forbiddenKeys(j(portal.json))).toEqual([]);
+  });
+
   it("is another client's agent: not found; and a team member reads the agents they work with", async () => {
     expect((await H.call(admin("a"), "GET", `/api/services/${ids.other}/assurance`)).status).toBe(
       404,
@@ -165,7 +238,7 @@ describe.skipIf(!h)("agent assurance (docs/agent-assurance-plan.md)", () => {
     await assuranceTick(
       H.db,
       H.platform,
-      { covered: "", secondFactorOn: true },
+      { covered: "", secondFactorOn: true, scan: { vault: null, bodies: H.objects } },
       new Date("2026-11-22T08:23:00Z"),
     );
     const after = await rows(ids.other);
