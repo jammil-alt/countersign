@@ -158,20 +158,26 @@ function thresholdSql(thresholds: ReadonlyMap<string, string>): SQL {
 
 // ── Needs us ────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * A client's agents as every count counts them, in SQL: core's `isCountedAgent` (a client agent,
+ * not discarded, not a template's test copy, not retired). The command center and the clients
+ * list both count with it, and the client page's line with `clientAgentCounts`.
+ */
+export function countedAgentWhere() {
+  return and(
+    eq(agent.kind, "client"),
+    eq(agent.status, "active"),
+    eq(agent.testCopy, false),
+    or(sql`${agent.runStatus} is null`, ne(agent.runStatus, "retired")),
+  );
+}
+
 /** Active client agents (not test copies, not retired): live counts, connection users, the table. */
 async function activeClientAgents(tx: Tx, ids: readonly string[]) {
   return tx
     .select()
     .from(agent)
-    .where(
-      and(
-        inArray(agent.tenantId, [...ids]),
-        eq(agent.kind, "client"),
-        eq(agent.status, "active"),
-        eq(agent.testCopy, false),
-        or(sql`${agent.runStatus} is null`, ne(agent.runStatus, "retired")),
-      ),
-    )
+    .where(and(inArray(agent.tenantId, [...ids]), countedAgentWhere()))
     .orderBy(agent.tenantId, agent.slug);
 }
 
