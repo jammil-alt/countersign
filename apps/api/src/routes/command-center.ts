@@ -11,6 +11,7 @@ import {
   type ClientCounts,
   type CommandCenter,
   clientHealth,
+  Decimal,
   ESCALATION_LIST_MAX,
   type Escalation,
   FAILED_RUN_ESCALATION_DAYS,
@@ -28,6 +29,7 @@ import {
   runWaitOf,
   shareOf,
   sortEscalations,
+  toNumeric,
 } from "@countersign/core";
 import {
   agent,
@@ -58,6 +60,7 @@ import {
 } from "../runs/run-wait";
 import { oversightList } from "./ops-oversight";
 import { searchRoutes } from "./search";
+import { isBackOffice, type SpendLine, spendLines } from "./usage-spend";
 
 const HOUR_MS = 60 * 60 * 1000;
 /** The command center's Run oversight card: the latest decisions (as the lab's `limit`). */
@@ -432,7 +435,13 @@ async function commandCenter(
     needUs: { count: 0, blockedLong: 0 },
     waitingOnClients: { count: 0, oldestSince: null, oldestAgeSeconds: null },
     runsToday: { runs: 0, clean: 0, cleanShare: null },
-    spendToday: { costUsd: "0", stepsUsd: "0", readingUsd: "0", perRunUsd: null },
+    spendToday: {
+      costUsd: "0",
+      stepsUsd: "0",
+      readingUsd: "0",
+      backOfficeUsd: "0",
+      perRunUsd: null,
+    },
     escalations: [],
     lowConfidence: [],
     health: [],
@@ -477,7 +486,7 @@ async function commandCenter(
     templateVersions,
     [waiting],
     [todayRuns],
-    { steps, reading, spend },
+    { steps, reading, backOffice, spend },
     weekRuns,
     responses,
     recent,
@@ -550,17 +559,16 @@ async function commandCenter(
       .leftJoin(retried, noRetry)
       .where(and(inArray(run.tenantId, ids), eq(run.mode, "live"), gte(run.createdAt, today))),
 
-    // Model spend today: step runs (any mode: test runs cost the same) and background readings.
+    // Model spend today (QA usage costs): the Usage screen's "Today", from the same lines: the
+    // runs' calls and steps (any mode: test runs cost the same), the clients' own reading and
+    // translation, and the back office's (Reggie, the Builder, builds). Owner, 2026-11-22: Home
+    // read $0.00 after a talk with Reggie, whose calls were in none of the old figures.
     (async () => {
-      const [[steps], [reading]] = await Promise.all([
+      const day = today.toISOString().slice(0, 10);
+      const [lines, [stepped]] = await Promise.all([
+        spendLines(tx, ids, { from: day, to: day }),
         tx
-          .select({
-            usd: sql<string>`coalesce(sum(${stepRun.costUsd}), 0)::numeric(14,4)::text`,
-            runs: sql<number>`count(distinct ${stepRun.runId})::int`,
-            perRun: sql<
-              string | null
-            >`(sum(${stepRun.costUsd}) / nullif(count(distinct ${stepRun.runId}), 0))::numeric(14,4)::text`,
-          })
+          .select({ runs: sql<number>`count(distinct ${stepRun.runId})::int` })
           .from(stepRun)
           .innerJoin(run, and(eq(run.id, stepRun.runId), eq(run.tenantId, stepRun.tenantId)))
           .where(
@@ -569,23 +577,24 @@ async function commandCenter(
               sql`${stepDay} >= ${today.toISOString()}::timestamptz`,
             ),
           ),
-        tx
-          .select({
-            usd: sql<string>`coalesce(sum(${docExtraction.costUsd}), 0)::numeric(14,4)::text`,
-          })
-          .from(docExtraction)
-          .where(
-            and(
-              inArray(docExtraction.tenantId, ids),
-              sql`${docExtraction.agentVersionId} is null`,
-              gte(docExtraction.createdAt, today),
-            ),
-          ),
       ]);
-      const [spend] = await tx.execute<{ total: string }>(
-        sql`select (${steps?.usd ?? "0"}::numeric + ${reading?.usd ?? "0"}::numeric)::numeric(14,4)::text as total`,
+      const part = (keep: (l: SpendLine) => boolean) =>
+        lines.filter(keep).reduce((sum, l) => sum.plus(l.cost), new Decimal(0));
+      const stepsUsd = part((l) => l.source === "run" || l.source === "unrecorded");
+      const readingUsd = part(
+        (l) => l.source === "background_read" || l.source === "background_translation",
       );
-      return { steps, reading, spend };
+      const backOfficeUsd = part(isBackOffice);
+      const runsWithSteps = stepped?.runs ?? 0;
+      return {
+        steps: {
+          usd: toNumeric(stepsUsd),
+          perRun: runsWithSteps > 0 ? toNumeric(stepsUsd.div(runsWithSteps)) : null,
+        },
+        reading: { usd: toNumeric(readingUsd) },
+        backOffice: { usd: toNumeric(backOfficeUsd) },
+        spend: { total: toNumeric(stepsUsd.plus(readingUsd).plus(backOfficeUsd)) },
+      };
     })(),
 
     // Client health over 7 days.
@@ -791,10 +800,11 @@ async function commandCenter(
       cleanShare: shareOf(todayRuns?.clean ?? 0, todayRuns?.runs ?? 0),
     },
     spendToday: {
-      costUsd: spend?.total ?? "0.0000",
-      stepsUsd: steps?.usd ?? "0.0000",
-      readingUsd: reading?.usd ?? "0.0000",
-      perRunUsd: steps?.perRun ?? null,
+      costUsd: spend.total,
+      stepsUsd: steps.usd,
+      readingUsd: reading.usd,
+      backOfficeUsd: backOffice.usd,
+      perRunUsd: steps.perRun,
     },
     escalations: sorted.slice(0, ESCALATION_LIST_MAX),
     lowConfidence: [...groups.values()],
