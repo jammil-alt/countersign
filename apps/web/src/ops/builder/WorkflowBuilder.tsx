@@ -86,6 +86,7 @@ import {
 import { automationStepsPath } from "../flow/automation/paths";
 import { Chart } from "../flow/Chart";
 import { dispatchFlowDrop, flowCollision, resolveFlowDrop } from "../flow/dnd";
+import { kindDoes } from "../flow/does";
 import { FlowBar, type FlowView } from "../flow/FlowBar";
 import "../flow/flow.css";
 import { EN } from "../../i18n/i18n";
@@ -1789,6 +1790,8 @@ function BuilderBody(
         kind={words.kind}
         place={{ n: loc.index + 1, of: siblings.length }}
         title={step.name}
+        // What it does, in its skill's, tool's or automation's words, else its kind's line.
+        does={words.does ?? kindDoes(step)}
         // One undo per run of typing, as the inspector's own name field made it.
         onRename={(name) =>
           edit((w) => updateStep(w, step.id, (s) => ({ ...s, name })), `${step.id}:name`)

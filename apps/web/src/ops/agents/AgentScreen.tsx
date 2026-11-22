@@ -125,13 +125,12 @@ function AgentTabs({
           {
             to: workflow ? `${base}/workflows/${workflow}` : `${base}/workflow`,
             label: "Workflow",
-            active: workflowActive,
+            active: workflowActive || stepsActive,
           },
-          {
-            to: workflow ? `${base}/steps/${workflow}` : `${base}/steps`,
-            label: "Steps",
-            active: stepsActive,
-          },
+          // DECISION (owner, 2026-11-22, staging feedback: "Steps is basically just the list view
+          // below… let's get rid of this up here"): no Steps tab. The builder's own Chart and List
+          // switch shows the steps as a list; `/steps/:workflow` still opens it that way, with the
+          // Workflow tab lit.
           // docs/builder-plan.md §5 (B3): the agent's manual.
           { to: `${base}/manual${keep}`, label: "Manual" },
           { to: `${base}/runs${keep}`, label: "Runs" },
