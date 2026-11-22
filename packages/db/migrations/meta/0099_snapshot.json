@@ -1,6 +1,6 @@
 {
-  "id": "055ffef7-148a-48fe-9083-a454104780b1",
-  "prevId": "95811738-cdd4-4e21-9c7c-8b0291e990a9",
+  "id": "bb50ffb9-8a1e-43a2-a73c-5c9f3169cb03",
+  "prevId": "bbd15d31-3b56-48cf-b8aa-11f852158657",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -15326,6 +15326,237 @@
       },
       "isRLSEnabled": false
     },
+    "public.metered_usage": {
+      "name": "metered_usage",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "measure": {
+          "name": "measure",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "quantity": {
+          "name": "quantity",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ours": {
+          "name": "ours",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tokens_in": {
+          "name": "tokens_in",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "tokens_out": {
+          "name": "tokens_out",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "cache_read_tokens": {
+          "name": "cache_read_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "cache_write_tokens": {
+          "name": "cache_write_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "cost_usd": {
+          "name": "cost_usd",
+          "type": "numeric(14, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "metered_usage_tenant_idx": {
+          "name": "metered_usage_tenant_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "metered_usage_created_idx": {
+          "name": "metered_usage_created_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "metered_usage_tenant_id_tenant_id_fk": {
+          "name": "metered_usage_tenant_id_tenant_id_fk",
+          "tableFrom": "metered_usage",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "metered_usage_agent_fk": {
+          "name": "metered_usage_agent_fk",
+          "tableFrom": "metered_usage",
+          "tableTo": "agent",
+          "columnsFrom": [
+            "agent_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "metered_usage_run_fk": {
+          "name": "metered_usage_run_fk",
+          "tableFrom": "metered_usage",
+          "tableTo": "run",
+          "columnsFrom": [
+            "run_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "metered_usage_key_unique": {
+          "name": "metered_usage_key_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "key"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "metered_usage_measure_check": {
+          "name": "metered_usage_measure_check",
+          "value": "\"metered_usage\".\"measure\" in ('messages', 'emails', 'browser_seconds', 'bank_item_months', 'verifications', 'model')"
+        },
+        "metered_usage_source_check": {
+          "name": "metered_usage_source_check",
+          "value": "\"metered_usage\".\"source\" ~ '^[a-z_]{1,40}$'"
+        },
+        "metered_usage_quantity_check": {
+          "name": "metered_usage_quantity_check",
+          "value": "\"metered_usage\".\"quantity\" > 0"
+        },
+        "metered_usage_ours_check": {
+          "name": "metered_usage_ours_check",
+          "value": "\"metered_usage\".\"tenant_id\" is not null or \"metered_usage\".\"ours\""
+        },
+        "metered_usage_scope_check": {
+          "name": "metered_usage_scope_check",
+          "value": "\"metered_usage\".\"tenant_id\" is not null or (\"metered_usage\".\"agent_id\" is null and \"metered_usage\".\"run_id\" is null)"
+        },
+        "metered_usage_model_check": {
+          "name": "metered_usage_model_check",
+          "value": "(\"metered_usage\".\"measure\" = 'model') = (\"metered_usage\".\"cost_usd\" is not null) and \"metered_usage\".\"tokens_in\" >= 0 and \"metered_usage\".\"tokens_out\" >= 0 and \"metered_usage\".\"cache_read_tokens\" >= 0 and \"metered_usage\".\"cache_write_tokens\" >= 0 and coalesce(\"metered_usage\".\"cost_usd\", 0) >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.model_call": {
       "name": "model_call",
       "schema": "",
@@ -22721,6 +22952,20 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'0'"
+        },
+        "emails": {
+          "name": "emails",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "browser_seconds": {
+          "name": "browser_seconds",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
         }
       },
       "indexes": {},
@@ -22815,6 +23060,34 @@
         },
         "translations": {
           "name": "translations",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "messages": {
+          "name": "messages",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "emails": {
+          "name": "emails",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "browser_seconds": {
+          "name": "browser_seconds",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "bank_item_months": {
+          "name": "bank_item_months",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
