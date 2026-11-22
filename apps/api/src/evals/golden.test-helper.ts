@@ -41,6 +41,7 @@ import {
   runWrites,
   scoreWrites,
   stepIdOf,
+  writeStepTools,
 } from "@countersign/core";
 import { agent, agentVersion, appUser, membership, tenant } from "@countersign/db";
 import {
@@ -52,10 +53,15 @@ import {
 } from "@countersign/llm";
 import { DEFAULT_FIXTURE_DIR, fileFixtureStore } from "@countersign/llm/node";
 import { and, eq, isNull } from "drizzle-orm";
-import { type ApiHarness, createApiHarness, OPERATOR } from "../api.test-helper";
+import {
+  type ApiHarness,
+  createApiHarness,
+  type HarnessOptions,
+  OPERATOR,
+} from "../api.test-helper";
 import { quietNever } from "../quiet-hours.test-helper";
 import { credentialsFor } from "../runs/execute";
-import { runTemplateTest } from "../testbench/suite";
+import { runTemplateTest, withParameters } from "../testbench/suite";
 import { booksAfterEnable, GOLDEN_CHART, seedBooks } from "./world-books.test-helper";
 import { seedInvoice } from "./world-invoice.test-helper";
 
@@ -122,7 +128,9 @@ export function loadDatasets(): { file: string; dataset: EvalDataset }[] {
 }
 
 /** The harness the golden runs need: QuickBooks, the bank feed and Mezonas' email, over fakes. */
-export function createEvalHarness(): Promise<ApiHarness | null> {
+export function createEvalHarness(
+  options: Pick<HarnessOptions, "testSuites"> = {},
+): Promise<ApiHarness | null> {
   const resend = fakeResend();
   // One QuickBooks company (the fake serves one), with the golden chart of accounts.
   const qbo = fakeQbo({ codes: QBO_CODES });
@@ -158,6 +166,7 @@ export function createEvalHarness(): Promise<ApiHarness | null> {
       EMAIL_FORWARDING_DOMAIN: "in.mezonas.test",
     },
     fetch: resend.fetch,
+    ...options,
   });
 }
 
@@ -179,41 +188,6 @@ async function newClient(H: ApiHarness, c: EvalCase): Promise<{ tenantId: string
     { tenantId: t.id, userId: admin.id, role: "client_admin" },
   ]);
   return { tenantId: t.id, admin: admin.email };
-}
-
-/** Every write step's tool (or a v3 action step's), by step id, read from the bundle. */
-function writeTools(bundle: AnyAgentBundle): Map<string, string> {
-  const tools = new Map<string, string>();
-  const walk = (v: unknown) => {
-    if (Array.isArray(v)) return v.forEach(walk);
-    if (!isPlainObject(v)) return;
-    if (typeof v.id === "string" && (v.kind === "write" || v.kind === "action")) {
-      const tool =
-        typeof v.tool === "string" ? v.tool : typeof v.action === "string" ? v.action : null;
-      if (tool) tools.set(v.id, tool);
-    }
-    for (const x of Object.values(v)) walk(x);
-  };
-  walk(bundle.workflows);
-  return tools;
-}
-
-/** The case's skill parameters set on the bundle's skill refs, as a client agent sets them. */
-function withParameters(c: EvalCase, ids: Record<string, string>) {
-  return (bundle: AnyAgentBundle): AnyAgentBundle => {
-    if (Object.keys(c.parameters).length === 0) return bundle;
-    const parameters = resolveRefs(c.parameters, ids);
-    return {
-      ...bundle,
-      definition: {
-        ...bundle.definition,
-        skills: bundle.definition.skills.map((ref) => {
-          const own = parameters[parseSkillRef(ref.skill).id];
-          return own ? { ...ref, parameters: { ...(ref.parameters ?? {}), ...own } } : ref;
-        }),
-      },
-    } as AnyAgentBundle;
-  };
 }
 
 /**
@@ -293,7 +267,7 @@ export interface GoldenOptions {
 }
 
 /** The template's live version (installed with its pack on the first client). */
-async function liveVersion(H: ApiHarness, slug: string): Promise<string> {
+export async function liveVersion(H: ApiHarness, slug: string): Promise<string> {
   const [tpl] = await H.t.db
     .select({ live: agent.liveVersionId })
     .from(agent)
@@ -302,13 +276,12 @@ async function liveVersion(H: ApiHarness, slug: string): Promise<string> {
   return tpl.live;
 }
 
-/** One golden case, start to end: its client, its world, its run, its score. */
-export async function runGoldenCase(
+/** A client of the case's own with its world seeded and the template's pack on. */
+export async function seedGoldenClient(
   H: ApiHarness,
   dataset: EvalDataset,
   c: EvalCase,
-  options: GoldenOptions = {},
-): Promise<GoldenResult> {
+): Promise<WorldContext> {
   const world = WORLDS[dataset.template];
   if (!world) throw new Error(`no world for template ${dataset.template}`);
   const { tenantId, admin } = await newClient(H, c);
@@ -324,6 +297,38 @@ export async function runGoldenCase(
       return ids[name] as string;
     },
   };
+  // Connections and the chart first: switching a pack on validates its template against them.
+  await world.seed(ctx, c.world);
+  const on = await H.call(
+    OPERATOR,
+    "POST",
+    `/api/ops/clients/${tenantId}/packs/${world.pack}/enable`,
+  );
+  if (on.status !== 200) throw new Error(`enable ${world.pack}: ${JSON.stringify(on.json)}`);
+  if (world.afterEnable) await world.afterEnable(ctx, c.world);
+  return ctx;
+}
+
+/** What a golden run is run with: replayed answers (the case's, writing), the day fixed. */
+export function goldenRunDeps(H: ApiHarness, answers: readonly unknown[] = []) {
+  return {
+    db: H.db,
+    platform: H.platform,
+    transport: transportFor(answers),
+    instances: H.instances,
+    documents: { content: new ContentStore(H.objects) },
+    credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
+    now: () => EVAL_NOW,
+  };
+}
+
+/** One golden case, start to end: its client, its world, its run, its score. */
+export async function runGoldenCase(
+  H: ApiHarness,
+  dataset: EvalDataset,
+  c: EvalCase,
+  options: GoldenOptions = {},
+): Promise<GoldenResult> {
   const base = {
     caseId: c.id,
     exact: false,
@@ -334,41 +339,24 @@ export async function runGoldenCase(
     steps: [] as GoldenResult["steps"],
   };
   try {
-    // Connections and the chart first: switching a pack on validates its template against them.
-    await world.seed(ctx, c.world);
-    const on = await H.call(
-      OPERATOR,
-      "POST",
-      `/api/ops/clients/${tenantId}/packs/${world.pack}/enable`,
-    );
-    if (on.status !== 200) throw new Error(`enable ${world.pack}: ${JSON.stringify(on.json)}`);
-    if (world.afterEnable) await world.afterEnable(ctx, c.world);
+    const { tenantId, ids } = await seedGoldenClient(H, dataset, c);
     const versionId = await liveVersion(H, dataset.template);
-    const ran = await runTemplateTest(
-      {
-        db: H.db,
-        platform: H.platform,
-        transport: transportFor(resolveRefs(c.answers, ids)),
-        instances: H.instances,
-        documents: { content: new ContentStore(H.objects) },
-        credentials: credentialsFor(H.db, { current: ENCRYPTION_KEY }),
-        now: () => EVAL_NOW,
-      },
-      {
-        runTenantId: tenantId,
-        versionId,
-        actorId: null,
-        workflow: dataset.workflow,
-        payload: resolveRefs(c.trigger, ids),
-        ...(Object.keys(c.parameters).length > 0 ? { adjust: withParameters(c, ids) } : {}),
-      },
-    );
+    const ran = await runTemplateTest(goldenRunDeps(H, resolveRefs(c.answers, ids)), {
+      runTenantId: tenantId,
+      versionId,
+      actorId: null,
+      workflow: dataset.workflow,
+      payload: resolveRefs(c.trigger, ids),
+      ...(Object.keys(c.parameters).length > 0
+        ? { adjust: withParameters(resolveRefs(c.parameters, ids)) }
+        : {}),
+    });
     const [row] = await H.t.db
       .select({ bundle: agentVersion.bundle })
       .from(agentVersion)
       .where(eq(agentVersion.id, versionId));
     const bundle = row?.bundle as AnyAgentBundle;
-    const tools = writeTools(bundle);
+    const tools = writeStepTools(bundle.workflows);
     const writes = runWrites(ran.steps, (step) => tools.get(step) ?? null);
     // A failed step's output says why, for reading a failure.
     const steps = ran.steps.map((s) => ({

@@ -44,6 +44,20 @@ describe("scoreWrites", () => {
     ]);
   });
 
+  it("in the named scope, holds only the steps the case names", () => {
+    const expected = [{ step: "send", expect: { input: { to: "ap@x.test" } } }];
+    const got = [w("save", {}), w("send", { to: "ap@x.test" })];
+    expect(scoreWrites(expected, got).extra).toEqual(["save"]);
+    expect(scoreWrites(expected, got, {}, "named").exact).toBe(true);
+    expect(scoreWrites(expected, [w("save", {})], {}, "named").missing).toEqual(["send"]);
+    // A loop's step: any one of its writes may be the one the case names.
+    const loop = [w("send", { to: "a@x.test" }), w("send", { to: "ap@x.test" })];
+    expect(scoreWrites(expected, loop, {}, "named").exact).toBe(true);
+    const wrong = scoreWrites(expected, [w("send", { to: "b@x.test" })], {}, "named");
+    expect(wrong.missing).toEqual(["send"]);
+    expect(wrong.fields[0]?.path).toBe("send.0.input.to");
+  });
+
   it("counts each write of a step in a loop, in order, and holds money within its tolerance", () => {
     const expected = [
       { step: "write", expect: { input: { total: "10.00" } } },
@@ -87,9 +101,11 @@ describe("the rest", () => {
   });
 
   it("finds a test case's expected writes under $writes", () => {
-    expect(expectedWritesOf({ [WRITES_KEY]: [{ step: "s" }] })).toEqual([
-      { step: "s", expect: {} },
-    ]);
+    expect(expectedWritesOf({ [WRITES_KEY]: [{ step: "s" }] })).toEqual({
+      writes: [{ step: "s", expect: {} }],
+      scope: "all",
+    });
+    expect(expectedWritesOf({ [WRITES_KEY]: [], $writesScope: "named" })?.scope).toBe("named");
     expect(expectedWritesOf({ s: 1 })).toBeNull();
   });
 

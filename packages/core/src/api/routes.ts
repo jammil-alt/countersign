@@ -56,6 +56,7 @@ import { dealRoutes } from "./deals";
 import { deskRoutes } from "./desk";
 import { directoryRoutes } from "./directory";
 import { DocumentDetail, DocumentSummary } from "./documents";
+import { evalsRoutes } from "./evals";
 // §1.114: Excel's picking.
 import { excelRoutes } from "./excel";
 import { exportRoutes } from "./exports";
@@ -2559,6 +2560,8 @@ export const routes = {
   ...clientViewRoutes,
   // v0.12 W2-C: the test bench, skill tests and the agent lab
   ...testbenchRoutes,
+  // docs/plan.md §1.212
+  ...evalsRoutes,
   // v0.12 W2-F: the command center, search and plain-words questions
   ...commandCenterRoutes,
   // v0.12 W2-A: the connectors catalog

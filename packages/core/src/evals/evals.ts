@@ -16,6 +16,13 @@ import { type MatchDiff, matchOutput } from "../testbench/match";
 /** The key of a template case's expected output that holds its expected writes. */
 // DECISION: `$` can't start a step id, so the key never meets a step's output.
 export const WRITES_KEY = "$writes";
+/**
+ * Beside `$writes`: `all` (the default) holds the run to exactly those writes; `named` only to
+ * the steps they name (a case saved from one approved change names that change alone).
+ */
+export const WRITES_SCOPE_KEY = "$writesScope";
+export const WRITES_SCOPES = ["all", "named"] as const;
+export type WritesScope = (typeof WRITES_SCOPES)[number];
 
 /** A step id (inside a for_each, the child step's own id). */
 const StepId = z
@@ -175,7 +182,9 @@ export function scoreWrites(
   expected: readonly ExpectedWrite[],
   got: readonly RunWrite[],
   tolerances: Record<string, Tolerance> = {},
+  scope: WritesScope = "all",
 ): WriteScore {
+  if (scope === "named") return scoreNamed(expected, got, tolerances);
   const want = byStep(expected);
   const have = byStep(got);
   const missing: string[] = [];
@@ -205,6 +214,43 @@ export function scoreWrites(
     extra: extra.sort(),
     fields: match.diff,
   };
+}
+
+/**
+ * The named scope: each expected write is matched by some write of its step (a step in a loop
+ * writes once per item, and a case saved from one approved change names that one); other writes
+ * aren't held to anything.
+ */
+function scoreNamed(
+  expected: readonly ExpectedWrite[],
+  got: readonly RunWrite[],
+  tolerances: Record<string, Tolerance>,
+): WriteScore {
+  const missing: string[] = [];
+  const fields: MatchDiff[] = [];
+  for (const [i, w] of expected.entries()) {
+    const own = Object.fromEntries(
+      Object.entries(tolerances)
+        .filter(([p]) => p.startsWith(`${w.step}.`))
+        .map(([p, t]) => [p.split(".").slice(2).join("."), t]),
+    );
+    const tries = got
+      .filter((g) => g.step === w.step)
+      .map((g) =>
+        matchOutput({ kind: "subset", tolerances: own }, w.expect, {
+          tool: g.tool,
+          input: g.input,
+          output: g.output,
+        }),
+      );
+    if (tries.some((t) => t.pass)) continue;
+    missing.push(w.step);
+    const closest = tries[0];
+    if (closest) {
+      fields.push(...closest.diff.map((d) => ({ ...d, path: `${w.step}.${i}.${d.path}` })));
+    }
+  }
+  return { exact: missing.length === 0, missing: [...new Set(missing)].sort(), extra: [], fields };
 }
 
 /** What the verifier made of a case's writes (round 4's verifier; none until it lands). */
@@ -290,11 +336,14 @@ export function evalScorecard(
   };
 }
 
-/** The writes of a template case's expected output (`$writes`); null when it names none. */
-export function expectedWritesOf(expected: unknown): ExpectedWrite[] | null {
+/** The writes of a template case's expected output (`$writes`), and their scope; null: none. */
+export function expectedWritesOf(
+  expected: unknown,
+): { writes: ExpectedWrite[]; scope: WritesScope } | null {
   if (!isPlainObject(expected) || !Object.hasOwn(expected, WRITES_KEY)) return null;
   const parsed = ExpectedWrites.safeParse(expected[WRITES_KEY]);
-  return parsed.success ? parsed.data : null;
+  if (!parsed.success) return null;
+  return { writes: parsed.data, scope: expected[WRITES_SCOPE_KEY] === "named" ? "named" : "all" };
 }
 
 /** A run's writes from its step rows: write steps (and v3 action steps) that succeeded. */
@@ -320,4 +369,24 @@ export function runWrites(
         output: s.output ?? null,
       };
     });
+}
+
+/** Every write step's tool (a v3 action step's tool, a v4 write's tool or action), by step id. */
+export function writeStepTools(workflows: unknown): Map<string, string> {
+  const tools = new Map<string, string>();
+  const walk = (v: unknown): void => {
+    if (Array.isArray(v)) {
+      for (const x of v) walk(x);
+      return;
+    }
+    if (!isPlainObject(v)) return;
+    if (typeof v.id === "string" && (v.kind === "write" || v.kind === "action")) {
+      const tool =
+        typeof v.tool === "string" ? v.tool : typeof v.action === "string" ? v.action : null;
+      if (tool) tools.set(v.id, tool);
+    }
+    for (const x of Object.values(v)) walk(x);
+  };
+  walk(workflows);
+  return tools;
 }

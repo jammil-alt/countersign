@@ -58,6 +58,7 @@ export * from "./api/desk";
 export * from "./api/desktop";
 export * from "./api/directory";
 export * from "./api/documents";
+export * from "./api/evals";
 export * from "./api/excel";
 export * from "./api/exports";
 export * from "./api/feedback";
@@ -230,6 +231,9 @@ export * from "./email/onboarding";
 export * from "./email/second-factor";
 // docs/plan.md §1.206 (SU6): the setup nudge, from the lead.
 export * from "./email/setup-nudge";
+// v0.12 W2-C: the test bench
+// docs/plan.md §1.212: the eval and replay harness.
+export * from "./evals";
 // docs/plan.md §1.121: forms, "Request info"
 export * from "./forms";
 // docs/builder-plan.md §8 (B6): governance in tiers
@@ -353,9 +357,6 @@ export * from "./supervisor/health";
 export * as tableFiles from "./tables";
 export * from "./template/template";
 export * from "./template/typer";
-// v0.12 W2-C: the test bench
-// docs/plan.md §1.212: the eval and replay harness.
-export * from "./evals";
 export * from "./testbench/case";
 export * from "./testbench/match";
 export * from "./testbench/suite";
