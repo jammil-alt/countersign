@@ -19,6 +19,7 @@ import { EntityPermissions, PermissionEntity, PermissionLevel } from "../schemas
 import { SkillBrowse, SkillDefinition, SkillMethod } from "../schemas/skill";
 import { ToolInputVariants, ToolSpec } from "../schemas/tool";
 import { ToolDisplay } from "../schemas/tool-display";
+import { IanaTimeZone } from "../timezone";
 // P-8: US texting registration
 import { a2pRoutes } from "./a2p";
 import { accessRoutes } from "./access";
@@ -1224,7 +1225,7 @@ export const opsRoutes = {
       "Create a client; the creating operator serves it. Optionally invites its client admin and sets who approves",
     body: z.strictObject({
       name: z.string().trim().min(1).max(200),
-      timezone: z.string().optional(),
+      timezone: IanaTimeZone.optional(),
       connectorsOffered: z.array(z.string().min(1)).optional(),
       /** Who approves its external actions (default: the client admin). */
       approvals: ExternalApprover.optional(),

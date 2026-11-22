@@ -377,16 +377,16 @@ describe("ops usage", () => {
     // Feedback (2026-11-16): a line by day, from the first day with usage, each day read by
     // pointer or by the arrow keys.
     expect(screen.getByText("Model cost by day")).toBeInTheDocument();
-    expect(screen.getByText("From Nov 2, 2026, the first day with usage")).toBeInTheDocument();
+    expect(screen.getByText("From 2 Nov 2026, the first day with usage")).toBeInTheDocument();
     const plot = screen.getByTestId("ops-usage-chart-plot");
     expect(plot).toHaveAccessibleName(
-      "Model cost by day, Nov 2, 2026 to Nov 3, 2026, highest $2.00 on Nov 2, 2026. Use the arrow keys to read each day.",
+      "Model cost by day, 2 Nov 2026 to 3 Nov 2026, highest $2.00 on 2 Nov 2026. Use the arrow keys to read each day.",
     );
     expect(screen.getByTestId("ops-usage-chart-path")).toBeInTheDocument();
     plot.focus();
     await userEvent.keyboard("{ArrowRight}");
     expect(screen.getByTestId("ops-usage-chart-readout")).toHaveTextContent(
-      "$2.00 · 2 runs · Nov 2, 2026",
+      "$2.00 · 2 runs · 2 Nov 2026",
     );
     await userEvent.keyboard("{ArrowRight}");
     expect(screen.getByTestId("ops-usage-chart-readout")).toHaveTextContent("$0.35 · 1 run");

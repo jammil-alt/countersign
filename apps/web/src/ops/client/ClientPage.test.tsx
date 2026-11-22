@@ -284,7 +284,7 @@ describe("the client page", () => {
       "In trial",
     );
     expect(within(trial).getByTestId("ops-client-next-run-material-costs")).toHaveTextContent(
-      /^Next run Jan 15, .+(AM|PM)$/,
+      /^Next run 15 Jan, \d{2}:\d{2}$/,
     );
     expect(within(trial).getByTestId("ops-client-view-link-material-costs")).toHaveAttribute(
       "href",

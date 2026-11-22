@@ -8,14 +8,12 @@ import type {
   OpsConnectionChangePreview,
   OpsConnectionChangeResult,
 } from "@countersign/core";
+import { EN } from "../../i18n/i18n";
 import type { Tone } from "../../ui/primitives";
 
 /** "Dec 20". */
 export function dayWords(iso: string): string {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime())
-    ? iso
-    : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return EN.fmt.day(iso);
 }
 
 /** "Pat Lee" → "Pat"; no name → "the client admin". */

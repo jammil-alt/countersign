@@ -96,7 +96,7 @@ describe("business hours in the portal", () => {
     });
     await userEvent.click(within(card).getByTestId("portal-business-hours-closed-add"));
     expect(within(card).getByTestId("portal-business-hours-closed-2026-12-24")).toHaveTextContent(
-      "Dec 24, 2026",
+      "24 Dec 2026",
     );
 
     await userEvent.click(save);

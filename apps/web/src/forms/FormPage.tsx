@@ -19,6 +19,7 @@ import { useParams } from "react-router-dom";
 import { ApiError, isApiError } from "../api/client";
 import { apiRoutes } from "../api/routes";
 import { useApi, useApiClient } from "../api/useApi";
+import { dateLocaleFor } from "../i18n/format";
 import { useI18n } from "../i18n/i18n";
 import { Logo } from "../ui/brand";
 import { Field, TextArea, TextInput } from "../ui/forms";
@@ -43,7 +44,9 @@ function Frame({ children }: { children: ReactNode }) {
 
 function dateText(iso: string, locale: Locale): string {
   try {
-    return new Intl.DateTimeFormat(locale, { dateStyle: "long" }).format(new Date(iso));
+    return new Intl.DateTimeFormat(dateLocaleFor(locale), { dateStyle: "long" }).format(
+      new Date(iso),
+    );
   } catch {
     return iso.slice(0, 10);
   }
