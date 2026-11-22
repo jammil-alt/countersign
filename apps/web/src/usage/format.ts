@@ -1,5 +1,6 @@
 // Words, numbers and periods for the usage and report screens (plan §1.15).
 import { dec, formatAmount } from "@countersign/core";
+import { dateLocaleFor } from "../i18n/format";
 
 /**
  * Model cost (operator only) from its decimal string, never a float: "$12.40", and under a cent
@@ -23,11 +24,11 @@ export function monthLabel(month: string): string {
 const asDay = (day: string) => new Date(`${day}T00:00:00.000Z`);
 
 /**
- * "Nov 3, 2026" for "2026-11-03", in the reader's Intl locale (the portal passes its own; the back
- * office reads en-US).
+ * "3 Nov 2026" for "2026-11-03", dates in the house format of the reader's language (the portal
+ * passes its own Intl locale; the back office reads English).
  */
 export function dayLabel(day: string, intl = "en-US"): string {
-  return new Intl.DateTimeFormat(intl, {
+  return new Intl.DateTimeFormat(dateLocaleFor(intl), {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -35,14 +36,16 @@ export function dayLabel(day: string, intl = "en-US"): string {
   }).format(asDay(day));
 }
 
-/** "Nov 1 – Nov 3, 2026", or one day; the year once when both days share it. */
+/** "1 Nov – 3 Nov 2026", or one day; the year once when both days share it. */
 export function periodLabel(from: string, to: string, intl = "en-US"): string {
   if (from === to) return dayLabel(from, intl);
   const sameYear = from.slice(0, 4) === to.slice(0, 4);
   const start = sameYear
-    ? new Intl.DateTimeFormat(intl, { month: "short", day: "numeric", timeZone: "UTC" }).format(
-        asDay(from),
-      )
+    ? new Intl.DateTimeFormat(dateLocaleFor(intl), {
+        month: "short",
+        day: "numeric",
+        timeZone: "UTC",
+      }).format(asDay(from))
     : dayLabel(from, intl);
   return `${start} – ${dayLabel(to, intl)}`;
 }

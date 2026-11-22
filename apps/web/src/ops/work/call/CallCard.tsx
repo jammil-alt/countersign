@@ -17,6 +17,34 @@ import { Due } from "../parts";
 
 const W = YOUR_CALL_WORDS;
 
+/** The way to an item's record, by what it is about: "Open the deal". */
+const OPEN_WORDS: Record<string, string> = {
+  issue: "Open the issue",
+  enhancement: "Open the enhancement",
+  build: "Open the build",
+  deal: "Open the deal",
+  run: "Open the run",
+  client: "Open the client",
+  client_ask: "Open the client",
+  question: "Open the client",
+  desk: "Open the client",
+  code_request: "Open the request",
+  inbox: "Open in Escalations",
+  reggie: "Open the conversation",
+};
+
+/**
+ * The link to where an item is done, when its main button isn't already that link: a to-do about a
+ * deal ("Record X's agreed price") is done on the deal's page, not in the sheet.
+ */
+// DECISION (QA, 2026-11-22): the sheet always shows the way to the record as its own button; only
+// the title linked before, in ink, so it read as a heading and the sheet seemed a dead end.
+export function openLink(t: TodoView): { href: string; label: string } | null {
+  const href = t.about?.href;
+  if (!href || t.primary?.kind === "open") return null;
+  return { href, label: OPEN_WORDS[t.about?.kind ?? ""] ?? "Open" };
+}
+
 /** What the card and the sheet share: the item and its decision. */
 interface DecisionProps {
   item: TodoView;
@@ -147,6 +175,7 @@ export interface CallSheetProps extends DecisionProps {
 export function CallSheet(p: CallSheetProps) {
   const t = p.item;
   const href = t.about?.href ?? null;
+  const way = openLink(t);
   const footer = (
     <div className="flex w-full flex-wrap items-center justify-end gap-2">
       {!p.pending && t.editable ? (
@@ -159,6 +188,15 @@ export function CallSheet(p: CallSheetProps) {
         >
           {W.later}
         </button>
+      ) : null}
+      {way ? (
+        <Link
+          to={way.href}
+          className="ds-btn ds-btn--secondary ds-btn--sm"
+          data-testid="call-open-record"
+        >
+          {way.label}
+        </Link>
       ) : null}
       {!p.pending && t.draft && t.editable ? (
         <button

@@ -1,6 +1,6 @@
 // Reggie in the back office (docs/plan.md §1.101): the conversation, Reggie's answers with what it
-// read, a proposed change's card that does nothing until confirmed, and "Ask Reggie" from a
-// client's page starting a conversation about that client.
+// read, a proposed change's card that does nothing until confirmed, and a new conversation (about a
+// client from its page's "Ask Reggie") ready to type into, saved only with its first message.
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -202,12 +202,75 @@ describe("Reggie", () => {
     await waitFor(() => expect(box).toHaveValue("Ask Sandbox which area code"));
   });
 
-  it("starts a conversation about a client from its page's Ask Reggie", async () => {
+  it("is ready to type into at once, and saves a conversation only with its first message", async () => {
+    // QA (2026-11-22): opening Reggie needed a click on New conversation, which saved an empty one.
     const starts: unknown[] = [];
+    const turns: unknown[] = [];
+    const answered = {
+      conversation: { ...conversation, title: "How is Sandbox doing?" },
+      messages: [
+        {
+          id: "m1",
+          role: "operator",
+          text: "How is Sandbox doing?",
+          tools: [],
+          createdAt: "2026-11-14T10:01:00.000Z",
+        },
+        {
+          id: "m2",
+          role: "reggie",
+          text: "Sandbox has 1 agent and nothing waiting.",
+          tools: ["client_review"],
+          createdAt: "2026-11-14T10:01:02.000Z",
+        },
+      ],
+      actions: [],
+    };
+    const api = fakeApi({
+      ...common,
+      "GET /api/ops/clients": () => ({ clients: [{ id: CLIENT, name: "Sandbox" }] }),
+      "GET /api/ops/reggie/conversations": () => ({ items: [] }),
+      "POST /api/ops/reggie/conversations": ({ init }) => {
+        starts.push(JSON.parse(String(init.body)));
+        return { conversation, messages: [], actions: [] };
+      },
+      [`POST /api/ops/reggie/conversations/${CONV}/turns`]: ({ init }) => {
+        turns.push(JSON.parse(String(init.body)));
+        return answered;
+      },
+      [`GET /api/ops/reggie/conversations/${CONV}`]: () => answered,
+    });
+    // The top bar's "Ask Reggie" on Sandbox's page.
+    renderAt(`/ops/reggie?client=${CLIENT}`, api);
+    const box = await screen.findByTestId("reggie-input");
+    await waitFor(() => expect(box).toHaveFocus());
+    expect(screen.getByTestId("reggie-about")).toHaveValue(CLIENT);
+    expect(screen.queryByTestId("reggie-new")).toBeNull();
+    // Opening it saved nothing.
+    expect(api.calls).not.toContain("POST /api/ops/reggie/conversations");
+
+    await userEvent.type(box, "How is Sandbox doing?{Enter}");
+    const conv = await screen.findByTestId("reggie-conversation");
+    expect(conv).toHaveTextContent("Sandbox has 1 agent and nothing waiting.");
+    expect(starts).toEqual([{ clientId: CLIENT }]);
+    expect(turns).toEqual([{ text: "How is Sandbox doing?" }]);
+    // Its page has New conversation, which opens an unsaved one again.
+    await userEvent.click(screen.getByTestId("reggie-new"));
+    expect(await screen.findByTestId("reggie-new-conversation")).toBeInTheDocument();
+    expect(starts).toHaveLength(1);
+  });
+
+  it("sends a second try to the conversation its failed first turn started", async () => {
+    const starts: unknown[] = [];
+    let fail = true;
     const api = fakeApi({
       ...common,
       "POST /api/ops/reggie/conversations": ({ init }) => {
         starts.push(JSON.parse(String(init.body)));
+        return { conversation: { ...conversation, client: null }, messages: [], actions: [] };
+      },
+      [`POST /api/ops/reggie/conversations/${CONV}/turns`]: () => {
+        if (fail) throw new Error("down");
         return { conversation, messages: [], actions: [] };
       },
       [`GET /api/ops/reggie/conversations/${CONV}`]: () => ({
@@ -216,9 +279,13 @@ describe("Reggie", () => {
         actions: [],
       }),
     });
-    renderAt(`/ops/reggie?client=${CLIENT}`, api);
+    renderAt("/ops/reggie", api);
+    const box = await screen.findByTestId("reggie-input");
+    await userEvent.type(box, "Anything waiting?{Enter}");
+    await waitFor(() => expect(box).toHaveValue("Anything waiting?"));
+    fail = false;
+    await userEvent.type(box, "{Enter}");
     await screen.findByTestId("reggie-conversation");
-    expect(starts).toEqual([{ clientId: CLIENT }]);
-    expect(screen.getByTestId("ops-nav-reggie")).toBeInTheDocument();
+    expect(starts).toEqual([{}]);
   });
 });

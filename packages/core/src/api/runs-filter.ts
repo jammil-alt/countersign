@@ -158,6 +158,8 @@ const opsParams = {
   status: listParam(RunStatusSchema).optional(),
   /** `error`: failed runs grouped by error key, with counts, clients and agents. */
   groupBy: z.enum(["error"]).optional(),
+  /** Paging: the runs after this one, newest first (the list's `next`). */
+  before: Id.optional(),
 };
 
 const portalParams = {
@@ -223,7 +225,7 @@ export interface RunListQuery {
 export const OpsRunsQuery = z
   .object(opsParams)
   .superRefine(checkAmountParams)
-  .transform((q): RunListQuery & { groupBy?: "error" } => ({
+  .transform((q): RunListQuery & { groupBy?: "error"; before?: string } => ({
     filter: compact({
       clients: merged(q.clients, q.client),
       agents: merged(q.agents, q.agent),
@@ -245,6 +247,7 @@ export const OpsRunsQuery = z
     limit: q.limit,
     perDay: q.perDay === true,
     ...(q.groupBy ? { groupBy: q.groupBy } : {}),
+    ...(q.before ? { before: q.before } : {}),
   }));
 
 /** `GET /api/runs`: the same filter, refusing the back office's keys. */

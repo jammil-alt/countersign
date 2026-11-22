@@ -130,18 +130,22 @@ export async function runReadTool(
 
 /**
  * Reads the state a write would change, for the approval card ("now / after this change") and
- * `external_action.before`. Never writes.
+ * `external_action.before`. Never writes. `skipBefore` (a test run's write on a record only an
+ * unmade write would have created): the connection and input are checked as always, and nothing
+ * is read; `before` is null.
  */
 export async function captureBefore(
   connector: Connector,
   toolId: string,
   input: unknown,
   ctx: ToolContext,
+  opts: { skipBefore?: boolean } = {},
 ): Promise<{ input: unknown; before: unknown }> {
   const { spec, handler } = lookup(connector, toolId);
   if (handler.kind !== "write") throw new ToolCallError("not_a_write", toolId, "tool only reads");
   check(connector, spec, ctx, input);
   const parsed = parse(handler.input, input, "invalid_input", toolId);
+  if (opts.skipBefore) return { input: parsed, before: null };
   const raw = await handler.before(parsed, withToolLogger(ctx, connector, toolId));
   return {
     input: parsed,

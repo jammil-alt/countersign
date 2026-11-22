@@ -2,11 +2,12 @@
 // trial, sign-off, live), the trial's days and runs against its minimums, the client's sign-off,
 // skips and rejections; the operator moves it with a reason, changes the trial's minimums, runs
 // it live on one of the client's past events, and (audit 4.2) on what came in while it was paused. Minimal by design: the owner's redesign replaces it.
-import type { AgentStage, AnyAgentBundle } from "@countersign/core";
+import { type AgentStage, type AnyAgentBundle, pauseReasonWords } from "@countersign/core";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { type AgentSummary, apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
+import { EN } from "../../i18n/i18n";
 import { Badge, Button, Card, SectionLabel, type Tone } from "../../ui/primitives";
 import { SetupChecklist } from "./SetupChecklist";
 import { recentEventLabel, triggerEventType, useRecentEvents } from "./TestPayload";
@@ -29,7 +30,7 @@ const STAGE_TONE: Record<AgentStage, Tone> = {
   live: "positive",
 };
 
-const day = (iso: string) => new Date(iso).toLocaleDateString();
+const day = (iso: string) => EN.fmt.date(iso);
 
 export function GoLivePanel({
   agent,
@@ -135,7 +136,8 @@ export function GoLivePanel({
             : g.pause.side === "operator"
               ? "us"
               : "the platform"}{" "}
-          on {day(g.pause.at)}: {g.pause.reason}
+          on {day(g.pause.at)}
+          {pauseReasonWords(g.pause.reason) ? `: ${pauseReasonWords(g.pause.reason)}` : ""}
           {g.pause.until ? ` (until ${day(g.pause.until)})` : ""}
         </p>
       ) : null}

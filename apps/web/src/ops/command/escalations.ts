@@ -1,9 +1,10 @@
 // Needs us rows in words (the command center and Escalations): the chip, what waits on whom and
 // why, and where to go for it. Back office only, English.
 import { APPROVAL_OVERDUE_HOURS, type Escalation } from "@countersign/core";
+import { EN } from "../../i18n/i18n";
 import type { ChipState } from "../../ui/status";
 import { OPS_PATHS } from "../paths";
-import { age, NOBODY_TO_ACT_WORDS, waitOnWords } from "../run/words";
+import { age, NOBODY_TO_ACT_MANY_WORDS, NOBODY_TO_ACT_WORDS, waitOnWords } from "../run/words";
 
 export function escalationChip(e: Escalation): { state: ChipState; words: string } {
   switch (e.kind) {
@@ -29,19 +30,30 @@ function sentence(text: string): string {
   return /[.?!]$/.test(text) ? text : `${text}.`;
 }
 
+/** How many of a client's items an approval escalation covers (one, without a list). */
+export function escalationItems(e: Pick<Escalation, "itemIds" | "wait">): number {
+  return e.itemIds?.length ?? e.wait?.items ?? 1;
+}
+
 /**
  * What waits, on whom and why it needs us: "Waiting for approval · client admin: Itemize bill
- * 20418. Everyone who may approve it is still invited and hasn't signed in."
+ * 20418. Everyone who may approve it is still invited and hasn't signed in." Several of a
+ * client's items for one reason: "… client admin: 24 items, the oldest Add Dana Reyes to the
+ * directory. Everyone who may approve them …".
  */
 export function escalationLine(e: Escalation): string {
   switch (e.kind) {
     case "approval": {
       const w = e.wait;
       const who = w ? `Waiting for approval · ${waitOnWords(w)}` : "Waiting for approval";
+      const n = escalationItems(e);
       const why = w?.nobodyToAct
-        ? NOBODY_TO_ACT_WORDS[w.nobodyToAct]
+        ? n > 1
+          ? NOBODY_TO_ACT_MANY_WORDS[w.nobodyToAct]
+          : NOBODY_TO_ACT_WORDS[w.nobodyToAct]
         : `Waiting over ${APPROVAL_OVERDUE_HOURS} hours.`;
-      return `${who}: ${sentence(e.title)} ${why}`;
+      const what = n > 1 ? `${n} items, the oldest ${sentence(e.title)}` : sentence(e.title);
+      return `${who}: ${what} ${why}`;
     }
     case "failed_run":
       return e.title;
@@ -54,21 +66,35 @@ export function escalationLine(e: Escalation): string {
   }
 }
 
-/** Where a Needs us row goes: its run, else the page to act on. */
+/**
+ * Where a Needs us row goes. An item opens itself in Escalations (`?item=`, in its side sheet and
+ * marked in the list); a client's approvals open in Waiting on clients, the one item itself, or
+ * several marked (`?stuck=`, this escalation's id); a failed run its run; the rest the page to
+ * act on.
+ */
+// DECISION (QA, 2026-11-22): "Open item" opens that item, never only the client's list. An
+// approval opens its item rather than its run: the item's sheet links the run.
 export function escalationAction(e: Escalation): { to: string; label: string } {
-  if (e.runId && e.kind !== "item") return { to: `/ops/runs/${e.runId}`, label: "Open run" };
   switch (e.kind) {
-    case "approval":
-      return {
-        to: `${OPS_PATHS.escalations}?view=clients&client=${e.client.id}`,
-        label: "Open item",
-      };
+    case "item":
+      return { to: `${OPS_PATHS.escalations}?item=${e.id}`, label: "Open item" };
+    case "approval": {
+      // An answer from before `itemIds` named its run, not its item: that opens the run.
+      if (!e.itemIds && e.runId) return { to: `/ops/runs/${e.runId}`, label: "Open run" };
+      const list = `${OPS_PATHS.escalations}?view=clients&client=${e.client.id}`;
+      const ids = e.itemIds ?? [e.id];
+      return ids.length > 1
+        ? { to: `${list}&stuck=${e.id}`, label: `Open ${ids.length} items` }
+        : { to: `${list}&item=${ids[0] ?? e.id}`, label: "Open item" };
+    }
     case "connection":
       return { to: `/ops/clients/${e.client.id}/connections`, label: "Open connections" };
     case "low_confidence":
       return { to: `/ops/clients/${e.client.id}/documents`, label: "Open documents" };
     default:
-      return { to: OPS_PATHS.escalations, label: "Open escalations" };
+      return e.runId
+        ? { to: `/ops/runs/${e.runId}`, label: "Open run" }
+        : { to: OPS_PATHS.escalations, label: "Open escalations" };
   }
 }
 
@@ -97,10 +123,7 @@ export function urgencyOf(e: Pick<Escalation, "blockedSince">, now: Date = new D
 
 /** "8 Nov, 14:05": when the wait started, on a row. */
 export function sinceDate(iso: string): string {
-  const d = new Date(iso);
-  const day = d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
-  const time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
-  return `${day}, ${time}`;
+  return EN.fmt.dateTime(iso);
 }
 
 /**

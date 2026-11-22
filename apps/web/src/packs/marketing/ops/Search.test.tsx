@@ -124,7 +124,7 @@ describe("the Search screen", () => {
   it("shows the figures, the day they run to, and what's close to page one or losing ground", async () => {
     const { asked } = renderSearch(REPORT);
     expect(await screen.findByTestId("marketing-search-runs-to")).toHaveTextContent(
-      "Figures run to Nov 4, 2026",
+      "Figures run to 4 Nov 2026",
     );
     expect(screen.getByTestId("marketing-search-totals")).toHaveTextContent("896");
     const near = screen.getByTestId("marketing-search-near");

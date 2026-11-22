@@ -5,7 +5,16 @@
 // sign out); a sidebar; the page. At phone width the sidebar folds behind a menu button
 // and the top bar compacts; where a surface keeps its inbox out of the top bar (`inHeader: false`),
 // the menu button carries its count. Feedback is a row in the sidebar's foot, above Collapse.
-import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  type ReactNode,
+  Suspense,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { FEEDBACK_LAYER_ATTR } from "../feedback/capture";
 import { useFeedbackStarter } from "../feedback/Feedback";
@@ -16,7 +25,7 @@ import { displayName, userInitial, useSession, useSessionState } from "../sessio
 import { Logo, LogoMark, PRODUCT_NAME } from "../ui/brand";
 import { ErrorBoundary } from "../ui/ErrorBoundary";
 import { Icon, type IconName } from "../ui/icons";
-import { Count, cx } from "../ui/primitives";
+import { Count, cx, Loading } from "../ui/primitives";
 import { HeaderSwitcherProvider } from "./HeaderSwitcher";
 import { type SearchAsk, SearchBox, type SearchRun } from "./Search";
 import { THEMES, type Theme, useTheme } from "./theme";
@@ -95,6 +104,7 @@ export function AppShell({
   const tip = useRailTip(asideRef, rail, pathname);
   const navRef = useRef<HTMLDivElement>(null);
   const moreBelow = useMoreBelow(navRef, rail, pathname);
+  useNavScroll(navRef, surface, pathname);
   useEffect(() => {
     document.title = tabTitle(place, desk.count);
   }, [place, desk.count]);
@@ -234,7 +244,11 @@ export function AppShell({
         <main className="ui-main">
           <HeaderSwitcherProvider switcher={switcher ?? null}>
             {/* A page that throws shows a notice here; the frame stays. A new address clears it. */}
-            <ErrorBoundary resetKey={pathname}>{children}</ErrorBoundary>
+            <ErrorBoundary resetKey={pathname}>
+              {/* A page still loading a part of itself waits here, so the frame (the sidebar's
+                  scroll, its counts) is never hidden behind the app's still frame meanwhile. */}
+              <Suspense fallback={<Loading />}>{children}</Suspense>
+            </ErrorBoundary>
           </HeaderSwitcherProvider>
         </main>
       </div>
@@ -351,6 +365,9 @@ const THEME_LABEL = {
  * (always in the back office; per client in the portal). Its name says what it is for: problems
  * with the app (Sloan takes other asks).
  */
+// DECISION (staging QA, 2026-11-22): it reads "Report a problem", with the info mark and in the
+// muted ink of Collapse, so it reads as a tool you start rather than a place you go: it sat beside
+// the back office's Utilities, whose first tab is the feedback received, and both said "Feedback".
 function FeedbackNavItem({ rail, onStart }: { rail: boolean; onStart: () => void }) {
   const { t } = useI18n();
   return (
@@ -360,12 +377,12 @@ function FeedbackNavItem({ rail, onStart }: { rail: boolean; onStart: () => void
       aria-label={t("feedback.button")}
       data-tip={rail ? t("feedback.short") : undefined}
       onClick={onStart}
-      className="ds-navitem ui-navitem"
+      className="ds-navitem ui-navitem ui-sidebar__tool"
       // Part of the feedback layer: left out of the picture and never the pinned element.
       {...{ [FEEDBACK_LAYER_ATTR]: "" }}
     >
       <span className="flex min-w-0 items-center gap-2.5">
-        <Icon name="message" className="ui-navitem__icon" />
+        <Icon name="info" className="ui-navitem__icon" />
         <span className="ui-navitem__label">{t("feedback.short")}</span>
       </span>
     </button>
@@ -611,6 +628,84 @@ export function SidebarAgent({
       </span>
     </NavLink>
   );
+}
+
+/** How tall the fade over the nav's last rows is while more is below (shell.css). */
+const NAV_FADE_PX = 32;
+
+/** Where each surface's sidebar was scrolled to, for this page load. */
+const navScrollTops = new Map<string, number>();
+
+/**
+ * The sidebar keeps its place (staging QA, 2026-11-22: rows below the fold, and the sidebar back
+ * at the top after each move). Its scroll is remembered as it changes and given back if the frame
+ * is drawn again, and on a move the current page's row is brought into view only when it is out of
+ * sight (a page opened from search or a link), never when it already shows.
+ */
+// DECISION: remembered for the page load only (a module map), not in storage: a reload starts at
+// the top with the current row in view, which the second effect gives.
+export function useNavScroll(
+  navRef: { current: HTMLElement | null },
+  surface: string,
+  pathname: string,
+): void {
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    const saved = navScrollTops.get(surface);
+    if (saved) nav.scrollTop = saved;
+    const keep = () => navScrollTops.set(surface, nav.scrollTop);
+    nav.addEventListener("scroll", keep, { passive: true });
+    return () => nav.removeEventListener("scroll", keep);
+  }, [navRef, surface]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: checked again on each page change.
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    const show = () => {
+      const row = nav.querySelector<HTMLElement>('[aria-current="page"]');
+      if (!row) return;
+      const box = nav.getBoundingClientRect();
+      const at = row.getBoundingClientRect();
+      // Clear of the fade at the nav's foot (shell.css, `data-more`), not only inside its box.
+      const bottom = box.bottom - NAV_FADE_PX;
+      if (box.height === 0 || (at.top >= box.top && at.bottom <= bottom)) return;
+      // The nav alone moves (never the page behind it), by just enough to show the row.
+      nav.scrollTop += at.top < box.top ? at.top - box.top : at.bottom - bottom;
+    };
+    show();
+    // On a first load the rows still move as the fonts and counts arrive: checked again as they
+    // settle, for a moment, unless the person has taken the sidebar in hand by then.
+    let touched = false;
+    const touch = () => {
+      touched = true;
+    };
+    const until = Date.now() + 2000;
+    const again = () => {
+      if (!touched && Date.now() < until) show();
+    };
+    nav.addEventListener("wheel", touch, { passive: true });
+    nav.addEventListener("pointerdown", touch);
+    nav.addEventListener("keydown", touch);
+    const seen = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(again);
+    for (const child of nav.children) seen?.observe(child);
+    let live = true;
+    void document.fonts?.ready.then(() => {
+      if (live) requestAnimationFrame(again);
+    });
+    return () => {
+      live = false;
+      seen?.disconnect();
+      nav.removeEventListener("wheel", touch);
+      nav.removeEventListener("pointerdown", touch);
+      nav.removeEventListener("keydown", touch);
+    };
+  }, [navRef, pathname]);
+}
+
+/** Forgets the remembered sidebar scroll (tests). */
+export function resetNavScroll(): void {
+  navScrollTops.clear();
 }
 
 /**

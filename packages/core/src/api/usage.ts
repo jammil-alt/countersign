@@ -75,6 +75,16 @@ export const UsageTemplateRow = z.object({
   ...UsageSeries,
 });
 
+/** Where back-office model spend comes from (`UsageReport.backOffice`). */
+export const BACK_OFFICE_SPEND = ["reggie", "builder", "build"] as const;
+export type BackOfficeSpend = (typeof BACK_OFFICE_SPEND)[number];
+
+export const BACK_OFFICE_SPEND_LABELS: Record<BackOfficeSpend, string> = {
+  reggie: "Reggie",
+  builder: "The Builder",
+  build: "Builds",
+};
+
 /**
  * The longest range the report also splits by day (for the period's chart). Feedback
  * (2026-11-16): the chart is daily for every preset, a year included (at most 366 rows).
@@ -87,15 +97,26 @@ export const USAGE_DAILY_MAX_DAYS = 400;
  * UI cleanup: model cost by model, from the model calls in the range (runs' calls, and the clients'
  * background reading when the report isn't narrowed to an agent or a template).
  */
+// QA (usage costs, 2026-11-22): every figure of the report sums from the same rows (the
+// call-level ledger in apps/api's usage-spend.ts), so By model, By vendor, the grouping and the
+// total agree. A step's usage beyond its recorded calls is one line with no model (`model` and
+// `provider` empty); calls recorded at no cost though they used tokens (a model with no price)
+// are counted in `unpricedCalls`, so the screen can say so rather than show a silent $0.00.
 export const UsageModelRow = z.object({
-  /** `anthropic` | `openai` | `xai` | `google` (core's `modelProvider`). */
+  /** `anthropic` | `openai` | `xai` | `google` (core's `modelProvider`); empty for no model. */
   provider: z.string(),
+  /** Empty for the steps' usage no call record holds (`UNRECORDED_MODEL`). */
   model: z.string(),
   calls: z.number().int(),
   tokensIn: z.number().int(),
   tokensOut: z.number().int(),
   costUsd: UsdAmount,
+  /** Calls that used tokens but were recorded at no cost: their model had no price. */
+  unpricedCalls: z.number().int().optional(),
 });
+
+/** The model of the steps' usage that no call record holds (steps before call records). */
+export const UNRECORDED_MODEL = "";
 export type UsageModelRow = z.infer<typeof UsageModelRow>;
 
 /**
@@ -113,6 +134,11 @@ export const UsageVendorRow = z.object({
   tokensOut: z.number().int().optional(),
   messages: z.number().int().optional(),
   callSeconds: z.number().int().optional(),
+  /**
+   * QA (usage costs): providers' fees passed on to the clients (`provider_fees`, Twilio's A2P
+   * registration): how many. Money we paid, not model cost: never in the report's total.
+   */
+  fees: z.number().int().optional(),
 });
 export type UsageVendorRow = z.infer<typeof UsageVendorRow>;
 
@@ -129,11 +155,32 @@ export const UsageReport = z.object({
   byModel: z.array(UsageModelRow).optional(),
   byVendor: z.array(UsageVendorRow).optional(),
   /**
-   * v0.12 W1-H (ARCHITECTURE §13): reading no agent asked for (uploads, forwarded mail), the
-   * clients' own usage from usage_platform_daily. It is in the total and each client's row, never
-   * in an agent's or a template's; absent when the report is narrowed to an agent or a template.
+   * v0.12 W1-H (ARCHITECTURE §13): reading and translation no agent asked for (uploads, forwarded
+   * mail, the background job), the clients' own usage: its documents from usage_platform_daily,
+   * its cost and tokens from the rows themselves (QA usage costs; providers' fees are not in it,
+   * they are a vendor row). It is in the total and each client's row, never in an agent's or a
+   * template's; absent when the report is narrowed to an agent or a template.
    */
   background: z.object(UsageSeries).optional(),
+  /**
+   * QA (usage costs): model calls made outside any client's runs: Reggie's answers, the Builder's
+   * turns and the build flow's answers. In the total and By model, never in a client's, an
+   * agent's or a template's row; absent when the report is narrowed to an agent or a template.
+   * Narrowed to a client, only those opened on that client.
+   */
+  backOffice: z
+    .object({
+      ...UsageSeries,
+      lines: z.array(
+        z.object({
+          id: z.enum(BACK_OFFICE_SPEND),
+          /** Answers or turns that recorded a cost. */
+          answers: z.number().int(),
+          costUsd: UsdAmount,
+        }),
+      ),
+    })
+    .optional(),
 });
 export type UsageReport = z.infer<typeof UsageReport>;
 
@@ -171,10 +218,13 @@ export type ModelCallAction = (typeof MODEL_CALL_ACTIONS)[number];
  * `doc_extraction`) and `background_translation` (the background job and a person's own text,
  * from `message_translation`).
  */
+// QA (usage costs): `unrecorded` is a step's usage beyond its recorded calls (steps from before
+// call records, or a call whose row was not written), so tokens by client match the usage report.
 export const TOKEN_ACTIONS = [
   ...MODEL_CALL_ACTIONS,
   "background_read",
   "background_translation",
+  "unrecorded",
 ] as const;
 export type TokenAction = (typeof TOKEN_ACTIONS)[number];
 
@@ -190,6 +240,7 @@ export const TOKEN_ACTION_LABELS: Record<TokenAction, string> = {
   choice: "Path choice",
   background_read: "Background reading",
   background_translation: "Background translation",
+  unrecorded: "Steps without call records",
 };
 
 /** Model calls and their tokens (input counts cache reads and writes) and cost. */

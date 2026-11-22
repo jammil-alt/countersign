@@ -48,6 +48,7 @@ import {
   type Locale,
   // v0.13 W2-I
   type OversightSettings,
+  PeopleBindings,
   type PinnedAreaOwner,
   type Processor,
   parseCoveredProcessors,
@@ -334,8 +335,23 @@ type Loaded =
       watch?: boolean;
       // v0.19: the area owner pinned at the run's start (ARCHITECTURE §10.15).
       owner?: RunAreaOwner;
+      // Setup-plan §4.1: who sat in each seat when the run started (its `config.people`).
+      seats?: processes.Seats;
     }
   | { ok: false; reason: string; cancelled?: true };
+
+/**
+ * Setup-plan §4.1: the seats a run started with, from its `config.people` (the agent's bindings
+ * snapshotted by `createRun`). A run made before seats has none: every seat is empty and falls back.
+ */
+export function seatsOfConfig(config: unknown): processes.Seats {
+  const people =
+    config && typeof config === "object" && "people" in config
+      ? (config as { people?: unknown }).people
+      : undefined;
+  const parsed = PeopleBindings.safeParse(people ?? {});
+  return parsed.success ? processes.seatsFromBindings(parsed.data) : {};
+}
 
 // v0.12 W2-B: automations (ARCHITECTURE §10.7; docs/plan.md §1.45).
 /**
@@ -523,7 +539,10 @@ export async function executeRun(
         return { ok: false, reason: error instanceof Error ? error.message : String(error) };
       }
       // v0.12 W1-E: a run cancelled before its instance began (queued) never starts.
-      const [state] = await tx.select({ status: run.status }).from(run).where(eq(run.id, info.id));
+      const [state] = await tx
+        .select({ status: run.status, config: run.config })
+        .from(run)
+        .where(eq(run.id, info.id));
       if (state?.status === "cancelled") return { ok: false, reason: "cancelled", cancelled: true };
       const [v] = await tx
         .select({ bundle: agentVersion.bundle })
@@ -557,6 +576,7 @@ export async function executeRun(
         // v0.13 W2-I; R6: the owner's settings and watch, from the version as pinned. v0.19:
         // with the area owner's say merged in (`runOwnerOf`).
         ...ownerSettingsOf(v?.bundle, owned),
+        seats: seatsOfConfig(state?.config),
       };
     }),
   );
@@ -708,6 +728,8 @@ export async function executeRun(
       timeout: STEP_CONFIG.timeout,
     },
     ...(loaded.resume ? { resume: loaded.resume } : {}),
+    // Setup-plan §4.1
+    ...(loaded.seats ? { seats: loaded.seats } : {}),
     // A test of some of the steps (docs/plan.md §1.185): a test run's only, whatever the row says.
     ...(params.range && params.mode === "test" ? { range: params.range } : {}),
     // v0.12 W2-B

@@ -14,10 +14,18 @@ const CLIENT_ADMIN = ["client_admin"] as const;
 
 export const MAX_CONTACTS_PER_ROLE = 10;
 
-/** One role's binding: who fills it, and the conditions for reaching them. */
+/**
+ * One role's binding: who fills it, and the conditions for reaching them. A seat (setup-plan §4)
+ * is filled by client users (`userIds`, in order: in turn, the first is asked first) and, for a
+ * `signs` seat, backups asked only when everyone in it is away.
+ */
+// DECISION (setup-plan §4.1): `userIds` and `backupUserIds` are optional, so a binding stored
+// before seats parses as it was, and a PUT that leaves them out keeps what is there (`setPeople`).
 export const PeopleBinding = z.strictObject({
   contactIds: z.array(Id).max(MAX_CONTACTS_PER_ROLE),
   conditions: ReachConditions.default({}),
+  userIds: z.array(Id).max(MAX_CONTACTS_PER_ROLE).optional(),
+  backupUserIds: z.array(Id).max(MAX_CONTACTS_PER_ROLE).optional(),
 });
 export type PeopleBinding = z.infer<typeof PeopleBinding>;
 export type PeopleBindingInput = z.input<typeof PeopleBinding>;
