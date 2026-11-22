@@ -589,6 +589,13 @@
       "when": 1795374104826,
       "tag": "0098_portal_view",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1795375139490,
+      "tag": "0099_close",
+      "breakpoints": true
     }
   ]
 }
