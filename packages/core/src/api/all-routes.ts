@@ -12,6 +12,7 @@ import { clientFileRoutes, startRoutes } from "./client-files";
 import { codeRequestRoutes } from "./code-requests";
 import { connectorAccessRoutes } from "./connector-access";
 import { desktopRoutes } from "./desktop";
+import { evalsRoutes } from "./evals";
 import { evidenceRoutes } from "./evidence";
 import { opsIntakeRoutes, portalIntakeRoutes, welcomeRoutes } from "./intake";
 import { interviewRoutes } from "./interviews";
@@ -48,6 +49,8 @@ export const allRoutes = {
   // Round 4 D (docs/plan.md §1.211): a proposed write's evidence and the client's thresholds; the
   // evidence panel and the thresholds form load lazily, and their schemas with them.
   ...evidenceRoutes,
+  // docs/plan.md §1.212: Save as a test case and the scorecard load with their screens.
+  ...evalsRoutes,
   // docs/builder-plan.md §6 (B4): the setup checklist (Getting started, the agent's page).
   ...setupRoutes,
   // docs/builder-plan.md §7 (B5): client adjustments on the agent's Settings, and feedback on a
