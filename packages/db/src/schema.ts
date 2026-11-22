@@ -1347,6 +1347,73 @@ export const agentChange = pgTable(
   ],
 );
 
+/** Who made a change an SOP revision records (docs/sop-plan.md §6). */
+export const SOP_REVISION_SIDES = ["client", "operator", "system"] as const;
+/** Where the change that made an SOP revision was made (docs/sop-plan.md §6). */
+export const SOP_REVISION_SOURCES = [
+  "first",
+  "version",
+  "agent",
+  "connection",
+  "grant",
+  "approver_rules",
+  "business_hours",
+  "owner",
+  "adjust",
+  "stage",
+  "check",
+  // Only how Mezonas writes SOPs changed (core's SOP_FORMAT), not how the agent works.
+  "format",
+] as const;
+
+/**
+ * The agent's SOP, one row per revision (docs/sop-plan.md §6, migration 0074): the SOP as it was
+ * (`view`, core's `SopView`), what changed from the revision before (`changes`, core's
+ * `SopChange[]`), who made the change and where. Recorded at the change, in its transaction, only
+ * when the SOP's content (`fingerprint`) differs from the last revision's. Never updated or
+ * deleted (invariant 3's rule, applied here): a later change is a later row.
+ */
+export const sopRevision = pgTable(
+  "sop_revision",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    agentId: uuid("agent_id").notNull(),
+    /** The agent version's number: 7 in "7.2". */
+    major: integer("major").notNull(),
+    /** Setup changes since that version went live: 2 in "7.2"; 0 when the version itself. */
+    minor: integer("minor").notNull(),
+    agentVersionId: uuid("agent_version_id")
+      .notNull()
+      .references(() => agentVersion.id),
+    /** sha256 of the SOP's canonical content (core's `sopFingerprint`). */
+    fingerprint: text("fingerprint").notNull(),
+    view: jsonb("view").notNull(),
+    changes: jsonb("changes").$type<unknown[]>().notNull().default([]),
+    changedByUserId: uuid("changed_by_user_id").references(() => appUser.id),
+    changedBySide: text("changed_by_side").$type<(typeof SOP_REVISION_SIDES)[number]>().notNull(),
+    source: text("source").$type<(typeof SOP_REVISION_SOURCES)[number]>().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "sop_revision_agent_fk",
+      columns: [t.agentId, t.tenantId],
+      foreignColumns: [agent.id, agent.tenantId],
+    }),
+    unique("sop_revision_number_key").on(t.agentId, t.major, t.minor),
+    index("sop_revision_agent_idx").on(t.tenantId, t.agentId, t.createdAt),
+    check("sop_revision_major_check", sql`${t.major} >= 0`),
+    check("sop_revision_minor_check", sql`${t.minor} >= 0`),
+    check("sop_revision_side_check", sql`${t.changedBySide} in ('client', 'operator', 'system')`),
+    check(
+      "sop_revision_source_check",
+      sql`${t.source} in ('first', 'version', 'agent', 'connection', 'grant', 'approver_rules', 'business_hours', 'owner', 'adjust', 'stage', 'check', 'format')`,
+    ),
+    check("sop_revision_fingerprint_check", sql`length(${t.fingerprint}) = 64`),
+  ],
+);
+
 // ── Runs ─────────────────────────────────────────────────────────────────────────────────────────
 
 export const run = pgTable(
@@ -6165,6 +6232,8 @@ export const TENANT_TABLES = [
   "intake_event",
   // 0069: the days a number was one agent's own phone line (docs/plan.md §1.160).
   "billing_phone_line_day",
+  // 0074: each agent's SOP, one row per revision (docs/sop-plan.md §6).
+  "sop_revision",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 
