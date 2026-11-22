@@ -272,6 +272,18 @@ export interface TableRead {
   unmatched: { header: string; column: string }[];
   /** Why the step fails (a required column missing, too many rows); null when it can go on. */
   failure: string | null;
+  /**
+   * Where each of `rows` came from, in the same order: its row in the file (a sheet's or a CSV's
+   * row number, a JSON list's position from 1). File intake keeps it on every landed row
+   * (docs/plan.md §1.213).
+   */
+  rowNumbers: number[];
+  /**
+   * The total rows skipped ("Total", "Grand total"), in the file's order, each with its number and
+   * columns typed by the expected columns (cells that don't read as their type are left out).
+   * File intake checks a report's control total against the last one (§1.213).
+   */
+  totals: { row: number; values: Record<string, unknown> }[];
 }
 
 /** A field name from a header: `Vendor name` → `vendorName`; `columnC` when it has no letters. */
@@ -397,6 +409,8 @@ export function tableFromGrid(
     problems: [],
     unmatched: [],
     failure: null,
+    rowNumbers: [],
+    totals: [],
   };
   if (headerRow > lastRow) {
     read.failure =
@@ -465,6 +479,15 @@ export function tableFromGrid(
     if (cells.every(isEmptyCell)) {
       if (options.skipBlankRows) continue;
     } else if (options.skipTotalRows && isTotalRow(cells)) {
+      const values: Record<string, unknown> = {};
+      for (const c of columns) {
+        const i = at.get(c.field);
+        const cell = i === undefined ? undefined : cells[i];
+        if (cell === undefined || isEmptyCell(cell)) continue;
+        const v = typed ? typeCell(cell, c) : { ok: true as const, value: cell };
+        if (v.ok) values[c.field] = v.value;
+      }
+      read.totals.push({ row: r, values });
       continue;
     }
     const get = (field: string) => {
@@ -475,11 +498,15 @@ export function tableFromGrid(
     if (read.rows.length >= max) {
       read.failure = tooMany(max);
       read.rows = [];
+      read.rowNumbers = [];
       return read;
     }
     if (typed) {
       const out = typedRow(get, columns, r, read.problems);
-      if (out) read.rows.push(out);
+      if (out) {
+        read.rows.push(out);
+        read.rowNumbers.push(r);
+      }
     } else {
       const out: Record<string, unknown> = {};
       for (const c of columns) {
@@ -487,6 +514,7 @@ export function tableFromGrid(
         if (v !== undefined && !isEmptyCell(v)) out[c.field] = typeof v === "string" ? v.trim() : v;
       }
       read.rows.push(out);
+      read.rowNumbers.push(r);
     }
   }
   return read;
@@ -537,6 +565,8 @@ export function tableFromJson(value: unknown, options: ReadTableOptions): TableR
     problems: [],
     unmatched: [],
     failure: null,
+    rowNumbers: [],
+    totals: [],
   };
   if (options.shape) {
     const problem = jsonShapeProblem(options.shape, value);
@@ -609,12 +639,19 @@ export function tableFromJson(value: unknown, options: ReadTableOptions): TableR
     }
     if (!typed) {
       read.rows.push(item);
+      read.rowNumbers.push(rowNumber);
       return;
     }
     const out = typedRow(get, options.columns, rowNumber, read.problems);
-    if (out) read.rows.push(out);
+    if (out) {
+      read.rows.push(out);
+      read.rowNumbers.push(rowNumber);
+    }
   });
-  if (read.failure) read.rows = [];
+  if (read.failure) {
+    read.rows = [];
+    read.rowNumbers = [];
+  }
   return read;
 }
 

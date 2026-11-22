@@ -1,8 +1,20 @@
-# Mezonas — Architecture v0.21
+# Mezonas — Architecture v0.22
 
 > **Name and design (2026-11-03, owner):** the product is **Mezonas** (mezonas.com; `countersign` is the
 > code name), built with the Mezonas design system in `packages/design-system`, which replaces Groundwork.
 > Domains: `app.mezonas.com` (production), `staging.mezonas.com`.
+
+> **v0.22, evidence and a verifier before writes (2026-11-22, owner):** **Every write an agent
+> proposes to a client's tool carries proof a person can check in seconds.** Outside v1's scope
+> (§1); the owner agreed it on 2026-11-22 (round 4, item D, "Evidence and verifier layer"). Before a
+> write reaches the inbox or goes ahead, an agent with `oversight.verify: writes` has a second model
+> call work the write out again from the run's sources, without seeing the proposal; code compares
+> the two: **agreed** goes on as before, **disagreed** goes to a person with both answers, **can't
+> verify** goes to the operator. Each card has an **evidence panel** (portal and back office): what
+> the write rests on, the step and rule that produced it, the confidence and the second check,
+> read from rows that already exist. Each client may set **dollar thresholds** that only tighten:
+> at or over one, every write waits for a person. On for new agents, Builder drafts and templates;
+> off for agents saved before. No migration. Changed: §10.18 (new); `docs/plan.md` §1.211.
 
 > **v0.21, the agent's SOP (2026-11-21, owner):** **Every client agent has an SOP: one formal
 > document made by code from how it is set up now**, in the portal's SOP tab (the Manual tab's
@@ -3411,6 +3423,34 @@ Connectors page's): connecting and disconnecting change the SOP, a failing sync 
 (trigger); a step's purpose changes only by a new version. 8 and 13: a write's line is
 `decideToolCall`. 11: no bundle, instructions, prompts, budgets or cost; each AI step's model is
 named (owner, 2026-11-21); contract tests cover both routes.
+
+### 10.18 Evidence and a verifier before writes (v0.22, owner 2026-11-22)
+
+The owner's round 4, item D: every write an agent proposes to a client's tool carries proof a
+person can check in seconds. **Outside v1's scope (§1); the owner said yes on 2026-11-22.** It
+builds on what was there: `sources` (invariant 10), the external action with its before state
+(invariant 8), approvals bound to what was seen (`docs/plan.md` §1.138), run oversight (§10.11)
+and the approval settings. The decisions are `docs/plan.md` §1.211.
+
+| Part | Where it lives | Made by |
+|---|---|---|
+| The setting | `definition.oversight.verify`: `off` or `writes`. Absent is off, so every agent saved before runs as it did; `NEW_AGENT_OVERSIGHT` (new agents, Builder drafts) and the Bookkeeper's v7 and Vendor contracts' v4 set `writes` | The operator |
+| The verifier | `packages/agents/src/runtime/verify.ts`, called by the gate (`call-tool.ts`) after the before state is read and before the action is proposed, for every write, live or test. One model call on the agent's oversight model (else its own), recorded as a `check` | Code and a model |
+| Its sources | `dbVerifyPort`: the run's trigger, its earlier steps' outputs, what it read (`run_subject`, role `read`) and each document's latest reading. Data in a tool result (invariant 9); the proposal is never shown | Rows the run left |
+| The comparison | Core's `verificationOf`: only the fields the verifier gave; amounts as decimals, text without case or spaces | Code |
+| The outcome | `agreed`: unchanged. `disagreed`: never automatic; the card goes to the client's approver with both answers. `cannot_verify` (no sources, not derivable, nothing compared, the call failed): never automatic; the card goes to the operator. Kept on the card's payload as `verification` (no note, model or cost) | Code |
+| Thresholds | `tenant.settings.write_thresholds` (one amount per currency): a write whose amount (`ToolSpec.amount`) is at or over one is never automatic. Only tightens. We may lower or add one; the client's admin may also raise or remove theirs | The client's admin; the operator |
+| Evidence | `GET /api/inbox/:id/evidence` and `/api/ops/inbox/:id/evidence`: sources, the step and the steps its input reads, the rule (`when`) above it, the confidence (the document's reading, else the producing step's), the values before and after, the check and the threshold. The portal's names no agent version and shows only subjects its timeline shows | Code, from existing rows |
+| The panel | `apps/web/src/inbox/EvidencePanel.tsx`, lazily loaded on every change card (the Desk's, batches' and the back office's), with its own words in six languages | Code |
+
+**Only tightens.** The verifier and a threshold can make a write wait for a person; nothing here
+makes one go ahead that the gate would hold (invariant 8). A disagreement always goes to a person.
+The verifier never changes a step, an approval, a permission or the plan (invariant 9).
+
+**Invariants.** 1: one client per read and per call. 6: amounts compared as decimals. 8: only
+tightens; test runs are checked and still never write. 9: the sources are data in a tool result.
+10: the verifier cites record ids. 11: no portal route returns a prompt, a model, a cost or an
+agent version.
 
 ---
 

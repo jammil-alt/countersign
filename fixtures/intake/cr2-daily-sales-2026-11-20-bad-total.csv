@@ -1,0 +1,10 @@
+"CR2 Daily Sales Report"
+"Store: 014 Pinecrest Supply (made up)","Run: 11/21/2026 06:02"
+
+Ticket,Date,Customer,Item,Qty,Net Sales
+T-50311,11/20/2026,Harbor Decks LLC,2x6x12 PT Lumber,24,214.56
+T-50312,11/20/2026,Walk-in,Deck screws 5 lb,3,89.97
+T-50313,11/20/2026,Ridgeline Builders,OSB 7/16 4x8,40,619.60
+T-50314,11/20/2026,Ridgeline Builders,Tyvek HomeWrap 9x150,2,398.00
+T-50315,11/20/2026,Walk-in,"Joist hanger, 2x10",12,23.88
+,,,,Total,"1,446.01"

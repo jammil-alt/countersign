@@ -1,6 +1,6 @@
 {
   "id": "43f8f955-b589-45fc-b5f6-c04a3c855de2",
-  "prevId": "3e5ab826-377f-4062-a25b-b71c103988ac",
+  "prevId": "95811738-cdd4-4e21-9c7c-8b0291e990a9",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -17076,6 +17076,247 @@
         "play_setting_level_check": {
           "name": "play_setting_level_check",
           "value": "\"play_setting\".\"level\" in ('off', 'draft', 'send')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.process_interview": {
+      "name": "process_interview",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "contact_id": {
+          "name": "contact_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "process": {
+          "name": "process",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "area": {
+          "name": "area",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'open'"
+        },
+        "language": {
+          "name": "language",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'en'"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "turns": {
+          "name": "turns",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "question": {
+          "name": "question",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "documents": {
+          "name": "documents",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "outputs": {
+          "name": "outputs",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reuse": {
+          "name": "reuse",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "build_id": {
+          "name": "build_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cost_usd": {
+          "name": "cost_usd",
+          "type": "numeric(14, 4)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "log": {
+          "name": "log",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "process_interview_tenant_idx": {
+          "name": "process_interview_tenant_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "process_interview_tenant_id_tenant_id_fk": {
+          "name": "process_interview_tenant_id_tenant_id_fk",
+          "tableFrom": "process_interview",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "process_interview_build_id_build_id_fk": {
+          "name": "process_interview_build_id_build_id_fk",
+          "tableFrom": "process_interview",
+          "tableTo": "build",
+          "columnsFrom": [
+            "build_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "process_interview_created_by_app_user_id_fk": {
+          "name": "process_interview_created_by_app_user_id_fk",
+          "tableFrom": "process_interview",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "process_interview_contact_fk": {
+          "name": "process_interview_contact_fk",
+          "tableFrom": "process_interview",
+          "tableTo": "contact",
+          "columnsFrom": [
+            "contact_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "process_interview_id_tenant_key": {
+          "name": "process_interview_id_tenant_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "tenant_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "process_interview_status_check": {
+          "name": "process_interview_status_check",
+          "value": "\"process_interview\".\"status\" in ('open', 'finished', 'closed')"
+        },
+        "process_interview_process_check": {
+          "name": "process_interview_process_check",
+          "value": "char_length(\"process_interview\".\"process\") between 1 and 200"
+        },
+        "process_interview_finished_check": {
+          "name": "process_interview_finished_check",
+          "value": "\"process_interview\".\"status\" <> 'finished' or (\"process_interview\".\"outputs\" is not null and \"process_interview\".\"finished_at\" is not null)"
         }
       },
       "isRLSEnabled": false
