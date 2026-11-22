@@ -58,7 +58,7 @@ import {
   notFound,
   type Services,
 } from "../http";
-import { resolveInboxItem, sendResolution } from "../inbox";
+import { fingerprintRequired, type InboxRow, resolveInboxItem, sendResolution } from "../inbox";
 import { isInternal } from "../internal-client";
 import { bundleWritesWith, stageOf, writesContext } from "../lifecycle/stages";
 // §1.149: every account is in Sales
@@ -85,6 +85,7 @@ import {
   opsConnection,
   opsInboxItem,
   opsRun,
+  opsShownFingerprint,
   opsStep,
   opsToolCall,
 } from "./mappers";
@@ -1164,6 +1165,11 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
 
   mount(app, routes.opsResolveInbox, async (ctx) => {
     const { tx, params, body, session, services } = ctx;
+    // Audit 3.4: an answer names the item as the operator saw it, as the portal's does.
+    // DECISION (audit 3.4, docs/plan.md §1.191): required, with no grace: the back office ships
+    // with the API, so only a tab from before sends none, and it is told to reload.
+    if (!body.fingerprint) throw fingerprintRequired();
+    const { fingerprint } = body;
     const [item] = await tx
       .select({ tenantId: inboxItem.tenantId })
       .from(inboxItem)
@@ -1183,6 +1189,8 @@ export function opsClientRoutes(app: Hono<AppEnv>): void {
       tools: services.platform.tools,
       // §1.164: a finished pack card answers its run with what was recorded.
       reviewAnswer: packReviewAnswer(services),
+      // Compared under the item's lock with the item as the back office shows it now.
+      seen: { fingerprint, of: (row: InboxRow) => opsShownFingerprint(row, by, services.platform) },
     });
     // R7: and a conversation's own event beside it, for a v4 conversation step.
     if (outcome.resume || outcome.conversation) {

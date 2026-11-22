@@ -433,6 +433,9 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     // 0075: an agent's security checks are history (docs/agent-assurance-plan.md §6).
     expect(await can("control_check", "UPDATE")).toBe(false);
     expect(await can("control_check", "DELETE")).toBe(false);
+    // 0077: what a run was about is history, like the run's own (docs/reporting-plan.md §3 R1).
+    expect(await can("run_subject", "UPDATE")).toBe(false);
+    expect(await can("run_subject", "DELETE")).toBe(false);
     expect(await can("agent_change", "UPDATE")).toBe(false);
     expect(await can("doc_extraction", "UPDATE")).toBe(false);
     expect(await can("doc_line", "UPDATE")).toBe(false);

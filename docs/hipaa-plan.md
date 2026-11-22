@@ -6,7 +6,7 @@ status and its SOC 2, HIPAA and PCI references are in the register
 (`packages/core/src/compliance/controls.ts`), shown in the back office at `/ops/security`
 (`docs/plan.md` §1.102). Plaid's 11 attestations need the same controls, policies and routines:
 `docs/plaid-plan.md`.
-Last updated 2026-11-20.
+Last updated 2026-11-22.
 
 **Where we are:**
 - The technical controls are built and on staging (`docs/security.md`, status).
@@ -19,7 +19,7 @@ Last updated 2026-11-20.
 
 Done. #81–#84 merged by 2026-11-09. The rest followed: CodeQL v4 (#315), OSV-Scanner and patch
 deadlines (#316), Node 24 (#317), the register (#318), removing people (#325, #370) and the model
-gate (#414). What is left in code is T1 and T3 (§3).
+gate (#414), then the MCP connector's HIPAA check (T1, §1.190). What is left in code is T3 (§3).
 
 ## 2. Settings outside the code
 
@@ -34,7 +34,7 @@ the rest were set on 2026-11-18.
 
 | # | Item | Why it matters | Suggested fix |
 |---|---|---|---|
-| T1 | **The Ops MCP connector doesn't check HIPAA mode.** An operator using Claude with the connector sends what the tools return to Anthropic through claude.ai. | That's a disclosure to a vendor unless it's covered. Anthropic's BAA for claude.ai plans, if any, may differ from the API's. | Refuse MCP tools on clients in HIPAA mode unless a `claude_ai` processor is listed, or until the plan we use is covered. Small change in `apps/api/src/mcp`. Owner (2026-11-16): build it when the first HIPAA client comes; none yet, no health data flows. |
+| T1 | Done (2026-11-22, `docs/plan.md` §1.190): the Ops MCP connector is held to HIPAA mode. A call that names a client in HIPAA mode is refused, a call across clients is refused while the operator serves one, and whoami and clients_list leave it out, until `claude_ai` is in `BAA_PROCESSORS` (`apps/api/src/mcp/hipaa.ts`). | Was: an operator using Claude with the connector sent what the tools return to Anthropic through claude.ai, a disclosure unless covered. | Nothing left. |
 | T2 | Done (2026-11-17, PR #414): the Builder's model calls, and every other model call outside a run, go through one entry point held to the HIPAA mode of each client whose data they may carry (`apps/api/src/compliance/models.ts`, `docs/plan.md` §1.143). Work on a template or a shared skill names no client. | Was: fine while the Builder only sees templates, not if an operator pastes a HIPAA client's data into it. | Nothing left. |
 | T3 | Clients can't see their own audit log. | Covered entities may ask for an access report. | A portal page, `client_admin` only, showing their own client's rows. |
 | T4 | Audit log retention past 6 years is manual. | It only matters in 2032, but should be written down. | A yearly owner task, or a script like `db:purge-client`. |
@@ -59,7 +59,7 @@ Two directions:
 | Neon | Every HIPAA client | Not started | `neon` |
 | WorkOS | Every HIPAA client | Not started | `workos` |
 | Anthropic (API) | Agents and document reading | Not started | `anthropic` |
-| Anthropic (claude.ai) | The Ops MCP connector (T1) | Not started | after T1 |
+| Anthropic (claude.ai) | The Ops MCP connector (T1) | Not started | `claude_ai` |
 | OpenAI | Only agents set to `openai:` models | Not needed yet | `openai` |
 | xAI | Only agents set to `xai:` models (Grok) | Not needed yet | `xai` |
 | Google (Gemini API) | Only agents set to `google:` models (Gemini) | Not needed yet | `google` |

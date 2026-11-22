@@ -5,7 +5,7 @@ plus one question to Reggie. Done, Step in, Switch on, Invite and the create and
 clicked, so those paths are untested. Nothing crashed and the console showed no errors. The problems
 are counts and statuses that disagree across screens, and flows that dead-end.
 
-This page lists what was reported and how each item is handled. The decisions are in `docs/plan.md` §1.187; what is still open is in `docs/open.md`.
+This page lists what was reported and how each item is handled. The decisions are in `docs/plan.md` §1.193; what is still open is in `docs/open.md`.
 
 ## Not working
 

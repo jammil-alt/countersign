@@ -17,6 +17,7 @@ import {
   conferOf,
   errorGroupKey,
   isPlainObject,
+  itemFingerprint,
   noAnswerOf,
   processes,
   routeOfRow,
@@ -262,7 +263,12 @@ export function OpsRunScreen() {
 
   const { run, agent } = data;
   const resolve = async (itemId: string, body: ResolveInput) => {
-    await api.call(apiRoutes.opsResolveInbox, { params: { id: itemId }, body });
+    // Audit 3.4: the answer names the card as it is on screen (the run's own list of items).
+    const shown = data.inbox.find((i) => i.id === itemId);
+    await api.call(apiRoutes.opsResolveInbox, {
+      params: { id: itemId },
+      body: shown ? { ...body, fingerprint: await itemFingerprint(shown) } : body,
+    });
     reload();
   };
   const names: StepNames = workflow

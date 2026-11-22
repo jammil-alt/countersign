@@ -41,6 +41,8 @@ export * from "./log/oversight";
 export * from "./log/platform-store";
 export * from "./log/ports";
 export * from "./log/run-log";
+// docs/plan.md §1.188: what each run was about.
+export * from "./log/run-subjects";
 export * from "./log/threads-port";
 // P-7: message translation
 export * from "./log/translation-port";

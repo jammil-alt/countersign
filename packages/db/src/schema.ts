@@ -1651,6 +1651,79 @@ export const modelCall = pgTable(
   ],
 );
 
+/** What a run was about (docs/reporting-plan.md §3 R1): the kind of thing it read or changed. */
+export const RUN_SUBJECT_KINDS = [
+  "document",
+  "vendor",
+  "customer",
+  "organization",
+  "person",
+  "transaction",
+  "item",
+  "message",
+  "record",
+] as const;
+/** What the run did with it. */
+export const RUN_SUBJECT_ROLES = ["read", "decided", "changed"] as const;
+
+/**
+ * One thing a run read, decided on or changed (docs/reporting-plan.md §3 R1, migration 0077), kept
+ * as the run happens so runs can be found by what they were about: our record's id, the client's
+ * tool and its id for the thing, the name a person reads and the document's own number, and its
+ * amount when it carries money. `label` and `number` are data, never instructions (invariant 9).
+ * The portal reads only `client_visible` rows. History: never updated or deleted (trigger).
+ */
+export const runSubject = pgTable(
+  "run_subject",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    runId: uuid("run_id").notNull(),
+    // DECISION: null for what started the run (the trigger's document or message): it is the
+    // run's, kept on `run.trigger`, not any step's (docs/plan.md §1.188).
+    stepRunId: uuid("step_run_id"),
+    kind: text("kind").$type<(typeof RUN_SUBJECT_KINDS)[number]>().notNull(),
+    role: text("role").$type<(typeof RUN_SUBJECT_ROLES)[number]>().notNull(),
+    /** Our record's id, when there is one. */
+    recordId: uuid("record_id"),
+    /** The client's tool (a connector id) and its id for the thing (a QuickBooks bill). */
+    connector: text("connector"),
+    externalId: text("external_id"),
+    /** The name a person reads: a vendor's name, a file's name. */
+    label: text("label"),
+    /** The document's own number: an invoice or PO number. */
+    number: text("number"),
+    /** When it carries money: numeric(14,4) with its currency (invariant 6). */
+    amount: numeric("amount", { precision: 14, scale: 4 }),
+    currency: text("currency"),
+    /** Whether the step is one the client's timeline shows. */
+    clientVisible: boolean("client_visible").notNull().default(false),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    foreignKey({
+      name: "run_subject_run_fk",
+      columns: [t.runId, t.tenantId],
+      foreignColumns: [run.id, run.tenantId],
+    }),
+    foreignKey({
+      name: "run_subject_step_run_fk",
+      columns: [t.stepRunId, t.tenantId],
+      foreignColumns: [stepRun.id, stepRun.tenantId],
+    }),
+    index("run_subject_record_idx").on(t.tenantId, t.kind, t.recordId),
+    index("run_subject_run_idx").on(t.tenantId, t.runId),
+    index("run_subject_label_trgm_idx").using("gin", t.label.op("gin_trgm_ops")),
+    index("run_subject_number_trgm_idx").using("gin", t.number.op("gin_trgm_ops")),
+    check("run_subject_kind_check", oneOf(t.kind, RUN_SUBJECT_KINDS)),
+    check("run_subject_role_check", oneOf(t.role, RUN_SUBJECT_ROLES)),
+    // DECISION: a row is whole (docs/plan.md §1.188): money carries its currency (invariant 6),
+    // and a tool's id means nothing without the tool.
+    check("run_subject_amount_check", sql`(${t.amount} is null) = (${t.currency} is null)`),
+    check("run_subject_external_check", sql`${t.externalId} is null or ${t.connector} is not null`),
+  ],
+);
+
 export const SAVED_VIEW_SURFACES = ["ops_runs", "portal_runs"] as const;
 
 /**
@@ -6305,6 +6378,8 @@ export const TENANT_TABLES = [
   "sop_revision",
   // 0075: each agent's security checks, one row per result (docs/agent-assurance-plan.md §6).
   "control_check",
+  // 0077: what each run was about, one row per thing it read or changed (docs/reporting-plan.md R1).
+  "run_subject",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 

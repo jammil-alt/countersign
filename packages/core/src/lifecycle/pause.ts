@@ -57,7 +57,11 @@ const NO_REASON = new Set([
 export function pauseReasonWords(reason: string | null | undefined): string | null {
   const text = (reason ?? "").trim();
   if (text === "credits_out") return "the month's credits ran out";
-  const bare = text.toLowerCase().replace(/[.!\s]+$/u, "");
+  // Trailing stops, bangs and spaces cut by hand: a regex anchored at the end backtracks on long
+  // client-written text (CodeQL js/polynomial-redos).
+  let end = text.length;
+  while (end > 0 && ".! \t\n\r".includes(text.charAt(end - 1))) end--;
+  const bare = text.slice(0, end).toLowerCase();
   if (bare === "" || NO_REASON.has(bare)) return null;
   return text;
 }

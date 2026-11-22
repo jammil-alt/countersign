@@ -1,7 +1,8 @@
 // Matching a free description to the client's catalog (ARCHITECTURE §12.3) when there is no
 // document line: a request line as someone asked for it, or a QuickBooks bill line. Deterministic
 // only: the vendor's alias (with no vendor, every vendor's description alias when they agree),
-// then the attribute rules over the candidates. A description the rules aren't sure of comes back
+// then the vendor catalog (a vendor item's SKU or name, docs/plan.md §1.189), then the attribute
+// rules over the candidates. A description the rules aren't sure of comes back
 // with its candidates, never guessed. No model is called here, and nothing is written unless the
 // caller asks for a new item to be created (the backfill).
 
@@ -16,9 +17,11 @@ import {
   createItem,
   findAlias,
   findCandidates,
+  identifyingSku,
   liveItem,
 } from "../catalog/store";
 import { itemAlias } from "../schema";
+import { packFits, type VendorItemRow, vendorItemById, vendorItemsNamed } from "../vendor/store";
 
 /** How many candidates an unsure description comes back with. */
 export const TEXT_CANDIDATES = 5;
@@ -42,6 +45,13 @@ export interface TextMatch {
   parsed: ParsedLine;
   normalized: string;
   hash: string;
+  /**
+   * The vendor item the description named: through the vendor catalog, when one vendor item
+   * named it, or the one the vendor's alias names (§1.189); null otherwise.
+   */
+  vendorItem: VendorItemRow | null;
+  /** Matched through the vendor catalog (a vendor item's SKU or name), not an alias or a rule. */
+  viaCatalog: boolean;
 }
 
 async function vendorAbbreviations(
@@ -82,10 +92,66 @@ async function anyVendorAlias(
   return items.size === 1 ? ([...items.values()][0] ?? null) : null;
 }
 
+/** The codes in a description that could be SKUs: each word with a digit (`identifyingSku`). */
+export function skuTokens(description: string): string[] {
+  const out = new Set<string>();
+  for (const raw of description.split(/[\s,;]+/)) {
+    const word = raw.replace(/^[("'#:.]+|[)"'.:]+$/g, "");
+    const sku = /\d/.test(word) ? identifyingSku(word) : null;
+    if (sku) out.add(sku);
+  }
+  return [...out].slice(0, 20);
+}
+
+/**
+ * What the vendor catalog says a description is (§1.189): the master item of the vendor items
+ * whose SKU the description names, or whose name it is, when they all name one live item. The
+ * hard rules veto: a description whose own words name another category or another value of a
+ * key attribute is not that item, nor is a box, case or pail line of another size (`packFits`).
+ */
+// DECISION (§1.189): a SKU never outvotes the description's own words (as §1.144 for invoices);
+// two vendor items naming two master items is unsure, never guessed.
+async function vendorCatalogHit(
+  tx: Tx,
+  tenantId: string,
+  input: MatchTextInput,
+  parsed: ParsedLine,
+): Promise<{ item: CatalogItemRow; vendorItem: VendorItemRow | null } | null> {
+  const given = identifyingSku(input.vendorSku);
+  const skus = [...new Set([...(given ? [given] : []), ...skuTokens(input.description)])];
+  const rows = await vendorItemsNamed(tx, tenantId, {
+    vendorId: input.vendorId,
+    skus,
+    description: input.description,
+  });
+  const items = new Map<string, { item: CatalogItemRow; rows: VendorItemRow[] }>();
+  for (const v of rows) {
+    if (!packFits(v, input.unit, input.description)) continue;
+    const item = await liveItem(tx, tenantId, v.catalogItemId);
+    if (!item) continue;
+    if (parsed.category !== "other") {
+      const score = scorePair(parsed, {
+        category: item.category,
+        attributes: item.attributes as Record<string, string>,
+      });
+      if (score.confidence <= RULE_CONFIDENCE.veto) continue;
+    }
+    const hit = items.get(item.id) ?? { item, rows: [] };
+    hit.rows.push(v);
+    items.set(item.id, hit);
+  }
+  if (items.size !== 1) return null;
+  const [hit] = [...items.values()];
+  if (!hit) return null;
+  return { item: hit.item, vendorItem: hit.rows.length === 1 ? (hit.rows[0] ?? null) : null };
+}
+
 export interface MatchTextInput {
   description: string;
   vendorId?: string | null | undefined;
   vendorSku?: string | null | undefined;
+  /** The unit asked or billed in, when there is one: a box line is told from a case (§1.144). */
+  unit?: string | null | undefined;
   /** Create the item when the rules say it is new and every key attribute is stated. */
   create?: Creator | null | undefined;
 }
@@ -102,19 +168,60 @@ export async function matchText(
   const normalized = normalize(input.description, { abbreviations });
   const hash = await descriptionHash(normalized);
   const parsed = parseNormalized(normalized);
-  const base = { parsed, normalized, hash, hinge: null, candidates: [] };
+  const base = {
+    parsed,
+    normalized,
+    hash,
+    hinge: null,
+    candidates: [],
+    vendorItem: null,
+    viaCatalog: false,
+  };
 
-  const aliased = input.vendorId
-    ? (
-        await findAlias(tx, tenantId, {
-          vendorId: input.vendorId,
-          vendorSku: input.vendorSku?.trim().toUpperCase() || null,
-          descriptionHash: hash,
-        })
-      )?.item
-    : await anyVendorAlias(tx, tenantId, hash);
+  const alias = input.vendorId
+    ? await findAlias(tx, tenantId, {
+        vendorId: input.vendorId,
+        vendorSku: input.vendorSku?.trim().toUpperCase() || null,
+        descriptionHash: hash,
+      })
+    : null;
+  const aliased = input.vendorId ? alias?.item : await anyVendorAlias(tx, tenantId, hash);
   if (aliased) {
-    return { ...base, decision: "matched", item: aliased, method: "alias", confidence: 1 };
+    // DECISION (review of C2.2): the vendor item the vendor's alias names comes with the match,
+    // so a bill line in the wording of the vendor's box is told from one in its standard unit
+    // (the bill-price import neither prices it nor makes a vendor item from it, §1.189).
+    const named = alias?.vendorItemId
+      ? await vendorItemById(tx, tenantId, alias.vendorItemId)
+      : null;
+    const vendorItem =
+      named &&
+      named.vendorId === input.vendorId &&
+      (await liveItem(tx, tenantId, named.catalogItemId))?.id === aliased.id
+        ? named
+        : null;
+    return {
+      ...base,
+      decision: "matched",
+      item: aliased,
+      method: "alias",
+      confidence: 1,
+      vendorItem,
+    };
+  }
+  // DECISION (§1.189): a vendor item is the vendor's own name for its item, so a match through
+  // the vendor catalog is recorded as `alias` (no new match method, no migration); `vendorItem`
+  // says which one.
+  const listed = await vendorCatalogHit(tx, tenantId, input, parsed);
+  if (listed) {
+    return {
+      ...base,
+      decision: "matched",
+      item: listed.item,
+      method: "alias",
+      confidence: 1,
+      vendorItem: listed.vendorItem,
+      viaCatalog: true,
+    };
   }
 
   const found = await findCandidates(tx, tenantId, parsed);

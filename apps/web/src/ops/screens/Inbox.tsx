@@ -10,7 +10,12 @@
 // The client filter comes from the address (`?client=`), so a client's page links here filtered;
 // its chip clears it (the top bar's picker only opens a client's page). We resolve only what the server marks as
 // ours; resolving resumes the waiting run; an approval can be taken back inside its undo window.
-import { type Escalation, isWaitingReminder, type OpsAgentRef } from "@countersign/core";
+import {
+  type Escalation,
+  isWaitingReminder,
+  itemFingerprint,
+  type OpsAgentRef,
+} from "@countersign/core";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
@@ -281,9 +286,10 @@ export function OpsInboxScreen() {
         onResolve={
           item.status === "open" && mine
             ? async (body) => {
+                // Audit 3.4: the answer names the card as it is on screen.
                 const out = await api.call(apiRoutes.opsResolveInbox, {
                   params: { id: item.id },
-                  body,
+                  body: { ...body, fingerprint: await itemFingerprint(item) },
                 });
                 if (undoable(out.item)) setRecent((r) => [out.item, ...r]);
                 reload();

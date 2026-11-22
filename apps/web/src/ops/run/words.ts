@@ -151,7 +151,7 @@ const CHECK_WORDS: [RegExp, string | ((m: RegExpExecArray) => string)][] = [
   [/^invalid (url|uri)/i, "a link isn't in the right form"],
   [/^invalid (iso )?(date|datetime)/i, "a date isn't in the right form"],
   [/^required$/i, "a value is missing"],
-  [/expected [\w ]+, received (undefined|null)$/i, "a value is missing"],
+  [/^(?:invalid input: )?expected \w+, received (?:undefined|null)$/i, "a value is missing"],
   [/^invalid input: expected (\w+)/i, (m) => `a value isn't ${article(m[1] ?? "")}`],
   [/^invalid (option|enum value)/i, "a value isn't one of the choices"],
   [/^too (small|big)/i, "a value is out of range"],

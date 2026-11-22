@@ -4,7 +4,14 @@
 // screenshot as an image block, the untrusted-data fence, the two-step resolve, the audit trail,
 // and the client's own tools: the portal's reads, one client per call, nothing of the back office.
 
-import { appUser, auditEvent, feedback, membership } from "@countersign/db";
+import {
+  appUser,
+  auditEvent,
+  connection,
+  connectionChange,
+  feedback,
+  membership,
+} from "@countersign/db";
 import { and, desc, eq, like } from "drizzle-orm";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -642,6 +649,52 @@ describe.skipIf(!h)("MCP server", () => {
       expect(out.text).not.toMatch(/credentials|accessToken|refreshToken/);
       const one = (await tool(opToken, "connections_list", { client: H.B.tenantId })).data();
       expect(one.connections.map((c: { id: string }) => c.id)).toEqual([H.B.connectionId]);
+      expect(one.connections[0]).toMatchObject({ needsAttention: false, attention: null });
+    });
+
+    it("connections_list: a failing renewal needs attention, named apart from an error", async () => {
+      const change = (at: number, c: Record<string, unknown>) =>
+        H.t.db.insert(connectionChange).values({
+          tenantId: H.B.tenantId,
+          connectionId: H.B.connectionId,
+          actorId: null,
+          change: c,
+          createdAt: new Date(Date.now() + at),
+        });
+      const setStatus = (status: "connected" | "error" | "pending") =>
+        H.t.db.update(connection).set({ status }).where(eq(connection.id, H.B.connectionId));
+      await setStatus("connected");
+      await change(1_000, {
+        kind: "needs_attention",
+        reason: "refresh_failing",
+        detail: "we haven't been able to renew our access to this tool for a day",
+        before: "connected",
+        after: "connected",
+      });
+      const open = await tool(opToken, "connections_list", { client: H.B.tenantId });
+      expect(open.text).toMatch(/1 connection, 0 in error, 1 failing to renew our access\./);
+      expect(open.data().connections[0]).toMatchObject({
+        status: "connected",
+        needsAttention: true,
+        attention: "refresh_failing",
+      });
+      // In error, it is named an error (the client signs in again), counted once.
+      await setStatus("error");
+      const errored = await tool(opToken, "connections_list", { client: H.B.tenantId });
+      expect(errored.text).toMatch(/1 connection, 1 in error, 0 failing to renew our access\./);
+      expect(errored.data().connections[0]).toMatchObject({
+        needsAttention: true,
+        attention: "error",
+      });
+      await setStatus("connected");
+      // A call works again: the issue closes and the connection is fine.
+      await change(2_000, { kind: "access_restored" });
+      const closed = await tool(opToken, "connections_list", { client: H.B.tenantId });
+      expect(closed.data().connections[0]).toMatchObject({
+        needsAttention: false,
+        attention: null,
+      });
+      await setStatus("pending");
     });
 
     it("ops_health: findings across the operator's clients, each named", async () => {

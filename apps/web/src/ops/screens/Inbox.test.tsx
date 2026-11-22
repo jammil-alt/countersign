@@ -2,6 +2,7 @@
 // (`resolvableByOperator`), which in the Sandbox is every item; elsewhere a client's own items only
 // say who they wait on and for how long. "Needs us" also lists what isn't an item (a stuck
 // approval, a failed run) with a link to it; "Waiting on clients" shows the clients' inboxes.
+import { itemFingerprint, OpsInboxItem } from "@countersign/core";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
@@ -59,6 +60,9 @@ const item = (id: string, tenantId: string, resolvableByOperator: boolean) => ({
 });
 
 /** Opens an item's row and returns its card in the side sheet. */
+/** Audit 3.4: the fingerprint of an item as the back office was sent it. */
+const seen = (raw: unknown) => itemFingerprint(OpsInboxItem.parse(raw));
+
 async function openItem(id: string): Promise<HTMLElement> {
   await userEvent.click(await screen.findByTestId(`ops-inbox-row-${id}-open`));
   const sheet = await screen.findByTestId("ops-inbox-sheet");
@@ -105,7 +109,8 @@ describe("escalations", () => {
     const sandbox = await openItem(SANDBOX_ITEM);
     expect(sandbox).not.toHaveTextContent("Waiting on");
     await userEvent.click(within(sandbox).getByTestId("inbox-item-approve"));
-    expect(resolved).toEqual([{ decision: "approve" }]);
+    const fingerprint = await seen(item(SANDBOX_ITEM, SANDBOX, true));
+    await waitFor(() => expect(resolved).toEqual([{ decision: "approve", fingerprint }]));
   });
 
   it("keeps what we just approved on screen with Undo, and takes it back", async () => {
@@ -422,7 +427,10 @@ describe("escalations", () => {
     expect(approve).toBeDisabled();
     await userEvent.type(screen.getByTestId(`step-in-${DEMO_ITEM}-reason`), "Away today");
     await userEvent.click(approve);
-    await waitFor(() => expect(sent).toEqual([{ action: "approve", reason: "Away today" }]));
+    const fingerprint = await seen(item(DEMO_ITEM, DEMO, false));
+    await waitFor(() =>
+      expect(sent).toEqual([{ action: "approve", reason: "Away today", fingerprint }]),
+    );
   });
 
   // QA (2026-11-22): "Open item" opens that item; a reminder about items isn't one.

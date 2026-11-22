@@ -24,6 +24,15 @@ describe("pauseReasonWords", () => {
     );
     expect(pauseReasonWords("credits_out")).toBe("the month's credits ran out");
   });
+
+  it("strips trailing stops and spaces in linear time, whatever the client wrote", () => {
+    expect(pauseReasonWords("Pause!!")).toBeNull();
+    expect(pauseReasonWords("Pause . !")).toBeNull();
+    const long = `x${" ".repeat(50_000)}y`;
+    const started = Date.now();
+    expect(pauseReasonWords(long)).toBe(long);
+    expect(Date.now() - started).toBeLessThan(100);
+  });
 });
 
 const now = new Date("2026-11-06T12:00:00Z");

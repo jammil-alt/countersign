@@ -206,7 +206,12 @@ export async function findAlias(
     /** The line's code when it is no SKU (`identifyingSku`): only a person's alias for it counts. */
     taughtSku?: string | null | undefined;
   },
-): Promise<{ item: CatalogItemRow; via: "sku" | "description" } | null> {
+): Promise<{
+  item: CatalogItemRow;
+  via: "sku" | "description";
+  /** §1.88: the vendor item the alias names, when it names one (0047). */
+  vendorItemId: string | null;
+} | null> {
   const lookups: { via: "sku" | "description"; sku: string; hash: string; human: boolean }[] = [];
   if (key.vendorSku) lookups.push({ via: "sku", sku: key.vendorSku, hash: "", human: false });
   else if (key.taughtSku) lookups.push({ via: "sku", sku: key.taughtSku, hash: "", human: true });
@@ -214,7 +219,7 @@ export async function findAlias(
   for (const l of lookups) {
     // The same expressions as the unique index (migration 0006), so the lookup uses it.
     const [hit] = await tx
-      .select({ catalogItemId: itemAlias.catalogItemId })
+      .select({ catalogItemId: itemAlias.catalogItemId, vendorItemId: itemAlias.vendorItemId })
       .from(itemAlias)
       .where(
         and(
@@ -228,7 +233,7 @@ export async function findAlias(
       .limit(1);
     if (!hit) continue;
     const item = await liveItem(tx, tenantId, hit.catalogItemId);
-    if (item) return { item, via: l.via };
+    if (item) return { item, via: l.via, vendorItemId: hit.vendorItemId };
   }
   return null;
 }
