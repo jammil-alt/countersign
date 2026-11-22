@@ -47,7 +47,15 @@ export const CLIENT_TABS: {
   label: string;
   pages: readonly (readonly [string, string])[];
 }[] = [
-  { id: "overview", label: "Overview", pages: [["", "Overview"]] },
+  // R5 (docs/plan.md §1.235): the client's report, the Overview's second page.
+  {
+    id: "overview",
+    label: "Overview",
+    pages: [
+      ["", "Overview"],
+      ["report", "Report"],
+    ],
+  },
   { id: "agents", label: "Agents", pages: [["agents", "Agents"]] },
   // §1.162 (owner, 2026-11-20): the business areas switched on for the client (packs in the code),
   // the connections each needs with the client's status; their reports open under it. It was

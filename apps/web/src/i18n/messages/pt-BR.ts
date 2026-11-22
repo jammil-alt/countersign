@@ -1156,6 +1156,7 @@ export const ptBR: Messages = {
   "reports.subtitle": "O que os seus agentes fizeram.",
   "reports.subtitlePeriod": "O que os seus agentes fizeram, {period}.",
   "reports.activity": "Atividade",
+  "reports.account": "Conta",
   "reports.period": "Período",
   "reports.period.month": "Este mês",
   "reports.period.last": "Mês passado",
