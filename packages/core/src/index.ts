@@ -73,6 +73,8 @@ export * from "./api/gsheets";
 export * from "./api/hours";
 // docs/plan.md §1.149: onboarding v1 (the intake, the welcome page, Invite and Sign up now)
 export * from "./api/intake";
+// §1.164: the builder's sample-file check for a Read table step.
+export * from "./api/intake-reports";
 export * from "./api/invite";
 export * from "./api/knowledge";
 export * from "./api/language";
@@ -101,7 +103,6 @@ export * from "./api/phone-approval";
 export * from "./api/prompt-preview";
 export * from "./api/qbo";
 export * from "./api/reach";
-// §1.164: the builder's sample-file check for a Read table step.
 export * from "./api/read-table";
 export * from "./api/records";
 export * from "./api/reggie";
@@ -327,6 +328,8 @@ export * from "./schemas/event";
 export * from "./schemas/json-schemas";
 export * from "./schemas/pack";
 export * from "./schemas/permissions";
+// §1.213: file and email intake's report profiles.
+export * from "./schemas/report-profile";
 export * from "./schemas/rules";
 export * from "./schemas/skill";
 // The skill model (owner, 2026-11-10): parameters, rule rows, kinds, models, versions, writes.
