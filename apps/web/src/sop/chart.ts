@@ -5,6 +5,7 @@
 
 import type { SopOutlineStep, SopStepLine, SopView } from "@countersign/core";
 import type { MessageKey, Translate } from "../i18n/catalog";
+import { EN } from "../i18n/i18n";
 import type { Process, Step } from "../ops/builder/model";
 import type { ChartProps } from "../ops/flow/types";
 
@@ -29,17 +30,26 @@ export function stepLines(view: SopView): Map<string, SopStepLine> {
  * Nothing a step does is carried: a decision's paths have no rules (their words are their names),
  * a loop no list or limit.
  */
-export function outlineProcess(view: SopView, workflow: string | null): Process {
+export function outlineProcess(
+  view: SopView,
+  workflow: string | null,
+  t: Translate = EN.t,
+): Process {
   const lines = stepLines(view);
   const mine = view.outline.filter((o) => o.workflow === workflow);
   const within = new Map<string, SopOutlineStep[]>();
   for (const o of mine) within.set(o.container, [...(within.get(o.container) ?? []), o]);
   const build = (container: string): Step[] =>
-    (within.get(container) ?? []).map((o) => toStep(o, lines.get(o.id)?.name ?? "", build));
+    (within.get(container) ?? []).map((o) => toStep(o, lines.get(o.id)?.name ?? "", build, t));
   return { schemaVersion: 4, steps: build("root") } as unknown as Process;
 }
 
-function toStep(o: SopOutlineStep, name: string, build: (container: string) => Step[]): Step {
+function toStep(
+  o: SopOutlineStep,
+  name: string,
+  build: (container: string) => Step[],
+  t: Translate,
+): Step {
   const base = { id: o.id, name, kind: o.kind };
   if (o.kind === "if") {
     const paths = (o.paths ?? []).filter((p) => !p.otherwise);
@@ -49,7 +59,7 @@ function toStep(o: SopOutlineStep, name: string, build: (container: string) => S
       paths: paths.map((p) => ({
         id: p.id,
         // The builder's label: the path's name, else what sends a run down it.
-        name: p.name || capital(p.words) || `Path ${p.letter}`,
+        name: p.name || capital(p.words) || t("flow.path", { letter: p.letter }),
         when: { match: "all", rules: [] },
         steps: build(`path:${p.id}`),
       })),
