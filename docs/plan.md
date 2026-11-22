@@ -5428,7 +5428,7 @@ What each limit is lives in `docs/security.md` §6; this records the choices.
 | Topic | Decision |
 |---|---|
 | The beacon's limit | Per sending address, before any database work, on the Rate Limiting binding the Worker already has (`MCP_RATE_LIMIT`, its own key prefix): IPv4 by the whole address, IPv6 by its /64, the smallest network a host is normally given; the key is a hash, so the address goes nowhere. Over it the answer is the usual 204 and nothing is stored; drops are counted and reported at most once a minute per isolate (`apps/api/src/routes/pack-inbound.ts`). Any UUID is taken as an id, not only v7. // DECISION |
-| No per-site limit | The site and client ids are public in the page's snippet, so a site limit on the same binding would let one address empty a site's allowance and drop every real visitor. A per-site limit needs a binding of its own, set well above the address limit (`docs/open.md`). // DECISION |
+| No per-site limit | The site and client ids are public in the page's snippet, so a site limit on the same binding would let one address empty a site's allowance and drop every real visitor. A per-site limit needs a binding of its own, set well above the address limit (`docs/open.md`). // DECISION Since done: §1.198. |
 | Retention | Marketing retention runs for every client nightly, whether or not the pack is on: switching it off used to keep events, visits and salts for ever (`packs/marketing/src/measure/rollup.ts`). // DECISION |
 | Bounded bodies | Every route with no session reads its body with a cap (`apps/api/src/body.ts`; `apps/mfa` keeps a copy, since it imports only core): a declared length over the limit is refused unread, and a body with none is read only to the limit. A `mountPublic` JSON body is at most 1 MiB (413). Webhook signatures still get the exact raw bytes; a form upload streams through a byte count, so it isn't buffered twice. // DECISION |
 | The blocked tier in code | `BROWSER_BLOCKED_HOSTS` (`packages/core/src/browser/site.ts`): 75 well-known banks, payment services, email accounts and identity providers, matched as a domain and every subdomain, with trailing dots, and a wildcard host that reaches one. A site with any listed host is the blocked tier whatever the operator picked. A short list of hosts, not a classifier; the operator's tier covers the rest. `apps/browser/src/blocked.ts` is a copy kept equal by a test, since that Worker takes core's types only. // DECISION |
@@ -6397,6 +6397,20 @@ nothing.
 |---|---|
 | Rounding | Each call's cost is rounded **up** to a ten-thousandth before it is added to its step and run, as its `model_call` row already is (`dbModelCalls.record`), so a run's cost is the sum of its calls' rows and a call is never free. // DECISION: round per call rather than widen the columns: no migration, and the two sources agree. |
 | Not here | Runs already recorded at $0.00 keep it (`model_call` keeps their tokens and model, so they can be repriced later if wanted). Texts, calls and third-party fees are still not on a run's cost; that is plan 11's metering. |
+
+### 1.198 The beacon's limit per site (H4, 2026-11-22; no migration)
+
+§1.141 limited the public inbound route per sending address only. A site now has a limit of its
+own, on a Rate Limiting binding of its own, so one site can't flood us and one address can't empty
+a site's allowance.
+
+| Topic | Decision |
+|---|---|
+| Its own binding | `INBOUND_TARGET_RATE_LIMIT` in `apps/api/wrangler.jsonc`, beside `MCP_RATE_LIMIT` in each block that has it: namespaces 1110 local, 1111 staging, 1112 production (`docs/operations.md`). Typed in `OptionalBindings` (`apps/api/src/env.ts`) as the MCP one is; unbound, or when the binding fails (reported at most once a minute), a window in the isolate's memory at the same limit (`targetRateLimiterFor`, `apps/api/src/mcp/limits.ts`). It needs no secret and deploys with the Worker. // DECISION |
+| Per target, not per site | The route names no pack (invariant 2), so the limit is per target: the pack, client and target ids in the key (`in:target:<pack>:<client>:<target>`), which for the Marketing pack is one measured site. The ids are public in the page's snippet, so the key isn't hashed. // DECISION |
+| How much | 3,000 a minute per target per Cloudflare location (`INBOUND_TARGET_PER_MINUTE`), 25 times the 120 per address: 50 beacons a second, more than any client's site sends from one location, and it takes 25 addresses at their full limit to use it up. Cloudflare's simple limits take a period of 10 or 60 seconds; a minute matches the address limit. // DECISION |
+| Order | The address limit first, then the site's, both before any database work (`inboundLimitHit`, `apps/api/src/routes/pack-inbound.ts`). A request the address limit refuses never counts toward its site, so one address over its limit takes nothing from the site's other readers. Over either, the usual 204 and nothing stored; drops are reported at most once a minute per isolate, per limit, with the count and no address or ids. // DECISION |
+| Checked | `apps/api/src/routes/pack-inbound.test.ts` (a site over its limit refused while another site, and the same site id under another client, pass; one address over its limit doesn't use up the site's; the address limit and IPv6 /64 as before), `apps/api/src/marketing.test.ts` (through the route with a fake binding: a busy site's beacons stop being stored at its limit while another site's are stored; the address tests as before), `apps/api/src/mcp/units.test.ts` (the target limiter uses its own binding, and its fallback holds its own limit), `apps/api/src/mcp.runtime.test.ts` (the binding answers in workerd). |
 
 ### 1.196 Voice typing's usage and cost (H5, 2026-11-22; no migration)
 
