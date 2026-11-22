@@ -164,6 +164,11 @@ export interface ExecutorContext {
   /** Hand-off steps start other agents' runs through it; absent, a live hand-off step fails. */
   handoff?: HandoffPort;
   /**
+   * Setup-plan §4.1: who fills each seat the process names, as the run started (`run.config`).
+   * Absent: seats fall back as an empty seat does (the default approver, else the client admin).
+   */
+  seats?: processes.Seats;
+  /**
    * A run a hand-off step started: it starts at the top-level step `at` (the steps before it are
    * skipped: no rows, no outputs) and that step's input is `input`, as handed over.
    */
@@ -561,6 +566,12 @@ export async function executeWorkflow(
   let loaded: LoadedProcess;
   try {
     loaded = loadProcess(workflow, ctx.lookup ?? NO_LOOKUP);
+    // Setup-plan §4.1: a v4 process's seats become the people in them before anything runs, so
+    // the engine and the ports see plain user ids. Pure over the run's snapshot, so a replay reads
+    // the same people. A converted v3 workflow names no seat.
+    if (loaded.v3 === null && processes.namesSeats(loaded.process)) {
+      loaded = { ...loaded, process: processes.fillSeats(loaded.process, ctx.seats ?? {}) };
+    }
   } catch (error) {
     if (!(error instanceof ProcessLoadError)) throw error;
     return {

@@ -343,11 +343,12 @@ describe.skipIf(!h)("installing, offering and publishing the skill model's versi
     const later = await loadSeedVersions();
     const latest = (slug: string) =>
       Math.max(...later.filter((v) => v.slug === slug).map((v) => v.version));
-    expect(latest("bill-clerk")).toBe(3);
+    // Setup-plan §4.1: the Bill clerk's v4 names seats.
+    expect(latest("bill-clerk")).toBe(4);
     expect(latest("document-clerk")).toBe(2);
     // v0.19: Sloan's v6 is the chat only (ARCHITECTURE §10.15).
     expect(latest("supervisor")).toBe(6);
-    expect(latestSeededVersion("bill-clerk")).toBe(3);
+    expect(latestSeededVersion("bill-clerk")).toBe(4);
     expect(latestSeededVersion("document-clerk")).toBe(2);
     expect(latestSeededVersion("supervisor")).toBe(6);
     // The v1s are as they were (stored history is never edited).
