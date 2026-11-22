@@ -459,6 +459,109 @@ describe("skill and action steps", () => {
     expect(h.row("write")?.summary).toBe("Updated Acme");
   });
 
+  describe("a test run's steps on what an unmade write would have returned", () => {
+    const READ_TOOL = { ...WRITE_TOOL, id: "testkit.thing.get", sideEffect: "none" as const };
+    // A create, then a dependent write on its id, then a read of that record.
+    const chain = () =>
+      wf([
+        action({ id: "create", name: "Create the bill", input: { name: "{{trigger.what}}" } }),
+        action({
+          id: "attach",
+          name: "Attach the invoice",
+          input: { billId: "{{steps.create.output.id}}" },
+        }),
+        action({
+          id: "look",
+          name: "Read the bill",
+          tool: READ_TOOL.id,
+          input: { ids: ["{{steps.attach.output.billId}}"] },
+        }),
+      ]);
+    const catalog = { tools: { [WRITE_TOOL.id]: WRITE_TOOL, [READ_TOOL.id]: READ_TOOL } };
+    // As apps/api answers a test run's write: recorded as proposed, never made.
+    const proposed = (output: Record<string, unknown> = {}) => ({
+      kind: "done" as const,
+      output: { wouldHaveDone: true, actionId: "ea-1", before: null, ...output },
+      notWritten: true,
+    });
+
+    it("tells the dependent write's port, and both say they were not written", async () => {
+      const h = new Harness({ ...RUN, mode: "test" });
+      h.handlers.create = () => ({ ...proposed({ id: "0", standIn: true }), standIn: true });
+      h.handlers.attach = (req) => proposed({ billId: (req.input as { billId: string }).billId });
+      const result = await executeWorkflow(new FakeStepRunner(), h.context({ catalog }), chain(), {
+        what: "x",
+      });
+      expect(result).toEqual({ status: "succeeded" });
+      const calls = h.agentCalls as { nodeId: string; afterUnwritten?: boolean }[];
+      expect(calls.map((c) => [c.nodeId, c.afterUnwritten === true])).toEqual([
+        ["create", false],
+        ["attach", true],
+        // A read rests on it too (it reads the stand-in id the attach was given).
+        ["look", true],
+      ]);
+      expect(h.row("create")?.summary).toBe(
+        "Would create the bill (test run, not written; stand-in values)",
+      );
+      expect(h.row("attach")).toMatchObject({
+        status: "succeeded",
+        summary: "Would attach the invoice (test run, not written)",
+      });
+    });
+
+    it("records a dependent step that fails on the stand-in as what it would have done", async () => {
+      const h = new Harness({ ...RUN, mode: "test" });
+      // A create with no stand-in hands on nothing; the attach can't take that, nor the read.
+      h.handlers.create = () => proposed();
+      h.handlers.attach = () => ({ kind: "failed", error: "invalid input: ✖ Invalid UUID" });
+      h.handlers.look = () => ({ kind: "failed", error: "bill 0 not found" });
+      const result = await executeWorkflow(new FakeStepRunner(), h.context({ catalog }), chain(), {
+        what: "x",
+      });
+      expect(result).toEqual({ status: "succeeded" });
+      expect(h.row("attach")).toMatchObject({
+        status: "succeeded",
+        output: {
+          wouldHaveDone: true,
+          afterUnwritten: ["create"],
+          error: "invalid input: ✖ Invalid UUID",
+        },
+        summary: "Would attach the invoice (test run, not written)",
+      });
+      expect(h.row("look")).toMatchObject({
+        status: "succeeded",
+        output: { wouldHaveDone: true, afterUnwritten: ["attach"], error: "bill 0 not found" },
+        summary: "Would read the bill (test run, after a change not written)",
+      });
+    });
+
+    it("still fails a test run's step that reads no unmade write", async () => {
+      const h = new Harness({ ...RUN, mode: "test" });
+      h.handlers.create = () => ({ kind: "failed", error: "the vendor isn't the company's" });
+      const result = await executeWorkflow(new FakeStepRunner(), h.context({ catalog }), chain(), {
+        what: "x",
+      });
+      expect(result).toMatchObject({ status: "failed", nodeId: "create" });
+      expect(h.agentCalls.map((c) => c.nodeId)).toEqual(["create"]);
+    });
+
+    it("leaves a live run unchanged: nothing rests on an unmade write, a failure fails", async () => {
+      const h = new Harness();
+      h.handlers.create = () => ({ kind: "done", output: { id: "41" } });
+      h.handlers.attach = () => ({ kind: "failed", error: "bill 41 not found" });
+      const result = await executeWorkflow(new FakeStepRunner(), h.context({ catalog }), chain(), {
+        what: "x",
+      });
+      expect(result).toMatchObject({ status: "failed", nodeId: "attach" });
+      const calls = h.agentCalls as { nodeId: string; afterUnwritten?: boolean }[];
+      expect(calls.map((c) => [c.nodeId, c.afterUnwritten])).toEqual([
+        ["create", undefined],
+        ["attach", undefined],
+      ]);
+      expect(h.row("attach")?.status).toBe("failed");
+    });
+  });
+
   it("falls back to the label when the summary can't fill a slot", async () => {
     const h = new Harness();
     h.handlers.write = () => ({ kind: "done", output: { id: "1" } });

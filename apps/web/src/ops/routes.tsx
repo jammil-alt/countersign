@@ -54,6 +54,7 @@ import { OpsClientAreasScreen } from "./client/ClientAreas";
 import { ClientLayout } from "./client/ClientFrame";
 import { OpsClientLedgerScreen } from "./client/ClientLedger";
 import { ClientOverviewScreen } from "./client/ClientOverview";
+import { OpsSetupProgressScreen } from "./client/SetupProgress";
 import { CommandCenterScreen } from "./command/CommandCenter";
 import { OpsClientConnectorScreen } from "./connectors/ClientConnector";
 import { CheckStepsScreen } from "./flow/CheckSteps";
@@ -193,7 +194,8 @@ export const opsRoutes = (
       <Route path="clients/:clientId/records" element={<OpsRecordsScreen />} />
       {/* The client's chart of accounts, classes and locations, changed only with a signature */}
       <Route path="clients/:clientId/ledger" element={<OpsClientLedgerScreen />} />
-      {/* Setup: Connections, Messaging, Directory and Knowledge */}
+      {/* Setup: Progress (§1.206), Connections, Messaging, Directory and Knowledge */}
+      <Route path="clients/:clientId/progress" element={<OpsSetupProgressScreen />} />
       <Route path="clients/:clientId/connections" element={<OpsConnectionsScreen />} />
       {/* Connectors C6 (docs/connectors-plan.md §7.1): one connector of the client, edited. */}
       <Route
@@ -357,7 +359,7 @@ export const opsRoutes = (
     />
     <Route
       path="clients/:clientId/setup"
-      element={<Redirect to="/ops/clients/:clientId/connections" />}
+      element={<Redirect to="/ops/clients/:clientId/progress" />}
     />
     {/* §1.162: the Packs tab is the Areas tab now. */}
     <Route

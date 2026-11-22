@@ -7,13 +7,14 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { apiRoutes } from "../../api/routes";
 import { daysIn, price, STATEMENT_STATUS, StatementLines } from "../../billing/parts";
+import { dateLocaleFor } from "../../i18n/format";
 import { EN } from "../../i18n/i18n";
 import { Badge, Button, Card, ErrorNotice } from "../../ui/primitives";
 import { dayLabel } from "../../usage/format";
 import { Field, Notice, TextInput, useAction } from "../agents/ui";
 
 const monthOf = (start: string) =>
-  new Date(`${start}T00:00:00.000Z`).toLocaleDateString("en-US", {
+  new Date(`${start}T00:00:00.000Z`).toLocaleDateString(dateLocaleFor("en"), {
     month: "long",
     year: "numeric",
     timeZone: "UTC",

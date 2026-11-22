@@ -5,13 +5,17 @@
 // DECISION: kept in the Sales folder for now; the shared work parts (apps/web/src/ops/work/,
 // §1.124 stage 0) replace them when they land, with the same classes.
 import { type DealStanding, daysFrom, shortDay, wholeMoney } from "@countersign/core";
-import type { ReactNode } from "react";
+import { Children, type ReactNode, useRef } from "react";
 import { Link } from "react-router-dom";
 import { cx } from "../../../ui/cx";
+import { useEvenColumns, useScrollEdges } from "../../../ui/tileRows";
 
 export function Kpis({ children, testId }: { children: ReactNode; testId?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  // Even rows (3 + 3, never 4 + 2) at any width (ui/tileRows.ts).
+  const even = useEvenColumns(ref, Children.count(children));
   return (
-    <div className="ds-kpis" data-testid={testId}>
+    <div ref={ref} className="ds-kpis" style={even} data-testid={testId}>
       {children}
     </div>
   );
@@ -82,8 +86,11 @@ export function FilterChips<K extends string>({
   onChange(k: K): void;
   testId?: string;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  // In the table's bar the chips scroll sideways, with a fade where more are (ui/tileRows.ts).
+  const edges = useScrollEdges(ref);
   return (
-    <div className="ds-filters" data-testid={testId}>
+    <div ref={ref} className="ds-filters ui-filters" data-more={edges} data-testid={testId}>
       {filters.map((f) => (
         <button
           key={f.key}

@@ -122,6 +122,9 @@ import { isLogic, stepCount, walkSteps } from "./walk";
 /** v3's codes (same meaning, same names) plus what v4 adds. */
 export type ProcessValidationCode =
   | ValidationCode
+  // Setup-plan §4.1: a seat the bundle doesn't declare, or one whose kind can't do what is asked.
+  | "unknown_seat"
+  | "seat_kind"
   // An `if` with no path (v3's `fork_no_paths`).
   | "if_no_paths"
   // A read step whose tool changes something, a write step whose tool only reads.

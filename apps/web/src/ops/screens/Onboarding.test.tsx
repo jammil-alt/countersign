@@ -137,9 +137,10 @@ describe("new client", () => {
     await waitFor(() => expect(screen.getByTestId("new-client-name")).toHaveFocus());
 
     await userEvent.type(screen.getByTestId("new-client-name"), "Cabinet shop");
+    // The time zone is picked from the IANA zones, never typed (QA, runs and dates).
     const tz = screen.getByTestId("new-client-timezone");
-    await userEvent.clear(tz);
-    await userEvent.type(tz, "America/Chicago");
+    expect(within(tz).getByRole("option", { name: "America / Chicago" })).toBeInTheDocument();
+    await userEvent.selectOptions(tz, "America/Chicago");
     await userEvent.click(screen.getByTestId("new-client-approvals-operator"));
     // The client's language: English unless chosen; the six are offered by their own names.
     const language = screen.getByTestId("new-client-language");
