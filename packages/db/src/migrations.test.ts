@@ -449,6 +449,9 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
     }
+    // 0085: saved match rules are retired in place, never deleted (§1.215).
+    expect(await can("match_rule", "UPDATE")).toBe(true);
+    expect(await can("match_rule", "DELETE")).toBe(false);
     expect(await can("agent_change", "UPDATE")).toBe(false);
     expect(await can("doc_extraction", "UPDATE")).toBe(false);
     expect(await can("doc_line", "UPDATE")).toBe(false);

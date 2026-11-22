@@ -1,6 +1,6 @@
 {
-  "id": "44ba72af-ac97-4f72-94b4-897285efab68",
-  "prevId": "ee3f2726-594b-4063-aca0-e8d0154b2635",
+  "id": "95811738-cdd4-4e21-9c7c-8b0291e990a9",
+  "prevId": "3e5ab826-377f-4062-a25b-b71c103988ac",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -14024,6 +14024,204 @@
         "ledger_dimension_kind_check": {
           "name": "ledger_dimension_kind_check",
           "value": "\"ledger_dimension\".\"kind\" in ('class', 'location')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.match_rule": {
+      "name": "match_rule",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "config": {
+          "name": "config",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "field": {
+          "name": "field",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "a_value": {
+          "name": "a_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "b_value": {
+          "name": "b_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "retired_at": {
+          "name": "retired_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "retired_by": {
+          "name": "retired_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "match_rule_live_key": {
+          "name": "match_rule_live_key",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "config",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "field",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "a_value",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"match_rule\".\"retired_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "match_rule_tenant_idx": {
+          "name": "match_rule_tenant_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "config",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "match_rule_tenant_id_tenant_id_fk": {
+          "name": "match_rule_tenant_id_tenant_id_fk",
+          "tableFrom": "match_rule",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "match_rule_created_by_app_user_id_fk": {
+          "name": "match_rule_created_by_app_user_id_fk",
+          "tableFrom": "match_rule",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "match_rule_retired_by_app_user_id_fk": {
+          "name": "match_rule_retired_by_app_user_id_fk",
+          "tableFrom": "match_rule",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "retired_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "match_rule_config_check": {
+          "name": "match_rule_config_check",
+          "value": "\"match_rule\".\"config\" ~ '^[a-z][a-z0-9_]{0,63}$'"
+        },
+        "match_rule_field_check": {
+          "name": "match_rule_field_check",
+          "value": "\"match_rule\".\"field\" in ('reference', 'counterparty')"
+        },
+        "match_rule_values_check": {
+          "name": "match_rule_values_check",
+          "value": "length(\"match_rule\".\"a_value\") between 1 and 200 and length(\"match_rule\".\"b_value\") between 1 and 200"
+        },
+        "match_rule_note_check": {
+          "name": "match_rule_note_check",
+          "value": "\"match_rule\".\"note\" is null or length(\"match_rule\".\"note\") <= 500"
+        },
+        "match_rule_retired_check": {
+          "name": "match_rule_retired_check",
+          "value": "(\"match_rule\".\"retired_at\" is null) = (\"match_rule\".\"retired_by\" is null)"
         }
       },
       "isRLSEnabled": false
