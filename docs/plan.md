@@ -6382,6 +6382,34 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.185 Setting up a client: seats, the setup chapters and the Setup tab (owner, 2026-11-22; no migration)
+
+`docs/setup-plan.md` (SU1–SU6), with its mock-up `docs/design/setup.html`. Outside ARCHITECTURE's v1
+scope at the owner's request, as §1.149 is. The owner took the design's answer to each of its §12
+questions ("go with your defaults", 2026-11-22):
+
+| # | Question | Decision |
+|---|---|---|
+| 1 | A change to a `signs` seat once the trial has started | Applies at once and tells the lead (a to-do on Your call). Adding a person or a backup applies at once with no notice. // DECISION in `apps/api/src/setup/seats.ts` |
+| 2 | Try it on a real one without us | Any client user who sees the agent may start up to three test runs per agent during setup, one at a time. // DECISION in `apps/api/src/setup/try.ts` |
+| 3 | Approvers must sign in | Yes: a `signs` seat holds client users who can sign (never a viewer, never a contact). |
+| 4 | Answers from a call | The lead's answers are marked "From our call: please check" and count once the client confirms the chapter. |
+| 5 | The trial's length | Two weeks, one default for every agent. |
+| 6 | Chapter order | Business, tools, people, see it work, go live. |
+
+**SU1, seats (built):**
+
+| Topic | Decision |
+|---|---|
+| Declared | The bundle's `people` (`PersonRole`) gains `kind` (`signs`, `answers`, `told`, `reached`) and a client-facing `label`, both optional with no default so a bundle made before seats parses and hashes as it was; an absent kind is `reached` (core `seatKindOf`). // DECISION |
+| Named | A step names a seat as `seat:<role>` wherever a `Who` goes: a person step's assignee, an approval's approvers, a confer's person, a notify's or a deadline's `tell`, an escalation's `to`, a process step's approvals (core `processes.whoRefsOfStep`). Bundle validation refuses a seat the bundle doesn't declare (`unknown_seat`) and one whose kind can't do what is asked (`seat_kind`): only `signs` approves; `answers` or `signs` answers and is escalated to; anything but `reached` is told. |
+| Filled | `agent.people` (jsonb, operational, never in a version) gains `userIds` (in order) and `backupUserIds` beside `contactIds`; no migration. A PUT that leaves them out keeps them, so the People section's contacts and conditions never empty a seat. `setPeople` checks each person: a member of the client (admin or client user) who can see the agent, one who can sign for a `signs` seat; `signs` and `answers` hold users only, `reached` contacts only, and only `signs` has backups. |
+| Run | `createRun` snapshots `agent.people` into `run.config.people`; the run's load step reads it (`seatsOfConfig`) and the executor rewrites the v4 process before anything runs (`processes.fillSeats`): an approval's seat becomes one approver per person, then (in turn only) its backups; a person step or an escalation takes the seat's first person; a notify or `tell` everyone in it. An empty seat is the default approver (agent, client rules, admin) or, where someone must be asked or told, the client admin, exactly as before seats. A replay reads the same people; the engine and the ports see plain user ids. // DECISION: backups are asked only in `in_turn`, so `all` never waits for a backup's signature. |
+| Activation | A required seat with nobody in it holds activation (`missingRoles` counts users, backups and contacts). |
+| The SOP | A seat reads as whoever a run would ask: its one person by name, several as "A or B", an empty seat as the client admin (`apps/api/src/sop/inputs.ts`). |
+| The Bill clerk v4 | `bill-approver` (`signs`, "Approves the Bill clerk's changes in QuickBooks") on every write's approval, `bill-questions` (`answers`) on its four questions; neither required, so an unfilled copy behaves as v3 did. |
+| Checked | `packages/core/src/process/seats.test.ts` (names, kinds, validation inside ifs and escalations, the rewrite, nothing mutated, empty seats), `packages/workflows/src/seats.test.ts` (a run asks the seat's people; with no seats, the client admin), `packages/db/src/seed.test.ts` and `apps/api/src/templates-skill-model.test.ts` (v4 seeded and live), `packages/agents/src/registry/registry.test.ts` (the run's snapshot). |
+
 ### 1.184 Each way a workflow starts, with its own first steps (owner, 2026-11-22; no migration)
 
 The owner, on a bookkeeper that pulls bank transactions on a schedule and should also start when a

@@ -18,6 +18,7 @@ import {
   validateWorkflow,
 } from "../workflow/validate";
 import { walkSteps as walkV3Steps } from "../workflow/walk";
+import { seatProblems } from "./seats";
 import {
   type ProcessValidationCode,
   type ProcessValidationContext,
@@ -190,6 +191,10 @@ export function validateAnyBundle(
       const r = validateProcess(w.workflow, { ...ctx, agent: bundle.definition });
       for (const e of r.errors) errors.push({ ...e, workflow: w.slug });
       for (const warning of r.warnings) warnings.push({ ...warning, workflow: w.slug });
+      // Setup-plan §4.1: every seat a step names is one the bundle declares, of a kind that fits.
+      for (const e of seatProblems(w.workflow, bundle.people ?? [])) {
+        errors.push({ ...e, workflow: w.slug });
+      }
     } else {
       const r = validateWorkflow(w.workflow, { ...ctx, agent: bundle.definition });
       for (const e of r.errors) errors.push({ ...e, workflow: w.slug });

@@ -1268,6 +1268,9 @@ export interface AgentPause {
 /** One role's binding on a client agent: who fills it, and when and how they may be reached. */
 export interface AgentPeopleBinding {
   contactIds: string[];
+  /** Setup-plan §4.1: a seat's client users, in order, and its backups (core's `PeopleBinding`). */
+  userIds?: string[] | undefined;
+  backupUserIds?: string[] | undefined;
   /** Validated by core's ReachConditions; the defaults apply to anything missing. */
   conditions?: Record<string, unknown>;
 }

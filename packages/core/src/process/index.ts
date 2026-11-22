@@ -28,6 +28,7 @@ export * from "./paths";
 export * from "./reshape";
 export * from "./reshape-propose";
 export * from "./schema";
+export * from "./seats";
 // Data in and out of files (owner, 2026-11-20; docs/plan.md §1.164): Read table and Write table.
 export * from "./table";
 // R5: write tools' undo.

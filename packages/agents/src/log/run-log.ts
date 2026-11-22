@@ -74,7 +74,9 @@ export async function createRun(tx: Tx, input: CreateRunInput): Promise<typeof r
       agentId: a.id,
       agentVersionId: versionId,
       workflowSlug: input.workflowSlug,
-      config: { bindings: a.bindings, approver: a.approver, approverRules },
+      // Setup-plan §4.1: who sat in each seat when the run started (`agent.people`), so every
+      // approval and question of the run goes to the same people, however the seats change after.
+      config: { bindings: a.bindings, approver: a.approver, approverRules, people: a.people },
       mode: input.mode,
       trigger: input.trigger ?? {},
       status: "running",
