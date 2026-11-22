@@ -161,6 +161,81 @@ describe("the checks (docs/agent-assurance-plan.md §4)", () => {
   });
 });
 
+describe("no secret in its AI requests, and OAuth scopes (§1.231.2)", () => {
+  const scan = {
+    calls: 12,
+    read: 12,
+    missing: 0,
+    secrets: 3,
+    unreadable: 0,
+    withSecret: [] as string[],
+    secretShaped: [] as { id: string; kinds: string[] }[],
+  };
+  const grant = {
+    id: "0199a000-0000-7000-8000-0000000000c1",
+    name: "Gmail",
+    granted: ["openid", "email", "https://www.googleapis.com/auth/gmail.send"],
+    beyond: [] as string[],
+  };
+
+  it("is not checked when the stored requests and grants weren't read (a view)", () => {
+    const outs = runAssuranceChecks(input());
+    expect(result(outs, "no_secret_to_model")).toBeUndefined();
+    expect(result(outs, "oauth_scopes")).toBeUndefined();
+  });
+
+  it("verifies requests that hold no secret, and grants within what we ask", () => {
+    const outs = runAssuranceChecks(input({ requestScan: scan, oauthGrants: [grant] }));
+    expect(result(outs, "no_secret_to_model")).toMatchObject({
+      result: "verified",
+      found:
+        "12 stored AI requests, none holding a stored secret or a key or token; 3 secrets looked for",
+    });
+    expect(result(outs, "oauth_scopes")).toMatchObject({
+      result: "verified",
+      found: "Gmail: granted only the scopes we ask for",
+    });
+  });
+
+  it("puts in review a request with a secret, by call id only, and a grant beyond our ask", () => {
+    const outs = runAssuranceChecks(
+      input({
+        requestScan: {
+          ...scan,
+          withSecret: ["m1"],
+          secretShaped: [{ id: "m2", kinds: ["model_api_key"] }],
+        },
+        oauthGrants: [{ ...grant, beyond: ["gmail.readonly"] }],
+      }),
+    );
+    const s = result(outs, "no_secret_to_model");
+    expect(s?.result).toBe("in_review");
+    expect(s?.evidence).toMatchObject({ withSecret: ["m1"], secretShaped: [{ id: "m2" }] });
+    expect(result(outs, "oauth_scopes")).toMatchObject({
+      result: "in_review",
+      found: "Granted more than we ask for: Gmail (gmail.readonly)",
+    });
+  });
+
+  it("is not applicable with no calls or no OAuth, and not yet checked when it can't read", () => {
+    let outs = runAssuranceChecks(
+      input({ requestScan: { ...scan, calls: 0, read: 0 }, oauthGrants: [] }),
+    );
+    expect(result(outs, "no_secret_to_model")?.result).toBe("not_applicable");
+    expect(result(outs, "oauth_scopes")?.result).toBe("not_applicable");
+    outs = runAssuranceChecks(
+      input({
+        requestScan: { ...scan, read: 0, missing: 12 },
+        oauthGrants: [grant, { ...grant, id: "q", name: "QuickBooks Online", granted: null }],
+      }),
+    );
+    expect(result(outs, "no_secret_to_model")).toBeUndefined();
+    expect(result(outs, "oauth_scopes")).toBeUndefined();
+    outs = runAssuranceChecks(input({ requestScan: { ...scan, unreadable: 1 } }));
+    expect(result(outs, "no_secret_to_model")?.result).toBe("in_review");
+  });
+});
+
 describe("every control accounted for (§4a)", () => {
   it("places every register control in exactly one state", () => {
     const placed = new Set([
