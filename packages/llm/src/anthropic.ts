@@ -16,8 +16,10 @@
 //
 // The finished message is checked with Zod (./messages.ts) before it goes up.
 
+import type * as Anthropic from "./messages";
 import { messageSchema } from "./messages";
 import type { LlmMessage, LlmRequest, LlmTransport } from "./transport";
+import { type LlmUsage, usageOf, withPartialUsage } from "./usage";
 
 /** The API version the SDK we replaced sent, unchanged. */
 export const ANTHROPIC_VERSION = "2026-10-21";
@@ -341,6 +343,19 @@ export class MessageAccumulator {
     }
     return this.#snapshot;
   }
+
+  /**
+   * §1.210: what the stream reported it used so far (input and cache from `message_start`, output
+   * as of the last `message_delta`), and the model that answered; null before any message.
+   */
+  partial(): { usage: LlmUsage; model: string | null } | null {
+    const snap = this.#snapshot;
+    if (!snap?.usage) return null;
+    return {
+      usage: usageOf(snap as unknown as Pick<Anthropic.Message, "usage">),
+      model: typeof snap.model === "string" ? snap.model : null,
+    };
+  }
 }
 
 // DECISION: tool input that does not parse (only possible when the answer was cut off at
@@ -482,11 +497,18 @@ async function readMessage(res: Response, signal: AbortSignal | undefined): Prom
     }
   } catch (error) {
     await res.body.cancel().catch(() => {});
-    if (signal?.aborted) throw new AnthropicConnectionError("aborted", error);
-    throw error;
+    // §1.210: what was used before the stream broke was billed; it goes with the error.
+    const partial = acc.partial();
+    const thrown = signal?.aborted ? new AnthropicConnectionError("aborted", error) : error;
+    throw partial ? withPartialUsage(thrown, partial.usage, partial.model) : thrown;
   }
-  checkAborted(signal);
-  return parseMessage(acc.message());
+  try {
+    checkAborted(signal);
+    return parseMessage(acc.message());
+  } catch (error) {
+    const partial = acc.partial();
+    throw partial ? withPartialUsage(error, partial.usage, partial.model) : error;
+  }
 }
 
 /** The message, checked at the boundary (invariant 5). */

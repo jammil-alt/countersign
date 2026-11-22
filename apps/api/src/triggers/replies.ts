@@ -38,6 +38,7 @@ import type { EventRow, EventTypeRegistry } from "@countersign/senses";
 import { leadThread, postMessage, senseEmitPosted } from "@countersign/threads";
 import { and, eq } from "drizzle-orm";
 import type { Bindings } from "../env";
+import { meter } from "../metering";
 import { type Mailer, mailerFromEnv } from "../notify/mailer";
 import { connectionCredentials } from "../secrets";
 
@@ -173,6 +174,15 @@ export async function sendReplies(
           text: r.text,
           idempotencyKey: r.idempotencyKey,
         });
+        // §1.210: an auto-reply is the client's own usage.
+        await withTenant(db, tenantId, (tx) =>
+          meter(tx, {
+            tenantId,
+            measure: "emails",
+            source: "auto_reply",
+            key: `notify:${r.idempotencyKey}`,
+          }),
+        );
         continue;
       }
       // v0.14 W4-A: a WhatsApp message to the client's own number (Meta) is answered from it.
@@ -196,12 +206,18 @@ export async function sendReplies(
         );
         if (!creds) return;
         const prefix = r.channel === "whatsapp" ? "whatsapp:" : "";
-        await sendReleaseText(deps.fetch, creds, {
+        const sid = await sendReleaseText(deps.fetch, creds, {
           from: `${prefix}${r.from}`,
           to: `${prefix}${r.to}`,
           body: r.body,
           // P-8: a text goes through the client's Messaging Service once its campaign is verified.
           messagingServiceSid: r.channel === "sms" ? a2pServiceFor(config, r.from) : null,
+        });
+        await meter(tx, {
+          tenantId,
+          measure: "messages",
+          source: "auto_reply",
+          key: `twilio:${sid}`,
         });
       });
     } catch (error) {
