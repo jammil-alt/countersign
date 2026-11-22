@@ -82,6 +82,7 @@ export const TOOL_TITLES: Record<string, string> = {
   "qbo.location.create": "Add a location",
   "qbo.location.update": "Change a location",
   "qbo.account.register": "Read an account's register",
+  "qbo.banking.find": "Find a booking already in QuickBooks",
   // Other connectors
   "website.publish": "Publish a guide",
   "website.meta": "Change a page's search title",
@@ -175,6 +176,7 @@ export const TOOL_TITLES: Record<string, string> = {
   "bookkeeping.account.note": "Note what an account is for",
   "bookkeeping.booking.propose": "Propose a booking",
   "bookkeeping.booking.qbo-input": "Prepare a QuickBooks booking",
+  "bookkeeping.booking.write-check": "Check no other copy is written",
   "bookkeeping.booking.posted": "Record a posted booking",
   "bookkeeping.bookings.ready": "List bookings ready to post",
   "bookkeeping.reconcile": "Reconcile two balances",

@@ -23,7 +23,7 @@ at once, updates itself and has one user (§10), checked by hand until device ma
 Status, 2026-11-20:
 - The code for every control below is on `main` and on staging: #81–#84, then CodeQL v4 (#315),
   OSV-Scanner and patch deadlines (#316), Node 24 (#317), the register (#318), removing people
-  (#325, #370) and the model gate (#414). The MCP connector's HIPAA check waits (§5).
+  (#325, #370), the model gate (#414) and the MCP connector's HIPAA check (`docs/plan.md` §1.190).
 - The first settings outside the code are in place (§10). What the owner still has to set is in
   §10, "Still to set".
 - Plaid's attestations, control by control, are in `docs/plaid-plan.md`.
@@ -167,8 +167,9 @@ Status, 2026-11-20:
   - model calls outside a run (the Builder on its agents, questions in plain words, voice typing)
     to an uncovered provider. They all go through one entry point,
     `apps/api/src/compliance/models.ts` (`docs/plan.md` §1.143).
-- Not yet held to it: the MCP connector, whose answers reach claude.ai (`docs/hipaa-plan.md` T1).
-  The owner's call: it waits for the first HIPAA client.
+  - the back office's MCP connector, whose answers reach claude.ai, until `claude_ai` is covered:
+    a call that names a client in HIPAA mode, or spans clients while one is served, is refused,
+    and the lists of clients leave it out (`apps/api/src/mcp/hipaa.ts`, `docs/plan.md` §1.190).
 - The list of which feature sends data to which vendor is
   `packages/core/src/compliance/processors.ts` (invariant 14).
 - **Card numbers**:
@@ -314,7 +315,7 @@ finding each setting.
 | Stripe | The owner's two-step | Authenticator app and two passkeys. Signs in with Google, no password. Team: one member, Owner; team requirement off. Checked in the test-mode sandbox only; the second account not opened (2026-11-18) |
 | 1Password, company account | Staff credentials and recovery codes | Set up 2026-11-18 (the owner's word, not checked by Claude in Chrome): Mezonas logins, passkeys and recovery codes kept there, in vaults only the owner opens |
 | The owner's MacBook Pro (macOS 26.6.2) | Device settings (policy §4) | FileVault on, recovery key in 1Password; screen lock immediate; firewall on; automatic macOS updates on; Find My Mac on; one user account. Checked by hand with `fdesetup`, `socketfilterfw`, `sysadminctl` and `dscl` (2026-11-18); not yet under device management |
-| Claude (claude.ai), the owner's account | Privacy → Help improve our AI models | Off: chats and coding sessions, including what the Ops MCP connector returns, aren't used for training. A personal plan, not a business one; no BAA, so HIPAA clients stay out of the connector (`docs/hipaa-plan.md` T1) (checked 2026-11-18) |
+| Claude (claude.ai), the owner's account | Privacy → Help improve our AI models | Off: chats and coding sessions, including what the Ops MCP connector returns, aren't used for training. A personal plan, not a business one; no BAA, so HIPAA clients are held out of the connector until `claude_ai` is listed (`docs/plan.md` §1.190) (checked 2026-11-18) |
 | Better Stack (free) | Uptime and status page | Monitor on `https://app.mezonas.com/api/health` every 3 minutes, email alerts; public status page at `https://status.mezonas.com` (CNAME `status` → `statuspage.betteruptime.com`, DNS only, on `mezonas.com`). It reaches only the public health route: no client data (2026-11-18) |
 | Sentry, organization | Security & Privacy | Data Scrubber, default scrubbers and "Prevent Storing of IP Addresses" on and enforced on `mezonas-api` and `mezonas-web`; sensitive fields email, cookie, session, prompt, completion, utterance, transcript (checked 2026-11-14). "Require Two-Factor Authentication" was off then; on since 2026-11-18 (row above) |
 | Sentry, `mezonas-api` and `mezonas-web` | Alerts | "Production errors to the security officer": a new or regressed issue in `environment:production`, email to the owner, at most every 30 minutes (#6345968, #6345969; 2026-11-14). The default "high priority issues" alert stays, all environments. Developer plan: one user, events kept 30 days |
@@ -343,7 +344,7 @@ in `docs/hipaa-plan.md`.
 | Cloudflare | All traffic; Workers, R2 files, Email Routing, Browser Run | `cloudflare` |
 | Neon | The database | `neon` |
 | WorkOS | Users' names, emails and sign-ins | `workos` |
-| Anthropic | What agents read and write, and documents to extract (the API); and what operators look up through the Ops MCP connector in Claude (claude.ai, `docs/hipaa-plan.md` T1) | `anthropic` |
+| Anthropic | What agents read and write, and documents to extract (the API); and what operators look up through the Ops MCP connector in Claude (claude.ai, `docs/plan.md` §1.190) | `anthropic` (the API); `claude_ai` (the connector) |
 | OpenAI | The same, for agents set to `openai:` models; the vendor catalog's embeddings; voice typing's recordings (written out, never kept) | `openai` |
 | xAI | The same, for agents set to `xai:` models (Grok) | `xai` |
 | Google (Gemini API) | The same, for agents set to `google:` models (Gemini); not the client's own Google account | `google` |
