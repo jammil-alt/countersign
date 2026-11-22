@@ -13,6 +13,12 @@ import { MATCH_REVIEW, REQUEST_LINES_REVIEW, VENDOR_CHOICE_REVIEW } from "./mate
 import { VendorChoiceReview } from "./materials/VendorChoiceReview";
 import { SALES_MATCH_REVIEW } from "./sales/types";
 
+// Plan entry §1.233: the AP pack's approve-to-pay card loads with the card.
+const AP_PAY_LIST_REVIEW = "ap.pay_list";
+const PayListReview = lazy(() =>
+  import("./ap/PayListReview").then((m) => ({ default: m.PayListReview })),
+);
+
 // §1.164: the Sales area's card loads with the card, never in the first load (the web budget,
 // scripts/web-size.mjs).
 const ConfirmMatches = lazy(() =>
@@ -37,6 +43,12 @@ const CARDS: Record<string, (props: ReviewCardProps) => ReactNode> = {
   // R-1 (docs/plan.md §1.80): the reconciliation card.
   [RECONCILIATION_REVIEW]: (p) => <ReconciliationReview {...p} />,
   // §1.164: Confirm matches (the Sales area).
+  // Plan entry §1.233: the week's approve-to-pay list (the AP pack).
+  [AP_PAY_LIST_REVIEW]: (p) => (
+    <Suspense fallback={null}>
+      <PayListReview {...p} />
+    </Suspense>
+  ),
   [SALES_MATCH_REVIEW]: (p) => (
     <Suspense fallback={null}>
       <ConfirmMatches {...p} />
