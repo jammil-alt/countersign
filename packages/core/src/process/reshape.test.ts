@@ -17,10 +17,10 @@ import {
   reshapeExprSchema,
   reshapeOutputSchema,
   reshapeProblems,
-  sampleFromSchema,
   schemaFitProblems,
 } from "./reshape";
 import { proposeReshape, reshapeContext, wireToReshape } from "./reshape-propose";
+import { sampleFromSchema } from "./sample";
 import { Process, type Step } from "./schema";
 import { validateProcess } from "./validate";
 

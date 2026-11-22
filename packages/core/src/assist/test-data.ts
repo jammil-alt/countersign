@@ -5,7 +5,7 @@
 // draft's step names, each piece's JSON Schema and how the steps read it.
 import { z } from "zod";
 import { rangeNeeds, type TestRange } from "../process/range";
-import { sampleFromSchema } from "../process/reshape";
+import { sampleFromSchema } from "../process/sample";
 import type { Process } from "../process/schema";
 import { processTriggerSchema, stepOutputSchema } from "../process/validate";
 import type { JsonSchema } from "../schemas/common";

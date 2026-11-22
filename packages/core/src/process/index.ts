@@ -28,6 +28,7 @@ export * from "./range";
 // Reshape data (owner, 2026-11-11): the mapping, its evaluator, typing and proposer.
 export * from "./reshape";
 export * from "./reshape-propose";
+export * from "./sample";
 export * from "./schema";
 // Data in and out of files (owner, 2026-11-20; docs/plan.md §1.164): Read table and Write table.
 export * from "./table";
