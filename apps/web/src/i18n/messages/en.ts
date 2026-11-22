@@ -32,7 +32,7 @@ export const en = {
   "common.expired": "Expired",
   "common.notBuiltTitle": "Not built yet",
   "common.notBuiltBody": "This screen comes in a later milestone.",
-  "common.notFoundTitle": "Not found",
+  "common.notFoundTitle": "Page not found",
   "common.notFoundBody": "No page here.",
   "common.yes": "Yes",
   "common.no": "No",
@@ -1013,7 +1013,7 @@ export const en = {
 
   // ── Feedback ──
   "feedback.button": "Report a problem with the app",
-  "feedback.short": "Feedback",
+  "feedback.short": "Report a problem",
   "feedback.tapWhere": "Tap where the problem is",
   "feedback.noSpot": "No particular spot",
   "feedback.capturing": "Taking the picture…",
