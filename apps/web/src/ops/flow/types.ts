@@ -121,6 +121,13 @@ export interface ChartProps extends ChartEvents {
     /** The agent a hand-off goes to, for its mark: the agent's own avatar. */
     agent?: { name: string };
     /**
+     * What the step does, in its skill's, tool's or automation's own words, for the details on
+     * hover. Absent: its kind's line (./does).
+     */
+    does?: string;
+    /** Why the step is there, when its author said (the step's `purpose`). */
+    purpose?: string;
+    /**
      * The doer chip of a step no model does, in the host's words: "code" in the builder by default,
      * "rules" in the client's view-only chart (docs/sop-plan.md §6a), with its hover title.
      */

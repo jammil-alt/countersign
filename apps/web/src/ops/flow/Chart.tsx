@@ -52,6 +52,7 @@ import {
   insertDropId,
   START_DROP_ID,
 } from "./dnd";
+import { kindDoes } from "./does";
 import "./flow.css";
 import {
   FLOW_GIVES_BACK_ID,
@@ -490,6 +491,13 @@ export function Chart(props: ChartProps) {
               {line.words}
             </li>
           ))}
+          {readOnly ? null : (
+            // Said once here; every box's details said it before (docs/plan.md §1.182).
+            <li className="flow-key__how" data-testid="flow-key-how">
+              Click a step to set it up. Drag a box to move it. Drag the dot under a box onto
+              another step to make that step come next.
+            </li>
+          )}
         </ul>
       ) : null}
       <div className="flow-zoom" data-testid="flow-zoom">
@@ -1015,7 +1023,6 @@ function Tip(p: {
     const words = p.label(box.step);
     const mark = status?.tried;
     const tryWord = mark && mark.status !== "skipped" ? TRY_WORD[mark.status] : null;
-    const canDot = box.step.kind !== "if" && box.step.kind !== "stop";
     // A line of its own for the model: "AI" or "Deterministic", then the model it runs on. What
     // that line says is left out of the eyebrow and the detail, which said it among other things.
     const how = words.skillKind ?? null;
@@ -1035,6 +1042,16 @@ function Tip(p: {
       <>
         <span className="ds-eyebrow">{kind}</span>
         <span className="flow-tip__h">{words.title}</span>
+        {/* What the step does, in its own words or its kind's (./does); it took the place of the
+            line every box repeated on how to click and drag, which the Key says once. */}
+        <span className="flow-tip__does" data-testid="flow-tip-does">
+          {words.does ?? kindDoes(box.step)}
+        </span>
+        {words.purpose ? (
+          <span className="flow-tip__d" data-testid="flow-tip-purpose">
+            Why it is here: {words.purpose}
+          </span>
+        ) : null}
         {words.connector ? (
           <div className="flow-tip__runs" data-testid="flow-tip-connector">
             <ConnectorMark name={words.connector.name} connector={words.connector.id} size="xs" />
@@ -1072,11 +1089,6 @@ function Tip(p: {
             <span className={pillClass(tryWord.tone)}>{tryWord.word}</span> {mark?.summary ?? ""}
           </div>
         ) : null}
-        <div className="flow-tip__f">
-          {p.readOnly
-            ? "Click to see it."
-            : `Click to set it up. Drag the box to move it.${canDot ? " Drag the dot under it onto another step to make that step come next." : ""}`}
-        </div>
       </>
     );
   } else {
@@ -1087,7 +1099,6 @@ function Tip(p: {
         {end?.lines.map((line) => (
           <span key={line}>{line}</span>
         ))}
-        <div className="flow-tip__f">{p.readOnly ? "Click to see it." : "Click to set it up."}</div>
       </>
     );
   }
