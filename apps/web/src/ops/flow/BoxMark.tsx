@@ -13,6 +13,11 @@
 //
 // A decision is its diamond and a Stop its pill: their shapes already say what they are.
 // No colours of its own: ink for the agent's work, copper for a person's (brand book).
+//
+// Owner, 2026-11-21 (docs/plan.md §1.178, "let's go with D2"): the mark moved from a tile at the
+// box's left into a badge on its top-left corner, with the kind in words; the model that does the
+// step and what it works through (a connector's logo, a channel) sit at the box's right; and the
+// box's top edge takes the colour of whose work it is (`boxFamily`).
 import { ConnectorMark } from "../../connections/ConnectorMark";
 import { AgentBadge } from "../../ui/badges";
 import { Icon, type IconName } from "../../ui/icons";
@@ -84,11 +89,126 @@ export function boxMark(
   return k ? { type: "icon", icon: k.icon, person: k.person === true, words: k.words } : null;
 }
 
-export function BoxMark({ mark, testId }: { mark: BoxMarkSpec; testId?: string | undefined }) {
+/**
+ * Whose work a step is, for the colour of its box's top edge (docs/plan.md §1.178): the agent's
+ * own (a skill a model does), rules and code, a client's tool read or changed, people, or the
+ * flow's own plumbing (waits, loops, automations, hand-offs).
+ */
+export type BoxFamily = "agent" | "rules" | "read" | "write" | "people" | "flow";
+
+export function boxFamily(step: Step, known: { skillKind?: string | undefined } = {}): BoxFamily {
+  switch (step.kind) {
+    case "skill":
+      return known.skillKind === "AI" ? "agent" : "rules";
+    case "read":
+      return "read";
+    case "write":
+      return "write";
+    case "person":
+    case "conversation":
+    case "notify":
+      return "people";
+    default:
+      return "flow";
+  }
+}
+
+/** A model's name short enough for its chip: "Sonnet" for claude-sonnet-5-5, else as it is. */
+export function modelShort(name: string): string {
+  const family = /(fable|opus|sonnet|haiku)/i.exec(name)?.[1];
+  if (family) return family.charAt(0).toUpperCase() + family.slice(1).toLowerCase();
+  return /^(openai:)?gpt/i.test(name) ? "GPT" : name;
+}
+
+/**
+ * Who does a step, for the chip at the box's right: the model it runs on, "code" for a step no
+ * model does, "person" for a person's. Null where nobody does anything (a wait, a loop).
+ */
+export function boxDoer(
+  step: Step,
+  known: { model?: string | undefined; skillKind?: string | undefined } = {},
+): { word: string; title: string; model: boolean } | null {
+  if (known.model) {
+    return { word: modelShort(known.model), title: `Runs on ${known.model}`, model: true };
+  }
+  if (step.kind === "person") return { word: "person", title: "A person does this", model: false };
+  if (step.kind === "skill" || step.kind === "read" || step.kind === "write") {
+    return known.skillKind === "AI"
+      ? null
+      : { word: "code", title: "Runs as code, no model", model: false };
+  }
+  return null;
+}
+
+/** One of the things a step works through, as a small mark: a connector, or a channel. */
+export interface BoxTool {
+  key: string;
+  name: string;
+  /** A connector's id, drawn with its own mark; else one of our icons. */
+  connector?: string;
+  icon?: IconName;
+}
+
+const CHANNEL_TOOL: Record<string, BoxTool> = {
+  inbox: { key: "inbox", name: "The inbox", icon: "desk" },
+  email: { key: "email", name: "Email", icon: "email" },
+  sms: { key: "sms", name: "Text message", icon: "message" },
+  whatsapp: { key: "whatsapp", name: "WhatsApp", connector: "whatsapp_meta" },
+  call: { key: "call", name: "Phone call", icon: "phone" },
+};
+
+/**
+ * What a step works through, for the small marks at the box's right: the connector a read or a
+ * write is on, the channel a conversation or a person's step uses.
+ */
+export function boxTools(
+  step: Step,
+  known: { connector?: { id: string; name: string } | undefined } = {},
+): BoxTool[] {
+  if ((step.kind === "read" || step.kind === "write") && known.connector) {
+    return [{ key: known.connector.id, name: known.connector.name, connector: known.connector.id }];
+  }
+  if (step.kind === "conversation" || step.kind === "person") {
+    const tool = CHANNEL_TOOL[step.channel];
+    return tool ? [tool] : [];
+  }
+  return [];
+}
+
+/**
+ * A step's kind in the word or two its badge has room for: the badge never passes the middle of
+ * the box, where the arrow arrives. A write says only "Change" or "Save" (where it writes is the
+ * logo at the right and the line under the name); a skill says who does it.
+ */
+export function badgeWord(
+  step: Step,
+  known: { kind: string; skillKind?: string | undefined },
+): string {
+  if (step.kind === "write") return known.kind.split(" ")[0] ?? known.kind;
+  if (step.kind === "skill") return known.skillKind === "AI" ? "AI skill" : "Rules skill";
+  return known.kind;
+}
+
+/** A step's kind as a small icon for its badge, where its mark is a connector's logo. */
+export function kindIcon(step: Step): IconName | null {
+  return KIND_ICON[step.kind]?.icon ?? null;
+}
+
+export function BoxMark({
+  mark,
+  testId,
+  size = "tile",
+}: {
+  mark: BoxMarkSpec;
+  testId?: string | undefined;
+  /** `tile`: the key's 24px tile. `badge`: in a box's corner badge. `tool`: at a box's right. */
+  size?: "tile" | "badge" | "tool";
+}) {
+  const sized = size === "tile" ? null : `flow-box__mark--${size}`;
   if (mark.type === "connector") {
     return (
       <span
-        className="flow-box__mark flow-box__mark--logo"
+        className={cx("flow-box__mark flow-box__mark--logo", sized)}
         title={mark.words}
         data-testid={testId}
         data-mark="connector"
@@ -102,7 +222,7 @@ export function BoxMark({ mark, testId }: { mark: BoxMarkSpec; testId?: string |
   if (mark.type === "agent") {
     return (
       <span
-        className="flow-box__mark flow-box__mark--logo"
+        className={cx("flow-box__mark flow-box__mark--logo", sized)}
         title={mark.words}
         data-testid={testId}
         data-mark="agent"
@@ -117,6 +237,7 @@ export function BoxMark({ mark, testId }: { mark: BoxMarkSpec; testId?: string |
         "flow-box__mark",
         mark.type === "ai" && "flow-box__mark--ai",
         mark.type === "icon" && mark.person && "flow-box__mark--person",
+        sized,
       )}
       title={mark.words}
       data-testid={testId}
