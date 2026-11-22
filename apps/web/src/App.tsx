@@ -39,8 +39,7 @@ const PortalApp = lazy(() => portalAppEarly ?? loadPortalApp());
  */
 // DECISION: the entry point starts it, not this module as it loads: a test renders AppRoutes in a
 // MemoryRouter while jsdom's address is `/`, so loading the module started the portal's whole tree
-// in every back-office screen test as well, and on a loaded CI runner a first screen then took
-// longer than its wait (RunView.test.tsx, PR #534).
+// in every back-office screen test as well, slowing a busy CI runner for nothing.
 export function startChunksEarly(pathname: string): void {
   if (/^\/ops(\/|$)/.test(pathname)) {
     opsAppEarly = loadOpsApp();
