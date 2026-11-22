@@ -58,7 +58,7 @@ const SPECS: Record<string, ToolSpec> = {
       name: "Test bill",
       number: "input.docNumber",
       subject: "input.vendor",
-      fields: [{ path: "input.total", label: "Total", kind: "money" }],
+      fields: [{ after: "input.total", label: "Total", kind: "money" }],
     },
   },
 };
