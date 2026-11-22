@@ -7,12 +7,12 @@ import { createOAuthState } from "@countersign/connectors";
 import {
   adjustRoutes,
   agentReportRoutes,
-  portalViewRoutes,
   allRoutes,
   buildPath,
   checkRouteContract,
   forbiddenPortalFields,
   manualRoutes,
+  portalViewRoutes,
   type RouteSpec,
   routeFamily,
   routes,
