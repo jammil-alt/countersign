@@ -6382,6 +6382,20 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.193 Who is asking on the Claude approval page (H6, item C4.9, 2026-11-22; migration 0078)
+
+The approval page (§1.120, §1.130) said when Claude asked and took Claude's code, but not who was
+asking or from where. Migration 0078 (its own PR) added two nullable columns to
+`mcp_session_approval`; this records and shows them.
+
+| Topic | Decision |
+|---|---|
+| What is kept | `client`: the asking client in words, from the refused call's user agent (`claudeClientInWords`, `apps/api/src/mcp/approval.ts`): "Claude Code" or "Claude" for Anthropic's clients, otherwise the agent's first product name ("python-httpx"), letters, digits and `._-` only, 40 characters at most; never the user agent itself. `place`: Cloudflare's city and country for the request's address (`placeOf`, as the phone's sign-in approval, §1.154). Each refused call writes both with its new link, so the page describes the request that gave that link. // DECISION |
+| Not proof | The name is what the request says it is: anyone holding the token can send any user agent. It is shown beside the place and the time, and the code Claude showed (§1.130) stays the check. The token's OAuth client id was not used: AuthKit's access tokens are not known to carry one we could name. // DECISION |
+| The place, read right | Claude on the web calls from Anthropic's servers, so the place is theirs, not the person's; the page says so under it. A local client (Claude Code) shows the person's own. // DECISION |
+| Older links | Rows made before 0078 have neither; the page then shows neither line. |
+| Checked | `apps/api` approval tests (the client in words, never the user agent; no place without Cloudflare's), the page's tests (both lines shown; neither for an older link), typecheck, lint. |
+
 ### 1.192 The web app's first load back under budget (H9, 2026-11-22; no migration)
 
 The first load (`scripts/web-size.mjs`) was 494.8 kB gzipped on main against a 495 kB budget.

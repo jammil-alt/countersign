@@ -3363,6 +3363,9 @@ export const en = {
     "This link works until {time}. Once approved, it lasts until that Claude sign-in ends, 12 hours at most.",
   "connectClaude.requested":
     "Claude gave you this link at {time}. If you didn't ask Claude for it just now, don't approve it.",
+  "connectClaude.client": "Asking: {client}.",
+  "connectClaude.place":
+    "The request came from {place}. Claude on the web asks from Anthropic's servers, so this is where they are, not where you are.",
   "connectClaude.confirm": "The code Claude showed you",
   "connectClaude.confirmHint":
     "Claude shows a 6-digit code with this link. Type the one your own Claude shows you, never one someone else sends you.",

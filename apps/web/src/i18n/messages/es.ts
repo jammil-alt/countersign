@@ -3451,6 +3451,9 @@ export const es: Messages = {
     "Este enlace funciona hasta las {time}. Una vez aprobada, dura hasta que termine esa sesión de Claude, 12 horas como máximo.",
   "connectClaude.requested":
     "Claude le dio este enlace a las {time}. Si no se lo pidió a Claude hace un momento, no lo apruebe.",
+  "connectClaude.client": "Quién lo pide: {client}.",
+  "connectClaude.place":
+    "La solicitud llegó desde {place}. Claude en la web pide desde los servidores de Anthropic, así que este es su lugar, no el suyo.",
   "connectClaude.confirm": "El código que le mostró Claude",
   "connectClaude.confirmHint":
     "Claude muestra un código de 6 dígitos con este enlace. Escriba el que le muestra su propio Claude, nunca uno que otra persona le envíe.",
