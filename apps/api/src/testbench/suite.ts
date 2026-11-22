@@ -216,20 +216,40 @@ function stoppedWhy(result: { reason?: string; nodeId?: string; errorKey?: strin
     : `${at} Fix it, then try it again.`;
 }
 
-async function runTemplate(deps: RunDeps, params: SuiteParams, c: CaseRow): Promise<Scored> {
-  const input = TemplateCaseInput.safeParse(c.input);
-  if (!input.success) return failed("a template case's input is {workflow, payload}");
-  const runTenant = params.runTenantId;
-  if (!runTenant) return failed("the suite has no client to run the template in");
-  // The test copy and its run row: in an operator scope naming only the client it runs in.
+/** A template test run's steps, cost and time, as `runTemplateTest` answers them. */
+export interface TemplateTestRun {
+  runId: string;
+  result: Awaited<ReturnType<typeof executeRun>>;
+  steps: { nodeId: string; nodeType: string; input: unknown; output: unknown; status: string }[];
+  costUsd: string;
+  /** Wall-clock milliseconds of the run itself (docs/plan.md §1.212). */
+  ms: number;
+}
+
+/**
+ * A test run of a template version's workflow in a client, to its end (§1.46 template cases; the
+ * evals of §1.212 run their golden cases through it too). The test copy and its run row are made
+ * in an operator scope naming only that client.
+ */
+export async function runTemplateTest(
+  deps: RunDeps,
+  args: {
+    runTenantId: string;
+    versionId: string;
+    actorId: string | null;
+    workflow: string;
+    payload: Record<string, unknown>;
+  },
+): Promise<TemplateTestRun> {
+  const runTenant = args.runTenantId;
   const req = await withOperator(deps.db, [runTenant], async (tx) => {
     const target = await templateTestCopy(tx, {
       tenantId: runTenant,
-      templateVersionId: params.versionId,
-      actorId: params.actorId,
+      templateVersionId: args.versionId,
+      actorId: args.actorId,
     });
     const copy = target.agent.testCopy
-      ? await bindCopy(tx, deps, target.agent, target.version.bundle, params.actorId)
+      ? await bindCopy(tx, deps, target.agent, target.version.bundle, args.actorId)
       : target.agent;
     await snapshotSharedSkills(tx, {
       tenantId: runTenant,
@@ -246,8 +266,8 @@ async function runTemplate(deps: RunDeps, params: SuiteParams, c: CaseRow): Prom
         liveVersionId: copy.liveVersionId,
         liveBundle: null,
       },
-      workflowSlug: input.data.workflow,
-      payload: input.data.payload,
+      workflowSlug: args.workflow,
+      payload: args.payload,
       mode: "test",
       versionId: target.version.id,
       bundle: target.version.bundle,
@@ -257,10 +277,18 @@ async function runTemplate(deps: RunDeps, params: SuiteParams, c: CaseRow): Prom
   });
   // Run to the end here; a test run emits nothing that starts other runs (§10.4).
   const { instances: _none, ...runDeps } = deps;
+  const started = Date.now();
   const result = await executeRun(runDeps, req, benchRunner());
+  const ms = Date.now() - started;
   const { steps, costUsd } = await withTenant(deps.db, runTenant, async (tx) => {
     const rows = await tx
-      .select({ nodeId: stepRun.nodeId, output: stepRun.output, status: stepRun.status })
+      .select({
+        nodeId: stepRun.nodeId,
+        nodeType: stepRun.nodeType,
+        input: stepRun.input,
+        output: stepRun.output,
+        status: stepRun.status,
+      })
       .from(stepRun)
       .where(and(eq(stepRun.runId, req.runId), eq(stepRun.tenantId, runTenant)))
       .orderBy(asc(stepRun.id));
@@ -268,8 +296,24 @@ async function runTemplate(deps: RunDeps, params: SuiteParams, c: CaseRow): Prom
       .select({ costUsd: run.costUsd })
       .from(run)
       .where(and(eq(run.id, req.runId), eq(run.tenantId, runTenant)));
-    return { steps: rows, costUsd: r?.costUsd ?? "0" };
+    return { steps: rows, costUsd: String(r?.costUsd ?? "0") };
   });
+  return { runId: req.runId, result, steps, costUsd, ms };
+}
+
+async function runTemplate(deps: RunDeps, params: SuiteParams, c: CaseRow): Promise<Scored> {
+  const input = TemplateCaseInput.safeParse(c.input);
+  if (!input.success) return failed("a template case's input is {workflow, payload}");
+  const runTenant = params.runTenantId;
+  if (!runTenant) return failed("the suite has no client to run the template in");
+  const ran = await runTemplateTest(deps, {
+    runTenantId: runTenant,
+    versionId: params.versionId,
+    actorId: params.actorId,
+    workflow: input.data.workflow,
+    payload: input.data.payload,
+  });
+  const { result, steps, costUsd } = ran;
   // The named steps' outputs (the last row of each, a retried step's included).
   const expected = (c.expected ?? {}) as Record<string, unknown>;
   // DECISION (builder-plan.md B1): a case that names no step yet (an example tried on a build)
@@ -282,16 +326,17 @@ async function runTemplate(deps: RunDeps, params: SuiteParams, c: CaseRow): Prom
   const extra = {
     run: { status: result.status, reason: result.reason ?? null },
     steps: steps.map((s) => ({ id: s.nodeId, status: s.status })),
+    ms: ran.ms,
   };
   // INTEG-1: a run that failed on a step's error (the client's tool refused it: a sign-in that
   // expired, a connection disconnected or missing) is an error, never scored: a try or a kept case
   // expecting nothing would otherwise pass on the tool's error. The bench's own waits time out on
   // purpose (`benchRunner`), and those runs are scored as they are.
   if (result.status === "failed" && !benchTimeout(result.errorKey)) {
-    return { ...failed(stoppedWhy(result), extra, String(costUsd)), runId: req.runId };
+    return { ...failed(stoppedWhy(result), extra, costUsd), runId: ran.runId };
   }
   // A shared case's run lives in the Sandbox: its result names it, without a foreign key.
-  return { ...scored(c, got, extra, String(costUsd)), runId: req.runId };
+  return { ...scored(c, got, extra, costUsd), runId: ran.runId };
 }
 
 /** One case: run, compare, insert its result. A replayed step finds its result and returns it. */

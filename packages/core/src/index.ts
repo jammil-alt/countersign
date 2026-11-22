@@ -354,6 +354,8 @@ export * as tableFiles from "./tables";
 export * from "./template/template";
 export * from "./template/typer";
 // v0.12 W2-C: the test bench
+// docs/plan.md §1.212: the eval and replay harness.
+export * from "./evals";
 export * from "./testbench/case";
 export * from "./testbench/match";
 export * from "./testbench/suite";
