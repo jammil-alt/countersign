@@ -326,6 +326,7 @@ export * from "./schemas/conversation";
 export * from "./schemas/event";
 export * from "./schemas/json-schemas";
 export * from "./schemas/pack";
+export * from "./schemas/pack-config";
 export * from "./schemas/permissions";
 export * from "./schemas/rules";
 export * from "./schemas/skill";

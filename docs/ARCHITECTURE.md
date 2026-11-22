@@ -3698,6 +3698,30 @@ operator views in the back office. Installing a pack adds its templates (agents 
 as template v1 rows the operator edits like any other. Enabling it for a client inserts `tenant_pack`
 (its tables start holding that client's data) and allows forking its templates into that client.
 
+### 12.1.1 One manifest, one install path (Wave Y, owner's yes; docs/plan.md §1.230)
+
+Outside v0.15's v1 scope, with the owner's yes. Every pack's manifest (`PackManifest` in
+`packages/core/src/schemas/pack.ts`, documented in its comments) also names:
+
+- `area`: the business area (§12.0) whose shared data it holds; one pack per area.
+- `config`: the fields the operator sets when switching the pack on for a client, each a word, a
+  number, a yes or no, or one of a few choices, with its default (`PackConfigField`). Never a
+  secret: credentials go to the client's vault through a connection. A client's values are kept in
+  `tenant.settings.packs.<id>` (no table) and read with core's `packConfigOf`, defaults filling any
+  field not set.
+- `processors`: the vendors of ours the pack itself sends a client's data to (the compliance
+  register's names), beyond its steps' models and its connectors, which are gated where they are
+  called. The Areas tab shows them, marking those a client's HIPAA mode holds back.
+- `reports`: the names of the reports it registers; `apps/api` holds them equal to its handlers.
+
+The back office installs any pack the same way, from the client page's Areas tab (the Packs tab),
+with configuration only: `POST /api/ops/clients/:id/packs/:pack/install` checks the configuration
+against the manifest (a bad one switches nothing on), keeps it with a `tenant_change` row, switches
+the pack on, and installs its templates (approval on) and Library skills once for the deployment.
+Calling it again changes only the configuration. Nothing in `packages/*` or `apps/api` names a
+pack to install it: a new pack (the Close and AP packs) is one manifest in this shape, registered
+in `apps/api/src/packs.ts` with its handlers.
+
 ### 12.2 Materials pack
 
 Tables:
