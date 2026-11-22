@@ -201,13 +201,13 @@ export function AgentScreen({ tab: asked = "overview" }: { tab?: AgentTab }) {
         items={[
           { to: PORTAL_PATHS.agent(id), label: t("agent.tab.overview"), end: true },
           { to: PORTAL_PATHS.agentRuns(id), label: t("agent.tab.runs") },
-          // R4: its report, for everyone who sees the agent.
-          { to: PORTAL_PATHS.agentReport(id), label: t("agent.tab.report") },
           // docs/sop-plan.md §6a: the process drawn, read only, for everyone who sees the SOP.
           { to: PORTAL_PATHS.agentFlow(id), label: t("agent.tab.workflow") },
           // docs/sop-plan.md S1: the agent's SOP, read only, for everyone who sees it; it holds
           // what the manual did (owner, 2026-11-21: "Rename Manual to SOP").
           { to: PORTAL_PATHS.agentSop(id), label: t("agent.tab.sop") },
+          // R4: its report, for everyone who sees the agent.
+          { to: PORTAL_PATHS.agentReport(id), label: t("agent.tab.report") },
           ...(limited
             ? []
             : [{ to: PORTAL_PATHS.agentSettings(id), label: t("agent.tab.settings") }]),

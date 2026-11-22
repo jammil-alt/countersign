@@ -138,6 +138,7 @@ describe("app", () => {
       "Steps",
       "Manual",
       "Runs",
+      "Report",
       "Security",
       "Versions2",
       "Settings",
