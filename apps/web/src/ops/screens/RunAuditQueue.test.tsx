@@ -107,7 +107,8 @@ describe("ops audit queue", () => {
     });
     const user = userEvent.setup();
     renderAt("/ops/run-audit", api);
-    expect(await screen.findByRole("heading", { name: "Audit queue" })).toBeInTheDocument();
+    // Titled as the sidebar names it (staging QA, 2026-11-22); the tab says which page.
+    expect(await screen.findByRole("heading", { level: 1, name: "Utilities" })).toBeInTheDocument();
     const row = await screen.findByTestId(`ops-run-audit-row-${RUN_1}`);
     expect(row).toHaveTextContent("Demo client");
     expect(row).toHaveTextContent("Wrote to their tools");
