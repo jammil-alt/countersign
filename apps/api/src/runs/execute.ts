@@ -25,6 +25,7 @@ import {
   type CredentialKeys,
   type CredentialsAccessor,
   credentialKeysFromEnv,
+  DESKTOP_CONNECTOR_ID,
   encryptedCredentials,
   globalFetch,
   type ObjectStore,
@@ -104,6 +105,7 @@ import { guardModels, hipaaToolPolicy, profileReader } from "../compliance/polic
 import { conversationEngine } from "../converse/engine";
 // P-4
 import { conversePort } from "../converse/service";
+import { dbDesktopServices } from "../desktop/services";
 import type { Bindings } from "../env";
 // §1.121: forms, "Request info"
 import type { FormLinks } from "../forms/link";
@@ -422,13 +424,16 @@ export function runtimeFor(
     // Contacts and consent for messaging connectors, scoped to the connection's client; the
     // catalogue, a browser, codes and documents for browser logins.
     services: withDocuments(
-      withBrowser(
-        connectorServicesFor(
+      withDesktop(
+        withBrowser(
+          connectorServicesFor(
+            db,
+            deps.voice ? { voice: deps.voice, platform: deps.platform } : undefined,
+          ),
           db,
-          deps.voice ? { voice: deps.voice, platform: deps.platform } : undefined,
+          deps.browser,
         ),
         db,
-        deps.browser,
       ),
       db,
       deps.documents?.content,
@@ -452,6 +457,17 @@ function withDocuments(
     documents: dbDocumentServices(db, conn, content, signer),
     records: dbSyncedRecords(db, conn),
   });
+}
+
+/** §1.193: jobs for a paired computer, for the desktop connector's tools only. */
+function withDesktop(
+  base: NonNullable<RuntimeDeps["services"]>,
+  db: Db,
+): NonNullable<RuntimeDeps["services"]> {
+  return (conn) =>
+    conn.connector === DESKTOP_CONNECTOR_ID
+      ? { ...base(conn), desktop: dbDesktopServices(db, conn) }
+      : base(conn);
 }
 
 function withBrowser(

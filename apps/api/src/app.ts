@@ -83,6 +83,7 @@ import { conversationRouteHandlers } from "./routes/conversations";
 // §1.124 back office work: Sales
 import { dealRoutes } from "./routes/deals";
 import { deskRoutes } from "./routes/desk";
+import { desktopApiRoutes } from "./routes/desktop";
 import { directoryRoutes } from "./routes/directory";
 import { documentRoutes } from "./routes/documents";
 import { excelRoutes } from "./routes/excel";
@@ -266,6 +267,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   setupLinkRoutes(app);
   // §1.116: the phone app
   mobileRoutes(app);
+  // docs/plan.md §1.193: the desktop app (pairing, folders, and the computer's signed routes).
+  desktopApiRoutes(app);
   // §1.154: approving a sign-in on the phone
   signInApprovalRoutes(app);
   claudeConnectionRoutes(app);
