@@ -3505,6 +3505,31 @@ text only in tool results. 10: every bill, flag and suggestion names its records
 
 ---
 
+### 10.25 The work-delivered statement (Wave Y, Y5, owner 2026-11-22)
+
+Outside v1's scope (§1); the owner said yes (build plan 10). Each billing month, a client sees what
+its agents delivered beside what it pays: five counters per agent, per business area and in total.
+
+| Counter | What it counts (over the client agents' live runs created in the month) |
+|---|---|
+| Items processed | Different records a run decided on or changed, or that started it (`run_subject`), once per agent |
+| Posted automatically | Writes done with no approval item (`external_action`) |
+| Sent for approval | The client's own approval items (`inbox_item` of kind `external_action` or `approval`, not routed to us) |
+| Exceptions caught | Alerts its runs raised (not dismissed before the month ended), and writes the verifier disagreed with (§10.18) |
+| Dollars identified | Those alerts' dollar impact, per currency |
+
+- **One definition.** Core's `WORK_COUNTERS` says what each counter means; `workCounts` in
+  `packages/db` is the one query that counts them. The portal's page, its PDF, the PDF sent with
+  the invoice and the back office's view all read it, so they agree.
+- **A month that has ended never changes.** Months are UTC, as billing months are (§11.5 and
+  `docs/plan.md` §1.32), and only what was recorded before the month ended counts.
+- **Work, never our cost.** The statement shows work counts and dollars identified for the client;
+  never our cost, margin, model or vendor spend, bundles, instructions or prompts (invariant 11),
+  and only ever one client. The portal's page is the client admin's, as billing is.
+- **With the invoice.** Stripe's invoice email can't carry a file, so when an invoice is sent the
+  statement goes as a PDF in our own email (Resend) to the same billing address, once. A client in
+  HIPAA mode sees it in the portal only until Resend is covered (`docs/plan.md` §1.234).
+
 ## 11. Inbox and threads
 
 - Inbox kinds: `approval`, `review` (a pack's review, e.g. match review), `request` (ask a person for a

@@ -72,6 +72,10 @@ const ConnectorPageScreen = lazy(() =>
 const BooksHealthScreen = lazy(() =>
   import("../books-health/BooksHealth").then((m) => ({ default: m.PortalBooksHealthScreen })),
 );
+// §1.234: the work statement, for the client admin, from Billing and the invoice's email.
+const WorkStatementScreen = lazy(() =>
+  import("./screens/WorkStatement").then((m) => ({ default: m.PortalWorkStatementScreen })),
+);
 /** `/access`, `/accounts/access`: the vault's old pages, now Connectors' website logins. */
 function VaultRedirect() {
   const { search } = useLocation();
@@ -113,6 +117,16 @@ export const portalRoutes = (
       element={
         <OnDemand>
           <BooksHealthScreen />
+        </OnDemand>
+      }
+    />
+
+    {/* §1.234: the work statement, for the client admin; reached from Billing */}
+    <Route
+      path="billing/work"
+      element={
+        <OnDemand>
+          <WorkStatementScreen />
         </OnDemand>
       }
     />

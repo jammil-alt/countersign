@@ -172,6 +172,7 @@ export * from "./api/voice";
 export * from "./api/whatsapp-meta";
 // docs/plan.md §1.124: back office work (Build).
 export * from "./api/work";
+export * from "./api/work-statement";
 // v0.14 W4-B
 export * from "./api/zoho";
 export * from "./approvals/rules";
@@ -275,6 +276,7 @@ export * from "./i18n/supervisor";
 export * from "./i18n/threads";
 export * from "./i18n/timeline";
 export * from "./i18n/weekly";
+export * from "./i18n/work-statement";
 export * from "./ids";
 // docs/plan.md §1.217: the process interview
 export * from "./interview";
