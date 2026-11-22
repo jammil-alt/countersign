@@ -225,7 +225,7 @@ export async function backfillFromBills(
         if (m.decision === "new_item") out.newItems++;
         else out.matched++;
         // DECISION (§1.189): a line named by the vendor's box, case or pail (its SKU or name in
-        // the vendor catalog) is in that pack, of which QuickBooks gives no unit: no price is
+        // the vendor catalog, or an alias of the vendor's that names that item) is in that pack, of which QuickBooks gives no unit: no price is
         // read from it (invariant 7), since its quantity may be packs or what they hold.
         const named = m.vendorItem;
         if (named?.vendorUom && PACKAGING_UOMS.has(named.vendorUom)) {
@@ -282,7 +282,7 @@ export async function backfillFromBills(
           if (made.created) out.newVendorItems++;
           viFits = made.item;
         }
-        if (m.method === "rules" || named) {
+        if (m.method === "rules" || m.viaCatalog) {
           await learnAlias(tx, ctx.tenantId, {
             vendorId,
             vendorSku: null,

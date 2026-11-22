@@ -21,7 +21,7 @@ import {
   liveItem,
 } from "../catalog/store";
 import { itemAlias } from "../schema";
-import { packFits, type VendorItemRow, vendorItemsNamed } from "../vendor/store";
+import { packFits, type VendorItemRow, vendorItemById, vendorItemsNamed } from "../vendor/store";
 
 /** How many candidates an unsure description comes back with. */
 export const TEXT_CANDIDATES = 5;
@@ -46,10 +46,12 @@ export interface TextMatch {
   normalized: string;
   hash: string;
   /**
-   * The vendor item the description named, when the match came through the vendor catalog and
-   * one vendor item named it (§1.189); null otherwise.
+   * The vendor item the description named: through the vendor catalog, when one vendor item
+   * named it, or the one the vendor's alias names (§1.189); null otherwise.
    */
   vendorItem: VendorItemRow | null;
+  /** Matched through the vendor catalog (a vendor item's SKU or name), not an alias or a rule. */
+  viaCatalog: boolean;
 }
 
 async function vendorAbbreviations(
@@ -166,19 +168,45 @@ export async function matchText(
   const normalized = normalize(input.description, { abbreviations });
   const hash = await descriptionHash(normalized);
   const parsed = parseNormalized(normalized);
-  const base = { parsed, normalized, hash, hinge: null, candidates: [], vendorItem: null };
+  const base = {
+    parsed,
+    normalized,
+    hash,
+    hinge: null,
+    candidates: [],
+    vendorItem: null,
+    viaCatalog: false,
+  };
 
-  const aliased = input.vendorId
-    ? (
-        await findAlias(tx, tenantId, {
-          vendorId: input.vendorId,
-          vendorSku: input.vendorSku?.trim().toUpperCase() || null,
-          descriptionHash: hash,
-        })
-      )?.item
-    : await anyVendorAlias(tx, tenantId, hash);
+  const alias = input.vendorId
+    ? await findAlias(tx, tenantId, {
+        vendorId: input.vendorId,
+        vendorSku: input.vendorSku?.trim().toUpperCase() || null,
+        descriptionHash: hash,
+      })
+    : null;
+  const aliased = input.vendorId ? alias?.item : await anyVendorAlias(tx, tenantId, hash);
   if (aliased) {
-    return { ...base, decision: "matched", item: aliased, method: "alias", confidence: 1 };
+    // DECISION (review of C2.2): the vendor item the vendor's alias names comes with the match,
+    // so a bill line in the wording of the vendor's box is told from one in its standard unit
+    // (the bill-price import neither prices it nor makes a vendor item from it, §1.189).
+    const named = alias?.vendorItemId
+      ? await vendorItemById(tx, tenantId, alias.vendorItemId)
+      : null;
+    const vendorItem =
+      named &&
+      named.vendorId === input.vendorId &&
+      (await liveItem(tx, tenantId, named.catalogItemId))?.id === aliased.id
+        ? named
+        : null;
+    return {
+      ...base,
+      decision: "matched",
+      item: aliased,
+      method: "alias",
+      confidence: 1,
+      vendorItem,
+    };
   }
   // DECISION (§1.189): a vendor item is the vendor's own name for its item, so a match through
   // the vendor catalog is recorded as `alias` (no new match method, no migration); `vendorItem`
@@ -192,6 +220,7 @@ export async function matchText(
       method: "alias",
       confidence: 1,
       vendorItem: listed.vendorItem,
+      viaCatalog: true,
     };
   }
 

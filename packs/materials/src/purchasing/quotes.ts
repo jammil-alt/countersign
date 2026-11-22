@@ -224,7 +224,12 @@ export async function vendorAliases(tx: Tx, tenantId: string, vendorId: string, 
   const listed = (await vendorItemsFor(tx, tenantId, vendorId, itemId)).filter(
     (v) => v.status === "active",
   );
-  const listedItem = listed.find((v) => v.preferred) ?? listed[0];
+  // DECISION (review of C2.2): "the newest priced" is the latest last price; an item never priced
+  // comes after every priced one (`vendorItemsFor` sorts no price first, as Postgres does).
+  const newestPriced = [...listed].sort((a, b) =>
+    (b.lastPriceOn ?? "").localeCompare(a.lastPriceOn ?? ""),
+  )[0];
+  const listedItem = listed.find((v) => v.preferred) ?? newestPriced;
   return {
     sku: rows.find((r) => r.vendorSku)?.vendorSku ?? listedItem?.sku ?? null,
     description:

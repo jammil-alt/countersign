@@ -5,16 +5,18 @@
 // leads the vendors found and wins a tie in the comparison; one client's catalog never matches
 // another's lines (invariant 1).
 
-import { closeDb, createDb, type Db } from "@countersign/db";
+import { closeDb, createDb, type Db, withTenant } from "@countersign/db";
 import { createTestDatabase, databaseAvailable, type TestDatabase } from "@countersign/db/testing";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { canonicalName, keySignature, parseLine } from "../catalog/keys";
-import { catalogItem, itemAlias, vendorItem } from "../schema";
+import { descriptionHash, normalize } from "../catalog/normalize";
+import { catalogItem, itemAlias, priceObservation, vendorItem } from "../schema";
 import { insertShop, type ShopFixture } from "../testing.test-helper";
 import { type PackTool, packToolContext } from "../tools";
 import { compareOffers } from "./compare";
 import { skuTokens } from "./match-text";
+import { vendorAliases } from "./quotes";
 import {
   backfillFromBillsTool,
   catalogMatchText,
@@ -295,6 +297,47 @@ describe.skipIf(!online)("the vendor catalog in purchasing (database)", () => {
     expect(box?.lastPrice).toBeNull();
   });
 
+  it("neither prices nor fills the catalog from a bill line the vendor's alias names as its box", async () => {
+    // Keystone's invoice taught its wording for the box of screws (Register item), naming the box.
+    const wording = "WOOD SCREWS FH 8 PER BX";
+    const normalized = normalize(wording);
+    await t.db.insert(itemAlias).values({
+      tenantId: A.tenantId,
+      vendorId: ids.keystone,
+      descriptionHash: await descriptionHash(normalized),
+      normalizedDescription: normalized,
+      catalogItemId: ids.screws,
+      source: "auto",
+      vendorItemId: ids.kscr,
+    });
+    const match = await call(catalogMatchText, {
+      descriptions: [wording],
+      vendorId: ids.keystone,
+    });
+    expect(match.lines[0]).toMatchObject({
+      decision: "matched",
+      catalogItemId: ids.screws,
+      vendorItemId: ids.kscr,
+    });
+    const bill = await A.qboBill({
+      id: "203",
+      vendorId: ids.keystone,
+      date: "2026-11-03",
+      lines: [{ id: "1", item: "Screws", description: wording, qty: 4, unitPrice: 9.5 }],
+    });
+    const r = await call(backfillFromBillsTool, { from: "2026-11-01", to: "2026-11-30" });
+    expect(r).toMatchObject({ recorded: 0, matched: 1, newVendorItems: 0, skipped: 1 });
+    // No each item made at the box's price, and no price per screw read from it.
+    expect((await vendorItems(ids.keystone, ids.screws)).map((v) => v.id)).toEqual([ids.kscr]);
+    expect(
+      await t.db
+        .select()
+        .from(priceObservation)
+        .where(eq(priceObservation.transactionId, bill.transactionId)),
+    ).toEqual([]);
+    await t.db.delete(itemAlias).where(eq(itemAlias.vendorId, ids.keystone));
+  });
+
   it("fills the vendor catalog from quotes, only where the quote converts", async () => {
     const req = await call(requestCreate, {
       channel: "email",
@@ -329,6 +372,52 @@ describe.skipIf(!online)("the vendor catalog in purchasing (database)", () => {
       ext: { from: "quote", unitWord: "thousand_board_feet" },
     });
     expect(await vendorItems(ids.northline, ids.screws)).toEqual([]);
+  });
+
+  it("adds a box from a quote only with the size its own line states, in that word", async () => {
+    const req = await call(requestCreate, {
+      channel: "email",
+      lines: [{ description: "#8 X 1-1/4 FLAT HEAD WOOD SCREW", qty: "500", unit: "each" }],
+    });
+    const q = await call(quoteCreate, {
+      requestId: req.request.id,
+      vendorIds: [ids.northline],
+    });
+    await call(quoteRecord, {
+      quoteRequestId: q.quotes[0].id,
+      lines: [
+        {
+          requestLineId: req.request.lines[0].id,
+          unitPrice: "9.00",
+          unit: "BX",
+          description: "WOOD SCREW 8 X 1-1/4 100/BX",
+        },
+      ],
+    });
+    const made = await vendorItems(ids.northline, ids.screws);
+    expect(made).toHaveLength(1);
+    expect(made[0]).toMatchObject({
+      sku: null,
+      name: "WOOD SCREW 8 X 1-1/4 100/BX",
+      vendorUom: "pack",
+      stdPerVendorUom: "100.0000",
+      lastPrice: "9.0000",
+      lastPriceStd: "0.0900",
+      lastPriceSource: "quote",
+      ext: { from: "quote", unitWord: "box" },
+    });
+    // An RFQ asks in the newest priced item's words, never an item not yet priced.
+    await listed({
+      vendorId: ids.northline,
+      catalogItemId: ids.screws,
+      name: "SCREW FH 8 X 1-1/4 LOOSE",
+      vendorUom: "each",
+      stdPerVendorUom: "1",
+    });
+    const words = await withTenant(db, A.tenantId, (tx) =>
+      vendorAliases(tx, A.tenantId, ids.northline, ids.screws),
+    );
+    expect(words).toEqual({ sku: null, description: "WOOD SCREW 8 X 1-1/4 100/BX" });
   });
 
   it("finds the preferred vendor first, and a vendor the catalog alone knows", async () => {

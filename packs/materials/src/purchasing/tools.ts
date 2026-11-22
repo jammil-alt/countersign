@@ -346,7 +346,7 @@ export const catalogMatchText = defineTool({
         catalogItemName: z.string().nullable(),
         standardUom: z.string().nullable(),
         method: z.enum(["alias", "rules"]).nullable(),
-        /** §1.189: the vendor item whose SKU or name the description is, when one is. */
+        /** §1.189: the vendor item the match named (its SKU, its name or the vendor's alias). */
         vendorItemId: z.string().nullable(),
         confidence: z.number(),
         candidates: z.array(Candidate),
