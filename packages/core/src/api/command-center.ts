@@ -221,10 +221,17 @@ export const CommandCenter = z.object({
     cleanShare: z.number().nullable(),
   }),
   spendToday: z.object({
-    /** Step runs' model cost and background readings today. */
+    /**
+     * Today's model cost (UTC), from the same rows as the Usage screen's "Today": the runs' model
+     * calls and steps (test runs included), the clients' own background reading and translation,
+     * and the back office's (Reggie, the Builder, builds): the sum of the three parts below.
+     */
     costUsd: Usd,
     stepsUsd: Usd,
+    /** The clients' own reading and translation no agent asked for. */
     readingUsd: Usd,
+    /** QA (usage costs): Reggie's answers, the Builder's turns and builds today. */
+    backOfficeUsd: Usd.optional(),
     /** Step runs' cost ÷ the runs that had a step today; null with none. */
     perRunUsd: Usd.nullable(),
   }),

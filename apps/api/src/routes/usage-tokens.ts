@@ -14,17 +14,14 @@ import {
   type TokenFigures,
   type TokenReport,
   toNumeric,
+  UNRECORDED_MODEL,
 } from "@countersign/core";
-import {
-  agent,
-  docExtraction,
-  messageTranslation,
-  modelCall,
-  run,
-  type Tx,
-  tenant,
-} from "@countersign/db";
-import { and, eq, gte, inArray, isNotNull, isNull, lt, type SQL, sql } from "drizzle-orm";
+import { agent, type Tx, tenant } from "@countersign/db";
+import { and, inArray } from "drizzle-orm";
+import { isBackOffice, spendLines } from "./usage-spend";
+
+/** A model's provider; empty for the steps' usage no call record names a model for. */
+const providerOf = (model: string) => (model === UNRECORDED_MODEL ? "" : modelProvider(model));
 
 export interface TokenQuery {
   client?: string | undefined;
@@ -78,18 +75,6 @@ interface Raw {
   s: Sum;
 }
 
-const sumOf = (r: {
-  calls: string;
-  tokensIn: string | null;
-  tokensOut: string | null;
-  cost: string | null;
-}): Sum => ({
-  calls: Number(r.calls),
-  tokensIn: Number(r.tokensIn ?? 0),
-  tokensOut: Number(r.tokensOut ?? 0),
-  cost: new Decimal(r.cost ?? "0"),
-});
-
 /** Whether the query asks for an action: none named, or this one. */
 const wants = (query: TokenQuery, action: TokenAction) => !query.action || query.action === action;
 
@@ -98,6 +83,10 @@ const wants = (query: TokenQuery, action: TokenAction) => !query.action || query
 // over an indexed (tenant_id, created_at), so the tally is always exact and needs no sweep. Days
 // are UTC, as the usage rollup's are. A report narrowed to an agent or a template leaves out the
 // background use, which is no agent's, as /api/ops/usage does.
+// DECISION (QA usage costs): read through `spendLines`, the one ledger /api/ops/usage sums too, so
+// a client's tokens and cost here are its row there. A step's usage beyond its recorded calls is
+// its agent's `unrecorded` line (no model). The back office's spend (Reggie, the Builder) records
+// no tokens and is no client's: it is in the usage report, not here.
 export async function tokenReport(
   tx: Tx,
   tenantIds: readonly string[],
@@ -114,120 +103,26 @@ export async function tokenReport(
     byAction: [],
   };
   if (tenantIds.length === 0) return empty;
-  const lo = sql`((${query.from})::date)::timestamp at time zone 'UTC'`;
-  const hi = sql`((${query.to})::date + 1)::timestamp at time zone 'UTC'`;
   const scope = [...tenantIds];
-  const narrowed = Boolean(query.agent || query.template);
   const raws: Raw[] = [];
-
-  // A run's model calls, each with its run's agent. RLS holds the scope; the query says it too.
-  if (query.action !== "background_read" && query.action !== "background_translation") {
-    const where: SQL[] = [
-      inArray(modelCall.tenantId, scope),
-      gte(modelCall.createdAt, lo),
-      lt(modelCall.createdAt, hi),
-    ];
-    if (query.client) where.push(eq(modelCall.tenantId, query.client));
-    if (query.agent) where.push(eq(run.agentId, query.agent));
-    if (query.template) where.push(eq(agent.templateId, query.template));
-    if (query.model) where.push(eq(modelCall.model, query.model));
-    if (query.action) where.push(eq(modelCall.action, query.action));
-    const rows = await tx
-      .select({
-        tenantId: modelCall.tenantId,
-        agentId: run.agentId,
-        model: modelCall.model,
-        action: modelCall.action,
-        calls: sql<string>`count(*)::text`,
-        tokensIn: sql<string>`sum(${modelCall.tokensIn})::text`,
-        tokensOut: sql<string>`sum(${modelCall.tokensOut})::text`,
-        cost: sql<string>`sum(${modelCall.costUsd})::text`,
-      })
-      .from(modelCall)
-      .innerJoin(run, and(eq(run.id, modelCall.runId), eq(run.tenantId, modelCall.tenantId)))
-      .innerJoin(agent, and(eq(agent.id, run.agentId), eq(agent.tenantId, run.tenantId)))
-      .where(and(...where))
-      .groupBy(modelCall.tenantId, run.agentId, modelCall.model, modelCall.action);
-    for (const r of rows) {
-      raws.push({
-        tenantId: r.tenantId,
-        agentId: r.agentId,
-        model: r.model,
-        action: r.action as TokenAction,
-        s: sumOf(r),
-      });
-    }
+  const merged = new Map<string, Raw>();
+  for (const l of await spendLines(tx, scope, query)) {
+    if (isBackOffice(l) || !l.tenantId || !l.action) continue;
+    if (query.model !== undefined && l.model !== query.model) continue;
+    if (!wants(query, l.action)) continue;
+    // One row per client, agent, model and action over the whole range.
+    const key = `${l.tenantId}:${l.agentId ?? ""}:${l.model}:${l.action}`;
+    const r = merged.get(key) ?? {
+      tenantId: l.tenantId,
+      agentId: l.agentId,
+      model: l.model,
+      action: l.action,
+      s: zero(),
+    };
+    add(r.s, { calls: l.calls, tokensIn: l.tokensIn, tokensOut: l.tokensOut, cost: l.cost });
+    merged.set(key, r);
   }
-
-  // Reading no agent asked for (uploads, forwarded mail): no agent's, but the client's (§1.43).
-  if (!narrowed && wants(query, "background_read")) {
-    const rows = await tx
-      .select({
-        tenantId: docExtraction.tenantId,
-        model: docExtraction.model,
-        calls: sql<string>`count(*)::text`,
-        tokensIn: sql<string>`sum(${docExtraction.tokensIn})::text`,
-        tokensOut: sql<string>`sum(${docExtraction.tokensOut})::text`,
-        cost: sql<string>`sum(${docExtraction.costUsd})::text`,
-      })
-      .from(docExtraction)
-      .where(
-        and(
-          inArray(docExtraction.tenantId, scope),
-          isNull(docExtraction.agentVersionId),
-          gte(docExtraction.createdAt, lo),
-          lt(docExtraction.createdAt, hi),
-          ...(query.client ? [eq(docExtraction.tenantId, query.client)] : []),
-          ...(query.model ? [eq(docExtraction.model, query.model)] : []),
-        ),
-      )
-      .groupBy(docExtraction.tenantId, docExtraction.model);
-    for (const r of rows) {
-      raws.push({
-        tenantId: r.tenantId,
-        agentId: null,
-        model: r.model,
-        action: "background_read",
-        s: sumOf(r),
-      });
-    }
-  }
-
-  // P-7: translations no agent made (the background job, a person's own text) that called a
-  // model; an agent's are its step's `tool_call` rows above (§1.69).
-  if (!narrowed && wants(query, "background_translation")) {
-    const rows = await tx
-      .select({
-        tenantId: messageTranslation.tenantId,
-        model: sql<string>`${messageTranslation.model}`,
-        calls: sql<string>`count(*)::text`,
-        tokensIn: sql<string>`sum(${messageTranslation.tokensIn})::text`,
-        tokensOut: sql<string>`sum(${messageTranslation.tokensOut})::text`,
-        cost: sql<string>`sum(${messageTranslation.costUsd})::text`,
-      })
-      .from(messageTranslation)
-      .where(
-        and(
-          inArray(messageTranslation.tenantId, scope),
-          isNull(messageTranslation.agentVersionId),
-          isNotNull(messageTranslation.model),
-          gte(messageTranslation.createdAt, lo),
-          lt(messageTranslation.createdAt, hi),
-          ...(query.client ? [eq(messageTranslation.tenantId, query.client)] : []),
-          ...(query.model ? [eq(messageTranslation.model, query.model)] : []),
-        ),
-      )
-      .groupBy(messageTranslation.tenantId, messageTranslation.model);
-    for (const r of rows) {
-      raws.push({
-        tenantId: r.tenantId,
-        agentId: null,
-        model: r.model,
-        action: "background_translation",
-        s: sumOf(r),
-      });
-    }
-  }
+  raws.push(...merged.values());
   if (raws.length === 0) return empty;
 
   const clientIds = [...new Set(raws.map((r) => r.tenantId))];
@@ -286,7 +181,7 @@ export async function tokenReport(
       .map(({ r }) => ({
         client: clientRef(r.tenantId),
         agent: agentRef(r.agentId),
-        provider: modelProvider(r.model),
+        provider: providerOf(r.model),
         model: r.model,
         action: r.action,
         ...figures(r.s),
@@ -306,7 +201,7 @@ export async function tokenReport(
     byModel: [...byModel]
       .map(([model, s]) => ({ model, s, name: model }))
       .sort(byCost)
-      .map(({ model, s }) => ({ provider: modelProvider(model), model, ...figures(s) })),
+      .map(({ model, s }) => ({ provider: providerOf(model), model, ...figures(s) })),
     byAction: [...byAction]
       .map(([action, s]) => ({ action, s, name: action }))
       .sort(byCost)

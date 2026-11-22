@@ -8,6 +8,7 @@
 import { KPI_DAYS, shortRunId } from "@countersign/core";
 import {
   agent,
+  appUser,
   auditEvent,
   connection,
   contact,
@@ -16,6 +17,8 @@ import {
   externalAction,
   inboxItem,
   organization,
+  reggieConversation,
+  reggieMessage,
   run,
   stepRun,
   tenant,
@@ -386,6 +389,7 @@ describe.skipIf(!h)("command center, search and questions", () => {
       costUsd: "0.1200",
       stepsUsd: "0.1050",
       readingUsd: "0.0150",
+      backOfficeUsd: "0.0000",
       perRunUsd: "0.0175",
     });
     expect(cc.waitingOnClients.count).toBe(3);
@@ -491,6 +495,35 @@ describe.skipIf(!h)("command center, search and questions", () => {
     expect(days).toHaveLength(KPI_DAYS);
     expect(days.reduce((n, d) => n + d.runs, 0)).toBe(7);
     expect(cc.perDay).toHaveLength(KPI_DAYS);
+  });
+
+  // QA (usage costs, 2026-11-22): Home read $0.00 after a talk with Reggie, whose calls were in
+  // none of its figures. Its spend is now the Usage screen's "Today", from the same lines.
+  it("counts Reggie's answers in today's spend, as the Usage screen's today does", async () => {
+    const [op] = await H.t.db.select().from(appUser).where(eq(appUser.email, OPERATOR));
+    const [conv] = await H.t.db
+      .insert(reggieConversation)
+      .values({ userId: op?.id as string, title: "Today" })
+      .returning();
+    await H.t.db.insert(reggieMessage).values({
+      conversationId: conv?.id as string,
+      role: "reggie",
+      text: "Here is today.",
+      meta: { model: "claude-sonnet-5-5", costUsd: "0.025000" },
+      createdAt: recent,
+    });
+    const cc = j((await H.call(OPERATOR, "GET", "/api/ops/command-center")).json);
+    expect(cc.spendToday).toMatchObject({
+      costUsd: "0.1450",
+      stepsUsd: "0.1050",
+      readingUsd: "0.0150",
+      backOfficeUsd: "0.0250",
+    });
+    const day = T0.toISOString().slice(0, 10);
+    const usage = j((await H.call(OPERATOR, "GET", `/api/ops/usage?from=${day}&to=${day}`)).json);
+    expect(usage.total.costUsd).toBe(cc.spendToday.costUsd);
+    expect(usage.backOffice.lines).toEqual([{ id: "reggie", answers: 1, costUsd: "0.0250" }]);
+    await H.t.db.delete(reggieConversation).where(eq(reggieConversation.id, conv?.id as string));
   });
 
   it("carries what the page asked other routes for, with the same answers (§1.84)", async () => {
