@@ -400,7 +400,8 @@ export async function convertToAsk(tx: Tx, row: IssueRow, userId: string): Promi
       tenantId: row.tenantId,
       title: row.title,
       text: row.description.trim() || row.title,
-      source: row.source,
+      // A security check's issue becomes an ask of ours, never one from the check.
+      source: row.source === "assurance" ? "ops" : row.source,
       raisedBy: row.raisedBy,
       raisedByEmail: row.raisedByEmail,
       agentId: row.agentId,

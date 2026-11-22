@@ -1414,6 +1414,67 @@ export const sopRevision = pgTable(
   ],
 );
 
+/** What an agent's security check looked at (docs/agent-assurance-plan.md §4). */
+export const CONTROL_CHECK_KINDS = ["setup", "runs", "attack"] as const;
+/**
+ * A check's result (§4, owner 2026-11-21): never "failed". "Not yet checked" is the absence of a
+ * row, so a check that never ran never reads as one that found nothing.
+ */
+export const CONTROL_CHECK_RESULTS = ["verified", "in_review", "not_applicable"] as const;
+/** What started the check. */
+export const CONTROL_CHECK_TRIGGERS = ["nightly", "setup_change", "person", "attack_run"] as const;
+
+/**
+ * One result of one security check of one client agent (docs/agent-assurance-plan.md §6,
+ * migration 0075): which check (core's `assurance` check id), the register controls it proves,
+ * what it looked at, its result and its evidence (counts and record ids, never contents, secrets,
+ * prompts or message bodies). A check in review links the issue it opened. History: never updated
+ * or deleted, like `audit_event`; the next check is the next row.
+ */
+export const controlCheck = pgTable(
+  "control_check",
+  {
+    id: id(),
+    tenantId: tenantId(),
+    agentId: uuid("agent_id").notNull(),
+    /** The agent version the check read; null for a check of the client's setup alone. */
+    agentVersionId: uuid("agent_version_id").references(() => agentVersion.id),
+    checkId: text("check_id").notNull(),
+    kind: text("kind").$type<(typeof CONTROL_CHECK_KINDS)[number]>().notNull(),
+    /** The register's control ids it proves (core `compliance/controls.ts`): AGT-1, ISO-1, … */
+    controls: text("controls").array().notNull().default(sql`'{}'::text[]`),
+    result: text("result").$type<(typeof CONTROL_CHECK_RESULTS)[number]>().notNull(),
+    /** What it found, in a line, for the client's view and the back office. */
+    found: text("found").notNull().default(""),
+    /** Counts and record ids it read; never their contents. */
+    evidence: jsonb("evidence").notNull().default({}),
+    periodStart: ts("period_start"),
+    periodEnd: ts("period_end"),
+    trigger: text("trigger").$type<(typeof CONTROL_CHECK_TRIGGERS)[number]>().notNull(),
+    /** The issue a check in review opened for us. */
+    issueId: uuid("issue_id"),
+    checkedAt: ts("checked_at").notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      name: "control_check_agent_fk",
+      columns: [t.agentId, t.tenantId],
+      foreignColumns: [agent.id, agent.tenantId],
+    }),
+    index("control_check_agent_idx").on(t.tenantId, t.agentId, t.checkId, t.checkedAt),
+    check("control_check_kind_check", sql`${t.kind} in ('setup', 'runs', 'attack')`),
+    check(
+      "control_check_result_check",
+      sql`${t.result} in ('verified', 'in_review', 'not_applicable')`,
+    ),
+    check(
+      "control_check_trigger_check",
+      sql`${t.trigger} in ('nightly', 'setup_change', 'person', 'attack_run')`,
+    ),
+    check("control_check_check_id_check", sql`length(${t.checkId}) between 1 and 80`),
+  ],
+);
+
 // ── Runs ─────────────────────────────────────────────────────────────────────────────────────────
 
 export const run = pgTable(
@@ -5140,6 +5201,8 @@ export const ISSUE_SOURCES = [
   "reggie",
   "legacy_request",
   "trial_rejection",
+  // 0075: a security check of an agent that didn't verify (docs/agent-assurance-plan.md §6).
+  "assurance",
 ] as const;
 
 /**
@@ -5291,7 +5354,13 @@ export const issueEvent = pgTable(
   ],
 );
 
-export const CLIENT_ASK_SOURCES = [...ISSUE_SOURCES, "question"] as const;
+// An ask never comes from a security check (0075 added "assurance" to issues only).
+export const CLIENT_ASK_SOURCES = [
+  ...ISSUE_SOURCES.filter(
+    (s): s is Exclude<(typeof ISSUE_SOURCES)[number], "assurance"> => s !== "assurance",
+  ),
+  "question",
+] as const;
 export const CLIENT_ASK_STATUSES = ["open", "grouped", "told", "closed"] as const;
 
 /**
@@ -6234,6 +6303,8 @@ export const TENANT_TABLES = [
   "billing_phone_line_day",
   // 0074: each agent's SOP, one row per revision (docs/sop-plan.md §6).
   "sop_revision",
+  // 0075: each agent's security checks, one row per result (docs/agent-assurance-plan.md §6).
+  "control_check",
 ] as const;
 export type TenantTable = (typeof TENANT_TABLES)[number];
 
