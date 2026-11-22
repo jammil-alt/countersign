@@ -1,4 +1,4 @@
-// Your people (docs/setup-plan.md §4.2; docs/plan.md §1.199, SU2): one card per seat the agents
+// Your people (docs/setup-plan.md §4.2; docs/plan.md §1.206, SU2): one card per seat the agents
 // being set up declare, merged across them: who approves, answers, is told or is contacted. "We
 // think" from the client's own answers, Yes or Change; a person picked from the team (or, for a
 // seat that is told or contacted, the directory); a backup for a seat that signs; then Looks right.

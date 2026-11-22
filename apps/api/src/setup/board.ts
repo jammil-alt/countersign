@@ -1,9 +1,9 @@
-// The back office's Setup tab (docs/setup-plan.md §8; docs/plan.md §1.199, SU6): stream OPS. Each
+// The back office's Setup tab (docs/setup-plan.md §8; docs/plan.md §1.206, SU6): stream OPS. Each
 // agent being set up by chapter with who it waits on, read from Getting started's own overview (as
 // the client admin would see it), so the board and the client's page never disagree; the people
 // waiting with when they were last here; the client's open change asks; the runbook (§8.1); Nudge,
 // an email from the lead; and Do it on a call, the lead's answers to the open intake, sourced
-// `call`, which count once the client says yes to them (owner, §1.199 q4). The lead can never
+// `call`, which count once the client says yes to them (owner, §1.206 q4). The lead can never
 // connect a tool, sign the scope or fill a seat for the client (§8): none of that is here.
 
 import {

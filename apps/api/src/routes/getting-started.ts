@@ -1,5 +1,5 @@
 // Getting started's chapters and the back office's Setup tab (docs/setup-plan.md; docs/plan.md
-// §1.199). Portal routes answer the client's own words and people only (invariant 11); the back
+// §1.206). Portal routes answer the client's own words and people only (invariant 11); the back
 // office's are the operator's. Every route goes through `mount()`, which writes the audit row.
 import { gettingStartedRoutes as routes } from "@countersign/core";
 import { membership, type Tx, tenant } from "@countersign/db";

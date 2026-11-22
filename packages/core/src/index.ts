@@ -64,7 +64,7 @@ export * from "./api/feedback";
 // docs/plan.md §1.121: forms, "Request info"
 export * from "./api/forms";
 export * from "./api/gchat";
-// docs/setup-plan.md (§1.199): Getting started's chapters, seats and the Setup tab.
+// docs/setup-plan.md (§1.206): Getting started's chapters, seats and the Setup tab.
 export * from "./api/getting-started";
 // v0.14 W4-D
 export * from "./api/gsheets";
@@ -225,7 +225,7 @@ export * from "./email/authentication";
 export * from "./email/layout";
 export * from "./email/onboarding";
 export * from "./email/second-factor";
-// docs/plan.md §1.199 (SU6): the setup nudge, from the lead.
+// docs/plan.md §1.206 (SU6): the setup nudge, from the lead.
 export * from "./email/setup-nudge";
 // docs/plan.md §1.121: forms, "Request info"
 export * from "./forms";

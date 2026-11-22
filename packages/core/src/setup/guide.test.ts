@@ -1,4 +1,4 @@
-// Getting started's pure rules (docs/setup-plan.md; docs/plan.md §1.199).
+// Getting started's pure rules (docs/setup-plan.md; docs/plan.md §1.206).
 import { describe, expect, it } from "vitest";
 import { membersNamedIn, minutesLeft, readAgentGuide, readTenantGuide, runbook } from "./guide";
 

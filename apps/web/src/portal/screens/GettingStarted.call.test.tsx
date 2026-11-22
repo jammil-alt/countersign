@@ -1,4 +1,4 @@
-// Answers from a call on Getting started (docs/setup-plan.md §8; docs/plan.md §1.199 q4): an answer
+// Answers from a call on Getting started (docs/setup-plan.md §8; docs/plan.md §1.206 q4): an answer
 // the lead gave on a call shows "From our call: please check" until the client says yes, which
 // sends it as their own answer; Change opens the card's own editor.
 import type { PortalIntakeView } from "@countersign/core";

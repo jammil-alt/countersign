@@ -1,4 +1,4 @@
-// Your tools (docs/setup-plan.md §5; docs/plan.md §1.199, SU3): one card per tool the agents being
+// Your tools (docs/setup-plan.md §5; docs/plan.md §1.206, SU3): one card per tool the agents being
 // set up need. Connected or not; the account check ("You signed in to X. Is that the company the
 // agents should use?"); what the agents read, may change (asking first, every time) and never do;
 // a link to the tool's own access settings (the matrix lives there, not here); Connect through the

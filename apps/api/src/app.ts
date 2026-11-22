@@ -363,7 +363,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   runControlRoutes(app);
   // v0.12 W1-A: go-live stages and client controls
   lifecycleRoutes(app);
-  // docs/setup-plan.md (§1.199): Getting started's chapters and the Setup tab.
+  // docs/setup-plan.md (§1.206): Getting started's chapters and the Setup tab.
   gettingStartedRoutes(app);
   exportRoutes(app);
   // v0.12 W1-B: notifications, the Table and the Weekly Table

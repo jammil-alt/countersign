@@ -48,7 +48,7 @@ export const CARD_QUESTIONS = 5;
 export function GettingStartedScreen() {
   const { t } = useI18n();
   const state = useApi(portalIntakeRoutes.portalCurrentIntake);
-  // docs/setup-plan.md (§1.199): each agent's line of what is left, and the chapters.
+  // docs/setup-plan.md (§1.206): each agent's line of what is left, and the chapters.
   const overview = useApi(gettingStartedRoutes.portalGettingStarted);
   const setup = hasSetup(overview.data) ? overview.data : null;
   return (
@@ -226,7 +226,7 @@ function answerWords(a: IntakeAnswerView, { t }: Pick<I18n, "t">): string {
 
 const ANSWERED = new Set(["answered", "confirmed", "corrected"]);
 
-/** §1.199 q4: an answer your lead gave on a call, which counts once you say yes to it. */
+/** §1.206 q4: an answer your lead gave on a call, which counts once you say yes to it. */
 const fromCall = (a: IntakeAnswerView | undefined): boolean =>
   !!a && a.source === "call" && ANSWERED.has(a.state);
 

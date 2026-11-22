@@ -1,4 +1,4 @@
-// See it work (docs/setup-plan.md §6; docs/plan.md §1.199, SU4 and SU5): one agent at a time, its
+// See it work (docs/setup-plan.md §6; docs/plan.md §1.206, SU4 and SU5): one agent at a time, its
 // process read step by step from its SOP (`/api/services/:id/sop`: names, how each step works,
 // who, why; seats already as people's names), each step with Looks right or We do it differently
 // (a request to the lead, tied to the step); the settings the client may choose within bounds (the

@@ -1,4 +1,4 @@
-// See it work's shared pieces (docs/setup-plan.md §6; docs/plan.md §1.199, SU4 and SU5): the agent
+// See it work's shared pieces (docs/setup-plan.md §6; docs/plan.md §1.206, SU4 and SU5): the agent
 // as Getting started reads it (the client's own copy, inside the request's one client: invariant
 // 1), the steps its SOP numbers, and its guide in `stage_state.guide`, written with the row locked.
 import {
@@ -31,7 +31,7 @@ export async function seeAgent(
 }
 
 /** A viewer reads See it work; only someone who can sign says what is right about it. */
-// DECISION: marks and verdicts are a signer's, as tries are (owner, §1.199 q2): a viewer's word on
+// DECISION: marks and verdicts are a signer's, as tries are (owner, §1.206 q2): a viewer's word on
 // a step would read as the client's.
 export function refuseViewer(input: { canSign: boolean }): void {
   if (!input.canSign) {

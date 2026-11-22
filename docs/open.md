@@ -259,7 +259,7 @@ Requirements request reading its card. All against fakes. What it still needs:
 - The owner's call: whether the deal page's old "Set up the account" card stays now that Invite
   does the set-up.
 - **Built (2026-11-22), PR #522:** setting a client up from the intake to the first trial
-  (`docs/setup-plan.md`, SU1–SU6; decisions `docs/plan.md` §1.199): **seats** (a template names
+  (`docs/setup-plan.md`, SU1–SU6; decisions `docs/plan.md` §1.206): **seats** (a template names
   "approves bills"; each client fills it), Getting started's chapters (Your tools, Your people, See
   it work with a test run on a real document, Go live with a signed scope) and the back office's
   Setup tab (Progress: the board, Nudge, Do it on a call, the runbook, Start trial). Open: Sloan

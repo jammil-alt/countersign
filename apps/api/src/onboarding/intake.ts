@@ -214,7 +214,7 @@ function askedOf(d: IntakeData): { fieldKey: string; name: string }[] {
 }
 
 export function progressOf(d: IntakeData, answers = answerViews(d)): SectionProgress[] {
-  // §1.199 q4: an answer the lead gave on a call counts once the client says yes to it.
+  // §1.206 q4: an answer the lead gave on a call counts once the client says yes to it.
   return guideProgress(
     d.guide,
     answers.filter((a) => a.source !== "call"),

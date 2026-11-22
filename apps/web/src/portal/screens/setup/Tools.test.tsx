@@ -1,4 +1,4 @@
-// Your tools (docs/setup-plan.md §5; docs/plan.md §1.199, SU3): one card per tool with what the
+// Your tools (docs/setup-plan.md §5; docs/plan.md §1.206, SU3): one card per tool with what the
 // agents read, change and never do; the account check said yes to, a different company going to
 // the tool's own page; the first look's lines; Connect through the connector's page; Someone else
 // sends just the card to a colleague; a client user who isn't the admin reads only.

@@ -5,7 +5,7 @@ export const PORTAL_PATHS = {
   home: "/",
   // §1.149.2: Getting started (the welcome page goes on here after sign-in).
   start: "/start",
-  // docs/setup-plan.md (§1.199): Getting started's chapters; See it work and Go live per agent.
+  // docs/setup-plan.md (§1.206): Getting started's chapters; See it work and Go live per agent.
   // DECISION: under `/getting-started`, not `/start`: `/start/:token` is the invite's welcome page.
   startTools: "/getting-started/tools",
   startPeople: "/getting-started/people",

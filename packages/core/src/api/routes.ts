@@ -2511,7 +2511,7 @@ export const routes = {
   ...runControlRoutes,
   // v0.12 W1-A: go-live stages and client controls
   ...lifecycleRoutes,
-  // docs/setup-plan.md (§1.199)
+  // docs/setup-plan.md (§1.206)
   ...gettingStartedRoutes,
   // v0.12 W1-B: notifications, the Table and the Weekly Table
   ...notifyRoutes,

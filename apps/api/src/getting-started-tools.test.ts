@@ -1,4 +1,4 @@
-// Getting started's Your tools through the API (docs/setup-plan.md §5; docs/plan.md §1.199, SU3):
+// Getting started's Your tools through the API (docs/setup-plan.md §5; docs/plan.md §1.206, SU3):
 // each tool the agents being set up need (their checklists' connect items and their steps' tools),
 // connected or not and to which account, what they read and change there in words, the account
 // check (a different company asks again), the first look counted from synced QuickBooks records,

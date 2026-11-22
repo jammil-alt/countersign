@@ -1,4 +1,4 @@
-// Getting started's Try it on a real one (docs/setup-plan.md §6.2; docs/plan.md §1.199, SU5):
+// Getting started's Try it on a real one (docs/setup-plan.md §6.2; docs/plan.md §1.206, SU5):
 // stream SEE. A test run of the agent's latest version on one of the client's documents: it writes
 // nothing and asks nobody (invariant 8: test runs never write; their writes are recorded as
 // proposed, their notices go nowhere and their person steps are ours, never the client's). The
@@ -8,7 +8,7 @@
 // cost or the bundle (invariant 11). "Not right because…" files a request with the run as its
 // source (invariant 10).
 //
-// Owner, §1.199 q2: any client user who can sign and sees the agent may start up to three tries
+// Owner, §1.206 q2: any client user who can sign and sees the agent may start up to three tries
 // per agent while it is being set up, one at a time.
 
 import {

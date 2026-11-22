@@ -488,7 +488,7 @@ describe("the client page's tabs and addresses", () => {
 
   it.each([
     ["data", "ops-client-data-pages", "Documents"],
-    // §1.199: Setup opens on its Progress board.
+    // §1.206: Setup opens on its Progress board.
     ["setup", "ops-client-setup-pages", "Progress"],
   ])("sends /%s to its first page", async (old, pagesId, first) => {
     const api = fakeApi({
