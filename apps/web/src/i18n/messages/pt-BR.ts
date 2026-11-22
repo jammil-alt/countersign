@@ -2538,6 +2538,8 @@ export const ptBR: Messages = {
   "adjust.between": "Entre {min} e {max}", // fluent review
   "adjust.atLeast": "No mínimo {min}", // fluent review
   "adjust.atMost": "No máximo {max}", // fluent review
+  "adjust.onOrAfter": "Em {min} ou depois", // fluent review
+  "adjust.onOrBefore": "Em {max} ou antes", // fluent review
   "adjust.tighterLower": "Mais baixo é mais rígido.", // fluent review
   "adjust.tighterHigher": "Mais alto é mais rígido.", // fluent review
   "adjust.notSet": "Não definido", // fluent review

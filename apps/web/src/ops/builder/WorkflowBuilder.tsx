@@ -1700,6 +1700,7 @@ function BuilderBody(
         setSelection({ type: "step", id: made[0] as string });
       }}
       onProcess={(fn, key) => edit(fn, key)}
+      onBundle={(fn, key) => apply(fn, key)}
       onFix={fixError}
       // v0.18: each step's data, and what fills a missing step.
       dataOf={dataOf}

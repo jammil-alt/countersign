@@ -2465,6 +2465,8 @@ export const en = {
   "adjust.between": "Between {min} and {max}",
   "adjust.atLeast": "At least {min}",
   "adjust.atMost": "At most {max}",
+  "adjust.onOrAfter": "On or after {min}",
+  "adjust.onOrBefore": "On or before {max}",
   "adjust.tighterLower": "Lower is stricter.",
   "adjust.tighterHigher": "Higher is stricter.",
   "adjust.notSet": "Not set",

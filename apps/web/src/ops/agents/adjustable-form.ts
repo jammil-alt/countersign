@@ -38,8 +38,9 @@ export function draftsFrom(definition: { adjustable?: unknown }): AdjustDraft[] 
     target: s.target,
     label: s.label,
     hint: s.hint,
-    min: s.bounds?.min ?? "",
-    max: s.bounds?.max ?? "",
+    // G11: a date's limits are held in the same two fields.
+    min: s.bounds?.min ?? s.bounds?.earliest ?? "",
+    max: s.bounds?.max ?? s.bounds?.latest ?? "",
     options: (s.bounds?.options ?? []).join("\n"),
     tighter: s.tighter ?? "",
     ...(s.decisionId ? { decisionId: s.decisionId } : {}),
@@ -87,9 +88,28 @@ export function updateDraft(
 const optionList = (text: string) =>
   [...new Set(text.split("\n").map((o) => o.trim()))].filter(Boolean);
 
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** A mark on a date parameter (G11: its limits are dates). */
+export function isDateDraft(d: Pick<AdjustDraft, "target">): boolean {
+  return d.target.kind === "parameter" && d.target.type === "date";
+}
+
 /** What stops a mark from saving, in plain words; null when it is fine. */
 export function draftProblem(d: AdjustDraft): string | null {
   if (!d.label.trim()) return "Give it a name the client reads.";
+  if (isDateDraft(d)) {
+    for (const v of [d.min, d.max]) {
+      if (
+        v.trim() &&
+        (!DATE_RE.test(v.trim()) || Number.isNaN(Date.parse(`${v.trim()}T00:00:00Z`)))
+      )
+        return "Limits are dates, like 2026-12-24.";
+    }
+    if (d.min.trim() && d.max.trim() && d.min.trim() > d.max.trim()) {
+      return "The earliest date is after the latest.";
+    }
+  }
   const numeric =
     d.target.kind === "parameter" && (d.target.type === "number" || d.target.type === "money");
   if (numeric) {
@@ -126,10 +146,13 @@ export function settingsFrom(drafts: readonly AdjustDraft[]): AdjustableSetting[
     const options = optionList(d.options);
     const numeric =
       d.target.kind === "parameter" && (d.target.type === "number" || d.target.type === "money");
+    const date = isDateDraft(d);
     const bounds = {
       ...(numeric && d.min.trim() ? { min: d.min.trim() } : {}),
       ...(numeric && d.max.trim() ? { max: d.max.trim() } : {}),
-      ...(!numeric && options.length > 0 ? { options } : {}),
+      ...(date && d.min.trim() ? { earliest: d.min.trim() } : {}),
+      ...(date && d.max.trim() ? { latest: d.max.trim() } : {}),
+      ...(!numeric && !date && options.length > 0 ? { options } : {}),
     };
     return {
       id: d.id,
@@ -137,7 +160,7 @@ export function settingsFrom(drafts: readonly AdjustDraft[]): AdjustableSetting[
       hint: d.hint.trim(),
       target: d.target,
       ...(Object.keys(bounds).length > 0 ? { bounds } : {}),
-      ...(numeric && d.tighter ? { tighter: d.tighter } : {}),
+      ...((numeric || date) && d.tighter ? { tighter: d.tighter } : {}),
       ...(d.decisionId ? { decisionId: d.decisionId } : {}),
     };
   });

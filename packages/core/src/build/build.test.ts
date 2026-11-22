@@ -192,6 +192,28 @@ describe("verdicts", () => {
     expect(withFitScope(row("x", "build"), "out")).toMatchObject({ dropped: true, later: false });
   });
 
+  it("keeps the stage an intake field holds as the operator's change (G10)", () => {
+    const field = {
+      id: "date",
+      label: "Your go-live date",
+      kind: "answer" as const,
+      hint: "",
+      dropped: false,
+      byOperator: false,
+    };
+    const before = { rows: [], needsTrue: [], setup: [field], decisions: [] };
+    const out = operatorFitGap(before, { ...before, setup: [{ ...field, guards: "live" }] });
+    expect(out.ok && out.fitgap.setup[0]).toMatchObject({ guards: "live", byOperator: true });
+    // A Builder rewrite keeps it.
+    if (!out.ok) throw new Error("refused");
+    const merged = mergeFitGap(out.fitgap, {
+      rows: [],
+      needsTrue: [],
+      setup: [{ id: "date", label: "Go-live date", kind: "answer", hint: "" }],
+    });
+    expect(merged.setup[0]).toMatchObject({ label: "Your go-live date", guards: "live" });
+  });
+
   it("let the operator change scope, never a verdict, when saving the fit-gap", () => {
     const sent = { ...stored, rows: stored.rows.map((r) => ({ ...r, dropped: r.id === "pay" })) };
     const out = operatorFitGap(stored, sent);

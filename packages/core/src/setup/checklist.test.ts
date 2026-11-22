@@ -167,6 +167,8 @@ describe("setup checklist: built from a template build", () => {
         field("books", { label: "QuickBooks Online", kind: "connect" }),
         field("list", { label: "Vendor list", kind: "file" }),
         field("old", { dropped: true }),
+        // G10: a field the operator set to hold go-live.
+        field("date", { label: "Your go-live date", guards: "live" }),
       ],
       decisions,
       writes: draftWriteUses(draft, { tools: TOOLS }),
@@ -176,6 +178,7 @@ describe("setup checklist: built from a template build", () => {
     expect(items.map((i) => [i.id, i.kind, i.guards])).toEqual([
       ["form-books", "connect", "setup"],
       ["form-list", "file", "setup"],
+      ["form-date", "answer", "live"],
       ["decision-tolerance", "answer", "setup"],
       ["decision-signer", "answer", "trial"],
       ["connect-gmail", "connect", "setup"],

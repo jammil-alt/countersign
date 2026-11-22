@@ -4,6 +4,7 @@
 // screen share these, so the screen says why a move is off with the server's own reasons.
 
 import { z } from "zod";
+import { SetupGuard } from "../setup/item";
 import { sliceWhole, storable } from "../text";
 
 export const BUILD_KINDS = ["agent", "skill"] as const;
@@ -323,6 +324,11 @@ export const SetupField = SetupFieldDraft.extend({
   dropped: z.boolean().default(false),
   /** Added or changed by the operator: the Builder's rewrites keep it as it is. */
   byOperator: z.boolean().default(false),
+  /**
+   * G10: the stage the client's answer holds (setup, the trial, go-live), set by the operator;
+   * absent: setup. Not in the Builder's answer, so its requests and fixtures are unchanged.
+   */
+  guards: SetupGuard.optional(),
 });
 export type SetupField = z.infer<typeof SetupField>;
 
@@ -821,7 +827,8 @@ export function operatorFitGap(
           s.label !== f.label ||
           s.kind !== f.kind ||
           s.hint !== f.hint ||
-          s.dropped !== f.dropped;
+          s.dropped !== f.dropped ||
+          (s.guards ?? "setup") !== (f.guards ?? "setup");
         return { ...f, byOperator: f.byOperator || changed };
       }),
       // Decisions change only by their own route (a status) and the Builder's turns: what a save

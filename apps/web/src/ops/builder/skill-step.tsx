@@ -20,6 +20,8 @@ import { type ReactNode, useState } from "react";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { Badge, Button, cx } from "../../ui/primitives";
+import { canAdjust, ParameterAdjust } from "../agents/AdjustableFields";
+import { draftProblems, draftsFrom, withAdjustable } from "../agents/adjustable-form";
 import { modelOptionLabel } from "../agents/definition-form";
 import { errorText, useAction } from "../agents/ui";
 import { ParameterValueInput, parameterText, valueProblem } from "../skills/parameters";
@@ -148,16 +150,28 @@ export function StepParameters({
   skill,
   bundle,
   set,
+  onBundle,
 }: {
   step: SkillStep;
   skill: SkillDefinition;
   bundle: ProcessAgentBundle;
   set: SetStep;
+  /**
+   * G11: edits the agent's definition, to mark this step's own parameter as one the client may
+   * adjust (`definition.adjustable`, a target with this step's id). Absent: not offered.
+   */
+  onBundle?: ((fn: (b: ProcessAgentBundle) => ProcessAgentBundle, key: string) => void) | undefined;
 }) {
   const params = skill.parameters ?? [];
   if (params.length === 0) return null;
   const agent = agentSkillEntry(bundle.definition, parseSkillRef(step.skill).id)?.parameters ?? {};
   const own = step.customize?.parameters ?? {};
+  const drafts = draftsFrom(bundle.definition);
+  const problems = draftProblems(drafts);
+  const errors = Object.fromEntries(
+    Object.entries(problems).map(([id, p]) => [`adjustable.${id}`, p]),
+  );
+  const skillId = parseSkillRef(step.skill).id;
   return (
     <Section title="Parameters">
       <p className="text-xs text-ink-muted">
@@ -207,6 +221,27 @@ export function StepParameters({
                 })
               }
             />
+            {onBundle && canAdjust(p.type) ? (
+              // G11: this step's own value, marked for the client to adjust within bounds.
+              <ParameterAdjust
+                target={{
+                  kind: "parameter",
+                  skill: skillId,
+                  parameter: p.name,
+                  type: p.type as "number" | "money" | "text" | "date",
+                  stepId: step.id,
+                }}
+                label={p.label}
+                drafts={drafts}
+                errors={errors}
+                onChange={(next) =>
+                  onBundle(
+                    (b) => ({ ...b, definition: withAdjustable(b.definition, next) }),
+                    `adjust:${step.id}:${p.name}`,
+                  )
+                }
+              />
+            ) : null}
           </Row>
         );
       })}

@@ -169,7 +169,15 @@ export async function adjustSetting(
       tenantId: row.tenantId,
       agentId: row.id,
       actorId: input.actor.userId,
-      change: { kind: "adjust", setting: setting.id, outcome: "requested", issueId: issue.id },
+      change: {
+        kind: "adjust",
+        setting: setting.id,
+        // G10: what the back office's change list reads.
+        label: setting.label,
+        value: judged.text,
+        outcome: "requested",
+        issueId: issue.id,
+      },
     });
     return {
       outcome: "requested",
@@ -221,6 +229,8 @@ export async function adjustSetting(
     change: {
       kind: "adjust",
       setting: setting.id,
+      label: setting.label,
+      value: judged.text,
       outcome: "applied",
       side: input.actor.side,
       tightens: judged.tightens,

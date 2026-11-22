@@ -4,7 +4,7 @@ import type { SetupRowView, SetupView } from "@countersign/core";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ApiProvider } from "../../api/useApi";
 import { AGENT_SUMMARY, FORK_BUNDLE, fakeApi } from "../../test/fixtures";
 import { GoLivePanel } from "./GoLivePanel";
@@ -109,9 +109,11 @@ describe("the setup checklist on a client copy's page", () => {
     expect(screen.getByTestId("setup-item-write-start-qbo")).toHaveTextContent(
       "Waiting on the client",
     );
-    // A connect item is the client's to connect, and a file theirs to send.
+    // A connect item is the client's to connect; a file we send for them, not "record" (G10).
     expect(screen.queryByTestId("setup-record-connect-qbo")).toBeNull();
     expect(screen.queryByTestId("setup-record-form-list")).toBeNull();
+    expect(screen.queryByTestId("setup-file-connect-qbo")).toBeNull();
+    expect(screen.getByTestId("setup-file-form-list")).toBeInTheDocument();
 
     // We record a confirm for the client, with a note.
     const user = userEvent.setup();
@@ -119,6 +121,43 @@ describe("the setup checklist on a client copy's page", () => {
     await user.type(screen.getByTestId("setup-value-write-start-qbo"), "Agreed on the call");
     await user.click(screen.getByTestId("setup-save-write-start-qbo"));
     await waitFor(() => expect(recorded).toEqual([{ value: "Agreed on the call" }]));
+  });
+
+  it("sends a file item's files for the client (G10)", async () => {
+    const api = fakeApi({
+      [`GET /api/ops/agents/${AGENT.id}/go-live`]: () => ({ goLive: BENCH }),
+    });
+    const sent: string[] = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      sent.push(`${init?.method} ${String(input)}`);
+      const files = (init?.body as FormData | undefined)?.getAll("files") as File[];
+      sent.push(...files.map((f) => f.name));
+      return new Response(JSON.stringify({ goLive: BENCH, refused: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetch);
+    try {
+      render(
+        <ApiProvider client={api.client}>
+          <MemoryRouter>
+            <GoLivePanel agent={AGENT} liveBundle={FORK_BUNDLE} onChanged={() => {}} />
+          </MemoryRouter>
+        </ApiProvider>,
+      );
+      const input = await screen.findByTestId("setup-file-form-list");
+      const user = userEvent.setup();
+      await user.upload(input, new File(["a"], "vendors.pdf", { type: "application/pdf" }));
+      await waitFor(() =>
+        expect(sent).toEqual([
+          `POST /api/ops/agents/${AGENT.id}/setup/form-list/files`,
+          "vendors.pdf",
+        ]),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("says who did an item in plain words", () => {

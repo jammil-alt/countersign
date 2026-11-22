@@ -109,13 +109,19 @@ function AdjustRow({
   const [error, setError] = useState<unknown>(null);
   const words = (v: string | null) =>
     v === null ? t("adjust.notSet") : row.kind === "schedule" ? scheduleText(v) : v;
+  // G11: a date's limits read "on or after", "on or before".
+  const date = row.kind === "date";
   const limits =
     row.min !== null && row.max !== null
       ? t("adjust.between", { min: row.min, max: row.max })
       : row.min !== null
-        ? t("adjust.atLeast", { min: row.min })
+        ? date
+          ? t("adjust.onOrAfter", { min: row.min })
+          : t("adjust.atLeast", { min: row.min })
         : row.max !== null
-          ? t("adjust.atMost", { max: row.max })
+          ? date
+            ? t("adjust.onOrBefore", { max: row.max })
+            : t("adjust.atMost", { max: row.max })
           : null;
   const asked = value === OTHER ? other.trim() : value.trim();
 

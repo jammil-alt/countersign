@@ -5,6 +5,7 @@
 
 import { getAgent } from "@countersign/agents";
 import { type PortalSetupAgent, routes, setupRoutes } from "@countersign/core";
+import { narrowToTenant } from "@countersign/db";
 import type { Hono } from "hono";
 import { ensureSeesAgent } from "../assigned";
 import { type AppEnv, type HandlerCtx, HttpError, mount, notFound } from "../http";
@@ -28,10 +29,13 @@ import { turnOn, turnOnPreview } from "../lifecycle/turn-on";
 import { startAfterCommit } from "../runs/reconcile";
 import {
   agentSetupView,
+  checklistOf,
   portalSetupAgent,
   portalSetupAgents,
   recordSetupItem,
+  shownVersion,
 } from "../setup/checklist";
+import { receiveUploads } from "./documents";
 
 /** A client agent of a client this operator serves. */
 async function clientAgentInScope(ctx: Pick<HandlerCtx<never>, "tx" | "tenantIds">, id: string) {
@@ -164,6 +168,42 @@ export function lifecycleRoutes(app: Hono<AppEnv>): void {
       ctx: ctx.services.platform.ctx,
     });
     return { goLive: await goLiveView(ctx.tx, updated, ctx.services.platform.ctx) };
+  });
+
+  // G10: the operator sends a file item for the client: the files are stored quietly in the
+  // client's documents (as the portal's own setup files are, `for=chat`: no `document.received`,
+  // so no agent starts on them, and no CSV import), then recorded on the item as ours.
+  // DECISION (G10): the one place the back office uploads into a client that isn't the Sandbox
+  // (§1.16 keeps uploads the client's), and only for a file item of that client's own checklist:
+  // the client asked us to send it. Who sent it is kept and the portal shows "by us".
+  mount(app, setupRoutes.opsSetupItemFiles, async (ctx) => {
+    const row = await clientAgentInScope(ctx, ctx.params.id);
+    const tenantId = row.tenantId as string;
+    const item = checklistOf((await shownVersion(ctx.tx, row))?.bundle).find(
+      (i) => i.id === ctx.params.itemId,
+    );
+    if (!item) throw notFound("setup item");
+    if (item.kind !== "file")
+      throw new HttpError(422, "not_a_file_item", "This item isn't a file.");
+    const { results } = await narrowToTenant(ctx.tx, tenantId, (tx) =>
+      receiveUploads({ ...ctx, tx }, tenantId, true),
+    );
+    const files = results.flatMap((r) => (r.document ? [r.document.id] : []));
+    const refused = results.flatMap((r) =>
+      r.document ? [] : [{ filename: r.filename, error: r.error ?? "It wasn't kept." }],
+    );
+    if (files.length === 0) {
+      throw new HttpError(422, "no_files", refused[0]?.error ?? "Add the file first.");
+    }
+    const updated = await recordSetupItem(ctx.tx, {
+      agentId: row.id,
+      tenantId,
+      itemId: item.id,
+      body: { files },
+      actor: { userId: ctx.session.user.id, name: personName(ctx), side: "operator" },
+      ctx: ctx.services.platform.ctx,
+    });
+    return { goLive: await goLiveView(ctx.tx, updated, ctx.services.platform.ctx), refused };
   });
 
   // ── The client: Getting started's setup checklists ───────────────────────────────────────────
