@@ -82,8 +82,10 @@ Sidebar (after the UI cleanup; places only, no client or agent rows):
 - Build: Agent lab, Skills and automations, Connectors
 - Business: Usage and billing; More: Feedback, Audit log, Requests, Website logins
 
-The client picker in the top bar is the one way to choose a client, and it keeps the client of the
-page you're on (a run, a merge) or the last one picked in this tab.
+The client picker in the top bar opens a client's page and shows the client of the page you're on
+(a run, a merge); on a page with no client it reads "Open a client". It is navigation only: it
+filters nothing and remembers nothing, so Runs, Escalations, Sales and search keep their own
+client filters (QA, 2026-11-22).
 
 | # | Screen (prototype id) | Route | Replaces today | Main APIs |
 |---|---|---|---|---|

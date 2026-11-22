@@ -91,6 +91,7 @@ const MCP_READS = new Set([
   "runs_list",
   "run_get",
   "inbox_list",
+  "needs_us",
   "connections_list",
   "records_search",
   "ops_health",

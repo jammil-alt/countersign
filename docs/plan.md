@@ -6398,6 +6398,110 @@ both in the body QuickBooks gets).
 | The connector | `qbo.purchaseorder.create` reads the order's items (`Id in (…)`, active or not) when it is proposed and again before writing, and refuses an item that isn't the company's, is inactive, or is a category, naming it. Whether an item needs an expense account ("I purchase this") to be on a PO is unchecked: we don't refuse it. Sandbox check 9 in `qbo/NOTES.md`. // DECISION |
 | Not built | A screen to see or change an item's QuickBooks item (a wrong tie is changed by hand today); bills (`qbo.bill.create`) don't get the item check yet. |
 
+### 1.207 The staging walk-through: counts that agree, links that open the item (owner, 2026-11-22; no migration)
+
+The owner read every back-office section on staging and listed what disagreed or dead-ended
+(`STAGING_QA.md`). Each decision below has a `// DECISION:` comment where it is made.
+
+| Topic | Decision |
+|---|---|
+| Needs us | What the operator must act on. A client's approval is ours only when nobody at the client can act on it, counted once per client and reason, with every item it covers (`approvalEscalations`, `routes/command-center.ts`). Approvals someone there can answer stay in Waiting on clients, however old; Home says how many wait and how many are over 24 h. Your call stays its own measure (to-dos, held runs, builds), and Escalations says so. Reggie answers from the same list (the MCP `needs_us` tool). // DECISION |
+| Open item | An approval opens its item, not its run (`?item=`, or `?stuck=<escalation>` for several); the item's sheet links the run. Linked rows are marked and scrolled to. // DECISION |
+| Today | The browser's day, sent as `?today=<instant>`; a value that can't be today's start falls back to UTC (`startOfToday`). The live-runs tile always opens today's live runs. Low-confidence readings count in Needs us for 24 hours. // DECISION |
+| Reminders | The supervisor's "N items are still waiting" items are left out of back-office counts and lists (`isWaitingReminder`); the client's Desk and the findings list still show them. A finding's title is rewritten each time it is seen. // DECISION |
+| Handle together | Three or more open approval or review items alike (client, agent, kind, subject) group under "Handle together", one call per item through the existing routes, each audited as one is. Questions, writes, findings, code requests, messages and script drafts are left out. // DECISION |
+| Cost | Cost and tokens are read from call-level rows (`routes/usage-spend.ts`), one source for every table on Usage and for Home's spend; the rollups keep only counts. A step's spend beyond its recorded calls is an "unrecorded" line on its start day. Back-office spend (Reggie, the Builder, builds) belongs to no client and is its own line. Providers' fees are a vendor row, never model cost. // DECISION |
+| Prices | A dated model id is priced as its model (`-YYYYMMDD`, `@YYYYMMDD`); older Claude models are priced from `PREVIOUS_PRICES`, kept out of the builder's choices. A call recorded at $0 with tokens shows "No price". Sonnet 5.5's cache reads are $0.10. // DECISION |
+| Test runs | A step that reads an unmade write's output is proposed without reading the client's tool (`skipBefore`); if it still fails, it is recorded as what it would have done, with its error kept, and the run goes on. Live runs are unchanged. // DECISION |
+| Agent status | One wording on every screen (`apps/web/src/agents/status.ts`): stage, version, then what its runs do ("In trial · v4 · Idle"). A live agent reads "Live", never "Running". One counted set (core `isCountedAgent`): client agents not discarded, not test copies, not retired; templates and area owners never count. The agent route returns connector and skill names. // DECISION |
+| Client picker | Navigation only: it shows the page's own client and remembers nothing; cross-client screens keep their own filters. // DECISION |
+| To-dos | Each opens where it is done; a record with no page of its own opens its client's page. // DECISION |
+| Recommended connectors | What fits: the connections the client's switched-on areas work through and its agents' not-connected gaps, never a connected one, in the operator's words ("their QuickBooks"). With neither, none; the catalog is one click away. // DECISION |
+| Reggie | A conversation is saved with its first message; empty ones are skipped in the list, not deleted. // DECISION |
+| Shell | The sidebar keeps its scroll for the page load and brings the current row into view. Your call keeps its page while a tab loads. Tile rows are balanced in the browser (`ui/tileRows.ts`). Every Utilities page is titled "Utilities"; the pin-a-spot tool is "Report a problem". An unknown URL is "Page not found". An Autopilot play's text keeps 16rem before its control wraps under it. // DECISION |
+| Runs | Pages of 50 by the last run shown (`before`, `next`), "Show 50 more". Three or more failed runs alike fold into one row. A validation error is put in words on the row; the run page keeps the raw text. "Took" is worked time, with the wait beneath; a day or more reads in days and hours. A pause reason that only repeats the action is dropped from the line. // DECISION |
+| Dates | One house format: day then month, 24-hour clock ("21 Nov, 08:00"), in the viewer's time zone; English is en-GB style (`i18n/format.ts`). A client's time zone is picked from a list and checked by Zod (`IanaTimeZone`); a bad one is now 400 `invalid_request`. // DECISION |
+| Not fixed | The Your call badge missing on Library and New client did not happen locally; a test now checks it on every back-office route. Why `/skills` hangs on staging is not known; the agent page no longer waits on it. Back-office questions and Sloan's thread summaries record cost only in logs (needs a table and its own migration PR). Schedule wording (`triggers/schedule.ts`) is still 12-hour. Deal and contact time zones are still free text. |
+| Checked | New or changed tests in each stream: `routes/needs-us.test.ts`, `agent-status.test.ts`, `runs-paging.test.ts`, the usage and command-center tests, `actions.test.ts` (bill, attach, memo in a test run), `executor.test.ts`, `pricing.test.ts`, `agents/status.test.ts`, `RunsPaging.test.tsx`, `shell/sidebar.test.tsx`, `ui/tileRows.test.ts`, `routes.test.tsx` (the badge on every route), and the screens' own tests. |
+
+### 1.206 Setting up a client: seats, the setup chapters and the Setup tab (owner, 2026-11-22; no migration)
+
+`docs/setup-plan.md` (SU1–SU6), with its mock-up `docs/design/setup.html`. Outside ARCHITECTURE's v1
+scope at the owner's request, as §1.149 is. The owner took the design's answer to each of its §12
+questions ("go with your defaults", 2026-11-22):
+
+| # | Question | Decision |
+|---|---|---|
+| 1 | A change to a `signs` seat once the trial has started | Applies at once and tells the lead (a to-do on Your call). Adding a person or a backup applies at once with no notice. // DECISION in `apps/api/src/setup/seats.ts` |
+| 2 | Try it on a real one without us | Any client user who sees the agent may start up to three test runs per agent during setup, one at a time. // DECISION in `apps/api/src/setup/try.ts` |
+| 3 | Approvers must sign in | Yes: a `signs` seat holds client users who can sign (never a viewer, never a contact). |
+| 4 | Answers from a call | The lead's answers are marked "From our call: please check" and count once the client confirms the chapter. |
+| 5 | The trial's length | Two weeks, one default for every agent. |
+| 6 | Chapter order | Business, tools, people, see it work, go live. |
+
+**SU1, seats (built):**
+
+| Topic | Decision |
+|---|---|
+| Declared | The bundle's `people` (`PersonRole`) gains `kind` (`signs`, `answers`, `told`, `reached`) and a client-facing `label`, both optional with no default so a bundle made before seats parses and hashes as it was; an absent kind is `reached` (core `seatKindOf`). // DECISION |
+| Named | A step names a seat as `seat:<role>` wherever a `Who` goes: a person step's assignee, an approval's approvers, a confer's person, a notify's or a deadline's `tell`, an escalation's `to`, a process step's approvals (core `processes.whoRefsOfStep`). Bundle validation refuses a seat the bundle doesn't declare (`unknown_seat`) and one whose kind can't do what is asked (`seat_kind`): only `signs` approves; `answers` or `signs` answers and is escalated to; anything but `reached` is told. |
+| Filled | `agent.people` (jsonb, operational, never in a version) gains `userIds` (in order) and `backupUserIds` beside `contactIds`; no migration. A PUT that leaves them out keeps them, so the People section's contacts and conditions never empty a seat. `setPeople` checks each person: a member of the client (admin or client user) who can see the agent, one who can sign for a `signs` seat; `signs` and `answers` hold users only, `reached` contacts only, and only `signs` has backups. |
+| Run | `createRun` snapshots `agent.people` into `run.config.people`; the run's load step reads it (`seatsOfConfig`) and the executor rewrites the v4 process before anything runs (`processes.fillSeats`): an approval's seat becomes one approver per person, then (in turn only) its backups; a person step or an escalation takes the seat's first person; a notify or `tell` everyone in it. An empty seat is the default approver (agent, client rules, admin) or, where someone must be asked or told, the client admin, exactly as before seats. A replay reads the same people; the engine and the ports see plain user ids. // DECISION: backups are asked only in `in_turn`, so `all` never waits for a backup's signature. |
+| Activation | A required seat with nobody in it holds activation (`missingRoles` counts users, backups and contacts). |
+| The SOP | A seat reads as whoever a run would ask: its one person by name, several as "A or B", an empty seat as the client admin (`apps/api/src/sop/inputs.ts`). |
+| The Bill clerk v4 | `bill-approver` (`signs`, "Approves the Bill clerk's changes in QuickBooks") on every write's approval, `bill-questions` (`answers`) on its four questions; neither required, so an unfilled copy behaves as v3 did. |
+| Checked | `packages/core/src/process/seats.test.ts` (names, kinds, validation inside ifs and escalations, the rewrite, nothing mutated, empty seats), `packages/workflows/src/seats.test.ts` (a run asks the seat's people; with no seats, the client admin), `packages/db/src/seed.test.ts` and `apps/api/src/templates-skill-model.test.ts` (v4 seeded and live), `packages/agents/src/registry/registry.test.ts` (the run's snapshot). |
+
+**The foundation and SU2, Your people (built):**
+
+| Topic | Decision |
+|---|---|
+| The contract | Core `api/getting-started.ts` (`gettingStartedRoutes`): the overview, each chapter's routes, and the back office's Setup tab, with their views (no bundle, prompt, cost or seat role beyond its label: `forbiddenPortalFields` holds for every portal answer). Stored state in core `setup/guide.ts`: per agent `stage_state.guide` (walkthrough marks, tries, the scope's signature), per client `tenant.settings.setupGuide` (People's Looks right, each tool's checks, nudges). No migration. |
+| Streams | While a stream was built its functions answered 501 `not_built`, the routes mounted so the contract tests held: TOOLS (`setup/tools-chapter.ts`), SEE (`setup/walkthrough.ts`, `setup/try.ts`), LIVE (`setup/scope.ts`), OPS (`setup/board.ts`). All four are built and joined; the seam is gone. |
+| Addresses | The chapters live under `/getting-started/…` in the portal. // DECISION: not `/start/…`, which is the invite's welcome page (`/start/:token`), and not `/setup/…`, which would read as the agent setup the portal never offers. Getting started (`/start`) stays the home: the lead's note, then the overview, then the intake's cards (the business chapter). |
+| The overview | `GET /api/getting-started`: the agents not yet on trial that this person sees, each with what is left (connect items from the setup checklist, the agent's own questions, empty seats that sign or answer, then See it work's and Go live's), who it waits on (the client admin, or whoever was asked), the five chapters' progress and the minutes left (core `minutesLeft`). With no agent being set up the page is as it was. |
+| Your people | `GET /api/getting-started/people`: every seat the client's active agents declare (not `reached`), merged by role across agents (one card, filled on every agent that declares it), the client's members (signers marked) and contacts, and "We think" for an empty seat from the intake's people answers (`general.approver`, `general.team`, an area's `who`), matched to members by name in code (core `membersNamedIn`: a full name, or a first name only one member has; never a model). `PUT …/people/:role` (client admin): lists left out are kept; each agent's `setPeople` checks each person; a viewer is refused 422 `not_a_signer` in words. `POST …/people/confirm`: Looks right. |
+| The lead told | A change that removes someone from a `signs` seat on an agent past setup (trial, sign-off or live) leaves the lead a to-do after the commit (`tellLeadSeatChanged`, through `withOperator`: to-dos are operator-only). Adding a person or a backup tells nobody. |
+| The back office | The client page's Setup tab opens on Progress (`/ops/clients/:id/progress`; `/setup` goes there), before Connectors. |
+| Checked | `apps/api/src/getting-started.test.ts` (an undeclared seat refused at publish; one seat across two agents; only the admin fills; a viewer and a contact refused; both agents hold the same people; another client sees nothing; the overview's lines and chapters; Looks right; the lead's to-do only when who signs changes after the trial started), `packages/core/src/setup/guide.test.ts`, `apps/web/src/portal/screens/setup/People.test.tsx` (the overview's lines and chapters; Yes to "We think" then Looks right; a change with a backup; a viewer explained; read only for a client user). |
+
+**SU3, Your tools (built):**
+
+| Topic | Decision |
+|---|---|
+| Which tools | Every tool a setup checklist's connect item names or the steps of the agent's version (live, else latest) need, through Connectors C1's `bundleNeeds` (what the Connectors pages read), for the agents being set up that this person sees. // DECISION: a write that can go through several tools (`anyOf`) needs one: the one the agent is bound to, else one the client has, else the first. |
+| Connected and the account | The connection the agent is bound to, else the client's best of that tool; connected when `connected`, or `pending` for a tool with nothing to sign in to (as `setupFacts`). The account is `connectionLabel` (the QuickBooks company, a mail account's address; never a realm id). // DECISION: the yes keeps the account's name, so a sign-in to another company reads as not checked again; 409 without a connected, named account. |
+| The words | Reads: the record types the agents read. Changes: each create or update need's label with "(asks you first)" (invariant 8). Never: "Delete anything", "Pay or move money", "Change anything not listed here". Built on the server in English, as `gapWords`. |
+| The first look | QuickBooks only, after the first sync, counted by SQL from each vendor's and bill's latest raw record: active vendors, bills a month over the last 91 days, the top three vendors by bills. A yes must name a line it has. Stored in `setupGuide.tools[c].lines`, not yet filed as `seen` facts. |
+| Someone else | A member who can connect the tool: the admin for any, a client user only for a personal account (Gmail). // DECISION: a Desk item (an inbox `review` assigned to that person) rather than the intake's ask, which needs an intake section; the waiting-items pass emails and pushes it. Asking again closes the earlier one. It doesn't close itself once connected. |
+| Checked | `apps/api/src/getting-started-tools.test.ts`, `apps/web/src/portal/screens/setup/Tools.test.tsx`. |
+
+**SU4 and SU5, See it work (built):**
+
+| Topic | Decision |
+|---|---|
+| The steps | Read from the client SOP (`GET /api/services/:id/sop`); the server keeps marks by step id in `stage_state.guide.marks`, a step id being one of the SOP version's at any depth (404 otherwise). One card per top-level step; what it holds is listed inside. |
+| We do it differently | Filed through the manual's `manualFeedback` (section `how`, `lineId` the step), its request kept on the mark; a later Looks right replaces the mark and the request stays open. Viewers read only (403 `cannot_sign`). Choices are the agent's existing adjustable settings card. |
+| Candidates | Up to five of the client's 30 newest documents that a workflow of the latest version starts on (an event on `document.received` or `document.extracted`, or a manual trigger taking `documentId`), the trigger's filter checked as the router does; never a duplicate or a failed reading; for a person limited to some agents, only documents those agents touched. |
+| A try (owner q2) | Someone who can sign, while the agent is on the bench, fewer than three tries, none queued or running, a document of this client. The latest version must validate as the back office's Test run (409 `not_ready`); a test run (`requestRun`, `mode: "test"`) started after the commit and recorded in `stage_state.guide.tries`. It writes nothing and asks no one of the client's (checked: no executed external action, every inbox item the operator's). |
+| A try's words | The executor's own step lines ("Would update the record (test run, not written)"), with "Would ask Luis Ortega first." from the run's seat snapshot; a run waiting on a person reads done with "Would wait here". Only id, name, state, summary, person and verdict: never inputs, outputs, cost or the bundle. Not right files an issue with the run as its origin (`createIssue`). |
+| Not yet | A try that reaches a person step leaves a test-run item in our inbox, as every test run does; such tries could be cancelled there. Server-side words are English. |
+| Checked | `apps/api/src/getting-started-see.test.ts`, `apps/web/src/portal/screens/setup/See.test.tsx`. |
+
+**SU6, Go live and the Setup tab (built):**
+
+| Topic | Decision |
+|---|---|
+| The scope | From the live, else latest, version: what it does (its client-facing description, else the SOP's purpose), what it reads and may change (the SOP's data and systems, grouped by where they live; records only kept in Mezonas left out), the seats with names ("Dana Ruiz, with Luis Ortega as backup"; an empty seat "nobody yet, so your admin is asked"), the client's adjusted settings, and its open issues and asks (a client user sees only theirs). |
+| Signing | Client admin only, `{by, byName, at, version}` in `stage_state.guide.scope`; the same version twice is 409 `already_signed`, a new version is signed again. It starts nothing: the operator starts the trial. The board's Start trial (the existing Turn on) is held until the scope is signed; Turn on itself doesn't check it. |
+| The board | Built from `gettingStarted(…, sees: null)`: a cell with lines is open (or not started), else the client-wide state; holds are the agent's lines with who each waits on; last here is the person's newest `audit_event`; change asks are the client's own open issues and asks about the agents (`apps/api/src/setup/asks.ts`: sources portal, Sloan, email, feedback, a trial's rejection, before §1.124), with the step from the walkthrough's marks and the tries' verdicts. |
+| The runbook | Core `runbook()`: the invite is the client's newest intake (else the client's creation), the trial the first agent's `stage_state.trial.startedAt`, go-live its first `agent_change` to live. |
+| Nudge | An `intake_reminder` outbox row to a member (now rendered as the setup nudge, `renderSetupNudgeEmail`, six languages) listing what's left, from the lead, linking to `/start`; once a calendar day per person in the client's zone (`setupGuide.nudges`). Reasons: `already_today`, `nothing_left`, `not_configured`, `hipaa`. |
+| Do it on a call (owner q4) | The operator serving the client saves answers to the open intake, source `call`, checked as the portal's are; tool and file questions refused (422 `not_on_a_call`). `progressOf` leaves `call` answers out until the client's yes. The portal shows "From our call: please check" with Yes (sent as the client's own answer) and Change. // DECISION: a yes per answer rather than one per card. |
+| Checked | `apps/api/src/getting-started-live.test.ts`, `apps/api/src/setup-board.test.ts`, `packages/core/src/email/setup-nudge.test.ts`, `apps/web/src/portal/screens/setup/Live.test.tsx`, `apps/web/src/ops/client/SetupProgress.test.tsx`, `apps/web/src/portal/screens/GettingStarted.call.test.tsx`. |
+
+**Still open:** Sloan across the chapters (O4); the scope as O5's signed `intake_scope` and its knowledge-base facts; first-look lines as `seen` facts; the server-side words in six languages; tries stopped at a person step; Turn on checking the scope; a look in a browser in both themes.
+
 ### 1.203 The phone's signed text v2: an answer's text and a note (M9, item C4.11, 2026-11-22; no migration)
 
 A phone's signature (§1.116, §1.140) covered the device, the item, the decision, the item's
@@ -6412,6 +6516,22 @@ could change between the phone and the API and the signature still matched (audi
 | The app | Signs `v2` only, with the answer and, when it sends one, the note (`apps/mobile/src/device/signing.ts`). // DECISION |
 | The time window | Unchanged: ±5 minutes either way (`DEVICE_SIGNATURE_SKEW_SEC`), so a phone whose clock runs a little fast is not refused; a signature can't be made ahead by anyone without the phone's key. // DECISION |
 | Checked | `packages/core/src/mobile/mobile.test.ts` (the v2 lines, null and absent, key order, v1 ignoring both), `apps/mobile/src/device/signing.test.ts` (the app's v2 verifies only with its own answer and note, and isn't a v1), `apps/api/src/mobile.test.ts` (a v2 accepted with `version` in the audit row, a v1 with an answer still accepted, a v2 with another answer, another note, no note, or its version changed or taken off refused and the item left open). |
+
+### 1.200 From a record to its runs (R3, 2026-11-22; no migration)
+
+The design: `docs/reporting-plan.md` §3 R3. It reads what runs kept (`run_subject`, §1.188).
+
+| Topic | Decision |
+|---|---|
+| Routes | `GET /api/records/:id/runs` (portal) and `GET /api/ops/clients/:id/records/:recordId/runs` (back office), `limit` up to 50, 20 by default. Each run: its agent, status, times, title (`RunSubject`) and `roles`, what it did with the record in the order it did it (`read`, `decided`, `changed`), the tool of a change, and the line of the step that did it (`step_run.summary`; none for what started the run). One reader, `apps/api/src/runs/record-runs.ts`, for both. |
+| Which runs | A run that kept a row about the record, newest first: by our id, or, for a change to a client's tool, by the tool, its id there and a kind the record can be kept as. A transaction or receivable by its own tool and id; a raw record by its tool, id and entity's kind; a vendor, organization or person by its `external_refs`. So a QuickBooks vendor 56 is never a bill 56. A document, a message or a pack's record is matched by our id alone. // DECISION |
+| One line per step and role | A step that read the vendor twice says so once. Only a change names its tool. // DECISION |
+| The portal | Live runs only, rows the timeline shows (`client_visible`) only: the run list, its roles and its lines. A person limited to some agents sees only their agents' runs; the route is open to them (`ASSIGNED_USER_ROUTES`) for the document pages they can open, while the record pages stay closed. No cost, bundle, instructions or step data. // DECISION |
+| The back office | Every run of the one client the route names (`ensureClient`), test runs marked. |
+| Words | `read` reads "Read", `decided` reads "Matched" (an agent decides on a record by matching it: a vendor, a PO, a bill), `changed` reads "Changed in QuickBooks". Portal copy in all six languages. // DECISION |
+| Screens | `apps/web/src/records/RecordRuns.tsx`, the Runs panel, on: the record pages (transaction, raw record, vendor) and document pages of both surfaces; the portal People page's person sheet; and, behind a "Runs" toggle, each person and organization card of the directory on both surfaces (a customer is an organization there). A customer has no page of its own yet. |
+| Not built | An organization linked to a vendor record lists the runs about the organization; the vendor's page lists the vendor's. The panel shows the newest 20 and has no "more". |
+| Checked | `apps/api/src/record-runs.test.ts` against Postgres as `cs_worker` (newest first, test runs in the back office only; a change found by its tool and id, a vendor's tool id not mistaken for a bill's; one line per step; the portal's hidden step, test run, another client and a limited person's other agent left out, and no forbidden key); `apps/web` `RecordRuns.test.tsx` (lines, words, links, the empty state, a test run) and `Directory.test.tsx` (the toggle). |
 
 ### 1.199 A run's cost counts every call, however small (build plans 11's first fix, 2026-11-22; no migration)
 

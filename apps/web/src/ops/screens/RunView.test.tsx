@@ -10,6 +10,11 @@ import { BILL_BEFORE, BILL_INPUT, BILL_LINES_VIEW } from "../../test/changes";
 import { fakeApi, OPERATOR_SESSION, Reply } from "../../test/fixtures";
 import { checklistRows, parseNodeId } from "../run/checklist";
 
+// The back office's code loads on demand; the first test in a file would wait for it inside its
+// own wait, which a busy CI runner can pass (PR #534, 2026-11-22). Loaded once, up front, as in
+// builds.test.tsx.
+await import("../OpsApp");
+
 const RUN_ID = "00000000-0000-4000-8000-0000000f1001";
 const ITEM_ID = "00000000-0000-4000-8000-0000000f3001";
 const TENANT = "00000000-0000-4000-8000-00000000a001";

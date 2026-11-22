@@ -250,7 +250,7 @@ describe("the client page", () => {
       `/ops/clients/${CLIENT}/areas`,
       `/ops/clients/${CLIENT}/file`,
       `/ops/clients/${CLIENT}/documents`,
-      `/ops/clients/${CLIENT}/connections`,
+      `/ops/clients/${CLIENT}/progress`,
       `/ops/clients/${CLIENT}/settings`,
     ]);
     // The client's runs: the Runs page filtered to it, from the Overview.
@@ -284,7 +284,7 @@ describe("the client page", () => {
       "In trial",
     );
     expect(within(trial).getByTestId("ops-client-next-run-material-costs")).toHaveTextContent(
-      /^Next run Jan 15, .+(AM|PM)$/,
+      /^Next run 15 Jan, \d{2}:\d{2}$/,
     );
     expect(within(trial).getByTestId("ops-client-view-link-material-costs")).toHaveAttribute(
       "href",
@@ -357,7 +357,13 @@ describe("the client page", () => {
     renderAt(`/ops/clients/${CLIENT}/agents`, api);
     const list = await screen.findByTestId("ops-client-agents", {}, { timeout: 10_000 });
     const live = within(list).getByTestId("ops-agent-card-material-costs");
-    expect(live).toHaveTextContent("Running");
+    // Its stage, as Home, the Overview and its own page say it (QA 2026-11-22: it read
+    // "Running · Live" here for an agent in trial).
+    expect(within(live).getByTestId("ops-agent-card-material-costs-status")).toHaveTextContent(
+      "In trial",
+    );
+    expect(live).not.toHaveTextContent("Running");
+    expect(live).not.toHaveTextContent("Live");
     // Its tools by name, never the connector's id.
     expect(await within(live).findByText("QuickBooks Online")).toBeInTheDocument();
     expect(live).not.toHaveTextContent("qbo");
@@ -476,7 +482,7 @@ describe("the client page's tabs and addresses", () => {
       within(pages)
         .getAllByRole("link")
         .map((l) => l.textContent),
-    ).toEqual(["Connectors", "Messaging", "Directory", "Knowledge"]);
+    ).toEqual(["Progress", "Connectors", "Messaging", "Directory", "Knowledge"]);
     expect(within(pages).getByRole("link", { name: "Directory" })).toHaveAttribute(
       "aria-current",
       "page",
@@ -488,7 +494,8 @@ describe("the client page's tabs and addresses", () => {
 
   it.each([
     ["data", "ops-client-data-pages", "Documents"],
-    ["setup", "ops-client-setup-pages", "Connectors"],
+    // §1.206: Setup opens on its Progress board.
+    ["setup", "ops-client-setup-pages", "Progress"],
   ])("sends /%s to its first page", async (old, pagesId, first) => {
     const api = fakeApi({
       "GET /api/session": () => OPERATOR_SESSION,

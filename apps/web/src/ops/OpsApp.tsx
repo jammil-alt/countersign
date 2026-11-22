@@ -4,7 +4,7 @@
 // The routes live in ./routes.tsx.
 import { Route, Routes } from "react-router-dom";
 import { I18nProvider } from "../i18n/i18n";
-import { Placeholder } from "../ui/primitives";
+import { NotFoundPage } from "../ui/primitives";
 import { OpsLayout } from "./OpsLayout";
 import { opsRoutes } from "./routes";
 
@@ -16,7 +16,8 @@ export default function OpsApp() {
       <OpsLayout>
         <Routes>
           {opsRoutes}
-          <Route path="*" element={<Placeholder title="Not found">No page here.</Placeholder>} />
+          {/* An address no screen answers: "Page not found" and the way Home, never "Not built yet". */}
+          <Route path="*" element={<NotFoundPage home="/ops" />} />
         </Routes>
       </OpsLayout>
     </I18nProvider>

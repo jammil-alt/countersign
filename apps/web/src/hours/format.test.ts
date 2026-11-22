@@ -31,8 +31,8 @@ describe("hours in words", () => {
       ],
     };
     expect(weekLines(week, en)).toEqual([
-      { days: "Mon to Thu", hours: "8:00 AM to 6:00 PM", closed: false },
-      { days: "Fri", hours: "8:00 AM to 12:00 PM, 1:00 PM to 5:30 PM", closed: false },
+      { days: "Mon to Thu", hours: "08:00 to 18:00", closed: false },
+      { days: "Fri", hours: "08:00 to 12:00, 13:00 to 17:30", closed: false },
       { days: "Sat to Sun", hours: "Closed", closed: true },
     ]);
     // German: its own day names (with or without a dot, by ICU's version) and a 24-hour clock.
@@ -128,7 +128,7 @@ describe("hours in words", () => {
   });
 
   it("formats a date as the day it names, and knows who is away today", () => {
-    expect(dateText("2026-01-01", "en-US")).toBe("Jan 1, 2026");
+    expect(dateText("2026-01-01", "en-US")).toBe("1 Jan 2026");
     const away = [{ from: "2026-12-21", to: "2027-01-02" }];
     expect(awayNow(away, "2026-12-25")).toEqual(away[0]);
     expect(awayNow(away, "2027-01-03")).toBeNull();

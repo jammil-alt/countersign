@@ -459,6 +459,77 @@ describe.skipIf(!h)("action write steps through the API", () => {
     expect(posts()).toBe(before);
   });
 
+  it("a test run's writes on the stand-in bill are proposed too: the run ends, nothing is read or written", async () => {
+    const steps = [
+      createBill(QBO_VENDOR, "INV-41011"),
+      {
+        id: "attach",
+        kind: "write",
+        name: "Attach the invoice",
+        tool: "qbo.attachable.upload",
+        input: {
+          documentId: crypto.randomUUID(),
+          entity: "Bill",
+          entityId: "{{steps.bill.output.id}}",
+        },
+      },
+      // The memo's before state is the bill as QuickBooks has it: there is none for a stand-in.
+      {
+        id: "memo",
+        kind: "write",
+        name: "Note the invoice on the bill",
+        tool: "qbo.bill.update_memo",
+        input: {
+          id: "{{steps.bill.output.id}}",
+          syncToken: "{{steps.bill.output.syncToken}}",
+          memo: "Invoice INV-41011",
+        },
+      },
+    ];
+    const a = await agentWith(H.A.tenantId, "qbo-test-chain", steps, { qbo: conn.qboA }, [
+      "qbo.attachable.upload",
+      "qbo.bill.update_memo",
+    ]);
+    expect(a.pub.status, JSON.stringify(a.pub.json)).toBe(200);
+    const writes = () => qbo.apiCalls("POST").length;
+    // The stand-in bill is never asked for: its id names nothing in QuickBooks.
+    const standInReads = () =>
+      qbo.apiCalls("GET").filter((r) => /\/bill\/0(\?|$)/.test(r.url)).length;
+    const before = { writes: writes(), reads: standInReads() };
+    const res = await H.call(
+      OPERATOR,
+      "POST",
+      `/api/ops/agents/${a.id}/versions/${a.version}/test-run`,
+      { workflow: "main" },
+    );
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const params = H.instances.started.get(j(res.json).runId);
+    if (!params) throw new Error("not started");
+    const result = await executeRun(deps(), params, cloudflareStepRunner(approver("a")));
+    expect(result).toEqual({ status: "succeeded" });
+    expect(writes()).toBe(before.writes);
+    expect(standInReads()).toBe(before.reads);
+    const actions = await actionsOf(params.runId);
+    expect(actions.map((x) => [x.tool, x.status, x.inboxItemId]).sort()).toEqual([
+      ["qbo.attachable.upload", "proposed", null],
+      ["qbo.bill.create", "proposed", null],
+      ["qbo.bill.update_memo", "proposed", null],
+    ]);
+    const memo = actions.find((x) => x.tool === "qbo.bill.update_memo");
+    expect(memo).toMatchObject({ input: { id: "0", syncToken: "0" }, before: null });
+    const rows = await H.t.db.select().from(stepRun).where(eq(stepRun.runId, params.runId));
+    const row = (id: string) => rows.find((r) => r.nodeId === id);
+    expect(row("attach")).toMatchObject({
+      status: "succeeded",
+      summary: "Would attach the invoice (test run, not written)",
+    });
+    expect(row("memo")).toMatchObject({
+      status: "succeeded",
+      output: { wouldHaveDone: true },
+      summary: "Would note the invoice on the bill (test run, not written)",
+    });
+  });
+
   it("create_bill on a BILL-bound agent: BILL's tool, behind the client's approval", async () => {
     const b = await agentWith(
       H.B.tenantId,

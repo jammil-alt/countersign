@@ -227,7 +227,7 @@ describe("people's hours on the team", () => {
     renderAt("/settings/team", api);
     const dana = await screen.findByTestId("portal-team-dana@demo.example.com-hours");
     expect(dana).toHaveTextContent("Business hours");
-    expect(dana).toHaveTextContent("Away until Dec 31, 2099");
+    expect(dana).toHaveTextContent("Away until 31 Dec 2099");
     const row = screen.getByTestId("portal-team-lee@demo.example.com");
     expect(within(row).getByTestId("portal-team-lee@demo.example.com-hours")).toHaveTextContent(
       "Business hours",
@@ -270,7 +270,7 @@ describe("people's hours on the team", () => {
         "Own hours",
       ),
     );
-    expect(editor).toHaveTextContent("Dec 21, 2026 to Jan 2, 2027");
+    expect(editor).toHaveTextContent("21 Dec 2026 to 2 Jan 2027");
   });
 
   it("lets a client user change their own hours only, and back to the business's clears them", async () => {
@@ -303,7 +303,7 @@ describe("people's hours on the team", () => {
     renderAt("/settings/team", api);
     const mine = await screen.findByTestId("portal-my-hours");
     await waitFor(() => expect(mine).toHaveTextContent("Own hours"));
-    expect(mine).toHaveTextContent("Mon8:00 AM to 6:00 PM");
+    expect(mine).toHaveTextContent("Mon08:00 to 18:00");
     await userEvent.click(within(mine).getByRole("button", { name: "Change hours" }));
     await userEvent.click(within(mine).getByRole("radio", { name: /Business hours/ }));
     await userEvent.click(within(mine).getByTestId("portal-my-hours-editor-save"));
