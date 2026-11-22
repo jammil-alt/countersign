@@ -5,7 +5,7 @@ plus one question to Reggie. Done, Step in, Switch on, Invite and the create and
 clicked, so those paths are untested. Nothing crashed and the console showed no errors. The problems
 are counts and statuses that disagree across screens, and flows that dead-end.
 
-This page lists what was reported and how each item is handled. Fix status is filled in as the fixes land.
+This page lists what was reported and how each item is handled. The decisions are in `docs/plan.md` §1.187; what is still open is in `docs/open.md`.
 
 ## Not working
 
@@ -37,6 +37,34 @@ This page lists what was reported and how each item is handled. Fix status is fi
 | C9 | Runs: 64 rows, no paging, 32 identical failed test runs with raw errors ("✖ Invalid UUID"). | Runs and dates |
 | C10 | Dates appear as "21 Nov 08:00", "Nov 11, 4:40 PM" and "11/5/2026"; the time zone is free text. | Runs and dates |
 | C11 | Reggie needs a click before you can type, and the click saves an empty "New conversation". | Flows |
+
+## Fix status (2026-11-22)
+
+Seven streams, each merged into this PR with its tests. None read staging: the staging tools wait
+for the operator to approve a connect-claude link, so every cause below comes from the code.
+
+| # | Cause | Fix |
+|---|---|---|
+| N1 | Approvals linked to the client's whole Waiting on clients list. | Each link opens its item (`?item=`), or the items one escalation covers (`?stuck=`), marked and scrolled to. |
+| N2 | Every client approval over 24 h went into Needs us, one per run or item, so all were Urgent. Your call counts other things; Reggie counted operator inbox items. | Needs us holds a client's approval only when nobody there can act, once per client and reason. The rest stay in Waiting on clients, counted on Home. Reggie uses the same list. |
+| N3 | The total came from rollups that add providers' fees; By model and By vendor came from call rows. Twelve Thirty-Four's $35.50 is texting registration fees. Sonnet 4.5 had no price, and dated ids never matched one. | One call-level source for every table, an "unrecorded" line for step spend without call rows, back office and fees as their own lines. Dated ids price as their model; older models have prices; unpriced calls say "No price". Past $0 rows stay $0. |
+| N4 | The day started at midnight UTC; Home's spend left out Reggie and the Builder. | The browser's day, sent to the API. Spend reads the same source as Usage. |
+| N5 | A write after a skipped write read the record from QuickBooks (bill "0") and failed, ending the run. | Dependent writes are proposed without reading; a dependent step that still fails is recorded as "would have done" and the run goes on. |
+| N6 | Home and Overview read the stage; the Agents tab and agent page read the run switch and the published-version badge. Counts used different sets. | One wording and one counted set on every screen. |
+| N7 | A three-column grid squeezed the text. | A wrapping row; the control sits beside or under the text. |
+| N8 | Not reproduced. | A test checks the badge on every back-office route; a page loading part of itself no longer hides the frame. |
+| N9 | Long unbroken titles and errors widened the columns. | Two-line clamp, column widths, Cost pinned at the right edge. |
+| N10 | Each had its own cause. | Plurals, days for long waits, worked time with the wait beneath, pause reasons that repeat the action dropped, "QuickBooks Online", skill names from the agent route, "Page not found". |
+| C1 | Opening a client's page picked it and kept it. | The picker is navigation only and shows the page's own client. |
+| C2 | The deal link was only the title, in ink. | Each to-do has a button to where it is done. |
+| C3, C4 | Owner decisions. | In `docs/open.md`. Utilities pages are titled "Utilities"; the pin-a-spot tool is "Report a problem". |
+| C5 | — | The sidebar keeps its scroll and brings the current row into view. |
+| C6 | The screen dropped its data while a tab loaded. | It keeps the last data while loading; tile rows balanced; chips wrap or scroll. |
+| C7 | — | "Handle together" for three or more alike; reminders are not counted. |
+| C8 | The section listed the whole catalog in the connectors' own words. | Only what fits, never a connected one, in the operator's words. |
+| C9 | No paging; every failure its own row. | Pages of 50, repeated failures folded, validation errors in words. |
+| C10 | Each screen formatted dates its own way. | One house format; the time zone is picked from a list. |
+| C11 | Opening Reggie created a conversation. | Type at once; it is saved with the first message; empty ones aren't listed. |
 
 ## Good (keep)
 
