@@ -120,6 +120,11 @@ const OpsClientBooksHealthScreen = lazy(() =>
   import("./client/ClientBooksHealth").then((m) => ({ default: m.OpsClientBooksHealthScreen })),
 );
 
+// Plan entry §1.233: a client's Bills to pay (the AP pack) loads when opened.
+const OpsClientBillsToPayScreen = lazy(() =>
+  import("../packs/ap/OpsBillsToPay").then((m) => ({ default: m.OpsClientBillsToPayScreen })),
+);
+
 export const opsRoutes = (
   <>
     {/* O1 Command center (UI-2a) */}
@@ -262,6 +267,15 @@ export const opsRoutes = (
       <Route
         path="clients/:clientId/reports/bookkeeping/reconciliations"
         element={<OpsClientReconciliationsScreen />}
+      />
+      {/* Plan entry §1.233: a client's Bills to pay */}
+      <Route
+        path="clients/:clientId/reports/ap/bills"
+        element={
+          <Suspense fallback={null}>
+            <OpsClientBillsToPayScreen />
+          </Suspense>
+        }
       />
     </Route>
     {/* A document's and a record's own pages, outside the client's frame */}
