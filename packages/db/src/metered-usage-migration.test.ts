@@ -135,6 +135,16 @@ describe.skipIf(!online)("0081: metered_usage", () => {
       `('${A.tenantId}', 'emails', 0, 'run', null, 'y4')`,
       `('${A.tenantId}', 'emails', 1, 'Not A Source', null, 'y5')`,
     ];
+    // Cache reads and writes are kept apart from fresh input, never negative.
+    expect(
+      await errorCode(
+        as("operator", (run) =>
+          run(`insert into metered_usage (tenant_id, measure, source, ours, model, cost_usd,
+                 cache_read_tokens, key)
+               values ('${A.tenantId}', 'model', 'builder', true, 'm', 0.0010, -1, 'y6')`),
+        ),
+      ),
+    ).toBe("23514");
     for (const v of bad) {
       expect(
         await errorCode(

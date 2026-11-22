@@ -21,6 +21,8 @@ CREATE TABLE "metered_usage" (
 	"model" text,
 	"tokens_in" integer DEFAULT 0 NOT NULL,
 	"tokens_out" integer DEFAULT 0 NOT NULL,
+	"cache_read_tokens" integer DEFAULT 0 NOT NULL,
+	"cache_write_tokens" integer DEFAULT 0 NOT NULL,
 	"cost_usd" numeric(14, 4),
 	"key" text NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
@@ -30,7 +32,7 @@ CREATE TABLE "metered_usage" (
 	CONSTRAINT "metered_usage_quantity_check" CHECK ("metered_usage"."quantity" > 0),
 	CONSTRAINT "metered_usage_ours_check" CHECK ("metered_usage"."tenant_id" is not null or "metered_usage"."ours"),
 	CONSTRAINT "metered_usage_scope_check" CHECK ("metered_usage"."tenant_id" is not null or ("metered_usage"."agent_id" is null and "metered_usage"."run_id" is null)),
-	CONSTRAINT "metered_usage_model_check" CHECK (("metered_usage"."measure" = 'model') = ("metered_usage"."cost_usd" is not null) and "metered_usage"."tokens_in" >= 0 and "metered_usage"."tokens_out" >= 0 and coalesce("metered_usage"."cost_usd", 0) >= 0)
+	CONSTRAINT "metered_usage_model_check" CHECK (("metered_usage"."measure" = 'model') = ("metered_usage"."cost_usd" is not null) and "metered_usage"."tokens_in" >= 0 and "metered_usage"."tokens_out" >= 0 and "metered_usage"."cache_read_tokens" >= 0 and "metered_usage"."cache_write_tokens" >= 0 and coalesce("metered_usage"."cost_usd", 0) >= 0)
 );
 --> statement-breakpoint
 ALTER TABLE "usage_daily" ADD COLUMN "emails" integer DEFAULT 0 NOT NULL;--> statement-breakpoint

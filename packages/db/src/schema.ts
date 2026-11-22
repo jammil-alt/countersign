@@ -2198,8 +2198,11 @@ export const meteredUsage = pgTable(
     ours: boolean("ours").notNull().default(false),
     /** A model call's model, tokens and cost; null cost for every other measure. */
     model: text("model"),
+    /** Fresh input tokens; cache reads and writes are kept apart below. */
     tokensIn: integer("tokens_in").notNull().default(0),
     tokensOut: integer("tokens_out").notNull().default(0),
+    cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+    cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
     costUsd: numeric("cost_usd", { precision: 14, scale: 4 }),
     /** Counted once: the provider's id (`twilio:SM…`), or the event's own. */
     key: text("key").notNull().unique(),
@@ -2228,7 +2231,7 @@ export const meteredUsage = pgTable(
     ),
     check(
       "metered_usage_model_check",
-      sql`(${t.measure} = 'model') = (${t.costUsd} is not null) and ${t.tokensIn} >= 0 and ${t.tokensOut} >= 0 and coalesce(${t.costUsd}, 0) >= 0`,
+      sql`(${t.measure} = 'model') = (${t.costUsd} is not null) and ${t.tokensIn} >= 0 and ${t.tokensOut} >= 0 and ${t.cacheReadTokens} >= 0 and ${t.cacheWriteTokens} >= 0 and coalesce(${t.costUsd}, 0) >= 0`,
     ),
   ],
 );
