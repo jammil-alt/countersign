@@ -6382,6 +6382,22 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.193 A run's cost counts every call, however small (build plans 11's first fix, 2026-11-22; no migration)
+
+The build plans (2026-11-22, plan 11) found every production run showing $0.00. Two causes in the
+code. **Unpriced model ids:** the API answers a model with its dated id
+(`claude-sonnet-4-5-20250929`), which had no price, so the call was recorded at $0.00; staging
+had 30 such calls. #523 prices dated ids and earlier Claude models and shows "No price" for the
+rest. **Rounding:** a call's cost has 6 places, but `step_run.cost_usd` and `run.cost_usd` are
+`numeric(14,4)`, and `addUsage` added each call as is, so every addition rounded to the nearest
+ten-thousandth and a call under $0.00005 (a short Haiku call, as item matching makes) added
+nothing.
+
+| Topic | Decision |
+|---|---|
+| Rounding | Each call's cost is rounded **up** to a ten-thousandth before it is added to its step and run, as its `model_call` row already is (`dbModelCalls.record`), so a run's cost is the sum of its calls' rows and a call is never free. // DECISION: round per call rather than widen the columns: no migration, and the two sources agree. |
+| Not here | Runs already recorded at $0.00 keep it (`model_call` keeps their tokens and model, so they can be repriced later if wanted). Texts, calls and third-party fees are still not on a run's cost; that is plan 11's metering. |
+
 ### 1.192 The web app's first load back under budget (H9, 2026-11-22; no migration)
 
 The first load (`scripts/web-size.mjs`) was 494.8 kB gzipped on main against a 495 kB budget.
