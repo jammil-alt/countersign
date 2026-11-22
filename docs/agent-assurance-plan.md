@@ -236,7 +236,7 @@ Each ends green (`pnpm check`). The migration goes in its own PR.
 | **A2a: results' table** (built, PR #514) | `control_check`, and `assurance` as an issue's source | Own PR |
 | **A2: setup and run checks** (built) | 17 checks of §4 that read setup and runs (`assurance/checks.ts`); nightly at 08:23 UTC, and "Run the checks now"; the back office's Security tab; the four results (§4); a check in review opens one issue, which says only that a check is in review (the client admin sees issues as requests) | After A2a |
 | **A3: attacks** | Planted cases in the test bench, their pass rules, before-trial and monthly runs; recorded fixtures with a key | None (test cases have a home) |
-| **A4: evidence export** | Per period, per agent and client, CSV and a printable page; `/ops/security` rollup | None |
+| **A4: evidence export** (built, §1.231.3) | Per period, per agent and client, CSV and a printable page (`/ops/security/evidence`, linked from the Security tab); the `/ops/security` rollup per register control; back office only, each request audited by `mount()` | None |
 
 **What A2 left (owner's call or next).** Two checks of §4b aren't built: no secret in a stored model
 request (it needs the stored bodies read with the client's key) and OAuth scopes (granted scopes

@@ -117,6 +117,8 @@ import { SalesScreen } from "./work/sales/SalesSection";
 const AutomationEditor = lazy(() => import("./flow/automation/AutomationEditor"));
 // §1.218: SOC 2 readiness, with its schemas (`soc2Routes`), loads only when opened.
 const Soc2ReadinessScreen = lazy(() => import("./security/Soc2Readiness"));
+// §1.231.3: the agents' checks' evidence for an auditor.
+const EvidenceScreen = lazy(() => import("./security/Evidence"));
 // §1.216: books health loads when opened.
 const OpsClientBooksHealthScreen = lazy(() =>
   import("./client/ClientBooksHealth").then((m) => ({ default: m.OpsClientBooksHealthScreen })),
@@ -316,6 +318,14 @@ export const opsRoutes = (
       element={
         <Suspense fallback={<Loading />}>
           <Soc2ReadinessScreen />
+        </Suspense>
+      }
+    />
+    <Route
+      path="security/evidence"
+      element={
+        <Suspense fallback={<Loading />}>
+          <EvidenceScreen />
         </Suspense>
       }
     />
