@@ -6382,6 +6382,24 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.192 The web app's first load back under budget (H9, 2026-11-22; no migration)
+
+The first load (`scripts/web-size.mjs`) was 494.8 kB gzipped on main against a 495 kB budget.
+Built with source maps and each chunk's bytes attributed to its source modules: the entry chunk
+(211.5 kB) held React DOM and every portal screen with what they import (the Desk, the Inbox, the
+packs' reports, the directory, contacts, people, hours); a shared chunk (176.8 kB) held the route
+contract (`packages/core/src/api`, 66.6 kB of it) and the English catalog (46.7 kB); a third
+(95.6 kB) held zod, React Router, decimal.js and Sentry. Core's wording in six languages
+(`packages/core/src/i18n`, the Desk's and the rest) came in only through the portal's screens.
+
+| Topic | Decision |
+|---|---|
+| The portal is its own chunk | `App.tsx` loads `PortalApp` (the portal's frame and its routes) with `lazy`, as it already did the back office. Sign-in and its second step, a texting sign-up, a form and an invite's welcome page no longer carry the portal. Core's per-language wording now ships only with the portal and the back office, which need it. // DECISION |
+| No wait added | Opened at any address that is not `/ops`, `/sign-in`, `/texts`, `/f` or `/start`, the portal's chunk starts loading with the bundle, beside the session call, as the back office's does at `/ops` (docs/audit-plan.md 4.3). A client's first screen shows once both have answered, so it waits no longer than when the portal was in the bundle; the still frame shows meanwhile. A signed-out visit to a portal address fetches it too, and has it once signed in. // DECISION |
+| The budget | First load 344.1 kB (entry 69.5, shared 176.8, zod and the rest 95.6), so `BUDGET_KB` is 351 kB: that plus 2%. // DECISION |
+| Not built | A portal visit still fetches about the same in all (the portal's chunk and what it shares, 497 kB with the first load), now in two requests side by side. Each portal screen loading on its own, with the current one started early (audit item 4.6), the route contract split per screen, and English loaded on demand like the other five languages come next. |
+| Checked | `apps/web` tests (all pass, unchanged), the size check (`node scripts/web-size.mjs`, built with the manifest and a placeholder DSN as CI does), typecheck, lint, `lint:deps`. |
+
 ### 1.190 Compliance: the MCP connector held to HIPAA mode (docs/hipaa-plan.md T1, 2026-11-22; no migration)
 
 What an operator's back-office tools return through the MCP connector is read by their Claude, so
@@ -6448,7 +6466,6 @@ R1b, the writer, the backfill and the title (no migration):
 | Not kept | A change waiting, refused or failed (it changed nothing). An amount numeric(14,4) can't hold once rounded to four places (left off the row). More than 100 `sources` or 50 items of one `each` list per step. |
 | Backfill | `apps/api/src/runs/subject-log.ts`, hourly at minute 47 in the cron, per client inside `withTenant`: finished runs of the last 90 days that keep nothing yet but would keep something (a trigger naming a document or message, a message trigger naming its raw record, a done change of a finished step, a finished step's uuid `sources`), 200 a batch and up to 1,000 a client a tick. Each of those always keeps a row (a trigger's id no table holds is kept as the kind the trigger says), so a run is picked once and the pass stops finding work. A tool call's `about` is kept when the run is picked, but alone doesn't pick it. It runs in the cron, not as a script, because it needs the registry's tool specs. // DECISION |
 | The title | `runs/subject.ts` reads `run_subject` first: the document that started the run (else the trigger's, for a run not yet backfilled); then the first change, read from the change itself for its tool's display name; then a new subject kind, `record` (its kind, label and number), from the row its steps kept that names it best (changed, then decided, then read); then the trigger. The portal and its search read only `client_visible` rows. The web titles a `record` "Acme Supply · PR-1032". // DECISION |
-| Web first-load budget | Raised to 500 kB (`scripts/web-size.mjs`): main was at 494.8 kB and `ToolSpec.about` adds 0.2 kB, since the tool schema ships in the first load. H9 (`docs/work-plan.md` C4.8) brings it back under 470 kB. // DECISION |
 | Not built | R2: searching runs by it (`RunFilter.about`, `text` over labels and numbers, plain-words `aboutText`, ⌘K counts, MCP and Sloan). Runs started outside the executor (an ask, a conversation turn) keep only what started them. |
 | Checked | `packages/core` `tool-about.test.ts` (the declaration, reading an output, plain labels, kinds from entities); `packages/agents` `run-subjects.test.ts` against Postgres as `cs_worker` (the trigger's document, and an inbound message's raw record by its tool and id, never another event's; a step's sources, `about` and done change kept once; an amount that rounds past the column left off; Save to records' purchase it couldn't pick not kept; a hidden step and a test run kept from the client; another client's step; the savepoint; core's and the table's kinds the same); `apps/api` `run-subject-log.test.ts` (which rows the client sees, the step log keeping on finish only, the title from kept rows on both surfaces, the backfill picking each run once, an inbound message's among them, and leaving old, open and empty runs), and the existing `run-subject.test.ts` for the fallback. |
 

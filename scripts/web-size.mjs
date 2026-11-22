@@ -31,11 +31,12 @@ import { gzipSync } from "node:zlib";
 // edit form, Getting started and the Desk's error states, with their wording in six languages).
 // main was at 489.4 kB and these fixes add 2.5 kB to the first load. The same follow-ups as above
 // (each language's wording on demand, screens loading only their routes) bring it back down.
-// DECISION (2026-11-22): raised to 500 kB for reporting R1b (docs/plan.md §1.188). main was at
-// 494.8 kB, and `ToolSpec.about` adds 0.2 kB because the tool schema ships in the first load. H9
-// (docs/work-plan.md C4.8: each language's wording on demand, screens loading only what they use)
-// is next in the plan and brings it back under 470 kB.
-export const BUDGET_KB = 500;
+// DECISION (2026-11-22): lowered to 351 kB (H9, docs/plan.md §1.192). The client portal is its
+// own chunk, started beside the session call at a portal address as the back office's is at /ops,
+// so the first load no longer carries its screens or core's wording in six languages. main was at
+// 494.8 kB; this measured 344.1 kB, plus 2%. Each portal screen loading on its own and the route
+// contract split per screen (audit item 4.6) are the follow-ups toward phase 4's 300 kB.
+export const BUDGET_KB = 351;
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = process.argv[2] ?? join(root, "apps/web/dist");
