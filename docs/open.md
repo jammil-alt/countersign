@@ -259,11 +259,14 @@ Requirements request reading its card. All against fakes. What it still needs:
 - Code, next wave (`docs/cases-plan.md` §7): talk it through with Sloan (O4); the scope, signing,
   facts into the knowledge base and builds into fit-gap (O5); Reggie filing facts and suggesting
   what to cover; reminders and the remaining emails; voice (O6).
-- Code, smaller: delivered and bounced from Resend's webhooks; "Just the account" still sends
-  WorkOS's own invitation rather than a branded welcome-only email; a client file's documents (no
-  storage yet); pack and template questions shown in English; the retention job for lost
-  prospects; a "send it again" for an invite that didn't go (today it leaves the lead a to-do).
-  The full list: `docs/plan.md` §1.149.5 and §1.149.6.
+- Code, smaller: a client file's documents (no storage yet); pack and template questions shown in
+  English; the retention job for lost prospects. People added to an existing client with nothing
+  ticked still get WorkOS's invitation, not ours. The full list: `docs/plan.md` §1.149.5 and
+  §1.149.6. Built in Wave X (§1.220): delivered and bounced from Resend's webhooks (#564; needs
+  the owner's step: the webhook endpoint `https://<app host>/api/hooks/resend` for
+  `email.delivered` and `email.bounced` in Resend, and its signing secret as
+  `RESEND_WEBHOOK_SECRET` in each GitHub environment), "Send it again" (#567), and "Just the
+  account"'s own welcome email (#570).
 - The owner's call: whether the deal page's old "Set up the account" card stays now that Invite
   does the set-up.
 - **Built (2026-11-22), PR #522:** setting a client up from the intake to the first trial
@@ -358,7 +361,7 @@ sign-in stays off until `MOBILE_SIGNIN=on` and phone notifications until `MOBILE
 | M5 | **Try it on staging**: set `MOBILE_SIGNIN=on` and `MOBILE_PUSH=on` on staging's Worker with `wrangler secret put` (a dashboard variable is erased by the next deploy; `deploy.yml` copies neither yet), sign in from the app (WorkOS in the system browser, then the second step's code if it is on there), set up the phone (notifications, Face ID), make a Desk item on the Sandbox (any approval), and check: the notification arrives within 5 minutes with a count only, tapping opens the Desk, signing asks for Face ID, the audit log has `inbox.device_signed`, Undo works within 60 seconds, removing the phone in Settings stops its notifications. | Nothing in WorkOS changes: the sign-in returns to `/api/mobile/handoff` on our own origin. |
 | M6 | Expo's **enhanced push security** on, and `MOBILE_PUSH` and `EXPO_ACCESS_TOKEN` copied by `deploy.yml` (a small PR of its own), before production's `MOBILE_PUSH=on`. | Until then anyone holding a phone's token could send it a notification through Expo. |
 | M7 | Owner decisions: a longer session for an unlocked registered phone (today 30 idle minutes, as the browser, and the second step's code at each sign-in); whether a remembered browser may let a phone sign-in skip the code (today never); whether operators get the app (today refused at the handoff); (the phone app as a second-step method: built 2026-11-18, A8); the store listing (name, screenshots, privacy answers); TestFlight testers. | `docs/plan.md` §1.116 "Not in this pass". |
-| M8 | Before production's `MOBILE_SIGNIN=on`: a page in the browser that asks the person to confirm before the handoff sends the session to the app, and the app's return on a universal link (iOS) and an app link (Android) instead of the `mezonas://` scheme, so only our app can receive the code. | Audit, 2026-11-17. The code is already useless without the app's PKCE verifier. |
+| M8 | Before production's `MOBILE_SIGNIN=on`: the app's return on a universal link (iOS) and an app link (Android) instead of the `mezonas://` scheme, so only our app can receive the code. The confirm page before the handoff is built (#562, `docs/plan.md` §1.219). | Audit, 2026-11-17. The code is already useless without the app's PKCE verifier. |
 | M9 | ~~Signing follow-ups: a v2 signed text covering an answer's text and a note~~ Done (§1.203): the app signs `mezonas-sign:v2`; `v1` is still accepted. Owner decision left: when to refuse a `v1` signature that comes with an answer or a note (once every phone in use signs `v2`). The ±5 minute window is kept as is. | Owner decision. |
 | M10 | Decide: whether a release-code card may be resolved from a phone without a signature; whether a phone session may turn human release off (a setting, not a card). Possible, not checked: an admin's phone undoes another person's rejection, then a step set to `ifNoAnswer: proceed` goes on at its deadline. | Owner decisions; the last one needs a test first. |
 
@@ -376,7 +379,7 @@ finish it:
 | D4 | **A Mac and a PC**: `node apps/desktop/node_modules/electron/install.js`, then `MEZONAS_API_URL=https://staging.mezonas.com pnpm --filter @countersign/desktop start`, with `MOBILE_SIGNIN=on` on staging. Check each item in `packages/connectors/src/desktop/NOTES.md` (Excel's owner file on both, a written workbook opens without repair, OneDrive-synced folders, Mac privacy prompts). | |
 | D5 | **Signing certificates**: the Apple Developer ID (the same account as the phone, M3) for signing and notarising; for Windows, Azure Trusted Signing (or an OV certificate). | Without them Mac Gatekeeper and Windows SmartScreen warn on install. |
 | D6 | **The update feed**: an R2 bucket of ours behind `downloads.mezonas.com/desktop/`, and a release workflow that builds on macOS and Windows runners and uploads there (its own PR). | |
-| D7 | Before production: the handoff's audit row naming the desktop (`app: desktop`), and the same confirm page as M8 (another app could register `mezonas://` on a computer; the code is useless without the app's verifier). | |
+| D7 | **Built (#562, `docs/plan.md` §1.219):** the handoff's audit rows name the app (`app=desktop`), and the confirm page before the handoff (M8's). Left: removing a phone also ends that person's desktop sessions (both are `ph` sessions). | |
 | D8 | Next: signing Desk items in the app (Touch ID, Windows Hello), the Office add-in for open workbooks, Word, QuickBooks Desktop (Web Connector), sending files already in a folder, network shares, managed installs. | Owner's order. |
 
 ### Builds that work first (B0–B6, owner 2026-11-19; `docs/plan.md` §1.155, `docs/builder-plan.md`)
