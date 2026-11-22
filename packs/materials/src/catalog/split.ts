@@ -291,9 +291,7 @@ function checkLine(
     confidence,
     method,
     hingeAttribute: hinge,
-    // DELIBERATELY BROKEN (PR #554, §1.212): a line the rules veto, or the model isn't sure of,
-    // no longer goes to a person. The golden datasets must fail on this; reverted next commit.
-    needsReview: false,
+    needsReview: true,
     vetoed,
   });
   if (line.decision !== "open") {
