@@ -75,7 +75,7 @@ import { runSubjects, sourceNames } from "../runs/subject";
 import { stepModelFacts } from "../skill-facts";
 import { checkZohoSetup } from "../zoho/fields";
 import { lastActivityOf, sourceActivity, usedByWith } from "./built-in-sources";
-import { needsUs, needsUsContext } from "./command-center";
+import { countedAgentWhere, needsUs, needsUsContext } from "./command-center";
 import { connectNoAuth } from "./connections";
 import { withLanguage } from "./language";
 import {
@@ -420,13 +420,9 @@ async function clientSummaries(
     tx
       .select({ tenantId: agent.tenantId, n: count() })
       .from(agent)
-      .where(
-        and(
-          inArray(agent.tenantId, [...ids]),
-          eq(agent.kind, "client"),
-          eq(agent.status, "active"),
-        ),
-      )
+      // The client's agents as every count counts them (core `isCountedAgent`): not discarded,
+      // not a template's test copy, not retired; the client page and the command center agree.
+      .where(and(inArray(agent.tenantId, [...ids]), countedAgentWhere()))
       .groupBy(agent.tenantId),
     tx
       .select({ tenantId: inboxItem.tenantId, n: count() })

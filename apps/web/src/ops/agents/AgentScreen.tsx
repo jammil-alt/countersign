@@ -19,6 +19,7 @@ import {
   useParams,
   useSearchParams,
 } from "react-router-dom";
+import { agentStage, agentStatusLine } from "../../agents/status";
 import type { ResponseOf } from "../../api/client";
 import { type AgentSummary, apiRoutes, type VersionDetail } from "../../api/routes";
 import { type ApiState, useApi } from "../../api/useApi";
@@ -38,7 +39,7 @@ import {
   Tabs,
 } from "../../ui/primitives";
 import { Skeleton, SkeletonBlock, SkeletonCard, SkeletonLine } from "../../ui/skeleton";
-import { StatusChip, serviceChipState } from "../../ui/status";
+import { StatusChip } from "../../ui/status";
 import type { Member } from "../builder/Inspector";
 import { BuildView } from "../builds/BuildView";
 import { labPath } from "../lab/back";
@@ -70,15 +71,6 @@ const ReadOnlyFlow = lazy(() => import("../flow/ReadOnlyFlow"));
 // B3: the Manual tab is its own chunk (with its route's schema), fetched when it opens.
 const OpsManualTab = lazy(() => import("./ManualTab").then((m) => ({ default: m.OpsManualTab })));
 const SecurityTab = lazy(() => import("./SecurityTab").then((m) => ({ default: m.SecurityTab })));
-
-// An agent's own status (switched on, paused…), not a run's: "Active", never "Running", so it
-// can't be read as a run's status (the owner's decision 1).
-const RUN_STATUS_WORDS: Record<string, string> = {
-  active: "Active",
-  paused: "Paused",
-  retired: "Retired",
-  draft: "Not started",
-};
 
 /** The page's tabs; the Workflow tab opens the builder on `workflow` (its first workflow). */
 function AgentTabs({
@@ -509,7 +501,13 @@ export function AgentScreen({
             element={
               blocked ??
               (bundle ? (
-                <OverviewTab agent={view} bundle={bundle} base={base} skills={skills} />
+                <OverviewTab
+                  agent={view}
+                  bundle={bundle}
+                  base={base}
+                  skills={skills}
+                  known={data.names}
+                />
               ) : null)
             }
           />
@@ -684,8 +682,16 @@ function AgentBar({
   children: ReactNode;
 }) {
   const stats = bundle ? workflowStats(bundle) : null;
-  const status = view.runStatus ?? "draft";
   const kind = agentKindBadge(view);
+  // A client agent's status (agents/status), never a run's (the owner's decision 1): its stage
+  // and the version it runs, "In trial · v4", as Home, the client's Overview and Agents tab say
+  // it. Its version is in that chip, so the badges beside it carry only a newer draft; a
+  // template (or a test copy) has no stage, and its badges say "Live · v4" as before.
+  const withStage = view.kind === "client" && !view.testCopy;
+  const stage = withStage ? agentStage(view) : null;
+  const badges = withStage
+    ? versionBadges(null, draft).filter((b) => b.label !== "No versions" || live === null)
+    : versionBadges(live, draft);
   // Fix 1 of the design pass: the title is the name the client knows (the service name); the
   // bundle's own name, where it differs, is in the line under it, the one place it matters.
   const title = view.serviceName ?? view.name;
@@ -747,7 +753,7 @@ function AgentBar({
                   {pending ? (
                     <SkeletonLine size="small" width={96} />
                   ) : (
-                    versionBadges(live, draft).map((b) => (
+                    badges.map((b) => (
                       <Badge key={b.label} tone={b.tone}>
                         {b.label}
                       </Badge>
@@ -755,9 +761,9 @@ function AgentBar({
                   )}
                   {view.status === "disabled" ? <Badge tone="neutral">Discarded</Badge> : null}
                 </span>
-                {view.kind === "client" && !view.testCopy ? (
-                  <StatusChip state={serviceChipState(status)} testId="agent-bar-status">
-                    {RUN_STATUS_WORDS[status] ?? status}
+                {stage ? (
+                  <StatusChip state={stage.state} testId="agent-bar-status">
+                    {agentStatusLine({ stage, version: live?.version })}
                   </StatusChip>
                 ) : null}
               </div>

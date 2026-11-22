@@ -18,6 +18,12 @@ import {
 } from "@countersign/core";
 import { type ReactNode, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import {
+  type AgentStageWords,
+  type AgentWords,
+  agentActivity,
+  agentStage,
+} from "../../agents/status";
 import { apiRoutes } from "../../api/routes";
 import { useApi } from "../../api/useApi";
 import { shortTime, usd } from "../../runs/format";
@@ -534,33 +540,30 @@ export function WaitingOnClientsLine({ waiting }: { waiting: CommandCenter["wait
 // ── All agents ──
 
 /**
- * An agent's state for its chip: waiting for approval when any of its runs waits on a person,
- * running with other open runs, its last run failed, paused, …
+ * An agent's Status chip: where it is on its way live (agents/status: Paused, Not started, In
+ * trial, Live, …), the same words as the client page and the agent's own page.
  */
-export function agentChip(
-  a: Pick<Agent, "status" | "openRuns" | "recentRuns"> & { waitingRuns?: number | undefined },
-): {
-  state: ChipState;
-  words: string;
-} {
-  if (a.status === "paused") return { state: "paused", words: "Paused" };
-  if (a.status === "retired") return { state: "idle", words: "Retired" };
-  if (a.status === "draft" || a.status === "testing")
-    return { state: "setup", words: "Setting up" };
-  const waiting =
-    (a.waitingRuns ?? 0) > 0 || a.recentRuns.some((r) => r.status === "waiting" || r.waiting);
-  if (waiting) return { state: "waiting", words: "Waiting for approval" };
-  if (a.openRuns > 0) return { state: "running", words: "Running" };
-  if (a.recentRuns[0]?.status === "failed") return { state: "failed", words: "Last run failed" };
-  return { state: "idle", words: "Idle" };
+export function agentChip(a: Pick<Agent, "status" | "stage">): AgentStageWords {
+  return agentStage({ runStatus: a.status, stage: a.stage });
 }
 
-const STAGE_WORDS: Record<string, string> = {
-  bench: "On the test bench",
-  trial: "In trial",
-  signoff: "In sign-off",
-};
+/**
+ * What its runs are doing (agents/status): waiting for approval when any of its runs waits on a
+ * person, running with other open runs, its last run failed, else idle.
+ */
+export function agentNowState(
+  a: Pick<Agent, "openRuns" | "recentRuns"> & { waitingRuns?: number | undefined },
+): AgentWords {
+  const waiting =
+    (a.waitingRuns ?? 0) > 0 || a.recentRuns.some((r) => r.status === "waiting" || r.waiting);
+  return agentActivity({
+    openRuns: a.openRuns,
+    waitingRuns: waiting ? Math.max(1, a.waitingRuns ?? 0) : 0,
+    lastRunStatus: a.recentRuns[0]?.status,
+  });
+}
 
+/** The Now column, after the Status chip (the one order: stage, then what it is doing). */
 function agentNow(a: Agent): ReactNode {
   const words: string[] = [];
   const waiting = a.waitingRuns ?? 0;
@@ -568,10 +571,10 @@ function agentNow(a: Agent): ReactNode {
   if (a.openRuns - waiting > 0) {
     words.push(`${plural(a.openRuns - waiting, "run", "runs")} running`);
   }
-  const stage = a.stage ? STAGE_WORDS[a.stage] : undefined;
-  if (stage) words.push(stage);
-  if (words.length === 0) return <span className="text-ink-muted">Nothing open</span>;
-  return words.join(" · ");
+  if (words.length > 0) return words.join(" · ");
+  // Idle, or its last run failed; an agent that isn't switched on has nothing to say here.
+  if (a.status === "active") return agentNowState(a).words;
+  return <span className="text-ink-muted">Nothing open</span>;
 }
 
 function groupKey(a: Agent, by: Grouping): string {
@@ -761,12 +764,11 @@ const HEALTH: Record<Health, { label: string; square: string }> = {
 
 /** Null for an agent that isn't on (paused, setting up, retired): it gets no square. */
 export function agentHealth(a: Agent): Health | null {
-  const chip = agentChip(a);
-  if (chip.state === "failed") return "failed";
-  if (chip.state === "waiting") return "waiting";
-  if (chip.state === "running" || chip.state === "idle")
-    return a.status === "active" ? "good" : null;
-  return null;
+  if (a.status !== "active") return null;
+  const now = agentNowState(a);
+  if (now.state === "failed") return "failed";
+  if (now.state === "waiting") return "waiting";
+  return "good";
 }
 
 /**

@@ -357,7 +357,13 @@ describe("the client page", () => {
     renderAt(`/ops/clients/${CLIENT}/agents`, api);
     const list = await screen.findByTestId("ops-client-agents", {}, { timeout: 10_000 });
     const live = within(list).getByTestId("ops-agent-card-material-costs");
-    expect(live).toHaveTextContent("Running");
+    // Its stage, as Home, the Overview and its own page say it (QA 2026-11-22: it read
+    // "Running · Live" here for an agent in trial).
+    expect(within(live).getByTestId("ops-agent-card-material-costs-status")).toHaveTextContent(
+      "In trial",
+    );
+    expect(live).not.toHaveTextContent("Running");
+    expect(live).not.toHaveTextContent("Live");
     // Its tools by name, never the connector's id.
     expect(await within(live).findByText("QuickBooks Online")).toBeInTheDocument();
     expect(live).not.toHaveTextContent("qbo");
