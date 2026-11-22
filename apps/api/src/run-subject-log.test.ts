@@ -255,6 +255,17 @@ describe.skipIf(!h)("what a run was about, through the API", () => {
       result: { id: "r1" },
     });
 
+    // A message from outside started this one: its raw record is the message (kept by its id
+    // even when no raw record holds it any more).
+    const rawId = "77777777-7777-4777-8777-777777777777";
+    const inbound = await addRun({
+      trigger: {
+        type: "message",
+        eventType: "inbound.message",
+        payload: { channel: "email", rawRecordId: rawId, messageId: null, documents: [] },
+      },
+    });
+
     const looked = await backfillClientRunSubjects(H.db, H.platform, A(), { now: new Date() });
     expect(looked).toBeGreaterThanOrEqual(1);
     const rows = await kept(r.id);
@@ -269,6 +280,9 @@ describe.skipIf(!h)("what a run was about, through the API", () => {
       connector: "testkit",
       externalId: "r1",
     });
+    expect(await kept(inbound.id)).toEqual([
+      expect.objectContaining({ stepRunId: null, kind: "message", recordId: rawId }),
+    ]);
     expect(await kept(old.id)).toEqual([]);
     expect(await kept(open.id)).toEqual([]);
     expect(await kept(nothing.id)).toEqual([]);

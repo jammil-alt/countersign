@@ -4,13 +4,14 @@
 // often the step finishes, shown to the client only for a live run's visible step, and never
 // another client's.
 
-import { RunSubjectKind, RunSubjectRole, type ToolSpec } from "@countersign/core";
+import { aboutOf, RunSubjectKind, RunSubjectRole, type ToolSpec } from "@countersign/core";
 import {
   agent,
   document,
   externalAction,
   RUN_SUBJECT_KINDS,
   RUN_SUBJECT_ROLES,
+  rawRecord,
   runSubject,
   stepRun,
   toolCall,
@@ -20,15 +21,17 @@ import {
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTemplate, fork, publish, updateOperational } from "../registry/agents";
+import { docsRecordPurchase } from "../tools/docs";
 import { type Client, createHarness, type Harness, makeBundle } from "./harness.test-helper";
 import { createRun } from "./run-log";
-import { keepSubjects, writeStepSubjectsTx } from "./run-subjects";
+import { keepSubjects, triggerSubjectIds, writeStepSubjectsTx } from "./run-subjects";
 
 const harness = await createHarness();
 afterAll(() => harness?.close());
 
 const ABOUT_TOOL = "test.request.create";
 const WRITE_TOOL = "test.bill.create";
+const MONEY_TOOL = "test.quote.price";
 const SPECS: Record<string, ToolSpec> = {
   [ABOUT_TOOL]: {
     id: ABOUT_TOOL,
@@ -62,7 +65,55 @@ const SPECS: Record<string, ToolSpec> = {
     },
   },
 };
+SPECS[MONEY_TOOL] = {
+  id: MONEY_TOOL,
+  description: "Prices a quote",
+  input: {},
+  output: {},
+  sideEffect: "none",
+  source: "test",
+  about: [
+    { kind: "record", each: "quotes", label: "name", amount: { path: "total", currency: "USD" } },
+  ],
+};
 const tools = (id: string) => SPECS[id];
+
+describe("what started a run, from its trigger", () => {
+  const raw = "55555555-5555-4555-8555-555555555555";
+  it("is a message trigger's raw record when it came in from outside", () => {
+    expect(
+      triggerSubjectIds({
+        type: "message",
+        eventType: "inbound.message",
+        payload: { channel: "whatsapp", rawRecordId: raw, messageId: null, documents: [] },
+      }),
+    ).toEqual({ messageId: raw });
+  });
+  it("is never another event's raw record (a synced bill is no message)", () => {
+    expect(
+      triggerSubjectIds({
+        type: "event",
+        eventType: "record.synced",
+        payload: { rawRecordId: raw },
+      }),
+    ).toEqual({});
+  });
+});
+
+describe("Save to records' purchase", () => {
+  it("names no purchase it couldn't pick, only its vendor", () => {
+    const vendorId = "66666666-6666-4666-8666-666666666666";
+    const named = aboutOf(docsRecordPurchase.spec, {
+      status: "ambiguous",
+      transactionId: null,
+      vendorId,
+      vendorName: "Acme Supply",
+    });
+    expect(named).toEqual([
+      expect.objectContaining({ kind: "vendor", recordId: vendorId, label: "Acme Supply" }),
+    ]);
+  });
+});
 
 describe("the kinds and roles core and the table share", () => {
   it("are the same list", () => {
@@ -339,6 +390,77 @@ describe.skipIf(!harness)("what a run was about", () => {
       writeStepSubjectsTx(tx, { tenantId: h.B.tenantId, stepRunId, tools, visible: () => true }),
     );
     expect(n).toBe(0);
+  });
+
+  it("keeps an inbound message by its raw record: its tool and id, never its words", async () => {
+    const raw = await h.client(h.A, async (tx) => {
+      const [r] = await tx
+        .insert(rawRecord)
+        .values({
+          tenantId: h.A.tenantId,
+          connectionId: h.A.connectionId,
+          connector: "testkit",
+          // Read as a message by its entity, and its payload's name still stays out.
+          entityType: "inbound_email",
+          externalId: "wamid.1",
+          payload: { Name: "Need 40 studs for lot 12" },
+        })
+        .returning({ id: rawRecord.id });
+      if (!r) throw new Error("no raw record");
+      return r.id;
+    });
+    const { runId } = await startedRun("live", {
+      type: "message",
+      eventType: "inbound.message",
+      channel: "whatsapp",
+      payload: { channel: "whatsapp", rawRecordId: raw, messageId: null, documents: [] },
+    });
+    expect(await rowsOf(h.A, runId)).toEqual([
+      expect.objectContaining({
+        stepRunId: null,
+        kind: "message",
+        role: "read",
+        recordId: raw,
+        connector: "testkit",
+        externalId: "wamid.1",
+        label: null,
+        number: null,
+        clientVisible: true,
+      }),
+    ]);
+  });
+
+  it("leaves off an amount that rounds past what numeric(14,4) holds", async () => {
+    const { runId, stepRunId } = await startedRun("live");
+    await h.client(h.A, async (tx) => {
+      await tx
+        .update(stepRun)
+        .set({ status: "succeeded", output: {} })
+        .where(eq(stepRun.id, stepRunId));
+      await tx.insert(toolCall).values({
+        tenantId: h.A.tenantId,
+        stepRunId,
+        tool: MONEY_TOOL,
+        status: "succeeded",
+        output: {
+          quotes: [
+            { name: "Too big", total: "9999999999.99995" },
+            { name: "Fits", total: "12.345678" },
+          ],
+        },
+      });
+    });
+    const n = await h.client(h.A, (tx) =>
+      writeStepSubjectsTx(tx, { tenantId: h.A.tenantId, stepRunId, tools, visible: () => true }),
+    );
+    expect(n).toBe(2);
+    const rows = await rowsOf(h.A, runId);
+    expect(rows.map((r) => [r.label, r.amount, r.currency])).toEqual(
+      expect.arrayContaining([
+        ["Too big", null, null],
+        ["Fits", "12.3457", "USD"],
+      ]),
+    );
   });
 
   it("undoes only its own savepoint when a write fails", async () => {

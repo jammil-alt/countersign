@@ -47,7 +47,14 @@ const MAX_SOURCES = 100;
 
 type Row = typeof runSubject.$inferInsert;
 
-/** The document or message a run's trigger names (`payload.documentId`, or the trigger's own). */
+/**
+ * The document or message a run's trigger names (`payload.documentId`, or the trigger's own). A
+ * message trigger's message is its thread message (`messageId`), else, for one that came in from
+ * outside (email, SMS, WhatsApp), the raw record it arrived as (`rawRecordId`).
+ */
+// DECISION: an inbound message has no `message` row, only its raw record; that record is the
+// message that started the run. Only for a `message` trigger: another event's `rawRecordId` (a
+// synced bill) is not a message.
 export function triggerSubjectIds(trigger: unknown): { documentId?: string; messageId?: string } {
   if (!isPlainObject(trigger)) return {};
   const payload = isPlainObject(trigger.payload) ? trigger.payload : {};
@@ -56,7 +63,8 @@ export function triggerSubjectIds(trigger: unknown): { documentId?: string; mess
     return typeof v === "string" && isUuid(v) ? v.toLowerCase() : undefined;
   };
   const documentId = pick("documentId");
-  const messageId = pick("messageId");
+  const messageId =
+    pick("messageId") ?? (trigger.type === "message" ? pick("rawRecordId") : undefined);
   return {
     ...(documentId ? { documentId } : {}),
     ...(messageId ? { messageId } : {}),
@@ -345,7 +353,8 @@ const MAX_AMOUNT = new Decimal("1e10");
 
 /** A subject as its row keeps it: four places, an amount the column holds, an id with its tool. */
 function kept(f: SubjectFacts): SubjectFacts {
-  const d = f.amount ? new Decimal(f.amount.value) : null;
+  // Rounded to the column's four places first: 9999999999.99995 rounds past what it holds.
+  const d = f.amount ? new Decimal(new Decimal(f.amount.value).toFixed(4)) : null;
   const fits = d?.abs().lt(MAX_AMOUNT) === true;
   return {
     ...f,
@@ -481,7 +490,18 @@ export async function writeTriggerSubjectsTx(
   ] as const) {
     if (!id) continue;
     const found = named.get(id);
-    subjects.push(found?.kind === kind ? found : facts(kind, "read", id));
+    if (kind === "message") {
+      // A message, or an inbound one's raw record, keeps its tool and id, never its words
+      // (invariant 12).
+      subjects.push(
+        facts("message", "read", id, {
+          connector: found?.connector ?? null,
+          externalId: found?.externalId ?? null,
+        }),
+      );
+    } else {
+      subjects.push(found?.kind === kind ? found : facts(kind, "read", id));
+    }
   }
   return insertNew(
     tx,

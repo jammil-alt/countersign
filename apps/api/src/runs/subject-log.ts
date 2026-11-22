@@ -105,6 +105,8 @@ async function runsToFill(tx: Tx, tenantId: string, since: Date, limit: number) 
         sql`(
           coalesce(${run.trigger}->'payload'->>'documentId', ${run.trigger}->>'documentId', '') ~ ${UUID_RE}
           or coalesce(${run.trigger}->'payload'->>'messageId', ${run.trigger}->>'messageId', '') ~ ${UUID_RE}
+          or (${run.trigger}->>'type' = 'message'
+            and coalesce(${run.trigger}->'payload'->>'rawRecordId', ${run.trigger}->>'rawRecordId', '') ~ ${UUID_RE})
           or exists (select 1 from external_action a
             join step_run sr on sr.id = a.step_run_id and sr.tenant_id = a.tenant_id
             where a.tenant_id = ${run.tenantId} and a.run_id = ${run.id}

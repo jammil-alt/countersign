@@ -336,9 +336,11 @@ export const docsRecordPurchase = defineInternalTool({
   description:
     "Save to records: the purchase an invoice is. The one purchase already here with the same vendor, total and date (within 7 days) is linked; else the invoice's vendor (by name, alias or the sender's domain, added when new) and a purchase made from the invoice are recorded and linked. Only an invoice read with totals that add up. A bill the client's tool syncs later takes that purchase over.",
   sideEffect: "internal",
-  // docs/plan.md §1.188: the purchase it recorded or linked, and its vendor.
+  // docs/plan.md §1.188: the purchase it recorded or linked, and its vendor. The purchase by its
+  // id alone, so its vendor, number and total are read from it, and a purchase it couldn't pick
+  // (`ambiguous`: no id, the vendor's name) is not kept as one.
   about: [
-    { kind: "transaction", id: "transactionId", label: "vendorName" },
+    { kind: "transaction", id: "transactionId" },
     { kind: "vendor", id: "vendorId", label: "vendorName" },
   ],
   verb: "create",
