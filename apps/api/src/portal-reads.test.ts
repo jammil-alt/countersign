@@ -162,7 +162,7 @@ describe.skipIf(!h)("portal reads (speed run 6.2, 6.4)", () => {
     ).toEqual({ status: "succeeded" });
   });
 
-  it("answers the run page as the run list does, with approvals and changes, in 9 statements", async () => {
+  it("answers the run page as the run list does, with approvals and changes, in 10 statements", async () => {
     const res = await H.call(admin("a"), "GET", `/api/runs/${runId}`);
     expect(res.status, JSON.stringify(res.json)).toBe(200);
     expect(forbiddenKeys(res.json)).toEqual([]);
@@ -210,7 +210,8 @@ describe.skipIf(!h)("portal reads (speed run 6.2, 6.4)", () => {
       portalRunView(tx, H.A.tenantId, runId, H.platform, { userId: "x", role: "client_admin" }),
     );
     expect(JSON.parse(JSON.stringify(out))).toEqual({ ...body, run: out.run });
-    expect(n).toBe(9);
+    // One more since §1.188: what the run kept (`run_subject`), read for its title.
+    expect(n).toBe(10);
   });
 
   it("says how a running step thinks, and nothing once it has run (§1.106)", async () => {

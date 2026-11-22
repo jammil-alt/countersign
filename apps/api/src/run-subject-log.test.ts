@@ -157,11 +157,11 @@ describe.skipIf(!h)("what a run was about, through the API", () => {
       },
       { tools: subjectTools(H.platform), visible: clientShowsNode(workflow) },
     );
-    const shown = await log.start({ nodeId: "update", nodeType: "action" });
+    const shown = await log.start({ runId: r.id, nodeId: "update", nodeType: "action" });
     await log.update(shown, { status: "running", output: { sources: [ids.vendor] } });
     expect(await kept(r.id)).toEqual([]);
     await log.update(shown, { status: "succeeded", output: { sources: [ids.vendor] } });
-    const hidden = await log.start({ nodeId: "internal", nodeType: "notify" });
+    const hidden = await log.start({ runId: r.id, nodeId: "internal", nodeType: "notify" });
     await log.update(hidden, { status: "succeeded", output: { sources: [ids.vendor] } });
     const rows = await kept(r.id);
     expect(rows.map((x) => [x.stepRunId, x.kind, x.role, x.label, x.clientVisible])).toEqual([
