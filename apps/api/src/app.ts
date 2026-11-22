@@ -4,6 +4,7 @@
 import { credentialKeysFromEnv, globalFetch } from "@countersign/connectors";
 import { parseCoveredProcessors, routes } from "@countersign/core";
 import type { Db } from "@countersign/db";
+import { checkMissingReports } from "@countersign/documents";
 import { Hono } from "hono";
 import { sloanTick } from "./account/sloan";
 import { SUMMARY_CALL_TIMEOUT_MS, summaryPass } from "./account/summaries";
@@ -127,14 +128,15 @@ import { opsCodeRequestRoutes } from "./routes/ops-code-requests";
 // v0.12 W2-A: the connectors catalog
 import { opsConnectorRoutes } from "./routes/ops-connectors";
 import { opsEventRoutes } from "./routes/ops-events";
+// Reshape data (2026-11-11)
+// §1.164: Read table's sample-file check
+import { opsIntakeReportRoutes } from "./routes/ops-intake-reports";
 import { opsLabClearRoutes } from "./routes/ops-lab-clear";
 import { opsLineageRoutes } from "./routes/ops-lineage";
 import { opsMergeRoutes } from "./routes/ops-merge";
 import { opsModelRoutes } from "./routes/ops-models";
 // v0.13 W2-I
 import { opsOversightRoutes } from "./routes/ops-oversight";
-// Reshape data (2026-11-11)
-// §1.164: Read table's sample-file check
 import { opsReadTableRoutes } from "./routes/ops-read-table";
 import { opsReshapeRoutes } from "./routes/ops-reshape";
 import { opsSkillRoutes } from "./routes/ops-skills";
@@ -281,6 +283,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   // Reshape data (2026-11-11): propose a Reshape step's mapping, and its sample values.
   opsReshapeRoutes(app);
   opsReadTableRoutes(app);
+  opsIntakeReportRoutes(app);
   opsMergeRoutes(app);
   opsEventRoutes(app);
   // v0.13 W2-H: models for task skills and skill steps.
@@ -470,6 +473,9 @@ export async function runCron(env: Bindings, scheduledTime: Date, deps: AppDeps 
           const run = forClient(runDepsFromEnv(env, { db, platform, instances }), tenantId);
           await platformHealthTick({ db, runtime: runtimeFor(run) }, tenantId, at, timeZone);
         },
+        // docs/plan.md §1.213: a scheduled report that didn't arrive raises its alert.
+        intakeTick: (tenantId, at, timeZone) =>
+          checkMissingReports(db, tenantId, { now: at, timezone: timeZone ?? "UTC" }),
       },
       scheduledTime,
     );
