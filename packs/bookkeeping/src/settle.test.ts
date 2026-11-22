@@ -5,10 +5,12 @@
 // income; a wrong transfer pairing, once undone, frees the other side; generic bank words make no
 // rule.
 
+import { BANKING_TOOLS } from "@countersign/connectors";
 import {
   closeDb,
   createDb,
   type Db,
+  externalAction,
   ledgerAccountNote,
   rawRecord,
   type Tx,
@@ -24,7 +26,7 @@ import { importFeeds } from "./feed";
 import { BOOKKEEPING_HANDLERS } from "./manifest";
 import type { PackToolContext } from "./pack";
 import { isGenericPayeeKey, payeeKey } from "./payee";
-import { qboInput } from "./posting";
+import { qboInput, writeCheck } from "./posting";
 import { bankAccountLink, bankTxn, booking, bookingRule } from "./schema";
 import { AMEX, type BooksFixture, CHECKING, insertBooks } from "./testing.test-helper";
 
@@ -1746,5 +1748,192 @@ describe.skipIf(!online)("settling (database, as cs_worker)", () => {
         openItem: { kind: "bill", transactionId: bill, confirmed: true },
       },
     });
+  });
+
+  // docs/plan.md §1.187: the check right before each write (template v6).
+  it("refuses a copy's write while the earlier copy's waits for a signature, and records the one write", async () => {
+    const b = await books(
+      [{ account: CHECKING, ledger: "Checking" }],
+      [{ id: "s", amount: "39.99", date: "2026-11-03", merchantName: "Figma" }],
+    );
+    await b.inA((tx) => settle(tx, b.who));
+    await b.inA(async (tx) =>
+      propose(tx, b.who, {
+        bankTxnId: (await b.txn("s")).id,
+        lines: [{ ledgerAccountId: b.A.accounts.Software ?? "" }],
+        confidence: 0.95,
+        reason: "software",
+      }),
+    );
+    const first = await b.inA(async (tx) => approve(tx, b.person, (await b.txn("s")).id));
+    // Laid out, checked and proposed for a signature, as the posting loop does.
+    const laid = await b.inA((tx) => qboInput(tx, b.A.tenantId, first));
+    expect(laid.references).toEqual([`bt-${(await b.txn("s")).id}`]);
+    expect(await b.inA((tx) => writeCheck(tx, b.A.tenantId, first))).toMatchObject({
+      clear: true,
+    });
+    const [proposal] = await t.db
+      .insert(externalAction)
+      .values({
+        tenantId: b.A.tenantId,
+        connectionId: b.A.qboConnectionId,
+        tool: BANKING_TOOLS.purchaseCreate,
+        input: laid.purchase ?? {},
+        idempotencyKey: `run-s:write-purchase:${first}`,
+      })
+      .returning();
+    if (!proposal) throw new Error("no proposal");
+    // The bank sends it again; a person books the new copy.
+    await b.A.feedRemoved("s");
+    await b.more({ id: "s2", amount: "39.99", date: "2026-11-03", merchantName: "Figma" });
+    await b.inA((tx) => settle(tx, b.who));
+    const second = await b.inA(async (tx) =>
+      bookByPerson(tx, b.person, {
+        bankTxnId: (await b.txn("s2")).id,
+        lines: [{ ledgerAccountId: b.A.accounts.Software ?? "" }],
+      }),
+    );
+    const ready = async () =>
+      (
+        (await tool("bookkeeping.bookings.ready").run({ limit: 25 }, b.ctx())) as {
+          bookings: { bookingId: string }[];
+        }
+      ).bookings.map((x) => x.bookingId);
+    expect(await ready()).toEqual([second]);
+    // Its layout names both copies' marks, its own first; the check refuses its write.
+    const copy = await b.inA((tx) => qboInput(tx, b.A.tenantId, second));
+    expect(copy.references).toEqual([
+      `bt-${(await b.txn("s2")).id}`,
+      `bt-${(await b.txn("s")).id}`,
+    ]);
+    const check = () => tool("bookkeeping.booking.write-check").run({ bookingId: second }, b.ctx());
+    await expect(check()).rejects.toThrow(
+      "An earlier copy of this transaction is waiting for a signature",
+    );
+    // Signed and being made, made, or perhaps made: still refused.
+    for (const [status, words] of [
+      ["approved", "is being written to QuickBooks"],
+      ["executing", "is being written to QuickBooks"],
+      ["failed", "may have reached QuickBooks"],
+      ["done", "was written to QuickBooks (631)"],
+    ] as const) {
+      await t.db
+        .update(externalAction)
+        .set({ status, result: status === "done" ? { id: "631" } : null })
+        .where(eq(externalAction.id, proposal.id));
+      await expect(check(), status).rejects.toThrow(words);
+    }
+    // The earlier copy's write is recorded: the copy is that write, and nothing is ready.
+    await b.posted(first, "purchase", "631");
+    expect(await b.liveOf("s2")).toMatchObject({ status: "posted", qboId: "631" });
+    expect(await ready()).toEqual([]);
+    await expect(check()).rejects.toThrow("nothing to write");
+  });
+
+  it("lets a copy be written once the earlier copy's write was turned down or never sent", async () => {
+    const b = await books(
+      [{ account: CHECKING, ledger: "Checking" }],
+      [{ id: "s", amount: "39.99", date: "2026-11-03", merchantName: "Figma" }],
+    );
+    await b.inA((tx) => settle(tx, b.who));
+    const first = await b.inA(async (tx) =>
+      bookByPerson(tx, b.person, {
+        bankTxnId: (await b.txn("s")).id,
+        lines: [{ ledgerAccountId: b.A.accounts.Software ?? "" }],
+      }),
+    );
+    const laid = await b.inA((tx) => qboInput(tx, b.A.tenantId, first));
+    const [proposal] = await t.db
+      .insert(externalAction)
+      .values({
+        tenantId: b.A.tenantId,
+        connectionId: b.A.qboConnectionId,
+        tool: BANKING_TOOLS.purchaseCreate,
+        input: laid.purchase ?? {},
+        idempotencyKey: `run-s:write-purchase:${first}`,
+        status: "rejected",
+      })
+      .returning();
+    if (!proposal) throw new Error("no proposal");
+    await b.A.feedRemoved("s");
+    await b.more({ id: "s2", amount: "39.99", date: "2026-11-03", merchantName: "Figma" });
+    await b.inA((tx) => settle(tx, b.who));
+    // A person books the new copy.
+    const second = await b.inA(async (tx) =>
+      bookByPerson(tx, b.person, {
+        bankTxnId: (await b.txn("s2")).id,
+        lines: [{ ledgerAccountId: b.A.accounts.Software ?? "" }],
+      }),
+    );
+    expect(await b.inA((tx) => writeCheck(tx, b.A.tenantId, second))).toMatchObject({
+      clear: true,
+    });
+    // A write the platform knows wasn't sent is no write either.
+    await t.db
+      .update(externalAction)
+      .set({ status: "failed", error: { message: "held", notWritten: true } })
+      .where(eq(externalAction.id, proposal.id));
+    expect(await b.inA((tx) => writeCheck(tx, b.A.tenantId, second))).toMatchObject({
+      clear: true,
+    });
+  });
+
+  it("refuses a booking's write while this transaction's write for an earlier booking waits or was made", async () => {
+    const b = await books(
+      [{ account: CHECKING, ledger: "Checking" }],
+      [{ id: "s", amount: "39.99", date: "2026-11-03", merchantName: "Figma" }],
+    );
+    await b.inA((tx) => settle(tx, b.who));
+    const first = await b.inA(async (tx) =>
+      bookByPerson(tx, b.person, {
+        bankTxnId: (await b.txn("s")).id,
+        lines: [{ ledgerAccountId: b.A.accounts.Software ?? "" }],
+      }),
+    );
+    const laid = await b.inA((tx) => qboInput(tx, b.A.tenantId, first));
+    const [proposal] = await t.db
+      .insert(externalAction)
+      .values({
+        tenantId: b.A.tenantId,
+        connectionId: b.A.qboConnectionId,
+        tool: BANKING_TOOLS.purchaseCreate,
+        input: laid.purchase ?? {},
+        idempotencyKey: `run-s:write-purchase:${first}`,
+      })
+      .returning();
+    if (!proposal) throw new Error("no proposal");
+    // While the purchase waits for its signature, a person books it again: a transfer now.
+    const second = await b.inA(async (tx) =>
+      bookByPerson(tx, b.person, {
+        bankTxnId: (await b.txn("s")).id,
+        lines: [{ ledgerAccountId: b.A.accounts.Savings ?? "" }],
+      }),
+    );
+    expect(second).not.toBe(first);
+    expect((await b.inA((tx) => qboInput(tx, b.A.tenantId, second))).entity).toBe("transfer");
+    const check = () => b.inA((tx) => writeCheck(tx, b.A.tenantId, second));
+    await expect(check()).rejects.toThrow(
+      "This transaction's write from an earlier run is waiting for a signature",
+    );
+    for (const [status, words] of [
+      ["approved", "is being written to QuickBooks"],
+      ["executing", "is being written to QuickBooks"],
+      ["done", "was written to QuickBooks (632): this booking isn't written again"],
+    ] as const) {
+      await t.db
+        .update(externalAction)
+        .set({ status, result: status === "done" ? { id: "632" } : null })
+        .where(eq(externalAction.id, proposal.id));
+      await expect(check(), status).rejects.toThrow(words);
+    }
+    // Turned down, or failed: the transfer may be written (a retry of a failed write is the next
+    // run's read of QuickBooks and the connector's to catch).
+    for (const status of ["rejected", "failed"] as const) {
+      await t.db
+        .update(externalAction)
+        .set({ status, result: null })
+        .where(eq(externalAction.id, proposal.id));
+      expect(await check(), status).toMatchObject({ clear: true });
+    }
   });
 });
