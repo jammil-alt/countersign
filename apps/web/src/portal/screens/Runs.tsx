@@ -9,11 +9,13 @@ import {
   PortalRunsQuery,
   RUN_STARTED_BY,
   type RunAboutName,
+  type RunFilter,
   type RunStartedBy,
   readAboutParam,
+  runFilterQuery,
   shortRunId,
 } from "@countersign/core";
-import { type FormEvent, useMemo, useRef, useState } from "react";
+import { type FormEvent, lazy, Suspense, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
@@ -37,6 +39,9 @@ import { useRememberRuns } from "../known";
 import { PORTAL_PATHS } from "../paths";
 import { runChip, runOpen, runState, runStateWords, workedMs } from "../status";
 import { RunsPerDayChart, TookCell } from "./runsParts";
+
+// R6 (docs/plan.md §1.236): the saved views load with their own chunk, and their schemas with it.
+const SavedViews = lazy(() => import("./SavedViews"));
 
 /** The status tabs: each one a `statuses` filter on the list. */
 export const TABS = {
@@ -118,6 +123,14 @@ export function aboutTokenName(
   return [named?.label, named?.number].filter(Boolean).join(" · ") || t("runsPage.about.record");
 }
 
+/** R6: the list's query as a view keeps it (the portal's RunFilter); null for every run. */
+export function viewFilter(query: Record<string, unknown>): RunFilter | null {
+  const { limit: _limit, perDay: _perDay, ...rest } = query;
+  const parsed = PortalRunsQuery.safeParse(rest);
+  if (!parsed.success || Object.keys(parsed.data.filter).length === 0) return null;
+  return parsed.data.filter;
+}
+
 /** A run status (a filter's, a chip's) in the client's words: "Waiting on you", "Stopped". */
 export function runWords(status: string, t: Translate): string {
   const known = ["queued", "running", "waiting", "succeeded", "failed", "cancelled"];
@@ -196,6 +209,20 @@ export function PortalRunsScreen() {
         ...(startedBy ? { startedBy } : {}),
         ...(linked ? { about: linked } : {}),
       };
+
+  // R6: the list's filter as a view would keep it; null when it shows every run.
+  const current = viewFilter(query);
+
+  /** R6: a saved view opens the list on its filter, as a link would (R4). */
+  function openView(filters: RunFilter) {
+    setAsked(null);
+    setQuestion("");
+    setNotUnderstood(false);
+    setTab("all");
+    setAgent("");
+    setStartedBy("");
+    setParams(runFilterQuery(filters), { replace: true });
+  }
 
   /** R2: the link's `about` without one entry. */
   function dropLinked(token: string) {
@@ -342,6 +369,10 @@ export function PortalRunsScreen() {
           {t("runsPage.ask.leftOut", { parts: asked.leftOut.join(", ") })}
         </p>
       ) : null}
+
+      <Suspense fallback={null}>
+        <SavedViews current={current} onOpen={openView} />
+      </Suspense>
 
       {shown ? null : (
         <div className="flex flex-wrap items-center justify-between gap-3">

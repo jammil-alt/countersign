@@ -153,6 +153,7 @@ import { packPreviewRoutes } from "./routes/pack-preview";
 import { packRouteHandlers } from "./routes/packs";
 import { portalRouteHandlers } from "./routes/portal";
 import { portalIssueRouteHandlers } from "./routes/portal-issues";
+import { portalViewRouteHandlers } from "./routes/portal-views";
 import { qboCronTick, qboRoutes, qboSyncFor } from "./routes/qbo";
 import { reachRoutes } from "./routes/reach";
 import { recordRouteHandlers } from "./routes/records";
@@ -328,6 +329,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   usageRouteHandlers(app);
   // R4 (docs/plan.md §1.214): the report per agent, both surfaces.
   agentReportRouteHandlers(app);
+  portalViewRouteHandlers(app);
   recordRouteHandlers(app);
   approverRuleRoutes(app);
   // §1.215: a client's saved match rules.
