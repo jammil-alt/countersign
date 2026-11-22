@@ -21,7 +21,13 @@ for (const level of process.env.SHOW_LOGS ? [] : (["warn", "error", "info"] as c
 }
 
 const model = new FakeModel();
-const transcribe = vi.fn(async () => "hello");
+const transcribe = vi.fn(async () => ({
+  text: "hello",
+  model: "openai:gpt-4o-mini-transcribe",
+  usage: null,
+  costUsd: null,
+  durationMs: 1,
+}));
 const transcriber: Transcriber = { transcribe };
 const h = await createApiHarness({
   llm: model,
