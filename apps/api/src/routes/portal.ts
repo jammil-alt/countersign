@@ -248,7 +248,8 @@ async function summarize(
       tenantId,
       rows.map((r) => r.id),
     ),
-    platform ? runSubjects(tx, [tenantId], rows, platform) : undefined,
+    // docs/plan.md §1.188: only what the client's timeline shows.
+    platform ? runSubjects(tx, [tenantId], rows, platform, { surface: "portal" }) : undefined,
   ]);
   return rows.map((r) => {
     const w = waits.get(r.id);

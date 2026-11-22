@@ -14,6 +14,7 @@ import {
   resolveApprover,
   runAgent,
   type StepContext,
+  type SubjectToolLookup,
   signerItemsTx,
   unsignedRefusal,
 } from "@countersign/agents";
@@ -75,6 +76,7 @@ import type { NotifyDeps } from "../notify/outbox";
 import { tellUrgentNow } from "../notify/urgent";
 import { type ReachPort, reachOutState } from "../reach/service";
 import { leaseWaitDone, leaseWaitOf, leaseWaitOutcome, MAX_LEASE_WAITS } from "./lease-wait";
+import { keepStepSubjects } from "./subject-log";
 
 const TERMINAL = new Set(["succeeded", "failed", "skipped", "cancelled"]);
 
@@ -82,7 +84,12 @@ const TERMINAL = new Set(["succeeded", "failed", "skipped", "cancelled"]);
  * `step_run` rows for one run. `start` is an upsert on (run_id, node_id): a retried step (or a
  * step's failure record) gets the row its first attempt wrote, never a second one.
  */
-export function dbStepLog(db: Db, run: RunInfo): StepLog {
+export function dbStepLog(
+  db: Db,
+  run: RunInfo,
+  // docs/plan.md §1.188: what a finished step was about, kept beside its row; absent, nothing is.
+  subjects?: { tools: SubjectToolLookup; visible: (nodeId: string) => boolean },
+): StepLog {
   return {
     start(entry) {
       return withTenant(db, run.tenantId, async (tx) => {
@@ -141,6 +148,10 @@ export function dbStepLog(db: Db, run: RunInfo): StepLog {
             ...(TERMINAL.has(u.status) ? { finishedAt: new Date() } : {}),
           })
           .where(and(eq(stepRun.id, stepRunId), eq(stepRun.tenantId, run.tenantId)));
+        // A step that finished (done or failed) keeps what it was about, in its own savepoint.
+        if (subjects && (u.status === "succeeded" || u.status === "failed")) {
+          await keepStepSubjects(tx, { tenantId: run.tenantId, stepRunId, ...subjects });
+        }
       });
     },
   };

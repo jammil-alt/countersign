@@ -6384,7 +6384,11 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 
 ### 1.188 What each run was about, kept as it happens (owner, 2026-11-22; migration 0077)
 
-The design: `docs/reporting-plan.md` §3 R1. This is R1a, the table only; R1b writes it.
+The design: `docs/reporting-plan.md` §3 R1. R1a is the table; R1b writes it, backfills it and
+reads it for a run's title. The owner agreed clients may search by it, limited to the steps their
+timeline shows (R2 builds the search).
+
+R1a, the table:
 
 | Topic | Decision |
 |---|---|
@@ -6392,8 +6396,25 @@ The design: `docs/reporting-plan.md` §3 R1. This is R1a, the table only; R1b wr
 | What started the run | `step_run_id` is null for it: the trigger's document or message belongs to the run (kept on `run.trigger`), not to any step. // DECISION |
 | A row is whole | Two checks: an amount always has its currency, and an `external_id` always has its `connector`. // DECISION |
 | Indexes | `(tenant_id, kind, record_id)` for a record's runs (R3), `(tenant_id, run_id)` for a run's subjects, and GIN trigram on `label` and on `number` for words (R2). |
-| Not built | Anything that writes or reads it: the step log's writer, `ToolSpec.about` and the backfill come in R1b. |
 | Checked | `packages/db`: `rls.test.ts` (another client's run or step refused by the keys, another client's row by the policy, a row with no step accepted and unseen by the other client), `immutability.test.ts` (update and delete refused for the owner and the Worker), `migrations.test.ts` (no UPDATE or DELETE for `cs_runtime`), and every check that loops over `TENANT_TABLES`, through a row seeded per client. |
+
+R1b, the writer, the backfill and the title (no migration):
+
+| Topic | Decision |
+|---|---|
+| `ToolSpec.about` | Optional, declared like `amount` (`packages/core/src/schemas/tool-about.ts`): up to five entries, each a kind and the output paths of its record's id, label and number, its money (a `ToolAmount`), an optional `each` list, and an optional role. Without a role, a read tool's records were `read` and a tool that saves them `changed`. An entry naming nothing (no uuid id, no label, no number) keeps nothing. // DECISION |
+| Declared on | Platform: `docs.get`, `docs.read` (the document by vendor, invoice number and total), `docs.reading.record`, `docs.record_purchase` (the purchase and its vendor), `directory.get` (the person or organization). Materials: `request.create` and `request.update` (the request and who asked), `quote.create` and `quote.record` (each vendor), `po.document` (the PO by reference, total and vendor), `contract.save` (the contract and vendor). Bookkeeping: `booking.propose` (`decided`). Each pack's `defineTool` passes `about` through; the platform reads only the spec. |
+| Who writes | `packages/agents/src/log/run-subjects.ts`, the one writer for the live run and the backfill (only `src/log` imports `db`, invariant 2). `createRun` keeps what started the run (`payload.documentId`, `payload.messageId`). When the executor's step log (`apps/api/src/runs/ports.ts` `dbStepLog`) writes a step `succeeded` or `failed`, it keeps the step's output `sources` (`decided`, the kind from the record's own table: documents and readings, transactions, receivables, vendors, organizations by their kinds, contacts, raw records, messages; any other id is a `record`), its succeeded tool calls' `about`, and each of its changes that is `done` (`changed`: connector, the write's returned `id`, the display's number and subject, `ToolSpec.amount`, the signer's edit when there was one). A change's kind is its tool's first `about` kind, else its entity in words (`subjectKindOfEntity`). // DECISION |
+| An entry by id alone | Reads its name, number and money from our record when it is one of the platform's; the tool's kind and role stay. |
+| Once | A step finishes more than once (a retry, a wait); a row the step already has (same kind, role, ids, label, number, amount) is not added again. |
+| Never in the way | Each write runs in its own savepoint (`keepSubjects`): a failure is reported (`job: run_subject`) and leaves the step's row and the run as they were. It is an index over the history, not the history. // DECISION |
+| Client visible | A live run's step whose timeline row the client sees (`clientShowsNode`: its `client` setting, else its kind). A check's row (`:confer:`, `:notify:`) is not, though the portal shows a confer's verdict, since the portal leaves its sources out. Test runs never are. What started a live run is. // DECISION |
+| Untrusted | A label or number is kept as one plain line: control characters out, spaces folded, cut to 200 (64 for a number), card numbers redacted (invariant 14). It is shown and matched, never put in instructions (invariant 9). A message is kept by its id only: its text stays out (invariant 12). |
+| Not kept | A change waiting, refused or failed (it changed nothing). An amount numeric(14,4) can't hold (left off the row). More than 100 `sources` or 50 items of one `each` list per step. |
+| Backfill | `apps/api/src/runs/subject-log.ts`, hourly at minute 47 in the cron, per client inside `withTenant`: finished runs of the last 90 days that keep nothing yet but would keep something (a trigger naming a document or message, a done change of a finished step, a finished step's uuid `sources`), 200 a batch and up to 1,000 a client a tick. Each of those always keeps a row (a trigger's id no table holds is kept as the kind the trigger says), so a run is picked once and the pass stops finding work. A tool call's `about` is kept when the run is picked, but alone doesn't pick it. It runs in the cron, not as a script, because it needs the registry's tool specs. // DECISION |
+| The title | `runs/subject.ts` reads `run_subject` first: the document that started the run (else the trigger's, for a run not yet backfilled); then the first change, read from the change itself for its tool's display name; then a new subject kind, `record` (its kind, label and number), from the row its steps kept that names it best (changed, then decided, then read); then the trigger. The portal and its search read only `client_visible` rows. The web titles a `record` "Acme Supply · PR-1032". // DECISION |
+| Not built | R2: searching runs by it (`RunFilter.about`, `text` over labels and numbers, plain-words `aboutText`, ⌘K counts, MCP and Sloan). Runs started outside the executor (an ask, a conversation turn) keep only what started them. |
+| Checked | `packages/core` `tool-about.test.ts` (the declaration, reading an output, plain labels, kinds from entities); `packages/agents` `run-subjects.test.ts` against Postgres as `cs_worker` (the trigger's document; a step's sources, `about` and done change kept once; a hidden step and a test run kept from the client; another client's step; the savepoint; core's and the table's kinds the same); `apps/api` `run-subject-log.test.ts` (which rows the client sees, the step log keeping on finish only, the title from kept rows on both surfaces, the backfill picking each run once and leaving old, open and empty runs), and the existing `run-subject.test.ts` for the fallback. |
 
 ### 1.186 Made-up data for a test (owner, 2026-11-22; no migration)
 

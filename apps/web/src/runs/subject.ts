@@ -25,6 +25,11 @@ export function subjectTitle(
       const head = subject.number ? `${name} ${subject.number}` : name;
       return subject.with ? `${head} · ${subject.with}` : head;
     }
+    // docs/plan.md §1.188: a record the run kept as its subject, "Acme Supply · PR-1032".
+    case "record": {
+      const parts = [subject.label, subject.number].filter((p): p is string => !!p);
+      return parts.length > 0 ? parts.join(" · ") : null;
+    }
     case "trigger":
       return null;
   }
@@ -72,5 +77,6 @@ export function opsRunShortTitle(
     const name = pickLocalized(subject.name, locale);
     return subject.number ? `${name} ${subject.number}` : name;
   }
+  if (subject?.kind === "record" && subject.number) return subject.number;
   return opsRunTitle(subject, fallback);
 }
