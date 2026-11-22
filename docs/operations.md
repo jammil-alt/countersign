@@ -1353,11 +1353,13 @@ Settings page in the back office (with a reason). It can only be switched on onc
 would receive its data has a signed BAA. Those vendors are listed in `BAA_PROCESSORS` in
 `apps/api/wrangler.jsonc`, per environment. Add a vendor there by pull request only after its BAA
 is signed, and keep the signed copy. The ids are `cloudflare`, `neon`, `workos`, `anthropic`,
-`openai`, `xai`, `google`, `twilio`, `meta_whatsapp`, `elevenlabs`, `resend`, `plaid`, `billcom`
-and `expo_push` (the full list is `PROCESSORS` in `packages/core/src/compliance/processors.ts`). The
+`openai`, `xai`, `google`, `twilio`, `meta_whatsapp`, `elevenlabs`, `resend`, `plaid`, `billcom`,
+`expo_push` and `claude_ai` (the full list is `PROCESSORS` in `packages/core/src/compliance/processors.ts`). The
 first three are needed for any HIPAA client. `anthropic` is needed for agents and document reading.
 `plaid` is needed to offer the bank feed, `billcom` the BILL connector, and `expo_push` phone
-notifications. `openai`,
+notifications. `claude_ai` is Anthropic's BAA for Claude's apps, not its API: until it is listed,
+the back office's MCP connector leaves a client in HIPAA mode out and refuses calls about it or
+across the clients an operator serves (`docs/plan.md` §1.190). `openai`,
 `xai` and `google` are needed only for agents set to their models (`openai:`, `xai:`, `google:`
 ids); `google` is the Gemini API on our key, not a client's own Google account. M50: website measurement is
 held for a client in HIPAA mode whatever is listed: its site's beacons are answered and nothing is
