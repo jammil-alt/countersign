@@ -13,7 +13,7 @@
 import type { BrowserTier } from "../browser/site";
 import { PROCESSOR_NAMES, type Processor, processorForModel } from "../compliance/processors";
 import type { SopLevel, SopStepLine, SopView } from "../sop/view";
-import { providerTerms } from "./terms";
+import { providerTerms, termsConfirmed } from "./terms";
 
 export const CHECK_KINDS = ["setup", "runs", "attack"] as const;
 export type CheckKind = (typeof CHECK_KINDS)[number];
@@ -507,13 +507,21 @@ const RUNS: Record<string, Run> = {
       return { result: "not_applicable", found: "It uses no AI", evidence: {} };
     }
     const unknown = providers.filter((p) => providerTerms(p).training !== "no");
+    // DECISION (§1.231.1): terms read only from a search result never verify; the check stays in
+    // review until someone reads the provider's own page (terms.ts `read: "page"`).
+    const unconfirmed = providers.filter(
+      (p) => providerTerms(p).training === "no" && !termsConfirmed(p),
+    );
+    const found =
+      unknown.length > 0
+        ? `Not recorded yet for ${list(unknown.map((p) => PROCESSOR_NAMES[p]))}`
+        : unconfirmed.length > 0
+          ? `To be confirmed on the provider's own page for ${list(unconfirmed.map((p) => PROCESSOR_NAMES[p]))}`
+          : `${list(providers.map((p) => PROCESSOR_NAMES[p]))}, through their APIs, under terms that exclude training`;
     return {
-      result: unknown.length === 0 ? "verified" : "in_review",
-      found:
-        unknown.length === 0
-          ? `${list(providers.map((p) => PROCESSOR_NAMES[p]))}, through their APIs, under terms that exclude training`
-          : `Not recorded yet for ${list(unknown.map((p) => PROCESSOR_NAMES[p]))}`,
-      evidence: { providers, unknown },
+      result: unknown.length === 0 && unconfirmed.length === 0 ? "verified" : "in_review",
+      found,
+      evidence: { providers, unknown, unconfirmed },
     };
   },
 

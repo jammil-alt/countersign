@@ -7,6 +7,8 @@ import { eq, sql } from "drizzle-orm";
 import type { Db } from "./client";
 import {
   accessRelease,
+  accessReview,
+  accessReviewItem,
   agent,
   agentChange,
   agentGrant,
@@ -80,8 +82,6 @@ import {
   toolCall,
   transaction,
   transactionLine,
-  usageDaily,
-  usagePlatformDaily,
   vendor,
   weeklyTable,
 } from "./schema";
@@ -298,15 +298,22 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
   await db.$client`
     insert into memory_note (tenant_id, agent_id, note, source_message_id)
     values (${tenantId}, ${a.id}, 'remember', ${m.id})`;
-  await db.insert(usageDaily).values({ tenantId, day: "2026-11-03", agentId: a.id, runs: 1 });
-  await db.insert(usagePlatformDaily).values({
-    tenantId,
-    day: "2026-11-03",
-    documents: 1,
-    tokensIn: 1200,
-    tokensOut: 300,
-    costUsd: "0.0123",
-  });
+  // 0095 added measure columns to both rollups: their columns named, not drizzle's whole list, so
+  // a client seeded on a database migrated only to an earlier migration gets these rows too.
+  await db.$client`
+    insert into usage_daily (tenant_id, day, agent_id, runs)
+    values (${tenantId}, '2026-11-03', ${a.id}, 1)`;
+  await db.$client`
+    insert into usage_platform_daily (tenant_id, day, documents, tokens_in, tokens_out, cost_usd)
+    values (${tenantId}, '2026-11-03', 1, 1200, 300, 0.0123)`;
+  // §1.210 (0095): an email the agent's run sent through Resend, where the table exists.
+  const [metered] = await db.$client<{ ok: boolean }[]>`
+    select to_regclass('public.metered_usage') is not null as ok`;
+  if (metered?.ok) {
+    await db.$client`
+      insert into metered_usage (tenant_id, agent_id, run_id, measure, source, key)
+      values (${tenantId}, ${a.id}, ${r.id}, 'emails', 'run', ${`fixture:${tenantId}`})`;
+  }
   await db.insert(threadRead).values({ tenantId, threadId: th.id, userId: u.id });
   // 0055: its columns named, not drizzle's whole list (which has `action`), so a client seeded on
   // a database migrated only to an earlier migration gets this row too.
@@ -615,6 +622,14 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
       insert into process_interview (tenant_id, contact_id, process, expires_at, question)
       values (${tenantId}, ${ct.id}, 'Invoice reconciliation', now() + interval '14 days',
         'How does it start?')`;
+  }
+  // 0098: a saved view of the portal's runs list, shared with the team (docs/plan.md §1.236).
+  const [views] = await db.$client<{ ok: boolean }[]>`
+    select to_regclass('public.portal_view') is not null as ok`;
+  if (views?.ok) {
+    await db.$client`
+      insert into portal_view (tenant_id, user_id, name, filters, shared)
+      values (${tenantId}, ${u.id}, 'Waiting on us', '{"statuses":["waiting"]}', true)`;
   }
   const [st] = await db
     .insert(billingStatement)
@@ -962,6 +977,31 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
       result: { ok: true, output: { entries: [], truncated: false } },
     });
   }
+  // §1.218: one access review that found this client's user, once migration 0096 is there.
+  const [reviews] = await db.$client<{ present: boolean }[]>`
+    select to_regclass('public.access_review') is not null as present`;
+  if (reviews?.present) {
+    const [review] = await db
+      .insert(accessReview)
+      .values({
+        period: "2026-Q4",
+        reviewedBy: u.id,
+        reviewerEmail: "reviewer@example.com",
+        clients: 1,
+        people: 1,
+        removals: 0,
+      })
+      .returning();
+    if (!review) throw new Error("access_review insert failed");
+    await db.insert(accessReviewItem).values({
+      reviewId: review.id,
+      tenantId,
+      userId: u.id,
+      email: `${name.toLowerCase()}@example.com`,
+      role: "client_admin",
+      decision: "keep",
+    });
+  }
   // §1.215: a saved match rule, once migration 0085 is there.
   const [rules] = await db.$client<{ present: boolean }[]>`
     select to_regclass('public.match_rule') is not null as present`;
@@ -1174,6 +1214,14 @@ export async function insertOperatorRows(db: Db): Promise<{
     .values({ sessionId: bs.id, seq: 1, role: "operator", text: "Draft a card receipts agent." })
     .returning();
   if (!bt) throw new Error("no builder turn");
+  // §1.210 (0095): the platform's own vendor cost, an operator's sign-in code, where it exists.
+  const [metered] = await db.$client<{ ok: boolean }[]>`
+    select to_regclass('public.metered_usage') is not null as ok`;
+  if (metered?.ok) {
+    await db.$client`
+      insert into metered_usage (measure, source, ours, key)
+      values ('verifications', 'sign_in_code', true, ${`fixture:op:${bt.id}`})`;
+  }
   return {
     agentVersionId: av?.id ?? "",
     automationVersionId: auv.id,

@@ -83,7 +83,9 @@ criteria too. Written policies and records count as much as code.
       Redo yearly and after big changes.
 - [ ] **Policies** (drafted 2026-11-09: `docs/policies/information-security.md` covers information
       security, access control, change management, vulnerabilities, incidents, backups and devices;
-      `docs/policies/data-retention.md` covers retention and disposal):
+      `docs/policies/data-retention.md` covers retention and disposal; drafted 2026-11-22 for the
+      owner to adopt, §1.218: `change-management.md`, `incident-response.md`,
+      `vendor-management.md`):
   - information security;
   - access control (who gets which role, and how access is removed);
   - acceptable use;
@@ -104,6 +106,8 @@ criteria too. Written policies and records count as much as code.
 
 ## 6. SOC 2
 
+Where we stand against each criterion: `/ops/security/soc2` (plan §1.218).
+
 1. Pick the scope: Security, plus Availability and Confidentiality.
 2. Consider a compliance tool (Vanta, Drata, Secureframe). They collect evidence from GitHub,
    Cloudflare, WorkOS and Neon automatically and come with policy templates.
@@ -121,7 +125,8 @@ way: no card fields in our pages, and card numbers never stored (already enforce
 
 | How often | What | Where |
 |---|---|---|
-| Every quarter | Access review: remove anyone who shouldn't be there; save the CSV with the date | `/ops/security/audit` → Access review |
+| Every quarter | Access review: remove anyone who shouldn't be there; record it (the record keeps who was found and who should go, downloadable as CSV) | `/ops/security/soc2` → Record this quarter's review |
+| Yearly | Deletion drill on staging: a Sandbox client purged end to end, nothing left | `docs/operations.md` §1.2 |
 | Every quarter | Restore test from Neon's history; note the result | `docs/operations.md` §4 |
 | Weekly | Read the production scan's issue; fix findings on the policy's deadlines | GitHub → Issues, "Production scan: findings" |
 | Every quarter | Review Cloudflare's Security Insights; fix or accept each finding | Cloudflare → Security Center |

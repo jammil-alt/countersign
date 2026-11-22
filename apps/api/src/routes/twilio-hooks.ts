@@ -67,6 +67,7 @@ import {
   markThreadStatus,
   type ThreadMessageBody,
 } from "../messaging/contacts";
+import { meter } from "../metering";
 // P-3: attachments both ways
 import { replyMediaJob } from "../reach/reply-media";
 import { dispatchEvents } from "../runs/dispatch";
@@ -180,6 +181,13 @@ export function twilioHookRoutes(app: Hono<AppEnv>): void {
           )
           .limit(1);
         if (seen) return;
+        // §1.210: Twilio charges for a text received too: the client's own usage, once per SID.
+        await meter(tx, {
+          tenantId,
+          measure: "messages",
+          source: "inbound",
+          key: `twilio:${msg.sid}`,
+        });
         if (msg.channel === "sms") {
           const reply = await consumeTextReply(
             tx,

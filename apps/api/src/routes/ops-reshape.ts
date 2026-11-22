@@ -19,11 +19,12 @@ import {
   type TypingContext,
 } from "@countersign/core";
 import { run, stepRun } from "@countersign/db";
-import { createLlmClient, type LlmTransport } from "@countersign/llm";
+import type { LlmTransport } from "@countersign/llm";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
 import { clientModels } from "../compliance/models";
 import { type AppEnv, type HandlerCtx, HttpError, mount } from "../http";
+import { meteredLlm } from "../metering";
 import { agentInScope, builderToolInputs } from "./ops-lineage";
 
 type Ctx = HandlerCtx<never>;
@@ -108,7 +109,14 @@ export function opsReshapeRoutes(app: Hono<AppEnv>): void {
     if (body.ai !== false && ask.length > 0) {
       const s = await suggestReshape(
         { context, mapping: proposal.mapping, unmapped: ask },
-        { llm: createLlmClient({ transport: transport(ctx, row.tenantId) }) },
+        // §1.210: the Builder's calls are the back office's cost, on the agent's client (none
+        // for a template), recorded once the request ends, whether or not it answered.
+        {
+          llm: meteredLlm(
+            { db: ctx.services.db, defer: ctx.defer },
+            { transport: transport(ctx, row.tenantId), tenantId: row.tenantId, source: "reshape" },
+          ).llm,
+        },
       ).catch((error: unknown) => {
         // HIPAA mode: nothing was sent; answered as 409 `hipaa`, saying why.
         if (error instanceof ComplianceRefusal) throw error;

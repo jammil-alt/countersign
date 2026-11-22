@@ -1,6 +1,7 @@
 // Pack screens in the portal (ARCHITECTURE §15): the portal mounts a pack's reports from the
 // registry (./registry.ts). The back office's pack screens are in ./opsScreens.tsx, so the portal's
 // first load (scripts/web-size.mjs) never carries the back office's client frame.
+import { lazy, Suspense } from "react";
 import { useParams } from "react-router-dom";
 import { BankTransactionsView } from "./bookkeeping/BankTransactions";
 import { ReconciliationsView } from "./bookkeeping/Reconciliations";
@@ -30,3 +31,13 @@ export function PortalRequestsScreen() {
 export const PortalBankTransactionsScreen = () => <BankTransactionsView />;
 // R-1 (docs/plan.md §1.80): Reconciliations.
 export const PortalReconciliationsScreen = () => <ReconciliationsView />;
+
+// §1.232: the Close pack's month-end close, loaded when opened (never in the first load).
+const CloseReport = lazy(() =>
+  import("./close/Close").then((m) => ({ default: m.PortalCloseScreen })),
+);
+export const PortalCloseScreen = () => (
+  <Suspense fallback={null}>
+    <CloseReport />
+  </Suspense>
+);

@@ -5,6 +5,7 @@
 // to a person, so a miss here costs a review, never a wrong match.
 
 import { readdirSync, readFileSync } from "node:fs";
+import { type MatchConfig, matchItems, type PairScorer } from "@countersign/core";
 import { describe, expect, it } from "vitest";
 import { parseLine, scorePair } from "./keys";
 import { MATCH_CONFIDENCE_AUTO } from "./settings";
@@ -74,5 +75,44 @@ describe("matching golden set", () => {
       const score = scorePair(parseLine(p.a), parseLine(p.b));
       expect(score.confidence, `${p.a} | ${p.b}`).toBeLessThan(MATCH_CONFIDENCE_AUTO);
     }
+  });
+
+  // §1.215: the same pairs on the platform's matching engine, its fuzzy tier scored by Materials'
+  // item keys (the engine takes a pack's scorer; the key attributes' hard rules are its vetoes).
+  it("runs on the platform matching engine with the same answers, at 95% precision", () => {
+    const config: MatchConfig = {
+      id: "materials_item",
+      sides: { a: "Line", b: "Item" },
+      windowDays: 0,
+      tolerance: "0",
+      reference: "alnum",
+      rules: [],
+      maxGroup: 2,
+      groupPoolMax: 2,
+      fuzzy: { threshold: MATCH_CONFIDENCE_AUTO, counterpartyFloor: 0 },
+      model: null,
+      vetoes: { reference: false, currency: false },
+    };
+    const scorer: PairScorer = (x, y) => {
+      const s = scorePair(parseLine(x.description ?? ""), parseLine(y.description ?? ""));
+      return { score: s.confidence, veto: s.comparison.differ[0] ?? null };
+    };
+    let tp = 0;
+    let fp = 0;
+    for (const p of all) {
+      const out = matchItems(
+        [{ amount: "0", description: p.a }],
+        [{ amount: "0", description: p.b }],
+        config,
+        { scorer },
+      );
+      const engine = out.matches.length === 1;
+      const direct = scorePair(parseLine(p.a), parseLine(p.b)).confidence >= MATCH_CONFIDENCE_AUTO;
+      expect(engine, `${p.a} | ${p.b}`).toBe(direct);
+      if (engine) expect(out.matches[0]).toMatchObject({ tier: "fuzzy", rule: "similar" });
+      if (engine && p.label === "same") tp += 1;
+      else if (engine) fp += 1;
+    }
+    expect(tp / (tp + fp)).toBeGreaterThanOrEqual(0.95);
   });
 });
