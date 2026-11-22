@@ -207,8 +207,9 @@ Status, 2026-11-20:
   which each call a paid model, are limited per person and client: questions to 10 a minute and
   200 a day, voice typing (a call per segment of a few seconds) to 30 a minute and 1,500 a day
   (`apps/api/src/metered.ts`). The public beacon route (`/api/in/`) has its own too: 120 a minute
-  per sending address (an IPv6 address by its /64), checked before any database work
-  (`apps/api/src/routes/pack-inbound.ts`).
+  per sending address (an IPv6 address by its /64), then 3,000 a minute per site on a binding of
+  its own (`INBOUND_TARGET_RATE_LIMIT`), both checked before any database work; a request the
+  address limit refuses doesn't count toward its site (`apps/api/src/routes/pack-inbound.ts`).
 - **Writes to clients' tools** need approval by default, run once each, and record their before
   state (invariant 8). Delete is off.
 - **Webhooks** from Twilio, Stripe, QuickBooks and ElevenLabs are signature-checked.

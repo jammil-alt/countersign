@@ -229,6 +229,12 @@ export interface OptionalBindings {
   BROWSER?: BrowserService;
   /** Cloudflare's rate limiting: MCP calls per operator (src/mcp/limits.ts); unset, per isolate. */
   MCP_RATE_LIMIT?: RateLimiterBinding;
+  /**
+   * Cloudflare's rate limiting: requests per target on the public inbound route, for the
+   * Marketing pack beacons per measured site (src/routes/pack-inbound.ts, docs/plan.md §1.198);
+   * unset, per isolate.
+   */
+  INBOUND_TARGET_RATE_LIMIT?: RateLimiterBinding;
   // M46 (docs/plan.md §1.76): the bucket published guides go to, which the site Worker reads
   // (docs/marketing-plan.md §11.4). Not in wrangler.jsonc until the owner sets it; unset, the
   // `website` connector refuses every write ("publishing isn't set up"), so nothing public changes.
