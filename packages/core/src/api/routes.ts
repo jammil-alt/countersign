@@ -259,9 +259,10 @@ export const ResolveBody = z.strictObject({
   /** §1.116: signed on a registered phone with Face ID or a fingerprint (checked, then recorded). */
   deviceSignature: DeviceSignature.optional(),
   /**
-   * Audit 3.4: the item as the person saw it (`itemFingerprint` of the portal's item). The portal
-   * requires it (or a phone's signature, which carries one) and refuses an answer to an item that
-   * changed since (409 `changed`).
+   * Audit 3.4: the item as the person saw it (`itemFingerprint` of the item as the route's own
+   * surface sends it: the portal's `PortalInboxItem`, the back office's `OpsInboxItem`). Both
+   * resolves require it (the portal also takes a phone's signature, which carries one) and refuse
+   * an answer to an item that changed since (409 `changed`).
    */
   fingerprint: ItemFingerprint.optional(),
 });

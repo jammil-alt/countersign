@@ -6382,6 +6382,22 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.191 The back office answers the card it saw, too (audit 3.4, item C4.6, 2026-11-22; no migration)
+
+The portal and the phone already send the fingerprint of the card as shown, and the API refuses an
+answer to one that changed since (409 `changed`). The back office's own resolve and the operator's
+step-in did not.
+
+| Topic | Decision |
+|---|---|
+| What is fingerprinted | Core's `itemFingerprint` of the item as the back office is sent it (`OpsInboxItem`, parsed): its id, title, display less `names` and payload, as for the portal. The API's `opsShownFingerprint` (`apps/api/src/routes/mappers.ts`) builds the same item from the locked row. Which operator asks (`resolvableByOperator`) is not part of it. The portal's and the back office's fingerprints of one item differ; each route compares with its own surface's. // DECISION |
+| `POST /api/ops/inbox/:id/resolve` | Takes `fingerprint` (the shared `ResolveBody`) and requires it: 400 `fingerprint_required` ("This page is out of date; reload it and look again") without one, 409 `changed` when the item changed since, compared under the item's lock in `resolveInboxItem` as the portal's is. No grace for older tabs: the back office ships with the API. // DECISION |
+| Step-in | `StepInBody` takes `fingerprint` on each of its four actions, and the route requires it on all four, a pass-on included: it is an act on the card as seen, and one rule is simpler than four. The step-in compares it once, under the lock and before an edit sent with an approval, so its own edit is never taken for a change; the resolve it then calls is not compared again. // DECISION |
+| The screens | The inbox's card, the run view (its Changes tab and the wait at the top) and Step in send the fingerprint of the item they were sent. The shared refusal (`fingerprintRequired`) and the comparison (`ensureSeen`) live in `apps/api/src/inbox.ts`, used by the portal too. |
+| The ops MCP server | It resolves no inbox card (its only write is `feedback_resolve`), so nothing there changes. A resolve added to it later sends the fingerprint of the item as its own read returned it. |
+| Not built | A pack's review card answered from the back office (`routes/packs.ts`) is not compared: it has its own finish route and its own checks. |
+| Checked | `apps/api/src/step-in.test.ts` (a resolve and each step-in action on a changed card refused with 409 `changed`, none recorded; one with no fingerprint 400; looked at again, both go through), `packages/core/src/api/contract.test.ts` (both bodies take it; the fingerprint ignores the operator and follows the payload), `apps/web/src/ops/screens/Inbox.test.tsx` and `RunView.test.tsx` (what each screen sends). The API's other tests answer the item as the back office shows it now (`api.test-helper.ts`), as for the portal. |
+
 ### 1.186 Made-up data for a test (owner, 2026-11-22; no migration)
 
 The owner: "how do we create data? For an item that would receive data let's have the AI make up

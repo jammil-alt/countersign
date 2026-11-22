@@ -11,9 +11,10 @@ import { ensureSeesRun } from "../assigned";
 import { controlConversation } from "../converse/control";
 import { portalConversation, runConversations } from "../converse/views";
 import { type AppEnv, ensureClient, iso, mount, notFound, type Services } from "../http";
-import { type RunWake, sendResolution } from "../inbox";
+import { fingerprintRequired, type InboxRow, type RunWake, sendResolution } from "../inbox";
 import { dispatchEvents } from "../runs/dispatch";
 import { stepIn, steppedInOf, steppingIn } from "../step-in/service";
+import { opsShownFingerprint } from "./mappers";
 
 function afterwards(
   ctx: {
@@ -38,6 +39,11 @@ export function stepInRouteHandlers(app: Hono<AppEnv>): void {
     const { tx, params, body, session, services } = ctx;
     // Only the clients this operator serves (404 for any other, as everywhere in the back office).
     ensureClient(ctx, params.id);
+    // Audit 3.4: stepping in names the item as the operator saw it, as a resolve does.
+    // DECISION (audit 3.4, docs/plan.md §1.191): required for every action, a pass-on included:
+    // it is an act on the card as seen, and one rule is simpler than four.
+    if (!body.fingerprint) throw fingerprintRequired();
+    const { fingerprint } = body;
     const collect: EventRow[] = [];
     const { item, ...outcome } = await stepIn(tx, {
       tenantId: params.id,
@@ -47,6 +53,11 @@ export function stepInRouteHandlers(app: Hono<AppEnv>): void {
       registry: services.platform.events,
       collect,
       now: new Date(),
+      seen: {
+        fingerprint,
+        of: (row: InboxRow) =>
+          opsShownFingerprint(row, steppingIn(session.user.id), services.platform),
+      },
     });
     afterwards(ctx, services, outcome, collect);
     return {
