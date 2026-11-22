@@ -26,6 +26,12 @@ it("has the MCP rate limiter binding", async () => {
   expect(await limiter.limit({ key: "runtime-test" })).toEqual({ success: true });
 });
 
+it("has the inbound route's per-site rate limiter binding (docs/plan.md §1.198)", async () => {
+  const limiter = (env as unknown as { INBOUND_TARGET_RATE_LIMIT: RateLimiterBinding })
+    .INBOUND_TARGET_RATE_LIMIT;
+  expect(await limiter.limit({ key: "runtime-test" })).toEqual({ success: true });
+});
+
 it("verifies an RS256 access token in workerd", async () => {
   const { publicKey, privateKey } = await generateKeyPair("RS256");
   const keys = createLocalJWKSet({ keys: [{ ...(await exportJWK(publicKey)), kid: "k" }] });

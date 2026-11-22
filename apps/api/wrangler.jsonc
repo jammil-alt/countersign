@@ -19,9 +19,16 @@
     "run_worker_first": ["/api/*", "/mcp", "/.well-known/oauth-*"]
   },
 
-  // MCP calls per operator (src/mcp/limits.ts). Namespace ids are per account: one per environment.
+  // MCP calls per operator, and the public inbound route's limit per address (src/mcp/limits.ts);
+  // the inbound route's limit per target, a measured site (docs/plan.md §1.198). Namespace ids are
+  // per account: one per binding and environment.
   "ratelimits": [
-    { "name": "MCP_RATE_LIMIT", "namespace_id": "1100", "simple": { "limit": 120, "period": 60 } }
+    { "name": "MCP_RATE_LIMIT", "namespace_id": "1100", "simple": { "limit": 120, "period": 60 } },
+    {
+      "name": "INBOUND_TARGET_RATE_LIMIT",
+      "namespace_id": "1110",
+      "simple": { "limit": 3000, "period": 60 }
+    }
   ],
 
   // The senses sweep and schedule check run every minute (docs/plan.md §1.2).
@@ -138,6 +145,11 @@
           "name": "MCP_RATE_LIMIT",
           "namespace_id": "1101",
           "simple": { "limit": 120, "period": 60 }
+        },
+        {
+          "name": "INBOUND_TARGET_RATE_LIMIT",
+          "namespace_id": "1111",
+          "simple": { "limit": 3000, "period": 60 }
         }
       ],
       "vars": {
@@ -210,6 +222,11 @@
           "name": "MCP_RATE_LIMIT",
           "namespace_id": "1102",
           "simple": { "limit": 120, "period": 60 }
+        },
+        {
+          "name": "INBOUND_TARGET_RATE_LIMIT",
+          "namespace_id": "1112",
+          "simple": { "limit": 3000, "period": 60 }
         }
       ],
       "vars": {

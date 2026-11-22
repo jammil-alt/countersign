@@ -1,6 +1,6 @@
 {
-  "id": "e02b7c8d-427d-49b2-a5ee-84dd1917d131",
-  "prevId": "b96d981e-2443-447d-add3-60f5ae923294",
+  "id": "2078d933-ad82-42bf-99d4-94d4d6585132",
+  "prevId": "c06fd2ae-8f2e-44d9-b0c0-df22f176517c",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -13737,6 +13737,18 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "client": {
+          "name": "client",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "place": {
+          "name": "place",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "approved_at": {
           "name": "approved_at",
