@@ -118,7 +118,6 @@ CREATE INDEX "ap_bill_week_idx" ON "ap_bill" USING btree ("tenant_id","pay_week"
 CREATE INDEX "ap_bill_vendor_idx" ON "ap_bill" USING btree ("tenant_id","vendor_id","invoice_date");--> statement-breakpoint
 CREATE INDEX "ap_bill_line_account_idx" ON "ap_bill_line" USING btree ("tenant_id","ledger_account_id");--> statement-breakpoint
 CREATE INDEX "ap_receipt_request_idx" ON "ap_receipt" USING btree ("tenant_id","purchase_request_id");
-
 --> statement-breakpoint
 -- A bill and its lines are prepared again and decided (updates), never deleted.
 GRANT SELECT, INSERT, UPDATE ON ap_bill, ap_bill_line TO cs_runtime;

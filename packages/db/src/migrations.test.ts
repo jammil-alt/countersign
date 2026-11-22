@@ -191,7 +191,12 @@ describe.skipIf(!online)("migrations on an empty database", () => {
         "crm_alias",
         "crm_match",
         "crm_record_key",
-        // §1.233 (0096): the AP pack's bills, their lines and goods received.
+        // §1.232 (0099): the Close pack's periods, checklist and proposed journal entries.
+        "close_entry",
+        "close_entry_line",
+        "close_item",
+        "close_period",
+        // §1.233 (0100): the AP pack's bills, their lines and goods received.
         "ap_bill",
         "ap_bill_line",
         "ap_receipt",
@@ -257,6 +262,9 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "organization",
       "organization_change",
       "audit_event",
+      // §1.218 (0096): the access review's record.
+      "access_review",
+      "access_review_item",
       // Wave 1 (0018–0025): nothing gets DELETE.
       "usage_platform_daily",
       "notification",
@@ -477,6 +485,9 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     expect(await can("browser_site", "UPDATE")).toBe(true);
     expect(await can("browser_site_version", "UPDATE")).toBe(false);
     expect(await can("saved_view", "UPDATE")).toBe(true);
+    // R6 (0098): a client's saved views aren't history either: renamed, shared, deleted (§1.236).
+    expect(await can("portal_view", "UPDATE")).toBe(true);
+    expect(await can("portal_view", "DELETE")).toBe(true);
     // The connectors catalog (0026): settings change in place, never deleted.
     expect(await can("connector_setting", "UPDATE")).toBe(true);
     expect(await can("connector_setting", "DELETE")).toBe(false);

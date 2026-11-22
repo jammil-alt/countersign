@@ -7,6 +7,7 @@
 
 import type { Tx } from "@countersign/db";
 import type { Transcription } from "@countersign/llm";
+import { meterModelCalls } from "./metering";
 import { recordAccountAgentCall } from "./runs-ask/usage";
 
 /** `run.workflow_slug` of a dictation's run: it runs no workflow. */
@@ -23,6 +24,31 @@ export interface TranscriptionUsage {
   recording: { type: string; bytes: number };
   /** The language the model was told, if any. */
   language?: string | undefined;
+}
+
+/**
+ * §1.210: a dictation that is the operator's own cost, recorded as ours (on the client it is
+ * about, or none), and logged as before.
+ */
+export async function recordOperatorTranscription(
+  tx: Tx,
+  u: TranscriptionUsage,
+  why: string,
+): Promise<void> {
+  await meterModelCalls(tx, {
+    tenantId: u.tenantId,
+    source: "dictation",
+    key: `dictation:${crypto.randomUUID()}`,
+    calls: [
+      {
+        model: u.transcription.model,
+        tokensIn: u.transcription.usage?.inputTokens ?? 0,
+        tokensOut: u.transcription.usage?.outputTokens ?? 0,
+        costUsd: u.transcription.costUsd,
+      },
+    ],
+  });
+  logTranscriptionCost(u, why);
 }
 
 /** A dictation's cost, logged as the operator's: who, about which client, the model and cost. */
@@ -59,7 +85,7 @@ export async function recordTranscriptionUsage(
   u: TranscriptionUsage,
 ): Promise<string | null> {
   if (u.surface === "ops" || !u.tenantId) {
-    logTranscriptionCost(u, "back office dictation");
+    await recordOperatorTranscription(tx, u, "back office dictation");
     return null;
   }
   const t = u.transcription;
@@ -87,7 +113,7 @@ export async function recordTranscriptionUsage(
       stopReason: "transcribed",
     },
   });
-  if (!runId) logTranscriptionCost(u, "no account agent");
+  if (!runId) await recordOperatorTranscription(tx, u, "no account agent");
   else if (t.costUsd === null) {
     console.warn(
       JSON.stringify({ event: "voice.transcribe.unpriced", tenantId: u.tenantId, model: t.model }),

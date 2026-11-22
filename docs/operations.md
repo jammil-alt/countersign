@@ -1392,6 +1392,17 @@ disconnected. Then:
    client's rows (ids only). Neon's point-in-time history holds the deleted rows until its
    restore window passes.
 
+**The deletion drill (`docs/plan.md` §1.218).** Once a year, show the purge works end to end:
+on staging, as `cs_owner` (break-glass, as for the purge), run
+`DIRECT_DATABASE_URL=… pnpm --filter @countersign/db run db:deletion-drill`. It makes a throwaway
+Sandbox client (never the seeded Sandbox) with weeks of demo rows, its own two people and its own
+operator; retires it; purges it with `purgeClient`, as the workflow does; then checks no row in any
+table names it, that the purge deleted exactly its rows in every table that names a client, that its
+people are gone and that `client.purge` is in the audit log. The result is written to the audit log
+as `client.deletion_drill` and shows on `/ops/security/soc2`. It needs the seed's platform
+templates, so it never runs on production. If it fails, the output names each failed check and the
+drill client's id; a client left behind is retired and is purged with Purge client.
+
 **Exporting a client's data.** The terms promise an export on request until 30 days after the
 service ends. Start it with `POST /api/ops/clients/<id>/exports` (a reason is optional) and list it
 with `GET /api/ops/clients/<id>/exports`; once ready, the list carries a link that works for 5

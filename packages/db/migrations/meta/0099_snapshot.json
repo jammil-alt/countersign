@@ -1,6 +1,6 @@
 {
-  "id": "3e5ab826-377f-4062-a25b-b71c103988ac",
-  "prevId": "ee3f2726-594b-4063-aca0-e8d0154b2635",
+  "id": "1cc13626-9952-44ab-9e19-4cd16f6e5e22",
+  "prevId": "9f073649-912d-47b7-a2c1-3688275c53ba",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -267,6 +267,255 @@
         "access_release_released_check": {
           "name": "access_release_released_check",
           "value": "(\"access_release\".\"status\" in ('released', 'revoked')) = (\"access_release\".\"released_at\" is not null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.access_review": {
+      "name": "access_review",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "period": {
+          "name": "period",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reviewed_by": {
+          "name": "reviewed_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reviewer_email": {
+          "name": "reviewer_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "clients": {
+          "name": "clients",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "people": {
+          "name": "people",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "removals": {
+          "name": "removals",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "access_review_created_idx": {
+          "name": "access_review_created_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "access_review_period_check": {
+          "name": "access_review_period_check",
+          "value": "\"access_review\".\"period\" ~ '^[0-9]{4}-Q[1-4]$'"
+        },
+        "access_review_counts_check": {
+          "name": "access_review_counts_check",
+          "value": "\"access_review\".\"clients\" >= 0 and \"access_review\".\"people\" >= 0 and \"access_review\".\"removals\" between 0 and \"access_review\".\"people\""
+        },
+        "access_review_note_check": {
+          "name": "access_review_note_check",
+          "value": "char_length(\"access_review\".\"note\") <= 2000"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.access_review_item": {
+      "name": "access_review_item",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "review_id": {
+          "name": "review_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_sign_in_at": {
+          "name": "last_sign_in_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_seen_at": {
+          "name": "last_seen_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decision": {
+          "name": "decision",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "access_review_item_tenant_idx": {
+          "name": "access_review_item_tenant_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "access_review_item_review_id_access_review_id_fk": {
+          "name": "access_review_item_review_id_access_review_id_fk",
+          "tableFrom": "access_review_item",
+          "tableTo": "access_review",
+          "columnsFrom": [
+            "review_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "access_review_item_tenant_id_tenant_id_fk": {
+          "name": "access_review_item_tenant_id_tenant_id_fk",
+          "tableFrom": "access_review_item",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "access_review_item_person_key": {
+          "name": "access_review_item_person_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "review_id",
+            "tenant_id",
+            "user_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "access_review_item_decision_check": {
+          "name": "access_review_item_decision_check",
+          "value": "\"access_review_item\".\"decision\" in ('keep', 'remove')"
+        },
+        "access_review_item_note_check": {
+          "name": "access_review_item_note_check",
+          "value": "char_length(\"access_review_item\".\"note\") <= 500"
         }
       },
       "isRLSEnabled": false
@@ -15326,6 +15575,237 @@
       },
       "isRLSEnabled": false
     },
+    "public.metered_usage": {
+      "name": "metered_usage",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "measure": {
+          "name": "measure",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "quantity": {
+          "name": "quantity",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ours": {
+          "name": "ours",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tokens_in": {
+          "name": "tokens_in",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "tokens_out": {
+          "name": "tokens_out",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "cache_read_tokens": {
+          "name": "cache_read_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "cache_write_tokens": {
+          "name": "cache_write_tokens",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "cost_usd": {
+          "name": "cost_usd",
+          "type": "numeric(14, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "metered_usage_tenant_idx": {
+          "name": "metered_usage_tenant_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "metered_usage_created_idx": {
+          "name": "metered_usage_created_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "metered_usage_tenant_id_tenant_id_fk": {
+          "name": "metered_usage_tenant_id_tenant_id_fk",
+          "tableFrom": "metered_usage",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "metered_usage_agent_fk": {
+          "name": "metered_usage_agent_fk",
+          "tableFrom": "metered_usage",
+          "tableTo": "agent",
+          "columnsFrom": [
+            "agent_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "metered_usage_run_fk": {
+          "name": "metered_usage_run_fk",
+          "tableFrom": "metered_usage",
+          "tableTo": "run",
+          "columnsFrom": [
+            "run_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "metered_usage_key_unique": {
+          "name": "metered_usage_key_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "key"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "metered_usage_measure_check": {
+          "name": "metered_usage_measure_check",
+          "value": "\"metered_usage\".\"measure\" in ('messages', 'emails', 'browser_seconds', 'bank_item_months', 'verifications', 'model')"
+        },
+        "metered_usage_source_check": {
+          "name": "metered_usage_source_check",
+          "value": "\"metered_usage\".\"source\" ~ '^[a-z_]{1,40}$'"
+        },
+        "metered_usage_quantity_check": {
+          "name": "metered_usage_quantity_check",
+          "value": "\"metered_usage\".\"quantity\" > 0"
+        },
+        "metered_usage_ours_check": {
+          "name": "metered_usage_ours_check",
+          "value": "\"metered_usage\".\"tenant_id\" is not null or \"metered_usage\".\"ours\""
+        },
+        "metered_usage_scope_check": {
+          "name": "metered_usage_scope_check",
+          "value": "\"metered_usage\".\"tenant_id\" is not null or (\"metered_usage\".\"agent_id\" is null and \"metered_usage\".\"run_id\" is null)"
+        },
+        "metered_usage_model_check": {
+          "name": "metered_usage_model_check",
+          "value": "(\"metered_usage\".\"measure\" = 'model') = (\"metered_usage\".\"cost_usd\" is not null) and \"metered_usage\".\"tokens_in\" >= 0 and \"metered_usage\".\"tokens_out\" >= 0 and \"metered_usage\".\"cache_read_tokens\" >= 0 and \"metered_usage\".\"cache_write_tokens\" >= 0 and coalesce(\"metered_usage\".\"cost_usd\", 0) >= 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.model_call": {
       "name": "model_call",
       "schema": "",
@@ -17076,6 +17556,372 @@
         "play_setting_level_check": {
           "name": "play_setting_level_check",
           "value": "\"play_setting\".\"level\" in ('off', 'draft', 'send')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.portal_view": {
+      "name": "portal_view",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "filters": {
+          "name": "filters",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "shared": {
+          "name": "shared",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "portal_view_shared_idx": {
+          "name": "portal_view_shared_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"portal_view\".\"shared\"",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "portal_view_tenant_id_tenant_id_fk": {
+          "name": "portal_view_tenant_id_tenant_id_fk",
+          "tableFrom": "portal_view",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "portal_view_user_id_app_user_id_fk": {
+          "name": "portal_view_user_id_app_user_id_fk",
+          "tableFrom": "portal_view",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "portal_view_name_key": {
+          "name": "portal_view_name_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "user_id",
+            "name"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "portal_view_name_check": {
+          "name": "portal_view_name_check",
+          "value": "length(trim(\"portal_view\".\"name\")) between 1 and 80"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.process_interview": {
+      "name": "process_interview",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "contact_id": {
+          "name": "contact_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "process": {
+          "name": "process",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "area": {
+          "name": "area",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'open'"
+        },
+        "language": {
+          "name": "language",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'en'"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "turns": {
+          "name": "turns",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "question": {
+          "name": "question",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "documents": {
+          "name": "documents",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "outputs": {
+          "name": "outputs",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reuse": {
+          "name": "reuse",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "build_id": {
+          "name": "build_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cost_usd": {
+          "name": "cost_usd",
+          "type": "numeric(14, 4)",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'0'"
+        },
+        "log": {
+          "name": "log",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "process_interview_tenant_idx": {
+          "name": "process_interview_tenant_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "process_interview_tenant_id_tenant_id_fk": {
+          "name": "process_interview_tenant_id_tenant_id_fk",
+          "tableFrom": "process_interview",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "process_interview_build_id_build_id_fk": {
+          "name": "process_interview_build_id_build_id_fk",
+          "tableFrom": "process_interview",
+          "tableTo": "build",
+          "columnsFrom": [
+            "build_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "process_interview_created_by_app_user_id_fk": {
+          "name": "process_interview_created_by_app_user_id_fk",
+          "tableFrom": "process_interview",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "process_interview_contact_fk": {
+          "name": "process_interview_contact_fk",
+          "tableFrom": "process_interview",
+          "tableTo": "contact",
+          "columnsFrom": [
+            "contact_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "process_interview_id_tenant_key": {
+          "name": "process_interview_id_tenant_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "tenant_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "process_interview_status_check": {
+          "name": "process_interview_status_check",
+          "value": "\"process_interview\".\"status\" in ('open', 'finished', 'closed')"
+        },
+        "process_interview_process_check": {
+          "name": "process_interview_process_check",
+          "value": "char_length(\"process_interview\".\"process\") between 1 and 200"
+        },
+        "process_interview_finished_check": {
+          "name": "process_interview_finished_check",
+          "value": "\"process_interview\".\"status\" <> 'finished' or (\"process_interview\".\"outputs\" is not null and \"process_interview\".\"finished_at\" is not null)"
         }
       },
       "isRLSEnabled": false
@@ -22480,6 +23326,20 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'0'"
+        },
+        "emails": {
+          "name": "emails",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "browser_seconds": {
+          "name": "browser_seconds",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
         }
       },
       "indexes": {},
@@ -22574,6 +23434,34 @@
         },
         "translations": {
           "name": "translations",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "messages": {
+          "name": "messages",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "emails": {
+          "name": "emails",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "browser_seconds": {
+          "name": "browser_seconds",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "bank_item_months": {
+          "name": "bank_item_months",
           "type": "integer",
           "primaryKey": false,
           "notNull": true,
@@ -30974,6 +31862,973 @@
         "reconciliation_match_sides_check": {
           "name": "reconciliation_match_sides_check",
           "value": "jsonb_array_length(\"reconciliation_match\".\"a_item_ids\") > 0 and jsonb_array_length(\"reconciliation_match\".\"b_item_ids\") > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.close_entry": {
+      "name": "close_entry",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "period_id": {
+          "name": "period_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entry_key": {
+          "name": "entry_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'proposed'"
+        },
+        "proposed_by": {
+          "name": "proposed_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "txn_date": {
+          "name": "txn_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reverse_on": {
+          "name": "reverse_on",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "amount": {
+          "name": "amount",
+          "type": "numeric(14, 4)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "currency": {
+          "name": "currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'USD'"
+        },
+        "memo": {
+          "name": "memo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "from_entry_id": {
+          "name": "from_entry_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sources": {
+          "name": "sources",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "agent_version_id": {
+          "name": "agent_version_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "external_action_id": {
+          "name": "external_action_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "qbo_id": {
+          "name": "qbo_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "error": {
+          "name": "error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "decided_at": {
+          "name": "decided_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "posted_at": {
+          "name": "posted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "close_entry_live_key": {
+          "name": "close_entry_live_key",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "period_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entry_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"close_entry\".\"status\" in ('proposed', 'posted')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "close_entry_period_idx": {
+          "name": "close_entry_period_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "period_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "close_entry_tenant_id_tenant_id_fk": {
+          "name": "close_entry_tenant_id_tenant_id_fk",
+          "tableFrom": "close_entry",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "close_entry_agent_version_id_agent_version_id_fk": {
+          "name": "close_entry_agent_version_id_agent_version_id_fk",
+          "tableFrom": "close_entry",
+          "tableTo": "agent_version",
+          "columnsFrom": [
+            "agent_version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "close_entry_user_id_app_user_id_fk": {
+          "name": "close_entry_user_id_app_user_id_fk",
+          "tableFrom": "close_entry",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "close_entry_period_fk": {
+          "name": "close_entry_period_fk",
+          "tableFrom": "close_entry",
+          "tableTo": "close_period",
+          "columnsFrom": [
+            "period_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "close_entry_from_fk": {
+          "name": "close_entry_from_fk",
+          "tableFrom": "close_entry",
+          "tableTo": "close_entry",
+          "columnsFrom": [
+            "from_entry_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "close_entry_run_fk": {
+          "name": "close_entry_run_fk",
+          "tableFrom": "close_entry",
+          "tableTo": "run",
+          "columnsFrom": [
+            "run_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "close_entry_external_action_fk": {
+          "name": "close_entry_external_action_fk",
+          "tableFrom": "close_entry",
+          "tableTo": "external_action",
+          "columnsFrom": [
+            "external_action_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "close_entry_id_tenant_key": {
+          "name": "close_entry_id_tenant_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "tenant_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "close_entry_kind_check": {
+          "name": "close_entry_kind_check",
+          "value": "\"close_entry\".\"kind\" in ('accrual', 'reversal', 'recurring')"
+        },
+        "close_entry_status_check": {
+          "name": "close_entry_status_check",
+          "value": "\"close_entry\".\"status\" in ('proposed', 'rejected', 'posted', 'failed', 'superseded')"
+        },
+        "close_entry_proposed_by_check": {
+          "name": "close_entry_proposed_by_check",
+          "value": "\"close_entry\".\"proposed_by\" in ('pattern', 'repeat', 'model', 'person')"
+        },
+        "close_entry_amount_check": {
+          "name": "close_entry_amount_check",
+          "value": "\"close_entry\".\"amount\" > 0"
+        },
+        "close_entry_memo_check": {
+          "name": "close_entry_memo_check",
+          "value": "length(\"close_entry\".\"memo\") between 1 and 400"
+        },
+        "close_entry_posted_check": {
+          "name": "close_entry_posted_check",
+          "value": "\"close_entry\".\"status\" <> 'posted' or \"close_entry\".\"qbo_id\" is not null"
+        },
+        "close_entry_reversal_check": {
+          "name": "close_entry_reversal_check",
+          "value": "\"close_entry\".\"kind\" <> 'reversal' or \"close_entry\".\"from_entry_id\" is not null"
+        },
+        "close_entry_proposer_check": {
+          "name": "close_entry_proposer_check",
+          "value": "\"close_entry\".\"proposed_by\" = 'person' and \"close_entry\".\"user_id\" is not null or \"close_entry\".\"proposed_by\" <> 'person' and \"close_entry\".\"agent_version_id\" is not null"
+        },
+        "close_entry_sources_check": {
+          "name": "close_entry_sources_check",
+          "value": "\"close_entry\".\"proposed_by\" <> 'model' or jsonb_array_length(\"close_entry\".\"sources\") > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.close_entry_line": {
+      "name": "close_entry_line",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entry_id": {
+          "name": "entry_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "line_no": {
+          "name": "line_no",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ledger_account_id": {
+          "name": "ledger_account_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "posting": {
+          "name": "posting",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount": {
+          "name": "amount",
+          "type": "numeric(14, 4)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "close_entry_line_entry_idx": {
+          "name": "close_entry_line_entry_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entry_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "close_entry_line_tenant_id_tenant_id_fk": {
+          "name": "close_entry_line_tenant_id_tenant_id_fk",
+          "tableFrom": "close_entry_line",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "close_entry_line_entry_fk": {
+          "name": "close_entry_line_entry_fk",
+          "tableFrom": "close_entry_line",
+          "tableTo": "close_entry",
+          "columnsFrom": [
+            "entry_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "close_entry_line_ledger_account_fk": {
+          "name": "close_entry_line_ledger_account_fk",
+          "tableFrom": "close_entry_line",
+          "tableTo": "ledger_account",
+          "columnsFrom": [
+            "ledger_account_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "close_entry_line_no_key": {
+          "name": "close_entry_line_no_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "entry_id",
+            "line_no"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "close_entry_line_posting_check": {
+          "name": "close_entry_line_posting_check",
+          "value": "\"close_entry_line\".\"posting\" in ('debit', 'credit')"
+        },
+        "close_entry_line_amount_check": {
+          "name": "close_entry_line_amount_check",
+          "value": "\"close_entry_line\".\"amount\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.close_item": {
+      "name": "close_item",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "period_id": {
+          "name": "period_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'open'"
+        },
+        "amount": {
+          "name": "amount",
+          "type": "numeric(14, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "count": {
+          "name": "count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "summary": {
+          "name": "summary",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "detail": {
+          "name": "detail",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "sources": {
+          "name": "sources",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
+        },
+        "agent_version_id": {
+          "name": "agent_version_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "checked_at": {
+          "name": "checked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "waived_by": {
+          "name": "waived_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "close_item_tenant_id_tenant_id_fk": {
+          "name": "close_item_tenant_id_tenant_id_fk",
+          "tableFrom": "close_item",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "close_item_agent_version_id_agent_version_id_fk": {
+          "name": "close_item_agent_version_id_agent_version_id_fk",
+          "tableFrom": "close_item",
+          "tableTo": "agent_version",
+          "columnsFrom": [
+            "agent_version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "close_item_waived_by_app_user_id_fk": {
+          "name": "close_item_waived_by_app_user_id_fk",
+          "tableFrom": "close_item",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "waived_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "close_item_period_fk": {
+          "name": "close_item_period_fk",
+          "tableFrom": "close_item",
+          "tableTo": "close_period",
+          "columnsFrom": [
+            "period_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "close_item_id_tenant_key": {
+          "name": "close_item_id_tenant_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "tenant_id"
+          ]
+        },
+        "close_item_key": {
+          "name": "close_item_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "period_id",
+            "key"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "close_item_kind_check": {
+          "name": "close_item_kind_check",
+          "value": "\"close_item\".\"kind\" in ('reconciliation', 'uncategorized', 'duplicates', 'unbooked', 'entries')"
+        },
+        "close_item_status_check": {
+          "name": "close_item_status_check",
+          "value": "\"close_item\".\"status\" in ('open', 'done', 'waived')"
+        },
+        "close_item_count_check": {
+          "name": "close_item_count_check",
+          "value": "\"close_item\".\"count\" >= 0"
+        },
+        "close_item_waived_check": {
+          "name": "close_item_waived_check",
+          "value": "(\"close_item\".\"status\" = 'waived') = (\"close_item\".\"waived_by\" is not null and \"close_item\".\"note\" is not null)"
+        },
+        "close_item_note_check": {
+          "name": "close_item_note_check",
+          "value": "\"close_item\".\"note\" is null or length(\"close_item\".\"note\") <= 500"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.close_period": {
+      "name": "close_period",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuid_generate_v7()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "connection_id": {
+          "name": "connection_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "period_start": {
+          "name": "period_start",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "period_end": {
+          "name": "period_end",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "currency": {
+          "name": "currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'USD'"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'open'"
+        },
+        "agent_version_id": {
+          "name": "agent_version_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "checked_at": {
+          "name": "checked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "signed_off_by": {
+          "name": "signed_off_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "signed_off_at": {
+          "name": "signed_off_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "close_period_end_idx": {
+          "name": "close_period_end_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "period_end",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "close_period_tenant_id_tenant_id_fk": {
+          "name": "close_period_tenant_id_tenant_id_fk",
+          "tableFrom": "close_period",
+          "tableTo": "tenant",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "close_period_agent_version_id_agent_version_id_fk": {
+          "name": "close_period_agent_version_id_agent_version_id_fk",
+          "tableFrom": "close_period",
+          "tableTo": "agent_version",
+          "columnsFrom": [
+            "agent_version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "close_period_signed_off_by_app_user_id_fk": {
+          "name": "close_period_signed_off_by_app_user_id_fk",
+          "tableFrom": "close_period",
+          "tableTo": "app_user",
+          "columnsFrom": [
+            "signed_off_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "close_period_connection_fk": {
+          "name": "close_period_connection_fk",
+          "tableFrom": "close_period",
+          "tableTo": "connection",
+          "columnsFrom": [
+            "connection_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "close_period_run_fk": {
+          "name": "close_period_run_fk",
+          "tableFrom": "close_period",
+          "tableTo": "run",
+          "columnsFrom": [
+            "run_id",
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id",
+            "tenant_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "close_period_id_tenant_key": {
+          "name": "close_period_id_tenant_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "tenant_id"
+          ]
+        },
+        "close_period_month_key": {
+          "name": "close_period_month_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tenant_id",
+            "connection_id",
+            "period_start"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "close_period_status_check": {
+          "name": "close_period_status_check",
+          "value": "\"close_period\".\"status\" in ('open', 'signed_off')"
+        },
+        "close_period_dates_check": {
+          "name": "close_period_dates_check",
+          "value": "\"close_period\".\"period_end\" >= \"close_period\".\"period_start\""
+        },
+        "close_period_signed_off_check": {
+          "name": "close_period_signed_off_check",
+          "value": "(\"close_period\".\"status\" = 'signed_off') = (\"close_period\".\"signed_off_by\" is not null and \"close_period\".\"signed_off_at\" is not null)"
+        },
+        "close_period_note_check": {
+          "name": "close_period_note_check",
+          "value": "\"close_period\".\"note\" is null or length(\"close_period\".\"note\") <= 1000"
         }
       },
       "isRLSEnabled": false

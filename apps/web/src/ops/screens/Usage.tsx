@@ -144,7 +144,8 @@ export function isEmptyFigures(f: UsageFigures): boolean {
     f.externalActions === 0 &&
     f.tokensIn === 0 &&
     f.tokensOut === 0 &&
-    dec(f.costUsd).isZero()
+    dec(f.costUsd).isZero() &&
+    dec(f.servicesUsd ?? "0").isZero()
   );
 }
 
@@ -182,7 +183,10 @@ function otherRows(view: View, data: UsageReport): Row[] {
     });
   }
   const office = data.backOffice;
-  if (office && !dec(office.total.costUsd).isZero()) {
+  if (
+    office &&
+    !(dec(office.total.costUsd).isZero() && dec(office.total.servicesUsd ?? "0").isZero())
+  ) {
     out.push({
       key: "back-office",
       name: <span className="font-medium text-ink">Back office</span>,
@@ -582,6 +586,12 @@ function UsageReportView({
                   ))}
                   <th className="n">Runs</th>
                   <th className="n">Total</th>
+                  <th
+                    className="n"
+                    title="Texts, calls, email, browser time, sign-in codes and bank feeds, at our unit costs: an estimate, not in the total"
+                  >
+                    Services
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -600,6 +610,7 @@ function UsageReportView({
                     ))}
                     <td className="n">{count(r.total.runs)}</td>
                     <td className="n text-ink">{cost(r.total.costUsd)}</td>
+                    <td className="n">{cost(r.total.servicesUsd ?? "0")}</td>
                   </tr>
                 ))}
               </tbody>
@@ -614,6 +625,9 @@ function UsageReportView({
                     ))}
                     <td className="n font-medium text-ink">{count(data.total.runs)}</td>
                     <td className="n font-medium text-ink">{cost(data.total.costUsd)}</td>
+                    <td className="n font-medium text-ink">
+                      {cost(data.total.servicesUsd ?? "0")}
+                    </td>
                   </tr>
                 </tfoot>
               ) : null}
@@ -665,6 +679,12 @@ function UsageReportView({
 function vendorUsage(v: UsageVendorRow): string {
   if (v.fees !== undefined) return plural(v.fees, "fee");
   if (v.messages !== undefined) return plural(v.messages, "message");
+  if (v.emails !== undefined) return plural(v.emails, "email");
+  if (v.verifications !== undefined) return plural(v.verifications, "sign-in code");
+  if (v.bankItemMonths !== undefined) return plural(v.bankItemMonths, "bank month");
+  if (v.browserSeconds !== undefined) {
+    return `${plural(Math.ceil(v.browserSeconds / 60), "minute")} of browsing`;
+  }
   if (v.callSeconds !== undefined) {
     const minutes = Math.ceil(v.callSeconds / 60);
     return `${plural(minutes, "minute")} of calls`;
@@ -716,7 +736,7 @@ function UsageSplits({ data }: { data: UsageReport }) {
           title="By vendor"
           meta={
             byVendor.some((v) => v.estimated || v.id === "provider_fees")
-              ? "What the work cost us. Fees and estimates are not in the model cost."
+              ? "What the work cost us. Fees and estimates are not in the model cost; unit costs are unverified."
               : "What the work cost us"
           }
           testId="ops-usage-vendors"

@@ -29,6 +29,8 @@ import {
   useState,
 } from "react";
 import { ConnectorMark } from "../../connections/ConnectorMark";
+import type { Translate } from "../../i18n/catalog";
+import { useI18n } from "../../i18n/i18n";
 import { Icon } from "../../ui/icons";
 import { cx, pillClass, type Tone } from "../../ui/primitives";
 import { containersWithin, type Step } from "../builder/model";
@@ -61,6 +63,7 @@ import {
   type FlowEdge,
   type FlowInsert,
   type FlowTail,
+  type LayoutWords,
   layoutFlow,
 } from "./layout";
 import type { ChartProps, FlowEnds, InsertPoint, StatusMap, StepStatus, TryMark } from "./types";
@@ -98,6 +101,22 @@ function plural(n: number, word: string): string {
 }
 
 type Labeller = NonNullable<ChartProps["label"]>;
+
+// DECISION (SOP-W, docs/sop-plan.md §6a): the chart says its own words in the reader's language
+// through the portal's catalog (`flow.*`): what the client's read-only chart shows (zoom, the key,
+// Otherwise, a path's and a loop's words, Stop, the chips, the marks and the tip). Outside a
+// provider `useI18n()` is English, so the builder reads as before. What only the builder shows (+,
+// the dot, "Add a path", a try's marks, issues and questions) stays in English: the back office is
+// in English (i18n/i18n.tsx), and the client's chart never draws it.
+function layoutWords(t: Translate): LayoutWords {
+  return {
+    path: (letter) => t("flow.path", { letter }),
+    otherwise: t("flow.otherwise"),
+    forEach: t("flow.forEach"),
+    repeat: t("flow.repeat"),
+    repeatUpTo: (count) => t("flow.repeatUpTo", { count }),
+  };
+}
 
 /** A step's title, kind and detail in words, as the rest of the builder says them. */
 export const defaultLabel: Labeller = (step: Step) => ({
@@ -143,7 +162,12 @@ function marksFor(statuses: StatusMap): Marks {
 export function Chart(props: ChartProps) {
   const { process, ends, statuses, selected, folded, readOnly = false } = props;
   const label = props.label ?? defaultLabel;
-  const layout = useMemo(() => layoutFlow(process, { ends, folded }), [process, ends, folded]);
+  const { t } = useI18n();
+  const words = useMemo(() => layoutWords(t), [t]);
+  const layout = useMemo(
+    () => layoutFlow(process, { ends, folded, words }),
+    [process, ends, folded, words],
+  );
   const marks = useMemo(() => marksFor(statuses), [statuses]);
   const { active } = useDndContext();
   const dragging = active !== null && !readOnly;
@@ -293,11 +317,12 @@ export function Chart(props: ChartProps) {
       chartKey(
         layout.boxes.flatMap((b): BoxMarkSpec[] => {
           if (b.role !== "step" || b.shape !== "box" || !b.step) return [];
-          const m = boxMark(b.step, label(b.step));
+          const m = boxMark(b.step, label(b.step), t);
           return m ? [m] : [];
         }),
+        t,
       ),
-    [layout.boxes, label],
+    [layout.boxes, label, t],
   );
 
   return (
@@ -484,7 +509,7 @@ export function Chart(props: ChartProps) {
       </div>
 
       {keyOpen && keyLines.length > 0 ? (
-        <ul className="flow-key" aria-label="What the marks mean" data-testid="flow-key">
+        <ul className="flow-key" aria-label={t("flow.keyLabel")} data-testid="flow-key">
           {keyLines.map((line) => (
             <li key={line.key}>
               <BoxMark mark={line.mark} />
@@ -503,7 +528,7 @@ export function Chart(props: ChartProps) {
       <div className="flow-zoom" data-testid="flow-zoom">
         <button
           type="button"
-          aria-label="Zoom out"
+          aria-label={t("flow.zoomOut")}
           data-testid="flow-zoom-out"
           onClick={() => zoomTo(zoom - ZOOM_STEP)}
           disabled={zoom <= ZOOM_MIN}
@@ -512,7 +537,7 @@ export function Chart(props: ChartProps) {
         </button>
         <button
           type="button"
-          aria-label="Back to 100%"
+          aria-label={t("flow.zoomReset")}
           data-testid="flow-zoom-level"
           onClick={() => zoomTo(1)}
         >
@@ -520,7 +545,7 @@ export function Chart(props: ChartProps) {
         </button>
         <button
           type="button"
-          aria-label="Zoom in"
+          aria-label={t("flow.zoomIn")}
           data-testid="flow-zoom-in"
           onClick={() => zoomTo(zoom + ZOOM_STEP)}
           disabled={zoom >= ZOOM_MAX}
@@ -529,7 +554,7 @@ export function Chart(props: ChartProps) {
         </button>
         <i aria-hidden />
         <button type="button" data-testid="flow-zoom-fit" onClick={fit}>
-          Fit
+          {t("flow.fit")}
         </button>
         {keyLines.length > 0 ? (
           <button
@@ -538,10 +563,10 @@ export function Chart(props: ChartProps) {
             data-testid="flow-key-toggle"
             onClick={() => setKeyOpen((o) => !o)}
           >
-            Key
+            {t("flow.key")}
           </button>
         ) : null}
-        <span className="flow-zoom__hint">Drag the background to move</span>
+        <span className="flow-zoom__hint">{t("flow.dragHint")}</span>
       </div>
     </div>
   );
@@ -570,6 +595,7 @@ function StepBox(p: {
   onHover(id: string | null): void;
 }) {
   const { box, status, selected, readOnly, zoom } = p;
+  const { t } = useI18n();
   const step = box.step as Step;
   const words = p.label(step);
   const dragData = useMemo<FlowDragData>(
@@ -603,34 +629,36 @@ function StepBox(p: {
   const questions = status?.items.filter((i) => i.level === "question").length ?? 0;
   const mark = status?.tried;
   const flag: { word: string; tone: Tone } | null = box.unreachable
-    ? { word: "Never runs", tone: "risk" }
+    ? { word: t("flow.neverRuns"), tone: "risk" }
     : issues > 0 || status?.level === "issue"
       ? { word: plural(Math.max(issues, 1), "issue"), tone: "risk" }
       : questions > 0 || status?.level === "question"
         ? { word: plural(Math.max(questions, 1), "question"), tone: "warning" }
         : null;
   const tryWord = mark && mark.status !== "skipped" ? TRY_WORD[mark.status] : null;
+  const foldWords =
+    box.fold === "open" ? t("flow.fold") : t("flow.unfold", { count: box.inside ?? 0 });
   const kind = step.kind;
   const canDot = !readOnly && !box.unreachable && kind !== "if" && kind !== "stop";
   // What it is at a glance: its connector's logo, "AI", or its kind's icon (./BoxMark).
-  const glyph = box.shape === "box" ? boxMark(step, words) : null;
+  const glyph = box.shape === "box" ? boxMark(step, words, t) : null;
   // D2 (docs/plan.md §1.178): whose work it is (the top edge's colour), who does it and what it
   // works through (the chip and the small marks at the right). A loop's or an automation's own
   // buttons sit there instead.
   const family = glyph ? boxFamily(step, words) : null;
   const grouped = box.fold !== undefined || kind === "process";
-  const doer = glyph && !grouped ? boxDoer(step, words) : null;
-  const tools = glyph && !grouped ? boxTools(step, words) : [];
+  const doer = glyph && !grouped ? boxDoer(step, words, t) : null;
+  const tools = glyph && !grouped ? boxTools(step, words, t) : [];
   const badgeIcon = glyph?.type === "connector" ? kindIcon(step) : null;
   // The chip says the model, so the line under the name doesn't say it again.
   const under = doer?.model
     ? (words.detail ?? "").replace(/(^| · )runs on [^·]+$/, "").trim()
     : (words.detail ?? "");
 
-  const t = drag.transform;
+  const moved = drag.transform;
   const style = {
     ...boxStyle(box),
-    transform: t ? `translate3d(${t.x / zoom}px, ${t.y / zoom}px, 0)` : undefined,
+    transform: moved ? `translate3d(${moved.x / zoom}px, ${moved.y / zoom}px, 0)` : undefined,
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -680,7 +708,7 @@ function StepBox(p: {
       onMouseLeave={() => p.onHover(null)}
     >
       {box.shape === "pill" ? (
-        <span className="flow-box__t">Stop</span>
+        <span className="flow-box__t">{t("flow.stop")}</span>
       ) : box.shape === "diamond" ? (
         <span className="flow-box__t">{words.title}</span>
       ) : (
@@ -694,12 +722,12 @@ function StepBox(p: {
               {glyph.type === "connector" ? (
                 // The connector's logo is at the right, with the tools; the badge says the kind.
                 <span className="flow-box__mark flow-box__mark--badge" aria-hidden>
-                  {glyph.ai ? "AI" : badgeIcon ? <Icon name={badgeIcon} size={14} /> : null}
+                  {glyph.ai ? t("flow.ai") : badgeIcon ? <Icon name={badgeIcon} size={14} /> : null}
                 </span>
               ) : (
                 <BoxMark mark={glyph} size="badge" testId={`flow-mark-${step.id}`} />
               )}
-              <span className="flow-box__kind">{badgeWord(step, words)}</span>
+              <span className="flow-box__kind">{badgeWord(step, words, t)}</span>
             </span>
           ) : null}
           <span className="flow-box__text">
@@ -765,16 +793,8 @@ function StepBox(p: {
           type="button"
           className="flow-fold"
           data-testid={`flow-fold-${step.id}`}
-          aria-label={
-            box.fold === "open"
-              ? "Fold it to one box"
-              : `Show the ${plural(box.inside ?? 0, "step")} inside`
-          }
-          title={
-            box.fold === "open"
-              ? "Fold it to one box"
-              : `Show the ${plural(box.inside ?? 0, "step")} inside`
-          }
+          aria-label={foldWords}
+          title={foldWords}
           onPointerDown={(e) => e.stopPropagation()}
           onKeyDown={(e) => e.stopPropagation()}
           onClick={(e) => {
@@ -868,6 +888,7 @@ function EndBox(p: {
   onHover(id: string | null): void;
 }) {
   const { box } = p;
+  const { t } = useI18n();
   const end = box.role === "start" ? p.ends.start : p.ends.givesBack;
   const data = useMemo<FlowDropData>(() => ({ type: "flow-start" }), []);
   const drop = useDroppable({
@@ -877,7 +898,7 @@ function EndBox(p: {
   });
   const lines = end?.lines ?? [];
   const first = lines[0] ?? "";
-  const more = lines.length > 1 ? ` and ${lines.length - 1} more` : "";
+  const more = lines.length > 1 ? ` ${t("flow.more", { count: lines.length - 1 })}` : "";
   return (
     <button
       type="button"
@@ -984,6 +1005,7 @@ function Tip(p: {
   viewport: RefObject<HTMLDivElement | null>;
 }) {
   const { box, status, zoom, viewport } = p;
+  const { t } = useI18n();
   const scale = tipScale(zoom);
   const el = useRef<HTMLDivElement | null>(null);
   const right = (box.x + box.w) * zoom + TIP_GAP;
@@ -1026,7 +1048,9 @@ function Tip(p: {
     // A line of its own for the model: "AI" or "Deterministic", then the model it runs on. What
     // that line says is left out of the eyebrow and the detail, which said it among other things.
     const how = words.skillKind ?? null;
-    const runs = words.model ? `runs on ${words.model}` : null;
+    // The builder's detail says "runs on …" in English; the tip's line says it in the reader's words.
+    const runsEn = words.model ? `runs on ${words.model}` : null;
+    const runs = words.model ? t("flow.runsOn", { model: words.model }) : null;
     const kind =
       how && words.kind.endsWith(` · ${how}`)
         ? words.kind.slice(0, -` · ${how}`.length)
@@ -1035,7 +1059,7 @@ function Tip(p: {
       runs && words.detail
         ? words.detail
             .split(" · ")
-            .filter((part) => part !== runs)
+            .filter((part) => part !== runsEn && part !== runs)
             .join(" · ") || null
         : words.detail;
     body = (
@@ -1045,11 +1069,11 @@ function Tip(p: {
         {/* What the step does, in its own words or its kind's (./does); it took the place of the
             line every box repeated on how to click and drag, which the Key says once. */}
         <span className="flow-tip__does" data-testid="flow-tip-does">
-          {words.does ?? kindDoes(box.step)}
+          {words.does ?? kindDoes(box.step, t)}
         </span>
         {words.purpose ? (
           <span className="flow-tip__d" data-testid="flow-tip-purpose">
-            Why it is here: {words.purpose}
+            {t("flow.whyHere", { purpose: words.purpose })}
           </span>
         ) : null}
         {words.connector ? (
@@ -1060,14 +1084,17 @@ function Tip(p: {
         ) : null}
         {how || runs ? (
           <div className="flow-tip__runs" data-testid="flow-tip-runs">
-            {how ? <span className={pillClass("neutral")}>{how}</span> : null}
-            {runs ? <span>{how ? runs : `R${runs.slice(1)}`}</span> : null}
+            {how ? (
+              <span className={pillClass("neutral")}>{how === "AI" ? t("flow.ai") : how}</span>
+            ) : null}
+            {runs ? <span>{how ? runs : capital(runs)}</span> : null}
           </div>
         ) : null}
         {detail ? <span className="flow-tip__d">{detail}</span> : null}
         {box.unreachable ? (
           <div>
-            <span className={pillClass("risk")}>Never runs</span> Every path above it ends first.
+            <span className={pillClass("risk")}>{t("flow.neverRuns")}</span>{" "}
+            {t("flow.neverRuns.why")}
           </div>
         ) : null}
         {status?.items.map((item) => (
@@ -1114,4 +1141,8 @@ function Tip(p: {
       {body}
     </div>
   );
+}
+
+function capital(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
 }

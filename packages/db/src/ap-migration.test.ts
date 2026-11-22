@@ -1,4 +1,4 @@
-// Migration 0096 (Plan entry §1.233): the AP pack's `ap_bill`, `ap_bill_line` and `ap_receipt`.
+// Migration 0100 (Plan entry §1.233): the AP pack's `ap_bill`, `ap_bill_line` and `ap_receipt`.
 // New tables only, so it applies on a database the previous Worker used; each forces row-level
 // security as the pack's; the Worker's role reads and writes only its own client's rows, never
 // deletes one, and never changes a receipt; the checks hold a decision to who and when, a line's
@@ -36,7 +36,7 @@ interface Seeded {
   accountId: string;
 }
 
-describe.skipIf(!online)("0096 on a database the previous Worker used", () => {
+describe.skipIf(!online)("0100 on a database the previous Worker used", () => {
   let t: TestDatabase;
   let A: ClientFixture;
   let B: ClientFixture;
@@ -75,7 +75,7 @@ describe.skipIf(!online)("0096 on a database the previous Worker used", () => {
     const created = await createTestDatabase({ migrate: false });
     if (!created) throw new Error("database vanished");
     t = created;
-    await migrateAsOwner(t.url, { upTo: "0095_metered_usage" });
+    await migrateAsOwner(t.url, { upTo: "0099_close" });
     A = await insertClient(t.db, "A");
     B = await insertClient(t.db, "B");
     a = await seed(A);
