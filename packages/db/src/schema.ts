@@ -4074,10 +4074,22 @@ export const ONBOARDING_NOTIFICATION_KINDS = [
   "intake_scope_ready",
   "intake_next",
 ] as const;
-/** The kinds the check allows: core's, and the onboarding emails' (0066). */
+/** The kinds a row may have: core's, and the onboarding emails' (0066). */
 export const NOTIFICATION_KINDS_ALLOWED = [
   ...NOTIFICATION_KINDS,
   ...ONBOARDING_NOTIFICATION_KINDS,
+] as const;
+/**
+ * Work plan C4.10 (0079): an urgent notice's Seen card, told at once whatever the person's quiet
+ * hours (process model's Notify, docs/plan.md §1.86). The check allows it before core's
+ * notification kinds name it (and before the column's type does), so the previous Worker keeps
+ * working.
+ */
+export const URGENT_NOTIFICATION_KINDS = ["urgent"] as const;
+/** The kinds the check allows: those above and urgent notices' (0079). */
+export const NOTIFICATION_KIND_CHECK = [
+  ...NOTIFICATION_KINDS_ALLOWED,
+  ...URGENT_NOTIFICATION_KINDS,
 ] as const;
 export const NOTIFICATION_STATUSES = ["queued", "sent", "failed", "skipped"] as const;
 export const WEEKLY_TABLE_STATUSES = ["draft", "sent"] as const;
@@ -4159,7 +4171,7 @@ export const notification = pgTable(
     index("notification_tenant_idx").on(t.tenantId, t.createdAt),
     index("notification_queued_idx").on(t.createdAt).where(sql`${t.status} = 'queued'`),
     check("notification_channel_check", oneOf(t.channel, NOTIFICATION_CHANNELS)),
-    check("notification_kind_check", oneOf(t.kind, NOTIFICATION_KINDS_ALLOWED)),
+    check("notification_kind_check", oneOf(t.kind, NOTIFICATION_KIND_CHECK)),
     check("notification_status_check", oneOf(t.status, NOTIFICATION_STATUSES)),
   ],
 );
