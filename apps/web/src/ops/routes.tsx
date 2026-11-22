@@ -117,6 +117,13 @@ import { SalesScreen } from "./work/sales/SalesSection";
 const AutomationEditor = lazy(() => import("./flow/automation/AutomationEditor"));
 // §1.212: the eval scorecard loads only when opened.
 const ScorecardScreen = lazy(() => import("./lab/ScorecardScreen"));
+// R5 (docs/plan.md §1.235): the account report and /ops/accounts, each its own chunk.
+const AccountsScreen = lazy(() =>
+  import("./screens/Accounts").then((m) => ({ default: m.AccountsScreen })),
+);
+const ClientReportScreen = lazy(() =>
+  import("./client/ClientReport").then((m) => ({ default: m.ClientReportScreen })),
+);
 // §1.218: SOC 2 readiness, with its schemas (`soc2Routes`), loads only when opened.
 const Soc2ReadinessScreen = lazy(() => import("./security/Soc2Readiness"));
 // §1.216: books health loads when opened.
@@ -125,6 +132,11 @@ const OpsClientBooksHealthScreen = lazy(() =>
 );
 // docs/plan.md §1.217: a client's process interviews load with their route.
 const InterviewsScreen = lazy(() => import("./interviews/InterviewsScreen"));
+
+// Plan entry §1.233: a client's Bills to pay (the AP pack) loads when opened.
+const OpsClientBillsToPayScreen = lazy(() =>
+  import("../packs/ap/OpsBillsToPay").then((m) => ({ default: m.OpsClientBillsToPayScreen })),
+);
 
 export const opsRoutes = (
   <>
@@ -197,11 +209,27 @@ export const opsRoutes = (
     {/* docs/plan.md §1.170: a new agent build's Check the steps, in the Agent lab after Describe it (owner, 2026-11-21: new agents stay in the lab). */}
     <Route path="lab/check/:id" element={<CheckStepsScreen />} />
     <Route path="clients" element={<ClientsScreen />} />
+    <Route
+      path="accounts"
+      element={
+        <Suspense fallback={<Loading />}>
+          <AccountsScreen />
+        </Suspense>
+      }
+    />
     <Route path="clients/new" element={<NewClientScreen />} />
     {/* 1.4 (docs/audit-plan.md): the client page's tabs under one frame (client/ClientFrame.tsx),
         a layout route without a path of its own, so the header stays still as the tabs change. */}
     <Route element={<ClientLayout />}>
       <Route path="clients/:clientId" element={<ClientOverviewScreen />} />
+      <Route
+        path="clients/:clientId/report"
+        element={
+          <Suspense fallback={<Loading />}>
+            <ClientReportScreen />
+          </Suspense>
+        }
+      />
       <Route path="clients/:clientId/agents" element={<ClientAgentsScreen />} />
       {/* §1.162: Areas, the client's business areas with the connections each needs (was
           Packs); its reports below. The connections themselves are Setup's Connectors. */}
@@ -293,6 +321,15 @@ export const opsRoutes = (
       <Route
         path="clients/:clientId/reports/bookkeeping/reconciliations"
         element={<OpsClientReconciliationsScreen />}
+      />
+      {/* Plan entry §1.233: a client's Bills to pay */}
+      <Route
+        path="clients/:clientId/reports/ap/bills"
+        element={
+          <Suspense fallback={null}>
+            <OpsClientBillsToPayScreen />
+          </Suspense>
+        }
       />
     </Route>
     {/* A document's and a record's own pages, outside the client's frame */}

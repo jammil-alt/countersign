@@ -4,7 +4,7 @@
 // where no route answers the question, through a query in the same operator scope. Every result is
 // fenced as untrusted data (./output.ts).
 
-import { ATTENTION_ISSUE_KINDS, refreshFailingOpen } from "@countersign/agents";
+import { ATTENTION_ISSUE_KINDS } from "@countersign/agents";
 import type { Session } from "@countersign/auth";
 import type { ObjectStore } from "@countersign/connectors";
 import {
@@ -22,6 +22,7 @@ import { and, count, desc, inArray } from "drizzle-orm";
 import type { Hono } from "hono";
 import { z } from "zod";
 import { type AuditEntry, auditAlone, auditInTx } from "../audit";
+import { attentionOf } from "../connection-attention";
 import {
   type AppContext,
   type AppEnv,
@@ -670,22 +671,6 @@ async function connectionsIn(tx: Tx, tenantIds: readonly string[], client: strin
         : null,
     };
   });
-}
-
-/**
- * Why a connection needs a person, if it does: `error` (the grant is dead or a sync keeps failing:
- * the client signs in again), or `refresh_failing` (renewing our access has failed for a day; it
- * still shows as connected and the grant is not ended, so it is ours to look at).
- */
-// DECISION: a failing renewal counts as needing attention here as in the daily check (docs/plan.md
-// §1.134), named apart from `error` so the operator knows the client need not sign in again.
-function attentionOf(
-  status: string,
-  issue: Record<string, unknown> | undefined,
-): "error" | "refresh_failing" | null {
-  if (status === "error") return "error";
-  if (status === "connected" && refreshFailingOpen(issue)) return "refresh_failing";
-  return null;
 }
 
 const connectionsList: Tool<OpsToolCtx> = {

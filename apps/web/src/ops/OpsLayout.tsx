@@ -293,6 +293,13 @@ function OpsFrame({ children }: { children: ReactNode }) {
               />
             </SidebarSection>
             <SidebarSection label="Business">
+              {/* R5 (docs/plan.md §1.235): every client side by side, those that need us first. */}
+              <SidebarLink
+                to={OPS_PATHS.accounts}
+                icon="report"
+                label="Accounts"
+                testId="ops-nav-accounts"
+              />
               <SidebarLink
                 to={OPS_PATHS.usage}
                 icon="invoice"

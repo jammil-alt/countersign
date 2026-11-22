@@ -140,6 +140,7 @@ describe("back office layout", () => {
       // R8: skills, tools, connectors and the other banks are in the Library.
       "Library",
       "Packs",
+      "Accounts",
       "Usage and billing",
       "Marketing",
       // §1.102: our controls, vendors, policies, clients' standing and the audit log.
