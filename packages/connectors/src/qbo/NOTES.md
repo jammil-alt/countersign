@@ -265,3 +265,19 @@ Whether `qbo.aging_report` (`ar.ts`) returns the full "Parent:Job" name for a su
 told from the code: every connector is built against a fake (`fake.ts`), which returns whatever the
 test wrote. It needs the sandbox company: run the aging report for a customer with a job and read
 the row's name. If it carries "Parent:Job", the request closes as `config`.
+
+## Books health (docs/plan.md §1.216)
+
+The checks (core `books-health/`) read synced records through `loadQboBooks` (`books.ts`). Built
+against the fake (`books-company.ts`); check against the sandbox company:
+
+1. `Account.CurrentBalance`'s sign: an asset positive when the company has it, a liability
+   (Accounts Payable, Credit Card, the other liabilities) positive when it owes it, so below zero is
+   wrong for both. A card with a credit on it should read negative.
+2. Undeposited Funds is `AccountSubType: "UndepositedFunds"`, and a `Payment` with no
+   `DepositToAccountRef` lands there. Deposits aren't synced, so which payments are still waiting
+   is inferred (the newest that make up the balance).
+3. Reconciled status isn't in the API (above), so only reconciliations signed off in Mezonas count;
+   one done in QuickBooks alone reads as "never reconciled with us".
+4. An initial sync reads 90 days of bills and purchases and a year of invoices and payments, so a
+   bill older than 90 days is outside overdue bills until a backfill reads further back.

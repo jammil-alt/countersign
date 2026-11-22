@@ -3945,6 +3945,33 @@ adjudicates it. Only the bill backfill creates new items (step 6's rule).
 
 ---
 
+
+### 12.5 Books health (Wave X, owner 2026-11-22; `docs/plan.md` §1.216)
+
+Outside v1's scope, with the owner's yes (the owner's build plan 9; its prospect connection waits on
+Intuit). **A fixed set of deterministic checks over the QuickBooks records we sync, and a one-page
+report for the client's owner, ranked by dollars.**
+
+- **The checks** (core `books-health/`, a pure library with one entry point, `checkBooks(snapshot,
+  { asOf, checks? })`, and the list `BOOKS_CHECKS`): accounts not reconciled and their age,
+  uncategorized transactions, duplicate vendors, duplicate bills, overdue invoices, overdue bills,
+  balances below zero, undeposited funds and vendor price drift. Each finding has a dollar figure, a
+  count, a few example transactions, its parts (accounts, aging buckets, vendor groups) and its
+  `sources`, the raw records it rests on (invariant 10). No model reads the books (invariant 7);
+  amounts are decimal (invariant 6).
+- **The snapshot** (connectors `loadQboBooks`): each record's latest synced version that isn't
+  deleted, inside `withTenant()`. What QuickBooks' API doesn't say comes from the caller: which
+  accounts were reconciled, and through when (today, the Bookkeeping pack's signed-off
+  reconciliations, read in `apps/api`). A pack (the Close pack, next) reuses the library and the
+  loader as they are.
+- **Who fixes it** is data on each check: the business area and its pack (`bookkeeping`,
+  `materials`, or none for receivables), never an import (invariant 2). The report says whether
+  that pack is switched on for the client.
+- **Where it shows:** `GET /api/books-health` (the client admin, in the portal at `/books-health`,
+  linked from Reports) and `GET /api/ops/clients/:id/books-health` (the back office's Data tab).
+  Read only; computed on request from what was synced, so nothing is stored and there is no
+  migration. Both screens load on their own.
+
 ## 13. Usage, cost and observability
 
 - Every model call records tokens and cost on its `step_run` (cost computed at write time, including

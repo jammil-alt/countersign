@@ -4135,4 +4135,28 @@ export const de: Messages = {
     "Sie entscheiden, was ohne Rückfrage laufen darf. Freigaben bleiben aktiv, solange Sie sie nicht ändern.",
   "setup.live.fromCall": "Aus unserem Gespräch: bitte prüfen",
   // (end setup: live)
+  // §1.216: books health
+  "books.title": "Zustand der Buchhaltung",
+  "books.subtitle": "Was wir in Ihrem QuickBooks gefunden haben, die größten Beträge zuerst.",
+  "books.none": "Verbinden Sie QuickBooks, dann prüfen wir Ihre Buchhaltung hier.",
+  "books.syncing":
+    "Wir prüfen Ihre Buchhaltung, sobald die erste Synchronisierung mit QuickBooks fertig ist.",
+  "books.asOf": "Stand {day}",
+  "books.since": "aus Buchungen ab {day}",
+  "books.allClean": "Keine Prüfung hat etwas gefunden.",
+  "books.clean": "Nichts gefunden bei: {checks}.",
+  "books.fixedBy": "Erledigt durch {area}",
+  "books.on": "Eingeschaltet",
+  "books.off": "Nicht eingeschaltet",
+  "books.examples": "Beispiele",
+  "books.check.unreconciled_accounts": "Nicht abgestimmte Konten",
+  "books.check.uncategorized": "Nicht zugeordnete Buchungen",
+  "books.check.duplicate_vendors": "Doppelte Lieferanten",
+  "books.check.duplicate_bills": "Doppelte Eingangsrechnungen",
+  "books.check.receivables_aging": "Überfällige Rechnungen",
+  "books.check.payables_aging": "Überfällige Eingangsrechnungen",
+  "books.check.negative_balances": "Salden unter null",
+  "books.check.undeposited_funds": "Nicht eingezahlte Zahlungen",
+  "books.check.price_drift": "Steigende Lieferantenpreise",
+  // (end books health)
 };
