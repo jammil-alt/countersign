@@ -34,7 +34,10 @@ export const ManualKnownRisk = z.object({
   id: z.string().min(1).max(100),
   what: z.string().trim().min(1).max(300),
   detail: z.string().trim().max(2000).default(""),
-  /** How often runs hit it, once that is counted (§1.153: not counted yet). */
+  /**
+   * Never written by a build: how often runs hit it is counted from the runs when the manual is
+   * read (`riskHits`, G5). Kept optional so a stored manual that has it still parses.
+   */
   hits: z.number().int().min(0).optional(),
 });
 export type ManualKnownRisk = z.infer<typeof ManualKnownRisk>;
@@ -379,6 +382,74 @@ export function inSentence(what: string): string {
   return t.charAt(0).toLowerCase() + t.slice(1);
 }
 
+// ── Known risks counted from runs (G5) ──────────────────────────────────────────────────────────
+
+const STOP_WORDS = new Set(
+  "about above after again also another before being both does each from have here into just like more most much only other over same some such than that their them then there these they this those under until very what when where which while with without your".split(
+    " ",
+  ),
+);
+
+/** A word as the count compares it: its first five letters ("receipt" and "receipts" agree). */
+function stem(word: string): string {
+  return word.slice(0, 5);
+}
+
+function wordsOf(text: string): string[] {
+  return text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+}
+
+/** The words of a known risk a person's words must name: four letters or more, no fillers. */
+export function riskWords(text: string): string[] {
+  const out = new Set<string>();
+  for (const w of wordsOf(text)) {
+    if (w.length < 4 || STOP_WORDS.has(w)) continue;
+    out.add(stem(w));
+  }
+  return [...out];
+}
+
+/** Where a person handled a run: a rejected write's reason, a person step's question and answer. */
+export interface HandledText {
+  runId: string;
+  text: string;
+}
+
+/**
+ * How many runs hit each known risk, counted from what people wrote when they handled the run
+ * (G5): a run hits a risk when its words name at least two of the risk's words (all of them when
+ * it has fewer). Each run counts once per risk. Deterministic: no model reads it.
+ */
+// DECISION (G5): a known risk has no step and no mark in the runs (it is not drafted, §1.153), so
+// a hit is read from the words people wrote where they handled a run (a rejected write's reason,
+// a person step's title and answer), matched on the risk's own words by their first five letters.
+// Two words, so "Several receipts in one photo" is hit by "two receipts on this photo" and not by
+// every rejection that says "receipt".
+export function riskHits(
+  risks: readonly Pick<ManualKnownRisk, "id" | "what">[],
+  handled: readonly HandledText[],
+): Map<string, number> {
+  const runs = new Map<string, Set<string>>();
+  for (const h of handled) {
+    const words = runs.get(h.runId) ?? new Set<string>();
+    for (const w of wordsOf(h.text)) if (w.length >= 4) words.add(stem(w));
+    runs.set(h.runId, words);
+  }
+  const out = new Map<string, number>();
+  for (const r of risks) {
+    const need = riskWords(r.what);
+    const min = Math.min(2, need.length);
+    let n = 0;
+    if (min > 0) {
+      for (const words of runs.values()) {
+        if (need.filter((w) => words.has(w)).length >= min) n++;
+      }
+    }
+    out.set(r.id, n);
+  }
+  return out;
+}
+
 // ── The view: client-safe, made by code ─────────────────────────────────────────────────────────
 
 export const ManualDecisionView = z.object({
@@ -519,6 +590,8 @@ export function manualView(input: {
   audience: "client" | "operator";
   /** "What it does" when no manual has been written (the client's service description). */
   fallbackWhat?: string | null | undefined;
+  /** How many runs hit each known risk (`riskHits`); left out for an agent with no runs (a template). */
+  hits?: ReadonlyMap<string, number> | undefined;
 }): ManualView {
   const manual = readManual(input.bundle.definition.manual);
   const how = howItWorks(input.bundle);
@@ -562,7 +635,7 @@ export function manualView(input: {
       id: r.id,
       what: r.what,
       detail: r.detail,
-      hits: r.hits ?? null,
+      hits: input.hits ? (input.hits.get(r.id) ?? 0) : (r.hits ?? null),
     })),
     setup: readSetupLines(input.bundle.definition.setup),
     learned: input.learned.map((n) => ({ id: n.id, note: n.note, at: n.at })),

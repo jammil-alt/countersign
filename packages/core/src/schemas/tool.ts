@@ -48,6 +48,15 @@ export const ToolSpec = z
     source: z.string().min(1),
     /** The connector whose connection the tool acts through; required for `external` tools. */
     connector: z.string().min(1).optional(),
+    /**
+     * The connector whose feed fills what the tool reads from our own records: the bank feed for a
+     * pack's import of bank transactions (docs/plan.md §1.221). For the tool's mark on a step only.
+     */
+    // DECISION (owner, 2026-11-21: "this is Plaid integration, have we not added the icon for
+    // Plaid?"): its own field, not `connector`. `connector` is the connection a call acts through,
+    // which the runtime binds and the gate reads; a tool that reads what a feed already saved has
+    // none, and naming one there would ask every agent that uses it for a binding.
+    feed: z.string().min(1).optional(),
     /** Client timeline line over the tool's output, e.g. "Attached {{filename}}". */
     summary: LocalizedTemplate.optional(),
     /**
