@@ -15,6 +15,7 @@ import { evidenceRoutes } from "./evidence";
 import { opsIntakeRoutes, portalIntakeRoutes, welcomeRoutes } from "./intake";
 import { inviteRoutes } from "./invite";
 import { manualRoutes } from "./manual";
+import { portalViewRoutes } from "./portal-views";
 import { routes } from "./routes";
 import { setupRoutes } from "./setup";
 import { sopRoutes } from "./sop";
@@ -57,4 +58,7 @@ export const allRoutes = {
   ...desktopRoutes,
   // R4 (docs/plan.md §1.214): the report per agent; its tabs load lazily, and its schema with them.
   ...agentReportRoutes,
+  // R6 (docs/plan.md §1.236): the portal's saved views; the strip on the runs list loads lazily,
+  // and its schemas with it.
+  ...portalViewRoutes,
 } as const;
