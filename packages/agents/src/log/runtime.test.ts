@@ -53,7 +53,7 @@ import {
   makeBundle,
 } from "./harness.test-helper";
 import { dbModelCalls } from "./model-calls";
-import { createRun, finishRun } from "./run-log";
+import { createRun, dbRunLog, finishRun } from "./run-log";
 import { rollupUsageDaily } from "./usage";
 
 const harness = await createHarness();
@@ -1216,6 +1216,36 @@ describe.skipIf(!harness)("runtime", () => {
     expect(calls.map((c) => [c.tool, c.status])).toEqual([[TESTKIT_QUERY_TOOL, "succeeded"]]);
     const [runRow] = await h.client(h.A, (tx) => tx.select().from(run).where(eq(run.id, r.id)));
     expect(runRow?.costUsd).toBe(sr?.costUsd);
+  });
+
+  it("counts a call too small for four places: each call adds at least a ten-thousandth", async () => {
+    // A short Haiku call costs well under $0.00005; added to numeric(14,4) as is, it rounded to
+    // nothing, and a run of such calls read $0.00.
+    const r = await newRun(h.A);
+    const log = dbRunLog(h.db);
+    const stepRunId = await log.startStepRun(h.A.tenantId, {
+      runId: r.id,
+      nodeId: LOOKUP_STEP,
+      nodeType: "skill",
+      skillRef: "test.lookup",
+      agentVersionId: agentOf(h.A).versionId,
+      input: {},
+    });
+    for (const costUsd of ["0.000030", "0.000030", "0.000150"]) {
+      await log.addUsage(
+        h.A.tenantId,
+        { runId: r.id, stepRunId },
+        { costUsd, tokensIn: 10, tokensOut: 1 },
+      );
+    }
+    const [sr] = await h.client(h.A, (tx) =>
+      tx.select().from(stepRun).where(eq(stepRun.id, stepRunId)),
+    );
+    const [runRow] = await h.client(h.A, (tx) => tx.select().from(run).where(eq(run.id, r.id)));
+    // Rounded up per call, as model_call rows are: 0.0001 + 0.0001 + 0.0002.
+    expect(sr?.costUsd).toBe("0.0004");
+    expect(runRow?.costUsd).toBe("0.0004");
+    expect(sr?.tokensIn).toBe(30);
   });
 
   it("writes for the client in the client's language: the summary and the model's instructions", async () => {
