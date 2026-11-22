@@ -1043,7 +1043,7 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
       ...(theirs ? [theirs] : []),
     ];
     const runs = await runSummaries(tx, tenantId, where, query.limit, services.platform);
-    const about = await aboutNames(tx, [tenantId], filter.about, "portal");
+    const about = await aboutNames(tx, [tenantId], filter.about, "portal", theirs);
     if (!query.perDay) return { runs, ...(about ? { about } : {}) };
     const scope = [eq(run.tenantId, tenantId), eq(run.mode, "live"), ...where];
     const [t] = await tx

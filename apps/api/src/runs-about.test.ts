@@ -7,9 +7,9 @@
 
 import { dbAccountPort } from "@countersign/agents";
 import { ACCOUNT_AGENT_SLUG } from "@countersign/core";
-import { agent, agentVersion, appUser, run, runSubject, vendor } from "@countersign/db";
+import { agent, agentVersion, appUser, membership, run, runSubject, vendor } from "@countersign/db";
 import { FakeModel } from "@countersign/llm";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { accountViews } from "./account/views";
 import {
@@ -227,6 +227,60 @@ describe.skipIf(!h)("runs found by what they were about", () => {
     expect(runIds(b)).toEqual([runs.rB]);
     // A record no visible row names is named back by its kind alone, never another's label.
     expect(j(b).about).toEqual([{ kind: "vendor", id: ids.acmeA, label: null, number: null }]);
+  });
+
+  // Review of R2: a chip's name comes only from runs the portal's list could show.
+  it("names a record in the portal only from its live runs, of the agents a person sees", async () => {
+    const other = await addAgent(H.A.tenantId, "po-clerk", "PO clerk");
+    const [steel] = await owner
+      .insert(vendor)
+      .values({ tenantId: H.A.tenantId, name: "Steel Co", normalizedName: "steel co" })
+      .returning();
+    if (!steel) throw new Error("no vendor");
+    const test = await addRun(
+      H.A.tenantId,
+      { id: ids.agentA, version: ids.versionA },
+      {
+        mode: "test",
+      },
+    );
+    await keep(H.A.tenantId, test, {
+      kind: "vendor",
+      recordId: steel.id,
+      label: "Steel from a test run",
+      clientVisible: true,
+    });
+    const theirs = await addRun(H.A.tenantId, other);
+    await keep(H.A.tenantId, theirs, {
+      kind: "vendor",
+      recordId: steel.id,
+      label: "Steel Co",
+      clientVisible: true,
+    });
+    const path = `/api/runs?about=vendor:${steel.id.toUpperCase()}`;
+    const named = (label: string | null) => [{ kind: "vendor", id: steel.id, label, number: null }];
+    // Never the test run's name; the live run's, whatever case the link wrote the id in.
+    expect(j(await get(admin("a"), path)).about).toEqual(named("Steel Co"));
+    const [person] = await owner
+      .select()
+      .from(appUser)
+      .where(eq(appUser.email, user("a")));
+    const limit = async (agentIds: string[] | null) =>
+      owner
+        .update(membership)
+        .set({ agentIds })
+        .where(
+          and(eq(membership.tenantId, H.A.tenantId), eq(membership.userId, person?.id as string)),
+        );
+    await limit([ids.agentA]);
+    try {
+      const limited = j(await get(user("a"), path));
+      expect(limited.runs).toEqual([]);
+      // Another agent's run lends it no name.
+      expect(limited.about).toEqual(named(null));
+    } finally {
+      await limit(null);
+    }
   });
 
   it("says in ⌘K how many runs were about a record, as each surface reads them", async () => {

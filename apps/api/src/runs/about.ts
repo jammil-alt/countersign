@@ -49,14 +49,18 @@ export function subjectTextWhere(text: string, surface: SubjectSurface): SQL {
 
 /**
  * The records an `about` filter names, by what runs of these clients kept about them: the latest
- * row's label and number (the portal's, from its rows only). A record no run kept a row for is
- * still named, by its kind alone.
+ * row's label and number (the portal's from the rows its list could show: visible rows of its
+ * live runs, of the agents a limited person sees). A record no run kept a row for is still named,
+ * by its kind alone.
  */
+// DECISION (review of R2): the portal names a record only from runs its own list could show, as
+// ⌘K's counts read them, so a test run or another agent's run never lends a chip its name.
 export async function aboutNames(
   tx: Tx,
   tenantIds: readonly string[],
   about: readonly RunAbout[] | undefined,
   surface: SubjectSurface,
+  agentScope?: SQL,
 ): Promise<RunAboutName[] | undefined> {
   const records = (about ?? []).flatMap((e) => ("kind" in e ? [e] : []));
   if (records.length === 0 || tenantIds.length === 0) return undefined;
@@ -67,6 +71,7 @@ export async function aboutNames(
       number: runSubject.number,
     })
     .from(runSubject)
+    .innerJoin(run, and(eq(run.id, runSubject.runId), eq(run.tenantId, runSubject.tenantId)))
     .where(
       and(
         inArray(runSubject.tenantId, [...tenantIds]),
@@ -74,7 +79,8 @@ export async function aboutNames(
           runSubject.recordId,
           records.map((r) => r.id),
         ),
-        ...(surface === "portal" ? [eq(runSubject.clientVisible, true)] : []),
+        ...(surface === "portal" ? [eq(runSubject.clientVisible, true), eq(run.mode, "live")] : []),
+        ...(agentScope ? [agentScope] : []),
       ),
     )
     // The latest row that names it, with a label before one without.
@@ -84,12 +90,13 @@ export async function aboutNames(
       desc(runSubject.createdAt),
       desc(runSubject.id),
     );
-  const byId = new Map(rows.map((r) => [r.recordId, r]));
+  // Ids come back from Postgres in lower case, whatever case the filter wrote them in.
+  const byId = new Map(rows.map((r) => [r.recordId?.toLowerCase(), r]));
   return records.map((r) => ({
     kind: r.kind,
     id: r.id,
-    label: byId.get(r.id)?.label ?? null,
-    number: byId.get(r.id)?.number ?? null,
+    label: byId.get(r.id.toLowerCase())?.label ?? null,
+    number: byId.get(r.id.toLowerCase())?.number ?? null,
   }));
 }
 
