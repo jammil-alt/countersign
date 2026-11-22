@@ -235,6 +235,13 @@ export const mcpSessionApproval = pgTable(
     workosSessionId: text("workos_session_id").notNull(),
     /** HMAC of the approval link's code. */
     codeHash: text("code_hash").notNull(),
+    /**
+     * Who is asking (H6): the Claude client as the newest asking request names itself ("Claude",
+     * "Claude Code"), in words, never its user agent; null where a request named nothing we read.
+     */
+    client: text("client"),
+    /** Where the newest asking request came from, as Cloudflare places its address: "Ashburn, US". */
+    place: text("place"),
     approvedAt: ts("approved_at"),
     /** The link stops working, or the approval ends, at this time. */
     expiresAt: ts("expires_at").notNull(),
