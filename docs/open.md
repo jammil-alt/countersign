@@ -250,10 +250,13 @@ Requirements request reading its card. All against fakes. What it still needs:
   The full list: `docs/plan.md` §1.149.5 and §1.149.6.
 - The owner's call: whether the deal page's old "Set up the account" card stays now that Invite
   does the set-up.
-- **Designed, not built (2026-11-22):** setting a client up from the intake to the first trial,
-  with **seats** (a template names "approves bills over $5,000"; each client fills it), the People,
-  Tools, See it work and Go live chapters, and the back office's Setup tab: `docs/setup-plan.md`
-  (steps SU1–SU6; six questions for the owner in its §12) and `docs/design/setup.html`.
+- **Built (2026-11-22), PR #522:** setting a client up from the intake to the first trial
+  (`docs/setup-plan.md`, SU1–SU6; decisions `docs/plan.md` §1.185): **seats** (a template names
+  "approves bills"; each client fills it), Getting started's chapters (Your tools, Your people, See
+  it work with a test run on a real document, Go live with a signed scope) and the back office's
+  Setup tab (Progress: the board, Nudge, Do it on a call, the runbook, Start trial). Open: Sloan
+  across the chapters (O4), the scope as O5's `intake_scope`, server-side words in six languages,
+  tries stopped at a person step, and a look in a browser.
 
 The plan, its steps (B1–O6) and the owner's open questions: `docs/cases-plan.md`. The screens:
 `docs/design/pipelines.html` and `docs/design/workflows.html` (onboarding not drawn yet).

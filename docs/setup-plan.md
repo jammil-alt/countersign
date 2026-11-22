@@ -1,9 +1,11 @@
 # Setting up a client: from the intake to the first agent on trial (design, 2026-11-22)
 
-**Status: design only, for the owner.** Nothing here is built. It continues `docs/cases-plan.md` §4
-(onboarding: O1–O3 built, O4 and O5 next) from the point the intake's questions are answered to the
-point the first agent starts its trial. Like §1.149 it is outside ARCHITECTURE v0.19's v1 scope; when
-it is picked up it is recorded as the owner's decision in `docs/plan.md` §1.
+**Status (2026-11-22): SU1–SU6 built** with the owner's defaults for §12 ("go with your defaults");
+the decisions and what each step left open are `docs/plan.md` §1.185. It continues
+`docs/cases-plan.md` §4 (onboarding: O1–O3 built, O4 and O5 next) from the point the intake's
+questions are answered to the point the first agent starts its trial. Like §1.149 it is outside
+ARCHITECTURE v0.19's v1 scope. Built differently from the text below: the chapters live under
+`/getting-started/…` (`/start/:token` is the welcome page), and Sloan across the chapters waits for O4.
 
 The clickable mock-up is `docs/design/setup.html` (serve the repo root over http and open it). Its
 data is made up and it calls no route.
