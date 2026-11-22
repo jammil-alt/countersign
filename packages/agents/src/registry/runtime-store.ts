@@ -8,6 +8,7 @@ import {
   readApproverRuleSet,
   readAutonomy,
   readHold,
+  readWriteThresholds,
 } from "@countersign/core";
 import {
   agent,
@@ -84,6 +85,8 @@ export async function approvalRoutingTx(tx: Tx, tenantId: string): Promise<Appro
     revision: set.revision,
     clientDefault: clientApproverSetting(settings),
     members: new Set(people.map((p) => p.userId)),
+    // Round 4 D (docs/plan.md §1.211)
+    thresholds: readWriteThresholds(settings).thresholds,
   };
 }
 
