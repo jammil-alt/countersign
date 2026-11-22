@@ -34,6 +34,23 @@ describe("run titles", () => {
     );
   });
 
+  // docs/plan.md §1.188
+  it("else the record the run kept as its subject, by its name and number", () => {
+    const record = {
+      kind: "record" as const,
+      of: "record" as const,
+      label: "Acme Supply",
+      number: "PR-1032",
+    };
+    expect(subjectTitle(record)).toBe("Acme Supply · PR-1032");
+    expect(subjectTitle({ ...record, number: null })).toBe("Acme Supply");
+    expect(subjectTitle({ ...record, label: null, number: null })).toBeNull();
+    expect(opsRunShortTitle(record)).toBe("PR-1032");
+    expect(opsRunTitle({ ...record, label: null, number: null }, "Fix a record")).toBe(
+      "Fix a record",
+    );
+  });
+
   it("else, in the back office, the trigger in plain words", () => {
     const trigger = { kind: "trigger" as const, startedBy: "event" as const, event: null };
     expect(subjectTitle(trigger)).toBeNull();

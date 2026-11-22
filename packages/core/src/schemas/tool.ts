@@ -3,6 +3,7 @@ import { ToolAmount } from "../approvals/rules";
 import { ToolRecipient } from "../directory/autonomy";
 import { JsonSchema, LocalizedTemplate, ToolId } from "./common";
 import { EntityId, SideEffect, Verb } from "./permissions";
+import { ToolAbout } from "./tool-about";
 import { ToolDisplay } from "./tool-display";
 
 // R5 (docs/plan.md §1.86, §9): how a write is taken back. A late "no" (an approval answered after
@@ -61,6 +62,14 @@ export const ToolSpec = z
      * §1.20). Tools without it never match an amount rule.
      */
     amount: ToolAmount.optional(),
+    /**
+     * What the tool's output is about (docs/plan.md §1.188): which output fields name the record
+     * it read or saved, its label, its number and its amount. The step log keeps them as the
+     * run's subjects, so runs can be found by them. Tools without it add none of their own.
+     */
+    // DECISION: declared data, like `amount`, so a pack names its own records (the purchasing
+    // request, the quote, the PO) and the platform never special-cases one (invariant 2).
+    about: ToolAbout.optional(),
     /**
      * How the change reads on an approval card: its name, the fields a person reads, their labels
      * and kinds. Writes only; without it the card falls back to the record's own fields.

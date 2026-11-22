@@ -17,6 +17,7 @@ import { AgentsError, notFound } from "../errors";
 import type { RunLog } from "../runtime/ports";
 import type { RunMode } from "../tools/types";
 import { closeRunApprovalsTx } from "./external-actions";
+import { keepSubjects, triggerSubjectIds, writeTriggerSubjectsTx } from "./run-subjects";
 import { rollupUsageForRun } from "./usage";
 
 type RunStatus = (typeof run.$inferSelect)["status"];
@@ -82,6 +83,19 @@ export async function createRun(tx: Tx, input: CreateRunInput): Promise<typeof r
     })
     .returning();
   if (!row) throw new Error("run insert returned nothing");
+  // docs/plan.md §1.188: what started the run (its document or message) is its first subject,
+  // kept in a savepoint so it never stops the run starting.
+  const named = triggerSubjectIds(row.trigger);
+  if (named.documentId || named.messageId) {
+    await keepSubjects(tx, (sp) =>
+      writeTriggerSubjectsTx(sp, {
+        tenantId: input.tenantId,
+        runId: row.id,
+        trigger: row.trigger,
+        mode: row.mode,
+      }),
+    );
+  }
   return row;
 }
 
