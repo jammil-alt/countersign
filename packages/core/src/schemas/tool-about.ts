@@ -160,7 +160,8 @@ export function subjectKindOfEntity(entity: string | null | undefined): RunSubje
   if (/organi[sz]ation|company/.test(e)) return "organization";
   if (/message|mail|sms|chat|reply/.test(e)) return "message";
   if (/document|file|attachment|attachable|folder|sheet|workbook/.test(e)) return "document";
-  if (/^item|product|catalog|sku/.test(e)) return "item";
+  // An entity that starts with "item" (`item`, `item_group`), or names a product anywhere.
+  if (e.startsWith("item") || /product|catalog|sku/.test(e)) return "item";
   if (
     /bill|invoice|payment|purchase|expense|journal|estimate|order|receipt|credit|deposit|transfer|transaction|charge|refund/.test(
       e,
