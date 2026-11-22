@@ -22,8 +22,8 @@ in `docs/reporting-plan.md`.
   a template's tested set-up moves from staging to production, never client agents or their data.
 - **Unmerged work:** the 2026-11-15 backlog (`docs/merge-backlog.md`) has all landed: token
   counts, the phone app, area owners, removing a person, §1.118 and the approval link (§1.120).
-  Open PRs now: jammil-alt/countersign#520 (testing some of the steps) and #501 (the issue
-  close-out, a stale draft).
+  #518 and #520 (a workflow's starts; testing some of the steps) merged on 2026-11-22. Open:
+  #501 (the issue close-out, a stale draft; the owner to say finish or close).
 - Production is live from a hand-run deploy of `747d7ff`
   (2026-11-09, migrations through 0041) but has had no `v*` tag; its next release is an upgrade.
 - Almost everything below is **a setup step, a key or a decision for the owner**, not code. Where

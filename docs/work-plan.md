@@ -143,7 +143,7 @@ Several sessions at once, one item each:
 
 Tick each one as it merges.
 
-- [ ] C0.1 [ ] C0.2 [ ] C0.3 [ ] C0.4
+- [x] C0.1 [x] C0.2 [ ] C0.3 [x] C0.4
 - [ ] C1.1 [ ] C1.2 [ ] C1.3
 - [ ] C2.1 [ ] C2.2 [ ] C2.3 [ ] C2.4 [ ] C2.5
 - [ ] R1 [ ] R2 [ ] R3 [ ] R4 [ ] R5 [ ] R6
