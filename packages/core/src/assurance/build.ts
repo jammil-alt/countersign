@@ -17,7 +17,7 @@ import {
   type Levels,
 } from "./checks";
 import { agentCoverage, controlRefs } from "./coverage";
-import { providerKeeps, providerTerms } from "./terms";
+import { providerKeeps, trainingWords } from "./terms";
 import type { ArchBox, ArchFlow, Architecture, AssuranceCheckRow, AssuranceView } from "./view";
 
 /** A check's latest stored result (`control_check`), and since when it has been in review. */
@@ -196,7 +196,6 @@ export function agentArchitecture(input: AssuranceInput): Architecture {
         return s ? `${s.model ?? m.model} (step ${s.number})` : m.model;
       });
     const calls = input.calls.filter((c) => c.provider === p && /embed/.test(c.action));
-    const t = providerTerms(p);
     boxes.push({
       key: `ai:${p}`,
       zone: "ai",
@@ -204,9 +203,7 @@ export function agentArchitecture(input: AssuranceInput): Architecture {
       lines: [
         ...[...new Set(models)],
         ...(calls.length > 0 ? ["Embeddings for search by meaning"] : []),
-        t.training === "no"
-          ? "TLS · no training (API terms)"
-          : "TLS · training terms not recorded yet",
+        `TLS · ${trainingWords(p)}`,
         input.hipaa
           ? input.covered.includes(p)
             ? "BAA signed"
@@ -274,9 +271,7 @@ function aiRows(input: AssuranceInput): AssuranceView["ai"] {
   const lines = steps(input);
   const rows: AssuranceView["ai"] = [];
   const protection = (p: ReturnType<typeof processorForModel>) =>
-    `TLS 1.2 or later; never your secrets or another client's data; ${
-      providerTerms(p).training === "no" ? "no training" : "training terms not recorded yet"
-    }`;
+    `TLS 1.2 or later; never your secrets or another client's data; ${trainingWords(p)}`;
   for (const m of input.setupModels) {
     const s = lines.find((l) => l.id === m.stepId);
     const p = processorForModel(m.model);

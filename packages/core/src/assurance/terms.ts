@@ -130,3 +130,12 @@ export function termsConfirmed(p: Processor): boolean {
   const t = providerTerms(p);
   return t.sources.length > 0 && t.sources.every((s) => s.read === "page");
 }
+
+/** How the AI section and the architecture word a provider's training terms. A "no" read only from
+ * a search result is never shown as settled: it reads "to be confirmed". */
+export function trainingWords(p: Processor): string {
+  if (providerTerms(p).training !== "no") return "training terms not recorded yet";
+  return termsConfirmed(p)
+    ? "no training"
+    : "no training, to be confirmed on the provider's own page";
+}
