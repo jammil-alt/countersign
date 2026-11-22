@@ -34,12 +34,12 @@ import {
   PersonForm,
   RELATIONSHIP_KEY,
 } from "../../directory/DirectoryPanel";
-import { RecordRuns } from "../../records/RecordRuns";
 import { listedHours } from "../../hours/format";
 import { PersonHoursEditor } from "../../hours/HoursParts";
 import type { PlainKey } from "../../i18n/catalog";
 import { type I18n, useI18n } from "../../i18n/i18n";
 import { AccessBadge, InviteContactAction } from "../../people/People";
+import { RecordRuns } from "../../records/RecordRuns";
 import { shortTime } from "../../runs/format";
 import { useAnswered, useDebounced } from "../../runs/useDebounced";
 import { useSession } from "../../session/session";

@@ -6,8 +6,8 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { AppProviders } from "../App";
 import { CLIENT_SESSION, fakeApi, OPERATOR_SESSION } from "../test/fixtures";
-import { OpsRecordScreen, PortalRecordScreen } from "./RecordScreens";
 import { RecordRuns } from "./RecordRuns";
+import { OpsRecordScreen, PortalRecordScreen } from "./RecordScreens";
 
 const CLIENT = "00000000-0000-4000-8000-00000000a002";
 const VENDOR = "00000000-0000-4000-8000-0000000a7003";
@@ -31,7 +31,12 @@ const RUNS = [
     startedAt: "2026-11-02T10:00:00.000Z",
     finishedAt: "2026-11-02T10:01:00.000Z",
     waitingOnYou: false,
-    subject: { kind: "document", vendor: "Northline Panel Supply", number: "20418", filename: null },
+    subject: {
+      kind: "document",
+      vendor: "Northline Panel Supply",
+      number: "20418",
+      filename: null,
+    },
     roles: [
       { role: "read", connector: null, summary: "Read the invoice" },
       { role: "changed", connector: "qbo", summary: "Entered bill 20418" },

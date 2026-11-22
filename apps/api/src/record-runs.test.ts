@@ -110,12 +110,13 @@ describe.skipIf(!h)("the runs about a record", () => {
   }
 
   async function addStep(tenantId: string, runId: string, summary: string) {
+    steps += 1;
     const [s] = await owner
       .insert(stepRun)
       .values({
         tenantId,
         runId,
-        nodeId: `step-${(steps += 1)}`,
+        nodeId: `step-${steps}`,
         nodeType: "tool",
         status: "succeeded",
         summary,
