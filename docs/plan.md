@@ -5456,7 +5456,7 @@ mode. It has to be in before any BAA is recorded and before the first purge of a
 | One entry point | `apps/api/src/compliance/models.ts` (`clientModels`, `clientExtractionModels`, `clientTranslationModels`, `clientTranscriber`) is the only way `apps/api` gets a model or speech-to-text outside a run. Every caller names the clients whose data the call may carry; a vendor not covered for one of them is refused before anything is sent (409 `hipaa`). It covers the portal's and back office's questions, the Builder, builds, Reshape, Reggie, voice hooks and voice typing, summaries, documents, translation, the reading sweep and the back office's issue reads. A run's own transport is held by `forClient` as before. Source scans (`compliance-models.test.ts`) fail on any other transport or transcriber made in `apps/api`. |
 | Whose mode applies | Reggie and questions across clients are held to every client the operator serves, plus the conversation's own, whatever client the request names: their tools read any of them (`routes/reggie.ts`, `routes/search.ts`). A build turn leaves out other clients' builds whose HIPAA mode refuses the model (`clientsRefusingModel`, `routes/ops-builds.ts`). The back-office tick spans clients and its reads refuse a HIPAA client themselves. HIPAA mode is read for many clients in one query. // DECISION |
 | Purge | `purgePlan` (`packages/db/src/purge.ts`) reads foreign keys inside the purge's own transaction and deletes dependents at any depth. It clears nullable links to deleted rows only on the client's own rows, so the clears use the indexed `tenant_id` and never scan every client's `step_run`, `model_call` or `message` under locks. A table without `tenant_id` names its client `client_id` (a build). It clears `build.test_client_id` on other rows and keeps `audit_event`. Reggie's conversations about the client go with every change proposed in them (`docs/operations.md`). A test fails when a new client table isn't covered. // DECISION |
-| Not covered | The ops MCP server has no HIPAA check (`docs/hipaa-plan.md` T1, `docs/open.md`). |
+| Not covered | The ops MCP server has no HIPAA check (`docs/hipaa-plan.md` T1, `docs/open.md`). Since done: §1.190. |
 
 ### 1.144 Materials: a line's pack size read once, and never guessed (pre-launch hardening, 2026-11-17; PR #402; no migration)
 
@@ -6381,6 +6381,21 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | On the page | An item's row reads "Who has it: …" and its status as a chip; neither is a select. A gap, test or feedback item in the draft or POC test shows "Settle it:" with the three ways (each button's title names who takes it), and when put off, "Take it up:" with the same three; then Put off and Drop it. A question has Answer it and a Close menu of Put off and Not needed ("Done (answered elsewhere)" is gone: type the answer). A closed item has Reopen; a put-off one no way takes up has Take it up. The Add footer has no owner: a new note is yours. Each kind's "To settle it" says what closes it. // DECISION |
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
+
+### 1.190 Compliance: the MCP connector held to HIPAA mode (docs/hipaa-plan.md T1, 2026-11-22; no migration)
+
+What an operator's back-office tools return through the MCP connector is read by their Claude, so
+it reaches Anthropic through claude.ai. Nothing changes today: `BAA_PROCESSORS` is empty on
+production, so no client is in HIPAA mode.
+
+| Topic | Decision |
+|---|---|
+| The vendor | A processor of its own, `claude_ai` ("Anthropic (claude.ai)"), named by `MCP_CONNECTOR_FEATURE` in `packages/core/src/compliance/processors.ts`. Anthropic's BAA for its API (`anthropic`) doesn't cover it. Every MCP client is taken as Claude's apps: the server can't tell which app signed in, and the connector is made for Claude. // DECISION |
+| Whose mode applies | As §1.143 holds Reggie and the questions across clients. A call with `client` is held to that client alone: each tool that takes one returns only that client's data. Any other call, including a read by id (a run, a feedback item, a Dev queue request) and the Dev queue's tools, may return any client served, so it is refused while any of them is in HIPAA mode without `claude_ai`. Nothing is read first to decide. // DECISION |
+| Left out, not refused | whoami and clients_list leave a held client out and say how many they left out, so the operator can still find the clients they may ask about (`LEAVE_OUT_HELD`). // DECISION |
+| Where | `apps/api/src/mcp/hipaa.ts`, run after a call's arguments are read and before its tool runs. HIPAA mode is read for every client served in one query, none when `claude_ai` is covered. A refusal is a tool error `hipaa: …` and its `mcp.tool_call` audit row is refused, 409. The connector's instructions say so. |
+| Not held | Reggie, which runs the same tools but sends their results to Anthropic's API: its model calls are held instead (§1.143). The portal's tools, where a client's own person connects their own Claude: that is the client's vendor, as its own tools are. // DECISION |
+| Checked | `apps/api/src/mcp-hipaa.test.ts` (a HIPAA client refused by name, across clients and by id; left out of the lists; a normal client and an operator serving none answered; answered once `claude_ai` is covered), `packages/core/src/compliance/compliance.test.ts`. |
 
 ### 1.186 Made-up data for a test (owner, 2026-11-22; no migration)
 

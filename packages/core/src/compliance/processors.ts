@@ -53,6 +53,10 @@ export const PROCESSORS = [
   // §1.116: phone notifications through Expo's push service (on to Apple's and Google's): a device
   // token, "Mezonas" or the business's name, and a count. HIPAA mode sends none until covered.
   "expo_push",
+  // §1.190: Claude's apps (claude.ai, Claude Desktop, Claude Code), where an operator's MCP
+  // connector sends what its back-office tools return. Anthropic's BAA for its API may not cover
+  // them, so they are a processor of their own.
+  "claude_ai",
 ] as const;
 export type Processor = (typeof PROCESSORS)[number];
 
@@ -79,6 +83,8 @@ export const PROCESSOR_NAMES: Record<Processor, string> = {
   billcom: "BILL",
   // §1.116
   expo_push: "Expo (push notifications)",
+  // §1.190
+  claude_ai: "Anthropic (claude.ai)",
 };
 
 /** `BAA_PROCESSORS`: comma- or space-separated processor ids; unknown words are ignored. */
@@ -211,6 +217,22 @@ export const DRAFT_ASSIST_FEATURE = {
   id: "backoffice.draft",
   what: "Draft",
   processors: ["anthropic"] as readonly Processor[],
+} as const;
+
+/**
+ * §1.190 (docs/hipaa-plan.md T1): the back office's MCP connector. An operator's Claude reads
+ * what its tools return, so a client's data reaches Anthropic through claude.ai. A client in HIPAA
+ * mode is held out of it until `claude_ai` is covered: a call about that client is refused, a
+ * call across clients is refused while any client served is held, and the list of clients leaves
+ * it out. Reggie's reads go to Anthropic's API instead and are held as its model calls are.
+ */
+// DECISION: every MCP client is taken as Claude's apps: the server can't tell which app signed
+// in, and the connector is made for Claude. A client's own people connecting their own Claude to
+// the portal's tools are not held: that is the client's vendor, as its own tools are.
+export const MCP_CONNECTOR_FEATURE = {
+  id: "backoffice.mcp",
+  what: "The Mezonas connector for Claude",
+  processors: ["claude_ai"] as readonly Processor[],
 } as const;
 
 /** The processor an embedding model's provider is: `openai:` ids go to OpenAI. */
