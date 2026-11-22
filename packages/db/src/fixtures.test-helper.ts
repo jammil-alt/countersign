@@ -48,6 +48,7 @@ import {
   ledgerAccount,
   ledgerAccountNote,
   ledgerDimension,
+  matchRule,
   membership,
   memoryNote,
   message,
@@ -952,6 +953,18 @@ export async function insertClient(db: Db, name: string): Promise<ClientFixture>
       result: { ok: true, output: { entries: [], truncated: false } },
     });
   }
+  // §1.215: a saved match rule, once migration 0085 is there.
+  const [rules] = await db.$client<{ present: boolean }[]>`
+    select to_regclass('public.match_rule') is not null as present`;
+  if (rules?.present)
+    await db.insert(matchRule).values({
+      tenantId,
+      config: "bank_to_ledger",
+      field: "counterparty",
+      aValue: "amzn mktp",
+      bValue: "amazon",
+      createdBy: u.id,
+    });
   await db.insert(ledgerAccountNote).values({
     tenantId,
     ledgerAccountId: la.id,
