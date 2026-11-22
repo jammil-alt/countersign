@@ -80,6 +80,7 @@ export * from "./records/vendors";
 export * from "./registry";
 export * from "./release-codes";
 export * from "./resend/index";
+export * from "./resend/webhook";
 // v0.14 W4-C
 export * from "./slack/index";
 export * from "./slack/text";

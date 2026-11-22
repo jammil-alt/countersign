@@ -24,6 +24,7 @@ import {
 import { leadDisplayName, leadOf } from "@countersign/threads";
 import { and, eq, gte, inArray, isNotNull, isNull, ne, sql } from "drizzle-orm";
 import type { Bindings } from "../env";
+import { meter } from "../metering";
 import type { Mailer } from "../notify/mailer";
 import { reportHandled } from "../observability/report";
 
@@ -226,15 +227,23 @@ export async function sendIssueEmails(
         onBehalfOf: lead ? leadDisplayName(lead) : "Your Mezonas lead",
         replyTo: taggedAddress(SUPPORT_LOCAL, p.tag as string, domain),
       });
-      await withOperator(db, [p.tenantId], (tx) =>
-        tx.insert(issueEvent).values({
+      await withOperator(db, [p.tenantId], async (tx) => {
+        await tx.insert(issueEvent).values({
           tenantId: p.tenantId,
           issueId: p.issueId,
           kind: "reply",
           actor: "system",
           payload: { emailedMessageId: p.messageId, to: p.to },
-        }),
-      );
+        });
+        // §1.210: the back office's answer to an issue is ours, opened on the client.
+        await meter(tx, {
+          tenantId: p.tenantId,
+          measure: "emails",
+          source: "back_office",
+          key: `notify:issue-${p.messageId}`,
+          ours: true,
+        });
+      });
       sent += 1;
     } catch (error) {
       reportHandled("an issue's email reply failed", error, {

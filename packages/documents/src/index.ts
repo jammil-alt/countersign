@@ -9,6 +9,8 @@ export * from "./find-support";
 export * from "./forwarding";
 export * from "./get";
 export * from "./golden";
+// §1.213: file and email intake (report profiles, landing, duplicates, missing reports).
+export * from "./intake";
 export * from "./knowledge";
 export * from "./link";
 export * from "./purchase";

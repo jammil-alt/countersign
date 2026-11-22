@@ -16,6 +16,9 @@ import {
   ToolRefused,
 } from "@countersign/connectors";
 import {
+  // Round 4 D
+  amountOf,
+  assigneeOf,
   autonomyMessage,
   batchKeyOf,
   changeFacts,
@@ -35,7 +38,10 @@ import {
   releaseOf,
   releaseSettingProblem,
   routeApproval,
+  thresholdReached,
   undiscussedFor,
+  verifiesWrites,
+  type WriteVerification,
 } from "@countersign/core";
 import type { RegisteredTool } from "../registry/tools";
 import { executeAction } from "./actions";
@@ -52,6 +58,7 @@ import {
 } from "./context";
 import { recordModelCall } from "./model-call";
 import type { ExternalActionRecord, ToolCallStatus } from "./ports";
+import { verifyWrite } from "./verify";
 
 export type ToolOutcome =
   | {
@@ -78,7 +85,14 @@ export type ToolOutcome =
    * Test runs: the write was recorded as proposed and will never run. `standIn`: what the tool
    * says it would have returned (docs/plan.md §1.94), for later steps; absent when it says nothing.
    */
-  | { status: "would_have_done"; actionId: string; before: unknown; standIn?: unknown }
+  | {
+      status: "would_have_done";
+      actionId: string;
+      before: unknown;
+      standIn?: unknown;
+      /** §1.212: the verifier's outcome on the write, kept on a test run's step (the evals). */
+      verification?: WriteVerification;
+    }
   /**
    * The connection needs a person to release it (docs/plan.md §1.26): a code went to them and their
    * inbox item is open. The step waits; once released, it runs again from the start.
@@ -533,15 +547,40 @@ async function dispatch(
   if (carried) return carried;
   const key = idempotencyKey(step);
   const test = step.mode === "test";
+  // Round 4 D (docs/plan.md §1.211): the verifier works the write out again from the run's
+  // sources, on agents whose `oversight.verify` is `writes` (saved on the definition: an agent
+  // made before stays off). Test runs too: they never write, and the check is what they test.
+  const verification = verifiesWrites(step.agent.bundle.definition.oversight)
+    ? await verifyWrite(deps, {
+        tenantId: step.tenantId,
+        runId: step.runId,
+        stepRunId: step.stepRunId,
+        stepId: step.stepId,
+        agent: step.agent,
+        spec: tool.spec,
+        proposed: captured.input,
+      })
+    : null;
+  // Read fresh for each proposal, so a client's tightening applies to the next write at once.
+  const routing = test ? null : await deps.ports.store.approvalRouting(step.tenantId);
+  // Round 4 D: the client's dollar threshold: at or over it, a person signs (only tightens).
+  const threshold = thresholdReached(
+    routing?.thresholds ?? [],
+    amountOf(tool.spec, captured.input),
+  );
   // Follow-up 3: after a call that didn't match the step's change under its key, every write of
   // this try waits for a person, whatever the step, matrix and mode say (only tightens).
-  const automatic = decision === "run" && !test && step.signAllWrites !== true;
-  // Who approves (never whether: that was decided above, invariant 8). Read fresh for each
-  // proposal, so a client's tightening applies to the next approval at once.
+  // Round 4 D: so does a write the verifier didn't agree with, or one at a threshold.
+  const automatic =
+    decision === "run" &&
+    !test &&
+    step.signAllWrites !== true &&
+    threshold === null &&
+    (verification === null || verification.outcome === "agreed");
+  // Who approves (never whether: that was decided above, invariant 8).
   let approver: ReturnType<typeof routeApproval> | null = null;
   let revision = 0;
-  if (!automatic && !test) {
-    const routing = await deps.ports.store.approvalRouting(step.tenantId);
+  if (!automatic && routing) {
     revision = routing.revision;
     approver = routeApproval({
       rules: routing.rules,
@@ -556,6 +595,12 @@ async function dispatch(
       client: routing.clientDefault,
       members: routing.members,
     });
+    // Round 4 D: a write the verifier couldn't work out goes to the operator, who can see why.
+    // DECISION (§1.211): a disagreement stays with the client's own approver, with both answers.
+    if (verification?.outcome === "cannot_verify") {
+      const operator = { kind: "operator" } as const;
+      approver = { ...approver, approver: operator, assignee: assigneeOf(operator) };
+    }
   }
   const { action } = await deps.ports.actions.propose(step.tenantId, {
     connectionId: conn.id,
@@ -589,6 +634,10 @@ async function dispatch(
             // discussed yet, from the agent's manual, so the card says so. Never loosens.
             ...undiscussedPayload(step),
             onReject: step.approval?.onReject ?? "stop",
+            // Round 4 D (§1.211): the verifier's outcome (both answers where they differ) and the
+            // threshold that made it wait. No note, model or cost: the portal shows the payload.
+            ...(verification ? { verification: verification as JsonObject[string] } : {}),
+            ...(threshold ? { threshold: threshold as JsonObject[string] } : {}),
             // What chose the approver: a rule (with the rules' revision), the step, the agent,
             // the client's default, or the default (the client admin).
             approverRoute: { source: approver.source, ruleId: approver.ruleId, revision },
@@ -622,7 +671,11 @@ async function dispatch(
         }
       : null,
   });
-  return settle(deps, step, tool, action);
+  const settled = await settle(deps, step, tool, action);
+  // §1.212: a test run routes no person, so its verification would go nowhere: it stays on the
+  // step's output, which the eval harness scores (the verifier's agreement).
+  if (settled.status === "would_have_done" && verification) return { ...settled, verification };
+  return settled;
 }
 
 /**

@@ -5,13 +5,17 @@
 // run on the list is still going. Its columns sort, and a whole row opens its run.
 import {
   type AskChip,
+  askChips,
+  PortalRunsQuery,
   RUN_STARTED_BY,
   type RunAboutName,
+  type RunFilter,
   type RunStartedBy,
   readAboutParam,
+  runFilterQuery,
   shortRunId,
 } from "@countersign/core";
-import { type FormEvent, useMemo, useRef, useState } from "react";
+import { type FormEvent, lazy, Suspense, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
@@ -35,6 +39,9 @@ import { useRememberRuns } from "../known";
 import { PORTAL_PATHS } from "../paths";
 import { runChip, runOpen, runState, runStateWords, workedMs } from "../status";
 import { RunsPerDayChart, TookCell } from "./runsParts";
+
+// R6 (docs/plan.md §1.236): the saved views load with their own chunk, and their schemas with it.
+const SavedViews = lazy(() => import("./SavedViews"));
 
 /** The status tabs: each one a `statuses` filter on the list. */
 export const TABS = {
@@ -77,6 +84,25 @@ const CHIP_WORDS: Record<string, PlainKey> = {
   about: "runsPage.chip.about",
 };
 
+/**
+ * R4 (docs/plan.md §1.214): the RunFilter keys a link may carry in the address, so a figure of the
+ * agent report opens the list on exactly its runs. `about` is read on its own (R2).
+ */
+const LINK_KEYS = new Set([
+  "agents",
+  "statuses",
+  "since",
+  "until",
+  "startedBy",
+  "signedBy",
+  "changedConnector",
+  "attemptsOver",
+  "amountOver",
+  "amountUnder",
+  "amountCurrency",
+  "text",
+]);
+
 /** R2: `about`'s entries as parameters (`vendor:<id>`, words), from its comma-separated value. */
 export function aboutTokens(value: string | undefined | null): string[] {
   return (value ?? "")
@@ -95,6 +121,14 @@ export function aboutTokenName(
   if ("text" in entry) return entry.text;
   const named = names?.find((n) => n.id === entry.id);
   return [named?.label, named?.number].filter(Boolean).join(" · ") || t("runsPage.about.record");
+}
+
+/** R6: the list's query as a view keeps it (the portal's RunFilter); null for every run. */
+export function viewFilter(query: Record<string, unknown>): RunFilter | null {
+  const { limit: _limit, perDay: _perDay, ...rest } = query;
+  const parsed = PortalRunsQuery.safeParse(rest);
+  if (!parsed.success || Object.keys(parsed.data.filter).length === 0) return null;
+  return parsed.data.filter;
 }
 
 /** A run status (a filter's, a chip's) in the client's words: "Waiting on you", "Stopped". */
@@ -127,11 +161,46 @@ export function PortalRunsScreen() {
   // R2: a link (⌘K) opens the list on the runs about a record: `?about=vendor:<id>`.
   const [params, setParams] = useSearchParams();
   const linked = params.get("about") ?? "";
+  // R4: a filter in the address (a report's figure) is the list's filter, shown as chips.
+  const fromLink = useMemo((): (Omit<Asked, "chips"> & { chipsOf: Asked["chips"] }) | null => {
+    const raw = Object.fromEntries([...params].filter(([k]) => LINK_KEYS.has(k)));
+    if (Object.keys(raw).length === 0) return null;
+    const parsed = PortalRunsQuery.safeParse(linked ? { ...raw, about: linked } : raw);
+    if (!parsed.success) return null;
+    return {
+      question: "",
+      leftOut: [],
+      query: linked ? { ...raw, about: linked } : raw,
+      // The about entries keep their own chips under the list (R2).
+      chipsOf: askChips(parsed.data.filter, { agents: new Map(), connectors: new Map() }).filter(
+        (c) => c.key !== "about",
+      ),
+    };
+  }, [params, linked]);
+  const agentNames = new Map((overview.data?.services ?? []).map((s) => [s.id, s.name]));
+  const shown: Asked | null =
+    asked ??
+    (fromLink
+      ? {
+          ...fromLink,
+          chips: fromLink.chipsOf.map((c) =>
+            c.key === "agents"
+              ? {
+                  ...c,
+                  value: c.value
+                    .split(", ")
+                    .map((id) => agentNames.get(id) ?? id)
+                    .join(", "),
+                }
+              : c,
+          ),
+        }
+      : null);
 
   // An answered question is the list's filter; the tabs and pickers apply when there is none.
   const statuses = TABS[tab];
-  const query = asked
-    ? { ...asked.query, limit: 100, perDay: true }
+  const query = shown
+    ? { ...shown.query, limit: 100, perDay: true }
     : {
         limit: 100,
         perDay: true,
@@ -141,10 +210,28 @@ export function PortalRunsScreen() {
         ...(linked ? { about: linked } : {}),
       };
 
+  // R6: the list's filter as a view would keep it; null when it shows every run.
+  const current = viewFilter(query);
+
+  /** R6: a saved view opens the list on its filter, as a link would (R4). */
+  function openView(filters: RunFilter) {
+    setAsked(null);
+    setQuestion("");
+    setNotUnderstood(false);
+    setTab("all");
+    setAgent("");
+    setStartedBy("");
+    setParams(runFilterQuery(filters), { replace: true });
+  }
+
   /** R2: the link's `about` without one entry. */
   function dropLinked(token: string) {
     const left = aboutTokens(linked).filter((x) => x !== token);
-    setParams(left.length ? { about: left.join(",") } : {}, { replace: true });
+    // R4: the rest of a linked filter stays.
+    const next = new URLSearchParams(params);
+    if (left.length) next.set("about", left.join(","));
+    else next.delete("about");
+    setParams(next, { replace: true });
   }
 
   /** R2: the answer's filter without one of the records (or words) it found. */
@@ -188,6 +275,7 @@ export function PortalRunsScreen() {
 
   function clearAsk() {
     setAsked(null);
+    if (fromLink) setParams({}, { replace: true });
     setQuestion("");
     setNotUnderstood(false);
   }
@@ -225,8 +313,8 @@ export function PortalRunsScreen() {
           data-testid="portal-runs-ask"
         >
           <Icon name="search" className="text-ink-muted" />
-          {asked
-            ? asked.chips.map((c) => (
+          {shown
+            ? shown.chips.map((c) => (
                 <span
                   key={`${c.key}:${c.about ?? c.value}`}
                   className="ds-tag"
@@ -250,7 +338,7 @@ export function PortalRunsScreen() {
             placeholder={t("runsPage.ask.placeholder")}
             className="ui-ask__input"
           />
-          {asked ? (
+          {shown ? (
             <Button
               size="sm"
               variant="ghost"
@@ -282,7 +370,11 @@ export function PortalRunsScreen() {
         </p>
       ) : null}
 
-      {asked ? null : (
+      <Suspense fallback={null}>
+        <SavedViews current={current} onOpen={openView} />
+      </Suspense>
+
+      {shown ? null : (
         <div className="flex flex-wrap items-center justify-between gap-3">
           <StatusFilter
             value={tab}
@@ -329,7 +421,7 @@ export function PortalRunsScreen() {
       <RunsResults
         key={JSON.stringify(query.agents ?? null)}
         query={query}
-        filtered={!!(asked || tab !== "all" || agent || startedBy || linked)}
+        filtered={!!(shown || tab !== "all" || agent || startedBy || linked)}
         linked={asked ? [] : aboutTokens(linked)}
         onDropLinked={dropLinked}
       />

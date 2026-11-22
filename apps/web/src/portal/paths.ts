@@ -22,6 +22,8 @@ export const PORTAL_PATHS = {
   agentRuns: (serviceId: string) => `/agents/${serviceId}/runs`,
   // docs/sop-plan.md S1: the agent's SOP, in the manual's place (its old address goes there).
   agentSop: (serviceId: string) => `/agents/${serviceId}/sop`,
+  // R4 (docs/plan.md §1.214)
+  agentReport: (serviceId: string) => `/agents/${serviceId}/report`,
   // docs/sop-plan.md §6a: the process as the builder's chart, read only (the Workflow tab). Its
   // address says "flow": no portal path names a workflow, which is the operator's to set up.
   agentFlow: (serviceId: string) => `/agents/${serviceId}/flow`,

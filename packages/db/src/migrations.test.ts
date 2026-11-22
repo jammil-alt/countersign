@@ -191,6 +191,15 @@ describe.skipIf(!online)("migrations on an empty database", () => {
         "crm_alias",
         "crm_match",
         "crm_record_key",
+        // §1.232 (0099): the Close pack's periods, checklist and proposed journal entries.
+        "close_entry",
+        "close_entry_line",
+        "close_item",
+        "close_period",
+        // §1.233 (0100): the AP pack's bills, their lines and goods received.
+        "ap_bill",
+        "ap_bill_line",
+        "ap_receipt",
       ].sort(),
     );
     expect(
@@ -253,6 +262,9 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "organization",
       "organization_change",
       "audit_event",
+      // §1.218 (0096): the access review's record.
+      "access_review",
+      "access_review_item",
       // Wave 1 (0018–0025): nothing gets DELETE.
       "usage_platform_daily",
       "notification",
@@ -292,6 +304,8 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       "vendor_contract",
       // §1.121 (0058): a form request is answered, expired or cancelled, never deleted.
       "form_request",
+      // §1.217 (0087): an interview is finished or closed, never deleted.
+      "process_interview",
       // §1.124 (0060–0063): issues are closed, asks told, to-dos dropped, deals lost; never deleted.
       "issue",
       "issue_event",
@@ -417,6 +431,10 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
     }
     expect(await can("model_call", "UPDATE")).toBe(false);
+    // 0095: what we pay vendors for is only inserted (§1.210).
+    expect(await can("metered_usage", "INSERT")).toBe(true);
+    expect(await can("metered_usage", "UPDATE")).toBe(false);
+    expect(await can("metered_usage", "DELETE")).toBe(false);
     for (const table of [
       "usage_platform_daily",
       "notification",
@@ -447,6 +465,9 @@ describe.skipIf(!online)("migrations on an empty database", () => {
       expect(await can(table, "UPDATE"), `${table} UPDATE`).toBe(true);
       expect(await can(table, "DELETE"), `${table} DELETE`).toBe(false);
     }
+    // 0085: saved match rules are retired in place, never deleted (§1.215).
+    expect(await can("match_rule", "UPDATE")).toBe(true);
+    expect(await can("match_rule", "DELETE")).toBe(false);
     expect(await can("agent_change", "UPDATE")).toBe(false);
     expect(await can("doc_extraction", "UPDATE")).toBe(false);
     expect(await can("doc_line", "UPDATE")).toBe(false);
@@ -464,6 +485,9 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     expect(await can("browser_site", "UPDATE")).toBe(true);
     expect(await can("browser_site_version", "UPDATE")).toBe(false);
     expect(await can("saved_view", "UPDATE")).toBe(true);
+    // R6 (0098): a client's saved views aren't history either: renamed, shared, deleted (§1.236).
+    expect(await can("portal_view", "UPDATE")).toBe(true);
+    expect(await can("portal_view", "DELETE")).toBe(true);
     // The connectors catalog (0026): settings change in place, never deleted.
     expect(await can("connector_setting", "UPDATE")).toBe(true);
     expect(await can("connector_setting", "DELETE")).toBe(false);
@@ -497,9 +521,14 @@ describe.skipIf(!online)("migrations on an empty database", () => {
     const costs = await t.db.$client<{ measure: string; unit_cost: string; per_units: number }[]>`
       select measure, unit_cost, per_units from billing_unit_cost order by measure`;
     expect(costs.map((c) => [c.measure, c.unit_cost, c.per_units])).toEqual([
+      // 0095's placeholders (§1.210).
+      ["bank_item_months", "0.3000", 1],
+      ["browser_seconds", "0.0900", 3600],
       ["call_seconds", "0.1000", 60],
       ["cost_usd", "1.0000", 1],
+      ["emails", "0.0009", 1],
       ["messages", "0.0083", 1],
+      ["verifications", "0.0500", 1],
     ]);
     const updated = async (operator: boolean) =>
       t.db.$client.begin(async (tx) => {

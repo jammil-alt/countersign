@@ -2,32 +2,33 @@
 // to include what the step does rather than the instructions on click and drag… if all steps say
 // that, there is no value in stating it over and over"; docs/plan.md §1.182). A skill, a tool and
 // an automation say it in their own words (the host's label carries those); every other kind, and
-// any step whose own words are missing, gets its kind's line here.
+// any step whose own words are missing, gets its kind's line here, in the reader's language (the
+// client's chart, docs/sop-plan.md §6a; English in the back office).
+import type { PlainKey, Translate } from "../../i18n/catalog";
+import { EN } from "../../i18n/i18n";
 import type { Step } from "./types";
 
-const KIND_DOES: Record<Step["kind"], string> = {
-  read: "Reads records. It changes nothing.",
-  write: "Changes or saves a record.",
-  skill: "Runs a skill on what the steps before it produced.",
-  person: "Asks a person, and waits for their answer.",
-  conversation: "Talks with someone back and forth until its goal is met.",
-  notify: "Tells someone, and moves on.",
-  if: "Sends the run down the first path whose rule holds, else the Otherwise path.",
-  for_each: "Does its steps once for each item in a list.",
-  repeat: "Repeats its steps until they are done, or it reaches its limit.",
-  wait: "Pauses the run for a set time.",
-  stop: "Ends the run here.",
-  process: "Runs an automation: a saved set of steps.",
-  handoff: "Hands the work to another agent, which runs on its own.",
-  missing: "Holds the place of a step nobody has built yet.",
+const KIND_DOES: Record<Step["kind"], PlainKey> = {
+  read: "flow.does.read",
+  write: "flow.does.write",
+  skill: "flow.does.skill",
+  person: "flow.does.person",
+  conversation: "flow.does.conversation",
+  notify: "flow.does.notify",
+  if: "flow.does.if",
+  for_each: "flow.does.forEach",
+  repeat: "flow.does.repeat",
+  wait: "flow.does.wait",
+  stop: "flow.does.stop",
+  process: "flow.does.process",
+  handoff: "flow.does.handoff",
+  missing: "flow.does.missing",
 };
 
 /** A person's step by what it asks: an approval, or an answer. */
-export function kindDoes(step: Step): string {
+export function kindDoes(step: Step, t: Translate = EN.t): string {
   if (step.kind === "person") {
-    return step.mode === "approve"
-      ? "Asks a person to approve, and waits for their answer."
-      : "Asks a person a question, and waits for their answer.";
+    return t(step.mode === "approve" ? "flow.does.approve" : "flow.does.ask");
   }
-  return KIND_DOES[step.kind];
+  return t(KIND_DOES[step.kind]);
 }

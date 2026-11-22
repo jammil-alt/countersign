@@ -32,6 +32,7 @@ import {
   type PortalStatement,
   type PricePoint,
   type PriceView,
+  parseCoveredProcessors,
   readTenantBilling,
   resolveAgentPrice,
   routes,
@@ -90,8 +91,11 @@ import {
   iso,
   mount,
   notFound,
+  type Services,
   stripeFor,
 } from "../http";
+import { mailerFromEnv } from "../notify/mailer";
+import { originOf } from "../notify/outbox";
 
 const today = () => new Date().toISOString().slice(0, 10);
 const USD = "USD";
@@ -767,13 +771,21 @@ export function billingRouteHandlers(app: Hono<AppEnv>): void {
   });
 
   /** Sends in the request's transaction; Stripe's errors are recorded on the statement, not thrown. */
-  async function send(ctx: Scope, stripe: StripeClient, s: StatementRow) {
+  async function send(ctx: Scope & { services: Services }, stripe: StripeClient, s: StatementRow) {
+    const env = ctx.services.env;
     try {
       return await sendStatement(txRunner(ctx.tx), stripe, {
         tenantId: s.tenantId,
         statementId: s.id,
         actorId: ctx.session.user.id,
         config: await loadBillingConfig(ctx.tx),
+        // §1.234: the month's work statement goes with the invoice, as a PDF in our own email.
+        workStatement: {
+          mailer: mailerFromEnv(env, ctx.services.deps.fetch?.(env)),
+          covered: parseCoveredProcessors(env.BAA_PROCESSORS),
+          catalog: ctx.services.platform.catalog,
+          origin: originOf(env),
+        },
       });
     } catch (error) {
       if (error instanceof SendRefused)

@@ -75,7 +75,16 @@ import type { Platform } from "../platform";
 import { clientState, forClient, noRuns, OPEN_RUN, runCounts } from "../runs/client-status";
 import { clientDescription, isLiveService } from "../weekly/stats";
 import { runSummaries } from "./portal";
-import { isBackOffice, providerFees, type SpendLine, spendLines } from "./usage-spend";
+import {
+  isBackOffice,
+  providerFees,
+  type ServiceLine,
+  type ServiceMeasure,
+  type SpendLine,
+  serviceLines,
+  servicePrice,
+  spendLines,
+} from "./usage-spend";
 import { tokenReport } from "./usage-tokens";
 
 // ── Days and months ──────────────────────────────────────────────────────────────────────────────
@@ -112,7 +121,7 @@ export function monthsBetween(from: string, to: string): string[] {
 }
 
 /** A request's range: both ends inclusive, `from` not after `to`, at most USAGE_MAX_DAYS days. */
-function checkRange(from: string, to: string): void {
+export function checkRange(from: string, to: string): void {
   if (from > to) throw new HttpError(422, "invalid_range", "from is after to");
   if ((dayMs(to) - dayMs(from)) / DAY_MS + 1 > USAGE_MAX_DAYS) {
     throw new HttpError(422, "invalid_range", `a range is at most ${USAGE_MAX_DAYS} days`);
@@ -129,6 +138,8 @@ interface Sum {
   tokensIn: number;
   tokensOut: number;
   cost: Decimal;
+  /** §1.210: the vendors other than the models, at our unit costs. */
+  services: Decimal;
 }
 
 const zero = (): Sum => ({
@@ -139,6 +150,7 @@ const zero = (): Sum => ({
   tokensIn: 0,
   tokensOut: 0,
   cost: new Decimal(0),
+  services: new Decimal(0),
 });
 
 function add(into: Sum, x: Sum): void {
@@ -149,6 +161,7 @@ function add(into: Sum, x: Sum): void {
   into.tokensIn += x.tokensIn;
   into.tokensOut += x.tokensOut;
   into.cost = into.cost.plus(x.cost);
+  into.services = into.services.plus(x.services);
 }
 
 const figures = (s: Sum): UsageFigures => ({
@@ -159,6 +172,7 @@ const figures = (s: Sum): UsageFigures => ({
   tokensIn: s.tokensIn,
   tokensOut: s.tokensOut,
   costUsd: toNumeric(s.cost),
+  servicesUsd: toNumeric(s.services),
 });
 
 /** A row's total and its months, summed with decimal.js. */
@@ -285,6 +299,8 @@ async function usageSplits(
   tenantIds: readonly string[],
   query: UsageQuery,
   lines: readonly SpendLine[],
+  services: readonly ServiceLine[],
+  price: ReturnType<typeof servicePrice>,
 ): Promise<Pick<UsageReport, "byModel" | "byVendor">> {
   const models = new Map<
     string,
@@ -345,44 +361,58 @@ async function usageSplits(
     });
   }
 
-  const [metered] = await tx
-    .select({
-      messages: sql<string>`coalesce(sum(${usageDaily.messages}), 0)::text`,
-      callSeconds: sql<string>`coalesce(sum(${usageDaily.callSeconds}), 0)::text`,
-    })
-    .from(usageDaily)
-    .innerJoin(
-      agent,
-      and(eq(agent.id, usageDaily.agentId), eq(agent.tenantId, usageDaily.tenantId)),
-    )
-    .where(and(...usageWhere(tenantIds, query)));
-  const messages = Number(metered?.messages ?? "0");
-  const callSeconds = Number(metered?.callSeconds ?? "0");
-  if (messages > 0 || callSeconds > 0) {
-    const units = await tx
-      .select()
-      .from(billingUnitCost)
-      .where(inArray(billingUnitCost.measure, ["messages", "call_seconds"]));
-    const priced = (measure: string, n: number) => {
-      const u = units.find((x) => x.measure === measure);
-      return u ? toNumeric(new Decimal(u.unitCost).times(n).div(u.perUnits)) : null;
-    };
-    if (messages > 0) {
+  // §1.210: each vendor other than the models, from the same service lines as the rows' figures,
+  // priced at our unit costs (an estimate; `costUsd` null when the measure has no unit cost).
+  const quantities = new Map<ServiceMeasure, number>();
+  for (const l of services)
+    quantities.set(l.measure, (quantities.get(l.measure) ?? 0) + l.quantity);
+  const priced = (measure: ServiceMeasure) => {
+    const q = quantities.get(measure) ?? 0;
+    const p = price(measure, q);
+    return p ? toNumeric(p) : null;
+  };
+  const vendors: {
+    id: string;
+    name: string;
+    measure: ServiceMeasure;
+    field: keyof UsageVendorRow;
+  }[] = [
+    { id: "twilio", name: "Twilio (texts and WhatsApp)", measure: "messages", field: "messages" },
+    {
+      id: "calls",
+      name: "Twilio and ElevenLabs (calls)",
+      measure: "call_seconds",
+      field: "callSeconds",
+    },
+    { id: "resend", name: "Resend (email)", measure: "emails", field: "emails" },
+    {
+      id: "browser_run",
+      name: "Browser Run (website logins)",
+      measure: "browser_seconds",
+      field: "browserSeconds",
+    },
+    {
+      id: "twilio_verify",
+      name: "Twilio Verify (sign-in codes)",
+      measure: "verifications",
+      field: "verifications",
+    },
+    {
+      id: "plaid",
+      name: "Plaid (bank feeds)",
+      measure: "bank_item_months",
+      field: "bankItemMonths",
+    },
+  ];
+  for (const v of vendors) {
+    const q = quantities.get(v.measure) ?? 0;
+    if (q > 0) {
       byVendor.push({
-        id: "twilio",
-        name: "Twilio (texts and WhatsApp)",
-        costUsd: priced("messages", messages),
+        id: v.id,
+        name: v.name,
+        costUsd: priced(v.measure),
         estimated: true,
-        messages,
-      });
-    }
-    if (callSeconds > 0) {
-      byVendor.push({
-        id: "calls",
-        name: "Twilio and ElevenLabs (calls)",
-        costUsd: priced("call_seconds", callSeconds),
-        estimated: true,
-        callSeconds,
+        [v.field]: q,
       });
     }
   }
@@ -416,15 +446,22 @@ async function usageReport(
 
   // QA (usage costs): one source for cost and tokens (the lines), one for the counts (the
   // rollups), over the same UTC days and filters.
-  const [lines, counts, platform] = await Promise.all([
+  const [lines, counts, platform, services, units] = await Promise.all([
     spendLines(tx, tenantIds, query),
     countRows(tx, tenantIds, query),
     narrowed ? Promise.resolve([]) : backgroundDocuments(tx, tenantIds, query),
+    serviceLines(tx, tenantIds, query),
+    tx.select().from(billingUnitCost),
   ]);
-  const splits = await usageSplits(tx, tenantIds, query, lines);
+  const price = servicePrice(units);
+  const splits = await usageSplits(tx, tenantIds, query, lines, services, price);
 
   const agentIds = [
-    ...new Set([...counts.map((r) => r.agentId), ...lines.flatMap((l) => l.agentId ?? [])]),
+    ...new Set([
+      ...counts.map((r) => r.agentId),
+      ...lines.flatMap((l) => l.agentId ?? []),
+      ...services.flatMap((l) => (l.ours ? [] : (l.agentId ?? []))),
+    ]),
   ];
   const agents =
     agentIds.length > 0
@@ -456,6 +493,7 @@ async function usageReport(
       ...counts.map((r) => r.tenantId),
       ...platform.map((r) => r.tenantId),
       ...lines.flatMap((l) => (isBackOffice(l) || !l.tenantId ? [] : [l.tenantId])),
+      ...services.flatMap((l) => (l.ours || !l.tenantId ? [] : [l.tenantId])),
     ]),
   ];
   const clients =
@@ -555,6 +593,24 @@ async function usageReport(
     }
   }
 
+  // §1.210: what the other vendors cost, beside each row's model cost; ours is the back office's.
+  for (const l of services) {
+    const cost = price(l.measure, l.quantity);
+    if (!cost || cost.isZero()) continue;
+    const x: Sum = { ...zero(), services: cost };
+    if (l.ours) {
+      put(l.day, x, { tenantId: null, agentId: null, kind: "office" });
+      const b = backOfficeLines.get("services") ?? { answers: 0, cost: new Decimal(0) };
+      b.answers += l.measure === "browser_seconds" ? 0 : l.quantity;
+      b.cost = b.cost.plus(cost);
+      backOfficeLines.set("services", b);
+    } else if (l.agentId) {
+      put(l.day, x, { tenantId: l.tenantId, agentId: l.agentId, kind: "agent" });
+    } else {
+      put(l.day, x, { tenantId: l.tenantId, agentId: null, kind: "client" });
+    }
+  }
+
   const clientName = new Map(clients.map((c) => [c.id, c.name]));
   const template = new Map(templates.map((t) => [t.id, t]));
   return {
@@ -629,7 +685,7 @@ const serviceName = (a: { serviceName: string | null; name: string }) => a.servi
  * after), never drafts, agents in testing or a template's test copy.
  */
 // DECISION: a retired service keeps its page, so links from old runs and reports still open.
-const isService = (tenantId: string) =>
+export const isService = (tenantId: string) =>
   and(
     eq(agent.tenantId, tenantId),
     eq(agent.kind, "client"),

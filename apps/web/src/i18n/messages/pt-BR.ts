@@ -1156,6 +1156,7 @@ export const ptBR: Messages = {
   "reports.subtitle": "O que os seus agentes fizeram.",
   "reports.subtitlePeriod": "O que os seus agentes fizeram, {period}.",
   "reports.activity": "Atividade",
+  "reports.account": "Conta",
   "reports.period": "Período",
   "reports.period.month": "Este mês",
   "reports.period.last": "Mês passado",
@@ -1602,6 +1603,9 @@ export const ptBR: Messages = {
   "billing.soFarNote": "{period}. O valor final chega no início do próximo mês.",
   "billing.byService": "Por agente",
   "billing.statements": "Faturas",
+  // §1.234: the link to the work statement.
+  "billing.workStatement": "O que seus agentes fizeram a cada mês",
+  "billing.workDone": "Trabalho feito",
   "billing.noStatements": "Nenhuma fatura ainda. A primeira chega no início do próximo mês.",
   "billing.column.item": "Item",
   "billing.pricePerMonth": "{price} por mês",
@@ -2040,6 +2044,16 @@ export const ptBR: Messages = {
   "runsPage.ask.send": "Perguntar",
   "runsPage.ask.asking": "Perguntando…",
   "runsPage.ask.clear": "Limpar",
+  "runsPage.views.label": "Visualizações salvas",
+  "runsPage.views.save": "Salvar esta visualização",
+  "runsPage.views.name": "Nome da visualização",
+  "runsPage.views.namePlaceholder": "Dê um nome a esta visualização",
+  "runsPage.views.share": "Compartilhar com sua equipe",
+  "runsPage.views.shareShort": "Compartilhar",
+  "runsPage.views.stopSharing": "Parar de compartilhar",
+  "runsPage.views.shared": "Compartilhada",
+  "runsPage.views.by": "Compartilhada por {name}",
+  "runsPage.views.delete": "Excluir a visualização {name}",
   "runsPage.ask.unclear":
     "Não conseguimos transformar isso em um filtro. Tente citar um agente, um status ou uma data.",
   "runsPage.ask.leftOut": "Fora deste filtro: {parts}",
@@ -2288,6 +2302,7 @@ export const ptBR: Messages = {
   "home.weekly.ready": "Seu responsável enviou o resumo desta semana.",
   "agent.tab.overview": "Visão geral",
   "agent.tab.runs": "Execuções",
+  "agent.tab.report": "Relatório",
   "agent.tab.settings": "Configurações do agente",
   // B3: the agent manual (docs/builder-plan.md §5)
   "agent.tab.manual": "Manual", // fluent review
@@ -2526,6 +2541,84 @@ export const ptBR: Messages = {
   "workflow.card.ifFails": "Se falhar", // fluent review
   "workflow.card.inSop": "Etapa {step} no POP", // fluent review
   "workflow.close": "Fechar", // fluent review
+  // ── The workflow chart (shared with the builder) ──
+  "flow.zoomOut": "Diminuir zoom", // fluent review
+  "flow.zoomReset": "Voltar a 100%", // fluent review
+  "flow.zoomIn": "Aumentar zoom", // fluent review
+  "flow.fit": "Ajustar", // fluent review
+  "flow.key": "Legenda", // fluent review
+  "flow.keyLabel": "O que as marcas significam", // fluent review
+  "flow.dragHint": "Arraste o fundo para mover", // fluent review
+  "flow.otherwise": "Caso contrário", // fluent review
+  "flow.path": "Caminho {letter}", // fluent review
+  "flow.forEach": "Uma vez para cada item", // fluent review
+  "flow.repeat": "De novo até terminar", // fluent review
+  "flow.repeatUpTo": {
+    one: "De novo até terminar · até {count} vez",
+    other: "De novo até terminar · até {count} vezes",
+  }, // fluent review
+  "flow.stop": "Fim", // fluent review
+  "flow.neverRuns": "Nunca é executada", // fluent review
+  "flow.neverRuns.why": "Todos os caminhos acima terminam antes.", // fluent review
+  "flow.fold": "Recolher em uma só caixa", // fluent review
+  "flow.unfold": {
+    one: "Mostrar a {count} etapa de dentro",
+    other: "Mostrar as {count} etapas de dentro",
+  }, // fluent review
+  "flow.more": "e mais {count}", // fluent review
+  "flow.whyHere": "Por que está aqui: {purpose}", // fluent review
+  "flow.runsOn": "funciona com {model}", // fluent review
+  "flow.runsOnTitle": "Funciona com {model}", // fluent review
+  "flow.ai": "IA", // fluent review
+  "flow.doer.person": "pessoa", // fluent review
+  "flow.doer.personTitle": "Uma pessoa faz isto", // fluent review
+  "flow.doer.code": "código", // fluent review
+  "flow.doer.codeTitle": "Funciona como código, sem modelo", // fluent review
+  "flow.badge.aiSkill": "Habilidade de IA", // fluent review
+  "flow.badge.rulesSkill": "Habilidade com regras", // fluent review
+  "flow.mark.read": "Lê", // fluent review
+  "flow.mark.write": "Salva em nossos registros", // fluent review
+  "flow.mark.person": "Uma pessoa faz isto", // fluent review
+  "flow.mark.conversation": "Uma conversa com uma pessoa", // fluent review
+  "flow.mark.notify": "Avisa alguém", // fluent review
+  "flow.mark.wait": "Espera", // fluent review
+  "flow.mark.forEach": "Repete para cada item", // fluent review
+  "flow.mark.repeat": "Repete até terminar", // fluent review
+  "flow.mark.process": "Uma automação: etapas salvas", // fluent review
+  "flow.mark.handoff": "Passa para outro agente", // fluent review
+  "flow.mark.missing": "Ainda não construída", // fluent review
+  "flow.mark.readsFrom": "Lê de {name}", // fluent review
+  "flow.mark.readsFromAi": "Lê de {name}, com um modelo", // fluent review
+  "flow.mark.changes": "Altera {name}", // fluent review
+  "flow.mark.changesAi": "Altera {name}, com um modelo", // fluent review
+  "flow.mark.handoffTo": "Passa para {name}", // fluent review
+  "flow.mark.aiSkill": "Uma habilidade que um modelo faz", // fluent review
+  "flow.mark.rulesSkill": "Uma habilidade que funciona por regras", // fluent review
+  "flow.mark.ai": "Um modelo faz isto", // fluent review
+  "flow.key.connector": "Lê ou altera uma ferramenta conectada", // fluent review
+  "flow.key.ai": "Um modelo faz", // fluent review
+  "flow.key.rules": "Funciona por regras, sem modelo", // fluent review
+  "flow.channel.inbox": "A caixa de entrada", // fluent review
+  "flow.channel.email": "E-mail", // fluent review
+  "flow.channel.sms": "Mensagem de texto", // fluent review
+  "flow.channel.call": "Ligação", // fluent review
+  "flow.does.read": "Lê registros. Não altera nada.", // fluent review
+  "flow.does.write": "Altera ou salva um registro.", // fluent review
+  "flow.does.skill": "Aplica uma habilidade ao que as etapas anteriores produziram.", // fluent review
+  "flow.does.person": "Pergunta a uma pessoa e espera a resposta.", // fluent review
+  "flow.does.approve": "Pede a uma pessoa que aprove e espera a resposta.", // fluent review
+  "flow.does.ask": "Faz uma pergunta a uma pessoa e espera a resposta.", // fluent review
+  "flow.does.conversation": "Conversa com alguém até atingir seu objetivo.", // fluent review
+  "flow.does.notify": "Avisa alguém e segue.", // fluent review
+  "flow.does.if":
+    "Envia a execução pelo primeiro caminho cuja regra vale; senão, pelo caminho Caso contrário.", // fluent review
+  "flow.does.forEach": "Faz suas etapas uma vez para cada item de uma lista.", // fluent review
+  "flow.does.repeat": "Repete suas etapas até terminar ou chegar ao limite.", // fluent review
+  "flow.does.wait": "Pausa a execução por um tempo definido.", // fluent review
+  "flow.does.stop": "Termina a execução aqui.", // fluent review
+  "flow.does.process": "Executa uma automação: um conjunto de etapas salvo.", // fluent review
+  "flow.does.handoff": "Passa o trabalho para outro agente, que funciona sozinho.", // fluent review
+  "flow.does.missing": "Ocupa o lugar de uma etapa que ninguém construiu ainda.", // fluent review
   "manual.whatItDoes": "O que faz", // fluent review
   "manual.howItWorks": "Como funciona", // fluent review
   "manual.decisions": "Decisões", // fluent review
@@ -4043,4 +4136,122 @@ export const ptBR: Messages = {
     "Você decide o que pode rodar sem perguntar. As aprovações continuam ativas, a menos que você as altere.",
   "setup.live.fromCall": "Da nossa ligação: confira, por favor",
   // (end setup: live)
+  // §1.216: books health
+  "books.title": "Saúde da contabilidade",
+  "books.subtitle": "O que encontramos no seu QuickBooks, primeiro os maiores valores.",
+  "books.none": "Conecte o QuickBooks e verificamos sua contabilidade aqui.",
+  "books.syncing":
+    "Verificamos sua contabilidade quando a primeira sincronização do QuickBooks terminar.",
+  "books.asOf": "Em {day}",
+  "books.since": "com registros a partir de {day}",
+  "books.allClean": "Nenhuma verificação encontrou problemas.",
+  "books.clean": "Nada encontrado em: {checks}.",
+  "books.fixedBy": "{area} resolve isto",
+  "books.on": "Ativado",
+  "books.off": "Não ativado",
+  "books.examples": "Exemplos",
+  "books.check.unreconciled_accounts": "Contas não conciliadas",
+  "books.check.uncategorized": "Transações sem categoria",
+  "books.check.duplicate_vendors": "Fornecedores duplicados",
+  "books.check.duplicate_bills": "Contas a pagar duplicadas",
+  "books.check.receivables_aging": "Faturas vencidas",
+  "books.check.payables_aging": "Contas a pagar vencidas",
+  "books.check.negative_balances": "Saldos abaixo de zero",
+  "books.check.undeposited_funds": "Valores não depositados",
+  "books.check.price_drift": "Preços de fornecedores em alta",
+  // (end books health)
+  // §1.232: the Close pack
+  "close.title": "Fechamento do mês",
+  "close.description": "A lista de cada mês, seus lançamentos e a aprovação final.",
+  "close.empty": "Nenhum mês foi verificado ainda.",
+  "close.notChecked": "Este mês ainda não foi verificado.",
+  "close.loading": "Carregando o fechamento…",
+  "close.month": "Mês",
+  "close.periodOf": "De {start} a {end}",
+  "close.status.signed_off": "Fechado",
+  "close.ready": "Pronto para fechar",
+  "close.linesOpen": "Linhas abertas: {count}",
+  "close.signedOffBy": "Fechado por {name} em {day}",
+  "close.checklist": "Lista de fechamento",
+  "close.entries": "Lançamentos de diário",
+  "close.noEntries": "Nenhum lançamento neste mês.",
+  "close.item.open": "Aberta",
+  "close.item.done": "Feita",
+  "close.item.waived": "Dispensada",
+  "close.waivedBecause": "Dispensada: {note}",
+  "close.waive": "Dispensar",
+  "close.waiveReason": "Por que pode ficar aberta",
+  "close.unwaive": "Retirar a dispensa",
+  "close.reject": "Recusar",
+  "close.date": "Data",
+  "close.entry": "Lançamento",
+  "close.amount": "Valor",
+  "close.statusCol": "Situação",
+  "close.kind.accrual": "Provisão",
+  "close.kind.reversal": "Estorno",
+  "close.kind.recurring": "Recorrente",
+  "close.debit": "Débito",
+  "close.credit": "Crédito",
+  "close.entry.proposed": "Aguardando",
+  "close.entry.rejected": "Recusado",
+  "close.entry.posted": "Registrado",
+  "close.entry.failed": "Falhou",
+  "close.entry.superseded": "Substituído",
+  "close.entry.waitingSignature": "Aguardando uma assinatura",
+  "close.signOff": "Fechar o mês",
+  "close.signOffNote": "Uma observação para o registro (opcional)",
+  // (end close)
+  // Plan entry §1.233: the AP pack's Bills to pay and its approve-to-pay card.
+  "ap.bills.title": "Contas a pagar",
+  "ap.bills.description":
+    "As faturas de fornecedores de cada semana para aprovar, conferidas com seus pedidos. Nada é pago aqui.",
+  "ap.list.loading": "Carregando as faturas…",
+  "ap.list.empty": "Nenhuma fatura na lista desta semana.",
+  "ap.list.heading": {
+    one: "{count} fatura para {day}:",
+    other: "{count} faturas para {day}:",
+  },
+  "ap.list.needsYou": {
+    one: "{count} precisa de você",
+    other: "{count} precisam de você",
+  },
+  "ap.list.needsYouTitle": "Precisam de você",
+  "ap.list.ready": "Prontas para aprovar: {amount}",
+  "ap.list.approved": "Aprovadas: {amount}",
+  "ap.list.approveReady": "Aprovar as faturas prontas",
+  "ap.list.decided": "Decididas",
+  "ap.list.done": "Concluído nesta semana",
+  "ap.list.week": "Semana",
+  "ap.list.weekOf": "Semana de {day}",
+  "ap.status.open": "A decidir",
+  "ap.status.approved": "Aprovada",
+  "ap.status.held": "Em espera",
+  "ap.status.rejected": "Rejeitada",
+  "ap.bill.due": "Vence em {day}",
+  "ap.bill.order": "Pedido {reference}",
+  "ap.bill.noOrder": "Sem pedido",
+  "ap.bill.account": "Conta",
+  "ap.bill.chooseAccount": "Escolha uma conta",
+  "ap.bill.take": "Usar {account}",
+  "ap.bill.confirmOrder": "É este pedido",
+  "ap.bill.notThisOrder": "Não é este pedido",
+  "ap.bill.received": "Marcar o pedido como recebido",
+  "ap.bill.note": "Por quê (para colocar em espera, rejeitar ou aprovar uma fatura sinalizada)",
+  "ap.bill.approve": "Aprovar",
+  "ap.bill.hold": "Colocar em espera",
+  "ap.bill.reject": "Rejeitar",
+  "ap.flag.duplicate": "Duplicada",
+  "ap.flag.possible_duplicate": "Possível duplicada",
+  "ap.flag.price_over_order": "Preço acima do pedido",
+  "ap.flag.price_under_order": "Preço abaixo do pedido",
+  "ap.flag.unit_not_compared": "Outra unidade, não comparada",
+  "ap.flag.qty_over_order": "Mais faturado que pedido",
+  "ap.flag.qty_over_received": "Mais faturado que recebido",
+  "ap.flag.not_received": "Não marcado como recebido",
+  "ap.flag.amount_differs": "Total diferente do pedido",
+  "ap.flag.no_order": "Sem pedido de compra",
+  "ap.flag.order_to_confirm": "Pedido a confirmar",
+  "ap.flag.uncoded": "Linhas sem conta",
+  "ap.flag.read_again": "Lida de novo",
+  "ap.flag.other": "Aviso",
 };

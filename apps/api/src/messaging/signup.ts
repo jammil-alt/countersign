@@ -33,6 +33,7 @@ import { contact, contactChange, type Db, type Tx, tenant, withTenant } from "@c
 import { and, eq, gt, gte, inArray, isNotNull, or, sql } from "drizzle-orm";
 import type { Bindings } from "../env";
 import { HttpError } from "../http";
+import { meter } from "../metering";
 import { type Mailer, twilioTexter } from "../notify/mailer";
 import { isProductionEnv } from "../platform";
 import {
@@ -662,6 +663,13 @@ export async function sendTextInvitations(
         skip(id, "send_failed");
         continue;
       }
+      // §1.210: an invitation is the client's own usage.
+      await meter(s.tx, {
+        tenantId: s.tenantId,
+        measure: "emails",
+        source: "invitation",
+        key: `notify:text-invite-${row.id}-${n}`,
+      });
       await logContactChange(s.tx, s.tenantId, row.id, s.actorId, {
         kind: "text_invite",
         n,
