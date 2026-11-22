@@ -196,9 +196,13 @@ export function meteredLlm(
 async function insertMetered(tx: Tx, row: typeof meteredUsage.$inferInsert): Promise<void> {
   try {
     await tx.transaction(async (sp) => {
-      await sp.insert(meteredUsage).values(row).onConflictDoNothing({ target: meteredUsage.key });
+      await sp.insert(meteredUsage).values(row);
     });
   } catch (error) {
+    // Counted already: the key is taken. DECISION: a plain insert and this, never ON CONFLICT,
+    // which also holds the new row to the read policy, and a client's session may write but never
+    // read a row that is ours (Sloan's summary, a portal question with no account agent).
+    if (pgCode(error) === "23505") return;
     reportHandled("a metered cost was not recorded", error, {
       measure: row.measure,
       source: row.source,
@@ -254,4 +258,10 @@ export function tokensMeta(calls: readonly LlmCallRecord[]): {
     cacheReadTokens: sum((c) => c.usage.cacheReadTokens),
     cacheWriteTokens: sum((c) => c.usage.cacheWriteTokens),
   };
+}
+
+/** A Postgres error's code, through drizzle's wrapper. */
+function pgCode(error: unknown): string | undefined {
+  const e = error as { code?: string; cause?: { code?: string } } | null;
+  return e?.code ?? e?.cause?.code;
 }
