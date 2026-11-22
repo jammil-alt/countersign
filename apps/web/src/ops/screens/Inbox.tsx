@@ -8,7 +8,7 @@
 // - "Waiting on clients": every open item in the clients' inboxes, each saying whom it waits on
 //   and for how long.
 // The client filter comes from the address (`?client=`), so a client's page links here filtered;
-// the top bar's switcher is the one "All clients" control. We resolve only what the server marks as
+// its chip clears it (the top bar's picker only opens a client's page). We resolve only what the server marks as
 // ours; resolving resumes the waiting run; an approval can be taken back inside its undo window.
 import type { Escalation, OpsAgentRef } from "@countersign/core";
 import { useMemo, useState } from "react";
