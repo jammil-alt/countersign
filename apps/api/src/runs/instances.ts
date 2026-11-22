@@ -1,7 +1,7 @@
 // Starting and resuming RunWorkflow instances, behind a small interface so the API and the cron can
 // be tested without the Workflows engine. The instance id is the run id (ARCHITECTURE §10.3).
 
-import type { RunRequest } from "@countersign/workflows";
+import type { RunRange, RunRequest } from "@countersign/workflows";
 
 /**
  * RunWorkflow's params: the router's run request, plus what a retry repeats (v0.12 W1-E,
@@ -12,6 +12,8 @@ export type RunParams = RunRequest & {
   retryOf?: string;
   /** The top-level step it runs from; the steps before it are reused from `retryOf`. */
   resumeFrom?: string | null;
+  /** A test of some of the steps (docs/plan.md §1.185); kept on the run's row with its trigger. */
+  range?: RunRange;
 };
 
 export interface RunEvent {

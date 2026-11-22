@@ -6382,6 +6382,43 @@ action, not just mark it... if it is an issue, just because I say it is closed d
 | Not built | The client as an owner: no step yet sends an item to the client and closes it by their answer (the requirements request asks the intake form's fields, not an item). Until there is one, "Client" is only set by the fit-gap's preconditions. |
 | Checked | `apps/api/src/build-settled-by-step.test.ts` (done by hand refused, a drop, a note done, the Builder's close left out; a put-off gap given to engineering then the Builder, closed by its change and opened by its undo; a test closed by a full passing run and not by a failing or partial one), `apps/web/src/ops/builds/closeout.test.tsx` and `builds.test.tsx` (no selects; Put off, Drop it, Reopen; Take it up on a put-off gap). The skill build's go-live closing has no test of its own. |
 
+### 1.186 Made-up data for a test (owner, 2026-11-22; no migration)
+
+The owner: "how do we create data? For an item that would receive data let's have the AI make up
+data to feed through it and watch the run."
+
+| Topic | Decision |
+|---|---|
+| Where | The test bar (§1.185), under the boxes: "No data yet?", an optional line for what it should look like ("a $640 lumber bill"), and "Make up data". It fills the boxes the test already has: what started the run, and the output of each earlier step the picked ones read. The person reads it over, changes what they like, and runs the test as before; the bar then says it tried "made-up data". It does not start the run by itself: what is fed through is seen first. // DECISION |
+| What the model is given | The workflow's name, the names of the steps to be tried, and for each piece its JSON Schema and the references the steps read it by. A step's id never goes: a handle (`s1`) stands for it. No record, document, memory or setting of a client's. The operator's line and the names go between tags as data and can't close them. |
+| What comes back | One object per piece, through a tool (`make_test_data`). A piece the model leaves out gets the example of its shape (`sampleFromSchema`), and the bar says which. Nothing is checked against the schema beyond that: it is a box the person edits, and the run's own steps check what they read. // DECISION |
+| The route | `POST /api/ops/agents/:id/test-data` (operators; the agent must be one they can reach). Takes the draft as drawn, unsaved changes included, and the range. Refused as the test is (422 `invalid_range`) when the range can't be tested. Nothing is stored and nothing runs. |
+| Allowance, model and compliance | A draft like any other: the `assist.draft` allowance (20 a minute, 300 a day for each operator), the assist model, and the "draft with AI" feature's vendor check, so a client in HIPAA mode without the vendor's BAA is refused. No new kind, no new feature name. // DECISION |
+| What made-up data can't do | Be a stored record. A made-up document or bill id matches nothing, so a step that looks one up fails or finds nothing: the bar says so and points to a file for a document. Made-up data suits steps that take values (a decision, a rules skill, a message, a write shown as "would have done"). |
+| Not built | Making up a stored document, email or record for the test client to hold (a seeded example in the Sandbox). A check of the made-up data against each schema before it is shown. |
+| Checked | `packages/core/src/assist/test-data.test.ts` (the pieces of a range, handles for ids, tags that can't be closed, a piece left out), `apps/api/src/assist.test.ts` (what is sent to the model and what isn't, the answer by step id, operators only, a bad range), `apps/web/src/ops/flow/TryPanel.test.tsx` (the ask, the boxes filled, the run on it, a failure and a piece left out). |
+
+### 1.185 Testing some of the steps (owner, 2026-11-22; no migration)
+
+The owner: "Let's add a test button for the builder that allows you to select one step or
+multiple… you click test and it allows you to do all or select 1 or multiple consecutive steps…
+wherever you start it should allow you to add the relevant data, so if an email it triggers the
+email, if data then data etc and it then runs through the steps and we see the output of each
+step and then it goes through until the last step selected."
+
+| Topic | Decision |
+|---|---|
+| Where | Try it, on the chart's bar: it is the test, so there is one way to run a draft, not two. It asks "Which steps": all of them, or some, with a first and a last. Opened with a step selected on the chart, it starts from that one step. // DECISION |
+| What a range is | Top-level steps, as a retry's resume and a hand-off's start are: a decision or a loop is tested whole. Picking steps inside one is not built. // DECISION |
+| The engine | `RunRange { from?, to?, given? }` on the executor's context (`packages/workflows/src/executor.ts`). Steps before `from` are not run. One with something given gets a row (succeeded, "given for this test, not run") and its output stands for later steps to read. The run ends after `to` with `RunEnd` succeeded, reason `range`. Unlike a retry, a step before `from` with nothing given is not run again: the point is to run only what was picked. |
+| The route | `opsTestRun` takes `range` (test runs only, so nothing is ever written; a v4 workflow). It is refused (422 `invalid_range`, each reason in words) when a picked step reads an earlier step that was given nothing, since a missing reference reads as empty and the step would run on nothing; when a read is of a step inside an earlier decision or loop; when the steps are unknown or the wrong way round; or when what is given is over 256 KB. // DECISION |
+| Kept with the run | In the run row's `trigger` JSON beside its payload, and read back by `paramsOfRow`, so the reconciler restarts the same range. No column, no migration. The executor takes it only when the run's mode is `test`. // DECISION |
+| What it reads | Core `processes.rangeNeeds` (which earlier steps the picked ones read, whether they read the trigger, why a range can't be tested) and `rangeProblems` (with what was given), shared by the route and the bar. |
+| The data to start from | From the top: the trigger's input, as before (a file in the Sandbox, or JSON started from the trigger's sample). Further down: a box per earlier step that is read, filled from the last try here when it ran that step, else an example of the step's output shape (`sampleFromSchema`); and the trigger's input only when a picked step reads it. |
+| What it shows | "What each step did" under the bar, for any try: every row of the run in the order it ran, with its status, its summary and its output (20,000 characters at most; the rest is on the run's page). Steps outside the range are marked "Not part of this test" on the chart, and the bar says "It ran the steps you picked." |
+| Not built | A form per kind of trigger (an email's fields as fields): the input is JSON started from the trigger's sample. Picking steps inside a decision or a loop. A build's own try (suite mode) keeps running everything. |
+| Checked | `packages/workflows/src/range.test.ts` (all, to a step, from a step with what was given, one step alone, a step given nothing), `apps/api/src/actions.test.ts` (the refusals; a range run through the API on two QuickBooks writes: only the second runs, on what was given, nothing written; the row keeps the range), `apps/web/src/ops/flow/TryPanel.test.tsx` (the choice, the earlier step's output, the request, the marks, each step's output). In a browser on the seeded Bill clerk: Try it with step 2 open started a real test run of that one step, which ran alone and showed its row (it failed there on the sample's made-up document id). |
+
 ### 1.184 Each way a workflow starts, with its own first steps (owner, 2026-11-22; no migration)
 
 The owner, on a bookkeeper that pulls bank transactions on a schedule and should also start when a

@@ -9,6 +9,7 @@
 // with the reason and reported once.
 
 import { closeRunApprovalsTx } from "@countersign/agents";
+import { isPlainObject } from "@countersign/core";
 import {
   agent,
   type Db,
@@ -20,7 +21,7 @@ import {
   withTenant,
 } from "@countersign/db";
 import { emit } from "@countersign/senses";
-import type { RunRequest } from "@countersign/workflows";
+import type { RunRange, RunRequest } from "@countersign/workflows";
 import { and, eq, inArray, isNull, lt, ne, sql } from "drizzle-orm";
 import { reportHandled, reportProblem } from "../observability/report";
 import { queueFinishedRun } from "../run-audit/store";
@@ -73,7 +74,7 @@ export interface Reconciled {
 
 /** A run's start parameters, from its row: what the API or the dispatcher started it with. */
 export function paramsOfRow(r: typeof run.$inferSelect): RunParams {
-  const { payload, ...trigger } = (r.trigger ?? {}) as Record<string, unknown>;
+  const { payload, range, ...trigger } = (r.trigger ?? {}) as Record<string, unknown>;
   return {
     runId: r.id,
     tenantId: r.tenantId,
@@ -84,6 +85,8 @@ export function paramsOfRow(r: typeof run.$inferSelect): RunParams {
     trigger: trigger as unknown as RunRequest["trigger"],
     payload: payload ?? {},
     ...(r.retryOf ? { retryOf: r.retryOf, resumeFrom: r.resumeFrom ?? null } : {}),
+    // A test of some of the steps (docs/plan.md §1.185), kept with the trigger.
+    ...(isPlainObject(range) ? { range: range as RunRange } : {}),
   };
 }
 

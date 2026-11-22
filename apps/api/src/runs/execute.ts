@@ -687,6 +687,8 @@ export async function executeRun(
       timeout: STEP_CONFIG.timeout,
     },
     ...(loaded.resume ? { resume: loaded.resume } : {}),
+    // A test of some of the steps (docs/plan.md §1.185): a test run's only, whatever the row says.
+    ...(params.range && params.mode === "test" ? { range: params.range } : {}),
     // v0.12 W2-B
     ...(loaded.automations ? { automations: loaded.automations } : {}),
     // R3 (docs/plan.md §1.86): v3 workflows are read as v4 with the registries' view, the
