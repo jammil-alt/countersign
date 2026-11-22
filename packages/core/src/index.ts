@@ -335,6 +335,7 @@ export * from "./schemas/conversation";
 export * from "./schemas/event";
 export * from "./schemas/json-schemas";
 export * from "./schemas/pack";
+export * from "./schemas/pack-config";
 export * from "./schemas/permissions";
 // §1.213: file and email intake's report profiles.
 export * from "./schemas/report-profile";

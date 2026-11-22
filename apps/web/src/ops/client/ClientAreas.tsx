@@ -9,7 +9,7 @@ import {
   type ConnectionSummaryView,
   type ConnectorCardView,
 } from "@countersign/core";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import type { ResponseOf } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
@@ -30,6 +30,9 @@ import {
 import { StatusChip } from "../../ui/status";
 import { clientConnectorPath } from "../connectors/ClientConnector";
 import { ClientFrame, clientPagePath } from "./ClientFrame";
+
+// §1.230: a pack's settings, loaded only for a pack that has some.
+const PackSettings = lazy(() => import("../../packs/PackSettings"));
 
 type Area = ResponseOf<typeof apiRoutes.opsClientPacks>["packs"][number];
 type Need = Area["connections"][number];
@@ -116,10 +119,16 @@ function AreaCard({
           <Badge tone="positive" testId={`ops-client-area-on-${area.id}`}>
             On
           </Badge>
-        ) : (
+        ) : area.config.fields.length === 0 ? (
           <EnableButton clientId={clientId} pack={area.id} onDone={onChanged} />
-        )}
+        ) : null}
       </div>
+      {area.config.fields.length > 0 ? (
+        <Suspense fallback={null}>
+          <PackSettings clientId={clientId} area={area} onChanged={onChanged} />
+        </Suspense>
+      ) : null}
+      {area.processors.length > 0 ? <Vendors area={area} /> : null}
       {connections && area.connections.length > 0 ? (
         <div className="mt-4">
           <SectionLabel>Connections it needs</SectionLabel>
@@ -147,6 +156,27 @@ function AreaCard({
       {/* P-9 */}
       {area.enabled && area.id === "materials" ? <ImportBillPrices clientId={clientId} /> : null}
     </Card>
+  );
+}
+
+/**
+ * §1.230: the vendors of ours the area sends this client's data to, beyond its steps' models and
+ * its connections; one HIPAA mode holds back says so (its features refuse it where they're used).
+ */
+function Vendors({ area }: { area: Area }) {
+  const held = area.processors.filter((p) => p.heldForHipaa);
+  return (
+    <p
+      className="mt-3 flex flex-wrap items-center gap-2 text-sm text-ink-muted"
+      data-testid={`ops-client-area-vendors-${area.id}`}
+    >
+      Also sends data to {area.processors.map((p) => p.name).join(", ")}.
+      {held.length > 0 ? (
+        <Badge tone="warning" testId={`ops-client-area-held-${area.id}`}>
+          Held in HIPAA mode: {held.map((p) => p.name).join(", ")}
+        </Badge>
+      ) : null}
+    </p>
   );
 }
 

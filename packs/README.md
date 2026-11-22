@@ -12,3 +12,12 @@ for the tenant.
 
 A pack may import `core`, `db`, `llm`, `senses`, `documents` and `connectors`; never `agents` or
 `workflows` (`scripts/check-deps.mjs`).
+
+## A new pack (docs/plan.md §1.230)
+
+Every pack's manifest is core's `PackManifest` (its comments say what each field is): `id`, `name`,
+`area`, its `config` fields with their defaults, `processors` (vendors of ours it sends data to),
+`connections`, `tools`, `skills`, `events`, `templates` (approval on in every writing step),
+`screens` and `reports`. Register it in `apps/api/src/packs.ts` with its handlers, reports and
+reviews, and the operator installs it from the client page's Areas tab with configuration only.
+The pack reads a client's configuration with `packConfigOf(manifest.config, tenant.settings, id)`.

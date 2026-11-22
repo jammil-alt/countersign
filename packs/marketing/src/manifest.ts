@@ -75,6 +75,12 @@ export const marketingManifest: PackManifest = lazyParse(PackManifest, () => ({
   version: "0.1.0",
   description:
     "The Marketing area for the client's own websites: measurement without cookies or kept IP addresses, search figures, the content of its guides, a weekly report, and agents that draft articles, posts and forum replies for a person to sign.",
+  area: "marketing",
+  config: [],
+  // §1.230: none of its own: measurement is our infrastructure; its connectors and research tools
+  // are gated where they are called.
+  processors: [],
+  reports: Object.keys(MARKETING_REPORTS),
   requiresConnectors: [],
   // §1.162: the connections the Marketing area works through, for the client page's Areas tab.
   // Measurement is the area's own collector, so it needs none.
