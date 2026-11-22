@@ -1,4 +1,4 @@
-// `services.desktop` (docs/plan.md §1.151, §1.199; migration 0080): the `desktop` connector's
+// `services.desktop` (docs/plan.md §1.151, §1.204; migration 0080): the `desktop` connector's
 // tools hand one job at a time to it; it queues a `desktop_job` row for the connection's paired
 // computer and waits for the answer the computer posts (desktop/jobs.ts, routes/desktop.ts).
 // Nothing holds a transaction while it waits: a Worker's database has one pooled connection, so

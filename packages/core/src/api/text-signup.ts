@@ -28,8 +28,11 @@ export const TextSignupView = z.object({
   number: z.string().nullable(),
   terms: z.string(),
   wordingVersion: z.number().int(),
-  /** `signed_up`: already agreed to texts; `declined`: said "don't ask me again". */
-  state: z.enum(["open", "signed_up", "declined"]),
+  /**
+   * `signed_up`: already agreed to texts; `used`: an invitation already used by a submit that
+   * signed no one up (it signs up once); `declined`: said "don't ask me again".
+   */
+  state: z.enum(["open", "signed_up", "used", "declined"]),
 });
 export type TextSignupView = z.infer<typeof TextSignupView>;
 

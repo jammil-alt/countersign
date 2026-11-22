@@ -7,7 +7,7 @@ import { connectionDefaults, connectionLevel, describeAccess } from "@countersig
 import { describe, expect, it } from "vitest";
 import { deploymentConnectors } from "./platform";
 
-// §1.199: the desktop app is registered with the rest now.
+// §1.204: the desktop app is registered with the rest now.
 const connectors = deploymentConnectors({}, false);
 
 describe("what a new connection starts with", () => {

@@ -459,7 +459,7 @@ function withDocuments(
   });
 }
 
-/** §1.199: jobs for a paired computer, for the desktop connector's tools only. */
+/** §1.204: jobs for a paired computer, for the desktop connector's tools only. */
 function withDesktop(
   base: NonNullable<RuntimeDeps["services"]>,
   db: Db,

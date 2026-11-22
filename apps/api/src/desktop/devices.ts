@@ -1,4 +1,4 @@
-// A client's computers with the Mezonas desktop app (docs/plan.md §1.151, §1.199; migration 0080).
+// A client's computers with the Mezonas desktop app (docs/plan.md §1.151, §1.204; migration 0080).
 // A client admin pairs a computer from the app: it becomes its own `desktop` connection, whose
 // `config` holds the computer and the folders it gives (the connector's `DesktopConfig`), and a
 // `desktop_device` row holds the public half of its key. Every later request from the computer is

@@ -1,4 +1,4 @@
-// The computer's side of its jobs (docs/plan.md §1.151, §1.199; migration 0080): it takes them on
+// The computer's side of its jobs (docs/plan.md §1.151, §1.204; migration 0080): it takes them on
 // a long poll (`takeJobs`) and answers each once (`answerJob`). `services.desktop` queues them and
 // waits for the answers (desktop/services.ts). Nothing holds a transaction while it waits.
 

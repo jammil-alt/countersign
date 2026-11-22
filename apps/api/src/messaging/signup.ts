@@ -258,6 +258,35 @@ async function inviteHistory(
   return out;
 }
 
+/**
+ * Whether this invitation was used: a sign-up (or a skipped one) through an invitation logged
+ * since it was sent (its expiry less TEXT_INVITE_DAYS).
+ */
+// DECISION: an invitation signs up once, so it sends at most one confirmation text. "Used" is read
+// from the contact's log: no table or token id is needed. The page asks it too (§1.197), so a used
+// invitation says it was used rather than showing a form that can only answer 409 `used`.
+async function invitationUsed(
+  tx: Tx,
+  tenantId: string,
+  contactId: string,
+  expires: number,
+): Promise<boolean> {
+  const sentAt = new Date((expires - TEXT_INVITE_DAYS * 24 * 60 * 60) * 1000);
+  const [used] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(contactChange)
+    .where(
+      and(
+        eq(contactChange.tenantId, tenantId),
+        eq(contactChange.contactId, contactId),
+        gte(contactChange.createdAt, sentAt),
+        sql`${contactChange.change}->>'kind' in ('opt_in', 'text_signup_skipped')`,
+        sql`${contactChange.change}->>'via' = 'invitation'`,
+      ),
+    );
+  return (used?.n ?? 0) > 0;
+}
+
 /** The page for a link, or null when the link is no good (the page says so, nothing more). */
 export async function viewTextSignup(
   db: Db,
@@ -282,7 +311,15 @@ export async function viewTextSignup(
     const row = await contactOf(tx, payload.t, payload.c);
     if (!row) return null;
     const history = (await inviteHistory(tx, payload.t, [row.id])).get(row.id);
-    const state = signedUp(row) ? "signed_up" : history?.declined ? "declined" : "open";
+    // Signed up first: an invitation used by their own sign-up says so. Then used (by a skipped
+    // submit, or a sign-up since withdrawn), as a submit would answer 409 `used`.
+    const state = signedUp(row)
+      ? "signed_up"
+      : (await invitationUsed(tx, payload.t, row.id, payload.e))
+        ? "used"
+        : history?.declined
+          ? "declined"
+          : "open";
     return { ...base, kind: "invitation" as const, name: row.name, phone: row.phone, state };
   });
 }
@@ -326,6 +363,52 @@ export async function submitTextSignup(
   if (!isNanpNumber(phone)) {
     throw new HttpError(422, "invalid_phone", "Enter a US or Canadian mobile number.");
   }
+  // DECISION: two submits at once with one new number (an invitation and the link, or two
+  // invitations) both find it free, and the later write hits `contact_phone_key`. Postgres raises
+  // that only once the other submit has committed, so the whole submit runs again and answers as a
+  // submit just after it would: on the link, the number is found and nothing is sent twice; on an
+  // invitation, a clean 409 `number_taken`. A third go is not tried: 409 `try_again` (§1.197).
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await submitOnce(db, payload, phone, body, origin, now);
+    } catch (error) {
+      if (!isPhoneTaken(error)) throw error;
+      if (attempt >= 2) {
+        throw new HttpError(
+          409,
+          "try_again",
+          "Someone was signing up with this number at the same moment. Try again.",
+        );
+      }
+    }
+  }
+}
+
+/** Another contact of this client has the number the invited person typed. */
+function numberTaken(t: TenantRow): HttpError {
+  return new HttpError(
+    409,
+    "number_taken",
+    `That number belongs to someone else in ${t.name}'s contacts. Enter your own mobile number, or ask ${t.name}.`,
+  );
+}
+
+/** A write that broke the client's one-contact-per-number index (`contact_phone_key`). */
+function isPhoneTaken(error: unknown): boolean {
+  type PgError = { code?: unknown; constraint_name?: unknown; cause?: PgError } | null | undefined;
+  const e = error as PgError;
+  const pg = e?.code === "23505" ? e : e?.cause;
+  return pg?.code === "23505" && pg.constraint_name === "contact_phone_key";
+}
+
+function submitOnce(
+  db: Db,
+  payload: TextSignupToken,
+  phone: string,
+  body: TextSignupSubmitInput,
+  origin: { ip: string | null; userAgent: string | null },
+  now: Date,
+): Promise<TextSignupDone> {
   return withTenant(db, payload.t, async (tx) => {
     const t = await tenantOf(tx, payload.t);
     if (!t) throw gone();
@@ -400,24 +483,9 @@ export async function submitTextSignup(
         .where(and(eq(contact.id, payload.c), eq(contact.tenantId, payload.t)))
         .for("update");
       if (!found) throw gone();
-      // DECISION: an invitation signs up once, so it sends at most one confirmation text. "Used"
-      // is a sign-up (or a skipped one, below) through an invitation logged since this one was
-      // sent (its expiry less TEXT_INVITE_DAYS): no table or token id is needed. Checked first, so
-      // a used invitation answers the same whatever number is typed.
-      const sentAt = new Date((payload.e - TEXT_INVITE_DAYS * 24 * 60 * 60) * 1000);
-      const [used] = await tx
-        .select({ n: sql<number>`count(*)::int` })
-        .from(contactChange)
-        .where(
-          and(
-            eq(contactChange.tenantId, payload.t),
-            eq(contactChange.contactId, found.id),
-            gte(contactChange.createdAt, sentAt),
-            sql`${contactChange.change}->>'kind' in ('opt_in', 'text_signup_skipped')`,
-            sql`${contactChange.change}->>'via' = 'invitation'`,
-          ),
-        );
-      if ((used?.n ?? 0) > 0) {
+      // Used (a sign-up or a skipped one, below) is checked first, so a used invitation answers
+      // the same whatever number is typed.
+      if (await invitationUsed(tx, payload.t, found.id, payload.e)) {
         throw new HttpError(
           409,
           "used",
@@ -440,9 +508,15 @@ export async function submitTextSignup(
       row = found;
       if (row.phone !== phone) {
         // Their own number: the old one's consent for texts and calls goes with it (§1.22).
-        row = await updateContact(tx, payload.t, row.id, { phone }, null, {
-          log: { via: "text_signup" },
-        });
+        try {
+          row = await updateContact(tx, payload.t, row.id, { phone }, null, {
+            log: { via: "text_signup" },
+          });
+        } catch (error) {
+          // Another contact has it: said in words the person on the page can act on.
+          if (error instanceof HttpError && error.code === "contact_exists") throw numberTaken(t);
+          throw error;
+        }
       }
       row = await recordTextSignup(
         tx,

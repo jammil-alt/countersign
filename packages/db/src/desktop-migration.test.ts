@@ -1,4 +1,4 @@
-// Migration 0080 (docs/plan.md §1.151, §1.199): `desktop_device`, a client's paired computers, and
+// Migration 0080 (docs/plan.md §1.151, §1.204): `desktop_device`, a client's paired computers, and
 // `desktop_job`, the jobs queued for them. The Worker's role sees and writes only its own client's
 // rows, never deletes one, changes only the columns the guard allows, a removed computer keeps no
 // key, and the lookup names the client of a paired computer only.

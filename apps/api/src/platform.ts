@@ -516,7 +516,7 @@ export function deploymentConnectors(
     // own Odoo, registered everywhere; the client admin enters the address, database, login and
     // API key of an Odoo user made for us. Nothing to configure for the deployment.
     createOdooConnector(),
-    // §1.151, §1.199: folders on a client's computer through the Mezonas desktop app; registered
+    // §1.151, §1.204: folders on a client's computer through the Mezonas desktop app; registered
     // everywhere. A client admin pairs a computer from the app, never from the portal's Connect.
     createDesktopConnector(),
     ...(production

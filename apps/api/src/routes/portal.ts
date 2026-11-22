@@ -973,6 +973,8 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
         userId: session.user.id,
         item: shown,
         decision: body.decision,
+        answer: body.answer,
+        note: body.note,
         signature: body.deviceSignature,
         now: new Date(),
       });
@@ -991,6 +993,7 @@ export function portalRouteHandlers(app: Hono<AppEnv>): void {
           decision: body.decision ?? "",
           fingerprint: body.deviceSignature.fingerprint,
           at: body.deviceSignature.at,
+          version: body.deviceSignature.version ?? "v1",
         },
       });
     }

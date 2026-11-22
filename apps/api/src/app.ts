@@ -267,7 +267,7 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   setupLinkRoutes(app);
   // §1.116: the phone app
   mobileRoutes(app);
-  // docs/plan.md §1.199: the desktop app (pairing, folders, and the computer's signed routes).
+  // docs/plan.md §1.204: the desktop app (pairing, folders, and the computer's signed routes).
   desktopApiRoutes(app);
   // §1.154: approving a sign-in on the phone
   signInApprovalRoutes(app);

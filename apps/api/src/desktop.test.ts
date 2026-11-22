@@ -1,4 +1,4 @@
-// The desktop app's API against a real database as cs_worker (docs/plan.md §1.151, §1.199):
+// The desktop app's API against a real database as cs_worker (docs/plan.md §1.151, §1.204):
 // pairing a computer and its folders (a client admin only), the computer's signed requests
 // (signature, time and key checked; a removed computer refused), jobs queued by `services.desktop`
 // and answered once, files into documents, and the contract: no route returns the computer's key.

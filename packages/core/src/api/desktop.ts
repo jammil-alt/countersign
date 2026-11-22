@@ -1,4 +1,4 @@
-// The desktop app's routes (docs/plan.md §1.151, §1.199): pairing a computer and the folders it
+// The desktop app's routes (docs/plan.md §1.151, §1.204): pairing a computer and the folders it
 // gives, with a client admin's session; then the computer's own requests, each signed with its key
 // (DESKTOP_DEVICE_HEADER, DESKTOP_TIME_HEADER, DESKTOP_SIGNATURE_HEADER over `desktopRequestText`).
 // The signed routes are `public` here: no session, the signature is the credential (as an inbound

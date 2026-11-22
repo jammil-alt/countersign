@@ -1,4 +1,4 @@
-// The desktop app's routes (docs/plan.md §1.151, §1.199). Pairing, removing and the folder list
+// The desktop app's routes (docs/plan.md §1.151, §1.204). Pairing, removing and the folder list
 // are session routes for a client admin (`mount()`: roles, the client's scope, the audit row).
 // Jobs, results and files come from the computer itself, signed with its key: no session, the
 // signature, time and key are checked first (`checkDeviceRequest`), and each is audited alone
