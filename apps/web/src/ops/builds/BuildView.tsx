@@ -43,10 +43,12 @@ import {
   type QaCheckId,
   SETTLE_WAYS,
   SETTLE_WORDS,
+  SETUP_GUARDS,
   SETUP_KINDS,
   SETUP_WORDS,
   type SettleWay,
   type SetupField,
+  type SetupGuard,
   type SetupKind,
   settledByStep,
   type TestPlan,
@@ -1640,6 +1642,13 @@ function SetupKindChoice({
   );
 }
 
+/** G10: the stage a client's answer to an intake field holds. */
+const FIELD_GUARD_WORDS: Record<SetupGuard, string> = {
+  setup: "Holds setup",
+  trial: "Holds the trial",
+  live: "Holds go-live",
+};
+
 /**
  * A template's client intake form: what we get from each client to set up their copy. The Builder
  * drafts it in the fit-gap; the operator edits, adds and takes fields out, and saves with the
@@ -1747,14 +1756,35 @@ function SetupFormCard({
                 )}
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   {editing ? (
-                    <SetupKindChoice
-                      label={`Kind: ${f.label}`}
-                      value={f.kind}
-                      testId={`build-setup-${f.id}-kind`}
-                      onChange={(kind) => edit(f.id, { kind })}
-                    />
+                    <span className="flex flex-wrap items-center gap-2">
+                      <SetupKindChoice
+                        label={`Kind: ${f.label}`}
+                        value={f.kind}
+                        testId={`build-setup-${f.id}-kind`}
+                        onChange={(kind) => edit(f.id, { kind })}
+                      />
+                      {/* G10: which stage the client's answer holds. */}
+                      <Select
+                        aria-label={`Holds: ${f.label}`}
+                        className="w-auto"
+                        value={f.guards ?? "setup"}
+                        data-testid={`build-setup-${f.id}-guards`}
+                        onChange={(e) => edit(f.id, { guards: e.target.value as SetupGuard })}
+                      >
+                        {SETUP_GUARDS.map((g) => (
+                          <option key={g} value={g}>
+                            {FIELD_GUARD_WORDS[g]}
+                          </option>
+                        ))}
+                      </Select>
+                    </span>
                   ) : (
-                    <Tag>{SETUP_WORDS[f.kind]}</Tag>
+                    <span className="flex flex-wrap items-center gap-2">
+                      <Tag>{SETUP_WORDS[f.kind]}</Tag>
+                      {f.guards && f.guards !== "setup" ? (
+                        <Tag>{FIELD_GUARD_WORDS[f.guards]}</Tag>
+                      ) : null}
+                    </span>
                   )}
                   <button
                     type="button"

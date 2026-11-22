@@ -142,6 +142,16 @@ function boundsWords(b: AdjustableSetting["bounds"]): string {
   return "within its limits";
 }
 
+/** "between 2026-01-01 and 2026-12-31", "on or after 2026-01-01", "on or before 2026-12-31". */
+function dateBoundsWords(b: AdjustableSetting["bounds"]): string {
+  if (b?.earliest !== undefined && b.latest !== undefined) {
+    return `between ${b.earliest} and ${b.latest}`;
+  }
+  if (b?.earliest !== undefined) return `on or after ${b.earliest}`;
+  if (b?.latest !== undefined) return `on or before ${b.latest}`;
+  return "within its limits";
+}
+
 /**
  * What a client's new value for a setting does, by code: applied (within the bounds, or a number
  * moved to its tighter side from where it is now), a request to us (beyond the bounds), or
@@ -152,8 +162,9 @@ function boundsWords(b: AdjustableSetting["bounds"]): string {
 // bounds", §7): a number moved to its `tighter` side from the value it has now. A setting with no
 // `tighter` has no tightening; past its bounds it is a request. Options and schedules have no
 // order, so any value not on their list is a request.
-// DECISION: dates and text with no options take any value of their kind: they have no bounds to
-// keep. A date's min and max are not read (bounds are decimals).
+// DECISION: text with no options takes any words. A date keeps its own limits (`earliest`,
+// `latest`, G11), judged as a number's are: outside them a request, unless past the stricter side
+// and stricter than now.
 export function judgeAdjustment(
   setting: Pick<AdjustableSetting, "target" | "bounds" | "tighter">,
   raw: string,
@@ -177,9 +188,24 @@ export function judgeAdjustment(
   if (type === "text") return { outcome: "apply", value: text, text, tightens: false };
   if (type === "date") {
     const ok = /^\d{4}-\d{2}-\d{2}$/.test(text) && !Number.isNaN(Date.parse(`${text}T00:00:00Z`));
-    return ok
-      ? { outcome: "apply", value: text, text, tightens: false }
-      : { outcome: "invalid", reason: "Write a date such as 2026-12-24." };
+    if (!ok) return { outcome: "invalid", reason: "Write a date such as 2026-12-24." };
+    // G11: a date's limits, judged as a number's are (dates in this form compare as text).
+    const b = setting.bounds;
+    const before = b?.earliest !== undefined && text < b.earliest;
+    const after = b?.latest !== undefined && text > b.latest;
+    const now = typeof current === "string" ? current : null;
+    const tightens =
+      now !== null &&
+      ((setting.tighter === "lower" && text < now) || (setting.tighter === "higher" && text > now));
+    if (!before && !after) return { outcome: "apply", value: text, text, tightens };
+    const pastTightSide =
+      (before && setting.tighter === "lower") || (after && setting.tighter === "higher");
+    if (pastTightSide && tightens) return { outcome: "apply", value: text, text, tightens: true };
+    return {
+      outcome: "request",
+      text,
+      reason: `It is outside what we set up: ${dateBoundsWords(b)}.`,
+    };
   }
   const code = type === "money" ? /\b([A-Z]{3})\b/.exec(text)?.[1] : undefined;
   const n = numberText(type === "money" ? text.replace(/\b[A-Z]{3}\b/, "") : text);
@@ -263,6 +289,8 @@ export function recordAdjustment(
   text: string,
   actor: AdjustActor,
   at: string,
+  /** Where it was set, for a new row's why (G11: "the setup checklist"). */
+  where = "the agent's settings",
 ): AgentManual {
   const manual: AgentManual = readManual(manualRaw) ?? {
     whatItDoes: "",
@@ -292,7 +320,7 @@ export function recordAdjustment(
   const row: Decision = {
     id: ownId,
     what: `${setting.label}: ${text}`.slice(0, 300),
-    why: `Set by ${who} on the agent's settings.`.slice(0, 500),
+    why: `Set by ${who} on ${where}.`.slice(0, 500),
     kind: "client_setup",
     risk: "normal",
     ...changed,
@@ -351,8 +379,9 @@ export function adjustView(
       hint: s.hint,
       kind: s.target.kind === "schedule" ? "schedule" : s.target.type,
       current: adjustValueText(value),
-      min: s.bounds?.min ?? null,
-      max: s.bounds?.max ?? null,
+      // G11: a date's limits read as its low and high.
+      min: s.bounds?.min ?? s.bounds?.earliest ?? null,
+      max: s.bounds?.max ?? s.bounds?.latest ?? null,
       options: s.bounds?.options ?? null,
       tighter: s.tighter ?? null,
       changedBy: d && (audience === "operator" || side === "client") ? (d.by ?? null) : null,

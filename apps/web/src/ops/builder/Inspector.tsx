@@ -174,6 +174,11 @@ export interface InspectorProps {
    * less used settings into "More settings". Absent: as it always was.
    */
   layout?: "panel" | undefined;
+  /**
+   * G11: an edit of the whole bundle (one undo), for what a step's panel sets on the agent's
+   * definition: a step's own parameter marked as client-adjustable.
+   */
+  onBundle?: ((fn: (b: ProcessAgentBundle) => ProcessAgentBundle, key: string) => void) | undefined;
 }
 
 function errorsFor(errors: readonly BuilderProblem[], node: string): FieldErrors {
@@ -474,7 +479,13 @@ function StepInspector(props: InspectorProps & { step: Step }) {
     ) : null;
   const parameters =
     step.kind === "skill" && skill ? (
-      <StepParameters step={step} skill={skill} bundle={props.bundle} set={set} />
+      <StepParameters
+        step={step}
+        skill={skill}
+        bundle={props.bundle}
+        set={set}
+        onBundle={props.onBundle}
+      />
     ) : null;
   const version =
     step.kind === "skill" && skill && props.agentId && props.onMoveSkill ? (
