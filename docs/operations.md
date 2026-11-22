@@ -29,6 +29,7 @@ Mezonas is the product name and the name of every public resource; `countersign`
 | WorkOS | staging environment | production environment |
 | MCP server (Claude connector, operators) | `https://staging.mezonas.com/mcp` | `https://app.mezonas.com/mcp` |
 | Rate limit namespace (`MCP_RATE_LIMIT`) | `1101` | `1102` |
+| Rate limit namespace (`INBOUND_TARGET_RATE_LIMIT`, the beacon per site) | `1111` | `1112` |
 
 `apps/api/wrangler.jsonc`'s top level is local development only (dev sign-in) and is never deployed:
 `deploy.yml` always passes `--env=staging` or `--env=production`. The custom domains are created by
@@ -819,7 +820,7 @@ What to check against Stripe's docs and a test-mode account before the first rea
 | Repository secret | Settings → Secrets and variables → Actions | `NEON_API_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
 | Repository variable | same page, Variables tab | `NEON_PROJECT_ID` |
 | Environment secret | Settings → Environments → `staging` / `production` | `WORKOS_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY` (xAI's Grok), `GEMINI_API_KEY` (Google's Gemini) (one per environment; a repository secret also works; the model keys after Anthropic's are optional) |
-| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `RAMP_CLIENT_ID`, `RAMP_CLIENT_SECRET` (Ramp), `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` (HubSpot), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook), `PLAID_CLIENT_ID`, `PLAID_SECRET` (bank and card feeds), `BILL_DEV_KEY` (BILL, plan §1.87), `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` (Slack), `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER` (Google Sheets' picking, public values), `GOOGLE_CHAT_SERVICE_ACCOUNT`, `GOOGLE_CHAT_PROJECT_NUMBER` (Google Chat), `META_APP_ID`, `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`, `META_CONFIG_ID` (WhatsApp through Meta) |
+| Environment secret (when each provider is set up) | same place | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` (texts and calls), `ELEVENLABS_API_KEY`, `ELEVENLABS_WEBHOOK_SECRET` (calls), `RESEND_API_KEY` (email), `RESEND_WEBHOOK_SECRET` (Resend's webhook endpoint `/api/hooks/resend`, events `email.delivered` and `email.bounced`: the onboarding emails' delivered and bounced, plan §1.220), `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` (billing): the deploy copies each into the Worker only when it is set, `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET` (Zoho CRM), `PODIO_CLIENT_ID`, `PODIO_CLIENT_SECRET` (Podio), `RAMP_CLIENT_ID`, `RAMP_CLIENT_SECRET` (Ramp), `HUBSPOT_CLIENT_ID`, `HUBSPOT_CLIENT_SECRET` (HubSpot), `OUTLOOK_CLIENT_ID`, `OUTLOOK_CLIENT_SECRET` (Outlook), `PLAID_CLIENT_ID`, `PLAID_SECRET` (bank and card feeds), `BILL_DEV_KEY` (BILL, plan §1.87), `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET` (Slack), `GOOGLE_PICKER_API_KEY`, `GOOGLE_PROJECT_NUMBER` (Google Sheets' picking, public values), `GOOGLE_CHAT_SERVICE_ACCOUNT`, `GOOGLE_CHAT_PROJECT_NUMBER` (Google Chat), `META_APP_ID`, `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`, `META_CONFIG_ID` (WhatsApp through Meta) |
 | Environment secret (sign-in codes, plan §1.100) | same place | `TWILIO_VERIFY_API_KEY_SID` (`SK…`), `TWILIO_VERIFY_API_KEY_SECRET`: a Standard API key of the Twilio subaccount that holds the environment's Verify service, copied into the app's Worker when set |
 | Environment secret (the code service) | same place | `MFA_TWILIO_ACCOUNT_SID`, `MFA_TWILIO_AUTH_TOKEN`: the codes Twilio subaccount, copied into the code service's Worker only |
 | Environment variable (email) | Settings → Environments → Variables | `RESEND_FALLBACK_DOMAIN`, `RESEND_FALLBACK_DOMAIN_ID`: our own sending domain until a client's is verified; passed to the Worker as vars |
@@ -1353,11 +1354,13 @@ Settings page in the back office (with a reason). It can only be switched on onc
 would receive its data has a signed BAA. Those vendors are listed in `BAA_PROCESSORS` in
 `apps/api/wrangler.jsonc`, per environment. Add a vendor there by pull request only after its BAA
 is signed, and keep the signed copy. The ids are `cloudflare`, `neon`, `workos`, `anthropic`,
-`openai`, `xai`, `google`, `twilio`, `meta_whatsapp`, `elevenlabs`, `resend`, `plaid`, `billcom`
-and `expo_push` (the full list is `PROCESSORS` in `packages/core/src/compliance/processors.ts`). The
+`openai`, `xai`, `google`, `twilio`, `meta_whatsapp`, `elevenlabs`, `resend`, `plaid`, `billcom`,
+`expo_push` and `claude_ai` (the full list is `PROCESSORS` in `packages/core/src/compliance/processors.ts`). The
 first three are needed for any HIPAA client. `anthropic` is needed for agents and document reading.
 `plaid` is needed to offer the bank feed, `billcom` the BILL connector, and `expo_push` phone
-notifications. `openai`,
+notifications. `claude_ai` is Anthropic's BAA for Claude's apps, not its API: until it is listed,
+the back office's MCP connector leaves a client in HIPAA mode out and refuses calls about it or
+across the clients an operator serves (`docs/plan.md` §1.190). `openai`,
 `xai` and `google` are needed only for agents set to their models (`openai:`, `xai:`, `google:`
 ids); `google` is the Gemini API on our key, not a client's own Google account. M50: website measurement is
 held for a client in HIPAA mode whatever is listed: its site's beacons are answered and nothing is
@@ -1388,6 +1391,17 @@ disconnected. Then:
    conversation); each change made stays in the audit log (`reggie …`). The audit log keeps the
    client's rows (ids only). Neon's point-in-time history holds the deleted rows until its
    restore window passes.
+
+**The deletion drill (`docs/plan.md` §1.218).** Once a year, show the purge works end to end:
+on staging, as `cs_owner` (break-glass, as for the purge), run
+`DIRECT_DATABASE_URL=… pnpm --filter @countersign/db run db:deletion-drill`. It makes a throwaway
+Sandbox client (never the seeded Sandbox) with weeks of demo rows, its own two people and its own
+operator; retires it; purges it with `purgeClient`, as the workflow does; then checks no row in any
+table names it, that the purge deleted exactly its rows in every table that names a client, that its
+people are gone and that `client.purge` is in the audit log. The result is written to the audit log
+as `client.deletion_drill` and shows on `/ops/security/soc2`. It needs the seed's platform
+templates, so it never runs on production. If it fails, the output names each failed check and the
+drill client's id; a client left behind is retired and is purged with Purge client.
 
 **Exporting a client's data.** The terms promise an export on request until 30 days after the
 service ends. Start it with `POST /api/ops/clients/<id>/exports` (a reason is optional) and list it

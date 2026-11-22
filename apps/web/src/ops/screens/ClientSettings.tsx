@@ -8,20 +8,28 @@
 // `/exports` redirects here) and Retire client. The tools it is
 // offered are on Setup, Connections.
 import type { ExternalApprover, OpsClientSettings } from "@countersign/core";
-import { type ReactNode, useEffect, useState } from "react";
+import { lazy, type ReactNode, Suspense, useEffect, useState } from "react";
 import { Link, NavLink, useLocation, useParams } from "react-router-dom";
 import { isApiError } from "../../api/client";
 import { apiRoutes } from "../../api/routes";
 import { useApi, useApiClient } from "../../api/useApi";
+import { EN } from "../../i18n/i18n";
 import { InviteForm, MemberList } from "../../people/Members";
 import { inviteMessage } from "../../people/People";
 import { Field, TextInput } from "../../ui/forms";
 import { Section } from "../../ui/page";
 import { Badge, Button, Card, ErrorNotice, Loading } from "../../ui/primitives";
+import { TimeZoneSelect } from "../../ui/TimeZoneSelect";
 import { ClientExportsSection } from "../client/ClientExports";
 import { ClientFrame, clientPagePath, useClientPage } from "../client/ClientFrame";
 import { ClientApproverRules } from "./ClientApproverRules";
 import { ClientBillingSection } from "./ClientBilling";
+
+// §1.234: the work statement loads when Billing opens, with its route's schema and words.
+const ClientWorkStatement = lazy(() =>
+  import("./ClientWorkStatement").then((m) => ({ default: m.ClientWorkStatement })),
+);
+
 import { ClientComplianceSetting, ClientRetireSetting } from "./ClientComplianceSetting";
 import { ClientFeedbackSetting } from "./ClientFeedbackSetting";
 import { ClientChannelsSection, ClientHoursSection } from "./ClientHours";
@@ -108,6 +116,13 @@ function SectionBody({ clientId, section }: { clientId: string; section: Setting
           }
         >
           <ClientBillingSection clientId={clientId} />
+          <div className="mt-8">
+            <Titled title="Work statement">
+              <Suspense fallback={null}>
+                <ClientWorkStatement clientId={clientId} />
+              </Suspense>
+            </Titled>
+          </div>
         </Titled>
       );
     case "compliance":
@@ -359,10 +374,11 @@ function Details({ settings, onSave }: { settings: OpsClientSettings; onSave: Sa
           hint="Schedules run in this timezone."
           className="min-w-0 flex-1 basis-64"
         >
-          <TextInput
+          <TimeZoneSelect
+            aria-label="Timezone"
             data-testid="ops-client-settings-timezone"
             value={timezone}
-            onChange={(e) => setTimezone(e.target.value)}
+            onChange={setTimezone}
           />
         </Field>
       </div>
@@ -437,7 +453,7 @@ function Approvals({ settings, onSave }: { settings: OpsClientSettings; onSave: 
           {settings.approvals.changes.map((c) => (
             <li key={c.id}>
               Changed to {APPROVER_LABEL[c.to]} by {c.by?.name ?? c.by?.email ?? "someone"} on{" "}
-              {new Date(c.createdAt).toLocaleDateString()}
+              {EN.fmt.date(c.createdAt)}
               {c.reason ? (
                 <>
                   : <span className="text-ink">{c.reason}</span>

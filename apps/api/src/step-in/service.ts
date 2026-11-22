@@ -30,7 +30,9 @@ import { conversationEventOfItem, itemWakePayload } from "../converse/wake";
 import { isDirectorySuggestion } from "../directory/suggestions";
 import { HttpError, notFound } from "../http";
 import {
+  ensureSeen,
   type InboxRow,
+  type ResolveInput,
   type ResolveOutcome,
   type RunWake,
   resolveInboxItem,
@@ -114,10 +116,17 @@ export async function stepIn(
     registry: EventTypeRegistry;
     collect: EventRow[];
     now: Date;
+    /**
+     * Audit 3.4: the item as the operator saw it and how the back office shows it now
+     * (`ResolveInput.seen`). Compared once, under the lock and before any edit sent with an
+     * approval, so the edit itself is never taken for a change.
+     */
+    seen?: ResolveInput["seen"];
   },
 ): Promise<StepInOutcome> {
   const { tenantId, body } = input;
   const item = await lockOpenItem(tx, tenantId, input.itemId);
+  await ensureSeen(item, input.seen);
   refuseGenericResolve(item);
   if (item.status !== "open") {
     throw new HttpError(409, "not_open", "this item is no longer waiting on anyone");

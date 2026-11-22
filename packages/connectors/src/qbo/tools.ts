@@ -15,7 +15,12 @@ import {
 } from "../connector";
 import { QboApiError, type QboClient, qboLiteral, qboRequestId } from "./api";
 import { qboArTools } from "./ar";
-import { depositCreateTool, purchaseCreateTool, transferCreateTool } from "./banking";
+import {
+  bankingFindTool,
+  depositCreateTool,
+  purchaseCreateTool,
+  transferCreateTool,
+} from "./banking";
 import { billCreateTool } from "./bill-create";
 import {
   attachDisplay,
@@ -24,6 +29,7 @@ import {
   updatePurchaseCostDisplay,
 } from "./display";
 import { qboIngredientTools } from "./ingredients";
+import { journalCreateTool } from "./journal";
 import { ledgerWriteTools } from "./ledger-writes";
 import {
   QboAttachment,
@@ -771,9 +777,13 @@ export function qboTools(clientFor: ClientFor): ToolDefinition[] {
     purchaseCreateTool(clientFor),
     depositCreateTool(clientFor),
     transferCreateTool(clientFor),
+    // docs/plan.md §1.187: a booking already written, found by its mark before writing again.
+    bankingFindTool(clientFor),
     // The ledger's set-up (owner, 2026-11-08): accounts, classes and locations, always signed.
     ...ledgerWriteTools(clientFor),
     // R-1 (docs/plan.md §1.80): an account's register, for reconciliation.
     registerTool(clientFor),
+    // docs/plan.md §1.232: the Close pack's journal entries (accruals, reversals, recurring).
+    journalCreateTool(clientFor),
   ];
 }

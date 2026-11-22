@@ -8,11 +8,14 @@
 // model, the tokens by client, agent, model and action (`?tokens=`, docs/plan.md §1.115), then the
 // months.
 import {
+  BACK_OFFICE_SPEND_LABELS,
   dec,
   MODEL_PROVIDER_NAMES,
   type ModelProvider,
   providerModelName,
+  UNRECORDED_MODEL,
   type UsageFigures,
+  type UsageModelRow,
   type UsageReport,
   type UsageVendorRow,
 } from "@countersign/core";
@@ -141,7 +144,8 @@ export function isEmptyFigures(f: UsageFigures): boolean {
     f.externalActions === 0 &&
     f.tokensIn === 0 &&
     f.tokensOut === 0 &&
-    dec(f.costUsd).isZero()
+    dec(f.costUsd).isZero() &&
+    dec(f.servicesUsd ?? "0").isZero()
   );
 }
 
@@ -153,6 +157,52 @@ interface Row {
   sub?: React.ReactNode;
   total: UsageFigures;
   byMonth: UsageReport["byMonth"];
+}
+
+/**
+ * QA (usage costs, 2026-11-22): the spend in the total that is no client agent's, as rows of their
+ * own so the table adds up to the Model cost tile: the back office's (Reggie, the Builder, builds)
+ * on Clients and Client agents, and the clients' own reading and translation on Client agents
+ * (on Clients it is already in each client's row). Templates are a part of the whole: no rows.
+ */
+function otherRows(view: View, data: UsageReport): Row[] {
+  if (view === "templates") return [];
+  const out: Row[] = [];
+  const bg = data.background;
+  if (view === "agents" && bg && !isEmptyFigures(bg.total)) {
+    out.push({
+      key: "background",
+      name: <span className="font-medium text-ink">No agent</span>,
+      sub: (
+        <span className="text-sm text-ink-muted">
+          The clients' own reading and translation, no agent asked for
+        </span>
+      ),
+      total: bg.total,
+      byMonth: bg.byMonth,
+    });
+  }
+  const office = data.backOffice;
+  if (
+    office &&
+    !(dec(office.total.costUsd).isZero() && dec(office.total.servicesUsd ?? "0").isZero())
+  ) {
+    out.push({
+      key: "back-office",
+      name: <span className="font-medium text-ink">Back office</span>,
+      sub: (
+        <span className="text-sm text-ink-muted">
+          {office.lines
+            .map((l) => `${BACK_OFFICE_SPEND_LABELS[l.id]} ${cost(l.costUsd)}`)
+            .join(" · ")}
+          , not part of any client
+        </span>
+      ),
+      total: office.total,
+      byMonth: office.byMonth,
+    });
+  }
+  return out;
 }
 
 function rowsFor(view: View, data: UsageReport, onTemplate: (id: string) => void): Row[] {
@@ -434,6 +484,10 @@ function UsageReportView({
   const thisMonth = data.byMonth.at(-1);
   const allRows = rowsFor(view, data, onTemplate);
   const rows = showAll ? allRows : allRows.filter((r) => !isEmptyFigures(r.total));
+  const others = otherRows(view, data);
+  // Clients and client agents, with the rows of spend that is no client agent's, add up to the
+  // total; templates are a part of it.
+  const sums = view !== "templates";
   const months = [...data.byMonth].reverse();
   const shownMonths = showAll ? months : months.filter((m) => !isEmptyFigures(m.figures));
   const hidden = allRows.length - rows.length + (months.length - shownMonths.length);
@@ -505,11 +559,11 @@ function UsageReportView({
       )}
 
       <Section action={toggle}>
-        {allRows.length === 0 ? (
+        {allRows.length === 0 && others.length === 0 ? (
           <EmptyState>
             No usage in this period. Runs and their cost show here once agents run.
           </EmptyState>
-        ) : rows.length === 0 ? (
+        ) : rows.length === 0 && others.length === 0 ? (
           <EmptyState>Nothing was used in this period. Show all to list every row.</EmptyState>
         ) : (
           <TableCard
@@ -532,10 +586,16 @@ function UsageReportView({
                   ))}
                   <th className="n">Runs</th>
                   <th className="n">Total</th>
+                  <th
+                    className="n"
+                    title="Texts, calls, email, browser time, sign-in codes and bank feeds, at our unit costs: an estimate, not in the total"
+                  >
+                    Services
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
+                {[...rows, ...others].map((r) => (
                   <tr key={r.key} data-testid={`ops-usage-row-${r.key}`}>
                     <td>
                       <span className="flex flex-col py-1">
@@ -550,9 +610,27 @@ function UsageReportView({
                     ))}
                     <td className="n">{count(r.total.runs)}</td>
                     <td className="n text-ink">{cost(r.total.costUsd)}</td>
+                    <td className="n">{cost(r.total.servicesUsd ?? "0")}</td>
                   </tr>
                 ))}
               </tbody>
+              {sums ? (
+                <tfoot>
+                  <tr data-testid="ops-usage-row-total" className="border-t border-line">
+                    <td className="font-medium text-ink">Total</td>
+                    {data.byMonth.map((m) => (
+                      <td key={m.month} className="n font-medium text-ink">
+                        {cost(m.figures.costUsd)}
+                      </td>
+                    ))}
+                    <td className="n font-medium text-ink">{count(data.total.runs)}</td>
+                    <td className="n font-medium text-ink">{cost(data.total.costUsd)}</td>
+                    <td className="n font-medium text-ink">
+                      {cost(data.total.servicesUsd ?? "0")}
+                    </td>
+                  </tr>
+                </tfoot>
+              ) : null}
             </table>
           </TableCard>
         )}
@@ -599,12 +677,46 @@ function UsageReportView({
 
 /** What a vendor's usage was, in a few words: "3 model calls", "12 messages", "2 minutes". */
 function vendorUsage(v: UsageVendorRow): string {
+  if (v.fees !== undefined) return plural(v.fees, "fee");
   if (v.messages !== undefined) return plural(v.messages, "message");
+  if (v.emails !== undefined) return plural(v.emails, "email");
+  if (v.verifications !== undefined) return plural(v.verifications, "sign-in code");
+  if (v.bankItemMonths !== undefined) return plural(v.bankItemMonths, "bank month");
+  if (v.browserSeconds !== undefined) {
+    return `${plural(Math.ceil(v.browserSeconds / 60), "minute")} of browsing`;
+  }
   if (v.callSeconds !== undefined) {
     const minutes = Math.ceil(v.callSeconds / 60);
     return `${plural(minutes, "minute")} of calls`;
   }
+  if (v.id === "unrecorded") return "Steps with no call record";
   return plural(v.calls ?? 0, "model call");
+}
+
+/** A model row's name: its label, or what the row is when no record names a model. */
+function ModelName({ row, label }: { row: UsageModelRow; label: string | undefined }) {
+  if (row.model === UNRECORDED_MODEL) {
+    return (
+      <span className="flex flex-col py-1">
+        <span className="text-ink">Not itemised by model</span>
+        <span className="text-sm text-ink-muted">
+          Steps with no call record, and answers that name no model
+        </span>
+      </span>
+    );
+  }
+  const unpriced = row.unpricedCalls ?? 0;
+  return (
+    <span className="flex flex-col py-1">
+      <span className="text-ink">{label ?? providerModelName(row.model)}</span>
+      <span className="text-sm text-ink-muted">
+        {MODEL_PROVIDER_NAMES[row.provider as ModelProvider] ?? row.provider}
+        {unpriced > 0
+          ? ` · ${plural(unpriced, "call")} had no price, so ${unpriced === 1 ? "it counts" : "they count"} as $0.00`
+          : ""}
+      </span>
+    </span>
+  );
 }
 
 /**
@@ -620,7 +732,15 @@ function UsageSplits({ data }: { data: UsageReport }) {
   return (
     <Columns count={2}>
       {byVendor.length > 0 ? (
-        <TableCard title="By vendor" meta="What the work cost us" testId="ops-usage-vendors">
+        <TableCard
+          title="By vendor"
+          meta={
+            byVendor.some((v) => v.estimated || v.id === "provider_fees")
+              ? "What the work cost us. Fees and estimates are not in the model cost; unit costs are unverified."
+              : "What the work cost us"
+          }
+          testId="ops-usage-vendors"
+        >
           <table data-testid="ops-usage-by-vendor">
             <thead>
               <tr className="dt-cols">
@@ -666,20 +786,27 @@ function UsageSplits({ data }: { data: UsageReport }) {
             </thead>
             <tbody>
               {byModel.map((m) => (
-                <tr key={`${m.provider}:${m.model}`} data-testid={`ops-usage-model-${m.model}`}>
+                <tr
+                  key={`${m.provider}:${m.model}`}
+                  data-testid={`ops-usage-model-${m.model || "unrecorded"}`}
+                >
                   <td>
-                    <span className="flex flex-col py-1">
-                      <span className="text-ink">
-                        {label(m.model) ?? providerModelName(m.model)}
-                      </span>
-                      <span className="text-sm text-ink-muted">
-                        {MODEL_PROVIDER_NAMES[m.provider as ModelProvider] ?? m.provider}
-                      </span>
-                    </span>
+                    <ModelName row={m} label={label(m.model)} />
                   </td>
-                  <td className="n">{count(m.calls)}</td>
+                  <td className="n">{m.model === UNRECORDED_MODEL ? "" : count(m.calls)}</td>
                   <td className="n">{count(m.tokensIn + m.tokensOut)}</td>
-                  <td className="n text-ink">{cost(m.costUsd)}</td>
+                  <td className="n text-ink">
+                    {(m.unpricedCalls ?? 0) > 0 ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Badge tone="warning" testId={`ops-usage-model-${m.model}-unpriced`}>
+                          No price
+                        </Badge>
+                        {cost(m.costUsd)}
+                      </span>
+                    ) : (
+                      cost(m.costUsd)
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

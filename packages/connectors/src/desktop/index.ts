@@ -336,6 +336,10 @@ export function createDesktopConnector(): Connector {
     // DECISION: paired from the desktop app, not connected from the portal: no sign-in to a
     // provider, and no secret on our side (the computer signs its own requests).
     auth: "none",
+    // DECISION (§1.204): never connected from the portal's Connect: a connection with no computer
+    // could do nothing. Pairing in the app (POST /api/desktop/devices) is the one way in, and makes
+    // the connection itself; the portal shows this connector as not available to connect.
+    isConfigured: () => false,
     entities: [],
     permissionEntities: [
       { id: "file", label: "Files", verbs: ["read", "create"] },

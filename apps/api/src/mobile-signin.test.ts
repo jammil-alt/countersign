@@ -2,7 +2,9 @@
 // the API with a fake WorkOS and an in-memory code service: the phone's sign-in is held at the
 // step like any password sign-in, even on a browser remembered for 30 days; the handoff sends a
 // pending session back to the step and hands over only a passed one; the app then uses the
-// session in its header, and the audit log names the phone sign-in.
+// session in its header, and the audit log names the phone sign-in. §1.219: the handoff waits on
+// a page that names the app (the phone or the desktop app) until the person presses Open; Cancel,
+// another site's request and a used sign-in hand over nothing; every end is audited with the app.
 
 import { sealSession, type WorkOSAuthentication, type WorkOSClient } from "@countersign/auth";
 import { memoryCodeVerifier } from "@countersign/connectors";
@@ -155,6 +157,24 @@ describe.skipIf(!h)("signing in from the phone app with the second step on", () 
       .where(and(eq(auditEvent.action, action), eq(auditEvent.actorUserId, userId)))
       .orderBy(asc(auditEvent.id));
 
+  /** The confirm page's Open (or Cancel), as the page sends it: JSON from our own origin. */
+  async function confirm(b: Browser, open = true, env: Partial<Bindings> = {}) {
+    return request(b, "POST", "/api/mobile/handoff", {
+      env,
+      body: { open },
+      headers: { origin: "https://staging.mezonas.test", "sec-fetch-site": "same-origin" },
+    });
+  }
+
+  /** The browser at the handoff once signed in: the confirm page, then Open; the app's link. */
+  async function handOver(b: Browser, env: Partial<Bindings> = {}) {
+    const at = await request(b, "GET", "/api/mobile/handoff", { env });
+    expect([at.status, at.location]).toEqual([302, "/sign-in/app"]);
+    const opened = await confirm(b, true, env);
+    expect(opened.status, JSON.stringify(opened.json)).toBe(200);
+    return String(opened.json.redirectTo);
+  }
+
   const browser = new Browser();
   let code = "";
   let phone = "";
@@ -213,12 +233,27 @@ describe.skipIf(!h)("signing in from the phone app with the second step on", () 
       body: { kind: "sms", code: "135790" },
     });
     expect(passed.status, JSON.stringify(passed.json)).toBe(200);
-    const r = await request(browser, "GET", "/api/mobile/handoff");
-    expect(r.status).toBe(302);
-    expect(r.location?.startsWith("mezonas://signed-in?code=")).toBe(true);
-    code = new URL(r.location ?? "").searchParams.get("code") ?? "";
+    const at = await request(browser, "GET", "/api/mobile/handoff");
+    expect([at.status, at.location]).toEqual([302, "/sign-in/app"]);
+    // §1.219: nothing is handed over until the person answers the page.
+    expect(browser.jar.has("__Host-cs_session")).toBe(true);
+    expect(browser.jar.has("__Host-cs_mobile")).toBe(true);
+    const pending = await request(browser, "GET", "/api/mobile/handoff/pending");
+    expect(pending.status, JSON.stringify(pending.json)).toBe(200);
+    expect(pending.json).toMatchObject({ app: "phone" });
+    expect(pending.json.email).toContain("@");
+    const opened = await confirm(browser);
+    expect(opened.status, JSON.stringify(opened.json)).toBe(200);
+    const to = String(opened.json.redirectTo);
+    expect(to.startsWith("mezonas://signed-in?code=")).toBe(true);
+    code = new URL(to).searchParams.get("code") ?? "";
     expect(browser.jar.has("__Host-cs_session")).toBe(false);
     expect(browser.jar.has("__Host-cs_mobile")).toBe(false);
+    expect((await audits("session.mobile_handoff", H.B.admin)).at(-1)).toMatchObject({
+      outcome: "ok",
+      actorKind: "user",
+      target: { app: "phone" },
+    });
   });
 
   it("gives the app its session for its verifier, then answers it in the header", async () => {
@@ -233,6 +268,7 @@ describe.skipIf(!h)("signing in from the phone app with the second step on", () 
     expect((await audits("session.mobile_sign_in", H.B.admin)).at(-1)).toMatchObject({
       outcome: "ok",
       actorKind: "user",
+      target: { app: "phone" },
     });
 
     const me = await request(null, "GET", "/api/session", {
@@ -332,10 +368,10 @@ describe.skipIf(!h)("signing in from the phone app with the second step on", () 
     await asWorkOSUser(H.B.admin, "SSO");
     const b = new Browser();
     await signInFrom(b, `/api/mobile/sign-in?challenge=${CHALLENGE}`);
-    const handed = await request(b, "GET", "/api/mobile/handoff");
+    const handed = await handOver(b);
     const again = await request(null, "POST", "/api/mobile/session", {
       body: {
-        code: new URL(handed.location ?? "").searchParams.get("code") ?? "",
+        code: new URL(handed).searchParams.get("code") ?? "",
         verifier: VERIFIER,
       },
     });
@@ -414,8 +450,7 @@ describe.skipIf(!h)("signing in from the phone app with the second step on", () 
     expect(await signInFrom(b, `/api/mobile/sign-in?challenge=${CHALLENGE}`)).toBe(
       "/api/mobile/handoff",
     );
-    const r = await request(b, "GET", "/api/mobile/handoff");
-    expect(r.location?.startsWith("mezonas://signed-in?code=")).toBe(true);
+    expect((await handOver(b)).startsWith("mezonas://signed-in?code=")).toBe(true);
   });
 
   it("refuses an operator at the handoff: no code, and the browser keeps its session", async () => {
@@ -430,9 +465,13 @@ describe.skipIf(!h)("signing in from the phone app with the second step on", () 
     expect(r.location).toBe("mezonas://signed-in?error=operator");
     expect(b.jar.has("__Host-cs_mobile")).toBe(false);
     expect(b.jar.has("__Host-cs_session")).toBe(true);
+    expect((await audits("session.mobile_handoff", H.operator)).at(-1)).toMatchObject({
+      outcome: "refused",
+      target: { app: "phone", reason: "operator" },
+    });
   });
 
-  it("answers 404 on all three routes unless MOBILE_SIGNIN is on", async () => {
+  it("answers 404 on every sign-in route unless MOBILE_SIGNIN is on", async () => {
     await asWorkOSUser(H.B.admin);
     const off = { TWILIO_VERIFY_SERVICE_SID: "" };
     const b = new Browser();
@@ -450,6 +489,10 @@ describe.skipIf(!h)("signing in from the phone app with the second step on", () 
       expect([start.status, start.json?.error?.code]).toEqual([404, "not_found"]);
       const handoff = await request(b, "GET", "/api/mobile/handoff", { env });
       expect([handoff.status, handoff.location]).toEqual([404, null]);
+      const pending = await request(b, "GET", "/api/mobile/handoff/pending", { env });
+      expect([pending.status, pending.json?.error?.code]).toEqual([404, "not_found"]);
+      const opened = await confirm(b, true, env);
+      expect([opened.status, opened.json?.error?.code]).toEqual([404, "not_found"]);
       // The browser's sign-in is untouched.
       expect(b.jar.has("__Host-cs_session")).toBe(true);
       const redeem = await request(null, "POST", "/api/mobile/session", {
@@ -467,7 +510,95 @@ describe.skipIf(!h)("signing in from the phone app with the second step on", () 
     expect(await signInFrom(b, `/api/mobile/sign-in?challenge=${CHALLENGE}`, off)).toBe(
       "/api/mobile/handoff",
     );
-    const r = await request(b, "GET", "/api/mobile/handoff", { env: off });
-    expect(r.location?.startsWith("mezonas://signed-in?code=")).toBe(true);
+    expect((await handOver(b, off)).startsWith("mezonas://signed-in?code=")).toBe(true);
+  });
+
+  it("names the desktop app in every audit row of its sign-in, and on the page", async () => {
+    await asWorkOSUser(H.B.admin, "SSO");
+    const b = new Browser();
+    expect(await signInFrom(b, `/api/mobile/sign-in?challenge=${CHALLENGE}&app=desktop`)).toBe(
+      "/api/mobile/handoff",
+    );
+    expect((await audits("session.sign_in", H.B.admin)).at(-1)).toMatchObject({
+      outcome: "ok",
+      target: { app: "desktop" },
+    });
+    await request(b, "GET", "/api/mobile/handoff");
+    const pending = await request(b, "GET", "/api/mobile/handoff/pending");
+    expect(pending.json).toMatchObject({ app: "desktop" });
+    const opened = await confirm(b);
+    const to = String(opened.json.redirectTo);
+    expect(to.startsWith("mezonas://signed-in?code=")).toBe(true);
+    expect((await audits("session.mobile_handoff", H.B.admin)).at(-1)).toMatchObject({
+      outcome: "ok",
+      target: { app: "desktop" },
+    });
+    const r = await request(null, "POST", "/api/mobile/session", {
+      body: { code: new URL(to).searchParams.get("code") ?? "", verifier: VERIFIER },
+    });
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    expect((await audits("session.mobile_sign_in", H.B.admin)).at(-1)).toMatchObject({
+      outcome: "ok",
+      target: { app: "desktop" },
+    });
+  });
+
+  it("refuses an app it doesn't know", async () => {
+    const r = await request(
+      new Browser(),
+      "GET",
+      `/api/mobile/sign-in?challenge=${CHALLENGE}&app=tablet`,
+    );
+    expect([r.status, r.location]).toEqual([302, "mezonas://signed-in?error=bad_request"]);
+  });
+
+  it("hands nothing over on Cancel: the browser keeps its session, and the sign-in is over", async () => {
+    await asWorkOSUser(H.B.admin, "SSO");
+    const b = new Browser();
+    await signInFrom(b, `/api/mobile/sign-in?challenge=${CHALLENGE}&app=desktop`);
+    await request(b, "GET", "/api/mobile/handoff");
+    const cancelled = await confirm(b, false);
+    expect(cancelled.json).toEqual({ redirectTo: "/" });
+    expect(b.jar.has("__Host-cs_mobile")).toBe(false);
+    expect(b.jar.has("__Host-cs_session")).toBe(true);
+    expect((await audits("session.mobile_handoff", H.B.admin)).at(-1)).toMatchObject({
+      outcome: "refused",
+      target: { app: "desktop", reason: "cancelled" },
+    });
+    // Open afterwards (a second tab, Back) finds no sign-in to finish.
+    const late = await confirm(b, true);
+    expect(late.json).toEqual({ redirectTo: "mezonas://signed-in?error=no_start" });
+    const pending = await request(b, "GET", "/api/mobile/handoff/pending");
+    expect([pending.status, pending.json?.error?.code]).toEqual([404, "no_start"]);
+  });
+
+  it("never hands over to a request from another site or without the page", async () => {
+    await asWorkOSUser(H.B.admin, "SSO");
+    const b = new Browser();
+    await signInFrom(b, `/api/mobile/sign-in?challenge=${CHALLENGE}`);
+    const crossSite = await request(b, "POST", "/api/mobile/handoff", {
+      body: { open: true },
+      headers: { origin: "https://elsewhere.example", "sec-fetch-site": "cross-site" },
+    });
+    expect(crossSite.status).toBe(403);
+    // A plain form post (no JSON) is refused too, so a page can't submit one for the person.
+    const form = await H.app.request(
+      "/api/mobile/handoff",
+      {
+        method: "POST",
+        headers: {
+          cookie: b.header(),
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: "open=true",
+      },
+      H.env,
+      { waitUntil: () => {}, passThroughOnException: () => {}, props: {} } as never,
+    );
+    expect(form.status).toBeGreaterThanOrEqual(400);
+    // The browser still holds both: the sign-in waits for the person.
+    expect(b.jar.has("__Host-cs_session")).toBe(true);
+    expect(b.jar.has("__Host-cs_mobile")).toBe(true);
+    expect((await handOver(b)).startsWith("mezonas://signed-in?code=")).toBe(true);
   });
 });

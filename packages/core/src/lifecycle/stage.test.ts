@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import { LOCALES } from "../i18n/locale";
 import { decideToolCall } from "../permissions/decide";
 import {
+  clientAgentCounts,
   DEFAULT_TRIAL_MIN_DAYS,
   DEFAULT_TRIAL_MIN_RUNS,
   effectiveMode,
   goLiveCounts,
   goLiveItem,
+  isCountedAgent,
   isLiveAgent,
   nextStage,
   readStageState,
@@ -179,5 +181,29 @@ describe("live, one meaning (design pass)", () => {
         { runStatus: "paused", stage: "live" },
       ]),
     ).toEqual({ bench: 1, trial: 2, signoff: 0, live: 1 });
+  });
+
+  it("counts one set of a client's agents: no test copies, retired or discarded agents", () => {
+    // The Demo client as QA found it: Sloan live, two agents in trial, a template's test copy and
+    // a retired agent. Every page says 3 agents, 1 live, 2 in trial.
+    const agents = [
+      { runStatus: "active", stage: "live", testCopy: false },
+      { runStatus: "active", stage: "trial", testCopy: false },
+      { runStatus: "active", stage: "trial", testCopy: false },
+      { runStatus: "active", stage: "bench", testCopy: true },
+      { runStatus: "retired", stage: "live", testCopy: false },
+      { runStatus: "draft", stage: "bench", testCopy: false, status: "disabled" },
+    ];
+    expect(clientAgentCounts(agents)).toEqual({
+      total: 3,
+      bench: 0,
+      trial: 2,
+      signoff: 0,
+      live: 1,
+    });
+    // A draft is one of the client's agents, not started yet.
+    expect(isCountedAgent({ runStatus: "draft", testCopy: false })).toBe(true);
+    expect(isCountedAgent({ runStatus: null })).toBe(true);
+    expect(isCountedAgent({ runStatus: "active", kind: "template" })).toBe(false);
   });
 });

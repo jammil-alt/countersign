@@ -1,7 +1,7 @@
 // The still frame (docs/audit-plan.md 1.1) as React draws it: the twin of the one in index.html's
 // #root, shown while the session (and its language) is not known yet and while the back office's
-// chunk loads, so the first picture holds from the first byte to the first screen. A test
-// (StillFrame.test.tsx) keeps the two the same; styles are the shell's, plus `.ui-frame__*` in
+// or the portal's chunk loads, so the first picture holds from the first byte to the first screen.
+// A test (StillFrame.test.tsx) keeps the two the same; styles are the shell's, plus `.ui-frame__*` in
 // styles.css.
 import logo from "@countersign/design-system/assets/Logos/mezonas-logo.svg";
 import logoPaper from "@countersign/design-system/assets/Logos/mezonas-logo-paper.svg";

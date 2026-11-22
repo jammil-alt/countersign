@@ -31,7 +31,20 @@ import { gzipSync } from "node:zlib";
 // edit form, Getting started and the Desk's error states, with their wording in six languages).
 // main was at 489.4 kB and these fixes add 2.5 kB to the first load. The same follow-ups as above
 // (each language's wording on demand, screens loading only their routes) bring it back down.
-export const BUDGET_KB = 495;
+// DECISION (2026-11-22): lowered to 351 kB (H9, docs/plan.md §1.192). The client portal is its
+// own chunk, started beside the session call at a portal address as the back office's is at /ops,
+// so the first load no longer carries its screens or core's wording in six languages. main was at
+// 494.8 kB; this measured 344.1 kB, plus 2%. Each portal screen loading on its own and the route
+// contract split per screen (audit item 4.6) are the follow-ups toward phase 4's 300 kB.
+// DECISION (2026-11-22): raised to 352 kB for R2 (docs/plan.md §1.193): its English wording and
+// core's `about` filter add 0.5 kB to the first load. main was at 350.8 kB after the staging
+// walk-through (#523), so the 2% headroom H9 left is used up; the follow-ups above are what bring
+// it back down, and the next first-load feature should come with one of them.
+// DECISION (2026-11-22): lowered to 335 kB (docs/plan.md §1.208). English's wording loads on
+// demand like the other five languages (only the session's language is fetched, and the back
+// office's English with its chunk), so the first load measured 301.9 kB, down from 351.4 kB. 335 kB
+// leaves 33 kB of room, as round 4 asked (30 kB or more); phase 4's 300 kB is still the target.
+export const BUDGET_KB = 335;
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = process.argv[2] ?? join(root, "apps/web/dist");

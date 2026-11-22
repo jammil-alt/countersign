@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { routes } from "./routes";
 import {
+  aboutWords,
   OpsRunsQuery,
   PortalRunsQuery,
   portalRunFilter,
@@ -48,6 +49,14 @@ describe("RunFilter query parameters", () => {
     expect(q.filter).toEqual({ agents: [A], mode: "test", since: "2026-11-01T00:00:00Z" });
     expect(q.limit).toBe(50);
     expect(q.perDay).toBe(false);
+  });
+
+  it("pages by the last run shown, which is never part of the filter", () => {
+    const q = OpsRunsQuery.parse({ before: A, mode: "live" });
+    expect(q.before).toBe(A);
+    expect(q.filter).toEqual({ mode: "live" });
+    expect(OpsRunsQuery.parse({}).before).toBeUndefined();
+    expect(OpsRunsQuery.safeParse({ before: "R-0f1001" }).success).toBe(false);
   });
 
   it("refuses values that are not what they say", () => {
@@ -123,6 +132,43 @@ describe("RunFilter query parameters", () => {
     expect(OpsRunsQuery.safeParse({ amountOver: "-1", amountCurrency: "USD" }).success).toBe(false);
     expect(RunFilter.safeParse({ amount: { currency: "USD" } }).success).toBe(false);
     expect(RunFilter.safeParse({ amount: { over: 5000, currency: "USD" } }).success).toBe(false);
+  });
+
+  // R2 (docs/plan.md §1.193): what runs were about.
+  it("reads `about` as records and words on both lists, and round-trips it", () => {
+    const ops = OpsRunsQuery.parse({ about: `vendor:${A},Acme Supply , PO-1032` });
+    expect(ops.filter.about).toEqual([
+      { kind: "vendor", id: A },
+      { text: "Acme Supply" },
+      { text: "PO-1032" },
+    ]);
+    // Repeated parameters, repeats dropped, another name for a kind read as the one runs keep.
+    const portal = PortalRunsQuery.parse({
+      about: [`receivable:${B}`, `transaction:${B}`, "acme", "ACME"],
+    });
+    expect(portal.filter.about).toEqual([{ kind: "transaction", id: B }, { text: "acme" }]);
+    // A kind it doesn't know, or an id that isn't one, is words.
+    expect(OpsRunsQuery.parse({ about: "planet:earth" }).filter.about).toEqual([
+      { text: "planet:earth" },
+    ]);
+    const filter = RunFilter.parse({
+      agents: [A],
+      about: [{ kind: "document", id: B }, { text: "4471" }],
+    });
+    expect(runFilterQuery(filter)).toEqual({ agents: A, about: `document:${B},4471` });
+    expect(OpsRunsQuery.parse(runFilterQuery(filter)).filter).toEqual(filter);
+    expect(PortalRunsQuery.parse(runFilterQuery(filter)).filter).toEqual(filter);
+    expect(portalRunFilter(filter)).toEqual(filter);
+  });
+
+  it("refuses `about` that is too long, too short or holds a comma", () => {
+    const many = Array.from({ length: 21 }, (_, i) => `word ${i}`).join(",");
+    expect(OpsRunsQuery.safeParse({ about: many }).success).toBe(false);
+    expect(OpsRunsQuery.safeParse({ about: "a" }).success).toBe(false);
+    expect(RunFilter.safeParse({ about: [{ text: "Acme, Inc." }] }).success).toBe(false);
+    expect(RunFilter.safeParse({ about: [] }).success).toBe(false);
+    expect(RunFilter.safeParse({ about: [{ kind: "vendor", id: "x" }] }).success).toBe(false);
+    expect(aboutWords("  Acme,  Inc.\n")).toBe("Acme Inc.");
   });
 
   it("is what both runs lists take", () => {

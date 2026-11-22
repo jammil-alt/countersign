@@ -97,6 +97,8 @@ export const docsReadingRecord = defineInternalTool({
   description:
     "Records a document's reading (from Read document) as its latest extraction: header, lines and totals. Totals that don't add up mark the document for review; nothing is sent to anyone.",
   sideEffect: "internal",
+  // docs/plan.md §1.188: the document it recorded a reading of.
+  about: [{ kind: "document", id: "documentId" }],
   entity: "document",
   area: "shared",
   verb: "create",

@@ -67,6 +67,11 @@ export const OpsIntakeView = z.object({
   progress: z.array(SectionProgress),
   /** Newest first. */
   events: z.array(IntakeEventView),
+  /**
+   * §1.220: the people whose latest invite didn't go out (skipped, failed or bounced), so Send it
+   * again can be offered.
+   */
+  unsentInvites: z.array(z.string()).optional(),
 });
 export type OpsIntakeView = z.infer<typeof OpsIntakeView>;
 
@@ -92,6 +97,20 @@ export const opsIntakeRoutes = {
     summary: "An intake: its guide, people, answers with their sources, progress per card, its log",
     params: IdParams,
     response: OpsIntakeView,
+  }),
+  // §1.220 (C7)
+  opsIntakeSendAgain: defineRoute({
+    method: "POST",
+    path: "/api/ops/intakes/:id/people/:personId/send-again",
+    auth: "session",
+    roles: OPS,
+    summary:
+      "Sends a person's invite again when it didn't go out (skipped, failed or bounced); their to-do is done",
+    params: z.object({ id: Id, personId: Id }),
+    response: z.object({
+      status: z.enum(["queued", "scheduled", "skipped"]),
+      notificationId: z.string().nullable(),
+    }),
   }),
 } as const;
 
@@ -276,6 +295,14 @@ export const WelcomeSignedInView = z.discriminatedUnion("state", [
 ]);
 export type WelcomeSignedInView = z.infer<typeof WelcomeSignedInView>;
 
+/** §1.220: Resend's webhook's answer; `handled` false for an event that isn't about ours. */
+export const ResendEventsResponse = z.object({
+  received: z.literal(true),
+  handled: z.boolean(),
+  duplicate: z.boolean(),
+});
+export type ResendEventsResponse = z.infer<typeof ResendEventsResponse>;
+
 // The roles a person signed in with the invited address may hold, and the ones who may not but
 // must still be told so (an operator testing the link, someone of another client).
 const ANY_ROLE = ["client_admin", "client_user", "operator"] as const;
@@ -308,5 +335,15 @@ export const welcomeRoutes = {
     summary: "An expired or closed link: ask the lead for a new one (a to-do on Your call)",
     params: TokenParams,
     response: z.object({ ok: z.literal(true) }),
+  }),
+  // §1.220 (C7): what became of an onboarding email, from Resend.
+  resendEvents: defineRoute({
+    method: "POST",
+    path: "/api/hooks/resend",
+    auth: "public",
+    roles: [],
+    summary:
+      "Resend's email events, signed (Svix): an onboarding email delivered or bounced, logged on its intake",
+    response: ResendEventsResponse,
   }),
 } as const;

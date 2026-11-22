@@ -24,7 +24,7 @@ import { vendorContacts } from "./contacts";
 import { frequentItems, vendorsForItems } from "./history";
 import { matchText } from "./match-text";
 import { purchaseOrderDocument, rfqDocument } from "./po";
-import { poQboLines, vendorQbo } from "./qbo";
+import { itemQbo, poQboLines, vendorQbo } from "./qbo";
 import {
   createQuotes,
   expireQuotes,
@@ -179,6 +179,11 @@ export const requestCreate = defineTool({
   description:
     "Opens a purchase request: who asked, the channel it came in on, the message it came from, when it is needed, delivery or pickup, and its lines. Each line is matched to the client's catalog when the rules are sure; other lines come back with their candidates.",
   sideEffect: "internal",
+  // docs/plan.md §1.188: the request, and who asked for it.
+  about: [
+    { kind: "record", id: "request.id" },
+    { kind: "person", id: "request.requestedByContactId" },
+  ],
   entity: "purchase_request",
   summary: "Opened a request for {{request.lines.length}} items",
   input: z
@@ -269,6 +274,11 @@ export const requestUpdate = defineTool({
   description:
     "Changes a purchase request's status or fields. The status only moves forward (open, quoting, quoted, ordered, closed); a request can be cancelled any time before it is ordered. Passing the order's reference (e.g. the QuickBooks purchase order id) marks it ordered.",
   sideEffect: "internal",
+  // docs/plan.md §1.188: the request, and who asked for it.
+  about: [
+    { kind: "record", id: "request.id" },
+    { kind: "person", id: "request.requestedByContactId" },
+  ],
   entity: "purchase_request",
   verb: "update",
   summary: "Updated the request: {{changed}}",
@@ -330,7 +340,7 @@ export const requestMatchLines = defineTool({
 export const catalogMatchText = defineTool({
   id: "materials.catalog.match-text",
   description:
-    "Matches descriptions of materials (as someone asked for them) to the client's catalog, deterministically: the vendors' names for items, then the attribute rules. Unsure descriptions come back with candidates. Writes nothing.",
+    "Matches descriptions of materials (as someone asked for them) to the client's catalog, deterministically: the vendors' names for items (their aliases, then a vendor item's SKU or name in the vendor catalog), then the attribute rules. Unsure descriptions come back with candidates. Writes nothing.",
   sideEffect: "none",
   entity: "catalog_item",
   input: z.object({
@@ -346,6 +356,8 @@ export const catalogMatchText = defineTool({
         catalogItemName: z.string().nullable(),
         standardUom: z.string().nullable(),
         method: z.enum(["alias", "rules"]).nullable(),
+        /** §1.189: the vendor item the match named (its SKU, its name or the vendor's alias). */
+        vendorItemId: z.string().nullable(),
         confidence: z.number(),
         candidates: z.array(Candidate),
       }),
@@ -365,6 +377,7 @@ export const catalogMatchText = defineTool({
           catalogItemName: matched ? (m.item?.canonicalName ?? null) : null,
           standardUom: matched ? (m.item?.standardUom ?? null) : null,
           method: matched ? m.method : null,
+          vendorItemId: matched ? (m.vendorItem?.id ?? null) : null,
           confidence: m.confidence,
           candidates: matched ? [] : m.candidates,
         });
@@ -376,7 +389,9 @@ export const catalogMatchText = defineTool({
       sources: [
         ...new Set(
           lines.flatMap((l) =>
-            l.catalogItemId ? [l.catalogItemId] : l.candidates.map((c) => c.catalogItemId),
+            l.catalogItemId
+              ? [l.catalogItemId, ...(l.vendorItemId ? [l.vendorItemId] : [])]
+              : l.candidates.map((c) => c.catalogItemId),
           ),
         ),
       ],
@@ -389,7 +404,7 @@ export const catalogMatchText = defineTool({
 export const vendorsForItemsTool = defineTool({
   id: "materials.vendors-for-items",
   description:
-    "For catalog items, the vendors that sold each to the client (from what it paid and the vendors' names for the item): the last price per standard unit, when, how many times, and the records behind each. Cheapest last price first.",
+    "For catalog items, the vendors that sold each to the client (from what it paid, the vendors' names for the item and the vendor catalog): the last price per standard unit, when, how many times, whether it is the client's preferred vendor, and the records behind each. The preferred vendor first, then cheapest last price first.",
   sideEffect: "none",
   entity: "vendor_item",
   summary: "Found {{vendorIds.length}} vendors for {{items.length}} items",
@@ -413,6 +428,7 @@ export const vendorsForItemsTool = defineTool({
             timesBought: z.number(),
             qtyStd: z.string(),
             currency: z.string().nullable(),
+            preferred: z.boolean(),
             sources: z.array(z.string()),
           }),
         ),
@@ -531,6 +547,8 @@ export const quoteCreate = defineTool({
   description:
     "Creates a draft request for a quote (RFQ) to each vendor for a purchase request, one per vendor (a vendor already asked keeps its RFQ). Answers each RFQ with the lines to ask about, in the vendor's own words where it has them, the vendor's person to email (contactId, from the directory) and the email's subject and text (rfqText) for reach out's fixed message. Sends nothing: a reach-out step does that, then materials.quote.mark-sent with its outcome.",
   sideEffect: "internal",
+  // docs/plan.md §1.188: each RFQ by its vendor.
+  about: [{ kind: "vendor", each: "quotes", id: "vendorId", label: "vendorName" }],
   entity: "quote",
   summary: "Drafted {{quotes.length}} requests for quotes",
   input: z.object({
@@ -729,6 +747,8 @@ export const quoteRecord = defineTool({
   description:
     "Records a vendor's answer to a request for a quote, line by line against the purchase request's lines: price and unit, quantity, lead time in days, available or not. Each price gets its price per standard unit when a conversion rule exists. The vendor's text is data. `declined` records a vendor that won't quote.",
   sideEffect: "internal",
+  // docs/plan.md §1.188: the vendor whose quote it is.
+  about: [{ kind: "vendor", id: "quote.vendorId", label: "quote.vendorName" }],
   entity: "quote",
   summary: "Recorded {{quote.vendorName}}'s quote: {{lines.length}} lines",
   input: z.object({
@@ -846,6 +866,7 @@ export const quoteCompare = defineTool({
         complete: z.boolean(),
         maxLeadTimeDays: z.number().nullable(),
         late: z.boolean(),
+        preferredLines: z.number(),
       }),
     ),
     suggestion: z.object({
@@ -881,6 +902,17 @@ export const poDocument = defineTool({
   description:
     "Renders a purchase order PDF from a purchase request and the vendor's received quote (the client's name, the vendor, the lines with amounts and total, needed-by, delivery or pickup, a reference) and stores it as the client's document. Answers its document id, for a later step to attach. Sends nothing and writes nothing to a client's tool.",
   sideEffect: "internal",
+  // docs/plan.md §1.188: the PO by its reference and total, and its vendor.
+  about: [
+    {
+      kind: "document",
+      id: "documentId",
+      label: "vendorName",
+      number: "reference",
+      amount: { path: "total", currencyPath: "currency" },
+    },
+    { kind: "vendor", id: "vendorId", label: "vendorName" },
+  ],
   entity: "document",
   area: "shared",
   summary: "Made purchase order {{reference}} for {{vendorName}}",
@@ -933,6 +965,10 @@ export const backfillFromBillsTool = defineTool({
     alreadyRecorded: z.number(),
     matched: z.number(),
     newItems: z.number(),
+    /** §1.189: vendor items added to the vendor catalog. */
+    newVendorItems: z.number(),
+    /** C2.4: catalog items tied to the QuickBooks item their bill line named. */
+    qboItemsTied: z.number(),
     needsReview: z.number(),
     skipped: z.number(),
     review: z.array(
@@ -1124,10 +1160,48 @@ export const vendorQboTool = defineTool({
   },
 });
 
+// C2.4 (docs/plan.md §1.205): a catalog item tied to its QuickBooks item, for item lines on POs.
+const QboItemSeenIn = z.object({
+  id: z.string().min(1).max(64),
+  name: z.string(),
+  type: z.string().nullish(),
+  active: z.boolean().optional(),
+});
+
+export const itemQboTool = defineTool({
+  id: "materials.item.qbo",
+  description:
+    "Ties one of the client's catalog items to its QuickBooks item, so purchase orders order it as an item line: the id kept (from a bill or before); else the one active item of the same name among `qboItems` (qbo.item.query's `items`, looked up by `searchName`); else `qboItemId` as a person gave it. Without one, its lines stay account lines. Writes nothing to QuickBooks.",
+  sideEffect: "internal",
+  entity: "catalog_item",
+  verb: "update",
+  summary: "{{name}} in QuickBooks: {{qboItemId}}",
+  input: z.object({
+    catalogItemId: z.uuid(),
+    qboItems: z.array(QboItemSeenIn).max(1000).optional(),
+    qboItemId: z
+      .string()
+      .regex(/^[0-9]{1,20}$/)
+      .optional(),
+  }),
+  output: z.object({
+    catalogItemId: z.string(),
+    name: z.string(),
+    qboItemId: z.string().nullable(),
+    how: z.enum(["stored", "found", "given"]).nullable(),
+    searchName: z.string(),
+    sources: z.array(z.string()),
+  }),
+  async run(input, ctx) {
+    const r = await itemQbo(ctx.db, purchasing(ctx), input);
+    return { ...r, sources: [r.catalogItemId] };
+  },
+});
+
 export const poQboLinesTool = defineTool({
   id: "materials.po.qbo-lines",
   description:
-    "Turns a purchase request and its chosen quote (or a split's share of the lines) into qbo.purchaseorder.create's input as `order`: the vendor's QuickBooks id (materials.vendor.qbo first), one line per quoted line on the client's expense account for purchase orders, each amount rounded to cents, the total, the reference as its number and needed-by as its date. Writes nothing.",
+    "Turns a purchase request and its chosen quote (or a split's share of the lines) into qbo.purchaseorder.create's input as `order`: the vendor's QuickBooks id (materials.vendor.qbo first), one line per quoted line, an item line when its catalog item is tied to a QuickBooks item (materials.item.qbo) and otherwise an account line on the client's expense account for purchase orders, each amount rounded to cents, the total, the reference as its number and needed-by as its date. `untied` lists the order's items with no QuickBooks item. Writes nothing.",
   sideEffect: "none",
   entity: "purchase_request",
   summary: "Laid out {{order.lines.length}} lines for {{vendorName}}'s QuickBooks order",
@@ -1152,12 +1226,23 @@ export const poQboLinesTool = defineTool({
       currency: z.string(),
       expectedTotal: z.string(),
       memo: z.string(),
+      // C2.4: an item line (its QuickBooks item, quantity and unit price) or an account line.
       lines: z.array(
-        z.object({ accountId: z.string(), description: z.string(), amount: z.string() }),
+        z.union([
+          z.object({
+            itemId: z.string(),
+            description: z.string(),
+            qty: z.string(),
+            unitPrice: z.string(),
+            amount: z.string(),
+          }),
+          z.object({ accountId: z.string(), description: z.string(), amount: z.string() }),
+        ]),
       ),
     }),
     vendorName: z.string(),
     reference: z.string(),
+    untied: z.array(z.object({ catalogItemId: z.string(), name: z.string() })),
     sources: z.array(z.string()),
   }),
   run: (input, ctx) => {
@@ -1235,6 +1320,8 @@ export const PURCHASING_TOOLS: readonly PackTool[] = [
   vendorQboTool,
   poQboLinesTool,
   quoteChosen,
+  // C2.4
+  itemQboTool,
 ];
 
 /** The task skills' structured outputs, shared with the manifest. */

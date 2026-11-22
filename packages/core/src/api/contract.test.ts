@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { itemFingerprint } from "../mobile/mobile";
 import {
   buildPath,
   checkRouteContract,
@@ -7,7 +8,8 @@ import {
   forbiddenPortalFields,
   routeFamily,
 } from "./contract";
-import { GmailTestSendBody, OpsInboxItem, routes } from "./routes";
+import { GmailTestSendBody, OpsInboxItem, ResolveBody, routes } from "./routes";
+import { StepInBody } from "./step-in";
 
 describe("route contract", () => {
   it("holds for the declared routes", () => {
@@ -79,6 +81,56 @@ describe("route contract", () => {
     // A response without the flag breaks the contract; the server always sets it.
     expect(OpsInboxItem.safeParse(base).success).toBe(false);
     expect(OpsInboxItem.safeParse({ ...base, resolvableByOperator: true }).success).toBe(true);
+  });
+
+  it("lets the back office's resolve and step-in name the card as the operator saw it", async () => {
+    // Audit 3.4 (docs/plan.md §1.191): the fingerprint of the item as `OpsInboxItem` sends it.
+    const item = {
+      id: "i",
+      tenantId: "t",
+      kind: "approval" as const,
+      agentId: null,
+      runId: null,
+      subjectType: null,
+      subjectId: null,
+      assigneeRole: "operator",
+      assigneeUserId: null,
+      title: "Approve the Ridge order",
+      payload: { total: "120.00" },
+      status: "open" as const,
+      resolution: null,
+      resolvedBy: null,
+      dueAt: null,
+      createdAt: "2026-11-05T10:00:00.000Z",
+      resolvedAt: null,
+      resolvableByOperator: true,
+    };
+    const seen = await itemFingerprint(OpsInboxItem.parse(item));
+    // Which operator asks is not part of it; what the card says is.
+    expect(
+      await itemFingerprint(OpsInboxItem.parse({ ...item, resolvableByOperator: false })),
+    ).toBe(seen);
+    expect(
+      await itemFingerprint(OpsInboxItem.parse({ ...item, payload: { total: "1200.00" } })),
+    ).not.toBe(seen);
+    const resolve = ResolveBody;
+    expect(resolve.safeParse({ decision: "approve", fingerprint: seen }).success).toBe(true);
+    expect(resolve.safeParse({ decision: "approve", fingerprint: "seen" }).success).toBe(false);
+    const stepIn = StepInBody;
+    for (const body of [
+      { action: "approve", reason: "They asked us to.", message: "Hi", fingerprint: seen },
+      { action: "reject", reason: "They asked us to.", fingerprint: seen },
+      { action: "answer", reason: "They asked us to.", answer: "Northline", fingerprint: seen },
+      {
+        action: "reassign",
+        reason: "x",
+        to: { kind: "role", role: "client_user" },
+        fingerprint: seen,
+      },
+    ]) {
+      expect(stepIn.safeParse(body).success, JSON.stringify(body)).toBe(true);
+      expect(stepIn.safeParse({ ...body, fingerprint: "seen" }).success).toBe(false);
+    }
   });
 
   it("lets the Gmail test email name no recipient: a client route with a strictly empty body", () => {

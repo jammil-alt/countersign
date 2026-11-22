@@ -14,7 +14,9 @@ import {
   complianceOf,
   isUuid,
   type OwnerArea,
+  PeopleBindings,
   processArea,
+  processes,
   readApproverRuleSet,
   type SopConnection,
   type SopInput,
@@ -185,7 +187,19 @@ export async function sopInputFor(
     : null;
 
   const nameOf = (m: { name: string | null; email: string }) => m.name?.trim() || m.email;
+  // Setup-plan §4.1: a seat reads as whoever a run would ask: its one person by name, several as
+  // "Luis Ortega or Dana Ruiz", and an empty seat as the client admin (where its items go).
+  const seats = processes.seatsFromBindings(PeopleBindings.safeParse(a.people ?? {}).data ?? {});
   const party = (who: string): SopParty => {
+    const seat = processes.seatRoleOf(who);
+    if (seat !== null) {
+      const s = seats[seat];
+      const ids = [...new Set([...(s?.userIds ?? []), ...(s?.contactIds ?? [])])];
+      const [first] = ids;
+      if (first === undefined) return party("client_admin");
+      if (ids.length === 1) return party(first);
+      return { key: who, kind: "team", name: ids.map((id) => party(id).name).join(" or ") };
+    }
     if (who === "client_admin")
       return { key: "role:client_admin", kind: "team", name: "Your admin" };
     if (who === "client_user") return { key: "role:client_user", kind: "team", name: "Your team" };

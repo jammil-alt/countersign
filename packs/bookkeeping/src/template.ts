@@ -8,7 +8,12 @@
 // Every write starts with approval on and the agent in `suggest_only` (invariant 8); only the
 // operator loosens it. It carries no client's data: a fork starts from the template's settings.
 
-import { BANKFEED_TOOLS, BANKING_TOOLS, QBO_REGISTER_TOOL } from "@countersign/connectors";
+import {
+  BANKFEED_TOOLS,
+  BANKING_FIND_TOOL,
+  BANKING_TOOLS,
+  QBO_REGISTER_TOOL,
+} from "@countersign/connectors";
 import {
   AgentBundle,
   type AgentBundleInput,
@@ -1134,9 +1139,139 @@ const bookkeeperV5 = once(() =>
   } satisfies AnyAgentBundleInput),
 );
 
-/** The Bookkeeper: v1 as first installed, then v2 (v4 processes), v3 (the skill model), v4, v5. */
+// ── v6 (2026-11-22, docs/plan.md §1.187): each bank transaction written once ────────────────────
+//
+// v5 with two checks in the posting loop, for the two ways one money could be written twice:
+// - `find`, after the booking is laid out: QuickBooks is asked for a record of that kind on that
+//   day carrying the transaction's mark or an earlier copy's (`qbo.banking.find`, a read). Found,
+//   the booking is recorded as that record (the new first path, `post-written`) and nothing is
+//   written: a write the run stopped after, never recorded, which deposits and transfers don't
+//   sync back for the guard to see.
+// - `check-<kind>`, right before each write: the other copies of the transaction the bank sent
+//   again are read again (`bookkeeping.booking.write-check`); one posted, or with its own write
+//   laid out for a signature, signed or made, refuses this copy's (the loop goes on, v4).
+// Every other step, id and trigger is v5's; every write keeps its approval. Installed templates
+// get it with "Update templates"; a client agent gets it as a template update merged on review.
+
+/** Asks QuickBooks for this booking's write already made, under any mark of its money. */
+const FIND_WRITTEN = {
+  id: "find",
+  name: "Look for it in QuickBooks",
+  kind: "read" as const,
+  tool: BANKING_FIND_TOOL,
+  input: {
+    entity: "{{steps.qin.output.entity}}",
+    txnDate: "{{steps.qin.output.txnDate}}",
+    references: "{{steps.qin.output.references}}",
+  },
+  client: { visible: false },
+};
+
+/** Already in QuickBooks: recorded as that record, and not written again. */
+const WRITTEN_PATH = {
+  id: "post-written",
+  name: "Already in QuickBooks",
+  when: {
+    match: "all" as const,
+    rules: [{ field: "{{steps.find.output.found}}", op: "is" as const, value: true }],
+  },
+  steps: [
+    {
+      id: "recorded",
+      name: "Keep what it is",
+      kind: "write" as const,
+      tool: "bookkeeping.booking.posted",
+      input: {
+        bookingId: "{{item.bookingId}}",
+        entity: "{{steps.qin.output.entity}}",
+        qboId: "{{steps.find.output.id}}",
+      },
+      client: { visible: false },
+    },
+  ],
+};
+
+/** Right before a write: no other copy of the transaction is posted or being written. */
+const checkBefore = (entity: string) => ({
+  id: `check-${entity}`,
+  name: "Check no other copy is written",
+  kind: "read" as const,
+  tool: "bookkeeping.booking.write-check",
+  input: { bookingId: "{{item.bookingId}}" },
+  client: { visible: false },
+});
+
+/** The posting loop with the read of QuickBooks after the layout and a check before each write. */
+function writeOnce(steps: readonly processes.Step[]): processes.Step[] {
+  return processes.replaceSteps(steps, (step) => {
+    if (step.kind === "read" && step.id === "qin") return [step, FIND_WRITTEN];
+    if (step.kind !== "if" || step.id !== "which") return undefined;
+    const paths = step.paths.map((p) => ({
+      ...p,
+      steps: p.steps.flatMap((s) =>
+        s.kind === "write" && s.id.startsWith("write-")
+          ? [checkBefore(s.id.slice("write-".length)) as processes.Step, s]
+          : [s],
+      ),
+    }));
+    return [{ ...step, paths: [WRITTEN_PATH as (typeof step.paths)[number], ...paths] }];
+  });
+}
+
+const V6_WORKFLOWS = once(() =>
+  bookkeeperV5().workflows.map((w) => {
+    if (w.workflow.schemaVersion !== 4) throw new Error(`${w.slug}: not v4`);
+    return { ...w, workflow: { ...w.workflow, steps: writeOnce(w.workflow.steps) } };
+  }),
+);
+
+const bookkeeperV6 = once(() =>
+  AnyAgentBundle.parse({
+    ...bookkeeperV5(),
+    definition: {
+      ...bookkeeperV5().definition,
+      // v5's tools, then the two the new steps call.
+      extraTools: [
+        ...new Set([
+          ...bookkeeperV5().definition.extraTools,
+          ...processes.processTools(
+            V6_WORKFLOWS().map(
+              (w) => w.workflow as Extract<typeof w.workflow, { schemaVersion: 4 }>,
+            ),
+          ),
+        ]),
+      ],
+    },
+    workflows: V6_WORKFLOWS(),
+  } satisfies AnyAgentBundleInput),
+);
+
+// Round 4 D (docs/plan.md §1.211): v7 checks every write against the run's sources before it
+// reaches a person (`oversight.verify`). `review: "failures"` is what an unset `oversight` already
+// means for a bundle of v4 processes, so only the check is new.
+const bookkeeperV7 = once(() =>
+  AnyAgentBundle.parse({
+    ...bookkeeperV6(),
+    definition: {
+      ...bookkeeperV6().definition,
+      oversight: { review: "failures", verify: "writes" },
+    },
+  } satisfies AnyAgentBundleInput),
+);
+
+/**
+ * The Bookkeeper: v1 as first installed, then v2 (v4 processes), v3 (the skill model), v4, v5,
+ * v6, v7 (writes verified).
+ */
 export const BOOKKEEPER_TEMPLATE = lazyObject({
   slug: BOOKKEEPER_V1.slug,
   bundle: lazy(() => BOOKKEEPER_V1.bundle),
-  versions: lazy(() => [bookkeeperV2(), bookkeeperV3(), bookkeeperV4(), bookkeeperV5()]),
+  versions: lazy(() => [
+    bookkeeperV2(),
+    bookkeeperV3(),
+    bookkeeperV4(),
+    bookkeeperV5(),
+    bookkeeperV6(),
+    bookkeeperV7(),
+  ]),
 });

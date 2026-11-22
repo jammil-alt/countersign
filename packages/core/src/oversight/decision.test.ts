@@ -118,8 +118,11 @@ describe("oversight settings", () => {
       review: "failures",
       maxPerRun: 3,
       maxCostUsd: "0.25",
+      // Round 4 D (§1.211): new agents verify their writes.
+      verify: "writes",
     });
     expect(OversightSettings.safeParse({ review: "sometimes" }).success).toBe(false);
+    expect(OversightSettings.safeParse({ review: "off", verify: "always" }).success).toBe(false);
     expect(OversightSettings.safeParse({ review: "all", approval: "off" }).success).toBe(false);
   });
 

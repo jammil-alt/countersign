@@ -5,6 +5,7 @@
 import { type FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useApiClient } from "../../../api/useApi";
+import { EN } from "../../../i18n/i18n";
 import { Field, Select, TextInput } from "../../../ui/forms";
 import {
   Button,
@@ -65,12 +66,7 @@ export function guideChip(p: Pick<ContentRow, "status" | "changedSinceLive">) {
   return <StatusChip state="setup">Draft</StatusChip>;
 }
 
-export const dayOf = (iso: string | null) =>
-  iso
-    ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(
-        new Date(iso),
-      )
-    : "–";
+export const dayOf = (iso: string | null) => (iso ? EN.fmt.date(iso) : "–");
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : "That didn't work.");
 

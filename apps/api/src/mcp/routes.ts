@@ -32,7 +32,8 @@ import { authDirectory } from "../auth";
 import type { Bindings } from "../env";
 import { type AppContext, type AppDeps, type AppEnv, HttpError, requestState } from "../http";
 import { reportHandled, reportProblem } from "../observability/report";
-import { claudeConnectionGate } from "./approval";
+import { placeOf } from "../second-factor/phone";
+import { claudeClientInWords, claudeConnectionGate } from "./approval";
 import {
   auditEventSink,
   auditRefusedSignIn,
@@ -48,8 +49,9 @@ import {
 import { CLIENT_TOOLS, type ClientToolCtx, clientMemberships } from "./client-tools";
 import { MCP_PATH, type McpConfig, mcpStateOf } from "./config";
 import { CONFIRM_TTL_SEC } from "./confirm";
+import { heldFromConnector, refuseHeld } from "./hipaa";
 import { type RateLimiter, rateLimiterFor } from "./limits";
-import { OPS_TOOLS, type OpsToolCtx, toolError } from "./ops-tools";
+import { LEAVE_OUT_HELD, OPS_TOOLS, type OpsToolCtx, toolError } from "./ops-tools";
 import { handleHttp, type McpServer, RPC, rpcError, type Tool, type ToolResult } from "./protocol";
 
 /** What the MCP server is built from; tests replace them (AppDeps.mcp). */
@@ -103,6 +105,7 @@ export function instructions(config: McpConfig): string {
     "Reads: whoami, clients_list, client_get, feedback_list, feedback_get, runs_list, run_get, inbox_list, connections_list, records_search, code_requests_list, code_request_get, catalog_search.",
     "The Dev queue (requests for code, DQ-012): code_request_file, code_request_claim, code_request_note, code_request_rerun_reuse and code_request_attach_pr change only the request and need no confirm. To build one: claim it, read its reuse check and search the code for anything that already does it, make the smallest change, open a PR, then attach it with the catalog part it adds; Mezonas marks it shipped by itself after the deploy.",
     `Writes take two calls. Call the write tool without confirm_token: nothing changes, and the answer shows what would happen with a confirm_token. Show that to the user and wait for their go-ahead, then call the tool again with the same arguments and the confirm_token. A token works once, for ${CONFIRM_TTL_SEC / 60} minutes, for this operator only. The writes that take two calls are feedback_resolve and code_request_set_status (accept or close a request: a person's decision).`,
+    "A client in HIPAA mode is held out of this connector until Anthropic's BAA for Claude is signed: whoami and clients_list leave it out, a call that names it is refused (hipaa), and so is a call across clients while you serve one.",
     "Every tool call is recorded under the operator's name.",
     UNTRUSTED_NOTE,
   ].join("\n\n");
@@ -350,6 +353,10 @@ export function mcpRoutes(app: Hono<AppEnv>, deps: AppDeps): void {
         sessionId: auth.sessionId,
         approvePage: (code) =>
           `${appOrigin}${audience === "ops" ? "/ops" : ""}/connect-claude/${code}`,
+        asking: {
+          client: claudeClientInWords(c.req.header("user-agent")),
+          place: placeOf(c.req.raw),
+        },
         now: mcp.now(),
       });
       return gate;
@@ -359,6 +366,8 @@ export function mcpRoutes(app: Hono<AppEnv>, deps: AppDeps): void {
       tool: Tool<Ctx>,
       raw: Record<string, unknown>,
       ctx: Ctx,
+      /** Checks the parsed arguments before the tool runs (HIPAA mode, §1.190); throws to refuse. */
+      before?: (args: Record<string, unknown>) => Promise<void>,
     ): Promise<ToolResult> {
       const started = Date.now();
       let result: ToolResult;
@@ -368,6 +377,7 @@ export function mcpRoutes(app: Hono<AppEnv>, deps: AppDeps): void {
         const allowed = await approved();
         if (!allowed.ok) throw new HttpError(403, allowed.code, allowed.message);
         const args = tool.input.parse(raw) as Record<string, unknown>;
+        await before?.(args);
         result = await tool.run(ctx, args);
       } catch (error) {
         const failed = toolError(error);
@@ -412,12 +422,28 @@ export function mcpRoutes(app: Hono<AppEnv>, deps: AppDeps): void {
       };
       return handleHttp(c.req.raw, portal);
     }
+    // §1.190 (docs/hipaa-plan.md T1): what the tools return reaches Anthropic through claude.ai,
+    // so the clients in HIPAA mode without that BAA are read once per call and held out.
     const ops: McpServer<OpsToolCtx> = {
       info: SERVER_INFO,
       instructions: instructions(config),
       tools: OPS_TOOLS,
-      call: (tool, raw) =>
-        called(tool, raw, { app, c, session, config, objects, now: mcp.now, audit: {} }),
+      call: (tool, raw) => {
+        const ctx: OpsToolCtx = { app, c, session, config, objects, now: mcp.now, audit: {} };
+        return called(tool, raw, ctx, async (args) => {
+          const held = await heldFromConnector(
+            services.db,
+            c.env.BAA_PROCESSORS,
+            session.servedTenantIds,
+          );
+          refuseHeld(held, {
+            tool: tool.name,
+            client: typeof args.client === "string" ? args.client : null,
+            leavesOut: LEAVE_OUT_HELD.has(tool.name),
+          });
+          ctx.hipaaHeld = held;
+        });
+      },
     };
     return handleHttp(c.req.raw, ops);
   });

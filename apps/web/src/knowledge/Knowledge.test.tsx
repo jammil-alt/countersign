@@ -267,10 +267,11 @@ describe("back office knowledge tab", () => {
 
   it("the client page has the Agents tab, and Knowledge under Setup", async () => {
     const { api } = opsApi();
+    // §1.206: the Setup tab opens on its Progress board.
     renderAt(`/ops/clients/${CLIENT}`, api);
     expect(await screen.findByRole("link", { name: "Setup" })).toHaveAttribute(
       "href",
-      `/ops/clients/${CLIENT}/connections`,
+      `/ops/clients/${CLIENT}/progress`,
     );
     expect(screen.getByRole("link", { name: "Agents" })).toHaveAttribute(
       "href",

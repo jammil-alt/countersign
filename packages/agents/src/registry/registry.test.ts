@@ -287,6 +287,8 @@ describe.skipIf(!harness)("agent registry", () => {
         bindings: { testkit: h.A.connectionId },
         approver: null,
         approverRules: { revision: 0, rules: [] },
+        // Setup-plan §4.1: who sat in each seat when the run started.
+        people: {},
       });
       await finishRun(tx, { tenantId: h.A.tenantId, runId: ok.id, status: "succeeded" });
     });

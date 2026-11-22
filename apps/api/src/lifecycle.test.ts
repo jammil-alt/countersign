@@ -607,12 +607,23 @@ describe.skipIf(!h)("go-live stages and client controls", () => {
     // Resume says how many, and starts none of them.
     const resumed = await ok(admin("a"), "POST", `/api/services/${id}/resume`);
     expect(resumed.missedEvents).toBe(1);
+    // H7: the portal's resume screen gets what the go-live panel shows: how many and when, never
+    // the events or what they say (invariants 9 and 11).
+    expect(resumed.missed).toEqual({
+      count: 1,
+      more: false,
+      from: expect.any(String),
+      to: expect.any(String),
+    });
+    expect(Date.parse(resumed.missed.from)).toBeLessThanOrEqual(Date.parse(resumed.missed.to));
+    expect(JSON.stringify(resumed)).not.toContain(during);
+    expect(JSON.stringify(resumed)).not.toContain("inv.pdf");
     expect(await runsOn(during)).toHaveLength(0);
     const after = await doc();
     expect(await runsOn(after)).toHaveLength(1);
 
     const missed = await ok(OPERATOR, "GET", `/api/ops/agents/${id}/missed-events`);
-    expect(missed.missed).toMatchObject({ count: 1, more: false });
+    expect(missed.missed).toEqual(resumed.missed);
     // Two clicks at once: one starts it, the other answers cleanly with nothing to start.
     const both = await Promise.all([
       ok(OPERATOR, "POST", `/api/ops/agents/${id}/missed-events/run`),

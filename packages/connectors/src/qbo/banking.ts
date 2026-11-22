@@ -8,7 +8,12 @@
 
 import { CurrencyCode, DecimalString, dec, type ToolDisplay } from "@countersign/core";
 import { z } from "zod";
-import { defineWriteTool, type ToolContext, type ToolDefinition } from "../connector";
+import {
+  defineReadTool,
+  defineWriteTool,
+  type ToolContext,
+  type ToolDefinition,
+} from "../connector";
 import { QboApiError, type QboClient, qboLiteral, qboRequestId } from "./api";
 import { QboId, toAccount, wire } from "./records";
 import {
@@ -637,6 +642,70 @@ export function transferCreateTool(clientFor: ClientFor): ToolDefinition {
         total: dec(String(t.Amount ?? 0)).toFixed(4),
         alreadyDone: false,
       };
+    },
+  });
+}
+
+// ── qbo.banking.find ─────────────────────────────────────────────────────────────────────────────
+
+/** A read of what was already booked: a record on a day that carries one of a booking's marks. */
+export const BANKING_FIND_TOOL = "qbo.banking.find";
+
+const BankingEntity = z.enum(["purchase", "deposit", "transfer"]);
+const BANKING_ENTITY = { purchase: "Purchase", deposit: "Deposit", transfer: "Transfer" } as const;
+
+export const BankingFindInput = z.object({
+  entity: BankingEntity,
+  txnDate: IsoDate,
+  /** The marks to look for, the first preferred: a bank transaction's, then its earlier copies'. */
+  references: z.array(Reference).min(1).max(20),
+});
+
+const BankingFound = z.object({
+  found: z.boolean(),
+  entity: BankingEntity,
+  id: z.string().nullable(),
+  /** The mark the record carries. */
+  reference: z.string().nullable(),
+});
+
+/**
+ * docs/plan.md §1.187: a write made and never recorded (the run stopped after it). Deposits and
+ * transfers don't sync back, so the Bookkeeper asks QuickBooks before writing one: a record of
+ * that kind on that day carrying one of the marks is the write already made.
+ */
+// DECISION: by the mark alone, on the transaction's day (a re-sent copy keeps it), with the same
+// day query the write's own duplicate check makes. The mark names the money, so a record changed
+// in QuickBooks since (another amount, another line) is still that write, never one to add.
+export function bankingFindTool(clientFor: ClientFor): ToolDefinition {
+  return defineReadTool({
+    id: BANKING_FIND_TOOL,
+    // A read of the kind it looks for: purchases, deposits or transfers (each with read, §1.187).
+    entityInput: {
+      field: "entity",
+      values: { purchase: "purchase", deposit: "deposit", transfer: "transfer" },
+    },
+    description:
+      "Find a purchase, deposit or transfer on one day in QuickBooks whose memo carries one of these booking marks: a write already made, to record instead of writing it again.",
+    input: BankingFindInput,
+    output: BankingFound,
+    async run(input, ctx) {
+      const client = await clientFor(ctx);
+      const entity = BANKING_ENTITY[input.entity];
+      // UNCHECKED (NOTES.md): `TxnDate =` filters Purchase, Deposit and Transfer.
+      const { rows } = await client.query(
+        `select * from ${entity} where TxnDate = ${qboLiteral(input.txnDate)} maxresults 1000`,
+        entity,
+      );
+      const notes = rows.map((r) => {
+        const row = r as Record<string, unknown>;
+        return { id: String(row.Id), note: String(row.PrivateNote ?? "") };
+      });
+      for (const reference of input.references) {
+        const hit = notes.find((n) => n.note.includes(referenceMark(reference)));
+        if (hit) return { found: true, entity: input.entity, id: hit.id, reference };
+      }
+      return { found: false, entity: input.entity, id: null, reference: null };
     },
   });
 }

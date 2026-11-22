@@ -221,7 +221,7 @@ describe("the Marketing area in the portal", () => {
     const { api } = portalApi();
     renderAt("/reports/marketing/search", api);
     expect(await screen.findByTestId("portal-marketing-search-range")).toHaveTextContent(
-      "The figures run to Nov 5, 2026.",
+      "The figures run to 5 Nov 2026.",
     );
     expect(screen.getByTestId("portal-marketing-search-impressions")).toHaveTextContent("1,500");
     expect(screen.getByTestId("portal-marketing-search-position")).toHaveTextContent("11.3");

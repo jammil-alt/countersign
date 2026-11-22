@@ -13,6 +13,7 @@ import type {
 } from "@countersign/core";
 import { type ReactNode, useState } from "react";
 import { Link } from "react-router-dom";
+import { EN } from "../i18n/i18n";
 import { Badge, Card, cx, Tag, type Tone } from "../ui/primitives";
 
 /** The words around the manual's content: section titles, labels and empty states. */
@@ -51,8 +52,7 @@ export interface ManualText {
   forget?: string | undefined;
 }
 
-const OPS_DATE = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-US", { dateStyle: "medium" });
+const OPS_DATE = (iso: string) => EN.fmt.date(iso);
 
 /** The back office's words (it reads in English). */
 export const OPS_MANUAL_TEXT: ManualText = {

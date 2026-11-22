@@ -1,0 +1,4 @@
+Vendor ID,Vendor Name,Document Number,Document Date,Due Date,Current Trx Amount
+ACME0001,Acme Fasteners (made up),INV-88120,11/02/2026,12/02/2026,1250.00
+NORT0002,Northwind Plywood (made up),INV-40017,11/05/2026,12/05/2026,3410.75
+Grand Total,,,,,4660.75

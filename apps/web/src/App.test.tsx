@@ -118,11 +118,14 @@ describe("app", () => {
       within(await screen.findByTestId("ops-client-tabs")).getByRole("link", { name: "Agents" }),
     );
     const card = await screen.findByTestId("ops-agent-card-material-costs");
-    expect(within(card).getByText("Live")).toBeInTheDocument();
+    // Its stage in words (agents/status): the fixture agent has none, so it hasn't started; a
+    // published version alone is never "Live" (QA 2026-11-22).
+    expect(within(card).getByText("Not started")).toBeInTheDocument();
     await user.click(within(card).getByText("Material costs"));
 
     const badges = await screen.findByTestId("agent-version-badges");
-    expect(badges).toHaveTextContent("Live · v1");
+    expect(await screen.findByTestId("agent-bar-status")).toHaveTextContent("Not started · v1");
+    expect(badges).not.toHaveTextContent("Live");
     expect(badges).toHaveTextContent("Draft · v2");
     const tabs = screen.getByRole("navigation", { name: "Sections" });
     expect(
@@ -135,6 +138,7 @@ describe("app", () => {
       "Steps",
       "Manual",
       "Runs",
+      "Report",
       "Security",
       "Versions2",
       "Settings",

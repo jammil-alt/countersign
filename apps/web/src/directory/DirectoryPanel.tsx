@@ -39,6 +39,8 @@ import type { PlainKey } from "../i18n/catalog";
 import { errorText } from "../i18n/errors";
 import { type I18n, useI18n } from "../i18n/i18n";
 import { AccessBadge, InviteContactAction } from "../people/People";
+import { PORTAL_PATHS } from "../portal/paths";
+import { RecordRuns } from "../records/RecordRuns";
 import { useAnswered, useDebounced } from "../runs/useDebounced";
 import { Field, Select, TextArea, TextInput } from "../ui/forms";
 import { Loaded } from "../ui/page";
@@ -462,6 +464,7 @@ function People({
                     ) : null}
                   </div>
                 </div>
+                <DirectoryRuns api={api} id={p.id} testId={`directory-person-${p.id}-runs`} />
                 {editing === p.id ? (
                   <PersonForm
                     person={p}
@@ -702,6 +705,36 @@ export function PersonForm({
   );
 }
 
+/**
+ * R3 (docs/plan.md §1.200): a person's or organization's runs, opened from its card. The portal
+ * lists only what its timeline shows.
+ */
+function DirectoryRuns({ api, id, testId }: { api: DirectoryApi; id: string; testId: string }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mt-2">
+      <Button
+        size="sm"
+        variant="link"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        data-testid={`${testId}-toggle`}
+      >
+        {open ? t("record.runs.hide") : t("record.runs")}
+      </Button>
+      {open ? (
+        <RecordRuns
+          source={api.ops ? { surface: "ops", clientId: api.ops } : { surface: "portal" }}
+          recordId={id}
+          runHref={(r) => (api.ops ? `/ops/runs/${r}` : `${PORTAL_PATHS.runs}/${r}`)}
+          testId={testId}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 // ── Organizations ───────────────────────────────────────────────────────────────────────────────
 
 function Organizations({
@@ -803,6 +836,7 @@ function Organizations({
                     </span>
                   ) : null}
                 </div>
+                <DirectoryRuns api={api} id={o.id} testId={`directory-org-${o.id}-runs`} />
                 {editing === o.id ? (
                   <OrganizationForm
                     organization={o}

@@ -119,5 +119,12 @@ Written 2026-11-15 without network access to OpenAI's documentation. `src/transc
 `POST https://api.openai.com/v1/audio/transcriptions` (multipart: `model`, `file`,
 `response_format=json`, `prompt`, optional `language`) with `gpt-4o-mini-transcribe`.
 **UNCHECKED**: the model id, that it takes `prompt` and the browsers' webm/opus and mp4 audio, its
-size limit (we stop at 4 MB, about two minutes), and its price per minute (not tracked yet). Check
+size limit (we stop at 4 MB, about two minutes), and its price. Check
 https://platform.openai.com/docs/guides/speech-to-text and make one live call on staging.
+
+Since H5 (docs/plan.md §1.196) each call's usage and cost are recorded. **UNCHECKED**: that the
+`json` answer carries `usage` as `{type: "tokens", input_tokens, input_token_details:
+{text_tokens, audio_tokens}, output_tokens}` (or `{type: "duration", seconds}`, as whisper's
+does), and the prices `TRANSCRIBE_PRICES` uses: $3 per million audio tokens in, $1.25 text in, $5
+out, or $0.003 a minute. An answer with no `usage` is recorded with no tokens and no cost, and
+warned of in the log (`voice.transcribe.unpriced`).

@@ -50,8 +50,10 @@ import type { ExportJobs } from "./exports/instances";
 import type { AppEnv } from "./http";
 import type { InboxRow } from "./inbox";
 import type { McpDeps } from "./mcp/routes";
+import type { RegisteredPack } from "./packs";
 import { createPlatform, type Platform } from "./platform";
 import type { QboSyncInstances } from "./qbo/instances";
+import { opsShownFingerprint } from "./routes/mappers";
 import { shownFingerprint } from "./routes/portal";
 import { MemoryInstances } from "./runs/instances";
 import type { CloudflareStepConfig, WorkflowStepLike } from "./runs/step-runner";
@@ -177,6 +179,8 @@ export interface HarnessOptions {
    * The harness's `db`, for the test's own reads and runs, stays at 4 either way.
    */
   appDbMax?: number;
+  /** §1.230: the deployment's packs (default every pack `packs.ts` registers). */
+  packs?: readonly RegisteredPack[];
 }
 
 /** null when no database is reachable (the tests then skip). */
@@ -212,6 +216,7 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
   const platform = createPlatform({
     connectors: [createUploadConnector(), createTestkitConnector(backend), ...marketing, ...extra],
     ...(options.skills ? { skills: options.skills } : {}),
+    ...(options.packs ? { packs: options.packs } : {}),
   });
   const instances = new MemoryInstances();
   const objects = new MemoryObjectStore();
@@ -255,9 +260,26 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
       platform,
     );
   };
+  /**
+   * The fingerprint of an item as the back office shows it now (`opsShownFingerprint`); which
+   * operator asks is not part of it.
+   */
+  const opsSeenNow = async (id: string): Promise<string | null> => {
+    const [row] = await t.db.select().from(inboxItem).where(eq(inboxItem.id, id));
+    if (!row) return null;
+    return opsShownFingerprint(row as InboxRow, { userId: operator, role: "operator" }, platform);
+  };
   const withFingerprints = async (path: string, body: unknown): Promise<unknown> => {
     if (!body || typeof body !== "object" || Array.isArray(body)) return body;
     const b = body as Record<string, unknown>;
+    // The back office's resolve and step-in (audit 3.4, docs/plan.md §1.191).
+    const ops =
+      /^\/api\/ops\/inbox\/([0-9a-f-]{36})\/resolve$/.exec(path) ??
+      /^\/api\/ops\/clients\/[0-9a-f-]{36}\/inbox\/([0-9a-f-]{36})\/step-in$/.exec(path);
+    if (ops?.[1] && b.fingerprint === undefined) {
+      const fp = await opsSeenNow(ops[1]);
+      return fp ? { ...b, fingerprint: fp } : body;
+    }
     const one = /^\/api\/inbox\/([0-9a-f-]{36})\/resolve$/.exec(path);
     if (one?.[1] && b.fingerprint === undefined && b.deviceSignature === undefined) {
       const fp = await seenNow(one[1]);
@@ -275,11 +297,21 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
     return body;
   };
   const pending: Promise<unknown>[] = [];
-  const executionCtx = {
-    waitUntil: (p: Promise<unknown>) => void pending.push(p),
-    passThroughOnException: () => {},
-    props: {},
-  };
+  // DECISION: every request through the harness's app has its after-the-response work (event
+  // dispatch, a document's reading, closing the request's database) kept in `pending`, whatever
+  // execution context the test passed, or none (docs/plan.md §1.209). A test that passed its own
+  // still gets the promises too. Without this, work handed to a discarded `waitUntil` ran on its
+  // own: it raced what the test did next, and `close()` ended the pool under it.
+  const request = app.request;
+  app.request = (input, init, requestEnv, ctx) =>
+    request(input, init, requestEnv, {
+      waitUntil: (p: Promise<unknown>) => {
+        pending.push(p);
+        ctx?.waitUntil(p);
+      },
+      passThroughOnException: () => ctx?.passThroughOnException(),
+      props: ctx?.props ?? {},
+    } as ExecutionContext);
   return {
     t,
     db,
@@ -321,7 +353,6 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
             : { body: typeof body === "string" ? body : JSON.stringify(body) }),
         },
         env,
-        executionCtx as unknown as ExecutionContext,
       );
       const text = await res.text();
       let json: unknown = null;
@@ -333,7 +364,8 @@ export async function createApiHarness(options: HarnessOptions = {}): Promise<Ap
       return { status: res.status, json, headers: res.headers };
     },
     async close() {
-      await Promise.all(pending);
+      // Work still running after the response is awaited first: the pools end only after it.
+      while (pending.length > 0) await Promise.allSettled(pending.splice(0));
       if (appDb !== db) await appDb.$client.end();
       await db.$client.end();
       await t.drop();

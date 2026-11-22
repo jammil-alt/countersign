@@ -114,6 +114,10 @@ export type Control = {
 
 const ISP = "docs/policies/information-security.md";
 const DRP = "docs/policies/data-retention.md";
+// §1.218: drafts for the owner to adopt.
+const CMP = "docs/policies/change-management.md";
+const IRP = "docs/policies/incident-response.md";
+const VMP = "docs/policies/vendor-management.md";
 
 export const CONTROLS: readonly Control[] = [
   // ── Governance and people ──────────────────────────────────────────────────────────────────────
@@ -281,11 +285,15 @@ export const CONTROLS: readonly Control[] = [
     title: "Quarterly access review",
     statement:
       "Every quarter we review every account and its roles, remove what isn't needed, and keep the dated list.",
-    status: "partial",
-    gap: "The review is built (/ops/security/audit, Access review); its quarterly record is kept outside the product.",
+    status: "in_place",
     tier: "all",
     evidence: [
       { kind: "screen", ref: "/ops/security/audit?view=access" },
+      {
+        kind: "record",
+        ref: "/ops/security/soc2#access-reviews",
+        note: "each quarter's review and decisions (§1.218)",
+      },
       { kind: "policy", ref: ISP, note: "§3" },
     ],
     maps: { soc2: ["CC6.2", "CC6.3"], hipaa: ["164.308(a)(3)(ii)(B)", "164.308(a)(4)(ii)(C)"] },
@@ -544,6 +552,7 @@ export const CONTROLS: readonly Control[] = [
     evidence: [
       { kind: "setting", ref: 'GitHub ruleset "Protect main"' },
       { kind: "code", ref: ".github/workflows/ci.yml" },
+      { kind: "policy", ref: CMP, note: "draft" },
     ],
     maps: { soc2: ["CC8.1"], hipaa: ["164.308(a)(8)"], pci: ["6.5.1"] },
   },
@@ -659,9 +668,12 @@ export const CONTROLS: readonly Control[] = [
     statement:
       "Report, contain, investigate, notify, learn. Affected clients are told within 72 hours of confirming their data was exposed.",
     status: "partial",
-    gap: "The plan is written; it has not been rehearsed.",
+    gap: "The plan is written (a fuller incident response policy is drafted for the owner to adopt); it has not been rehearsed.",
     tier: "all",
-    evidence: [{ kind: "policy", ref: ISP, note: "§9" }],
+    evidence: [
+      { kind: "policy", ref: ISP, note: "§9" },
+      { kind: "policy", ref: IRP, note: "draft" },
+    ],
     maps: {
       soc2: ["CC7.3", "CC7.4", "CC7.5"],
       hipaa: ["164.308(a)(6)(ii)", "164.410"],
@@ -718,9 +730,12 @@ export const CONTROLS: readonly Control[] = [
     statement:
       "Before adding a vendor we check its security report, its training terms and its data terms; we re-check each one yearly. Clients are told before a new one receives their data.",
     status: "partial",
-    gap: "Reviews are not yet recorded.",
+    gap: "Reviews are not yet recorded; the vendor management policy is drafted for the owner to adopt.",
     tier: "all",
-    evidence: [{ kind: "policy", ref: ISP, note: "§8" }],
+    evidence: [
+      { kind: "policy", ref: ISP, note: "§8" },
+      { kind: "policy", ref: VMP, note: "draft" },
+    ],
     maps: { soc2: ["CC9.2"], pci: ["12.8.2", "12.8.4"] },
     routines: ["vendor-review"],
   },
@@ -777,10 +792,16 @@ export const CONTROLS: readonly Control[] = [
     tier: "all",
     evidence: [
       { kind: "code", ref: "apps/api/src/routes/compliance.ts", note: "retire" },
+      { kind: "code", ref: "packages/db/src/purge.ts", note: "the purge" },
+      {
+        kind: "code",
+        ref: "packages/db/src/deletion-drill.ts",
+        note: "the purge tested end to end on a Sandbox client (§1.218)",
+      },
       { kind: "record", ref: "docs/operations.md §1.2" },
     ],
     maps: { soc2: ["C1.2", "CC6.5"], hipaa: ["164.310(d)(2)(i)", "164.504(e)(2)(ii)(J)"] },
-    routines: ["client-exit"],
+    routines: ["client-exit", "deletion-drill"],
   },
 ];
 
@@ -813,8 +834,8 @@ export const ROUTINES: readonly Routine[] = [
     id: "access-review",
     title: "Access review",
     cadence: "quarterly",
-    how: "Review every account and role in the app and on each provider console; remove what isn't needed; keep the dated list.",
-    where: "/ops/security/audit?view=access",
+    how: "Review every account and role in the app and on each provider console; remove what isn't needed; record the review, which keeps the dated list.",
+    where: "/ops/security/soc2#access-reviews",
   },
   {
     id: "restore-test",
@@ -894,6 +915,13 @@ export const ROUTINES: readonly Routine[] = [
     where: "Database",
   },
   {
+    id: "deletion-drill",
+    title: "Deletion drill",
+    cadence: "yearly",
+    how: "Run the deletion drill on staging: a Sandbox client is filled, retired and purged, and the drill checks nothing of it is left. Its result is in the audit log.",
+    where: "docs/operations.md §1.2",
+  },
+  {
     id: "client-exit",
     title: "Client exit",
     cadence: "on_event",
@@ -910,6 +938,7 @@ export type Policy = {
   /** Repository path; null while it is still to be written. */
   path: string | null;
   version: string | null;
+  /** When the owner adopted it; null with a version: a draft waiting for them (§1.218). */
   adopted: string | null;
   nextReview: string | null;
 };
@@ -930,6 +959,31 @@ export const POLICIES: readonly Policy[] = [
     version: "1.0",
     adopted: "2026-11-09",
     nextReview: "2027-11-09",
+  },
+  // §1.218: drafted for the owner to adopt; a version with no adopted date is a draft.
+  {
+    id: "change-management",
+    title: "Change management",
+    path: CMP,
+    version: "0.1",
+    adopted: null,
+    nextReview: null,
+  },
+  {
+    id: "incident-response",
+    title: "Incident response",
+    path: IRP,
+    version: "0.1",
+    adopted: null,
+    nextReview: null,
+  },
+  {
+    id: "vendor-management",
+    title: "Vendor management",
+    path: VMP,
+    version: "0.1",
+    adopted: null,
+    nextReview: null,
   },
   {
     id: "acceptable-use",
@@ -970,6 +1024,8 @@ export const PROCESSOR_RECEIVES: Record<Processor, string> = {
   billcom: "Bills and payables, for clients that connect BILL",
   // §1.116
   expo_push: "Phone notifications: a phone's token, Mezonas or the business's name, and a count",
+  // §1.190
+  claude_ai: "What the back office's tools return to an operator's Claude, through our connector",
 };
 
 /** Vendors we use that are kept out of scope for client data, and how. */

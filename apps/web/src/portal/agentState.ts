@@ -1,6 +1,7 @@
 // Small helpers for the Table and an agent's page (C1, C2): the go-live stage's word, the part of
 // the day and the client's day. An agent's and a run's state live in ./status.ts.
 import type { Translate } from "../i18n/catalog";
+import { dateLocaleFor } from "../i18n/format";
 
 /** Before go-live (trial, the client's sign-off): a word beside the chip. Null when live. */
 export function stageWord(stage: string | null, t: Translate): string | null {
@@ -31,9 +32,9 @@ export function partOfDay(
 export function longDay(now: Date, intl: string, timeZone: string | undefined): string {
   const options: Intl.DateTimeFormatOptions = { weekday: "long", month: "long", day: "numeric" };
   try {
-    return new Intl.DateTimeFormat(intl, { ...options, timeZone }).format(now);
+    return new Intl.DateTimeFormat(dateLocaleFor(intl), { ...options, timeZone }).format(now);
   } catch {
-    return new Intl.DateTimeFormat(intl, options).format(now);
+    return new Intl.DateTimeFormat(dateLocaleFor(intl), options).format(now);
   }
 }
 

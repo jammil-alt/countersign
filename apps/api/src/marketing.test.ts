@@ -17,11 +17,20 @@ import {
   OPERATOR,
 } from "./api.test-helper";
 import { packNightly } from "./app";
+import type { RateLimiterBinding } from "./env";
+import { memoryRateLimiter } from "./mcp/limits";
 
 // biome-ignore lint/suspicious/noExplicitAny: response bodies are read loosely in tests.
 const j = (v: unknown) => v as any;
 
-const h = await createApiHarness();
+// The per-site Rate Limiting binding (docs/plan.md §1.198), faked with a small limit so a test can
+// reach it; the address limit runs on the isolate's window, as where its binding isn't bound.
+const SITE_LIMIT = 150;
+const sites = memoryRateLimiter(SITE_LIMIT);
+const INBOUND_TARGET_RATE_LIMIT: RateLimiterBinding = {
+  limit: async ({ key }) => ({ success: await sites.allow(key) }),
+};
+const h = await createApiHarness({ env: { INBOUND_TARGET_RATE_LIMIT } });
 afterAll(() => h?.close());
 
 const UA =
@@ -130,7 +139,7 @@ describe.skipIf(!h)("the Marketing pack on the platform", () => {
     expect(other.status).toBe(404);
   });
 
-  describe("limits beacons per address, whatever the user agent", () => {
+  describe("limits beacons per address, whatever the user agent, and per site", () => {
     const LIMIT = 120;
     const addSite = async (domain: string) => {
       const added = await H.call(
@@ -169,6 +178,25 @@ describe.skipIf(!h)("the Marketing pack on the platform", () => {
         expect(res.status).toBe(204);
       }
       expect(await stored(id)).toBe(LIMIT + 10);
+    });
+
+    it("stops storing a site's beacons past the site's limit, while another site's are stored", async () => {
+      const busy = await addSite("busy.example.com");
+      const quiet = await addSite("quiet.example.com");
+      for (let i = 0; i < SITE_LIMIT + 10; i++) {
+        const res = await inbound(H.A.tenantId, busy, {
+          origin: "https://busy.example.com",
+          "cf-connecting-ip": `198.18.${i >> 8}.${i & 255}`,
+        });
+        expect(res.status).toBe(204);
+      }
+      expect(await stored(busy)).toBe(SITE_LIMIT);
+      const res = await inbound(H.A.tenantId, quiet, {
+        origin: "https://quiet.example.com",
+        "cf-connecting-ip": "198.18.0.1",
+      });
+      expect(res.status).toBe(204);
+      expect(await stored(quiet)).toBe(1);
     });
   });
 });

@@ -186,7 +186,8 @@ export class Controller {
     this.signingIn = { verifier };
     this.emit();
     await this.o.shell.openExternal(
-      `${this.api.origin}/api/mobile/sign-in?challenge=${encodeURIComponent(challenge)}`,
+      // §1.219: `app=desktop`, so the confirm page and the audit rows name this app.
+      `${this.api.origin}/api/mobile/sign-in?challenge=${encodeURIComponent(challenge)}&app=desktop`,
     );
   }
 

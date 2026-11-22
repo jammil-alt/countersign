@@ -12,6 +12,7 @@ import {
   type OpsSearchResult,
   type PortalSearchResult,
   portalRunFilter,
+  type RunFilter,
   readSearchText,
   routes,
   runFilterQuery,
@@ -19,14 +20,17 @@ import {
 } from "@countersign/core";
 import { agent, run, type Tx, tenant } from "@countersign/db";
 import { createLlmClient } from "@countersign/llm";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, type SQL } from "drizzle-orm";
 import type { Hono } from "hono";
+import { agentWhere } from "../assigned";
 import { clientModels } from "../compliance/models";
 import { type AppEnv, ensureClient, mount, mountLong } from "../http";
 import { claimMetered } from "../metered";
+import { runsAboutCounts } from "../runs/about";
 import { clientStatusWhere, clientWaits, OPEN_RUN } from "../runs/client-status";
 import { reachContext, runWaits } from "../runs/run-wait";
 import { runSubjects } from "../runs/subject";
+import { type ResolvedAbout, resolveAboutText } from "../runs-ask/about";
 import { compileQuestion } from "../runs-ask/ask";
 import { askContext } from "../runs-ask/context";
 import { recordAskUsage } from "../runs-ask/usage";
@@ -66,7 +70,7 @@ async function clientNames(tx: Tx, ids: readonly string[]) {
 // DECISION: the kinds are asked at once, in the request's one transaction: the driver pipelines
 // them on its connection, so a search costs about one round trip to the database instead of ten
 // in a row (it took about 4 seconds on staging). Each query still names its clients (RLS too).
-async function searchAll(tx: Tx, scope: SearchScope, q: string) {
+async function searchAll(tx: Tx, scope: SearchScope, q: string, agentScope?: SQL) {
   const text = readSearchText(q);
   const [agents, runs, records, people, organizations, documents] = await Promise.all([
     searchAgents(tx, scope, text),
@@ -76,14 +80,28 @@ async function searchAll(tx: Tx, scope: SearchScope, q: string) {
     searchOrganizations(tx, scope, text),
     searchDocuments(tx, scope, text),
   ]);
+  // R2: how many runs were about each record and document (the portal: as its timeline shows).
+  const counts = await runsAboutCounts(
+    tx,
+    scope.tenantIds,
+    [...records.map((r) => r.id), ...documents.map((d) => d.id)],
+    scope.surface,
+    agentScope,
+  );
+  const runsAbout = (id: string) => counts.get(id) ?? 0;
   return {
     agents,
     runs,
-    records,
+    records: records.map((r) => ({ ...r, runs: runsAbout(r.id) })),
     people,
     organizations,
-    documents,
+    documents: documents.map((d) => ({ ...d, runs: runsAbout(d.id) })),
   };
+}
+
+/** The model's filter with what its `aboutText` was found to be (R2). */
+function withAbout(filter: RunFilter, about: ResolvedAbout | null): RunFilter {
+  return about?.about.length ? { ...filter, about: about.about } : filter;
 }
 
 function namesOf(context: AskContext) {
@@ -97,16 +115,24 @@ function namesOf(context: AskContext) {
 
 export function searchRoutes(app: Hono<AppEnv>): void {
   // ── Search ──
-  mount(app, routes.portalSearch, async ({ tx, tenantIds, query, services }) => {
+  mount(app, routes.portalSearch, async ({ tx, tenantIds, query, services, agents }) => {
     const tenantId = tenantIds[0] as string;
-    const hits = await searchAll(tx, { surface: "portal", tenantIds: [tenantId] }, query.q);
+    // §1.122: a person limited to some agents counts only their runs.
+    const hits = await searchAll(
+      tx,
+      { surface: "portal", tenantIds: [tenantId] },
+      query.q,
+      agentWhere(run.agentId, agents),
+    );
     // UI cleanup (stream A): a run waiting on the client reads "waiting on you", as on Runs.
     const waits = await clientWaits(
       tx,
       tenantId,
       hits.runs.map((r) => r.id),
     );
-    const subjects = await runSubjects(tx, [tenantId], hits.runs, services.platform);
+    const subjects = await runSubjects(tx, [tenantId], hits.runs, services.platform, {
+      surface: "portal",
+    });
     // Only what the portal shows: no client ids, templates, notes or costs.
     const result: PortalSearchResult = {
       services: hits.agents.map((a) => ({
@@ -135,6 +161,7 @@ export function searchRoutes(app: Hono<AppEnv>): void {
         vendor: d.vendor,
         number: d.number,
         receivedAt: d.receivedAt.toISOString(),
+        runs: d.runs,
       })),
     };
     return result;
@@ -183,6 +210,7 @@ export function searchRoutes(app: Hono<AppEnv>): void {
         vendor: d.vendor,
         number: d.number,
         receivedAt: d.receivedAt.toISOString(),
+        runs: d.runs,
         client: named(d.tenantId),
       })),
     };
@@ -229,15 +257,23 @@ export function searchRoutes(app: Hono<AppEnv>): void {
         console.info(JSON.stringify({ event: "runs.ask.refused", reason: outcome.reason }));
         return { understood: false as const, message: ASK_NOT_UNDERSTOOD };
       }
+      // R2: what the runs were about, looked up in this client's records by code.
+      const about = outcome.aboutText
+        ? await resolveAboutText(
+            tx,
+            { surface: "portal", tenantIds: [tenantId] },
+            outcome.aboutText,
+          )
+        : null;
       // The portal's own filter (no back-office keys: the schema refused them), its live runs only.
-      const filter = portalRunFilter(outcome.filter);
+      const filter = portalRunFilter(withAbout(outcome.filter, about));
       // Statuses are the client's (a run waiting on the client is "waiting"), as on its runs list.
       const { statuses, ...rest } = filter;
       const runs = await runSummaries(
         tx,
         tenantId,
         [
-          ...runFilterWhere(rest, services.platform.ctx.tools.specs()),
+          ...runFilterWhere(rest, services.platform.ctx.tools.specs(), "portal"),
           ...clientStatusWhere(statuses),
         ],
         ASK_RUNS_LIMIT,
@@ -246,9 +282,10 @@ export function searchRoutes(app: Hono<AppEnv>): void {
       return {
         understood: true as const,
         filter,
-        chips: askChips(filter, namesOf(context)),
+        chips: askChips(filter, { ...namesOf(context), about: about?.names ?? new Map() }),
         // v0.14 W4-B: what the question asked that the filter can't express.
         leftOut: outcome.leftOut,
+        aboutText: outcome.aboutText,
         query: runFilterQuery(filter),
         runs: runs.map((r) => ({ ...r, shortId: shortRunId(r.id) })),
       };
@@ -292,9 +329,17 @@ export function searchRoutes(app: Hono<AppEnv>): void {
       console.info(JSON.stringify({ event: "runs.ask.refused", reason: outcome.reason }));
       return { understood: false as const, message: ASK_NOT_UNDERSTOOD };
     }
-    const filter = outcome.filter;
     // The runs list's own query, over the clients this question covers.
     return ctx.inTx(async ({ tx }) => {
+      // R2: what the runs were about, looked up in the records of the clients asked about.
+      const about = outcome.aboutText
+        ? await resolveAboutText(
+            tx,
+            { surface: "ops", tenantIds: outcome.filter.clients ?? ids },
+            outcome.aboutText,
+          )
+        : null;
+      const filter = withAbout(outcome.filter, about);
       const rows = await tx
         .select({ r: run, a: agent })
         .from(run)
@@ -302,7 +347,7 @@ export function searchRoutes(app: Hono<AppEnv>): void {
         .where(
           and(
             inArray(run.tenantId, ids),
-            ...runFilterWhere(filter, services.platform.ctx.tools.specs()),
+            ...runFilterWhere(filter, services.platform.ctx.tools.specs(), "ops"),
           ),
         )
         .orderBy(desc(run.createdAt))
@@ -311,9 +356,10 @@ export function searchRoutes(app: Hono<AppEnv>): void {
       return {
         understood: true as const,
         filter,
-        chips: askChips(filter, namesOf(context)),
+        chips: askChips(filter, { ...namesOf(context), about: about?.names ?? new Map() }),
         // v0.14 W4-B: what the question asked that the filter can't express.
         leftOut: outcome.leftOut,
+        aboutText: outcome.aboutText,
         query: runFilterQuery(filter),
         runs: rows.map(({ r, a }) => ({
           id: r.id,

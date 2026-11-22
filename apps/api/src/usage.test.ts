@@ -11,14 +11,20 @@ import {
   USAGE_ROLLUP_MAX_DAYS,
   utcDaysBetween,
 } from "@countersign/agents";
-import { FORBIDDEN_PORTAL_FIELD } from "@countersign/core";
+import { FORBIDDEN_PORTAL_FIELD, PROVIDER_FEE_ENTITY } from "@countersign/core";
 import {
   agent,
   agentVersion,
+  appUser,
+  builderSession,
+  builderTurn,
   docExtraction,
   document,
   externalAction,
   modelCall,
+  rawRecord,
+  reggieConversation,
+  reggieMessage,
   run,
   stepRun,
   tenant,
@@ -354,6 +360,11 @@ describe.skipIf(!h)("usage and reports", () => {
         costUsd: "0.0125",
         // P-7 (0034): the client's own translations; none here.
         translations: 0,
+        // §1.210 (0095): the client's own metered usage; none here.
+        messages: 0,
+        emails: 0,
+        browserSeconds: 0,
+        bankItemMonths: 0,
       },
     ]);
     // A day with no background reading has no row.
@@ -531,9 +542,21 @@ describe.skipIf(!h)("usage and reports", () => {
       "2026-11-02",
       "2026-11-03",
     ]);
-    expect(u.byDay[1].figures.costUsd).toBe("0.0628");
-    // By model: the runs' calls and the background reading's model (the fixture's "replay").
+    // QA (usage costs): cost is the calls' and the steps' beyond them, not the rollup's step
+    // totals. Nov 2: the three calls ($0.0350, which cover r2's first step), r2's second step
+    // ($0.0002, no call record), the test run ($0.0500) and the background reading ($0.0125).
+    expect(u.byDay[1].figures.costUsd).toBe("0.0977");
+    // By model: the steps' usage no call record holds (no model), the runs' calls, and the
+    // background reading's model (the fixture's "replay").
     expect(u.byModel).toEqual([
+      {
+        provider: "",
+        model: "",
+        calls: 0,
+        tokensIn: 0,
+        tokensOut: 0,
+        costUsd: "0.1306",
+      },
       {
         provider: "anthropic",
         model: "claude-opus-5-5",
@@ -562,6 +585,7 @@ describe.skipIf(!h)("usage and reports", () => {
     // By vendor: the providers, then texts and calls at our unit costs (0.0083 a message, 0.10 a
     // minute).
     expect(u.byVendor).toEqual([
+      expect.objectContaining({ id: "unrecorded", name: "Model calls not itemised" }),
       expect.objectContaining({ id: "anthropic", name: "Anthropic", costUsd: "0.0425", calls: 3 }),
       expect.objectContaining({ id: "openai", name: "OpenAI", costUsd: "0.0050", calls: 1 }),
       {
@@ -579,12 +603,21 @@ describe.skipIf(!h)("usage and reports", () => {
         callSeconds: 90,
       },
     ]);
-    // Narrowed to an agent: its own calls only, no background reading.
+    // Every split sums to the total, the clients' rows and the chart (QA usage costs).
+    const cents = (xs: { costUsd: string }[]) =>
+      xs.reduce((n, x) => n + Math.round(Number(x.costUsd) * 10_000), 0);
+    const total = Math.round(Number(u.total.costUsd) * 10_000);
+    expect(total).toBe(1306 + 300 + 125 + 50);
+    expect(cents(u.byModel)).toBe(total);
+    expect(cents(u.byVendor.filter((v: { estimated: boolean }) => !v.estimated))).toBe(total);
+    expect(cents(u.clients.map((c: { total: { costUsd: string } }) => c.total))).toBe(total);
+    expect(cents(u.byDay.map((d: { figures: { costUsd: string } }) => d.figures))).toBe(total);
+    // Narrowed to an agent: its own steps only (no call records here), no background reading.
     const one = j(
       (await call(OPERATOR, "GET", `/api/ops/usage?from=2026-11-01&to=2026-11-03&agent=${ids.aA2}`))
         .json,
     );
-    expect(one.byModel).toEqual([]);
+    expect(one.byModel).toEqual([expect.objectContaining({ model: "", costUsd: "0.0800" })]);
     // A year is split by day (the chart is daily, feedback 2026-11-16); a longer range is not.
     const year = j(
       (await call(OPERATOR, "GET", "/api/ops/usage?from=2026-01-01&to=2026-11-03")).json,
@@ -595,6 +628,146 @@ describe.skipIf(!h)("usage and reports", () => {
     );
     expect(long.byDay).toBeUndefined();
     await rollupAll();
+  });
+
+  // QA (usage costs, 2026-11-22): on staging the tables disagreed ($36.42 total against $0.71 by
+  // model and by vendor; a client at $0.90 in one table and $0.68 in the tokens; 30 calls of a
+  // dated model id at $0.00; Reggie's calls nowhere). Every table now sums from the same lines.
+  it("agrees in every table: steps, calls, background, the back office, fees and unpriced calls", async () => {
+    const A = H.A.tenantId;
+    const B = H.B.tenantId;
+    const SEPT = "from=2026-09-01&to=2026-09-30";
+    // A run of A's with one step that cost $0.0300 over 1200 tokens: two recorded calls cover
+    // $0.0200 and 1000 tokens, one of them the API's dated id with no price ($0.0000), and the
+    // rest is the step's own (a call whose row was never written).
+    const r = await addRun("aA", A, {
+      at: "2026-09-10T12:00:00Z",
+      // A test run: it costs the same, and stays out of the portal's live runs.
+      mode: "test",
+      status: "succeeded",
+      steps: [{ cost: "0.0300", tokensIn: 1000, tokensOut: 200 }],
+    });
+    const [step] = await db.select().from(stepRun).where(eq(stepRun.runId, r));
+    if (!step) throw new Error("no step");
+    const callRow = (n: number, model: string, cost: string, tokensIn: number) => ({
+      tenantId: A,
+      runId: r,
+      stepRunId: step.id,
+      provider: "anthropic",
+      model,
+      tokensIn,
+      tokensOut: 50,
+      costUsd: cost,
+      durationMs: 10,
+      stopReason: "end_turn",
+      bodyKey: `tenants/${A}/model-calls/sept-${n}.json`,
+      createdAt: new Date("2026-09-10T12:00:05Z"),
+    });
+    await db
+      .insert(modelCall)
+      .values([
+        callRow(1, "claude-sonnet-5-5", "0.0200", 400),
+        callRow(2, "claude-sonnet-4-5-20250929", "0.0000", 400),
+      ]);
+    // B's texting registration fees: money we paid, not model cost.
+    await db.insert(rawRecord).values(
+      ["brand", "vetting"].map((kind, i) => ({
+        tenantId: B,
+        connectionId: H.B.connectionId,
+        connector: "twilio",
+        entityType: PROVIDER_FEE_ENTITY,
+        externalId: `sept-fee-${kind}`,
+        payload: { kind: `a2p_${kind}`, amountUsd: i === 0 ? "4.0000" : "15.0000" },
+        syncedAt: new Date("2026-09-11T12:00:00Z"),
+      })),
+    );
+    // The back office: a Reggie answer (no client), and the Builder on the template.
+    const [op] = await db.select().from(appUser).where(eq(appUser.email, OPERATOR));
+    const [conv] = await db
+      .insert(reggieConversation)
+      .values({ userId: op?.id as string, title: "Spend" })
+      .returning();
+    await db.insert(reggieMessage).values([
+      { conversationId: conv?.id as string, role: "operator", text: "What did we spend?" },
+      {
+        conversationId: conv?.id as string,
+        role: "reggie",
+        text: "Not much.",
+        meta: { model: "claude-sonnet-5-5", costUsd: "0.012000" },
+        createdAt: new Date("2026-09-12T09:00:00Z"),
+      },
+    ]);
+    const [session] = await db
+      .insert(builderSession)
+      .values({ kind: "agent", agentId: ids.tpl, bundle: {} })
+      .returning();
+    await db.insert(builderTurn).values({
+      sessionId: session?.id as string,
+      seq: 1,
+      role: "builder",
+      text: "Done.",
+      meta: { model: "claude-opus-5-5" },
+      costUsd: "0.0500",
+      createdAt: new Date("2026-09-12T10:00:00Z"),
+    });
+    // The rollup holds the counts (runs, steps); cost and tokens never come from it.
+    await withTenant(H.db, A, (tx) => rollupUsageDays(tx, { tenantId: A, days: ["2026-09-10"] }));
+
+    const u = j((await call(OPERATOR, "GET", `/api/ops/usage?${SEPT}`)).json);
+    const cents = (v: string) => Math.round(Number(v) * 10_000);
+    const sum = (xs: { costUsd: string | null }[]) =>
+      xs.reduce((n, x) => n + cents(x.costUsd ?? "0"), 0);
+    // $0.0300 of A's run (calls $0.0200, the rest unrecorded) and the back office's $0.0620.
+    expect(u.total.costUsd).toBe("0.0920");
+    expect(u.total.tokensIn + u.total.tokensOut).toBe(1200);
+    expect(sum(u.byModel)).toBe(920);
+    expect(sum(u.byVendor.filter((v: { id: string }) => v.id !== "provider_fees"))).toBe(920);
+    // The clients' rows and the back office's line make up the total; fees are in neither.
+    expect(u.clients.map((c: { id: string; total: { costUsd: string } }) => c.total)).toEqual([
+      expect.objectContaining({ costUsd: "0.0300", runs: 1, tokensIn: 1000 }),
+    ]);
+    expect(u.backOffice.total.costUsd).toBe("0.0620");
+    expect(u.backOffice.lines).toEqual([
+      { id: "reggie", answers: 1, costUsd: "0.0120" },
+      { id: "builder", answers: 1, costUsd: "0.0500" },
+    ]);
+    expect(u.agents.map((a: { total: { costUsd: string } }) => a.total.costUsd)).toEqual([
+      "0.0300",
+    ]);
+    expect(sum(u.byDay.map((d: { figures: { costUsd: string } }) => d.figures))).toBe(920);
+    // The fees are a vendor line of their own, beside the model providers.
+    expect(u.byVendor).toContainEqual({
+      id: "provider_fees",
+      name: "Twilio fees (texting registration)",
+      costUsd: "19.0000",
+      estimated: false,
+      fees: 2,
+    });
+    // The dated id's call is shown as having no price, not as a silent $0.00.
+    expect(u.byModel).toContainEqual(
+      expect.objectContaining({ model: "claude-sonnet-4-5-20250929", calls: 1, unpricedCalls: 1 }),
+    );
+    expect(u.byModel).toContainEqual(
+      expect.objectContaining({ model: "", tokensIn: 200, tokensOut: 100, costUsd: "0.0100" }),
+    );
+
+    // The tokens report counts the same lines: A's cost and tokens are its row above.
+    const t = j((await call(OPERATOR, "GET", `/api/ops/usage/tokens?${SEPT}`)).json);
+    expect(t.byClient).toEqual([
+      expect.objectContaining({ id: A, costUsd: "0.0300", tokensIn: 1000, tokensOut: 200 }),
+    ]);
+    expect(t.byAction).toContainEqual(
+      expect.objectContaining({ action: "unrecorded", costUsd: "0.0100", tokensIn: 200 }),
+    );
+
+    // Narrowed to client A: its own spend; the back office's (none opened on A) is $0.
+    const a = j((await call(OPERATOR, "GET", `/api/ops/usage?${SEPT}&client=${A}`)).json);
+    expect(a.total.costUsd).toBe("0.0300");
+    expect(a.backOffice.lines).toEqual([]);
+    // Narrowed to an agent, no background or back office at all.
+    const one = j((await call(OPERATOR, "GET", `/api/ops/usage?${SEPT}&agent=${ids.aA}`)).json);
+    expect(one.total.costUsd).toBe("0.0300");
+    expect(one.backOffice).toBeUndefined();
   });
 
   it("checks the range", async () => {

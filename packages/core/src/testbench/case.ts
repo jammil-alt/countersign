@@ -117,6 +117,11 @@ export const Fixtures = z.array(Fixture).max(200);
 export const TemplateCaseInput = z.strictObject({
   workflow: Slug,
   payload: z.record(z.string(), z.unknown()).default({}),
+  /**
+   * §1.212: skill parameters as a client agent set them, by skill id (a case saved from a
+   * client's run carries its agent's, so the template runs as that agent would).
+   */
+  parameters: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
 });
 export type TemplateCaseInput = z.infer<typeof TemplateCaseInput>;
 

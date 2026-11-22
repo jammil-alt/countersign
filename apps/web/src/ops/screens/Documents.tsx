@@ -10,6 +10,7 @@ import { useApi, useApiClient } from "../../api/useApi";
 import { DocumentDetailView } from "../../documents/DocumentDetail";
 import { documentStatus, MATCH_KIND_LABEL, money, sourceLabel } from "../../portal/documents";
 import { DropZone } from "../../portal/screens/Upload";
+import { RecordRuns } from "../../records/RecordRuns";
 import { shortTime } from "../../runs/format";
 import { usePoll } from "../../runs/usePoll";
 import { Badge, EmptyState, ErrorNotice, Loading } from "../../ui/primitives";
@@ -177,6 +178,14 @@ export function OpsDocumentScreen() {
           onOpenOriginal={() => void openOriginal()}
           transactionHref={(t) => `${base}/records/${t}`}
           documentHref={(id) => `${base}/documents/${id}`}
+        />
+      ) : null}
+      {/* R3 (docs/plan.md §1.200): what our agents did with it. */}
+      {data ? (
+        <RecordRuns
+          source={{ surface: "ops", clientId }}
+          recordId={documentId}
+          runHref={(r) => `/ops/runs/${r}`}
         />
       ) : null}
     </div>

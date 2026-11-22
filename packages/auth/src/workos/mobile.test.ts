@@ -8,6 +8,7 @@ import {
   mobileHandoff,
   mobileRedeem,
   mobileSessionFromSetCookies,
+  mobileSignInApp,
   mobileStartCookie,
   pkceChallengeOf,
   withMobileSession,
@@ -140,6 +141,47 @@ describe("signing in from the phone app", () => {
   it("knows a sign-in for the phone by its start cookie", async () => {
     expect(isMobileSignIn(await browserAfterSignIn(await pkceChallengeOf(VERIFIER)))).toBe(true);
     expect(isMobileSignIn(new Request("https://app.mezonas.test/api/auth/callback"))).toBe(false);
+  });
+
+  it("carries the app the sign-in is for to the handoff and the redeem (§1.219)", async () => {
+    const challenge = await pkceChallengeOf(VERIFIER);
+    const start = await mobileStartCookie(challenge, PASSWORD, T0, "desktop");
+    const { sealed } = await sealedSession();
+    const request = new Request("https://app.mezonas.test/api/mobile/handoff", {
+      headers: {
+        cookie: `${MOBILE_START_COOKIE}=${cookieValue(start, MOBILE_START_COOKIE)}; ${SESSION_COOKIE}=${sealed}`,
+      },
+    });
+    expect(await mobileSignInApp(request, PASSWORD, T0)).toBe("desktop");
+    const handoff = await mobileHandoff(request, PASSWORD, T0);
+    if (!handoff.ok) throw new Error(handoff.reason);
+    expect(handoff.app).toBe("desktop");
+    const code = new URL(handoff.redirectTo).searchParams.get("code") ?? "";
+    const redeemed = await mobileRedeem(code, VERIFIER, PASSWORD, T0);
+    expect(redeemed).toMatchObject({ ok: true, app: "desktop" });
+    // The phone's, by default; nothing once the start has expired or is missing.
+    const phone = await browserAfterSignIn(challenge);
+    expect(await mobileSignInApp(phone, PASSWORD, T0)).toBe("phone");
+    expect(await mobileSignInApp(phone, PASSWORD, new Date(T0.getTime() + 3_600_000))).toBeNull();
+    expect(
+      await mobileSignInApp(new Request("https://app.mezonas.test/"), PASSWORD, T0),
+    ).toBeNull();
+  });
+
+  it("reads a start and a code sealed before the app was named as the phone's", async () => {
+    const challenge = await pkceChallengeOf(VERIFIER);
+    const exp = epochSec(T0) + 600;
+    const oldStart = await seal({ c: challenge, exp }, PASSWORD, "mobile-start");
+    const { sealed } = await sealedSession();
+    const request = new Request("https://app.mezonas.test/api/mobile/handoff", {
+      headers: { cookie: `${MOBILE_START_COOKIE}=${oldStart}; ${SESSION_COOKIE}=${sealed}` },
+    });
+    expect(await mobileSignInApp(request, PASSWORD, T0)).toBe("phone");
+    const oldCode = await seal({ s: sealed, c: challenge, exp }, PASSWORD, "mobile-handoff");
+    expect(await mobileRedeem(oldCode, VERIFIER, PASSWORD, T0)).toMatchObject({
+      ok: true,
+      app: "phone",
+    });
   });
 
   it("refuses a code without its verifier, after two minutes, or that is not ours", async () => {

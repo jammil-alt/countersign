@@ -13,6 +13,8 @@ export default defineConfig({
     "../../packs/materials/src/schema.ts",
     "../../packs/marketing/src/schema.ts",
     "../../packs/bookkeeping/src/schema.ts",
+    "../../packs/bookkeeping/src/close/schema.ts",
+    "../../packs/materials/src/ap/schema.ts",
     "../../packs/sales/src/schema.ts",
   ],
   out: "./migrations",

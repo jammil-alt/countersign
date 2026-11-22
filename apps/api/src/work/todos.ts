@@ -37,6 +37,7 @@ import {
 } from "@countersign/db";
 import { and, desc, eq, gte, inArray, isNull, lte, ne, or, type SQL, sql } from "drizzle-orm";
 import { iso } from "../http";
+import { notWaitingReminder } from "../runs/run-wait";
 import { holdViews } from "./holds";
 import type { TodoRow } from "./todos-store";
 
@@ -82,6 +83,19 @@ export function aboutHref(kind: string, id: string): string | null {
     default:
       return null;
   }
+}
+
+/**
+ * Where a to-do is done: the page of the record it is about, else (an ask or a question, which
+ * have no page of their own) its client's page.
+ */
+// DECISION (QA, 2026-11-22): every to-do about a record leads to a page, so its sheet always has
+// a way to the work ("Record X's agreed price" opens the deal, where the terms form is).
+export function todoHref(
+  about: { kind: string; id: string },
+  clientId: string | null,
+): string | null {
+  return aboutHref(about.kind, about.id) ?? (clientId ? aboutHref("client", clientId) : null);
 }
 
 /** "Head. Detail" or "Head: detail" into the why box's two parts. */
@@ -218,7 +232,7 @@ export async function todoViews(tx: Tx, rows: TodoRow[]): Promise<TodoView[]> {
       title: r.title,
       detail: r.detail,
       client: r.clientId ? { id: r.clientId, name: clientName ?? "A client" } : null,
-      about: about ? { ...about, href: aboutHref(about.kind, about.id) } : null,
+      about: about ? { ...about, href: todoHref(about, r.clientId) } : null,
       dueAt: iso(r.dueAt),
       state: r.state,
       snoozedUntil: iso(r.snoozedUntil),
@@ -313,6 +327,7 @@ async function escalations(tx: Tx, scope: readonly string[]): Promise<TodoView[]
         inArray(inboxItem.tenantId, [...scope]),
         eq(inboxItem.status, "open"),
         eq(inboxItem.assigneeRole, "operator"),
+        notWaitingReminder,
       ),
     )
     .orderBy(inboxItem.createdAt)
@@ -326,7 +341,8 @@ async function escalations(tx: Tx, scope: readonly string[]): Promise<TodoView[]
       tag: "Escalation",
       title: r.title,
       client: { id: r.tenantId, name: r.clientName },
-      about: { kind: "inbox", id: r.id, href: `/ops/inbox?client=${r.tenantId}` },
+      // The exact item, open in its side sheet (QA, 2026-11-22).
+      about: { kind: "inbox", id: r.id, href: `/ops/inbox?client=${r.tenantId}&item=${r.id}` },
       dueAt: iso(r.dueAt),
       createdAt: r.createdAt,
       why: { head: "Waiting on us", detail: "An agent brought this to a person." },
@@ -504,6 +520,7 @@ async function deskItems(tx: Tx, scope: readonly string[]): Promise<TodoView[]> 
         eq(inboxItem.status, "open"),
         or(isNull(inboxItem.assigneeRole), ne(inboxItem.assigneeRole, "operator")),
         or(isNull(inboxItem.snoozedUntil), lte(inboxItem.snoozedUntil, new Date())),
+        notWaitingReminder,
       ),
     )
     .orderBy(sql`${inboxItem.dueAt} asc nulls last`, inboxItem.createdAt)

@@ -168,8 +168,8 @@ export function sessionRoutes(app: Hono<AppEnv>): void {
           ...(r.signedIn.method ? { method: r.signedIn.method } : {}),
           // §1.100: where the sign-in starts with the second step.
           second_factor: r.signedIn.remembered ? "remembered" : r.signedIn.secondFactor,
-          // §1.116: a sign-in for the phone app.
-          ...(r.signedIn.phone ? { app: "phone" } : {}),
+          // §1.116, §1.219: a sign-in for one of our apps, named: `phone` or `desktop`.
+          ...(r.signedIn.phone ? { app: r.signedIn.app ?? "phone" } : {}),
         },
       });
     }

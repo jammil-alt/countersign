@@ -19,6 +19,7 @@ import { EntityPermissions, PermissionEntity, PermissionLevel } from "../schemas
 import { SkillBrowse, SkillDefinition, SkillMethod } from "../schemas/skill";
 import { ToolInputVariants, ToolSpec } from "../schemas/tool";
 import { ToolDisplay } from "../schemas/tool-display";
+import { IanaTimeZone } from "../timezone";
 // P-8: US texting registration
 import { a2pRoutes } from "./a2p";
 import { accessRoutes } from "./access";
@@ -32,6 +33,8 @@ import { autopilotRoutes } from "./autopilot";
 // v0.12 bankfeed
 import { bankfeedRoutes, LinkStartView } from "./bankfeed";
 import { billingRoutes } from "./billing";
+// §1.216: books health
+import { booksHealthRoutes } from "./books-health";
 import { browserRoutes } from "./browser";
 import { browserScriptRoutes } from "./browser-scripts";
 // docs/plan.md §1.108: builds
@@ -63,17 +66,21 @@ import { feedbackRoutes } from "./feedback";
 // docs/plan.md §1.121: forms, "Request info"
 import { formRoutes } from "./forms";
 import { gchatRoutes } from "./gchat";
+// v0.12 W1-A: go-live stages and client controls
+import { gettingStartedRoutes } from "./getting-started";
 // v0.14 W4-D: Google Sheets' picking
 import { gsheetsRoutes } from "./gsheets";
 // R4: business hours, person hours and channels
 import { hoursRoutes } from "./hours";
+// §1.213: file and email intake's report profiles.
+import { intakeReportRoutes } from "./intake-reports";
 import { knowledgeRoutes } from "./knowledge";
 import { languageRoutes, SessionLanguage } from "./language";
 import { ledgerRoutes } from "./ledger";
 // R8: the Library's banks
 import { libraryRoutes } from "./library";
-// v0.12 W1-A: go-live stages and client controls
 import { GoLive, lifecycleRoutes } from "./lifecycle";
+import { matchRuleRoutes } from "./match-rules";
 import { messagingRoutes } from "./messaging";
 // §1.116: the phone app
 import { mobileRoutes } from "./mobile";
@@ -109,6 +116,7 @@ import { RunSubject } from "./run-subject";
 import {
   OpsRunsQuery,
   PortalRunsQuery,
+  RunAboutName,
   RunErrorGroup,
   RunStatusSchema,
   RunsPerDay,
@@ -259,9 +267,10 @@ export const ResolveBody = z.strictObject({
   /** §1.116: signed on a registered phone with Face ID or a fingerprint (checked, then recorded). */
   deviceSignature: DeviceSignature.optional(),
   /**
-   * Audit 3.4: the item as the person saw it (`itemFingerprint` of the portal's item). The portal
-   * requires it (or a phone's signature, which carries one) and refuses an answer to an item that
-   * changed since (409 `changed`).
+   * Audit 3.4: the item as the person saw it (`itemFingerprint` of the item as the route's own
+   * surface sends it: the portal's `PortalInboxItem`, the back office's `OpsInboxItem`). Both
+   * resolves require it (the portal also takes a phone's signature, which carries one) and refuse
+   * an answer to an item that changed since (409 `changed`).
    */
   fingerprint: ItemFingerprint.optional(),
 });
@@ -411,6 +420,11 @@ export const OpsRun = z.object({
   errorStep: z.string().nullable().optional(),
   /** What the run is about, for its title: see RunSubject. */
   subject: RunSubject.optional(),
+  /**
+   * How long the run has waited on people in all, in ms: its inbox items' spans joined (an open
+   * one counts to now). "Took" is start to finish less this. Absent where a route doesn't read it.
+   */
+  waitedMs: z.number().int().nonnegative().optional(),
 });
 
 export const OpsStep = z.object({
@@ -1219,7 +1233,7 @@ export const opsRoutes = {
       "Create a client; the creating operator serves it. Optionally invites its client admin and sets who approves",
     body: z.strictObject({
       name: z.string().trim().min(1).max(200),
-      timezone: z.string().optional(),
+      timezone: IanaTimeZone.optional(),
       connectorsOffered: z.array(z.string().min(1)).optional(),
       /** Who approves its external actions (default: the client admin). */
       approvals: ExternalApprover.optional(),
@@ -1505,6 +1519,19 @@ export const opsRoutes = {
           releaseNote: z.string().nullable(),
         })
         .nullable(),
+      // QA (2026-11-22): the Overview named a connection "Qbo" and its skills "Loading…" while
+      // the builder's catalog and the skills list (both much larger) were on their way or had
+      // failed; the agent now brings the names it shows. Optional so older answers still parse.
+      /**
+       * Names for what the agent's live and latest versions name: each connector by its
+       * manifest's name ("QuickBooks Online"), each skill reference by its skill's name.
+       */
+      names: z
+        .object({
+          connectors: z.record(z.string(), z.string()),
+          skills: z.record(z.string(), z.string()),
+        })
+        .optional(),
     }),
   }),
   opsAgentVersion: defineRoute({
@@ -1771,6 +1798,17 @@ export const opsRoutes = {
       payload: z.unknown().optional(),
       /** A template only: the served client whose data it runs on (default: the Sandbox). */
       clientId: ApiId.optional(),
+      /**
+       * A test of some of the steps (docs/plan.md §1.185): the first and last top-level step to
+       * run, and what the steps before the first are taken to have produced, by step id.
+       */
+      range: z
+        .strictObject({
+          from: z.string().min(1).max(100).optional(),
+          to: z.string().min(1).max(100).optional(),
+          given: z.record(z.string().min(1).max(100), z.unknown()).optional(),
+        })
+        .optional(),
     }),
     // For a template, the run belongs to its test copy: agentId and versionId name that copy.
     response: z.object({ runId: z.string(), agentId: z.string(), versionId: z.string() }),
@@ -1890,6 +1928,10 @@ export const opsRoutes = {
       agents: z.array(OpsAgentRef),
       perDay: RunsPerDay.optional(),
       groups: z.array(RunErrorGroup).optional(),
+      /** R2: the records `about` names, by what their runs kept ("Acme Supply"). */
+      about: z.array(RunAboutName).optional(),
+      /** Paging: pass as `before` for the next page; null on the last one. */
+      next: z.string().nullable().optional(),
     }),
   }),
   opsRun: defineRoute({
@@ -2180,7 +2222,12 @@ export const portalRoutes = {
     summary: "Runs of your services (never test runs)",
     // v0.12 W1-E: RunFilter without the back office's keys (docs/plan.md §1.40).
     query: PortalRunsQuery,
-    response: z.object({ runs: z.array(PortalRunSummary), perDay: RunsPerDay.optional() }),
+    response: z.object({
+      runs: z.array(PortalRunSummary),
+      perDay: RunsPerDay.optional(),
+      /** R2: the records `about` names, from the rows the client's timeline shows. */
+      about: z.array(RunAboutName).optional(),
+    }),
   }),
   portalRun: defineRoute({
     method: "GET",
@@ -2461,6 +2508,8 @@ export const routes = {
   ...usageRoutes,
   ...recordRoutes,
   ...approverRuleRoutes,
+  // §1.215: a client's saved match rules
+  ...matchRuleRoutes,
   ...messagingRoutes,
   // docs/plan.md §1.98: signing up for texts
   ...textSignupRoutes,
@@ -2498,6 +2547,8 @@ export const routes = {
   ...runControlRoutes,
   // v0.12 W1-A: go-live stages and client controls
   ...lifecycleRoutes,
+  // docs/setup-plan.md (§1.206)
+  ...gettingStartedRoutes,
   // v0.12 W1-B: notifications, the Table and the Weekly Table
   ...notifyRoutes,
   // §1.116: the phone app
@@ -2547,6 +2598,8 @@ export const routes = {
   ...packRoutes,
   // The back office's chart of accounts (docs/plan.md §1.79).
   ...ledgerRoutes,
+  // Books health (docs/plan.md §1.216).
+  ...booksHealthRoutes,
   // P-6: the client runs it, we step in (docs/plan.md §1.68).
   ...stepInRoutes,
   // P-7: message translation (docs/plan.md §1.69).
@@ -2572,6 +2625,8 @@ export const routes = {
   ...reshapeRoutes,
   // Data in and out of files (owner, 2026-11-20): a Read table step's sample-file check.
   ...readTableRoutes,
+  // File and email intake (owner, 2026-11-22; docs/plan.md §1.213): report profiles.
+  ...intakeReportRoutes,
   // docs/plan.md §1.124: back office work
   ...workRoutes,
   // docs/plan.md §1.124.3: Your call

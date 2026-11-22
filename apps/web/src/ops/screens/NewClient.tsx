@@ -23,6 +23,7 @@ import { useSessionState } from "../../session/session";
 import { Field, Select, TextInput } from "../../ui/forms";
 import { Page } from "../../ui/page";
 import { Button, buttonClass, Card, cx, PageHeader } from "../../ui/primitives";
+import { TimeZoneSelect } from "../../ui/TimeZoneSelect";
 import { OPS_PATHS } from "../paths";
 
 /** What the settings page shows after onboarding. */
@@ -35,17 +36,6 @@ function browserTimezone(): string {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   } catch {
     return "UTC";
-  }
-}
-
-function timezones(): string[] {
-  try {
-    return (
-      (Intl as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.("timeZone") ??
-      []
-    );
-  } catch {
-    return [];
   }
 }
 
@@ -181,7 +171,6 @@ export function NewClientScreen() {
     }
   }
 
-  const zones = timezones();
   return (
     <Page width="narrow" testId="ops-new-client-page">
       <PageHeader
@@ -224,18 +213,13 @@ export function NewClientScreen() {
               className="min-w-0 flex-1 basis-64"
               testId="new-client-timezone"
             >
-              <TextInput
+              <TimeZoneSelect
+                aria-label="Timezone"
                 data-testid="new-client-timezone"
-                list="new-client-timezones"
                 value={timezone}
                 invalid={!!problems.timezone}
-                onChange={(e) => setTimezone(e.target.value)}
+                onChange={setTimezone}
               />
-              <datalist id="new-client-timezones">
-                {zones.map((z) => (
-                  <option key={z} value={z} />
-                ))}
-              </datalist>
             </Field>
             <Field
               label="Language"

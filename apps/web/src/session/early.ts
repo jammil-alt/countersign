@@ -1,7 +1,8 @@
 // The first load's head start (docs/audit-plan.md 4.3). `main.tsx` asks who is signed in before
 // React mounts, and the session provider takes that answer instead of asking again, so the
-// session call runs while React renders the frame (and, on /ops, while the back office's chunk
-// loads: App.tsx). The frame's first calls follow its answer, through the store only (session.tsx).
+// session call runs while React renders the frame (and while the back office's or the portal's
+// chunk loads: App.tsx). The frame's first calls follow its answer, through the store only
+// (session.tsx).
 import type { SessionResponse } from "@countersign/core";
 import { type ApiClient, api } from "../api/client";
 import { apiRoutes } from "../api/routes";

@@ -12,6 +12,7 @@ import {
   readTwilioConfig,
   releaseTextSender,
   resendRequest,
+  resendSendTags,
   sendReleaseText,
   TWILIO_CONNECTOR_ID,
   twilioCredentialsOf,
@@ -42,6 +43,28 @@ export interface MailMessage {
    * <hello@domain>` (the onboarding emails, from the lead). Replies go to `replyTo`.
    */
   from?: { name: string; localPart: typeof HELLO_LOCAL_PART };
+  /**
+   * §1.220: Resend's tags (`name → value`, letters, digits, `_` and `-`), which come back on its
+   * webhook's events, so a delivered or bounced event finds the row it is about.
+   */
+  tags?: Record<string, string>;
+  /** §1.234: files sent with the email (the work statement's PDF), as Resend's `attachments`. */
+  attachments?: readonly MailAttachment[];
+}
+
+export interface MailAttachment {
+  filename: string;
+  contentType: string;
+  content: Uint8Array;
+}
+
+/** Bytes as base64, which Resend's `attachments[].content` takes. */
+export function base64Of(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(binary);
 }
 
 /** A name for a From header: no header syntax, one line, at most 80 characters. */
@@ -106,6 +129,19 @@ export function resendMailer(input: {
           text: m.text,
           ...(m.html ? { html: m.html } : {}),
           ...(m.replyTo ? { reply_to: m.replyTo } : {}),
+          ...(m.attachments?.length
+            ? {
+                attachments: m.attachments.map((a) => ({
+                  filename: a.filename,
+                  content: base64Of(a.content),
+                  content_type: a.contentType,
+                })),
+              }
+            : {}),
+          ...(() => {
+            const tags = m.tags ? resendSendTags(m.tags) : [];
+            return tags.length > 0 ? { tags } : {};
+          })(),
           ...(() => {
             const headers = {
               ...m.headers,

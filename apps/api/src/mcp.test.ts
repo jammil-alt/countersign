@@ -4,7 +4,15 @@
 // screenshot as an image block, the untrusted-data fence, the two-step resolve, the audit trail,
 // and the client's own tools: the portal's reads, one client per call, nothing of the back office.
 
-import { appUser, auditEvent, feedback, membership } from "@countersign/db";
+import {
+  appUser,
+  auditEvent,
+  connection,
+  connectionChange,
+  feedback,
+  membership,
+  runSubject,
+} from "@countersign/db";
 import { and, desc, eq, like } from "drizzle-orm";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -471,6 +479,7 @@ describe.skipIf(!h)("MCP server", () => {
         "runs_list",
         "run_get",
         "inbox_list",
+        "needs_us",
         "connections_list",
         "records_search",
         "ops_health",
@@ -604,6 +613,7 @@ describe.skipIf(!h)("MCP server", () => {
         ["client_get", { client: H.C.tenantId }],
         ["runs_list", { client: H.C.tenantId }],
         ["inbox_list", { client: H.C.tenantId }],
+        ["needs_us", { client: H.C.tenantId }],
         ["connections_list", { client: H.C.tenantId }],
         ["records_search", { client: H.C.tenantId }],
         ["ops_health", { client: H.C.tenantId }],
@@ -640,6 +650,52 @@ describe.skipIf(!h)("MCP server", () => {
       expect(out.text).not.toMatch(/credentials|accessToken|refreshToken/);
       const one = (await tool(opToken, "connections_list", { client: H.B.tenantId })).data();
       expect(one.connections.map((c: { id: string }) => c.id)).toEqual([H.B.connectionId]);
+      expect(one.connections[0]).toMatchObject({ needsAttention: false, attention: null });
+    });
+
+    it("connections_list: a failing renewal needs attention, named apart from an error", async () => {
+      const change = (at: number, c: Record<string, unknown>) =>
+        H.t.db.insert(connectionChange).values({
+          tenantId: H.B.tenantId,
+          connectionId: H.B.connectionId,
+          actorId: null,
+          change: c,
+          createdAt: new Date(Date.now() + at),
+        });
+      const setStatus = (status: "connected" | "error" | "pending") =>
+        H.t.db.update(connection).set({ status }).where(eq(connection.id, H.B.connectionId));
+      await setStatus("connected");
+      await change(1_000, {
+        kind: "needs_attention",
+        reason: "refresh_failing",
+        detail: "we haven't been able to renew our access to this tool for a day",
+        before: "connected",
+        after: "connected",
+      });
+      const open = await tool(opToken, "connections_list", { client: H.B.tenantId });
+      expect(open.text).toMatch(/1 connection, 0 in error, 1 failing to renew our access\./);
+      expect(open.data().connections[0]).toMatchObject({
+        status: "connected",
+        needsAttention: true,
+        attention: "refresh_failing",
+      });
+      // In error, it is named an error (the client signs in again), counted once.
+      await setStatus("error");
+      const errored = await tool(opToken, "connections_list", { client: H.B.tenantId });
+      expect(errored.text).toMatch(/1 connection, 1 in error, 0 failing to renew our access\./);
+      expect(errored.data().connections[0]).toMatchObject({
+        needsAttention: true,
+        attention: "error",
+      });
+      await setStatus("connected");
+      // A call works again: the issue closes and the connection is fine.
+      await change(2_000, { kind: "access_restored" });
+      const closed = await tool(opToken, "connections_list", { client: H.B.tenantId });
+      expect(closed.data().connections[0]).toMatchObject({
+        needsAttention: false,
+        attention: null,
+      });
+      await setStatus("pending");
     });
 
     it("ops_health: findings across the operator's clients, each named", async () => {
@@ -696,6 +752,22 @@ describe.skipIf(!h)("MCP server", () => {
       expect(future.runs).toEqual([]);
       expect((await tool(opToken, "runs_list", { status: "failed" })).data().runs).toEqual([]);
       expect((await tool(opToken, "runs_list", { since: "yesterday" })).isError).toBe(true);
+      // R2 (docs/plan.md §1.193): what the runs were about, as the back office's list reads it.
+      await H.t.db.insert(runSubject).values({
+        tenantId: H.A.tenantId,
+        runId: ids.runId,
+        kind: "vendor",
+        role: "read",
+        label: "Acme Supply",
+        number: "PO-1032",
+      });
+      const about = (await tool(opToken, "runs_list", { about: ["acme"] })).data();
+      expect(about.runs.map((r: { id: string }) => r.id)).toEqual([ids.runId]);
+      const byNumber = (await tool(opToken, "runs_list", { text: "PO-1032" })).data();
+      expect(byNumber.runs.map((r: { id: string }) => r.id)).toEqual([ids.runId]);
+      expect((await tool(opToken, "runs_list", { about: ["nobody, ever"] })).data().runs).toEqual(
+        [],
+      );
       const got = await tool(opToken, "run_get", { id: ids.runId });
       expect(got.isError).toBe(false);
       const run = got.data();
@@ -715,6 +787,15 @@ describe.skipIf(!h)("MCP server", () => {
       const records = await tool(opToken, "records_search", { client: H.A.tenantId, q: "oak" });
       expect(records.isError, records.text).toBe(false);
       expect(records.data()).toMatchObject({ counts: expect.any(Object) });
+    });
+
+    it("needs_us answers with Needs us' count and list (GET /api/ops/needs-us)", async () => {
+      const out = await tool(opToken, "needs_us");
+      expect(out.isError, out.text).toBe(false);
+      const data = out.data();
+      expect(data).toEqual({ count: expect.any(Number), escalations: expect.any(Array) });
+      expect(data.escalations).toHaveLength(data.count);
+      expect(out.text).toMatch(/ us\.\n/);
     });
 
     it("feedback_list: the served clients' and the back office's, fenced as untrusted data", async () => {

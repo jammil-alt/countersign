@@ -82,6 +82,63 @@ function linesProblem(input: PurchaseOrderCreateInput): QboApiError | null {
   return null;
 }
 
+// C2.4 (docs/plan.md §1.205): an item line names a QuickBooks item. Before a purchase order is
+// proposed and again before it is written, its items are read: each must be the company's, active,
+// and not a category (a heading in QuickBooks' product list, never on a line).
+// DECISION: refused here with the item's id rather than left to QuickBooks' own error, so the
+// person sees which line is wrong. Whether an item needs "I purchase this" (an expense account) to
+// be on a purchase order is unchecked (NOTES.md); we don't refuse on it.
+export async function itemRefsProblem(
+  client: QboClient,
+  lines: readonly { itemId?: string | undefined }[],
+): Promise<QboApiError | null> {
+  const want = [...new Set(lines.flatMap((l) => (l.itemId === undefined ? [] : [l.itemId])))];
+  if (want.length === 0) return null;
+  // UNCHECKED (NOTES.md): Item by `Id in (…)` with `Active in (true, false)`.
+  const { rows } = await client.query(
+    `select * from Item where Id in (${want.map(qboLiteral).join(", ")}) and Active in (true, false) maxresults 1000`,
+    "Item",
+  );
+  const found = new Map<string, { active: boolean; type: string }>();
+  for (const row of rows) {
+    const r = row as { Id?: unknown; Active?: unknown; Type?: unknown };
+    if (typeof r.Id === "string") {
+      found.set(r.Id, {
+        active: r.Active !== false,
+        type: typeof r.Type === "string" ? r.Type : "",
+      });
+    }
+  }
+  const missing = want.filter((id) => !found.has(id));
+  if (missing.length > 0) {
+    return new QboApiError(
+      422,
+      "UNKNOWN_ITEM",
+      `item ${missing.join(", ")} isn't one of this company's in QuickBooks`,
+      false,
+    );
+  }
+  const inactive = want.filter((id) => found.get(id)?.active === false);
+  if (inactive.length > 0) {
+    return new QboApiError(
+      422,
+      "INACTIVE_ITEM",
+      `item ${inactive.join(", ")} is inactive in QuickBooks`,
+      false,
+    );
+  }
+  const categories = want.filter((id) => found.get(id)?.type.toLowerCase() === "category");
+  if (categories.length > 0) {
+    return new QboApiError(
+      422,
+      "CATEGORY_ITEM",
+      `item ${categories.join(", ")} is a category in QuickBooks, not something to order`,
+      false,
+    );
+  }
+  return null;
+}
+
 const PO_PAGE = 1000;
 const PO_PAGES = 20;
 
@@ -193,7 +250,9 @@ export function purchaseOrderCreateTool(clientFor: ClientFor): ToolDefinition {
       if (problem) throw problem;
       const client = await clientFor(ctx);
       const vendor = await companyVendor(client, input.vendorId);
-      const refs = await lineRefsProblem(client, input.lines);
+      const refs =
+        (await lineRefsProblem(client, input.lines)) ??
+        (await itemRefsProblem(client, input.lines));
       if (refs) throw refs;
       const live = await livePurchaseOrders(client, input);
       const names = async () => ({
@@ -211,7 +270,9 @@ export function purchaseOrderCreateTool(clientFor: ClientFor): ToolDefinition {
       if (problem) throw problem;
       const client = await clientFor(ctx);
       await companyVendor(client, input.vendorId);
-      const refs = await lineRefsProblem(client, input.lines);
+      const refs =
+        (await lineRefsProblem(client, input.lines)) ??
+        (await itemRefsProblem(client, input.lines));
       if (refs) throw refs;
       const out = (p: QboPurchaseOrder, alreadyDone: boolean) => ({
         id: p.id,

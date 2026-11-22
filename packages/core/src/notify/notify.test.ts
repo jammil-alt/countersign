@@ -8,6 +8,7 @@ import {
   type NotificationCounts,
   notificationLink,
   notificationPath,
+  overridesSwitches,
   personNotifications,
   reconnectDayPrefix,
   retryReason,
@@ -78,6 +79,13 @@ describe("preferences", () => {
     expect(holdsInQuietHours("items_waiting", "email")).toBe(true);
     expect(holdsInQuietHours("weekly_table", "email")).toBe(false);
     expect(holdsInQuietHours("reconnect", "email")).toBe(false);
+    // C4.10: an urgent notice is never held, on any channel; it overrides the person's switches.
+    for (const channel of NOTIFICATION_CHANNELS) {
+      expect(holdsInQuietHours("urgent", channel)).toBe(false);
+    }
+    expect(overridesSwitches("urgent")).toBe(true);
+    expect(overridesSwitches("items_waiting")).toBe(false);
+    expect(notificationPath("urgent")).toBe("/inbox");
   });
 
   it("retries count in the reason", () => {
@@ -96,6 +104,7 @@ describe("rendering", () => {
     lead_message: { messages: 2 },
     signoff: {},
     issue_update: {},
+    urgent: { items: 1 },
   };
 
   it("every kind, channel and language: a sentence with the counts and exactly one link", () => {

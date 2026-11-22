@@ -63,6 +63,10 @@ export const SuiteMetricsView = z.object({
   precision: z.number().nullable().optional(),
   labels: z.array(LabelPrecisionView).optional(),
   costPerCase: z.string(),
+  // §1.212: the eval harness's measures, where the cases carry them.
+  writes: z.object({ cases: z.number().int(), exactRate: z.number() }).optional(),
+  verifierAgreement: z.number().nullable().optional(),
+  msMedian: z.number().optional(),
 });
 
 export const SuiteRunView = z.object({
