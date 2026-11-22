@@ -12,8 +12,8 @@ import {
 } from "@countersign/core";
 import type { PackTool } from "../pack";
 import { CLOSE_REPORTS } from "./api";
+import { CLOSE_CONFIG_FIELDS } from "./config";
 import { CLOSE_PACK_ID } from "./ids";
-import { CLOSE_CONFIG_DEFAULTS } from "./store";
 import { MONTH_END_CLOSE_TEMPLATE } from "./template";
 import { CLOSE_TOOLS, checkTool, proposeTool, readyTool, writtenTool } from "./tools";
 
@@ -82,30 +82,7 @@ export const closeManifest: PackManifest = lazyParse(PackManifest, () => ({
   // §1.232: the same business area as the Bookkeeping pack, whose reconciliations it reads.
   extends: "bookkeeping",
   // §1.230: what the operator sets when switching it on (read in ./store.ts `closeConfig`).
-  config: [
-    {
-      key: "accruals",
-      label: "Propose accruals from billing patterns",
-      help: "A vendor billed to the same expense account every month before, and not yet this month, gets an accrual to sign.",
-      type: "boolean",
-      default: CLOSE_CONFIG_DEFAULTS.accruals,
-    },
-    {
-      key: "accrual_account",
-      label: "Accrual account in QuickBooks",
-      help: "The liability account accruals are credited to, by its name or number.",
-      type: "text",
-      default: CLOSE_CONFIG_DEFAULTS.accrualAccount,
-    },
-    {
-      key: "accrual_months",
-      label: "Months of bills a pattern needs",
-      type: "number",
-      default: CLOSE_CONFIG_DEFAULTS.accrualMonths,
-      min: 2,
-      max: 12,
-    },
-  ],
+  config: CLOSE_CONFIG_FIELDS,
   // §1.230: none of its own; it reads what the QuickBooks connector synced.
   processors: [],
   reports: Object.keys(CLOSE_REPORTS),

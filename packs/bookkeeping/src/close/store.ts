@@ -12,6 +12,7 @@ import {
   checkBooks,
   dec,
   isPlainObject,
+  packConfigOf,
   QBO_CONNECTOR_ID,
 } from "@countersign/core";
 import {
@@ -26,6 +27,7 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { PackRefusal } from "../pack";
 import { clientTimezone, monthPeriod } from "../reconcile/store";
 import { bankAccountLink, bankTxn, reconciliation } from "../schema";
+import { CLOSE_CONFIG_DEFAULTS, CLOSE_CONFIG_FIELDS } from "./config";
 import {
   accrualPatterns,
   booksAsOf,
@@ -62,40 +64,19 @@ export interface CloseConfig {
   accrualMonths: number;
 }
 
-export const CLOSE_CONFIG_DEFAULTS: CloseConfig = {
-  accruals: true,
-  accrualAccount: "Accrued Liabilities",
-  accrualMonths: 3,
-};
-
-/**
- * The client's Close settings, with the defaults for what isn't set. The same values core's
- * `packConfigOf` reads (`tenant.settings.packs.close`), read here without it so the pack runs
- * whether or not that helper is on main.
- */
-// DECISION: read and checked field by field: a stored value of the wrong type reads as the default.
+/** The client's Close settings (`tenant.settings.packs.close`), with the defaults for what isn't set. */
 export async function closeConfig(tx: Tx, tenantId: string): Promise<CloseConfig> {
   const [row] = await tx
     .select({ settings: tenant.settings })
     .from(tenant)
     .where(eq(tenant.id, tenantId))
     .limit(1);
-  const packs = isPlainObject(row?.settings)
-    ? (row.settings as Record<string, unknown>).packs
-    : null;
-  const mine = isPlainObject(packs) ? (packs as Record<string, unknown>)[CLOSE_PACK_ID] : null;
-  const v = isPlainObject(mine) ? (mine as Record<string, unknown>) : {};
-  const months = v.accrual_months;
+  const settings = isPlainObject(row?.settings) ? (row.settings as Record<string, unknown>) : null;
+  const v = packConfigOf(CLOSE_CONFIG_FIELDS, settings, CLOSE_PACK_ID);
   return {
-    accruals: typeof v.accruals === "boolean" ? v.accruals : CLOSE_CONFIG_DEFAULTS.accruals,
-    accrualAccount:
-      typeof v.accrual_account === "string" && v.accrual_account.trim()
-        ? v.accrual_account.trim()
-        : CLOSE_CONFIG_DEFAULTS.accrualAccount,
-    accrualMonths:
-      typeof months === "number" && Number.isInteger(months) && months >= 2 && months <= 12
-        ? months
-        : CLOSE_CONFIG_DEFAULTS.accrualMonths,
+    accruals: v.accruals === true,
+    accrualAccount: String(v.accrual_account).trim() || CLOSE_CONFIG_DEFAULTS.accrualAccount,
+    accrualMonths: Number(v.accrual_months),
   };
 }
 

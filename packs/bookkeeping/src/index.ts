@@ -16,13 +16,13 @@ export {
 export * from "./bookings";
 // §1.232: the Close pack, beside the Bookkeeping pack (its own manifest, id `close`).
 export { CLOSE_REPORTS, CLOSE_REVIEW, CLOSE_REVIEWS } from "./close/api";
+export { CLOSE_CONFIG_DEFAULTS, CLOSE_CONFIG_FIELDS } from "./close/config";
 export * from "./close/engine";
 export { CLOSE_PACK_ID } from "./close/ids";
 export { CLOSE_HANDLERS, CLOSE_SKILLS, closeManifest } from "./close/manifest";
 export * from "./close/schema";
 export {
   type CheckOutput,
-  CLOSE_CONFIG_DEFAULTS,
   checkClose,
   closeConfig,
   closeList,
