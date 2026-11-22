@@ -4,7 +4,7 @@
 // the vendors `qbo.vendor.query` listed by name, or the new one `qbo.vendor.create` made), kept in
 // `vendor.external_refs.qbo`; `poQboLines` turns the chosen quote into `qbo.purchaseorder.create`'s
 // input: the QuickBooks vendor and one line per quoted line, amounts rounded to cents.
-// C2.4 (docs/plan.md §1.193): a catalog item tied to its QuickBooks item (`catalog_item.ext.qbo`,
+// C2.4 (docs/plan.md §1.205): a catalog item tied to its QuickBooks item (`catalog_item.ext.qbo`,
 // by `itemQbo` or the bill-price import) is ordered as an item line; any other as an account line.
 
 import { dec } from "@countersign/core";
@@ -123,7 +123,7 @@ export async function vendorQbo(
   });
 }
 
-// ── C2.4: catalog items and QuickBooks items (docs/plan.md §1.193) ──────────────────────────────
+// ── C2.4: catalog items and QuickBooks items (docs/plan.md §1.205) ──────────────────────────────
 
 /** A QuickBooks item as `qbo.item.query` lists it. */
 export interface QboItemSeen {

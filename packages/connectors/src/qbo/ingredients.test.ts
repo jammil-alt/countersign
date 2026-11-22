@@ -698,7 +698,7 @@ describe("qbo.purchaseorder.create", () => {
     ).toMatch(/item 62 is a category/);
     // Proposed with a good item, which someone made inactive before the write: refused then too.
     await captureBefore(s.connector, QBO_TOOLS.purchaseOrderCreate, po, s.propose());
-    s.qbo.put("Item", { ...(s.qbo.get("Item", "22") as object), Active: false });
+    s.qbo.put("Item", { ...(s.qbo.get("Item", "22") as { Id: string }), Active: false });
     expect(
       await refusal(executeWrite(s.connector, QBO_TOOLS.purchaseOrderCreate, po, s.ctx())),
     ).toMatch(/item 22 is inactive/);

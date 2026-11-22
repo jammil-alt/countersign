@@ -105,7 +105,7 @@ Against the sandbox company (`9341458640918607`, QBO Plus, US):
 6. Update a memo and an item's purchase cost.
 7. Disconnect from the portal: the app disappears from the sandbox company's connected apps.
 8. Throttle by running a full sync and an agent at once; look for 429s in the logs.
-9. C2.4 (docs/plan.md §1.193): a purchase order with an item line. First the read it makes before
+9. C2.4 (docs/plan.md §1.205): a purchase order with an item line. First the read it makes before
    proposing and again before writing, `select * from Item where Id in ('…') and Active in (true,
    false) maxresults 1000`: that it answers inactive items too, with `Active` and `Type` (an
    inactive item and a `Category` are refused by name). Then create a purchase order with one item

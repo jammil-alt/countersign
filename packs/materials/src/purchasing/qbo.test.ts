@@ -406,7 +406,7 @@ describe.skipIf(!online)("QuickBooks pieces of the buyer (database)", () => {
     expect(action?.input.safeParse({ from: "2026-08-01", to: "2026-08-31" }).success).toBe(true);
   });
 
-  // C2.4 (docs/plan.md §1.193): after the import above tied the plywood to QuickBooks item 10.
+  // C2.4 (docs/plan.md §1.205): after the import above tied the plywood to QuickBooks item 10.
   it("orders a tied item as a QuickBooks item line and the rest as account lines", async () => {
     const r = await call(requestCreate, {
       channel: "email",

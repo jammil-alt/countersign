@@ -5,7 +5,7 @@
 // every key attribute is stated). Each priced line fills the vendor catalog (§1.189). Lines the rules aren't sure of are counted and listed for review, never
 // guessed. Idempotent: one observation per bill line, so a re-run adds nothing twice.
 // What it can't use (account lines, lines without a quantity) is in packs/materials/NOTES.md.
-// C2.4 (docs/plan.md §1.193): a matched line's QuickBooks item becomes its catalog item's, when it
+// C2.4 (docs/plan.md §1.205): a matched line's QuickBooks item becomes its catalog item's, when it
 // has none, so purchase orders order it as that item.
 
 import { dec, type QboLine, QboTransactionRaw, qboAmount, toNumeric } from "@countersign/core";

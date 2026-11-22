@@ -82,7 +82,7 @@ function linesProblem(input: PurchaseOrderCreateInput): QboApiError | null {
   return null;
 }
 
-// C2.4 (docs/plan.md §1.193): an item line names a QuickBooks item. Before a purchase order is
+// C2.4 (docs/plan.md §1.205): an item line names a QuickBooks item. Before a purchase order is
 // proposed and again before it is written, its items are read: each must be the company's, active,
 // and not a category (a heading in QuickBooks' product list, never on a line).
 // DECISION: refused here with the item's id rather than left to QuickBooks' own error, so the

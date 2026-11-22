@@ -1160,7 +1160,7 @@ export const vendorQboTool = defineTool({
   },
 });
 
-// C2.4 (docs/plan.md §1.193): a catalog item tied to its QuickBooks item, for item lines on POs.
+// C2.4 (docs/plan.md §1.205): a catalog item tied to its QuickBooks item, for item lines on POs.
 const QboItemSeenIn = z.object({
   id: z.string().min(1).max(64),
   name: z.string(),

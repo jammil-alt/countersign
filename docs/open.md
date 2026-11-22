@@ -70,7 +70,7 @@ emailed and the QuickBooks purchase order is created; every write is approved on
    `qbo.purchaseorder.create`). `apps/api/src/purchasing-email.test.ts` is the working recipe: copy its
    workflow. Set the skill setting `qbo_account_id` (the expense account PO lines book to when an
    item has no QuickBooks item; items the bill-price import saw are tied already, and
-   `materials.item.qbo` ties the rest, `docs/plan.md` §1.193).
+   `materials.item.qbo` ties the rest, `docs/plan.md` §1.205).
 6. **Bind its channels and connections** (email channel from P2, QuickBooks), test-run it, then take it
    through trial (every write signed).
 7. **Run the done-when** with real email from a test inbox, and walk the QuickBooks sandbox checks in
@@ -96,7 +96,7 @@ emailed and the QuickBooks purchase order is created; every write is approved on
   goldens don't cover how real vendors word their packs.
 - RFQs are English only; the vendor's language is open.
 - QuickBooks PO lines are item lines for catalog items tied to a QuickBooks item, account lines
-  for the rest (C2.4, `docs/plan.md` §1.193). Open: no screen shows or changes an item's
+  for the rest (C2.4, `docs/plan.md` §1.205). Open: no screen shows or changes an item's
   QuickBooks item (a step or the import ties it; changing a wrong tie is by hand in the database
   today).
 - The portal channel for conversations (§1.66).

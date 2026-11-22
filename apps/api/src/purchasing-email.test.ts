@@ -12,7 +12,7 @@
 // answers carry no prompt, model or cost. The plywood is asked for by Keystone's SKU, which only
 // Keystone's vendor catalog knows (docs/plan.md §1.189): no alias and no rule names it, so the line
 // matches through `vendor_item` alone; Keystone is the client's preferred vendor for it. C2.4
-// (docs/plan.md §1.193): the plywood is tied to its QuickBooks item, as the bill-price import ties
+// (docs/plan.md §1.205): the plywood is tied to its QuickBooks item, as the bill-price import ties
 // it, and the oak is not, so the QuickBooks order has one item line and one account line.
 
 import { readFileSync } from "node:fs";
