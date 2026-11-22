@@ -471,6 +471,64 @@ describe("TryPanel", () => {
     expect(upload).toHaveBeenCalledTimes(1);
   });
 
+  // docs/open.md G3: a build's try on one of the Sandbox's records.
+  it("tries a build's draft on a record picked from the Sandbox", async () => {
+    const BILL = "00000000-0000-4000-8000-0000000d0009";
+    const bodies: unknown[] = [];
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/clients/${SANDBOX}/records`]: () => ({
+        counts: { transactions: 0, vendors: 0, items: 0, receivables: 1 },
+        lastSyncAt: null,
+        sources: [],
+        total: 1,
+        offset: 0,
+        limit: 8,
+        page: {
+          kind: "receivables",
+          rows: [
+            {
+              id: BILL,
+              docNumber: "1007",
+              customer: { name: "Acme", organizationId: null },
+              txnDate: "2026-11-01",
+              dueDate: null,
+              total: "90.00",
+              balance: "90.00",
+              currency: "USD",
+              status: "open",
+              syncedAt: at,
+              sourceId: SANDBOX,
+            },
+          ],
+        },
+      }),
+      [`POST /api/ops/builds/${BUILD}/tries`]: ({ init }) => {
+        bodies.push(JSON.parse(String(init.body)));
+        return build([
+          {
+            caseId: TRY,
+            name: "Try: invoice 1007 to Acme",
+            status: "running",
+            output: null,
+            why: null,
+            runId: RUN,
+            current: true,
+            at,
+          },
+        ]);
+      },
+      [`GET /api/ops/runs/${RUN}`]: () => ended,
+    });
+    show(api, { build: build() });
+    await userEvent.click(screen.getByTestId("flow-try-pick-record"));
+    await userEvent.selectOptions(await screen.findByTestId("build-try-record-kind"), "receivable");
+    await userEvent.click(await screen.findByTestId(`build-try-record-${BILL}`));
+    expect(await screen.findByTestId("flow-try-on")).toHaveTextContent("invoice 1007 · to Acme");
+    await waitFor(() => expect(screen.getByTestId("flow-try")).toHaveTextContent("Tried it on"));
+    expect(bodies).toEqual([{ record: { kind: "receivable", id: BILL }, workflow: "new-bill" }]);
+  });
+
   it("asks for valid JSON, and offers no file where the run can't read one", async () => {
     const api = fakeApi({ ...common });
     show(api, { agent: { id: AGENT, kind: "client", tenantId: "someone-else" } });

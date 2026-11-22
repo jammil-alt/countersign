@@ -8,7 +8,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppProviders, AppRoutes } from "../../App";
-import { fakeApi, OPERATOR_SESSION } from "../../test/fixtures";
+import { fakeApi, OPERATOR_SESSION, Reply } from "../../test/fixtures";
 import { plainLines } from "./TryCard";
 
 await import("../OpsApp");
@@ -121,6 +121,36 @@ const tried = (over: Partial<BuildTryView> = {}): BuildTryView => ({
   at,
   ...over,
 });
+
+const uploadedDoc = () =>
+  new Response(
+    JSON.stringify({
+      results: [
+        {
+          filename: "invoice-1042.pdf",
+          kind: "document",
+          document: {
+            id: DOC,
+            filename: "invoice-1042.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 10,
+            source: "upload",
+            status: "stored",
+            receivedAt: at,
+            pageCount: null,
+            transactionId: null,
+            vendorName: null,
+            invoiceNumber: null,
+            total: null,
+          },
+          created: true,
+          purchases: null,
+          error: null,
+        },
+      ],
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
 
 const common = {
   "GET /api/session": () => OPERATOR_SESSION,
@@ -311,6 +341,113 @@ describe("the POC test on the build page", () => {
     expect(within(row).queryByTestId(`build-try-keep-${TRY}`)).toBeNull();
     // INTEG-2: a running try can still be discarded, so one that never finishes isn't a dead end.
     expect(within(row).getByTestId(`build-try-discard-${TRY}`)).toBeInTheDocument();
+  });
+
+  // docs/open.md G3: a template tried on one of the Sandbox's records.
+  it("picks one of the Sandbox's records and tries it", async () => {
+    const BILL = "00000000-0000-4000-8000-0000000d0002";
+    const sent: unknown[] = [];
+    let current = detail();
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: () => current,
+      [`GET /api/ops/clients/${SANDBOX}/records`]: ({ url }) => ({
+        counts: { transactions: 1, vendors: 0, items: 0, receivables: 0 },
+        lastSyncAt: null,
+        sources: [],
+        total: 1,
+        offset: 0,
+        limit: 8,
+        page:
+          url.searchParams.get("kind") === "receivables"
+            ? { kind: "receivables", rows: [] }
+            : {
+                kind: "transactions",
+                rows: [
+                  {
+                    id: BILL,
+                    txnKind: "bill",
+                    txnDate: "2026-11-02",
+                    vendor: { id: DOC, name: "Northline" },
+                    docNumber: "20418",
+                    memo: null,
+                    total: "418.20",
+                    currency: "USD",
+                    lines: 2,
+                    attachments: 0,
+                    syncedAt: at,
+                    sourceId: null,
+                    deleted: false,
+                  },
+                ],
+              },
+      }),
+      [`POST /api/ops/builds/${ID}/tries`]: ({ init }) => {
+        sent.push(JSON.parse(String(init.body)));
+        current = detail(
+          poc({
+            tries: [tried({ name: "Try: bill from Northline", status: "running", output: null })],
+          }),
+        );
+        return current;
+      },
+    });
+    renderBuild(api);
+    const card = await screen.findByTestId("build-try");
+    await userEvent.click(within(card).getByTestId("build-try-pick-record"));
+    const row = await within(card).findByText(
+      "bill · 20418 · from Northline · 418.20 USD · 2026-11-02",
+    );
+    expect(row).toBeInTheDocument();
+    await userEvent.click(within(card).getByTestId(`build-try-record-${BILL}`));
+    await waitFor(() => expect(sent).toEqual([{ record: { kind: "transaction", id: BILL } }]));
+    expect(await screen.findByTestId(`build-try-${TRY}`)).toHaveTextContent("Running");
+    // Picked: the list closes.
+    await waitFor(() => expect(within(card).queryByTestId("build-try-records")).toBeNull());
+  });
+
+  // docs/open.md G3: a skill tried on a document, once the document has been read.
+  it("tries a skill on a document, asking again while the document is read", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => uploadedDoc()),
+    );
+    const skill = (p: BuildPocView) => {
+      const d = detail(p);
+      return { ...d, build: { ...d.build, kind: "skill" as const, agentId: null } };
+    };
+    const sent: unknown[] = [];
+    let current = skill(poc());
+    const api = fakeApi({
+      ...common,
+      [`GET /api/ops/builds/${ID}`]: () => current,
+      [`POST /api/ops/builds/${ID}/tries`]: ({ init }) => {
+        sent.push(JSON.parse(String(init.body)));
+        if (sent.length === 1) {
+          return new Reply(409, {
+            error: { code: "not_read", message: "the document is still being read" },
+          });
+        }
+        current = skill(poc({ tries: [tried({ status: "running", output: null })] }));
+        return current;
+      },
+    });
+    renderBuild(api);
+    const card = await screen.findByTestId("build-try");
+    expect(card).toHaveTextContent("The skill reads it as it is now.");
+    await userEvent.upload(
+      within(card).getByTestId("build-try-file"),
+      new File(["%PDF"], "invoice-1042.pdf", { type: "application/pdf" }),
+    );
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(card).toHaveTextContent("Reading it…");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    await waitFor(() => expect(sent).toEqual([{ documentId: DOC }, { documentId: DOC }]));
+    expect(await screen.findByTestId(`build-try-${TRY}`)).toHaveTextContent("Running");
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("offers to try an older or stopped try again, and to discard it", async () => {

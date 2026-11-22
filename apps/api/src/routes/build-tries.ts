@@ -1,25 +1,39 @@
 // builder-plan.md B1: try a build's draft on real examples in the POC test. The operator uploads a
-// document to the Sandbox (the back office's Sandbox upload, kept quiet) or gives an input; it is
+// document to the Sandbox (the back office's Sandbox upload, kept quiet), picks one of the
+// Sandbox's records (docs/open.md G3), or gives an input; it is
 // saved as a try (a shared test case, `try:<build id>`, not required) and run alone through the
 // test bench's own run route (a partial suite run: a test, never a write). The result is what the
 // agent would do. Right: the try is kept as a required case whose expected answer is that result.
 // Wrong: the operator says why in the conversation and the Builder proposes the fix. The gate is
 // unchanged: every required case passes on the latest version, so kept examples are what it counts.
 
-import { latestVersion } from "@countersign/agents";
+import { documentForTool, latestVersion } from "@countersign/agents";
 import {
   type AnyAgentBundle,
   allTriggers,
   type BuildDetail,
+  type Fixture,
+  isExtractable,
   isPlainObject,
   type RouteSpec,
   routes,
+  type SkillDefinition,
   TestCaseFields,
   type TestTargetKind,
   type TryBody,
+  type TryRecordKind,
   testCaseProblems,
 } from "@countersign/core";
-import { document, type Tx, testCase } from "@countersign/db";
+import {
+  document,
+  receivable,
+  skillVersion,
+  type Tx,
+  testCase,
+  transaction,
+  vendor,
+} from "@countersign/db";
+import { getDocument } from "@countersign/documents";
 import { and, eq, isNull } from "drizzle-orm";
 import type { Hono } from "hono";
 import { keptAnswer } from "../build/kept";
@@ -53,6 +67,19 @@ interface Target {
   id: string;
   versionId: string;
 }
+
+/** What a try runs on, for the workflow it goes to: its trigger's event, or a start by hand. */
+type TryOn = "document" | "input" | TryRecordKind;
+
+/** The event each kind of example arrives as (builder-plan.md B1; docs/open.md G3). */
+const TRY_EVENT: Record<Exclude<TryOn, "input">, string> = {
+  document: "document.received",
+  transaction: "transaction.created",
+  receivable: "receivable.created",
+};
+
+/** The document tool a skill's try on a document answers from the case's fixtures. */
+const DOC_READ_TOOL = "docs.get";
 
 function refuseClosed(row: BuildRow): void {
   if (row.status !== "open") {
@@ -88,15 +115,18 @@ async function suiteTarget(scoped: Scoped, services: Services, row: BuildRow): P
 type Flow = AnyAgentBundle["workflows"][number];
 
 /**
- * The template's workflow a try runs: the one named, else the first that starts on a document
- * (for a document) or by hand (for an input), else the first that's on.
+ * The template's workflow a try runs: the one named, else the first that starts on the example's
+ * event (a document, a record) or by hand (an input), else the first that's on.
  */
 // DECISION (builder-plan.md B1): a document goes to the workflow that starts on
 // `document.received`, with the payload that event would carry; an input to the workflow started by
 // hand. Without one, the first workflow that's on gets it: the operator can name another.
+// DECISION (docs/open.md G3): a Sandbox record goes the same way, to the workflow that starts on
+// its `*.created` event (a purchase or bill: `transaction.created`; an invoice to a customer:
+// `receivable.created`), then to one started by hand, then to the first that's on.
 export function tryWorkflow(
   bundle: Pick<AnyAgentBundle, "workflows">,
-  as: "document" | "input",
+  as: TryOn,
   slug?: string,
 ): string {
   const flows = bundle.workflows.filter((w) => w.enabled !== false);
@@ -105,35 +135,168 @@ export function tryWorkflow(
     if (!named) throw new HttpError(422, "invalid_request", `the draft has no workflow "${slug}"`);
     return named.slug;
   }
-  const starts = (w: Flow) =>
+  const startsOn = (w: Flow, on: TryOn) =>
     allTriggers(w.workflow).some((t) =>
-      as === "document"
-        ? t.on.type === "event" && t.on.event === "document.received"
-        : t.on.type === "manual",
+      on === "input"
+        ? t.on.type === "manual"
+        : t.on.type === "event" && t.on.event === TRY_EVENT[on],
     );
-  const flow = flows.find(starts) ?? flows[0];
+  const byHand = as === "transaction" || as === "receivable";
+  const flow =
+    flows.find((w) => startsOn(w, as)) ??
+    (byHand ? flows.find((w) => startsOn(w, "input")) : undefined) ??
+    flows[0];
   if (!flow) throw new HttpError(422, "invalid_request", "the draft has no workflow to try");
   return flow.slug;
 }
 
-/** The try's name and input (a skill's input, or a template's `{workflow, payload}`). */
+/**
+ * A Sandbox record as a try: its name and the payload its `*.created` event carries (the fields
+ * the sync's events carry: `qbo/store.ts`, `qbo/receivables.ts`).
+ */
+async function recordTry(
+  tx: Tx,
+  sandbox: string,
+  record: NonNullable<TryBody["record"]>,
+): Promise<{ name: string; payload: Record<string, unknown> }> {
+  if (record.kind === "transaction") {
+    const [t] = await tx
+      .select({ row: transaction, vendorName: vendor.name })
+      .from(transaction)
+      .leftJoin(
+        vendor,
+        and(eq(vendor.id, transaction.vendorId), eq(vendor.tenantId, transaction.tenantId)),
+      )
+      .where(and(eq(transaction.id, record.id), eq(transaction.tenantId, sandbox)));
+    if (!t) throw notFound("record in the Sandbox");
+    const r = t.row;
+    const from = t.vendorName ? ` from ${t.vendorName}` : "";
+    return {
+      name: `Try: ${r.kind.replace(/_/g, " ")}${from}, ${r.total} ${r.currency}`,
+      payload: {
+        transactionId: r.id,
+        source: r.connector,
+        vendorId: r.vendorId,
+        total: { amount: r.total, currency: r.currency },
+        txnDate: r.txnDate,
+      },
+    };
+  }
+  const [r] = await tx
+    .select()
+    .from(receivable)
+    .where(and(eq(receivable.id, record.id), eq(receivable.tenantId, sandbox)));
+  if (!r) throw notFound("record in the Sandbox");
+  return {
+    name: `Try: invoice${r.docNumber ? ` ${r.docNumber}` : ""} to ${r.customerName}`,
+    payload: {
+      receivableId: r.id,
+      source: r.connector,
+      organizationId: r.organizationId,
+      total: { amount: r.total, currency: r.currency },
+      balance: { amount: r.balance, currency: r.currency },
+      dueDate: r.dueDate,
+      status: r.status,
+    },
+  };
+}
+
+/** Whether a skill's input takes a document by its id (a `documentId` property). */
+function takesDocument(def: Pick<SkillDefinition, "input">): boolean {
+  const props = isPlainObject(def.input) ? def.input.properties : undefined;
+  return isPlainObject(props) && Object.hasOwn(props, "documentId");
+}
+
+/**
+ * A skill tried on a Sandbox document: its input names the document, and the document as it is
+ * now (its details and its reading, without the link to the file) answers the skill's document
+ * read from the case's fixtures. It runs on the test bench as any skill case does: nothing is
+ * written.
+ */
+// DECISION (docs/open.md G3): skill cases run on fixtures only, so the document reaches the skill
+// as a fixture made from it now: `docs.get` with its id answers the document and its latest
+// reading. A kept try keeps that fixture, so it runs the same way every time after. The 5-minute
+// link to the file is left out (it would expire in the case). A read that makes a new reading
+// (`docs.read`, `docs.extract`) records something, which the bench refuses as it refuses every
+// write. A document not read yet is refused (409 `not_read`) rather than tried without its reading.
+async function skillDocumentTry(
+  scoped: Scoped,
+  target: Target,
+  documentId: string,
+): Promise<{ name: string; input: unknown; fixtures: Fixture[] }> {
+  const { tx } = scoped;
+  const [v] = await tx
+    .select({ definition: skillVersion.definition })
+    .from(skillVersion)
+    .where(eq(skillVersion.id, target.versionId));
+  if (!v || !takesDocument(v.definition as SkillDefinition)) {
+    throw new HttpError(
+      422,
+      "invalid_request",
+      "this skill's input takes no document (no documentId): give it an input",
+    );
+  }
+  const sandbox = await sandboxClient(scoped);
+  const view = await getDocument(tx, sandbox, documentId);
+  if (!view) throw notFound("document in the Sandbox");
+  const d = view.document;
+  if (!view.extraction && isExtractable(d.mimeType)) {
+    if (d.status === "failed") {
+      throw new HttpError(422, "not_read", "the document couldn't be read: try another one");
+    }
+    throw new HttpError(
+      409,
+      "not_read",
+      "the document is still being read: try it again in a moment",
+    );
+  }
+  const doc = await documentForTool(view, null);
+  return {
+    name: `Try: ${d.filename}`.slice(0, NAME_MAX),
+    input: { documentId: d.id },
+    fixtures: [
+      {
+        tool: DOC_READ_TOOL,
+        input: { documentId: d.id },
+        output: { ...doc, sources: [d.id, ...(doc.extraction ? [doc.extraction.id] : [])] },
+      },
+    ],
+  };
+}
+
+/** The try's name, input (a skill's, or a template's `{workflow, payload}`) and fixtures. */
 async function tryCase(
   scoped: Scoped,
   target: Target,
   body: TryBody,
-): Promise<{ name: string; input: unknown }> {
+): Promise<{ name: string; input: unknown; fixtures?: Fixture[] }> {
   const { tx } = scoped;
   if (target.kind === "skill") {
-    if (body.documentId) {
-      // DECISION (builder-plan.md B1): a skill is tried on its input. Its case runs on fixtures
-      // only, so a document id would be refused at the first read; the document is tried on a
-      // template that uses the skill.
-      throw new HttpError(422, "invalid_request", "a skill is tried on an input, not a document");
+    if (body.documentId) return skillDocumentTry(scoped, target, body.documentId);
+    if (body.record) {
+      // DECISION (docs/open.md G3): a skill is tried on its input or a document; a record's id
+      // goes in the input as JSON.
+      throw new HttpError(
+        422,
+        "invalid_request",
+        "a skill is tried on an input or a document: give the record's id in its input",
+      );
     }
     return { name: "Try: your input", input: body.input ?? null };
   }
   const v = await latestVersion(tx, target.id);
   const bundle = (v?.bundle ?? { workflows: [] }) as Pick<AnyAgentBundle, "workflows">;
+  if (body.record) {
+    // The record is the Sandbox's: where a shared template case runs (routes/testbench.ts).
+    const made = await recordTry(tx, await sandboxClient(scoped), body.record);
+    return {
+      name: made.name.slice(0, NAME_MAX),
+      input: {
+        workflow: tryWorkflow(bundle, body.record.kind, body.workflow),
+        payload: made.payload,
+      },
+    };
+  }
   if (body.documentId) {
     // The document is the Sandbox's: where a shared template case runs (routes/testbench.ts).
     const sandbox = await sandboxClient(scoped);
@@ -233,7 +396,7 @@ export function buildTryRoutes(app: Hono<AppEnv>): void {
           targetId: target.id,
           name: made.name,
           input: made.input,
-          fixtures: [],
+          fixtures: made.fixtures ?? [],
           // Nothing expected yet: any output passes, and a template's try records every step's.
           expected: {},
           matcher: { kind: "subset", tolerances: {} },
