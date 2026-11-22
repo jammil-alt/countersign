@@ -58,12 +58,14 @@ jobs:
           [ "$CONFIRM" = RETIRE ] || { echo "::error::Type RETIRE to confirm."; exit 1; }
           # A master key's id is 16 hex characters (packages/connectors/src/credentials.ts keyId).
           [[ "$LOST_KID" =~ ^[0-9a-f]{16}$ ]] || { echo "::error::lost_kid must be 16 hex characters."; exit 1; }
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
+      # Checkout first: setup-node reads the Node version from .nvmrc.
       - uses: actions/checkout@v7
         with:
           sparse-checkout: .nvmrc
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
       - name: Retire the keys
         run: |
           set -euo pipefail
