@@ -64,6 +64,7 @@ import { autopilotRoutes } from "./routes/autopilot";
 // v0.12 bankfeed
 import { bankfeedRoutes } from "./routes/bankfeed";
 import { billingRouteHandlers } from "./routes/billing";
+import { booksHealthRoutes } from "./routes/books-health";
 import { browserRoutes } from "./routes/browser";
 import { browserScriptRoutes } from "./routes/browser-scripts";
 import { buildTryRoutes } from "./routes/build-tries";
@@ -348,6 +349,8 @@ export function createApp(deps: AppDeps = defaultDeps): Hono<AppEnv> {
   directoryRoutes(app);
   // The back office's chart of accounts (docs/plan.md §1.79).
   ledgerRoutes(app);
+  // docs/plan.md §1.216: books health
+  booksHealthRoutes(app);
   reachRoutes(app);
   messagingSetupRoutes(app);
   twilioHookRoutes(app);

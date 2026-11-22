@@ -4043,4 +4043,28 @@ export const ptBR: Messages = {
     "Você decide o que pode rodar sem perguntar. As aprovações continuam ativas, a menos que você as altere.",
   "setup.live.fromCall": "Da nossa ligação: confira, por favor",
   // (end setup: live)
+  // §1.216: books health
+  "books.title": "Saúde da contabilidade",
+  "books.subtitle": "O que encontramos no seu QuickBooks, primeiro os maiores valores.",
+  "books.none": "Conecte o QuickBooks e verificamos sua contabilidade aqui.",
+  "books.syncing":
+    "Verificamos sua contabilidade quando a primeira sincronização do QuickBooks terminar.",
+  "books.asOf": "Em {day}",
+  "books.since": "com registros a partir de {day}",
+  "books.allClean": "Nenhuma verificação encontrou problemas.",
+  "books.clean": "Nada encontrado em: {checks}.",
+  "books.fixedBy": "{area} resolve isto",
+  "books.on": "Ativado",
+  "books.off": "Não ativado",
+  "books.examples": "Exemplos",
+  "books.check.unreconciled_accounts": "Contas não conciliadas",
+  "books.check.uncategorized": "Transações sem categoria",
+  "books.check.duplicate_vendors": "Fornecedores duplicados",
+  "books.check.duplicate_bills": "Contas a pagar duplicadas",
+  "books.check.receivables_aging": "Faturas vencidas",
+  "books.check.payables_aging": "Contas a pagar vencidas",
+  "books.check.negative_balances": "Saldos abaixo de zero",
+  "books.check.undeposited_funds": "Valores não depositados",
+  "books.check.price_drift": "Preços de fornecedores em alta",
+  // (end books health)
 };

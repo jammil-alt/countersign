@@ -4066,4 +4066,28 @@ export const it: Messages = {
     "Lei decide cosa può andare senza chiedere. Le approvazioni restano attive a meno che non le cambi.",
   "setup.live.fromCall": "Dalla nostra chiamata: controlli, per favore",
   // (end setup: live)
+  // §1.216: books health
+  "books.title": "Salute della contabilità",
+  "books.subtitle": "Cosa abbiamo trovato nel tuo QuickBooks, prima gli importi maggiori.",
+  "books.none": "Collega QuickBooks e controlliamo qui la tua contabilità.",
+  "books.syncing":
+    "Controlliamo la tua contabilità quando la prima sincronizzazione di QuickBooks è finita.",
+  "books.asOf": "Al {day}",
+  "books.since": "su registrazioni dal {day} in poi",
+  "books.allClean": "Nessun controllo ha trovato problemi.",
+  "books.clean": "Niente trovato in: {checks}.",
+  "books.fixedBy": "Lo risolve {area}",
+  "books.on": "Attivo",
+  "books.off": "Non attivo",
+  "books.examples": "Esempi",
+  "books.check.unreconciled_accounts": "Conti non riconciliati",
+  "books.check.uncategorized": "Transazioni senza categoria",
+  "books.check.duplicate_vendors": "Fornitori duplicati",
+  "books.check.duplicate_bills": "Fatture fornitori duplicate",
+  "books.check.receivables_aging": "Fatture clienti scadute",
+  "books.check.payables_aging": "Fatture fornitori scadute",
+  "books.check.negative_balances": "Saldi sotto zero",
+  "books.check.undeposited_funds": "Fondi non depositati",
+  "books.check.price_drift": "Prezzi dei fornitori in aumento",
+  // (end books health)
 };

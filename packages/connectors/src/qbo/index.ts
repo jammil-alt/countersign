@@ -44,6 +44,7 @@ export * from "./api";
 export * from "./ar";
 export * from "./banking";
 export * from "./bill-create";
+export * from "./books";
 export * from "./ingredients";
 export * from "./ledger-writes";
 export * from "./purchase-order";
