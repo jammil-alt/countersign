@@ -393,8 +393,15 @@ function numberTaken(t: TenantRow): HttpError {
   );
 }
 
-/** A write that broke the client's one-contact-per-number index (`contact_phone_key`). */
+/** The link found the number free, then another submit's contact with it committed first. */
+class PhoneTakenMeanwhile extends Error {}
+
+/**
+ * A write that broke the client's one-contact-per-number index (`contact_phone_key`), or found
+ * the number taken by a submit that committed after this one looked.
+ */
 function isPhoneTaken(error: unknown): boolean {
+  if (error instanceof PhoneTakenMeanwhile) return true;
   type PgError = { code?: unknown; constraint_name?: unknown; cause?: PgError } | null | undefined;
   const e = error as PgError;
   const pg = e?.code === "23505" ? e : e?.cause;
@@ -468,12 +475,24 @@ function submitOnce(
         });
         return { tenantId: payload.t, client: t.name, phone, send: false };
       }
-      row =
-        found ??
-        (await createContact(tx, payload.t, { name, phone }, null, now, {
-          source: "text_signup",
-          log: { via: "link" },
-        }));
+      if (found) {
+        row = found;
+      } else {
+        try {
+          row = await createContact(tx, payload.t, { name, phone }, null, now, {
+            source: "text_signup",
+            log: { via: "link" },
+          });
+        } catch (error) {
+          // Not found just above, in this transaction: a contact with the number committed in
+          // between (an invitation's submit at the same moment), which `createContact` sees and
+          // refuses before the index would. The same race as `contact_phone_key`: run again.
+          if (error instanceof HttpError && error.code === "contact_exists") {
+            throw new PhoneTakenMeanwhile();
+          }
+          throw error;
+        }
+      }
       row = await recordTextSignup(tx, row, { source: TEXT_SIGNUP_SOURCES.link, evidence }, now);
     } else {
       // The person's row, locked: two presses at once sign up once.
