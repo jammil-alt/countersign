@@ -2,9 +2,11 @@
 // with its price per unit and what the line would cost, and each vendor's total. The comparison is
 // the pack's, made in code (one unit, one currency); the best offer on a line is in bold. An offer
 // that isn't compared shows no line total, only why (the pack's note); a line that isn't compared
-// says why under its description. Shared by the request page and the vendor choice card.
+// says why under its description. The client's preferred vendor (§1.189) carries its word. Shared
+// by the request page and the vendor choice card.
 import type { CSSProperties } from "react";
 import { useI18n } from "../../i18n/i18n";
+import { Badge } from "../../ui/primitives";
 import type { Comparison } from "./types";
 
 export function CompareTable({ comparison }: { comparison: Comparison }) {
@@ -21,6 +23,12 @@ export function CompareTable({ comparison }: { comparison: Comparison }) {
               {vendors.map((v) => (
                 <th key={v.quoteRequestId} className="n">
                   {v.vendorName}
+                  {v.preferredLines ? (
+                    <>
+                      {" "}
+                      <Badge tone="accent">{t("materials.vendors.preferred")}</Badge>
+                    </>
+                  ) : null}
                 </th>
               ))}
             </tr>

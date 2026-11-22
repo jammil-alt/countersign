@@ -26,6 +26,9 @@ import type { Emit } from "./external-actions";
 /** `connection_change.change.kind` when a `refresh_failing` issue closes by itself. */
 export const ACCESS_RESTORED_CHANGE = "access_restored";
 
+/** The `connection_change.change.kind`s that open or close an attention issue. */
+export const ATTENTION_ISSUE_KINDS = ["needs_attention", ACCESS_RESTORED_CHANGE] as const;
+
 /** The connection's latest attention change (opened or closed), if any. */
 async function lastAttention(tx: Tx, tenantId: string, connectionId: string) {
   const [last] = await tx
@@ -43,7 +46,11 @@ async function lastAttention(tx: Tx, tenantId: string, connectionId: string) {
   return (last?.change ?? null) as Record<string, unknown> | null;
 }
 
-const refreshFailingOpen = (change: Record<string, unknown> | null) =>
+/**
+ * Whether a connection's latest attention change (of ATTENTION_ISSUE_KINDS) leaves a
+ * `refresh_failing` issue open: renewing our access keeps failing and no call has worked since.
+ */
+export const refreshFailingOpen = (change: Record<string, unknown> | null | undefined) =>
   change?.kind === "needs_attention" && change.reason === "refresh_failing";
 
 export function dbConnectionAttention(

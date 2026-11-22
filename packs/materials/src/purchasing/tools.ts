@@ -340,7 +340,7 @@ export const requestMatchLines = defineTool({
 export const catalogMatchText = defineTool({
   id: "materials.catalog.match-text",
   description:
-    "Matches descriptions of materials (as someone asked for them) to the client's catalog, deterministically: the vendors' names for items, then the attribute rules. Unsure descriptions come back with candidates. Writes nothing.",
+    "Matches descriptions of materials (as someone asked for them) to the client's catalog, deterministically: the vendors' names for items (their aliases, then a vendor item's SKU or name in the vendor catalog), then the attribute rules. Unsure descriptions come back with candidates. Writes nothing.",
   sideEffect: "none",
   entity: "catalog_item",
   input: z.object({
@@ -356,6 +356,8 @@ export const catalogMatchText = defineTool({
         catalogItemName: z.string().nullable(),
         standardUom: z.string().nullable(),
         method: z.enum(["alias", "rules"]).nullable(),
+        /** §1.189: the vendor item the match named (its SKU, its name or the vendor's alias). */
+        vendorItemId: z.string().nullable(),
         confidence: z.number(),
         candidates: z.array(Candidate),
       }),
@@ -375,6 +377,7 @@ export const catalogMatchText = defineTool({
           catalogItemName: matched ? (m.item?.canonicalName ?? null) : null,
           standardUom: matched ? (m.item?.standardUom ?? null) : null,
           method: matched ? m.method : null,
+          vendorItemId: matched ? (m.vendorItem?.id ?? null) : null,
           confidence: m.confidence,
           candidates: matched ? [] : m.candidates,
         });
@@ -386,7 +389,9 @@ export const catalogMatchText = defineTool({
       sources: [
         ...new Set(
           lines.flatMap((l) =>
-            l.catalogItemId ? [l.catalogItemId] : l.candidates.map((c) => c.catalogItemId),
+            l.catalogItemId
+              ? [l.catalogItemId, ...(l.vendorItemId ? [l.vendorItemId] : [])]
+              : l.candidates.map((c) => c.catalogItemId),
           ),
         ),
       ],
@@ -399,7 +404,7 @@ export const catalogMatchText = defineTool({
 export const vendorsForItemsTool = defineTool({
   id: "materials.vendors-for-items",
   description:
-    "For catalog items, the vendors that sold each to the client (from what it paid and the vendors' names for the item): the last price per standard unit, when, how many times, and the records behind each. Cheapest last price first.",
+    "For catalog items, the vendors that sold each to the client (from what it paid, the vendors' names for the item and the vendor catalog): the last price per standard unit, when, how many times, whether it is the client's preferred vendor, and the records behind each. The preferred vendor first, then cheapest last price first.",
   sideEffect: "none",
   entity: "vendor_item",
   summary: "Found {{vendorIds.length}} vendors for {{items.length}} items",
@@ -423,6 +428,7 @@ export const vendorsForItemsTool = defineTool({
             timesBought: z.number(),
             qtyStd: z.string(),
             currency: z.string().nullable(),
+            preferred: z.boolean(),
             sources: z.array(z.string()),
           }),
         ),
@@ -860,6 +866,7 @@ export const quoteCompare = defineTool({
         complete: z.boolean(),
         maxLeadTimeDays: z.number().nullable(),
         late: z.boolean(),
+        preferredLines: z.number(),
       }),
     ),
     suggestion: z.object({
@@ -958,6 +965,8 @@ export const backfillFromBillsTool = defineTool({
     alreadyRecorded: z.number(),
     matched: z.number(),
     newItems: z.number(),
+    /** §1.189: vendor items added to the vendor catalog. */
+    newVendorItems: z.number(),
     needsReview: z.number(),
     skipped: z.number(),
     review: z.array(

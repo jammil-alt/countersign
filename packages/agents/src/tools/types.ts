@@ -391,6 +391,11 @@ export interface HealthConnection {
   stopped: { reason: string; at: string } | null;
   /** The latest time the platform found it needing a person, and why. */
   attention: { reason: string; at: string } | null;
+  /**
+   * Renewing our access has failed for a day and no call has worked since (an open
+   * `refresh_failing` issue, docs/plan.md §1.134): still `connected`, but it needs a person.
+   */
+  accessFailing: boolean;
   /** Client agents bound to it. */
   usedBy: string[];
 }

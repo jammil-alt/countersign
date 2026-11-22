@@ -4,6 +4,7 @@
 // where no route answers the question, through a query in the same operator scope. Every result is
 // fenced as untrusted data (./output.ts).
 
+import { ATTENTION_ISSUE_KINDS, refreshFailingOpen } from "@countersign/agents";
 import type { Session } from "@countersign/auth";
 import type { ObjectStore } from "@countersign/connectors";
 import {
@@ -581,9 +582,16 @@ async function connectionsIn(tx: Tx, tenantIds: readonly string[], client: strin
         .orderBy(desc(connectionChange.createdAt))
     : [];
   return rows.map((row) => {
-    const last = changes.find((ch) => ch.connectionId === row.id);
+    const mine = changes.filter((ch) => ch.connectionId === row.id);
+    const last = mine[0];
+    const issue = mine.find((ch) =>
+      (ATTENTION_ISSUE_KINDS as readonly unknown[]).includes(
+        (ch.change as { kind?: unknown } | null)?.kind,
+      ),
+    );
     return {
       row,
+      attention: attentionOf(row.status, issue?.change as Record<string, unknown> | undefined),
       lastChange: last
         ? { at: last.createdAt.toISOString(), change: clip(last.change, 1000) }
         : null,
@@ -591,11 +599,27 @@ async function connectionsIn(tx: Tx, tenantIds: readonly string[], client: strin
   });
 }
 
+/**
+ * Why a connection needs a person, if it does: `error` (the grant is dead or a sync keeps failing:
+ * the client signs in again), or `refresh_failing` (renewing our access has failed for a day; it
+ * still shows as connected and the grant is not ended, so it is ours to look at).
+ */
+// DECISION: a failing renewal counts as needing attention here as in the daily check (docs/plan.md
+// §1.134), named apart from `error` so the operator knows the client need not sign in again.
+function attentionOf(
+  status: string,
+  issue: Record<string, unknown> | undefined,
+): "error" | "refresh_failing" | null {
+  if (status === "error") return "error";
+  if (status === "connected" && refreshFailingOpen(issue)) return "refresh_failing";
+  return null;
+}
+
 const connectionsList: Tool<OpsToolCtx> = {
   name: "connections_list",
   title: "List connections",
   description:
-    "Connections to clients' tools (QuickBooks, Gmail, uploads, …) across the clients you serve or for one client: status (error means it needs attention), last sync and the last change. Never credentials.",
+    "Connections to clients' tools (QuickBooks, Gmail, uploads, …) across the clients you serve or for one client: status, whether it needs attention and why (`attention`: error, the client signs in again; refresh_failing, still connected but renewing our access has failed for a day), last sync and the last change. Never credentials.",
   input: z.strictObject({ client: ClientId.optional() }),
   annotations: READ,
   async run(ctx, args) {
@@ -608,19 +632,21 @@ const connectionsList: Tool<OpsToolCtx> = {
       { tool: "connections_list", client: client ?? null },
       ({ tx, tenantIds }) => connectionsIn(tx, tenantIds, client),
     );
-    const failing = rows.filter((r) => r.row.status === "error").length;
+    const inError = rows.filter((r) => r.attention === "error").length;
+    const renewing = rows.filter((r) => r.attention === "refresh_failing").length;
     return dataResult(
       "connections_list",
-      `${plural(rows.length, "connection")}, ${failing} in error.`,
+      `${plural(rows.length, "connection")}, ${inError} in error, ${renewing} failing to renew our access.`,
       {
-        connections: rows.map(({ row, lastChange }) => {
+        connections: rows.map(({ row, attention, lastChange }) => {
           const c = opsConnection(row);
           return {
             id: c.id,
             client: { id: c.tenantId, name: clientName(ctx, c.tenantId) },
             connector: c.connector,
             status: c.status,
-            needsAttention: c.status === "error",
+            needsAttention: attention !== null,
+            attention,
             externalAccountId: c.externalAccountId,
             lastSyncAt: c.lastSyncAt,
             permissions: c.permissions,
